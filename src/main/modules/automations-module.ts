@@ -29,10 +29,9 @@ import {
   AutomationsEngineToken,
   AutomationsModuleServiceToken,
   AutomationsProviderRegistryToken,
-  AgentLaunchServiceToken,
-  TerminalRuntimeToken,
   WorkspaceSyncServiceToken,
 } from '../module-host/service-tokens'
+import { ConversationLaunchServiceToken, ConversationRuntimeToken } from '../module-host/conversation-launch-token'
 import type { CapabilityModule } from '../module-host/load-modules'
 import {
   AUTOMATIONS_DEFINITIONS_CHANGED_CHANNEL,
@@ -41,7 +40,10 @@ import {
   type AutomationsRunEvent,
 } from '../../shared/automations/contracts'
 import { createAutomationWebhookReceiver } from '../automations/webhook-receiver'
+import { summarizeConversationReply } from '../automations/transcript-summary'
 import { powerActivity } from '../power-activity'
+import { conversationWorkingRoot } from '../../shared/agent-state'
+import type { ConversationEvent } from '../../shared/conversation-runtime'
 
 export type AutomationsModuleOptions = {
   createEngine?: (options: AutomationsEngineOptions) => AutomationsEngine
@@ -95,14 +97,14 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
       version: 1,
       publisher: 'sprintengine',
       category: 'orchestration',
-      summary: 'Local-first scheduled agent automations with run history and module-gated execution.',
+      summary: 'Local-first scheduled chat-agent automations with run history and module-gated execution.',
       defaultEnabled: true,
       dependsOn: ['agent-runtime'],
     },
     registerMain(host) {
-      const agentLaunchService = host.requireService(AgentLaunchServiceToken)
+      const conversationLaunchService = host.requireService(ConversationLaunchServiceToken)
+      const conversationRuntime = host.requireService(ConversationRuntimeToken)
       const workspaceSyncService = host.requireService(WorkspaceSyncServiceToken)
-      const terminalRuntime = host.requireService(TerminalRuntimeToken)
       const providerRegistry = createBuiltInAutomationProviderRegistry()
       const checkProviderPermission = options.checkProviderPermission ?? allowAutomationProvider
       // One ledger for every door onto the automations: the engine and webhook
@@ -115,14 +117,21 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
       const getActionProviderRegistrations = () => providerRegistry.listActionProviderRegistrations()
       const getTriggerProviders = () =>
         executableTriggerProviders(getTriggerProviderRegistrations(), checkProviderPermission)
+      // Late-bound: the executor reports a refused first message to the
+      // engine, which is created after it.
+      let engineRef: AutomationsEngine | undefined
       const runAutomation = createLocalAutomationExecutor({
-        launchAgent: (request) => agentLaunchService.launch(request),
+        launchConversation: (request) => conversationLaunchService.launch(request),
+        reportConversationEnd: (event) => void engineRef?.finalizeRunOnConversationEnd(event),
         createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
         getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
-        resolveAgentExecutionId: (input) => terminalRuntime.resolveAgentExecutionId(input),
         getActionProviderRegistrations,
         checkProviderPermission,
       })
+      const liveSession = (sessionId: string) => {
+        const listed = conversationRuntime.listSessions()
+        return listed.ok ? listed.sessions.find((session) => session.sessionId === sessionId) : undefined
+      }
       // Late-bound: the registry needs the webhook receiver's refresh (created
       // below, after the engine), while the engine's run-event callback needs
       // the registry. The renderer broadcast is unchanged; module subscribers
@@ -170,44 +179,83 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
               body: input.body,
             }),
           removeRunWorktree: defaultRemoveRunWorktree,
-          // Killing the run's agent is main's own work now: the
-          // terminal is main's, and the renderer's part — dropping the tab and
-          // the record — follows from the session disappearing, because the tab
-          // is a projection of the live session list. Run finalize therefore
-          // completes with no window open, which is where a one-shot agent left
-          // pointing at a torn-down run worktree used to come from.
-          disposeRunAgent: (input) => {
-            agentLaunchService.dispose({ workspaceId: input.workspaceId, agentId: input.agentId })
-            return Promise.resolve()
+          // Disposing the run's chat is main's own work: its session is
+          // stopped and its record removed through the sequenced workspace bus,
+          // so every window drops the chat with no window needing to be open —
+          // and nobody is left able to type into a chat whose worktree is gone.
+          disposeRunAgent: async (input) => {
+            const listed = conversationRuntime.listSessions({ workspaceId: input.workspaceId, agentId: input.agentId })
+            for (const session of listed.ok ? listed.sessions : []) {
+              if (session.status === 'stopped') continue
+              await conversationRuntime.stopSession({ sessionId: session.sessionId }).catch(() => undefined)
+            }
+            workspaceSyncService.updateWorkspaceAgent(input.workspaceId, input.agentId, null, 'automation')
           },
-          getLiveAgentExecutionIds: () =>
-            terminalRuntime.getLiveAgentExecutionIds().map((execution) => execution.executionId),
+          getLiveConversationSessionIds: () => {
+            const listed = conversationRuntime.listSessions()
+            return listed.ok
+              ? listed.sessions.filter((session) => session.status !== 'stopped').map((session) => session.sessionId)
+              : []
+          },
+          // The run's closing message, read from its conversation before its
+          // worktree (where a worktree chat keeps its transcript) is removed.
+          readRunConversationSummary: async (input) => {
+            if (!input.workspaceId || !input.agentId) return undefined
+            const workspace = workspaceSyncService
+              .getSnapshot()
+              .state.workspaces.find((candidate) => candidate.id === input.workspaceId)
+            const workspaceRoot = conversationWorkingRoot(
+              workspace?.agents[input.agentId],
+              workspace?.folderPath ?? null,
+            )
+            if (!workspaceRoot) return undefined
+            const transcript = await conversationRuntime.readTranscript({
+              workspaceRoot,
+              workspaceId: input.workspaceId,
+              agentId: input.agentId,
+            })
+            return transcript.ok ? summarizeConversationReply(transcript.events) : undefined
+          },
         }),
       )
+      engineRef = engine
 
-      // Agent-lifecycle finalize triggers. The engine owns the match-vs-ignore
-      // decision for both; the module only routes.
+      // Conversation finalize triggers. Every chat's events pass through; the
+      // engine owns the match-vs-ignore decision, and the module only routes.
       //
-      // Phase transitions are the primary channel: an agent-backed run finalizes
-      // when its agent ends its turn (settle window, guards, and correlation all
-      // live in the engine). The pty exit is the secondary channel: an agent that
-      // dies without a turn end failed. Both unregister on module teardown so a
-      // live disable→enable cycle never leaks a listener pointed at a stopped
-      // engine.
-      const unregisterAgentPhaseListener = terminalRuntime.registerAgentPhaseListener((event) =>
-        engine.noteAgentPhase(event),
-      )
-      const unregisterAgentExitListener = terminalRuntime.registerAgentSessionExitListener((event) =>
-        engine.finalizeRunOnAgentExit({
-          executionId: event.executionId,
-          workspaceId: event.workspaceId,
-          agentId: event.agentId,
-          exitCode: event.exitCode,
-        }),
-      )
+      // A turn's end is the primary channel: a run finalizes when its agent's
+      // turn ends and stays ended (settle window, guards and correlation all
+      // live in the engine). A turn a steer closed carries on as the next one,
+      // so it is not an end. The session closing is the secondary channel: a
+      // conversation that closes without a turn end failed. The listener is
+      // removed on module teardown so a live disable→enable cycle never leaks
+      // one pointed at a stopped engine.
+      const routeConversationEvent = (event: ConversationEvent): void => {
+        const turn = { sessionId: event.sessionId, workspaceId: event.workspaceId, agentId: event.agentId }
+        if (event.type === 'turn_started' || event.type === 'turn_failed') {
+          void engine.noteConversationTurn({ type: event.type, ...turn })
+        } else if (event.type === 'turn_completed') {
+          if (event.payload?.steered === true) return
+          void engine.noteConversationTurn({
+            type: 'turn_completed',
+            ...turn,
+            backgroundAgents: liveSession(event.sessionId)?.backgroundAgents ?? 0,
+          })
+        } else if (event.type === 'subagent_status') {
+          // The last background agent reporting back between turns: if the
+          // conversation does not carry on, this is where its work ended.
+          const session = liveSession(event.sessionId)
+          if (session && !session.backgroundAgents && session.phase === 'completed' && !session.turnStartedAt) {
+            void engine.noteConversationTurn({ type: 'turn_completed', ...turn, backgroundAgents: 0 })
+          }
+        } else if (event.type === 'session_closed') {
+          const message = typeof event.payload?.message === 'string' ? event.payload.message : undefined
+          void engine.finalizeRunOnConversationEnd({ reason: 'session_closed', ...turn, message })
+        }
+      }
+      const unregisterConversationListener = conversationRuntime.onEvent(routeConversationEvent)
       host.onShutdown(() => {
-        unregisterAgentPhaseListener()
-        unregisterAgentExitListener()
+        unregisterConversationListener()
       })
       const webhookReceiver = createAutomationWebhookReceiver({
         approvals: approvalLedger,

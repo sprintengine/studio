@@ -31,8 +31,8 @@ export type SpawnAgentConfig = {
   prompt: string
   requiredIntegrations?: string[]
   connectorId?: string
-  // Built-in skill id installed into the run's working directory at spawn (e.g.
-  // 'backlog'). Built-in skills only — see AutomationRendererRequest.spawnSkillId.
+  // Skill id installed into the run's working root and attached to the agent's
+  // first message (e.g. 'backlog'). An id no skill answers to fails the launch.
   spawnSkillId?: string
   includeTriggerContext?: boolean
 }
@@ -55,8 +55,8 @@ export type SpawnAgentRuntime = {
     name?: string
     prompt: string
     connectorId?: string
-    spawnSkillId?: string
-  }): Promise<{ workspaceId: string; agentId: string; executionId?: string; worktreePath?: string; branch?: string }>
+    skills?: string[]
+  }): Promise<{ workspaceId: string; agentId: string; sessionId: string; worktreePath?: string; branch?: string }>
   requireIntegration(id: string): void
 }
 
@@ -71,7 +71,7 @@ export function createSpawnAgentActionProvider(): AutomationActionProvider {
     kind: 'spawn-agent',
     label: 'Spawn an agent',
     glyph: 'agent',
-    summary: 'Launch a CLI agent in a workspace',
+    summary: 'Start a chat agent in a workspace',
     configSchema: {
       type: 'object',
       required: ['prompt'],
@@ -132,7 +132,7 @@ export async function runSpawnAgentAction(
     name: parsed.name ?? runtime.definition.name,
     prompt,
     connectorId: parsed.connectorId,
-    spawnSkillId: parsed.spawnSkillId,
+    ...(parsed.spawnSkillId ? { skills: [parsed.spawnSkillId] } : {}),
   })
 
   // A run without a worktree is here only because its definition opted out: the
@@ -144,17 +144,17 @@ export async function runSpawnAgentAction(
     ? 'in an isolated worktree'
     : 'in the workspace checkout (no branch, no pull request)'
   // The run stays in-progress: the agent is now working. finalizeRun records the
-  // terminal outcome (and links a PR) when the agent finishes.
+  // terminal outcome (and links a PR) when the agent's conversation finishes.
   return {
     status: 'running',
     workspaceId: launched.workspaceId,
     agentId: launched.agentId,
-    executionId: launched.executionId,
+    sessionId: launched.sessionId,
     isolation,
     worktreePath: launched.worktreePath,
     branch: launched.branch,
     promptFingerprint: fingerprintPrompt(prompt),
-    summary: `Launched agent ${launched.agentId} ${where}; working…`,
+    summary: `Started chat agent ${launched.agentId} ${where}; working…`,
   }
 }
 
@@ -237,7 +237,7 @@ export function composeSpawnAgentPrompt(input: {
 
   // The run finalizes when this agent ends its turn, so a turn ended to ask a
   // question reads as "the work is finished" and finalizes a half-done run. There
-  // is no human at this terminal to answer, so ending the turn is the only way to
+  // is no human in this chat to answer, so ending the turn is the only way to
   // report a blocker — say why, and stop.
   const nonInteractive = [
     'You are running unattended: no one will read a question or answer a prompt.',

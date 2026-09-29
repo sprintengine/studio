@@ -17,7 +17,7 @@ test('store', async () => {
     await assertDefinitionRoundTrip()
     await assertLegacyAutonomyDefinitionLoadsAndIsNotWrittenBack()
     await assertRunHistoryIsBounded()
-    await assertRunExecutionIdRoundTrip()
+    await assertRunSessionIdRoundTrip()
     await assertMalformedDefinitionFailsClosed()
     await assertRunWriteRequiresReadableDefinition()
     await assertMalformedRunListFailsClosedButWriteSkipsBadRun()
@@ -191,25 +191,25 @@ test('store', async () => {
     assert.equal(runFiles.includes('run-004.json'), false)
   }
 
-  async function assertRunExecutionIdRoundTrip(): Promise<void> {
-    // executionId is the agent-lifecycle correlation key; it must survive store
-    // write/read so the exit trigger can match a pending run after a restart.
+  async function assertRunSessionIdRoundTrip(): Promise<void> {
+    // sessionId is the conversation correlation key; it must survive store
+    // write/read so a session-closed event can match a pending run after a restart.
     const workspaceRoot = await createWorkspace()
     const store = new AutomationsStore(workspaceRoot)
     assert.equal((await store.createDefinition(definition())).ok, true)
 
-    const withExecution = run(1, { status: 'running', completedAt: null, executionId: 'exec-abc123' })
-    assert.equal((await store.recordRun(withExecution)).ok, true)
+    const withSession = run(1, { status: 'running', completedAt: null, sessionId: 'conv_abc123' })
+    assert.equal((await store.recordRun(withSession)).ok, true)
     const fetched = await store.getRun('nightly-review', 'run-001')
     assert.equal(fetched.ok, true)
-    assert.equal(fetched.ok && fetched.value.executionId, 'exec-abc123')
+    assert.equal(fetched.ok && fetched.value.sessionId, 'conv_abc123')
 
-    // A run without executionId (historical / resolution miss) still reads back.
-    const withoutExecution = run(2, { status: 'running', completedAt: null })
-    assert.equal((await store.recordRun(withoutExecution)).ok, true)
+    // A run without a sessionId (one that never launched an agent) still reads back.
+    const withoutSession = run(2, { status: 'running', completedAt: null })
+    assert.equal((await store.recordRun(withoutSession)).ok, true)
     const fetchedBare = await store.getRun('nightly-review', 'run-002')
     assert.equal(fetchedBare.ok, true)
-    assert.equal(fetchedBare.ok && fetchedBare.value.executionId, undefined)
+    assert.equal(fetchedBare.ok && fetchedBare.value.sessionId, undefined)
   }
 
   async function assertMalformedDefinitionFailsClosed(): Promise<void> {

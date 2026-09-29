@@ -203,6 +203,7 @@ type AgentBacklogItemRef = {
   title: string
   linkedAt: number
 }
+
 /**
  * The folder a chat agent's conversation runs in, and so the root its session
  * and transcript are keyed by: its worktree when it was started in one (an

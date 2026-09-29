@@ -1,4 +1,3 @@
-import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
 import type {
   ActionContext,
   AutomationActionProvider,
@@ -10,9 +9,10 @@ import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type { Workspace, WorkspaceMode } from '../../renderer/src/types/workspace'
 import { createGitWorktree, removeGitWorktree } from '../git'
 import { resolveRepoRoot } from '../git-worktree-validation'
+import type { ConversationLaunchRequest, ConversationLaunchResult } from '../conversation-launch-service'
 import type { WorkspaceCreateRequest, WorkspaceCreateResult } from '../workspace-registry-service'
 import type { WorkspaceMutationActor } from '../workspace-sync-service'
-import type { AutomationRunExecutionInput, AutomationRunExecutor } from './engine'
+import type { AutomationConversationEndEvent, AutomationRunExecutionInput, AutomationRunExecutor } from './engine'
 import { runSkillLoopAction } from './actions/run-skill-loop'
 import { runSpawnAgentAction, type SpawnAgentResolvedTarget, type SpawnAgentRuntime } from './actions/spawn-agent'
 import {
@@ -27,13 +27,20 @@ import { workspaceSidecarPath } from '../workspace-sidecar'
 
 export type LocalAutomationExecutorOptions = {
   /**
-   * Compose and spawn the run's agent in main. This is the change
-   * that makes an agent-backed automation run headless at all: the composition
-   * used to live in a renderer hook, so a scheduled run with no window open
-   * failed before it reached a pty. Every other outbound port here is a main
-   * service too, so the executor asks a window for nothing.
+   * Start the run's agent as a chat conversation in main, and send it the run's
+   * prompt. Every automation's agent is a chat (built-in actions and module
+   * actions alike), so its run ends on the conversation's own turn events
+   * rather than on anything a terminal reports. Every other outbound port here
+   * is a main service too, so the executor asks a window for nothing.
    */
-  launchAgent(request: AgentLaunchRequest): Promise<AgentLaunchResult>
+  launchConversation(request: ConversationLaunchRequest): Promise<ConversationLaunchResult>
+  /**
+   * Where a run's conversation that ended before its first turn is reported
+   * (its first message was refused). Wired by automations-module to the
+   * engine, which fails the run; absent, the run waits for the max-duration
+   * sweep.
+   */
+  reportConversationEnd?: (event: AutomationConversationEndEvent) => void
   /**
    * Mint the run's automations-host workspace in main's registry.
    * The other half of headless: host creation used to be a renderer errand
@@ -45,17 +52,7 @@ export type LocalAutomationExecutorOptions = {
     actor: WorkspaceMutationActor,
   ): { ok: true; result: WorkspaceCreateResult } | { ok: false; reason: string; message: string }
   getWorkspaceSyncSnapshot(): WorkspaceSyncSnapshot
-  // Resolves the spawned agent's terminal-session executionId at launch-confirm
-  // time so the run can correlate an agent-lifecycle exit back to itself. A miss
-  // (or an absent resolver) leaves executionId undefined and never fails the
-  // launch — the run is still correlated by (workspaceId, agentId). Wired by
-  // automations-module.
-  resolveAgentExecutionId?: (input: { workspaceId: string; agentId: string }) => string | undefined
   isIntegrationAvailable?: (id: string) => boolean | undefined
-  now?: () => number
-  sleep?: (ms: number) => Promise<void>
-  launchConfirmPollIntervalMs?: number
-  executionIdTimeoutMs?: number
   actionProviders?: AutomationActionProvider[]
   getActionProviders?: () => AutomationActionProvider[]
   actionProviderRegistrations?: RegisteredAutomationProvider<AutomationActionProvider>[]
@@ -96,12 +93,6 @@ export class RunWorktreeUnavailableError extends Error {
     this.name = 'RunWorktreeUnavailableError'
   }
 }
-
-const DEFAULT_LAUNCH_CONFIRM_POLL_INTERVAL_MS = 150
-// The launch resolves once main has spawned the pty, so the session's execution
-// identity is normally registered by the time this is read. Kept as a bounded
-// poll because registration and the resolver's own view are still two steps.
-const DEFAULT_EXECUTION_ID_TIMEOUT_MS = 10_000
 
 export function createLocalAutomationExecutor(options: LocalAutomationExecutorOptions): AutomationRunExecutor {
   const builtInRegistry =
@@ -147,7 +138,11 @@ async function runLocalAutomationAction(
   }
 
   const progress: Partial<AutomationRun>[] = []
-  const context = createActionContext(input, options, (patch) => {
+  const registration = registrations?.find((candidate) => candidate.kind === provider.kind)
+  // A module's action starts a chat that module owns, so the module can follow
+  // and drive it through its conversation service; a built-in action's chat is
+  // the app's own.
+  const context = createActionContext(input, options, registration?.moduleId, (patch) => {
     progress.push(patch)
   })
 
@@ -175,20 +170,24 @@ async function runLocalAutomationAction(
       // (runInWorktree === false) to run directly in the workspace checkout, and
       // that opt-out is the user's to make. Absent ⇒ true, so existing
       // automations keep their per-run worktree.
-      spawnAgent: async (spawnInput) => {
-        // A connector run writes the connector's MCP config into the agent's cwd,
-        // so it must land in an isolated worktree — never the user's checkout. A
-        // connectorId therefore forces a worktree even when the definition opted
-        // out, preserving the connector-chat isolation invariant.
-        const wantsWorktree = spawnInput.connectorId != null || input.definition.runInWorktree !== false
-        const worktree = wantsWorktree ? await ensureRunWorktree(input, options, spawnInput.connectorId) : null
+      spawnAgent: async ({ connectorId, ...spawnInput }) => {
+        // A connector run needs its agent limited to that one connector's MCP
+        // server, and a chat agent takes no per-launch MCP configuration: its
+        // provider reads the person's own. Run without the connector it would
+        // be a different automation, so it is blocked, and says why.
+        if (connectorId) {
+          throw new AutomationActionBlockedError(
+            `This automation runs with the "${connectorId}" connector, and an automation's agent is a chat, ` +
+              'which cannot be limited to one connector yet. The run was blocked rather than started without it.',
+          )
+        }
+        const worktree = input.definition.runInWorktree !== false ? await ensureRunWorktree(input, options) : null
         const launched = await spawnAgent({ ...spawnInput, worktreePath: worktree?.worktreePath }, options)
         return { ...launched, worktreePath: worktree?.worktreePath, branch: worktree?.branch }
       },
       requireIntegration: context.requireIntegration,
     }
 
-    const registration = registrations?.find((candidate) => candidate.kind === provider.kind)
     const firstPartyResolvedProvider = registration
       ? provider === registration.provider && isFirstPartyAutomationProviderModule(registration.moduleId)
       : false
@@ -218,6 +217,7 @@ async function runLocalAutomationAction(
 function createActionContext(
   input: AutomationRunExecutionInput,
   options: LocalAutomationExecutorOptions,
+  ownerModuleId: string | undefined,
   reportProgress: (patch: Partial<AutomationRun>) => void,
 ): ActionContext {
   return {
@@ -225,7 +225,8 @@ function createActionContext(
     runId: input.run.id,
     workspaceRoot: input.workspaceRoot,
     triggerPayload: input.triggerPayload,
-    spawnAgent: (spawnInput) => spawnAgent(spawnInput, options),
+    spawnAgent: ({ model, ...spawnInput }) =>
+      spawnAgent({ ...spawnInput, ...(model ? { cliModel: model } : {}), ownerModuleId }, options),
     runCommand: async () => {
       throw new AutomationActionBlockedError(
         'run-command is deferred from Phase 1 and is not available as a built-in action.',
@@ -250,12 +251,12 @@ async function spawnAgent(
     worktreePath?: string
     name?: string
     prompt: string
-    connectorId?: string
-    spawnSkillId?: string
+    skills?: string[]
+    ownerModuleId?: string
     resolvedTarget?: SpawnAgentResolvedTarget
   },
   options: LocalAutomationExecutorOptions,
-): Promise<{ workspaceId: string; agentId: string; executionId?: string }> {
+): Promise<{ workspaceId: string; agentId: string; sessionId: string }> {
   const target = input.resolvedTarget ?? resolveLaunchTarget(input, options)
   // The host is the durable per-project Automations workspace, so it carries the
   // stable surface name — never the launching run's agent name, which would brand
@@ -270,39 +271,36 @@ async function spawnAgent(
       options,
     )
 
-  const launched = await options.launchAgent({
+  // The first message is sent as the session comes up, and the launch answers
+  // before it lands. A refusal can therefore arrive before the launch has said
+  // which chat it started, and is held until it has.
+  let launchedChat: { workspaceId: string; agentId: string; sessionId: string } | null = null
+  let refusedBeforeLaunchAnswered: string | null = null
+  const reportRefusal = (message: string): void => {
+    options.reportConversationEnd?.({ reason: 'first_send_failed', ...launchedChat, message })
+  }
+  const launched = await options.launchConversation({
     workspaceId,
     cli: input.cli,
     cliModel: input.cliModel,
     permissionPreset: input.permissionPreset,
     worktreePath: input.worktreePath,
-    connectorId: input.connectorId,
-    spawnSkillId: input.spawnSkillId,
     name: input.name,
     prompt: input.prompt,
+    ...(input.skills?.length ? { skills: input.skills } : {}),
+    ...(input.ownerModuleId ? { ownerModuleId: input.ownerModuleId } : {}),
+    onFirstSendFailed: (message) => {
+      if (launchedChat) reportRefusal(message)
+      else refusedBeforeLaunchAnswered = message
+    },
   })
   if (!launched.ok) throw new Error(launched.message)
   if (launched.workspaceId !== workspaceId) {
     throw new Error(`The agent launched in workspace "${launched.workspaceId}" instead of "${workspaceId}".`)
   }
-  const agentId = launched.agentId
-
-  // Secondary correlation key for agent-lifecycle finalization. The launch call
-  // returns once the pty exists, but the runtime registers the session's
-  // execution identity as part of that spawn, so this now resolves promptly
-  // instead of racing a renderer that had not written the agent record yet. Kept
-  // as a poll: best-effort, and a permanent miss must not fail the launch — the
-  // run still correlates on (workspaceId, agentId).
-  const executionId = options.resolveAgentExecutionId
-    ? ((await waitFor(
-        options.executionIdTimeoutMs ?? DEFAULT_EXECUTION_ID_TIMEOUT_MS,
-        options.launchConfirmPollIntervalMs ?? DEFAULT_LAUNCH_CONFIRM_POLL_INTERVAL_MS,
-        options,
-        () => options.resolveAgentExecutionId?.({ workspaceId, agentId }) ?? null,
-      )) ?? undefined)
-    : undefined
-
-  return { workspaceId, agentId, executionId }
+  launchedChat = { workspaceId, agentId: launched.agentId, sessionId: launched.sessionId }
+  if (refusedBeforeLaunchAnswered !== null) reportRefusal(refusedBeforeLaunchAnswered)
+  return launchedChat
 }
 
 // Fails the run rather than returning "no worktree": every caller asked for
@@ -312,7 +310,6 @@ async function spawnAgent(
 async function ensureRunWorktree(
   input: AutomationRunExecutionInput,
   options: LocalAutomationExecutorOptions,
-  connectorId: string | undefined,
 ): Promise<RunWorktree> {
   const creator = options.createRunWorktree ?? defaultCreateRunWorktree
   try {
@@ -324,9 +321,7 @@ async function ensureRunWorktree(
     if (!worktree) throw new RunWorktreeUnavailableError('worktree_creation_failed', 'no worktree was returned')
     return worktree
   } catch (error) {
-    const subject = connectorId
-      ? `Connector automation run for "${connectorId}" requires an isolated worktree`
-      : 'This automation runs in its own git worktree'
+    const subject = 'This automation runs in its own git worktree'
     const cause =
       error instanceof RunWorktreeUnavailableError && error.reason === 'not_a_git_repository'
         ? `${input.workspaceRoot} is not a git repository`
@@ -478,21 +473,4 @@ function isAutomationsHostWorkspace(workspace: Workspace): boolean {
 function normalizeFolderKey(folderPath: string | null | undefined): string | null {
   const trimmed = folderPath?.trim()
   return trimmed ? trimmed.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase() : null
-}
-
-async function waitFor<T>(
-  timeoutMs: number,
-  pollIntervalMs: number,
-  options: Pick<LocalAutomationExecutorOptions, 'now' | 'sleep'>,
-  probe: () => T | null,
-): Promise<T | null> {
-  const now = options.now ?? Date.now
-  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
-  const deadline = now() + timeoutMs
-  for (;;) {
-    const found = probe()
-    if (found !== null) return found
-    if (now() >= deadline) return null
-    await sleep(pollIntervalMs)
-  }
 }

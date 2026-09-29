@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
+import type { ConversationLaunchRequest, ConversationLaunchResult } from '../conversation-launch-service'
 import type { AutomationDefinition } from '../../shared/automations/contracts'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type { Workspace } from '../../renderer/src/types/workspace'
@@ -64,7 +64,7 @@ test('unattended-permission', async () => {
   // so the launch request is observable.
   function harness(root: string, options: { triggerKind?: string } = {}) {
     const workspaces: Workspace[] = []
-    const launches: AgentLaunchRequest[] = []
+    const launches: ConversationLaunchRequest[] = []
     // Workspace creation is a main-process port, not a renderer
     // request. It honours the mode the executor asks for: the default launch
     // route resolves an `automations-host` workspace, and a 'standard' stand-in
@@ -83,10 +83,10 @@ test('unattended-permission', async () => {
       }
     }
 
-    // Agent launch is a main-process port, not a renderer request;
-    // this stub stands in for the AgentLaunchService so the launch stays
+    // An automation's agent starts as a chat through a main-process port; this
+    // stub stands in for the ConversationLaunchService so the launch stays
     // observable at the same level of detail.
-    const launchAgent = async (request: AgentLaunchRequest): Promise<AgentLaunchResult> => {
+    const launchConversation = async (request: ConversationLaunchRequest): Promise<ConversationLaunchResult> => {
       launches.push(request)
       const target = workspaces.find((candidate) => candidate.id === request.workspaceId)
       if (!target) return { ok: false, code: 'unknown_workspace', message: 'unknown workspace' }
@@ -94,23 +94,24 @@ test('unattended-permission', async () => {
       target.agents[agentId] = {
         id: agentId,
         name: request.name ?? agentId,
-        cli: request.cli ?? 'codex',
+        runtimeKind: 'conversation',
       } as Workspace['agents'][string]
       return {
         ok: true,
         workspaceId: request.workspaceId,
         agentId,
-        sessionId: `session-${agentId}`,
+        name: request.name ?? agentId,
         cli: request.cli ?? 'claude-code',
-        executionId: `session-${agentId}`,
+        providerId: 'claude-agent',
+        modelId: 'default',
+        sessionId: `conv_${agentId}`,
       }
     }
 
     const executor = createLocalAutomationExecutor({
       createWorkspace,
-      launchAgent,
+      launchConversation,
       getWorkspaceSyncSnapshot: () => snapshot(workspaces),
-      sleep: async () => undefined,
       // Hermetic: no real `git worktree` subprocess. The run still gets the
       // isolation it asks for — a run that cannot get a worktree is blocked, and
       // would never reach the launch this file reads the preset off.

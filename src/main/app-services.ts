@@ -1955,6 +1955,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     moduleRegistryMirror,
     agentControlPlane,
     agentLaunchService,
+    conversationLaunchService,
     tourService,
     setTourAttention: tours.setAttention,
     builtinSkillManager,

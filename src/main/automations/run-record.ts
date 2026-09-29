@@ -3,7 +3,7 @@ import type { AutomationRun, AutomationRunStatus } from '../../shared/automation
 // One completer for every start path. It used to be two: the engine's copy (used
 // by the schedule due-run and "Run now") and a near-identical copy inside
 // trigger-event-runner.ts that enumerated a shorter field list — it dropped
-// `worktreePath`, `branch`, `executionId` and `pullRequestUrl`, and stamped
+// `worktreePath`, `branch`, the agent's session id and `pullRequestUrl`, and stamped
 // `completedAt` on a still-running agent run. A trigger-fired agent therefore
 // recorded a run with no branch, so `finalizeRun` opened no pull request and
 // removed no worktree: the agent's work stayed on `automations/<runId>` with
@@ -16,7 +16,7 @@ export function completeAutomationRun(
 ): AutomationRun {
   const status = patch.status ?? 'completed'
   // An agent-backed run returns `running`: the action launched a long-lived
-  // agent and the run stays in-progress (linked to its terminal) until
+  // agent and the run stays in-progress (linked to its conversation) until
   // finalizeRun records the real outcome. Non-terminal runs carry no
   // completedAt and emit no terminal run-event.
   return {
@@ -26,7 +26,7 @@ export function completeAutomationRun(
     blockedReason: patch.blockedReason,
     workspaceId: patch.workspaceId,
     agentId: patch.agentId,
-    executionId: patch.executionId,
+    sessionId: patch.sessionId,
     promptFingerprint: patch.promptFingerprint,
     touchedFiles: patch.touchedFiles,
     commandsRan: patch.commandsRan,

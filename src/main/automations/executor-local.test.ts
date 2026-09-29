@@ -3,15 +3,14 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
 import type { AutomationActionProvider, AutomationDefinition, AutomationRun } from '../../shared/automations/contracts'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type { Workspace } from '../../renderer/src/types/workspace'
 import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../../shared/workspace-mode'
+import type { ConversationLaunchRequest, ConversationLaunchResult } from '../conversation-launch-service'
 import type { WorkspaceCreateRequest } from '../workspace-registry-service'
 import type { WorkspaceMutationActor } from '../workspace-sync-service'
 import {
-  RunWorktreeUnavailableError,
   createBuiltInAutomationActionProviders,
   createLocalAutomationExecutor,
   defaultCreateRunWorktree,
@@ -107,7 +106,7 @@ test('executor-local', async () => {
   // kind the retired renderer-delegate request used to carry so ordering
   // assertions read the same.
   type RecordedExecutorRequest =
-    | ({ kind: 'agent.launch' } & AgentLaunchRequest)
+    | ({ kind: 'agent.launch' } & ConversationLaunchRequest)
     | ({ kind: 'workspace.create'; actor: WorkspaceMutationActor } & WorkspaceCreateRequest)
 
   // The negative-path port set: every outbound port records and refuses, so a
@@ -120,7 +119,7 @@ test('executor-local', async () => {
         requests.push({ kind: 'workspace.create', ...input, actor })
         return { ok: false, reason: 'should_not_launch', message: 'should not launch' }
       }) as LocalAutomationExecutorOptions['createWorkspace'],
-      launchAgent: async (request: AgentLaunchRequest): Promise<AgentLaunchResult> => {
+      launchConversation: async (request: ConversationLaunchRequest): Promise<ConversationLaunchResult> => {
         requests.push({ kind: 'agent.launch', ...request })
         return { ok: false, code: 'should_not_launch', message: 'should not launch' }
       },
@@ -133,8 +132,10 @@ test('executor-local', async () => {
       actionProviders?: LocalAutomationExecutorOptions['actionProviders']
       isIntegrationAvailable?: LocalAutomationExecutorOptions['isIntegrationAvailable']
       createRunWorktree?: LocalAutomationExecutorOptions['createRunWorktree']
-      resolveAgentExecutionId?: LocalAutomationExecutorOptions['resolveAgentExecutionId']
-      executionIdTimeoutMs?: LocalAutomationExecutorOptions['executionIdTimeoutMs']
+      actionProviderRegistrations?: LocalAutomationExecutorOptions['actionProviderRegistrations']
+      reportConversationEnd?: LocalAutomationExecutorOptions['reportConversationEnd']
+      // What the fake launch does with the chat's first message.
+      firstSend?: (request: ConversationLaunchRequest) => void
     } = {},
   ) {
     const workspaces = [...initialWorkspaces]
@@ -184,10 +185,10 @@ test('executor-local', async () => {
       }
     }
 
-    // Stands in for the main-process AgentLaunchService: composes nothing, but
-    // mints the ids and the agent record a real launch would leave behind, so the
-    // executor's post-launch correlation has the same surface to read.
-    const launchAgent = async (request: AgentLaunchRequest): Promise<AgentLaunchResult> => {
+    // Stands in for the main-process ConversationLaunchService: composes
+    // nothing, but mints the ids and the chat record a real launch would leave
+    // behind, and answers with the session it started.
+    const launchConversation = async (request: ConversationLaunchRequest): Promise<ConversationLaunchResult> => {
       requests.push({ kind: 'agent.launch', ...request })
       const target = workspaces.find((candidate) => candidate.id === request.workspaceId)
       if (!target) return { ok: false, code: 'unknown_workspace', message: 'unknown workspace' }
@@ -199,19 +200,19 @@ test('executor-local', async () => {
         execution: { mode: 'current_workspace', worktreeId: null, cwd: null },
         messages: [],
         streamBuffer: '',
-        runtimeKind: 'terminal',
-        cli: request.cli ?? 'codex',
-        cliSessionId: `session-${agentId}`,
-        cliStartRequested: true,
-        cliHasLaunched: true,
+        runtimeKind: 'conversation',
+        conversation: { providerId: 'claude-agent', modelId: request.cliModel ?? 'default' },
       } as Workspace['agents'][string]
+      options.firstSend?.(request)
       return {
         ok: true,
         workspaceId: request.workspaceId,
         agentId,
-        sessionId: `session-${agentId}`,
+        name: request.name ?? agentId,
         cli: request.cli ?? 'claude-code',
-        executionId: `session-${agentId}`,
+        providerId: 'claude-agent',
+        modelId: request.cliModel ?? 'default',
+        sessionId: `conv_${agentId}`,
       }
     }
 
@@ -220,16 +221,8 @@ test('executor-local', async () => {
       workspaces,
       executor: createLocalAutomationExecutor({
         createWorkspace,
-        launchAgent,
+        launchConversation,
         getWorkspaceSyncSnapshot: () => snapshot(workspaces),
-        now: (() => {
-          let current = 0
-          return () => {
-            current += 30_000
-            return current
-          }
-        })(),
-        sleep: async () => undefined,
         // Hermetic by default: no real `git worktree` subprocess in unit tests, but
         // the run still gets the isolation it asked for — a run that cannot get a
         // worktree is blocked now, so "no worktree" is not a neutral default.
@@ -241,8 +234,10 @@ test('executor-local', async () => {
           })),
         ...(options.actionProviders ? { actionProviders: options.actionProviders } : {}),
         ...(options.isIntegrationAvailable ? { isIntegrationAvailable: options.isIntegrationAvailable } : {}),
-        ...(options.resolveAgentExecutionId ? { resolveAgentExecutionId: options.resolveAgentExecutionId } : {}),
-        ...(options.executionIdTimeoutMs ? { executionIdTimeoutMs: options.executionIdTimeoutMs } : {}),
+        ...(options.actionProviderRegistrations
+          ? { actionProviderRegistrations: options.actionProviderRegistrations }
+          : {}),
+        ...(options.reportConversationEnd ? { reportConversationEnd: options.reportConversationEnd } : {}),
       }),
     }
   }
@@ -283,7 +278,11 @@ test('executor-local', async () => {
       launch.kind === 'agent.launch' ? (launch.prompt ?? '') : '',
       /You may modify files only when the requested task requires it\./,
     )
-    assert.equal(harness.workspaces.find((entry) => entry.id === 'ws-created')?.agents['agent-1']?.cliHasLaunched, true)
+    assert.equal(
+      harness.workspaces.find((entry) => entry.id === 'ws-created')?.agents['agent-1']?.runtimeKind,
+      'conversation',
+      "the run's agent is a chat in the host",
+    )
   }
 
   async function assertDefaultRunReusesExistingHostWorkspace(): Promise<void> {
@@ -389,79 +388,9 @@ test('executor-local', async () => {
     assert.equal(Object.keys(host.agents).length, 0)
   }
 
-  async function assertExecutionIdRecordedWhenResolvable(): Promise<void> {
-    // The executor resolves the launched agent's terminal executionId at
-    // launch-confirm time and records it on the run patch for exit-correlation.
-    const host = workspace('ws-host', '/repo/a', { mode: 'automations-host' })
-    const calls: Array<{ workspaceId: string; agentId: string }> = []
-    const harness = executorHarness([host], {
-      resolveAgentExecutionId: (input) => {
-        calls.push(input)
-        return 'exec-from-runtime'
-      },
-    })
-    const result = await harness.executor({
-      workspaceRoot: '/repo/a',
-      definition: definition(),
-      run: run(),
-      triggerPayload: { kind: 'schedule' },
-    })
-
-    assert.equal(result.status, 'running')
-    assert.equal(result.executionId, 'exec-from-runtime')
-    // Resolved against the confirmed (workspaceId, agentId), not raw config.
-    assert.deepEqual(calls, [{ workspaceId: 'ws-host', agentId: 'agent-1' }])
-  }
-
-  async function assertExecutionIdResolvesAfterPtySpawnRace(): Promise<void> {
-    // The pty is spawned after the workspace-sync bus confirms the agent, so the
-    // terminal session (and its executionId) can register only after launch-confirm.
-    // The executor polls until it appears rather than probing once and missing.
-    const host = workspace('ws-host', '/repo/a', { mode: 'automations-host' })
-    let probes = 0
-    const harness = executorHarness([host], {
-      executionIdTimeoutMs: 600_000,
-      resolveAgentExecutionId: () => {
-        probes += 1
-        return probes < 3 ? undefined : 'exec-late'
-      },
-    })
-    const result = await harness.executor({
-      workspaceRoot: '/repo/a',
-      definition: definition(),
-      run: run(),
-      triggerPayload: { kind: 'schedule' },
-    })
-
-    assert.equal(result.status, 'running')
-    assert.equal(result.executionId, 'exec-late', 'executionId resolved by the bounded poll')
-    assert.equal(probes, 3, 'polled until the terminal session registered')
-  }
-
-  async function assertExecutionIdMissDoesNotFailLaunch(): Promise<void> {
-    // A permanent resolution miss (the CLI never registers a session) leaves
-    // executionId undefined and must NOT fail the launch — the run still correlates
-    // on (workspaceId, agentId).
-    const host = workspace('ws-host', '/repo/a', { mode: 'automations-host' })
-    const harness = executorHarness([host], {
-      resolveAgentExecutionId: () => undefined,
-    })
-    const result = await harness.executor({
-      workspaceRoot: '/repo/a',
-      definition: definition(),
-      run: run(),
-      triggerPayload: { kind: 'schedule' },
-    })
-
-    assert.equal(result.status, 'running')
-    assert.equal(result.agentId, 'agent-1')
-    assert.equal(result.executionId, undefined)
-    assert.equal('executionId' in result, true, 'executionId key present even on a miss')
-  }
-
-  async function assertExecutionIdAbsentWithoutResolver(): Promise<void> {
-    // With no resolver wired (the executor's default), the launch still succeeds
-    // and the run simply carries no executionId.
+  async function assertRunRecordsTheChatSessionItStarted(): Promise<void> {
+    // The launch answers with the conversation session it started; the run
+    // records it, and the engine finalizes the run from that session's turns.
     const host = workspace('ws-host', '/repo/a', { mode: 'automations-host' })
     const harness = executorHarness([host])
     const result = await harness.executor({
@@ -472,7 +401,107 @@ test('executor-local', async () => {
     })
 
     assert.equal(result.status, 'running')
-    assert.equal(result.executionId, undefined)
+    assert.equal(result.agentId, 'agent-1')
+    assert.equal(result.sessionId, 'conv_agent-1')
+    assert.equal(host.agents['agent-1']?.runtimeKind, 'conversation', "the run's agent is a chat")
+  }
+
+  async function assertSpawnSkillIsAttachedToTheChat(): Promise<void> {
+    const host = workspace('ws-host', '/repo/a', { mode: 'automations-host' })
+    const harness = executorHarness([host])
+    const result = await harness.executor({
+      workspaceRoot: '/repo/a',
+      definition: definition({
+        action: {
+          kind: 'spawn-agent',
+          config: { folderPath: '/repo/a', prompt: 'Work the backlog.', spawnSkillId: 'backlog' },
+        },
+      }),
+      run: run(),
+      triggerPayload: { kind: 'schedule' },
+    })
+
+    assert.equal(result.status, 'running')
+    const launch = harness.requests[0]
+    assert.equal(launch.kind, 'agent.launch')
+    assert.deepEqual(launch.kind === 'agent.launch' ? launch.skills : [], ['backlog'])
+  }
+
+  async function assertFirstSendFailureIsReportedWithTheChat(): Promise<void> {
+    // The first message can be refused before the launch has answered. The
+    // refusal is held until the launch names the chat, then reported with it,
+    // so the engine can fail the run instead of waiting hours for the sweep.
+    const host = workspace('ws-host', '/repo/a', { mode: 'automations-host' })
+    const ends: unknown[] = []
+    const harness = executorHarness([host], {
+      firstSend: (request) => request.onFirstSendFailed?.('Attached skills could not be loaded.'),
+      reportConversationEnd: (event) => ends.push(event),
+    })
+    const result = await harness.executor({
+      workspaceRoot: '/repo/a',
+      definition: definition(),
+      run: run(),
+      triggerPayload: { kind: 'schedule' },
+    })
+
+    assert.equal(result.status, 'running')
+    assert.deepEqual(ends, [
+      {
+        reason: 'first_send_failed',
+        workspaceId: 'ws-host',
+        agentId: 'agent-1',
+        sessionId: 'conv_agent-1',
+        message: 'Attached skills could not be loaded.',
+      },
+    ])
+  }
+
+  async function assertModuleActionChatIsOwnedByItsModule(): Promise<void> {
+    // A module's own action starts its agent through ActionContext.spawnAgent;
+    // the chat it starts belongs to that module, which can then follow it
+    // through its conversation service. The SDK's `model` is the launch's model.
+    const host = workspace('ws-host', '/repo/a', { mode: 'automations-host' })
+    const provider: AutomationActionProvider = {
+      kind: 'acme-triage',
+      configSchema: { type: 'object' },
+      run: async (_config, context) => {
+        const launched = await context.spawnAgent({
+          folderPath: '/repo/a',
+          model: 'opus',
+          prompt: 'Triage the inbox.',
+          skills: ['triage'],
+        })
+        return { status: 'running', ...launched }
+      },
+    }
+    const harness = executorHarness([host], {
+      actionProviderRegistrations: [
+        {
+          providerId: 'acme.acme-triage',
+          moduleId: 'acme',
+          providerType: 'action',
+          kind: 'acme-triage',
+          configSchema: { type: 'object' },
+          requiredIntegrations: [],
+          provider,
+        },
+      ],
+    })
+    const result = await harness.executor({
+      workspaceRoot: '/repo/a',
+      definition: definition({ action: { kind: 'acme-triage', config: {} } }),
+      run: run(),
+      triggerPayload: { kind: 'schedule' },
+    })
+
+    assert.equal(result.status, 'running')
+    assert.equal(result.sessionId, 'conv_agent-1')
+    const launch = harness.requests[0]
+    assert.equal(launch.kind, 'agent.launch')
+    if (launch.kind !== 'agent.launch') return
+    assert.equal(launch.ownerModuleId, 'acme')
+    assert.equal(launch.cliModel, 'opus')
+    assert.deepEqual(launch.skills, ['triage'])
   }
 
   async function assertRunWorktreeIsThreadedToLaunchAndPatch(): Promise<void> {
@@ -504,51 +533,19 @@ test('executor-local', async () => {
     )
   }
 
-  async function assertConnectorRunForcesWorktreeAndThreadsConnectorId(): Promise<void> {
-    // A connectorId forces a per-run worktree even when the definition opts out
-    // (runInWorktree === false) and threads the connectorId to the launch so the
-    // renderer resolves the connector MCP + skill for the isolated environment.
+  async function assertConnectorRunIsBlockedBeforeAnything(): Promise<void> {
+    // A connector run needs its agent limited to one connector's MCP server,
+    // which a chat agent cannot be yet. It is blocked — before a worktree is made
+    // or a chat started — rather than run as a different automation.
     const host = workspace('ws-host', '/repo/a', { mode: 'automations-host' })
+    let worktreesMade = 0
     const harness = executorHarness([host], {
-      createRunWorktree: async (input) => ({
-        worktreePath: `/repo/a/.sprintengine/automations/worktrees/${input.runId}`,
-        branch: `automations/${input.runId}`,
-      }),
-    })
-    const result = await harness.executor({
-      workspaceRoot: '/repo/a',
-      definition: definition({
-        runInWorktree: false,
-        action: {
-          kind: 'spawn-agent',
-          config: { folderPath: '/repo/a', prompt: 'Deploy the service.', connectorId: 'railway' },
-        },
-      }),
-      run: run(),
-      triggerPayload: { kind: 'schedule' },
-    })
-
-    assert.equal(result.status, 'running')
-    // The connectorId overrode runInWorktree === false — the run still got a worktree.
-    assert.equal(result.worktreePath, '/repo/a/.sprintengine/automations/worktrees/run-1')
-    const launch = harness.requests[0]
-    assert.equal(launch.kind, 'agent.launch')
-    assert.equal(launch.kind === 'agent.launch' ? launch.connectorId : '', 'railway')
-    assert.equal(
-      launch.kind === 'agent.launch' ? launch.worktreePath : '',
-      '/repo/a/.sprintengine/automations/worktrees/run-1',
-      'connector launch runs in the forced worktree',
-    )
-  }
-
-  async function assertConnectorRunWithoutWorktreeFailsClosed(): Promise<void> {
-    // Data-safety invariant: a connector run whose worktree cannot be created FAILS
-    // rather than falling back to the workspace checkout. The connector's `.mcp.json`
-    // must never be written into the user's real checkout, so no launch is delegated.
-    const host = workspace('ws-host', '/repo/a', { mode: 'automations-host' })
-    const harness = executorHarness([host], {
-      createRunWorktree: async () => {
-        throw new RunWorktreeUnavailableError('not_a_git_repository', 'Choose a folder inside a Git repository.')
+      createRunWorktree: async (input) => {
+        worktreesMade += 1
+        return {
+          worktreePath: `/repo/a/.sprintengine/automations/worktrees/${input.runId}`,
+          branch: `automations/${input.runId}`,
+        }
       },
     })
     const result = await harness.executor({
@@ -565,15 +562,14 @@ test('executor-local', async () => {
 
     assert.equal(result.status, 'blocked')
     assert.match(result.blockedReason ?? '', /railway/)
-    assert.match(result.blockedReason ?? '', /isolated worktree/)
-    assert.match(result.blockedReason ?? '', /is not a git repository/)
-    assert.deepEqual(harness.requests, [], 'connector run without a worktree never delegates a launch')
+    assert.match(result.blockedReason ?? '', /chat/)
+    assert.equal(worktreesMade, 0, 'no worktree for a run that will not start')
+    assert.deepEqual(harness.requests, [], 'a connector run starts no chat')
   }
 
   async function assertNonConnectorRunHonorsRunInWorktreeOptOut(): Promise<void> {
     // Regression guard for the no-connectorId path: runInWorktree === false with no
-    // connectorId still launches directly (no worktree, no failure) — the connector
-    // branch must not have changed baseline spawn behaviour.
+    // connectorId still launches directly (no worktree, no failure).
     const host = workspace('ws-host', '/repo/a', { mode: 'automations-host' })
     // The opt-out never asks for a worktree at all, so the harness creator is not
     // consulted: the run launches directly in the checkout, by the user's choice.
@@ -592,7 +588,6 @@ test('executor-local', async () => {
     assert.equal(result.worktreePath, undefined, 'opt-out run carries no worktree')
     const launch = harness.requests[0]
     assert.equal(launch.kind, 'agent.launch')
-    assert.equal(launch.kind === 'agent.launch' ? launch.connectorId : 'unset', undefined)
     assert.equal(launch.kind === 'agent.launch' ? launch.worktreePath : 'unset', undefined)
   }
 
@@ -651,7 +646,6 @@ test('executor-local', async () => {
       ...refusingPorts(requests),
       getWorkspaceSyncSnapshot: () => snapshot([cleanWorkspace]),
       isIntegrationAvailable: (id) => id !== 'mcp:sentry',
-      sleep: async () => undefined,
     })
 
     const result = await executor({
@@ -695,7 +689,6 @@ test('executor-local', async () => {
       ...refusingPorts(requests),
       getWorkspaceSyncSnapshot: () => snapshot([cleanWorkspace]),
       isIntegrationAvailable: () => undefined,
-      sleep: async () => undefined,
     })
     const unknownResolverResult = await unknownResolverExecutor({
       workspaceRoot: '/repo/a',
@@ -745,7 +738,6 @@ test('executor-local', async () => {
       getWorkspaceSyncSnapshot: () => snapshot([workspace('ws-clean', '/repo/a')]),
       actionProviderRegistrations: registrations,
       checkProviderPermission: denyProvider,
-      sleep: async () => undefined,
     })
 
     const result = await executor({
@@ -780,7 +772,6 @@ test('executor-local', async () => {
       getWorkspaceSyncSnapshot: () => snapshot([workspace('ws-clean', '/repo/a')]),
       actionProviderRegistrations: registry.listActionProviderRegistrations(),
       checkProviderPermission: denySpawnAgent,
-      sleep: async () => undefined,
     })
 
     const result = await executor({
@@ -836,6 +827,11 @@ test('executor-local', async () => {
     assert.equal(result.status, 'running')
     const launch = harness.requests[0]
     assert.equal(launch.kind, 'agent.launch')
+    assert.equal(
+      launch.kind === 'agent.launch' ? launch.ownerModuleId : 'unset',
+      undefined,
+      'a built-in run has no owner',
+    )
     assert.match(launch.kind === 'agent.launch' ? (launch.prompt ?? '') : '', /^\/loop backlog/m)
     assert.match(
       launch.kind === 'agent.launch' ? (launch.prompt ?? '') : '',
@@ -965,13 +961,12 @@ test('executor-local', async () => {
     await assertDefaultRunNeverHijacksStandardWorkspace()
     await assertExplicitConfigWorkspaceIdLaunchesIntoNamedWorkspace()
     await assertRunWorktreeIsThreadedToLaunchAndPatch()
-    await assertConnectorRunForcesWorktreeAndThreadsConnectorId()
-    await assertConnectorRunWithoutWorktreeFailsClosed()
+    await assertConnectorRunIsBlockedBeforeAnything()
     await assertNonConnectorRunHonorsRunInWorktreeOptOut()
-    await assertExecutionIdRecordedWhenResolvable()
-    await assertExecutionIdResolvesAfterPtySpawnRace()
-    await assertExecutionIdMissDoesNotFailLaunch()
-    await assertExecutionIdAbsentWithoutResolver()
+    await assertRunRecordsTheChatSessionItStarted()
+    await assertSpawnSkillIsAttachedToTheChat()
+    await assertFirstSendFailureIsReportedWithTheChat()
+    await assertModuleActionChatIsOwnedByItsModule()
     await assertDirtyWorkspaceNoLongerBlocksLaunch()
     await assertNonGitWorkspaceNoLongerBlocksLaunch()
     await assertMissingIntegrationBlocksWithoutFakeSuccess()

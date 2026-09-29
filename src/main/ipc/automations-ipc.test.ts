@@ -239,7 +239,7 @@ test('automations-ipc', async () => {
             moduleId: 'automations',
             label: 'Spawn an agent',
             glyph: 'agent',
-            summary: 'Launch a CLI agent in a workspace',
+            summary: 'Start a chat agent in a workspace',
             configSchema: {
               type: 'object',
               required: ['prompt'],
