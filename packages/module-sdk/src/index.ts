@@ -477,8 +477,12 @@ export type MainHost = {
   emit(topic: string, payload?: unknown): void
 }
 
-/** The export contract of `entry.main`: `export function registerMain(host) { … }`. */
-export type RegisterMain = (host: MainHost) => void
+/**
+ * The export contract of `entry.main`: `export function registerMain(host) { … }`.
+ * It may be async: the host waits for the returned promise (bounded) before it
+ * counts the module as loaded, and a rejection fails the module alone.
+ */
+export type RegisterMain = (host: MainHost) => void | Promise<void>
 
 // ── Workspace service (host-provided, consumed via the service bridge) ────────
 
@@ -2024,6 +2028,20 @@ export type RendererHost = {
    */
   registerModalSurface(definition: ModalSurfaceDefinition): void
   /**
+   * Open one of THIS module's global surfaces — the page a
+   * `registerGlobalSurface` with the same id contributed — as if its door had
+   * been picked. A module may only open surfaces it registered: false for an
+   * id that is not yours, not registered, or while your module is disabled.
+   */
+  openGlobalSurface(id: string): boolean
+  /**
+   * Open one of THIS module's modal surfaces over whatever the window is
+   * showing — the trigger you draw yourself from a panel, a row action or a
+   * command. A module may only open surfaces it registered: false for an id
+   * that is not yours, not registered, or while your module is disabled.
+   */
+  openModalSurface(id: string): boolean
+  /**
    * The workspace's Backlog items as read-only views. Declare the
    * `backlog.read` permission (install-time disclosure). Mutations go through
    * `BacklogItemActionContext` (Backlog actions) or the item's file — never
@@ -2349,8 +2367,12 @@ export const THEME_TOKENS = [
 
 export type ThemeToken = (typeof THEME_TOKENS)[number]
 
-/** The export contract of `entry.renderer`: `export function registerRenderer(host) { … }`. */
-export type RegisterRenderer = (host: RendererHost) => void
+/**
+ * The export contract of `entry.renderer`: `export function registerRenderer(host) { … }`.
+ * It may be async: the host waits for the returned promise (bounded) before it
+ * counts the module as loaded, and a rejection fails the module alone.
+ */
+export type RegisterRenderer = (host: RendererHost) => void | Promise<void>
 
 // ── Host API version, conversations, brokered credentials ────────────────────
 

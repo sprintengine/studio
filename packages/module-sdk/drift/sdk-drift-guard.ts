@@ -93,6 +93,21 @@ import type {
 // Every token the host exports, read as one namespace so the key check below
 // does not depend on what each token is called.
 import * as appServiceTokens from '../../../src/main/module-host/service-tokens'
+import {
+  ConversationModuleServiceToken as AppConversationModuleServiceToken,
+  GitHubModuleServiceToken as AppGitHubModuleServiceToken,
+  ModuleSecretsServiceToken as AppModuleSecretsServiceToken,
+} from '../../../src/main/module-host/service-tokens'
+// The host-internal chat tokens. They live beside service-tokens.ts until
+// agent-runtime-module provides them itself; the checks below read them from
+// wherever they are exported, so the move needs only this import changed.
+import {
+  ConversationLaunchServiceToken as AppConversationLaunchServiceToken,
+  ConversationRuntimeToken as AppConversationRuntimeToken,
+} from '../../../src/main/module-host/conversation-launch-token'
+import { THIRD_PARTY_SERVICE_KEYS as APP_THIRD_PARTY_SERVICE_KEYS } from '../../../src/main/module-host/main-host'
+import type { CapabilityModule as AppCapabilityModule } from '../../../src/main/module-host/load-modules'
+import type { ModuleFocusTabInput as AppModuleFocusTabInput } from '../../../src/renderer/src/modules/workspace-tabs'
 import type { CompanionAgentsModuleRegistry as AppCompanionAgentsModuleRegistry } from '../../../src/main/companion-agent-service'
 import type {
   BacklogItemAction as AppBacklogItemAction,
@@ -221,6 +236,7 @@ import type {
   ModuleSignature as SdkModuleSignature,
   ModuleSource as SdkModuleSource,
   ModuleColorScheme as SdkModuleColorScheme,
+  ModuleFocusTabInput as SdkModuleFocusTabInput,
   ModuleStorageErrorCode as SdkModuleStorageErrorCode,
   ModuleStorageResult as SdkModuleStorageResult,
   ModuleStorageService as SdkModuleStorageService,
@@ -228,6 +244,8 @@ import type {
   ModuleWorkspaceView as SdkModuleWorkspaceView,
   WorkspaceContextService as SdkWorkspaceContextService,
   PreviewSlot as SdkPreviewSlot,
+  RegisterMain as SdkRegisterMain,
+  RegisterRenderer as SdkRegisterRenderer,
   RendererHost as SdkRendererHost,
   ScheduleTriggerConfig as SdkScheduleTriggerConfig,
   SettingsSectionDefinition as SdkSettingsSectionDefinition,
@@ -349,6 +367,8 @@ expectType<IsExact<AppModuleColorScheme, SdkModuleColorScheme>>()
 // focusTab opens a chat or a file; pinned on the method so the input shape
 // is checked wherever the host declares it.
 expectType<IsExact<AppRendererHost['focusTab'], SdkRendererHost['focusTab']>>()
+// …and the input itself, against the tab focuser that serves it.
+expectType<IsExact<AppModuleFocusTabInput, SdkModuleFocusTabInput>>()
 // Module storage: the SDK publishes the scoped service (getModuleStorage);
 // the app provides the moduleId-first registry under 'core.module-storage'.
 // The registry the app serves must accept exactly what the SDK helper
@@ -486,6 +506,10 @@ expectType<IsExact<AppModalSurfaceDefinition, SdkModalSurfaceDefinition>>()
 expectType<IsExact<AppModalSurfaceLauncher, SdkModalSurfaceLauncher>>()
 expectType<IsExact<AppModalSurfaceComponentProps, SdkModalSurfaceComponentProps>>()
 expectType<IsExact<AppRendererHost['registerModalSurface'], SdkRendererHost['registerModalSurface']>>()
+// The openers a module calls for its OWN surfaces (the host refuses another
+// module's id); a module draws its own trigger, so these are its only way in.
+expectType<IsExact<AppRendererHost['openGlobalSurface'], SdkRendererHost['openGlobalSurface']>>()
+expectType<IsExact<AppRendererHost['openModalSurface'], SdkRendererHost['openModalSurface']>>()
 
 // Renderer host additions for module-owned surfaces (WP-C, 2026-09-10). Pinned
 // exactly for the reason the whole file gives: the one-directional host
@@ -522,6 +546,13 @@ expectType<IsExact<AppRendererHost['watchModuleAppState'], SdkRendererHost['watc
 expectType<IsExact<AppModuleEventEnvelope, SdkModuleEventEnvelope>>()
 expectType<IsExact<AppMainHost['emit'], SdkMainHost['emit']>>()
 expectType<IsExact<AppRendererHost['subscribe'], SdkRendererHost['subscribe']>>()
+
+// The entry contracts may be async: the main loader awaits what registerMain
+// returns, so the SDK's export contract must be exactly what it accepts.
+expectType<IsExact<ReturnType<NonNullable<AppCapabilityModule['registerMain']>>, ReturnType<SdkRegisterMain>>>()
+expectType<IsExact<Parameters<SdkRegisterMain>, [host: SdkMainHost]>>()
+expectType<IsExact<Parameters<SdkRegisterRenderer>, [host: SdkRendererHost]>>()
+expectType<IsExact<ReturnType<SdkRegisterRenderer>, void | Promise<void>>>()
 
 // ── Host API version, conversations, brokered credentials ──────────────────
 // Every shape exact. The event, status and attachment types are the app's own
@@ -664,6 +695,33 @@ for (const key of SDK_SERVICE_TOKEN_KEYS) {
 // The two tokens the SDK publishes by value are the same strings.
 assert.equal(SdkWorkspaceServiceToken.key, 'core.workspace', 'WorkspaceServiceToken key drifted')
 assert.equal(SdkWorkspaceContextToken.key, 'core.workspace-context', 'WorkspaceContextToken key drifted')
+// The host tokens behind the SDK's conversation and broker helpers, by name,
+// so a rename or a key edit on the host side fails here.
+assert.equal(
+  AppConversationModuleServiceToken.key,
+  'conversation.module-service',
+  'ConversationModuleServiceToken key drifted',
+)
+assert.equal(AppModuleSecretsServiceToken.key, 'module-secrets.module-service', 'ModuleSecretsServiceToken key drifted')
+assert.equal(AppGitHubModuleServiceToken.key, 'github.module-service', 'GitHubModuleServiceToken key drifted')
+// A third-party module may resolve exactly the keys the SDK resolves — every
+// one of them, and nothing app-internal. The chat launch and the conversation
+// runtime are first-party only: a module reaches chats through its own
+// moduleId-scoped conversation service, never the unscoped host services.
+assert.deepEqual(
+  [...APP_THIRD_PARTY_SERVICE_KEYS].sort(),
+  [...SDK_SERVICE_TOKEN_KEYS].sort(),
+  'the third-party service allow-list differs from the keys the SDK resolves',
+)
+assert.equal(AppConversationLaunchServiceToken.key, 'core.conversation-launch')
+assert.equal(AppConversationRuntimeToken.key, 'core.conversation-runtime')
+for (const firstPartyOnly of [AppConversationLaunchServiceToken.key, AppConversationRuntimeToken.key]) {
+  assert.equal(
+    APP_THIRD_PARTY_SERVICE_KEYS.has(firstPartyOnly),
+    false,
+    `"${firstPartyOnly}" is first-party only and must not be on the third-party service allow-list`,
+  )
+}
 
 // The published surface must not contain `any` (the source is also compiled
 // with strict settings; this guards the emitted declarations the tarball ships).
