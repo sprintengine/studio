@@ -358,7 +358,7 @@ export const registerMain: RegisterMain = (host) => {
   host.registerIpc('weather-deck:forecast-issues', async () => {
     const github = getGitHubService(host)
     const status = await github.status()
-    if (!status.signedIn) return []
+    if (!status.signedIn) return 0
     const issues = await github.request({ route: '/repos/acme/weather/issues', params: { state: 'open' } })
     return issues.ok && Array.isArray(issues.data) ? issues.data.length : 0
   })
