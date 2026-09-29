@@ -449,3 +449,47 @@ test('settling a chat whose session is still starting cancels the child being sp
     await starting
   })
 })
+
+test('a session summary says when the running turn began, and only while it runs', async () => {
+  let clock = 5_000
+  let release!: () => void
+  const parked = new Promise<void>((resolve) => (release = resolve))
+  const base = echoProvider()
+  const provider = recordingProvider({
+    sendTurn: (input) =>
+      (async function* () {
+        yield runtimeEvent(input, 'turn_started', { turnId: input.turnId })
+        await parked
+        yield* base.sendTurn(input) as ConversationEvent[]
+      })(),
+  })
+  await withRuntime(
+    [provider.adapter],
+    async ({ runtime, workspaceRoot }) => {
+      const started = await runtime.startSession({
+        workspaceRoot,
+        workspaceId: 'workspace',
+        agentId: 'agent',
+        providerId: 'echo-provider',
+        modelId: 'model',
+      })
+      assert.ok(started.ok)
+      assert.equal(started.session.turnStartedAt, undefined)
+      clock = 7_000
+      const running = runtime.sendTurn({ sessionId: started.session.sessionId, message: 'Work' })
+      const summary = () => {
+        const listed = runtime.listSessions()
+        return listed.ok ? listed.sessions[0] : undefined
+      }
+      await until(() => summary()?.status === 'active')
+      clock = 9_000
+      assert.equal(summary()?.turnStartedAt, 7_000)
+      release()
+      const ended = await running
+      assert.ok(ended.ok)
+      assert.equal(ended.session.turnStartedAt, undefined)
+      assert.equal(ended.session.lastTurnEndedAt, 9_000)
+    },
+    { now: () => clock },
+  )
+})

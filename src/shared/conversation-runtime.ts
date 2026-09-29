@@ -90,6 +90,10 @@ export type ConversationSessionSummary = {
   // count "finished" from this rather than `updatedAt`, which also moves on a
   // model or permission change.
   lastTurnEndedAt?: number
+  // When the turn now running began: its message was sent, or the agent
+  // carried on by itself. A message steered into a running turn does not move
+  // it. Absent between turns, so a "working for" count needs no event stream.
+  turnStartedAt?: number
   // The main conversation's prompt cache, as its provider's last request left
   // it: when it goes cold and what a cold resume re-caches
   // (shared/prompt-cache.ts). Absent for a provider that reports no cache.

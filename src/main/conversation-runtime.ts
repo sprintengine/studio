@@ -712,6 +712,7 @@ export class ConversationRuntime {
     session.status = 'active'
     session.phase = 'running'
     session.updatedAt = this.now()
+    session.turnStartedAt = session.updatedAt
     session.checkpointTurnSeq = null
     session.checkpointCapture = null
     session.checkpointCaptured = false
@@ -1892,6 +1893,7 @@ export class ConversationRuntime {
       session.checkpointCapture = null
       session.checkpointCaptured = false
       session.updatedAt = this.now()
+      session.turnStartedAt = session.updatedAt
       // From here a steer can join it, as it joins a send's turn.
       session.providerTurn = openProviderTurn(turnId, true)
     }
@@ -2912,6 +2914,10 @@ export class ConversationRuntime {
       lastAssistantText: session.lastAssistantText,
       ...(session.backgroundAgents ? { backgroundAgents: session.backgroundAgents } : {}),
       ...(session.lastTurnEndedAt !== undefined ? { lastTurnEndedAt: session.lastTurnEndedAt } : {}),
+      // Only while a turn is open: every way a turn closes clears `activeTurnId`.
+      ...(session.activeTurnId !== null && session.turnStartedAt !== undefined
+        ? { turnStartedAt: session.turnStartedAt }
+        : {}),
       ...(session.promptCache ? { promptCache: session.promptCache } : {}),
       // Only when the session carries one, so a session that never chose a
       // preset reports absence rather than an invented 'default'.
