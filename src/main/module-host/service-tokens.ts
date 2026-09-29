@@ -6,6 +6,8 @@ import type { AutomationsAppFrontDoor } from '../ipc/automations-ipc'
 import type { ModuleWorkspaceContextService, ModuleWorkspaceService } from '../modules/module-workspace-service'
 import type { ModuleStorageRegistry } from './module-storage'
 import type { CompanionAgentService, CompanionAgentsModuleRegistry } from '../companion-agent-service'
+import type { ModuleGitHubRegistry, ModuleSecretsRegistry } from '../../shared/modules/brokers'
+import type { ModuleConversationRegistry } from '../../shared/modules/conversation-service'
 import { createServiceToken } from './main-host'
 
 // Tokens for the shared services that capability modules consume across module
@@ -65,3 +67,18 @@ export const CompanionAgentServiceToken = createServiceToken<CompanionAgentServi
 export const CompanionAgentsModuleServiceToken = createServiceToken<CompanionAgentsModuleRegistry>(
   'companion-agents.module-service',
 )
+// The moduleId-scoped conversation registry: chats a module creates, drives
+// and reads, checked per call against `conversation:read` /
+// `conversation:operate` and the chat's owner. Key mirrors the private token
+// behind the SDK's getConversationService helper.
+export const ConversationModuleServiceToken = createServiceToken<ModuleConversationRegistry>(
+  'conversation.module-service',
+)
+// Per-module brokered secrets (`secrets` permission). Key mirrors the private
+// token behind the SDK's getSecretsService helper.
+export const ModuleSecretsServiceToken = createServiceToken<ModuleSecretsRegistry>(
+  'module-secrets.module-service',
+)
+// The signed-in user's GitHub, brokered per module (`github` permission). Key
+// mirrors the private token behind the SDK's getGitHubService helper.
+export const GitHubModuleServiceToken = createServiceToken<ModuleGitHubRegistry>('github.module-service')

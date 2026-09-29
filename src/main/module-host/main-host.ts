@@ -121,6 +121,21 @@ export type ModuleSkillHostRegistry = {
   ensureInstalled(workspaceRoot: string, skillId: string): Promise<EnsureSkillInstalledResult>
 }
 
+// The service keys a third-party module may resolve: exactly the tokens the
+// SDK publishes (its exported tokens and the private ones behind its
+// get*Service helpers). Everything else in the kernel is app-internal.
+export const THIRD_PARTY_SERVICE_KEYS: ReadonlySet<string> = new Set([
+  'core.workspace',
+  'core.workspace-context',
+  'core.module-storage',
+  'companion-agents.module-service',
+  'automations.module-service',
+  'automations.provider-registry',
+  'conversation.module-service',
+  'module-secrets.module-service',
+  'github.module-service',
+])
+
 const defaultSkillRegistry: ModuleSkillHostRegistry = {
   register: registerModuleSkills,
   unregister: unregisterModuleSkills,
@@ -143,6 +158,10 @@ export type MainHost = {
    * Availability follows the owner's live enablement at the gateway — tools
    * of a disabled-but-registered module stay listed and answer an actionable
    * enable error instead of running.
+   *
+   * A third-party module must declare `mcp:tools`, and its tools are treated
+   * as mutating unless they say `mutates: false`: an undeclared write is the
+   * mistake that costs, so the default errs toward the audited, gated scope.
    */
   registerMcpTools(tools: McpToolRegistration[]): void
   /**
@@ -166,6 +185,11 @@ export type MainHost = {
    */
   ensureSkillInstalled(workspaceRoot: string, skillId: string): Promise<EnsureSkillInstalledResult>
   provideService<T>(token: ServiceToken<T>, factory: (host: MainHost) => T): T
+  /**
+   * A third-party module resolves only the services the SDK publishes a token
+   * for (THIRD_PARTY_SERVICE_KEYS) and services other third-party modules
+   * provide; any other key throws rather than answering undefined.
+   */
   getService<T>(token: ServiceToken<T>): T | undefined
   requireService<T>(token: ServiceToken<T>): T
   onStartup(hook: StartupHook): void
@@ -528,6 +552,23 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
     }
   }
 
+  function isThirdParty(moduleId: string): boolean {
+    return options.resolveModuleManifest?.(moduleId)?.source === 'third-party'
+  }
+
+  // The service ACL: a third-party module reaches the host through the tokens
+  // the SDK publishes, never through the app-internal singletons first-party
+  // modules share (the terminal runtime, token stores, the workspace
+  // registry). A service another third-party module provides is theirs to
+  // share. Refused keys throw even when nothing provides them, so a probe
+  // cannot learn which internals exist.
+  function assertServiceVisible(moduleId: string, key: string): void {
+    if (!isThirdParty(moduleId) || THIRD_PARTY_SERVICE_KEYS.has(key)) return
+    const provider = services.get(key)?.moduleId
+    if (provider !== undefined && isThirdParty(provider)) return
+    throw new Error(`Service "${key}" is not available to third-party modules.`)
+  }
+
   function hostFor(moduleId: string): MainHost {
     return {
       moduleId,
@@ -542,6 +583,10 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
         ipcMain.handle(channel, handler)
       },
       registerMcpTools(tools) {
+        const thirdParty = isThirdParty(moduleId)
+        if (thirdParty && !options.resolveModuleManifest?.(moduleId)?.permissions?.includes('mcp:tools')) {
+          throw new Error(`Module "${moduleId}" must declare the "mcp:tools" permission to register MCP tools.`)
+        }
         // Validate the whole batch before landing any of it: a module whose
         // registerMain fails on a collision must not leave half its tools
         // behind on the always-serving gateway.
@@ -557,7 +602,8 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
           batch.add(tool.name)
         }
         for (const tool of tools) {
-          mcpTools.set(tool.name, { owner: moduleId, registration: tool })
+          const registration = thirdParty ? { ...tool, mutates: tool.mutates !== false } : tool
+          mcpTools.set(tool.name, { owner: moduleId, registration })
         }
       },
       registerSkills(skills) {
@@ -589,9 +635,11 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
         return instance
       },
       getService<T>(token: ServiceToken<T>): T | undefined {
+        assertServiceVisible(moduleId, token.key)
         return services.get(token.key)?.value as T | undefined
       },
       requireService<T>(token: ServiceToken<T>): T {
+        assertServiceVisible(moduleId, token.key)
         if (!services.has(token.key)) {
           throw new Error(`Module "${moduleId}" requires service "${token.key}", which no enabled module provides.`)
         }
