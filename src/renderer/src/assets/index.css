@@ -1828,6 +1828,71 @@ samp,
   }
 }
 
+/* A settled row's seat (WorkspaceSidebar): a tick inside a ring, in the good
+ * tone. `.settle-mark-flourish` is the one-shot that plays when the row comes
+ * to rest under the person's hand: the full-size grey tick the Settle button
+ * wore shrinks into place as it turns green, the ring draws itself round from
+ * twelve o'clock, and a green glow blooms and fades — the same "just changed"
+ * family and length as `.status-icon-pulse`. It starts from `--text-default`
+ * because that is the ink the quiet button wears under the pointer that just
+ * clicked it. Reduced motion lands on the final state with no travel. */
+.settle-mark {
+  color: var(--tone-good);
+}
+
+.settle-mark-ring,
+.settle-mark-tick {
+  transform-box: view-box;
+  transform-origin: 8px 8px;
+}
+
+.settle-mark-ring {
+  stroke-dasharray: 1;
+}
+
+@keyframes settle-mark-ink {
+  0% {
+    color: var(--text-default);
+    filter: drop-shadow(0 0 0 transparent);
+  }
+  40% {
+    color: var(--tone-good);
+    filter: drop-shadow(0 0 4px var(--tone-good));
+  }
+}
+
+@keyframes settle-mark-tick-in {
+  from {
+    transform: scale(1.45);
+  }
+}
+
+@keyframes settle-mark-ring-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+
+.settle-mark-flourish {
+  animation: settle-mark-ink var(--motion-pulse) var(--motion-ease);
+}
+
+.settle-mark-flourish .settle-mark-tick {
+  animation: settle-mark-tick-in var(--motion-deliberate) var(--motion-ease);
+}
+
+.settle-mark-flourish .settle-mark-ring {
+  animation: settle-mark-ring-draw var(--motion-pulse) var(--motion-ease) var(--motion-fast) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settle-mark-flourish,
+  .settle-mark-flourish .settle-mark-tick,
+  .settle-mark-flourish .settle-mark-ring {
+    animation: none;
+  }
+}
+
 /* One-shot "this row has just changed state" flash, for the sidebar's
    needs-input rows (gold) and its unseen-done rows (green). Same grammar as
    .status-icon-pulse above — the "just changed" half of what motion is allowed
