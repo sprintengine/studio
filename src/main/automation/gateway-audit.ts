@@ -6,6 +6,24 @@ import type { McpConnectionMetadata, McpToolResult } from './mcp-socket-server'
 
 export const STUDIO_GATEWAY_AUDIT_FILENAME = 'sprintengine-studio-mcp-audit.jsonl'
 
+/**
+ * A paired device's token presented from a tailnet node other than the one it
+ * was issued to, or from one whois could not name, and refused. Not a tool —
+ * nothing was called — but recorded as a refused call, with the device whose
+ * token it was, because a token turning up on the wrong machine is the event
+ * this log exists to show. `targets` names the route and the calling node.
+ */
+export const TAILNET_PEER_REFUSED_AUDIT_TOOL = 'tailnet.peer_refused'
+
+/**
+ * Whether a record is written whatever the tool classification says. The
+ * audit otherwise keeps mutations only; a refusal at the door is not one, and
+ * must be kept anyway.
+ */
+export function isAlwaysAudited(tool: string): boolean {
+  return tool === TAILNET_PEER_REFUSED_AUDIT_TOOL
+}
+
 const DEFAULT_MAX_BYTES = 2 * 1024 * 1024
 const DEFAULT_BACKUPS = 3
 const SAFE_IDENTIFIER_KEYS = new Set([
@@ -27,6 +45,10 @@ const SAFE_IDENTIFIER_KEYS = new Set([
   'numericId',
   'previousNumericId',
   'replacements',
+  // Who presented a refused token: the address the socket came from and the
+  // node whois named for it. Network identifiers, not content.
+  'peerAddress',
+  'peerNodeId',
 ])
 
 export type GatewayAuditRecord = {

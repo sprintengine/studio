@@ -43,6 +43,7 @@ import {
   type RemoteConversationsOptions,
 } from './tailnet-remote-conversations'
 import { createTailnetMeshStore, type StoredMeshConnection, type TailnetMeshStore } from './tailnet-mesh-store'
+import type { TailnetPeerIdentity } from './tailnet-peer-identity'
 import { tailnetPeerSupports } from './tailnet-routes'
 import {
   callRemoteTool,
@@ -286,6 +287,11 @@ export type TailnetMeshServiceOptions = {
   /** Tailscale node name for an address, so a machine is listed by name rather than by IP. */
   resolvePeerName?: (address: string) => Promise<string | null>
   /**
+   * The whole whois answer for an address. A reverse device is bound to the
+   * node it names, so only the machine being asked can use that grant.
+   */
+  resolvePeerIdentity?: (address: string) => Promise<TailnetPeerIdentity | null>
+  /**
    * Whole-app mesh lifecycle for the live-state push (remote-sessions-ux):
    * a machine paired or forgotten, answering or not, a request's wait moving
    * on. These are the facts chrome in every window may show. Payloads never
@@ -298,7 +304,12 @@ export type TailnetMeshServiceOptions = {
    * drive (phase 6). Null when nothing is listening here. Absent in a build
    * with no listener at all, which simply never offers the reverse half.
    */
-  mintReverseDevice?: (input: { machineName: string; scopes: TailnetScope[] }) => {
+  mintReverseDevice?: (input: {
+    machineName: string
+    scopes: TailnetScope[]
+    /** whois for the machine being asked; null leaves the device to bind on first use. */
+    peer?: TailnetPeerIdentity | null
+  }) => {
     device: TailnetDevice
     deviceToken: string
     endpoint: string
@@ -622,7 +633,13 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
         }
       }
     }
-    const peerName = (await options.resolvePeerName?.(endpoint.host).catch(() => null)) ?? null
+    // Asked only when a reverse half will be minted: that device is bound to
+    // the node being asked, which is the one that will present its token.
+    const peerIdentity =
+      input.reverseScopes === undefined
+        ? null
+        : ((await options.resolvePeerIdentity?.(endpoint.host).catch(() => null)) ?? null)
+    const peerName = peerIdentity?.name ?? (await options.resolvePeerName?.(endpoint.host).catch(() => null)) ?? null
     const machineName = peerName ?? endpoint.host
 
     // The reverse half first (phase 6): minted before the ask so a listener
@@ -638,7 +655,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
           message: 'This machine cannot be driven back: it has no listener to grant.',
         }
       }
-      const minted = options.mintReverseDevice({ machineName, scopes: reverseScopes })
+      const minted = options.mintReverseDevice({ machineName, scopes: reverseScopes, peer: peerIdentity })
       if (!minted) {
         return {
           ok: false,

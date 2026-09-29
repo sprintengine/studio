@@ -24,7 +24,12 @@ import {
 } from './tailnet/tailnet-gateway-server'
 import { TAILNET_EVENTS_PATH, TAILNET_UPLOAD_PATH } from './tailnet/tailnet-routes'
 import { isAllowedTailnetBindAddress, isTailnetAddress, resolveTailnetInterface } from './tailnet/tailnet-interface'
-import { createTailnetPeerResolver, normalizeAddress, peerNameFromWhois } from './tailnet/tailnet-peer-identity'
+import {
+  createTailnetPeerResolver,
+  normalizeAddress,
+  peerNameFromWhois,
+  type TailnetPeerIdentity,
+} from './tailnet/tailnet-peer-identity'
 import { localOnlyGatewayToolReason, requiredScopeForTool } from './tailnet/tailnet-scopes'
 import { isStudioGatewayMutation } from './studio-gateway-tools'
 import { createTailnetTools, type TailnetToolsFrontDoor } from './tailnet/tailnet-tools'
@@ -77,6 +82,10 @@ test('tailnet', async () => {
     close(): Promise<void>
   }
 
+  function testPeerIdentity(name: string | null): TailnetPeerIdentity | null {
+    return name ? { name, stableNodeId: `n-${name}`, loginName: 'dev@example.com' } : null
+  }
+
   async function startHarness(
     options: {
       peerNode?: string | null
@@ -102,9 +111,14 @@ test('tailnet', async () => {
       devices,
       conversations: options.conversations,
       // whois is injected: the tests must not depend on a Tailscale install.
+      // A named peer is one node, so the device paired here is bound to it and
+      // every later call comes from the same place.
       peers: options.resolvePeer
-        ? { resolve: options.resolvePeer }
-        : createTailnetPeerResolver({ runWhois: async () => options.peerNode ?? null }),
+        ? {
+            resolve: options.resolvePeer,
+            identify: async () => testPeerIdentity(await options.resolvePeer!()),
+          }
+        : createTailnetPeerResolver({ runWhois: async () => testPeerIdentity(options.peerNode ?? null) }),
       onToolCall: ({ context, tool, args, durationMs, result, error }) => {
         if (!isMutation(tool)) return
         audit.record({ connection: context.metadata, tool, args, durationMs, result, error })
