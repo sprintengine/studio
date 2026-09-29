@@ -50,7 +50,22 @@ export function conversationLineText(summary: ConversationSessionSummary): strin
   if (phase === 'waiting_for_input') return 'Asked a question'
   if (phase === 'failed') return 'Failed'
   if (phase === 'running') return summary.currentToolTitle?.trim() || 'Thinking'
-  return replyPreviewText(summary.lastAssistantText ?? '') || (phase === 'starting' ? 'Starting' : 'Ready')
+  return cachedReplyPreviewText(summary.lastAssistantText ?? '') || (phase === 'starting' ? 'Starting' : 'Ready')
+}
+
+// The last few replies' previews. A row redraws its line far more often than
+// its reply changes (the clock, a sibling terminal), and the preview is a
+// dozen regular expressions over the reply's text each time.
+const PREVIEW_CACHE_SIZE = 64
+const previewCache = new Map<string, string>()
+function cachedReplyPreviewText(markdown: string): string {
+  if (!markdown) return ''
+  const cached = previewCache.get(markdown)
+  if (cached !== undefined) return cached
+  const preview = replyPreviewText(markdown)
+  if (previewCache.size >= PREVIEW_CACHE_SIZE) previewCache.delete(previewCache.keys().next().value as string)
+  previewCache.set(markdown, preview)
+  return preview
 }
 
 // Where escaped markdown characters wait out the stripping: the private-use

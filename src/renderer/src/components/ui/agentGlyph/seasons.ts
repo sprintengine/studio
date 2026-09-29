@@ -33,7 +33,26 @@ function seasonOverride(): AgentSeason | null {
   }
 }
 
-/** The character an agent appears as: stable for the agent within a season. */
-export function pickAgentCharacter(agentId: string, date: Date = new Date()): AgentCharacterId {
-  return stablePick(agentId, AGENT_SEASON_POOLS[seasonOverride() ?? seasonFor(date)])
+// Today's season, read at most once a minute and never past midnight. Every
+// glyph asks on every render, and lanes and cards re-render while agents
+// stream, so the storage read and the date are not repeated for each. An
+// override set from DevTools shows within the minute.
+const SEASON_RECHECK_MS = 60_000
+let today: { season: AgentSeason; until: number } | null = null
+
+function currentSeason(now: number): AgentSeason {
+  if (today && now < today.until) return today.season
+  const date = new Date(now)
+  const midnight = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1).getTime()
+  today = { season: seasonOverride() ?? seasonFor(date), until: Math.min(midnight, now + SEASON_RECHECK_MS) }
+  return today.season
+}
+
+/**
+ * The character an agent appears as: stable for the agent within a season.
+ * `date` asks about a particular day; without it, today's (cached) season.
+ */
+export function pickAgentCharacter(agentId: string, date?: Date): AgentCharacterId {
+  const season = date ? (seasonOverride() ?? seasonFor(date)) : currentSeason(Date.now())
+  return stablePick(agentId, AGENT_SEASON_POOLS[season])
 }

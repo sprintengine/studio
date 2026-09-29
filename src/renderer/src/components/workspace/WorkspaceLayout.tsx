@@ -56,6 +56,7 @@ import { getHighlightSwatch } from '../../utils/highlight'
 import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import { ChatGlyph, RemoteMachineGlyph } from '../AppIcons'
 import type { ConversationSessionSummary } from '../../../../shared/conversation-runtime'
+import { conversationTabSignature } from './stableRowSlices'
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
 import { cliForConversationProvider } from '../../../../shared/conversation-harness'
 import { conversationFinishedAt } from './sidebar/conversationLines'
@@ -90,7 +91,7 @@ const EMPTY_LAYOUT_MODEL: IJsonModel = { global: {}, borders: [], layout: { type
 
 interface Props {
   workspaceId: string
-  conversationSessions?: ConversationSessionSummary[]
+  conversationSessions?: readonly ConversationSessionSummary[]
   // The tab strip's "+": opens the tab an agent will run in, holding
   // the launch surface until something spawns. The strip's own tabset id is
   // passed so the tab lands in that panel rather than tiling a new one.
@@ -182,7 +183,23 @@ const TAB_CHIP_CLASS = 'flex h-4 w-4 shrink-0 items-center justify-center rounde
 const TAB_CHIP_GLYPH_CLASS = 'h-3.5 w-3.5'
 const loadedPanelComponents = new Set<string>()
 const EMPTY_WORKSPACE_AGENTS: Workspace['agents'] = {}
+const NO_CONVERSATION_SESSIONS: readonly ConversationSessionSummary[] = []
 const EMPTY_OPEN_FILES: Workspace['editorState']['openFiles'] = []
+
+/**
+ * The chats as the tab strip reads them: the array last handed in, kept while
+ * nothing a tab draws has moved. `renderTab` depends on it, and FlexLayout
+ * re-renders every tab through a new `renderTab`, so a reply streaming into a
+ * chat must not rebuild the strip it sits in.
+ */
+function useConversationTabSessions(
+  sessions: readonly ConversationSessionSummary[],
+): readonly ConversationSessionSummary[] {
+  const held = useRef<{ signature: string; sessions: readonly ConversationSessionSummary[] } | null>(null)
+  const signature = conversationTabSignature(sessions)
+  if (held.current?.signature !== signature) held.current = { signature, sessions }
+  return held.current.sessions
+}
 
 type AgentTabActivityDot = {
   tone: Tone
@@ -319,7 +336,13 @@ function WorkspaceLayout(props: Props) {
   return <WorkspaceLayoutBody {...props} />
 }
 
-function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, conversationSessions = [] }: Props) {
+function WorkspaceLayoutBody({
+  workspaceId,
+  onNewAgentTab,
+  renderNewAgentPanel,
+  conversationSessions: conversationSessionsProp = NO_CONVERSATION_SESSIONS,
+}: Props) {
+  const conversationSessions = useConversationTabSessions(conversationSessionsProp)
   const layoutModel = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.layoutModel)
   const workspaceMode = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.mode ?? 'standard')
   // A file the peek card lists opens in the workspace pane's Diff tab, the same

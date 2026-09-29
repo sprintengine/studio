@@ -54,6 +54,12 @@ test('a season can be previewed without changing the clock', () => {
   )
 })
 
+test('today’s season is read once, not on every glyph render', () => {
+  const getItem = vi.spyOn(localStorage, 'getItem')
+  for (let index = 0; index < 50; index++) pickAgentCharacter(`toolu_${index}`)
+  assert.ok(getItem.mock.calls.length <= 1, `read ${getItem.mock.calls.length} times`)
+})
+
 test('a working character moves; a finished one stands still with the face its end earned', () => {
   const draw = (state: 'working' | 'done' | 'failed' | 'stopped') =>
     renderToStaticMarkup(createElement(AgentGlyph, { agentId: 'a', state, character: 'robot' }))
