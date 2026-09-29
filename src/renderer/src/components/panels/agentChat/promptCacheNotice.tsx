@@ -26,8 +26,9 @@ export function PromptCacheComposerNotice({
   busy: boolean
   onCompact: () => void
 }) {
-  const now = useRelativeNow(30_000, reading !== null && !busy)
   const [dismissed, setDismissed] = useState<string | null>(null)
+  // No clock for a reading already set aside: nothing it says is on screen.
+  const now = useRelativeNow(30_000, reading !== null && !busy && dismissed !== readingKey(reading))
   if (busy || !reading || dismissed === readingKey(reading)) return null
   const state = promptCacheState(reading, now)
   if (!promptCacheNeedsAttention(state)) return null
