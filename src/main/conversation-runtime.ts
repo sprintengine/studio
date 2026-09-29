@@ -263,6 +263,12 @@ const PEEK_TURN_BYTES = 256 * 1024
 // enough to be free.
 const IDLE_SWEEP_INTERVAL_MS = 3 * 60 * 1000
 
+// How often opening a conversation also expires a workspace's old checkpoint
+// refs. A conversation's refs expire after it has been idle for 30 days, so
+// looking once a day loses nothing, and each look lists every thread and
+// every checkpoint ref of the repository.
+const CHECKPOINT_EXPIRY_INTERVAL_MS = 24 * 60 * 60 * 1000
+
 export class ConversationRuntime {
   private readonly adapters = new Map<string, ConversationProviderAdapter>()
   private readonly secretStore: Pick<ProviderSecretStore, 'getStatus'> &
@@ -290,6 +296,8 @@ export class ConversationRuntime {
   private readonly sequenceInitializations = new Map<string, Promise<void>>()
   private readonly listeners = new Set<ConversationRuntimeListener>()
   private readonly sequences = new Map<string, number>()
+  // When each workspace's checkpoint refs were last expired this run.
+  private readonly checkpointsExpiredAt = new Map<string, number>()
   // Housekeeping that must not delay the caller but must finish before shutdown.
   private readonly background = new Set<Promise<unknown>>()
   private readonly emissionTails = new Map<string, Promise<unknown>>()
@@ -2592,6 +2600,9 @@ export class ConversationRuntime {
     for (const event of closures) await this.eventLog.append(path, event, input.workspaceRoot)
     this.sequences.set(path, closures.at(-1)?.seq ?? floor)
     // Expiry lists every thread in the workspace; opening a conversation must not wait on it.
+    const expiredAt = this.checkpointsExpiredAt.get(input.workspaceRoot)
+    if (expiredAt !== undefined && this.now() - expiredAt < CHECKPOINT_EXPIRY_INTERVAL_MS) return
+    this.checkpointsExpiredAt.set(input.workspaceRoot, this.now())
     this.runInBackground(
       this.threadIndex
         .list(input)
