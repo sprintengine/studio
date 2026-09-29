@@ -25,7 +25,7 @@ import {
 } from '../../shared/marketplace'
 import type { AutomationDefinition, AutomationsResult } from '../../shared/automations/contracts'
 import { AGENT_BACKED_ACTION_KINDS } from '../../shared/automations/contracts'
-import { LIVE_ENABLED_MODULE_IDS } from '../../shared/modules/manifest'
+import { LIVE_ENABLED_MODULE_IDS, type CapabilityManifest, type ModuleFileDigests } from '../../shared/modules/manifest'
 import { parseThirdPartyModuleManifest } from '../../shared/modules/third-party-manifest'
 import {
   marketplaceAutomationPayloadIssuesSync,
@@ -36,7 +36,15 @@ import { validateManifestSource } from '../plugin-registry'
 import { getPluginRegistryUserRoot, reloadPluginRegistry } from '../plugin-registry-instance'
 import { normalizeMcpClients, normalizeMcpServerConfig, type McpConfigService } from '../mcp-config-service'
 import { installSkillDirectory } from '../skills/install'
-import { classifyModuleTrust, isLoadEligible, type ModuleTrust, type ModuleTrustContext } from './module-signature'
+import {
+  classifyModuleTrust,
+  classifySignedManifestTrust,
+  isLoadEligible,
+  isSignedByTrustedPublisher,
+  moduleContentFingerprint,
+  type ModuleTrust,
+  type ModuleTrustContext,
+} from './module-signature'
 import { defaultUserModuleRoot, installModuleFolder as installCapabilityModuleFolder } from './user-module-registry'
 import { isRecord } from '../../shared/records'
 
@@ -74,7 +82,9 @@ export type MarketplacePluginInstallerServices = {
 type ResolvedComponent =
   | { kind: 'mcp'; path: string; servers: McpServerConfig[] }
   | { kind: 'skills'; path: string; installedDirName: string }
-  | { kind: 'module'; path: string; id: string; trust: ModuleTrust }
+  // `verifiedInstall` is the content fingerprint a trusted publisher's bundle
+  // signature vouches for (see bundleVouchedModuleInstall), when it does.
+  | { kind: 'module'; path: string; id: string; trust: ModuleTrust; verifiedInstall?: string }
   | { kind: 'cli'; path: string; id: string }
   // An automation is a definition in a per-project store, not files to unpack,
   // so the resolved component carries the parsed payload and no path to copy
@@ -186,7 +196,7 @@ async function buildInstallPlan(
   }
   const manifest = resolvedManifest.manifest
 
-  const trust = classifyModuleTrust(manifest, trustContext)
+  const trust = classifySignedManifestTrust(manifest, trustContext)
   if (trust.status === 'invalid') {
     return failure(
       'Plugin bundle signature is invalid.',
@@ -397,7 +407,7 @@ async function installModuleComponent(
   const result = await installer(
     component.path,
     (services.moduleRoot ?? defaultUserModuleRoot)(),
-    services.trustContext(),
+    withVerifiedInstall(services.trustContext(), component.id, component.verifiedInstall),
   )
   if (!result.ok) {
     return componentFailure('module', result.message, installed, result.rejected.issues)
@@ -634,12 +644,33 @@ async function prepareModuleComponent(
   const parsed = parseThirdPartyModuleManifest(manifest.source)
   if (!parsed.ok) return { ok: false, message: 'Module component manifest is invalid.', issues: parsed.issues }
 
-  const trust = classifyModuleTrust(parsed.manifest, trustContext)
+  const verifiedInstall = bundleVouchedModuleInstall(bundleManifest, parsed.manifest, trustContext)
+  const trust = classifyModuleTrust(
+    parsed.manifest,
+    path,
+    withVerifiedInstall(trustContext, parsed.manifest.id, verifiedInstall),
+  )
   if (trust.status === 'invalid') {
     return {
       ok: false,
-      message: `Module "${parsed.manifest.id}" has an invalid signature and cannot be installed.`,
-      issues: [{ path: 'signature', message: 'Invalid signature.' }],
+      message: trust.tampered
+        ? `Module "${parsed.manifest.id}" does not match the file digests its manifest signs and cannot be installed.`
+        : `Module "${parsed.manifest.id}" has an invalid signature and cannot be installed.`,
+      issues: trust.tampered ? trust.issues : [{ path: 'signature', message: 'Invalid signature.' }],
+    }
+  }
+  // A signed module is what the install prompt's grant is recorded for. A
+  // grant covers a module's code only through its own `files` digests (and a
+  // key only through those or a trusted publisher's bundle), so a signed module
+  // without them would be granted and then never load. Refused here, where its
+  // publisher can be told to sign it again.
+  if (parsed.manifest.signature && !parsed.manifest.files && !verifiedInstall) {
+    return {
+      ok: false,
+      message:
+        `Module "${parsed.manifest.id}" lists no digests of its code, so it could never be trusted. ` +
+        'Its publisher must sign it with `sprintengine-module sign`, which records them.',
+      issues: [{ path: 'files', message: 'the module manifest carries no file digests.' }],
     }
   }
   // G1. A first-party (verified) bundle installs with no trust prompt at all,
@@ -680,7 +711,51 @@ async function prepareModuleComponent(
       })),
     }
   }
-  return { ok: true, component: { kind: 'module', path, id: parsed.manifest.id, trust } }
+  return {
+    ok: true,
+    component: {
+      kind: 'module',
+      path,
+      id: parsed.manifest.id,
+      trust,
+      ...(verifiedInstall ? { verifiedInstall } : {}),
+    },
+  }
+}
+
+// A bundle signed by a trusted publisher signs a digest of every file in its
+// module component, and buildInstallPlan has already held the bundle to them
+// exactly. That vouches for the module's code even when the module's own
+// manifest predates `files` — the first-party modules are shipped that way —
+// so it is recorded as a verified install of that content. The digests come
+// from the signed plugin.json, not from the disk. Any other bundle vouches for
+// nothing here: its module earns trust by its own `files` or by a grant.
+function bundleVouchedModuleInstall(
+  bundleManifest: MarketplacePluginAuthoringManifest,
+  moduleManifest: CapabilityManifest,
+  trustContext: ModuleTrustContext,
+): string | undefined {
+  const component = bundleManifest.components.module
+  if (!component?.files || !isSignedByTrustedPublisher(bundleManifest, trustContext)) return undefined
+  const prefix = `${component.path}/`
+  const files: ModuleFileDigests = {}
+  for (const file of component.files) {
+    if (!file.path.startsWith(prefix)) return undefined
+    const relativePath = file.path.slice(prefix.length)
+    if (relativePath !== 'manifest.json') files[relativePath] = file.sha256
+  }
+  return moduleContentFingerprint(moduleManifest, files)
+}
+
+function withVerifiedInstall(
+  trustContext: ModuleTrustContext,
+  moduleId: string,
+  verifiedInstall: string | undefined,
+): ModuleTrustContext {
+  if (!verifiedInstall) return trustContext
+  const installs = new Map(trustContext.verifiedModuleInstalls ?? [])
+  installs.set(moduleId, verifiedInstall)
+  return { ...trustContext, verifiedModuleInstalls: installs }
 }
 
 async function prepareCliComponent(

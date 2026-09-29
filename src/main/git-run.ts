@@ -214,6 +214,38 @@ export type GitRunOptions = {
   stdin?: string
 }
 
+/**
+ * Config every git here runs under, ahead of the caller's arguments.
+ *
+ * `core.fsmonitor` names a program git runs whenever it refreshes the index —
+ * which `git status`, the sidebar's poll, does on its own. The setting is read
+ * from the repository's `.git/config`, so a repository that arrives as a folder
+ * or an archive with its `.git` included, or one an agent has edited, would
+ * have the app run that program with nobody asking for anything. A `-c` on the
+ * command line outranks every config file. The price is the speed a real
+ * filesystem monitor buys on a very large repository, and the app's reads are
+ * not where that matters.
+ */
+export const GIT_SAFETY_CONFIG: readonly string[] = ['-c', 'core.fsmonitor=false']
+
+/**
+ * {@link GIT_SAFETY_CONFIG} for a git the app does not start itself — the ones
+ * `gh` runs inside a repository to read its remotes and branch. Git reads
+ * `GIT_CONFIG_COUNT`/`KEY_n`/`VALUE_n` from its environment with the same
+ * precedence as `-c`. Pairs already in the environment are kept, and this one
+ * is appended after them.
+ */
+export function gitSafetyEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const existing = Number.parseInt(base.GIT_CONFIG_COUNT ?? '0', 10)
+  const index = Number.isInteger(existing) && existing > 0 ? existing : 0
+  return {
+    ...base,
+    GIT_CONFIG_COUNT: String(index + 1),
+    [`GIT_CONFIG_KEY_${index}`]: 'core.fsmonitor',
+    [`GIT_CONFIG_VALUE_${index}`]: 'false',
+  }
+}
+
 type ExecGitResult = { stdout: string; stderr: string }
 type ExecGitError = Error & { stdout?: string; stderr?: string; timedOut?: boolean }
 
@@ -276,7 +308,7 @@ async function execGitOnHost(
   timeoutMs: number | null,
   stdin: string | undefined,
 ): Promise<ExecGitResult> {
-  const outcome = await host.runGit(cwd, args, {
+  const outcome = await host.runGit(cwd, [...GIT_SAFETY_CONFIG, ...args], {
     timeoutMs,
     env: gitEnvDelta(envOverrides, kind),
     ...(stdin !== undefined ? { stdin } : {}),
@@ -321,7 +353,7 @@ function execGit(
     let timer: NodeJS.Timeout | null = null
     const child = execFile(
       'git',
-      ['-C', cwd, ...args],
+      ['-C', cwd, ...GIT_SAFETY_CONFIG, ...args],
       {
         encoding: 'utf8',
         maxBuffer: 20 * 1024 * 1024,

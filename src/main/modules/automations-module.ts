@@ -1,11 +1,18 @@
-import { BrowserWindow } from 'electron'
+import { BrowserWindow, app } from 'electron'
 
 import { createLocalAutomationExecutor, defaultRemoveRunWorktree } from '../automations/executor-local'
 import { openAutomationRunPullRequest } from '../automations/pull-request'
 import {
+  automationApprovalLedgerPath,
+  createAutomationApprovalLedger,
+  type AutomationApprovalLedger,
+} from '../automations/approval-ledger'
+import {
+  AUTOMATION_NEEDS_APPROVAL_CODE,
   createAutomationsEngine,
   projectFoldersFromWorkspaceSyncSnapshot,
   type AutomationsEngine,
+  type AutomationsEngineEvaluationResult,
   type AutomationsEngineOptions,
 } from '../automations/engine'
 import {
@@ -40,6 +47,8 @@ export type AutomationsModuleOptions = {
   createEngine?: (options: AutomationsEngineOptions) => AutomationsEngine
   deliverRunEvent?: (event: AutomationsRunEvent) => void
   checkProviderPermission?: AutomationProviderPermissionChecker
+  /** Defaults to the ledger file in userData; injected by tests. */
+  approvalLedger?: AutomationApprovalLedger
 }
 
 type RunEventWindow = {
@@ -96,6 +105,11 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
       const terminalRuntime = host.requireService(TerminalRuntimeToken)
       const providerRegistry = createBuiltInAutomationProviderRegistry()
       const checkProviderPermission = options.checkProviderPermission ?? allowAutomationProvider
+      // One ledger for every door onto the automations: the engine and webhook
+      // receiver ask it, and the write paths and the review's Allow record to it.
+      const approvalLedger =
+        options.approvalLedger ??
+        createAutomationApprovalLedger({ filePath: () => automationApprovalLedgerPath(app.getPath('userData')) })
       host.provideService(AutomationsProviderRegistryToken, () => providerRegistry)
       const getTriggerProviderRegistrations = () => providerRegistry.listTriggerProviderRegistrations()
       const getActionProviderRegistrations = () => providerRegistry.listActionProviderRegistrations()
@@ -116,8 +130,31 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
       let moduleAutomations: ReturnType<typeof createModuleAutomationsRegistry> | undefined
       const deliverRunEvent = options.deliverRunEvent ?? broadcastAutomationsRunEvent
 
+      // A definition that starts waiting for approval without a write through
+      // the app — a `git pull` changed it, a clone brought it — is first seen
+      // by the engine. Tell the windows when one does, so the Automations
+      // screen and the run supervisor's notice pick it up now rather than on
+      // the next write. Only a newly waiting one: announcing every pass would
+      // re-read every project each time the scheduler woke.
+      let waitingForApproval = new Set<string>()
+      const announceNewlyWaiting = (result: AutomationsEngineEvaluationResult): void => {
+        const waiting = new Map<string, string>()
+        for (const problem of result.problems) {
+          if (problem.code !== AUTOMATION_NEEDS_APPROVAL_CODE || !problem.workspaceRoot || !problem.automationId) {
+            continue
+          }
+          waiting.set(`${problem.workspaceRoot}\u0000${problem.automationId}`, problem.workspaceRoot)
+        }
+        const roots = new Set<string>()
+        for (const [key, workspaceRoot] of waiting) if (!waitingForApproval.has(key)) roots.add(workspaceRoot)
+        waitingForApproval = new Set(waiting.keys())
+        for (const workspaceRoot of roots) broadcastAutomationsDefinitionsChanged({ workspaceRoot })
+      }
+
       const engine = host.provideService(AutomationsEngineToken, () =>
         (options.createEngine ?? createAutomationsEngine)({
+          approvals: approvalLedger,
+          onEvaluation: announceNewlyWaiting,
           getWorkspaceSnapshot: () => workspaceSyncService.getSnapshot(),
           getTriggerProviders,
           runAutomation,
@@ -173,6 +210,7 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
         unregisterAgentExitListener()
       })
       const webhookReceiver = createAutomationWebhookReceiver({
+        approvals: approvalLedger,
         getProjectFolders: () => projectFoldersFromWorkspaceSyncSnapshot(workspaceSyncService.getSnapshot()),
         deliverTriggerEvent: (input) => engine.deliverTriggerEvent(input),
       })
@@ -202,6 +240,7 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
           now: Date.now,
           onDefinitionsChanged,
           getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
+          approvalLedger,
         }),
       )
       const moduleAutomationsRegistry = moduleAutomations
@@ -249,6 +288,7 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
         getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
         getEngineSidecarStatus: () => engineSidecar.status(),
         onDefinitionsChanged,
+        approvalLedger,
       })
       // The automation server's automation.create/automation.run resolve this
       // lazily; module disabled ⇒ token absent ⇒ explicit tool failure.

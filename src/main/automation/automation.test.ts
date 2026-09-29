@@ -139,6 +139,9 @@ test('automation', async () => {
       launchAgent:
         overrides.launchAgent ??
         (async () => ({ ok: false, code: 'no_launch_service', message: 'no launch service in test' })),
+      // Every agent on bypass, as the owner runs them: the suites here are about
+      // what a launch does, and launch-permission-cap.test.ts about the cap.
+      resolveAgentPermissionPreset: () => 'bypass',
       // Default: the mobile lane is unwired. A test that exercises the mobile
       // tools stubs this; anything else that reaches it fails loudly.
       mobileControl: overrides.mobileControl ?? {
@@ -2151,7 +2154,13 @@ test('automation', async () => {
         /Omitted, the launch takes the preset chosen for that CLI on this machine, else the app default "bypass"/,
         `${name} says what an omitted preset resolves to`,
       )
-      assert.doesNotMatch(properties.permissionPreset?.description ?? '', /refused/, `${name} refuses no preset`)
+      // The one refusal it names is an agent of this app asking above its own
+      // preset (launch-permission-cap.test.ts); nobody else is refused one.
+      assert.match(
+        properties.permissionPreset?.description ?? '',
+        /Called by an agent of this app, the launch runs no looser than that agent's own preset: a looser one is refused/,
+        `${name} refuses a preset only to an agent above its own`,
+      )
     }
 
     // Every spelling an automation definition may carry reaches the create

@@ -20,7 +20,12 @@ import {
   canonicalManifestPayload as moduleCanonicalPayload,
   validateThirdPartyModuleManifest,
 } from '../../shared/modules/third-party-manifest'
+import { findMarketplaceResourcePath } from '../marketplace/resources'
+import { readTrustedMarketplacePublisherFingerprintsSync } from '../marketplace/trusted-publishers'
+import type { ModuleTrustContext } from './module-signature'
 import { installMarketplacePlugin, type MarketplaceAutomationInstaller } from './plugin-bundle-installer'
+import { planThirdPartyMainModules } from './third-party-main-loader'
+import { discoverUserModules } from './user-module-registry'
 import { test } from 'vitest'
 
 test('plugin-bundle-installer', async () => {
@@ -261,8 +266,11 @@ test('plugin-bundle-installer', async () => {
         version: 1,
         permissions: components.module.permissions ?? ['network'],
       }
+      // Signed the way `sprintengine-module sign` signs: with the digests of the
+      // module's files, of which this one ships none besides its manifest.
+      const withFiles = { ...moduleManifest, files: {} }
       const signed = components.module.signer
-        ? { ...moduleManifest, signature: components.module.signer.sign(moduleManifest) }
+        ? { ...withFiles, signature: components.module.signer.sign(withFiles) }
         : moduleManifest
       files.set(`${components.module.path}/manifest.json`, `${JSON.stringify(signed, null, 2)}\n`)
     }
@@ -991,4 +999,146 @@ test('plugin-bundle-installer', async () => {
   })
 
   await suiteRun
+})
+
+// The first-party review module's own manifest was signed before `files`
+// existed, and nobody but the owner can re-sign it. Its bundle's plugin.json,
+// signed by the same trusted publisher, digests every file of the module, so
+// installing the bundle vouches for the module's code: the install records the
+// content it verified, and discovery holds the folder to exactly that.
+test('a trusted publisher bundle vouches for the code of a module that signs no digests', async () => {
+  const bundlePath = findMarketplaceResourcePath('plugins/review')
+  assert.ok(bundlePath)
+  const temp = await mkdtemp(join(tmpdir(), 'mc-marketplace-review-'))
+  try {
+    const moduleRoot = join(temp, 'modules')
+    const baseContext: ModuleTrustContext = {
+      trustedModules: new Map(),
+      trustedKeyFingerprints: readTrustedMarketplacePublisherFingerprintsSync({ isPackaged: true }),
+    }
+    const services: Parameters<typeof installMarketplacePlugin>[1] = {
+      trustContext: () => baseContext,
+      mcpConfigService: createMcpConfigService({ lookupPlugin: () => undefined, homeDir: () => join(temp, 'home') }),
+      moduleRoot: () => moduleRoot,
+    }
+
+    const result = await installMarketplacePlugin({ localFolder: bundlePath }, services, {
+      requireTrustedModuleComponents: true,
+    })
+    assert.equal(result.ok, true, JSON.stringify(result))
+    if (!result.ok) return
+    const module = result.installed.find((component) => component.kind === 'module')
+    assert.equal(module?.id, 'review')
+    assert.equal(module?.trustStatus, 'trusted')
+    assert.match(module?.manifestFp ?? '', /^[0-9a-f]{64}$/)
+
+    // What the install receipt records is what vouches at every later launch.
+    const vouched: ModuleTrustContext = {
+      ...baseContext,
+      verifiedModuleInstalls: new Map([['review', module!.manifestFp!]]),
+    }
+    const listed = await discoverUserModules(moduleRoot, vouched)
+    assert.deepEqual(listed.rejected, [])
+    assert.equal(listed.modules[0]?.trust.status, 'trusted')
+    assert.equal(listed.modules[0]?.trust.via, 'publisher')
+    assert.ok(listed.modules[0]?.trust.verifiedFiles?.['dist/main.cjs'])
+    const planned = planThirdPartyMainModules(listed)
+    assert.deepEqual(planned.ineligible, {}, 'the first-party module stays load eligible')
+
+    // Without that record the same folder is a signed manifest beside unvouched
+    // code, and a reserved id refuses it.
+    const unvouched = await discoverUserModules(moduleRoot, baseContext)
+    assert.deepEqual(unvouched.modules, [])
+    assert.match(unvouched.rejected[0]?.issues[0]?.message ?? '', /publisher-locked/)
+
+    // Code swapped in after the install no longer matches what was vouched for.
+    await writeFile(join(moduleRoot, 'review', 'dist', 'main.cjs'), 'exports.registerMain = () => {}\n')
+    const swapped = await discoverUserModules(moduleRoot, vouched)
+    assert.deepEqual(swapped.modules, [])
+    assert.ok(
+      swapped.rejected[0]?.issues.some((issue) =>
+        /do not match the ones its marketplace install verified/.test(issue.message),
+      ),
+    )
+  } finally {
+    await rm(temp, { recursive: true, force: true })
+  }
+})
+
+// The install prompt's grant is recorded for a signed module, and a grant
+// covers code only through the module's own `files`. A signed module without
+// them — outside a trusted publisher's bundle, whose digests vouch for it —
+// would be granted and never load, so the bundle is refused before any write.
+test('a signed module without file digests is refused unless a trusted publisher bundle vouches for it', async () => {
+  const temp = await mkdtemp(join(tmpdir(), 'mc-marketplace-undigested-'))
+  try {
+    const bundle = join(temp, 'bundle')
+    const moduleDir = join(bundle, 'module')
+    await mkdir(moduleDir, { recursive: true })
+    const { publicKey, privateKey } = generateKeyPairSync('ed25519')
+    const declaration = validateThirdPartyModuleManifest({ id: 'undigested', displayName: 'Undigested', version: 1 })
+    assert.ok(declaration.ok)
+    if (!declaration.ok) return
+    const manifestSource = `${JSON.stringify({
+      ...declaration.manifest,
+      signature: {
+        algorithm: 'ed25519',
+        publicKey: publicKey.export({ type: 'spki', format: 'der' }).toString('base64'),
+        signature: sign(null, Buffer.from(moduleCanonicalPayload(declaration.manifest), 'utf8'), privateKey).toString(
+          'base64',
+        ),
+      },
+    })}\n`
+    await writeFile(join(moduleDir, 'manifest.json'), manifestSource)
+    const unsignedBundle = {
+      id: 'undigested-plugin',
+      displayName: 'Undigested Plugin',
+      version: 1,
+      permissions: [],
+      components: {
+        module: {
+          path: 'module',
+          files: [{ path: 'module/manifest.json', sha256: createHash('sha256').update(manifestSource).digest('hex') }],
+        },
+      },
+    }
+    const bundleKeys = generateKeyPairSync('ed25519')
+    const validated = validateMarketplacePluginManifest({
+      ...unsignedBundle,
+      signature: { algorithm: 'ed25519', publicKey: 'YWJj', signature: 'ZGVm' },
+    })
+    assert.ok(validated.ok)
+    if (!validated.ok) return
+    await writeFile(
+      join(bundle, 'plugin.json'),
+      JSON.stringify({
+        ...validated.manifest,
+        signature: {
+          algorithm: 'ed25519',
+          publicKey: bundleKeys.publicKey.export({ type: 'spki', format: 'der' }).toString('base64'),
+          signature: sign(
+            null,
+            Buffer.from(canonicalManifestPayload(validated.manifest), 'utf8'),
+            bundleKeys.privateKey,
+          ).toString('base64'),
+        },
+      }),
+    )
+    const moduleRoot = join(temp, 'modules')
+    const result = await installMarketplacePlugin(
+      { localFolder: bundle },
+      {
+        trustContext: () => ({ trustedModules: new Map() }),
+        mcpConfigService: createMcpConfigService({ lookupPlugin: () => undefined, homeDir: () => join(temp, 'home') }),
+        moduleRoot: () => moduleRoot,
+      },
+    )
+    assert.equal(result.ok, false)
+    if (result.ok) return
+    assert.equal(result.component, 'module')
+    assert.match(result.message, /lists no digests of its code/)
+    assert.equal(existsSync(join(moduleRoot, 'undigested')), false)
+  } finally {
+    await rm(temp, { recursive: true, force: true })
+  }
 })

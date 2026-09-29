@@ -3,6 +3,7 @@ import { isAbsolute, resolve } from 'node:path'
 
 import type {
   AutomationActionProvider,
+  AutomationApprovalSource,
   AutomationDefinition,
   AutomationDefinitionDraft,
   AutomationTriggerProvider,
@@ -18,6 +19,7 @@ import {
 } from './provider-registry'
 import { computeNextRun, isValidTimeZone, scheduleCadenceCanExhaust, validateScheduleTriggerConfig } from './schedule'
 import { AutomationsStore, type AutomationStoreProblem } from './store'
+import type { AutomationApprovalLedger } from './approval-ledger'
 import { isRecord } from '../../shared/records'
 
 // The one write path for automation definitions. Both front doors — the
@@ -77,6 +79,17 @@ export type DefinitionWriteDeps = {
    * to report in its own vocabulary.
    */
   onDefinitionsChanged?: (workspaceRoot: string) => void | Promise<void>
+  /**
+   * The approval ledger, and who this front door's writes come from. A write
+   * through the app is its author's own, so it is recorded as approved as it
+   * lands — a created automation, and an edit to one that was already approved,
+   * never ask. An edit to one that is waiting (the pause toggle on a file a
+   * clone brought in) leaves it waiting: that click was not a review of the
+   * rest of the file. Absent ⇒ nothing is recorded, so what this core writes
+   * waits for a review — the safe failure for a front door that forgot to wire
+   * it.
+   */
+  approvals?: { ledger: AutomationApprovalLedger; source: AutomationApprovalSource }
 }
 
 type PostWriteFailure = { code: string; message: string }
@@ -133,9 +146,44 @@ export function createDefinitionWriteCore(deps: DefinitionWriteDeps): Definition
     }
   }
 
-  async function finishWrite<T>(workspaceRoot: string, value: T): Promise<DefinitionWriteResult<T>> {
-    const postWriteFailure = await notifyDefinitionsChanged(workspaceRoot)
+  async function finishWrite<T>(
+    workspaceRoot: string,
+    value: T,
+    approvalFailure?: PostWriteFailure,
+  ): Promise<DefinitionWriteResult<T>> {
+    const postWriteFailure = (await notifyDefinitionsChanged(workspaceRoot)) ?? approvalFailure
     return postWriteFailure ? { ok: true, value, postWriteFailure } : { ok: true, value }
+  }
+
+  // Recorded after the definition is on disk and before the definitions-changed
+  // hook wakes the engine, so the evaluation that wake starts already finds it
+  // approved. A failed ledger write does not undo the definition: it stays
+  // written and waits for a review, and the caller hears why.
+  async function recordApproval(
+    workspaceRoot: string,
+    definition: AutomationDefinition,
+  ): Promise<PostWriteFailure | undefined> {
+    if (!deps.approvals) return undefined
+    try {
+      await deps.approvals.ledger.approve(workspaceRoot, definition, deps.approvals.source)
+      return undefined
+    } catch (error) {
+      return {
+        code: 'approval_record_failed',
+        message: `Saved, but it could not be marked as yours, so it will ask before it runs: ${
+          error instanceof Error ? error.message : 'the approval ledger could not be written.'
+        }`,
+      }
+    }
+  }
+
+  async function wasApproved(workspaceRoot: string, definition: AutomationDefinition): Promise<boolean> {
+    if (!deps.approvals) return false
+    try {
+      return (await deps.approvals.ledger.check(workspaceRoot, definition)).state === 'approved'
+    } catch {
+      return false
+    }
   }
 
   async function createDefinition(
@@ -159,7 +207,8 @@ export function createDefinitionWriteCore(deps: DefinitionWriteDeps): Definition
     if (!created.ok) return storeError(created.error)
     const state = await writeNextRunCache(store, prepared.value.id, prepared.value.nextRunAt)
     if (!state.ok) return storeError(state.error)
-    return finishWrite(workspaceRoot, created.value)
+    const approvalFailure = await recordApproval(workspaceRoot, created.value)
+    return finishWrite(workspaceRoot, created.value, approvalFailure)
   }
 
   return {
@@ -206,6 +255,9 @@ export function createDefinitionWriteCore(deps: DefinitionWriteDeps): Definition
       if (!existing.ok) return storeError(existing.error)
       const admitted = precondition?.(existing.value) ?? { ok: true as const }
       if (!admitted.ok) return admitted
+      // Read before the write: whether the file as it stood was approved decides
+      // whether the edit carries the approval forward.
+      const approvedBefore = await wasApproved(workspaceRoot, existing.value)
 
       const timestamp = new Date(deps.now()).toISOString()
       const updated: AutomationDefinition = {
@@ -228,7 +280,8 @@ export function createDefinitionWriteCore(deps: DefinitionWriteDeps): Definition
       if (!written.ok) return storeError(written.error)
       const state = await writeNextRunCache(store, prepared.value.id, prepared.value.nextRunAt)
       if (!state.ok) return storeError(state.error)
-      return finishWrite(workspaceRoot, written.value)
+      const approvalFailure = approvedBefore ? await recordApproval(workspaceRoot, written.value) : undefined
+      return finishWrite(workspaceRoot, written.value, approvalFailure)
     },
 
     async remove(workspaceRoot, automationId, precondition) {
@@ -243,6 +296,10 @@ export function createDefinitionWriteCore(deps: DefinitionWriteDeps): Definition
       if (!deleted.ok) return storeError(deleted.error)
       const state = await writeNextRunCache(store, automationId, null, true)
       if (!state.ok) return storeError(state.error)
+      // A file that comes back under the same id (a revert, a pull) is a new
+      // file as far as this machine knows, and asks again. Best-effort: a stale
+      // entry only matches the exact content that was deleted.
+      await deps.approvals?.ledger.revoke(workspaceRoot, automationId).catch(() => undefined)
       return finishWrite(workspaceRoot, { automationId })
     },
   }
@@ -374,6 +431,24 @@ export function prepareDefinitionForWrite(
     return fail('next_run_unavailable', `Unable to compute next run for automation "${definition.id}".`)
   }
   return ok({ ...definition, nextRunAt: new Date(nextRunAt).toISOString() })
+}
+
+/**
+ * Drop the next run a definition carried in with it, from the file and from the
+ * state cache, so the engine computes the schedule from now on its next pass.
+ * Approval calls this before it records the yes: a `nextRunAt` the file brought
+ * with it may be long past, and the engine fires a past due time at once — the
+ * user allowing an automation is not asking for a run this second.
+ */
+export async function clearCarriedNextRun(
+  store: AutomationsStore,
+  definition: AutomationDefinition,
+): Promise<{ ok: true } | { ok: false; error: AutomationStoreProblem }> {
+  if (definition.nextRunAt !== null) {
+    const written = await store.updateDefinition({ ...definition, nextRunAt: null })
+    if (!written.ok) return written
+  }
+  return writeNextRunCache(store, definition.id, null)
 }
 
 async function writeNextRunCache(

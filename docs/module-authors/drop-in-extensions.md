@@ -29,9 +29,21 @@ contracts. Modules are trust-gated: only modules the user has trusted execute
 code.
 
 - Author against [`@sprintengine/module-sdk`](../../packages/module-sdk/README.md).
-- Validate, pack, and sign with the bundled `sprintengine-module` CLI.
-- Install by dropping the folder into `~/.sprintengine/modules/<id>/`, or from
-  **Settings → Modules → "Install a module from a folder"**, then grant trust.
+- Validate, sign, and pack with the bundled `sprintengine-module` CLI. `sign`
+  records the sha256 of every file the module ships in the manifest's `files`
+  field, so the signature covers the code, not only the manifest.
+- Install the packed folder by dropping it into `~/.sprintengine/modules/<id>/`,
+  or from **Settings → Modules → "Install a module from a folder"**, then grant
+  trust. A folder with a symbolic link, `node_modules`, `.git` or key files in it
+  is refused; `pack` leaves those out.
+- Trust covers the files as well as the manifest. A publisher key vouches for a
+  module only when its signed `files` match the folder exactly — a signed
+  manifest without them is not trusted by key — and a grant you give binds to
+  the manifest's fingerprint, which covers its `files`. A module whose manifest
+  lists no `files` cannot be trusted at all; sign it (a key from `keygen` is
+  enough for your own machine). A changed, missing or extra file is refused as
+  tampered, when the app lists modules and again immediately before it runs
+  `entry.main`.
 - Permissions are install-time disclosure — see [permissions.md](./permissions.md).
 
 ### Creating a workspace from a module
@@ -89,8 +101,12 @@ JSON
 ```
 
 The `name` must equal the `publisher.name` on the registry entry you are
-standing in for. Then sign both the inner module manifest and the bundle
-`plugin.json` with that key, install, and restart the app.
+standing in for. Then build the module, sign the inner module manifest
+(`sprintengine-module sign`, which records its file digests) and then the
+bundle `plugin.json` (`sprintengine-module plugin sign`, which digests the
+module's signed manifest among its files) with that key, install, and restart
+the app. The order matters: signing the module rewrites its manifest, which the
+bundle's digests cover.
 ### Shipping skills with a module
 
 Skills are not a closed set the app compiles in. A module can carry its own
@@ -131,11 +147,12 @@ Folder install (above) is the developer loop. To let other users discover and
 install your module from the Extensions door's **Plugins** view, publish it to
 the marketplace registry as a signed plugin bundle:
 
-1. **Sign the module.** `sprintengine-module keygen` once, then
+1. **Sign the module.** `sprintengine-module keygen` once, then build, then
    `sprintengine-module sign <module-dir> --key <key.pem>` and
-   `sprintengine-module verify <module-dir>`. Keep the private key out of the
-   module directory and out of version control; modules are code-bearing, so
-   an unsigned module bundle is hard-blocked from install.
+   `sprintengine-module verify <module-dir>`. `sign` records a digest of every
+   file the module ships; sign again after every build. Keep the private key
+   out of the module directory and out of version control; modules are
+   code-bearing, so an unsigned module bundle is hard-blocked from install.
 2. **Wrap it in a plugin bundle.**
    `sprintengine-module plugin scaffold <plugin-id> --component module`, replace
    the `module/` placeholder with your packed module

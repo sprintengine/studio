@@ -13,7 +13,7 @@
 
 import { existsSync } from 'node:fs'
 import { access } from 'node:fs/promises'
-import { delimiter, isAbsolute, join } from 'node:path'
+import { delimiter, isAbsolute, join, win32 } from 'node:path'
 
 /** True when `command` is an absolute file that exists, or a name on PATH. */
 export function commandOnPath(command: string): boolean {
@@ -46,4 +46,43 @@ function candidatePaths(command: string): string[] {
   const names =
     process.platform === 'win32' ? [trimmed, `${trimmed}.cmd`, `${trimmed}.exe`, `${trimmed}.ps1`] : [trimmed]
   return pathValue.split(delimiter).flatMap((dir) => names.map((name) => join(dir, name)))
+}
+
+/**
+ * The absolute path of a Windows program named `name`, found on PATH and
+ * nowhere else — or null.
+ *
+ * A bare name handed to `spawn` on Windows is looked for in the child's working
+ * directory before PATH. When that directory is a repository, whoever wrote the
+ * repository decides what runs: a `gh.exe` committed at its root is started in
+ * place of the real one, whether or not the real one is installed. Resolving
+ * against PATH first and spawning the result closes that. Only absolute PATH
+ * entries count, since an empty or relative entry (`.`) means "the working
+ * directory" again. Only `.exe` and `.com` are taken: a `.cmd` or `.bat` would
+ * run through `cmd.exe` and its quoting rules, which is a different door.
+ */
+export async function resolveWindowsProgramOnPath(
+  name: string,
+  environment: { pathValue?: string; exists?: (path: string) => Promise<boolean> } = {},
+): Promise<string | null> {
+  const pathValue = environment.pathValue ?? process.env.PATH ?? process.env.Path ?? ''
+  const exists =
+    environment.exists ??
+    (async (path: string) => {
+      try {
+        await access(path)
+        return true
+      } catch {
+        return false
+      }
+    })
+  for (const dir of pathValue.split(';')) {
+    const trimmed = dir.trim().replace(/^"(.*)"$/u, '$1')
+    if (!win32.isAbsolute(trimmed)) continue
+    for (const extension of ['.exe', '.com']) {
+      const candidate = win32.join(trimmed, `${name}${extension}`)
+      if (await exists(candidate)) return candidate
+    }
+  }
+  return null
 }

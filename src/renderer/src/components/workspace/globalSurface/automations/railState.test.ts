@@ -51,6 +51,32 @@ test('railState', async () => {
 
   // The plain-language rail state line + tone (mockup §3), by salience.
 
+  run('an automation waiting for approval says so over any past outcome, paused or not', () => {
+    const waiting = { state: 'needs-approval' as const, fingerprint: 'sha256:a', reason: 'unreviewed' as const }
+    assert.deepEqual(
+      automationRailState(
+        entry({ definition: def('paused'), lastRun: lastRun('failed', null), approval: waiting }),
+        NOW,
+      ),
+      { text: 'Needs your OK', tone: 'warn', running: false },
+    )
+    assert.deepEqual(
+      automationRailState(entry({ definition: def('enabled'), approval: { ...waiting, reason: 'changed' } }), NOW),
+      { text: 'Changed · needs your OK', tone: 'warn', running: false },
+    )
+    // An approved one reads exactly as it did before approval existed.
+    assert.deepEqual(
+      automationRailState(
+        entry({
+          definition: def('paused'),
+          approval: { state: 'approved', fingerprint: 'sha256:a', source: 'user', approvedAt: '2026-07-19T00:00:00Z' },
+        }),
+        NOW,
+      ),
+      { text: 'Paused', tone: 'neutral', running: false },
+    )
+  })
+
   run('a live run leads over everything else', () => {
     const state = automationRailState(
       entry({ definition: def('enabled'), isRunningNow: true, lastRun: lastRun('running', null) }),

@@ -1,16 +1,18 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { chmod, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'vitest'
 
 import {
   GIT_NETWORK_TIMEOUT_MS,
+  GIT_SAFETY_CONFIG,
   GIT_READ_TIMEOUT_MS,
   classifyGitCommand,
   defaultGitTimeoutMs,
   gitEnv,
   installGitHostResolver,
+  runGit,
   runGitCommand,
   withGitHost,
 } from './git-run'
@@ -166,4 +168,41 @@ test('a machine named for one piece of work runs its git, ahead of the resolver'
   } finally {
     installGitHostResolver(null)
   }
+})
+
+test("a repository's own filesystem-monitor program is never run by the app's git", async (context) => {
+  if (process.platform === 'win32') {
+    context.skip('the planted program is a shell script')
+    return
+  }
+  const dir = await mkdtemp(join(tmpdir(), 'se-git-fsmonitor-'))
+  try {
+    await runGit(dir, ['init', '--quiet'])
+    const marker = join(dir, 'fsmonitor-ran')
+    const program = join(dir, 'monitor.sh')
+    await writeFile(program, `#!/bin/sh\ntouch '${marker}'\n`)
+    await chmod(program, 0o755)
+    await runGit(dir, ['config', 'core.fsmonitor', program])
+    await writeFile(join(dir, 'file.txt'), 'x')
+
+    await runGit(dir, ['status', '--porcelain'])
+    await runGit(dir, ['diff', '--shortstat'])
+
+    await assert.rejects(stat(marker), 'the planted program never ran')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("a repository on another machine gets the same override ahead of the caller's arguments", async () => {
+  const seen: Array<readonly string[]> = []
+  const host = {
+    kind: 'wsl' as const,
+    runGit: async (_cwd: string, args: readonly string[]) => {
+      seen.push(args)
+      return { code: 0, stdout: '', stderr: '', timedOut: false }
+    },
+  }
+  await withGitHost(host, () => runGitCommand('C:\\repo', ['status', '--porcelain']))
+  assert.deepEqual(seen, [[...GIT_SAFETY_CONFIG, 'status', '--porcelain']])
 })

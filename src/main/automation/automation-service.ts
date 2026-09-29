@@ -16,7 +16,7 @@ import type { MeshEvent, TailnetForgetMachineResult } from '../../shared/tailnet
 import type { TailnetApprovePairRequestResult } from './tailnet/tailnet-service'
 import type { TailnetPeerScan } from '../../shared/tailnet-peers'
 import { readAutomationSettings, writeAutomationSettings } from './automation-settings'
-import { createGatewayAuditStore, type GatewayAuditStore } from './gateway-audit'
+import { createGatewayAuditStore, isAlwaysAudited, type GatewayAuditStore } from './gateway-audit'
 import { createMcpSocketServer } from './mcp-socket-server'
 import { isStudioGatewayMutation } from './studio-gateway-tools'
 import { createTailnetMeshService, type TailnetMeshService } from './tailnet/tailnet-mesh-service'
@@ -164,7 +164,8 @@ export function createAutomationService(options: AutomationServiceOptions) {
       isMutation: (tool) => isStudioGatewayMutation(tool, options.resolveGatewayTools),
       conversations: options.resolveConversationHost?.(),
       onToolCall: ({ context, tool, args, durationMs, result, error }) => {
-        if (!isStudioGatewayMutation(tool, options.resolveGatewayTools)) return
+        // A token refused at the door is kept too, though nothing ran.
+        if (!isStudioGatewayMutation(tool, options.resolveGatewayTools) && !isAlwaysAudited(tool)) return
         auditStore().record({ connection: context.metadata, tool, args, durationMs, result, error })
       },
       onEvent: options.onTailnetEvent,
@@ -182,6 +183,7 @@ export function createAutomationService(options: AutomationServiceOptions) {
     mesh ??= createTailnetMeshService({
       resolveUserDataDir: options.resolveUserDataDir,
       resolvePeerName: (address) => tailnetService().resolvePeerName(address),
+      resolvePeerIdentity: (address) => tailnetService().resolvePeerIdentity(address),
       // Both-ways pairing (phase 6): the device this machine grants the one
       // it is asking to drive is minted on the listener's own store, so it is
       // listed, revocable, and audited like every other device here.

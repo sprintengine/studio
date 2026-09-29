@@ -5,6 +5,7 @@ import type {
   AutomationsInstanceProblem,
 } from '../../shared/automations/contracts'
 import type { AutomationsStore, AutomationStoreProblem } from './store'
+import type { AutomationApprovalGate } from './approval-ledger'
 
 // A known project root the index scans. `folderPath` is the project root (the
 // automations store lives at `<folderPath>/.sprintengine/automations/`);
@@ -23,6 +24,12 @@ export type AutomationsInstanceIndexPorts = {
    * uses, so an enumerated definition never carries a secret. Absent ⇒ identity.
    */
   mapDefinition?: (definition: AutomationDefinition) => AutomationDefinition
+  /**
+   * The approval ledger, asked about each definition as read — before the
+   * redaction, because the fingerprint covers the webhook secret too. Absent ⇒
+   * entries carry no approval state.
+   */
+  approvals?: AutomationApprovalGate
 }
 
 // Enumerate every automation across every known project root with the live state
@@ -48,6 +55,7 @@ export async function buildAutomationsInstanceIndex(
     }
 
     for (const definition of definitions.values) {
+      const approval = await readApproval(ports.approvals, folder.folderPath, definition)
       const runs = await store.listRuns(definition.id)
       if (!runs.ok) {
         problems.push({ workspaceRoot: folder.folderPath, message: firstProblemMessage(runs.errors) })
@@ -57,6 +65,7 @@ export async function buildAutomationsInstanceIndex(
           definition: mapDefinition(definition),
           lastRun: null,
           isRunningNow: false,
+          ...approval,
         })
         continue
       }
@@ -71,11 +80,27 @@ export async function buildAutomationsInstanceIndex(
         definition: mapDefinition(definition),
         lastRun: runs.values[0] ?? null,
         isRunningNow: runs.values.some((run) => run.status === 'running'),
+        ...approval,
       })
     }
   }
 
   return { entries, problems }
+}
+
+// A ledger that cannot be read says nothing is approved — the same answer the
+// engine acts on, so the screen never shows as allowed what will not run.
+async function readApproval(
+  approvals: AutomationApprovalGate | undefined,
+  workspaceRoot: string,
+  definition: AutomationDefinition,
+): Promise<Pick<AutomationsInstanceEntry, 'approval'>> {
+  if (!approvals) return {}
+  try {
+    return { approval: await approvals.check(workspaceRoot, definition) }
+  } catch {
+    return { approval: { state: 'needs-approval', fingerprint: '', reason: 'unreviewed' } }
+  }
 }
 
 function firstProblemMessage(errors: AutomationStoreProblem[]): string {

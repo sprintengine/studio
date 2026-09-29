@@ -213,3 +213,43 @@ test('gh', async () => {
 
   await suiteRun
 })
+
+test('on Windows, gh is spawned by its full PATH location and never looked up in the repository', async () => {
+  const files: string[] = []
+  const spawn: GhSpawn = async (file) => {
+    files.push(file)
+    return { stdout: '', stderr: '' }
+  }
+  const installed = 'C:\\Program Files\\GitHub CLI\\gh.exe'
+  const gh = createDefaultGhRunner({ spawn, platform: 'win32', resolveWindowsProgram: async () => installed })
+  const result = await gh.run(['pr', 'list'], { cwd: 'C:\\Users\\dev\\repo' })
+  assert.equal(result.found, true)
+  assert.deepEqual(files, [installed])
+})
+
+test('on Windows, no gh on PATH is "not installed", without a bare-name spawn that would search the repository', async () => {
+  const files: string[] = []
+  const spawn: GhSpawn = async (file) => {
+    files.push(file)
+    return { stdout: '', stderr: '' }
+  }
+  const gh = createDefaultGhRunner({ spawn, platform: 'win32', resolveWindowsProgram: async () => null })
+  const result = await gh.run(['pr', 'list'], { cwd: 'C:\\Users\\dev\\repo' })
+  assert.equal(result.found, false)
+  assert.deepEqual(files, [])
+})
+
+test("the git that gh runs inside a repository ignores the repository's filesystem-monitor program", async () => {
+  const envs: NodeJS.ProcessEnv[] = []
+  const spawn: GhSpawn = async (_file, _args, options) => {
+    envs.push(options.env)
+    return { stdout: '', stderr: '' }
+  }
+  const gh = createDefaultGhRunner({ spawn, platform: 'darwin' })
+  await gh.run(['pr', 'list'], { cwd: '/Users/dev/repo' })
+  const env = envs[0]
+  const count = Number(env.GIT_CONFIG_COUNT)
+  const index = count - 1
+  assert.equal(env[`GIT_CONFIG_KEY_${index}`], 'core.fsmonitor')
+  assert.equal(env[`GIT_CONFIG_VALUE_${index}`], 'false')
+})

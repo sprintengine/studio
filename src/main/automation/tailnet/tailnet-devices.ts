@@ -3,6 +3,7 @@ import { chmodSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 
 import { hashSecret } from './secret-hash'
+import type { TailnetPeerIdentity } from './tailnet-peer-identity'
 import {
   normalizeTailnetScopes,
   PAIR_REQUEST_CODE_ATTEMPTS,
@@ -27,6 +28,9 @@ import { isRecord } from '../../../shared/records'
 // The outstanding pairing OFFER, by contrast, never reaches disk at all: it is
 // in-memory state on this store, so an app restart invalidates an unredeemed
 // pairing rather than leaving one live across a reboot nobody connected it to.
+//
+// Each device is also bound to the tailnet node it was paired from, so the
+// token is not the whole credential: see `verifyPeer` below.
 //
 // That cost is real now that codes run to 30 days rather than 10 minutes: the
 // restart sweep discards live codes far more often than stale ones, and the
@@ -103,6 +107,22 @@ type TailnetPairingOffer = {
   expiresAt: string
 }
 
+/**
+ * The tailnet node a device's token was issued to: Tailscale's stable node id,
+ * with the owner and the name as they were when it was bound, for diagnostics.
+ * Only the id is compared — a node that is renamed, or tagged (which changes
+ * its owner to `tagged-devices`), is still the same machine.
+ */
+type TailnetNodeBinding = {
+  stableNodeId: string
+  loginName: string | null
+  nodeName: string | null
+  boundAt: string
+}
+
+/** What `verifyPeer` answers. Both refusals are a 401: the credential, as presented, is not good. */
+export type TailnetPeerCheck = { ok: true } | { ok: false; code: 'peer_mismatch' | 'peer_unverified'; message: string }
+
 type TailnetPairingResult =
   | { ok: true; device: TailnetDevice; deviceToken: string }
   | {
@@ -151,15 +171,40 @@ export type TailnetDeviceStore = {
    * both-ways pairing, granted by THIS machine to the one it is asking to
    * drive. The token is returned once, to travel inside the collect.
    */
-  mintDevice(input: { name: string; scopes: TailnetScope[]; origin: TailnetDeviceOrigin }): {
+  mintDevice(input: {
+    name: string
+    scopes: TailnetScope[]
+    origin: TailnetDeviceOrigin
+    /** The node that will present the token — the machine being asked, for a reverse grant. */
+    peer?: TailnetPeerIdentity | null
+  }): {
     device: TailnetDevice
     deviceToken: string
   }
   getPairingState(): TailnetPairingState | null
   cancelPairing(): void
-  redeemPairing(input: { token: unknown; deviceName: unknown }): TailnetPairingResult
+  /** `peer` is whois on the redeeming socket; the new device is bound to it. */
+  redeemPairing(input: { token: unknown; deviceName: unknown; peer?: TailnetPeerIdentity | null }): TailnetPairingResult
   /** The device this bearer token belongs to, or null. Reads live state, so a revoke lands on the next call. */
   authenticate(bearerToken: string | null | undefined): TailnetDevice | null
+  /**
+   * Whether an authenticated device may be served to the node calling now.
+   *
+   * The threat is a copied token. A device token is a bearer secret, and it
+   * lives on the other machine — in its mesh file, a phone's keychain, a
+   * backup — where this machine cannot protect it. Hash-only authentication
+   * let a copy drive this machine from ANY node that could reach the port.
+   * Bound, the copy works only from the node the token was issued to; using it
+   * anywhere else also means taking over that node's Tailscale identity.
+   *
+   * A device with a binding is served only when whois names the same stable
+   * node id, and is refused when whois cannot answer (fail closed: a lookup
+   * failure must not be a way around the check). A device paired before
+   * bindings existed has none, and is bound to the first node whois names for
+   * it, then held to it (trust on first use). Moving a device to another
+   * machine is revoke and pair again; there is deliberately no re-bind.
+   */
+  verifyPeer(deviceId: string, peer: TailnetPeerIdentity | null): TailnetPeerCheck
   revokeDevice(deviceId: string): boolean
   /**
    * Replace one device's scope set from THIS keyboard, and persist it.
@@ -189,6 +234,8 @@ export type TailnetDeviceStore = {
     deviceName: unknown
     peerNode: string | null
     peerAddress: string
+    /** whois on the asking socket; an approval binds the device to it. Never on the wire. */
+    peer?: TailnetPeerIdentity | null
     /** SHA-256 of the secret the asker must present to collect. */
     collectHash: unknown
     /**
@@ -223,11 +270,13 @@ export type TailnetDeviceStore = {
   /**
    * What the requester polls. Yields the device token to exactly one call, and
    * only to a caller presenting the secret whose hash the request carried.
+   * `peer` is whois on the collecting socket: it binds a device the ask could
+   * not, and a collect from a node other than the one bound is not answered.
    */
-  collectPairRequest(id: string, collectSecret: string): TailnetCollectOutcome
+  collectPairRequest(id: string, collectSecret: string, peer?: TailnetPeerIdentity | null): TailnetCollectOutcome
 }
 
-type StoredDevice = TailnetDevice & { tokenHash: string }
+type StoredDevice = TailnetDevice & { tokenHash: string; node: TailnetNodeBinding | null }
 
 export function createTailnetDeviceStore(options: {
   resolveUserDataDir: () => string
@@ -264,7 +313,13 @@ export function createTailnetDeviceStore(options: {
     | { kind: 'denied' }
   const pairRequests = new Map<
     string,
-    { request: TailnetPairRequest; collectHash: string; state: PendingState; codeAttempts: number }
+    {
+      request: TailnetPairRequest
+      collectHash: string
+      state: PendingState
+      codeAttempts: number
+      peer: TailnetPeerIdentity | null
+    }
   >()
   const deniedPeers = new Map<string, number>()
 
@@ -281,6 +336,7 @@ export function createTailnetDeviceStore(options: {
     name: string,
     scopes: TailnetScope[],
     origin: TailnetDeviceOrigin,
+    peer: TailnetPeerIdentity | null,
   ): { device: TailnetDevice; deviceToken: string } {
     const deviceToken = `mctn_${randomBytes(32).toString('base64url')}`
     const stored: StoredDevice = {
@@ -292,6 +348,8 @@ export function createTailnetDeviceStore(options: {
       lastPeerNode: null,
       origin: { kind: origin.kind, by: origin.by ? origin.by.slice(0, 120) : null },
       tokenHash: hashSecret(deviceToken),
+      // Unbound when whois could not name the node; bound on first use then.
+      node: bindingFor(peer, now()),
     }
     devices = [...devices, stored]
     persist()
@@ -344,7 +402,7 @@ export function createTailnetDeviceStore(options: {
 
     mintDevice(input): { device: TailnetDevice; deviceToken: string } {
       const name = input.name.trim().slice(0, 120) || 'Unnamed machine'
-      return mintDevice(name, input.scopes, input.origin)
+      return mintDevice(name, input.scopes, input.origin, input.peer ?? null)
     },
 
     getPairingState: () =>
@@ -391,7 +449,7 @@ export function createTailnetDeviceStore(options: {
       // One-time by construction: the offer is consumed whether or not the
       // persist below succeeds, so a failed write cannot leave a live code.
       pairing = null
-      const minted = mintDevice(name, scopes, origin)
+      const minted = mintDevice(name, scopes, origin, input.peer ?? null)
       return { ok: true, device: minted.device, deviceToken: minted.deviceToken }
     },
 
@@ -402,6 +460,32 @@ export function createTailnetDeviceStore(options: {
         if (secretsMatch(presented, device.tokenHash)) return publicDevice(device)
       }
       return null
+    },
+
+    verifyPeer(deviceId, peer): TailnetPeerCheck {
+      const device = devices.find((candidate) => candidate.id === deviceId)
+      const presented = peer?.stableNodeId ?? null
+      if (!device) return { ok: false, code: 'peer_unverified', message: PEER_UNVERIFIED_MESSAGE }
+      if (device.node) {
+        if (!presented) return { ok: false, code: 'peer_unverified', message: PEER_UNVERIFIED_MESSAGE }
+        if (!secretsMatch(presented, device.node.stableNodeId)) {
+          return { ok: false, code: 'peer_mismatch', message: PEER_MISMATCH_MESSAGE }
+        }
+        return { ok: true }
+      }
+      // Unbound: paired before bindings, or while whois could not answer. With
+      // nothing to bind to it is served as it always was; the first call whois
+      // can name binds it for good.
+      if (!presented) return { ok: true }
+      device.node = bindingFor(peer, now())
+      try {
+        persist()
+      } catch (error) {
+        // Held in memory for this run regardless. A binding that did not reach
+        // disk is made again on the next launch's first call.
+        options.log?.(`Tailnet device binding write failed: ${message(error)}`)
+      }
+      return { ok: true }
     },
 
     revokeDevice(deviceId): boolean {
@@ -524,7 +608,13 @@ export function createTailnetDeviceStore(options: {
         expiresAt: new Date(nowMs + pairRequestTtlMs).toISOString(),
         requestedScopes: readRequestedScopes(input.requestedScopes),
       }
-      pairRequests.set(request.id, { request, collectHash, state: { kind: 'pending' }, codeAttempts: 0 })
+      pairRequests.set(request.id, {
+        request,
+        collectHash,
+        state: { kind: 'pending' },
+        codeAttempts: 0,
+        peer: input.peer ?? null,
+      })
       return { ok: true, request }
     },
 
@@ -602,14 +692,19 @@ export function createTailnetDeviceStore(options: {
       // grants. An empty tick-list is a real answer — a device with no scopes
       // can authenticate and call nothing.
       const scopes = normalizeTailnetScopes(input.scopes)
-      const minted = mintDevice(entry.request.deviceName, scopes, {
-        kind: 'approval',
-        by: entry.request.peerNode ?? entry.request.peerAddress ?? null,
-      })
+      // Bound to the node that ASKED, as whois saw the request arrive: that is
+      // the machine the person here just agreed to let in.
+      const minted = mintDevice(
+        entry.request.deviceName,
+        scopes,
+        { kind: 'approval', by: entry.request.peerNode ?? entry.request.peerAddress ?? null },
+        entry.peer,
+      )
       pairRequests.set(input.id, {
         request: entry.request,
         collectHash: entry.collectHash,
         codeAttempts: entry.codeAttempts,
+        peer: entry.peer,
         state: {
           kind: 'approved',
           deviceId: minted.device.id,
@@ -631,7 +726,7 @@ export function createTailnetDeviceStore(options: {
       return true
     },
 
-    collectPairRequest(id, collectSecret): TailnetCollectOutcome {
+    collectPairRequest(id, collectSecret, peer): TailnetCollectOutcome {
       prunePairRequests()
       const entry = pairRequests.get(id)
       // An unknown id reports expired rather than getting an answer of its own:
@@ -655,6 +750,25 @@ export function createTailnetDeviceStore(options: {
       // Approved: the token goes to this one call and the record goes with it,
       // so a second poll — or anyone replaying the id — gets nothing.
       const { deviceId, deviceName, deviceToken, scopes } = entry.state
+      const device = devices.find((candidate) => candidate.id === deviceId)
+      const collector = peer?.stableNodeId ?? null
+      if (device?.node && collector && !secretsMatch(collector, device.node.stableNodeId)) {
+        // Another node holding the secret. The token would be refused from
+        // there anyway; not handing it over keeps it where it was meant to go,
+        // and — as with a wrong secret — the asker can still collect.
+        options.log?.(`Tailnet pair request ${id} was collected from a different node than asked; not answered.`)
+        return { status: 'expired' }
+      }
+      if (device && !device.node && collector) {
+        // The ask could not be named by whois; the machine collecting the token
+        // is the one that will present it.
+        device.node = bindingFor(peer ?? null, now())
+        try {
+          persist()
+        } catch (error) {
+          options.log?.(`Tailnet device binding write failed: ${message(error)}`)
+        }
+      }
       pairRequests.delete(id)
       return {
         status: 'approved',
@@ -685,6 +799,22 @@ function readRequestedScopes(value: unknown): TailnetScope[] {
   if (value === undefined || value === null) return [...TAILNET_LEGACY_REQUEST_SCOPES]
   const named = normalizeTailnetScopes(value)
   return named.length > 0 ? named : [...TAILNET_LEGACY_REQUEST_SCOPES]
+}
+
+const PEER_MISMATCH_MESSAGE =
+  'This device token was issued to a different machine on the tailnet, so it is not accepted from this one. Pair this machine in Settings → Remote.'
+const PEER_UNVERIFIED_MESSAGE =
+  'This machine could not confirm through Tailscale which machine is calling, so the paired device token is not accepted. Check that Tailscale is running on both machines and try again.'
+
+/** A binding for what whois said, or null when it named no stable node. */
+function bindingFor(peer: TailnetPeerIdentity | null, at: Date): TailnetNodeBinding | null {
+  if (!peer?.stableNodeId) return null
+  return {
+    stableNodeId: peer.stableNodeId,
+    loginName: peer.loginName,
+    nodeName: peer.name,
+    boundAt: at.toISOString(),
+  }
 }
 
 function publicDevice(device: StoredDevice | TailnetDevice): TailnetDevice {
@@ -747,6 +877,23 @@ function normalizeStored(value: StoredDevice): StoredDevice {
     // one: "unknown" is a true statement about it and "code" would not be.
     origin: readOrigin(value.origin),
     tokenHash: value.tokenHash,
+    // A record from before bindings has none, and is bound on first use.
+    node: readBinding(value.node),
+  }
+}
+
+/**
+ * A stored binding, or null. One that is present but unreadable is also null,
+ * which re-binds on first use — the same trust a device from before bindings
+ * gets, and never a device that can no longer be served at all.
+ */
+function readBinding(value: unknown): TailnetNodeBinding | null {
+  if (!isRecord(value) || typeof value.stableNodeId !== 'string' || !value.stableNodeId) return null
+  return {
+    stableNodeId: value.stableNodeId,
+    loginName: typeof value.loginName === 'string' ? value.loginName : null,
+    nodeName: typeof value.nodeName === 'string' ? value.nodeName : null,
+    boundAt: typeof value.boundAt === 'string' ? value.boundAt : '',
   }
 }
 

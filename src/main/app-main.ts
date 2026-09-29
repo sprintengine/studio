@@ -5,7 +5,6 @@ import { parseAuthCallbackFromArgv } from './auth-service'
 import { registerAppLifecycle } from './app-lifecycle'
 import { createAppServices } from './app-services'
 import { ensureExtensionFolders } from './extension-folders'
-import { readTrustedMarketplacePublisherFingerprintsSync } from './marketplace/trusted-publishers'
 import type { ModuleEnablementLiveApplier } from './ipc/module-enablement-ipc'
 import { activeForChannel } from '../shared/modules/dev-only'
 import { resolveModuleEnablement } from '../shared/modules/resolve'
@@ -20,7 +19,7 @@ import {
   type AutomationProviderPermissionChecker,
 } from './automations/provider-registry'
 import { isLoadEligible, type ModuleTrustContext } from './modules/module-signature'
-import { readTrustedModulesSync } from './modules/trust-store'
+import { readModuleTrustContextSync } from './modules/trust-context'
 import { planThirdPartyMainModules, recordThirdPartyMainLaunchReport } from './modules/third-party-main-loader'
 import { pathToFileURL } from 'node:url'
 import { join } from 'node:path'
@@ -266,10 +265,7 @@ function readModuleEnablementOverrides(): Record<string, boolean> {
 }
 
 function readModuleTrustContext(): ModuleTrustContext {
-  return {
-    trustedModules: readTrustedModulesSync(app.getPath('userData')),
-    trustedKeyFingerprints: readTrustedMarketplacePublisherFingerprintsSync(),
-  }
+  return readModuleTrustContextSync(app.getPath('userData'))
 }
 
 function checkAutomationProviderPermission(

@@ -33,6 +33,7 @@ import { CANVAS_MODULE_DEFAULT_ENABLED } from '../shared/modules/manifest'
 import { createTailnetNotifier } from './tailnet-notifications'
 import { revealMainWindow } from './window-factory'
 import { createAutomationTools } from './automation/automation-tools'
+import { createAgentPermissionResolver } from './automation/launch-permission-cap'
 import { createTailnetTools, type TailnetToolsFrontDoor } from './automation/tailnet/tailnet-tools'
 import { createStudioGatewayTools } from './automation/studio-gateway-tools'
 import type { McpToolContribution } from './module-host/main-host'
@@ -40,9 +41,8 @@ import { createDefaultMarketplaceRegistryClient } from './ipc/marketplace-regist
 import { toThirdPartyModuleView } from './ipc/third-party-module-ipc'
 import { getGitRepoWatch } from './ipc/git-repo-watch-ipc'
 import { resolveCheckoutForCwd } from './checkout-resolve'
-import { readTrustedMarketplacePublisherFingerprintsSync } from './marketplace/trusted-publishers'
 import { createModuleRegistryMirror } from './modules/registry-mirror'
-import { readTrustedModulesSync } from './modules/trust-store'
+import { readModuleTrustContextSync } from './modules/trust-context'
 import { defaultUserModuleRoot, discoverUserModules } from './modules/user-module-registry'
 import { AutomationsStore } from './automations/store'
 import type { AutomationsAppFrontDoor } from './ipc/automations-ipc'
@@ -1389,6 +1389,29 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
   })
 
+  // What an agent of this app is running on now, for the gateway's launch cap:
+  // an agent may start agents only at its own preset or stricter.
+  const resolveAgentPermissionPreset = createAgentPermissionResolver({
+    listConversationSessions: (agentId) => {
+      const listed = conversationRuntime.listSessions({ agentId })
+      return listed.ok ? listed.sessions : []
+    },
+    // The live session objects, not `listTerminals()` snapshots: only four
+    // fields are read, and a snapshot of every session is not cheap.
+    listTerminalSessions: () =>
+      listLiveTerminalSessions().map((session) => ({
+        kind: session.kind,
+        workspaceId: session.workspaceId,
+        agentId: session.agentId,
+        processAlive: isTerminalProcessAlive(session),
+        agentRecord: session.agentRecord,
+      })),
+    readAgentRecordPreset: (workspaceId, agentId) => {
+      const agent = workspaceRegistry.getRecord(workspaceId)?.agents[agentId]
+      return agent ? { found: true, preset: agent.cliPermissionPreset } : { found: false }
+    },
+  })
+
   // Instance-global SprintEngine Studio MCP surface: reads come from the
   // workspace-sync snapshot and terminal runtime, and mutations go straight to
   // the main services that own them — one lane, no window required.
@@ -1496,11 +1519,15 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           hasWorkspace: (workspaceId) =>
             workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
         }),
-        ...createConversationTools({ launch: (request) => conversationLaunchService.launch(request) }),
+        ...createConversationTools({
+          launch: (request) => conversationLaunchService.launch(request),
+          resolveAgentPermissionPreset,
+        }),
         ...createAutomationTools({
           getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
           listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
           launchAgent: (request) => agentLaunchService.launch(request),
+          resolveAgentPermissionPreset,
           createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
           listBacklogItems: (workspaceRoot) => listBacklogItems(workspaceRoot),
           readBacklogItem: (workspaceRoot, relativePath) => readBacklogItem(workspaceRoot, relativePath),
@@ -1670,10 +1697,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           // same client the Extensions storefront's IPC uses, cache included.
           getModuleRegistrySnapshot: () => moduleRegistryMirror.read(),
           listInstalledThirdPartyModules: async () => {
-            const { modules, rejected } = await discoverUserModules(defaultUserModuleRoot(), {
-              trustedModules: readTrustedModulesSync(app.getPath('userData')),
-              trustedKeyFingerprints: readTrustedMarketplacePublisherFingerprintsSync(),
-            })
+            const { modules, rejected } = await discoverUserModules(
+              defaultUserModuleRoot(),
+              readModuleTrustContextSync(app.getPath('userData')),
+            )
             return { modules: modules.map((module) => toThirdPartyModuleView(module)), rejected }
           },
           listModuleContributedTools: () =>

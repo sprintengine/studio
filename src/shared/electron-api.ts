@@ -123,6 +123,8 @@ import type {
   MeshConversationListResult,
 } from './tailnet-mesh'
 import type {
+  AutomationsApproveInput,
+  AutomationsApproveResult,
   AutomationsBuiltinInstallInput,
   AutomationsBuiltinInstallResult,
   AutomationsBuiltinListResult,
@@ -135,6 +137,7 @@ import type {
   AutomationsListResult,
   AutomationsProvidersResult,
   AutomationsDefinitionsChangedEvent,
+  AutomationsRevokeApprovalResult,
   AutomationsRunEvent,
   AutomationsRunFinalizeInput,
   AutomationsRunFinalizeResult,
@@ -861,6 +864,14 @@ export type ElectronApi = {
   updateAutomation: (input: AutomationsUpdateInput) => Promise<AutomationsDefinitionResult>
   deleteAutomation: (input: AutomationsDefinitionInput) => Promise<AutomationsDeleteResult>
   runAutomationNow: (input: AutomationsDefinitionInput) => Promise<AutomationsRunNowResult>
+  /**
+   * The review's Allow: approve automations this machine did not write, each
+   * pinned to the fingerprint the review showed. Main re-reads and approves its
+   * own hash; one that changed since it was shown is reported, not approved.
+   */
+  approveAutomations: (input: AutomationsApproveInput) => Promise<AutomationsApproveResult>
+  /** Take an approval back: the automation asks again before it next runs. */
+  revokeAutomationApproval: (input: AutomationsDefinitionInput) => Promise<AutomationsRevokeApprovalResult>
   listAutomationRuns: (input: AutomationsRunsListInput) => Promise<AutomationsRunsListResult>
   finalizeAutomationRun: (input: AutomationsRunFinalizeInput) => Promise<AutomationsRunFinalizeResult>
   listAutomationProviders: () => Promise<AutomationsProvidersResult>

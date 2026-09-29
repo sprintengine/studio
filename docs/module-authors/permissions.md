@@ -78,8 +78,9 @@ external-URL opening) sit outside every tier today; only the legacy
   another module's and never the user's own agents.
 - Declaring less than you use is a trust violation users can hold against your
   publisher key; signature verification binds your manifest (including
-  `permissions`) to the signed content, so changing declared access requires
-  re-signing and re-trusting.
+  `permissions`, and the `files` digests of your code) to the signed content, so
+  changing declared access or shipped code requires re-signing and
+  re-trusting.
 
 ## Example
 

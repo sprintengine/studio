@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { cp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
@@ -115,6 +116,35 @@ export async function readMarketplacePluginInstallReceipts(
   const store = await loadInstallStore(receiptStorePath)
   if (!store.ok) return store
   return { ok: true, receipts: Object.values(store.store.plugins) }
+}
+
+// The modules a verified install put in place, by id, to the content
+// fingerprint of what it installed (`manifestFp` on the receipt: the manifest
+// together with the digest of every file). A verified bundle is signed by a
+// trusted publisher and signs every file of its module component, so these are
+// digests the install verified, not ones it merely observed; module trust
+// holds a module's files to them at every discovery (ModuleTrustContext's
+// `verifiedModuleInstalls`). A receipt from before the fingerprint covered the
+// files carries a manifest-only fingerprint, which no folder matches, so that
+// module waits for a reinstall rather than being trusted on its manifest.
+// Sync, because discovery at launch is. An unreadable store vouches for nothing.
+export function readVerifiedModuleInstallsSync(receiptStorePath: string): Map<string, string> {
+  const installs = new Map<string, string>()
+  let store: MarketplacePluginInstallStore
+  try {
+    store = validateInstallStore(JSON.parse(readFileSync(receiptStorePath, 'utf8')))
+  } catch {
+    return installs
+  }
+  for (const receipt of Object.values(store.plugins)) {
+    if (receipt.classification !== 'verified') continue
+    for (const component of receipt.components) {
+      if (component.kind === 'module' && component.trustStatus === 'trusted' && component.manifestFp) {
+        installs.set(component.id, component.manifestFp)
+      }
+    }
+  }
+  return installs
 }
 
 async function installOrUpdateMarketplacePlugin(

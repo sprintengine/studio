@@ -8,12 +8,13 @@ import type { TailnetScope } from '../../shared/tailnet'
 import type { MeshEvent } from '../../shared/tailnet-mesh'
 import { createTailnetDeviceStore, type TailnetDeviceStore } from './tailnet/tailnet-devices'
 import { createTailnetMeshService, type TailnetMeshService } from './tailnet/tailnet-mesh-service'
-import { TAILNET_MESH_FILENAME } from './tailnet/tailnet-mesh-store'
+import { createTailnetMeshStore, TAILNET_MESH_FILENAME } from './tailnet/tailnet-mesh-store'
 import { createTailnetGatewayServer, type TailnetGatewayServer } from './tailnet/tailnet-gateway-server'
 import { createTailnetPeerResolver } from './tailnet/tailnet-peer-identity'
 import { pairingUrl } from './tailnet/tailnet-service'
 import { parseTailnetEndpoint } from './tailnet/tailnet-remote-client'
 import { test } from 'vitest'
+import { createSafeStorageStandIn } from '../../../tests/stubs/safe-storage'
 
 test('tailnet-mesh', async () => {
   // The Mesh client: this Studio driving another machine.
@@ -68,6 +69,9 @@ test('tailnet-mesh', async () => {
     const localDevices = createTailnetDeviceStore({ resolveUserDataDir: () => localDir })
     const mesh = createTailnetMeshService({
       resolveUserDataDir: () => localDir,
+      // A stand-in keychain, so the credential file is written the way the app
+      // writes it: sealed, never as plaintext.
+      createStore: (options) => createTailnetMeshStore({ ...options, safeStorage: createSafeStorageStandIn() }),
       resolveDeviceName: () => 'laptop',
       // No Tailscale in a test, so no name: the machine is listed by address, and
       // the point is that this degrades rather than blocking the pairing.
@@ -186,8 +190,11 @@ test('tailnet-mesh', async () => {
       assert.equal('deviceToken' in listed[0], false)
 
       const storePath = join(harness.localDir, TAILNET_MESH_FILENAME)
-      const stored = JSON.parse(readFileSync(storePath, 'utf8')) as { connections: Array<{ deviceToken: string }> }
-      assert.equal(typeof stored.connections[0].deviceToken, 'string')
+      const raw = readFileSync(storePath, 'utf8')
+      const stored = JSON.parse(raw) as { connections: Array<{ deviceId: string; sealedToken: string }> }
+      assert.equal(typeof stored.connections[0].sealedToken, 'string')
+      assert.equal('deviceToken' in stored.connections[0], false, 'the credential is sealed, never plaintext')
+      assert.doesNotMatch(raw, /mctn_/u)
       if (process.platform !== 'win32') {
         assert.equal(statSync(storePath).mode & 0o777, 0o600, 'the credential file is owner-only')
       }

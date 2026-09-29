@@ -1,6 +1,6 @@
-import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync } from 'fs'
+import { chmodSync, existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { randomBytes } from 'crypto'
+import { randomBytes, randomUUID } from 'crypto'
 
 import { normalizeTailnetScopes, type TailnetScope } from '../../../shared/tailnet'
 import type { MeshConnection } from '../../../shared/tailnet-mesh'
@@ -10,13 +10,22 @@ import { isRecord } from '../../../shared/records'
 //
 // The mirror image of `tailnet-devices.ts`, and deliberately not the same file:
 // that one stores hashes of credentials other machines present to us, which is
-// all a verifier needs. This one stores credentials we present elsewhere, which
-// must survive as plaintext because there is nothing else to send. Mode 0600,
-// same as the device store and the bridge's token file.
+// all a verifier needs. This one stores credentials we present elsewhere, so
+// the token itself has to come back — but only in this process, just before it
+// is sent. On disk each token is sealed with Electron's `safeStorage` (the OS
+// keychain), the way the provider secrets and the sign-in refresh token are.
+// A file that any process running as this user can read would otherwise hand
+// that process every machine this one is paired with.
 //
-// A person can end that risk from either end: forget the connection here, or
-// revoke the device on the machine that issued it. Revocation lands on our very
-// next request, so the stored token becomes inert without us being told.
+// When the OS cannot encrypt, this matches those stores too: the token is kept
+// in memory for the session and never written, so a pairing made then does not
+// survive a restart. A plaintext token never reaches the disk from here.
+//
+// The file is still mode 0600 and replaced by a rename, so a reader never sees
+// half of it. A person can end the remaining risk from either end: forget the
+// connection here, or revoke the device on the machine that issued it.
+// Revocation lands on our very next request, so the stored token becomes inert
+// without us being told.
 
 export const TAILNET_MESH_FILENAME = 'tailnet-mesh-connections.json'
 /**
@@ -28,6 +37,23 @@ export const LEGACY_TAILNET_MESH_FILENAME = 'tailnet-fleet-connections.json'
 
 /** A stored connection, with the credential the public view omits. */
 export type StoredMeshConnection = MeshConnection & { deviceToken: string }
+
+/** The slice of Electron's `safeStorage` this store uses; injected in tests. */
+export type MeshTokenCipher = {
+  isEncryptionAvailable(): boolean
+  encryptString(value: string): Buffer
+  decryptString(value: Buffer): string
+}
+
+/**
+ * The file format. 2 seals each token (`sealedToken`, base64 of the
+ * `safeStorage` ciphertext); 1 held it as plaintext and is rewritten as 2 the
+ * first time it is read.
+ */
+const MESH_FILE_VERSION = 2
+
+/** In memory: the token for use, and its ciphertext so a rewrite need not ask the keychain again. */
+type MeshEntry = StoredMeshConnection & { sealedToken: string | null }
 
 export type TailnetMeshStore = {
   /** Public view: no tokens. This is what IPC returns. */
@@ -51,16 +77,45 @@ export type TailnetMeshStore = {
 
 export function createTailnetMeshStore(options: {
   resolveUserDataDir: () => string
+  /** Production reads Electron's `safeStorage`; tests inject a stand-in. */
+  safeStorage?: MeshTokenCipher | null
   now?: () => Date
   log?: (message: string) => void
 }): TailnetMeshStore {
   const now = options.now ?? (() => new Date())
-  let connections: StoredMeshConnection[] = read(options.resolveUserDataDir(), options.log)
+  const cipher = options.safeStorage === undefined ? loadSafeStorage() : options.safeStorage
+  const loaded = read(options.resolveUserDataDir(), cipher, options.log)
+  let connections: MeshEntry[] = loaded.connections
+  // Sealed records this session could not open (the keychain said no, or is
+  // not there yet). They are written back exactly as read: a launch without
+  // the keychain must not delete pairings a later launch can still open.
+  const unopened = loaded.unopened
+
+  function encryptionAvailable(): boolean {
+    try {
+      return cipher?.isEncryptionAvailable() === true
+    } catch {
+      return false
+    }
+  }
+
+  function seal(entry: MeshEntry): string | null {
+    if (entry.sealedToken) return entry.sealedToken
+    if (!cipher || !encryptionAvailable()) return null
+    entry.sealedToken = cipher.encryptString(entry.deviceToken).toString('base64')
+    return entry.sealedToken
+  }
 
   function persist(): void {
     const path = join(options.resolveUserDataDir(), TAILNET_MESH_FILENAME)
-    writeFileSync(path, `${JSON.stringify({ version: 1, connections }, null, 2)}\n`, { mode: 0o600 })
-    if (process.platform !== 'win32') chmodSync(path, 0o600)
+    // A connection whose token cannot be sealed is left out of the file
+    // entirely: session-only, the way the other secret stores fall back.
+    const onDisk = connections.flatMap((entry) => {
+      const sealedToken = seal(entry)
+      return sealedToken ? [{ ...publicConnection(entry), sealedToken }] : []
+    })
+    const body = `${JSON.stringify({ version: MESH_FILE_VERSION, connections: [...onDisk, ...unopened] }, null, 2)}\n`
+    replaceFileAtomically(path, body)
   }
 
   function safePersist(context: string): void {
@@ -73,13 +128,32 @@ export function createTailnetMeshStore(options: {
     }
   }
 
+  if (loaded.plaintextRead) {
+    // The first read of a file written before tokens were sealed: rewrite it
+    // now rather than at the next change, so the plaintext does not sit there
+    // until something happens to be edited.
+    try {
+      persist()
+      if (!encryptionAvailable()) {
+        options.log?.(
+          `This system cannot encrypt secrets, so the tokens for ${connections.length} paired machine(s) were removed from ${TAILNET_MESH_FILENAME}. They work until the app quits; pair those machines again after that.`,
+        )
+      }
+    } catch (error) {
+      options.log?.(`Could not rewrite ${TAILNET_MESH_FILENAME} with sealed tokens: ${message(error)}`)
+    }
+  }
+
   return {
     list: () => connections.map(publicConnection),
 
-    find: (connectionId) => connections.find((entry) => entry.id === connectionId) ?? null,
+    find: (connectionId) => {
+      const entry = connections.find((candidate) => candidate.id === connectionId)
+      return entry ? { ...publicConnection(entry), deviceToken: entry.deviceToken } : null
+    },
 
     add(input): MeshConnection {
-      const stored: StoredMeshConnection = {
+      const stored: MeshEntry = {
         id: `tnc_${randomBytes(9).toString('base64url')}`,
         machineName: input.machineName.slice(0, 120),
         endpoint: input.endpoint,
@@ -90,6 +164,7 @@ export function createTailnetMeshStore(options: {
         lastConnectedAt: null,
         pairedVia: input.pairedVia,
         deviceToken: input.deviceToken,
+        sealedToken: null,
       }
       // Pairing twice with the same machine issues a SECOND device over there,
       // so both records are real and both are listed. Silently replacing the
@@ -102,6 +177,11 @@ export function createTailnetMeshStore(options: {
         // cannot persist is a pairing that will not survive a restart, so the
         // failure must reach the caller.
         persist()
+        if (!stored.sealedToken) {
+          options.log?.(
+            `This system cannot encrypt secrets, so the pairing with ${stored.machineName} lasts until the app quits.`,
+          )
+        }
       } catch (error) {
         // And it must not leave a connection listed that the next launch will
         // not have — the caller tells the person to revoke and pair again, and a
@@ -138,7 +218,7 @@ export function createTailnetMeshStore(options: {
   }
 }
 
-function publicConnection(entry: StoredMeshConnection): MeshConnection {
+function publicConnection(entry: MeshConnection): MeshConnection {
   return {
     id: entry.id,
     machineName: entry.machineName,
@@ -156,7 +236,15 @@ function sameScopes(left: readonly TailnetScope[], right: readonly TailnetScope[
   return left.length === right.length && left.every((scope, index) => scope === right[index])
 }
 
-function read(userDataDir: string, log?: (message: string) => void): StoredMeshConnection[] {
+type ReadResult = {
+  connections: MeshEntry[]
+  unopened: Record<string, unknown>[]
+  /** A token was read as plaintext, so the file must be rewritten sealed. */
+  plaintextRead: boolean
+}
+
+function read(userDataDir: string, cipher: MeshTokenCipher | null, log?: (message: string) => void): ReadResult {
+  const empty: ReadResult = { connections: [], unopened: [], plaintextRead: false }
   const path = migrateLegacyFile(userDataDir, log)
   let raw: string
   try {
@@ -164,17 +252,44 @@ function read(userDataDir: string, log?: (message: string) => void): StoredMeshC
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code
     if (code !== 'ENOENT') log?.(`Could not read ${TAILNET_MESH_FILENAME}: ${message(error)}`)
-    return []
+    return empty
   }
+  let entries: unknown[]
   try {
     const parsed: unknown = JSON.parse(raw)
-    const entries = isRecord(parsed) && Array.isArray(parsed.connections) ? parsed.connections : []
-    // A half-readable entry is dropped rather than repaired: a connection with a
-    // guessed endpoint would send this machine's credential somewhere nobody chose.
-    return entries.flatMap((entry) => (isStored(entry) ? [normalize(entry)] : []))
+    entries = isRecord(parsed) && Array.isArray(parsed.connections) ? parsed.connections : []
   } catch (error) {
     log?.(`${TAILNET_MESH_FILENAME} is not valid JSON (${message(error)}); no machine is paired until it is fixed.`)
-    return []
+    return empty
+  }
+  const result: ReadResult = { connections: [], unopened: [], plaintextRead: false }
+  for (const entry of entries) {
+    // A half-readable entry is dropped rather than repaired: a connection with a
+    // guessed endpoint would send this machine's credential somewhere nobody chose.
+    if (!isRecord(entry) || !hasConnectionFields(entry)) continue
+    if (typeof entry.sealedToken === 'string' && entry.sealedToken.length > 0) {
+      const token = openToken(entry.sealedToken, cipher, log)
+      if (token === null) result.unopened.push(entry)
+      else result.connections.push(normalize(entry, token, entry.sealedToken))
+      continue
+    }
+    if (typeof entry.deviceToken === 'string' && entry.deviceToken.length > 0) {
+      result.plaintextRead = true
+      result.connections.push(normalize(entry, entry.deviceToken, null))
+    }
+  }
+  return result
+}
+
+/** The token inside a sealed record, or null when this session cannot open it. */
+function openToken(sealed: string, cipher: MeshTokenCipher | null, log?: (message: string) => void): string | null {
+  try {
+    if (!cipher || !cipher.isEncryptionAvailable()) return null
+    const token = cipher.decryptString(Buffer.from(sealed, 'base64'))
+    return token.length > 0 ? token : null
+  } catch (error) {
+    log?.(`Could not open a sealed token in ${TAILNET_MESH_FILENAME}; it is kept for a later launch: ${message(error)}`)
+    return null
   }
 }
 
@@ -196,34 +311,68 @@ function migrateLegacyFile(userDataDir: string, log?: (message: string) => void)
   }
 }
 
-function isStored(value: unknown): value is StoredMeshConnection {
+function hasConnectionFields(value: Record<string, unknown>): boolean {
   return (
-    isRecord(value) &&
     typeof value.id === 'string' &&
     value.id.length > 0 &&
     typeof value.endpoint === 'string' &&
     value.endpoint.length > 0 &&
-    typeof value.deviceToken === 'string' &&
-    value.deviceToken.length > 0 &&
     typeof value.deviceId === 'string' &&
     typeof value.pairedAt === 'string'
   )
 }
 
-function normalize(value: StoredMeshConnection): StoredMeshConnection {
+function normalize(value: Record<string, unknown>, deviceToken: string, sealedToken: string | null): MeshEntry {
+  const endpoint = value.endpoint as string
   return {
-    id: value.id,
+    id: value.id as string,
     machineName:
-      typeof value.machineName === 'string' && value.machineName ? value.machineName.slice(0, 120) : value.endpoint,
-    endpoint: value.endpoint,
-    deviceId: value.deviceId,
+      typeof value.machineName === 'string' && value.machineName ? value.machineName.slice(0, 120) : endpoint,
+    endpoint,
+    deviceId: value.deviceId as string,
     deviceName: typeof value.deviceName === 'string' ? value.deviceName.slice(0, 120) : '',
     scopes: normalizeTailnetScopes(value.scopes),
-    pairedAt: value.pairedAt,
+    pairedAt: value.pairedAt as string,
     lastConnectedAt: typeof value.lastConnectedAt === 'string' ? value.lastConnectedAt : null,
     // A record from before this was kept says so rather than guessing a path.
     pairedVia: readPairedVia(value.pairedVia),
-    deviceToken: value.deviceToken,
+    deviceToken,
+    sealedToken,
+  }
+}
+
+/**
+ * Replace the file through a temporary one and a rename, so a crash mid-write
+ * leaves the old file or the new one and never a truncated list of pairings.
+ * The temporary is created 0600, so no token is readable for even a moment.
+ */
+function replaceFileAtomically(path: string, body: string): void {
+  const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`
+  try {
+    writeFileSync(temporary, body, { encoding: 'utf8', mode: 0o600 })
+    if (process.platform !== 'win32') chmodSync(temporary, 0o600)
+    renameSync(temporary, path)
+  } catch (error) {
+    try {
+      unlinkSync(temporary)
+    } catch {
+      // Nothing was left behind, or nothing more can be done about it.
+    }
+    throw error
+  }
+}
+
+/**
+ * Electron's `safeStorage`, or null outside Electron. Loaded lazily, as the
+ * other secret stores do, so this module stays importable in plain Node; null
+ * reads as "cannot encrypt", which keeps tokens in memory only.
+ */
+function loadSafeStorage(): MeshTokenCipher | null {
+  try {
+    const electron = require('electron') as { safeStorage?: MeshTokenCipher } | string
+    return typeof electron === 'object' && electron.safeStorage ? electron.safeStorage : null
+  } catch {
+    return null
   }
 }
 

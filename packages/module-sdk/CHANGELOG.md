@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **A signed manifest signs the module's code: `files`.** `CapabilityManifest`
+  gains `files?: ModuleFileDigests`, a map of every file the module ships
+  (POSIX path relative to the module root → lowercase sha256 hex, manifest.json
+  aside). `sprintengine-module sign` now records it before signing, so the
+  signature covers the code as well as the declaration; `verify` and `pack`
+  fail when the folder no longer matches it exactly. New exports:
+  `ModuleFileDigests`, `validateModuleFileDigests`, `compareModuleFileDigests`
+  and `isPackExcludedPath` from the root; `computeModuleFileDigestsSync` and
+  `moduleFileDigestIssuesSync` from `./signing`. The field joins the canonical
+  payload only when present, so a signature over a manifest without it still
+  verifies byte for byte — but the app no longer trusts such a module through
+  its publisher key or a user's grant, and a manifest whose `files` do not
+  match is refused as tampered. **Sign existing modules again** to keep them
+  trusted.
+  `MarketplacePluginAuthoringManifest` omits `files`: a bundle's digests live
+  per component.
+
 - **`LifecycleGlyph` takes an optional `style`.** Inline overrides on the
   glyph's `<svg>` — the host's `StatusDot` now draws a lifecycle shape in its
   tone's ink and size through it. Additive: a glyph without one is unchanged.

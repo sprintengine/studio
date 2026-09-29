@@ -30,6 +30,7 @@ import {
   WEBHOOK_SIGNATURE_HEADER,
   WEBHOOK_TRIGGER_KIND,
 } from './triggers/webhook'
+import { everyAutomationApproved } from '../../../tests/automation-approvals'
 import { test } from 'vitest'
 
 test('engine', async () => {
@@ -356,6 +357,7 @@ test('engine', async () => {
 
     let runs = 0
     const engine = new AutomationsEngine({
+      approvals: everyAutomationApproved,
       getProjectFolders: () => [{ workspaceId: 'ws-at-once', folderPath: root }],
       now: () => now,
       createRunId: () => `run-at-${runs}`,
@@ -390,6 +392,7 @@ test('engine', async () => {
     const root = await createWorkspace()
     let runs = 0
     const engine = new AutomationsEngine({
+      approvals: everyAutomationApproved,
       getProjectFolders: () => [{ workspaceId: 'ws-installed', folderPath: root }],
       now: () => now,
       createRunId: () => 'run-installed',
@@ -454,6 +457,7 @@ test('engine', async () => {
 
     let runs = 0
     const engine = new AutomationsEngine({
+      approvals: everyAutomationApproved,
       getProjectFolders: () => [{ workspaceId: 'ws-at-past', folderPath: root }],
       now: () => now,
       runAutomation: async () => {
@@ -488,6 +492,7 @@ test('engine', async () => {
 
     let runs = 0
     const engine = new AutomationsEngine({
+      approvals: everyAutomationApproved,
       getProjectFolders: () => [{ workspaceId: 'ws-once-schedule', folderPath: root }],
       now: () => now,
       createRunId: () => `run-once-${runs}`,
@@ -536,6 +541,7 @@ test('engine', async () => {
 
     let runs = 0
     const engine = new AutomationsEngine({
+      approvals: everyAutomationApproved,
       getProjectFolders: () => [{ workspaceId: 'ws-once-manual', folderPath: root }],
       now: () => now,
       createRunId: () => 'run-once-manual',
@@ -578,6 +584,7 @@ test('engine', async () => {
 
     let runs = 0
     const engine = new AutomationsEngine({
+      approvals: everyAutomationApproved,
       getProjectFolders: () => [{ workspaceId: 'ws-once-event', folderPath: root }],
       now: () => now,
       createRunId: () => `run-once-event-${runs}`,
@@ -675,6 +682,7 @@ test('engine', async () => {
     })
     let runCount = 0
     const engine = new AutomationsEngine({
+      approvals: everyAutomationApproved,
       getProjectFolders: () => [{ workspaceId: 'ws-a', folderPath: workspaceRoot }],
       now: () => now,
       createRunId: () => 'run-due',
@@ -739,6 +747,7 @@ test('engine', async () => {
 
     const events: AutomationsRunEvent[] = []
     const timerEngine = new AutomationsEngine({
+      approvals: everyAutomationApproved,
       getProjectFolders: () => [{ workspaceId: 'ws-automations-timer', folderPath: timerRoot }],
       now: () => now,
       createRunId: () => 'run-timer',
@@ -777,6 +786,7 @@ test('engine', async () => {
     )
 
     const manualEngine = new AutomationsEngine({
+      approvals: everyAutomationApproved,
       getProjectFolders: () => [{ workspaceId: 'ws-from-snapshot', folderPath: manualRoot }],
       now: () => now,
       createRunId: () => 'run-manual',
@@ -825,6 +835,7 @@ test('engine', async () => {
     const removedWorktrees: string[] = []
     let prCalls = 0
     const engine = new AutomationsEngine({
+      approvals: everyAutomationApproved,
       getProjectFolders: () => [{ workspaceId: 'ws-automations', folderPath: workspaceRoot }],
       now: () => now,
       createRunId: () => 'run-agent',
@@ -929,6 +940,7 @@ test('engine', async () => {
     const counters = { prCalls: 0 }
     const worktreePath = `${workspaceRoot}/.sprintengine/automations/worktrees/run-agent`
     const engine = new AutomationsEngine({
+      approvals: everyAutomationApproved,
       getProjectFolders: () => [{ workspaceId: 'ws-automations', folderPath: workspaceRoot }],
       now: () => now,
       createRunId: () => 'run-agent',
@@ -1494,6 +1506,7 @@ test('engine', async () => {
     })
     const worktreePath = `${workspaceRoot}/.sprintengine/automations/worktrees/run-agent`
     const engine = new AutomationsEngine({
+      approvals: everyAutomationApproved,
       getProjectFolders: () => [{ workspaceId: 'ws-automations', folderPath: workspaceRoot }],
       now: () => now,
       createRunId: () => 'run-agent',
@@ -2005,6 +2018,7 @@ test('engine', async () => {
     removed: { count: number }
   }): AutomationsEngine {
     return new AutomationsEngine({
+      approvals: everyAutomationApproved,
       getProjectFolders: () => [{ workspaceId: 'ws-automations', folderPath: input.workspaceRoot }],
       now: () => input.now,
       createRunId: () => 'run-agent',
@@ -2108,6 +2122,7 @@ test('engine', async () => {
 
     let manualDeliveryAttempts = 0
     const manualEngine = new AutomationsEngine({
+      approvals: everyAutomationApproved,
       getProjectFolders: () => [{ workspaceId: 'ws-manual-throw', folderPath: manualRoot }],
       now: () => now,
       createRunId: () => 'run-manual-throw',
@@ -2153,6 +2168,7 @@ test('engine', async () => {
 
     let timerDeliveryAttempts = 0
     const timerEngine = new AutomationsEngine({
+      approvals: everyAutomationApproved,
       getProjectFolders: () => [{ workspaceId: 'ws-timer-throw', folderPath: timerRoot }],
       now: () => now,
       createRunId: () => 'run-timer-throw',
@@ -2209,6 +2225,7 @@ test('engine', async () => {
     let pollCount = 0
     let triggerProviders: AutomationTriggerProvider[] = []
     const engine = new AutomationsEngine({
+      approvals: everyAutomationApproved,
       getProjectFolders: () => [{ workspaceId: 'ws-live-provider', folderPath: workspaceRoot }],
       getTriggerProviders: () => triggerProviders,
       now: () => now,
@@ -2297,6 +2314,7 @@ test('engine', async () => {
       () => ({ ok: false, reason: 'Module "weather-deck" is not trusted.' }),
     )
     const engine = new AutomationsEngine({
+      approvals: everyAutomationApproved,
       getProjectFolders: () => [{ workspaceId: 'ws-denied-provider', folderPath: workspaceRoot }],
       triggerProviders,
       isIntegrationAvailable: () => false,
@@ -2348,6 +2366,7 @@ test('engine', async () => {
     const triggerPayloads: Record<string, unknown>[] = []
     let runIndex = 0
     const engine = new AutomationsEngine({
+      approvals: everyAutomationApproved,
       getProjectFolders: () => [{ workspaceId: 'ws-webhooks', folderPath: workspaceRoot }],
       triggerProviders: [createWebhookTriggerProvider()],
       now: () => now,
@@ -2358,6 +2377,7 @@ test('engine', async () => {
       },
     })
     const receiver = new AutomationWebhookReceiver({
+      approvals: everyAutomationApproved,
       getProjectFolders: () => [{ workspaceId: 'ws-webhooks', folderPath: workspaceRoot }],
       deliverTriggerEvent: (input) => engine.deliverTriggerEvent(input),
       now: () => now,
@@ -2529,6 +2549,7 @@ test('engine', async () => {
     )
 
     const receiver = new AutomationWebhookReceiver({
+      approvals: everyAutomationApproved,
       getProjectFolders: () => [{ workspaceId: 'ws-webhooks', folderPath: workspaceRoot }],
       deliverTriggerEvent: async () => ({
         ok: false,
@@ -2594,6 +2615,7 @@ test('engine', async () => {
     assert.equal((await store.createDefinition(enabled)).ok, true)
 
     const receiver = new AutomationWebhookReceiver({
+      approvals: everyAutomationApproved,
       getProjectFolders: () => [{ workspaceId: 'ws-webhooks', folderPath: workspaceRoot }],
       deliverTriggerEvent: async () => {
         throw new Error('webhook serial refresh test should not deliver events')
@@ -2657,6 +2679,7 @@ test('engine', async () => {
 
     const occupied = await listenOnEphemeralPort()
     const conflictReceiver = new AutomationWebhookReceiver({
+      approvals: everyAutomationApproved,
       getProjectFolders: () => [{ workspaceId: 'ws-webhooks', folderPath: workspaceRoot }],
       deliverTriggerEvent: async () => {
         throw new Error('webhook conflict refresh test should not deliver events')
@@ -2720,6 +2743,7 @@ test('engine', async () => {
 
     let runCount = 0
     const engine = new AutomationsEngine({
+      approvals: everyAutomationApproved,
       getProjectFolders: () => [{ workspaceId: 'ws-a', folderPath: workspaceRoot }],
       now: () => now,
       createRunId: () => 'run-overdue',
@@ -2782,6 +2806,7 @@ test('engine', async () => {
     })
     let runCount = 0
     const engine = new AutomationsEngine({
+      approvals: everyAutomationApproved,
       getProjectFolders: () => [{ workspaceId: 'ws-a', folderPath: '/repo/race' }],
       createStore: () => store,
       now: () => now,

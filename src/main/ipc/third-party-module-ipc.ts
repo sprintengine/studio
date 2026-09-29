@@ -8,7 +8,6 @@ import type {
   ThirdPartyModuleTrustResult,
   ThirdPartyModuleView,
 } from '../../shared/modules/manifest'
-import { readTrustedMarketplacePublisherFingerprintsSync } from '../marketplace/trusted-publishers'
 import { readModuleOverridesSync } from '../module-host/enablement-store'
 import { manifestFingerprint, type ModuleTrustContext } from '../modules/module-signature'
 import { readThirdPartyMainLaunchSnapshot, type ThirdPartyMainLaunchSnapshot } from '../modules/third-party-main-loader'
@@ -19,7 +18,8 @@ import {
   type InstalledModule,
   installModuleFolder,
 } from '../modules/user-module-registry'
-import { readTrustedModulesSync, setModuleTrust } from '../modules/trust-store'
+import { readModuleTrustContextSync } from '../modules/trust-context'
+import { setModuleTrust } from '../modules/trust-store'
 import { notifyRendererModulesChanged } from '../modules/notify-renderer-modules-changed'
 
 // Kernel-level IPC for the third-party module registry (Tier 2 trust
@@ -27,10 +27,7 @@ import { notifyRendererModulesChanged } from '../modules/notify-renderer-modules
 // trust-classifies, and records trust. Startup execution is owned by the
 // trusted third-party main loader; this IPC only reports launch readiness.
 export function registerThirdPartyModuleIpc(ipcMain: IpcMain): void {
-  const trustContext = (): ModuleTrustContext => ({
-    trustedModules: readTrustedModulesSync(app.getPath('userData')),
-    trustedKeyFingerprints: readTrustedMarketplacePublisherFingerprintsSync(),
-  })
+  const trustContext = (): ModuleTrustContext => readModuleTrustContextSync(app.getPath('userData'))
 
   ipcMain.handle('modules:third-party:list', async (): Promise<ThirdPartyModuleListResult> => {
     const { modules, rejected } = await discoverUserModules(defaultUserModuleRoot(), trustContext())
@@ -80,7 +77,24 @@ export function registerThirdPartyModuleIpc(ipcMain: IpcMain): void {
       const target = modules.find((module) => module.manifest.id === id)
       if (!target) return { ok: false, message: `Module "${id}" is not installed.` }
       if (target.trust.status === 'invalid') {
-        return { ok: false, message: `Module "${id}" has an invalid signature and cannot be trusted.` }
+        return {
+          ok: false,
+          message: target.trust.tampered
+            ? `Module "${id}" does not match the file digests its manifest signs and cannot be trusted.`
+            : `Module "${id}" has an invalid signature and cannot be trusted.`,
+        }
+      }
+      // The grant covers the code as well as the manifest: it binds to the
+      // manifest fingerprint, which covers the `files` digests the folder was
+      // just held to (a mismatch is 'invalid', refused above). A manifest
+      // without them gives a grant nothing to bind the code to.
+      if (!target.manifest.files) {
+        return {
+          ok: false,
+          message:
+            `Module "${id}" lists no digests of its code, so trusting it could not cover what runs. ` +
+            'Sign it with `sprintengine-module sign`, which records them, and install it again.',
+        }
       }
       const { result } = await setModuleTrust(userData, id, manifestFingerprint(target.manifest))
       if (result.ok) notifyRendererModulesChanged()
@@ -125,7 +139,9 @@ function mainEntryLaunchView(
       status: 'blocked_invalid',
       hasMainEntry,
       expectedToLoad: false,
-      message: 'Invalid signature blocks startup execution.',
+      message: module.trust.tampered
+        ? 'Its files do not match the digests its manifest signs (tampered), so it will not run.'
+        : 'Invalid signature blocks startup execution.',
     }
   }
   if (module.trust.status === 'signed') {

@@ -53,8 +53,9 @@ import {
   type TailnetConversationStream,
 } from './tailnet-conversation-stream'
 import type { ConversationGatewayHost } from './tailnet-conversation-host'
-import type { TailnetCollectOutcome, TailnetDeviceStore } from './tailnet-devices'
+import type { TailnetCollectOutcome, TailnetDeviceStore, TailnetPeerCheck } from './tailnet-devices'
 import type { TailnetPeerResolver } from './tailnet-peer-identity'
+import { TAILNET_PEER_REFUSED_AUDIT_TOOL } from '../gateway-audit'
 import { normalizeAddress } from './tailnet-peer-identity'
 import { parseTailnetEndpoint } from './tailnet-remote-client'
 import { normalizeTailnetScopes, type TailnetReverseGrant } from '../../../shared/tailnet'
@@ -81,6 +82,11 @@ import {
 // token the desktop minted, every remote mutation audited with the device and
 // the Tailscale peer it came from. The Unix socket is untouched — local clients
 // keep using it, with filesystem permissions still their whole auth model.
+//
+// A device token is also held to the tailnet node it was paired from: every
+// authenticated route and every WebSocket upgrade goes through `admitPeer`,
+// which asks whois who is calling and refuses a token presented from any other
+// node. The threat model is on `verifyPeer` in `tailnet-devices.ts`.
 //
 // The transport is deliberately NOT spec Streamable HTTP. It is a small,
 // explicit surface: one JSON-in/JSON-out MCP endpoint, plus WebSockets for
@@ -641,6 +647,8 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
       const outcome = options.devices.redeemPairing({
         token: isRecord(body) ? body.pairingToken : undefined,
         deviceName: isRecord(body) ? body.deviceName : undefined,
+        // The node redeeming the code is the one the new token is bound to.
+        peer: await options.peers.identify(normalizeAddress(request.socket.remoteAddress)),
       })
       if (!outcome.ok) {
         // 401 for a bad or missing credential, 400 for a malformed request:
@@ -676,8 +684,14 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
       writeUnauthorized(response)
       return
     }
-    const peerAddress = normalizeAddress(request.socket.remoteAddress)
-    const peerNode = await options.peers.resolve(peerAddress)
+    // Every route below — identity, upload, conversation-image, ws-ticket and
+    // the MCP endpoint — is behind this one check, so none can skip it.
+    const admitted = await admitPeer(device, request.socket.remoteAddress, path)
+    if (!admitted.ok) {
+      writePeerRefused(response, admitted)
+      return
+    }
+    const { peerNode, peerAddress } = admitted
     options.devices.recordSeen(device.id, peerNode)
     options.onActivity?.({ kind: 'request', device, peerNode, peerAddress })
 
@@ -766,7 +780,11 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
   async function handlePairRequest(request: IncomingMessage, response: ServerResponse, method: string): Promise<void> {
     if (method === 'GET') {
       const query = parseUrl(request.url ?? '').searchParams
-      const outcome = options.devices.collectPairRequest(query.get('id') ?? '', query.get('secret') ?? '')
+      const outcome = options.devices.collectPairRequest(
+        query.get('id') ?? '',
+        query.get('secret') ?? '',
+        await options.peers.identify(normalizeAddress(request.socket.remoteAddress)),
+      )
       // Every outcome is a 200: "your request was declined" and "it lapsed" are
       // answers to a well-formed question, not failures of it. The client
       // branches on `status`, which it must do anyway.
@@ -777,13 +795,16 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     const body = await readJsonBody(request, response, MAX_CONTROL_BODY_BYTES)
     if (body === undefined) return
     const peerAddress = normalizeAddress(request.socket.remoteAddress)
+    const peer = await options.peers.identify(peerAddress)
     const outcome = options.devices.requestPairing({
       deviceName: isRecord(body) ? body.deviceName : undefined,
       // Unresolvable stays null and the panel says so, rather than the request
       // being refused: whois is unavailable on any machine without the
       // Tailscale CLI, and that must not make the feature unusable.
-      peerNode: await options.peers.resolve(peerAddress),
+      peerNode: peer?.name ?? null,
       peerAddress: peerAddress ?? '',
+      // What an approval binds the new device to.
+      peer,
       collectHash: isRecord(body) ? body.collectHash : undefined,
       // What the asker asked to be allowed to do. A request, not a grant: it
       // decides what the answering surface opens pre-ticked to, and the person
@@ -835,12 +856,13 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     const body = await readJsonBody(request, response, MAX_CONTROL_BODY_BYTES)
     if (body === undefined) return
     const record = isRecord(body) ? body : {}
+    const peerAddress = normalizeAddress(request.socket.remoteAddress)
     const outcome = options.devices.collectPairRequest(
       typeof record.id === 'string' ? record.id : '',
       typeof record.secret === 'string' ? record.secret : '',
+      await options.peers.identify(peerAddress),
     )
     if (outcome.status === 'approved' && outcome.asker && isRecord(record.reverse)) {
-      const peerAddress = normalizeAddress(request.socket.remoteAddress)
       const grant = readReverseGrant(record.reverse, peerAddress)
       if (grant) {
         options.onReverseGrant?.({
@@ -936,6 +958,43 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     return header.startsWith(prefix) ? options.devices.authenticate(header.slice(prefix.length).trim()) : null
   }
 
+  /**
+   * The second half of authentication: is this device's token being presented
+   * from the tailnet node it was issued to? whois on the socket's own address
+   * answers, never anything the request says about itself.
+   *
+   * A refusal is audited as a refused call, with the device whose token it was
+   * and the node that presented it: a token turning up on the wrong machine is
+   * the event the owner most needs to see, whether or not anything was served.
+   *
+   * Loopback needs no exception: whois cannot name 127.0.0.1, so a bound device
+   * is refused there like anywhere else whois cannot answer. Tests inject a
+   * resolver (`peers`) that names the nodes they need.
+   */
+  async function admitPeer(
+    device: TailnetDevice,
+    remoteAddress: string | undefined,
+    route: string,
+  ): Promise<({ ok: true } & TailnetGatewayPeer) | Extract<TailnetPeerCheck, { ok: false }>> {
+    const peerAddress = normalizeAddress(remoteAddress)
+    const peer = await options.peers.identify(peerAddress)
+    // Read after the await: a device revoked while whois ran is refused here.
+    const check = options.devices.verifyPeer(device.id, peer)
+    const peerNode = peer?.name ?? null
+    if (check.ok) return { ok: true, peerNode, peerAddress }
+    options.log?.(
+      `tailnet gateway refused device ${device.id} from ${peerNode ?? (peerAddress || 'an unknown address')}: ${check.code}`,
+    )
+    options.onToolCall?.({
+      context: contextFor(device, peerNode),
+      tool: TAILNET_PEER_REFUSED_AUDIT_TOOL,
+      args: { path: route, peerAddress, ...(peer?.stableNodeId ? { peerNodeId: peer.stableNodeId } : {}) },
+      durationMs: 0,
+      result: toolError(check.code, check.message),
+    })
+    return check
+  }
+
   async function handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
     if (request.headers.origin) return rejectUpgrade(socket, 403, 'origin_not_allowed')
     const path = pathOf(request.url)
@@ -952,14 +1011,17 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     const query = queryOf(request.url)
     const device = redeemTicket(query.get('ticket'))
     if (!device) return rejectUpgrade(socket, 401, 'unauthorized')
+    // The ticket was minted behind `admitPeer`, but it rides in a URL; the
+    // socket presenting it is held to the device's node all the same.
+    const admitted = await admitPeer(device, remoteAddressOf(socket), path)
+    if (!admitted.ok) return rejectUpgrade(socket, 401, admitted.code)
+    const { peerNode, peerAddress } = admitted
 
     if (path === TAILNET_EVENTS_PATH) {
       // Any paired device may watch: the feed says only that something
       // changed, and what the device may then read is decided by the tools'
       // own scopes. No `onActivity`: a watcher is ambient, not a connection.
-      const eventsPeerAddress = normalizeAddress(remoteAddressOf(socket))
-      const eventsPeer = await options.peers.resolve(eventsPeerAddress)
-      options.devices.recordSeen(device.id, eventsPeer)
+      options.devices.recordSeen(device.id, peerNode)
       acceptUpgrade(socket, key)
       openEventStream(socket, device, head)
       return
@@ -967,12 +1029,9 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
 
     if (path === TAILNET_CONVERSATION_PATH) {
       if (!options.conversations) return rejectUpgrade(socket, 503, 'conversation_streaming_unavailable')
-      if (!tailnetScopeGrantsAccess(new Set(device.scopes), 'conversation:read'))
-        return rejectUpgrade(socket, 403, 'conversation_scope_required')
-      const peerAddress = normalizeAddress(remoteAddressOf(socket))
-      const peerNode = await options.peers.resolve(peerAddress)
-      // Peer discovery awaits external work. Revocation during that await must
-      // not create a stream after the revocation listener has already fired.
+      // Peer discovery above awaited external work. Revocation or a narrowed
+      // grant during that await must not create a stream after the listener
+      // for it has already fired.
       const currentDevice = options.devices.listDevices().find((entry) => entry.id === device.id)
       if (!currentDevice) return rejectUpgrade(socket, 401, 'unauthorized')
       if (!tailnetScopeGrantsAccess(new Set(currentDevice.scopes), 'conversation:read'))
@@ -1011,14 +1070,12 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
       return
     }
 
-    const streamPeerAddress = normalizeAddress(remoteAddressOf(socket))
-    const peerNode = await options.peers.resolve(streamPeerAddress)
     options.devices.recordSeen(device.id, peerNode)
     acceptUpgrade(socket, key)
 
     const session: StreamSession = { socket, deviceId: device.id, device, context: contextFor(device, peerNode) }
     streams.add(session)
-    options.onActivity?.({ kind: 'stream', device, open: true, peerNode, peerAddress: streamPeerAddress })
+    options.onActivity?.({ kind: 'stream', device, open: true, peerNode, peerAddress })
     const decoder = createWebSocketFrameDecoder(MAX_WEBSOCKET_MESSAGE_BYTES)
     // Serialize per connection so a client's messages are answered in order.
     let pending = Promise.resolve()
@@ -1263,6 +1320,12 @@ function writeUnauthorized(response: ServerResponse): void {
       message: 'A paired device token is required. Pair this machine in Settings → Remote.',
     },
   })
+}
+
+/** A valid token presented from the wrong node, or from one whois could not name. */
+function writePeerRefused(response: ServerResponse, refusal: { code: string; message: string }): void {
+  response.setHeader('WWW-Authenticate', 'Bearer realm="sprintengine-studio-tailnet"')
+  writeJson(response, 401, { error: { code: refusal.code, message: refusal.message } })
 }
 
 function writeTooLarge(response: ServerResponse): void {

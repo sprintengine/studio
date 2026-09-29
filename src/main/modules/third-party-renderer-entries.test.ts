@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { generateKeyPairSync, sign } from 'crypto'
+import { createHash, generateKeyPairSync, sign } from 'crypto'
 import { mkdir, mkdtemp, rm, writeFile } from 'fs/promises'
 import type { IpcMain, IpcMainInvokeEvent } from 'electron'
 import { tmpdir } from 'os'
@@ -39,9 +39,14 @@ test('third-party-renderer-entries', async () => {
   ): Promise<void> {
     const dir = join(root, id)
     await mkdir(dir, { recursive: true })
+    // The manifest lists its files' digests, as `sprintengine-module sign`
+    // writes them, so a grant for it covers the bundle being served.
+    const digests = Object.fromEntries(
+      Object.entries(files).map(([name, content]) => [name, createHash('sha256').update(content).digest('hex')]),
+    )
     await writeFile(
       join(dir, 'manifest.json'),
-      JSON.stringify({ id, displayName: `Module ${id}`, version: 1, ...manifest }),
+      JSON.stringify({ id, displayName: `Module ${id}`, version: 1, files: digests, ...manifest }),
     )
     for (const [name, content] of Object.entries(files)) {
       await writeFile(join(dir, name), content)

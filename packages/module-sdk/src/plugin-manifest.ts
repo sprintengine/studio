@@ -37,7 +37,9 @@ export type MarketplacePluginComponents = {
   [K in MarketplaceComponentKind]?: MarketplaceComponent
 }
 
-export type MarketplacePluginAuthoringManifest = Omit<CapabilityManifest, 'signature'> & {
+// `files` is a module manifest's own digest map; a bundle's digests live per
+// component, so the top-level field has no meaning on plugin.json.
+export type MarketplacePluginAuthoringManifest = Omit<CapabilityManifest, 'signature' | 'files'> & {
   components: MarketplacePluginComponents
   permissions: CapabilityPermission[]
   signature?: ModuleSignature
@@ -260,12 +262,13 @@ function validateMarketplacePluginManifestBase(
   const components = validateComponents(value.components, issues, requireSignature)
   if (issues.length > 0 || !moduleResult.ok || !components) return { ok: false, issues }
 
+  const { files: _files, ...base } = moduleResult.manifest
   return {
     ok: true,
     manifest: {
-      ...moduleResult.manifest,
+      ...base,
       components,
-      permissions: moduleResult.manifest.permissions ?? [],
+      permissions: base.permissions ?? [],
     },
   }
 }

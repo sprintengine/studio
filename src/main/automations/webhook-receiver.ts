@@ -6,8 +6,9 @@ import {
   type ServerResponse,
 } from 'node:http'
 
-import type { AutomationTriggerPollEvent } from '../../shared/automations/contracts'
+import type { AutomationDefinition, AutomationTriggerPollEvent } from '../../shared/automations/contracts'
 import { AutomationsStore, type AutomationStoreProblem } from './store'
+import type { AutomationApprovalGate } from './approval-ledger'
 import type {
   AutomationsEngineProblem,
   AutomationsEngineTriggerEventDeliveryResult,
@@ -29,6 +30,9 @@ import {
 import { isRecord } from '../../shared/records'
 
 export type AutomationWebhookReceiverOptions = {
+  // Required for the same reason the engine's is: a route is a way in, so no
+  // port opens and no path listens for a definition nobody approved.
+  approvals: AutomationApprovalGate
   getProjectFolders: () => AutomationsProjectFolder[] | Promise<AutomationsProjectFolder[]>
   createStore?: (workspaceRoot: string) => AutomationsStore
   deliverTriggerEvent(input: {
@@ -94,6 +98,7 @@ class AutomationWebhookReceiverRefreshError extends Error {
 }
 
 export class AutomationWebhookReceiver {
+  private readonly approvals: AutomationApprovalGate
   private readonly getProjectFolders: AutomationWebhookReceiverOptions['getProjectFolders']
   private readonly createStore: (workspaceRoot: string) => AutomationsStore
   private readonly deliverTriggerEvent: AutomationWebhookReceiverOptions['deliverTriggerEvent']
@@ -108,6 +113,7 @@ export class AutomationWebhookReceiver {
   private lastError: string | null = null
 
   constructor(options: AutomationWebhookReceiverOptions) {
+    this.approvals = options.approvals
     this.getProjectFolders = options.getProjectFolders
     this.createStore = options.createStore ?? ((workspaceRoot) => new AutomationsStore(workspaceRoot))
     this.deliverTriggerEvent = options.deliverTriggerEvent
@@ -322,6 +328,7 @@ export class AutomationWebhookReceiver {
         if (definition.trigger.kind !== WEBHOOK_TRIGGER_KIND) continue
         const config = activeWebhookTriggerConfig(definition.trigger.config)
         if (!config || config.port === undefined || !config.path) continue
+        if (!(await this.isApproved(workspaceRoot, definition))) continue
 
         const target: WebhookTarget = {
           workspaceRoot,
@@ -340,6 +347,17 @@ export class AutomationWebhookReceiver {
       ports: [...new Set([...routes.values()].flatMap((targets) => targets.map((target) => target.config.port ?? 0)))],
       targetCount,
       error: firstError,
+    }
+  }
+
+  // Approval writes refresh the receiver (the definitions-changed hook), so a
+  // definition allowed later is routed then. A ledger that cannot be read
+  // routes nothing.
+  private async isApproved(workspaceRoot: string, definition: AutomationDefinition): Promise<boolean> {
+    try {
+      return (await this.approvals.check(workspaceRoot, definition)).state === 'approved'
+    } catch {
+      return false
     }
   }
 

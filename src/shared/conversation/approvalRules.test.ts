@@ -132,6 +132,35 @@ test('MCP rules name both server and tool and do not approve interactive request
 })
 
 test.each([
+  'mcp__sprintengine-studio__agent.launch',
+  'mcp__sprintengine-studio__terminal.create',
+  'mcp__sprintengine-studio__conversation.create',
+  'mcp__sprintengine-studio__backlog.work',
+  'mcp__sprintengine-studio__automation.create',
+  'mcp__sprintengine-studio__automation.run',
+  'mcp__sprintengine-studio__workspace.create',
+  'mcp__plugin_sprintengine-studio_sprintengine-studio__agent_launch',
+  'mcp__plugin_sprintengine-studio_sprintengine-studio__automation_run',
+])('no remembered grant covers %s, which starts an agent', (action) => {
+  expect(approvalRuleCandidate({ action, input: {} }, '/workspace/app')).toBeNull()
+  const saved = {
+    id: 'rule',
+    createdAt: 1,
+    workspaceRoot: '/workspace/app',
+    toolKind: 'mcp' as const,
+    toolName: action,
+    matcher: { type: 'mcp' as const, server: 'sprintengine-studio', tool: action.split('__')[2]! },
+    label: 'saved before',
+  }
+  expect(matchesApprovalRule(saved, { action }, '/workspace/app')).toBe(false)
+})
+
+test('the gateway tools that start no agent can still be remembered', () => {
+  expect(approvalRuleCandidate({ action: 'mcp__sprintengine-studio__workspace.list' }, '/workspace/app')).not.toBeNull()
+  expect(approvalRuleCandidate({ action: 'mcp__other-server__agent_launch' }, '/workspace/app')).not.toBeNull()
+})
+
+test.each([
   ['git status', 'git status --short'],
   ['git --no-pager log', 'git log --oneline -5'],
   ['git push -u origin topic', 'git push origin main'],

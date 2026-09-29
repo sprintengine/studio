@@ -1,6 +1,9 @@
 import type {
   AutomationActionProvider,
+  AutomationApprovalSource,
   AutomationDefinition,
+  AutomationsApproveResult,
+  AutomationsRevokeApprovalResult,
   AutomationsBuiltinListResult,
   AutomationsBuiltinInstallResult,
   AutomationDefinitionDraft,
@@ -25,6 +28,7 @@ import type {
 import { BUILTIN_AUTOMATIONS, builtinAutomationById, builtinAutomationPayload } from '../../shared/automations/builtin'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import {
+  AUTOMATIONS_APPROVE_CHANNEL,
   AUTOMATIONS_BUILTIN_INSTALL_CHANNEL,
   AUTOMATIONS_BUILTIN_LIST_CHANNEL,
   AUTOMATIONS_CREATE_CHANNEL,
@@ -35,10 +39,13 @@ import {
   AUTOMATIONS_PROVIDERS_LIST_CHANNEL,
   AUTOMATIONS_RUN_NOW_CHANNEL,
   AUTOMATIONS_RUN_FINALIZE_CHANNEL,
+  AUTOMATIONS_REVOKE_APPROVAL_CHANNEL,
   AUTOMATIONS_RUNS_LIST_CHANNEL,
   AUTOMATIONS_UPDATE_CHANNEL,
 } from '../../shared/automations/contracts'
+import { automationApprovalFingerprint, type AutomationApprovalLedger } from '../automations/approval-ledger'
 import {
+  clearCarriedNextRun,
   createDefinitionWriteCore,
   parseDefinitionDraft,
   parseDefinitionPatch,
@@ -100,6 +107,13 @@ export type AutomationsIpcDependencies = {
   onDefinitionsChanged?: (workspaceRoot: string) => void | Promise<void>
   now?: () => number
   createAutomationId?: (draft: AutomationDefinitionDraft) => string
+  /**
+   * The approval ledger (approval-ledger.ts). Writes through these doors are
+   * recorded as approved as they land, the review's Allow records the rest, and
+   * the instance index reports each automation's state. Absent ⇒ nothing is
+   * recorded and the approve channel refuses, so everything waits.
+   */
+  approvalLedger?: AutomationApprovalLedger
 }
 
 export function registerAutomationsIpc(
@@ -124,16 +138,25 @@ export function registerAutomationsIpc(
   const checkProviderPermission = deps.checkProviderPermission ?? allowAutomationProvider
   const now = deps.now ?? Date.now
   // Shared with the module-scoped Automations service: one write core, two
-  // front doors (see definition-write.ts).
-  const writeCore = createDefinitionWriteCore({
-    createStore,
-    getTriggerProviderRegistrations,
-    getActionProviderRegistrations,
-    checkProviderPermission,
-    now,
-    createAutomationId: deps.createAutomationId,
-    onDefinitionsChanged: deps.onDefinitionsChanged,
-  })
+  // front doors (see definition-write.ts). Built once per approval source, so
+  // who wrote a definition is fixed by which door it came through rather than
+  // passed along with the write: the renderer's channels are the app's own
+  // screens, and the app-level front door below is what the local automation
+  // tools (agents) call.
+  const approvalLedger = deps.approvalLedger
+  const writeCoreFor = (source: AutomationApprovalSource) =>
+    createDefinitionWriteCore({
+      createStore,
+      getTriggerProviderRegistrations,
+      getActionProviderRegistrations,
+      checkProviderPermission,
+      now,
+      createAutomationId: deps.createAutomationId,
+      onDefinitionsChanged: deps.onDefinitionsChanged,
+      ...(approvalLedger ? { approvals: { ledger: approvalLedger, source } } : {}),
+    })
+  const writeCore = writeCoreFor('app')
+  const agentWriteCore = writeCoreFor('agent')
 
   host.registerIpc(AUTOMATIONS_LIST_CHANNEL, async (_event, input: unknown): Promise<AutomationsListResult> => {
     const workspaceRoot = parseWorkspaceRoot(input, deps.getWorkspaceSyncSnapshot)
@@ -146,14 +169,17 @@ export function registerAutomationsIpc(
   // Shared by the IPC channel and the app-level front door (automation server
   // tools): one parse+write pipeline, so external creates get the identical
   // validation, ownership stamping, and post-write refresh.
-  const createDefinition = async (input: unknown): Promise<AutomationsDefinitionResult> => {
-    const parsed = parseCreateInput(input, deps.getWorkspaceSyncSnapshot)
-    if (!parsed.ok) return parsed
+  const createDefinitionThrough =
+    (core: typeof writeCore) =>
+    async (input: unknown): Promise<AutomationsDefinitionResult> => {
+      const parsed = parseCreateInput(input, deps.getWorkspaceSyncSnapshot)
+      if (!parsed.ok) return parsed
 
-    const created = withPostWriteFailure(await writeCore.create(parsed.value.workspaceRoot, parsed.value.definition))
-    if (!created.ok) return created
-    return ok(definitionForRenderer(created.value))
-  }
+      const created = withPostWriteFailure(await core.create(parsed.value.workspaceRoot, parsed.value.definition))
+      if (!created.ok) return created
+      return ok(definitionForRenderer(created.value))
+    }
+  const createDefinition = createDefinitionThrough(writeCore)
 
   // The marketplace install path (no IPC channel of its own — the marketplace's
   // own install handler calls this). Same workspace-root trust gate as every
@@ -193,16 +219,19 @@ export function registerAutomationsIpc(
   // patch parse, provider validation, next-run recompute and post-write refresh
   // the desktop UI's own toggle gets — rather than a second write path onto the
   // same store.
-  const updateDefinition = async (input: unknown): Promise<AutomationsDefinitionResult> => {
-    const parsed = parseUpdateInput(input, deps.getWorkspaceSyncSnapshot)
-    if (!parsed.ok) return parsed
+  const updateDefinitionThrough =
+    (core: typeof writeCore) =>
+    async (input: unknown): Promise<AutomationsDefinitionResult> => {
+      const parsed = parseUpdateInput(input, deps.getWorkspaceSyncSnapshot)
+      if (!parsed.ok) return parsed
 
-    const written = withPostWriteFailure(
-      await writeCore.update(parsed.value.workspaceRoot, parsed.value.automationId, parsed.value.patch),
-    )
-    if (!written.ok) return written
-    return ok(definitionForRenderer(written.value))
-  }
+      const written = withPostWriteFailure(
+        await core.update(parsed.value.workspaceRoot, parsed.value.automationId, parsed.value.patch),
+      )
+      if (!written.ok) return written
+      return ok(definitionForRenderer(written.value))
+    }
+  const updateDefinition = updateDefinitionThrough(writeCore)
 
   host.registerIpc(AUTOMATIONS_CREATE_CHANNEL, async (_event, input: unknown): Promise<AutomationsDefinitionResult> => {
     return createDefinition(input)
@@ -266,9 +295,69 @@ export function registerAutomationsIpc(
       createStore,
       // Redact webhook secrets on the way out, exactly as the per-project list.
       mapDefinition: definitionForRenderer,
+      ...(approvalLedger ? { approvals: approvalLedger } : {}),
     })
     return ok(index)
   })
+
+  // The review's Allow, for one automation or every one it listed. Main reads
+  // each definition again and approves ITS fingerprint of what it read — never
+  // one the renderer sent. The renderer's fingerprint is only compared: a file
+  // that changed while the review was on screen is left waiting and reported,
+  // so what gets allowed is always what was shown.
+  host.registerIpc(AUTOMATIONS_APPROVE_CHANNEL, async (_event, input: unknown): Promise<AutomationsApproveResult> => {
+    const parsed = parseApproveInput(input, deps.getWorkspaceSyncSnapshot)
+    if (!parsed.ok) return parsed
+    if (!approvalLedger) return fail('approvals_unavailable', 'Automation approvals are not available.')
+    const { workspaceRoot, automations } = parsed.value
+    const store = createStore(workspaceRoot)
+    const approved: string[] = []
+    const changed: string[] = []
+    for (const { automationId, fingerprint } of automations) {
+      const definition = await store.getDefinition(automationId)
+      if (!definition.ok) {
+        if (definition.error.code === 'missing') {
+          changed.push(automationId)
+          continue
+        }
+        return storeError(definition.error)
+      }
+      if (automationApprovalFingerprint(definition.value) !== fingerprint) {
+        changed.push(automationId)
+        continue
+      }
+      // The schedule first, the yes second: approved with its old `nextRunAt`
+      // still on disk, an engine pass landing between the two would fire it.
+      const cleared = await clearCarriedNextRun(store, definition.value)
+      if (!cleared.ok) return storeError(cleared.error)
+      await approvalLedger.approve(workspaceRoot, definition.value, 'user')
+      approved.push(automationId)
+    }
+    if (approved.length > 0) {
+      try {
+        await deps.onDefinitionsChanged?.(workspaceRoot)
+      } catch {
+        // The approval is recorded; the receiver refresh retries on the next write.
+      }
+    }
+    return ok({ approved, changed })
+  })
+
+  host.registerIpc(
+    AUTOMATIONS_REVOKE_APPROVAL_CHANNEL,
+    async (_event, input: unknown): Promise<AutomationsRevokeApprovalResult> => {
+      const parsed = parseDefinitionInput(input, deps.getWorkspaceSyncSnapshot)
+      if (!parsed.ok) return parsed
+      if (!approvalLedger) return fail('approvals_unavailable', 'Automation approvals are not available.')
+      await approvalLedger.revoke(parsed.value.workspaceRoot, parsed.value.automationId)
+      try {
+        await deps.onDefinitionsChanged?.(parsed.value.workspaceRoot)
+      } catch {
+        // Revoked either way; the engine asks the ledger, not the receiver.
+      }
+      return ok({ automationId: parsed.value.automationId })
+    },
+  )
 
   // The five automations that ship inside the app (Extensions drawer ruling,
   // 2026-09-05, frame 4). Main answers rather than the renderer importing the
@@ -308,7 +397,14 @@ export function registerAutomationsIpc(
     return ok({ state: status.state, ...(status.error ? { error: status.error } : {}) })
   })
 
-  return { createDefinition, updateDefinition, installCatalogueDefinition, runNow }
+  // The app-level front door's writes are the automation tools', so they are
+  // recorded as the agent's; the marketplace install is the user's own click.
+  return {
+    createDefinition: createDefinitionThrough(agentWriteCore),
+    updateDefinition: updateDefinitionThrough(agentWriteCore),
+    installCatalogueDefinition,
+    runNow,
+  }
 }
 
 /**
@@ -429,6 +525,27 @@ function parseDefinitionInput(
     ...(workspaceId ? { workspaceId } : {}),
     automationId: input.automationId.trim(),
   })
+}
+
+function parseApproveInput(
+  input: unknown,
+  getWorkspaceSyncSnapshot: (() => WorkspaceSyncSnapshot) | undefined,
+): AutomationsResult<{ workspaceRoot: string; automations: { automationId: string; fingerprint: string }[] }> {
+  const workspaceRoot = parseWorkspaceRoot(input, getWorkspaceSyncSnapshot)
+  if (!workspaceRoot.ok) return workspaceRoot
+  if (!isRecord(input) || !Array.isArray(input.automations) || input.automations.length === 0) {
+    return fail('invalid_input', 'automations must list at least one automation to approve.')
+  }
+  const automations: { automationId: string; fingerprint: string }[] = []
+  for (const entry of input.automations) {
+    const automationId = isRecord(entry) ? trimmedString(entry.automationId) : undefined
+    const fingerprint = isRecord(entry) && typeof entry.fingerprint === 'string' ? entry.fingerprint : undefined
+    if (!automationId || fingerprint === undefined) {
+      return fail('invalid_input', 'Each automation to approve needs its automationId and the fingerprint reviewed.')
+    }
+    automations.push({ automationId, fingerprint })
+  }
+  return ok({ workspaceRoot: workspaceRoot.value, automations })
 }
 
 function parseCreateInput(
