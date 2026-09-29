@@ -33,16 +33,19 @@ function TurnStepGlyph({ direction }: { direction: 'up' | 'down' }): JSX.Element
   )
 }
 
+// A tick is always 12px wide and scaled from its right edge (to 6px at rest,
+// 8px beside the hovered one), so the hover grows it with a transform the
+// compositor animates rather than a width that lays the strip out each frame.
 function tickClass(index: number, current: number, hovered: number | null): string {
   const distance = hovered === null ? null : Math.abs(index - hovered)
-  const width = distance === 0 ? 'w-3' : distance === 1 ? 'w-2' : 'w-1.5'
+  const scale = distance === 0 ? 'scale-x-100' : distance === 1 ? 'scale-x-[0.6667]' : 'scale-x-50'
   const ink =
     distance === 0
       ? 'bg-[color:var(--text-default)]'
       : index === current
         ? 'bg-[color:var(--text-muted)]'
         : 'bg-[color:var(--border-strong)]'
-  return `pointer-events-none absolute right-0 h-0.5 -translate-y-1/2 rounded-full transition-[width,background-color] duration-150 ${width} ${ink}`
+  return `pointer-events-none absolute right-0 h-0.5 w-3 origin-right -translate-y-1/2 rounded-full transition-[scale,background-color] duration-150 ${scale} ${ink}`
 }
 
 function MinimapPreview({
