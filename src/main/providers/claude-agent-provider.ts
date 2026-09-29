@@ -12,7 +12,7 @@
 // moves fast, so version churn must not leak past this adapter. The package
 // is ESM-only and the main bundle is CJS, so the SDK is loaded via dynamic
 // import on first use.
-import { spawn } from 'child_process'
+import { spawn, type ChildProcess } from 'child_process'
 import { randomUUID } from 'node:crypto'
 import { cp, lstat, mkdir, mkdtemp, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -20,13 +20,20 @@ import { join } from 'node:path'
 import { openConfinedExistingFile, readBoundedConversationFile } from '../conversation-file-access'
 import { asRecord } from '../../shared/records'
 import { CONVERSATION_DEFAULT_MODEL_ID } from '../../shared/conversation-harness'
-import { isWslHostId } from '../../shared/execution-host'
+import { isWslHostId, type ExecutionHostId } from '../../shared/execution-host'
+import { toWslPath } from '../../shared/host-paths'
 import { inferConversationToolKind } from '../../shared/conversation/toolKind'
 import { summarizeToolInput } from '../../shared/conversation/approvalSummary'
 import { normalizeApiKeySource } from '../../shared/conversation/apiKeySource'
 import type { PromptCacheTtl } from '../../shared/prompt-cache'
 import { leadingCommandFor, leadingSlashCommand } from '../conversation-commands/leading-command'
 import { conversationCommandsFor, publishConversationCommands } from '../conversation-commands/registry'
+import {
+  prepareWslClaudeTarget,
+  spawnWslClaude,
+  type ClaudeSpawnRequest,
+  type WslClaudeTarget,
+} from './claude-wsl-child'
 import {
   CLAUDE_COMMANDS_CLI,
   claudeCommandsFromInit,
@@ -99,6 +106,10 @@ export type ClaudeAgentProviderOptions = {
   now?: () => number
   // Where attached-skill plugins are staged; tests point it at their own folder.
   tempDir?: string
+  // Readies a WSL machine for a chat whose `claude` runs there; tests stand in.
+  prepareWslTarget?: (hostId: ExecutionHostId) => Promise<WslClaudeTarget>
+  // Starts the child inside that machine; tests stand in.
+  spawnWslChild?: (target: WslClaudeTarget, request: ClaudeSpawnRequest) => ChildProcess
 }
 
 export type ClaudeAgentProviderAdapter = ConversationProviderAdapter & {
@@ -319,6 +330,8 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
   const buildEnv = options.buildEnv ?? defaultBuildEnv
   const now = options.now ?? Date.now
   const tempDir = options.tempDir ?? tmpdir()
+  const prepareWslTarget = options.prepareWslTarget ?? prepareWslClaudeTarget
+  const spawnWslChild = options.spawnWslChild ?? spawnWslClaude
   const sessions = new Map<string, SessionState>()
   // Staged plugin folders still being removed, so shutdown can wait for them.
   const removals = new Set<Promise<void>>()
@@ -609,9 +622,10 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
   }
 
   async function spawnQuery(state: SessionState): Promise<void> {
-    if (isWslHostId(state.cliRuntimes?.['claude-code']?.hostId)) {
-      throw new Error('Claude conversation agents are not supported on a WSL machine yet.')
-    }
+    // A chat on a WSL machine runs that machine's `claude`, with the login
+    // and settings under its Linux home; everything below is the same.
+    const hostId = state.cliRuntimes?.['claude-code']?.hostId
+    const wslTarget = isWslHostId(hostId) ? await prepareWslTarget(hostId) : null
     const executablePath = await resolveExecutable(state.cliRuntimes)
     const sdkQuery = await loadQuery()
     const env = await buildEnv({
@@ -653,7 +667,13 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       // agent does need arrives another way: its CLAUDE.md through the system
       // prompt above, and attached skills as a plugin of their own.
       settingSources: ['user'],
-      ...(skillPlugin ? { plugins: [{ type: 'local', path: skillPlugin, skipMcpDiscovery: true }] } : {}),
+      ...(skillPlugin
+        ? {
+            plugins: [
+              { type: 'local', path: wslTarget ? toWslPath(skillPlugin) : skillPlugin, skipMcpDiscovery: true },
+            ],
+          }
+        : {}),
       ...(state.skillIds?.length ? { skills: state.skillIds.map(attachedSkillName) } : {}),
       env,
       abortController: abort,
@@ -689,7 +709,12 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       // Spawn the child ourselves (same command/args the SDK computed) so the
       // PID is known: process-tree diagnostics attribute the headless child to
       // this session, and the SDK exposes no PID of its own.
-      spawnClaudeCodeProcess: (spawnInput: SpawnOptions): SpawnedProcess => spawnTrackedChild(state, spawnInput, now),
+      spawnClaudeCodeProcess: (spawnInput: SpawnOptions): SpawnedProcess =>
+        spawnTrackedChild(
+          state,
+          wslTarget ? () => spawnWslChild(wslTarget, spawnInput) : () => spawnLocalChild(spawnInput),
+          now,
+        ),
       ...(state.providerSessionId ? { resume: state.providerSessionId } : {}),
       // After a rewind the child forks the session at the kept turn's last
       // entry, so the turns after it leave the context and the session they
@@ -1421,14 +1446,18 @@ function withContinuationTurnId(event: ConversationEvent, turnId: string): Conve
 // Spawn the SDK-computed command ourselves so the child PID lands on the
 // session state (the default SDK spawn hides it). Also owns stderr capture:
 // the SDK's `stderr` option only applies to its internal spawn path.
-function spawnTrackedChild(state: SessionState, spawnInput: SpawnOptions, now: () => number): SpawnedProcess {
-  const child = spawn(spawnInput.command, spawnInput.args, {
+function spawnLocalChild(spawnInput: SpawnOptions): ChildProcess {
+  return spawn(spawnInput.command, spawnInput.args, {
     cwd: spawnInput.cwd,
     env: spawnInput.env as NodeJS.ProcessEnv,
     stdio: ['pipe', 'pipe', 'pipe'],
     signal: spawnInput.signal,
     windowsHide: true,
   })
+}
+
+function spawnTrackedChild(state: SessionState, start: () => ChildProcess, now: () => number): SpawnedProcess {
+  const child = start()
   state.childPid = child.pid ?? null
   state.spawnedAt = now()
   child.stderr?.on('data', (data: Buffer) => {
@@ -1463,8 +1492,16 @@ export { defaultResolveExecutable as resolveClaudeExecutable }
 
 async function defaultResolveExecutable(cliRuntimes?: ConversationCliRuntimeOverrides): Promise<string> {
   const { detectCli } = await import('../cli-runtime-install')
-  const detection = await detectCli('claude-code', cliRuntimes?.['claude-code'])
+  const runtime = cliRuntimes?.['claude-code']
+  const detection = await detectCli('claude-code', runtime)
   if (!detection.installed || !detection.resolvedPath) {
+    if (isWslHostId(runtime?.hostId)) {
+      const machine = runtime.hostId.replace(/^wsl:/u, 'WSL: ')
+      throw new Error(
+        `Claude Code CLI was not found on ${machine}. Install it in that distribution (or set its command for that machine in Settings) to chat there.` +
+          (detection.error ? ` ${detection.error}` : ''),
+      )
+    }
     throw new Error(
       'Claude Code CLI is not installed. Install it (or set a command override in Settings) to use Claude conversation agents.',
     )

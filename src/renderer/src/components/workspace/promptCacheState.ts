@@ -82,3 +82,15 @@ export function promptCacheCopy(state: PromptCacheState, now: number): { label: 
     detail: `The next message re-sends ${tokens} uncached, a compaction included. Compacting first makes every message after it smaller.`,
   }
 }
+
+/**
+ * The composer tray's one line for a cache that needs attention: when it goes
+ * or went cold, and how much of the conversation that puts at stake — still
+ * cached while it is expiring, uncached once it is gone.
+ */
+export function promptCacheNoticeLine(state: Exclude<PromptCacheState, { kind: 'warm' }>, now: number): string {
+  const { label } = promptCacheCopy(state, now)
+  if (state.recacheTokens === null) return label
+  const tokens = `~${formatTokenCount(state.recacheTokens)} tokens`
+  return `${label} · ${tokens} ${state.kind === 'cold' ? 'uncached' : 'cached'}`
+}

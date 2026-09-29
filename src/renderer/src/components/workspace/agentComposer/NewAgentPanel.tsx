@@ -75,7 +75,11 @@ import { showToast } from '../../../store/toastStore'
 import { SkillsAndMcpsPicker } from './SkillsAndMcpsPicker'
 import { launchCommandLineKey, launchPreviewRequest, type LaunchCommandLineState } from './launchCommandLine'
 import { drawSuggestions, newSuggestionSeed, type SuggestionEntry } from './suggestionBank'
-import { CONVERSATION_DEFAULT_MODEL_ID, conversationProviderForCli } from '../../../../../shared/conversation-harness'
+import {
+  CONVERSATION_DEFAULT_MODEL_ID,
+  conversationProviderForCli,
+  conversationRunsOnWsl,
+} from '../../../../../shared/conversation-harness'
 import {
   rowMatchesSelection,
   useAgentComposer,
@@ -1024,9 +1028,12 @@ export default function NewAgentPanel({
   }, [previewKey])
 
   const suggestions = React.useMemo(() => drawSuggestions(seed), [seed])
+  // A Claude chat can run on a WSL machine; the other chat runtimes start
+  // their CLI on this machine only, so one of them there has nowhere to run.
+  const chatStrandedOnWsl = isChatLaunch && isWslHostId(hostId) && !conversationRunsOnWsl(launchCli)
   const canLaunch =
     composer.visibleRows.some((row) => rowMatchesSelection(row, selection)) &&
-    (!isChatLaunch || (conversationWorkspaceSupported && pickerOptions.length > 0))
+    (!isChatLaunch || (conversationWorkspaceSupported && pickerOptions.length > 0 && !chatStrandedOnWsl))
 
   const launch = (text: string) => {
     if (!canLaunch) return
@@ -1133,8 +1140,6 @@ export default function NewAgentPanel({
     // The attached images ride along as paths after the text, quoted only when
     // the path needs it — the terminal drop idiom.
     const prompt = [text.trim(), ...images.map((image) => quotePath(image.path))].filter(Boolean).join(' ')
-    // A conversation runs in this app's process, which is this machine.
-    const launchHostId = selection.kind === 'conversation' ? LOCAL_HOST_ID : hostId
     const confirm = composer.buildConfirm(selection)
     if (confirm.kind === 'conversation') {
       // The picker's CLI and model, mapped onto the conversation provider that
@@ -1147,7 +1152,7 @@ export default function NewAgentPanel({
         modelLabel: engineNames.modelLabel ?? engineNames.cliLabel,
       }
     }
-    onLaunch({ ...confirm, prompt, ...(hostChoosable ? { hostId: launchHostId } : {}) })
+    onLaunch({ ...confirm, prompt, ...(hostChoosable ? { hostId } : {}) })
   }
 
   React.useEffect(() => {
@@ -1263,10 +1268,10 @@ export default function NewAgentPanel({
                   pickLocalHost(next)
                 }}
                 hostDisabledReason={(host) => {
-                  // A conversation agent runs in this app's own process, which
-                  // is this machine; it cannot be sent into a distribution.
-                  if (host.kind === 'wsl' && selection.kind === 'conversation') {
-                    return 'Conversation agents run on This PC.'
+                  // A Claude chat runs its `claude` inside the distribution;
+                  // the other chat runtimes start their CLI on this machine.
+                  if (host.kind === 'wsl' && selection.kind === 'conversation' && !conversationRunsOnWsl(launchCli)) {
+                    return `${engineNames.cliLabel} chats run on This PC. Claude Code chats can run on WSL.`
                   }
                   // A folder inside a distribution runs there: its files, its
                   // git and its CLIs' homes are that machine's.
@@ -1676,6 +1681,12 @@ export default function NewAgentPanel({
         {attachNote ? (
           <p role="status" className="mt-1.5 text-meta leading-5 text-[color:var(--tone-error)]">
             {attachNote}
+          </p>
+        ) : null}
+        {chatStrandedOnWsl ? (
+          <p role="status" className="mt-1.5 text-meta leading-5 text-[color:var(--text-muted)]">
+            {engineNames.cliLabel} chats run on This PC only. Pick Claude Code to chat on{' '}
+            {hostId.replace(/^wsl:/u, 'WSL: ')}.
           </p>
         ) : null}
 

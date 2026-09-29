@@ -172,9 +172,10 @@ export function DockShell({
       aria-label={ariaLabel}
       tabIndex={-1}
       onKeyDown={onKeyDown}
-      className="mb-2 max-h-[60vh] overflow-y-auto rounded-lg border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] outline-none"
+      // A row of the composer tray, which draws the surface around it.
+      className="max-h-[60vh] overflow-y-auto outline-none"
     >
-      <div className="flex items-center gap-2 px-4 pt-2.5">
+      <div className="flex items-center gap-2 px-3 pt-2.5">
         {/* Decorative: the eyebrow beside it is the same string, so a labelled
             glyph would announce the state twice. Waiting on you is a ring with
             "!", never a dot. */}
@@ -182,7 +183,7 @@ export function DockShell({
         <span className="text-micro font-medium tracking-normal text-[color:var(--text-subtle)]">{eyebrow}</span>
       </div>
       {children}
-      <div className="flex items-center gap-2.5 px-4 pb-3 pt-2">
+      <div className="flex items-center gap-2.5 px-3 pb-2.5 pt-2">
         {hints ? (
           <span className="flex items-center gap-2 text-micro text-[color:var(--text-subtle)]">{hints}</span>
         ) : null}
@@ -256,7 +257,7 @@ export function ConversationPendingDock({
       }}
     >
       {entries.length > 1 ? (
-        <div className="flex items-center justify-end gap-2 pb-1" aria-label="Pending requests">
+        <div className="flex items-center justify-end gap-2 px-1.5 pt-1" aria-label="Pending requests">
           <IconButton aria-label="Previous request" onClick={() => navigate(-1)}>
             ←
           </IconButton>
@@ -425,12 +426,12 @@ export function ConversationPermissionCard({
       }
     >
       {entry.originAgentId ? (
-        <InlineNotice tone="warn" className="mx-4 mt-2">
+        <InlineNotice tone="warn" className="mx-3 mt-2">
           Requested by subagent {entry.originAgentId}.
         </InlineNotice>
       ) : null}
       {approvalOutsideWorkspace(entry, workspaceRoot) ? (
-        <InlineNotice tone="warn" className="mx-4 mt-2">
+        <InlineNotice tone="warn" className="mx-3 mt-2">
           This request references a path outside this workspace.
         </InlineNotice>
       ) : null}
@@ -439,7 +440,7 @@ export function ConversationPermissionCard({
         // The command exactly as it will run: its line breaks and indentation
         // are part of it, so they are kept, and long lines wrap rather than
         // hide past the card's edge.
-        <div className="group/command mx-4 mt-2 flex items-start gap-2 rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--terminal-bg)] py-1.5 pl-3 pr-1 font-mono text-meta leading-relaxed text-[color:var(--terminal-fg)]">
+        <div className="group/command mx-3 mt-2 flex items-start gap-2 rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--terminal-bg)] py-1.5 pl-3 pr-1 font-mono text-meta leading-relaxed text-[color:var(--terminal-fg)]">
           <span aria-hidden="true" className="select-none py-0.5 text-[color:var(--accent-primary)]">
             $
           </span>
@@ -452,18 +453,18 @@ export function ConversationPermissionCard({
           />
         </div>
       ) : (
-        <p className="px-4 pt-1.5 text-title font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
+        <p className="px-3 pt-1.5 text-title font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
           {entry.summary}
         </p>
       )}
       {edits.map((edit, index) => (
-        <div key={`${index}:${edit.path}`} className="mx-4 mt-2">
+        <div key={`${index}:${edit.path}`} className="mx-3 mt-2">
           <ConversationFileLink token={edit.path} source="inlineCode" />
           <InlineDiff edit={withoutNoNewlineMarkers(edit)} />
         </div>
       ))}
       {workspaceName ? (
-        <div className="flex items-center gap-1.5 px-4 pt-1.5 text-meta text-[color:var(--text-subtle)]">
+        <div className="flex items-center gap-1.5 px-3 pt-1.5 text-meta text-[color:var(--text-subtle)]">
           <FolderGlyph className="icon-xs" />
           in {workspaceName}
         </div>
@@ -541,7 +542,7 @@ export function ConversationPlanCard({
       <ArrivalAnnouncement text={announcement} />
       {plan ? (
         <>
-          <div className="group/plan relative mx-4 mt-2 rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)]">
+          <div className="group/plan relative mx-3 mt-2 rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)]">
             <div className="absolute right-1 top-1 opacity-0 group-hover/plan:opacity-100 focus-within:opacity-100">
               <CopyGlyphButton text={plan} label="Copy plan" size="xs" />
             </div>
@@ -550,7 +551,7 @@ export function ConversationPlanCard({
             </div>
           </div>
           {long ? (
-            <div className="mx-4 mt-1">
+            <div className="mx-3 mt-1">
               <GhostButton size="inline" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
                 {expanded ? 'Show less' : 'Show full plan'}
               </GhostButton>
@@ -558,7 +559,7 @@ export function ConversationPlanCard({
           ) : null}
         </>
       ) : (
-        <p className="px-4 pt-1.5 text-body leading-5 text-[color:var(--text-default)]">{entry.summary}</p>
+        <p className="px-3 pt-1.5 text-body leading-5 text-[color:var(--text-default)]">{entry.summary}</p>
       )}
     </DockShell>
   )
@@ -701,7 +702,7 @@ export function ConversationQuestionCard({
       }
     >
       <ArrivalAnnouncement text={announcement} />
-      <div className="px-4 pt-1.5 font-medium text-[color:var(--text-strong)]">
+      <div className="px-3 pt-1.5 font-medium text-[color:var(--text-strong)]">
         <ConversationMarkdown size="compact" text={question.question} />
       </div>
       <div

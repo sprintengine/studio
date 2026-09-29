@@ -1519,6 +1519,53 @@ test('NewAgentPanel', async () => {
       },
     )
 
+    await check('a Claude Code chat runs on the WSL machine it was started on', async () => {
+      seedStore()
+      resetRememberedMachineForTests()
+      meshConnections = []
+      hostsAnswer = {
+        hosts: [
+          { id: 'local', kind: 'windows', label: 'This PC (Windows)', pathStyle: 'windows', state: 'ready' },
+          { id: 'wsl:Ubuntu', kind: 'wsl', label: 'WSL: Ubuntu', pathStyle: 'wsl', state: 'ready', enabled: true },
+        ],
+        wsl: { available: true },
+      }
+      try {
+        const view = await render({
+          initialSelection: { kind: 'conversation' },
+          folderPath: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo',
+          projectOptions: [],
+          onSelectProject: () => {},
+        })
+        await settle()
+        assert.equal(machineTrigger(view)?.textContent?.trim(), 'WSL: Ubuntu')
+        const menu = await openMachineMenu(view)
+        const ubuntu = menu.querySelector<HTMLButtonElement>('[data-machine-host="wsl:Ubuntu"]')
+        assert.equal(ubuntu?.disabled, false, 'a chat may pick the distribution')
+        assert.doesNotMatch(ubuntu?.textContent ?? '', /run on This PC/u)
+        await act(async () => {
+          dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+        })
+        const field = view.container.querySelector('textarea')!
+        await act(async () => {
+          Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!.call(field, 'hi')
+          field.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+        })
+        await act(async () => {
+          field.dispatchEvent(
+            new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+          )
+        })
+        const launch = view.launches.at(-1)
+        assert.equal(launch?.kind, 'conversation')
+        assert.equal(launch?.hostId, 'wsl:Ubuntu', 'the chat runs where its folder is, not on This PC')
+        view.unmount()
+      } finally {
+        hostsAnswer = { hosts: [], wsl: null }
+        resetRememberedMachineForTests()
+      }
+    })
+
     await check('unreachable, unauthorized and workspace-gap machines say their real reason', async () => {
       seedStore()
       resetRememberedMachineForTests()

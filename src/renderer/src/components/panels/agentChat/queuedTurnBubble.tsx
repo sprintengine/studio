@@ -1,17 +1,12 @@
-// The message a person committed while the agent was working, shown where it
-// will land: a dashed ghost of the bubble it becomes, at the foot of the
-// conversation above the composer. It waits for the turn to end on its own;
-// "Send now" hands it to the running turn instead (a steer), and Edit takes it
-// back into the composer.
-//
-// It floats over the foot of the transcript rather than taking a band of its
-// own, so the conversation stays readable beside it. Only the bubble and its
-// action line are solid and take the pointer; the rest of its width lets the
-// transcript through, to the eye and to clicks and scrolling.
+// The message a person committed while the agent was working, as a row in the
+// composer tray: "Queued", then the message on one line. It waits for the turn
+// to end on its own; "Send now" hands it to the running turn instead (a
+// steer), and Edit takes it back into the composer.
 
 import type { ConversationImageAttachment } from '../../../../../shared/conversation-runtime'
 import { AttachmentThumbnail } from '../ComposerAttachmentStrip'
-import { GhostButton, Tooltip } from '../../ui'
+import { GhostButton, Tooltip, TruncatedText } from '../../ui'
+import { ComposerTrayRow } from './composerTray'
 
 export type QueuedTurnSendNow = {
   // `steer` delivers into the running turn; `interrupt` stops it, and the queue
@@ -45,7 +40,23 @@ export function queuedTurnSendNow(options: {
   return { kind, label, disabled: false }
 }
 
-export function QueuedTurnBubble({
+// A dashed ring round a clock hand: something waiting its turn, on the
+// lifecycle glyphs' 16-grid.
+function QueuedGlyph() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+      className="icon-sm shrink-0 text-[color:var(--text-subtle)]"
+    >
+      <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.4" strokeDasharray="2.2 1.6" />
+      <path d="M8 5.5v2.75l1.75 1.1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+export function QueuedTurnRow({
   text,
   attachments,
   sendNow,
@@ -67,34 +78,36 @@ export function QueuedTurnBubble({
       ? `Give this to the agent while it works (${shortcutLabel})`
       : `Stop the reply and send this instead (${shortcutLabel})`)
   return (
-    <div role="group" aria-label="Queued message" className="pointer-events-none flex flex-col items-end">
-      <div className="pointer-events-auto max-w-[76%] rounded-sm border border-dashed border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-1.5">
-        {attachments.length > 0 ? (
-          <div className={`flex flex-wrap justify-end gap-1.5 ${text ? 'mb-2' : ''}`}>
-            {attachments.map((attachment) => (
-              <AttachmentThumbnail key={attachment.id} attachment={attachment} className="h-10 w-10" />
-            ))}
-          </div>
-        ) : null}
+    <ComposerTrayRow
+      role="group"
+      ariaLabel="Queued message"
+      glyph={<QueuedGlyph />}
+      actions={
+        <>
+          <Tooltip content={sendNowHint} placement="top">
+            <GhostButton size="xs" disabled={sendNow.disabled} onClick={onSendNow}>
+              {sendNow.label}
+            </GhostButton>
+          </Tooltip>
+          <Tooltip content="Take it back into the composer" placement="top">
+            <GhostButton size="xs" onClick={onEdit}>
+              Edit
+            </GhostButton>
+          </Tooltip>
+        </>
+      }
+    >
+      <span className="flex min-w-0 items-center gap-2">
+        <Tooltip content="Sends when this turn ends" placement="top">
+          <span className="shrink-0">Queued</span>
+        </Tooltip>
+        {attachments.map((attachment) => (
+          <AttachmentThumbnail key={attachment.id} attachment={attachment} className="h-5 w-5 shrink-0" />
+        ))}
         {text ? (
-          <p className="line-clamp-4 whitespace-pre-wrap text-body leading-normal text-[color:var(--text-muted)]">
-            {text}
-          </p>
+          <TruncatedText as="span" text={text} className="min-w-0 text-meta italic text-[color:var(--text-muted)]" />
         ) : null}
-      </div>
-      <div className="pointer-events-auto mt-1 flex items-center justify-end gap-2 rounded-sm bg-[color:var(--bg-surface)] pl-2">
-        <span className="text-meta leading-5 text-[color:var(--text-muted)]">Queued · sends when this turn ends</span>
-        <Tooltip content={sendNowHint} placement="top">
-          <GhostButton size="inline" disabled={sendNow.disabled} onClick={onSendNow}>
-            {sendNow.label}
-          </GhostButton>
-        </Tooltip>
-        <Tooltip content="Take it back into the composer" placement="top">
-          <GhostButton size="inline" onClick={onEdit}>
-            Edit
-          </GhostButton>
-        </Tooltip>
-      </div>
-    </div>
+      </span>
+    </ComposerTrayRow>
   )
 }

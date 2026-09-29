@@ -83,7 +83,7 @@ async function mountChat({
   capabilities?: Record<string, unknown>
   providerId?: string
   modelId?: string
-  providerModels?: { id: string; displayName?: string }[]
+  providerModels?: { id: string; displayName?: string; contextLength?: number }[]
   agent?: Record<string, unknown>
   sendTurn?: SendTurn
   setModel?: (input: { sessionId: string; modelId: string }) => Promise<unknown>
@@ -486,7 +486,7 @@ function runningTurnSend() {
   return { sendTurn, calls, release: () => release() }
 }
 
-test('a queued message floats over the transcript instead of taking a band of its own', async () => {
+test('a queued message is a row of the composer tray, not a bubble over the transcript', async () => {
   const turn = runningTurnSend()
   // An agent that cannot take a message mid-turn: what is sent while it works waits.
   const chat = await mountChat({ sendTurn: turn.sendTurn })
@@ -500,20 +500,11 @@ test('a queued message floats over the transcript instead of taking a band of it
     })
     await chat.act(async () => chat.type('Use the staging config'))
     await chat.act(async () => chat.enter())
-    const group = chat.host.querySelector<HTMLElement>('[aria-label="Queued message"]')!
-    const overlay = group.parentElement!
-    // Out of the dock's flow and above it, so the transcript runs on behind it.
-    expect(overlay.className).toContain('absolute')
-    expect(overlay.className).toContain('bottom-full')
-    // The empty width passes the pointer through to the transcript; the bubble
-    // and its actions take it, and are solid so the text behind stays behind.
-    expect(overlay.className).toContain('pointer-events-none')
-    expect(group.className).toContain('pointer-events-none')
-    const [bubble, actions] = [...group.children] as HTMLElement[]
-    for (const part of [bubble!, actions!]) {
-      expect(part.className).toContain('pointer-events-auto')
-      expect(part.className).toContain('bg-[color:var(--bg-surface)]')
-    }
+    const row = chat.host.querySelector<HTMLElement>('[aria-label="Queued message"]')!
+    expect(row.closest('[data-composer-tray]'), 'in the tray above the composer').not.toBeNull()
+    expect(row.closest('[role="log"]'), 'not over the transcript').toBeNull()
+    expect(row.textContent).toContain('Queued')
+    expect(row.textContent).toContain('Use the staging config')
     expect(turn.sendTurn).toHaveBeenCalledOnce()
   } finally {
     turn.release()
@@ -806,6 +797,46 @@ test('a send that fails offers Retry, which sends that message again and empties
     expect(sendTurn.mock.calls[1][0]).toMatchObject({ message: 'Rerun the migration' })
     expect(chat.host.querySelector('textarea')!.value).toBe('')
     expect(chat.button('Retry')).toBeUndefined()
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a failed send is a row of the composer tray, and × puts it away', async () => {
+  const sendTurn = vi.fn<SendTurn>().mockResolvedValue({ ok: false, message: 'The provider is restarting.' })
+  const chat = await mountChat({ sendTurn })
+  try {
+    await chat.act(async () => chat.type('Rerun the migration'))
+    await chat.act(async () => chat.enter())
+    const alert = chat.host.querySelector<HTMLElement>('[data-composer-tray] [role="alert"]')!
+    expect(alert.textContent).toContain('The provider is restarting.')
+    expect(chat.button('Retry')).toBeDefined()
+    await chat.act(async () => alert.querySelector<HTMLButtonElement>('[aria-label="Dismiss"]')!.click())
+    expect(chat.host.textContent).not.toContain('The provider is restarting.')
+    expect(chat.button('Retry')).toBeUndefined()
+    // The next failure is news again.
+    await chat.act(async () => chat.enter())
+    expect(chat.host.textContent).toContain('The provider is restarting.')
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a context window past 90% says so in the composer tray until it is put away', async () => {
+  const chat = await mountChat({
+    providerModels: [{ id: 'mock-model', contextLength: 200_000 }],
+    events: [
+      event('user_message', { turnId: 'a', text: 'Earlier message' }),
+      event('usage_updated', { inputTokens: 184_000, outputTokens: 0 }),
+    ],
+  })
+  try {
+    const tray = () => chat.host.querySelector<HTMLElement>('[data-composer-tray]')
+    expect(tray()?.textContent).toContain('Context 92% full · 184k of 200k tokens')
+    // A model provider runs no /compact, so none is offered.
+    expect(chat.button('Compact')).toBeUndefined()
+    await chat.act(async () => chat.button('Not now')!.click())
+    expect(tray()?.textContent ?? '').not.toContain('Context 92% full')
   } finally {
     await chat.unmount()
   }

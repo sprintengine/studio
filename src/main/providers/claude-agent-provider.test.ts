@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
+import { EventEmitter } from 'node:events'
 import { join } from 'node:path'
+import { PassThrough } from 'node:stream'
 
 import type { ConversationEvent } from '../../shared/conversation-runtime'
 import {
@@ -34,6 +36,7 @@ test('claude-agent-provider', async () => {
     await testTurnStreamsDeltasToolsUsageAndCompletion()
     await testImageAttachmentsBecomeMultimodalContent()
     await testNativeSkillSelectionReachesSdk()
+    await testWslChatRunsItsChildInTheDistribution()
     await testAskModeReadOnlyAndEffort()
     await testLiveModelSwitch()
     await testResumeCursorIsPassedToTheSdkAndSessionUpdatesEmit()
@@ -177,6 +180,58 @@ test('claude-agent-provider', async () => {
       permissionModes: sdk.permissionModes,
       models: sdk.models,
     }
+  }
+
+  // A chat on a WSL machine readies that machine, asks it for its `claude`,
+  // and hands the SDK's spawn to the distribution instead of this PC.
+  async function testWslChatRunsItsChildInTheDistribution(): Promise<void> {
+    const sdk = createFakeSdk((_message, context) => {
+      context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 'wsl-chat' })
+    })
+    const prepared: string[] = []
+    const resolvedWith: unknown[] = []
+    const spawned: Array<{ target: unknown; request: { command: string; args: string[]; cwd?: string } }> = []
+    const adapter = createClaudeAgentProvider({
+      loadQuery: sdk.loadQuery as never,
+      resolveExecutable: async (cliRuntimes) => {
+        resolvedWith.push(cliRuntimes)
+        return '/home/dev/.local/bin/claude'
+      },
+      buildEnv: (input) => ({ [CLAUDE_AGENT_SESSION_ENV_KEY]: input.sessionId }),
+      now: () => 1000,
+      prepareWslTarget: async (hostId) => {
+        prepared.push(hostId)
+        return { distro: 'Ubuntu', agentStateSocketPath: '/run/user/1000/agent.sock' }
+      },
+      spawnWslChild: (target, request) => {
+        spawned.push({ target, request })
+        const child = new EventEmitter() as EventEmitter & Record<string, unknown>
+        Object.assign(child, { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough() })
+        Object.assign(child, { pid: 42, exitCode: null, killed: false, kill: () => true })
+        return child as never
+      },
+    })
+    const cliRuntimes = { 'claude-code': { command: '', hostId: 'wsl:Ubuntu' as const } }
+    const input = turnInput({ workspaceRoot: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\app', cliRuntimes })
+    await adapter.startSession(input)
+    for await (const _event of await adapter.sendTurn(input)) {
+      /* drain the turn */
+    }
+    assert.deepEqual(prepared, ['wsl:Ubuntu'])
+    assert.deepEqual(resolvedWith, [cliRuntimes])
+    const options = sdk.capturedOptions[0] as { spawnClaudeCodeProcess: (request: unknown) => unknown }
+    options.spawnClaudeCodeProcess({
+      command: '/home/dev/.local/bin/claude',
+      args: ['--output-format', 'stream-json'],
+      cwd: input.workspaceRoot,
+      env: { CLAUDE_CODE_ENTRYPOINT: 'sdk-ts' },
+    })
+    assert.equal(spawned.length, 1)
+    assert.deepEqual(spawned[0].target, { distro: 'Ubuntu', agentStateSocketPath: '/run/user/1000/agent.sock' })
+    assert.equal(spawned[0].request.command, '/home/dev/.local/bin/claude')
+    assert.deepEqual(spawned[0].request.args, ['--output-format', 'stream-json'])
+    assert.equal(adapter.listLiveSessions()[0]?.hasChildProcess, true)
+    await adapter.disposeAll()
   }
 
   async function testNativeSkillSelectionReachesSdk(): Promise<void> {

@@ -1,4 +1,4 @@
-// The agent's checklist, docked above the composer while it works through it:
+// The agent's checklist, a row of the composer tray while it works through it:
 // the step it is on, how far along it is, and — opened — the whole list. The
 // transcript still keeps each write as a step; this is the one place that says
 // where the list stands now, so it never has to be scrolled back to.
@@ -65,10 +65,8 @@ export function ConversationTodoStrip({
   if (!progress) return null
   const working = progress.live && progress.steps.some((step) => step.status === 'in_progress')
   return (
-    <div
-      data-conversation-todo-strip=""
-      className="mb-2 rounded-lg border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]"
-    >
+    // A row of the composer tray, which draws the surface around it.
+    <div data-conversation-todo-strip="">
       <RowButton
         density="row"
         className="group/tool-row gap-2 text-meta"

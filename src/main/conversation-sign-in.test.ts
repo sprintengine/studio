@@ -53,14 +53,23 @@ test('on Windows the native claude.exe is run from PowerShell', async () => {
   })
 })
 
-test('a chat pointed at a WSL host has no sign-in to run, as it cannot start there', async () => {
-  const detect = vi.fn(async () => detected('/usr/bin/claude'))
+test('a chat on a WSL machine signs in there, with the claude that distribution runs', async () => {
+  const detect = vi.fn(async () => detected('/home/me/.local/bin/claude'))
+  const wslHome = vi.fn(async () => '\\\\wsl.localhost\\Ubuntu\\home\\me')
+  const runtime = { command: '', hostId: 'wsl:Ubuntu' as const }
   const result = await resolveConversationSignIn(
-    { providerId: 'claude-agent', cliRuntimes: { 'claude-code': { hostId: 'wsl:Ubuntu' } } },
-    { detect, platform: 'win32', home: () => 'C:\\Users\\me' },
+    { providerId: 'claude-agent', cliRuntimes: { 'claude-code': runtime } },
+    { detect, wslHome, platform: 'win32', home: () => 'C:\\Users\\me' },
   )
-  expect(result.ok).toBe(false)
-  expect(detect).not.toHaveBeenCalled()
+  expect(result).toEqual({
+    ok: true,
+    commandLine: '/home/me/.local/bin/claude auth login',
+    cwd: '\\\\wsl.localhost\\Ubuntu\\home\\me',
+    platform: 'linux',
+    hostId: 'wsl:Ubuntu',
+  })
+  expect(detect).toHaveBeenCalledWith('claude-code', runtime)
+  expect(wslHome).toHaveBeenCalledWith('wsl:Ubuntu')
 })
 
 test('a missing CLI says so rather than opening a terminal that fails', async () => {

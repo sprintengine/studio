@@ -4,6 +4,7 @@ import {
   buildAgentCliCatalog,
   buildCliRuntimeOptions,
   cliRuntimeForPlugin,
+  conversationCliRuntimesFor,
   filterCatalogByAvailability,
   installableCliSummary,
   isAgentCliAvailable,
@@ -732,4 +733,24 @@ test('every model-picker surface passes the discovered catalog to the merge', as
     }
     assert.match(source.slice(start, end), /cliModelCatalog/, `${file} passes cliModelCatalog to the merge`)
   }
+})
+
+test("a chat in a WSL workspace runs that machine's claude; everything else keeps the app's runtimes", () => {
+  const cliRuntimes = {
+    'claude-code': { command: 'C:\\tools\\claude.exe', models: ['opus'] },
+    codex: { command: 'codex' },
+  }
+  const hosts = { 'wsl:Ubuntu': { enabled: true, cliCommands: { 'claude-code': '/opt/claude/bin/claude' } } }
+  assert.equal(conversationCliRuntimesFor(cliRuntimes, 'local', hosts as never), cliRuntimes)
+  assert.equal(conversationCliRuntimesFor(cliRuntimes, undefined, hosts as never), cliRuntimes)
+  assert.deepEqual(conversationCliRuntimesFor(cliRuntimes, 'wsl:Ubuntu', hosts as never), {
+    'claude-code': { command: '/opt/claude/bin/claude', models: ['opus'], hostId: 'wsl:Ubuntu' },
+    codex: { command: 'codex' },
+  })
+  // No override on that machine: its own PATH finds `claude`.
+  assert.deepEqual(conversationCliRuntimesFor(cliRuntimes, 'wsl:Debian', hosts as never)?.['claude-code'], {
+    command: '',
+    models: ['opus'],
+    hostId: 'wsl:Debian',
+  })
 })

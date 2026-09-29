@@ -1,7 +1,7 @@
 import { homedir } from 'node:os'
 import type { ConversationCliRuntimeOverrides, ConversationProviderSignInResult } from '../shared/conversation-runtime'
 import { cliForConversationProvider } from '../shared/conversation-harness'
-import { isWslHostId } from '../shared/execution-host'
+import { isWslHostId, type ExecutionHostId } from '../shared/execution-host'
 import { argvToPosixShellCommand } from './agent-launch-render'
 import { detectCli } from './cli-runtime-install'
 
@@ -12,10 +12,12 @@ const SIGN_IN_ARGS: Partial<Record<string, string[]>> = {
 }
 
 /**
- * The line a plain Studio terminal on this machine runs to sign a chat's CLI
- * back in. It names the executable the conversation provider resolves, not
- * whatever `claude` the shell finds first: on Windows the chat runs the native
- * claude.exe, whose login is not the one inside WSL.
+ * The line a plain Studio terminal runs to sign a chat's CLI back in. It names
+ * the executable the conversation provider resolves, not whatever `claude` the
+ * shell finds first: on Windows a chat on This PC runs the native claude.exe,
+ * whose login is not the one inside WSL, and a chat on a WSL machine runs the
+ * `claude` in that distribution, whose login (a personal one, or the one an
+ * organization manages) lives under its Linux home.
  */
 export function signInCommandLine(executablePath: string, args: string[], platform: NodeJS.Platform): string {
   // A plain terminal on Windows opens PowerShell, which runs a quoted path
@@ -30,21 +32,33 @@ export async function resolveConversationSignIn(
     detect?: typeof detectCli
     platform?: NodeJS.Platform
     home?: () => string
+    /** A WSL machine's home as this PC opens it; the host registry's answer by default. */
+    wslHome?: (hostId: ExecutionHostId) => Promise<string | null>
   } = {},
 ): Promise<ConversationProviderSignInResult> {
   const cli = cliForConversationProvider(input.providerId)
   const args = cli ? SIGN_IN_ARGS[cli] : undefined
   if (!cli || !args) return { ok: false, message: 'This provider has no sign-in to run.' }
   const override = input.cliRuntimes?.[cli]
-  // The provider refuses a WSL host, so there is no chat login there to renew.
-  if (isWslHostId(override?.hostId)) {
-    return { ok: false, message: 'Claude conversation agents are not supported on a WSL machine yet.' }
-  }
   const detection = await (deps.detect ?? detectCli)(cli, override)
   if (!detection.installed || !detection.resolvedPath) {
     return {
       ok: false,
       message: 'Claude Code CLI is not installed. Install it (or set a command override in Settings) to sign in.',
+    }
+  }
+  // A chat on a WSL machine signs in there: a terminal on that machine, in
+  // its home, running the `claude` the chat runs.
+  if (isWslHostId(override?.hostId)) {
+    const hostId = override.hostId
+    const home = await (deps.wslHome ?? defaultWslHome)(hostId)
+    if (!home) return { ok: false, message: `Couldn't reach ${hostId.replace(/^wsl:/u, 'WSL: ')} to sign in there.` }
+    return {
+      ok: true,
+      commandLine: signInCommandLine(detection.resolvedPath, args, 'linux'),
+      cwd: home,
+      platform: 'linux',
+      hostId,
     }
   }
   const platform = deps.platform ?? process.platform
@@ -57,4 +71,10 @@ export async function resolveConversationSignIn(
     cwd: (deps.home ?? homedir)(),
     platform,
   }
+}
+
+async function defaultWslHome(hostId: ExecutionHostId): Promise<string | null> {
+  const { hostRegistry } = await import('./hosts/host-registry')
+  const home = await hostRegistry().get(hostId).homeDir()
+  return home?.native ?? null
 }

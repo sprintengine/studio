@@ -3751,6 +3751,22 @@ body:has([data-selection-pane]:focus-within)
   padding-inline: max(var(--sem-space-xl), calc((100% - var(--chat-max-width)) / 2));
 }
 
+/* The composer tray (agentChat/composerTray.tsx) slides up out from behind the
+ * composer when its first row arrives: it starts tucked under the field, which
+ * paints over it, so it is never drawn across the text being typed. Its display
+ * flips from none each time it goes from empty to not, which replays this. */
+@media (prefers-reduced-motion: no-preference) {
+  .composer-tray {
+    animation: composer-tray-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+}
+
+@keyframes composer-tray-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+
 /* Contrast re-tones the chat pane's inks and nothing else — the transcript,
  * the composer, everything inside [data-chat-pane]; the rail, menus and the
  * rest of the app keep the theme's. The pane computes its inks from the

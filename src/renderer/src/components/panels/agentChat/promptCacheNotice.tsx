@@ -1,12 +1,13 @@
-// The notice above a chat's composer when its prompt cache is about to go cold
-// or already has: what the next message will cost, and the compaction that
-// makes it — and everything after it — smaller.
+// The composer tray's row when a chat's prompt cache is about to go cold or
+// already has: when, and how many tokens that puts at stake — with the
+// compaction that makes the next message, and every one after it, smaller.
 
 import { useState } from 'react'
 import { useRelativeNow } from '../../../hooks/useRelativeNow'
-import { GhostButton, InlineNotice } from '../../ui'
+import { GhostButton } from '../../ui'
 import type { PromptCacheReading } from '../../../../../shared/prompt-cache'
-import { promptCacheCopy, promptCacheNeedsAttention, promptCacheState } from '../../workspace/promptCacheState'
+import { promptCacheNeedsAttention, promptCacheNoticeLine, promptCacheState } from '../../workspace/promptCacheState'
+import { ComposerTrayRow } from './composerTray'
 import { CompactGlyph } from './toolRows/ToolKindGlyph'
 
 // What a dismissal is about: this reading. The next request writes a new one,
@@ -30,14 +31,10 @@ export function PromptCacheComposerNotice({
   if (busy || !reading || dismissed === readingKey(reading)) return null
   const state = promptCacheState(reading, now)
   if (!promptCacheNeedsAttention(state)) return null
-  const { label, detail } = promptCacheCopy(state, now)
   return (
-    <InlineNotice
+    <ComposerTrayRow
       tone="warn"
-      className="mb-2"
-      title={label}
-      hint={detail}
-      action={
+      actions={
         <>
           <GhostButton size="xs" onClick={onCompact}>
             <CompactGlyph className="icon-xs" />
@@ -48,6 +45,8 @@ export function PromptCacheComposerNotice({
           </GhostButton>
         </>
       }
-    />
+    >
+      {promptCacheNoticeLine(state, now)}
+    </ComposerTrayRow>
   )
 }
