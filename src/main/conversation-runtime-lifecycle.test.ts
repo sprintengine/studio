@@ -123,3 +123,124 @@ test('a chat child in the process tree is labelled with the CLI it runs', async 
     [['conv_codex', 'codex', 'idle']],
   )
 })
+
+/**
+ * A stateful provider whose child can be disposed, and which reports an agent
+ * it spawned in the background through the session's continuation channel.
+ */
+function backgroundAgentProvider() {
+  const disposed: string[] = []
+  let sink: ((event: ConversationEvent) => void) | undefined
+  let session: MockAdapterSessionInput | undefined
+  const adapter: ConversationProviderAdapter = {
+    ...echoProvider(),
+    id: 'agent-provider',
+    sessions: 'stateful',
+    startSession: (input) => {
+      sink = input.onSessionEvent
+      session = input
+      return [runtimeEvent(input, 'session_started'), runtimeEvent(input, 'session_ready')]
+    },
+    disposeChildProcess: (sessionId) => {
+      disposed.push(sessionId)
+      return true
+    },
+  }
+  const agent = (status: 'running' | 'completed') =>
+    sink!(
+      runtimeEvent(session!, 'subagent_status', {
+        toolUseId: 'task_1',
+        status,
+        background: true,
+        description: 'Run the long suite',
+      }),
+    )
+  return { adapter, disposed, agent }
+}
+
+function backgroundAgents(runtime: ConversationRuntime): number | undefined {
+  const listed = runtime.listSessions()
+  return listed.ok ? listed.sessions[0]?.backgroundAgents : undefined
+}
+
+async function until(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 400 && !predicate(); attempt++) await new Promise((r) => setTimeout(r, 5))
+  assert.ok(predicate())
+}
+
+test('the idle sweep leaves a chat whose background agent is still running', async () => {
+  let clock = 1_000_000
+  const provider = backgroundAgentProvider()
+  await withRuntime(
+    [provider.adapter],
+    async ({ runtime, workspaceRoot }) => {
+      runtime.setIdleThresholdMs(60_000)
+      const started = await runtime.startSession({
+        workspaceRoot,
+        workspaceId: 'workspace',
+        agentId: 'agent',
+        providerId: 'agent-provider',
+        modelId: 'model',
+      })
+      assert.ok(started.ok)
+      const sessionId = started.session.sessionId
+      assert.ok((await runtime.sendTurn({ sessionId, message: 'start the suite in the background' })).ok)
+      provider.agent('running')
+      await until(() => backgroundAgents(runtime) === 1)
+
+      assert.deepEqual(runtime.sweepIdleSessions(clock + 10 * 60_000), [])
+      assert.deepEqual(provider.disposed, [])
+
+      provider.agent('completed')
+      await until(() => !backgroundAgents(runtime))
+      assert.deepEqual(runtime.sweepIdleSessions(clock + 10 * 60_000), [sessionId])
+      assert.deepEqual(provider.disposed, [sessionId])
+    },
+    { now: () => clock },
+  )
+})
+
+test('the idle sweep rests while the machine sleeps', async () => {
+  const listeners = { suspend: new Set<() => void>(), resume: new Set<() => void>() }
+  let suspended = false
+  const activity = {
+    isSuspended: () => suspended,
+    onSuspend: (listener: () => void) => {
+      listeners.suspend.add(listener)
+      return () => listeners.suspend.delete(listener)
+    },
+    onResume: (listener: () => void) => {
+      listeners.resume.add(listener)
+      return () => listeners.resume.delete(listener)
+    },
+  }
+  const timers = new Set<unknown>()
+  const realSetInterval = globalThis.setInterval
+  const realClearInterval = globalThis.clearInterval
+  globalThis.setInterval = ((handler: () => void, ms: number) => {
+    const timer = realSetInterval(handler, ms)
+    timers.add(timer)
+    return timer
+  }) as typeof setInterval
+  globalThis.clearInterval = ((timer: NodeJS.Timeout) => {
+    timers.delete(timer)
+    realClearInterval(timer)
+  }) as typeof clearInterval
+  try {
+    const runtime = new ConversationRuntime({ getProviderById: () => undefined, adapters: [echoProvider()] })
+    runtime.startIdleSweep(activity)
+    assert.equal(timers.size, 1)
+    suspended = true
+    for (const listener of listeners.suspend) listener()
+    assert.equal(timers.size, 0)
+    suspended = false
+    for (const listener of listeners.resume) listener()
+    assert.equal(timers.size, 1)
+    runtime.stopIdleSweep()
+    assert.equal(timers.size, 0)
+    assert.equal(listeners.suspend.size + listeners.resume.size, 0)
+  } finally {
+    globalThis.setInterval = realSetInterval
+    globalThis.clearInterval = realClearInterval
+  }
+})

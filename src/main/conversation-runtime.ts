@@ -77,6 +77,7 @@ import { getConversationProviderById } from './plugin-registry-instance'
 import { ProviderSecretStore } from './secret-store'
 import { clampSuspendIdleAfterMs, DEFAULT_SUSPEND_IDLE_AFTER_MS } from './terminal-reap-policy'
 import type { TerminalRootInfo } from './workspace-memory'
+import type { PowerActivity } from './power-activity'
 import {
   type ConversationMessage,
   type ConversationProviderAdapter,
@@ -305,6 +306,7 @@ export class ConversationRuntime {
   private readonly eventEpoch: string
   private idleThresholdMs = DEFAULT_SUSPEND_IDLE_AFTER_MS
   private idleSweepTimer: NodeJS.Timeout | null = null
+  private idleSweepActivity: (() => void) | null = null
 
   constructor(options: ConversationRuntimeOptions = {}) {
     this.secretStore = options.secretStore ?? new ProviderSecretStore()
@@ -1174,7 +1176,31 @@ export class ConversationRuntime {
     this.idleThresholdMs = clampSuspendIdleAfterMs(value)
   }
 
-  startIdleSweep(): void {
+  /**
+   * Sweep for idle children every few minutes. With the machine's activity it
+   * rests while the machine sleeps, as the app's other pollers do, and picks
+   * up again on waking: nothing on a sleeping machine is worth a wakeup.
+   */
+  startIdleSweep(activity?: Pick<PowerActivity, 'isSuspended' | 'onSuspend' | 'onResume'>): void {
+    if (activity && !this.idleSweepActivity) {
+      const disposers = [
+        activity.onSuspend(() => this.clearIdleSweepTimer()),
+        activity.onResume(() => this.armIdleSweepTimer()),
+      ]
+      this.idleSweepActivity = () => {
+        for (const dispose of disposers) dispose()
+      }
+    }
+    if (!activity?.isSuspended()) this.armIdleSweepTimer()
+  }
+
+  stopIdleSweep(): void {
+    this.idleSweepActivity?.()
+    this.idleSweepActivity = null
+    this.clearIdleSweepTimer()
+  }
+
+  private armIdleSweepTimer(): void {
     if (this.idleSweepTimer) return
     this.idleSweepTimer = setInterval(() => {
       this.sweepIdleSessions()
@@ -1182,7 +1208,7 @@ export class ConversationRuntime {
     this.idleSweepTimer.unref?.()
   }
 
-  stopIdleSweep(): void {
+  private clearIdleSweepTimer(): void {
     if (!this.idleSweepTimer) return
     clearInterval(this.idleSweepTimer)
     this.idleSweepTimer = null
@@ -1190,11 +1216,14 @@ export class ConversationRuntime {
 
   // Dispose the child process of every idle stateful session, keeping the
   // session (and its resume cursor) so the next turn transparently respawns.
-  // Never disposes mid-turn or while an approval/question card is pending.
+  // Never disposes mid-turn, while an approval/question card is pending, or
+  // while an agent the chat spawned is still running: a background agent
+  // outlives the turn that launched it and reports without moving
+  // `updatedAt`, and it lives in the child this would end.
   sweepIdleSessions(now: number = this.now()): string[] {
     const disposed: string[] = []
     for (const session of this.sessions.values()) {
-      if (isSessionBusy(session)) continue
+      if (isSessionBusy(session) || session.runningSubagents.size > 0) continue
       if (now - session.updatedAt < this.idleThresholdMs) continue
       // An idle chat does not hold a file handle open for the rest of the run;
       // its next event reopens the stream.

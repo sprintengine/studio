@@ -105,6 +105,7 @@ import {
   scheduleCliVersionRead,
 } from './cli-version-advisory-service'
 import { createBackgroundModeStore } from './background-mode-store'
+import { powerActivity } from './power-activity'
 import { createStudioAreaSkillStore } from './studio-area-skill-store'
 import { createAnalyticsService } from './telemetry/analytics-service'
 import { createTelemetryConsentStore } from './telemetry/consent-store'
@@ -610,7 +611,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       return result.ok ? { ok: true } : result
     },
   })
-  conversationRuntime.startIdleSweep()
+  conversationRuntime.startIdleSweep(powerActivity)
 
   // Renderer-pushed "keep running in the background" setting. Read
   // synchronously inside `window-all-closed`, which is precisely when no
