@@ -32,10 +32,25 @@ export function useConversationLinkContext() {
   return useContext(LinkContext)
 }
 
-// What each resolved path turned out to be on this disk, asked once per path
-// for the life of the window: a transcript repeats the same few paths, and a
-// row re-mounting under the virtual list must not re-ask.
+// What each resolved path turned out to be on this disk, asked once per path:
+// a transcript repeats the same few paths, and a row re-mounting under the
+// virtual list must not re-ask. Bounded, least recently used out, since a
+// window stays open for days of transcripts.
+const MAX_PATH_KINDS = 2_000
 const pathKinds = new Map<string, 'file' | 'other'>()
+function knownPathKind(path: string): 'file' | 'other' | undefined {
+  const kind = pathKinds.get(path)
+  if (kind !== undefined) {
+    pathKinds.delete(path)
+    pathKinds.set(path, kind)
+  }
+  return kind
+}
+function rememberPathKind(path: string, kind: 'file' | 'other'): void {
+  pathKinds.delete(path)
+  pathKinds.set(path, kind)
+  if (pathKinds.size > MAX_PATH_KINDS) pathKinds.delete(pathKinds.keys().next().value!)
+}
 
 // A path in prose or inline code is a link only when it is a FILE that exists
 // here. Before the disk has answered, a path whose last segment has an
@@ -44,14 +59,14 @@ const pathKinds = new Map<string, 'file' | 'other'>()
 // because it is far more often a folder. The answer then settles it either way.
 function useExistingFile(resolved: string | null | undefined, path: string | null): boolean {
   const guess = (): boolean => {
-    const known = resolved ? pathKinds.get(resolved) : undefined
+    const known = resolved ? knownPathKind(resolved) : undefined
     if (known) return known === 'file'
     return /\.[A-Za-z0-9]+$/u.test((resolved ?? path ?? '').split(/[\\/]/).at(-1) ?? '')
   }
   const [isFile, setIsFile] = useState(guess)
   useEffect(() => {
     if (!resolved) return
-    const known = pathKinds.get(resolved)
+    const known = knownPathKind(resolved)
     if (known) {
       setIsFile(known === 'file')
       return
@@ -63,7 +78,7 @@ function useExistingFile(resolved: string | null | undefined, path: string | nul
       .then((stat) => (stat.isFile ? 'file' : 'other'))
       .catch(() => 'other' as const)
       .then((kind) => {
-        pathKinds.set(resolved, kind)
+        rememberPathKind(resolved, kind)
         if (!cancelled) setIsFile(kind === 'file')
       })
     return () => {
@@ -146,7 +161,7 @@ export const ConversationFileLink = React.memo(function ConversationFileLink({
     try {
       const stat = await window.api.statPath(resolved)
       if (!stat.isFile) {
-        pathKinds.set(resolved, 'other')
+        rememberPathKind(resolved, 'other')
         report(`File not found: ${target.path}`)
         return
       }
@@ -271,19 +286,36 @@ function spacedPathIn(text: string): string | null {
 
 type ProsePiece = string | { token: string; label?: string }
 
+// Whether a word of prose could be a link at all. In running text a link is a
+// URL (it has a scheme, so a colon) or a path (a slash, or a Windows drive or
+// share); `classifyLinkToken` turns every other word down. Most of a reply is
+// words like these, and each would otherwise be a link component with its own
+// state and effect that renders the word as text.
+const MAY_LINK = /[/\\:]/u
+
 export function splitConversationText(text: string): ProsePiece[] {
   const pieces: ProsePiece[] = []
+  // Plain text runs join into one string, so a sentence is one text node.
+  const push = (piece: ProsePiece) => {
+    const last = pieces.length - 1
+    if (typeof piece === 'string' && typeof pieces[last] === 'string') pieces[last] += piece
+    else pieces.push(piece)
+  }
   const words = (chunk: string) => {
+    if (!MAY_LINK.test(chunk)) {
+      if (chunk) push(chunk)
+      return
+    }
     for (const token of chunk.split(/(\s+)/)) {
       if (!token) continue
-      if (!/\S/.test(token)) {
-        pieces.push(token)
+      if (!/\S/.test(token) || !MAY_LINK.test(token)) {
+        push(token)
         continue
       }
       const { prefix, body, suffix } = splitProseLinkToken(token)
-      if (prefix) pieces.push(prefix)
-      if (body) pieces.push({ token: body })
-      if (suffix) pieces.push(suffix)
+      if (prefix) push(prefix)
+      if (body) push(MAY_LINK.test(body) ? { token: body } : body)
+      if (suffix) push(suffix)
     }
   }
   let last = 0
@@ -291,12 +323,14 @@ export function splitConversationText(text: string): ProsePiece[] {
     words(text.slice(last, match.index))
     const [whole, quote, quoted] = match
     if (quote) {
-      pieces.push(quote, { token: quoted }, quote)
+      push(quote)
+      push({ token: quoted })
+      push(quote)
     } else {
       const { prefix, body, suffix } = splitProseLinkToken(whole)
-      if (prefix) pieces.push(prefix)
-      pieces.push({ token: unescapeSpaces(body), label: body })
-      if (suffix) pieces.push(suffix)
+      if (prefix) push(prefix)
+      push({ token: unescapeSpaces(body), label: body })
+      if (suffix) push(suffix)
     }
     last = match.index + whole.length
   }

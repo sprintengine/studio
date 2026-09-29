@@ -27,16 +27,27 @@ export function activeConversationStage(
   entries: TranscriptEntry[],
   activeTurn: boolean,
 ): 'idle' | 'thinking' | 'tool' | 'approval' | 'responding' {
-  const latestPendingApproval = [...entries]
-    .reverse()
-    .find((entry) => entry.kind === 'approval' && entry.status === 'pending')
-  if (latestPendingApproval) return 'approval'
-  const latestRunningTool = [...entries].reverse().find((entry) => entry.kind === 'tool' && entry.status === 'running')
-  if (latestRunningTool) return 'tool'
+  if (findLast(entries, (entry) => entry.kind === 'approval' && entry.status === 'pending')) return 'approval'
+  if (findLast(entries, (entry) => entry.kind === 'tool' && entry.status === 'running')) return 'tool'
   if (!activeTurn) return 'idle'
-  const latestAssistant = [...entries].reverse().find((entry) => entry.kind === 'assistant')
-  if (latestAssistant?.kind === 'assistant' && latestAssistant.text.trim().length > 0) return 'responding'
+  const latestAssistant = findLast(entries, (entry) => entry.kind === 'assistant')
+  if (latestAssistant?.kind === 'assistant' && /\S/u.test(latestAssistant.text)) return 'responding'
   return 'thinking'
+}
+
+// The last entry matching, read from the end without copying the list: the
+// timeline is derived on every token of the reply streaming now.
+function findLast<T extends TranscriptEntry>(
+  entries: readonly TranscriptEntry[],
+  match: (entry: TranscriptEntry) => entry is T,
+): T | undefined
+function findLast(
+  entries: readonly TranscriptEntry[],
+  match: (entry: TranscriptEntry) => boolean,
+): TranscriptEntry | undefined
+function findLast(entries: readonly TranscriptEntry[], match: (entry: TranscriptEntry) => boolean) {
+  for (let index = entries.length - 1; index >= 0; index--) if (match(entries[index]!)) return entries[index]
+  return undefined
 }
 
 export type ConversationApprovalEntry = Extract<TranscriptEntry, { kind: 'approval' }>
@@ -166,15 +177,11 @@ export function deriveConversationTimelineRows(
 ): ConversationTimelineRow[] {
   const rows: ConversationTimelineRow[] = []
   const stage = activeConversationStage(entries, activeTurn)
-  const latestAssistant = [...entries]
-    .reverse()
-    .find((entry): entry is Extract<TranscriptEntry, { kind: 'assistant' }> => entry.kind === 'assistant')
-  const pendingApproval = [...entries]
-    .reverse()
-    .find(
-      (entry): entry is Extract<TranscriptEntry, { kind: 'approval' }> =>
-        entry.kind === 'approval' && entry.status === 'pending',
-    )
+  const latestAssistant = findLast(
+    entries,
+    (entry): entry is Extract<TranscriptEntry, { kind: 'assistant' }> => entry.kind === 'assistant',
+  )
+  const pendingApproval = findLast(entries, (entry) => entry.kind === 'approval' && entry.status === 'pending')
 
   let previousModelId: string | undefined
   for (let index = 0; index < entries.length; index += 1) {
@@ -253,9 +260,10 @@ export function deriveConversationTimelineRows(
   }
 
   if (stage !== 'idle' && !pendingApproval) {
-    const runningTool = [...entries]
-      .reverse()
-      .find((entry): entry is TranscriptToolEntry => entry.kind === 'tool' && entry.status === 'running')
+    const runningTool = findLast(
+      entries,
+      (entry): entry is TranscriptToolEntry => entry.kind === 'tool' && entry.status === 'running',
+    )
     // Fan-out is the headline: while background agents run, the live line
     // counts them instead of naming whichever tool happened to start last.
     const runningLanes = entries.filter(
@@ -292,16 +300,20 @@ export function deriveConversationTimelineRows(
     const previous = previousById.get(row.id)
     if (!previous || previous.kind !== row.kind) return row
     if (row.kind === 'user' && previous.kind === 'user' && row.entry === previous.entry) return previous
-    if (
-      row.kind === 'assistant' &&
-      previous.kind === 'assistant' &&
-      row.entry === previous.entry &&
-      row.tools.length === previous.tools.length &&
-      row.tools.every((tool, index) => tool === previous.tools[index]) &&
-      sameDecisions(row.decisions, previous.decisions) &&
-      row.modelSwitched === previous.modelSwitched
-    )
-      return previous
+    if (row.kind === 'assistant' && previous.kind === 'assistant') {
+      const sameTools =
+        row.tools.length === previous.tools.length && row.tools.every((tool, index) => tool === previous.tools[index])
+      const sameDecisionRows = sameDecisions(row.decisions, previous.decisions)
+      if (sameTools && sameDecisionRows && row.entry === previous.entry && row.modelSwitched === previous.modelSwitched)
+        return previous
+      // A token changes the turn's entry, not its steps or its decisions: they
+      // keep their lists, so what is drawn from them is not drawn again.
+      return {
+        ...row,
+        ...(sameTools ? { tools: previous.tools } : {}),
+        ...(sameDecisionRows ? { decisions: previous.decisions } : {}),
+      }
+    }
     if (row.kind === 'compaction' && previous.kind === 'compaction' && row.entry === previous.entry) return previous
     if (row.kind === 'commandOutput' && previous.kind === 'commandOutput' && row.entry === previous.entry)
       return previous

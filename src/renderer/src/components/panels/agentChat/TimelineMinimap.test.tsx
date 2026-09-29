@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, test, vi } from 'vitest'
 import { TimelineMinimap, minimapIndexAtPointer, minimapTickTop } from './TimelineMinimap'
-import type { TurnMark, TurnNavigation } from './turnNavigation'
+import { fixedTurnPosition, type TurnMark, type TurnNavigation } from './turnNavigation'
 
 const marks = (count: number): TurnMark[] =>
   Array.from({ length: count }, (_, index) => ({
@@ -12,9 +12,7 @@ const marks = (count: number): TurnMark[] =>
 
 const navigation = (count: number, current: number): TurnNavigation => ({
   marks: marks(count),
-  current,
-  hasPrevious: current > 0,
-  hasNext: current < count - 1,
+  position: fixedTurnPosition({ current, hasPrevious: current > 0, hasNext: current < count - 1 }),
   jump: vi.fn(),
   step: vi.fn(),
   reply: (index) => `Reply ${index}`,

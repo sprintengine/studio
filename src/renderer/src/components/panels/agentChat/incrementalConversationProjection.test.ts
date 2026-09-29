@@ -452,3 +452,171 @@ test('a second stretch of thinking after prose is live and starts its own paragr
   assert.equal(done?.kind === 'assistant' && done.reasoningLive, undefined)
   assert.equal(done?.kind === 'assistant' && done.reasoningDurationMs, 30)
 })
+
+// One list of local turns for a whole run: a new list is a new set of turns.
+const noTurns: [] = []
+
+test('a coalesced batch of tokens appends incrementally instead of refolding the log', () => {
+  const events: ConversationEvent[] = []
+  for (let i = 0; i < 2000; i++) {
+    events.push(event('user_message', i * 3, { turnId: `turn-${i}`, text: `Prompt ${i}` }))
+    events.push(event('content_delta', i * 3 + 1, { turnId: `turn-${i}`, text: 'Answer' }))
+    events.push(event('turn_completed', i * 3 + 2, { turnId: `turn-${i}` }))
+  }
+  events.push(event('user_message', 7000, { turnId: 'live', text: 'Go' }))
+  events.push(event('turn_started', 7001, { turnId: 'live' }))
+  events.push(event('reasoning_delta', 7002, { turnId: 'live', text: 'think' }))
+  const hydrated = syncConversationProjection(createConversationProjectionState(), events, noTurns)
+  const frame = [
+    ...events,
+    event('reasoning_delta', 7003, { turnId: 'live', text: ' harder' }),
+    event('content_delta', 7004, { turnId: 'live', text: 'Hel' }),
+    event('content_delta', 7005, { turnId: 'live', text: 'lo' }),
+    event('content_delta', 7006, { turnId: 'live', text: ' there' }),
+  ]
+  const next = syncConversationProjection(hydrated, frame, noTurns)
+  assert.deepEqual(next.projection, projectConversation(frame))
+  // Only a token moved: nothing derived from the transcript's shape is stale.
+  assert.equal(next.structureRevision, hydrated.structureRevision)
+  const live = hydrated.projection.entries.length - 1
+  for (let index = 0; index < live; index++)
+    assert.equal(next.projection.entries[index], hydrated.projection.entries[index])
+  // The caller's arrays are read, never written.
+  assert.equal(frame.length, events.length + 4)
+})
+
+test('a batch mixing steps and tokens matches the reference fold at every size', () => {
+  const base = [event('user_message', 0, { turnId: 'a', text: 'Go' }), event('turn_started', 1, { turnId: 'a' })]
+  const tail: ConversationEvent[] = []
+  for (let i = 0; i < 12; i++) {
+    tail.push(event('content_delta', 10 + i * 4, { turnId: 'a', text: `step ${i} ` }))
+    tail.push(
+      event('tool_started', 11 + i * 4, { turnId: 'a', toolUseId: `t${i}`, name: 'Read', input: { path: `${i}.ts` } }),
+    )
+    tail.push(event('tool_output', 12 + i * 4, { turnId: 'a', toolUseId: `t${i}`, output: 'part', partial: true }))
+    tail.push(event('tool_output', 13 + i * 4, { turnId: 'a', toolUseId: `t${i}`, output: 'done', status: 'ok' }))
+  }
+  tail.push(event('turn_completed', 100, { turnId: 'a' }))
+  // One step at a time, a few at once, and more steps than a batch refolds for.
+  for (const size of [1, 3, 9, tail.length]) {
+    let state = syncConversationProjection(createConversationProjectionState(), base, noTurns)
+    for (let end = 0; end < tail.length; end += size) {
+      const events = [...base, ...tail.slice(0, end + size)]
+      state = syncConversationProjection(state, events, noTurns)
+      assert.deepEqual(state.projection, projectConversation(events), `batch of ${size} at ${end}`)
+    }
+  }
+})
+
+test('appending to a state read from a caller never writes to the caller', () => {
+  const events = [event('user_message', 0, { turnId: 'a', text: 'Go' }), event('turn_started', 1, { turnId: 'a' })]
+  const synced = syncConversationProjection(createConversationProjectionState(), events, noTurns)
+  const first = applyEvent(synced, event('content_delta', 2, { turnId: 'a', text: 'one' }))
+  const branch = applyEvent(synced, event('content_delta', 3, { turnId: 'a', text: 'two' }))
+  const again = applyEvent(first, event('content_delta', 4, { turnId: 'a', text: ' more' }))
+  assert.equal(events.length, 2)
+  const text = (state: typeof first) => state.projection.entries.find((entry) => entry.kind === 'assistant')
+  assert.equal(text(first)?.kind === 'assistant' && text(first)?.text, 'one')
+  assert.equal(text(branch)?.kind === 'assistant' && text(branch)?.text, 'two')
+  assert.equal(text(again)?.kind === 'assistant' && text(again)?.text, 'one more')
+})
+
+test('a token keeps the streaming turn row’s steps and decisions lists', () => {
+  const events = [
+    event('user_message', 0, { turnId: 'a', text: 'Go' }),
+    event('turn_started', 1, { turnId: 'a' }),
+    event('tool_started', 2, { turnId: 'a', toolUseId: 't1', name: 'Read', input: { path: 'a.ts' } }),
+    event('tool_output', 3, { turnId: 'a', toolUseId: 't1', output: 'a', status: 'ok' }),
+    event('approval_requested', 4, { turnId: 'a', requestId: 'r', summary: 'Run', action: 'Bash' }),
+    event('approval_resolved', 5, { turnId: 'a', requestId: 'r', approved: true }),
+    event('content_delta', 6, { turnId: 'a', text: 'Hel' }),
+  ]
+  let state = createConversationProjectionState(events)
+  const before = deriveConversationTimelineRows(state.projection.entries, state.projection.activeTurn)
+  state = applyEvent(state, event('content_delta', 7, { turnId: 'a', text: 'lo' }))
+  const after = deriveConversationTimelineRows(state.projection.entries, state.projection.activeTurn, before)
+  const turn = (rows: typeof before) => rows.find((row) => row.kind === 'assistant')
+  const [was, now] = [turn(before), turn(after)]
+  assert.ok(was?.kind === 'assistant' && now?.kind === 'assistant')
+  assert.notEqual(now, was)
+  assert.equal(now.tools, was.tools)
+  assert.equal(now.decisions, was.decisions)
+})
+
+test('subagent progress, subagent words and usage reports fold incrementally, as the fold does', () => {
+  const events = [
+    event('user_message', 0, { turnId: 'a', text: 'Fan out' }),
+    event('turn_started', 1, { turnId: 'a' }),
+    event('tool_started', 2, {
+      turnId: 'a',
+      toolUseId: 'lane',
+      name: 'Task',
+      subagentLane: true,
+      subagentType: 'Explore',
+    }),
+    event('tool_started', 3, { turnId: 'a', toolUseId: 'inner', name: 'Read', parentToolUseId: 'lane' }),
+    event('subagent_status', 4, {
+      toolUseId: 'lane',
+      status: 'running',
+      lastToolName: 'Read',
+      usage: { totalTokens: 10, toolUses: 1, durationMs: 5 },
+    }),
+    event('subagent_message', 5, { parentToolUseId: 'lane', text: 'Looking at the reader.' }),
+    event('subagent_message', 6, { parentToolUseId: 'inner', text: 'A child speaks.', truncated: true }),
+    event('usage_updated', 7, {
+      turnId: 'a',
+      inputTokens: 100,
+      cachedInputTokens: 80,
+      outputTokens: 5,
+      promptCache: { cached: true, ttl: '5m' },
+    }),
+    event('usage_updated', 8, { outputTokens: 9 }),
+    event('subagent_message', 9, { parentToolUseId: 'nowhere', text: 'Before its lane.' }),
+    event('subagent_status', 10, { toolUseId: 'lane', status: 'completed', endedAt: 95 }),
+    event('subagent_status', 11, { toolUseId: 'lane', status: 'running' }),
+    event('subagent_status', 12, { toolUseId: 'nowhere', status: 'failed', error: 'boom' }),
+    event('usage_updated', 13, { turnId: 'unknown', inputTokens: 1 }),
+    event('turn_completed', 14, { turnId: 'a' }),
+  ]
+  let state = createConversationProjectionState()
+  const prefix: ConversationEvent[] = []
+  for (const item of events) {
+    state = applyEvent(state, item)
+    prefix.push(item)
+    assert.deepEqual(state.projection, projectConversation(prefix), `${item.type} ${item.id}`)
+  }
+})
+
+test('a refold keeps unchanged entries without serialising them, and hands tool input through', () => {
+  const input = { file_path: 'src/a.ts', content: 'x'.repeat(100_000) }
+  const events = [
+    event('user_message', 0, { turnId: 'a', text: 'Write it' }),
+    event('turn_started', 1, { turnId: 'a' }),
+    event('tool_started', 2, { turnId: 'a', toolUseId: 'w', name: 'Write', input }),
+    event('tool_output', 3, { turnId: 'a', toolUseId: 'w', output: 'ok', status: 'ok' }),
+    event('content_delta', 4, { turnId: 'a', text: 'Done.' }),
+  ]
+  let state = createConversationProjectionState(events)
+  const tool = state.projection.entries.find((entry) => entry.kind === 'tool')
+  assert.equal(tool?.kind === 'tool' && tool.input, input)
+  const agentTypes = state.projection.agentTypes
+  const user = state.projection.entries[0]
+  const stringify = JSON.stringify
+  let serialised = 0
+  JSON.stringify = ((...args: Parameters<typeof stringify>) => {
+    serialised++
+    return stringify(...args)
+  }) as typeof JSON.stringify
+  try {
+    state = applyEvent(state, event('turn_completed', 5, { turnId: 'a' }))
+  } finally {
+    JSON.stringify = stringify
+  }
+  assert.equal(serialised, 0)
+  assert.equal(
+    state.projection.entries.find((entry) => entry.kind === 'tool'),
+    tool,
+  )
+  assert.equal(state.projection.entries[0], user)
+  assert.equal(state.projection.agentTypes, agentTypes)
+})

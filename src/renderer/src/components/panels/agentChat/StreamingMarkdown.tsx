@@ -1,5 +1,5 @@
-import { Fragment, memo } from 'react'
-import { splitMarkdownSegments } from '../../../../../shared/conversation/markdownSegments'
+import { Fragment, memo, useRef } from 'react'
+import { createMarkdownSplitter } from '../../../../../shared/conversation/markdownSegments'
 import { markdownRootProps, renderMarkdown } from '../../../utils/markdown'
 
 type MarkdownOptions = Parameters<typeof renderMarkdown>[1]
@@ -22,8 +22,13 @@ const MarkdownSegment = memo(
   },
 )
 
+// A streaming message as segments that parse apart: each token re-parses the
+// last paragraph or block, not the whole reply, and the splitter reads only
+// the text the token added.
 export function StreamingMarkdown({ source, options }: { source: string; options?: MarkdownOptions }) {
-  const { frozen, tail } = splitMarkdownSegments(source)
+  const splitter = useRef<ReturnType<typeof createMarkdownSplitter>>(null)
+  splitter.current ??= createMarkdownSplitter()
+  const { frozen, tail } = splitter.current(source)
   const segments = tail ? [...frozen, tail] : frozen
   return (
     <div {...markdownRootProps(options)}>
