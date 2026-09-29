@@ -15,7 +15,7 @@ type Recorded = {
 function setup(overrides: Partial<WorkspaceChatOpenerDeps> = {}) {
   const recorded: Recorded = { writes: [], drafts: [], ensured: [], reveals: [] }
   const opener = createWorkspaceChatOpener({
-    getWorkspace: (id) =>
+    getWorkspace: (id): ReturnType<WorkspaceChatOpenerDeps['getWorkspace']> =>
       id === 'ws-project'
         ? { folderPath: '/Users/dev/acme', agents: { a1: { name: 'Ada' } } }
         : id === 'ws-folderless'
