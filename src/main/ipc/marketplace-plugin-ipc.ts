@@ -22,10 +22,10 @@ import { createDefaultMarketplaceRegistryClient } from './marketplace-registry-i
 import { defaultMarketplacePluginStagingRoot, type MarketplaceInstallLog } from '../marketplace/plugin-download'
 import { createMarketplacePluginVerifier } from '../marketplace/plugin-verify'
 import { resolveInstalledSkillHarnesses } from '../marketplace/skill-harness-targets'
-import { readTrustedMarketplacePublisherFingerprintsSync } from '../marketplace/trusted-publishers'
 import type { MarketplaceAutomationInstaller } from '../modules/plugin-bundle-installer'
 import { notifyRendererModulesChanged } from '../modules/notify-renderer-modules-changed'
-import { readTrustedModulesSync, setModuleTrust } from '../modules/trust-store'
+import { readModuleTrustContextSync } from '../modules/trust-context'
+import { setModuleTrust } from '../modules/trust-store'
 
 export type MarketplacePluginPipelineServices = Pick<AppServices, 'mcpConfigService' | 'getAutomationsAppFrontDoor'>
 
@@ -39,10 +39,7 @@ export type MarketplacePluginPipelineServices = Pick<AppServices, 'mcpConfigServ
  * second set of those rules to keep in step.
  */
 export function createMarketplacePluginPipeline(services: MarketplacePluginPipelineServices) {
-  const trustContext = () => ({
-    trustedModules: readTrustedModulesSync(app.getPath('userData')),
-    trustedKeyFingerprints: readTrustedMarketplacePublisherFingerprintsSync(),
-  })
+  const trustContext = () => readModuleTrustContextSync(app.getPath('userData'))
   // Verify/install failures used to be invisible (result objects only, no
   // logging anywhere) — every pipeline event now lands in the diagnostics log.
   const marketplaceLog: MarketplaceInstallLog = (event, detail) => {

@@ -14,7 +14,9 @@
 //
 // sign/verify operate on the VALIDATED manifest shape (the same shape the app
 // verifies), and sign writes that normalized manifest back to disk so the
-// signed bytes on disk are exactly what the app checks.
+// signed bytes on disk are exactly what the app checks. sign also records the
+// digest of every file the module ships (`files`), so the signature covers the
+// code; the app trusts a module by its publisher key only when those match.
 
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
@@ -22,6 +24,7 @@ import { parseArgs } from 'node:util'
 
 import { BUNDLED_MODULE_IDS, type CapabilityManifest } from './index.js'
 import { parseThirdPartyModuleManifest, type ThirdPartyManifestIssue } from './manifest-validate.js'
+import { computeModuleFileDigestsSync, moduleFileDigestIssuesSync } from './module-files.js'
 import {
   MARKETPLACE_COMPONENT_KINDS,
   parseMarketplacePluginAuthoringManifest,
@@ -60,12 +63,15 @@ pack validates <module-dir>/manifest.json and copies the module into --out
 (default packed/<id>) as an installable module directory. node_modules, .git,
 and key files (*.key, *.pem) are never copied.
 
-sign validates manifest.json, signs the normalized manifest with --key, and
-writes the normalized manifest including the signature back to manifest.json.
+sign validates manifest.json, records the sha256 of every file the module ships
+in its "files" field (everything pack copies, manifest.json aside), signs the
+normalized manifest with --key, and writes it back to manifest.json. Sign
+again after any change to the module's files.
 
-verify validates manifest.json and checks its signature exactly like
-SprintEngine Studio: exit 0 with the signer fingerprint when valid, exit 1 when
-unsigned, tampered, or invalid.
+verify validates manifest.json, checks its signature, and checks that the files
+pack would copy are exactly the ones "files" lists, byte for byte: exit 0 with
+the signer fingerprint when all of that holds, exit 1 when the module is
+unsigned, carries no "files", or was changed after signing.
 
 plugin scaffold creates plugin.json plus component placeholders for mcp, skills,
 module, cli, and automation by default. Pass --component repeatedly to scaffold
@@ -306,6 +312,15 @@ function pack(args: string[]): void {
     fail(`Module entry files are missing in ${sourceDir}:`, missingEntries)
   }
 
+  // A pack whose files no longer match the signed digests would install as
+  // tampered; say so here, where re-signing is one command away.
+  if (manifest.files) {
+    const drift = moduleFileDigestIssuesSync(sourceDir, manifest.files, { walk: 'pack' })
+    if (drift.length > 0) {
+      fail(`Module files changed after signing in ${sourceDir}; run \`sprintengine-module sign\` again:`, drift)
+    }
+  }
+
   const outDir = resolve(values.out ?? join('packed', manifest.id))
   if (existsSync(outDir) && !values.force) {
     fail(`${outDir} already exists. Pass --force to overwrite it.`)
@@ -331,7 +346,11 @@ function pack(args: string[]): void {
   for (const name of skipped) {
     console.warn(`Skipped ${name}: key material is never packed into a module.`)
   }
-  const signedNote = manifest.signature ? 'signed' : 'UNSIGNED — run `sprintengine-module sign` before distributing'
+  const signedNote = !manifest.signature
+    ? 'UNSIGNED — run `sprintengine-module sign` before distributing'
+    : manifest.files
+      ? 'signed'
+      : 'signed WITHOUT file digests — run `sprintengine-module sign` again before distributing'
   console.log(`Packed ${manifest.id} (${signedNote}) to ${outDir}`)
 }
 
@@ -347,9 +366,23 @@ function signCommand(args: string[]): void {
   const keyPath = resolve(values.key)
   if (!existsSync(keyPath)) fail(`Signing key not found: ${keyPath}`)
 
-  const { manifestPath, manifest } = readManifest(resolve(moduleDir))
-  // Sign the validated manifest minus any prior signature (re-signing replaces it).
-  const { signature: _prior, ...unsigned } = manifest
+  const moduleRoot = resolve(moduleDir)
+  const { manifestPath, manifest } = readManifest(moduleRoot)
+  // The pack view: node_modules, .git and key files are left out here exactly
+  // as pack leaves them out, so the packed copy matches what was signed.
+  const digests = computeModuleFileDigestsSync(moduleRoot, { walk: 'pack' })
+  if (!digests.ok) fail(`Module files in ${moduleRoot} cannot be signed:`, digests.issues)
+  const unlistedEntries: ThirdPartyManifestIssue[] = []
+  for (const [key, relPath] of Object.entries(manifest.entry ?? {})) {
+    if (typeof relPath === 'string' && digests.files[relPath] === undefined) {
+      unlistedEntries.push({ path: `entry.${key}`, message: `declared file "${relPath}" is not in the module.` })
+    }
+  }
+  if (unlistedEntries.length > 0) fail(`Module entry files are missing in ${moduleRoot}:`, unlistedEntries)
+  // Sign the validated manifest minus any prior signature (re-signing replaces
+  // it), with the digests just taken in place of any earlier ones.
+  const { signature: _prior, files: _priorFiles, ...declared } = manifest
+  const unsigned: CapabilityManifest = { ...declared, files: digests.files }
   let signature
   try {
     signature = signManifest(unsigned, readFileSync(keyPath, 'utf8'))
@@ -359,7 +392,7 @@ function signCommand(args: string[]): void {
   const signed: CapabilityManifest = { ...unsigned, signature }
   writeFileSync(manifestPath, JSON.stringify(signed, null, 2) + '\n')
   const { fingerprint } = verifyModuleSignature(signed)
-  console.log(`Signed ${manifest.id}; wrote normalized manifest to ${manifestPath}`)
+  console.log(`Signed ${manifest.id} and ${Object.keys(digests.files).length} file(s); wrote ${manifestPath}`)
   console.log(`Signer fingerprint: ${fingerprint}`)
 }
 
@@ -378,7 +411,21 @@ function verifyCommand(args: string[]): void {
         'The app will refuse to trust it. Re-sign the module.',
     )
   }
-  console.log(`${manifest.id}: signature valid`)
+  if (!manifest.files) {
+    fail(
+      `${manifest.id} is signed, but its manifest carries no "files" digests, so the signature does not cover its ` +
+        'code and the app will not trust it by its publisher key. Sign it again with `sprintengine-module sign`.',
+    )
+  }
+  const drift = moduleFileDigestIssuesSync(resolve(moduleDir), manifest.files, { walk: 'pack' })
+  if (drift.length > 0) {
+    fail(
+      `${manifest.id} does not match the file digests its manifest signs (changed after signing?). ` +
+        'The app will refuse it as tampered. Sign it again with `sprintengine-module sign`.',
+      drift,
+    )
+  }
+  console.log(`${manifest.id}: signature valid; ${Object.keys(manifest.files).length} file(s) match`)
   console.log(`Signer fingerprint: ${fingerprint}`)
 }
 

@@ -26,7 +26,6 @@ import {
   marketplaceComponentDigestPaths,
 } from '../../../packages/module-sdk/src/plugin-component-digests'
 import {
-  classifyModuleTrust,
   classifySignedManifestTrust,
   isLoadEligible,
   type ModuleTrust,
@@ -340,7 +339,11 @@ type ResolvedDownloadedManifest =
 function resolveDownloadedManifest(source: string, trustContext: ModuleTrustContext): ResolvedDownloadedManifest {
   const resolved = resolveOptionallySignedManifest(source)
   if (resolved.ok) {
-    return { ok: true, manifest: resolved.manifest, trust: classifyModuleTrust(resolved.manifest, trustContext) }
+    return {
+      ok: true,
+      manifest: resolved.manifest,
+      trust: classifySignedManifestTrust(resolved.manifest, trustContext),
+    }
   }
   const unsigned = classifyUnsignedManifest(source, trustContext)
   if (unsigned) {

@@ -39,6 +39,14 @@ export type ModuleEntry = {
   renderer?: string
 }
 
+/**
+ * sha256 digests of a module's own files: POSIX path relative to the module
+ * root → lowercase hex. Covers every regular file under the root except
+ * `manifest.json` itself, and nothing else — a file on disk that is not listed
+ * is as much a mismatch as a listed file whose bytes changed.
+ */
+export type ModuleFileDigests = Record<string, string>
+
 export type CapabilityManifest = {
   id: string
   displayName: string
@@ -59,6 +67,13 @@ export type CapabilityManifest = {
   /** Permission scopes requested (install-time disclosure, not runtime enforcement). */
   permissions?: string[]
   entry?: ModuleEntry
+  /**
+   * Digests of every file the module ships. `sprintengine-module sign` writes
+   * them, so the signature covers the code and not only the declaration; the
+   * app trusts a module by its publisher key only when they match the files
+   * on disk exactly.
+   */
+  files?: ModuleFileDigests
   signature?: ModuleSignature
 }
 
@@ -2653,13 +2668,18 @@ export type RegisterRenderer = (host: RendererHost) => void
 
 // ── Manifest validation + canonical signing payload ──────────────────────────
 // Pure (no Node APIs) and safe in any runtime. The ed25519 sign/verify
-// functions need node:crypto and live behind the `./signing` subpath export.
+// functions, and the walk that digests a module folder, need node:crypto and
+// node:fs and live behind the `./signing` subpath export.
 
 export {
   canonicalManifestPayload,
+  compareModuleFileDigests,
+  isPackExcludedPath,
   parseThirdPartyModuleManifest,
   validateCapabilityPermissions,
+  validateModuleFileDigests,
   validateThirdPartyModuleManifest,
+  type ModuleFileDigestsValidation,
   type PermissionValidationIssue,
   type PermissionValidationResult,
   type ThirdPartyManifestIssue,

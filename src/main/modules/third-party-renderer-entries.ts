@@ -1,3 +1,4 @@
+import { createHash } from 'crypto'
 import { existsSync } from 'fs'
 import { readFile } from 'fs/promises'
 
@@ -8,7 +9,7 @@ import {
 } from '../../shared/modules/manifest'
 import type { MainHost } from '../module-host/main-host'
 import { resolveContainedEntry, sanitizeEntryMessage } from './entry-containment'
-import { isLoadEligible, isSignedByTrustedPublisher, type ModuleTrustContext } from './module-signature'
+import { isLoadEligible, isTrustedByPublisher, type ModuleTrustContext } from './module-signature'
 import type { InstalledModule, UserModuleListResult } from './user-module-registry'
 
 // Serves trusted third-party modules' `entry.renderer` bundles to the renderer
@@ -22,9 +23,10 @@ import type { InstalledModule, UserModuleListResult } from './user-module-regist
 // ModuleEntry in src/shared/modules/manifest.ts).
 
 const READ_FAILURE_MESSAGE = 'entry.renderer bundle could not be read.'
+const CHANGED_MESSAGE = 'entry.renderer bundle changed after the module was verified, so it was not served.'
 
 type RendererEntryResolution =
-  { servable: true; entryPath: string } | { servable: false; view: ThirdPartyRendererEntryView }
+  { servable: true; entryPath: string; expectedSha256: string } | { servable: false; view: ThirdPartyRendererEntryView }
 
 // Pure availability check used both by the launch view (Settings → Modules)
 // and by the serving path below, so what the UI reports and what actually
@@ -59,7 +61,16 @@ function resolveRendererEntry(installed: InstalledModule): RendererEntryResoluti
       view: { availability: 'error', message: 'entry.renderer bundle file is missing.' },
     }
   }
-  return { servable: true, entryPath }
+  // Trusted means the files were verified; an entry outside that set was
+  // never vouched for, whatever is on disk under its name now.
+  const expectedSha256 = installed.trust.verifiedFiles?.[entryRenderer]
+  if (expectedSha256 === undefined) {
+    return {
+      servable: false,
+      view: { availability: 'error', message: 'entry.renderer bundle is not among the verified module files.' },
+    }
+  }
+  return { servable: true, entryPath, expectedSha256 }
 }
 
 export function rendererEntryView(installed: InstalledModule): ThirdPartyRendererEntryView {
@@ -84,15 +95,19 @@ export async function collectThirdPartyRendererEntries(
       continue
     }
     try {
-      const code = await readFile(resolution.entryPath, 'utf8')
+      // The bytes served are the bytes hashed: read once, checked against the
+      // digest the module was verified with, and only then decoded and sent.
+      const bytes = await readFile(resolution.entryPath)
+      if (createHash('sha256').update(bytes).digest('hex') !== resolution.expectedSha256) {
+        result.failures[installed.manifest.id] = CHANGED_MESSAGE
+        continue
+      }
       result.entries.push({
         id: installed.manifest.id,
         manifest: installed.manifest,
-        code,
+        code: bytes.toString('utf8'),
         ...(assetOrigin ? { assetOrigin: assetOrigin(installed.manifest.id) } : {}),
-        ...(trustContext && isSignedByTrustedPublisher(installed.manifest, trustContext)
-          ? { firstPartySigned: true }
-          : {}),
+        ...(trustContext && isTrustedByPublisher(installed.trust) ? { firstPartySigned: true } : {}),
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)

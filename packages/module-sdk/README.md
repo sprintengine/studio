@@ -753,13 +753,15 @@ The happy path from module directory to installable, signed module:
 #    and out of version control. The public key is derived from it at sign time.
 npx sprintengine-module keygen --out ~/keys/module-signing.key
 
-# 2. Sign the module. Validates manifest.json, writes the normalized manifest
-#    (sorted, unknown keys stripped) back including the detached signature —
-#    the bytes on disk are exactly what the app verifies.
+# 2. Build first, then sign. Validates manifest.json, records the sha256 of
+#    every file the module ships in its `files` field, and writes the
+#    normalized manifest (sorted, unknown keys stripped) back including the
+#    detached signature — the bytes on disk are exactly what the app verifies.
 npx sprintengine-module sign path/to/my-module --key ~/keys/module-signing.key
 
-# 3. Check the module the way the studio will.
-#    Exit 0 + signer fingerprint when valid; exit 1 when unsigned or tampered.
+# 3. Check the module the way the studio will: the signature, and every file
+#    against the digests it signs. Exit 0 + signer fingerprint when valid;
+#    exit 1 when unsigned, signed without `files`, or changed after signing.
 npx sprintengine-module verify path/to/my-module
 
 # 4. Assemble the installable copy. Validates the manifest (bad ids, reserved
@@ -769,12 +771,39 @@ npx sprintengine-module verify path/to/my-module
 npx sprintengine-module pack path/to/my-module --out dist/my-module
 ```
 
-Re-running `sign` replaces the previous signature. Any edit to the manifest
-after signing invalidates the signature (`verify` and the app both report it
-as invalid); re-sign after every manifest change.
+Re-running `sign` replaces the previous signature and digests. Any edit to the
+manifest after signing invalidates the signature, and any change to the module's
+files — a rebuilt bundle, an added file, a removed one — no longer matches the
+digests it signs (`verify`, `pack` and the app all refuse it); sign again after
+either.
+
+### What `files` covers
+
+`files` maps each file's POSIX path, relative to the module root, to its
+lowercase sha256 hex. It lists every regular file under the root except
+`manifest.json` itself, and the match is exact: a changed file, a missing one
+and an unlisted one are all mismatches. `sign` records the folder as `pack`
+will copy it, so `node_modules`, `.git` and key files are left out — and a
+module folder that has one of them, or a symbolic link anywhere, is not a
+module the app will install. Install the output of `pack`.
+
+The digests are part of the signed payload, so the signature covers the code,
+not only the declaration. That is what lets the app trust a module through its
+publisher's key: a signed manifest **without** `files` is still a valid
+signature, but the app no longer trusts it by key, since anyone could copy it
+next to code of their own. The same checks are exported for tooling:
+`validateModuleFileDigests` and `compareModuleFileDigests` from the package
+root (pure), `computeModuleFileDigestsSync` and `moduleFileDigestIssuesSync`
+from `@sprintengine/module-sdk/signing` (Node).
 
 In the app, a valid signature shows the module as **signed** with the signer's
 key fingerprint — the user still grants trust explicitly before any code runs.
+The grant binds to the manifest's fingerprint, which covers `files`, so it holds
+only while the folder matches them; a module whose manifest lists no `files`
+cannot be granted trust at all. The app checks
+the files against their digests when it lists modules, again immediately
+before it runs `entry.main`, and on every `entry.renderer` and asset it
+serves.
 
 ## License
 
@@ -792,8 +821,10 @@ URLs resolve inside the package. Each module has a private, stable origin derive
 from an installation secret, allowing IndexedDB save data to survive app restarts. The protocol is registered as a standard,
 secure scheme with fetch support; it does not bypass content security policy.
 
-The host checks current trust and enablement on every request, rejects paths
-and symlinks outside the module root, and serves WebAssembly with
+The host checks current trust and enablement on every request, serves only
+files the module was verified with and only with the bytes it was verified with,
+rejects paths outside the module root (a module with a symlink in it is not
+trusted at all), and serves WebAssembly with
 `application/wasm`. Files are limited to 128 MiB by the runtime (distribution
 importers may apply smaller limits). The URL helper accepts plain relative paths;
 add a fragment or query to its returned URL if needed. This API is available

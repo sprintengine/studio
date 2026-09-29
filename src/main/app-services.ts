@@ -41,9 +41,8 @@ import { createDefaultMarketplaceRegistryClient } from './ipc/marketplace-regist
 import { toThirdPartyModuleView } from './ipc/third-party-module-ipc'
 import { getGitRepoWatch } from './ipc/git-repo-watch-ipc'
 import { resolveCheckoutForCwd } from './checkout-resolve'
-import { readTrustedMarketplacePublisherFingerprintsSync } from './marketplace/trusted-publishers'
 import { createModuleRegistryMirror } from './modules/registry-mirror'
-import { readTrustedModulesSync } from './modules/trust-store'
+import { readModuleTrustContextSync } from './modules/trust-context'
 import { defaultUserModuleRoot, discoverUserModules } from './modules/user-module-registry'
 import { AutomationsStore } from './automations/store'
 import type { AutomationsAppFrontDoor } from './ipc/automations-ipc'
@@ -1698,10 +1697,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           // same client the Extensions storefront's IPC uses, cache included.
           getModuleRegistrySnapshot: () => moduleRegistryMirror.read(),
           listInstalledThirdPartyModules: async () => {
-            const { modules, rejected } = await discoverUserModules(defaultUserModuleRoot(), {
-              trustedModules: readTrustedModulesSync(app.getPath('userData')),
-              trustedKeyFingerprints: readTrustedMarketplacePublisherFingerprintsSync(),
-            })
+            const { modules, rejected } = await discoverUserModules(
+              defaultUserModuleRoot(),
+              readModuleTrustContextSync(app.getPath('userData')),
+            )
             return { modules: modules.map((module) => toThirdPartyModuleView(module)), rejected }
           },
           listModuleContributedTools: () =>

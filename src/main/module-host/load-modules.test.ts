@@ -5,6 +5,7 @@ import { join } from 'node:path'
 
 import type { CapabilityManifest } from '../../shared/modules/manifest'
 import { MODULE_BRIDGE_INVOKE_CHANNEL } from '../../shared/modules/bridge'
+import { computeModuleFileDigestsSync } from '../modules/module-signature'
 import { planThirdPartyMainModules } from '../modules/third-party-main-loader'
 import type { InstalledModule } from '../modules/user-module-registry'
 import { createFakeIpcMain } from './ipc-main-fake.test-helper'
@@ -343,6 +344,7 @@ test('load-modules', async () => {
     const badExportRoot = await createThirdPartyModuleRoot('bad-export')
     const importFailureRoot = await createThirdPartyModuleRoot('import-failure')
     await writeFile(join(badExportRoot, 'main.cjs'), 'exports.registerMain = 42\n')
+    await writeFile(join(importFailureRoot, 'main.cjs'), "require('./missing.cjs')\n")
     const good: CapabilityModule = {
       manifest: { id: 'good', displayName: 'Good', version: 1, defaultEnabled: true },
       registerMain: (host) => host.registerIpc('good:ping', () => 'pong'),
@@ -356,7 +358,7 @@ test('load-modules', async () => {
           id: 'import-failure',
           moduleRoot: importFailureRoot,
           trust: 'trusted',
-          main: 'missing.cjs',
+          main: 'main.cjs',
         }),
       ],
       rejected: [],
@@ -494,10 +496,15 @@ test('load-modules', async () => {
     }
     if (options.main) manifest.entry = { main: options.main }
     if (options.dependsOn) manifest.dependsOn = options.dependsOn
+    // A trusted module is one whose files were verified; the loader holds the
+    // folder to those digests again before it requires the entry.
     return {
       manifest,
       moduleRoot: options.moduleRoot,
-      trust: { status: options.trust },
+      trust:
+        options.trust === 'trusted'
+          ? { status: 'trusted', via: 'grant', verifiedFiles: computeModuleFileDigestsSync(options.moduleRoot).files }
+          : { status: options.trust },
     }
   }
 

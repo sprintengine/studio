@@ -20,7 +20,7 @@ import { AutomationsStore } from '../automations/store'
 import { createMcpConfigService, type PluginLookup } from '../mcp-config-service'
 import type { MarketplaceAutomationInstaller } from '../modules/plugin-bundle-installer'
 import { loadMainModules } from '../module-host/load-modules'
-import { classifyModuleTrust, verifyModuleSignature, type ModuleTrustContext } from '../modules/module-signature'
+import { verifyModuleSignature, type ModuleTrustContext } from '../modules/module-signature'
 import { planThirdPartyMainModules } from '../modules/third-party-main-loader'
 import { readTrustedModulesSync, setModuleTrust } from '../modules/trust-store'
 import { discoverUserModules } from '../modules/user-module-registry'
@@ -28,6 +28,7 @@ import type { InstallPluginResult } from '../plugin-install'
 import {
   createMarketplacePluginLifecycleService,
   readMarketplacePluginInstallReceipts,
+  readVerifiedModuleInstallsSync,
   type MarketplacePluginLifecycleServices,
 } from './plugin-lifecycle'
 import { MarketplaceRegistryClient, configuredMarketplaceRegistryUrl } from './registry-client'
@@ -144,7 +145,18 @@ test('plugin-lifecycle', async () => {
     }
   }
 
-  function signedModuleManifest(id: string, signer: Signer, version = 1): Record<string, unknown> {
+  const MODULE_MAIN_SOURCE = 'exports.registerMain = () => {}\n'
+
+  // Signed as `sprintengine-module sign` signs, with the digests of the
+  // module's files — or, with `undigested`, the way the first-party modules
+  // were signed before `files` existed, which only a trusted publisher's bundle
+  // can vouch for.
+  function signedModuleManifest(
+    id: string,
+    signer: Signer,
+    version = 1,
+    options: { undigested?: boolean } = {},
+  ): Record<string, unknown> {
     const unsigned = {
       id,
       displayName: `${id} Module`,
@@ -152,6 +164,7 @@ test('plugin-lifecycle', async () => {
       defaultEnabled: true,
       permissions: ['network'],
       entry: { main: 'main.cjs' },
+      ...(options.undigested ? {} : { files: { 'main.cjs': sha256Hex(MODULE_MAIN_SOURCE) } }),
     }
     const validated = validateThirdPartyModuleManifest(unsigned)
     assert.equal(validated.ok, true)
@@ -168,7 +181,7 @@ test('plugin-lifecycle', async () => {
     components: BundleComponents,
     signer: Signer,
     version: number,
-    options: { unsigned?: boolean } = {},
+    options: { unsigned?: boolean; undigestedModule?: boolean } = {},
   ): Promise<{
     files: Map<string, string>
     entry: MarketplacePluginEntry
@@ -210,9 +223,13 @@ test('plugin-lifecycle', async () => {
     if (components.module) {
       files.set(
         `${components.module.path}/manifest.json`,
-        `${JSON.stringify(signedModuleManifest(components.module.id, signer, version), null, 2)}\n`,
+        `${JSON.stringify(
+          signedModuleManifest(components.module.id, signer, version, { undigested: options.undigestedModule }),
+          null,
+          2,
+        )}\n`,
       )
-      files.set(`${components.module.path}/main.cjs`, 'exports.registerMain = () => {}\n')
+      files.set(`${components.module.path}/main.cjs`, MODULE_MAIN_SOURCE)
     }
     if (components.cli) {
       files.set(
@@ -348,7 +365,12 @@ test('plugin-lifecycle', async () => {
       receiptStorePath,
       services: {
         mcpConfigService: createMcpConfigService({ lookupPlugin, homeDir: () => join(temp, 'home') }),
-        trustContext: () => trustContext,
+        // What the app reads: the receipts are where a verified install's
+        // vouching for its module's code lives (see readModuleTrustContextSync).
+        trustContext: () => ({
+          ...trustContext,
+          verifiedModuleInstalls: readVerifiedModuleInstallsSync(receiptStorePath),
+        }),
         moduleRoot: () => moduleRoot,
         pluginRoot: () => pluginRoot,
         reloadPlugins: () => undefined,
@@ -391,7 +413,10 @@ test('plugin-lifecycle', async () => {
         module: { path: 'module', id: 'registry-module-v1' },
         cli: { path: 'cli', id: 'registry-cli-v1' },
       }
-      const bundle = await writeBundle(temp, 'verified-plugin', components, signer, 1)
+      // The module inside signs no digests of its own, as the first-party
+      // modules were signed: the verified bundle's digests vouch for its code,
+      // recorded on the receipt the next discovery reads.
+      const bundle = await writeBundle(temp, 'verified-plugin', components, signer, 1, { undigestedModule: true })
       const folders = new Map([['verified-plugin', bundle.files]])
       const { services, workspaceRoot, moduleRoot, pluginRoot, receiptStorePath } = await createServices(
         temp,
@@ -422,7 +447,7 @@ test('plugin-lifecycle', async () => {
 
       const modules = await discoverUserModules(moduleRoot, services.trustContext())
       assert.equal(modules.modules[0]?.manifest.id, 'registry-module-v1')
-      assert.equal(classifyModuleTrust(modules.modules[0].manifest, services.trustContext()).status, 'trusted')
+      assert.equal(modules.modules[0].trust.status, 'trusted')
       const planned = planThirdPartyMainModules(modules)
       const { ipcMain } = createFakeIpcMain()
       const loaded = loadMainModules({
@@ -1576,7 +1601,7 @@ test('plugin-lifecycle', async () => {
       assert.equal(granted.loadEligible, false)
       const modules = await discoverUserModules(moduleRoot, services.trustContext())
       assert.equal(modules.modules[0]?.manifest.version, 2)
-      assert.equal(classifyModuleTrust(modules.modules[0].manifest, services.trustContext()).status, 'signed')
+      assert.equal(modules.modules[0].trust.status, 'signed')
     })
 
     // Same walk with the trust store wired: re-approving the re-keyed update at
@@ -1601,6 +1626,7 @@ test('plugin-lifecycle', async () => {
       services.trustContext = () => ({
         trustedModules: readTrustedModulesSync(userDataDir),
         trustedKeyFingerprints: new Set([bundleV1.fingerprint]),
+        verifiedModuleInstalls: readVerifiedModuleInstallsSync(services.receiptStorePath),
       })
       const lifecycle = createMarketplacePluginLifecycleService(services)
 
@@ -1616,7 +1642,7 @@ test('plugin-lifecycle', async () => {
       assert.equal(readTrustedModulesSync(userDataDir).get('update-module'), component?.manifestFp)
       const modules = await discoverUserModules(moduleRoot, services.trustContext())
       assert.equal(modules.modules[0]?.manifest.version, 2)
-      assert.equal(classifyModuleTrust(modules.modules[0].manifest, services.trustContext()).status, 'trusted')
+      assert.equal(modules.modules[0].trust.status, 'trusted')
     })
   }
 
@@ -1624,7 +1650,10 @@ test('plugin-lifecycle', async () => {
   // lifecycle's trust seam, and read trust back the way the app does — so these
   // tests prove the grant against the file module loading actually consults.
   function useRealTrustStore(services: MarketplacePluginLifecycleServices, userDataDir: string): void {
-    services.trustContext = () => ({ trustedModules: readTrustedModulesSync(userDataDir) })
+    services.trustContext = () => ({
+      trustedModules: readTrustedModulesSync(userDataDir),
+      verifiedModuleInstalls: readVerifiedModuleInstallsSync(services.receiptStorePath),
+    })
     services.setModuleTrust = async (id, manifestFp) => {
       const { result, previous } = await setModuleTrust(userDataDir, id, manifestFp)
       return { ...result, previous }
@@ -1664,7 +1693,7 @@ test('plugin-lifecycle', async () => {
       // trusted and the main-process loader takes it.
       const modules = await discoverUserModules(moduleRoot, services.trustContext())
       assert.equal(modules.modules[0]?.manifest.id, 'granted-module')
-      assert.equal(classifyModuleTrust(modules.modules[0].manifest, services.trustContext()).status, 'trusted')
+      assert.equal(modules.modules[0].trust.status, 'trusted')
       const planned = planThirdPartyMainModules(modules)
       const { ipcMain } = createFakeIpcMain()
       const loaded = loadMainModules({
@@ -1830,7 +1859,7 @@ test('plugin-lifecycle', async () => {
       const modules = await discoverUserModules(moduleRoot, services.trustContext())
       assert.equal(modules.modules[0]?.manifest.version, 1, 'the previous module was restored')
       assert.equal(readTrustedModulesSync(userDataDir).get('granted-module'), trustedFingerprint)
-      assert.equal(classifyModuleTrust(modules.modules[0].manifest, services.trustContext()).status, 'trusted')
+      assert.equal(modules.modules[0].trust.status, 'trusted')
     })
   }
 

@@ -99,6 +99,11 @@ export type ModuleEntry = {
   renderer?: string
 }
 
+// sha256 digests of a third-party module's own files: POSIX path relative to
+// the module root → lowercase hex, every regular file except manifest.json.
+// Mirrored from the SDK (drift-guarded); checked in module-signature.ts.
+export type ModuleFileDigests = Record<string, string>
+
 export type CapabilityManifest = {
   id: string
   displayName: string
@@ -123,6 +128,11 @@ export type CapabilityManifest = {
   permissions?: string[]
   /** Code entry points (third-party); trusted `entry.main` loads in the main process. */
   entry?: ModuleEntry
+  /**
+   * Digests of every file a third-party module ships, inside the signed
+   * payload. A publisher key vouches for a module's code only through these.
+   */
+  files?: ModuleFileDigests
   /** Detached signature over the manifest, if the module is signed. */
   signature?: ModuleSignature
 }

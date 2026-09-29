@@ -22,6 +22,7 @@ import { join } from 'node:path'
 import type {
   CapabilityManifest as AppCapabilityManifest,
   ModuleEntry as AppModuleEntry,
+  ModuleFileDigests as AppModuleFileDigests,
   ModuleSignature as AppModuleSignature,
   ModuleSource as AppModuleSource,
   ModuleTrustStatus as AppModuleTrustStatus,
@@ -245,6 +246,7 @@ import type {
   ModuleNotification as SdkModuleNotification,
   ModuleNotificationSeverity as SdkModuleNotificationSeverity,
   ModuleNotifyInput as SdkModuleNotifyInput,
+  ModuleFileDigests as SdkModuleFileDigests,
   ModuleSignature as SdkModuleSignature,
   ModuleSource as SdkModuleSource,
   ModuleAgentRuntimeModelOption as SdkModuleAgentRuntimeModelOption,
@@ -332,6 +334,7 @@ function expectType<_T extends true>(): void {}
 expectType<IsExact<AppCapabilityManifest, SdkCapabilityManifest>>()
 expectType<IsExact<AppModuleEntry, SdkModuleEntry>>()
 expectType<IsExact<AppModuleSignature, SdkModuleSignature>>()
+expectType<IsExact<AppModuleFileDigests, SdkModuleFileDigests>>()
 expectType<IsExact<AppModuleSource, SdkModuleSource>>()
 expectType<IsExact<AppModuleTrustStatus, SdkModuleTrustStatus>>()
 expectType<IsExact<AppCapabilityPermission, SdkCapabilityPermission>>()
