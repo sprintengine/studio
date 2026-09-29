@@ -31,6 +31,27 @@ export type ThirdPartyRendererLoadState = { status: 'loaded' } | { status: 'erro
 
 const LOAD_FAILURE_FALLBACK = 'entry.renderer bundle failed to load.'
 
+// How long an asynchronous registerRenderer may take. The whole batch waits on
+// each module in turn, so one that never settles must not hold the rest.
+export const RENDERER_REGISTER_TIMEOUT_MS = 10_000
+
+// A registerRenderer's result, awaited when it is a promise and bounded either
+// way; a synchronous return settles at once.
+async function settleRegisterRenderer(result: unknown, timeoutMs: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`registerRenderer did not settle within ${timeoutMs / 1000}s.`)),
+      timeoutMs,
+    )
+  })
+  try {
+    await Promise.race([Promise.resolve(result), timeout])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 // Each id is evaluated at most once per renderer session. New renderer-only
 // modules can be added after install/trust; updates and failed evaluations
 // require a restart. The module registry signals after a complete load batch.
@@ -168,6 +189,7 @@ export async function loadThirdPartyRendererEntries(
   kernel: RendererKernel,
   served: ThirdPartyRendererEntriesResult,
   importEntry: ThirdPartyEntryImporter = importEntryBundle,
+  registerTimeoutMs: number = RENDERER_REGISTER_TIMEOUT_MS,
 ): Promise<CapabilityManifest[]> {
   for (const [id, message] of Object.entries(served.failures)) {
     recordError(id, message)
@@ -203,7 +225,9 @@ export async function loadThirdPartyRendererEntries(
         continue
       }
       if (entry.assetOrigin) kernel.setModuleAssetOrigin(entry.id, entry.assetOrigin)
-      registerRenderer(kernel.hostFor(entry.id, entry.manifest))
+      // A rejection or a timeout lands in the catch below: the module records
+      // an error and stays out of the enablement universe, like a throw.
+      await settleRegisterRenderer(registerRenderer(kernel.hostFor(entry.id, entry.manifest)), registerTimeoutMs)
       loadStates.set(entry.id, { status: 'loaded' })
       loadedManifests.push(entry.manifest)
     } catch (error) {

@@ -286,8 +286,47 @@ test('third-party-loader', async () => {
     assert.deepEqual(getThirdPartyRendererLoadState('loader-dupe'), { status: 'loaded' })
   }
 
+  async function testAsyncRegisterRendererIsAwaited(): Promise<void> {
+    const kernel = createRendererHost()
+    const loaded = await loadThirdPartyRendererEntries(
+      kernel,
+      served([{ id: 'async-ok' }, { id: 'async-reject' }, { id: 'async-hung' }]),
+      importerFor({
+        'async-ok': {
+          registerRenderer: async (host: RendererHost) => {
+            await Promise.resolve()
+            host.registerPanel('async-ok.panel', () => null)
+          },
+        },
+        'async-reject': {
+          registerRenderer: async () => {
+            await Promise.resolve()
+            throw new Error('async registration exploded')
+          },
+        },
+        'async-hung': { registerRenderer: () => new Promise<void>(() => {}) },
+      }),
+      undefined,
+      5,
+    )
+    assert.deepEqual(
+      loaded.map((entry) => entry.id),
+      ['async-ok'],
+      'only the module whose registration settled cleanly joins the universe',
+    )
+    assert.equal(kernel.getPanelModule('async-ok.panel'), 'async-ok', 'a late registration still lands')
+    assert.deepEqual(getThirdPartyRendererLoadState('async-reject'), {
+      status: 'error',
+      message: 'async registration exploded',
+    })
+    const hung = getThirdPartyRendererLoadState('async-hung')
+    assert.equal(hung?.status, 'error')
+    assert.match(hung?.status === 'error' ? hung.message : '', /did not settle within/)
+  }
+
   async function main(): Promise<void> {
     await testLoadsAndRegistersUnderOwnModuleId()
+    await testAsyncRegisterRendererIsAwaited()
     await testReservedIdIsRejectedWithoutEvaluation()
     await testReservedIdWithFirstPartyStampLoads()
     await testManifestIdMismatchIsRejected()
