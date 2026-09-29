@@ -22,6 +22,12 @@ commit or squash, never rebase, with Conventional Commit titles; see
 - Do not manually edit the app version. Stable tags are the release version
   ledger; the workflow stamps `package.json` before compilation and packaging.
   The committed version remains a development baseline. SDK versions are separate.
+- Publish `@sprintengine/module-sdk` on its own: set its `package.json` version,
+  write that version's `CHANGELOG.md` entry on top, then push an
+  `sdk-v<version>` tag (`.github/workflows/sdk-publish.yml`; needs the
+  `NPM_TOKEN` secret). `scripts/release/sdk-release-check.mjs` refuses a tag,
+  CHANGELOG or quoted host API version that disagrees, and `npm run
+  test:release` runs the same check on every pull request.
 - Keep the download site's release-notes data in step with releases if using its
   version-specific What's New section.
 - Keep macOS signing credentials configured: the `CSC_*` pair and `APPLE_*`

@@ -113,8 +113,8 @@ every `entry.renderer` and asset it serves.
 
 ## Host API version
 
-`HOST_API_VERSION` (an integer, currently `1`) names the host contract this SDK
-describes. A third-party manifest must declare the version it was built
+`HOST_API_VERSION` names the host contract this SDK describes, as one integer;
+this release has `HOST_API_VERSION = 1` and `HOST_API_MIN_SUPPORTED = 1`. A third-party manifest must declare the version it was built
 against:
 
 ```json
