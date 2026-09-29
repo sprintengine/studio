@@ -9,33 +9,26 @@ function reportVisibility() {
   for (const listener of listeners.values()) listener.callback(listener.inView && isWindowVisible())
 }
 
-// Everything in a live transcript row that loops: held still while the row is
-// off screen, the window is idle, or motion is reduced.
-const LIVE_MOTION_SELECTOR = [
-  '.status-dot-pulse',
-  '.chat-shimmer',
-  '.working-mark__cell',
-  '.agent-glyph [class^="agent-glyph__"]',
-].join(', ')
+// A live transcript row that loops (the shimmer, a working mark, an agent
+// character, a pulse) holds still while it is off screen or the window is
+// hidden. The row only says so, with `data-live-offscreen`; the stylesheet's
+// one pause rule (index.css) decides, alongside the window-idle, hidden-layer
+// and inert conditions, and reduced motion stops the loops there too. Nothing
+// here writes `animation-play-state`: an inline `running` would beat that rule
+// and keep the row moving in an unfocused window, and an inline value set
+// once would miss a looping part that mounts inside the row afterwards.
+const LIVE_OFFSCREEN_ATTRIBUTE = 'data-live-offscreen'
 
 export function useLiveRowMotion(ref: RefObject<HTMLElement | null>, running: boolean): void {
   useEffect(() => {
     const element = ref.current
     if (!running || !element) return
-    const media = window.matchMedia?.('(prefers-reduced-motion: reduce)')
-    let visible = isWindowVisible()
-    const update = () => {
-      for (const animated of element.querySelectorAll<HTMLElement>(LIVE_MOTION_SELECTOR))
-        animated.style.animationPlayState = visible && !media?.matches ? 'running' : 'paused'
-    }
-    const dispose = observeLiveVisibility(element, (next) => {
-      visible = next
-      update()
+    const dispose = observeLiveVisibility(element, (visible) => {
+      element.toggleAttribute(LIVE_OFFSCREEN_ATTRIBUTE, !visible)
     })
-    media?.addEventListener('change', update)
     return () => {
       dispose()
-      media?.removeEventListener('change', update)
+      element.removeAttribute(LIVE_OFFSCREEN_ATTRIBUTE)
     }
   }, [ref, running])
 }

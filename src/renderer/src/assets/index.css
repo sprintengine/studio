@@ -2876,10 +2876,32 @@ samp,
  * nothing — on the glass material a full-window re-blend, and for the working
  * edge, whose conic gradient turns a registered custom property, a main-thread
  * repaint. Paused rather than removed, so each resumes from the frame it
- * stopped on instead of snapping. The skeleton's sweep is its `::after`, which
- * `:is()` cannot name, so it has a selector of its own. The rule is checked
- * against every infinite animation here by assets/idleAnimations.test.ts. */
-:root[data-window-active='false']
+ * stopped on instead of snapping.
+ *
+ * The same holds inside a visible window for the parts of it nobody can see,
+ * which stay mounted so coming back to them is instant:
+ *   - a live transcript row scrolled off screen (`data-live-offscreen`, set
+ *     by useLiveRowMotion in panels/agentChat/liveVisibility.ts);
+ *   - a warm workspace layer (`visibility: hidden`) and a cold one
+ *     (`content-visibility: hidden`), told apart by WorkspaceManager's
+ *     `data-layer-state`;
+ *   - anything `inert`: an inactive workspace's pane parked offscreen, a
+ *     collapsed pane column, the workspace region under a door.
+ * `aria-hidden` is not a condition: glyphs and working-mark cells carry it
+ * themselves while on screen.
+ *
+ * Nothing may write `animation-play-state` inline to resume these: an inline
+ * `running` beats this rule, so it is the rule alone that decides. The
+ * skeleton's sweep is its `::after`, which `:is()` cannot name, so it has a
+ * selector of its own. The rule is checked against every infinite animation
+ * here, and for every condition above, by assets/idleAnimations.test.ts. */
+:is(
+    :root[data-window-active='false'],
+    [data-live-offscreen],
+    [data-layer-state='warm'],
+    [data-layer-state='cold'],
+    [inert]
+  )
   :is(
     .status-dot-pulse,
     .working-mark__cell,
@@ -2897,7 +2919,14 @@ samp,
     .animate-pulse,
     .animate-ping
   ),
-:root[data-window-active='false'] .skeleton-shimmer::after {
+:is(
+    :root[data-window-active='false'],
+    [data-live-offscreen],
+    [data-layer-state='warm'],
+    [data-layer-state='cold'],
+    [inert]
+  )
+  .skeleton-shimmer::after {
   animation-play-state: paused;
 }
 
