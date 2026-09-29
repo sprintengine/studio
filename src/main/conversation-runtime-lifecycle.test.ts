@@ -244,3 +244,169 @@ test('the idle sweep rests while the machine sleeps', async () => {
     globalThis.clearInterval = realClearInterval
   }
 })
+
+/** Records what the runtime hands the provider, around the echo provider. */
+function recordingProvider(overrides: Partial<ConversationProviderAdapter> = {}) {
+  const starts: MockAdapterSessionInput[] = []
+  const stops: string[] = []
+  const turns: Array<{ message: string; messages?: Array<{ role: string; content: string }> }> = []
+  const base = echoProvider()
+  const adapter: ConversationProviderAdapter = {
+    ...base,
+    startSession: (input) => {
+      starts.push(input)
+      return base.startSession(input)
+    },
+    sendTurn: (input) => {
+      turns.push({ message: input.message, messages: input.messages })
+      return base.sendTurn(input)
+    },
+    stopSession: (input) => {
+      stops.push(input.sessionId)
+      return base.stopSession(input)
+    },
+    ...overrides,
+  }
+  return { adapter, starts, stops, turns }
+}
+
+test('starting a chat that already has a live session adopts it instead of starting a second', async () => {
+  const provider = recordingProvider()
+  await withRuntime([provider.adapter], async ({ runtime, workspaceRoot }) => {
+    const input = { workspaceRoot, workspaceId: 'workspace', agentId: 'agent', providerId: 'echo-provider' }
+    const first = await runtime.startSession({ ...input, modelId: 'model' })
+    assert.ok(first.ok)
+    // A remounted pane, or a paired device, asks again.
+    const again = await runtime.startSession({ ...input, modelId: 'model' })
+    assert.ok(again.ok)
+    assert.equal(again.session.sessionId, first.session.sessionId)
+    assert.equal(provider.starts.length, 1)
+    const listed = runtime.listSessions()
+    assert.deepEqual(listed.ok && listed.sessions.map((session) => session.sessionId), [first.session.sessionId])
+
+    // Another chat is its own session.
+    const other = await runtime.startSession({ ...input, agentId: 'other', modelId: 'model' })
+    assert.ok(other.ok && other.session.sessionId !== first.session.sessionId)
+  })
+})
+
+test('a live session its provider cannot move to the model asked for is replaced, not doubled', async () => {
+  const provider = recordingProvider({ listModels: () => ['model', 'bigger-model'] })
+  await withRuntime([provider.adapter], async ({ runtime, workspaceRoot }) => {
+    const input = { workspaceRoot, workspaceId: 'workspace', agentId: 'agent', providerId: 'echo-provider' }
+    const first = await runtime.startSession({ ...input, modelId: 'model' })
+    assert.ok(first.ok)
+    assert.ok((await runtime.sendTurn({ sessionId: first.session.sessionId, message: 'Remember me' })).ok)
+
+    const moved = await runtime.startSession({ ...input, modelId: 'bigger-model' })
+    assert.ok(moved.ok)
+    assert.notEqual(moved.session.sessionId, first.session.sessionId)
+    assert.equal(moved.session.modelId, 'bigger-model')
+    assert.deepEqual(provider.stops, [first.session.sessionId])
+    const listed = runtime.listSessions()
+    assert.deepEqual(listed.ok && listed.sessions.map((session) => session.sessionId), [moved.session.sessionId])
+
+    // The replacement carries the conversation on.
+    assert.ok((await runtime.sendTurn({ sessionId: moved.session.sessionId, message: 'Next' })).ok)
+    assert.deepEqual(
+      provider.turns.at(-1)?.messages?.map((message) => message.content),
+      ['Remember me', `Echo: Remember me`, 'Next'],
+    )
+  })
+})
+
+test('a stopped session is listed only until the chat starts again', async () => {
+  const provider = recordingProvider()
+  await withRuntime([provider.adapter], async ({ runtime, workspaceRoot }) => {
+    const input = {
+      workspaceRoot,
+      workspaceId: 'workspace',
+      agentId: 'agent',
+      providerId: 'echo-provider',
+      modelId: 'model',
+    }
+    const first = await runtime.startSession(input)
+    assert.ok(first.ok)
+    await runtime.stopSession({ sessionId: first.session.sessionId })
+    let listed = runtime.listSessions()
+    assert.deepEqual(listed.ok && listed.sessions.map((session) => session.status), ['stopped'])
+
+    const next = await runtime.startSession(input)
+    assert.ok(next.ok && next.session.sessionId !== first.session.sessionId)
+    listed = runtime.listSessions()
+    assert.deepEqual(listed.ok && listed.sessions.map((session) => session.sessionId), [next.session.sessionId])
+  })
+})
+
+test('a busy session is adopted as it is, never cut short', async () => {
+  let release!: () => void
+  const parked = new Promise<void>((resolve) => (release = resolve))
+  const base = echoProvider()
+  const provider = recordingProvider({
+    listModels: () => ['model', 'bigger-model'],
+    sendTurn: (input) =>
+      (async function* () {
+        yield runtimeEvent(input, 'turn_started', { turnId: input.turnId })
+        await parked
+        yield* base.sendTurn(input) as ConversationEvent[]
+      })(),
+  })
+  await withRuntime([provider.adapter], async ({ runtime, workspaceRoot }) => {
+    const input = { workspaceRoot, workspaceId: 'workspace', agentId: 'agent', providerId: 'echo-provider' }
+    const first = await runtime.startSession({ ...input, modelId: 'model' })
+    assert.ok(first.ok)
+    const running = runtime.sendTurn({ sessionId: first.session.sessionId, message: 'Long job' })
+    await until(() => {
+      const listed = runtime.listSessions()
+      return listed.ok && listed.sessions[0]?.status === 'active'
+    })
+    const again = await runtime.startSession({ ...input, modelId: 'bigger-model' })
+    assert.ok(again.ok)
+    assert.equal(again.session.sessionId, first.session.sessionId)
+    assert.deepEqual(provider.stops, [])
+    release()
+    assert.ok((await running).ok)
+  })
+})
+
+test('a settled stateless chat drops its history and reads it back for the next send', async () => {
+  const provider = recordingProvider()
+  await withRuntime([provider.adapter], async ({ runtime, workspaceRoot }) => {
+    const started = await runtime.startSession({
+      workspaceRoot,
+      workspaceId: 'workspace',
+      agentId: 'agent',
+      providerId: 'echo-provider',
+      modelId: 'model',
+    })
+    assert.ok(started.ok)
+    const sessionId = started.session.sessionId
+    assert.ok((await runtime.sendTurn({ sessionId, message: 'One' })).ok)
+    assert.ok((await runtime.suspendSession({ sessionId })).ok)
+    assert.ok((await runtime.sendTurn({ sessionId, message: 'Two' })).ok)
+    assert.deepEqual(
+      provider.turns.at(-1)?.messages?.map((message) => message.content),
+      ['One', 'Echo: One', 'Two'],
+    )
+  })
+})
+
+test('only a stateful provider that replays history is handed it at start', async () => {
+  const replaying = recordingProvider({ id: 'codex-agent', sessions: 'stateful' })
+  const resuming = recordingProvider({ id: 'claude-agent', sessions: 'stateful' })
+  await withRuntime([replaying.adapter, resuming.adapter], async ({ runtime, workspaceRoot }) => {
+    for (const provider of [replaying, resuming]) {
+      const key = { workspaceRoot, workspaceId: 'workspace', agentId: provider.adapter.id, modelId: 'model' }
+      const first = await runtime.startSession({ ...key, providerId: provider.adapter.id })
+      assert.ok(first.ok)
+      assert.ok((await runtime.sendTurn({ sessionId: first.session.sessionId, message: 'Hello' })).ok)
+      await runtime.stopSession({ sessionId: first.session.sessionId })
+      assert.ok((await runtime.startSession({ ...key, providerId: provider.adapter.id })).ok)
+    }
+    assert.deepEqual(
+      replaying.starts.at(-1)?.fallbackHistory?.map((message) => message.content),
+      ['Hello', 'Echo: Hello'],
+    )
+    assert.equal(resuming.starts.at(-1)?.fallbackHistory, undefined)
+  })
+})

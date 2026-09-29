@@ -115,7 +115,10 @@ type RuntimeSession = ConversationSessionSummary & {
   canceledTurnIds: Set<string>
   // Completed turns only, in send order, so each new turn carries prior context.
   // A failed/interrupted turn is not recorded, so a retry re-sends cleanly.
-  history: ConversationMessage[]
+  // Kept for a stateless session only, which replays it every turn, and
+  // dropped while it rests (null), to be read back from the transcript by the
+  // next send. A stateful provider owns its history.
+  history: ConversationMessage[] | null
   // True when the provider adapter owns history/resume (sessions: 'stateful').
   // Stateful sessions never replay history and resolve approvals mid-turn.
   stateful: boolean
@@ -244,6 +247,11 @@ const UNSAVED_NOTICE =
 // Cap on how many persisted events a transcript replay returns to the
 // renderer; the JSONL on disk keeps everything.
 const MAX_TRANSCRIPT_REPLAY_EVENTS = 2000
+
+// Stateful adapters that never read `fallbackHistory`: Claude Code resumes
+// its own session and has no use for the conversation replayed as text. The
+// history is up to a page of transcript, so it is not built for them.
+const ADAPTERS_WITHOUT_FALLBACK_HISTORY: ReadonlySet<string> = new Set([CLAUDE_AGENT_PROVIDER_ID])
 
 // How much of a chat's end the hover card reads for its newest turn. A turn
 // longer than this shows its newest part; the card draws a few hundred
@@ -378,10 +386,61 @@ export class ConversationRuntime {
       return { ok: false, message: 'Conversation lifecycle operation is already in progress.' }
     this.startingTranscripts.add(path)
     try {
-      return await this.startSessionNow(input)
+      return (await this.adoptLiveSession(input, path)) ?? (await this.startSessionNow(input))
     } finally {
       this.startingTranscripts.delete(path)
     }
+  }
+
+  /**
+   * The chat's live session, when it has one, rather than a second: a chat
+   * pane keeps its session only while it is mounted, so reopening or moving
+   * the tab, or reloading its window, starts one on the next send, as does a
+   * paired device. A second session would run a second CLI child resuming the
+   * same provider session beside the first until the idle sweep reached it.
+   * A model or preset asked for that differs is switched to on the live
+   * session; one its provider cannot switch, or a different provider or
+   * runtime, retires the idle session so a fresh one starts. A busy session is
+   * adopted as it is, so the work it is doing is never cut short.
+   */
+  private async adoptLiveSession(
+    input: ConversationStartSessionInput,
+    path: string,
+  ): Promise<ConversationStartSessionResult | null> {
+    const existing = this.liveSessionFor(path)
+    if (!existing) return null
+    if (isSessionBusy(existing)) return { ok: true, session: this.toSummary(existing) }
+    const sameProcess =
+      existing.providerId === input.providerId.trim() &&
+      JSON.stringify(existing.cliRuntimes ?? null) === JSON.stringify(input.cliRuntimes ?? null) &&
+      JSON.stringify(existing.allowedTools ?? null) === JSON.stringify(input.allowedTools ?? null)
+    if (sameProcess) {
+      const modelId = input.modelId.trim()
+      const model =
+        modelId && modelId !== existing.modelId
+          ? await this.setModel({ sessionId: existing.sessionId, modelId })
+          : { ok: true }
+      const preset =
+        model.ok && input.permissionPreset !== undefined && input.permissionPreset !== existing.permissionPreset
+          ? await this.setPermission({ sessionId: existing.sessionId, permissionPreset: input.permissionPreset })
+          : model
+      if (preset.ok && existing.status !== 'stopped') return { ok: true, session: this.toSummary(existing) }
+    }
+    if (existing.status !== 'stopped' && !isSessionBusy(existing))
+      await this.stopSession({ sessionId: existing.sessionId })
+    return null
+  }
+
+  /** The newest session of a transcript that is not stopped. */
+  private liveSessionFor(path: string): RuntimeSession | undefined {
+    let live: RuntimeSession | undefined
+    for (const session of this.sessions.values())
+      if (
+        session.status !== 'stopped' &&
+        this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId) === path
+      )
+        live = session
+    return live
   }
 
   private async startSessionNow(input: ConversationStartSessionInput): Promise<ConversationStartSessionResult> {
@@ -446,7 +505,7 @@ export class ConversationRuntime {
       pendingRequestId: null,
       activeTurnAbort: null,
       canceledTurnIds: new Set(),
-      history: [],
+      history: null,
       stateful,
       turnLockRequestId: null,
       pendingApprovalRequestIds: new Set(),
@@ -464,14 +523,9 @@ export class ConversationRuntime {
       providerTurn: null,
     }
     await this.initializeSequence(input)
-    // Excerpts and the replayed history come from the end of the chat, bounded
-    // like a page: a model's context holds far less than a long transcript.
-    const previousTranscript = await this.readTranscript(input, {
-      all: true,
-      closeOpenTurns: false,
-      maxBytes: this.transcriptLimits.pageBytes,
-    })
-    if (previousTranscript.ok) {
+    const previousTranscript = await this.readRecentTranscript(input)
+    let fallbackHistory: ConversationMessage[] | undefined
+    if (previousTranscript) {
       const first = await this.transcripts
         .findFirst(
           input.workspaceRoot,
@@ -480,11 +534,21 @@ export class ConversationRuntime {
         )
         .catch(() => undefined)
       if (first) this.updateExcerpts(session, first)
-      for (const event of previousTranscript.events) this.updateExcerpts(session, event)
-      session.history = completedHistory(previousTranscript.events)
+      for (const event of previousTranscript) this.updateExcerpts(session, event)
+      if (!stateful) session.history = completedHistory(previousTranscript)
+      else if (!ADAPTERS_WITHOUT_FALLBACK_HISTORY.has(validation.adapter.id))
+        fallbackHistory = completedHistory(previousTranscript)
     }
     if (this.revertingScopes.has(fileScope)) return { ok: false, message: 'Workspace files are being reverted.' }
     this.sessions.set(sessionId, session)
+    // A stopped session of this chat was kept only to be listed; this one supersedes it.
+    const path = this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)
+    for (const [id, other] of this.sessions)
+      if (
+        other.status === 'stopped' &&
+        this.transcriptPath(other.workspaceRoot, other.workspaceId, other.agentId) === path
+      )
+        this.sessions.delete(id)
 
     // Stateful providers resume their own durable session; the latest cursor
     // lives in the JSONL transcript this runtime already writes.
@@ -498,7 +562,7 @@ export class ConversationRuntime {
           ...session,
           resumeSessionId: resume?.sessionId,
           ...(resume?.at ? { resumeSessionAt: resume.at } : {}),
-          fallbackHistory: session.history,
+          ...(session.history ? { fallbackHistory: session.history } : fallbackHistory ? { fallbackHistory } : {}),
           // Continuation channel: the adapter opens a mirror turn here when its
           // child resumes after a `result` (background subagents completing).
           onSessionEvent: (event) => this.enqueueContinuationEvent(session, event),
@@ -673,12 +737,13 @@ export class ConversationRuntime {
         // The model sees prior completed turns plus this message, so it has memory.
         // Stateful providers own their history natively — replaying ours would
         // duplicate context and defeat resume, so they get only the new message.
+        if (!session.stateful && !session.history) session.history = await this.readHistory(session)
         const messages: ConversationMessage[] | undefined = session.stateful
           ? undefined
           : [
               ...(skills.context ? [{ role: 'system' as const, content: skills.context }] : []),
               ...(session.revertedNote ? [{ role: 'system' as const, content: session.revertedNote }] : []),
-              ...session.history,
+              ...(session.history ?? []),
               { role: 'user', content: [message, mentions.context].filter(Boolean).join('\n\n') },
             ]
         // From here a steer can join this turn: the provider is being handed it.
@@ -719,8 +784,10 @@ export class ConversationRuntime {
           // failed turn leaves history untouched and a retry re-sends without
           // duplicating the user message. Stateful providers keep their own.
           if (!currentSession.stateful && emitted.completed && !emitted.failed) {
-            currentSession.history.push({ role: 'user', content: message })
-            if (emitted.text) currentSession.history.push({ role: 'assistant', content: emitted.text })
+            // Dropped while the send ran (the chat was settled): the next send
+            // reads it back from the transcript, this turn included.
+            currentSession.history?.push({ role: 'user', content: message })
+            if (emitted.text) currentSession.history?.push({ role: 'assistant', content: emitted.text })
           }
         }
         return { ok: true, session: this.toSummary(currentSession ?? session) }
@@ -1137,7 +1204,15 @@ export class ConversationRuntime {
     this.approvalRules.dropSession(session.sessionId)
     session.approvalRequests.clear()
     session.automaticApprovals.clear()
+    // Kept only to be listed until the chat's next session supersedes it, so
+    // it holds nothing a turn would need.
+    session.history = null
+    session.canceledTurnIds.clear()
+    session.runningSubagents.clear()
+    session.backgroundAgents = 0
+    session.pendingSkills = undefined
     session.updatedAt = this.now()
+    this.releaseTranscript(session)
     return { ok: true, session: this.toSummary(session) }
   }
 
@@ -1156,9 +1231,21 @@ export class ConversationRuntime {
     }
     // A session still starting has no child to dispose yet; the idle sweep
     // reaches it once it is ready.
-    if (session.status === 'ready' || session.status === 'failed')
+    if (
+      (session.status === 'ready' || session.status === 'failed') &&
       this.getAdapterForProviderId(session.providerId)?.disposeChildProcess?.(session.sessionId)
+    )
+      // No child is left to send events for a turn it was told to cancel.
+      session.canceledTurnIds.clear()
     void this.eventLog.close(this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId))
+    // A settled chat drops what it holds, as a settled terminal agent does; a
+    // send after it is woken reads back what it needs.
+    if (!isSessionBusy(session)) {
+      session.history = null
+      session.approvalRequests.clear()
+      session.automaticApprovals.clear()
+    }
+    this.releaseTranscript(session)
     return { ok: true, session: this.toSummary(session) }
   }
 
@@ -2362,6 +2449,56 @@ export class ConversationRuntime {
         ...(options.closeOpenTurns !== false && !live ? syntheticTurnClosures(bounded, bounded.at(-1)?.seq ?? 0) : []),
       ],
     }
+  }
+
+  /**
+   * The end of a chat as stored, bounded like a page (a model's context holds
+   * far less than a long transcript): what a session's excerpts, and the
+   * history a provider replays, are rebuilt from. Merged deltas stay merged;
+   * both only fold their text. Null when the transcript cannot be read.
+   */
+  private async readRecentTranscript(input: ConversationTranscriptInput): Promise<ConversationEvent[] | null> {
+    const path = this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId)
+    await this.eventLog.flush(path)
+    try {
+      return await this.transcripts.tail(input.workspaceRoot, path, {
+        bytes: this.transcriptLimits.pageBytes,
+        compact: true,
+      })
+    } catch {
+      return null
+    }
+  }
+
+  private async readHistory(session: RuntimeSession): Promise<ConversationMessage[]> {
+    return completedHistory((await this.readRecentTranscript(session)) ?? [])
+  }
+
+  /**
+   * Let go of what this run keeps for a transcript between writes: its cached
+   * page offsets and, once the writes queued for it have settled, the tail of
+   * its emission queue, which holds its last event. With no live session left
+   * on it, its command receipts go too; a later command reads them back from
+   * disk. Its sequence number stays: a session starting on it may already
+   * have read it.
+   */
+  private releaseTranscript(session: RuntimeSession): void {
+    const path = this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)
+    const receiptsPath = path.replace(/\.jsonl$/, '.receipts.json')
+    this.transcripts.forget(path)
+    const tail = this.emissionTails.get(path)
+    const receiptWrite = this.receiptWrites.get(receiptsPath)
+    this.runInBackground(
+      Promise.allSettled([tail, receiptWrite, session.continuationTail]).then(() => {
+        if (this.emissionTails.get(path) === tail) this.emissionTails.delete(path)
+        const live = this.liveSessionFor(path) !== undefined
+        const commandPending = Array.from(this.pendingCommands.keys()).some((key) => key.startsWith(`${receiptsPath}:`))
+        if (!commandPending && this.receiptWrites.get(receiptsPath) === receiptWrite) {
+          this.receiptWrites.delete(receiptsPath)
+          if (!live) this.receipts.delete(receiptsPath)
+        }
+      }),
+    )
   }
 
   /**
