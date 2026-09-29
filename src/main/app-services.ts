@@ -33,7 +33,7 @@ import { CANVAS_MODULE_DEFAULT_ENABLED } from '../shared/modules/manifest'
 import { createTailnetNotifier } from './tailnet-notifications'
 import { revealMainWindow } from './window-factory'
 import { createAutomationTools } from './automation/automation-tools'
-import { createAgentPermissionResolver } from './automation/launch-permission-cap'
+import { createAgentPermissionResolver, launchPermissionCeiling } from './automation/launch-permission-cap'
 import { createTailnetTools, type TailnetToolsFrontDoor } from './automation/tailnet/tailnet-tools'
 import { createStudioGatewayTools } from './automation/studio-gateway-tools'
 import type { McpToolContribution } from './module-host/main-host'
@@ -1482,6 +1482,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     resolveGatewayTools: createStudioGatewayTools({
       resolveModuleTools: () => resolveModuleMcpTools(),
       isModuleEnabled: (moduleId) => resolveModuleEnabled(moduleId),
+      // A module tool runs under its caller's launch cap, so a chat the module
+      // starts for a capped agent is no looser than that agent.
+      callerPermissionCeiling: (context) => launchPermissionCeiling(context, resolveAgentPermissionPreset),
       warn: (details) => {
         void writeDiagnosticLog({
           level: 'warning',

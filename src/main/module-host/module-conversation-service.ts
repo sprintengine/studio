@@ -48,8 +48,10 @@ import type {
   ModuleConversationService,
   ModuleConversationSummary,
 } from '../../shared/modules/conversation-service'
+import type { CliPermissionPreset } from '../../shared/cli-permission-preset'
 import { redactEvent } from '../companion-agent-service'
 import type { ConversationLaunchRequest, ConversationLaunchResult } from '../conversation-launch-service'
+import { clampToModuleToolCaller } from './module-tool-caller'
 
 /** A workspace as the service reads it: its folder and its agent records. */
 export type ModuleConversationWorkspace = {
@@ -84,6 +86,12 @@ export type ModuleConversationDeps = {
   onWorkspacesChanged?: (listener: () => void) => () => void
   /** The person's CLI command overrides, for a chat whose session is started again. */
   getCliRuntimes?: () => ConversationCliRuntimeOverrides | undefined
+  /**
+   * The loosest preset a chat started now may run on, or null when uncapped:
+   * the ceiling of the agent whose MCP tool call into the module is running
+   * (module-tool-caller.ts). Read at each `create`.
+   */
+  getCallerPermissionCeiling?: () => CliPermissionPreset | null
   newCommandId?: () => string
 }
 
@@ -342,6 +350,13 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
         if (input.permissionPreset !== undefined && !PERMISSION_PRESETS.has(input.permissionPreset)) {
           return failure('invalid_input', '"permissionPreset" must be "none" or "bypass".')
         }
+        // A module tool called by an agent capped at `none` starts a `none`
+        // chat, whatever the module asked for: otherwise the module would be
+        // the capped agent's way to a chat that never asks.
+        const permissionPreset = clampToModuleToolCaller(
+          input.permissionPreset,
+          deps.getCallerPermissionCeiling?.() ?? null,
+        )
         const launched = await deps.launch({
           workspaceId: input.workspaceId.trim(),
           ...(input.cli ? { cli: input.cli } : {}),
@@ -350,7 +365,7 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
           ...(input.name ? { name: input.name } : {}),
           ...(input.skills?.length ? { skills: input.skills } : {}),
           ...(input.attachments?.length ? { attachments: input.attachments } : {}),
-          ...(input.permissionPreset ? { permissionPreset: input.permissionPreset } : {}),
+          ...(permissionPreset ? { permissionPreset } : {}),
           ownerModuleId: moduleId,
         })
         if (!launched.ok) return failure(launched.code as ModuleConversationErrorCode, launched.message)

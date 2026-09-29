@@ -25,6 +25,7 @@ import {
 import type { CapabilityModule } from '../module-host/load-modules'
 import { createConversationModuleRegistry } from '../module-host/module-conversation-service'
 import { createModuleStorageRegistry } from '../module-host/module-storage'
+import { moduleToolCallerCeiling } from '../module-host/module-tool-caller'
 import { createCompanionAgentService, createCompanionAgentsModuleRegistry } from '../companion-agent-service'
 import { createModuleWorkspaceContextService, createModuleWorkspaceService } from './module-workspace-service'
 
@@ -122,9 +123,10 @@ export function createAgentRuntimeModule(
         onWorkspacesChanged: (listener) => services.workspaceSyncService.subscribeEvents(() => listener()),
         getCliRuntimes: () =>
           effectiveAgentLaunchSettings(services.agentLaunchSettings.get()).cliRuntimes as
-            | ConversationCliRuntimeOverrides
-            | undefined,
+            ConversationCliRuntimeOverrides | undefined,
         getModulePermissions: options.getModulePermissions,
+        // A chat a module's MCP tool starts is held to the calling agent's preset.
+        getCallerPermissionCeiling: moduleToolCallerCeiling,
       })
       host.provideService(ConversationModuleServiceToken, () => conversations.registry)
       host.onShutdown(() => conversations.dispose())
