@@ -2212,10 +2212,7 @@ export default function WorkspaceManager() {
   // the session, and the terminal:sessions-delta broadcast carries the change).
   const residentWorkspaceIdsRef = useRef<ReadonlySet<string> | null>(null)
   const residentWorkspaceIds = useMemo(() => {
-    const ids = residentAgentWorkspaceIds(terminalSessions)
-    for (const session of conversationSessions) {
-      if (session.status !== 'stopped') ids.add(session.workspaceId)
-    }
+    const ids = residentAgentWorkspaceIds(terminalSessions, conversationSessions)
     const stable = stableSet(ids, residentWorkspaceIdsRef.current)
     residentWorkspaceIdsRef.current = stable
     return stable

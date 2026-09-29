@@ -709,6 +709,8 @@ export class ConversationRuntime {
     session.phase = 'running'
     session.updatedAt = this.now()
     session.turnStartedAt = session.updatedAt
+    // The provider starts the child again for this turn if it had rested.
+    session.resting = undefined
     session.checkpointTurnSeq = null
     session.checkpointCapture = null
     session.checkpointCaptured = false
@@ -1245,6 +1247,7 @@ export class ConversationRuntime {
       session.automaticApprovals.clear()
     }
     this.releaseTranscript(session)
+    this.markResting(session)
     return { ok: true, session: this.toSummary(session) }
   }
 
@@ -1317,9 +1320,27 @@ export class ConversationRuntime {
       if (!session.stateful) continue
       if (session.status !== 'ready' && session.status !== 'failed') continue
       const adapter = this.getAdapterForProviderId(session.providerId)
-      if (adapter?.disposeChildProcess?.(session.sessionId)) disposed.push(session.sessionId)
+      if (adapter?.disposeChildProcess?.(session.sessionId)) {
+        disposed.push(session.sessionId)
+        this.markResting(session)
+      }
     }
     return disposed
+  }
+
+  /**
+   * The session's child is gone and the session stays: its summary says so,
+   * and every window's session list is told to read it again. Nothing is
+   * written to the transcript, since nothing happened in the chat; the event
+   * has no sequence number, so a chat reading its own events drops it.
+   */
+  private markResting(session: RuntimeSession): void {
+    if (session.resting || session.status === 'stopped') return
+    session.resting = true
+    const event = this.eventForSession(session, 'session_updated', { resting: true })
+    event.id = `conv_evt_${this.eventEpoch}_${++this.eventSequence}`
+    event.createdAt = this.now()
+    this.notify(event)
   }
 
   // Live child processes across all adapters, shaped like terminal roots so
@@ -1892,6 +1913,8 @@ export class ConversationRuntime {
       session.checkpointCaptured = false
       session.updatedAt = this.now()
       session.turnStartedAt = session.updatedAt
+      // Only a live child carries on by itself.
+      session.resting = undefined
       // From here a steer can join it, as it joins a send's turn.
       session.providerTurn = openProviderTurn(turnId, true)
     }
@@ -2919,6 +2942,7 @@ export class ConversationRuntime {
       lastAssistantText: session.lastAssistantText,
       ...(session.backgroundAgents ? { backgroundAgents: session.backgroundAgents } : {}),
       ...(session.lastTurnEndedAt !== undefined ? { lastTurnEndedAt: session.lastTurnEndedAt } : {}),
+      ...(session.resting && status !== 'stopped' ? { resting: true as const } : {}),
       // Only while a turn is open: every way a turn closes clears `activeTurnId`.
       ...(session.activeTurnId !== null && session.turnStartedAt !== undefined
         ? { turnStartedAt: session.turnStartedAt }
