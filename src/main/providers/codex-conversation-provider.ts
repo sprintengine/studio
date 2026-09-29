@@ -42,6 +42,10 @@ const CODEX_INITIALIZE = {
   clientInfo: { name: 'sprintengine_studio', title: 'SprintEngine Studio', version: '1.0.0' },
   capabilities: { experimentalApi: true },
 }
+// How long a stopped turn waits for Codex to confirm it with `turn/completed`.
+// An app-server that never does is closed, so a hung turn can neither keep the
+// process alive nor refuse every later message as "already running a turn".
+export const CODEX_INTERRUPT_GRACE_MS = 10_000
 
 class EventQueue implements AsyncIterable<ConversationEvent> {
   private values: ConversationEvent[] = []
@@ -71,6 +75,14 @@ class EventQueue implements AsyncIterable<ConversationEvent> {
 type ActiveTurn = {
   id: string
   cancelled: boolean
+  // The `turn/interrupt` already sent for this turn, so a second stop waits on
+  // it rather than asking again.
+  interrupting: Promise<unknown> | null
+  // Ends a stopped turn Codex never confirms; see CODEX_INTERRUPT_GRACE_MS.
+  watchdog: ReturnType<typeof setTimeout> | null
+  // Settles once the turn has finished, however it finished.
+  ended: Promise<void>
+  settle: () => void
   nativeId: string | null
   queue: EventQueue
   textItems: Set<string>
@@ -168,7 +180,9 @@ export function createCodexConversationProvider(
       failure ? 'turn_failed' : 'turn_completed',
       failure ? { message: failure, reason: 'provider_error' } : { interrupted },
     )
+    if (state.turn.watchdog) clearTimeout(state.turn.watchdog)
     state.turn.queue.end()
+    state.turn.settle()
     state.turn = null
   }
   // Subagent progress belongs to the lane, not to whichever turn is open when
@@ -196,6 +210,35 @@ export function createCodexConversationProvider(
     const seam = turn.textItem !== null && turn.textItem !== itemId
     turn.textItem = itemId
     emit(state, 'content_delta', { text: seam ? `\n\n${value}` : value })
+  }
+  // Ends the turn on this side and closes the app-server, whose thread the
+  // next turn resumes. Used when a stopped turn cannot be confirmed by Codex.
+  // Its subagents run in that process, so their lanes end with it.
+  function abandonTurn(state: Session) {
+    const transport = state.transport
+    state.transport = null
+    state.spawnedAt = null
+    if (transport) stopLanes(state, 'The agent stopped when its Codex process ended.')
+    finish(state, undefined, true)
+    transport?.close()
+  }
+  async function interrupt(state: Session): Promise<void> {
+    const turn = state.turn
+    if (!turn) return
+    turn.cancelled = true
+    if (!turn.watchdog) {
+      turn.watchdog = setTimeout(() => {
+        if (state.turn === turn) abandonTurn(state)
+      }, CODEX_INTERRUPT_GRACE_MS)
+      turn.watchdog.unref?.()
+    }
+    if (turn.interrupting) {
+      await turn.interrupting
+      return
+    }
+    if (!turn.nativeId || !state.transport) return
+    turn.interrupting = state.transport.request('turn/interrupt', { threadId: state.threadId, turnId: turn.nativeId })
+    await turn.interrupting
   }
   async function onMessage(state: Session, message: RpcMessage) {
     const params = record(message.params)
@@ -741,13 +784,24 @@ export function createCodexConversationProvider(
     async *sendTurn(input: MockAdapterTurnInput) {
       const state = sessions.get(input.sessionId)
       if (!state) throw new Error('Codex conversation is not active.')
+      // A stopped turn Codex has not confirmed yet is over from the person's
+      // side: wait for it (the watchdog bounds the wait) rather than refuse.
+      if (state.turn?.cancelled) await state.turn.ended
       if (state.turn) throw new Error('Codex is already running a turn.')
       if (input.mode === 'plan') throw new Error('This Codex connection does not support plan mode.')
       const compact = codexCompactRequest(input.message, input.attachments?.length ?? 0)
       const queue = new EventQueue()
+      let settle = () => {}
+      const ended = new Promise<void>((resolve) => {
+        settle = resolve
+      })
       state.turn = {
         id: input.turnId,
         cancelled: false,
+        interrupting: null,
+        watchdog: null,
+        ended,
+        settle,
         nativeId: null,
         queue,
         textItems: new Set(),
@@ -851,7 +905,15 @@ export function createCodexConversationProvider(
     },
     async interrupt(input) {
       const state = sessions.get(input.sessionId)
-      if (state) await interrupt(state)
+      const turn = state?.turn
+      if (!state || !turn) return []
+      try {
+        await interrupt(state)
+      } catch (error) {
+        // The watchdog already ended the turn and closed the app-server, which
+        // is what rejected the request: the stop has happened.
+        if (state.turn === turn) throw error
+      }
       return []
     },
     stopSession(input) {
@@ -914,14 +976,19 @@ export function createCodexConversationProvider(
         lastActivityAt: state.lastActivityAt,
         spawnedAt: state.spawnedAt,
       })),
+    // A running turn keeps its process, except one already stopped: Settle
+    // and Snooze interrupt and then dispose straight away, before Codex has
+    // confirmed the interrupt, and the process has nothing left to do.
     disposeChildProcess(sessionId) {
       const state = sessions.get(sessionId)
       // A subagent still working lives in this process too.
-      if (!state?.transport || state.turn || [...state.children.values()].some((child) => !child.done)) return false
-      const transport = state.transport
-      state.transport = null
-      state.spawnedAt = null
-      transport.close()
+      if (
+        !state?.transport ||
+        (state.turn && !state.turn.cancelled) ||
+        [...state.children.values()].some((child) => !child.done)
+      )
+        return false
+      abandonTurn(state)
       return true
     },
     disposeAll() {
@@ -947,12 +1014,6 @@ function withReplayedHistory(state: Session, message: string): string {
   return prior ? `Previous conversation:\n${prior}\n\nUser: ${message}` : message
 }
 
-async function interrupt(state: Session): Promise<void> {
-  if (!state.turn) return
-  state.turn.cancelled = true
-  if (!state.turn.nativeId || !state.transport) return
-  await state.transport.request('turn/interrupt', { threadId: state.threadId, turnId: state.turn.nativeId })
-}
 async function resolveExecutable(input: Pick<MockAdapterSessionInput, 'cliRuntimes'>): Promise<string> {
   if (input.cliRuntimes?.codex?.hostId && input.cliRuntimes.codex.hostId !== 'local')
     throw new Error('Codex conversation requires a local CLI runtime.')

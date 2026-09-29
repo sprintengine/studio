@@ -1,5 +1,6 @@
-import { expect, test } from 'vitest'
+import { expect, test, vi } from 'vitest'
 import {
+  CODEX_INTERRUPT_GRACE_MS,
   createCodexConversationProvider,
   codexPermissionPolicy,
   codexChildEnv,
@@ -16,6 +17,8 @@ function fixture(
     resume?: (params: unknown) => unknown
     skills?: unknown
     saveGeneratedImage?: (input: { sessionId: string; itemId: string; base64: string }) => Promise<string>
+    // Codex accepts `turn/interrupt` but never sends the turn's `turn/completed`.
+    silentInterrupt?: boolean
   } = {},
 ) {
   let connection!: CodexRpcOptions
@@ -50,7 +53,7 @@ function fixture(
             resolveStarted()
             return {}
           }
-          if (method === 'turn/interrupt')
+          if (method === 'turn/interrupt' && !setup.silentInterrupt)
             await options.onMessage({
               method: 'turn/completed',
               params: { threadId: 'native-thread', turn: { status: 'interrupted' } },
@@ -310,6 +313,56 @@ test('interrupt uses native turn identity and ends the event stream', async () =
     turnId: 'native-turn',
   })
   expect(f.events.at(-1)?.payload?.interrupted).toBe(true)
+})
+
+test('a stopped turn Codex has not confirmed yet does not keep its process from being disposed', async () => {
+  const f = fixture({ silentInterrupt: true })
+  await f.adapter.startSession(f.input)
+  const done = f.send()
+  await f.started
+  await f.adapter.interrupt(f.input)
+  expect(f.adapter.listLiveSessions?.()[0]?.turnActive).toBe(true)
+  expect(f.adapter.disposeChildProcess?.('session')).toBe(true)
+  await done
+  expect(f.transports.closed).toBe(1)
+  expect(f.events.at(-1)).toMatchObject({ type: 'turn_completed', payload: { interrupted: true } })
+  expect(f.adapter.listLiveSessions?.()[0]).toMatchObject({ turnActive: false, hasChildProcess: false })
+})
+
+test('a running turn that was not stopped still keeps its process', async () => {
+  const f = fixture()
+  await f.adapter.startSession(f.input)
+  const done = f.send()
+  await f.started
+  expect(f.adapter.disposeChildProcess?.('session')).toBe(false)
+  await f.message({ method: 'turn/completed', params: { turn: { status: 'completed' } } })
+  await done
+  expect(f.adapter.disposeChildProcess?.('session')).toBe(true)
+})
+
+test('a stopped turn Codex never confirms is ended and the next message goes through', async () => {
+  vi.useFakeTimers()
+  try {
+    const f = fixture({ silentInterrupt: true })
+    await f.adapter.startSession(f.input)
+    const done = f.send()
+    await vi.waitFor(() => expect(f.calls.some((call) => call.method === 'turn/start')).toBe(true))
+    await f.adapter.interrupt(f.input)
+    // Sent straight after the stop: it waits for the old turn rather than refusing.
+    f.nextTurn()
+    const next = f.send(undefined, undefined, 'Try again.')
+    await vi.advanceTimersByTimeAsync(CODEX_INTERRUPT_GRACE_MS)
+    await done
+    expect(f.transports.closed).toBe(1)
+    await vi.waitFor(() => expect(f.calls.filter((call) => call.method === 'turn/start')).toHaveLength(2))
+    expect(f.transports.created).toBe(2)
+    await f.message({ method: 'turn/completed', params: { turn: { status: 'completed' } } })
+    await next
+    expect(f.events.filter((event) => event.type === 'turn_failed')).toEqual([])
+    expect(f.calls.filter((call) => call.method === 'turn/interrupt')).toHaveLength(1)
+  } finally {
+    vi.useRealTimers()
+  }
 })
 
 test('resume uses a stored thread cursor and crash terminates a running turn', async () => {
