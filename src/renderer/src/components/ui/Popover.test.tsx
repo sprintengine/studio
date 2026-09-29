@@ -11,13 +11,21 @@ test('an open popover closes when its trigger is hidden, and stays open while it
     pretendToBeVisual: true,
   })
   const previous = Object.getOwnPropertyDescriptors(globalThis)
+  // Records what the popover watches: the trigger's own chain, never a subtree.
+  const watched: Array<{ target: Node; options?: MutationObserverInit }> = []
+  class RecordingMutationObserver extends dom.window.MutationObserver {
+    override observe(target: Node, options?: MutationObserverInit): void {
+      watched.push({ target, options })
+      super.observe(target, options)
+    }
+  }
   const globals = {
     window: dom.window,
     document: dom.window.document,
     navigator: dom.window.navigator,
     HTMLElement: dom.window.HTMLElement,
     Node: dom.window.Node,
-    MutationObserver: dom.window.MutationObserver,
+    MutationObserver: RecordingMutationObserver,
     requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
     cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
     getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
@@ -51,8 +59,16 @@ test('an open popover closes when its trigger is hidden, and stays open while it
           children: createElement('p', null, 'Model list'),
         })
       }
+      watched.length = 0
       await act(async () => root.render(createElement(Host)))
       expect(dom.window.document.querySelector('[role="menu"]')).not.toBeNull()
+      const trigger = dom.window.document.querySelector('[aria-haspopup]')!
+      expect(watched.length, 'the trigger and each ancestor are watched').toBeGreaterThan(0)
+      for (const { target, options } of watched) {
+        expect(options?.subtree, 'no subtree is watched, so churn elsewhere costs nothing').toBeFalsy()
+        expect(target.contains(trigger), 'only the trigger and its ancestors are watched').toBe(true)
+      }
+      expect(watched.some(({ target }) => target === layer)).toBe(true)
 
       // An unrelated attribute change elsewhere does not close it.
       await act(async () => {
