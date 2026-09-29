@@ -125,7 +125,7 @@ export function registerCardsIpc(
     readMarketplaceRegistry: () => (registryReader ??= createDefaultMarketplaceRegistryClient()).read(),
     listMarketplaceReceipts: () =>
       readMarketplacePluginInstallReceipts(defaultMarketplacePluginInstallStorePath(app.getPath('userData'))),
-    installMarketplaceEntry: (input) => marketplacePipeline().lifecycle.installFromRegistry(input),
+    installMarketplaceEntry: (input) => marketplacePipeline().lifecycle.install(input),
     ...overrides,
   }
 

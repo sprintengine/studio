@@ -165,6 +165,28 @@ test('plugin-verify', async () => {
       assert.equal(result.classification, 'community')
       assert.deepEqual(result.permissions, ['filesystem:read-workspace'])
       assert.equal(result.sourceUrl, SOURCE_URL)
+      // M-F3: the prompt shows every MCP server as the install would write it —
+      // the whole command line — and the pin binds the install to these bytes.
+      assert.deepEqual(result.mcpServers, [
+        {
+          id: 'preview-mcp',
+          name: 'Preview MCP',
+          transport: 'stdio',
+          command: 'node',
+          args: ['-e', 'console.log("preview mcp")'],
+          envKeys: [],
+          headerKeys: [],
+        },
+      ])
+      assert.equal(result.keyFingerprint, fixture.fingerprint)
+      assert.equal(result.codeBearing, undefined)
+      assert.deepEqual(result.pin, {
+        manifestSha256: sha256Hex(`${JSON.stringify(fixture.manifest, null, 2)}\n`),
+        componentDigests: { 'mcp/server.json': sha256Hex(mcpComponentSource()) },
+      })
+      // Verify never issues the token itself; the caller does, knowing where
+      // the entry came from.
+      assert.equal(result.trustToken, undefined)
       assert.deepEqual(await listDir(stagingRoot), [])
       assertNoInstallSideEffects(temp, stagingRoot)
     })
@@ -314,12 +336,61 @@ test('plugin-verify', async () => {
       assert.deepEqual(result.files, ['skills/hf-cli'])
       // The bundled-content identity rides the result so the install re-checks
       // exactly what this listing disclosed.
-      assert.match(result.pinnedRef ?? '', /^bundled:[a-f0-9]{16}$/)
+      assert.deepEqual(Object.keys(result.pin?.componentDigests ?? {}), ['skills/hf-cli'])
+      assert.match(result.pin?.manifestSha256 ?? '', /^[a-f0-9]{64}$/)
       // The pre-trust preview leaves no staged bytes behind.
       assert.deepEqual(await readdir(stagingRoot), [])
     } finally {
       await rm(temp, { recursive: true, force: true })
     }
+  }
+
+  // An inline entry has nothing to download: its servers ARE the disclosure,
+  // with the names of what they set and never the values.
+  async function testInlineMcpPreviewDisclosesServersWithoutSecrets(): Promise<void> {
+    const verifier = createMarketplacePluginVerifier({ trustContext: () => ({ trustedModules: new Map() }) })
+    const entry: MarketplacePluginEntry = {
+      id: 'inline-mcp-plugin',
+      name: 'Inline MCP Plugin',
+      publisher: { name: 'Community Author', verified: false },
+      summary: 'Inline MCP server config.',
+      category: 'dev-tools',
+      icon: 'icons/inline.svg',
+      latest: 1,
+      provides: ['mcp'],
+      mcp: {
+        servers: [
+          {
+            id: 'inline-mcp',
+            name: 'Inline MCP',
+            transport: 'stdio',
+            command: 'npx',
+            args: ['-y', 'inline-mcp@1.2.3'],
+            env: { INLINE_TOKEN: 'secret-value' },
+            clients: ['codex'],
+            scope: 'workspace',
+            source: 'custom',
+            enabled: true,
+            riskLevel: 'local-command',
+          },
+        ],
+      },
+    }
+    const result = await verifier.verify(entry)
+    assert.equal(result.classification, 'unsigned')
+    assert.deepEqual(result.mcpServers, [
+      {
+        id: 'inline-mcp',
+        name: 'Inline MCP',
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', 'inline-mcp@1.2.3'],
+        envKeys: ['INLINE_TOKEN'],
+        headerKeys: [],
+      },
+    ])
+    assert.doesNotMatch(JSON.stringify(result), /secret-value/)
+    assert.match(result.pin?.manifestSha256 ?? '', /^[a-f0-9]{64}$/)
   }
 
   async function main(): Promise<void> {
@@ -330,6 +401,7 @@ test('plugin-verify', async () => {
     await testUnsignedMcpPreviewSurfacesPermissionsAndRemovesStage()
     await testInvalidPreviewBlocksWithoutPermissions()
     await testClaudePluginPreviewDisclosesSkillListing()
+    await testInlineMcpPreviewDisclosesServersWithoutSecrets()
     console.log('marketplace plugin verify tests passed')
   }
 

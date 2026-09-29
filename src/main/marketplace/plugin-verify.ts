@@ -1,10 +1,18 @@
+import { createHash } from 'node:crypto'
 import { rm } from 'node:fs/promises'
 
 import type { MarketplaceManifestIssue, MarketplacePluginEntry } from '../../shared/marketplace'
-import { isClaudeCodePluginEntry, validateMarketplaceIndex } from '../../shared/marketplace'
-import type { MarketplacePluginVerifyResult } from '../../shared/electron-api'
+import { hasCodeBearingComponent, isClaudeCodePluginEntry, validateMarketplaceIndex } from '../../shared/marketplace'
+import type {
+  MarketplaceMcpServerDisclosure,
+  MarketplacePluginVerifyResult,
+  MarketplaceTrustPin,
+  McpServerConfig,
+} from '../../shared/electron-api'
 import type { CapabilityPermission } from '../../shared/modules/permissions'
+import { normalizeMcpServerConfig } from '../mcp-config-service'
 import type { ModuleTrustContext } from '../modules/module-signature'
+import { readBundleMcpServers } from '../modules/plugin-bundle-installer'
 import {
   defaultMarketplacePluginStagingRoot,
   downloadClaudeCodePluginSource,
@@ -23,16 +31,33 @@ export type MarketplacePluginVerifierServices = {
   log?: MarketplaceInstallLog
 }
 
+export type MarketplacePluginVerifyOptions = {
+  // An unsigned bundle carrying module code is read and disclosed rather than
+  // refused — for a GitHub-URL install, where the person may then choose to
+  // trust the code. Never set on the registry path.
+  allowUnsignedCode?: boolean
+}
+
+/**
+ * Verify reads what an install would put on this machine — without installing
+ * it — and answers with everything a trust prompt must disclose and the pin
+ * that binds an install to exactly that. It takes an entry main resolved
+ * itself; it does not issue the trust token (the caller does, knowing where
+ * the entry came from), and the result it returns carries none.
+ */
 export function createMarketplacePluginVerifier(services: MarketplacePluginVerifierServices) {
   return {
-    verify: (entry: MarketplacePluginEntry): Promise<MarketplacePluginVerifyResult> =>
-      verifyMarketplacePlugin(entry, services),
+    verify: (
+      entry: MarketplacePluginEntry,
+      options: MarketplacePluginVerifyOptions = {},
+    ): Promise<MarketplacePluginVerifyResult> => verifyMarketplacePlugin(entry, services, options),
   }
 }
 
 async function verifyMarketplacePlugin(
   entry: MarketplacePluginEntry,
   services: MarketplacePluginVerifierServices,
+  options: MarketplacePluginVerifyOptions,
 ): Promise<MarketplacePluginVerifyResult> {
   const registryEntry = validateRegistryEntry(entry)
   if (!registryEntry.ok) {
@@ -42,6 +67,20 @@ async function verifyMarketplacePlugin(
       sourceUrl: sourceUrlFromEntry(entry),
       issues: registryEntry.issues,
       message: registryEntry.message,
+    }
+  }
+
+  // An inline-MCP entry's servers ARE its content: there is nothing to
+  // download, and the disclosure is the servers exactly as they would be
+  // written. Its pin is a digest of that list.
+  if (registryEntry.entry.mcp) {
+    const servers = inlineMcpServers(registryEntry.entry)
+    return {
+      classification: 'unsigned',
+      permissions: [],
+      sourceUrl: '',
+      mcpServers: servers.map(describeMcpServer),
+      pin: inlineMcpTrustPin(registryEntry.entry),
     }
   }
 
@@ -78,7 +117,7 @@ async function verifyMarketplacePlugin(
         // The bundled-content identity this listing came from; the install
         // re-checks exactly this pin so a catalogue/app update cannot swap
         // content between the trust grant and the install.
-        pinnedRef: claude.resolvedRef,
+        pin: claude.pin,
       }
     } finally {
       await rm(claude.stagedPath, { recursive: true, force: true })
@@ -90,6 +129,7 @@ async function verifyMarketplacePlugin(
     trustContext: services.trustContext(),
     stagingRoot: services.stagingRoot ?? defaultMarketplacePluginStagingRoot(),
     fetcher: services.fetcher,
+    ...(options.allowUnsignedCode ? { allowUnsignedCode: true } : {}),
   })
 
   if (!download.ok) {
@@ -103,10 +143,15 @@ async function verifyMarketplacePlugin(
   }
 
   try {
+    const servers = await readBundleMcpServers(download.stagedBundlePath, download.manifest)
     return {
       classification: download.classification,
       permissions: [...((download.manifest.permissions ?? []) as CapabilityPermission[])],
       sourceUrl: download.sourceUrl,
+      ...(servers.length > 0 ? { mcpServers: servers.map(describeMcpServer) } : {}),
+      ...(hasCodeBearingComponent(download.manifest.components) ? { codeBearing: true } : {}),
+      ...(download.trust.fingerprint ? { keyFingerprint: download.trust.fingerprint } : {}),
+      pin: download.pin,
     }
   } finally {
     await rm(download.stagedBundlePath, { recursive: true, force: true })
@@ -137,4 +182,34 @@ function validateRegistryEntry(
 
 function sourceUrlFromEntry(entry: MarketplacePluginEntry): string {
   return typeof entry?.source === 'string' ? entry.source.trim() : ''
+}
+
+// An inline entry's servers through the app's own MCP parser — the same one
+// the install writes through, so what is disclosed is what is written.
+function inlineMcpServers(entry: MarketplacePluginEntry): McpServerConfig[] {
+  return (entry.mcp?.servers ?? []).flatMap((raw) => {
+    const server = normalizeMcpServerConfig(raw, { enabled: true, scope: 'workspace', source: 'custom' })
+    return server ? [server] : []
+  })
+}
+
+// The pin of an inline entry: its server list as the registry states it.
+export function inlineMcpTrustPin(entry: MarketplacePluginEntry): MarketplaceTrustPin {
+  const manifestSha256 = createHash('sha256')
+    .update(JSON.stringify(entry.mcp?.servers ?? []), 'utf8')
+    .digest('hex')
+  return { manifestSha256, componentDigests: {} }
+}
+
+function describeMcpServer(server: McpServerConfig): MarketplaceMcpServerDisclosure {
+  return {
+    id: server.id,
+    name: server.name,
+    transport: server.transport,
+    ...(server.command ? { command: server.command } : {}),
+    args: [...(server.args ?? [])],
+    ...(server.url ? { url: server.url } : {}),
+    envKeys: [...new Set([...Object.keys(server.env ?? {}), ...(server.envVarNames ?? [])])].sort(),
+    headerKeys: Object.keys(server.headers ?? {}).sort(),
+  }
 }

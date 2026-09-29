@@ -30,7 +30,6 @@ test('manifest', async () => {
       mcp: { path: 'mcp/server.json', files: [{ path: 'mcp/server.json', sha256: VALID_DIGEST }] },
       skills: { path: 'skills/pack', files: [{ path: 'skills/pack/SKILL.md', sha256: VALID_DIGEST }] },
       module: { path: 'module', files: [{ path: 'module/manifest.json', sha256: VALID_DIGEST }] },
-      cli: { path: 'cli', files: [{ path: 'cli/plugin.json', sha256: VALID_DIGEST }] },
       automation: {
         path: 'automation/automation.json',
         files: [{ path: 'automation/automation.json', sha256: VALID_DIGEST }],
@@ -62,7 +61,7 @@ test('manifest', async () => {
         icon: 'icons/dev-helper.svg',
         latest: 1,
         source: 'https://github.com/sprintengine/studio-releases/plugins/dev-helper',
-        provides: ['mcp', 'skills', 'module', 'cli'],
+        provides: ['mcp', 'skills', 'module'],
         signature: VALID_SIGNATURE,
       },
     ],
@@ -139,7 +138,8 @@ test('manifest', async () => {
       assert.equal(result.manifest.components.mcp?.path, 'mcp/server.json')
       assert.equal(result.manifest.components.skills?.path, 'skills/pack')
       assert.equal(result.manifest.components.module?.path, 'module')
-      assert.equal(result.manifest.components.cli?.path, 'cli')
+      // Agent CLIs ship with the app; a bundle cannot carry one.
+      assert.equal((result.manifest.components as Record<string, unknown>).cli, undefined)
       assert.equal(result.manifest.components.automation?.path, 'automation/automation.json')
       assert.deepEqual(result.manifest.components.mcp?.files, [{ path: 'mcp/server.json', sha256: VALID_DIGEST }])
     }
@@ -218,7 +218,7 @@ test('manifest', async () => {
       const entry = result.marketplace.plugins[0]
       assert.equal(result.marketplace.schemaVersion, 1)
       assert.equal(entry.publisher.verified, true)
-      assert.deepEqual(entry.provides, ['mcp', 'skills', 'module', 'cli'])
+      assert.deepEqual(entry.provides, ['mcp', 'skills', 'module'])
       // Legacy singular category parses and no widened fields are invented.
       assert.equal(entry.category, 'dev-tools')
       assert.equal(entry.categories, undefined)
@@ -453,6 +453,13 @@ test('manifest', async () => {
       'plugins[0].cli.pluginId',
       validateMarketplaceIndex,
     )
+    // `cli` is the inline lane only: a bundle entry that says it provides an
+    // agent CLI is refused, because no bundle can install one.
+    assertRejectsAt(
+      { ...VALID_MARKETPLACE, plugins: [{ ...VALID_MARKETPLACE.plugins[0], provides: ['mcp', 'cli'] }] },
+      'plugins[0].provides',
+      validateMarketplaceIndex,
+    )
     assertRejectsAt(
       { ...VALID_MARKETPLACE, plugins: [{ ...VALID_INLINE_CLI_ENTRY, cli: { pluginId: 'Not A Plugin Id' } }] },
       'plugins[0].cli.pluginId',
@@ -542,7 +549,7 @@ test('manifest', async () => {
   }
 
   function testAutomationIsAComponentKind(): void {
-    assert.deepEqual([...MARKETPLACE_COMPONENT_KINDS], ['mcp', 'skills', 'module', 'cli', 'automation'])
+    assert.deepEqual([...MARKETPLACE_COMPONENT_KINDS], ['mcp', 'skills', 'module', 'automation'])
     const result = validateMarketplaceIndex({
       ...VALID_MARKETPLACE,
       plugins: [{ ...VALID_MARKETPLACE.plugins[0], provides: ['automation'] }],

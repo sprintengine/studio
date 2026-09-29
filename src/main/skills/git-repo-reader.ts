@@ -505,7 +505,8 @@ async function directoryBytes(dir: string): Promise<number> {
 // ── The reader ───────────────────────────────────────────────────────────────
 
 const SHA_PATTERN = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/
-const REF_PATTERN = /^[A-Za-z0-9._/-]+$/
+// Never a leading `-`: a ref is an argument to git, and must not read as an option.
+const REF_PATTERN = /^(?!-)[A-Za-z0-9._/-]+$/
 // A ref that is already a commit SHA — SHA-1 or SHA-256. The API's
 // `commits/{ref}` endpoint accepts one, so a source may well be pinned by one,
 // and asking `ls-remote` about it is a round trip that can only answer nothing.

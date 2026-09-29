@@ -101,7 +101,6 @@ import type {
   CardRunResult,
   CardSurfaceHandoff,
   GitHubCloneResult,
-  MarketplacePluginRegistryInstallInput,
   MarketplacePluginRegistryInstallResult,
   MarketplaceRegistryReadResult,
   McpServerConfig,
@@ -113,6 +112,7 @@ import type {
   SkillScanOutcome,
 } from '../../shared/electron-api'
 import type { MarketplacePluginEntry } from '../../shared/marketplace'
+import type { MarketplacePluginLifecycleInstallInput } from '../marketplace/plugin-lifecycle'
 import type { CardAction, CardSurfaceView } from '../../shared/hosted-card-feed'
 import { refuseCardActions } from '../../shared/hosted-card-feed'
 import { scanPlugins, skillDirName } from '../../shared/skills'
@@ -186,9 +186,13 @@ export type CardRunDeps = {
   listMarketplaceReceipts: () => Promise<
     { ok: true; receipts: ReadonlyArray<{ id: string }> } | { ok: false; message: string }
   >
-  /** `marketplacePluginLifecycle.installFromRegistry()` — the one install path. */
+  /**
+   * `marketplacePluginLifecycle.install()` — the one install path. Called with
+   * the registry's own entry and no trust grant, so only an entry that needs no
+   * approval installs.
+   */
   installMarketplaceEntry: (
-    input: MarketplacePluginRegistryInstallInput,
+    input: MarketplacePluginLifecycleInstallInput,
   ) => Promise<MarketplacePluginRegistryInstallResult>
 }
 
@@ -502,8 +506,9 @@ export async function runCard(input: CardRunInput, deps: CardRunDeps): Promise<C
       }
     }
 
-    // No `trustGranted`: a verified entry never asks for one, and passing it
-    // would be this file answering a prompt on somebody's behalf. The workspace
+    // No trust grant: a verified entry never asks for one, and only a prompt
+    // the person answered can issue one — this file cannot answer on their
+    // behalf. The workspace
     // is the app's, as everywhere else here — a module bundle does not need
     // one, and a bundle that also carries an mcp/skills component says so
     // itself if there is none.

@@ -5,6 +5,7 @@ import type {
   MarketplacePluginRegistryInstallResult,
   MarketplacePluginUninstallInput,
   MarketplacePluginUninstallResult,
+  MarketplacePluginVerifyInput,
   MarketplacePluginVerifyResult,
   MarketplaceRegistryReadInput,
   MarketplaceRegistryReadResult,
@@ -18,7 +19,7 @@ type MarketplaceIpcRenderer = {
   ): Promise<MarketplaceRegistryReadResult>
   invoke(
     channel: 'marketplace:plugins:verify',
-    entry: Parameters<ElectronApi['verifyMarketplacePlugin']>[0],
+    input: MarketplacePluginVerifyInput,
   ): Promise<MarketplacePluginVerifyResult>
   invoke(
     channel: 'marketplace:plugins:install-entry',
@@ -42,9 +43,10 @@ export function createMarketplaceApi(renderer: MarketplaceIpcRenderer) {
   return {
     readMarketplaceRegistry: (input?: MarketplaceRegistryReadInput): Promise<MarketplaceRegistryReadResult> =>
       renderer.invoke('marketplace:registry:read', input),
-    verifyMarketplacePlugin: (
-      entry: Parameters<ElectronApi['verifyMarketplacePlugin']>[0],
-    ): Promise<MarketplacePluginVerifyResult> => renderer.invoke('marketplace:plugins:verify', entry),
+    // By id: main resolves the entry itself and answers with a trust token
+    // for exactly what it disclosed; install and update pass that token back.
+    verifyMarketplacePlugin: (input: MarketplacePluginVerifyInput): Promise<MarketplacePluginVerifyResult> =>
+      renderer.invoke('marketplace:plugins:verify', input),
     installMarketplacePluginFromRegistry: (
       input: MarketplacePluginRegistryInstallInput,
     ): Promise<MarketplacePluginRegistryInstallResult> => renderer.invoke('marketplace:plugins:install-entry', input),

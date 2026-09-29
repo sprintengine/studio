@@ -1,15 +1,11 @@
 // Part of the IPC contract: marketplace plugin install, verify and uninstall.
 // ../electron-api.ts re-exports everything here.
 
-import type {
-  MarketplaceComponentKind,
-  MarketplaceManifestIssue,
-  MarketplacePluginEntry,
-} from '../marketplace/manifest'
+import type { MarketplaceComponentKind, MarketplaceManifestIssue } from '../marketplace/manifest'
 import type { ModuleTrustStatus } from '../modules/manifest'
 import type { CapabilityPermission } from '../modules/permissions'
 import type { SkillHarness } from '../skills'
-import type { McpClientTarget } from './agent-runtime'
+import type { McpClientTarget, McpTransport } from './agent-runtime'
 import type { McpServerConfig, McpSettings } from './mcp'
 
 export type MarketplacePluginInstallInput = {
@@ -25,16 +21,44 @@ export type MarketplacePluginInstallInput = {
   automationDefaultCli?: string
 }
 
-// Both bundle and inline-MCP registry installs use this shape: a bundle entry
-// carries `source`, an inline-MCP entry carries `mcp.servers` (no bundle to
-// download). `trustGranted` is the server-side community/unsigned trust gate;
-// inline-MCP is code-execution config and never installs without it.
+// What the renderer may say about a registry install: WHICH entry, and the
+// trust token `verify` issued for it. The entry itself is resolved in main
+// (from the token, or from the app's own registry), never taken from the
+// renderer, and there is no yes/no to send back — the only way to say yes is
+// a token main issued after disclosing the content it pins. An entry that
+// needs no prompt (a verified publisher) may install without a token; when one
+// is passed anyway, its pin still has to match what gets installed.
 export type MarketplacePluginRegistryInstallInput = Omit<MarketplacePluginInstallInput, 'localFolder'> & {
-  entry: MarketplacePluginEntry
-  trustGranted?: boolean
-  // Claude Code plugins: the commit the pre-trust verify disclosed; the
-  // install downloads this exact ref (TOCTOU guard for unpinned sources).
-  claudePluginRef?: string
+  id: string
+  trustToken?: string
+}
+
+export type MarketplacePluginVerifyInput = {
+  id: string
+}
+
+// The content a trust prompt disclosed, pinned so the install can refuse
+// anything else: the commit it was read at (GitHub sources), the sha256 of
+// the manifest (plugin.json, an inline entry's server list, a skill plugin's
+// listing) and a sha256 per installed file.
+export type MarketplaceTrustPin = {
+  commitSha?: string
+  manifestSha256: string
+  componentDigests: Record<string, string>
+}
+
+// An MCP server exactly as the install would write it, for the prompt: the
+// command and every argument, the URL, and the NAMES of the environment
+// variables and headers it sets — never their values.
+export type MarketplaceMcpServerDisclosure = {
+  id: string
+  name: string
+  transport: McpTransport
+  command?: string
+  args: string[]
+  url?: string
+  envKeys: string[]
+  headerKeys: string[]
 }
 
 export type MarketplacePluginUninstallInput = {
@@ -57,11 +81,17 @@ export type MarketplacePluginVerifyResult = {
   // payload is files rather than capability permissions (Claude Code plugins:
   // the skill folders the trust grant installs). Never fabricated.
   files?: string[]
-  // The commit the listing was read from (Claude Code plugins). Passing it
-  // back as MarketplacePluginRegistryInstallInput.claudePluginRef makes the
-  // install fetch exactly the disclosed content — a mutable default-branch
-  // source cannot swap bytes between the trust prompt and the install.
-  pinnedRef?: string
+  // Every MCP server the install would add, as it would be written.
+  mcpServers?: MarketplaceMcpServerDisclosure[]
+  // The bundle carries a module — code that runs in the app.
+  codeBearing?: boolean
+  // The signer's key fingerprint (sha256 of the public key), when signed.
+  keyFingerprint?: string
+  // What was disclosed, and the one-time token that installs exactly that.
+  // Absent when there is nothing installable to approve (invalid, or an
+  // unsigned bundle carrying code from the registry).
+  pin?: MarketplaceTrustPin
+  trustToken?: string
 }
 
 export type MarketplacePluginInstalledComponent = {

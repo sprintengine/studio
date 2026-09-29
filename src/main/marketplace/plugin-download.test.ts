@@ -18,8 +18,9 @@ import {
 } from '../../../packages/module-sdk/src/signing'
 import {
   downloadClaudeCodePluginSource,
-  downloadMarketplacePluginBundle,
+  downloadMarketplacePluginBundle as downloadAtResolvedCommit,
   type MarketplacePluginDownloadFetch,
+  type MarketplacePluginDownloadOptions,
 } from './plugin-download'
 import { skillContentDigest } from './skill-content'
 import { test } from 'vitest'
@@ -39,6 +40,30 @@ test('plugin-download', async () => {
   const RAW_AUTOMATION =
     'https://raw.githubusercontent.com/sprintengine/studio-releases/main/plugins/downloaded-plugin/automation/automation.json'
   const AUTOMATION_COMPONENT_PATH = 'automation/automation.json'
+
+  // Every `tree/main` source resolves its branch to a commit before the walk,
+  // and the walk then reads at that commit. The fixtures below were written
+  // against `?ref=main`; this answers the commits call and hands each fixture
+  // the URL it knows, so a fixture only has to describe the tree. The tests of
+  // the resolution itself call `downloadAtResolvedCommit` directly.
+  const TEST_COMMIT = 'c0ffee'.padEnd(40, '0')
+  const COMMITS_URL = 'https://api.github.com/repos/sprintengine/studio-releases/commits/main'
+
+  function atTestCommit(fetcher: MarketplacePluginDownloadFetch): MarketplacePluginDownloadFetch {
+    return async (url, init) => {
+      if (/^https:\/\/api\.github\.com\/repos\/[^/]+\/[^/]+\/commits\/main$/.test(url)) {
+        return new Response(TEST_COMMIT)
+      }
+      return fetcher(url.replace(`?ref=${TEST_COMMIT}`, '?ref=main'), init)
+    }
+  }
+
+  function downloadMarketplacePluginBundle(options: MarketplacePluginDownloadOptions) {
+    return downloadAtResolvedCommit({
+      ...options,
+      ...(options.fetcher ? { fetcher: atTestCommit(options.fetcher) } : {}),
+    })
+  }
 
   type BundleFixture = {
     entry: MarketplacePluginEntry
@@ -774,6 +799,7 @@ test('plugin-download', async () => {
             displayName: 'Marketplace Download Fixture',
             version: 1,
             permissions: ['network'],
+            engines: { hostApi: 1 },
           },
           null,
           2,
@@ -1039,6 +1065,159 @@ test('plugin-download', async () => {
     })
   }
 
+  // M-F3: a branch resolves to a commit before anything is read, every read is
+  // at that commit, no request follows a redirect, and the result pins what
+  // was staged — the commit, the manifest bytes and every file.
+  async function testBranchSourceResolvesToACommitAndPinsTheStage(): Promise<void> {
+    await withTempDir(async (dir) => {
+      const fixture = createFixture()
+      const pluginJson = `${JSON.stringify(fixture.manifest, null, 2)}\n`
+      const { fetcher: tree } = createGithubFetcher(pluginJson)
+      const requests: Array<{ url: string; accept?: string; redirect?: RequestRedirect }> = []
+      const sha = 'ab12'.padEnd(40, 'f')
+      const result = await downloadAtResolvedCommit({
+        entry: fixture.entry,
+        trustContext: { trustedModules: new Map(), trustedKeyFingerprints: new Set([fixture.fingerprint]) },
+        stagingRoot: join(dir, 'staging'),
+        fetcher: async (url, init) => {
+          const headers = (init.headers ?? {}) as Record<string, string>
+          requests.push({ url, accept: headers.accept, redirect: init.redirect })
+          if (url === COMMITS_URL) return new Response(`${sha}\n`)
+          return tree(url.replace(`?ref=${sha}`, '?ref=main'), init)
+        },
+      })
+      assert.equal(result.ok, true, result.ok ? '' : result.message)
+      if (!result.ok) return
+      assert.deepEqual(requests[0], { url: COMMITS_URL, accept: 'application/vnd.github.sha', redirect: 'error' })
+      assert.equal(requests[1]?.url, API_ROOT.replace('?ref=main', `?ref=${sha}`))
+      assert.ok(
+        requests.every((request) => request.redirect === 'error'),
+        'no request follows a redirect',
+      )
+      assert.deepEqual(result.pin, {
+        commitSha: sha,
+        manifestSha256: sha256Hex(pluginJson),
+        componentDigests: { 'mcp/server.json': sha256Hex(mcpComponentSource()) },
+      })
+
+      // Pinned: the install reads the commit verify read, and does not ask
+      // where the branch is now.
+      const pinnedRequests: string[] = []
+      const pinned = await downloadAtResolvedCommit({
+        entry: fixture.entry,
+        trustContext: { trustedModules: new Map(), trustedKeyFingerprints: new Set([fixture.fingerprint]) },
+        stagingRoot: join(dir, 'staging'),
+        commitSha: sha,
+        fetcher: async (url, init) => {
+          pinnedRequests.push(url)
+          return tree(url.replace(`?ref=${sha}`, '?ref=main'), init)
+        },
+      })
+      assert.equal(pinned.ok, true)
+      assert.equal(pinnedRequests.includes(COMMITS_URL), false)
+      assert.equal(pinnedRequests[0], API_ROOT.replace('?ref=main', `?ref=${sha}`))
+      if (pinned.ok) assert.deepEqual(pinned.pin, result.pin)
+    })
+  }
+
+  // A ref is never something a command line could read as an option, and an
+  // unreachable commit lookup on the canonical source still falls back to the
+  // bundled seed the way an unreachable listing does.
+  async function testRefsAreCheckedAndCommitLookupFallsBackToSeed(): Promise<void> {
+    await withTempDir(async (dir) => {
+      const fixture = createFixture()
+      const requests: string[] = []
+      const dashed = await downloadAtResolvedCommit({
+        entry: { ...fixture.entry, source: 'https://github.com/sprintengine/studio-releases/tree/-evil/plugins/x' },
+        trustContext: { trustedModules: new Map() },
+        stagingRoot: join(dir, 'staging'),
+        fetcher: async (url) => {
+          requests.push(url)
+          return new Response('unexpected')
+        },
+      })
+      assert.equal(dashed.ok, false)
+      assert.equal(requests.length, 0, 'refused before any request')
+
+      const packagedBundle = join(dir, 'seed', 'plugins', 'downloaded-plugin')
+      mkdirSync(join(packagedBundle, 'mcp'), { recursive: true })
+      writeFileSync(join(packagedBundle, 'plugin.json'), `${JSON.stringify(fixture.manifest, null, 2)}\n`, 'utf8')
+      writeFileSync(join(packagedBundle, 'mcp', 'server.json'), mcpComponentSource(), 'utf8')
+      const offline = await downloadAtResolvedCommit({
+        entry: fixture.entry,
+        trustContext: { trustedModules: new Map(), trustedKeyFingerprints: new Set([fixture.fingerprint]) },
+        stagingRoot: join(dir, 'staging'),
+        fetcher: async (url) => {
+          requests.push(url)
+          return new Response('unavailable', { status: 503 })
+        },
+        packagedResourceResolver: (relativePath) =>
+          relativePath === 'plugins/downloaded-plugin' ? packagedBundle : null,
+      })
+      assert.equal(offline.ok, true, offline.ok ? '' : offline.message)
+      assert.deepEqual(requests, [COMMITS_URL])
+      // The seed is the app's own copy, read at no commit.
+      if (offline.ok) assert.equal(offline.pin.commitSha, undefined)
+    })
+  }
+
+  // Unsigned module code stages only when main asks for it (a GitHub-URL
+  // install the person trusted as code), and is still refused otherwise.
+  async function testUnsignedCodeStagesOnlyWhenAllowed(): Promise<void> {
+    await withTempDir(async (dir) => {
+      const moduleManifest = `${JSON.stringify({ id: 'unsigned-module', displayName: 'Unsigned', version: 1 }, null, 2)}\n`
+      const fixture = createUnsignedFixture({
+        provides: ['module'],
+        components: {
+          module: {
+            path: 'module',
+            files: [{ path: 'module/manifest.json', sha256: sha256Hex(moduleManifest) }],
+          },
+        },
+      })
+      const pluginJson = `${JSON.stringify(fixture.manifest, null, 2)}\n`
+      const apiModule =
+        'https://api.github.com/repos/sprintengine/studio-releases/contents/plugins/downloaded-plugin/module?ref=main'
+      const rawModule =
+        'https://raw.githubusercontent.com/sprintengine/studio-releases/main/plugins/downloaded-plugin/module/manifest.json'
+      const fetcher: MarketplacePluginDownloadFetch = async (url) => {
+        if (url === API_ROOT) {
+          return jsonResponse([
+            { type: 'file', path: 'plugins/downloaded-plugin/plugin.json', download_url: RAW_PLUGIN },
+            { type: 'dir', path: 'plugins/downloaded-plugin/module', url: apiModule },
+          ])
+        }
+        if (url === apiModule) {
+          return jsonResponse([
+            { type: 'file', path: 'plugins/downloaded-plugin/module/manifest.json', download_url: rawModule },
+          ])
+        }
+        if (url === RAW_PLUGIN) return textResponse(pluginJson)
+        if (url === rawModule) return textResponse(moduleManifest)
+        return new Response('not found', { status: 404 })
+      }
+      const refused = await downloadMarketplacePluginBundle({
+        entry: fixture.entry,
+        trustContext: { trustedModules: new Map() },
+        stagingRoot: join(dir, 'staging'),
+        fetcher,
+      })
+      assert.equal(refused.ok, false)
+
+      const allowed = await downloadMarketplacePluginBundle({
+        entry: fixture.entry,
+        trustContext: { trustedModules: new Map() },
+        stagingRoot: join(dir, 'staging'),
+        fetcher,
+        allowUnsignedCode: true,
+      })
+      assert.equal(allowed.ok, true, allowed.ok ? '' : allowed.message)
+      if (!allowed.ok) return
+      assert.equal(allowed.classification, 'unsigned')
+      assert.deepEqual(Object.keys(allowed.pin.componentDigests), ['module/manifest.json'])
+    })
+  }
+
   async function main(): Promise<void> {
     await testVerifiedFirstPartyDownloadStagesBundle()
     await testUnavailableGithubSourceFallsBackToPackagedSeedBundle()
@@ -1066,6 +1245,9 @@ test('plugin-download', async () => {
     await testClaudePluginTamperedPayloadRefused()
     await testClaudePluginExtraPayloadFileRefused()
     await testClaudePluginRefOverridePinsBundledContent()
+    await testBranchSourceResolvesToACommitAndPinsTheStage()
+    await testRefsAreCheckedAndCommitLookupFallsBackToSeed()
+    await testUnsignedCodeStagesOnlyWhenAllowed()
     console.log('marketplace plugin download tests passed')
   }
 

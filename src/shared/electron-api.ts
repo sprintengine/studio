@@ -160,7 +160,6 @@ import type {
   DesignSystemAttachSource,
   DesignSystemDetachResult,
 } from './design-system/attach'
-import type { MarketplacePluginEntry } from './marketplace/manifest'
 import type {
   ConversationEvent,
   ConversationInterruptInput,
@@ -240,7 +239,6 @@ import type {
   AgentLaunchPreviewResult,
   PluginAvailabilityResult,
   PluginDetectAvailabilityInput,
-  PluginInstallResult,
 } from './ipc/agent-cli'
 import type {
   AgentConfigAdoptInput,
@@ -352,6 +350,7 @@ import type {
   MarketplacePluginRegistryInstallResult,
   MarketplacePluginUninstallInput,
   MarketplacePluginUninstallResult,
+  MarketplacePluginVerifyInput,
   MarketplacePluginVerifyResult,
 } from './ipc/marketplace'
 import type {
@@ -967,8 +966,10 @@ export type ElectronApi = {
   cliVersionAdvisories: (input?: CliVersionAdvisoriesInput) => Promise<CliVersionAdvisoriesResult>
   cliVersionChecksSetEnabled: (enabled: boolean) => Promise<{ enabled: boolean }>
   onCliVersionAdvisoriesChanged: (cb: (result: CliVersionAdvisoriesResult) => void) => () => void
-  installPluginFolder: (srcDir: string) => Promise<PluginInstallResult>
-  verifyMarketplacePlugin: (entry: MarketplacePluginEntry) => Promise<MarketplacePluginVerifyResult>
+  // Verify resolves the entry by id in main and answers with what an install
+  // would put on the machine, plus the one-time trust token that installs
+  // exactly that (see src/main/marketplace/trust-tokens.ts).
+  verifyMarketplacePlugin: (input: MarketplacePluginVerifyInput) => Promise<MarketplacePluginVerifyResult>
   installMarketplacePluginFromRegistry: (
     input: MarketplacePluginRegistryInstallInput,
   ) => Promise<MarketplacePluginRegistryInstallResult>
