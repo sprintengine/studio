@@ -32,6 +32,7 @@ import {
   Tooltip,
 } from '../ui'
 import { ContextMenu, MenuItem } from '../ui/ContextMenu'
+import { revealLabel } from '../../utils/revealLabel'
 
 // The editor window's file tree: where the open file lives, shown beside it.
 //
@@ -68,12 +69,6 @@ const FILTER_ITEMS = [
   { value: 'all', label: 'All files' },
   { value: 'changed', label: 'Changed files' },
 ] as const
-
-function revealLabel(platform: string): string {
-  if (platform === 'darwin') return 'Reveal in Finder'
-  if (platform === 'win32') return 'Show in Explorer'
-  return 'Show in file manager'
-}
 
 /** Rows below a collapsed folder are hidden; a flat list in tree order makes that one pass. */
 function withoutCollapsed(rows: FileTreeRowModel[], collapsed: ReadonlySet<string>): FileTreeRowModel[] {

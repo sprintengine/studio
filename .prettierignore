@@ -13,3 +13,5 @@ design-system/foundations/tokens.css
 resources/marketplace/
 # Committed build output of the two published packages.
 packages/*/dist/
+# Generated from the Codex CLI by scripts/generate-codex-protocol.mjs.
+src/main/providers/codex-protocol/

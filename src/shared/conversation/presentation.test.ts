@@ -84,3 +84,18 @@ test('portable presentation uses the same command labels without a renderer call
     'Custom command',
   )
 })
+
+test('a wait and a generated picture say what they did rather than their tool name', () => {
+  expect(presentToolItem({ name: 'Sleep', kind: 'other', input: { durationMs: 10_000 }, status: 'ok' }).title).toBe(
+    'Waited 10s',
+  )
+  expect(
+    presentToolItem({ name: 'Sleep', kind: 'other', input: { durationMs: 120_000 }, status: 'running' }).title,
+  ).toBe('Waiting 2m')
+  expect(presentToolItem({ name: 'GenerateImage', kind: 'other', input: {}, status: 'running' }).title).toBe(
+    'Generating image',
+  )
+  expect(presentToolItem({ name: 'GenerateImage', kind: 'other', input: {}, status: 'ok' }).title).toBe(
+    'Generated image',
+  )
+})
