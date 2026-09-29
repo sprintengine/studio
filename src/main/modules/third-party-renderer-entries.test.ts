@@ -46,7 +46,14 @@ test('third-party-renderer-entries', async () => {
     )
     await writeFile(
       join(dir, 'manifest.json'),
-      JSON.stringify({ id, displayName: `Module ${id}`, version: 1, files: digests, ...manifest }),
+      JSON.stringify({
+        id,
+        displayName: `Module ${id}`,
+        version: 1,
+        engines: { hostApi: 1 },
+        files: digests,
+        ...manifest,
+      }),
     )
     for (const [name, content] of Object.entries(files)) {
       await writeFile(join(dir, name), content)
@@ -152,6 +159,7 @@ test('third-party-renderer-entries', async () => {
             version: 1,
             defaultEnabled: true,
             source: 'third-party',
+            engines: { hostApi: 1 },
             entry: { renderer },
           },
           moduleRoot,
@@ -266,6 +274,35 @@ test('third-party-renderer-entries', async () => {
     })
   }
 
+  // A trusted module built for a host API this app does not provide is not
+  // sent, and says so; trusting it would not help.
+  async function testHostApiGate(): Promise<void> {
+    await withTempDir(async (root) => {
+      const bundle = { 'renderer.js': 'export function registerRenderer() {}' }
+      await writeModule(root, 'future', { entry: { renderer: 'renderer.js' }, engines: { hostApi: 99 } }, bundle)
+      await writeModule(root, 'current', { entry: { renderer: 'renderer.js' } }, bundle)
+      const trust: ModuleTrustContext = {
+        trustedModules: new Map([
+          ...(await trustOf(root, 'future')).trustedModules,
+          ...(await trustOf(root, 'current')).trustedModules,
+        ]),
+      }
+      const { modules } = await discoverUserModules(root, trust)
+      const served = await collectThirdPartyRendererEntries(modules)
+      assert.deepEqual(
+        served.entries.map((entry) => entry.id),
+        ['current'],
+      )
+      assert.deepEqual(served.failures, {}, 'an incompatible module is blocked, not a serving failure')
+      const future = modules.find((module) => module.manifest.id === 'future')
+      assert.ok(future)
+      assert.equal(future.trust.status, 'trusted')
+      const view = rendererEntryView(future)
+      assert.equal(view.availability, 'blocked')
+      assert.match(view.message ?? '', /host API 99/)
+    })
+  }
+
   async function main(): Promise<void> {
     await testTrustGateMatrix()
     await testContainment()
@@ -273,6 +310,7 @@ test('third-party-renderer-entries', async () => {
     await testTamperRemovesFromServableSet()
     await testMissingBundleAndNoEntry()
     await testKernelIpcSurface()
+    await testHostApiGate()
     console.log('third-party-renderer-entries tests passed')
   }
 
