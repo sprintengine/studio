@@ -1374,6 +1374,14 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     getLaunchSettings: () => agentLaunchSettings.get(),
     writeAgent: (workspaceId, agentId, agent) =>
       workspaceSyncService.updateWorkspaceAgent(workspaceId, agentId, agent, 'system'),
+    listWorkspaces: () => workspaceRegistry.getRecords(),
+    createWorkspace: (request) => {
+      const created = workspaceSyncService.createWorkspace(request, 'system')
+      return created.ok ? { ok: true, workspaceId: created.result.workspace.id } : created
+    },
+    removeWorkspace: (workspaceId) => {
+      workspaceSyncService.removeWorkspace(workspaceId, 'system')
+    },
     startSession: (input) => conversationRuntime.startSession(input),
     send: (input) => conversationRuntime.sendTurn(input),
     warn: (message) => {

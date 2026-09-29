@@ -57,7 +57,6 @@ test('claude-agent-provider', async () => {
     await testSubagentEventsAfterResultRideTheContinuationChannel()
     await testAskUserQuestionAfterResultReachesTheUserAndAnswersFlowBack()
     await testTurnTakeoverEndsTheReplacedContinuationQueue()
-    await testSwitchingToBypassMidSessionRespawnsInsteadOfBeingRefused()
 
     console.log('claude-agent-provider tests passed')
   }
@@ -775,9 +774,10 @@ test('claude-agent-provider', async () => {
     assert.equal(options?.pathToClaudeCodeExecutable, '/fake/bin/claude')
     assert.equal(options?.model, 'sonnet')
     assert.equal(options?.includePartialMessages, true)
-    // No preset named: no permission mode is pinned, so the CLI's own default applies.
+    // No preset named: no permission mode is pinned, so the CLI's own default
+    // applies. The bypass opt-in only lets a live switch reach bypass later.
     assert.equal(options?.permissionMode, undefined)
-    assert.equal(options?.allowDangerouslySkipPermissions, undefined)
+    assert.equal(options?.allowDangerouslySkipPermissions, true)
     assert.equal(options?.resume, undefined)
     assert.equal((options?.env as Record<string, string>)[CLAUDE_AGENT_SESSION_ENV_KEY], 'conv_1')
 
@@ -1198,7 +1198,7 @@ test('claude-agent-provider', async () => {
     await collect(none.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'none' }) as ConversationEvent[])
     await collect(none.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
     assert.equal(none.capturedOptions[0]?.permissionMode, undefined)
-    assert.equal(none.capturedOptions[0]?.allowDangerouslySkipPermissions, undefined)
+    assert.equal(none.capturedOptions[0]?.allowDangerouslySkipPermissions, true)
 
     // Plan mode is a separate toggle, not a preset: it spawns 'plan' under either.
     for (const permissionPreset of ['none', 'bypass'] as const) {
@@ -1210,10 +1210,10 @@ test('claude-agent-provider', async () => {
     }
   }
 
-  // The preset is switchable while the session runs. Neither preset is a mode
-  // the control channel can deliver — bypass comes only from the spawn flag, and
-  // `none` is the absence of one — so a change is recorded and the child
-  // replaced: the next turn respawns into the same provider session.
+  // The preset is switchable while the session runs. Before a child exists it
+  // is only recorded; leaving bypass on an idle child replaces the child, since
+  // `none` is the absence of a mode rather than one the control channel names,
+  // and the next turn respawns into the same provider session.
   async function testLivePermissionPresetReachesTheChildAndSurvivesRespawn(): Promise<void> {
     const emitResult = (context: FakeQueryContext): void => {
       context.emit({ type: 'system', subtype: 'init', session_id: 'cursor-1', model: 'sonnet' })
@@ -1228,7 +1228,7 @@ test('claude-agent-provider', async () => {
 
     const live = createAdapter((_userMessage, context) => emitResult(context), {
       onSetPermissionMode: () => {
-        throw new Error('a preset change must not ride the control channel')
+        throw new Error('an idle child leaving bypass is replaced, not asked')
       },
     })
     await collect(live.adapter.startSession(SESSION_INPUT) as ConversationEvent[])
@@ -1260,7 +1260,6 @@ test('claude-agent-provider', async () => {
       ) as AsyncIterable<ConversationEvent>,
     )
     assert.equal(live.capturedOptions[1]?.permissionMode, undefined)
-    assert.equal(live.capturedOptions[1]?.allowDangerouslySkipPermissions, undefined)
     assert.equal(live.capturedOptions[1]?.resume, 'cursor-1')
 
     // The recorded preset carries into the respawn after idle disposal.
@@ -1271,7 +1270,6 @@ test('claude-agent-provider', async () => {
       ) as AsyncIterable<ConversationEvent>,
     )
     assert.equal(live.capturedOptions[2]?.permissionMode, undefined)
-    assert.equal(live.capturedOptions[2]?.allowDangerouslySkipPermissions, undefined)
 
     assert.deepEqual(
       await live.adapter.setPermissionPreset({
@@ -1773,107 +1771,6 @@ test('claude-agent-provider', async () => {
     await collect(adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
   }
 
-  // Bypass is a preset the SDK control channel cannot deliver — Claude Code reads
-  // it from the flag its child was spawned with. Switching to it on a session
-  // spawned without it respawns the child with `resume` instead of surfacing a
-  // refusal the user cannot act on.
-  async function testSwitchingToBypassMidSessionRespawnsInsteadOfBeingRefused(): Promise<void> {
-    const emitResult = (context: FakeQueryContext): void => {
-      context.emit({ type: 'system', subtype: 'init', session_id: 'cursor-1', model: 'sonnet' })
-      context.emit({
-        type: 'result',
-        subtype: 'success',
-        is_error: false,
-        session_id: 'cursor-1',
-        usage: { input_tokens: 1, output_tokens: 1 },
-      })
-    }
-
-    // Idle session: the preset is recorded, the child disposed, and the next turn
-    // respawns into the same provider session with the bypass opt-in.
-    const idle = createAdapter((_userMessage, context) => emitResult(context), {
-      onSetPermissionMode: () => {
-        throw new Error('setPermissionMode must not be attempted for bypass')
-      },
-    })
-    await collect(idle.adapter.startSession(SESSION_INPUT) as ConversationEvent[])
-    await collect(idle.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
-    assert.equal(idle.capturedOptions[0]?.permissionMode, undefined)
-    assert.equal(idle.adapter.listLiveSessions()[0]?.hasChildProcess, true)
-
-    assert.deepEqual(await idle.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'bypass' }), {
-      ok: true,
-    })
-    assert.deepEqual(idle.permissionModes, [], 'the child is replaced, not asked')
-    const disposed = idle.adapter.listLiveSessions()[0]
-    assert.equal(disposed?.hasChildProcess, false, 'the query is disposed so the next turn respawns')
-    assert.equal(disposed?.providerSessionId, 'cursor-1', 'the resume cursor is kept')
-
-    await collect(
-      idle.adapter.sendTurn(
-        turnInput({ turnId: 'turn_2', requestId: 'approval_2' }),
-      ) as AsyncIterable<ConversationEvent>,
-    )
-    assert.equal(idle.capturedOptions[1]?.permissionMode, 'bypassPermissions')
-    assert.equal(idle.capturedOptions[1]?.allowDangerouslySkipPermissions, true)
-    assert.equal(idle.capturedOptions[1]?.resume, 'cursor-1', 'the conversation continues in the same provider session')
-    await collect(idle.adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
-
-    // Mid-turn: disposing would drop the reply being streamed, so the preset is
-    // recorded with a plain sentence about when it starts, and the swap happens at
-    // the next turn.
-    const gate = createDeferred<void>()
-    const inFlight = createAdapter(async (_userMessage, context) => {
-      context.emit({ type: 'system', subtype: 'init', session_id: 'cursor-1', model: 'sonnet' })
-      context.emit({
-        type: 'stream_event',
-        session_id: 'cursor-1',
-        parent_tool_use_id: null,
-        event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'thinking' } },
-      })
-      await gate.promise
-      context.emit({
-        type: 'result',
-        subtype: 'success',
-        is_error: false,
-        session_id: 'cursor-1',
-        usage: { input_tokens: 1, output_tokens: 1 },
-      })
-    })
-    await collect(inFlight.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'none' }) as ConversationEvent[])
-    const streamed: ConversationEvent[] = []
-    const streaming = (async () => {
-      for await (const event of inFlight.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
-        streamed.push(event)
-    })()
-    await waitForContinuationEvent(streamed, 'content_delta')
-
-    assert.deepEqual(await inFlight.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'bypass' }), {
-      ok: true,
-      notice:
-        'The new permissions start with your next message — this reply finishes under the permissions it started with.',
-    })
-    assert.equal(inFlight.adapter.listLiveSessions()[0]?.hasChildProcess, true, 'the streaming reply is not torn down')
-
-    gate.resolve()
-    await withTimeout(streaming, 'the in-flight turn never completed')
-    assert.equal(streamed.at(-1)?.type, 'turn_completed')
-
-    await collect(
-      inFlight.adapter.sendTurn(
-        turnInput({ turnId: 'turn_2', requestId: 'approval_2' }),
-      ) as AsyncIterable<ConversationEvent>,
-    )
-    assert.equal(
-      inFlight.capturedOptions[1]?.permissionMode,
-      'bypassPermissions',
-      'the next turn runs under the recorded preset',
-    )
-    assert.equal(inFlight.capturedOptions[1]?.allowDangerouslySkipPermissions, true)
-    assert.equal(inFlight.capturedOptions[1]?.resume, 'cursor-1')
-    await collect(inFlight.adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
-  }
-
   async function withTimeout<T>(promise: Promise<T>, message: string, ms = 2000): Promise<T> {
     let timer: NodeJS.Timeout | undefined
     try {
@@ -2341,11 +2238,13 @@ test('a foreground Claude agent keeps its own result and background shells are n
 /**
  * A stand-in SDK driven from the test: every prompt the child reads is
  * recorded, and `emit` plays a message out of the child when the test says so.
+ * `refuseModes` stands in for a CLI that will not take a live permission mode.
  */
-function scriptedHarness() {
+function scriptedHarness(options: { refuseModes?: boolean } = {}) {
   const prompts: Record<string, unknown>[] = []
   const spawned: Record<string, unknown>[] = []
   const interrupts: unknown[] = []
+  const modes: string[] = []
   const pending: Record<string, unknown>[] = []
   let wake = null as (() => void) | null
   let ended = false
@@ -2366,7 +2265,10 @@ function scriptedHarness() {
       interrupt: async (options?: unknown) => {
         interrupts.push(options)
       },
-      setPermissionMode: async () => undefined,
+      setPermissionMode: async (mode: string) => {
+        if (options.refuseModes) throw new Error('Cannot set permission mode.')
+        modes.push(mode)
+      },
     }
   }
   const adapter = createClaudeAgentProvider({
@@ -2392,7 +2294,7 @@ function scriptedHarness() {
   })
   // The id each prompt was sent with, which a result names to say it answered it.
   const uuidOf = (index: number) => String(prompts[index]?.uuid)
-  return { adapter, prompts, spawned, interrupts, emit, turn, uuidOf }
+  return { adapter, prompts, spawned, interrupts, modes, emit, turn, uuidOf }
 }
 
 /** Read a turn's stream in the background, so the test can act between its events. */
@@ -2980,6 +2882,140 @@ test("a chat with skills attached keeps its own command list out of the folder's
     assert.deepEqual(published, [])
   } finally {
     stop()
+    await h.adapter.disposeAll()
+  }
+})
+
+type CanUseTool = (
+  toolName: string,
+  input: Record<string, unknown>,
+  options: Record<string, unknown>,
+) => Promise<{ behavior: string }>
+
+const requestIdsOf = (events: ConversationEvent[], type: 'approval_requested' | 'approval_resolved') =>
+  events.filter((event) => event.type === type).map((event) => String(event.payload?.requestId))
+
+test('switching a Claude chat to bypass mid-reply applies at once and answers the asks bypass would not have made', async () => {
+  const h = scriptedHarness()
+  try {
+    const first = await running(h)
+    const canUseTool = h.spawned[0].canUseTool as CanUseTool
+    const compound = canUseTool('Bash', { command: 'ls && echo --- && cat notes 2>/dev/null' }, {})
+    void canUseTool(
+      'AskUserQuestion',
+      { questions: [{ question: 'Which file?', header: 'File', options: [{ label: 'a' }, { label: 'b' }] }] },
+      {},
+    )
+    void canUseTool('Bash', { command: 'rm -rf build' }, { defaultToNo: true })
+    await settle()
+    const [bashId, questionId, unsafeId] = requestIdsOf(first.events, 'approval_requested')
+
+    assert.deepEqual(await h.adapter.setPermissionPreset({ ...h.turn('turn_1'), permissionPreset: 'bypass' }), {
+      ok: true,
+    })
+    assert.deepEqual(h.modes, ['bypassPermissions'])
+    assert.equal((await compound).behavior, 'allow')
+    await settle()
+    // A question is an answer, not a permission, and a call the CLI marks as
+    // not approvable by a stray keystroke still waits for the person.
+    assert.deepEqual(requestIdsOf(first.events, 'approval_resolved'), [bashId])
+    assert.equal(first.events.find((event) => event.type === 'approval_resolved')?.payload?.approved, true)
+
+    // The rest of the reply runs under bypass: the next call asks nobody.
+    assert.equal((await canUseTool('Edit', { file_path: 'notes' }, {})).behavior, 'allow')
+    assert.equal(requestIdsOf(first.events, 'approval_requested').length, 3)
+
+    for (const requestId of [questionId, unsafeId])
+      h.adapter.resolveApproval({ ...h.turn('turn_1'), requestId, approved: false })
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)] }))
+    await first.done
+    const second = reader((await h.adapter.sendTurn(h.turn('turn_2'))) as AsyncIterable<ConversationEvent>)
+    await promptsRead(h.prompts, 2)
+    assert.equal(h.spawned.length, 1, 'the child already runs under bypass, so the next message does not respawn it')
+    h.emit(success({ user_message_uuids: [h.uuidOf(1)] }))
+    await second.done
+  } finally {
+    await h.adapter.disposeAll()
+  }
+})
+
+test('an idle Claude child is switched to bypass in place, not replaced', async () => {
+  const h = scriptedHarness()
+  try {
+    const first = await running(h)
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)] }))
+    await first.done
+    assert.deepEqual(await h.adapter.setPermissionPreset({ ...h.turn('turn_1'), permissionPreset: 'bypass' }), {
+      ok: true,
+    })
+    assert.deepEqual(h.modes, ['bypassPermissions'])
+    assert.equal(h.adapter.listLiveSessions()[0]?.hasChildProcess, true)
+  } finally {
+    await h.adapter.disposeAll()
+  }
+})
+
+test('a Claude child that refuses bypass mid-reply finishes it as it started, and the next message takes bypass', async () => {
+  const h = scriptedHarness({ refuseModes: true })
+  try {
+    const first = await running(h)
+    const canUseTool = h.spawned[0].canUseTool as CanUseTool
+    const asked = canUseTool('Bash', { command: 'npm test' }, {})
+    await settle()
+    assert.deepEqual(await h.adapter.setPermissionPreset({ ...h.turn('turn_1'), permissionPreset: 'bypass' }), {
+      ok: true,
+      notice: 'Bypass permissions applies from your next message.',
+    })
+    assert.deepEqual(requestIdsOf(first.events, 'approval_resolved'), [], 'the waiting ask is left to the person')
+    h.adapter.resolveApproval({ ...h.turn('turn_1'), requestId: 'approval_turn_1', approved: true })
+    assert.equal((await asked).behavior, 'allow')
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)] }))
+    await first.done
+
+    const second = reader((await h.adapter.sendTurn(h.turn('turn_2'))) as AsyncIterable<ConversationEvent>)
+    await promptsRead(h.prompts, 2)
+    assert.equal(h.spawned.length, 2)
+    assert.equal(h.spawned[1].permissionMode, 'bypassPermissions')
+    assert.equal(h.spawned[1].resume, 'native', 'the conversation goes on in the same provider session')
+    h.emit(success({ user_message_uuids: [h.uuidOf(1)] }))
+    await second.done
+  } finally {
+    await h.adapter.disposeAll()
+  }
+})
+
+test("leaving bypass mid-reply stops bypassing at once, and the next message runs on the CLI's own default", async () => {
+  const h = scriptedHarness()
+  try {
+    await h.adapter.startSession({ ...h.turn('turn_1'), permissionPreset: 'bypass' })
+    const first = reader((await h.adapter.sendTurn(h.turn('turn_1'))) as AsyncIterable<ConversationEvent>)
+    await promptsRead(h.prompts, 1)
+    h.emit(init)
+    const canUseTool = h.spawned[0].canUseTool as CanUseTool
+    assert.equal(h.spawned[0].permissionMode, 'bypassPermissions')
+    assert.equal((await canUseTool('Bash', { command: 'npm test' }, {})).behavior, 'allow')
+
+    assert.deepEqual(await h.adapter.setPermissionPreset({ ...h.turn('turn_1'), permissionPreset: 'none' }), {
+      ok: true,
+    })
+    assert.deepEqual(h.modes, ['default'])
+    const asked = canUseTool('Bash', { command: 'npm publish' }, {})
+    await settle()
+    assert.equal(requestIdsOf(first.events, 'approval_requested').length, 1, 'the next call asks')
+    h.adapter.resolveApproval({ ...h.turn('turn_1'), requestId: 'approval_turn_1', approved: false })
+    assert.equal((await asked).behavior, 'deny')
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)] }))
+    await first.done
+
+    // 'default' is not necessarily what the CLI's own settings start it on,
+    // so the next message respawns the child with no mode pinned.
+    const second = reader((await h.adapter.sendTurn(h.turn('turn_2'))) as AsyncIterable<ConversationEvent>)
+    await promptsRead(h.prompts, 2)
+    assert.equal(h.spawned.length, 2)
+    assert.equal(h.spawned[1].permissionMode, undefined)
+    h.emit(success({ user_message_uuids: [h.uuidOf(1)] }))
+    await second.done
+  } finally {
     await h.adapter.disposeAll()
   }
 })

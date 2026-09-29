@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { toolSuccess, type McpToolRegistration } from '../../shared/modules/mcp-tools'
+import { toolError, toolSuccess, type McpToolRegistration } from '../../shared/modules/mcp-tools'
 import type { TailnetScope } from '../../shared/tailnet'
 import type { MeshEvent } from '../../shared/tailnet-mesh'
 import { createTailnetDeviceStore, type TailnetDeviceStore } from './tailnet/tailnet-devices'
@@ -103,6 +103,11 @@ test('tailnet-mesh', async () => {
     }
   }
 
+  // What the remote's `conversation.create` was asked, and whether it refuses
+  // `newChat` by name, as a build with a strict reading of its schema would.
+  const conversationCreates: Array<Record<string, unknown>> = []
+  let refuseNewChat = false
+
   /** The remote machine's tool surface, answering the shapes the Mesh reads. */
   function remoteTools(): McpToolRegistration[] {
     const tool = (name: string, structured: Record<string, unknown>): McpToolRegistration => ({
@@ -140,6 +145,19 @@ test('tailnet-mesh', async () => {
         ],
         worktrees: [{ path: '/repos/atlas', branch: 'main', isMain: true }],
       }),
+      {
+        name: 'conversation.create',
+        description: 'Test tool conversation.create',
+        inputSchema: { type: 'object', properties: {} },
+        handler: async (args) => {
+          conversationCreates.push(args)
+          if (refuseNewChat && 'newChat' in args) return toolError('invalid_arguments', 'Unknown argument "newChat".')
+          return toolSuccess({
+            ok: true,
+            conversation: { workspaceId: 'ws-9', agentId: 'agent-1', name: 'Ada', providerId: 'claude-agent' },
+          })
+        },
+      },
     ]
   }
 
@@ -321,6 +339,29 @@ test('tailnet-mesh', async () => {
       const nameless = await harness.mesh.workspaceCheckout(connectionId, '')
       assert.equal(nameless.ok, false)
     } finally {
+      await harness.close()
+    }
+  })
+
+  // The picker names a project by one of the workspaces in its folder; the
+  // chat started there is a new one, not one added to that workspace's chat.
+  test('a remote New chat asks for a chat of its own, and asks the old way of a machine that refuses that', async () => {
+    const harness = await startHarness()
+    try {
+      const connectionId = await harness.pair(['conversation:operate'])
+      conversationCreates.length = 0
+      const created = await harness.mesh.createConversation({ connectionId, workspaceId: 'ws-1', prompt: 'hi' })
+      assert.ok(created.ok, created.ok ? '' : created.message)
+      assert.equal(created.workspaceId, 'ws-9')
+      assert.deepEqual(conversationCreates, [{ workspaceId: 'ws-1', prompt: 'hi', newChat: true }])
+
+      refuseNewChat = true
+      conversationCreates.length = 0
+      const fallback = await harness.mesh.createConversation({ connectionId, workspaceId: 'ws-1' })
+      assert.ok(fallback.ok, fallback.ok ? '' : fallback.message)
+      assert.deepEqual(conversationCreates, [{ workspaceId: 'ws-1', newChat: true }, { workspaceId: 'ws-1' }])
+    } finally {
+      refuseNewChat = false
       await harness.close()
     }
   })

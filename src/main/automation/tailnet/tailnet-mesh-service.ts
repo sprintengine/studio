@@ -1414,23 +1414,32 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
       return { ok: false, code: 'invalid_arguments', message: 'Name the remote workspace to start the chat in.' }
     }
     // Forwarded verbatim: the remote validates every field, and its refusal
-    // reaches the caller word for word.
-    const answer = await callRemoteTool({
-      endpoint: endpointOf(connection),
-      token: connection.deviceToken,
-      tool: 'conversation.create',
-      args: {
-        workspaceId: input.workspaceId,
-        ...(typeof input.cli === 'string' && input.cli ? { cli: input.cli } : {}),
-        ...(typeof input.prompt === 'string' && input.prompt ? { prompt: input.prompt } : {}),
-        ...(typeof input.cliModel === 'string' && input.cliModel ? { cliModel: input.cliModel } : {}),
-        ...(typeof input.permissionPreset === 'string' && input.permissionPreset
-          ? { permissionPreset: input.permissionPreset }
-          : {}),
-      },
-      // Starting a chat starts its CLI over there; a healthy slow start is not a failure.
-      timeoutMs: 60_000,
-    })
+    // reaches the caller word for word. The workspace names the project the
+    // picker chose, not a chat to join, so the chat is asked for as a new one.
+    const args = {
+      workspaceId: input.workspaceId,
+      ...(typeof input.cli === 'string' && input.cli ? { cli: input.cli } : {}),
+      ...(typeof input.prompt === 'string' && input.prompt ? { prompt: input.prompt } : {}),
+      ...(typeof input.cliModel === 'string' && input.cliModel ? { cliModel: input.cliModel } : {}),
+      ...(typeof input.permissionPreset === 'string' && input.permissionPreset
+        ? { permissionPreset: input.permissionPreset }
+        : {}),
+    }
+    const create = (newChat: boolean) =>
+      callRemoteTool({
+        endpoint: endpointOf(connection),
+        token: connection.deviceToken,
+        tool: 'conversation.create',
+        args: newChat ? { ...args, newChat: true } : args,
+        // Starting a chat starts its CLI over there; a healthy slow start is not a failure.
+        timeoutMs: 60_000,
+      })
+    let answer = await create(true)
+    // A machine that refuses the argument by name is asked the way it was
+    // before there was one, and adds the chat to that workspace. One from
+    // before the argument that ignores it does the same without asking.
+    if (!answer.ok && answer.code === 'invalid_arguments' && /newChat/u.test(answer.message))
+      answer = await create(false)
     if (!answer.ok) {
       // A machine on a build from before `conversation.create` does not have
       // the tool; say that rather than pass on the gateway's bare refusal.

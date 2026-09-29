@@ -9,11 +9,18 @@ import type {
   ConversationSessionSummary,
 } from '../shared/conversation-runtime'
 import { emptyAgentLaunchSettings, type AgentLaunchSettings } from '../shared/launch-settings'
+import { SOLO_CHAT_AGENT_ID } from '../shared/layouts/templates'
+import { emptyWorkspaceRegistryFile, toWorkspaceRegistryRecord } from '../shared/workspace-registry'
+import { isDefaultWorkspaceName } from '../shared/workspace-title'
+import type { Workspace } from '../renderer/src/types/workspace'
 import {
   createConversationLaunchService,
   type ConversationLaunchServiceDeps,
   type ConversationLaunchWorkspace,
 } from './conversation-launch-service'
+import { createWorkspaceRegistryService } from './workspace-registry-service'
+import { createInMemoryWorkspaceRegistryStore } from './workspace-registry-store'
+import { createWorkspaceSyncService } from './workspace-sync-service'
 
 type Harness = {
   writes: Array<{ workspaceId: string; agentId: string; agent: AgentState | null }>
@@ -40,6 +47,9 @@ function harness(
       record.writes.push({ workspaceId, agentId, agent })
       return { ok: true }
     },
+    listWorkspaces: () => (workspace ? [workspace] : []),
+    createWorkspace: () => ({ ok: false, message: 'not in this test' }),
+    removeWorkspace: () => undefined,
     startSession: async (input) => {
       record.starts.push(input)
       return {
@@ -157,4 +167,105 @@ test('a refused first message is reported, and the launch still stands', async (
   await new Promise((resolve) => setTimeout(resolve, 0))
   assert.equal(record.warnings.length, 1)
   assert.match(record.warnings[0]!, /busy/)
+})
+
+/** The launch wired to a real registry and bus, as app-services wires it, around one chat in a worktree. */
+function registryHarness(startSession?: ConversationLaunchServiceDeps['startSession']) {
+  const existing: Workspace = {
+    id: 'ws-old',
+    name: 'Fix the flaky login test',
+    titleLocked: true,
+    mode: 'standard',
+    folderPath: '/Users/dev/.worktrees/app/login-fix',
+    hostId: 'wsl:Ubuntu',
+    worktree: { branch: 'agent/login-fix', repoRoot: '/Users/dev/app' },
+    templateId: 'solo',
+    layoutModel: { global: {}, borders: [], layout: { type: 'row', children: [] } },
+    agents: {},
+    worktreeState: { containerPath: null, entries: {}, updatedAt: null },
+    memory: { relativeRoot: null },
+    editorState: { openFiles: [], activeFilePath: null },
+    createdAt: 1,
+  }
+  let ids = 0
+  const registry = createWorkspaceRegistryService({
+    store: createInMemoryWorkspaceRegistryStore({
+      ...emptyWorkspaceRegistryFile(1),
+      revision: 1,
+      workspaces: [
+        toWorkspaceRegistryRecord(existing, 1),
+        toWorkspaceRegistryRecord({ ...existing, id: 'ws-two', name: 'Chat' }, 1),
+      ],
+    }),
+    now: () => 1000,
+    newWorkspaceId: () => `ws-new-${++ids}`,
+  })
+  const sync = createWorkspaceSyncService({ registry, now: () => 1000 })
+  const writes: string[] = []
+  const service = createConversationLaunchService({
+    getWorkspace: (id) => registry.getRecord(id),
+    getLaunchSettings: () => emptyAgentLaunchSettings(),
+    writeAgent: (workspaceId, agentId, agent) => {
+      writes.push(agentId)
+      return sync.updateWorkspaceAgent(workspaceId, agentId, agent, 'system')
+    },
+    listWorkspaces: () => registry.getRecords(),
+    createWorkspace: (request) => {
+      const created = sync.createWorkspace(request, 'system')
+      return created.ok ? { ok: true, workspaceId: created.result.workspace.id } : created
+    },
+    removeWorkspace: (workspaceId) => {
+      sync.removeWorkspace(workspaceId, 'system')
+    },
+    startSession:
+      startSession ??
+      (async (input) => ({
+        ok: true,
+        session: {
+          sessionId: 'conv_1',
+          workspaceId: input.workspaceId,
+          agentId: input.agentId,
+        } as ConversationSessionSummary,
+      })),
+    send: async () => ({ ok: true }) as ConversationSessionActionResult,
+    newCommandId: () => 'cmd-1',
+  })
+  return { service, registry, writes }
+}
+
+test('a new chat is born in a workspace of its own, in the named workspace’s folder, titled by its first message', async () => {
+  const { service, registry, writes } = registryHarness()
+  const result = await service.launch({ workspaceId: 'ws-old', newChat: true, cli: 'claude-code', prompt: 'hi' })
+  assert.equal(result.ok, true)
+  if (!result.ok) return
+  assert.notEqual(result.workspaceId, 'ws-old')
+  assert.equal(result.agentId, SOLO_CHAT_AGENT_ID)
+  assert.deepEqual(writes, [], 'nothing is added to the chat the workspace already was')
+  assert.deepEqual(Object.keys(registry.getRecord('ws-old')?.agents ?? {}), [])
+
+  const created = registry.getRecord(result.workspaceId)!
+  assert.equal(created.folderPath, '/Users/dev/.worktrees/app/login-fix')
+  assert.equal(created.hostId, 'wsl:Ubuntu')
+  assert.deepEqual(created.worktree, { branch: 'agent/login-fix', repoRoot: '/Users/dev/app' })
+  // Named as New chat names one beside the folder's others, and left open for
+  // the first message to title.
+  assert.equal(created.name, 'Chat 2')
+  assert.equal(isDefaultWorkspaceName(created.name), true)
+  assert.equal(created.titleLocked, undefined)
+  // The layout's one agent tab is the chat's agent, from the first event.
+  assert.match(JSON.stringify(created.layoutModel), new RegExp(`"agentId":"${SOLO_CHAT_AGENT_ID}"`))
+  assert.deepEqual(Object.keys(created.agents), [SOLO_CHAT_AGENT_ID])
+  assert.equal(created.agents[SOLO_CHAT_AGENT_ID]?.runtimeKind, 'conversation')
+  assert.equal(created.agents[SOLO_CHAT_AGENT_ID]?.name, result.name)
+})
+
+test('a new chat whose session cannot start takes its whole workspace back out', async () => {
+  const { service, registry } = registryHarness(async () => ({ ok: false, message: 'CLI not installed' }))
+  const before = registry.getRecords().map((record) => record.id)
+  const result = await service.launch({ workspaceId: 'ws-old', newChat: true, cli: 'claude-code' })
+  assert.deepEqual(result, { ok: false, code: 'conversation_start_failed', message: 'CLI not installed' })
+  assert.deepEqual(
+    registry.getRecords().map((record) => record.id),
+    before,
+  )
 })

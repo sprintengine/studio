@@ -57,9 +57,17 @@ export const EMPTY_CHAT_TEMPLATE: LayoutTemplate = {
   },
 }
 
+/**
+ * The template a New chat is minted from, and the id of its one agent tab. A
+ * chat main creates from it is the agent of that id, as one a window creates
+ * is, so the tab and the agent record agree from the first event.
+ */
+export const SOLO_CHAT_TEMPLATE_ID = 'solo'
+export const SOLO_CHAT_AGENT_ID = 'agent-1'
+
 export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
   {
-    id: 'solo',
+    id: SOLO_CHAT_TEMPLATE_ID,
     name: 'Solo',
     description: 'Single AI terminal for focused work.',
     previewSlots: [agent('Agent', 4, 4, 292, 102)],
@@ -68,7 +76,7 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
       borders: [],
       layout: {
         type: 'row',
-        children: [{ type: 'tabset', weight: 100, children: [agentTab('agent-1', 'Agent')] }],
+        children: [{ type: 'tabset', weight: 100, children: [agentTab(SOLO_CHAT_AGENT_ID, 'Agent')] }],
       },
     },
   },

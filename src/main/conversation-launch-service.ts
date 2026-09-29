@@ -17,6 +17,13 @@
  *
  * A session that cannot start takes its record back out, so a refused launch
  * never leaves a chat nobody can open.
+ *
+ * A workspace here is one chat, and its name is the chat's title. So a caller
+ * that means "a new chat in this project" — a phone's or a paired machine's
+ * New chat, which names a project by one of the workspaces in its folder —
+ * asks for `newChat`: the chat is then born in a workspace of its own, in that
+ * workspace's folder, instead of joining the chat that workspace already is.
+ * A refused start then takes that whole workspace back out.
  */
 import { randomUUID } from 'crypto'
 
@@ -30,6 +37,11 @@ import type {
   ConversationStartSessionResult,
 } from '../shared/conversation-runtime'
 import type { CliPermissionPreset } from '../shared/cli-permission-preset'
+import type { ExecutionHostId } from '../shared/execution-host'
+import { SOLO_CHAT_AGENT_ID, SOLO_CHAT_TEMPLATE_ID } from '../shared/layouts/templates'
+import { nextNewChatName } from '../shared/workspace-title'
+import type { WorkspaceWorktree } from '../renderer/src/types/workspace'
+import type { WorkspaceCreateRequest } from './workspace-registry-service'
 import {
   effectiveAgentLaunchSettings,
   resolveAgentSpawnPermissionPreset,
@@ -39,12 +51,22 @@ import {
 /** A workspace as the chat launch needs to see it. */
 export type ConversationLaunchWorkspace = {
   id: string
+  name?: string
   folderPath?: string | null
+  hostId?: ExecutionHostId | null
+  worktree?: WorkspaceWorktree | null
   agents?: Record<string, { name?: string }>
 }
 
 export type ConversationLaunchRequest = {
   workspaceId: string
+  /**
+   * Start the chat in a new workspace of its own, in `workspaceId`'s folder
+   * (on its machine, and marked as the same worktree), rather than in that
+   * workspace. The new workspace takes an app-minted name, so the chat's
+   * first message titles it.
+   */
+  newChat?: boolean
   /** The agent CLI the chat drives; the last-selected CLI when absent. */
   cli?: string
   /** The CLI's model id; the CLI's own default when absent. */
@@ -75,6 +97,13 @@ export type ConversationLaunchServiceDeps = {
   getLaunchSettings: () => AgentLaunchSettings
   /** Write (or, with null, remove) an agent record through the sequenced workspace bus. */
   writeAgent: (workspaceId: string, agentId: string, agent: AgentState | null) => { ok: boolean; message?: string }
+  /** Every workspace, for the name a `newChat` takes beside the others in its folder. */
+  listWorkspaces: () => ConversationLaunchWorkspace[]
+  /** Create a workspace through the sequenced workspace bus, as a headless create does. */
+  createWorkspace: (
+    request: WorkspaceCreateRequest,
+  ) => { ok: true; workspaceId: string } | { ok: false; message: string }
+  removeWorkspace: (workspaceId: string) => void
   startSession: (input: ConversationStartSessionInput) => Promise<ConversationStartSessionResult>
   send: (input: { sessionId: string; commandId: string; message: string }) => Promise<ConversationSessionActionResult>
   /** Where a first message the runtime refused is reported; the chat itself shows a failed turn. */
@@ -128,13 +157,17 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
     const modelId = request.cliModel?.trim() || CONVERSATION_DEFAULT_MODEL_ID
     const permissionPreset = resolveAgentSpawnPermissionPreset(settings, cli, request.permissionPreset)
 
-    const agentId = `agent-${cli}-${newAgentSuffix()}`
+    // A new chat's agent is its workspace's one template tab, as a window's
+    // New chat makes it; one joining a workspace takes an id of its own.
+    const agentId = request.newChat ? SOLO_CHAT_AGENT_ID : `agent-${cli}-${newAgentSuffix()}`
     const name =
       request.name?.trim() ||
       pickRandomAgentName(
-        Object.values(workspace.agents ?? {})
-          .map((agent) => agent?.name)
-          .filter((taken): taken is string => Boolean(taken)),
+        request.newChat
+          ? []
+          : Object.values(workspace.agents ?? {})
+              .map((agent) => agent?.name)
+              .filter((taken): taken is string => Boolean(taken)),
       )
     // The same record a window's New chat writes (`conversationNewChatSeed`),
     // minus the startup prompt: that field asks a mounting chat view to send
@@ -145,19 +178,40 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
       conversation: { providerId, modelId },
       cliPermissionPreset: permissionPreset,
     }
-    const written = deps.writeAgent(workspace.id, agentId, agent)
-    if (!written.ok) {
-      return {
-        ok: false,
-        code: 'agent_write_failed',
-        message: written.message ?? `The chat could not be added to workspace "${workspace.id}".`,
+    let chatWorkspaceId = workspace.id
+    if (request.newChat) {
+      // Born with its agent, in one event, so a window never shows the
+      // template's tab with no agent behind it.
+      const created = deps.createWorkspace({
+        name: nextNewChatName(
+          deps
+            .listWorkspaces()
+            .filter((other) => other.folderPath === workspace.folderPath)
+            .map((other) => other.name ?? ''),
+        ),
+        folderPath: workspace.folderPath,
+        templateId: SOLO_CHAT_TEMPLATE_ID,
+        ...(workspace.hostId ? { hostId: workspace.hostId } : {}),
+        ...(workspace.worktree ? { worktree: workspace.worktree } : {}),
+        agents: { [agentId]: agent },
+      })
+      if (!created.ok) return { ok: false, code: 'workspace_create_failed', message: created.message }
+      chatWorkspaceId = created.workspaceId
+    } else {
+      const written = deps.writeAgent(workspace.id, agentId, agent)
+      if (!written.ok) {
+        return {
+          ok: false,
+          code: 'agent_write_failed',
+          message: written.message ?? `The chat could not be added to workspace "${workspace.id}".`,
+        }
       }
     }
 
     const started = await deps
       .startSession({
         workspaceRoot,
-        workspaceId: workspace.id,
+        workspaceId: chatWorkspaceId,
         agentId,
         providerId,
         modelId,
@@ -172,7 +226,8 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
         message: error instanceof Error ? error.message : 'The conversation could not start.',
       }))
     if (!started.ok) {
-      deps.writeAgent(workspace.id, agentId, null)
+      if (request.newChat) deps.removeWorkspace(chatWorkspaceId)
+      else deps.writeAgent(workspace.id, agentId, null)
       return { ok: false, code: 'conversation_start_failed', message: started.message }
     }
 
@@ -193,7 +248,7 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
 
     return {
       ok: true,
-      workspaceId: workspace.id,
+      workspaceId: chatWorkspaceId,
       agentId,
       name,
       cli,
