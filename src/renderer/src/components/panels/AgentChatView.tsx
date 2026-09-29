@@ -2343,7 +2343,8 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
             <TimelineMinimap navigation={turnNavigation} />
             <QuoteSelectionToolbar
               rootRef={transcriptRef}
-              enabled={!composerInputDisabled}
+              // A chat nobody can see has no selection to offer a quote for.
+              enabled={!composerInputDisabled && viewActive}
               shortcut={quoteShortcutLabel}
               onQuote={quoteIntoComposer}
             />

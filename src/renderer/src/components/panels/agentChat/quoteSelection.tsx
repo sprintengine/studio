@@ -236,72 +236,86 @@ export function QuoteSelectionToolbar({
 }): JSX.Element | null {
   const [selection, setSelection] = useState<QuotableSelection | null>(null)
   const toolbarRef = useRef<HTMLDivElement | null>(null)
+  const draggingRef = useRef(false)
 
   useEffect(() => {
     if (!enabled) {
       setSelection(null)
       return
     }
-    let dragging = false
     let frame = 0
-    let scrollFrame = 0
     const read = () => {
       frame = 0
       const root = rootRef.current
-      setSelection(root && !dragging ? readQuotableSelection(root, document.getSelection()) : null)
+      setSelection(root && !draggingRef.current ? readQuotableSelection(root, document.getSelection()) : null)
     }
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(read)
     }
-    const follow = () => {
-      scrollFrame = 0
-      const root = rootRef.current
-      const next = root && !dragging ? readQuotableSelection(root, document.getSelection()) : null
-      setSelection((previous) => selectionAfterScroll(previous, next, window.innerHeight))
-    }
     const onPointerDown = (event: PointerEvent) => {
       if (toolbarRef.current?.contains(event.target as Node)) return
-      dragging = true
+      draggingRef.current = true
       setSelection(null)
     }
     const onPointerUp = () => {
-      dragging = false
+      draggingRef.current = false
       schedule()
     }
+    // A selection that changed somewhere else — a caret moving in a text
+    // field, a selection in another pane — is not this transcript's to read.
     const onSelectionChange = () => {
-      if (!dragging) schedule()
+      if (draggingRef.current) return
+      const anchor = document.getSelection()?.anchorNode
+      if (anchor && !rootRef.current?.contains(anchor) && !toolbarRef.current) return
+      schedule()
     }
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || !toolbarRef.current) return
       event.preventDefault()
       setSelection(null)
     }
-    // The toolbar is placed in window coordinates, so a scroll under it is
-    // read again on the next frame and the toolbar follows the selection. The
-    // reader's own wheel or swipe means they have moved on, and it goes.
-    const onScroll = () => {
-      if (!scrollFrame) scrollFrame = requestAnimationFrame(follow)
-    }
-    const onUserScroll = () => setSelection(null)
     document.addEventListener('pointerdown', onPointerDown, true)
     document.addEventListener('pointerup', onPointerUp, true)
     document.addEventListener('selectionchange', onSelectionChange)
     document.addEventListener('keydown', onKeyDown)
-    document.addEventListener('scroll', onScroll, true)
-    document.addEventListener('wheel', onUserScroll, { capture: true, passive: true })
-    document.addEventListener('touchmove', onUserScroll, { capture: true, passive: true })
     return () => {
       if (frame) cancelAnimationFrame(frame)
-      if (scrollFrame) cancelAnimationFrame(scrollFrame)
       document.removeEventListener('pointerdown', onPointerDown, true)
       document.removeEventListener('pointerup', onPointerUp, true)
       document.removeEventListener('selectionchange', onSelectionChange)
       document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [enabled, rootRef])
+
+  // The toolbar is placed in window coordinates, so a scroll under it is read
+  // again on the next frame and the toolbar follows the selection. The
+  // reader's own wheel or swipe means they have moved on, and it goes. Only
+  // while it is showing: every scroll anywhere in the window would otherwise
+  // wake every mounted chat.
+  const showing = selection !== null
+  useEffect(() => {
+    if (!showing) return
+    let scrollFrame = 0
+    const follow = () => {
+      scrollFrame = 0
+      const root = rootRef.current
+      const next = root && !draggingRef.current ? readQuotableSelection(root, document.getSelection()) : null
+      setSelection((previous) => selectionAfterScroll(previous, next, window.innerHeight))
+    }
+    const onScroll = () => {
+      if (!scrollFrame) scrollFrame = requestAnimationFrame(follow)
+    }
+    const onUserScroll = () => setSelection(null)
+    document.addEventListener('scroll', onScroll, true)
+    document.addEventListener('wheel', onUserScroll, { capture: true, passive: true })
+    document.addEventListener('touchmove', onUserScroll, { capture: true, passive: true })
+    return () => {
+      if (scrollFrame) cancelAnimationFrame(scrollFrame)
       document.removeEventListener('scroll', onScroll, true)
       document.removeEventListener('wheel', onUserScroll, true)
       document.removeEventListener('touchmove', onUserScroll, true)
     }
-  }, [enabled, rootRef])
+  }, [showing, rootRef])
 
   // Placed once the toolbar's own size is known, before it paints.
   useLayoutEffect(() => {
