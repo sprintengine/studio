@@ -15,13 +15,11 @@ import {
   remoteGlyphToneClass,
   remoteGlyphTooltip,
 } from './RemotePopover'
-import { drivenTerminalView, shortMachineName } from '../../remote/machineRowModel'
-import { meshLiveSessionsOf, type TailnetPresence } from './useTailnetPresence'
+import { shortMachineName } from '../../remote/machineRowModel'
+import type { TailnetPresence } from './useTailnetPresence'
 import { useToastStore } from '../../../store/toastStore'
-import { useWorkspaceStore } from '../../../store/workspaceStore'
-import { refreshTerminalSessions } from '../../../hooks/terminalSessionsStore'
 import type { TailnetLiveDevice, TailnetRemoteStatus } from '../../../../../shared/tailnet'
-import type { MeshConnection, MeshLiveAttachment, MeshMachineReachability } from '../../../../../shared/tailnet-mesh'
+import type { MeshConnection, MeshMachineReachability } from '../../../../../shared/tailnet-mesh'
 import { test } from 'vitest'
 
 test('RemotePopover', async () => {
@@ -72,7 +70,6 @@ test('RemotePopover', async () => {
     reachabilityCalls: [] as Array<string | undefined>,
     cancelCalls: [] as string[],
     forgetCalls: [] as string[],
-    terminalSessions: [] as Array<Record<string, unknown>>,
   }
   ;(dom.window as unknown as { api: unknown }).api = {
     tailnetRevokeDevice: (deviceId: string) => {
@@ -89,7 +86,7 @@ test('RemotePopover', async () => {
     tailnetDenyPairRequest: () => Promise.resolve({}),
     meshCheckReachability: (connectionId?: string) => {
       bridge.reachabilityCalls.push(connectionId)
-      return Promise.resolve({ revision: 0, attachments: [], requests: [], reachability: [] })
+      return Promise.resolve({ revision: 0, requests: [], reachability: [] })
     },
     meshCancelPairing: (requestId: string) => {
       bridge.cancelCalls.push(requestId)
@@ -99,10 +96,6 @@ test('RemotePopover', async () => {
       bridge.forgetCalls.push(connectionId)
       return Promise.resolve([])
     },
-    // The driven-terminal line reads the terminal-session store, which seeds
-    // itself from these two.
-    terminalList: () => Promise.resolve(bridge.terminalSessions),
-    onTerminalSessionsDelta: () => () => {},
   }
 
   let failures = 0
@@ -170,7 +163,6 @@ test('RemotePopover', async () => {
       deviceId: 'd1',
       deviceName: 'Sprint Engine Android',
       connected: true,
-      attachedTerminalSessions: [],
       connectedSince: Date.now() - 12 * 60_000,
       lastActivityAt: Date.now() - 3 * 60_000,
       peerNode: null,
@@ -179,32 +171,11 @@ test('RemotePopover', async () => {
     }
   }
 
-  function attachments(
-    list: Array<Partial<MeshLiveAttachment> & { attachId: string }>,
-  ): Map<string, MeshLiveAttachment> {
-    return new Map(
-      list.map((entry) => [
-        entry.attachId,
-        {
-          connectionId: 'conn-1',
-          machineName: 'Sam’s MacBook Air',
-          sessionId: 's1',
-          state: 'live',
-          detail: '',
-          ...entry,
-        },
-      ]),
-    )
-  }
-
   function presence(overrides: Partial<TailnetPresence> = {}): TailnetPresence {
-    const meshAttachments = overrides.meshAttachments ?? new Map()
     return {
       status: status(),
       live: { revision: 0, devices: [] },
       mesh: [],
-      meshAttachments,
-      meshLiveSessions: meshLiveSessionsOf(meshAttachments),
       meshRequests: [],
       meshReachability: new Map(),
       meshRemoteChanges: new Map(),
@@ -292,88 +263,48 @@ test('RemotePopover', async () => {
     assert.equal(state.visible, true)
   })
 
-  run(
-    'driving = a device attached to a terminal HERE; connected covers both directions; degraded = a link in trouble',
-    () => {
-      const driving = remoteGlyphState(
-        presence({ live: { revision: 1, devices: [device({ attachedTerminalSessions: ['t1'] })] } }),
-      )
-      assert.equal(driving.driving, true)
-      assert.equal(driving.connected, true)
-      assert.equal(driving.degraded, false)
-      const outbound = remoteGlyphState(
-        presence({ mesh: [connection()], meshAttachments: attachments([{ attachId: 'a', state: 'live' }]) }),
-      )
-      assert.equal(outbound.driving, false)
-      assert.equal(outbound.connected, true)
-      assert.equal(outbound.degraded, false)
-      const degraded = remoteGlyphState(
-        presence({
-          mesh: [connection()],
-          meshAttachments: attachments([
-            { attachId: 'a', state: 'live' },
-            { attachId: 'b', state: 'reconnecting', sessionId: 's2' },
-          ]),
-        }),
-      )
-      assert.equal(degraded.connected, true, 'one live link still counts as connected')
-      assert.equal(degraded.degraded, true, 'and the reconnecting one makes it degraded — the warn dot')
-      assert.equal(
-        remoteGlyphState(presence({ meshAttachments: attachments([{ attachId: 'a', state: 'connecting' }]) })).degraded,
-        false,
-        'a first dial is not degradation',
-      )
-    },
-  )
+  run('connected = an inbound device live here; degraded = a paired machine that revoked this one', () => {
+    const inbound = remoteGlyphState(presence({ live: { revision: 1, devices: [device()] } }))
+    assert.equal(inbound.connected, true)
+    assert.equal(inbound.degraded, false)
+    const outbound = remoteGlyphState(
+      presence({ mesh: [connection()], meshReachability: new Map([['conn-1', reach()]]) }),
+    )
+    assert.equal(outbound.connected, false, 'a machine answering over there is not a device connected here')
+    assert.equal(outbound.answering, 1)
+    assert.equal(outbound.degraded, false)
+    const quiet = remoteGlyphState(
+      presence({
+        mesh: [connection()],
+        meshReachability: new Map([['conn-1', reach({ reachable: false, detail: 'no answer' })]]),
+      }),
+    )
+    assert.equal(quiet.degraded, false, 'a machine that is not answering may yet come back on its own')
+    const revoked = remoteGlyphState(
+      presence({
+        mesh: [connection()],
+        meshReachability: new Map([['conn-1', reach({ reachable: false, unauthorized: true })]]),
+      }),
+    )
+    assert.equal(revoked.degraded, true, 'a revocation will not fix itself')
+    assert.equal(revoked.answering, 0)
+    assert.equal(remoteGlyphTooltip(revoked), 'Remote — live · 0 machines answering · a machine revoked this pairing')
+  })
 
-  run(
-    'a machine’s phase is derived from its links, by precedence: live > reconnecting > connecting > offline > paired',
-    () => {
-      const byAttach = (list: Array<Partial<MeshLiveAttachment> & { attachId: string }>) =>
-        meshMachinePhase('conn-1', attachments(list))
-      assert.deepEqual(byAttach([]), { phase: 'paired' })
-      assert.deepEqual(byAttach([{ attachId: 'a', state: 'connecting', detail: 'Connecting to Air.' }]), {
-        phase: 'connecting',
-        detail: 'Connecting to Air.',
-      })
-      assert.equal(
-        byAttach([
-          { attachId: 'a', state: 'reconnecting' },
-          { attachId: 'b', state: 'connecting' },
-        ]).phase,
-        'reconnecting',
-      )
-      assert.equal(byAttach([{ attachId: 'a', state: 'offline' }]).phase, 'offline')
-      assert.deepEqual(
-        byAttach([
-          { attachId: 'a', state: 'live', sessionId: 's1' },
-          { attachId: 'b', state: 'live', sessionId: 's1' },
-          { attachId: 'c', state: 'live', sessionId: 's2' },
-          { attachId: 'd', state: 'offline', sessionId: 's3' },
-        ]),
-        { phase: 'connected', liveSessions: 2 },
-        'a live link wins, and sessions are counted, not panes',
-      )
-      assert.equal(
-        byAttach([{ attachId: 'a', state: 'live', connectionId: 'other' }]).phase,
-        'paired',
-        'another machine’s links do not count',
-      )
-      const now = Date.now()
-      assert.equal(machinePhaseText('Air', { phase: 'connecting', detail: '' }, now), 'Connecting to Air…')
-      assert.equal(machinePhaseText('Air', { phase: 'reconnecting', detail: '' }, now), 'Reconnecting to Air…')
-      assert.equal(machinePhaseText('Air', { phase: 'offline', detail: '' }, now), 'Air is not answering')
-    },
-  )
-
-  run('two panes on one session are two links: closing one does not retract the other’s live', () => {
-    const both = attachments([
-      { attachId: 'a', state: 'live' },
-      { attachId: 'b', state: 'live' },
-    ])
-    assert.deepEqual([...(meshLiveSessionsOf(both).get('conn-1') ?? [])], ['s1'])
-    both.delete('a')
-    assert.deepEqual([...(meshLiveSessionsOf(both).get('conn-1') ?? [])], ['s1'], 'still live through pane b')
+  run('a machine’s phase is derived from main’s reachability check for that machine alone', () => {
+    assert.deepEqual(meshMachinePhase('conn-1'), { phase: 'paired' })
+    assert.deepEqual(meshMachinePhase('conn-1', new Map([['conn-1', reach({ checking: true, checkedAt: null })]])), {
+      phase: 'checking',
+    })
+    assert.equal(meshMachinePhase('conn-1', new Map([['conn-1', reach()]])).phase, 'reachable')
+    assert.equal(
+      meshMachinePhase('conn-1', new Map([['other', reach({ connectionId: 'other' })]])).phase,
+      'paired',
+      'another machine’s check does not count',
+    )
+    const now = Date.now()
+    assert.equal(machinePhaseText({ phase: 'checking' }, now), 'checking…')
+    assert.equal(machinePhaseText({ phase: 'paired' }, now), 'paired')
   })
 
   run('device liveness reads "Connected for" from the socket, else "Last seen" from the last activity', () => {
@@ -395,9 +326,9 @@ test('RemotePopover', async () => {
       const tone = (p: TailnetPresence) => remoteGlyphToneClass(remoteGlyphState(p))
       assert.match(tone(presence()), /tone-good/, 'serving alone is green — this Studio can be reached')
       assert.match(
-        tone(presence({ live: { revision: 1, devices: [device({ attachedTerminalSessions: ['t1'] })] } })),
+        tone(presence({ live: { revision: 1, devices: [device()] } })),
         /tone-good/,
-        'a phone driving a terminal is the feature working, not a summons',
+        'a connected phone is the feature working, not a summons',
       )
       assert.doesNotMatch(
         tone(presence({ live: { revision: 1, devices: [device()] } })),
@@ -464,7 +395,7 @@ test('RemotePopover', async () => {
   // ── the surface ──────────────────────────────────────────────────────────
 
   run(
-    'the popover lists the driving device and the machines — no addresses anywhere — and hosts the ACTING pair-request card',
+    'the popover lists the connected device and the machines — no addresses anywhere — and hosts the ACTING pair-request card',
     () => {
       const mounted = mount(
         popover(
@@ -482,12 +413,9 @@ test('RemotePopover', async () => {
                 },
               ],
             }),
-            live: { revision: 1, devices: [device({ attachedTerminalSessions: ['agent-standup'] })] },
+            live: { revision: 1, devices: [device()] },
             mesh: [connection()],
-            meshAttachments: attachments([
-              { attachId: 'a', state: 'live', sessionId: 's1' },
-              { attachId: 'b', state: 'live', sessionId: 's2' },
-            ]),
+            meshReachability: new Map([['conn-1', reach()]]),
           }),
         ),
       )
@@ -506,16 +434,14 @@ test('RemotePopover', async () => {
       }
       assert.match(markup, /data-tailnet-listening="true"/)
       assert.match(markup, /Sprint Engine Android/)
-      assert.match(markup, /Driving /, 'what it is driving reads on its own line')
-      assert.doesNotMatch(markup, /agent-standup/, 'never the session id — the one thing on the row nobody can read')
       assert.match(markup, /Connected for 12m/, 'connected-for from connectedSince')
       assert.match(markup, /tabular-nums/, 'durations in tabular figures')
-      // Connected is green and steady, driving or not: amber is this app's word
-      // for "someone has to do something", and a phone typing into a terminal is
-      // the feature working (owner ruling 2026-09-05).
-      const drivingGlyph = mounted.querySelector('[aria-label="Driving a terminal"]')
-      assert.ok(drivingGlyph, 'the driving device is announced on its glyph')
-      assert.match(drivingGlyph?.innerHTML ?? '', /--tone-good/, 'and the glyph is green')
+      // Connected is green and steady: amber is this app's word for "someone has
+      // to do something", and a connected phone is the feature working (owner
+      // ruling 2026-09-05).
+      const connectedGlyph = mounted.querySelector('[aria-label="Connected"]')
+      assert.ok(connectedGlyph, 'the connected device is announced on its glyph')
+      assert.match(connectedGlyph?.innerHTML ?? '', /--tone-good/, 'and the glyph is green')
       assert.ok(
         buttonLabelled(mounted, /^Revoke Sprint Engine Android$/),
         'a red X revokes the device — the word is in its name and tooltip',
@@ -532,26 +458,23 @@ test('RemotePopover', async () => {
       assert.ok(codeInput(mounted), 'a numeric code input')
       assert.ok(buttonNamed(mounted, /^Allow/)?.disabled, 'Allow is dead until six digits are typed')
       // The scope rows are the shared `ScopePicker` now (remote-settings-rebuild):
-      // one row per scope, each naming exactly what it grants: chats under the
-      // conversation rows, shells and terminal agents under the terminal rows.
+      // one row per scope, each naming exactly what it grants.
       assert.match(markup, /View conversations/)
-      assert.match(markup, /Watch terminals/)
-      assert.match(markup, /Drive terminals/)
-      assert.match(markup, /Arbitrary shell on this machine/)
+      assert.match(markup, /Operate conversations/)
+      assert.doesNotMatch(markup, /terminals/, 'no terminal rows: the pairing grants none')
       assert.match(markup, /Allow/)
       assert.match(markup, /Decline/)
       assert.doesNotMatch(markup, /Review/, 'no pointer elsewhere — the card acts, right here')
       // Machines: the shared remote glyph leads the row, the phase dot and text follow.
       assert.match(markup, /Sam’s MacBook Air/)
-      assert.match(markup, /2 terminals attached/)
-      assert.match(markup, /data-machine-answering="true"/, 'a machine with a live link is answering')
+      assert.match(markup, /data-machine-answering="true"/, 'a machine the last check reached is answering')
       assert.match(markup, /aria-label="Answering"/, 'said on its glyph')
       assert.match(markup, /Remote settings/)
       unmount()
     },
   )
 
-  run('machine rows narrate the transitional and failed phases with the phase dot table', () => {
+  run('machine rows narrate the checking and failed phases in words, with no dots', () => {
     const mounted = mount(
       popover(
         presence({
@@ -560,23 +483,26 @@ test('RemotePopover', async () => {
             connection({ id: 'conn-2', machineName: 'Mini', endpoint: '100.1.1.2:8471' }),
             connection({ id: 'conn-3', machineName: 'Studio', endpoint: '100.1.1.3:8471' }),
           ],
-          meshAttachments: attachments([
-            { attachId: 'a', state: 'reconnecting', connectionId: 'conn-1', detail: 'Reconnecting.' },
-            { attachId: 'b', state: 'offline', connectionId: 'conn-2', machineName: 'Mini' },
+          meshReachability: new Map([
+            ['conn-1', reach({ checking: true, checkedAt: null })],
+            [
+              'conn-2',
+              reach({ connectionId: 'conn-2', machineName: 'Mini', reachable: false, detail: 'Not answering.' }),
+            ],
           ]),
         }),
       ),
     )
     const markup = mounted.innerHTML
-    assert.match(markup, /Reconnecting to Sam’s MacBook Air…/)
+    assert.match(markup, /checking…/)
     assert.doesNotMatch(
       markup,
       /status-dot-pulse/,
-      'no dots: the words carry the transitional phase, the glyph stays in the default ink',
+      'no dots: the words carry the check in flight, the glyph stays in the default ink',
     )
-    assert.match(markup, /Mini is not answering/)
+    assert.match(markup, /not answering · /)
     assert.match(markup, /aria-label="Not answering"/)
-    assert.match(markup, /paired/, 'a machine with no link is paired, nothing more claimed')
+    assert.match(markup, /paired/, 'a machine with no check yet is paired, nothing more claimed')
     assert.equal((markup.match(/<svg/g) ?? []).length >= 3, true, 'the remote glyph leads every machine row')
     unmount()
   })
@@ -748,71 +674,6 @@ test('RemotePopover', async () => {
       unmount()
     },
   )
-
-  run('what a phone is driving is resolved to a name, and an unplaceable session still gets a line', () => {
-    const sessions = [
-      { sessionId: 's-agent', workspaceId: 'ws1', agentId: 'a1', agentName: 'launch-checks' },
-      { sessionId: 's-loose', agentName: 'roaming-agent-7' },
-    ]
-    const named = drivenTerminalView('s-agent', sessions, () => 'Fix the login bug')
-    assert.equal(named.label, 'Fix the login bug', 'the workspace agent’s own name wins')
-    assert.deepEqual(named.target, { workspaceId: 'ws1', agentId: 'a1' })
-    assert.equal(
-      drivenTerminalView('s-agent', sessions, () => null).label,
-      'launch-checks',
-      'else the session manager’s label',
-    )
-    assert.deepEqual(
-      drivenTerminalView('s-loose', sessions, () => null),
-      { label: 'roaming-agent-7', target: null },
-    )
-    assert.deepEqual(
-      drivenTerminalView('s-gone', sessions, () => null),
-      { label: 'a terminal', target: null },
-    )
-  })
-
-  run('the driven line names the agent and opens it — never the session id', async () => {
-    bridge.terminalSessions = [
-      {
-        sessionId: 'sess-1',
-        workspaceId: 'ws1',
-        agentId: 'agent-1',
-        agentName: 'launch-checks',
-        processAlive: true,
-        kind: 'agent',
-        activity: { kind: 'idle', since: 0 },
-      },
-    ]
-    act(() => {
-      useWorkspaceStore.setState({
-        activeWorkspaceId: null,
-        workspaces: [
-          { id: 'ws1', name: 'sprintengine', agents: { 'agent-1': { id: 'agent-1', name: 'Fix the login bug' } } },
-        ],
-      } as never)
-    })
-    const mounted = mount(
-      popover(presence({ live: { revision: 1, devices: [device({ attachedTerminalSessions: ['sess-1'] })] } })),
-    )
-    // The terminal-session store seeds itself from `terminalList`; the test
-    // asks for that read rather than racing the store's own connect.
-    await act(async () => {
-      await refreshTerminalSessions()
-    })
-    const link = buttonNamed(mounted, /Fix the login bug/)
-    assert.ok(link, 'the agent is named, and it is a button')
-    assert.doesNotMatch(mounted.innerHTML, /sess-1/, 'the session id is gone from the surface')
-    click(link)
-    await flush()
-    assert.equal(
-      useWorkspaceStore.getState().activeWorkspaceId,
-      'ws1',
-      'clicking it goes to the workspace holding that agent',
-    )
-    bridge.terminalSessions = []
-    unmount()
-  })
 
   run('a paired machine can be dropped from here, and the half only they can do is said', async () => {
     act(() => {

@@ -13,11 +13,11 @@ import { usePairRequestAnswer } from './pairRequestAnswer'
 //
 // Allow here grants exactly what the asking machine ASKED FOR
 // (`requestedScopes`, remote-settings-rebuild). It used to grant a house
-// default with the terminal tier stripped out, which meant a machine that asked
-// to watch your chats was silently paired without the scope that shows them and
-// nobody was told — the same bug in one click that the old Pair a device button
-// had in another. The card in the Remote popover remains the surface that
-// CHANGES the set; this one answers the question as it was put.
+// default, which meant a machine that asked to watch your chats was silently
+// paired without the scope that shows them and nobody was told — the same bug
+// in one click that the old Pair a device button had in another. The card in
+// the Remote popover remains the surface that CHANGES the set; this one answers
+// the question as it was put.
 export function PairRequestToastAccept({ request }: { request: TailnetPairRequest }) {
   const { code, setCode, codeError, busy, answer } = usePairRequestAnswer(request.id)
   const inputId = React.useId()
@@ -70,7 +70,7 @@ export function PairRequestToastAccept({ request }: { request: TailnetPairReques
         id={helpId}
         className={`mt-1 text-micro ${codeError ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-subtle)]'}`}
       >
-        {codeError ?? 'Type the code it is showing. Terminal control stays off.'}
+        {codeError ?? 'Type the code it is showing.'}
       </p>
     </div>
   )

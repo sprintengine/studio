@@ -64,7 +64,6 @@ import { terminalCompactBlocker } from '../../../../shared/prompt-cache'
 import CliIcon from '../CliIcon'
 import { AgentTabIdentityPopover, type AgentTabIdentity } from './AgentTabIdentityPopover'
 import { agentCheckoutOf, type AgentTabCheckout } from './agentCheckout'
-import { useRemoteAttachedSessions } from './topbar/useTailnetPresence'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import { TabPromptPeek } from './TabPromptPeek'
 import { GitBranchGlyph } from './WorkspaceActions'
@@ -83,9 +82,8 @@ import {
 } from '../ui'
 import {
   canonicalMeshPaneComponent,
+  isMeshConversationPane,
   MESH_CONVERSATION_COMPONENT,
-  MESH_TERMINAL_COMPONENT,
-  meshPaneKind,
 } from '../../../../shared/tailnet-mesh'
 
 const EMPTY_LAYOUT_MODEL: IJsonModel = { global: {}, borders: [], layout: { type: 'row', children: [] } }
@@ -133,7 +131,6 @@ const AgentPanel = React.lazy(() => import('../panels/AgentPanel'))
 const EditorPanel = React.lazy(() => import('../panels/EditorPanel'))
 const GitConflictResolverPanel = React.lazy(() => import('../panels/GitConflictResolverPanel'))
 const PlainTerminalPanel = React.lazy(() => import('../panels/PlainTerminalPanel'))
-const MeshTerminalPanel = React.lazy(() => import('../panels/MeshTerminalPanel'))
 const RemoteConversationPanel = React.lazy(() => import('../panels/agentChat/RemoteConversationPanel'))
 // Files, Git and the Skills aside are no longer FlexLayout components: Files
 // and Git are workspace-pane tabs (pane/WorkspacePaneBody.tsx) and the Skills
@@ -381,8 +378,6 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
   // This workspace's sessions only: an agent moving in another workspace
   // must not rebuild every tab here.
   const terminalSessions = useWorkspaceTerminalSessions(workspaceId)
-  // Which terminals a paired phone is watching, for the tab's remote mark.
-  const remoteAttachedSessions = useRemoteAttachedSessions()
   const updateLayout = useWorkspaceStore((s) => s.updateLayout)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const setActiveFile = useWorkspaceStore((s) => s.setActiveFile)
@@ -566,9 +561,6 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
             role?: string
             title?: string
             sessionId?: string
-            connectionId?: string
-            machineName?: string
-            remoteSessionId?: string
           }
         | undefined
 
@@ -632,38 +624,13 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
             renderNewAgentPanelRef.current?.(node.getId(), (config as { agentName?: string } | undefined)?.agentName) ??
             null
           )
-        // A remote terminal is core chrome, not a module: tailnet remote control
-        // is a built-in opt-in feature, and a pane that vanished with a module
-        // toggle would strand a person mid-session on another machine. (The
-        // Fleet panel that used to sit beside it was retired on 2026-09-05 —
-        // remote-sessions-in-the-sidebar; a persisted `fleet` tab now takes the
-        // default branch's unavailable surface.)
-        case MESH_TERMINAL_COMPONENT:
-          // A stale tab whose config lost its machine is refused rather than
-          // rendered as an empty terminal: there is no session to attach to, and
-          // a blank xterm would look like one that simply had no output.
-          return config?.connectionId && config.remoteSessionId
-            ? timedPanel(
-                'MeshTerminalPanel',
-                <MeshTerminalPanel
-                  // Scoped by WORKSPACE, not just by the tab's session-derived id:
-                  // the tab id is deliberately deterministic per session (dedupe
-                  // within a workspace), so the same session opened in a second
-                  // workspace — a New-chat-door solo pane plus a sidebar row
-                  // opened elsewhere — used to collide on one attachId, where main's
-                  // same-pane replace rule silently stole the first pane's
-                  // stream. The remote terminal port is multi-viewer; two panes
-                  // are two healthy attachments (remote-sessions-ux review).
-                  attachId={`${workspaceId}:${node.getId()}`}
-                  workspaceId={workspaceId}
-                  connectionId={config.connectionId}
-                  machineName={config.machineName ?? 'Remote machine'}
-                  sessionId={config.remoteSessionId}
-                />,
-              )
-            : DISABLED_SURFACE
         // A conversation on another machine, in the regular chat view. Core
-        // chrome for the same reason a remote terminal is.
+        // chrome, not a module: tailnet remote control is a built-in opt-in
+        // feature, and a pane that vanished with a module toggle would strand a
+        // person mid-conversation on another machine. (The Fleet panel, retired
+        // on 2026-09-05, and the remote terminal pane, retired on 2026-09-29,
+        // left persisted tabs behind; both take the default branch's
+        // unavailable surface.)
         case MESH_CONVERSATION_COMPONENT: {
           const remote = config as
             | {
@@ -1212,10 +1179,10 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
             )
             return
           }
-        } else if (meshPaneKind(componentId) !== null) {
-          // A pane on another machine's terminal wears the shared remote glyph
-          // as its identity (remote-sessions-in-the-sidebar, epic decision 4):
-          // the same keystroke means different things on two machines, and the
+        } else if (isMeshConversationPane(componentId)) {
+          // A pane on another machine's conversation wears the shared remote
+          // glyph as its identity (remote-sessions-in-the-sidebar, epic decision
+          // 4): the same message means different things on two machines, and the
           // tab's name alone is one truncation away from not saying so.
           const config = node.getConfig() as { machineName?: string } | undefined
           const machineLabel = config?.machineName ? `On ${config.machineName}` : 'On a paired machine'
@@ -1365,33 +1332,13 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
           <TabRecencyText at={agentRecency.at} label={tabRecencyLabel(agentRecency.source)} />
         ) : null
 
-      // Trailing status treatment: the activity dot, plus recency while idle.
-      // A phone is looking at this agent's terminal right now (owner,
-      // 2026-09-05: "if there is a mobile device actively looking at a
-      // terminal, show the little remote connection icon … beside the name …
-      // green and pulsing while the terminal is open on the mobile").
-      //
-      // It leads the trailing cluster rather than the leading slot, which
-      // already carries the identity the tab is named for — the runtime. This is
-      // a state, and states live with the dot.
-      const remoteViewing = agentSessionId ? remoteAttachedSessions.has(agentSessionId) : false
-      const remoteMark = remoteViewing ? (
-        <span
-          className="status-dot-pulse flex shrink-0 items-center text-[color:var(--tone-good)]"
-          role="img"
-          aria-label="A paired phone is watching this terminal"
-          title="A paired phone is watching this terminal"
-        >
-          <RemoteMachineGlyph className="icon-xs" />
-        </span>
-      ) : null
-
       // The conversation's prompt cache: a chat's from its runtime, a
       // terminal's from its own status line. The tab marks it once it is about
       // to go cold or has, since an open tab is the chat most likely to be
       // resumed; its card says what that costs and offers to compact.
       const agentPromptCache = conversation?.promptCache ?? agentSession?.promptCache ?? null
 
+      // Trailing status treatment: the activity dot, plus recency while idle.
       // Working wears the working mark, the same mark the sidebar row and the
       // tab's own card use, so "working" reads one way everywhere.
       const trailing = (
@@ -1510,7 +1457,6 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
           }
         >
           {tabNameSpan}
-          {remoteMark}
           {trailing}
         </AgentTabIdentityPopover>
       )
@@ -1524,7 +1470,6 @@ function WorkspaceLayoutBody({ workspaceId, onNewAgentTab, renderNewAgentPanel, 
       renamingTabId,
       openTabContextMenu,
       startRename,
-      remoteAttachedSessions,
       terminalSessions,
       conversationSessions,
       workspaceAgents,

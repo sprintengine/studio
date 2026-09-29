@@ -1,12 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import type { TailnetLiveState, TailnetRemoteStatus } from '../../../../../shared/tailnet'
-import type {
-  MeshConnection,
-  MeshLiveAttachment,
-  MeshMachineReachability,
-  MeshPairRequestView,
-} from '../../../../../shared/tailnet-mesh'
+import type { MeshConnection, MeshMachineReachability, MeshPairRequestView } from '../../../../../shared/tailnet-mesh'
 
 // The Remote glyph's one data source (remote-sessions-ux /
 // remote-glyph-topbar): the pushed tailnet payloads plus the mesh's
@@ -23,10 +18,6 @@ export type TailnetPresence = {
   status: TailnetRemoteStatus | null
   live: TailnetLiveState
   mesh: MeshConnection[]
-  /** Every outbound attachment main holds, by attachId — a pane is a link, a session is not. */
-  meshAttachments: ReadonlyMap<string, MeshLiveAttachment>
-  /** connectionId → remote session ids with a LIVE attachment in this app. Derived from `meshAttachments`. */
-  meshLiveSessions: ReadonlyMap<string, ReadonlySet<string>>
   /** Requests this machine made that are still waiting to be answered (phase 3). Main owns the wait. */
   meshRequests: readonly MeshPairRequestView[]
   /** connectionId → main's last reachability answer for that machine (phase 4). */
@@ -40,7 +31,7 @@ export type TailnetPresence = {
   meshRemoteChanges: ReadonlyMap<string, MeshRemoteChange>
 }
 
-type MeshRemoteChange = { what: 'terminals' | 'workspaces' | 'conversations'; revision: number; at: number }
+type MeshRemoteChange = { what: 'workspaces' | 'conversations'; revision: number; at: number }
 
 const EMPTY_LIVE_STATE: TailnetLiveState = { revision: 0, devices: [] }
 
@@ -57,48 +48,10 @@ function hasTailnetPresenceBridge(api: Partial<Window['api']> | undefined): bool
   )
 }
 
-/** Live sessions per connection, from the attachments held. Only `live` counts — connecting, reconnecting, and offline are a pane hoping. */
-export function meshLiveSessionsOf(
-  attachments: ReadonlyMap<string, MeshLiveAttachment>,
-): ReadonlyMap<string, ReadonlySet<string>> {
-  const next = new Map<string, Set<string>>()
-  for (const attachment of attachments.values()) {
-    if (attachment.state !== 'live') continue
-    const sessions = next.get(attachment.connectionId) ?? new Set<string>()
-    sessions.add(attachment.sessionId)
-    next.set(attachment.connectionId, sessions)
-  }
-  return next
-}
-
-/**
- * The terminal sessions a paired device is looking at right now.
- *
- * The gateway already announces every terminal attach and detach with its
- * session id (`onActivity`, kind `terminal`), and the service already folds
- * that into `attachedTerminalSessions` per device — so "is a phone watching
- * this agent" is a set membership, not new plumbing.
- *
- * A Set rather than the device list, because the caller is a tab render that
- * asks the question once per agent: a scan of every device's array per tab is
- * the same answer computed n times.
- */
-export function useRemoteAttachedSessions(): ReadonlySet<string> {
-  const presence = useTailnetPresence()
-  return useMemo(() => {
-    const sessions = new Set<string>()
-    for (const device of presence.live.devices) {
-      for (const sessionId of device.attachedTerminalSessions) sessions.add(sessionId)
-    }
-    return sessions
-  }, [presence.live])
-}
-
 export function useTailnetPresence(): TailnetPresence {
   const [status, setStatus] = useState<TailnetRemoteStatus | null>(null)
   const [live, setLive] = useState<TailnetLiveState>(EMPTY_LIVE_STATE)
   const [mesh, setMesh] = useState<MeshConnection[]>([])
-  const [meshAttachments, setMeshAttachments] = useState<ReadonlyMap<string, MeshLiveAttachment>>(new Map())
   const [meshRequests, setMeshRequests] = useState<readonly MeshPairRequestView[]>([])
   const [meshReachability, setMeshReachability] = useState<ReadonlyMap<string, MeshMachineReachability>>(new Map())
   const [meshRemoteChanges, setMeshRemoteChanges] = useState<ReadonlyMap<string, MeshRemoteChange>>(new Map())
@@ -146,7 +99,6 @@ export function useTailnetPresence(): TailnetPresence {
       .then((initial) => {
         if (cancelled || initial.revision < meshRevision.current) return
         meshRevision.current = initial.revision
-        setMeshAttachments(new Map(initial.attachments.map((attachment) => [attachment.attachId, attachment])))
         // Tolerant of a main that predates these fields (a partial bridge in
         // a test): an absent list is an empty one, not a throw at mount.
         setMeshRequests(initial.requests ?? [])
@@ -172,13 +124,6 @@ export function useTailnetPresence(): TailnetPresence {
           })
           .catch(() => {})
         if (event.kind === 'machine-forgotten') {
-          setMeshAttachments((current) => {
-            const next = new Map(current)
-            for (const [attachId, attachment] of current) {
-              if (attachment.connectionId === event.connectionId) next.delete(attachId)
-            }
-            return next.size === current.size ? current : next
-          })
           setMeshReachability((current) => {
             if (!current.has(event.connectionId)) return current
             const next = new Map(current)
@@ -211,24 +156,9 @@ export function useTailnetPresence(): TailnetPresence {
         })
         return
       }
-      if (event.kind === 'remote-changed') {
-        setMeshRemoteChanges((current) => {
-          const next = new Map(current)
-          next.set(event.connectionId, { what: event.what, revision: event.revision, at: Date.now() })
-          return next
-        })
-        return
-      }
-      // Keyed by attachId: two panes on one session are two links, and one
-      // closing must not retract the other's "live".
-      setMeshAttachments((current) => {
+      setMeshRemoteChanges((current) => {
         const next = new Map(current)
-        if (event.state === 'closed') {
-          if (!next.delete(event.attachId)) return current
-          return next
-        }
-        const { kind: _kind, revision: _revision, ...attachment } = event
-        next.set(event.attachId, attachment)
+        next.set(event.connectionId, { what: event.what, revision: event.revision, at: Date.now() })
         return next
       })
     })
@@ -239,13 +169,10 @@ export function useTailnetPresence(): TailnetPresence {
     }
   }, [])
 
-  const meshLiveSessions = useMemo(() => meshLiveSessionsOf(meshAttachments), [meshAttachments])
   return {
     status,
     live,
     mesh,
-    meshAttachments,
-    meshLiveSessions,
     meshRequests,
     meshReachability,
     meshRemoteChanges,

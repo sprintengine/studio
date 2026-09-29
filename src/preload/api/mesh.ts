@@ -1,13 +1,9 @@
 import { ipcRenderer, type IpcRendererEvent } from 'electron'
 
 import {
-  meshTerminalEventChannel,
-  MESH_ATTACH_TERMINAL_CHANNEL,
   MESH_BROWSE_CHANNEL,
   MESH_CREATE_CONVERSATION_CHANNEL,
-  MESH_CREATE_TERMINAL_CHANNEL,
   MESH_WORKSPACE_CHECKOUT_CHANNEL,
-  MESH_DETACH_TERMINAL_CHANNEL,
   MESH_FORGET_CHANNEL,
   MESH_GET_LIVE_STATE_CHANNEL,
   MESH_LIST_CONNECTIONS_CHANNEL,
@@ -16,20 +12,14 @@ import {
   MESH_PAIR_CHANNEL,
   MESH_REQUEST_PAIRING_CHANNEL,
   MESH_EVENT_CHANNEL,
-  MESH_TERMINAL_INPUT_CHANNEL,
-  MESH_TERMINAL_RESIZE_CHANNEL,
-  type MeshAttachResult,
   type MeshBrowse,
   type MeshConnection,
   type MeshCreateConversationResult,
-  type MeshCreateTerminalResult,
-  type MeshCheckoutRequest,
   type MeshWorkspaceCheckoutResult,
   type MeshEvent,
   type MeshLiveState,
   type MeshPairResult,
   type MeshRequestPairingResult,
-  type MeshTerminalEvent,
   meshConversationFrameChannel,
   MESH_CONVERSATION_COMMAND_CHANNEL,
   MESH_CONVERSATION_EARLIER_CHANNEL,
@@ -82,17 +72,6 @@ export const meshApi = {
     ipcRenderer.invoke(MESH_FORGET_CHANNEL, connectionId) as Promise<MeshConnection[]>,
   meshBrowse: (connectionId: string): Promise<MeshBrowse> =>
     ipcRenderer.invoke(MESH_BROWSE_CHANNEL, connectionId) as Promise<MeshBrowse>,
-  meshCreateTerminal: (input: {
-    connectionId: string
-    workspaceId?: string
-    name?: string
-    cli?: string
-    prompt?: string
-    cliModel?: string
-    permissionPreset?: string
-    checkout?: MeshCheckoutRequest
-  }): Promise<MeshCreateTerminalResult> =>
-    ipcRenderer.invoke(MESH_CREATE_TERMINAL_CHANNEL, input) as Promise<MeshCreateTerminalResult>,
   meshCreateConversation: (input: {
     connectionId: string
     workspaceId: string
@@ -107,29 +86,8 @@ export const meshApi = {
       connectionId,
       workspaceId,
     }) as Promise<MeshWorkspaceCheckoutResult>,
-  meshAttachTerminal: (input: {
-    attachId: string
-    connectionId: string
-    sessionId: string
-  }): Promise<MeshAttachResult> => ipcRenderer.invoke(MESH_ATTACH_TERMINAL_CHANNEL, input) as Promise<MeshAttachResult>,
-  meshDetachTerminal: (attachId: string): Promise<void> =>
-    ipcRenderer.invoke(MESH_DETACH_TERMINAL_CHANNEL, attachId) as Promise<void>,
-  meshTerminalInput: (attachId: string, data: string): void => {
-    // Fire-and-forget, like the local terminal's fast write: a keystroke that
-    // waits for a round trip before the next one is read feels laggy.
-    ipcRenderer.send(MESH_TERMINAL_INPUT_CHANNEL, { attachId, data })
-  },
-  meshTerminalResize: (attachId: string, cols: number, rows: number): void => {
-    ipcRenderer.send(MESH_TERMINAL_RESIZE_CHANNEL, { attachId, cols, rows })
-  },
-  onMeshTerminalEvent: (attachId: string, cb: (event: MeshTerminalEvent) => void): (() => void) => {
-    const channel = meshTerminalEventChannel(attachId)
-    const handler = (_: IpcRendererEvent, event: MeshTerminalEvent) => cb(event)
-    ipcRenderer.on(channel, handler)
-    return () => ipcRenderer.removeListener(channel, handler)
-  },
-  // Whole-app mesh lifecycle (remote-sessions-ux): machine paired/forgotten
-  // and attachment link-state changes, broadcast to every window.
+  // Whole-app mesh lifecycle (remote-sessions-ux): machine paired/forgotten,
+  // reachability and pairing waits, broadcast to every window.
   meshGetLiveState: (): Promise<MeshLiveState> =>
     ipcRenderer.invoke(MESH_GET_LIVE_STATE_CHANNEL) as Promise<MeshLiveState>,
   onMeshEvent: (cb: (event: MeshEvent) => void): (() => void) => {
@@ -213,14 +171,8 @@ export const meshApi = {
   | 'meshCheckReachability'
   | 'meshForget'
   | 'meshBrowse'
-  | 'meshCreateTerminal'
   | 'meshCreateConversation'
   | 'meshWorkspaceCheckout'
-  | 'meshAttachTerminal'
-  | 'meshDetachTerminal'
-  | 'meshTerminalInput'
-  | 'meshTerminalResize'
-  | 'onMeshTerminalEvent'
   | 'meshGetLiveState'
   | 'onMeshEvent'
   | 'meshConversationList'

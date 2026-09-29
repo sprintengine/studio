@@ -37,21 +37,20 @@ import { asRecord } from '../../../shared/records'
 import type { RemoteConversationCache, RemoteConversationCacheRecord } from './tailnet-remote-conversation-cache'
 import {
   openRemoteConversationSocket,
-  type RemoteTerminalSocket,
-  type RemoteTerminalSocketHandlers,
+  type RemoteJsonSocket,
+  type RemoteJsonSocketHandlers,
   type TailnetEndpoint,
 } from './tailnet-remote-client'
 
 // Following conversations on another machine: the chat half of the Mesh.
 //
-// The shape is the attached terminal's, on the conversation socket instead of
-// the terminal one. A followed conversation is one socket (that route follows
-// one conversation at a time), shared by every window showing it, re-dialled
-// with backoff when the link drops, and resumed from where this machine's copy
-// ends rather than replayed from the start: the far end sends only the events
-// after the cursor, then its `synchronized` fence, then live events.
+// A followed conversation is one socket (that route follows one conversation
+// at a time), shared by every window showing it, re-dialled with backoff when
+// the link drops, and resumed from where this machine's copy ends rather than
+// replayed from the start: the far end sends only the events after the
+// cursor, then its `synchronized` fence, then live events.
 //
-// Unlike a terminal pane, the copy outlives the process. The transcript tail
+// The copy outlives the process. The transcript tail
 // and its cursor are kept on disk (`tailnet-remote-conversation-cache.ts`), so
 // a restart here shows the conversation at once and asks only for what it
 // missed. A reset from the far end — another log generation, a cursor too far
@@ -146,7 +145,7 @@ type Follow = {
   sizes: number[]
   chars: number
   loaded: Promise<void>
-  socket: RemoteTerminalSocket | null
+  socket: RemoteJsonSocket | null
   synchronized: boolean
   waiters: Array<(ok: boolean) => void>
   parts: { total: number; pages: Array<ConversationWirePage | undefined>; frame: SnapshotFrame } | null
@@ -323,8 +322,8 @@ export function createRemoteConversations(options: RemoteConversationsOptions): 
       follow.attempts === 0 ? 'connecting' : 'reconnecting',
       follow.attempts === 0 ? `Connecting to ${connection.machineName}.` : `Reconnecting to ${connection.machineName}.`,
     )
-    let socket: RemoteTerminalSocket | null = null
-    const handlers: RemoteTerminalSocketHandlers = {
+    let socket: RemoteJsonSocket | null = null
+    const handlers: RemoteJsonSocketHandlers = {
       onFrame: (frame) => {
         if (socket && follow.socket === socket) receive(follow, frame)
       },

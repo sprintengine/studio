@@ -3,12 +3,10 @@ import { AttachmentChip } from '../../ui/AttachmentChip'
 import type { AgentCli, CliPermissionPreset, WorkspaceSkill } from '../../../../../shared/electron-api'
 import type {
   MeshBrowse,
-  MeshCheckoutRequest,
   MeshConnection,
   MeshWorkspace,
   MeshWorkspaceCheckout,
 } from '../../../../../shared/tailnet-mesh'
-import type { TailnetScope } from '../../../../../shared/tailnet'
 import { sameRepository, type RepositoryIdentity } from '../../../../../shared/repository-identity'
 import { folderIdentityKey, useFolderRepositoryIdentities } from '../useFolderRepositoryIdentities'
 import { FolderTypeIcon, RemoteMachineGlyph, WslMachineGlyph } from '../../AppIcons'
@@ -136,10 +134,10 @@ export type NewAgentPanelProps = {
    */
   showCloseButton?: boolean
   /**
-   * Door-only (remote-sessions-ux / new-chat-on-a-remote-machine): start the
-   * chat on a paired machine instead of this one. Present = the panel offers
-   * the machine dropdown (This device first, paired machines after — one
-   * dropdown, no separate Local/Remote switch; owner ruling 2026-09-03) and
+   * Door-only (remote-sessions-ux / new-chat-on-a-remote-machine): start a
+   * chat agent on a paired machine instead of this one. Present = the panel
+   * offers the machine dropdown (This device first, paired machines after —
+   * one dropdown, no separate Local/Remote switch; owner ruling 2026-09-03) and
    * routes a remote launch here instead of `onLaunch`.
    */
   onLaunchRemote?: (launch: RemoteNewChatLaunch) => Promise<void>
@@ -161,7 +159,11 @@ export type NewAgentPanelProps = {
   draftKey?: string
 }
 
-/** What a remote launch carries: the target, and the launch identity. */
+/**
+ * What a remote launch carries: the target, and the launch identity. It is
+ * always a chat agent, which runs in that machine's conversation runtime and is
+ * followed from here; terminals do not cross the tailnet.
+ */
 export type RemoteNewChatLaunch = {
   connectionId: string
   machineName: string
@@ -173,25 +175,10 @@ export type RemoteNewChatLaunch = {
   cli?: AgentCli
   cliModel?: string | null
   permissionPreset: CliPermissionPreset
-  /**
-   * Where the chat runs there (checkout-and-branch-on-remote-create): the
-   * workspace's current checkout, or a fresh worktree branched from `baseRef`.
-   */
-  checkout: MeshCheckoutRequest
-  /**
-   * The branch the chat is on, as far as the panel knows before the create:
-   * the remote's current branch for its checkout; for a worktree the branch
-   * is minted there and comes back with the create instead.
-   */
+  /** The branch the workspace's checkout is on over there, as the panel read it before the create. */
   branch: string | null
   /** Which repository the remote workspace is, as its machine served it (one-project-across-machines). */
   remoteRepository: RepositoryIdentity | null
-  /**
-   * Start the CLI there as a chat agent rather than in a terminal: the chat
-   * runs in that machine's conversation runtime, and the pane here follows it.
-   * A chat has no checkout of its own, so `checkout` is always the current one.
-   */
-  conversation?: boolean
 }
 
 /**
@@ -263,52 +250,8 @@ type RemoteTargetState = {
   projects: RemoteProject[] | null
   error: string | null
   picked: RemoteProject | null
-  /** The scopes the machine reports NOW (the browse refreshes them), for the worktree gate. */
-  scopes: TailnetScope[]
-  /** The picked project's checkout facts; null until read, or unreadable (see `checkoutError`). */
+  /** The picked project's checkout facts, for the branch the launch names; null until read, or unreadable. */
   checkout: MeshWorkspaceCheckout | null
-  checkoutError: string | null
-}
-
-/**
- * Why a fresh worktree cannot be asked for on this target, or null when it
- * can. A worktree is minted by `agent.launch`, which the gateway serves on
- * `workspace:operate` — a pairing without it is refused there, so the option
- * dims here with that reason rather than letting a launch travel to a refusal.
- */
-export function remoteWorktreeDisabledReason(target: {
-  connection: { machineName: string }
-  scopes: readonly TailnetScope[]
-  checkout: MeshWorkspaceCheckout | null
-  checkoutError: string | null
-}): string | null {
-  if (!target.scopes.includes('workspace:operate')) {
-    return `This pairing may not create worktrees on ${target.connection.machineName} — it needs the workspace:operate scope.`
-  }
-  if (target.checkoutError) return target.checkoutError
-  // Not yet read is not yet allowed: the base to fork from comes off this
-  // read, and a remote whose build predates `workspace.checkout` fails it —
-  // which is exactly the build whose agent.launch would ignore the base ref.
-  if (!target.checkout) return `Reading the checkout on ${target.connection.machineName}…`
-  if (!target.checkout.git) return `That project is not a git repository on ${target.connection.machineName}.`
-  if (!effectiveBaseRefOf(target.checkout)) return `No branch to fork from on ${target.connection.machineName}.`
-  return null
-}
-
-/**
- * The base ref a remote worktree launch forks from: the checkout's own branch,
- * else the trunk. Null when the remote has nothing to fork from (a detached
- * checkout with no trunk), which is a disabled worktree row rather than a fork
- * of an arbitrary commit.
- *
- * It took a `picked` override until 2026-09-11, when the scope line's base-ref
- * picker went with the rest of the duplicated worktree controls. A remote fork
- * now starts where the project stands over there — the same promise the local
- * worktree row makes about this disk — so there is nothing to override with.
- */
-function effectiveBaseRefOf(checkout: MeshWorkspaceCheckout | null): string | null {
-  if (!checkout?.git) return null
-  return checkout.branch ?? checkout.defaultBranch ?? null
 }
 
 // The greeting rotates per tab open. No exclamation marks and no "we" (the copy
@@ -506,10 +449,11 @@ export default function NewAgentPanel({
   // One dropdown: This device is the default entry, paired machines follow. A
   // remote target swaps the project choice for the machine's own workspaces
   // (fetched over the audited mesh client) and routes the launch remotely.
-  // A chat agent runs in the chosen machine's own conversation runtime and is
-  // followed from here, as its terminal agents are attached to. A bare
-  // terminal is this machine's only — picking it resets the target rather
-  // than lying about where it would run.
+  // What runs there is always a chat agent, in that machine's own conversation
+  // runtime, followed from here: terminals do not cross the tailnet, so a
+  // terminal agent or a bare terminal is this machine's only. Picking a machine
+  // turns the launch into a chat; picking Agent or Terminal after that returns
+  // it to This device rather than lying about where it would run.
   const [remoteMachines, setRemoteMachines] = React.useState<MeshConnection[]>([])
   const [remoteTarget, setRemoteTarget] = React.useState<RemoteTargetState | null>(null)
   // What each paired machine holds, read once per machine per door open
@@ -535,9 +479,7 @@ export default function NewAgentPanel({
           unreachableReason: error instanceof Error ? error.message : String(error),
           unauthorized: false,
           scopes: connection.scopes,
-          terminalAccess: 'none',
           workspaces: [],
-          terminals: [],
           gaps: [],
         }
         setMachineBrowses((current) => new Map(current).set(connection.id, { browse: failed, at: Date.now() }))
@@ -587,10 +529,15 @@ export default function NewAgentPanel({
       unsubscribe?.()
     }
   }, [remoteCapable])
-  const remoteSelectable = remoteCapable && selection.kind !== 'terminal'
+  // Chat agent is offered only where the workspace can host one; without it
+  // there is nothing a paired machine could run for this launch.
+  const chatAvailable =
+    conversationWorkspaceSupported && composer.visibleRows.some((row) => row.kind === 'conversation')
+  const remoteSelectable = remoteCapable && chatAvailable && selection.kind !== 'terminal'
+  const remoteChosenAway = !remoteSelectable || selection.kind !== 'conversation'
   React.useEffect(() => {
-    if (!remoteSelectable) setRemoteTarget(null)
-  }, [remoteSelectable])
+    if (remoteChosenAway) setRemoteTarget(null)
+  }, [remoteChosenAway])
   // The project in hand, as an identity the next machine can be searched for:
   // the local folder's repository, or the remote project's as its machine
   // served it. Null when nothing is chosen or the folder has no remote.
@@ -667,15 +614,17 @@ export default function NewAgentPanel({
       setRemoteTarget(null)
       return
     }
+    // A paired machine runs chat agents only, so choosing one is choosing a
+    // chat — and where no chat can be hosted, there is nothing to choose.
+    if (!chatAvailable) return
+    if (composer.selection.kind !== 'conversation') composer.setSelection({ kind: 'conversation' })
     setRemoteTarget({
       connection,
       workspaces: null,
       projects: null,
       error: null,
       picked: null,
-      scopes: connection.scopes,
       checkout: null,
-      checkoutError: null,
     })
     void browseMachine(connection).then((browse) => {
       setRemoteTarget((current) => {
@@ -719,7 +668,6 @@ export default function NewAgentPanel({
         const kept = copy ? remoteProjectOfWorkspace(projects, browse.workspaces, copy.id) : null
         return {
           ...current,
-          scopes: browse.scopes,
           workspaces: browse.workspaces,
           projects,
           // A choice already made meanwhile is never overwritten by a late answer.
@@ -733,8 +681,8 @@ export default function NewAgentPanel({
   // The picked project's checkout facts (checkout-and-branch-on-remote-create),
   // read over `workspace.checkout` the moment a project is chosen — keyed on
   // the machine and the project, so a re-pick re-reads and a browse settling
-  // does not. A refusal (a read-only pairing, a machine gone quiet) is kept
-  // as the reason the worktree option dims with, never as an empty branch list.
+  // does not. A refusal (a read-only pairing, a machine gone quiet) leaves the
+  // branch unnamed rather than guessed.
   const remoteConnectionId = remoteTarget?.connection.id ?? null
   // `workspace.checkout` is keyed by workspace id, and a project's seat is one
   // of the chats standing in it — every chat in a folder answers for the folder.
@@ -749,27 +697,14 @@ export default function NewAgentPanel({
         setRemoteTarget((current) => {
           if (current?.connection.id !== remoteConnectionId || current.picked?.workspaceId !== remotePickedId)
             return current
-          if (!result.ok) return { ...current, checkout: null, checkoutError: result.message }
-          return { ...current, checkout: result.checkout, checkoutError: null }
+          return { ...current, checkout: result.ok ? result.checkout : null }
         })
       })
-      .catch((error: unknown) => {
-        if (cancelled) return
-        setRemoteTarget((current) =>
-          current?.connection.id === remoteConnectionId && current.picked?.workspaceId === remotePickedId
-            ? { ...current, checkout: null, checkoutError: error instanceof Error ? error.message : String(error) }
-            : current,
-        )
-      })
+      .catch(() => {})
     return () => {
       cancelled = true
     }
   }, [remoteConnectionId, remotePickedId])
-  // The ⋯ worktree row is the ONLY worktree control now, local or remote
-  // (owner, 2026-09-11), so picking a machine no longer clears it. A worktree
-  // asked for on a remote target travels as `MeshCheckoutRequest.name` — the
-  // same branch name the local spawn mints its worktree on — and the gate
-  // below is what stops one being asked for where the pairing cannot make it.
   const activeBranch = useWorkspaceStore((s) => {
     const ws = s.workspaces.find((w) => w.id === workspaceId)
     return ws ? (resolveWorkspaceWorktree(ws)?.branch ?? null) : null
@@ -1040,82 +975,21 @@ export default function NewAgentPanel({
     if (remoteTarget) {
       if (!remoteTarget.picked || !onLaunchRemote || remoteLaunching) return
       const confirm = composer.buildConfirm(selection)
-      if (confirm.kind === 'conversation') {
-        // A chat's skills are this machine's and its images are local files;
-        // neither has a way over yet, so their chips refuse rather than vanish.
-        const strandedChat = [
-          confirm.skills?.length ? 'the skills' : null,
-          images.length > 0 ? 'the attached images' : null,
-        ].filter((entry): entry is string => entry !== null)
-        if (strandedChat.length > 0) {
-          showToast({
-            tone: 'warn',
-            title: 'That chat cannot travel yet',
-            description: `Remove ${strandedChat.join(' and ')} to start on ${remoteTarget.connection.machineName}, or start it on This device.`,
-          })
-          return
-        }
-        setRemoteLaunching(true)
-        onLaunchRemote({
-          connectionId: remoteTarget.connection.id,
-          machineName: remoteTarget.connection.machineName,
-          remoteWorkspaceId: remoteTarget.picked.workspaceId,
-          remoteWorkspaceName: remoteTarget.picked.name,
-          remoteWorkspaceRoot: remoteTarget.picked.folderPath,
-          prompt: text.trim(),
-          cli: confirm.cli,
-          cliModel: confirm.model ?? null,
-          permissionPreset: effectivePreset,
-          checkout: { mode: 'current' },
-          branch: remoteTarget.checkout?.branch ?? null,
-          remoteRepository: remoteTarget.picked.repository,
-          conversation: true,
-        })
-          .finally(() => setRemoteLaunching(false))
-          .catch(() => {})
-        return
-      }
-      if (confirm.kind !== 'general') return
-      // What cannot travel must not be silently dropped while its chip is on
-      // screen: skills install locally, and MCP servers were synced into the
-      // LOCAL workspace config.
-      // Images too: a local path means nothing on another machine, and there
-      // is no upload path to the remote today (uploading them into the remote
-      // environment is the future path; until it exists the refusal names them
-      // rather than dropping them while their chips stay on screen).
-      //
-      // The worktree left this list on 2026-09-11: it DOES travel now. The
-      // remote mints it, on the branch name the ⋯ row carries, through the same
-      // `agent.launch` mutation that already owned remote worktree creation.
+      if (confirm.kind !== 'conversation') return
+      // A chat's skills are this machine's and its images are local files;
+      // neither has a way over yet, so their chips refuse rather than vanish.
       const stranded = [
         confirm.skills?.length ? 'the skills' : null,
-        confirm.mcpServers?.length ? 'the MCP servers' : null,
         images.length > 0 ? 'the attached images' : null,
       ].filter((entry): entry is string => entry !== null)
       if (stranded.length > 0) {
         showToast({
           tone: 'warn',
-          title: 'That launch cannot travel yet',
-          description: `Remove ${stranded.join(', ')} to start on ${remoteTarget.connection.machineName}, or launch on This device.`,
+          title: 'That chat cannot travel yet',
+          description: `Remove ${stranded.join(' and ')} to start on ${remoteTarget.connection.machineName}, or start it on This device.`,
         })
         return
       }
-      // A worktree the gate has since closed on (a scope read that came back
-      // narrower, a project that turned out not to be a repo) never travels:
-      // the pick falls back to the checkout it can have.
-      //
-      // The base is the remote checkout's OWN branch, never a branch this
-      // machine chose: the local worktree row forks from where the project
-      // stands, and a remote fork is the same promise about someone else's
-      // disk. `confirm.worktree.name` empty means "name it after the agent",
-      // which is the remote's own default when the field is absent.
-      const worktreeBlocked = remoteWorktreeDisabledReason(remoteTarget) !== null
-      const worktreeName = confirm.worktree?.name.trim()
-      const baseRef = confirm.worktree ? effectiveBaseRefOf(remoteTarget.checkout) : null
-      const checkout: MeshCheckoutRequest =
-        confirm.worktree && !worktreeBlocked && baseRef
-          ? { mode: 'worktree', baseRef, ...(worktreeName ? { name: worktreeName } : {}) }
-          : { mode: 'current' }
       setRemoteLaunching(true)
       onLaunchRemote({
         connectionId: remoteTarget.connection.id,
@@ -1127,8 +1001,7 @@ export default function NewAgentPanel({
         cli: confirm.cli,
         cliModel: confirm.model ?? null,
         permissionPreset: effectivePreset,
-        checkout,
-        branch: checkout.mode === 'current' ? (remoteTarget.checkout?.branch ?? null) : null,
+        branch: remoteTarget.checkout?.branch ?? null,
         remoteRepository: remoteTarget.picked.repository,
       })
         .finally(() => setRemoteLaunching(false))
@@ -1304,9 +1177,7 @@ export default function NewAgentPanel({
                 target={remoteTarget}
                 color={scopeProjectColor}
                 onPick={(project) => {
-                  setRemoteTarget((current) =>
-                    current ? { ...current, picked: project, checkout: null, checkoutError: null } : current,
-                  )
+                  setRemoteTarget((current) => (current ? { ...current, picked: project, checkout: null } : current))
                 }}
               />
             ) : canChooseProject ? (
@@ -1613,9 +1484,7 @@ export default function NewAgentPanel({
               >
                 <MoreMenu
                   selection={selection}
-                  chatAvailable={
-                    conversationWorkspaceSupported && composer.visibleRows.some((row) => row.kind === 'conversation')
-                  }
+                  chatAvailable={chatAvailable}
                   onSelectKind={(next) => {
                     composer.setSelection(next)
                     setLastNewChatAgent(next)
@@ -1624,13 +1493,9 @@ export default function NewAgentPanel({
                   worktreeName={composer.worktreeName}
                   onToggleWorktree={() => composer.setWorktreeName(composer.worktreeName === null ? '' : null)}
                   onChangeWorktree={composer.setWorktreeName}
-                  // One row for both targets now. A remote one is offered it
-                  // once a project is picked — until then there is no checkout
-                  // to fork and nothing to say about it — and the reason it
-                  // cannot have one dims the row instead of hiding it, which is
-                  // the menu spec's rule for a choice that stays true tomorrow.
-                  worktreeAvailable={remoteTarget ? remoteTarget.picked !== null : workspaceIsGitRepo}
-                  worktreeReason={remoteTarget ? remoteWorktreeDisabledReason(remoteTarget) : null}
+                  // This device only: a paired machine runs chats, which have
+                  // no checkout of their own to fork.
+                  worktreeAvailable={!remoteTarget && workspaceIsGitRepo}
                 />
               </Popover>
             }
@@ -2082,7 +1947,6 @@ function MoreMenu({
   onToggleWorktree,
   onChangeWorktree,
   worktreeAvailable,
-  worktreeReason,
 }: {
   selection: AgentComposerSelection
   /** Whether the Chat agent row is offered (the roster has it). */
@@ -2092,14 +1956,6 @@ function MoreMenu({
   onToggleWorktree: () => void
   onChangeWorktree: (next: string | null) => void
   worktreeAvailable: boolean
-  /**
-   * Why this target cannot have a worktree, when it cannot — a pairing without
-   * `workspace:operate`, a project that is not a repository, a checkout still
-   * being read. The row stays listed and dims with the sentence rather than
-   * disappearing: it is a choice that will be true again, not one that does not
-   * exist here. Null when the worktree can be asked for.
-   */
-  worktreeReason?: string | null
 }) {
   const worktreeRef = React.useRef<HTMLInputElement>(null)
 
@@ -2138,12 +1994,9 @@ function MoreMenu({
         <>
           <MenuValueRow
             label="Worktree"
-            value={worktreeReason ? 'Unavailable' : worktreeName === null ? 'Off' : worktreeName || 'Named on start'}
-            expanded={!worktreeReason && worktreeName !== null}
-            disabled={Boolean(worktreeReason)}
-            hint={worktreeReason ?? null}
+            value={worktreeName === null ? 'Off' : worktreeName || 'Named on start'}
+            expanded={worktreeName !== null}
             onClick={() => {
-              if (worktreeReason) return
               onToggleWorktree()
               // Opening it puts the caret where the name goes — the click that
               // turns it on is the same click that starts typing.
@@ -2156,7 +2009,7 @@ function MoreMenu({
               nothing when off rather than reserving the row. */}
           <div
             className={`grid transition-[grid-template-rows,opacity] duration-[var(--motion-normal)] ease-[var(--motion-ease)] ${
-              worktreeReason || worktreeName === null ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100'
+              worktreeName === null ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100'
             }`}
           >
             <div className="overflow-hidden">
@@ -2173,8 +2026,8 @@ function MoreMenu({
                 onChange={(event) => onChangeWorktree(event.currentTarget.value)}
                 placeholder="Branch name — blank uses the agent’s"
                 aria-label="Worktree branch name"
-                aria-hidden={Boolean(worktreeReason) || worktreeName === null}
-                tabIndex={worktreeReason || worktreeName === null ? -1 : 0}
+                aria-hidden={worktreeName === null}
+                tabIndex={worktreeName === null ? -1 : 0}
                 className="mx-2 mb-1 w-[calc(100%-1rem)] text-meta"
               />
             </div>
@@ -2189,17 +2042,11 @@ function MenuValueRow({
   label,
   value,
   expanded = false,
-  disabled = false,
-  hint = null,
   onClick,
 }: {
   label: string
   value: string
   expanded?: boolean
-  /** Listed and dimmed with its `hint`, per the menu spec — never hidden. */
-  disabled?: boolean
-  /** The one line under the label: why a dimmed row is dimmed. */
-  hint?: string | null
   onClick: () => void
 }) {
   return (
@@ -2209,7 +2056,6 @@ function MenuValueRow({
     // rounded fill is the card-in-a-card the spec retires.
     <MenuItem
       onClick={onClick}
-      disabled={disabled || undefined}
       expanded={expanded || undefined}
       trailing={
         <>
@@ -2220,14 +2066,7 @@ function MenuValueRow({
         </>
       }
     >
-      {hint ? (
-        <>
-          <span className="block text-body">{label}</span>
-          <span className="block text-meta leading-snug text-[color:var(--text-subtle)]">{hint}</span>
-        </>
-      ) : (
-        label
-      )}
+      {label}
     </MenuItem>
   )
 }

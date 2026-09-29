@@ -1,8 +1,8 @@
 /* Scope pill — one machine-readable scope name, shown as a thing the reader can
  * count and compare rather than as prose.
  *
- * The pairing code's grant list is the surface it was drawn for: eight names
- * like `terminal:control` that the person is being asked to hand to another
+ * The pairing code's grant list is the surface it was drawn for: six names
+ * like `conversation:operate` that the person is being asked to hand to another
  * machine. They are API strings, they are the strings that appear in the
  * request, in the audit line and in the popover that says what a machine may
  * do here — so they are set in mono and the pill's job is to make each one one

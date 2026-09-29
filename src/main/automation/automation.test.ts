@@ -12,7 +12,6 @@ import {
   resolveSocketPath,
   STUDIO_MCP_SERVER_INFO_FILENAME,
 } from './automation-service'
-import { projectHue } from '../../shared/project-hue'
 import { createMcpSocketServer, type McpConnectionContext, type McpToolRegistration } from './mcp-socket-server'
 import { createWorkspaceRegistryService } from '../workspace-registry-service'
 import { createInMemoryWorkspaceRegistryStore } from '../workspace-registry-store'
@@ -94,8 +93,6 @@ test('automation', async () => {
     sessions?: TerminalSessionSnapshot[]
     createWorkspace?: AutomationBackends['createWorkspace']
     launchAgent?: AutomationBackends['launchAgent']
-    /** The CLI this machine would spawn under; the harness's stub session reports it. */
-    defaultCli?: string
     listBacklogItems?: AutomationBackends['listBacklogItems']
     readBacklogItem?: AutomationBackends['readBacklogItem']
     listAutomationDefinitions?: AutomationBackends['listAutomationDefinitions']
@@ -296,8 +293,6 @@ test('automation', async () => {
       'marketplace.list',
       'module.list',
       'module.status',
-      'terminal.create',
-      'terminal.list',
       'workspace.checkout',
       'workspace.create',
       'workspace.list',
@@ -305,229 +300,6 @@ test('automation', async () => {
       'workspace.snapshot',
       'workspace.status',
     ])
-  }
-
-  // The list a remote client reads before attaching to one of these.
-  // It reports liveness honestly — a paused agent is not running but is not gone
-  // — and carries the hook-reported phase with its provenance, so a caller can
-  // tell an authoritative "waiting for you" from an output-timing guess.
-  async function testTerminalListReportsAttachableSessions(): Promise<void> {
-    const sessions = [
-      {
-        sessionId: 'session-live',
-        processAlive: true,
-        suspended: false,
-        kind: 'agent',
-        workspaceId: 'ws-1',
-        agentId: 'agent-a',
-        agentName: 'Scout',
-        cli: 'claude-code',
-        cwd: '/repo/one',
-        visible: true,
-        startedAt: 10,
-        lastOutputAt: 20,
-        lastInputAt: null,
-        lastVisibleAt: null,
-        activity: { kind: 'working', since: 20 },
-        agentState: { phase: 'awaiting_input', source: 'hook', since: 21 },
-      },
-      {
-        sessionId: 'session-paused',
-        processAlive: false,
-        suspended: true,
-        kind: 'agent',
-        workspaceId: 'ws-2',
-        cwd: '/repo/two',
-        visible: false,
-        startedAt: 5,
-        lastOutputAt: 6,
-        lastInputAt: null,
-        lastVisibleAt: null,
-        activity: { kind: 'idle', since: 6 },
-      },
-      {
-        sessionId: 'session-shell',
-        processAlive: true,
-        suspended: false,
-        kind: 'terminal',
-        workspaceId: 'ws-1',
-        cwd: '/repo/one',
-        visible: true,
-        startedAt: 30,
-        lastOutputAt: 30,
-        lastInputAt: null,
-        lastVisibleAt: null,
-        activity: { kind: 'idle', since: 30 },
-      },
-    ] as unknown as TerminalSessionSnapshot[]
-    const base = backendsOf({ sessions, workspaces: [testWorkspace('ws-1')] })
-    // The workspace-name lookup must read the sync snapshot ONCE per call, never
-    // once per session: on a registry of hundreds of workspaces a per-row read
-    // was a whole-registry clone per row (the 30-second stall of 2026-09-05).
-    let snapshotReads = 0
-    const tools = createAutomationTools({
-      ...base,
-      getWorkspaceSyncSnapshot: () => {
-        snapshotReads += 1
-        return base.getWorkspaceSyncSnapshot()
-      },
-    })
-
-    const all = await tool(tools, 'terminal.list').handler({})
-    assert.equal(all.isError, undefined, JSON.stringify(all.structuredContent))
-    const listed = (
-      all.structuredContent as {
-        terminals: Array<{
-          sessionId: string
-          processAlive: boolean
-          suspended: boolean
-          agentState: unknown
-          workspaceName: string | null
-          git: unknown
-        }>
-      }
-    ).terminals
-    assert.deepEqual(
-      listed.map((entry) => entry.sessionId),
-      ['session-live', 'session-paused', 'session-shell'],
-    )
-    assert.equal(snapshotReads, 1, 'one snapshot read serves every row of a terminal.list')
-    assert.equal(listed[0].workspaceName, testWorkspace('ws-1').name, 'a known workspace names its row')
-    assert.equal(listed[1].workspaceName, null, 'an unknown workspace id reads as no name, never a guess')
-    // Git facts are read for RUNNING sessions only: a paused or exited chat gets
-    // null rather than the checkout's present numbers (the sidebar's own rule),
-    // and a network read never fans git out to every checkout ever held.
-    assert.equal(listed[1].git, null, 'a paused session carries no git line')
-    assert.deepEqual(listed[0].agentState, { phase: 'awaiting_input', source: 'hook', since: 21 })
-    // Paused is its own answer: not running, not gone.
-    assert.equal(listed[1].processAlive, false)
-    assert.equal(listed[1].suspended, true)
-    // A plain shell has no agent phase to report, and says so rather than guessing.
-    assert.equal(listed[2].agentState, null)
-
-    const filtered = await tool(tools, 'terminal.list').handler({ workspaceId: 'ws-1', kind: 'agent' })
-    assert.deepEqual(
-      (filtered.structuredContent as { terminals: Array<{ sessionId: string }> }).terminals.map(
-        (entry) => entry.sessionId,
-      ),
-      ['session-live'],
-    )
-
-    const refused = await tool(tools, 'terminal.list').handler({ kind: 'sideways' })
-    assert.equal(refused.isError, true)
-    assert.equal((refused.structuredContent as { error: { code: string } }).error.code, 'invalid_kind')
-  }
-
-  // The facts a remote row needs to say what the sidebar says. Every one is
-  // additive and null/zero when unknown, so a client built before them reads the
-  // row unchanged — which is why they are asserted as VALUES here rather than by
-  // shape: `lastTurnEndedAt` in particular was read by the phone for a whole epic
-  // while this projection never sent it, and a shape assertion would not have
-  // caught that.
-  async function testTerminalListCarriesTheRowsProjectAndConversationFacts(): Promise<void> {
-    const sessions = [
-      {
-        sessionId: 'session-live',
-        processAlive: true,
-        suspended: false,
-        kind: 'agent',
-        workspaceId: 'ws-1',
-        cwd: '/repo/one',
-        visible: true,
-        startedAt: 10,
-        lastOutputAt: 20,
-        lastInputAt: null,
-        lastVisibleAt: null,
-        lastTurnEndedAt: 44,
-        activeSubagents: 3,
-        contextUsage: { usedPercentage: 62, at: 43 },
-        pullRequests: [
-          {
-            url: 'https://github.com/acme/sprintengine/pull/7',
-            repoKey: 'github.com/acme/sprintengine',
-            repoName: 'sprintengine',
-            number: 7,
-            title: 'Carry the row',
-            state: 'open',
-            isDraft: true,
-            openedAt: 1,
-            readAt: 2,
-          },
-        ],
-        activity: { kind: 'working', since: 20 },
-      },
-      {
-        sessionId: 'session-bare',
-        processAlive: true,
-        suspended: false,
-        kind: 'terminal',
-        workspaceId: 'ws-2',
-        cwd: '/repo/two',
-        visible: true,
-        startedAt: 30,
-        lastOutputAt: 30,
-        lastInputAt: null,
-        lastVisibleAt: null,
-        activity: { kind: 'idle', since: 30 },
-      },
-    ] as unknown as TerminalSessionSnapshot[]
-
-    const tools = createAutomationTools(
-      backendsOf({
-        sessions,
-        workspaces: [
-          testWorkspace('ws-1', { folderPath: '/code/sprintengine', snoozedUntil: 9_000 }),
-          testWorkspace('ws-2', { folderPath: null }),
-        ],
-        readRepositoryIdentity: async (folderPath) =>
-          folderPath === '/code/sprintengine'
-            ? {
-                canonicalKey: 'github.com/acme/sprintengine',
-                remoteUrl: 'git@github.com:acme/sprintengine.git',
-                name: 'sprintengine',
-              }
-            : null,
-      }),
-    )
-
-    const listed = (
-      (await tool(tools, 'terminal.list').handler({})).structuredContent as {
-        terminals: Array<Record<string, unknown>>
-      }
-    ).terminals
-
-    // The field the phone has been reading and never receiving.
-    assert.equal(listed[0].lastTurnEndedAt, 44, 'a finished turn reports when it finished')
-    assert.equal(listed[1].lastTurnEndedAt, null, 'a shell that never took a turn says null, not zero')
-
-    assert.deepEqual(listed[0].contextUsage, { usedPercentage: 62, at: 43 })
-    assert.equal(listed[1].contextUsage, null, 'a CLI-less shell reports no context usage rather than 0%')
-
-    assert.equal(listed[0].activeSubagents, 3)
-    assert.equal(listed[1].activeSubagents, 0, 'no subagents is zero, so a caller can count without a guard')
-
-    // The hue is the shared hash of the REPOSITORY key, so this row is the same
-    // degree on the phone, on this desktop, and on a paired machine's clone.
-    assert.equal(listed[0].projectHue, projectHue('repo:github.com/acme/sprintengine'))
-    assert.equal(listed[1].projectHue, null, 'a chat with no folder is not a project and wears no colour')
-
-    assert.equal(listed[0].snoozedUntil, 9_000, 'a sleeping chat says when it wakes')
-    assert.equal(listed[1].snoozedUntil, null, 'an awake chat says null, never 0')
-
-    // The PR list is projected field by field: the row needs the state and the
-    // draft flag to draw its mark, and nothing needs the read timestamps.
-    assert.deepEqual(listed[0].pullRequests, [
-      {
-        url: 'https://github.com/acme/sprintengine/pull/7',
-        repoKey: 'github.com/acme/sprintengine',
-        repoName: 'sprintengine',
-        number: 7,
-        title: 'Carry the row',
-        state: 'open',
-        isDraft: true,
-      },
-    ])
-    assert.deepEqual(listed[1].pullRequests, [], 'no pull requests is an empty list, never absent')
   }
 
   async function testReadToolsAnswerFromSnapshot(): Promise<void> {
@@ -680,9 +452,10 @@ test('automation', async () => {
             cli: 'claude-code',
             cliSessionId: 'sess-1',
           } as never
-          // A full snapshot, not a stub: terminal.create projects the session it
-          // just minted straight back to the caller, so a half-shaped one here
-          // would pass a test the real runtime's snapshot would fail.
+          // A full snapshot, not a stub: agent.launch confirms against the
+          // session it just minted and projects it back to the caller, so a
+          // half-shaped one here would pass a test the real runtime's snapshot
+          // would fail.
           sessions.push({
             sessionId: 'sess-1',
             kind: 'agent',
@@ -691,7 +464,7 @@ test('automation', async () => {
             agentName: 'Scout',
             // The CLI the launch service resolved, in its real order: the request
             // when it named one, otherwise this machine's last-selected CLI.
-            cli: request.cli ?? overrides.defaultCli ?? 'claude-code',
+            cli: request.cli ?? 'claude-code',
             cwd: request.worktreePath ?? '/tmp/project-a',
             processAlive: true,
             suspended: false,
@@ -707,10 +480,10 @@ test('automation', async () => {
             agentRecord: {
               agentId,
               name: 'Scout',
-              cli: request.cli ?? overrides.defaultCli ?? 'claude-code',
+              cli: request.cli ?? 'claude-code',
               cliPermissionPreset: resolveAgentSpawnPermissionPreset(
                 emptyAgentLaunchSettings(),
-                request.cli ?? overrides.defaultCli ?? 'claude-code',
+                request.cli ?? 'claude-code',
                 request.permissionPreset,
               ),
             },
@@ -720,7 +493,7 @@ test('automation', async () => {
             workspaceId: request.workspaceId,
             agentId,
             sessionId: 'sess-1',
-            cli: request.cli ?? overrides.defaultCli ?? 'claude-code',
+            cli: request.cli ?? 'claude-code',
             executionId: 'sess-1',
           }
         }),
@@ -880,65 +653,6 @@ test('automation', async () => {
     assert.match(JSON.stringify(created.structuredContent), /registry_commit_failed/)
   }
 
-  // Opening a terminal on THIS machine from wherever the call came from.
-  // The session id is the deliverable — the caller attaches to it immediately —
-  // and the workspace can be named without an id, because the terminal scope tier
-  // is granted separately from the one that may call workspace.list.
-  async function testTerminalCreateSpawnsAndReturnsTheAttachableSession(): Promise<void> {
-    const byId = launchHarness()
-    const created = await tool(byId.tools, 'terminal.create').handler({ workspaceId: 'ws-1', prompt: 'go' })
-    assert.equal(created.isError, undefined, JSON.stringify(created.structuredContent))
-    const payload = created.structuredContent as {
-      sessionId: string
-      workspaceId: string
-      agentId: string
-      permissionPreset: string
-      terminal: { sessionId: string; kind: string; processAlive: boolean; cli: string | null }
-    }
-    assert.equal(payload.sessionId, 'sess-1', 'the caller gets the session id to attach to, not a search hint')
-    assert.equal(payload.workspaceId, 'ws-1')
-    assert.equal(payload.terminal.sessionId, 'sess-1')
-    assert.equal(payload.terminal.processAlive, true, 'success is a live session, not a launch call returning')
-    assert.equal(byId.requests[0].prompt, 'go')
-    // No worktree and no connector: terminal.create is not a second door onto
-    // agent.launch's workspace-mutating options.
-    assert.equal(byId.worktreeCalls.length, 0)
-    assert.equal(byId.requests[0].worktreePath, undefined)
-    assert.equal(byId.requests[0].connectorId, undefined)
-
-    // A workspace named rather than identified — the path a device holding only
-    // the terminal scopes has to use, since workspace.list is closed to it.
-    const byName = launchHarness()
-    const named = await tool(byName.tools, 'terminal.create').handler({ workspaceName: 'workspace ws-1' })
-    assert.equal(named.isError, undefined, JSON.stringify(named.structuredContent))
-    assert.equal(byName.requests[0].workspaceId, 'ws-1')
-
-    const unknownName = await tool(launchHarness().tools, 'terminal.create').handler({ workspaceName: 'nowhere' })
-    assert.equal((unknownName.structuredContent as { error: { code: string } }).error.code, 'unknown_workspace')
-
-    const bothWays = await tool(launchHarness().tools, 'terminal.create').handler({
-      workspaceId: 'ws-1',
-      workspaceName: 'Workspace ws-1',
-    })
-    assert.equal((bothWays.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
-
-    const neither = await tool(launchHarness().tools, 'terminal.create').handler({})
-    assert.equal((neither.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
-
-    // Two workspaces sharing a name is an explicit refusal naming both ids:
-    // opening a terminal in the wrong project is not a recoverable mistake.
-    const twins = [
-      testWorkspace('ws-left', { name: 'Twin', folderPath: '/tmp/left' }),
-      testWorkspace('ws-right', { name: 'Twin', folderPath: '/tmp/right' }),
-    ]
-    const ambiguous = await tool(createAutomationTools(backendsOf({ workspaces: twins })), 'terminal.create').handler({
-      workspaceName: 'twin',
-    })
-    assert.equal((ambiguous.structuredContent as { error: { code: string } }).error.code, 'ambiguous_workspace_name')
-    assert.match(JSON.stringify(ambiguous.structuredContent), /ws-left/)
-    assert.match(JSON.stringify(ambiguous.structuredContent), /ws-right/)
-  }
-
   // workspace.checkout (checkout-and-branch-on-remote-create): the read a
   // paired Studio makes before choosing where a remote chat runs. It projects
   // the backend's facts under the workspace id, and answers a folderless or
@@ -994,56 +708,6 @@ test('automation', async () => {
       false,
       'a read, on workspace:read — the worktree itself is agent.launch',
     )
-  }
-
-  // This machine's own settings decide the CLI and the preset unless the caller
-  // names them, the same as a launch from the desktop would.
-  async function testTerminalCreateTakesThisMachinesLaunchDefaults(): Promise<void> {
-    const inherited = launchHarness({ defaultCli: 'codex' })
-    const ok = await tool(inherited.tools, 'terminal.create').handler({ workspaceId: 'ws-1' })
-    assert.equal(ok.isError, undefined, JSON.stringify(ok.structuredContent))
-    assert.equal(
-      inherited.requests[0].cli,
-      undefined,
-      'an unnamed CLI is left to the launch service, which reads the same settings store',
-    )
-    // An unnamed preset is left to the launch service too, and the answer
-    // reports what it resolved: this machine's spawn default, `bypass`.
-    assert.equal(inherited.requests[0].permissionPreset, undefined, 'an unnamed preset is not floored here')
-    assert.equal((ok.structuredContent as { permissionPreset: string }).permissionPreset, 'bypass')
-    // The CLI reported is the one the session actually spawned under.
-    assert.equal((ok.structuredContent as { terminal: { cli: string } }).terminal.cli, 'codex')
-
-    // An explicit CLI and preset are forwarded.
-    const overridden = launchHarness({ defaultCli: 'codex' })
-    const named = await tool(overridden.tools, 'terminal.create').handler({
-      workspaceId: 'ws-1',
-      cli: 'claude-code',
-      permissionPreset: 'none',
-    })
-    assert.equal(overridden.requests[0].cli, 'claude-code')
-    assert.equal(overridden.requests[0].permissionPreset, 'none')
-    assert.equal((named.structuredContent as { permissionPreset: string }).permissionPreset, 'none')
-
-    // Asked for by either spelling: bypass is forwarded and reported.
-    for (const spelling of ['bypass', 'bypass_all']) {
-      const asked = launchHarness()
-      const accepted = await tool(asked.tools, 'terminal.create').handler({
-        workspaceId: 'ws-1',
-        permissionPreset: spelling,
-      })
-      assert.equal(accepted.isError, undefined, JSON.stringify(accepted.structuredContent))
-      assert.equal(asked.requests[0].permissionPreset, 'bypass', `${spelling} launches as bypass`)
-      assert.equal((accepted.structuredContent as { permissionPreset: string }).permissionPreset, 'bypass')
-    }
-
-    // A launch failure is reported as itself, never as a created terminal.
-    const broken = launchHarness({
-      launchAgent: async () => ({ ok: false, code: 'no_cli_selected', message: 'nobody has chosen a CLI' }),
-    })
-    const failed = await tool(broken.tools, 'terminal.create').handler({ workspaceId: 'ws-1' })
-    assert.equal(failed.isError, true)
-    assert.equal((failed.structuredContent as { error: { code: string } }).error.code, 'no_cli_selected')
   }
 
   async function testSocketServerSpeaksMcpAndOnlyWhenStarted(): Promise<void> {
@@ -2142,7 +1806,7 @@ test('automation', async () => {
 
     // The advertised vocabulary is exactly the two presets, on every tool that
     // launches an agent, and the text says what an omission means.
-    for (const name of ['agent.launch', 'backlog.work', 'terminal.create'] as const) {
+    for (const name of ['agent.launch', 'backlog.work'] as const) {
       const properties = tool(tools, name).inputSchema.properties as Record<
         string,
         { enum?: unknown; description?: string }
@@ -2240,20 +1904,17 @@ test('automation', async () => {
     const bypassFlag = ['--permission-mode', 'bypassPermissions']
 
     // A machine whose default is bypass: an omitted preset launches with the
-    // CLI's bypass flag, on every launching tool.
-    for (const name of ['agent.launch', 'terminal.create']) {
-      const { preset } = await launchWith(emptyAgentLaunchSettings(), name, {})
-      assert.equal(preset, 'bypass', `${name}: the app default reaches the spawn`)
-      assert.deepEqual(resolvePermissionArgs(claudeManifest, preset), bypassFlag, `${name}: with the bypass flag`)
-    }
+    // CLI's bypass flag.
+    const fallback = await launchWith(emptyAgentLaunchSettings(), 'agent.launch', {})
+    assert.equal(fallback.preset, 'bypass', 'the app default reaches the spawn')
+    assert.deepEqual(resolvePermissionArgs(claudeManifest, fallback.preset), bypassFlag, 'with the bypass flag')
 
     // A person who chose `none` for this CLI: the same omitted preset passes no
-    // flag, and terminal.create reports what was resolved.
+    // flag.
     const chosenNone = { ...emptyAgentLaunchSettings(), cliPermissionPresets: { 'claude-code': 'none' as const } }
-    const { answer, preset } = await launchWith(chosenNone, 'terminal.create', {})
+    const { preset } = await launchWith(chosenNone, 'agent.launch', {})
     assert.equal(preset, 'none', "the person's choice for the CLI wins over the app default")
     assert.deepEqual(resolvePermissionArgs(claudeManifest, preset), [], 'and no permission flag is passed')
-    assert.equal((answer.structuredContent as { permissionPreset: string }).permissionPreset, 'none')
 
     // A caller that names bypass gets it even where the person chose none: the
     // caller's own value comes first, as it does at the launcher.
@@ -3367,8 +3028,6 @@ test('automation', async () => {
     testStudioGatewayStartsDespiteLegacyDisabledSetting,
     testStudioGatewayEndpointContractAcrossPlatforms,
     testToolListNamesTheToolSurface,
-    testTerminalListReportsAttachableSessions,
-    testTerminalListCarriesTheRowsProjectAndConversationFacts,
     testReadToolsAnswerFromSnapshot,
     testReadToolsResolveWorkspaceRootThroughSnapshot,
     testReadToolsPassServiceFailuresThrough,
@@ -3386,8 +3045,6 @@ test('automation', async () => {
     testAnOmittedPresetResolvesLikeTheDesktopLauncher,
     testAutomationMutationToolsPassPipelineFailuresThrough,
     testAgentLaunchWidensConfigAndIsolation,
-    testTerminalCreateSpawnsAndReturnsTheAttachableSession,
-    testTerminalCreateTakesThisMachinesLaunchDefaults,
     testWorkspaceCheckoutReportsTheBackendsFacts,
     testInvalidRequestsReturnExplicitErrors,
     testCreateMintsInMainWithNoWindow,

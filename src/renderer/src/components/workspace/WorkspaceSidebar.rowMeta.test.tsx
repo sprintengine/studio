@@ -363,7 +363,7 @@ test('WorkspaceSidebar.rowMeta', async () => {
     assert.equal(renderToStaticMarkup(<AttentionPulse active resetKey="w1" tone="good" />), '')
   })
 
-  run('meshMachineNamesOf finds mesh-terminal tabs anywhere in the layout, deduplicated', () => {
+  run('meshMachineNamesOf finds remote conversation tabs anywhere in the layout, deduplicated', () => {
     const workspace = {
       layoutModel: {
         layout: {
@@ -373,7 +373,7 @@ test('WorkspaceSidebar.rowMeta', async () => {
               type: 'tabset',
               children: [
                 { type: 'tab', component: 'terminal', config: {} },
-                { type: 'tab', component: 'mesh-terminal', config: { machineName: 'Air' } },
+                { type: 'tab', component: 'mesh-conversation', config: { machineName: 'Air' } },
               ],
             },
             {
@@ -381,7 +381,7 @@ test('WorkspaceSidebar.rowMeta', async () => {
               children: [
                 {
                   type: 'tabset',
-                  children: [{ type: 'tab', component: 'mesh-terminal', config: { machineName: 'Air' } }],
+                  children: [{ type: 'tab', component: 'mesh-conversation', config: { machineName: 'Air' } }],
                 },
               ],
             },
@@ -407,15 +407,30 @@ test('WorkspaceSidebar.rowMeta', async () => {
           children: [
             {
               type: 'tab',
-              id: 'mesh-terminal:c1:s1',
-              component: 'mesh-terminal',
-              config: { machineName: 'Air', remoteSessionId: 's1', cli: 'codex' },
+              id: 'mesh-conversation:c1:rw1:a1',
+              component: 'mesh-conversation',
+              config: {
+                connectionId: 'c1',
+                machineName: 'Air',
+                remoteWorkspaceId: 'rw1',
+                remoteAgentId: 'a1',
+                remoteSessionId: 'conversation:rw1:a1',
+                title: 'First chat',
+                cli: 'codex',
+              },
             },
             {
               type: 'tab',
-              id: 'mesh-terminal:c1:s2',
-              component: 'mesh-terminal',
-              config: { machineName: 'Air', remoteSessionId: 's2' },
+              id: 'mesh-conversation:c1:rw1:a2',
+              component: 'mesh-conversation',
+              config: {
+                connectionId: 'c1',
+                machineName: 'Air',
+                remoteWorkspaceId: 'rw1',
+                remoteAgentId: 'a2',
+                remoteSessionId: 'conversation:rw1:a2',
+                title: 'Second chat',
+              },
             },
           ],
         },
@@ -423,9 +438,32 @@ test('WorkspaceSidebar.rowMeta', async () => {
     } as unknown as Workspace
     const panes = meshPanesOf(workspace)
     assert.deepEqual(panes, [
-      { tabId: 'mesh-terminal:c1:s1', machineName: 'Air', cli: 'codex' },
-      { tabId: 'mesh-terminal:c1:s2', machineName: 'Air' },
+      { tabId: 'mesh-conversation:c1:rw1:a1', machineName: 'Air', cli: 'codex' },
+      { tabId: 'mesh-conversation:c1:rw1:a2', machineName: 'Air' },
     ])
+  })
+
+  run('a persisted mesh-terminal tab is stale: no pane, no machine, no remote grouping', () => {
+    const stale = {
+      folderPath: null,
+      layoutModel: {
+        layout: {
+          type: 'tabset',
+          children: [
+            {
+              type: 'tab',
+              id: 'mesh-terminal:c1:s1',
+              component: 'mesh-terminal',
+              config: { connectionId: 'c1', machineName: 'Air', remoteSessionId: 's1', cli: 'codex' },
+            },
+          ],
+        },
+      },
+    } as unknown as Workspace
+    assert.deepEqual(meshPanesOf(stale), [])
+    assert.deepEqual(meshMachineNamesOf(stale), [])
+    assert.deepEqual(provenanceMachinesOf(stale), [])
+    assert.equal(groupKeyOf(stale), '__no_folder__')
   })
 
   run('provenance comes from remoteOrigin first; the layout walk covers legacy rows and mounted panes', () => {
@@ -468,7 +506,7 @@ test('WorkspaceSidebar.rowMeta', async () => {
       layoutModel: {
         layout: {
           type: 'tabset',
-          children: [{ type: 'tab', component: 'mesh-terminal', config: { machineName: 'Mini' } }],
+          children: [{ type: 'tab', component: 'mesh-conversation', config: { machineName: 'Mini' } }],
         },
       },
     } as unknown as Workspace
@@ -543,7 +581,7 @@ test('WorkspaceSidebar.rowMeta', async () => {
       layoutModel: {
         layout: {
           type: 'tabset',
-          children: [{ type: 'tab', component: 'mesh-terminal', config: { machineName: 'Mini' } }],
+          children: [{ type: 'tab', component: 'mesh-conversation', config: { machineName: 'Mini' } }],
         },
       },
     } as unknown as Workspace

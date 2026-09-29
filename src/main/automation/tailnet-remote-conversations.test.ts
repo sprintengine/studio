@@ -20,7 +20,7 @@ import {
   createRemoteConversationCache,
   type RemoteConversationCache,
 } from './tailnet/tailnet-remote-conversation-cache'
-import type { RemoteTerminalSocketHandlers } from './tailnet/tailnet-remote-client'
+import type { RemoteJsonSocketHandlers } from './tailnet/tailnet-remote-client'
 import { pairingUrl } from './tailnet/tailnet-service'
 
 // Another Studio desktop following this machine's conversations over the
@@ -476,7 +476,7 @@ test('a grant narrowed to read refuses commands; one without read ends the follo
     assert.equal(!always.ok && always.code, 'unsafe_remote_decision')
 
     const joins = h.joins.length
-    h.devices.updateDeviceScopes(deviceId, ['terminal:observe'])
+    h.devices.updateDeviceScopes(deviceId, ['workspace:read'])
     await waitFor(() => pane.link()?.state === 'closed', 'losing read closes the follow')
     assert.equal(pane.link()?.code, 'conversation_scope_required')
     await new Promise((resolve) => setTimeout(resolve, 300))
@@ -508,7 +508,7 @@ test('a revoked pairing ends the follow and is recorded as unauthorized', async 
 
 test('a resync close waits the delay the far end advised before dialling again', async () => {
   const dials: number[] = []
-  const handlers: RemoteTerminalSocketHandlers[] = []
+  const handlers: RemoteJsonSocketHandlers[] = []
   const cache: RemoteConversationCache = {
     load: async () => null,
     save: async () => undefined,
@@ -551,7 +551,7 @@ test('a resync close waits the delay the far end advised before dialling again',
 })
 
 test('a frame of a known type in the wrong shape ends the follow instead of being skipped', async () => {
-  const handlers: RemoteTerminalSocketHandlers[] = []
+  const handlers: RemoteJsonSocketHandlers[] = []
   const client = createRemoteConversations({
     cache: {
       load: async () => null,
@@ -586,7 +586,7 @@ test('a frame of a known type in the wrong shape ends the follow instead of bein
 })
 
 test('a snapshot sent in parts and chunks is applied once whole, and a busy command is retried under its own id', async () => {
-  const handlers: RemoteTerminalSocketHandlers[] = []
+  const handlers: RemoteJsonSocketHandlers[] = []
   const sent: Array<Record<string, unknown>> = []
   const client = createRemoteConversations({
     cache: {

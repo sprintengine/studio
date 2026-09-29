@@ -95,9 +95,16 @@ test('WorkspaceSidebar.remoteGroup', async () => {
         children: [
           {
             type: 'tab',
-            id: 'mesh-terminal:c1:s1',
-            component: 'mesh-terminal',
-            config: { connectionId: 'c1', machineName: 'MacBook Air', remoteSessionId: 's1' },
+            id: 'mesh-conversation:c1:rw1:agent-1',
+            component: 'mesh-conversation',
+            config: {
+              connectionId: 'c1',
+              machineName: 'MacBook Air',
+              remoteWorkspaceId: 'rw1',
+              remoteAgentId: 'agent-1',
+              remoteSessionId: 'conversation:rw1:agent-1',
+              title: 'Charlie',
+            },
           },
         ],
       },

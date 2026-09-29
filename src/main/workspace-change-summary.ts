@@ -316,11 +316,10 @@ export type CheckoutSummaryShare = {
 /**
  * Twenty-two and a half seconds, halved from forty-five (owner, 2026-09-10)
  * when the sidebar's sweep halved to thirty. It was raised from fifteen to
- * forty-five on 2026-09-05 because the share is read from the network as well
- * as the sidebar — a paired Studio's Remote band asks `terminal.list` every
- * thirty seconds, and the phone asks when it is open — and a short hold meant
- * every one of those asks re-ran the whole branch-span chain (about twenty git
- * spawns per checkout, each spawn a synchronous step on main's event loop).
+ * forty-five on 2026-09-05 because the share was then read from the network as
+ * well as the sidebar, and a short hold meant every one of those asks re-ran
+ * the whole branch-span chain (about twenty git spawns per checkout, each spawn
+ * a synchronous step on main's event loop).
  *
  * The number is not free and it is not arbitrary. It was sized to stay UNDER
  * the sidebar's thirty-second sweep, or every other sweep would have been

@@ -1,7 +1,7 @@
 import type { McpConnectionContext, McpToolRegistration, McpToolResult } from '../../../shared/modules/mcp-tools'
 import {
   normalizeTailnetScopes,
-  TAILNET_STRUCTURED_SCOPES,
+  TAILNET_SCOPES,
   type TailnetApprovePairRequestView,
   type TailnetDevice,
   type TailnetDeviceOrigin,
@@ -25,7 +25,6 @@ import { resolveTailnetInterface } from './tailnet-interface'
 import { createTailnetPeerResolver, type TailnetPeerResolver } from './tailnet-peer-identity'
 import { createTailnetPeerScanner, type TailnetPeerScanner } from './tailnet-peers'
 import { readTailnetSettings, writeTailnetSettings, type TailnetSettings } from './tailnet-settings'
-import type { TerminalRemoteHost } from '../../terminal-remote-attach'
 import type { ConversationGatewayHost } from './tailnet-conversation-host'
 
 // Lifecycle for tailnet remote control: settings, paired devices, and the
@@ -72,21 +71,16 @@ export type TailnetRemoteService = {
    * Widen (or narrow) an already-paired device's scopes from this keyboard.
    *
    * The counterpart to revoke, and the answer to the one thing pairing could
-   * not do: a device paired before the terminal tier existed, or paired for a
-   * narrower job, could only ever be revoked and paired again. Throws on an
+   * not do: a device paired before a scope existed, or paired for a narrower
+   * job, could only ever be revoked and paired again. Throws on an
    * unknown id — the caller is a surface acting on a row it can see, so an id
    * that is not here is a bug, not a state to render.
    */
   updateDeviceScopes(deviceId: string, scopes: unknown): TailnetRemoteStatus
   /**
-   * Answer a pairing request that arrived from another machine.
+   * Answer a pairing request that arrived from another machine, with the
+   * scopes chosen HERE.
    *
-   * The scopes are the ones chosen HERE. This is the first surface on which a
-   * person can grant the terminal tier at all: the Settings "Pair a device"
-   * button mints the structured set and nothing else, which left
-   * `terminal:control` reachable only from an agent on the local socket.
-   */
-  /**
    * `via` says which door the answer came through, and exists only so the audit
    * is written exactly once: a `tailnet.*` tool call is already audited by
    * dispatch, so only the IPC path records here.
@@ -117,13 +111,12 @@ export type TailnetRemoteService = {
   resolvePeerName(address: string): Promise<string | null>
   /**
    * Live connections, derived from the listener's open sockets — which devices
-   * hold a stream right now and which terminals they are attached to. Nothing
-   * here is persisted; it is exactly what the sockets say.
+   * hold a stream right now. Nothing here is persisted; it is exactly what the
+   * sockets say.
    */
   getLiveState(): TailnetLiveState
   notifyToolsListChanged(): void
-  /** The change feed: this machine's terminal list, or workspace list, changed. No-ops with no listener. */
-  notifyTerminalsChanged(): void
+  /** The change feed: this machine's workspace list, or conversation list, changed. No-ops with no listener. */
   notifyWorkspacesChanged(): void
   notifyConversationsChanged(): void
   shutdown(): Promise<void>
@@ -143,17 +136,11 @@ export type TailnetRemoteServiceOptions = {
     result?: McpToolResult
     error?: unknown
   }) => void
-  /**
-   * Watch-and-type access to this machine's terminals, for the
-   * listener's terminal WebSocket. Absent (tests, an unwired build) leaves that
-   * route refusing with a stated reason; nothing else about the listener changes.
-   */
-  terminals?: TerminalRemoteHost
   conversations?: ConversationGatewayHost
   /**
    * The live-state push (remote-sessions-ux): fired on every observable change
    * — listener up/down, a pair request arriving or resolving, a device's
-   * socket opening or closing, a terminal attach beginning or ending. Each
+   * socket opening or closing. Each
    * payload carries a fresh status + live snapshot beside the event, so a
    * consumer that stores the latest can never drift by missing one.
    */
@@ -221,13 +208,11 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
   let interfaceWatch: ReturnType<typeof setInterval> | null = null
 
   // ── live-connection accounting (remote-sessions-ux) ────────────────────────
-  // Counts, not booleans: one device may hold several sockets (an RPC stream
-  // plus terminal attaches, or two clients under one pairing), and "connected"
-  // must only fall when the LAST one closes.
+  // A count, not a boolean: one device may hold several streams (two clients
+  // under one pairing), and "connected" must only fall when the LAST one closes.
   type LiveEntry = {
     deviceName: string
     streamCount: number
-    terminals: Map<string, number>
     connectedSince: number | null
     lastActivityAt: number | null
     peerNode: string | null
@@ -259,7 +244,6 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
           deviceId,
           deviceName: entry.deviceName,
           connected: true,
-          attachedTerminalSessions: [...entry.terminals.keys()],
           connectedSince: entry.connectedSince,
           lastActivityAt: entry.lastActivityAt,
           peerNode: entry.peerNode,
@@ -277,7 +261,6 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
     const created: LiveEntry = {
       deviceName,
       streamCount: 0,
-      terminals: new Map(),
       connectedSince: null,
       lastActivityAt: null,
       peerNode: null,
@@ -288,7 +271,7 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
   }
 
   function isLiveConnected(entry: LiveEntry): boolean {
-    return entry.streamCount > 0 || entry.terminals.size > 0
+    return entry.streamCount > 0
   }
 
   function handleActivity(event: TailnetGatewayActivity): void {
@@ -313,38 +296,11 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
       entry.peerNode = event.peerNode
       entry.peerAddress = event.peerAddress
     }
-    let drive: 'begin' | 'end' | null = null
-    if (event.kind === 'stream') {
-      entry.streamCount = Math.max(0, entry.streamCount + (event.open ? 1 : -1))
-    } else {
-      const count = entry.terminals.get(event.sessionId) ?? 0
-      const next = count + (event.open ? 1 : -1)
-      if (next > 0) entry.terminals.set(event.sessionId, next)
-      else entry.terminals.delete(event.sessionId)
-      // Drive begin/end is per (device, terminal): announced on the first
-      // attach and the last detach, not on every extra viewer socket.
-      if (event.open && count === 0) drive = 'begin'
-      else if (!event.open && count === 1) drive = 'end'
-    }
+    entry.streamCount = Math.max(0, entry.streamCount + (event.open ? 1 : -1))
     const connected = isLiveConnected(entry)
     if (connected && !wasConnected) entry.connectedSince = now
     if (!connected) live.delete(event.device.id)
-    // Narrated in the order the story reads: a device connects BEFORE it
-    // drives a terminal, and stops driving BEFORE it disconnects. Snapshot
-    // consumers never cared; per-event UI (a toast sequence) does.
-    if (connected && connected !== wasConnected) {
-      emit({ kind: 'device-connection', deviceId: event.device.id, deviceName: event.device.name, connected })
-    }
-    if (drive) {
-      emit({
-        kind: 'terminal-drive',
-        phase: drive,
-        deviceId: event.device.id,
-        deviceName: event.device.name,
-        terminalSessionId: event.kind === 'terminal' ? event.sessionId : '',
-      })
-    }
-    if (!connected && connected !== wasConnected) {
+    if (connected !== wasConnected) {
       emit({ kind: 'device-connection', deviceId: event.device.id, deviceName: event.device.name, connected })
     }
   }
@@ -486,7 +442,6 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
       isMutation: options.isMutation,
       devices,
       peers,
-      terminals: options.terminals,
       conversations: options.conversations,
       onToolCall: options.onToolCall,
       onPairRequested: () => announcePairRequests(),
@@ -670,9 +625,8 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
 
     offerPairing(input): TailnetPairingOfferView {
       const requested = normalizeTailnetScopes(input?.scopes)
-      // No scopes asked for means the structured-command set. The terminal tier
-      // is never granted by default — it has to be asked for by name.
-      const scopes = requested.length > 0 ? requested : [...TAILNET_STRUCTURED_SCOPES]
+      // No scopes asked for means every scope.
+      const scopes = requested.length > 0 ? requested : [...TAILNET_SCOPES]
       const offer = devices.offerPairing({ scopes, origin: input?.origin ?? { kind: 'code', by: null } })
       // The offer's existence (never its token) is status other windows show.
       emit({ kind: 'devices-changed' })
@@ -781,10 +735,6 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
 
     notifyToolsListChanged(): void {
       server?.notifyToolsListChanged()
-    },
-
-    notifyTerminalsChanged(): void {
-      server?.notifyTerminalsChanged()
     },
 
     notifyWorkspacesChanged(): void {

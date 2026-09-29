@@ -106,8 +106,8 @@ export type AgentLaunchServiceDeps = {
    * Whether this CLI may launch as an agent: true exactly when its plugin
    * manifest declares an `agentStateSpec` (hooks are the only supported status
    * mechanism — decision of record 2026-08-31). This service is the shared door
-   * for `agent.launch`, `backlog.work`, `terminal.create`, and automation
-   * spawns, so gating here covers them all. Optional so bare test harnesses
+   * for `agent.launch`, `backlog.work`, and automation spawns, so gating here
+   * covers them all. Optional so bare test harnesses
    * keep working; production wiring always provides it.
    */
   isAgentSelectableCli?: (cli: string) => boolean

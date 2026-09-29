@@ -236,7 +236,7 @@ test('tailnet-mesh-reachability', async () => {
         // standing in for both is the bug this closes.
         const asked = await laptop.mesh.requestPairing({
           endpoint: `127.0.0.1:${mini.port}`,
-          scopes: ['workspace:read', 'terminal:observe', 'terminal:control'],
+          scopes: ['workspace:read', 'conversation:read', 'conversation:operate'],
           reverseScopes: ['workspace:read'],
         })
         assert.ok(asked.ok, asked.ok ? '' : asked.message)
@@ -244,7 +244,7 @@ test('tailnet-mesh-reachability', async () => {
         assert.equal(pending.length, 1)
         // Normalised into vocabulary order, so the answering card can compare it to
         // a preset without caring what order the asker listed them in.
-        assert.deepEqual(pending[0].requestedScopes, ['workspace:read', 'terminal:observe', 'terminal:control'])
+        assert.deepEqual(pending[0].requestedScopes, ['workspace:read', 'conversation:read', 'conversation:operate'])
         // A request is not a grant: nothing has been given yet.
         assert.equal(mini.devices.listDevices().length, 0)
         laptop.mesh.cancelPairing(asked.request.requestId)
@@ -522,32 +522,22 @@ test('tailnet-mesh-reachability', async () => {
     },
   )
 
-  check('waking re-dials a pane that was waiting out its backoff', async () => {
+  check('waking re-dials a change-feed watch that was waiting out its backoff', async () => {
     const laptop = await startMachine('laptop')
     const mini = await startMachine('mini')
     try {
-      const offer = mini.devices.offerPairing({ scopes: ['terminal:control'] })
+      const offer = mini.devices.offerPairing({ scopes: ['workspace:read'] })
       const paired = await laptop.mesh.pair({ pairingUrl: pairingUrl('127.0.0.1', mini.port, offer.token) })
       assert.ok(paired.ok)
+      await waitFor(() => mini.server.eventStreamCount() === 1, 'pairing opens a watch on the mini')
+      // Long enough for the watch to fail a few dials against the dead port, so
+      // its next one is seconds away.
       await mini.stop()
-      const states: string[] = []
-      await laptop.mesh.attachTerminal({
-        attachId: 'pane',
-        connectionId: paired.connection.id,
-        sessionId: 'session_one',
-        emit: (event) => {
-          if (event.type === 'status') states.push(event.state)
-        },
-      })
-      await waitFor(() => states.includes('reconnecting'), 'the pane is retrying against a dead port')
-      const dialsBefore = states.filter((state) => state === 'reconnecting').length
+      await new Promise((resolve) => setTimeout(resolve, 2000))
+      await mini.restart()
       // Wake: the backoff timer is not waited out; a dial happens now.
       laptop.mesh.onWake()
-      await waitFor(
-        () => states.filter((state) => state === 'reconnecting').length > dialsBefore,
-        'an immediate re-dial',
-        400,
-      )
+      await waitFor(() => mini.server.eventStreamCount() === 1, 'an immediate re-dial', 800)
     } finally {
       await laptop.close()
       await mini.close()

@@ -92,8 +92,8 @@ export function meshNotice(event: MeshEvent): TailnetNotice | null {
           key,
           title: `Paired with ${machine}`,
           body: event.request.reverseOffered
-            ? 'Both ways. Its workspaces and terminals are in the Mesh, and it can open this device.'
-            : 'Its workspaces and terminals are in the Mesh.',
+            ? 'Both ways. Its workspaces and chats are in the Mesh, and it can open this device.'
+            : 'Its workspaces and chats are in the Mesh.',
         }
       case 'denied':
         return { key, title: `${machine} declined`, body: 'Someone there said no. Ask again when it suits.' }

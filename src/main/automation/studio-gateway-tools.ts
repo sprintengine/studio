@@ -31,22 +31,15 @@ const APP_MUTATION_TOOLS = new Set([
   // act on this machine for a remote device exactly as one does, so each
   // attempt lands in the same audit with the device that made it.
   ...CONVERSATION_COMMAND_TOOL_NAMES,
-  // Starting a chat on this machine: the conversation counterpart of
-  // `terminal.create`, on the same `conversation:operate` grant as the
-  // commands above, and audited with the device that asked.
+  // Starting a chat on this machine, on the same `conversation:operate` grant
+  // as the commands above, and audited with the device that asked.
   ...CONVERSATION_MUTATION_TOOL_NAMES,
   // Configuring who may drive this machine. Classified as mutations so every
   // one of them is audited — minting a pairing code is the most consequential
   // write on this surface. The tailnet listener never serves them at all
-  // (`isLocalOnlyGatewayTool`), so unlike every other entry here their scope
-  // mapping is never consulted.
+  // (`localOnlyGatewayToolReason`), so unlike every other entry here their
+  // scope mapping is never consulted.
   ...TAILNET_MUTATION_TOOL_NAMES,
-  // Opening a terminal on this machine. Classified here and nowhere
-  // else: the tailnet scope mapping reads this same classification, so being a
-  // mutation is what makes `terminal.create` require `terminal:control` rather
-  // than the watch-only `terminal:observe` — and what makes every attempt,
-  // including a refused one, land in the audit with the device that made it.
-  'terminal.create',
   // Diff tours: each one writes a tour file in the app's data folder, docks a
   // tab in the person's window, or types a question into an agent's terminal
   // on the owner's behalf. `tour.status` only reads.

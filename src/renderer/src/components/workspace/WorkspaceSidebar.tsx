@@ -765,17 +765,10 @@ function WorkspaceSidebar({
       buildRemoteBand({
         connections: remotePresence.mesh,
         browses: remoteBrowses,
-        attachments: remotePresence.meshAttachments,
         reachability: remotePresence.meshReachability,
         workspaces: railWorkspaces,
       }),
-    [
-      remotePresence.mesh,
-      remoteBrowses,
-      remotePresence.meshAttachments,
-      remotePresence.meshReachability,
-      railWorkspaces,
-    ],
+    [remotePresence.mesh, remoteBrowses, remotePresence.meshReachability, railWorkspaces],
   )
 
   // Rows born on a paired machine (`workspace.remoteOrigin`) file under a
@@ -1727,9 +1720,7 @@ function WorkspaceSidebar({
     const flatProject = options?.flatProject ?? null
     const surface = needsAttention
       ? attentionRowClass(false)
-      : conversation.activity === 'paused'
-        ? 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]'
-        : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]'
+      : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]'
     const lines = conversation.agents.map(lineOfRemoteRow)
     return (
       <div
@@ -1763,7 +1754,6 @@ function WorkspaceSidebar({
             />
             <span className="sr-only"> (on {conversation.machineName}, not open here)</span>
             {needsAttention ? <span className="sr-only"> (needs your input)</span> : null}
-            {conversation.activity === 'paused' ? <span className="sr-only"> (paused)</span> : null}
           </span>
         </div>
         {/* One line per agent, the way a local chat draws its terminals.

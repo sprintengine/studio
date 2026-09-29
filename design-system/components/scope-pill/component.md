@@ -1,6 +1,6 @@
 # Scope pill
 
-One machine-readable **scope name** in a pill: `terminal:control`,
+One machine-readable **scope name** in a pill: `conversation:operate`,
 `workspace:read`. It is the mark for a permission identifier wherever the
 product shows the person the actual strings — the pairing code's grant list,
 the popover that says what a paired machine may do here, the request a peer
@@ -21,7 +21,7 @@ A micro chip says "Default". Those are words *about* the thing beside them,
 written in the reader's language, in the UI family, in sentence case. A scope
 pill's content is not a word about anything — it **is** the identifier, the same
 string that appears in the pairing request, in the audit line, and in the
-`terminal:observe` a person will paste into a search box or an issue. Three
+`conversation:read` a person will paste into a search box or an issue. Three
 consequences follow, and each of them is a rule one of those two components
 holds the other way:
 
@@ -33,7 +33,7 @@ holds the other way:
 | Content | a state word or a count | one fact, one or two words | an API identifier |
 | Tracking | — | `tracking.wide` | `tracking.normal` |
 
-- **The family is not a style choice here.** `terminal:control` at 11px in the
+- **The family is not a style choice here.** `conversation:operate` at 11px in the
   UI family is exactly where `l` / `1` / `I` and `:` / `;` stop being
   distinguishable, and a person reading this list is deciding what another
   machine may do on this one. Mono is what makes the string checkable.
@@ -43,8 +43,8 @@ holds the other way:
   heading above the set, not by a colour on the pill.
 - **It is a pill, and micro-chip hands the rectangle back on purpose** — that
   entry quotes badge's ruling that "`radius.chip` is the right token for a
-  *rectangular* chip". A wrapped set of eight colon-joined strings needs the
-  round end to read as eight objects rather than as one broken line; the
+  *rectangular* chip". A wrapped set of six colon-joined strings needs the
+  round end to read as six objects rather than as one broken line; the
   rectangle at that density reads as a table with no rules.
 
 The shortest form of the test: reach for a badge when the mark would change,
@@ -59,7 +59,7 @@ all.
 | Set | `.ds-scope-pill-set` | no — the wrapping container, `space.xs` in both axes |
 
 No glyph slot, no dismiss affordance, no count, no truncation. A pill holds one
-identifier and the whole of it: a scope shown as `terminal:cont…` is a scope
+identifier and the whole of it: a scope shown as `conversation:op…` is a scope
 that does not exist.
 
 ## Variants
@@ -112,8 +112,8 @@ that does not exist.
   would say the same string twice.
 - **The set takes the accessible name, not the pill.** A `<ul class="ds-scope-pill-set">`
   with an `aria-label` ("Scopes in this code") is what tells a screen-reader
-  user what the eight strings underneath it are; without it they arrive as
-  eight unexplained identifiers.
+  user what the six strings underneath it are; without it they arrive as
+  six unexplained identifiers.
 - **`--missing` is never announced by its colour.** The heading above the set
   is the only thing that says "not granted", and it is real text, so the
   quieter ink is reinforcement rather than information.

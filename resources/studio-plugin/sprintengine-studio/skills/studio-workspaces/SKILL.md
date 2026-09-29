@@ -1,13 +1,13 @@
 ---
 name: studio-workspaces
-description: Read and drive SprintEngine Studio's workspaces, agents, terminals, git checkouts and the editor and the workspace browser pane through the workspace_*, agent_*, terminal_*, editor_* and browser_* tools. Use when asked what workspaces or agents exist, to open a workspace or launch an agent, to start or attach to a terminal on this machine, to inspect a workspace's branches and worktrees, to show the person specific files, lines or your diff in their editor, to drive or screenshot the in-app browser, or to check the mobile companion snapshot or tailnet pairing.
+description: Read and drive SprintEngine Studio's workspaces, agents, git checkouts and the editor and the workspace browser pane through the workspace_*, agent_*, editor_* and browser_* tools. Use when asked what workspaces or agents exist, to open a workspace or launch an agent, to inspect a workspace's branches and worktrees, to show the person specific files, lines or your diff in their editor, to drive or screenshot the in-app browser, or to check the mobile companion snapshot or tailnet pairing.
 ---
 
-# Workspaces and terminals
+# Workspaces and agents
 
 Everything here reads or writes the running app's own state through its main
 process, so it works with no window open: a workspace created this way is
-immediately addressable, and a terminal created this way appears as a painted
+immediately addressable, and an agent launched this way appears as a painted
 pane when a window opens later.
 
 **Start with `workspace_list`.** Almost every other tool on this surface takes a
@@ -31,7 +31,7 @@ branch it is on, the trunk, every local branch, and the worktrees the repository
 holds. Read it before launching an agent on a worktree, because
 `agent_launch`'s `worktree.baseRef` has to name a branch that exists.
 
-## Launching agents and terminals
+## Launching agents
 
 `agent_launch` with `{workspaceId}` adds a fully configured agent and starts its
 CLI through the same renderer flow the UI uses. It can select the model,
@@ -39,21 +39,12 @@ permission preset and connector, and can isolate the agent in a git
 worktree. Success is confirmed by the agent's terminal session registering with
 the main process — a call that returns success has a live session behind it.
 
-`terminal_create` starts an AGENT terminal on this machine and returns a session
-id ready to attach — it launches a CLI under a permission preset through the
-same path `agent_launch` uses, and `terminal_list`'s `kind` filter counts it as
-`agent`, not as a plain shell. There is no tool here that opens a bare shell.
-Name the workspace by `workspaceId` or by `workspaceName`. The CLI and the
-permission preset default to this machine's own launch settings unless you name
-them: the preset chosen for that CLI, else `bypass`, exactly as the app's
+The permission preset defaults to this machine's own launch settings unless you
+name it: the preset chosen for that CLI, else `bypass`, exactly as the app's
 launcher would. Name `none` (no permission flag, so the CLI's own configuration
-decides) when the person asks for it; the answer reports the preset the launch
-resolved.
-
-`terminal_list` lists open sessions — session id, agent name, CLI, working
-directory, workspace, whether the process is live or the session is paused, and
-the agent phase when the CLI reports one. It reads the terminal runtime and
-never writes.
+decides) when the person asks for it. There is no tool here that opens a bare
+shell, and these launch tools are not served to a paired machine over the
+tailnet — a paired device starts chat agents instead.
 
 Read `cli_runtime_list` before naming any `cli` or `cliModel`. Only rows with
 `agentSelectable: true` can be launched as agents.

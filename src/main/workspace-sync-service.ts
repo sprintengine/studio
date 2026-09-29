@@ -69,8 +69,8 @@ export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions)
   }
 
   // One clone per registry mutation, not one per read. `getSnapshot` is read
-  // from fifteen places in main — every remote `terminal.list` used to take it
-  // once PER SESSION for a workspace-name lookup — and each read deep-cloned
+  // from fifteen places in main — a remote session list once took it once PER
+  // SESSION for a workspace-name lookup — and each read deep-cloned
   // the whole state (462 workspaces on the owner's machine: ~9 ms a clone, and
   // the 30-second beachball of 2026-09-05 was seconds of them back to back).
   // The registry replaces its state object and bumps its revision on every

@@ -79,7 +79,6 @@ test('useTailnetPresence', async () => {
     deviceId: id,
     deviceName: id,
     connected: true,
-    attachedTerminalSessions: [],
     lastActivityAt: 1,
     connectedSince: 1,
     peerNode: null,
@@ -141,77 +140,55 @@ test('useTailnetPresence', async () => {
     })
     assert.equal(current().status?.running, true, 'an older pushed revision is dropped')
 
-    // The mesh channel folds the same way, keyed by attachId.
+    // The mesh channel folds the same way, by its own revision.
     reads.mesh.resolve([])
     reads.meshLive.resolve({
       revision: 2,
-      attachments: [
-        { attachId: 'a1', connectionId: 'air', sessionId: 's1', state: 'live' },
-        { attachId: 'a2', connectionId: 'air', sessionId: 's1', state: 'live' },
+      requests: [],
+      reachability: [
+        {
+          connectionId: 'air',
+          machineName: 'air',
+          checking: false,
+          checkedAt: 1,
+          reachable: true,
+          unauthorized: false,
+          detail: null,
+          lastReachedAt: 1,
+        },
       ],
     })
     await flush()
-    assert.deepEqual(
-      [...(current().meshLiveSessions.get('air') ?? [])],
-      ['s1'],
-      'the mesh snapshot seeds live sessions',
-    )
-    await act(async () => {
-      meshListener!({
-        kind: 'attachment',
-        revision: 3,
-        attachId: 'a1',
-        connectionId: 'air',
-        sessionId: 's1',
-        state: 'closed',
-      })
-    })
-    assert.deepEqual(
-      [...(current().meshLiveSessions.get('air') ?? [])],
-      ['s1'],
-      'closing one of two panes keeps the session live',
-    )
-    await act(async () => {
-      meshListener!({
-        kind: 'attachment',
-        revision: 1,
-        attachId: 'a2',
-        connectionId: 'air',
-        sessionId: 's1',
-        state: 'closed',
-      })
-    })
-    assert.equal(current().meshAttachments.size, 1, 'an older mesh revision is dropped')
-    await act(async () => {
-      meshListener!({
-        kind: 'attachment',
-        revision: 4,
-        attachId: 'a2',
-        connectionId: 'air',
-        sessionId: 's1',
-        state: 'closed',
-      })
-    })
-    assert.equal(current().meshLiveSessions.get('air'), undefined, 'the last pane closing ends the live session')
+    assert.equal(current().meshReachability.get('air')?.reachable, true, 'the mesh snapshot seeds reachability')
 
     // The change feed: a machine saying it changed lands as the latest change
-    // for that machine, and never as an attachment.
+    // for that machine.
     await act(async () => {
       meshListener!({
         kind: 'remote-changed',
-        revision: 5,
+        revision: 3,
         connectionId: 'air',
         machineName: 'air',
-        what: 'terminals',
+        what: 'conversations',
       })
     })
-    assert.equal(current().meshRemoteChanges.get('air')?.what, 'terminals', 'the change is recorded per machine')
-    assert.equal(current().meshRemoteChanges.get('air')?.revision, 5)
-    assert.equal(current().meshAttachments.size, 0, 'a change push is not an attachment')
+    assert.equal(current().meshRemoteChanges.get('air')?.what, 'conversations', 'the change is recorded per machine')
+    assert.equal(current().meshRemoteChanges.get('air')?.revision, 3)
+    await act(async () => {
+      meshListener!({
+        kind: 'remote-changed',
+        revision: 1,
+        connectionId: 'air',
+        machineName: 'air',
+        what: 'workspaces',
+      })
+    })
+    assert.equal(current().meshRemoteChanges.get('air')?.revision, 3, 'an older mesh revision is dropped')
     await act(async () => {
       meshListener!({ kind: 'machine-forgotten', revision: 6, connectionId: 'air', machineName: 'air' })
     })
     assert.equal(current().meshRemoteChanges.get('air'), undefined, 'forgetting the machine drops its change')
+    assert.equal(current().meshReachability.get('air'), undefined, 'and its reachability')
 
     act(() => root.unmount())
     assert.equal(tailnetListener, null, 'unmount releases the tailnet subscription')

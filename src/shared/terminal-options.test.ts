@@ -1,6 +1,4 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 
 import { TERMINAL_CELL_GEOMETRY_OPTIONS, TERMINAL_UNICODE_VERSION, terminalRenderContract } from './terminal-options'
 import { test } from 'vitest'
@@ -35,29 +33,6 @@ test('terminal-options', async () => {
 
   // --- it is JSON, because it rides a JSON frame ----------------------------------
   assert.deepEqual(JSON.parse(JSON.stringify(contract)), contract, 'the contract must survive the wire unchanged')
-
-  // --- the stream actually sends it -----------------------------------------------
-  // A unit test on the builder proves nothing if the `attached` frame stops
-  // carrying it, and that frame is assembled inline rather than through a typed
-  // factory, so the source is what there is to assert against.
-  const streamSource = readFileSync(
-    join(process.cwd(), 'src/main/automation/tailnet/tailnet-terminal-stream.ts'),
-    'utf8',
-  )
-  const attachedFrame = streamSource.slice(streamSource.indexOf("type: 'attached'"))
-  assert.ok(
-    /render: terminalRenderContract\(\)/.test(attachedFrame.slice(0, 400)),
-    'the attached frame must advertise the render contract — a remote renderer has no other way to learn it',
-  )
-
-  // The ordering the client depends on: the replay is sent BEFORE `attached`, so a
-  // client that adopts a different width table has already painted the scrollback
-  // and must repaint it. If this ever flips, the client's repaint becomes dead
-  // code and this comment becomes a lie, so pin it.
-  assert.ok(
-    streamSource.indexOf('Sent AFTER the attach replay') < streamSource.indexOf("type: 'attached'"),
-    'the attached frame still follows the replay',
-  )
 
   console.log('terminal-options.test.ts: all assertions passed')
 })

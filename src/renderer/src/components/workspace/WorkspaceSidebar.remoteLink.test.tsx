@@ -64,29 +64,25 @@ test('WorkspaceSidebar.remoteLink', async () => {
     endpoint: '100.64.0.9:8471',
     deviceId: 'tnd_1',
     deviceName: 'mini',
-    scopes: ['workspace:read', 'terminal:control'],
+    scopes: ['workspace:read', 'conversation:read'],
     pairedAt: '2026-09-13T00:00:00.000Z',
     lastConnectedAt: null,
     pairedVia: 'request',
   }
 
-  // Two agents in ONE chat over there — the shape that used to draw a single
-  // nameless line here the moment the chat was opened.
-  const remoteTerminal = (sessionId: string, agentName: string, over: Record<string, unknown> = {}) => ({
-    sessionId,
-    kind: 'agent',
+  // The chat over there, as that machine lists it.
+  const remoteChat = {
     workspaceId: 'rw1',
-    agentName,
-    cli: 'claude-code',
-    cwd: '/Users/mini/sprintengine',
-    processAlive: true,
-    suspended: false,
-    phase: 'working',
-    phaseSince: 1_000,
-    workspaceName: 'sprintengine',
-    git: null,
-    ...over,
-  })
+    agentId: 'agent-1',
+    title: 'sprintengine',
+    phase: 'running',
+    updatedAt: 1_000,
+    createdAt: 500,
+    providerId: 'claude-agent',
+    modelId: 'opus',
+    turnCount: 2,
+    lastSeq: 8,
+  }
 
   domWindow.api = {
     platform: 'darwin',
@@ -110,19 +106,23 @@ test('WorkspaceSidebar.remoteLink', async () => {
     }),
     tailnetGetLiveState: async () => ({ revision: 1, devices: [] }),
     meshListConnections: async () => [connection],
-    meshGetLiveState: async () => ({ revision: 1, attachments: [], requests: [], reachability: [] }),
+    meshGetLiveState: async () => ({ revision: 1, requests: [], reachability: [] }),
     meshBrowse: async () => ({
       connectionId: 'c1',
       reachable: true,
       unreachableReason: null,
       unauthorized: false,
       scopes: connection.scopes,
-      terminalAccess: 'control',
       workspaces: [
         { id: 'rw1', name: 'sprintengine', mode: 'standard', folderPath: '/Users/mini/sprintengine', repository: null },
       ],
-      terminals: [remoteTerminal('s1', 'Tara Boyle'), remoteTerminal('s2', 'Gael Corry', { phase: 'awaiting_input' })],
       gaps: [],
+    }),
+    meshConversationList: async () => ({
+      ok: true,
+      conversations: [remoteChat],
+      access: 'read',
+      modelSwitch: false,
     }),
   }
 
@@ -157,7 +157,7 @@ test('WorkspaceSidebar.remoteLink', async () => {
           workspaceId: 'rw1',
           workspaceName: 'sprintengine',
           workspaceRoot: '/Users/mini/sprintengine',
-          sessionId: 's1',
+          sessionId: 'conversation:rw1:agent-1',
         },
         layoutModel: { layout: { type: 'row', children: [] } },
       },
@@ -250,19 +250,12 @@ test('WorkspaceSidebar.remoteLink', async () => {
       )
       assert.ok((remoteRow.textContent ?? '').includes('sprintengine'), 'the chat over there is what the row is called')
 
-      // …and it draws a line per agent in the conversation, the way a local chat
-      // running two terminals does — not the one pane this window attached.
+      // …and, with its pane closed, it still draws its agent's line — read from
+      // the machine's conversation list, the way a local chat draws its terminal.
       const agentMarks = remoteRow.querySelectorAll('[aria-label*="Claude Code"]')
-      assert.equal(agentMarks.length, 2, 'both agents standing in the chat get a line')
-      const markLabels = [...agentMarks].map((mark) => mark.getAttribute('aria-label') ?? '')
-      assert.ok(
-        markLabels.some((label) => label.startsWith('Tara Boyle ·')),
-        `Tara's line: ${markLabels.join(' | ')}`,
-      )
-      assert.ok(
-        markLabels.some((label) => label.startsWith('Gael Corry ·')),
-        `Gael's line: ${markLabels.join(' | ')}`,
-      )
+      assert.equal(agentMarks.length, 1, 'the chat’s agent gets a line')
+      const markLabel = agentMarks[0]!.getAttribute('aria-label') ?? ''
+      assert.ok(markLabel.startsWith('sprintengine ·'), `the line names the chat: ${markLabel}`)
 
       // ── Off the tailnet ────────────────────────────────────────────────────
       tailnetAddress = null

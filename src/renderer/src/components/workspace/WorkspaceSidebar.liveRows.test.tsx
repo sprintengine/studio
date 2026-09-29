@@ -106,9 +106,31 @@ test('WorkspaceSidebar.liveRows', async () => {
         children: [
           {
             type: 'tab',
+            id: 'mesh-conversation:c1:rw9:agent-9',
+            component: 'mesh-conversation',
+            config: {
+              connectionId: 'c1',
+              machineName: 'Air',
+              remoteWorkspaceId: 'rw9',
+              remoteAgentId: 'agent-9',
+              remoteSessionId: 'conversation:rw9:agent-9',
+              title: 'Remote chat',
+            },
+          },
+        ],
+      },
+    }
+    // A remote terminal tab persisted by an older build is a stale tab: the
+    // layout draws "Panel unavailable" for it, and the row does not count it.
+    const staleLayout = {
+      layout: {
+        type: 'tabset',
+        children: [
+          {
+            type: 'tab',
             id: 'mesh-terminal:c1:s9',
             component: 'mesh-terminal',
-            config: { machineName: 'Air', remoteSessionId: 's9', cli: 'codex' },
+            config: { connectionId: 'c1', machineName: 'Air', remoteSessionId: 's9', cli: 'codex' },
           },
         ],
       },
@@ -126,8 +148,14 @@ test('WorkspaceSidebar.liveRows', async () => {
       'a mounted mesh pane is an open terminal',
     )
     assert.deepEqual(rowOpenTerminals(workspace('w3', 'c', '/p', { layoutModel: meshLayout }), live), [
-      { sessionId: 'mesh-terminal:c1:s9', cli: 'codex', remote: true },
+      { sessionId: 'mesh-conversation:c1:rw9:agent-9', remote: true },
     ])
+    assert.equal(
+      rowHasOpenTerminals(workspace('w4', 'd', '/p', { layoutModel: staleLayout }), live),
+      false,
+      'a stale mesh-terminal tab is not an open terminal',
+    )
+    assert.deepEqual(rowOpenTerminals(workspace('w4', 'd', '/p', { layoutModel: staleLayout }), live), [])
 
     const workspaces = [
       workspace('w1', 'Alpha', '/projA'),
