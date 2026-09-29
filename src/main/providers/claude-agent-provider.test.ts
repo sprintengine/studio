@@ -49,6 +49,8 @@ test('claude-agent-provider', async () => {
     await testLivePermissionPresetReachesTheChildAndSurvivesRespawn()
     await testAbortSignalEndsTheTurnStream()
     await testSpawnFailureSurfacesAsTurnFailed()
+    await testStopDuringSpawnStartsNoChild()
+    await testSuspendDuringSpawnStartsNoChild()
     await testDisposeChildKeepsSessionAndCursorForRespawn()
     await testToolAfterResultOpensContinuationInsteadOfDenying()
     await testSubagentEventsAfterResultRideTheContinuationChannel()
@@ -1274,6 +1276,84 @@ test('claude-agent-provider', async () => {
     )
     assert.equal(events[1]?.payload?.reason, 'spawn')
     assert.equal(events[1]?.payload?.message, 'Claude Code CLI is not installed.')
+  }
+
+  // A spawn awaits executable discovery (and more) before the child starts; a
+  // stop in that window must not leave a child running that no session owns.
+  function deferredExecutable(): {
+    resolveExecutable: () => Promise<string>
+    asked: Promise<void>
+    release: () => void
+  } {
+    let release!: () => void
+    let noteAsked!: () => void
+    const asked = new Promise<void>((resolve) => {
+      noteAsked = resolve
+    })
+    const ready = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    return {
+      resolveExecutable: async () => {
+        noteAsked()
+        await ready
+        return '/fake/bin/claude'
+      },
+      asked,
+      release,
+    }
+  }
+
+  async function testStopDuringSpawnStartsNoChild(): Promise<void> {
+    const sdk = createFakeSdk((_message, context) => {
+      context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 'late' })
+    })
+    const executable = deferredExecutable()
+    const adapter = createClaudeAgentProvider({
+      loadQuery: sdk.loadQuery as never,
+      resolveExecutable: executable.resolveExecutable,
+      buildEnv: () => ({}),
+      now: () => 1000,
+    })
+    await collect(adapter.startSession(SESSION_INPUT) as ConversationEvent[])
+    const turn = collect(adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
+    await executable.asked
+    adapter.stopSession(SESSION_INPUT)
+    executable.release()
+    const events = await turn
+    assert.equal(events.at(-1)?.type, 'turn_failed')
+    assert.equal(sdk.capturedOptions.length, 0, 'no child is started for a stopped session')
+    assert.deepEqual(adapter.listLiveSessions(), [])
+  }
+
+  async function testSuspendDuringSpawnStartsNoChild(): Promise<void> {
+    const sdk = createFakeSdk((_message, context) => {
+      context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 'late' })
+    })
+    const executable = deferredExecutable()
+    const adapter = createClaudeAgentProvider({
+      loadQuery: sdk.loadQuery as never,
+      resolveExecutable: executable.resolveExecutable,
+      buildEnv: () => ({}),
+      now: () => 1000,
+    })
+    await collect(adapter.startSession(SESSION_INPUT) as ConversationEvent[])
+    const turn = collect(adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
+    await executable.asked
+    assert.equal(adapter.disposeChildProcess('conv_1'), true, 'the spawn in flight is called off')
+    executable.release()
+    assert.equal((await turn).at(-1)?.type, 'turn_failed')
+    assert.equal(sdk.capturedOptions.length, 0)
+    assert.equal(adapter.listLiveSessions()[0]?.hasChildProcess, false)
+    // The session stays: the next send starts its child as usual.
+    const next = await collect(
+      adapter.sendTurn(turnInput({ turnId: 'turn_2', requestId: 'approval_2' })) as AsyncIterable<ConversationEvent>,
+    )
+    assert.equal(next.at(-1)?.type, 'turn_completed')
+    assert.equal(sdk.capturedOptions.length, 1)
+    assert.equal(adapter.disposeChildProcess('conv_1'), true)
+    assert.equal(adapter.disposeChildProcess('conv_1'), false, 'nothing is spawning or running any more')
+    await adapter.disposeAll()
   }
 
   async function testDisposeChildKeepsSessionAndCursorForRespawn(): Promise<void> {

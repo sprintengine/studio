@@ -218,6 +218,10 @@ type SessionState = {
   queryCostUsd: number
   // The child being spawned, while it is; see ensureQuery.
   spawning: Promise<void> | null
+  // Bumped when the session is stopped or its child disposed from outside
+  // (suspend, the idle sweep, quit). A spawn that began before the bump gives
+  // up instead of starting a child nothing tracks any more.
+  spawnGeneration: number
   // Ids of the user messages handed to the child that no `result` has
   // answered yet. A turn is over only once every one has been: a message
   // steered in after the CLI's last tool round is answered by a result of
@@ -621,23 +625,42 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     return state.spawning
   }
 
+  // A spawn awaits several steps before the child starts. The session may be
+  // stopped or suspended during any of them, and a child started after that
+  // would belong to no session: invisible to the idle sweep and to quit.
+  function assertSpawnWanted(state: SessionState, generation: number): void {
+    if (state.spawnGeneration !== generation || sessions.get(state.sessionId) !== state)
+      throw new Error('The conversation was closed before Claude Code started.')
+  }
+
   async function spawnQuery(state: SessionState): Promise<void> {
     // A chat on a WSL machine runs that machine's `claude`, with the login
     // and settings under its Linux home; everything below is the same.
+    const generation = state.spawnGeneration
     const hostId = state.cliRuntimes?.['claude-code']?.hostId
     const wslTarget = isWslHostId(hostId) ? await prepareWslTarget(hostId) : null
+    assertSpawnWanted(state, generation)
     const executablePath = await resolveExecutable(state.cliRuntimes)
+    assertSpawnWanted(state, generation)
     const sdkQuery = await loadQuery()
     const env = await buildEnv({
       workspaceId: state.workspaceId,
       agentId: state.agentId,
       sessionId: state.sessionId,
     })
+    assertSpawnWanted(state, generation)
     const instructions = await readWorkspaceInstructions(state.workspaceRoot)
     await swept
+    assertSpawnWanted(state, generation)
     const skillPlugin = state.skillIds?.length
       ? await stageAttachedSkills(tempDir, state.workspaceRoot, state.skillIds)
       : null
+    try {
+      assertSpawnWanted(state, generation)
+    } catch (error) {
+      if (skillPlugin) removeSkillPlugin(skillPlugin)
+      throw error
+    }
     state.skillPluginDir = skillPlugin
     const inputQueue = new PushStream<SDKUserMessage>()
     const abort = new AbortController()
@@ -928,6 +951,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         stderrTail: '',
         queryCostUsd: 0,
         spawning: null,
+        spawnGeneration: 0,
         pendingSendUuids: new Set(),
         interruptedSendUuids: new Set(),
         textSeam: false,
@@ -1169,6 +1193,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     stopSession(input: MockAdapterSessionInput) {
       const state = sessions.get(input.sessionId)
       if (!state) return []
+      state.spawnGeneration += 1
       disposeChild(state)
       sessions.delete(input.sessionId)
       return [eventFor(state, 'session_closed')]
@@ -1192,12 +1217,20 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
 
     disposeChildProcess(sessionId: string): boolean {
       const state = sessions.get(sessionId)
-      if (!state || state.query === null) return false
+      if (!state) return false
+      // A child still being spawned is called off, so it cannot outlive a
+      // Settle or a suspend that came while it was starting.
+      const spawning = state.spawning !== null
+      if (spawning) state.spawnGeneration += 1
+      if (state.query === null) return spawning
       return disposeChild(state)
     },
 
     async disposeAll(): Promise<void> {
-      for (const state of sessions.values()) disposeChild(state)
+      for (const state of sessions.values()) {
+        state.spawnGeneration += 1
+        disposeChild(state)
+      }
       await Promise.all(removals)
     },
   }
