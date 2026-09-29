@@ -2892,9 +2892,10 @@ samp,
  *
  * Nothing may write `animation-play-state` inline to resume these: an inline
  * `running` beats this rule, so it is the rule alone that decides. The
- * skeleton's sweep is its `::after`, which `:is()` cannot name, so it has a
- * selector of its own. The rule is checked against every infinite animation
- * here, and for every condition above, by assets/idleAnimations.test.ts. */
+ * skeleton's sweep and the shimmer's counter-moving text are pseudo-elements,
+ * which `:is()` cannot name, so they have selectors of their own. The rule is
+ * checked against every infinite animation here, and for every condition
+ * above, by assets/idleAnimations.test.ts. */
 :is(
     :root[data-window-active='false'],
     [data-live-offscreen],
@@ -2915,7 +2916,7 @@ samp,
     .agent-glyph__bow,
     .lifecycle-spin,
     .working-edge,
-    .chat-shimmer,
+    .chat-shimmer__band,
     .animate-pulse,
     .animate-ping
   ),
@@ -2926,7 +2927,15 @@ samp,
     [data-layer-state='cold'],
     [inert]
   )
-  .skeleton-shimmer::after {
+  .skeleton-shimmer::after,
+:is(
+    :root[data-window-active='false'],
+    [data-live-offscreen],
+    [data-layer-state='warm'],
+    [data-layer-state='cold'],
+    [inert]
+  )
+  .chat-shimmer__band::before {
   animation-play-state: paused;
 }
 
@@ -2998,26 +3007,77 @@ samp,
   }
 }
 
+/* The shimmer's band is drawn only where motion is welcome (below). */
+.chat-shimmer__glint {
+  display: none;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .conversation-row-enter {
     animation: conversation-row-enter var(--motion-normal) var(--motion-ease) both;
   }
 
-  /* Streaming status line: a quiet text shimmer. The gradient text trick only
-   * applies here, so reduced-motion keeps the element's plain muted color. */
+  /* Streaming status line: a quiet text shimmer, a bright band sweeping left
+   * to right through subtle text. Only here, so reduced motion keeps the
+   * element's plain muted colour and never shows the band.
+   *
+   * It used to be one gradient clipped to the text with its
+   * `background-position` animated, which the compositor cannot run: a
+   * main-thread repaint every frame for as long as a turn streamed. Now the
+   * text rests in the subtle ink and the band is a second copy of it in the
+   * strong ink (`::before`, from `data-text`), let through a gradient mask.
+   * The mask's element slides right while the copy inside slides back left
+   * by the same amount, so the copy sits exactly on the text and only the
+   * mask travels: two transform animations, both on the compositor.
+   *
+   * Same look as the gradient, to the pixel for opaque inks: the mask's alpha
+   * ramps 0 → 1 → 0 across the same 30% / 50% / 70% stops of a tile twice the
+   * text's width (W), and the tile moves by 2W in 2s, as the background did.
+   * The band element is 4W wide (two tiles, W of them left of the text) and
+   * travels 2W, half its width; the copy is W wide and travels back 2W, twice
+   * its width. The glint wrapper clips the travelling box to the text so it
+   * never adds scrollable overflow; it is absolutely positioned, so the
+   * clip does not move the text's baseline. */
   .chat-shimmer {
-    background: linear-gradient(90deg, var(--text-subtle) 30%, var(--text-strong) 50%, var(--text-subtle) 70%);
-    background-size: 200% 100%;
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-    animation: chat-shimmer 2s linear infinite;
+    position: relative;
+    color: var(--text-subtle);
+  }
+  .chat-shimmer__glint {
+    display: block;
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .chat-shimmer__band {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -200%;
+    width: 400%;
+    mask-image: repeating-linear-gradient(90deg, transparent 0 15%, black 25%, transparent 35% 50%);
+    animation: chat-shimmer-sweep 2s linear infinite;
+  }
+  .chat-shimmer__band::before {
+    content: attr(data-text);
+    position: absolute;
+    top: 0;
+    left: 50%;
+    width: 25%;
+    color: var(--text-strong);
+    animation: chat-shimmer-hold 2s linear infinite;
   }
 }
 
-@keyframes chat-shimmer {
+@keyframes chat-shimmer-sweep {
   to {
-    background-position: -200% 0;
+    transform: translateX(50%);
+  }
+}
+
+@keyframes chat-shimmer-hold {
+  to {
+    transform: translateX(-200%);
   }
 }
 
