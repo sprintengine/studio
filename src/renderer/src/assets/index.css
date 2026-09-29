@@ -2834,8 +2834,11 @@ samp,
   animation: agent-glyph-blink 3000ms infinite;
 }
 
+/* As specific as the character rules above and after them, so it wins: a bare
+ * `.agent-glyph *` is outranked by `.agent-glyph--robot .agent-glyph__eyes`
+ * and left every character moving. */
 @media (prefers-reduced-motion: reduce) {
-  .agent-glyph * {
+  .agent-glyph--working [class^='agent-glyph__'] {
     animation: none;
   }
 }

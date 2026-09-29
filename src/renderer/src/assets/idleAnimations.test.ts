@@ -178,3 +178,22 @@ test('nothing resumes an animation with an inline play state, which would beat t
   walk(root)
   assert.deepEqual(offenders, [], 'an inline `running` outranks the stylesheet pause; clear the property instead')
 })
+
+test('reduced motion holds every agent character still', () => {
+  // The stop has to outrank each character's loop and come after it; a bare
+  // `.agent-glyph *` was outranked by `.agent-glyph--robot .agent-glyph__eyes`.
+  const reduce =
+    /@media \(prefers-reduced-motion: reduce\) \{\s*([^{}]*agent-glyph[^{}]*)\{\s*animation: none;\s*\}/.exec(css)
+  assert.ok(reduce, 'the stylesheet stops the characters under reduced motion')
+  const stops = splitSelectorList(reduce[1]!.replace(/\s+/g, ' ').trim())
+  const stopAt = reduce.index
+  for (const { selector, body, index } of rules) {
+    if (!selector.includes('agent-glyph') || !/animation\s*:[^;]*\binfinite\b/.test(body)) continue
+    assert.ok(index < stopAt, `${selector} comes before the reduced-motion stop`)
+    for (const loop of splitSelectorList(selector))
+      assert.ok(
+        stops.some((stop) => compare(specificity(stop), specificity(loop)) >= 0),
+        `the reduced-motion stop outranks ${loop}`,
+      )
+  }
+})
