@@ -140,6 +140,17 @@ test('the pause covers the parts of a visible window nobody can see', () => {
   }
 })
 
+test('a live counter skips its writes in every hidden region the pause holds still', async () => {
+  // liveVisibility's selector is how LiveElapsed tells a region the
+  // intersection observer cannot see; it has to name what the pause names.
+  const { HIDDEN_REGION_SELECTOR } = await import('../components/panels/agentChat/liveVisibility')
+  const named = HIDDEN_REGION_SELECTOR.split(',').map((part) => part.trim())
+  for (const condition of splitSelectorList(pauseSelector())[0]!.match(/\[[^\]]+\]/g) ?? []) {
+    if (condition === "[data-window-active='false']" || condition === '[data-live-offscreen]') continue
+    assert.ok(named.includes(condition), `a live counter also rests under ${condition}`)
+  }
+})
+
 test('the pause outranks every rule that starts an infinite animation', () => {
   // An `animation` shorthand resets the play state, so a more specific rule
   // that starts a loop would quietly restart it under the pause.
