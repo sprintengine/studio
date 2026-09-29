@@ -960,6 +960,8 @@ export type CompanionAgentStatus =
  */
 export type CompanionAgentEvent = {
   id: string
+  /** Order within the session; absent only on events recorded before the host stamped one. */
+  seq?: number
   sessionId: string
   workspaceId: string
   agentId: string

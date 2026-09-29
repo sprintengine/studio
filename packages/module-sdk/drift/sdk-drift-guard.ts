@@ -84,36 +84,17 @@ import type {
   ModuleSkillRegistration as AppModuleSkillRegistration,
   ModuleSkillTargetPolicy as AppModuleSkillTargetPolicy,
 } from '../../../src/shared/modules/skills'
-import type {
-  LaunchContribution as AppLaunchContribution,
-  LaunchContributionHostContextSection as AppLaunchContributionHostContextSection,
-  LaunchContributionMcpServer as AppLaunchContributionMcpServer,
-  LaunchContributionPathStyle as AppLaunchContributionPathStyle,
-  LaunchContributionRequest as AppLaunchContributionRequest,
-  LaunchContributionResult as AppLaunchContributionResult,
-  LaunchContributionSessionTag as AppLaunchContributionSessionTag,
-} from '../../../src/shared/modules/launch-contributions'
 import type { ModuleWorkspaceContextService as AppModuleWorkspaceContextService } from '../../../src/main/modules/module-workspace-service'
 import type {
   ModuleStorageErrorCode as AppModuleStorageErrorCode,
   ModuleStorageRegistry as AppModuleStorageRegistry,
   ModuleStorageResult as AppModuleStorageResult,
 } from '../../../src/main/module-host/module-storage'
-import {
-  AgentSessionsModuleServiceToken as AppAgentSessionsModuleServiceToken,
-  ModuleStorageToken as AppModuleStorageToken,
-  WorkspaceContextToken as AppWorkspaceContextToken,
-  WorkspaceServiceToken as AppWorkspaceServiceToken,
-} from '../../../src/main/module-host/service-tokens'
+// Every token the host exports, read as one namespace so the key check below
+// does not depend on what each token is called.
+import * as appServiceTokens from '../../../src/main/module-host/service-tokens'
+import type { CompanionAgentsModuleRegistry as AppCompanionAgentsModuleRegistry } from '../../../src/main/companion-agent-service'
 import type {
-  ModuleAgentExitEvent as AppModuleAgentExitEvent,
-  ModuleAgentSessionRecord as AppModuleAgentSessionRecord,
-  ModuleAgentSessionService as AppModuleAgentSessionService,
-  ModuleAgentSpawnRequest as AppModuleAgentSpawnRequest,
-  ModuleAgentSpawnResult as AppModuleAgentSpawnResult,
-} from '../../../src/shared/modules/agent-sessions'
-import type {
-  AgentIdNamespaceDefinition as AppAgentIdNamespaceDefinition,
   BacklogItemAction as AppBacklogItemAction,
   BacklogItemActionContext as AppBacklogItemActionContext,
   BacklogLinkProvider as AppBacklogLinkProvider,
@@ -156,15 +137,7 @@ import type {
 } from '../../../src/renderer/src/commands/types'
 import type { ModuleWorkspaceView as AppModuleWorkspaceView } from '../../../src/shared/modules/workspace-view'
 import type { WorkspaceFileWatchEvent as AppWorkspaceFileWatchEvent } from '../../../src/renderer/src/modules/workspace-file-watch'
-import type { ModuleAgentSessionView as AppModuleAgentSessionView } from '../../../src/renderer/src/modules/agent-session-watch'
 import type { ModuleColorScheme as AppModuleColorScheme } from '../../../src/renderer/src/modules/color-scheme-watch'
-import type {
-  ModuleAgentRuntimeModelOption as AppModuleAgentRuntimeModelOption,
-  ModuleAgentRuntimeOption as AppModuleAgentRuntimeOption,
-  ModuleFocusTabInput as AppModuleFocusTabInput,
-  ModuleSpawnAgentInput as AppModuleSpawnAgentInput,
-  ModuleSpawnAgentResult as AppModuleSpawnAgentResult,
-} from '../../../src/renderer/src/modules/agent-spawn'
 import type {
   BacklogItemLink as AppBacklogItemLink,
   BacklogItemStatus as AppBacklogItemStatus,
@@ -176,7 +149,6 @@ import type {
 } from '../../../src/renderer/src/types/workspace'
 
 import type {
-  AgentIdNamespaceDefinition as SdkAgentIdNamespaceDefinition,
   BacklogItemAction as SdkBacklogItemAction,
   BacklogItemActionContext as SdkBacklogItemActionContext,
   FileAction as SdkFileAction,
@@ -197,6 +169,12 @@ import type {
   CapabilityPermission as SdkCapabilityPermission,
   CommandAvailability as SdkCommandAvailability,
   CommandScope as SdkCommandScope,
+  CompanionAgentEvent as SdkCompanionAgentEvent,
+  CompanionAgentHandle as SdkCompanionAgentHandle,
+  CompanionAgentSpec as SdkCompanionAgentSpec,
+  CompanionAgentStatus as SdkCompanionAgentStatus,
+  CompanionAgentsService as SdkCompanionAgentsService,
+  CompanionRunStructuredOptions as SdkCompanionRunStructuredOptions,
   ActionContext as SdkActionContext,
   ActionKind as SdkActionKind,
   AutomationActionProvider as SdkAutomationActionProvider,
@@ -228,13 +206,6 @@ import type {
   McpConnectionMetadata as SdkMcpConnectionMetadata,
   McpToolRegistration as SdkMcpToolRegistration,
   EnsureSkillInstalledResult as SdkEnsureSkillInstalledResult,
-  LaunchContribution as SdkLaunchContribution,
-  LaunchContributionHostContextSection as SdkLaunchContributionHostContextSection,
-  LaunchContributionMcpServer as SdkLaunchContributionMcpServer,
-  LaunchContributionPathStyle as SdkLaunchContributionPathStyle,
-  LaunchContributionRequest as SdkLaunchContributionRequest,
-  LaunchContributionResult as SdkLaunchContributionResult,
-  LaunchContributionSessionTag as SdkLaunchContributionSessionTag,
   ModuleSkillRegistration as SdkModuleSkillRegistration,
   ModuleSkillTargetPolicy as SdkModuleSkillTargetPolicy,
   McpToolResult as SdkMcpToolResult,
@@ -249,18 +220,7 @@ import type {
   ModuleFileDigests as SdkModuleFileDigests,
   ModuleSignature as SdkModuleSignature,
   ModuleSource as SdkModuleSource,
-  ModuleAgentRuntimeModelOption as SdkModuleAgentRuntimeModelOption,
-  ModuleAgentRuntimeOption as SdkModuleAgentRuntimeOption,
-  ModuleAgentSessionView as SdkModuleAgentSessionView,
   ModuleColorScheme as SdkModuleColorScheme,
-  ModuleFocusTabInput as SdkModuleFocusTabInput,
-  ModuleSpawnAgentInput as SdkModuleSpawnAgentInput,
-  ModuleAgentExitEvent as SdkModuleAgentExitEvent,
-  ModuleAgentSessionRecord as SdkModuleAgentSessionRecord,
-  ModuleAgentSessionService as SdkModuleAgentSessionService,
-  ModuleAgentSpawnRequest as SdkModuleAgentSpawnRequest,
-  ModuleAgentSpawnResult as SdkModuleAgentSpawnResult,
-  ModuleSpawnAgentResult as SdkModuleSpawnAgentResult,
   ModuleStorageErrorCode as SdkModuleStorageErrorCode,
   ModuleStorageResult as SdkModuleStorageResult,
   ModuleStorageService as SdkModuleStorageService,
@@ -298,6 +258,8 @@ import {
   KNOWN_CAPABILITY_PERMISSIONS as SDK_KNOWN_CAPABILITY_PERMISSIONS,
   SPRINTENGINE_FILE_DROP_MIME as SDK_FILE_DROP_MIME,
   AUTOMATION_PROVIDER_GLYPHS as SDK_AUTOMATION_PROVIDER_GLYPHS,
+  WorkspaceContextToken as SdkWorkspaceContextToken,
+  WorkspaceServiceToken as SdkWorkspaceServiceToken,
 } from '../src/index'
 
 // The bridged UI kit and door shell (D6). The SDK restates these shapes by
@@ -376,29 +338,17 @@ expectType<IsExact<AppSettingsSectionProps, SdkSettingsSectionProps>>()
 // provided under WorkspaceContextToken must match the SDK's contract.
 expectType<IsExact<AppModuleWorkspaceView, SdkModuleWorkspaceView>>()
 expectType<IsExact<AppModuleWorkspaceContextService, SdkWorkspaceContextService>>()
-// Agent sessions (D5 / WP-B): the five public shapes a module's entry.main
-// programs against. Exact, not assignable — an optional field added on one side
-// only is precisely the drift a module author would discover as a spawn that
-// silently ignored what they asked for.
-expectType<IsExact<AppModuleAgentSessionRecord, SdkModuleAgentSessionRecord>>()
-expectType<IsExact<AppModuleAgentSpawnRequest, SdkModuleAgentSpawnRequest>>()
-expectType<IsExact<AppModuleAgentSpawnResult, SdkModuleAgentSpawnResult>>()
-expectType<IsExact<AppModuleAgentExitEvent, SdkModuleAgentExitEvent>>()
-expectType<IsExact<AppModuleAgentSessionService, SdkModuleAgentSessionService>>()
 // Live runtime surfaces: the published views/inputs mirror the
 // app-side declarations exactly; RendererHost method soundness rides the
 // AppRendererHost extends SdkRendererHost assertion below.
 expectType<IsExact<AppWorkspaceFileWatchEvent, SdkWorkspaceFileWatchEvent>>()
-expectType<IsExact<AppModuleAgentSessionView, SdkModuleAgentSessionView>>()
-expectType<IsExact<AppModuleAgentRuntimeModelOption, SdkModuleAgentRuntimeModelOption>>()
-expectType<IsExact<AppModuleAgentRuntimeOption, SdkModuleAgentRuntimeOption>>()
 // The published 'light' | 'dark' must stay the app's own resolved scheme: the
 // module host's watchColorScheme republishes exactly what useResolvedColorScheme
 // resolves, and a third value added app-side has to be published or refused.
 expectType<IsExact<AppModuleColorScheme, SdkModuleColorScheme>>()
-expectType<IsExact<AppModuleSpawnAgentInput, SdkModuleSpawnAgentInput>>()
-expectType<IsExact<AppModuleSpawnAgentResult, SdkModuleSpawnAgentResult>>()
-expectType<IsExact<AppModuleFocusTabInput, SdkModuleFocusTabInput>>()
+// focusTab opens a chat or a file; pinned on the method so the input shape
+// is checked wherever the host declares it.
+expectType<IsExact<AppRendererHost['focusTab'], SdkRendererHost['focusTab']>>()
 // Module storage: the SDK publishes the scoped service (getModuleStorage);
 // the app provides the moduleId-first registry under 'core.module-storage'.
 // The registry the app serves must accept exactly what the SDK helper
@@ -458,22 +408,15 @@ expectType<IsExact<AppEnsureSkillInstalledResult, SdkEnsureSkillInstalledResult>
 expectType<IsExact<AppMainHost['registerSkills'], SdkMainHost['registerSkills']>>()
 expectType<IsExact<AppMainHost['ensureSkillInstalled'], SdkMainHost['ensureSkillInstalled']>>()
 
-// Launch contributions: the request/result shapes a module's entry.main
-// programs against, and the host method itself. Exact, not assignable — an
-// optional field added on one side only is the drift that would silently drop
-// a PATH entry or a host-context section.
-expectType<IsExact<AppLaunchContributionPathStyle, SdkLaunchContributionPathStyle>>()
-expectType<IsExact<AppLaunchContributionRequest, SdkLaunchContributionRequest>>()
-expectType<IsExact<AppLaunchContributionMcpServer, SdkLaunchContributionMcpServer>>()
-expectType<IsExact<AppLaunchContributionHostContextSection, SdkLaunchContributionHostContextSection>>()
-expectType<IsExact<AppLaunchContributionSessionTag, SdkLaunchContributionSessionTag>>()
-expectType<IsExact<AppLaunchContributionResult, SdkLaunchContributionResult>>()
-expectType<IsExact<AppLaunchContribution, SdkLaunchContribution>>()
-expectType<IsExact<AppMainHost['registerLaunchContribution'], SdkMainHost['registerLaunchContribution']>>()
-
 // Host soundness: the app host handed to module code satisfies the SDK view.
 expectType<Extends<AppMainHost, SdkMainHost>>()
 expectType<Extends<AppRendererHost, SdkRendererHost>>()
+// Host parity: the hosts a module is handed carry exactly the members the SDK
+// publishes, no more. `Extends` alone lets the app grow a member no module can
+// type (or keep one the SDK removed); anything first-party-only belongs on the
+// host's internal type, not on these.
+expectType<IsExact<keyof AppMainHost, keyof SdkMainHost>>()
+expectType<IsExact<keyof AppRendererHost, keyof SdkRendererHost>>()
 // Per-module workspace state: the accessor pair is the pinned SDK
 // shape for module-owned workspace state — exact identity, because the
 // one-directional host assertion above would let an optional-parameter or
@@ -551,14 +494,12 @@ expectType<IsExact<AppRendererHost['registerModalSurface'], SdkRendererHost['reg
 expectType<IsExact<AppRendererHost['listWorkspaces'], SdkRendererHost['listWorkspaces']>>()
 expectType<IsExact<AppRendererHost['watchWorkspaces'], SdkRendererHost['watchWorkspaces']>>()
 expectType<IsExact<AppRendererHost['watchColorScheme'], SdkRendererHost['watchColorScheme']>>()
-expectType<IsExact<AppRendererHost['watchAgentSessions'], SdkRendererHost['watchAgentSessions']>>()
-expectType<IsExact<AppRendererHost['listAgentRuntimes'], SdkRendererHost['listAgentRuntimes']>>()
 
-// ── The four module-boundary surfaces ──────────────────────────────
+// ── The three module-boundary surfaces ──────────────────────────────
 // Each is pinned exactly rather than by `Extends`, for the reason spelled out
 // above: the one-directional host assertion compares method parameters
 // bivariantly, so an app-side widening (or a dropped optional) would ride
-// through unnoticed on all four.
+// through unnoticed on all three.
 
 // 1. Async workspace creation: the hook and both of its wire shapes.
 expectType<IsExact<AppWorkspaceTypeCreateRequest, SdkWorkspaceTypeCreateRequest>>()
@@ -570,17 +511,13 @@ expectType<
   >
 >()
 
-// 2. Module-owned agent-id namespaces.
-expectType<IsExact<AppAgentIdNamespaceDefinition, SdkAgentIdNamespaceDefinition>>()
-expectType<IsExact<AppRendererHost['registerAgentIdNamespace'], SdkRendererHost['registerAgentIdNamespace']>>()
-
-// 3. App-level module state — the renderer-side, synchronously-readable scope
+// 2. App-level module state — the renderer-side, synchronously-readable scope
 // above the per-workspace bag. The accessor trio is pinned like the workspace-state pair.
 expectType<IsExact<AppRendererHost['getModuleAppState'], SdkRendererHost['getModuleAppState']>>()
 expectType<IsExact<AppRendererHost['setModuleAppState'], SdkRendererHost['setModuleAppState']>>()
 expectType<IsExact<AppRendererHost['watchModuleAppState'], SdkRendererHost['watchModuleAppState']>>()
 
-// 4. The module-owned event channel: the emit half on MainHost, the subscribe
+// 3. The module-owned event channel: the emit half on MainHost, the subscribe
 // half on RendererHost, and the envelope both processes agree on.
 expectType<IsExact<AppModuleEventEnvelope, SdkModuleEventEnvelope>>()
 expectType<IsExact<AppMainHost['emit'], SdkMainHost['emit']>>()
@@ -636,6 +573,26 @@ expectType<IsExact<appConversation.ModuleConversationRegistry, SdkExpectedRegist
 expectType<IsExact<appBrokers.ModuleSecretsRegistry, SdkExpectedRegistry<sdk.ModuleSecretsService>>>()
 expectType<IsExact<appBrokers.ModuleGitHubRegistry, SdkExpectedRegistry<sdk.ModuleGitHubService>>>()
 
+// Companion agents. The app declares these shapes inline on the registry it
+// serves under 'companion-agents.module-service', so they are read off it: the
+// spec `attach` takes, the handle it returns, and what the handle's methods
+// take and give. Exact, except the event the handle streams: the SDK widens
+// `type` to string so a new app event kind never breaks a compiled module, so
+// the app's event must satisfy that view and carry exactly its fields.
+type AppCompanionAttach = AppCompanionAgentsModuleRegistry['attach']
+type AppCompanionAgentHandle = ReturnType<AppCompanionAttach>
+type AppCompanionAgentEvent = Parameters<Parameters<AppCompanionAgentHandle['onEvent']>[0]>[0]
+expectType<IsExact<Parameters<AppCompanionAttach>, [moduleId: string, spec: SdkCompanionAgentSpec]>>()
+expectType<IsExact<keyof AppCompanionAgentsModuleRegistry, keyof SdkCompanionAgentsService>>()
+expectType<IsExact<Omit<AppCompanionAgentHandle, 'onEvent'>, Omit<SdkCompanionAgentHandle, 'onEvent'>>>()
+expectType<IsExact<keyof AppCompanionAgentHandle, keyof SdkCompanionAgentHandle>>()
+expectType<IsExact<ReturnType<AppCompanionAgentHandle['status']>, SdkCompanionAgentStatus>>()
+expectType<
+  IsExact<Parameters<AppCompanionAgentHandle['runStructured']>[0], SdkCompanionRunStructuredOptions<unknown>>
+>()
+expectType<Extends<AppCompanionAgentEvent, SdkCompanionAgentEvent>>()
+expectType<IsExact<keyof AppCompanionAgentEvent, keyof SdkCompanionAgentEvent>>()
+
 // Callback-input soundness: what the app passes into module callbacks
 // satisfies the SDK's (intentionally widened) read views.
 expectType<Extends<AppBacklogItemActionContext, SdkBacklogItemActionContext>>()
@@ -666,17 +623,47 @@ assert.equal(
   'HOST_API_MIN_SUPPORTED drifted between SDK and app',
 )
 
-// Service-token keys the SDK mirrors as private literals: pin the app side to
-// the documented strings so an accidental key edit fails here instead of
+// Service-token keys. The SDK resolves every host service by a string key it
+// keeps private (or publishes as a token), so the two sides agree only if the
+// host provides a token under each of those exact strings. Checked both ways:
+// every key below must appear in the emitted SDK, and the host must export a
+// token with it — an accidental key edit on either side fails here instead of
 // silently unresolving every module's requireService at runtime.
-assert.equal(AppWorkspaceServiceToken.key, 'core.workspace', 'WorkspaceServiceToken key drifted')
-assert.equal(AppWorkspaceContextToken.key, 'core.workspace-context', 'WorkspaceContextToken key drifted')
-assert.equal(AppModuleStorageToken.key, 'core.module-storage', 'ModuleStorageToken key drifted')
-assert.equal(
-  AppAgentSessionsModuleServiceToken.key,
-  'agent-sessions.module-service',
-  'AgentSessionsModuleServiceToken key drifted',
+const SDK_SERVICE_TOKEN_KEYS = [
+  'core.workspace',
+  'core.workspace-context',
+  'core.module-storage',
+  'automations.provider-registry',
+  'automations.module-service',
+  'companion-agents.module-service',
+  'conversation.module-service',
+  'module-secrets.module-service',
+  'github.module-service',
+] as const
+const sdkRuntime = ['index.js', 'conversation.js', 'brokers.js']
+  .map((file) => readFileSync(join(process.cwd(), 'packages', 'module-sdk', 'dist', file), 'utf8'))
+  .join('\n')
+const sdkKeysInRuntime = new Set(
+  [...sdkRuntime.matchAll(/createServiceToken\(['"]([^'"]+)['"]\)|\{\s*key:\s*['"]([^'"]+)['"],?\s*\}/g)].map(
+    (match) => match[1] ?? match[2],
+  ),
 )
+assert.deepEqual(
+  [...sdkKeysInRuntime].sort(),
+  [...SDK_SERVICE_TOKEN_KEYS].sort(),
+  'the SDK resolves a different set of host service keys than the drift guard pins',
+)
+const appServiceTokenKeys = new Set(
+  Object.values(appServiceTokens as Record<string, unknown>)
+    .filter((value): value is { key: string } => typeof (value as { key?: unknown } | null)?.key === 'string')
+    .map((token) => token.key),
+)
+for (const key of SDK_SERVICE_TOKEN_KEYS) {
+  assert.ok(appServiceTokenKeys.has(key), `the host provides no service token under the SDK key "${key}"`)
+}
+// The two tokens the SDK publishes by value are the same strings.
+assert.equal(SdkWorkspaceServiceToken.key, 'core.workspace', 'WorkspaceServiceToken key drifted')
+assert.equal(SdkWorkspaceContextToken.key, 'core.workspace-context', 'WorkspaceContextToken key drifted')
 
 // The published surface must not contain `any` (the source is also compiled
 // with strict settings; this guards the emitted declarations the tarball ships).
