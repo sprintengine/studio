@@ -15,13 +15,13 @@ type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: MobileCo
 // from the envelope validator. Protocol v3 removed them from the wire, so a
 // sender of one is outside the version window and is refused at the handshake
 // instead — which is where a version mismatch belongs.
-const commandTypes = new Set<MobileControlCommandType>([
-  'snapshot.request',
-  'backlog.update',
-  'backlog.create',
-  'automations.control',
-])
-const automationActionValues = new Set(['enable', 'pause', 'runNow'])
+//
+// `automations.control` left on 2026-09-29 without a bump, and with no grace
+// entry here: nothing had served it since the hosted relay went (2026-09-27).
+// The gateway's `workspace.mobile_command` allowlist never named it and the
+// tailnet never advertised it, so a phone that sends it there is refused as
+// `command_not_supported` before this validator runs, exactly as it was.
+const commandTypes = new Set<MobileControlCommandType>(['snapshot.request', 'backlog.update', 'backlog.create'])
 
 export function validateMobileControlCommand(input: unknown): ValidationResult<MobileControlCommand> {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
@@ -108,12 +108,6 @@ function validateCommandPayload(type: MobileControlCommandType, payload: Record<
         optionalString(payload, 'difficulty') ??
         optionalString(payload, 'criticality')
       )
-    case 'automations.control':
-      return (
-        requireString(payload, 'workspacePath') ??
-        requireString(payload, 'automationId') ??
-        requireOneOf(payload, 'action', automationActionValues)
-      )
   }
 }
 
@@ -125,12 +119,6 @@ function optionalString(record: Record<string, unknown>, field: string): string 
   return record[field] === undefined || (typeof record[field] === 'string' && record[field].length > 0)
     ? null
     : `${field} must be a non-empty string when provided`
-}
-
-function requireOneOf(record: Record<string, unknown>, field: string, allowed: Set<string>): string | null {
-  return typeof record[field] === 'string' && allowed.has(record[field])
-    ? null
-    : `${field} must be one of: ${Array.from(allowed).join(', ')}`
 }
 
 function requireIsoDate(record: Record<string, unknown>, field: string): string | null {

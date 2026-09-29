@@ -121,8 +121,8 @@ loop.
 The phone companion pairs with and talks to this desktop only over the tailnet;
 there is no hosted relay. These two tools are its whole connection.
 
-`workspace_snapshot` is the companion document: backlog, automations and the
-dev servers published on the tailnet as one versioned read, in path-token form
+`workspace_snapshot` is the companion document: backlog and the dev servers
+published on the tailnet as one versioned read, in path-token form
 — `ws_` tokens round-trip and local paths never leave the desktop. Pass
 `knownSnapshotVersion` from your previous read to get an `{unchanged: true}`
 marker instead of the whole document when nothing moved; a polling loop that

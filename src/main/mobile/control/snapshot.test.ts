@@ -10,14 +10,7 @@ import {
 import { AutomationsStore } from '../../automations/store'
 import { createBacklogItem } from '../../backlog-service'
 import { stableBacklogObjectId } from '../../../shared/backlog/object-id'
-import {
-  automationRecentRunsMax,
-  automationRunTextMaxChars,
-  automationsPerProjectMax,
-  mobileControlProtocolVersion,
-  mobileSnapshotCollections,
-  validateMobileControlSnapshot,
-} from './protocol'
+import { mobileControlProtocolVersion, mobileSnapshotCollections, validateMobileControlSnapshot } from './protocol'
 import { test } from 'vitest'
 
 test('snapshot', async () => {
@@ -48,8 +41,7 @@ test('snapshot', async () => {
     await assertSnapshotCarriesNoRoleCatalogue()
     await assertTopLevelSnapshotVersionIsContentStableAcrossReads()
     await assertBacklogOnlyChangeBumpsTopLevelSnapshotVersion()
-    await assertAutomationsOnlyChangeBumpsTopLevelSnapshotVersion()
-    await assertProducerCapsAutomations()
+    await assertSnapshotCarriesNoAutomations()
     await assertSnapshotSurfacesCreatedSpikeBacklogItem()
     await assertSnapshotOmitsBacklogWhenWorkspaceHasNone()
     await assertSnapshotCarriesNoWorkspacesCollection()
@@ -84,7 +76,9 @@ test('snapshot', async () => {
     assert.equal(Object.hasOwn(snapshot, 'snapshotLimits'), false, 'its shedding report went with it')
     assert.equal(snapshot.protocolVersion, mobileControlProtocolVersion)
     // v3 removed `sprintEngines`; v4 removed `workspaces` and `roadmaps`.
-    assert.equal(mobileControlProtocolVersion, 4, 'a removed member is a wire bump')
+    // `automations` left without one, as a member that was already optional
+    // (see assertSnapshotCarriesNoAutomations).
+    assert.equal(mobileControlProtocolVersion, 4, 'a removed required member is a wire bump')
     // The rest of the snapshot is untouched by the cut.
     assert.equal(snapshot.backlog?.length, 1)
     assert.equal(validateMobileControlSnapshot(snapshot).ok, true)
@@ -113,7 +107,8 @@ test('snapshot', async () => {
     assert.equal(snapshot.commands?.includes('snapshot.request'), true)
     assert.equal(snapshot.commands?.includes('backlog.update'), true)
     assert.equal(snapshot.commands?.includes('backlog.create'), true)
-    assert.equal(snapshot.commands?.includes('automations.control'), true)
+    // Automations left the phone on 2026-09-29.
+    assert.equal(snapshot.commands?.includes('automations.control'), false)
   }
 
   async function assertSnapshotIncludesWorkspaceBacklog(): Promise<void> {
@@ -224,24 +219,6 @@ test('snapshot', async () => {
   async function assertTopLevelSnapshotVersionIsContentStableAcrossReads(): Promise<void> {
     const workspaceRoot = await makeWorkspaceRoot('stable-version')
     await writeBacklogFixture(workspaceRoot, 'backlog_stable', 'Stable backlog item')
-    const store = new AutomationsStore(workspaceRoot)
-    await store.createDefinition({
-      id: 'nightly',
-      name: 'Nightly sweep',
-      status: 'enabled',
-      // Interval cadence renders with no timezone suffix, so even the cadence string
-      // carries no wall-clock — the whole automation projection is content-only.
-      trigger: {
-        kind: 'schedule',
-        config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 90 }, timezone: 'UTC' },
-      },
-      action: { kind: 'agent-run', config: { prompt: 'sweep' } },
-      nextRunAt: null,
-      lastRunAt: generatedAt,
-      lastRunId: null,
-      createdAt: generatedAt,
-      updatedAt: generatedAt,
-    })
     const service = new MobileControlSnapshotService()
 
     const first = await service.readSnapshot({ desktopSessionId: 'desktop_1', workspaceRoots: [workspaceRoot] })
@@ -301,11 +278,15 @@ test('snapshot', async () => {
     )
   }
 
-  // An automations-only change must move the top-level version for the same reason.
-  async function assertAutomationsOnlyChangeBumpsTopLevelSnapshotVersion(): Promise<void> {
-    const workspaceRoot = await makeWorkspaceRoot('automations-bump')
-    const store = new AutomationsStore(workspaceRoot)
-    await store.createDefinition({
+  // Automations left the phone on 2026-09-29 (owner ruling). A project that
+  // has them sends none: the member is absent, not emptied, and the snapshot
+  // without it is one the phone's validator accepts. The member was optional
+  // and already absent whenever a desktop had nothing to show, which is why
+  // this is not a version bump.
+  async function assertSnapshotCarriesNoAutomations(): Promise<void> {
+    const workspaceRoot = await makeWorkspaceRoot('no-automations')
+    await writeBacklogFixture(workspaceRoot, 'backlog_no_automations', 'Still here')
+    await new AutomationsStore(workspaceRoot).createDefinition({
       id: 'nightly',
       name: 'Nightly sweep',
       status: 'enabled',
@@ -322,100 +303,10 @@ test('snapshot', async () => {
     })
     const service = new MobileControlSnapshotService()
 
-    const before = await service.readSnapshot({
-      desktopSessionId: 'desktop_1',
-      workspaceRoots: [workspaceRoot],
-      generatedAt,
-    })
-    const paused = await store.updateDefinition({
-      id: 'nightly',
-      name: 'Nightly sweep',
-      status: 'paused',
-      trigger: {
-        kind: 'schedule',
-        config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 90 }, timezone: 'UTC' },
-      },
-      action: { kind: 'agent-run', config: { prompt: 'sweep' } },
-      nextRunAt: null,
-      lastRunAt: generatedAt,
-      lastRunId: null,
-      createdAt: generatedAt,
-      updatedAt: generatedAt,
-    })
-    assert.equal(paused.ok, true)
-    const after = await service.readSnapshot({
-      desktopSessionId: 'desktop_1',
-      workspaceRoots: [workspaceRoot],
-      generatedAt,
-    })
-
-    assert.notEqual(
-      after.snapshotVersion,
-      before.snapshotVersion,
-      'an automations-only change produces a new top-level snapshotVersion',
-    )
-  }
-
-  // One project's automations, seeded PAST every cap, must come out of the
-  // producer capped: no more automations than the per-project cap, no more runs
-  // than the recent-runs cap, and run text truncated. This drives the real store
-  // through the real producer, so it is the caps measured on what the phone reads.
-  async function assertProducerCapsAutomations(): Promise<void> {
-    const workspaceRoot = await makeWorkspaceRoot('capped-automations')
-    const store = new AutomationsStore(workspaceRoot)
-    // Every automation is seeded at worst case: past both caps, and with run text
-    // well past the truncation limit, so the wire payload is the largest one project
-    // can produce.
-    const seededAutomations = automationsPerProjectMax + 2
-    const seededRuns = automationRecentRunsMax + 2
-    for (let index = 0; index < seededAutomations; index += 1) {
-      const automationId = `automation-${String(index).padStart(2, '0')}`
-      await store.createDefinition({
-        id: automationId,
-        name: `Automation ${index}`,
-        status: 'enabled',
-        trigger: {
-          kind: 'schedule',
-          config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 30 }, timezone: 'UTC' },
-        },
-        action: { kind: 'agent-run', config: { prompt: 'sweep' } },
-        nextRunAt: null,
-        lastRunAt: generatedAt,
-        lastRunId: `${automationId}-run-0`,
-        createdAt: generatedAt,
-        updatedAt: `2026-06-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`,
-      })
-      for (let runIndex = 0; runIndex < seededRuns; runIndex += 1) {
-        const minute = String(runIndex).padStart(2, '0')
-        await store.recordRun({
-          id: `${automationId}-run-${runIndex}`,
-          automationId,
-          status: 'blocked',
-          dueAt: `2026-07-13T10:${minute}:00.000Z`,
-          startedAt: `2026-07-13T10:${minute}:01.000Z`,
-          completedAt: `2026-07-13T10:${minute}:30.000Z`,
-          blockedReason: 'b'.repeat(automationRunTextMaxChars * 3),
-          summary: 's'.repeat(automationRunTextMaxChars * 3),
-        })
-      }
-    }
-
-    const service = new MobileControlSnapshotService()
-    const snapshot = sanitizeMobileSnapshotForTransport(
-      await service.readSnapshot({ desktopSessionId: 'desktop_1', workspaceRoots: [workspaceRoot], generatedAt }),
-    )
-
-    const automations = snapshot.automations ?? []
-    assert.equal(automations.length, automationsPerProjectMax)
-    for (const automation of automations) {
-      assert.equal(automation.recentRuns?.length, automationRecentRunsMax)
-      const [latest] = automation.recentRuns ?? []
-      assert.equal(latest.summary?.length, automationRunTextMaxChars)
-      assert.equal(latest.summary?.endsWith('…'), true)
-      assert.equal(latest.blockedReason?.length, automationRunTextMaxChars)
-    }
-
-    assert.equal(validateMobileControlSnapshot(snapshot).ok, true)
+    const snapshot = await service.readSnapshot({ desktopSessionId: 'desktop_1', workspaceRoots: [workspaceRoot] })
+    assert.equal(Object.hasOwn(snapshot, 'automations'), false, 'the member is gone, not emptied')
+    assert.equal(snapshot.backlog?.length, 1)
+    assert.equal(validateMobileControlSnapshot(sanitizeMobileSnapshotForTransport(snapshot)).ok, true)
   }
 
   async function assertSnapshotSurfacesCreatedSpikeBacklogItem(): Promise<void> {
@@ -479,7 +370,7 @@ test('snapshot', async () => {
     for (const retired of ['workspaces', 'roadmaps', 'sprintEngines']) {
       assert.equal(Object.hasOwn(snapshot, retired), false, `${retired} is gone, not emptied`)
     }
-    assert.deepEqual([...mobileSnapshotCollections].sort(), ['automations', 'backlog'])
+    assert.deepEqual([...mobileSnapshotCollections].sort(), ['backlog'])
     assert.equal(snapshot.backlog?.length, 1)
     const phoneCopy = sanitizeMobileSnapshotForTransport(snapshot)
     assert.equal(Object.hasOwn(phoneCopy, 'workspaces'), false)
@@ -502,22 +393,6 @@ test('snapshot', async () => {
   async function assertIncludeScopingOmitsUnrequestedCollections(): Promise<void> {
     const workspaceRoot = await makeWorkspaceRoot('include-scoping')
     await writeBacklogFixture(workspaceRoot, 'backlog_inc', 'Include-scoped item')
-    const store = new AutomationsStore(workspaceRoot)
-    await store.createDefinition({
-      id: 'nightly',
-      name: 'Nightly sweep',
-      status: 'enabled',
-      trigger: {
-        kind: 'schedule',
-        config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 90 }, timezone: 'UTC' },
-      },
-      action: { kind: 'agent-run', config: { prompt: 'sweep' } },
-      nextRunAt: null,
-      lastRunAt: generatedAt,
-      lastRunId: null,
-      createdAt: generatedAt,
-      updatedAt: generatedAt,
-    })
     const service = new MobileControlSnapshotService()
 
     const onlyBacklog = await service.readSnapshot({
@@ -527,16 +402,15 @@ test('snapshot', async () => {
       include: ['backlog'],
     })
     assert.equal(onlyBacklog.backlog?.length, 1)
-    assert.equal(onlyBacklog.automations, undefined)
 
-    const onlyAutomations = await service.readSnapshot({
+    // Naming no collection serves none of them.
+    const nothing = await service.readSnapshot({
       desktopSessionId: 'desktop_1',
       workspaceRoots: [workspaceRoot],
       generatedAt,
-      include: ['automations'],
+      include: [],
     })
-    assert.equal(onlyAutomations.automations?.length, 1)
-    assert.equal(onlyAutomations.backlog, undefined)
+    assert.equal(nothing.backlog, undefined)
   }
 
   async function makeWorkspaceRoot(label: string): Promise<string> {

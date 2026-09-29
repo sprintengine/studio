@@ -3211,7 +3211,7 @@ test('automation', async () => {
             }
             return {
               unchanged: false as const,
-              snapshot: { protocolVersion: 4, snapshotVersion: 'snap_current', backlog: [], automations: [] },
+              snapshot: { protocolVersion: 4, snapshotVersion: 'snap_current', backlog: [] },
             }
           },
           dispatchCommand: async () => {
@@ -3221,6 +3221,9 @@ test('automation', async () => {
       }),
     )
 
+    // Phones built before automations left the wire ask for them on every read.
+    // The retired name is accepted and forwarded, and the bridge serves nothing
+    // for it, rather than failing every read those phones make.
     const full = await tool(tools, 'workspace.snapshot').handler({ include: ['automations', 'backlog'] })
     assert.equal(full.isError, undefined)
     const fullBody = full.structuredContent as { unchanged: boolean; snapshot: { snapshotVersion: string } }

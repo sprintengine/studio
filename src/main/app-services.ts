@@ -1531,14 +1531,21 @@ export function createAppServices(diagnosticsEnabled: boolean) {
             return {
               async readSnapshot(input: { include?: string[]; knownSnapshotVersion?: string }) {
                 const roots = workspaceRoots()
-                const include = input.include?.filter((entry): entry is MobileSnapshotCollection =>
-                  (mobileSnapshotCollections as readonly string[]).includes(entry),
-                )
+                // An empty or absent `include` is the default set. A named one is
+                // served exactly, retired names included: they select nothing, so
+                // a read that names only a retired collection gets an empty
+                // snapshot rather than silently widening to every collection.
+                const include =
+                  input.include && input.include.length > 0
+                    ? input.include.filter((entry): entry is MobileSnapshotCollection =>
+                        (mobileSnapshotCollections as readonly string[]).includes(entry),
+                      )
+                    : undefined
                 const snapshot = await snapshotService.readSnapshot({
                   desktopSessionId,
                   workspaceRoots: roots,
                   commands: gatewayCommands,
-                  ...(include && include.length > 0 ? { include } : {}),
+                  ...(include ? { include } : {}),
                 })
                 const safe = sanitizeMobileSnapshotForTransport(snapshot)
                 if (input.knownSnapshotVersion && input.knownSnapshotVersion === safe.snapshotVersion) {

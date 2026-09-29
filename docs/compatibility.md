@@ -249,6 +249,40 @@ The phone's side of this is its own change: it stops asking for terminals.
 Nothing in `src/main/mobile/control/protocol.ts` changed, so the mobile-control
 version stays at 4.
 
+### Automations leave the phone (2026-09-29)
+
+**Not a bump, and the mobile-control version stays at 4, window `[3, 4]`.**
+Owner ruling: the phone does not show or drive automations any more. What
+left `src/main/mobile/control/protocol.ts`:
+
+- **The snapshot member** `automations`, with its types
+  (`MobileControlAutomationSnapshot`, `MobileControlAutomationRunSummary`,
+  `MobileControlAutomationRunStatus`) and the producer's caps
+  (`automationsPerProjectMax`, `automationRecentRunsMax`,
+  `automationRunTextMaxChars`). The member was optional and already absent
+  whenever a desktop had no automations to show, so a snapshot without it is
+  one every v3 and v4 phone reads. That is why this is not the case "a field
+  that is removed" in the bump rule above: nothing about whether it may be
+  absent changed.
+- **The collection** `automations` from `mobileSnapshotCollections`. This is
+  the part that would have been a bump — it is what made v4 one — because
+  phones built before this ask for `['backlog', 'automations']` on every read,
+  and `workspace.snapshot` refuses a name it does not know. So the name is kept
+  as a retired collection (`retiredMobileSnapshotCollections`): accepted in
+  `include`, and answered with nothing, the way the upload route still accepts
+  the `kind` older phones send.
+- **The command** `automations.control`, with `AutomationsControlCommand`,
+  `MobileControlAutomationAction` and the `task_not_ready` error code only it
+  produced. A command is advertised in the snapshot's `commands` strings, and
+  the tailnet never advertised this one: the gateway's `workspace.mobile_command`
+  allowlist is `backlog.update` alone, so since the hosted relay went
+  (2026-09-27) no transport served it. A phone that sends it is refused
+  `command_not_supported` by the gateway, as before.
+
+The phone's mirror drops the same members in its own companion change. On the
+desktop, automations are unchanged, and `automation.run` stays a local-socket
+tool.
+
 ## What never changes without a bump
 
 - The meaning of an existing field.

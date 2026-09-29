@@ -50,6 +50,14 @@ of the first release that ships it, then delete the line.
   load — the same way the Horizon scopes went. A Mesh tab left open on a remote
   terminal reopens as an unavailable panel; close it. Local terminals are
   unchanged.
+- Automations on the phone, 2026-09-29 (owner ruling): the desktop no longer
+  sends its automations to the phone, and the phone can no longer enable,
+  pause or run one. The snapshot's `automations` member, the `automations`
+  collection and the `automations.control` command are gone from the
+  mobile-control wire; the phone's own release drops its Automations screen.
+  An older phone that still asks for the collection gets a snapshot without
+  it, not an error. Automations themselves are unchanged on the desktop, and
+  an agent on this machine still lists and runs them through `automation.*`.
 - Hosted mobile relay, 2026-09-27 (owner ruling): the phone companion pairs
   with and talks to the desktop over Tailscale only. The relay bridge, its
   pairing links, its push notifications and Settings > Mobile are gone, and

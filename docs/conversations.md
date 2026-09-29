@@ -213,9 +213,11 @@ and the tools that list terminals or start an agent in one (`terminal.list`,
 `terminal.create`, `agent.launch`, `backlog.work`, `automation.run`) are served
 on the local socket only, to the agents and MCP clients on this machine. What a
 paired device starts is a chat, through `conversation.create`, and the machine
-dropdown in New chat offers a paired machine only for a Chat agent. The phone still runs an automation from its own
-controls, through `workspace.mobile_command`. A tab left open on a remote
-terminal by an earlier build reopens as an unavailable panel.
+dropdown in New chat offers a paired machine only for a Chat agent. Automations
+stay on the machine too: the phone neither lists nor runs them, and the
+desktop's own Automations surface and the local `automation.*` tools are
+unchanged. A tab left open on a remote terminal by an earlier build reopens as
+an unavailable panel.
 
 ## Manual verification
 

@@ -11,7 +11,6 @@ import type {
   MobileControlWebTargetSnapshot,
   MobileSnapshotCollection,
 } from './protocol'
-import { readMobileAutomationSnapshots } from './automations'
 import { readMobileBacklogWorkspaceSnapshot } from './backlog'
 import { deriveWorkspaceId } from './workspace-id'
 import { deepRedactLocalPaths } from './path-safety'
@@ -31,7 +30,6 @@ const mobileSnapshotCommandTypes = [
   'snapshot.request',
   'backlog.update',
   'backlog.create',
-  'automations.control',
 ] as const satisfies readonly MobileControlCommandType[]
 
 // The advertised set is a SUBSET of the command union — a command the desktop cannot
@@ -53,7 +51,7 @@ export type MobileControlSnapshotRequest = {
 }
 
 // The unscoped default: every collection the wire declares.
-const defaultSnapshotCollections: ReadonlySet<MobileSnapshotCollection> = new Set(['backlog', 'automations'])
+const defaultSnapshotCollections: ReadonlySet<MobileSnapshotCollection> = new Set(['backlog'])
 
 // Make an outbound snapshot safe to hand another device: no absolute local path
 // leaves the desktop (see path-safety.ts). Round-trip critical workspace roots
@@ -63,9 +61,8 @@ const defaultSnapshotCollections: ReadonlySet<MobileSnapshotCollection> = new Se
 // Applied only to the copy emitted to the phone — readSnapshot() keeps the real
 // paths for server-side resolution.
 export function sanitizeMobileSnapshotForTransport(snapshot: MobileControlSnapshot): MobileControlSnapshot {
-  // `projectKey` is the phone's join key across collections: the same
-  // token for the same repo root in every collection, which automations are
-  // stamped with by their producer.
+  // `projectKey` is the phone's key for a repo: the same token for the same
+  // repo root on every read.
   const backlog = snapshot.backlog?.map((workspace) => {
     const token = deriveWorkspaceId(workspace.workspacePath)
     return {
@@ -110,16 +107,6 @@ export class MobileControlSnapshotService {
     const collections = request.include ? new Set(request.include) : defaultSnapshotCollections
     const workspaceRoots = uniqueResolved(request.workspaceRoots ?? [])
     const backlog = collections.has('backlog') ? await readBacklogWorkspaceSnapshots(workspaceRoots, generatedAt) : []
-    // The automations monitor. One projection per workspace root, joined to
-    // the other collections on `projectKey` (stamped by the producer, from the same
-    // deriveWorkspaceId the sanitize pass stamps backlog workspaces with).
-    const automations = collections.has('automations')
-      ? (
-          await Promise.all(
-            workspaceRoots.map((workspaceRoot) => readMobileAutomationSnapshots(workspaceRoot, generatedAt)),
-          )
-        ).flat()
-      : []
     // A share is machine state that can change without any workspace changing,
     // so it is read on every snapshot and folded into the version below —
     // otherwise the phone's If-None-Match would hold a stale web screen.
@@ -132,16 +119,14 @@ export class MobileControlSnapshotService {
       // idle read. It folds NO per-read wall-clock: the top level dropped
       // `generatedAt`, and each backlog `updatedAt` — which falls back to
       // `generatedAt` for an empty workspace — is stripped before hashing.
-      // Backlog and automations are folded so a backlog-only or automations-only
-      // change still bumps the version.
+      // Backlog and web targets are folded so a change to either alone still
+      // bumps the version.
       snapshotVersion: buildSnapshotVersion({
         backlog: backlog.map(withoutReadTimeStamp),
-        automations,
         webTargets,
       }),
       commands: normalizeMobileControlCommands(request.commands ?? this.supportedCommands),
       ...(backlog.length > 0 ? { backlog } : {}),
-      ...(automations.length > 0 ? { automations } : {}),
       ...(webTargets.length > 0 ? { webTargets } : {}),
     }
   }
