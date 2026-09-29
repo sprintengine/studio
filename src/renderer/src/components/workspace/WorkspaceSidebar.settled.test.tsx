@@ -247,11 +247,34 @@ test('WorkspaceSidebar.settled', async () => {
       assert.deepEqual(killed, ['alpha-pty'], 'settling a chat kills the terminals it held')
       assert.deepEqual(chatsSuspended, [], "and leaves another workspace's chat agents alone")
 
+      // The row you are in stays put when it settles, so the seat has to say
+      // it did: the tick becomes the ringed settled mark, which un-settles,
+      // and the row is pinned open while the flourish plays. The record is
+      // the store's; here it arrives the way it does in the app, as props.
+      const settledAlpha = [{ ...workspaces[0], settledAt: Date.now() } as Workspace, ...workspaces.slice(1)]
+      await render({ ...props, workspaces: settledAlpha } as unknown as SidebarProps)
+      assert.equal(actionLabel('Settle Alpha') === null, true, 'a settled row no longer offers Settle')
+      const unsettleAlpha = actionLabel('Un-settle Alpha')
+      assert.ok(unsettleAlpha, 'its seat offers Un-settle instead')
+      assert.ok(unsettleAlpha.querySelector('.settle-mark-flourish'), 'and plays the settle flourish')
+      const alphaRow = unsettleAlpha.closest('[role="treeitem"]')
+      assert.equal(alphaRow?.hasAttribute('data-settle-flourish'), true, 'with the seat pinned open while it plays')
+      await render(props)
+      assert.ok(actionLabel('Settle Alpha'), 'un-settled, the row offers Settle again')
+      assert.equal(alphaRow?.hasAttribute('data-settle-flourish'), false, 'and the flourish ends with it')
+
       // The row you are in always has a row: selecting a settled chat (from
       // Settings or search) keeps it in the active list, still settled, while
       // the other resting chat stays off the rail.
       await render({ ...props, activeWorkspaceId: 'w2' } as unknown as SidebarProps)
       assert.deepEqual(rowNames(), ['Alpha', 'Bravo'], 'the selected settled row sits in the active list')
+      const unsettleBravo = actionLabel('Un-settle Bravo')
+      assert.ok(unsettleBravo, 'its seat wears the settled mark')
+      assert.equal(
+        unsettleBravo.querySelector('.settle-mark-flourish') === null,
+        true,
+        'but a row that was already resting when it drew does not play the flourish',
+      )
       assert.equal(shelfButton(), null, 'and still no shelf for the one left resting')
 
       const settledMenu = await openMenuOn('Bravo')
