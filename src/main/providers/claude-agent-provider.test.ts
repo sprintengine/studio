@@ -2911,6 +2911,7 @@ test("a live session's init publishes the folder's command list when it changed,
     cli: 'claude-code',
     cwd,
     commands: [{ name: 'compact', description: 'Free up context', source: 'cli' }],
+    fetchedAt: 1,
   })
   const published: string[][] = []
   const stop = onConversationCommandsChanged((catalog) => {
@@ -2925,8 +2926,15 @@ test("a live session's init publishes the folder's command list when it changed,
     await promptsRead(h.prompts, 1)
     const liveInit = { ...init, slash_commands: ['compact', 'mcp__docs__summarise', 'color'], skills: [] }
     h.emit(liveInit)
-    // Every exchange repeats its init; the same names are not news.
+    await settle()
+    const firstReport = conversationCommandsFor('claude-code', cwd).fetchedAt
+    assert.ok(firstReport > 1)
+    // Every exchange repeats its init; the same names are not news, but they
+    // do say the list is current, so the next `/` does not probe for it.
     h.emit(liveInit)
+    await settle()
+    assert.equal(published.length, 1)
+    assert.ok(conversationCommandsFor('claude-code', cwd).fetchedAt > firstReport)
     h.emit({
       type: 'system',
       subtype: 'commands_changed',
