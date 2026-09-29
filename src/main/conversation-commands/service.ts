@@ -26,6 +26,13 @@ const CONVERSATION_COMMANDS_COLD_WAIT_MS = 5_000
  * another, queues behind these rather than starting them all together.
  */
 const CONVERSATION_COMMANDS_MAX_PROBES = 2
+/**
+ * How long after a probe failed the next ask for the same list waits before
+ * trying again, unless a refresh is asked for. A CLI that cannot list (not
+ * signed in, broken install) fails the same way on every try, and each try is
+ * a CLI process; without this every open of the `/` menu started one.
+ */
+const CONVERSATION_COMMANDS_RETRY_MS = 60_000
 
 type Probe = (input: {
   cli: string
@@ -43,6 +50,7 @@ export type ConversationCommandsServiceDeps = {
   ttlMs?: number
   coldWaitMs?: number
   maxProbes?: number
+  retryMs?: number
 }
 
 export type ConversationCommandsService = {
@@ -64,6 +72,9 @@ export function createConversationCommandsService(
   const now = deps.now ?? Date.now
   const ttlMs = deps.ttlMs ?? CONVERSATION_COMMANDS_TTL_MS
   const coldWaitMs = deps.coldWaitMs ?? CONVERSATION_COMMANDS_COLD_WAIT_MS
+  const retryMs = deps.retryMs ?? CONVERSATION_COMMANDS_RETRY_MS
+  // When each list's last probe ended in failure, until one succeeds.
+  const failedAt = new Map<string, number>()
   const cache = deps.cache ?? null
   const probe: Probe =
     deps.probe ??
@@ -112,7 +123,11 @@ export function createConversationCommandsService(
     const run = withProbeSlot(() => probe({ cli, cwd, cliRuntimes: readCliRuntimes() }))
       .then(() => undefined)
       .catch(() => undefined)
-      .finally(() => inFlight.delete(key))
+      .finally(() => {
+        inFlight.delete(key)
+        if (conversationCommandsFor(cli, cwd).error) failedAt.set(key, now())
+        else failedAt.delete(key)
+      })
     inFlight.set(key, run)
     return run
   }
@@ -130,7 +145,10 @@ export function createConversationCommandsService(
       await hydrated
       const known = conversationCommandsFor(cli, cwd)
       if (mayProbe === false) return known
-      const due = forced || known.fetchedAt === 0 || Boolean(known.error) || now() - known.fetchedAt >= ttlMs
+      const failed = failedAt.get(keyOf(cli, cwd))
+      const resting = Boolean(known.error) && failed !== undefined && now() - failed < retryMs
+      const due =
+        forced || (!resting && (known.fetchedAt === 0 || Boolean(known.error) || now() - known.fetchedAt >= ttlMs))
       if (due) {
         const run = refresh(cli, cwd)
         // Nothing to show yet: give the probe a moment to answer first.
