@@ -13,8 +13,6 @@ import { basename } from '../../utils/paths'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
 import { WorkspacePanel } from '../ui/WorkspacePanel'
 import {
-  type ActionResult,
-  ActionResultMessage,
   Badge,
   GhostButton,
   IconButton,
@@ -83,7 +81,6 @@ import {
   RemoteSettingsIcon,
   MachinesSettingsIcon,
   SettledChatsSettingsIcon,
-  FolderPlusIcon,
 } from '../AppIcons'
 import { AccountAvatar } from '../workspace/AccountAvatar'
 import { GlobalSurfaceShell } from '../workspace/globalSurface/GlobalSurfaceShell'
@@ -259,14 +256,6 @@ const MONO_FIELD = 'font-mono'
 // Tailwind resolves two width utilities by stylesheet order, not string order.
 const ROW_FIELD = 'w-60 max-w-full font-mono'
 
-// Was a local `MessageBlock` with its own four-tone `border-l-2` bar — the
-// reject-on-sight pattern, two tabs away from the `InlineNotice` this file
-// already imported. The kit's `ActionResultMessage` carries the
-// ruling now: a failure or a degraded state is a notice, everything else is
-// copy. `accent` and `neutral` folded into `info` on the way — there is no
-// success notice in this system.
-type SettingsActionMessage = ActionResult | null
-
 function RegistrySwitchRow({
   descriptor,
   checked,
@@ -372,15 +361,11 @@ function KeepRecentAliveField({ descriptor }: { descriptor: SettingDescriptor })
 function AgentCliBand({
   checkedAt,
   now,
-  addPending,
-  onAdd,
   rechecking,
   onRecheck,
 }: {
   checkedAt: number | null
   now: number
-  addPending: boolean
-  onAdd: () => void
   rechecking: boolean
   onRecheck: () => void
 }) {
@@ -392,17 +377,6 @@ function AgentCliBand({
       meta={meta}
       actions={
         <>
-          <Tooltip content={addPending ? 'Installing a CLI from a folder' : 'Install a CLI from a folder'}>
-            <IconButton
-              aria-label={addPending ? 'Installing a CLI from a folder' : 'Install a CLI from a folder'}
-              disabled={addPending}
-              onClick={onAdd}
-            >
-              {/* The glyph reports the install, so a dimmed plus is never the
-                  only sign that something is happening. */}
-              {addPending ? <Spinner className="icon-sm" /> : <FolderPlusIcon className="icon-sm" />}
-            </IconButton>
-          </Tooltip>
           <Tooltip content="Re-check every CLI now">
             <IconButton
               aria-label={rechecking ? 'Re-checking every CLI' : 'Re-check every CLI now'}
@@ -664,7 +638,6 @@ export default function SettingsPanel({
   const dialog = useConfirmDialog()
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
-  const refreshPluginCatalog = useWorkspaceStore((s) => s.refreshPluginCatalog)
   const refreshCliAvailability = useWorkspaceStore((s) => s.refreshCliAvailability)
   // Session-scoped: adoption runs at the first workspace creation, and this is
   // where its outcome is reported. Null (and so silent) in every later session.
@@ -747,8 +720,6 @@ export default function SettingsPanel({
   const [activityInstalled, setActivityInstalled] = useState(false)
   const [activityPending, setActivityPending] = useState(false)
   const [activityMessage, setActivityMessage] = useState<string | null>(null)
-  const [cliInstallPending, setCliInstallPending] = useState(false)
-  const [cliInstallMessage, setCliInstallMessage] = useState<SettingsActionMessage>(null)
   // Built-in tab ids plus `module-section:<id>` for contributed sections. An
   // initialTab may name either; unknown values fall back to the default tab.
   // (Deep-links to the folded MCPs / Skill packs / Extensions tabs are routed to
@@ -1129,40 +1100,6 @@ export default function SettingsPanel({
   const backgroundModeDescriptor = getSettingDescriptor('keep-running-in-background')
   const telemetryDescriptor = getSettingDescriptor('telemetry-enabled')
 
-  const installCliFromFolder = useCallback(async () => {
-    if (typeof window.api.installPluginFolder !== 'function') {
-      setCliInstallMessage({ tone: 'warn', text: 'Installing CLI plugins is not supported by this build.' })
-      return
-    }
-    setCliInstallPending(true)
-    setCliInstallMessage(null)
-    try {
-      const folder = await window.api.openDir()
-      if (!folder) {
-        setCliInstallMessage(null)
-        return
-      }
-      const result = await window.api.installPluginFolder(folder)
-      if (!result.ok) {
-        const detail = result.issues?.length ? ` (${result.issues.map((issue) => issue.message).join('; ')})` : ''
-        setCliInstallMessage({ tone: 'error', text: `${result.message}${detail}` })
-        return
-      }
-      setCliInstallMessage({
-        tone: 'info',
-        text: `Installed "${result.displayName}". It's available to assign to agents now.`,
-      })
-      await refreshPluginCatalog()
-    } catch (error) {
-      setCliInstallMessage({
-        tone: 'error',
-        text: error instanceof Error ? error.message : 'CLI folder install failed.',
-      })
-    } finally {
-      setCliInstallPending(false)
-    }
-  }, [refreshPluginCatalog])
-
   const selectSettingsTab = useCallback((tabId: string) => {
     setActiveSettingsTab(tabId)
   }, [])
@@ -1518,8 +1455,6 @@ export default function SettingsPanel({
           <AgentCliBand
             checkedAt={agentsOnWsl ? (agentsMachineCli.availability?.checkedAt ?? null) : cliAvailabilityCheckedAt}
             now={agentsFreshnessNow}
-            addPending={cliInstallPending}
-            onAdd={() => void installCliFromFolder()}
             rechecking={agentsRechecking}
             onRecheck={() => void recheckAgentClis()}
           />
@@ -1540,7 +1475,6 @@ export default function SettingsPanel({
               onChange={setCheckCliVersions}
             />
           </SettingCard>
-          <ActionResultMessage message={cliInstallMessage} />
           {/* First-run agent-config adoption. It runs silently at the first
               workspace creation — the user is never asked — so this line is the
               only place it is ever reported. Renders nothing unless an adoption

@@ -44,8 +44,9 @@ test('plugins-ipc', async () => {
     assert.equal(result.ok, true)
     if (!result.ok) return
 
+    // The fixture root holds agent CLI manifests; a user root loads providers
+    // only, so none of them appears and the bundled `opencode` is not replaced.
     assert.deepEqual(result.plugins.map((p) => p.id).sort(), [
-      'aider',
       'claude-code',
       'codex',
       'cursor',
@@ -55,11 +56,10 @@ test('plugins-ipc', async () => {
       'kimi-code',
       'muse',
       'opencode',
-      'pi',
       'zai',
     ])
     assert.equal(result.plugins.find((p) => p.id === 'codex')?.source, 'bundled')
-    assert.equal(result.plugins.find((p) => p.id === 'opencode')?.source, 'user')
+    assert.equal(result.plugins.find((p) => p.id === 'opencode')?.source, 'bundled')
 
     __resetPluginRegistryForTest()
   }
