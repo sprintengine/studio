@@ -542,3 +542,81 @@ test('a token keeps the streaming turn row’s steps and decisions lists', () =>
   assert.equal(now.tools, was.tools)
   assert.equal(now.decisions, was.decisions)
 })
+
+test('subagent progress, subagent words and usage reports fold incrementally, as the fold does', () => {
+  const events = [
+    event('user_message', 0, { turnId: 'a', text: 'Fan out' }),
+    event('turn_started', 1, { turnId: 'a' }),
+    event('tool_started', 2, {
+      turnId: 'a',
+      toolUseId: 'lane',
+      name: 'Task',
+      subagentLane: true,
+      subagentType: 'Explore',
+    }),
+    event('tool_started', 3, { turnId: 'a', toolUseId: 'inner', name: 'Read', parentToolUseId: 'lane' }),
+    event('subagent_status', 4, {
+      toolUseId: 'lane',
+      status: 'running',
+      lastToolName: 'Read',
+      usage: { totalTokens: 10, toolUses: 1, durationMs: 5 },
+    }),
+    event('subagent_message', 5, { parentToolUseId: 'lane', text: 'Looking at the reader.' }),
+    event('subagent_message', 6, { parentToolUseId: 'inner', text: 'A child speaks.', truncated: true }),
+    event('usage_updated', 7, {
+      turnId: 'a',
+      inputTokens: 100,
+      cachedInputTokens: 80,
+      outputTokens: 5,
+      promptCache: { cached: true, ttl: '5m' },
+    }),
+    event('usage_updated', 8, { outputTokens: 9 }),
+    event('subagent_message', 9, { parentToolUseId: 'nowhere', text: 'Before its lane.' }),
+    event('subagent_status', 10, { toolUseId: 'lane', status: 'completed', endedAt: 95 }),
+    event('subagent_status', 11, { toolUseId: 'lane', status: 'running' }),
+    event('subagent_status', 12, { toolUseId: 'nowhere', status: 'failed', error: 'boom' }),
+    event('usage_updated', 13, { turnId: 'unknown', inputTokens: 1 }),
+    event('turn_completed', 14, { turnId: 'a' }),
+  ]
+  let state = createConversationProjectionState()
+  const prefix: ConversationEvent[] = []
+  for (const item of events) {
+    state = applyEvent(state, item)
+    prefix.push(item)
+    assert.deepEqual(state.projection, projectConversation(prefix), `${item.type} ${item.id}`)
+  }
+})
+
+test('a refold keeps unchanged entries without serialising them, and hands tool input through', () => {
+  const input = { file_path: 'src/a.ts', content: 'x'.repeat(100_000) }
+  const events = [
+    event('user_message', 0, { turnId: 'a', text: 'Write it' }),
+    event('turn_started', 1, { turnId: 'a' }),
+    event('tool_started', 2, { turnId: 'a', toolUseId: 'w', name: 'Write', input }),
+    event('tool_output', 3, { turnId: 'a', toolUseId: 'w', output: 'ok', status: 'ok' }),
+    event('content_delta', 4, { turnId: 'a', text: 'Done.' }),
+  ]
+  let state = createConversationProjectionState(events)
+  const tool = state.projection.entries.find((entry) => entry.kind === 'tool')
+  assert.equal(tool?.kind === 'tool' && tool.input, input)
+  const agentTypes = state.projection.agentTypes
+  const user = state.projection.entries[0]
+  const stringify = JSON.stringify
+  let serialised = 0
+  JSON.stringify = ((...args: Parameters<typeof stringify>) => {
+    serialised++
+    return stringify(...args)
+  }) as typeof JSON.stringify
+  try {
+    state = applyEvent(state, event('turn_completed', 5, { turnId: 'a' }))
+  } finally {
+    JSON.stringify = stringify
+  }
+  assert.equal(serialised, 0)
+  assert.equal(
+    state.projection.entries.find((entry) => entry.kind === 'tool'),
+    tool,
+  )
+  assert.equal(state.projection.entries[0], user)
+  assert.equal(state.projection.agentTypes, agentTypes)
+})

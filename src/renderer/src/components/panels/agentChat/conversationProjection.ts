@@ -357,14 +357,13 @@ function readPlanFilePath(payload: Record<string, unknown> | undefined): string 
     : undefined
 }
 
+// A payload's JSON value as it came. Payloads arrive structured-cloned (IPC) or
+// parsed (a paired machine), are never written to, and keep their identity from
+// fold to fold, which is what lets an unchanged entry be recognised without
+// comparing a file's worth of Edit input.
 function readJson(payload: Record<string, unknown> | undefined, key: string): ConversationJsonValue | undefined {
   const value = payload?.[key]
-  if (value === undefined) return undefined
-  try {
-    return JSON.parse(JSON.stringify(value)) as ConversationJsonValue
-  } catch {
-    return undefined
-  }
+  return value === undefined ? undefined : (value as ConversationJsonValue)
 }
 
 function inferToolKind(name: string): ConversationToolKind {
@@ -800,15 +799,7 @@ export function projectConversation(
       case 'subagent_status': {
         const status = readSubagentStatus(event.payload)
         if (!status) break
-        const agent: TranscriptAgentState = {
-          state: status.status,
-          ...(status.background !== undefined ? { background: status.background } : {}),
-          ...(status.description ? { description: status.description } : {}),
-          ...(status.lastToolName ? { lastToolName: status.lastToolName } : {}),
-          ...(status.progressSummary ? { progressSummary: status.progressSummary } : {}),
-          ...(status.usage ? { usage: status.usage } : {}),
-          ...(status.error ? { error: status.error } : {}),
-        }
+        const agent = agentStateOf(status)
         const tool = toolsById.get(status.toolUseId)
         if (tool) applyAgentState(tool, agent, status.endedAt ?? event.createdAt)
         else pendingAgents.set(status.toolUseId, { ...pendingAgents.get(status.toolUseId), ...agent })
@@ -1127,7 +1118,23 @@ export function projectConversation(
 // Fold an agent's reported state into its lane. Running only ever updates
 // what the agent is doing: a lane closes on its result or a terminal status,
 // and a late progress report must not reopen one.
-function applyAgentState(tool: ToolAccumulator, agent: TranscriptAgentState, at: number): void {
+export function agentStateOf(status: NonNullable<ReturnType<typeof readSubagentStatus>>): TranscriptAgentState {
+  return {
+    state: status.status,
+    ...(status.background !== undefined ? { background: status.background } : {}),
+    ...(status.description ? { description: status.description } : {}),
+    ...(status.lastToolName ? { lastToolName: status.lastToolName } : {}),
+    ...(status.progressSummary ? { progressSummary: status.progressSummary } : {}),
+    ...(status.usage ? { usage: status.usage } : {}),
+    ...(status.error ? { error: status.error } : {}),
+  }
+}
+
+export function applyAgentState(
+  tool: Pick<ToolAccumulator, 'agent' | 'status' | 'completedAt' | 'outputStatus'>,
+  agent: TranscriptAgentState,
+  at: number,
+): void {
   const merged: TranscriptAgentState = { ...tool.agent, ...agent }
   if (agent.state === 'running' && tool.agent && tool.agent.state !== 'running') merged.state = tool.agent.state
   tool.agent = merged

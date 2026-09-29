@@ -1,6 +1,9 @@
 import type { ConversationEvent } from '../../../../../shared/conversation-runtime'
-import { isBackgroundLaunchAck } from '../../../../../shared/conversation/subagents'
+import { isBackgroundLaunchAck, readSubagentStatus } from '../../../../../shared/conversation/subagents'
+import { applyPromptCacheEvent } from '../../../../../shared/prompt-cache'
 import {
+  agentStateOf,
+  applyAgentState,
   openReasoningRun,
   projectConversation,
   readBoolean,
@@ -113,6 +116,31 @@ function isOpen(window: ReasoningWindow | undefined): window is ReasoningWindow 
   return window !== undefined && window.endedAt === undefined
 }
 
+// Whether two values a fold built are the same, by value, without
+// serialising them. Strings and numbers compare as values; arrays and plain
+// objects field by field, a few levels down, which covers what an entry holds
+// (mentions, stored attachments, reasoning segments, an agent's state).
+// Anything deeper — a tool's input, an image's bytes — is the payload object
+// itself, which the fold passes through, so identity decides it. A false
+// "changed" costs one re-render; a false "same" would show stale data, so
+// every doubt is "changed".
+function sameValue(a: unknown, b: unknown, depth = 0): boolean {
+  if (a === b) return true
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null || depth >= 4) return false
+  if (Array.isArray(a)) {
+    if (!Array.isArray(b) || a.length !== b.length) return false
+    for (let index = 0; index < a.length; index++) if (!sameValue(a[index], b[index], depth + 1)) return false
+    return true
+  }
+  if (Array.isArray(b)) return false
+  const left = a as Record<string, unknown>
+  const right = b as Record<string, unknown>
+  for (const key in left) if (!sameValue(left[key], right[key], depth + 1)) return false
+  // A key only the right has counts when it holds a value, as JSON would see it.
+  for (const key in right) if (!(key in left) && right[key] !== undefined) return false
+  return true
+}
+
 function reuseTool(previous: TranscriptToolEntry, next: TranscriptToolEntry): TranscriptToolEntry {
   const oldChildren = previous.children ?? []
   const nextChildren = next.children ?? []
@@ -121,15 +149,26 @@ function reuseTool(previous: TranscriptToolEntry, next: TranscriptToolEntry): Tr
     const old = oldById.get(child.id)
     return old ? reuseTool(old, child) : child
   })
-  const { children: _old, ...oldFields } = previous
-  const { children: _next, ...nextFields } = next
-  if (
-    JSON.stringify(oldFields) === JSON.stringify(nextFields) &&
-    children.length === oldChildren.length &&
-    children.every((child, index) => child === oldChildren[index])
-  )
-    return previous
-  return { ...next, ...(next.children ? { children } : {}) }
+  const sameChildren =
+    children.length === oldChildren.length && children.every((child, index) => child === oldChildren[index])
+  if (sameChildren) {
+    let same = true
+    for (const key in next) {
+      if (
+        key !== 'children' &&
+        !sameValue(previous[key as keyof TranscriptToolEntry], next[key as keyof TranscriptToolEntry])
+      ) {
+        same = false
+        break
+      }
+    }
+    if (same)
+      for (const key in previous)
+        if (key !== 'children' && !(key in next) && previous[key as keyof TranscriptToolEntry] !== undefined)
+          same = false
+    if (same) return previous
+  }
+  return { ...next, ...(next.children ? { children: sameChildren ? previous.children : children } : {}) }
 }
 
 function reconcileEntries(previous: TranscriptEntry[], next: TranscriptEntry[]): TranscriptEntry[] {
@@ -138,8 +177,22 @@ function reconcileEntries(previous: TranscriptEntry[], next: TranscriptEntry[]):
     const old = oldByKey.get(entryKey(entry))
     if (!old || old.kind !== entry.kind) return entry
     if (old.kind === 'tool' && entry.kind === 'tool') return reuseTool(old, entry)
-    return JSON.stringify(old) === JSON.stringify(entry) ? old : entry
+    return sameValue(old, entry, -1) ? old : entry
   })
+}
+
+// The projection's own values that are objects keep their identity while they
+// read the same, so a consumer memoized on one (the agent types every lane's
+// card reads) is not redrawn by a fold that did not change it.
+function reconcileProjection(previous: ConversationProjection, next: ConversationProjection): ConversationProjection {
+  const entries = reconcileEntries(previous.entries, next.entries)
+  return {
+    ...next,
+    entries,
+    usage: sameValue(previous.usage, next.usage) ? previous.usage : next.usage,
+    agentTypes: sameValue(previous.agentTypes, next.agentTypes, -1) ? previous.agentTypes : next.agentTypes,
+    promptCache: sameValue(previous.promptCache, next.promptCache) ? previous.promptCache : next.promptCache,
+  }
 }
 
 export function createConversationProjectionState(
@@ -169,13 +222,13 @@ function rebuild(
   batch: Batch | null = null,
 ): IncrementalConversationState {
   const next = createConversationProjectionState(events, userTurns)
-  const entries = reconcileEntries(state.projection.entries, next.projection.entries)
-  if (batch) batch.entries = entries
+  const projection = reconcileProjection(state.projection, next.projection)
+  if (batch) batch.entries = projection.entries
   return {
     ...next,
     ownsEvents,
-    projection: { ...next.projection, entries },
-    entryIndexes: indexEntries(entries),
+    projection,
+    entryIndexes: indexEntries(projection.entries),
     structureRevision: state.structureRevision + 1,
   }
 }
@@ -204,28 +257,17 @@ function updateEntry(
   return { ...state.projection, entries }
 }
 
-function updateToolTree(tool: TranscriptToolEntry, id: string, event: ConversationEvent): TranscriptToolEntry | null {
-  if (tool.id === id) {
-    return {
-      ...tool,
-      status: event.payload?.partial === true ? tool.status : 'done',
-      completedAt: event.payload?.partial === true ? tool.completedAt : event.createdAt,
-      output: readString(event.payload, 'preview', 'output', 'text') ?? tool.output,
-      truncated: readBoolean(event.payload, 'truncated') ?? tool.truncated,
-      totalBytes: readNumber(event.payload, 'totalBytes') ?? tool.totalBytes,
-      outputStatus: (() => {
-        const status = event.payload?.status
-        return status === 'ok' || status === 'error' || status === 'declined' || status === 'stopped'
-          ? status
-          : tool.outputStatus
-      })(),
-      exitCode: readNumber(event.payload, 'exitCode') ?? tool.exitCode,
-      mime: readString(event.payload, 'mime') ?? tool.mime,
-    }
-  }
+// The call `id` anywhere in a lane tree, changed by `update`; null when it is
+// not in this tree.
+function updateToolTree(
+  tool: TranscriptToolEntry,
+  id: string,
+  update: (tool: TranscriptToolEntry) => TranscriptToolEntry,
+): TranscriptToolEntry | null {
+  if (tool.id === id) return update(tool)
   if (!tool.children) return null
   for (let index = 0; index < tool.children.length; index++) {
-    const child = updateToolTree(tool.children[index], id, event)
+    const child = updateToolTree(tool.children[index], id, update)
     if (child) {
       const children = tool.children.slice()
       children[index] = child
@@ -233,6 +275,45 @@ function updateToolTree(tool: TranscriptToolEntry, id: string, event: Conversati
     }
   }
   return null
+}
+
+// Change one call wherever it sits in the transcript, as the fold would; null
+// when it is not there (not loaded, or taken out by a rewind), for the fold to
+// settle.
+function updateTool(
+  state: IncrementalConversationState,
+  id: string,
+  update: (tool: TranscriptToolEntry) => TranscriptToolEntry,
+  batch: Batch | null,
+): ConversationProjection | null {
+  for (let index = 0; index < state.projection.entries.length; index++) {
+    const entry = state.projection.entries[index]
+    if (entry.kind !== 'tool') continue
+    const changed = updateToolTree(entry, id, update)
+    if (!changed) continue
+    const entries = writableEntries(state, batch)
+    entries[index] = changed
+    return { ...state.projection, entries }
+  }
+  return null
+}
+
+function withOutput(tool: TranscriptToolEntry, event: ConversationEvent): TranscriptToolEntry {
+  const status = event.payload?.status
+  return {
+    ...tool,
+    status: event.payload?.partial === true ? tool.status : 'done',
+    completedAt: event.payload?.partial === true ? tool.completedAt : event.createdAt,
+    output: readString(event.payload, 'preview', 'output', 'text') ?? tool.output,
+    truncated: readBoolean(event.payload, 'truncated') ?? tool.truncated,
+    totalBytes: readNumber(event.payload, 'totalBytes') ?? tool.totalBytes,
+    outputStatus:
+      status === 'ok' || status === 'error' || status === 'declined' || status === 'stopped'
+        ? status
+        : tool.outputStatus,
+    exitCode: readNumber(event.payload, 'exitCode') ?? tool.exitCode,
+    mime: readString(event.payload, 'mime') ?? tool.mime,
+  }
 }
 
 function fastProjection(
@@ -278,23 +359,83 @@ function fastProjection(
     // knows how to read one.
     if (isBackgroundLaunchAck(readString(event.payload, 'preview', 'output', 'text'))) return null
     if (turnId && !state.entryIndexes.has(`assistant:${turnId}`)) return null
-    for (let index = 0; index < state.projection.entries.length; index++) {
-      const entry = state.projection.entries[index]
-      if (entry.kind !== 'tool') continue
-      const changed = updateToolTree(entry, id, event)
-      if (!changed) continue
-      const entries = writableEntries(state, batch)
-      entries[index] = changed
-      return { ...state.projection, entries }
+    return updateTool(state, id, (tool) => withOutput(tool, event), batch)
+  }
+  // A subagent's progress and its words between steps: frequent while agents
+  // fan out, and each changes one lane.
+  if (event.type === 'subagent_status') {
+    const status = readSubagentStatus(event.payload)
+    if (!status) return state.projection
+    const agent = agentStateOf(status)
+    return updateTool(
+      state,
+      status.toolUseId,
+      (tool) => {
+        const next = { ...tool }
+        applyAgentState(next, agent, status.endedAt ?? event.createdAt)
+        return next
+      },
+      batch,
+    )
+  }
+  if (event.type === 'subagent_message') {
+    const parentToolUseId = readString(event.payload, 'parentToolUseId')
+    const text = readString(event.payload, 'text')
+    if (!parentToolUseId || !text) return state.projection
+    const message = { at: event.createdAt, text, ...(event.payload?.truncated === true ? { truncated: true } : {}) }
+    return updateTool(
+      state,
+      parentToolUseId,
+      (tool) => ({ ...tool, messages: [...(tool.messages ?? []), message] }),
+      batch,
+    )
+  }
+  // A usage report, once a model call: the session's count, the turn's own, and
+  // the prompt cache's clock.
+  if (event.type === 'usage_updated') {
+    const previous = state.projection.usage ?? { inputTokens: 0, outputTokens: 0 }
+    const usage = {
+      inputTokens: readNumber(event.payload, 'inputTokens') ?? previous.inputTokens,
+      outputTokens: readNumber(event.payload, 'outputTokens') ?? previous.outputTokens,
     }
+    const promptCache = applyPromptCacheEvent(state.projection.promptCache, event)
+    let projection: ConversationProjection = state.projection
+    if (turnId) {
+      const key = `assistant:${turnId}`
+      if (!state.entryIndexes.has(key)) return null
+      projection =
+        updateEntry(
+          state,
+          key,
+          (entry) =>
+            entry.kind !== 'assistant'
+              ? entry
+              : {
+                  ...entry,
+                  inputTokens: readNumber(event.payload, 'inputTokens') ?? entry.inputTokens,
+                  cachedInputTokens: readNumber(event.payload, 'cachedInputTokens') ?? entry.cachedInputTokens,
+                  outputTokens: readNumber(event.payload, 'outputTokens') ?? entry.outputTokens,
+                },
+          batch,
+        ) ?? state.projection
+    }
+    return { ...projection, usage, promptCache }
   }
   return null
 }
 
 // Whether an event can take the fast path, as far as its type says; only for
 // sizing a batch, so a guess either way costs time, never correctness.
+const FAST_TYPES: ReadonlySet<string> = new Set([
+  'content_delta',
+  'reasoning_delta',
+  'tool_output',
+  'subagent_status',
+  'subagent_message',
+  'usage_updated',
+])
 function mayApplyFast(event: ConversationEvent): boolean {
-  return event.type === 'content_delta' || event.type === 'reasoning_delta' || event.type === 'tool_output'
+  return FAST_TYPES.has(event.type)
 }
 
 // Fold `events[index]` into a state that holds `events[0, index)`.
