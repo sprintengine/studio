@@ -326,4 +326,6 @@ registerAppLifecycle({
   handleAuthCallback: (argv) => {
     void parseAuthCallbackFromArgv(services.sprintengineAuth, argv)
   },
+  // ── extension-platform additions ──
+  moduleLoadReady: moduleLoad.ready,
 })

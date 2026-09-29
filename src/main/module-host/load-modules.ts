@@ -18,8 +18,12 @@ import {
 
 export type CapabilityModule = {
   manifest: CapabilityManifest
-  /** Wire the module's services, IPC, sidecars, and lifecycle into the host. */
-  registerMain?: (host: MainHost) => void
+  /**
+   * Wire the module's services, IPC, sidecars, and lifecycle into the host. A
+   * returned promise is awaited (bounded; see REGISTER_MAIN_TIMEOUT_MS) before
+   * the app runs startup hooks.
+   */
+  registerMain?: (host: MainHost) => void | Promise<void>
 }
 
 export type MainModuleLoadError = {
@@ -49,10 +53,49 @@ type MainModuleLiveUpdateOptions = {
 export type LoadMainModulesResult = {
   report: MainModuleLoadReport
   kernel: MainKernel
+  /**
+   * Settles once every asynchronous `registerMain` has resolved, failed, or
+   * timed out. A failure unregisters that module and lands in
+   * `report.errors`, so read the report after this. Never rejects.
+   */
+  ready: Promise<void>
   applyEnablement(
     overrides: ModuleEnablementOverrides,
     options: MainModuleLiveUpdateOptions,
   ): Promise<MainModuleLiveUpdateReport>
+}
+
+// How long an asynchronous registerMain may take before its module is dropped.
+// Startup waits on it, so one hung module must not hold the app's boot.
+export const REGISTER_MAIN_TIMEOUT_MS = 10_000
+
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+  return (
+    (typeof value === 'object' || typeof value === 'function') &&
+    value !== null &&
+    typeof (value as { then?: unknown }).then === 'function'
+  )
+}
+
+// The returned promise of a registerMain, raced against the timeout. The
+// timer is cleared on settle so a quick module leaves nothing behind.
+async function settleRegistration(id: string, pending: PromiseLike<unknown>, timeoutMs: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`Module "${id}" registerMain did not settle within ${timeoutMs / 1000}s.`)),
+      timeoutMs,
+    )
+  })
+  try {
+    await Promise.race([pending, timeout])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
 }
 
 // Resolve enablement, then register each enabled module through the kernel in
@@ -89,8 +132,11 @@ export function loadMainModules(options: {
   moduleRoots?: Record<string, string>
   /** Skill registry override, for tests. Defaults to the process-wide one. */
   skillRegistry?: ModuleSkillHostRegistry
+  /** Async registerMain bound override, for tests. */
+  registerTimeoutMs?: number
 }): LoadMainModulesResult {
   const { ipcMain, modules, overrides = {}, provideServices, ineligible, launchErrors = [] } = options
+  const registerTimeoutMs = options.registerTimeoutMs ?? REGISTER_MAIN_TIMEOUT_MS
   const byId = new Map(modules.map((module) => [module.manifest.id, module]))
   const resolution = resolveModuleEnablement(
     modules.map((module) => module.manifest),
@@ -117,6 +163,34 @@ export function loadMainModules(options: {
   )
   const activeMainModules = new Set<string>()
   const activeManifestOnlyModules = new Set<string>()
+  const pendingRegistrations: Promise<void>[] = []
+
+  // Blocked or failed third-party modules graduate from log lines to
+  // user-visible status: every load error attributable to an installed
+  // third-party module becomes an error notification under that module's
+  // identity. Manifest-rejection launch errors are keyed by file path, not
+  // module id, so they stay out (no identity to stamp, and the path would
+  // leak the install location). Bundled-module failures remain log-only.
+  const notifyLoadError = (loadError: MainModuleLoadError): void => {
+    if (byId.get(loadError.id)?.manifest.source !== 'third-party') return
+    kernel.emitNotification(loadError.id, {
+      severity: 'error',
+      title: `Module "${loadError.id}" failed to load`,
+      body: sanitizeNotificationText(loadError.message, 'Module startup failed.'),
+    })
+  }
+
+  // An async registerMain that rejects or times out takes back whatever it
+  // had already registered, exactly as a module that never loaded.
+  const failAsyncRegistration = async (id: string, err: unknown): Promise<void> => {
+    await kernel.unregisterModule(id)
+    activeMainModules.delete(id)
+    const index = loaded.indexOf(id)
+    if (index >= 0) loaded.splice(index, 1)
+    const loadError = { id, message: errorMessage(err) }
+    errors.push(loadError)
+    notifyLoadError(loadError)
+  }
 
   for (const id of resolution.order) {
     const module = byId.get(id)
@@ -127,32 +201,34 @@ export function loadMainModules(options: {
       continue
     }
     try {
-      module.registerMain(kernel.hostFor(id))
+      const registered = module.registerMain(kernel.hostFor(id))
       loaded.push(id)
       activeMainModules.add(id)
+      if (isThenable(registered)) {
+        pendingRegistrations.push(
+          settleRegistration(id, registered, registerTimeoutMs).catch((err) => failAsyncRegistration(id, err)),
+        )
+      }
     } catch (err) {
-      errors.push({ id, message: err instanceof Error ? err.message : String(err) })
+      errors.push({ id, message: errorMessage(err) })
     }
   }
 
-  // Blocked or failed third-party modules graduate from log lines to
-  // user-visible status: every load error attributable to an installed
-  // third-party module becomes an error notification under that module's
-  // identity. Manifest-rejection launch errors are keyed by file path, not
-  // module id, so they stay out (no identity to stamp, and the path would
-  // leak the install location). Bundled-module failures remain log-only.
-  for (const loadError of errors) {
-    if (byId.get(loadError.id)?.manifest.source !== 'third-party') continue
-    kernel.emitNotification(loadError.id, {
-      severity: 'error',
-      title: `Module "${loadError.id}" failed to load`,
-      body: sanitizeNotificationText(loadError.message, 'Module startup failed.'),
-    })
-  }
+  for (const loadError of errors) notifyLoadError(loadError)
 
   return {
-    report: { loaded, manifestOnly, disabled: resolution.disabled, errors, sidecars: kernel.sidecars() },
+    report: {
+      loaded,
+      manifestOnly,
+      disabled: resolution.disabled,
+      errors,
+      // Read live: an async registerMain can declare a sidecar after this returns.
+      get sidecars() {
+        return kernel.sidecars()
+      },
+    },
     kernel,
+    ready: Promise.all(pendingRegistrations).then(() => undefined),
     async applyEnablement(
       nextOverrides: ModuleEnablementOverrides,
       liveOptions: MainModuleLiveUpdateOptions,
@@ -190,13 +266,16 @@ export function loadMainModules(options: {
           continue
         }
         try {
-          module.registerMain(kernel.hostFor(id))
+          const registered = module.registerMain(kernel.hostFor(id))
+          if (isThenable(registered)) await settleRegistration(id, registered, registerTimeoutMs)
           activeMainModules.add(id)
           if (kernel.isStarted()) await kernel.runStartupForModule(id)
         } catch (err) {
           await kernel.unregisterModule(id)
           activeMainModules.delete(id)
-          liveErrors.push({ id, message: err instanceof Error ? err.message : String(err) })
+          const loadError = { id, message: errorMessage(err) }
+          liveErrors.push(loadError)
+          notifyLoadError(loadError)
         }
       }
 
