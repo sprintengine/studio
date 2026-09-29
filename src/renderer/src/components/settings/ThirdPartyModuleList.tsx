@@ -84,6 +84,11 @@ export function describeModuleLaunch(
         label: 'Blocked: invalid signature',
         detail: 'Can’t be trusted or loaded until it is reinstalled with a valid signature.',
       }
+    case 'blocked_host_api':
+      return {
+        label: 'Built for another app version',
+        detail: launch.message ?? 'It targets a host API this app does not provide, so it won’t load.',
+      }
     case 'launch_error':
       return { label: 'Launch error', detail: launch.message ?? 'Failed to load at the last app launch.' }
   }

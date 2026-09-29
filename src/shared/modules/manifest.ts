@@ -153,6 +153,8 @@ type ThirdPartyModuleLaunchStatus =
   | 'blocked_unsigned'
   | 'blocked_signed'
   | 'blocked_invalid'
+  // Built for a host API this app does not provide (engines.hostApi).
+  | 'blocked_host_api'
   | 'launch_error'
 
 // Whether a module's `entry.renderer` can be served to the renderer loader:

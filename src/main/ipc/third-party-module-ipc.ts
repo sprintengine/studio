@@ -4,6 +4,7 @@ import { basename, dirname } from 'node:path'
 import { app, type IpcMain, type IpcMainInvokeEvent } from 'electron'
 
 import type { ThirdPartyModuleUninstallResult } from '../../shared/electron-api'
+import { checkHostApiCompatibility } from '../../shared/modules/host-api'
 import type {
   ModuleEnablementOverrides,
   ThirdPartyModuleLaunchView,
@@ -15,6 +16,7 @@ import type {
 import { isRecord } from '../../shared/records'
 import { readModuleOverridesSync, writeModuleOverrides } from '../module-host/enablement-store'
 import { deleteModuleSecrets } from '../module-host/module-secrets'
+import { computeHostApiIneligible } from '../modules/host-api-gate'
 import { manifestFingerprint, type ModuleTrustContext } from '../modules/module-signature'
 import {
   defaultMarketplacePluginInstallStorePath,
@@ -266,6 +268,18 @@ function mainEntryLaunchView(
 ): ThirdPartyModuleLaunchView {
   const id = module.manifest.id
   const hasMainEntry = Boolean(module.manifest.entry?.main)
+  // Built for a host API this app does not provide: neither entry loads, and
+  // trusting it would not change that, so it says so ahead of any trust
+  // state. A tampered module keeps its own, louder, reason (host-api-gate.ts).
+  if (module.trust.status !== 'invalid' && computeHostApiIneligible([module])[id]) {
+    const compatibility = checkHostApiCompatibility(module.manifest)
+    return {
+      status: 'blocked_host_api',
+      hasMainEntry,
+      expectedToLoad: false,
+      message: compatibility.ok ? 'Built for another host API.' : compatibility.message,
+    }
+  }
   if (module.trust.status === 'invalid') {
     return {
       status: 'blocked_invalid',
