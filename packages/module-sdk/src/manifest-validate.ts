@@ -16,7 +16,13 @@
 //
 // Everything here is pure (no Node or DOM APIs) so it is safe in any runtime.
 
-import type { CapabilityManifest, CapabilityPermission, ModuleEntry, ModuleSignature } from './index.js'
+import type {
+  CapabilityManifest,
+  CapabilityPermission,
+  ModuleEntry,
+  ModuleFileDigests,
+  ModuleSignature,
+} from './index.js'
 
 export type PermissionValidationIssue = { path: string; message: string }
 
@@ -110,8 +116,6 @@ function validateEntry(value: unknown, issues: ThirdPartyManifestIssue[]): Modul
 // `files` sits inside the canonical payload like any other field, which is what
 // makes a signature cover the code; a manifest without it keeps the exact
 // payload it was signed over before the field existed.
-
-type ModuleFileDigests = NonNullable<CapabilityManifest['files']>
 
 // The file a module's digests can never cover: it carries them, so hashing it
 // would make the signature depend on its own output.
