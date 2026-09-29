@@ -48,8 +48,16 @@ function formatElapsedMs(ms: number): string {
   return `${minutes}m ${remainingSeconds}s`
 }
 
+// Each formatter is built once: `toLocale*String` with options builds a fresh
+// `Intl.DateTimeFormat` (locale data and all) on every call, and a transcript
+// stamps every message and step with one.
+const CLOCK_TIME = new Intl.DateTimeFormat([], { hour: 'numeric', minute: '2-digit' })
+const WEEKDAY = new Intl.DateTimeFormat([], { weekday: 'short' })
+const DAY_THIS_YEAR = new Intl.DateTimeFormat([], { month: 'short', day: 'numeric' })
+const DAY_OTHER_YEAR = new Intl.DateTimeFormat([], { month: 'short', day: 'numeric', year: 'numeric' })
+
 export function formatClockTime(timestamp: number): string {
-  return new Date(timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  return CLOCK_TIME.format(timestamp)
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -70,15 +78,9 @@ export function formatMessageTime(timestamp: number, now: number = Date.now()): 
   const days = calendarDaysBetween(timestamp, now)
   if (days === 0) return clock
   if (days === 1) return `Yesterday ${clock}`
-  const date = new Date(timestamp)
-  if (days > 1 && days < 7) return `${date.toLocaleDateString([], { weekday: 'short' })} ${clock}`
-  const sameYear = date.getFullYear() === new Date(now).getFullYear()
-  const day = date.toLocaleDateString([], {
-    month: 'short',
-    day: 'numeric',
-    ...(sameYear ? {} : { year: 'numeric' }),
-  })
-  return `${day}, ${clock}`
+  if (days > 1 && days < 7) return `${WEEKDAY.format(timestamp)} ${clock}`
+  const sameYear = new Date(timestamp).getFullYear() === new Date(now).getFullYear()
+  return `${(sameYear ? DAY_THIS_YEAR : DAY_OTHER_YEAR).format(timestamp)}, ${clock}`
 }
 
 // The whole instant in the reader's own calendar and clock, for a tooltip:
