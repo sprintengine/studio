@@ -1384,6 +1384,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
     startSession: (input) => conversationRuntime.startSession(input),
     send: (input) => conversationRuntime.sendTurn(input),
+    // The same installer a terminal launch's skill-at-spawn uses, into the
+    // folder the chat works in (a run's worktree when it has one).
+    ensureSkillInstalled: (workingRoot, skillId) => ensureSkillInstalled(workingRoot, skillId),
     warn: (message) => {
       void writeDiagnosticLog({ level: 'warning', source: 'workspace', title: 'Chat launch', message })
     },

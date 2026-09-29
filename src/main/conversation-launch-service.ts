@@ -24,6 +24,13 @@
  * asks for `newChat`: the chat is then born in a workspace of its own, in that
  * workspace's folder, instead of joining the chat that workspace already is.
  * A refused start then takes that whole workspace back out.
+ *
+ * The same three steps start every chat main starts for someone else: a module's
+ * `create`, and an automation run's agent. Those callers add what a window's
+ * New chat also carries — skills installed before the session starts and
+ * attached to the first message, pictures on it — plus what only they need: the
+ * module that owns the chat, and a run worktree the chat works in instead of
+ * the workspace checkout.
  */
 import { randomUUID } from 'crypto'
 
@@ -32,10 +39,13 @@ import { defaultAgent, type AgentState } from '../shared/agent-state'
 import { CONVERSATION_DEFAULT_MODEL_ID, conversationProviderForCli } from '../shared/conversation-harness'
 import type {
   ConversationCliRuntimeOverrides,
+  ConversationImageAttachment,
+  ConversationSendTurnInput,
   ConversationSessionActionResult,
   ConversationStartSessionInput,
   ConversationStartSessionResult,
 } from '../shared/conversation-runtime'
+import type { EnsureSkillInstalledResult } from '../shared/modules/skills'
 import type { CliPermissionPreset } from '../shared/cli-permission-preset'
 import type { ExecutionHostId } from '../shared/execution-host'
 import { SOLO_CHAT_AGENT_ID, SOLO_CHAT_TEMPLATE_ID } from '../shared/layouts/templates'
@@ -76,6 +86,32 @@ export type ConversationLaunchRequest = {
   /** The chat's first message. */
   prompt?: string
   name?: string
+  /**
+   * Skill ids installed into the chat's working root before its session
+   * starts, attached to the first message and kept on the chat as its skill
+   * chips. An id no skill answers to refuses the launch (`unknown_skill`).
+   */
+  skills?: string[]
+  /** Pictures sent with the first message. */
+  attachments?: ConversationImageAttachment[]
+  /** The module that started the chat; only that module reaches it through the module service. */
+  ownerModuleId?: string
+  /**
+   * The folder the chat works in instead of the workspace checkout: an
+   * automation run's worktree. The chat still lives in the workspace.
+   */
+  worktreePath?: string
+  /**
+   * Send `prompt` as the first message (the default). False starts the session
+   * and sends nothing, for a caller that sends the first turn itself.
+   */
+  sendFirst?: boolean
+  /**
+   * Told when the first message was refused or failed. The launch has already
+   * answered by then, so this is the only way a caller waiting on the chat's
+   * first turn learns that none is coming.
+   */
+  onFirstSendFailed?: (message: string) => void
 }
 
 export type ConversationLaunchResult =
@@ -105,7 +141,15 @@ export type ConversationLaunchServiceDeps = {
   ) => { ok: true; workspaceId: string } | { ok: false; message: string }
   removeWorkspace: (workspaceId: string) => void
   startSession: (input: ConversationStartSessionInput) => Promise<ConversationStartSessionResult>
-  send: (input: { sessionId: string; commandId: string; message: string }) => Promise<ConversationSessionActionResult>
+  send: (
+    input: Pick<ConversationSendTurnInput, 'sessionId' | 'commandId' | 'message' | 'skills' | 'attachments'>,
+  ) => Promise<ConversationSessionActionResult>
+  /**
+   * Make a skill present in the chat's working root, as a terminal launch does
+   * (`ensureSkillInstalled`). Absent, requested skills are left to the
+   * runtime's own resolver at the first send, and no id is refused up front.
+   */
+  ensureSkillInstalled?: (workingRoot: string, skillId: string) => Promise<EnsureSkillInstalledResult>
   /** Where a first message the runtime refused is reported; the chat itself shows a failed turn. */
   warn?: (message: string) => void
   /** Agent id suffix. Injected so tests get stable ids. */
@@ -156,6 +200,34 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
     }
     const modelId = request.cliModel?.trim() || CONVERSATION_DEFAULT_MODEL_ID
     const permissionPreset = resolveAgentSpawnPermissionPreset(settings, cli, request.permissionPreset)
+    // The run worktree when there is one: the session starts there, so the
+    // agent's edits, its transcript and the skills below all stay inside it.
+    const worktreePath = request.worktreePath?.trim() || undefined
+    const workingRoot = worktreePath ?? workspaceRoot
+
+    // Skills first, before anything is written: an id nothing answers to is
+    // the caller's mistake and refuses the launch, where a copy that could not
+    // be written is only reported — the runtime installs a missing skill again
+    // when the first message attaches it.
+    const skills = [...new Set((request.skills ?? []).map((id) => id.trim()).filter(Boolean))]
+    if (deps.ensureSkillInstalled) {
+      for (const skillId of skills) {
+        const installed = await deps
+          .ensureSkillInstalled(workingRoot, skillId)
+          .catch((error: unknown): EnsureSkillInstalledResult => ({
+            ok: false,
+            status: 'install-failed',
+            message: error instanceof Error ? error.message : String(error),
+          }))
+        if (installed.ok) continue
+        if (installed.status === 'unknown-skill') {
+          return { ok: false, code: 'unknown_skill', message: `No skill "${skillId}" is available to attach.` }
+        }
+        deps.warn?.(
+          `Skill "${skillId}" could not be installed for a chat in "${workspace.id}": ${installed.message ?? installed.status}`,
+        )
+      }
+    }
 
     // A new chat's agent is its workspace's one template tab, as a window's
     // New chat makes it; one joining a workspace takes an id of its own.
@@ -177,6 +249,11 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
       runtimeKind: 'conversation',
       conversation: { providerId, modelId },
       cliPermissionPreset: permissionPreset,
+      // Where a window's chat view finds the session: a worktree chat is keyed
+      // by the worktree, not the workspace folder (`conversationWorkingRoot`).
+      ...(worktreePath ? { execution: { mode: 'worktree' as const, worktreeId: null, cwd: worktreePath } } : {}),
+      ...(skills.length > 0 ? { conversationSkills: skills } : {}),
+      ...(request.ownerModuleId?.trim() ? { ownerModuleId: request.ownerModuleId.trim() } : {}),
     }
     let chatWorkspaceId = workspace.id
     if (request.newChat) {
@@ -210,7 +287,7 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
 
     const started = await deps
       .startSession({
-        workspaceRoot,
+        workspaceRoot: workingRoot,
         workspaceId: chatWorkspaceId,
         agentId,
         providerId,
@@ -232,15 +309,25 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
     }
 
     const prompt = request.prompt?.trim()
-    if (prompt) {
+    if (prompt && request.sendFirst !== false) {
       const sessionId = started.session.sessionId
+      const failed = (message: string): void => {
+        deps.warn?.(message)
+        request.onFirstSendFailed?.(message)
+      }
       void deps
-        .send({ sessionId, commandId: newCommandId(), message: prompt })
+        .send({
+          sessionId,
+          commandId: newCommandId(),
+          message: prompt,
+          ...(skills.length > 0 ? { skills: skills.map((id) => ({ id })) } : {}),
+          ...(request.attachments?.length ? { attachments: request.attachments } : {}),
+        })
         .then((sent) => {
-          if (!sent.ok) deps.warn?.(`The first message of chat "${agentId}" was refused: ${sent.message}`)
+          if (!sent.ok) failed(`The first message of chat "${agentId}" was refused: ${sent.message}`)
         })
         .catch((error: unknown) => {
-          deps.warn?.(
+          failed(
             `The first message of chat "${agentId}" failed: ${error instanceof Error ? error.message : String(error)}`,
           )
         })

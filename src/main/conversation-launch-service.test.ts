@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
-import type { AgentState } from '../shared/agent-state'
+import { conversationWorkingRoot, type AgentState } from '../shared/agent-state'
 import type {
   ConversationSessionActionResult,
   ConversationStartSessionInput,
@@ -10,7 +10,11 @@ import type {
 } from '../shared/conversation-runtime'
 import { emptyAgentLaunchSettings, type AgentLaunchSettings } from '../shared/launch-settings'
 import { SOLO_CHAT_AGENT_ID } from '../shared/layouts/templates'
-import { emptyWorkspaceRegistryFile, toWorkspaceRegistryRecord } from '../shared/workspace-registry'
+import {
+  emptyWorkspaceRegistryFile,
+  normalizeWorkspaceForRegistry,
+  toWorkspaceRegistryRecord,
+} from '../shared/workspace-registry'
 import { isDefaultWorkspaceName } from '../shared/workspace-title'
 import type { Workspace } from '../renderer/src/types/workspace'
 import {
@@ -25,7 +29,8 @@ import { createWorkspaceSyncService } from './workspace-sync-service'
 type Harness = {
   writes: Array<{ workspaceId: string; agentId: string; agent: AgentState | null }>
   starts: ConversationStartSessionInput[]
-  sends: Array<{ sessionId: string; commandId: string; message: string }>
+  sends: Array<Parameters<ConversationLaunchServiceDeps['send']>[0]>
+  installs: Array<{ workingRoot: string; skillId: string }>
   warnings: string[]
 }
 
@@ -35,7 +40,7 @@ function harness(
     settings?: Partial<AgentLaunchSettings>
   } = {},
 ) {
-  const record: Harness = { writes: [], starts: [], sends: [], warnings: [] }
+  const record: Harness = { writes: [], starts: [], sends: [], installs: [], warnings: [] }
   const workspace =
     overrides.workspace === undefined
       ? { id: 'ws-1', folderPath: '/repo/a', agents: { 'agent-1': { name: 'Ada' } } }
@@ -64,6 +69,12 @@ function harness(
     send: async (input) => {
       record.sends.push(input)
       return { ok: true } as ConversationSessionActionResult
+    },
+    ensureSkillInstalled: async (workingRoot, skillId) => {
+      record.installs.push({ workingRoot, skillId })
+      return skillId === 'no-such-skill'
+        ? { ok: false, status: 'unknown-skill', message: `Unknown skill: ${skillId}` }
+        : { ok: true, status: 'installed' }
     },
     warn: (message) => record.warnings.push(message),
     newAgentSuffix: () => 'abc123',
@@ -268,4 +279,109 @@ test('a new chat whose session cannot start takes its whole workspace back out',
     registry.getRecords().map((record) => record.id),
     before,
   )
+})
+
+test('skills are installed in the working root, attached to the first message and kept as the chat\'s chips', async () => {
+  const { service, record } = harness()
+  const result = await service.launch({
+    workspaceId: 'ws-1',
+    cli: 'claude-code',
+    prompt: 'triage',
+    skills: ['backlog', ' backlog ', 'review'],
+  })
+  assert.equal(result.ok, true)
+  assert.deepEqual(record.installs, [
+    { workingRoot: '/repo/a', skillId: 'backlog' },
+    { workingRoot: '/repo/a', skillId: 'review' },
+  ])
+  assert.deepEqual(record.writes[0]!.agent!.conversationSkills, ['backlog', 'review'])
+  await Promise.resolve()
+  assert.deepEqual(record.sends[0]!.skills, [{ id: 'backlog' }, { id: 'review' }])
+})
+
+test('an unknown skill refuses the launch before anything is written', async () => {
+  const { service, record } = harness()
+  const result = await service.launch({ workspaceId: 'ws-1', cli: 'claude-code', skills: ['no-such-skill'] })
+  assert.equal(!result.ok && result.code, 'unknown_skill')
+  assert.deepEqual(record.writes, [])
+  assert.deepEqual(record.starts, [])
+})
+
+test('a skill copy that could not be written is reported, and the launch goes on', async () => {
+  const { service, record } = harness({
+    ensureSkillInstalled: async () => ({ ok: false, status: 'install-failed', message: 'disk full' }),
+  })
+  const result = await service.launch({ workspaceId: 'ws-1', cli: 'claude-code', skills: ['backlog'] })
+  assert.equal(result.ok, true)
+  assert.match(record.warnings[0]!, /disk full/)
+})
+
+test('the owning module is stamped on the chat record', async () => {
+  const { service, record } = harness()
+  await service.launch({ workspaceId: 'ws-1', cli: 'claude-code', ownerModuleId: 'acme.reviews' })
+  assert.equal(record.writes[0]!.agent!.ownerModuleId, 'acme.reviews')
+  const { service: own, record: ownRecord } = harness()
+  await own.launch({ workspaceId: 'ws-1', cli: 'claude-code' })
+  assert.equal(ownRecord.writes[0]!.agent!.ownerModuleId, undefined, "a chat nobody's module started has no owner")
+})
+
+test('a worktree launch starts the session in the worktree and records where it runs', async () => {
+  const { service, record } = harness()
+  const result = await service.launch({
+    workspaceId: 'ws-1',
+    cli: 'claude-code',
+    worktreePath: '/repo/a/.sprintengine/automations/worktrees/run-1',
+    skills: ['backlog'],
+  })
+  assert.equal(result.ok, true)
+  assert.equal(record.starts[0]!.workspaceRoot, '/repo/a/.sprintengine/automations/worktrees/run-1')
+  assert.equal(record.installs[0]!.workingRoot, '/repo/a/.sprintengine/automations/worktrees/run-1')
+  assert.deepEqual(record.writes[0]!.agent!.execution, {
+    mode: 'worktree',
+    worktreeId: null,
+    cwd: '/repo/a/.sprintengine/automations/worktrees/run-1',
+  })
+  assert.equal(conversationWorkingRoot(record.writes[0]!.agent, '/repo/a'), record.starts[0]!.workspaceRoot)
+})
+
+test('sendFirst false starts the session and sends nothing', async () => {
+  const { service, record } = harness()
+  const result = await service.launch({ workspaceId: 'ws-1', cli: 'claude-code', prompt: 'hi', sendFirst: false })
+  assert.equal(result.ok, true)
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.deepEqual(record.sends, [])
+})
+
+test('pictures ride the first message, and a failed first message reaches the caller', async () => {
+  const failures: string[] = []
+  const { service, record } = harness({
+    send: async (input) => {
+      record.sends.push(input)
+      throw new Error('provider went away')
+    },
+  })
+  const attachment = { id: 'img-1', mediaType: 'image/png', dataBase64: 'AA==', byteLength: 1 }
+  await service.launch({
+    workspaceId: 'ws-1',
+    cli: 'claude-code',
+    prompt: 'what is this',
+    attachments: [attachment],
+    onFirstSendFailed: (message) => failures.push(message),
+  })
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.deepEqual(record.sends[0]!.attachments, [attachment])
+  assert.equal(failures.length, 1)
+  assert.match(failures[0]!, /provider went away/)
+})
+
+test('the owner survives the registry normalisation every window and restart goes through', async () => {
+  const { service, record } = harness()
+  await service.launch({ workspaceId: 'ws-1', cli: 'claude-code', ownerModuleId: 'acme.reviews' })
+  const agent = record.writes[0]!.agent!
+  const workspace = normalizeWorkspaceForRegistry({
+    id: 'ws-1',
+    agents: { [agent.id]: agent },
+  } as unknown as Workspace)
+  assert.equal(workspace.agents[agent.id]!.ownerModuleId, 'acme.reviews')
+  assert.equal(JSON.parse(JSON.stringify(workspace)).agents[agent.id].ownerModuleId, 'acme.reviews')
 })

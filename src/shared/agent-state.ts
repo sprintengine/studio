@@ -190,6 +190,11 @@ export type AgentState = {
   // item. Latest-wins: one ref per agent, mirroring the most-recent-wins
   // fixed link id on the Backlog item side. Undefined when no item was handed.
   backlogItemRef?: AgentBacklogItemRef
+  // The module that started this chat through the module conversation
+  // service. Only that module reaches it there (a chat without one is the
+  // person's own, and no module's). Set once at launch and never edited, so it
+  // rides the workspace registry and every window's store as-is.
+  ownerModuleId?: string
 }
 
 type AgentBacklogItemRef = {
@@ -199,6 +204,20 @@ type AgentBacklogItemRef = {
   title: string
   linkedAt: number
 }
+/**
+ * The folder a chat agent's conversation runs in, and so the root its session
+ * and transcript are keyed by: its worktree when it was started in one (an
+ * automation run's), otherwise the workspace folder.
+ */
+export function conversationWorkingRoot(
+  agent: Pick<AgentState, 'execution'> | null | undefined,
+  workspaceFolder: string | null | undefined,
+): string | null {
+  const execution = agent?.execution
+  if (execution?.mode === 'worktree' && execution.cwd?.trim()) return execution.cwd
+  return workspaceFolder?.trim() ? workspaceFolder : null
+}
+
 // ---------------------------------------------------------------------------
 // Record construction
 // ---------------------------------------------------------------------------
