@@ -620,7 +620,7 @@ test('globalDoorsIntegration', async () => {
         'and it says what it holds rather than rendering as an empty page',
       )
 
-      // ── The plus menu: two ways in, and only two ────────────────────────────
+      // ── The plus menu: two sources, and an extension from its repository ────
       await act(async () => {
         ;(plus as HTMLElement).click()
       })
@@ -629,8 +629,8 @@ test('globalDoorsIntegration', async () => {
       )
       assert.deepEqual(
         menuItems,
-        ['Add from folder…', 'Add from GitHub…'],
-        'the plus offers a folder on this machine and a repository, and nothing else',
+        ['Add from folder…', 'Add skill source from GitHub…', 'Install extension from GitHub…'],
+        'the plus offers a folder, a repository of skills, and an extension installed from its own repository',
       )
       await act(async () => {
         document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))

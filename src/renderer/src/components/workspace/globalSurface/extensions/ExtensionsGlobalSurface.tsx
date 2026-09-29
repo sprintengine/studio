@@ -16,7 +16,8 @@
 //
 // What this file owns is what the views SHARE and nothing else: the reads (the
 // MCP catalogue, the marketplace registry, the sources and their scans), the
-// two ways a source is added, which view the drawer is standing on, and the
+// two ways a source is added and the one way an extension is installed from
+// its own repository, which view the drawer is standing on, and the
 // tab that view is on — because the ruling says the chosen source survives a
 // switch between Plugins and Skills.
 
@@ -43,6 +44,7 @@ import {
   type ExtensionsSurfaceTarget,
 } from './extensionsSurfaceTarget'
 import { publishSurfaceView } from '../../surfaceView'
+import { InstallFromGitHubDialog } from '../../../extensions/InstallFromGitHubDialog'
 
 export default function ExtensionsGlobalSurface(): JSX.Element {
   const activeWorkspaceRoot = useWorkspaceStore(
@@ -110,6 +112,8 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
   const [query, setQuery] = useState('')
   // The repository the Add-from-GitHub modal opens on ('' for an empty field).
   const [addRepo, setAddRepo] = useState<string | null>(null)
+  // Install extension from GitHub: open or not. The dialog owns its own URL.
+  const [installFromGitHub, setInstallFromGitHub] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
 
   const applyTarget = useCallback((target: ExtensionsSurfaceTarget) => {
@@ -247,7 +251,11 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
   }, [openAddedSource, sources.sources])
 
   const add = useMemo(
-    () => ({ onAddFromFile: () => void addFromFile(), onAddFromGitHub: () => setAddRepo('') }),
+    () => ({
+      onAddFromFile: () => void addFromFile(),
+      onAddFromGitHub: () => setAddRepo(''),
+      onInstallExtensionFromGitHub: () => setInstallFromGitHub(true),
+    }),
     [addFromFile],
   )
 
@@ -302,6 +310,22 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
         onAdded={openAddedSource}
         onRemoved={() => sources.refreshSources()}
         onConfigureGitHubToken={() => openSettingsOverlay({ initialTab: 'github' })}
+      />
+      <InstallFromGitHubDialog
+        open={installFromGitHub}
+        onClose={() => setInstallFromGitHub(false)}
+        workspaceRoot={activeWorkspaceRoot}
+        mcpSettings={connectors.mcpSettings}
+        onInstalled={(result) => {
+          // Servers the install wrote show up in the Installed tab without a reload.
+          if (result.mcpSettings) addMcpServers(Object.values(result.mcpSettings.servers))
+        }}
+        // A repository of skills pasted here goes where skill sources are added,
+        // with the URL carried over.
+        onAddSkillSource={(url) => {
+          setInstallFromGitHub(false)
+          setAddRepo(url)
+        }}
       />
     </>
   )
