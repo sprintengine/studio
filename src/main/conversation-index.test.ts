@@ -281,3 +281,83 @@ test('an unreadable transcript whose file name is not valid percent-encoding sti
       await rm(linked, { force: true })
     }
   }))
+
+test('a listing reads only the transcripts that changed and keeps every other cached row', async () =>
+  fixture(async (key, path) => {
+    const folder = join(key.workspaceRoot, '.sprintengine', 'conversations', key.workspaceId)
+    await writeFile(path, lines([event(1, 'user_message', { turnId: 'one', text: 'Busy chat' })]))
+    await writeFile(
+      join(folder, 'quiet.jsonl'),
+      lines([event(1, 'user_message', { turnId: 'one', text: 'Quiet chat' }, 'quiet')]),
+    )
+    const index = new ConversationIndex()
+    await index.list(key)
+    // Mark the quiet chat's cached row: it is served as cached only if its transcript is not read again.
+    const cachePath = join(folder, 'index.json')
+    const cache = JSON.parse(await readFile(cachePath, 'utf8'))
+    for (const thread of cache.threads) if (thread.agentId === 'quiet') thread.title = 'Served from the cache'
+    await writeFile(cachePath, JSON.stringify(cache))
+
+    await appendFile(path, lines([event(2, 'user_message', { turnId: 'two', text: 'Again' })]))
+    const threads = await index.list(key)
+    expect(threads.find((thread) => thread.agentId === 'quiet')?.title).toBe('Served from the cache')
+    expect(threads.find((thread) => thread.agentId === 'agent')).toMatchObject({ title: 'Busy chat', turnCount: 2 })
+  }))
+
+test('a transcript that grew is read on from where the last read ended', async () =>
+  fixture(async (key, path) => {
+    // The first line is longer than the bytes that identify the file, so the second can change below it.
+    const first = JSON.stringify(event(1, 'user_message', { turnId: 'one', text: `Opening ${'x'.repeat(600)}` }))
+    const second = JSON.stringify(event(2, 'user_message', { turnId: 'two', text: 'Second' }))
+    await writeFile(path, `${first}\n${second}\n`)
+    const index = new ConversationIndex()
+    expect((await index.list(key))[0]?.turnCount).toBe(2)
+
+    // Already read: blanking it now changes nothing an incremental read looks at.
+    const third = JSON.stringify(event(3, 'user_message', { turnId: 'three', text: 'Third' }))
+    await writeFile(path, `${first}\n${' '.repeat(second.length)}\n${third}\n`)
+    expect((await index.list(key))[0]).toMatchObject({ turnCount: 3, lastSeq: 3 })
+    expect((await index.refresh(key))?.turnCount).toBe(3)
+
+    // A new instance knows nothing it read before and reads the whole file.
+    await appendFile(path, lines([event(4, 'turn_completed', { turnId: 'three' })]))
+    expect((await new ConversationIndex().list(key))[0]?.turnCount).toBe(2)
+  }))
+
+test('costs and turns are counted once across an append', async () =>
+  fixture(async (key, path) => {
+    await writeFile(
+      path,
+      lines([
+        event(1, 'user_message', { turnId: 'first', text: 'Question' }),
+        event(2, 'turn_completed', { turnId: 'first', costUsd: 0.25 }),
+      ]),
+    )
+    const index = new ConversationIndex()
+    expect((await index.list(key))[0]).toMatchObject({ turnCount: 1, totalCostUsd: 0.25 })
+    await appendFile(
+      path,
+      lines([
+        event(3, 'turn_completed', { turnId: 'first', costUsd: 0.25 }),
+        event(4, 'user_message', { turnId: 'second', text: 'Another' }),
+        event(5, 'turn_completed', { turnId: 'second', costUsd: 0.5 }),
+      ]),
+    )
+    expect((await index.list(key))[0]).toMatchObject({ turnCount: 2, totalCostUsd: 0.75, lastSeq: 5 })
+  }))
+
+test('a transcript deleted and written again under the same name is read whole', async () =>
+  fixture(async (key, path) => {
+    await writeFile(path, lines([event(1, 'user_message', { turnId: 'one', text: 'Old chat' })]))
+    const index = new ConversationIndex()
+    expect((await index.list(key))[0]?.title).toBe('Old chat')
+    await rm(path)
+    await writeFile(
+      path,
+      lines([
+        { ...event(1, 'user_message', { turnId: 'new', text: 'New chat' }), id: 'another-run' },
+        event(2, 'user_message', { turnId: 'next', text: 'More' }),
+      ]),
+    )
+    expect((await index.list(key))[0]).toMatchObject({ title: 'New chat', turnCount: 2 })
+  }))

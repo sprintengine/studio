@@ -1488,8 +1488,6 @@ export class ConversationRuntime {
     }
     const outcome = await this.persistEvent(session, stamped)
     if (ends) await this.closeToolStreams(session)
-    if (ends && stamped.type === 'turn_completed' && session.status !== 'stopped')
-      await this.threadIndex.refresh(session).catch(() => undefined)
     // Publish status at the same boundary as the terminal notification, after
     // persistence. Pollers and event-driven consumers must observe one state.
     if (session.status !== 'stopped' && ends) {
@@ -1497,6 +1495,11 @@ export class ConversationRuntime {
       session.updatedAt = this.now()
     }
     this.publish(session.workspaceRoot, path, stamped, outcome)
+    // The thread index is a cache, and a listing brings a stale row up to date
+    // itself: refreshing it after the turn's end is out never holds that end,
+    // or the events queued behind it, back from the chat.
+    if (ends && stamped.type === 'turn_completed' && session.status !== 'stopped')
+      this.runInBackground(this.threadIndex.refresh(session))
     if (automaticRequestId)
       void this.respondToRequest({
         sessionId: session.sessionId,
