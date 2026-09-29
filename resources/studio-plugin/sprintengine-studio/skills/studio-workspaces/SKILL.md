@@ -39,8 +39,8 @@ permission preset and connector, and can isolate the agent in a git
 worktree. Success is confirmed by the agent's terminal session registering with
 the main process — a call that returns success has a live session behind it.
 
-`terminal_create` starts an AGENT terminal on this machine and reports the agent
-and the session it runs in — it launches a CLI under a permission preset through
+`terminal_create` starts an AGENT terminal on this machine and returns its
+session id and agent id — it launches a CLI under a permission preset through
 the same path `agent_launch` uses, without the connector and worktree options,
 and `terminal_list`'s `kind` filter counts it as `agent`, not as a plain shell.
 There is no tool here that opens a bare shell. Name the workspace by

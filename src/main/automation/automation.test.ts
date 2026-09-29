@@ -12,6 +12,7 @@ import {
   resolveSocketPath,
   STUDIO_MCP_SERVER_INFO_FILENAME,
 } from './automation-service'
+import { projectHue } from '../../shared/project-hue'
 import { createMcpSocketServer, type McpConnectionContext, type McpToolRegistration } from './mcp-socket-server'
 import { createWorkspaceRegistryService } from '../workspace-registry-service'
 import { createInMemoryWorkspaceRegistryStore } from '../workspace-registry-store'
@@ -306,11 +307,11 @@ test('automation', async () => {
     ])
   }
 
-  // The list an agent on this machine reads to see what else is running.
+  // The list an agent or MCP client on this machine reads to see what runs.
   // It reports liveness honestly — a paused agent is not running but is not gone
   // — and carries the hook-reported phase with its provenance, so a caller can
   // tell an authoritative "waiting for you" from an output-timing guess.
-  async function testTerminalListReportsTheSessionsThisAppHolds(): Promise<void> {
+  async function testTerminalListReportsAttachableSessions(): Promise<void> {
     const sessions = [
       {
         sessionId: 'session-live',
@@ -382,6 +383,7 @@ test('automation', async () => {
           suspended: boolean
           agentState: unknown
           workspaceName: string | null
+          git: unknown
         }>
       }
     ).terminals
@@ -392,6 +394,10 @@ test('automation', async () => {
     assert.equal(snapshotReads, 1, 'one snapshot read serves every row of a terminal.list')
     assert.equal(listed[0].workspaceName, testWorkspace('ws-1').name, 'a known workspace names its row')
     assert.equal(listed[1].workspaceName, null, 'an unknown workspace id reads as no name, never a guess')
+    // Git facts are read for RUNNING sessions only: a paused or exited chat gets
+    // null rather than the checkout's present numbers (the sidebar's own rule),
+    // and a list never fans git out to every checkout ever held.
+    assert.equal(listed[1].git, null, 'a paused session carries no git line')
     assert.deepEqual(listed[0].agentState, { phase: 'awaiting_input', source: 'hook', since: 21 })
     // Paused is its own answer: not running, not gone.
     assert.equal(listed[1].processAlive, false)
@@ -412,12 +418,13 @@ test('automation', async () => {
     assert.equal((refused.structuredContent as { error: { code: string } }).error.code, 'invalid_kind')
   }
 
-  // The row is what a caller on this machine reads, and nothing a remote row
-  // drew. The project hue, the checkout's git line, the snooze and the turn,
-  // context and pull-request facts were added for the phone's thread list, and
-  // left with terminals on the tailnet (2026-09-29); the git line in particular
-  // is a git read per checkout, which a local list has no reason to pay for.
-  async function testTerminalListCarriesNoneOfTheRemoteRow(): Promise<void> {
+  // The facts a row needs to say what the sidebar says. Every one is additive
+  // and null/zero when unknown, so a caller built before them reads the row
+  // unchanged — which is why they are asserted as VALUES here rather than by
+  // shape: `lastTurnEndedAt` in particular was read by a client for a whole
+  // epic while this projection never sent it, and a shape assertion would not
+  // have caught that.
+  async function testTerminalListCarriesTheRowsProjectAndConversationFacts(): Promise<void> {
     const sessions = [
       {
         sessionId: 'session-live',
@@ -425,9 +432,6 @@ test('automation', async () => {
         suspended: false,
         kind: 'agent',
         workspaceId: 'ws-1',
-        agentId: 'agent-a',
-        agentName: 'Scout',
-        cli: 'claude-code',
         cwd: '/repo/one',
         visible: true,
         startedAt: 10,
@@ -437,19 +441,52 @@ test('automation', async () => {
         lastTurnEndedAt: 44,
         activeSubagents: 3,
         contextUsage: { usedPercentage: 62, at: 43 },
-        pullRequests: [],
+        pullRequests: [
+          {
+            url: 'https://github.com/acme/sprintengine/pull/7',
+            repoKey: 'github.com/acme/sprintengine',
+            repoName: 'sprintengine',
+            number: 7,
+            title: 'Carry the row',
+            state: 'open',
+            isDraft: true,
+            openedAt: 1,
+            readAt: 2,
+          },
+        ],
         activity: { kind: 'working', since: 20 },
       },
+      {
+        sessionId: 'session-bare',
+        processAlive: true,
+        suspended: false,
+        kind: 'terminal',
+        workspaceId: 'ws-2',
+        cwd: '/repo/two',
+        visible: true,
+        startedAt: 30,
+        lastOutputAt: 30,
+        lastInputAt: null,
+        lastVisibleAt: null,
+        activity: { kind: 'idle', since: 30 },
+      },
     ] as unknown as TerminalSessionSnapshot[]
-    let identityReads = 0
+
     const tools = createAutomationTools(
       backendsOf({
         sessions,
-        workspaces: [testWorkspace('ws-1', { folderPath: '/code/sprintengine', snoozedUntil: 9_000 })],
-        readRepositoryIdentity: async () => {
-          identityReads += 1
-          return null
-        },
+        workspaces: [
+          testWorkspace('ws-1', { folderPath: '/code/sprintengine', snoozedUntil: 9_000 }),
+          testWorkspace('ws-2', { folderPath: null }),
+        ],
+        readRepositoryIdentity: async (folderPath) =>
+          folderPath === '/code/sprintengine'
+            ? {
+                canonicalKey: 'github.com/acme/sprintengine',
+                remoteUrl: 'git@github.com:acme/sprintengine.git',
+                name: 'sprintengine',
+              }
+            : null,
       }),
     )
 
@@ -458,24 +495,39 @@ test('automation', async () => {
         terminals: Array<Record<string, unknown>>
       }
     ).terminals
-    assert.deepEqual(Object.keys(listed[0]).sort(), [
-      'activity',
-      'agentId',
-      'agentName',
-      'agentState',
-      'cli',
-      'cwd',
-      'kind',
-      'lastOutputAt',
-      'processAlive',
-      'sessionId',
-      'startedAt',
-      'suspended',
-      'workspaceId',
-      'workspaceName',
-      'worktreePath',
+
+    // The field a client once read and never received.
+    assert.equal(listed[0].lastTurnEndedAt, 44, 'a finished turn reports when it finished')
+    assert.equal(listed[1].lastTurnEndedAt, null, 'a shell that never took a turn says null, not zero')
+
+    assert.deepEqual(listed[0].contextUsage, { usedPercentage: 62, at: 43 })
+    assert.equal(listed[1].contextUsage, null, 'a CLI-less shell reports no context usage rather than 0%')
+
+    assert.equal(listed[0].activeSubagents, 3)
+    assert.equal(listed[1].activeSubagents, 0, 'no subagents is zero, so a caller can count without a guard')
+
+    // The hue is the shared hash of the REPOSITORY key, so this row is the same
+    // degree in this list as in the desktop's own sidebar.
+    assert.equal(listed[0].projectHue, projectHue('repo:github.com/acme/sprintengine'))
+    assert.equal(listed[1].projectHue, null, 'a chat with no folder is not a project and wears no colour')
+
+    assert.equal(listed[0].snoozedUntil, 9_000, 'a sleeping chat says when it wakes')
+    assert.equal(listed[1].snoozedUntil, null, 'an awake chat says null, never 0')
+
+    // The PR list is projected field by field: the row needs the state and the
+    // draft flag to draw its mark, and nothing needs the read timestamps.
+    assert.deepEqual(listed[0].pullRequests, [
+      {
+        url: 'https://github.com/acme/sprintengine/pull/7',
+        repoKey: 'github.com/acme/sprintengine',
+        repoName: 'sprintengine',
+        number: 7,
+        title: 'Carry the row',
+        state: 'open',
+        isDraft: true,
+      },
     ])
-    assert.equal(identityReads, 0, 'listing terminals reads no repository to colour a row')
+    assert.deepEqual(listed[1].pullRequests, [], 'no pull requests is an empty list, never absent')
   }
 
   async function testReadToolsAnswerFromSnapshot(): Promise<void> {
@@ -828,21 +880,22 @@ test('automation', async () => {
     assert.match(JSON.stringify(created.structuredContent), /registry_commit_failed/)
   }
 
-  // Opening an agent terminal on this machine for a local caller. Success is the
-  // live session the launch minted, reported with the agent it runs, and the
-  // workspace can be named the way the person names it rather than by id.
-  async function testTerminalCreateSpawnsAndReportsTheLiveSession(): Promise<void> {
+  // Opening an agent terminal on this machine for a local caller. The session
+  // id is the deliverable — the caller follows the session it just opened — and
+  // the workspace can be named the way the person names it, without an id.
+  async function testTerminalCreateSpawnsAndReturnsTheAttachableSession(): Promise<void> {
     const byId = launchHarness()
     const created = await tool(byId.tools, 'terminal.create').handler({ workspaceId: 'ws-1', prompt: 'go' })
     assert.equal(created.isError, undefined, JSON.stringify(created.structuredContent))
     const payload = created.structuredContent as {
+      sessionId: string
       workspaceId: string
       agentId: string
       permissionPreset: string
       terminal: { sessionId: string; kind: string; processAlive: boolean; cli: string | null }
     }
+    assert.equal(payload.sessionId, 'sess-1', 'the caller gets the session id, not a search hint')
     assert.equal(payload.workspaceId, 'ws-1')
-    assert.equal(payload.agentId, 'agent-claude-abc', 'the agent id is what agent.status follows')
     assert.equal(payload.terminal.sessionId, 'sess-1')
     assert.equal(payload.terminal.processAlive, true, 'success is a live session, not a launch call returning')
     assert.equal(byId.requests[0].prompt, 'go')
@@ -852,7 +905,7 @@ test('automation', async () => {
     assert.equal(byId.requests[0].worktreePath, undefined)
     assert.equal(byId.requests[0].connectorId, undefined)
 
-    // A workspace named rather than identified, the way the person names it.
+    // A workspace named rather than identified.
     const byName = launchHarness()
     const named = await tool(byName.tools, 'terminal.create').handler({ workspaceName: 'workspace ws-1' })
     assert.equal(named.isError, undefined, JSON.stringify(named.structuredContent))
@@ -3315,8 +3368,8 @@ test('automation', async () => {
     testStudioGatewayStartsDespiteLegacyDisabledSetting,
     testStudioGatewayEndpointContractAcrossPlatforms,
     testToolListNamesTheToolSurface,
-    testTerminalListReportsTheSessionsThisAppHolds,
-    testTerminalListCarriesNoneOfTheRemoteRow,
+    testTerminalListReportsAttachableSessions,
+    testTerminalListCarriesTheRowsProjectAndConversationFacts,
     testReadToolsAnswerFromSnapshot,
     testReadToolsResolveWorkspaceRootThroughSnapshot,
     testReadToolsPassServiceFailuresThrough,
@@ -3334,7 +3387,7 @@ test('automation', async () => {
     testAnOmittedPresetResolvesLikeTheDesktopLauncher,
     testAutomationMutationToolsPassPipelineFailuresThrough,
     testAgentLaunchWidensConfigAndIsolation,
-    testTerminalCreateSpawnsAndReportsTheLiveSession,
+    testTerminalCreateSpawnsAndReturnsTheAttachableSession,
     testTerminalCreateTakesThisMachinesLaunchDefaults,
     testWorkspaceCheckoutReportsTheBackendsFacts,
     testInvalidRequestsReturnExplicitErrors,

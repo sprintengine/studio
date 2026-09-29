@@ -2,6 +2,7 @@ import { isAbsolute } from 'path'
 import type { RepositoryIdentity } from '../../shared/repository-identity'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type { CliPermissionPreset, TerminalSessionSnapshot } from '../../shared/electron-api'
+import { projectColorKey, projectHue } from '../../shared/project-hue'
 import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
 import { resolvePermissionArgs } from '../plugin-render'
 import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
@@ -57,6 +58,7 @@ import { renderSkillInvocationTemplate } from '../../shared/skill-invocation'
 import type { McpConnectionContext, McpToolRegistration, McpToolResult } from './mcp-socket-server'
 import type { WorkspaceCreateRequest, WorkspaceCreateResult } from '../workspace-registry-service'
 import type { WorkspaceMutationActor } from '../workspace-sync-service'
+import { getWorkspaceChangeSummary } from '../workspace-change-summary'
 import { normalizeExecutionHostId, type ExecutionHostId } from '../../shared/execution-host'
 
 // The automation tool surface. v1: workspace.create / workspace.list /
@@ -545,8 +547,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       return failure('unknown_workspace', `Workspace "${plan.workspaceId}" is not known to the running app.`)
     }
     // `live` is the session the launch actually minted, carried out so a caller
-    // that reports it (terminal.create answers with the session and the preset
-    // it resolved) reads the confirmed one rather than re-searching for it.
+    // that needs the session id (terminal.create answers with it) reads the
+    // confirmed one rather than re-searching for it.
     return {
       workspace,
       agentId,
@@ -964,10 +966,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     },
   }
 
-  // The terminals this app holds, for an agent or MCP client on this machine
-  // that wants to see what else is running before it starts more or reports
-  // back. Local socket only (`localOnlyGatewayToolReason`): terminals do not
-  // cross the tailnet, so a paired device neither sees nor may call it.
+  // The terminals this app holds, for an agent or MCP client on this machine.
+  // Served on the local socket only (`localOnlyGatewayToolReason`): terminals
+  // do not cross the tailnet, so a paired device neither sees nor may call it.
   const terminalList: McpToolRegistration = {
     name: 'terminal.list',
     description:
@@ -1003,16 +1004,51 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       const workspaceRows = new Map(
         backends.getWorkspaceSyncSnapshot().state.workspaces.map((workspace) => [workspace.id, workspace]),
       )
-      const sessions = backends
-        .listTerminalSessions()
-        .filter((session) => !workspaceId || session.workspaceId === workspaceId)
-        .filter((session) => !kind || session.kind === kind)
-        .map((session) => ({
-          ...terminalSessionProjection(session),
-          // The workspace's display name, so a caller can say where a session
-          // runs without a second read; null when the id is not one main holds.
-          workspaceName: (session.workspaceId ? workspaceRows.get(session.workspaceId)?.name : null) ?? null,
-        }))
+      // The project hue, resolved once per DISTINCT workspace rather than per
+      // row: `readRepositoryIdentity` holds its answers behind a timed cache
+      // and de-duplicates in flight, but a dozen rows in one project would
+      // still be a dozen awaits.
+      const projectHues = new Map<string, number | null>()
+      const projectHueFor = async (
+        workspace: { id: string; folderPath?: string | null } | undefined,
+      ): Promise<number | null> => {
+        if (!workspace) return null
+        const cached = projectHues.get(workspace.id)
+        if (cached !== undefined) return cached
+        const folderPath = workspace.folderPath ?? null
+        const repository = folderPath ? await backends.readRepositoryIdentity(folderPath) : null
+        const key = projectColorKey({ folderPath, repository })
+        const hue = key ? projectHue(key) : null
+        projectHues.set(workspace.id, hue)
+        return hue
+      }
+      const sessions = await Promise.all(
+        backends
+          .listTerminalSessions()
+          .filter((session) => !workspaceId || session.workspaceId === workspaceId)
+          .filter((session) => !kind || session.kind === kind)
+          .map(async (session) => ({
+            ...terminalSessionProjection(session),
+            // The same second line the sidebar draws: the workspace's display
+            // name, and the checkout's branch and diff read through the
+            // sidebar's own summary share (one read per checkout per hold
+            // window, at most four reads in flight). Both are null when
+            // unknown, so a caller never guesses.
+            workspaceName: (session.workspaceId ? workspaceRows.get(session.workspaceId)?.name : null) ?? null,
+            git: await terminalGitSummary(session),
+            // The project's hue as a whole degree on the OKLCH wheel, hashed
+            // from the repository key (or the folder's name when there is no
+            // remote) by shared/project-hue.ts. Sent rather than left to the
+            // caller to derive so it cannot disagree with the sidebar about a
+            // degree; null when the chat has no folder, which is not a project
+            // and wears no colour.
+            projectHue: await projectHueFor(session.workspaceId ? workspaceRows.get(session.workspaceId) : undefined),
+            // When the chat is asleep until, or null, for the same reason the
+            // sidebar shows it: a snoozed chat that still claims to be running
+            // is the bug the desktop fixed on 2026-09-10.
+            snoozedUntil: (session.workspaceId ? workspaceRows.get(session.workspaceId)?.snoozedUntil : null) || null,
+          })),
+      )
       return success({ terminals: sessions })
     },
   }
@@ -1022,9 +1058,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
    *
    * A name is accepted because it is how the person names a workspace when
    * they ask an agent to open one, and it saves the caller a `workspace.list`
-   * round trip for it. A name matching more than one workspace is an explicit
-   * refusal listing the ids — picking the first would open a terminal in
-   * someone else's project.
+   * round trip. A name matching more than one workspace is an explicit refusal
+   * listing the ids — picking the first would open a terminal in someone
+   * else's project.
    */
   function resolveTerminalWorkspace(args: Record<string, unknown>): { workspace: Workspace } | McpToolResult {
     const workspaceId = optionalString(args.workspaceId)?.trim()
@@ -1066,18 +1102,21 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   // caller that wants a terminal agent in a workspace and nothing else. It
   // deliberately does NOT carry `agent.launch`'s connector or worktree options:
   // those create git worktrees and write connector config into the checkout,
-  // and a caller that needs them has `agent.launch`. Local socket only, like
-  // `agent.launch` (`localOnlyGatewayToolReason`).
+  // and a caller that needs them has `agent.launch`. Served on the local socket
+  // only (`localOnlyGatewayToolReason`), like `agent.launch`.
+  //
+  // The session id comes back so the caller can follow the session it just
+  // opened — searching terminal.list for "the one that just appeared" would be
+  // a guess.
   const terminalCreate: McpToolRegistration = {
     name: 'terminal.create',
     description:
-      'Open a new agent terminal on the machine running this app and report the agent and the session it runs ' +
-      'in. Works with no window open: the session exists in the main process, and a window opened later shows ' +
-      'it as a pane with its scrollback intact. Name the workspace by "workspaceId" or by "workspaceName". The ' +
+      'Open a new agent terminal on the machine running this app and return its session id. ' +
+      'Works with no window open: the session exists in the main process, and a window opened later shows it as ' +
+      'a pane with its scrollback intact. Name the workspace by "workspaceId" or by "workspaceName". The ' +
       "CLI and permission preset default to this machine's own launch settings unless you name them, exactly " +
       'as a launch from the desktop would, and the answer reports the preset the launch resolved. Use ' +
-      'cli.runtime.list for the CLI ids this app holds, and agent.status or terminal.list to follow the agent. ' +
-      'Served on this machine only, never to a paired device.',
+      'cli.runtime.list for the CLI ids this app holds. Served on this machine only, never to a paired device.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1145,6 +1184,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       })
       if (!('agentId' in launched)) return launched
       return success({
+        sessionId: launched.session.sessionId,
         workspaceId: launched.workspace.id,
         agentId: launched.agentId,
         // What the launch RESOLVED, not what was asked for: the CLI and the
@@ -1932,12 +1972,48 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   ]
 }
 
-// One terminal session as terminal.list and terminal.create report it: enough
-// to identify it and say what it is doing, and nothing about its contents.
+// One terminal session as terminal.list reports it: enough to choose one and
+// say what it is doing, and nothing about its contents.
 //
 // `processAlive` and `suspended` are separate on purpose: a paused agent is not
 // running (its pty was killed to reclaim memory) but is not gone either, and a
 // caller that collapsed the two would treat a parked agent as finished.
+/**
+ * The checkout a terminal works in, summarised the way the sidebar row is:
+ * branch, `+n −n`, and the scope that says whose changes they are (`worktree` —
+ * this chat's own; `branch` — the branch's, possibly shared; `folder` — only
+ * what is uncommitted). Null when the session has no directory or the read
+ * fails; never a confident zero for a span that was not measured.
+ */
+async function terminalGitSummary(session: TerminalSessionSnapshot): Promise<{
+  branch: string | null
+  additions: number
+  deletions: number
+  changedFiles: number
+  scope: string
+} | null> {
+  // Only a running session is asked about — the sidebar's own rule (owner
+  // ruling 2026-09-04, the-diff-an-agent-made decision 9): a parked or exited
+  // chat's numbers would be the checkout's present state, not anything the
+  // chat did. It is also what keeps a list from fanning git out to every
+  // checkout the runtime has ever held a session in.
+  if (!session.processAlive) return null
+  const checkoutPath = session.worktreePath ?? session.cwd
+  if (!checkoutPath) return null
+  try {
+    const summary = await getWorkspaceChangeSummary({ checkoutPath })
+    return {
+      branch: summary.branch,
+      additions: summary.additions,
+      deletions: summary.deletions,
+      changedFiles: summary.changedFiles,
+      scope: summary.scope,
+    }
+  } catch {
+    return null
+  }
+}
+
 function terminalSessionProjection(session: TerminalSessionSnapshot): Record<string, unknown> {
   return {
     sessionId: session.sessionId,
@@ -1960,6 +2036,37 @@ function terminalSessionProjection(session: TerminalSessionSnapshot): Record<str
     agentState: session.agentState
       ? { phase: session.agentState.phase, source: session.agentState.source, since: session.agentState.since }
       : null,
+    // ── What a row needs to say the same thing the sidebar says ──────────────
+    //
+    // Every field below is additive and null/zero when unknown, so a caller
+    // built before them reads the row exactly as it did.
+
+    // When the agent's last turn ended. Distinct from `activity`, which the
+    // reaper's suspend and the quit path overwrite with the moment the PROCESS
+    // died — so a parked chat can still say when it actually finished.
+    lastTurnEndedAt: session.lastTurnEndedAt ?? null,
+    // Context-window usage from the session's own status line, or null: a plain
+    // terminal, a CLI with no status line, or a session that has not made an
+    // API call yet. Never a guess, and a /compact does not clear it.
+    contextUsage: session.contextUsage
+      ? { usedPercentage: session.contextUsage.usedPercentage, at: session.contextUsage.at }
+      : null,
+    // Subagents started and not yet seen to stop, so a row can say "3 running"
+    // rather than a bare spinner. Zero for plain terminals and hookless CLIs.
+    activeSubagents: session.activeSubagents ?? 0,
+    // The pull requests this conversation has, newest first — the ones on its
+    // observed branch and the ones it opened itself in any repository. Absent
+    // on the snapshot means "not asked yet", which is not "none": an empty
+    // array is sent only when main actually holds an empty list.
+    pullRequests: (session.pullRequests ?? []).map((pr) => ({
+      url: pr.url,
+      repoKey: pr.repoKey,
+      repoName: pr.repoName,
+      number: pr.number,
+      title: pr.title,
+      state: pr.state,
+      isDraft: pr.isDraft,
+    })),
   }
 }
 
