@@ -13,6 +13,7 @@ import {
 import { ConversationHistoryRows } from './ConversationHistoryRows'
 import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { hasTerminalSessionsSnapshot } from '../../hooks/terminalSessionsStore'
+import { groupConversationSessionsByWorkspace } from '../../hooks/conversationSessionsStore'
 import { summariesEqual, useSidebarGitSummaries } from './useSidebarGitSummaries'
 import { checkoutPathsOf, lineOfRemoteRow, terminalLinesOf } from './terminalLines'
 import { suspendWorkspaceTerminals, terminateWorkspaceTerminals } from './workspaceTerminalTermination'
@@ -178,9 +179,13 @@ type WorkspaceSidebarProps = {
   // words on the row for a screen reader, and what bolds a row
   // (see `workspaceRowEmphasis`): a chat with an agent still in it is one you
   // can walk back into and speak to, which is what the foreground is for.
-  residentWorkspaceIds: Set<WorkspaceId>
+  residentWorkspaceIds: ReadonlySet<WorkspaceId>
   terminalRecencyByWorkspaceId: Record<WorkspaceId, TerminalRecency>
-  conversationSessions?: ConversationSessionSummary[]
+  conversationSessions?: readonly ConversationSessionSummary[]
+  // Whether main has listed the chats once. Until it has, every chat reads
+  // idle, so the rest sweep waits for it as it waits for the terminals.
+  // Absent means listed (a host with no chat runtime has nothing to wait for).
+  conversationSessionsReady?: boolean
   // The unseen-completion marks, as they change — the app rail's Home badge
   // counts them (useRailBadges). The sidebar stays their owner: it is the layer
   // that knows what was looked at, and nothing outside it writes a mark.
@@ -255,7 +260,8 @@ function WorkspaceSidebar({
   activityByWorkspaceId,
   residentWorkspaceIds,
   terminalRecencyByWorkspaceId,
-  conversationSessions = [],
+  conversationSessions = NO_CONVERSATIONS,
+  conversationSessionsReady = true,
   onUnseenDoneChange,
   onSnoozedWorkspacesChange,
   onSelectWorkspace,
@@ -311,14 +317,13 @@ function WorkspaceSidebar({
     }
     return map
   }, [terminalSessions])
+  // Each row's chats. A row whose chats did not move keeps its array (the
+  // sessions store keeps each unchanged session's object), so its memo holds.
+  const conversationsByWorkspaceIdRef = useRef<ReadonlyMap<string, readonly ConversationSessionSummary[]> | null>(null)
   const conversationsByWorkspaceId = useMemo(() => {
-    const map = new Map<string, ConversationSessionSummary[]>()
-    for (const session of conversationSessions) {
-      const list = map.get(session.workspaceId)
-      if (list) list.push(session)
-      else map.set(session.workspaceId, [session])
-    }
-    return map
+    const grouped = groupConversationSessionsByWorkspace(conversationSessions, conversationsByWorkspaceIdRef.current)
+    conversationsByWorkspaceIdRef.current = grouped
+    return grouped
   }, [conversationSessions])
   // The same grouping WITHOUT the alive-process filter, for the conversation
   // peek alone. The map above is deliberately live-only — line 2 and the git
@@ -474,19 +479,28 @@ function WorkspaceSidebar({
   //
   // A chat agent counts as open too: it has no pty, but main holds a child
   // process for it until the session is stopped.
-  const rowHasOpenAgents = useCallback(
-    (workspace: Workspace) =>
-      rowHasOpenTerminals(workspace, sessionsByWorkspaceId) ||
-      (conversationsByWorkspaceId.get(workspace.id) ?? []).some((session) => session.status !== 'stopped'),
-    [sessionsByWorkspaceId, conversationsByWorkspaceId],
-  )
+  //
+  // Read through refs, so these keep their identity while sessions move: the
+  // sweep below is keyed on `quietSettledWorkspace`, and a new one on every
+  // chat refresh re-ran the sweep over every workspace for nothing.
+  const openAgentSourcesRef = useRef({ sessionsByWorkspaceId, conversationsByWorkspaceId, workspaces })
+  openAgentSourcesRef.current = { sessionsByWorkspaceId, conversationsByWorkspaceId, workspaces }
+  const rowHasOpenAgents = useCallback((workspace: Workspace) => {
+    const sources = openAgentSourcesRef.current
+    return (
+      rowHasOpenTerminals(workspace, sources.sessionsByWorkspaceId) ||
+      (sources.conversationsByWorkspaceId.get(workspace.id) ?? NO_CONVERSATIONS).some(
+        (session) => session.status !== 'stopped',
+      )
+    )
+  }, [])
   const quietSettledWorkspace = useCallback(
     (id: WorkspaceId) => {
-      const workspace = workspaces.find((candidate) => candidate.id === id)
+      const workspace = openAgentSourcesRef.current.workspaces.find((candidate) => candidate.id === id)
       if (!workspace || !rowHasOpenAgents(workspace)) return
       void terminateWorkspaceTerminals(workspace)
     },
-    [workspaces, rowHasOpenAgents],
+    [rowHasOpenAgents],
   )
 
   // Settle by hand: the record first, then the ptys — the row must move even
@@ -513,11 +527,11 @@ function WorkspaceSidebar({
   const snoozeWorkspaceById = useCallback(
     (id: WorkspaceId, wakeAt: number) => {
       setWorkspaceSnoozed(id, wakeAt)
-      const workspace = workspaces.find((candidate) => candidate.id === id)
+      const workspace = openAgentSourcesRef.current.workspaces.find((candidate) => candidate.id === id)
       if (!workspace || !rowHasOpenAgents(workspace)) return
       void suspendWorkspaceTerminals(workspace)
     },
-    [setWorkspaceSnoozed, workspaces, rowHasOpenAgents],
+    [setWorkspaceSnoozed, rowHasOpenAgents],
   )
 
   // The rest sweep (settled-chats, 2026-09-07): on the 30 s tick the idle
@@ -531,8 +545,13 @@ function WorkspaceSidebar({
   // every row reads idle, and a chat parked at a prompt for days would settle
   // on the mount and wake a beat later. The store owns the rule and the
   // record; see `reconcileWorkspaceSettlement`.
+  //
+  // Keyed on whether both lists have landed rather than on the terminal list
+  // itself: a terminal's semantic change moves no row's activity that
+  // `activityByWorkspaceId` does not already carry.
+  const sessionsListed = hasTerminalSessionsSnapshot() && conversationSessionsReady
   useEffect(() => {
-    if (!hasTerminalSessionsSnapshot()) return
+    if (!sessionsListed) return
     const busyIds = new Set<WorkspaceId>()
     const heldIds = new Set<WorkspaceId>(unseenDoneIds)
     for (const [id, activity] of Object.entries(activityByWorkspaceId)) {
@@ -541,7 +560,7 @@ function WorkspaceSidebar({
     }
     const settledNow = useWorkspaceStore.getState().reconcileWorkspaceSettlement({ now, busyIds, heldIds })
     for (const id of settledNow) quietSettledWorkspace(id)
-  }, [now, activityByWorkspaceId, unseenDoneIds, terminalSessions, quietSettledWorkspace])
+  }, [now, activityByWorkspaceId, unseenDoneIds, sessionsListed, quietSettledWorkspace])
 
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({})
   // Which Snoozed shelves are open. Session-only and closed by default: the
@@ -2651,7 +2670,7 @@ type WorkspaceRowOptions = {
 }
 
 const NO_SESSIONS: TerminalSessionSnapshot[] = []
-const NO_CONVERSATIONS: ConversationSessionSummary[] = []
+const NO_CONVERSATIONS: readonly ConversationSessionSummary[] = []
 
 // A row's options, as constants: a fresh `{ snoozed: true }` on every sidebar
 // render was a new prop for a memoized row, which re-rendered it every time.
@@ -2728,7 +2747,7 @@ type WorkspaceRowProps = {
   rowConversation: RemoteConversation | null
   liveSessions: TerminalSessionSnapshot[]
   peekSessions: TerminalSessionSnapshot[]
-  conversationSessions: ConversationSessionSummary[]
+  conversationSessions: readonly ConversationSessionSummary[]
   /** Only this row's checkouts, so a sweep that moved another row's numbers leaves this one alone. */
   gitSummaries: RowGitSummaries
   rowConversationPullRequests: ConversationPullRequests[string] | undefined

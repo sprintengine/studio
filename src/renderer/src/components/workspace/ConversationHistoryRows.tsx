@@ -20,7 +20,7 @@ export function ConversationHistoryRows({
   sessions,
 }: {
   workspaces: Workspace[]
-  sessions: ConversationSessionSummary[]
+  sessions: readonly ConversationSessionSummary[]
 }) {
   const [rows, setRows] = useState<HistoryRow[]>([])
   const [error, setError] = useState<string | null>(null)

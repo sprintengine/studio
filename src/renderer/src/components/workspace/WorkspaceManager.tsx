@@ -40,7 +40,13 @@ import {
 import { useAgentEditorReveal } from '../../hooks/useAgentEditorReveal'
 import { useAppTheme } from '../../hooks/useAppTheme'
 import { useAgentWorktreeCleanup } from '../../hooks/useAgentWorktreeCleanup'
-import { useConversationSessions } from '../../hooks/useConversationSessions'
+import {
+  conversationSessionsStore,
+  groupConversationSessionsByWorkspace,
+  useConversationSessions,
+  type ConversationSessionEntry,
+} from '../../hooks/conversationSessionsStore'
+import { recencyEqual, stableRecord, stableSet, type RowRecency } from './stableRowSlices'
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
 import { meshConversationSessionId } from '../../../../shared/tailnet-mesh'
 import { combinedAgentActivity, conversationFinishedAt } from './sidebar/conversationLines'
@@ -319,6 +325,7 @@ function newChatFolderLabel(path: string): string {
 const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
 
 const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
+const NO_CONVERSATION_SESSIONS: readonly ConversationSessionEntry[] = []
 const SOLO_CHAT_TEMPLATE = LAYOUT_TEMPLATES.find((template) => template.id === 'solo') ?? null
 const MENU_ACCELERATOR_COMMAND_IDS = [
   'app.settings.open',
@@ -2166,35 +2173,57 @@ export default function WorkspaceManager() {
     void window.api.showItemInFolder(folderPath)
   }, [])
 
+  // Each workspace's chats, grouped once. A workspace whose chats did not move
+  // keeps its array (the store keeps each unchanged session's object), so the
+  // layout layer and the sidebar row handed it hold their memo.
+  const conversationSessionsByWorkspaceIdRef = useRef<ReadonlyMap<string, readonly ConversationSessionEntry[]> | null>(
+    null,
+  )
+  const conversationSessionsByWorkspaceId = useMemo(() => {
+    const grouped = groupConversationSessionsByWorkspace(
+      conversationSessions,
+      conversationSessionsByWorkspaceIdRef.current,
+    )
+    conversationSessionsByWorkspaceIdRef.current = grouped
+    return grouped
+  }, [conversationSessions])
+
+  // Rebuilt whenever a terminal or a chat moves anywhere, but handed on as the
+  // previous object while no workspace's answer changed: the sidebar and its
+  // settle sweep are keyed on it.
+  const activityByWorkspaceIdRef = useRef<Record<string, WorkspaceActivity> | null>(null)
   const activityByWorkspaceId = useMemo(() => {
     const map: Record<string, WorkspaceActivity> = {}
     for (const workspace of workspaces) {
       map[workspace.id] = combinedAgentActivity(
         getWorkspaceActivity(workspace, terminalSessions),
-        conversationSessions.filter((session) => session.workspaceId === workspace.id),
+        conversationSessionsByWorkspaceId.get(workspace.id) ?? NO_CONVERSATION_SESSIONS,
       )
     }
-    return map
-  }, [workspaces, terminalSessions, conversationSessions])
+    const stable = stableRecord(map, activityByWorkspaceIdRef.current)
+    activityByWorkspaceIdRef.current = stable
+    return stable
+  }, [workspaces, terminalSessions, conversationSessionsByWorkspaceId])
 
   // Workspaces whose agents are resident (live PTY) right now, so the sidebar can
   // bold them as "hot" — instant to switch into, versus suspended/exited rows that
   // re-launch on open. Derived from the same live `terminalSessions` snapshot as
   // activity, and recomputes the moment the reaper suspends an agent (it disposes
   // the session, and the terminal:sessions-delta broadcast carries the change).
+  const residentWorkspaceIdsRef = useRef<ReadonlySet<string> | null>(null)
   const residentWorkspaceIds = useMemo(() => {
     const ids = residentAgentWorkspaceIds(terminalSessions)
     for (const session of conversationSessions) {
       if (session.status !== 'stopped') ids.add(session.workspaceId)
     }
-    return ids
+    const stable = stableSet(ids, residentWorkspaceIdsRef.current)
+    residentWorkspaceIdsRef.current = stable
+    return stable
   }, [terminalSessions, conversationSessions])
 
+  const terminalRecencyByWorkspaceIdRef = useRef<Record<string, RowRecency> | null>(null)
   const terminalRecencyByWorkspaceId = useMemo(() => {
-    const map: Record<
-      string,
-      { hasRunning: boolean; idleSince: number | null; lastInputAt: number | null; workingSince: number | null }
-    > = {}
+    const map: Record<string, RowRecency> = {}
     // The persisted keystroke clock is read off the store, not the projection:
     // the projection deliberately ignores it so typing does not re-render the
     // manager. It is only the fallback for a workspace with no live session,
@@ -2229,7 +2258,10 @@ export default function WorkspaceManager() {
       const phase = conversationSummaryPhase(session)
       if (phase === 'running' || phase === 'starting') {
         row.hasRunning = true
-        row.workingSince = Math.min(row.workingSince ?? session.updatedAt, session.updatedAt)
+        // When the turn started, not `updatedAt`: that also moves when an
+        // approval resolves or the model changes, and the counter restarted.
+        const startedAt = session.turnStartedAt ?? session.updatedAt
+        row.workingSince = Math.min(row.workingSince ?? startedAt, startedAt)
       }
       row.lastInputAt = Math.max(row.lastInputAt ?? 0, session.updatedAt)
       if (phase === 'completed' || phase === 'failed' || phase === 'idle') {
@@ -2238,7 +2270,11 @@ export default function WorkspaceManager() {
         row.idleSince = Math.max(row.idleSince ?? 0, conversationFinishedAt(session) ?? session.updatedAt)
       }
     }
-    return map
+    // Each row's recency keeps its object while its four readings are equal,
+    // so a memoized row whose workspace did not move skips its render.
+    const stable = stableRecord(map, terminalRecencyByWorkspaceIdRef.current, recencyEqual)
+    terminalRecencyByWorkspaceIdRef.current = stable
+    return stable
   }, [workspaces, terminalSessions, conversationSessions])
 
   // The sidebar's "finished while you were away" marks, reported up: the
@@ -4236,6 +4272,7 @@ export default function WorkspaceManager() {
           residentWorkspaceIds={residentWorkspaceIds}
           terminalRecencyByWorkspaceId={terminalRecencyByWorkspaceId}
           conversationSessions={conversationSessions}
+          conversationSessionsReady={conversationSessionsStore().hasSnapshot()}
           onUnseenDoneChange={setUnseenDoneIds}
           onSnoozedWorkspacesChange={setSnoozedWorkspaceIds}
           onOpenRemoteSession={sidebarOpenRemoteSession}
@@ -4399,9 +4436,9 @@ export default function WorkspaceManager() {
                           >
                             <WorkspaceLayout
                               workspaceId={workspaceId}
-                              conversationSessions={conversationSessions.filter(
-                                (session) => session.workspaceId === workspaceId,
-                              )}
+                              conversationSessions={
+                                conversationSessionsByWorkspaceId.get(workspaceId) ?? NO_CONVERSATION_SESSIONS
+                              }
                               // The "+" belongs to the layer the user is actually in:
                               // every spawn handler acts on the ACTIVE workspace, so
                               // offering it on a background layer would open a tab in a
