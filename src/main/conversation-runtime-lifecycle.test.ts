@@ -410,3 +410,42 @@ test('only a stateful provider that replays history is handed it at start', asyn
     assert.equal(resuming.starts.at(-1)?.fallbackHistory, undefined)
   })
 })
+
+test('settling a chat whose session is still starting cancels the child being spawned', async () => {
+  let release!: () => void
+  const spawning = new Promise<void>((resolve) => (release = resolve))
+  const disposed: string[] = []
+  const base = echoProvider()
+  const adapter: ConversationProviderAdapter = {
+    ...base,
+    sessions: 'stateful',
+    startSession: (input) =>
+      (async function* () {
+        await spawning
+        yield* base.startSession(input) as ConversationEvent[]
+      })(),
+    disposeChildProcess: (sessionId) => {
+      disposed.push(sessionId)
+      release()
+      return true
+    },
+  }
+  await withRuntime([adapter], async ({ runtime, workspaceRoot }) => {
+    const starting = runtime.startSession({
+      workspaceRoot,
+      workspaceId: 'workspace',
+      agentId: 'agent',
+      providerId: 'echo-provider',
+      modelId: 'model',
+    })
+    let sessionId: string | undefined
+    await until(() => {
+      const listed = runtime.listSessions()
+      sessionId = listed.ok ? listed.sessions[0]?.sessionId : undefined
+      return sessionId !== undefined
+    })
+    assert.ok((await runtime.suspendSession({ sessionId: sessionId! })).ok)
+    assert.deepEqual(disposed, [sessionId])
+    await starting
+  })
+})

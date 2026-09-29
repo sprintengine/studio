@@ -1193,6 +1193,8 @@ export class ConversationRuntime {
       )
     }
     await this.emitAll(session, adapter.stopSession(session), { allowCanceledTurnId: turnId })
+    // A child still being spawned when the stop came is cancelled, not left behind.
+    adapter.disposeChildProcess?.(session.sessionId)
     await this.eventLog.close(this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId))
     await this.closeToolStreams(session)
     session.activeTurnId = null
@@ -1229,12 +1231,10 @@ export class ConversationRuntime {
       const interrupted = await this.interrupt({ sessionId: session.sessionId })
       if (!interrupted.ok) return interrupted
     }
-    // A session still starting has no child to dispose yet; the idle sweep
-    // reaches it once it is ready.
-    if (
-      (session.status === 'ready' || session.status === 'failed') &&
-      this.getAdapterForProviderId(session.providerId)?.disposeChildProcess?.(session.sessionId)
-    )
+    // Also while the session is still starting, or a send is spawning its
+    // child: disposing cancels a spawn in flight, which would otherwise leave
+    // a child running that nothing is waiting for.
+    if (this.getAdapterForProviderId(session.providerId)?.disposeChildProcess?.(session.sessionId))
       // No child is left to send events for a turn it was told to cancel.
       session.canceledTurnIds.clear()
     void this.eventLog.close(this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId))

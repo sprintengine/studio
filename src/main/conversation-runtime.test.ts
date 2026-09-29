@@ -374,11 +374,13 @@ test('conversation-runtime', async () => {
       const resumed = await runtime.sendTurn({ sessionId, message: 'hello again' })
       assert.equal(resumed.ok && resumed.session.status, 'ready')
 
-      // A stopped session has nothing left to suspend; an unknown one is refused.
+      // Stopping disposes too (a child still spawning is cancelled); a stopped
+      // session has nothing left to suspend; an unknown one is refused.
       await runtime.stopSession({ sessionId })
+      assert.deepEqual(capture.disposedChildren, [sessionId, sessionId, sessionId])
       const stopped = await runtime.suspendSession({ sessionId })
       assert.equal(stopped.ok && stopped.session.status, 'stopped')
-      assert.deepEqual(capture.disposedChildren, [sessionId, sessionId])
+      assert.deepEqual(capture.disposedChildren, [sessionId, sessionId, sessionId])
       assert.equal((await runtime.suspendSession({ sessionId: 'missing' })).ok, false)
     } finally {
       await shutdownRuntimes()
