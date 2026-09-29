@@ -83,6 +83,7 @@ import { ConversationLinkProvider } from './agentChat/conversationLinks'
 import { SubagentTypesProvider } from './agentChat/subagentStatus'
 import { recalledConversationScroll, rememberConversationScroll } from './agentChat/conversationViewState'
 import { useConversationSession } from './agentChat/useConversationSession'
+import { useChatViewActive } from './agentChat/chatViewActivity'
 import { useConversationTransport } from './agentChat/conversationTransport'
 import { openCliSignInTerminal } from './agentChat/cliSignIn'
 import { useLocalChatBinding, type ChatBinding } from './agentChat/chatBinding'
@@ -495,6 +496,10 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const reasoningEffort = capabilities?.reasoningEfforts?.includes(agent?.conversationReasoningEffort ?? '')
     ? agent?.conversationReasoningEffort
     : undefined
+  // The chat's root. Whether it can be seen decides whether streamed tokens
+  // render now or wait until it is seen again.
+  const shellRef = useRef<HTMLDivElement | null>(null)
+  const viewActive = useChatViewActive(shellRef)
   const {
     events,
     hydrated,
@@ -504,7 +509,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     error: historyError,
     replayThroughSeq,
     announcement,
-  } = useConversationSession(binding.sessionRoot ?? workspaceRoot, workspaceId, agentId)
+  } = useConversationSession(binding.sessionRoot ?? workspaceRoot, workspaceId, agentId, { active: viewActive })
   const animatedRowIds = useRef(new Set<string>())
   const [userTurns, setUserTurns] = useState<UserTurn[]>([])
   const {
@@ -1731,7 +1736,6 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // palette and the conflict suite all know the chord). The shell's dispatcher
   // resolves the binding and `runCommand` routes the registry's panel-event to
   // the module-level responder above; this view only registers itself.
-  const shellRef = useRef<HTMLDivElement | null>(null)
   const changeReasoningEffort = (effort: string | undefined) => {
     if (effort && !capabilities?.reasoningEfforts?.includes(effort)) return
     updateBinding({ conversationReasoningEffort: effort })

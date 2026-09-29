@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ConversationEvent, ConversationKey, ConversationPage } from '../../../../../shared/conversation-runtime'
+import type {
+  ConversationEvent,
+  ConversationEventType,
+  ConversationKey,
+  ConversationPage,
+  ConversationSessionFrame,
+} from '../../../../../shared/conversation-runtime'
+import { useWindowPageVisible } from '../../../utils/windowActivity'
 import { useConversationTransport, type ConversationTransport } from './conversationTransport'
 
 const TURN_LIMIT = 10
@@ -71,6 +78,42 @@ function conversationRetryDelay(retries: number): number {
   return Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** retries)
 }
 
+/**
+ * How soon a frame has to reach a reader. A `token` (a streamed word, a partial
+ * tool output) can wait for the next frame, or for a hidden reader to be seen
+ * again. A `step` (a tool starting, a usage report) redraws a reader that is
+ * seen at once and waits for one that is not. A `turn` changes what a reader
+ * acts on even while nobody looks at it — the queued message sends when a turn
+ * ends, a request waits in the approval dock, a failure is reported — so it
+ * reaches every reader at once.
+ */
+export type FrameUrgency = 'token' | 'step' | 'turn'
+
+const TURN_EVENTS: ReadonlySet<ConversationEventType> = new Set([
+  'session_started',
+  'session_ready',
+  'session_closed',
+  'session_updated',
+  'user_message',
+  'turn_started',
+  'turn_completed',
+  'turn_failed',
+  'approval_requested',
+  'approval_resolved',
+])
+
+export function frameUrgency(frame: ConversationSessionFrame): FrameUrgency {
+  if (frame.type !== 'event') return 'turn'
+  const { type, payload } = frame.event
+  if (type === 'content_delta' || type === 'reasoning_delta') return 'token'
+  if (type === 'tool_output' && payload?.partial === true) return 'token'
+  return TURN_EVENTS.has(type) ? 'turn' : 'step'
+}
+
+// A token waits for the next animation frame, or for this long where frames do
+// not run (a window the system is not drawing), whichever comes first.
+const TOKEN_FLUSH_FALLBACK_MS = 48
+
 // One live subscription per conversation and transport, shared by everything
 // on screen that reads it: the chat and the Agents pane show the same events,
 // hold one copy of them and page earlier turns in once. The first reader opens
@@ -78,16 +121,16 @@ function conversationRetryDelay(retries: number): number {
 type SharedSession = {
   session: Session
   snapshot: SessionState
-  listeners: Set<() => void>
+  listeners: Set<(urgency: FrameUrgency) => void>
   readers: number
 }
 const sharedSessions = new WeakMap<ConversationTransport, Map<string, SharedSession>>()
 const sessionKeyOf = (key: ConversationKey) => JSON.stringify([key.workspaceRoot, key.workspaceId, key.agentId])
 
-function publish(shared: SharedSession): void {
+function publish(shared: SharedSession, urgency: FrameUrgency = 'turn'): void {
   if (shared.session.disposed) return
   shared.snapshot = { ...shared.session.state }
-  for (const listener of shared.listeners) listener()
+  for (const listener of shared.listeners) listener(urgency)
 }
 
 function openSharedSession(transport: ConversationTransport, key: ConversationKey): SharedSession {
@@ -177,7 +220,7 @@ function openSharedSession(transport: ConversationTransport, key: ConversationKe
       }
       // Render a catch-up atomically at its synchronization fence, so a
       // partial render cannot establish the virtual list's initial anchor.
-      if (!session.joining || frame.type === 'error') publish(shared)
+      if (!session.joining || frame.type === 'error') publish(shared, frameUrgency(frame))
     })
     session.unsubscribe = () => {
       current = false
@@ -236,9 +279,27 @@ function loadEarlierTurns(transport: ConversationTransport, shared: SharedSessio
   return session.earlier
 }
 
-export function useConversationSession(workspaceRoot: string | null, workspaceId: string, agentId: string) {
+/**
+ * One reader of a conversation's session. `active` is whether the reader can
+ * be seen (the window's visibility is added here); a reader nobody can see
+ * takes in only what it acts on — a turn starting or ending, a request, a sent
+ * message — and catches up on the rest in one render when it is seen again. A
+ * reader that is seen renders streamed tokens once per frame, however many
+ * arrived in it.
+ */
+export function useConversationSession(
+  workspaceRoot: string | null,
+  workspaceId: string,
+  agentId: string,
+  options: { active?: boolean } = {},
+) {
   const [state, setState] = useState<SessionState>(emptyState)
   const sharedRef = useRef<SharedSession | null>(null)
+  const active = useWindowPageVisible() && (options.active ?? true)
+  const activeRef = useRef(active)
+  activeRef.current = active
+  // Renders what the reader was held back from, if anything was.
+  const catchUpRef = useRef<() => void>(() => undefined)
   // Local IPC or a paired machine's conversation: the frames are the same.
   const conversationTransport = useConversationTransport()
   useEffect(() => {
@@ -246,17 +307,47 @@ export function useConversationSession(workspaceRoot: string | null, workspaceId
     if (!workspaceRoot) return
     const shared = openSharedSession(conversationTransport, { workspaceRoot, workspaceId, agentId })
     sharedRef.current = shared
-    const listener = () => setState(shared.snapshot)
+    let frame = 0
+    let timer: ReturnType<typeof setTimeout> | null = null
+    let behind = false
+    const cancel = () => {
+      if (frame) cancelAnimationFrame(frame)
+      frame = 0
+      if (timer !== null) clearTimeout(timer)
+      timer = null
+    }
+    const flush = () => {
+      cancel()
+      behind = false
+      setState(shared.snapshot)
+    }
+    const listener = (urgency: FrameUrgency) => {
+      if (urgency === 'turn') return flush()
+      behind = true
+      if (!activeRef.current) return cancel()
+      if (urgency === 'step') return flush()
+      if (frame || timer !== null) return
+      if (typeof requestAnimationFrame === 'function') frame = requestAnimationFrame(flush)
+      timer = setTimeout(flush, TOKEN_FLUSH_FALLBACK_MS)
+    }
+    catchUpRef.current = () => {
+      if (behind) flush()
+    }
     shared.listeners.add(listener)
     // A reader joining a conversation already open elsewhere starts from what
     // is already held rather than an empty transcript.
     if (shared.session.state.hydrated || shared.session.state.error) setState(shared.snapshot)
     return () => {
+      cancel()
+      catchUpRef.current = () => undefined
       shared.listeners.delete(listener)
       if (sharedRef.current === shared) sharedRef.current = null
       closeSharedSession(conversationTransport, shared)
     }
   }, [workspaceRoot, workspaceId, agentId, conversationTransport])
+  useEffect(() => {
+    if (active) catchUpRef.current()
+  }, [active])
 
   const loadEarlier = useCallback((): Promise<void> => {
     const shared = sharedRef.current

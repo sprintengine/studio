@@ -1,6 +1,6 @@
 import { JSDOM } from 'jsdom'
 import { expect, test, vi } from 'vitest'
-import { mergeConversationEvents } from './useConversationSession'
+import { frameUrgency, mergeConversationEvents } from './useConversationSession'
 import type {
   ConversationEvent,
   ConversationPageResult,
@@ -227,7 +227,11 @@ test('a failed subscription resubscribes with backoff and catches up from its cu
       subscriptions[0].receive({ type: 'synchronized', seq: 5, generation: 'log-1' })
       subscriptions[0].receive({ type: 'event', event: event(6) })
     })
+    // A streamed token renders with the next frame, not on arrival.
+    expect(hook.events.map((entry) => entry.seq)).toEqual([3, 5])
+    await act(async () => vi.advanceTimersByTime(48))
     const held = hook.events
+    expect(held.map((entry) => entry.seq)).toEqual([3, 5, 6])
     // Opening a chat mid-stream can fail its subscription; the panel must not stay frozen.
     await act(async () => subscriptions[0].receive({ type: 'error', message: 'Transcript is busy' }))
     expect(hook.error).toBe('Transcript is busy')
@@ -358,6 +362,118 @@ test('two readers of one conversation share its subscription, its events and its
     await act(async () => chat.unmount())
     expect(subscriptions[0].dispose).toHaveBeenCalledOnce()
   } finally {
+    dom.window.close()
+    for (const key of ['window', 'document', 'navigator', 'IS_REACT_ACT_ENVIRONMENT']) {
+      if (previous[key]) Object.defineProperty(globalThis, key, previous[key])
+      else Reflect.deleteProperty(globalThis, key)
+    }
+  }
+})
+
+test('frames are sorted by how soon a reader needs them', () => {
+  const frame = (type: ConversationEvent['type'], payload: Record<string, unknown> = {}) =>
+    frameUrgency({ type: 'event', event: { type, payload } as ConversationEvent })
+  expect(frame('content_delta')).toBe('token')
+  expect(frame('reasoning_delta')).toBe('token')
+  expect(frame('tool_output', { partial: true })).toBe('token')
+  expect(frame('tool_output')).toBe('step')
+  expect(frame('tool_started')).toBe('step')
+  expect(frame('usage_updated')).toBe('step')
+  expect(frame('subagent_status' as ConversationEvent['type'])).toBe('step')
+  for (const type of ['turn_started', 'turn_completed', 'turn_failed', 'approval_requested', 'user_message'] as const)
+    expect(frame(type)).toBe('turn')
+  expect(frameUrgency({ type: 'synchronized', seq: 1 })).toBe('turn')
+})
+
+test('a reader renders tokens once a frame, and one nobody can see rests until it is seen', async () => {
+  const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost' })
+  const previous = Object.getOwnPropertyDescriptors(globalThis)
+  Object.assign(globalThis, {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  })
+  vi.useFakeTimers()
+  const receivers: ((frame: ConversationSessionFrame) => void)[] = []
+  Object.assign(dom.window, {
+    api: {
+      onConversationSession: (
+        _input: ConversationSubscribeInput,
+        receive: (frame: ConversationSessionFrame) => void,
+      ) => {
+        receivers.push(receive)
+        return () => undefined
+      },
+    },
+  })
+  let seq = 0
+  const event = (type: ConversationEvent['type'], payload: Record<string, unknown>): ConversationEvent => ({
+    seq: ++seq,
+    id: `event-${seq}`,
+    workspaceId: 'workspace',
+    agentId: 'agent',
+    sessionId: 'session',
+    providerId: 'mock',
+    modelId: 'mock',
+    createdAt: seq,
+    type,
+    payload,
+  })
+  const { act, createElement } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const { useConversationSession } = await import('./useConversationSession')
+  let renders = 0
+  let hook!: ReturnType<typeof useConversationSession>
+  function Reader({ active }: { active: boolean }) {
+    hook = useConversationSession('/Users/dev/rest', 'workspace', 'agent', { active })
+    renders++
+    return null
+  }
+  const root = createRoot(document.createElement('div'))
+  const receive = (frame: ConversationSessionFrame) => receivers.at(-1)!(frame)
+  const token = (text: string) => receive({ type: 'event', event: event('content_delta', { turnId: 't', text }) })
+  try {
+    await act(async () => root.render(createElement(Reader, { active: true })))
+    await act(async () => {
+      receive({ type: 'snapshot', page: { events: [], hasMore: false, beforeCursor: null } })
+      receive({ type: 'synchronized', seq: 0 })
+      receive({ type: 'event', event: event('turn_started', { turnId: 't' }) })
+    })
+    expect(hook.events).toHaveLength(1)
+    // Ten tokens in one frame are one render.
+    const before = renders
+    await act(async () => {
+      for (let index = 0; index < 10; index++) token(`w${index} `)
+    })
+    expect(hook.events).toHaveLength(1)
+    await act(async () => vi.advanceTimersByTime(48))
+    expect(hook.events).toHaveLength(11)
+    expect(renders - before).toBe(1)
+
+    // Unseen: tokens and steps wait, a turn's end does not.
+    await act(async () => root.render(createElement(Reader, { active: false })))
+    const hidden = renders
+    await act(async () => {
+      for (let index = 0; index < 5; index++) token('x')
+      receive({ type: 'event', event: event('tool_started', { turnId: 't', toolUseId: 'a', name: 'Read' }) })
+      vi.advanceTimersByTime(1000)
+    })
+    expect(renders).toBe(hidden)
+    expect(hook.events).toHaveLength(11)
+    await act(async () => receive({ type: 'event', event: event('turn_completed', { turnId: 't' }) }))
+    expect(hook.events).toHaveLength(18)
+    expect(hook.announcement).toBe('Assistant reply complete.')
+
+    // Seen again, it catches up in one render.
+    await act(async () => token('late'))
+    await act(async () => vi.advanceTimersByTime(1000))
+    expect(hook.events).toHaveLength(18)
+    await act(async () => root.render(createElement(Reader, { active: true })))
+    expect(hook.events).toHaveLength(19)
+  } finally {
+    await act(async () => root.unmount())
+    vi.useRealTimers()
     dom.window.close()
     for (const key of ['window', 'document', 'navigator', 'IS_REACT_ACT_ENVIRONMENT']) {
       if (previous[key]) Object.defineProperty(globalThis, key, previous[key])
