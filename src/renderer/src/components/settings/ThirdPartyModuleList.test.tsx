@@ -180,12 +180,12 @@ test('ThirdPartyModuleList', async () => {
   function testPermissionChipsDiscloseTiersAndFlagBroadAndUnknown(): void {
     const html = renderRow(
       moduleView('trusted', launch({}), {
-        permissions: ['ipc:agents', 'ipc:invoke', 'totally-made-up'],
+        permissions: ['ipc:settings', 'ipc:invoke', 'totally-made-up'],
       }),
       { enabled: true },
     )
     // Tiered scope renders its consent description without a warning tint.
-    assert.ok(html.includes('Launch and control agents and terminals'), 'tier description shown')
+    assert.ok(html.includes('Read and change app settings and integrations'), 'tier description shown')
     // The broad scope is retained but flagged: wording + warn tint. The assertion
     // is on the words, not the tint — the guarantee is that the flag is never
     // color-only, so it must survive any wording the copy settles on.

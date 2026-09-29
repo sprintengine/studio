@@ -45,7 +45,7 @@ test('permissions', async () => {
   }
 
   function testTieredIpcScopesAreKnownAndDescribed(): void {
-    const tiers = ['ipc:workspace-read', 'ipc:workspace-write', 'ipc:agents', 'ipc:settings']
+    const tiers = ['ipc:workspace-read', 'ipc:workspace-write', 'ipc:settings']
     for (const tier of tiers) {
       assert.equal(isKnownCapabilityPermission(tier), true, `${tier} is a known scope`)
       assert.equal(isBroadCapabilityPermission(tier), false, `${tier} is not flagged broad`)

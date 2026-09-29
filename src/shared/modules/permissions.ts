@@ -27,13 +27,14 @@
 //   studio: `workspaceSyncDispatch`, filesystem mutation routes (`writefile`,
 //   create/rename/copy/delete), git mutations (stage/commit/push/branch/
 //   worktrees), backlog mutations, workspace backup writes.
-// - `ipc:agents` — launching and controlling agents and terminals:
-//   `terminalSpawn`/`terminalWrite`/`terminalKill` and terminal event streams,
-//   conversation provider sessions.
 // - `ipc:settings` — reading and changing studio settings and integrations:
 //   module enablement, third-party module install/trust, MCP catalog/sync,
 //   skill packs, the plugin registry, GitHub token, app
 //   updates, mobile bridge settings, voice transcription settings.
+//
+// Agents have no `ipc:*` tier: a module reaches them through its own chats
+// (`conversation:read` / `conversation:operate`) and companions
+// (`agents:companion`), never through the app's terminal APIs.
 //
 // Surfaces outside every tier (window controls, dialogs, clipboard, auth/
 // session, external-URL opening) are disclosed today only by the legacy broad
@@ -56,7 +57,6 @@ export type CapabilityPermission =
   | 'network'
   | 'ipc:workspace-read'
   | 'ipc:workspace-write'
-  | 'ipc:agents'
   | 'ipc:settings'
   | 'ipc:invoke'
   // Backlog-focused disclosure scopes. Finer-grained than the broad
@@ -74,11 +74,6 @@ export type CapabilityPermission =
   // companion service DOES check this one explicitly at attach time (there is no
   // shared runtime gate to inherit), so a module must declare it to attach.
   | 'agents:companion'
-  // Launch, prompt and stop the module's OWN agent terminals through the SDK's
-  // scoped agent-sessions service. Runtime-checked like `agents:companion`, and
-  // scoped further by agent-id namespace: a module reaches the sessions it
-  // started and named, never another module's and never the user's.
-  | 'agents:session'
   // Persist the module's own data through the SDK's scoped storage service
   // (host-placed: workspace sidecar `modules/<id>/` or per-user app data).
   | 'storage'
@@ -109,7 +104,6 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'network',
   'ipc:workspace-read',
   'ipc:workspace-write',
-  'ipc:agents',
   'ipc:settings',
   'ipc:invoke',
   'backlog.read',
@@ -117,7 +111,6 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'backlog.link.open',
   'automations.manage',
   'agents:companion',
-  'agents:session',
   'storage',
   'conversation:read',
   'conversation:operate',
@@ -137,7 +130,6 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   network: 'Make network requests',
   'ipc:workspace-read': "See workspace, window, git, and task state through the app's APIs",
   'ipc:workspace-write': "Create and change workspaces, files, and tasks through the app's APIs",
-  'ipc:agents': 'Launch and control agents and terminals',
   'ipc:settings': 'Read and change app settings and integrations',
   'ipc:invoke': "Call any of the app's internal APIs, including its own background code (broad scope)",
   'backlog.read': 'Read Backlog item details and source content',
@@ -145,7 +137,6 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'backlog.link.open': 'Open links and targets attached to Backlog items',
   'automations.manage': 'Create and manage its own scheduled automations',
   'agents:companion': 'Run its own background agents inside the workspace',
-  'agents:session': 'Launch, prompt and stop its own agent terminals',
   storage: 'Save its own data in the workspace folder and app data',
   'conversation:read': 'Read the chats it started, including everything the agent says in them',
   'conversation:operate': 'Start chats with agents, send them messages, and stop them',
