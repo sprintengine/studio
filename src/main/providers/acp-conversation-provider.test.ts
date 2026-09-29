@@ -356,6 +356,28 @@ test('ACP Settle ends the process of a turn just stopped', async () => {
     await f.cleanup()
   }
 })
+test('ACP forced disposal ends a turn still running', async () => {
+  const f = await fixture()
+  try {
+    const events: ConversationEvent[] = []
+    for await (const event of await f.provider.sendTurn({
+      ...f.input,
+      turnId: 'turn',
+      requestId: 'request',
+      message: 'hang',
+    })) {
+      events.push(event)
+      if (event.type === 'content_delta') {
+        expect(f.provider.disposeChildProcess?.('session')).toBe(false)
+        expect(f.provider.disposeChildProcess?.('session', { force: true })).toBe(true)
+      }
+    }
+    expect(events.at(-1)?.type).toBe('turn_failed')
+    expect(f.provider.listLiveSessions?.()[0]?.hasChildProcess).toBe(false)
+  } finally {
+    await f.cleanup()
+  }
+})
 test('ACP ends an agent whose protocol line exceeds the size limit', async () => {
   const f = await fixture()
   try {

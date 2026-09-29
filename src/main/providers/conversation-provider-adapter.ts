@@ -6,6 +6,9 @@ import type {
   ConversationPermissionPreset,
 } from '../../shared/conversation-runtime'
 
+/** How far `disposeChildProcess` goes; see ConversationProviderAdapter. */
+export type ConversationDisposeOptions = { force?: boolean }
+
 export type ConversationProviderEventStream =
   | ConversationEvent[]
   | AsyncIterable<ConversationEvent>
@@ -76,7 +79,10 @@ export type ConversationProviderAdapter = {
   // the next turn respawns), and dispose-everything for app shutdown, which
   // settles once whatever the children left on disk is gone.
   listLiveSessions?(): ConversationProviderLiveSession[]
-  disposeChildProcess?(sessionId: string): boolean
+  // Without `force` a child still doing work (a running turn, a pending card,
+  // a subagent) is kept and false returned, as the idle sweep needs. With it
+  // the child ends whatever it is doing, as Settle and Snooze ask.
+  disposeChildProcess?(sessionId: string, options?: ConversationDisposeOptions): boolean
   disposeAll?(): void | Promise<void>
 }
 

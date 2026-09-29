@@ -1049,6 +1049,40 @@ test('a stopped turn Codex never confirms ends the lanes of the subagents its pr
   }
 })
 
+test('Settle ends a Codex process with a subagent still working, and its lane with it', async () => {
+  const f = fixture()
+  const activity = {
+    id: 'call_spawn',
+    type: 'subAgentActivity',
+    kind: 'started',
+    agentThreadId: 'child-thread',
+    agentPath: '/root/slow',
+  }
+  // Between turns, lane progress rides the session channel.
+  const between: ConversationEvent[] = []
+  const input = { ...f.input, onSessionEvent: (event: ConversationEvent) => between.push(event) }
+  await runTurn({ ...f, input }, [{ method: 'item/completed', params: { threadId: 'native-thread', item: activity } }])
+  expect(f.adapter.disposeChildProcess?.('session')).toBe(false)
+  expect(f.adapter.disposeChildProcess?.('session', { force: true })).toBe(true)
+  expect(f.transports.closed).toBe(1)
+  expect(payloads(f.events, 'subagent_status').map((payload) => payload.status)).toEqual(['running'])
+  expect(payloads(between, 'subagent_status')).toMatchObject([{ toolUseId: 'call_spawn', status: 'stopped' }])
+  expect(f.adapter.listLiveSessions?.()[0]?.hasChildProcess).toBe(false)
+  expect(f.adapter.disposeChildProcess?.('session', { force: true })).toBe(false)
+})
+
+test('forcing disposal ends a Codex turn still running', async () => {
+  const f = fixture()
+  await f.adapter.startSession(f.input)
+  const done = f.send()
+  await f.started
+  expect(f.adapter.disposeChildProcess?.('session')).toBe(false)
+  expect(f.adapter.disposeChildProcess?.('session', { force: true })).toBe(true)
+  await done
+  expect(f.events.at(-1)).toMatchObject({ type: 'turn_completed', payload: { interrupted: true } })
+  expect(f.transports.closed).toBe(1)
+})
+
 test('what Codex reports beside the reply is said in the turn, once', async () => {
   const f = fixture()
   await f.adapter.startSession(f.input)

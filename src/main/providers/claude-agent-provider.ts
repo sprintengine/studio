@@ -79,6 +79,7 @@ import type {
   MockAdapterSteerInput,
   MockAdapterTurnInput,
   ConversationProviderSteerResult,
+  ConversationDisposeOptions,
 } from './conversation-provider-adapter'
 
 export const CLAUDE_AGENT_PROVIDER_ID = 'claude-agent'
@@ -114,7 +115,8 @@ export type ClaudeAgentProviderOptions = {
 
 export type ClaudeAgentProviderAdapter = ConversationProviderAdapter & {
   listLiveSessions(): ConversationProviderLiveSession[]
-  disposeChildProcess(sessionId: string): boolean
+  // Claude's child is always disposed; `force` changes nothing here.
+  disposeChildProcess(sessionId: string, options?: ConversationDisposeOptions): boolean
   disposeAll(): Promise<void>
   setPermissionPreset(input: MockAdapterPermissionInput): Promise<ConversationProviderPermissionResult>
   setModel(input: MockAdapterModelInput): Promise<ConversationProviderPermissionResult>
@@ -1242,7 +1244,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       }))
     },
 
-    disposeChildProcess(sessionId: string): boolean {
+    disposeChildProcess(sessionId: string, _options?: ConversationDisposeOptions): boolean {
       const state = sessions.get(sessionId)
       if (!state) return false
       // A child still being spawned is called off, so it cannot outlive a

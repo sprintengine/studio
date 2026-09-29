@@ -993,9 +993,11 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
     // A running turn keeps its process, except one already stopped: Settle
     // and Snooze interrupt and then dispose straight away, before the agent
     // has answered the cancel, and the process has nothing left to do.
-    disposeChildProcess(sessionId) {
+    // `force` ends it whatever it is doing; its pending cards are cancelled.
+    disposeChildProcess(sessionId, options) {
       const state = sessions.get(sessionId)
-      if (!state || (state.turn && !state.cancelled) || state.pending.size) return false
+      if (!state) return false
+      if (!options?.force && ((state.turn && !state.cancelled) || state.pending.size)) return false
       dispose(state)
       return true
     },

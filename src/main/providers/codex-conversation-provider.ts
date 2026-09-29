@@ -983,14 +983,15 @@ export function createCodexConversationProvider(
       })),
     // A running turn keeps its process, except one already stopped: Settle
     // and Snooze interrupt and then dispose straight away, before Codex has
-    // confirmed the interrupt, and the process has nothing left to do.
-    disposeChildProcess(sessionId) {
+    // confirmed the interrupt, and the process has nothing left to do. A
+    // subagent still working lives in this process too, and keeps it from the
+    // idle sweep; `force` (Settle, Snooze) ends it with the process.
+    disposeChildProcess(sessionId, options) {
       const state = sessions.get(sessionId)
-      // A subagent still working lives in this process too.
+      if (!state?.transport) return false
       if (
-        !state?.transport ||
-        (state.turn && !state.turn.cancelled) ||
-        [...state.children.values()].some((child) => !child.done)
+        !options?.force &&
+        ((state.turn && !state.turn.cancelled) || [...state.children.values()].some((child) => !child.done))
       )
         return false
       abandonTurn(state)
