@@ -4,6 +4,8 @@
 // and must not import the whole chat panel for one strip, the same split
 // utils/imageFileTransfer already makes for the DataTransfer plumbing.
 
+import { memo } from 'react'
+
 import type { ConversationImageAttachment } from '../../../../shared/conversation-runtime'
 import { showToast } from '../../store/toastStore'
 // The two button modules directly, not the `../ui` barrel: this strip is on the
@@ -13,8 +15,21 @@ import { IconButton, MediaButton } from '../ui/Buttons'
 
 // A `data:` URL for rendering an attachment thumbnail. The base64 is already in
 // memory, so this avoids an object-URL lifecycle with nothing to revoke.
+//
+// Built once per attachment and kept while the attachment is: the URL is as
+// long as the image's base64, often megabytes, and building it on each render
+// copied the whole picture again and made React compare two such strings
+// character by character to find nothing had changed. An attachment is never
+// edited in place, so its object is the key.
+const previewUrls = new WeakMap<ConversationImageAttachment, string>()
+
 export function attachmentPreviewUrl(attachment: ConversationImageAttachment): string {
-  return `data:${attachment.mediaType};base64,${attachment.dataBase64}`
+  let url = previewUrls.get(attachment)
+  if (url === undefined) {
+    url = `data:${attachment.mediaType};base64,${attachment.dataBase64}`
+    previewUrls.set(attachment, url)
+  }
+  return url
 }
 
 export function attachmentCountLabel(count: number): string {
@@ -49,8 +64,9 @@ export async function openAttachmentImage(attachment: ConversationImageAttachmen
 
 // One thumbnail, everywhere an attachment is shown: staged on the composer and
 // sent in a bubble. It is a button because it does something — the two surfaces
-// only disagree about how big the square is.
-export function AttachmentThumbnail({
+// only disagree about how big the square is. Memoized: the composer re-renders
+// on every keystroke, and a staged picture has not changed.
+export const AttachmentThumbnail = memo(function AttachmentThumbnail({
   attachment,
   className,
 }: {
@@ -67,7 +83,7 @@ export function AttachmentThumbnail({
       <img src={attachmentPreviewUrl(attachment)} alt={label} className="h-full w-full object-cover" />
     </MediaButton>
   )
-}
+})
 
 // Images staged for the next turn, inside the composer surface above the text
 // field so the message reads as one thing. The remove control is a trailing
