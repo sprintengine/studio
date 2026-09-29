@@ -8,6 +8,7 @@ import type {
   MarketplacePluginRegistryInstallResult,
   MarketplacePluginUninstallInput,
   MarketplacePluginUninstallResult,
+  MarketplaceInstallSource,
   McpClientTarget,
   McpServerConfig,
   McpSettings,
@@ -27,7 +28,8 @@ import {
   type MarketplaceInstallLog,
   type MarketplacePluginDownloadFetch,
 } from './plugin-download'
-import { inlineMcpTrustPin } from './plugin-verify'
+import { mcpDisclosureDigest } from './github-extension-source'
+import { bundleMcpDisclosure, inlineMcpTrustPin } from './plugin-verify'
 import type { MarketplaceResourceResolver } from './resources'
 import { trustPinsMatch, type TrustGrant } from './trust-tokens'
 import { isRecord } from '../../shared/records'
@@ -44,6 +46,14 @@ export type MarketplacePluginInstallReceipt = {
   classification: 'verified' | 'community' | 'unsigned'
   installedAt: string
   components: MarketplacePluginInstalledComponent[]
+  // Where it came from; absent on a receipt written before this was recorded,
+  // which was always the registry.
+  source?: MarketplaceInstallSource
+  // What the approval covered, so an update from a GitHub URL can tell
+  // whether the person has to be asked again: the manifest's permissions and
+  // a digest of the MCP servers it adds (github-extension-source.ts).
+  permissions?: string[]
+  mcpDigest?: string
 }
 
 type MarketplacePluginInstallStore = {
@@ -128,6 +138,16 @@ export async function readMarketplacePluginInstallReceipts(
   const store = await loadInstallStore(receiptStorePath)
   if (!store.ok) return store
   return { ok: true, receipts: Object.values(store.store.plugins) }
+}
+
+// One receipt, by the bundle id it is keyed on; undefined when there is none
+// or the store cannot be read.
+export async function readMarketplacePluginInstallReceipt(
+  receiptStorePath: string,
+  id: string,
+): Promise<MarketplacePluginInstallReceipt | undefined> {
+  const store = await loadInstallStore(receiptStorePath)
+  return store.ok ? store.store.plugins[id] : undefined
 }
 
 // The modules a verified install put in place, by id, to the content
@@ -333,6 +353,9 @@ async function installOrUpdateMarketplacePlugin(
       classification: installClassification,
       installedAt: new Date().toISOString(),
       components: installed.installed,
+      source: installSource(grant),
+      permissions: [...(download.manifest.permissions ?? [])],
+      mcpDigest: mcpDisclosureDigest(await bundleMcpDisclosure(download.stagedBundlePath, download.manifest)),
     }
     let finalMcpSettings = installed.mcpSettings ?? input.mcpSettings
     if (previous) {
@@ -434,6 +457,16 @@ async function installOrUpdateMarketplacePlugin(
     await rm(download.stagedBundlePath, { recursive: true, force: true })
     await rm(backupRoot, { recursive: true, force: true })
   }
+}
+
+// A GitHub-URL install records the repository and the commit it was pinned
+// to; the pin is what the approval covered, so it is also what the next
+// update is compared against. Anything else came from the registry.
+function installSource(grant: TrustGrant | null): MarketplaceInstallSource {
+  if (grant?.source === 'github' && grant.github && grant.pin.commitSha) {
+    return { kind: 'github', ...grant.github, sha: grant.pin.commitSha }
+  }
+  return { kind: 'registry' }
 }
 
 // Install an inline-MCP registry entry: the servers ship in the entry itself,
@@ -1574,7 +1607,7 @@ function validateReceipt(value: unknown, path: string): MarketplacePluginInstall
     throw new Error(`${path}.installedAt: installedAt is required.`)
   }
   if (!Array.isArray(value.components)) throw new Error(`${path}.components: components must be an array.`)
-  return {
+  const receipt: MarketplacePluginInstallReceipt = {
     id: value.id,
     displayName: value.displayName,
     version,
@@ -1585,6 +1618,39 @@ function validateReceipt(value: unknown, path: string): MarketplacePluginInstall
       validateReceiptComponent(component, `${path}.components[${index}]`),
     ),
   }
+  if (value.source !== undefined) receipt.source = validateReceiptSource(value.source, `${path}.source`)
+  if (value.permissions !== undefined) {
+    receipt.permissions = validateStringArray(value.permissions, `${path}.permissions`, isNonEmptyString)
+  }
+  if (value.mcpDigest !== undefined) {
+    if (typeof value.mcpDigest !== 'string' || !/^[0-9a-f]{64}$/.test(value.mcpDigest)) {
+      throw new Error(`${path}.mcpDigest: MCP digest must be a sha256 hex digest.`)
+    }
+    receipt.mcpDigest = value.mcpDigest
+  }
+  return receipt
+}
+
+function validateReceiptSource(value: unknown, path: string): MarketplaceInstallSource {
+  if (!isRecord(value)) throw new Error(`${path}: source must be an object.`)
+  if (value.kind === 'registry') return { kind: 'registry' }
+  if (value.kind !== 'github') throw new Error(`${path}.kind: source kind must be registry or github.`)
+  for (const field of ['url', 'owner', 'repo', 'sha'] as const) {
+    if (!isNonEmptyString(value[field])) throw new Error(`${path}.${field}: ${field} is required.`)
+  }
+  if (value.ref !== undefined && !isNonEmptyString(value.ref)) throw new Error(`${path}.ref: ref must be a string.`)
+  return {
+    kind: 'github',
+    url: value.url as string,
+    owner: value.owner as string,
+    repo: value.repo as string,
+    sha: value.sha as string,
+    ...(value.ref !== undefined ? { ref: value.ref as string } : {}),
+  }
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && !value.includes('\0')
 }
 
 function validateReceiptComponent(value: unknown, path: string): MarketplacePluginInstalledComponent {

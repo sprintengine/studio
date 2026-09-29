@@ -112,6 +112,9 @@ test('marketplace-plugin-ipc', async () => {
       assert.deepEqual(
         [...handlers.keys()].sort(),
         [
+          'extensions:github:check-update',
+          'extensions:github:install',
+          'extensions:github:resolve',
           'marketplace:plugins:install-entry',
           'marketplace:plugins:uninstall',
           'marketplace:plugins:update-entry',

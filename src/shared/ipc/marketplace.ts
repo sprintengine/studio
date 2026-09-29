@@ -61,6 +61,68 @@ export type MarketplaceMcpServerDisclosure = {
   headerKeys: string[]
 }
 
+// Where an installed extension came from, on its receipt. `registry` is the
+// app's marketplace index; `github` is a repository a person pasted, pinned to
+// the commit its default branch (or the ref they named) pointed at when they
+// reviewed it — the commit an update is compared against.
+export type GithubExtensionOrigin = {
+  // The repository as the person named it, normalised: https://github.com/o/r
+  // plus `/tree/<ref>[/<path>]` when they named a ref.
+  url: string
+  owner: string
+  repo: string
+  ref?: string
+}
+
+export type MarketplaceInstallSource = { kind: 'registry' } | ({ kind: 'github'; sha: string } & GithubExtensionOrigin)
+
+// "Install extension from GitHub…": what main found at the URL, for the trust
+// review, and the one-time token that installs exactly that. A failure is a
+// sentence for the person, never a partial preview.
+export type GithubExtensionResolveInput = { url: string }
+
+export type GithubExtensionPreview = {
+  id: string
+  displayName: string
+  version: number
+  publisher: { name: string; verified: boolean }
+  summary: string
+  provides: MarketplaceComponentKind[]
+  origin: GithubExtensionOrigin
+  // The review body, exactly as main's verify disclosed it (pin included).
+  verify: MarketplacePluginVerifyResult & { classification: 'verified' | 'community' | 'unsigned' }
+  // Set when this id is already installed: what the new review changes.
+  installed?: GithubExtensionInstalledState
+}
+
+export type GithubExtensionInstalledState = {
+  version: number
+  sha?: string
+  // What differs from what was approved last time. Empty means an update can
+  // go ahead on the approval already given.
+  changes: GithubExtensionReviewChange[]
+}
+
+export type GithubExtensionReviewChange = 'permissions' | 'mcp' | 'classification' | 'source'
+
+export type GithubExtensionResolveResult =
+  | { ok: true; preview: GithubExtensionPreview; trustToken: string }
+  | { ok: false; message: string; issues?: MarketplaceManifestIssue[]; skillSource?: boolean }
+
+export type GithubExtensionInstallInput = Omit<MarketplacePluginInstallInput, 'localFolder'> & {
+  trustToken: string
+  // The person's "I trust this code", required when the review showed
+  // unsigned module code; main refuses that install without it.
+  trustCode?: boolean
+}
+
+export type GithubExtensionCheckUpdateInput = { id: string }
+
+export type GithubExtensionCheckUpdateResult =
+  | { ok: true; state: 'current'; sha: string }
+  | { ok: true; state: 'available'; preview: GithubExtensionPreview; trustToken: string; reviewRequired: boolean }
+  | { ok: false; message: string }
+
 export type MarketplacePluginUninstallInput = {
   pluginId: string
   workspaceRoot?: string
@@ -68,6 +130,14 @@ export type MarketplacePluginUninstallInput = {
   mcpClients?: McpClientTarget[]
   skillHarnesses?: SkillHarness[]
 }
+
+// Settings → Modules' uninstall, for a module however it arrived. `id` is the
+// module's id (or a marketplace bundle's); the rest is the envelope an MCP or
+// skill component's removal writes through, as for a marketplace uninstall.
+export type ThirdPartyModuleUninstallInput = Omit<MarketplacePluginUninstallInput, 'pluginId'> & { id: string }
+
+export type ThirdPartyModuleUninstallResult =
+  { ok: true; removedModuleIds: string[]; mcpSettings?: McpSettings } | { ok: false; message: string }
 
 export type MarketplacePluginTrustClassification = 'verified' | 'community' | 'unsigned' | 'invalid'
 

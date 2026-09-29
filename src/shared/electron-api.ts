@@ -346,6 +346,11 @@ import type {
 } from './ipc/git'
 import type { HostedCardFeedReadInput, HostedCardFeedReadResult, HostedSourcesFeedReadResult } from './ipc/hosted-feeds'
 import type {
+  GithubExtensionCheckUpdateInput,
+  GithubExtensionCheckUpdateResult,
+  GithubExtensionInstallInput,
+  GithubExtensionResolveInput,
+  GithubExtensionResolveResult,
   MarketplacePluginRegistryInstallInput,
   MarketplacePluginRegistryInstallResult,
   MarketplacePluginUninstallInput,
@@ -991,6 +996,13 @@ export type ElectronApi = {
   // it is the user's from the moment it lands.
   uninstallMarketplacePlugin: (input: MarketplacePluginUninstallInput) => Promise<MarketplacePluginUninstallResult>
   readMarketplacePluginUpdateStates: (input?: MarketplaceRegistryReadInput) => Promise<MarketplaceUpdateStatesResult>
+  // Install extension from GitHub: main resolves the repository's default
+  // branch (or the ref the URL names) to a commit, discloses what it found
+  // there, and issues the one-time token `installGithubExtension` spends.
+  // `checkGithubExtensionUpdate` is the same review of where the branch is now.
+  resolveGithubExtension: (input: GithubExtensionResolveInput) => Promise<GithubExtensionResolveResult>
+  installGithubExtension: (input: GithubExtensionInstallInput) => Promise<MarketplacePluginRegistryInstallResult>
+  checkGithubExtensionUpdate: (input: GithubExtensionCheckUpdateInput) => Promise<GithubExtensionCheckUpdateResult>
   conversationProvidersList: (input?: ConversationProvidersListInput) => Promise<ConversationProviderListResult>
   conversationProviderModels: (input: ConversationProviderModelsInput) => Promise<ConversationProviderModelsResult>
   // The line a plain terminal on this machine runs to sign a chat's CLI back

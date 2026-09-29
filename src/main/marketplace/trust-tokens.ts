@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 
-import type { MarketplaceTrustPin } from '../../shared/electron-api'
+import type { GithubExtensionOrigin, MarketplaceTrustPin } from '../../shared/electron-api'
 import type { MarketplacePluginEntry } from '../../shared/marketplace'
 
 // The trust decision a person takes at an install prompt, held in main.
@@ -35,6 +35,10 @@ export type TrustGrant = {
   // uses this rather than reading the registry again, so a registry refresh
   // between the prompt and the click cannot change what gets installed.
   entry?: MarketplacePluginEntry
+  // The repository a `github` entry was resolved from, as the person named
+  // it, so its receipt can say where updates come from. Kept only when the
+  // source is 'github'.
+  github?: GithubExtensionOrigin
 }
 
 export type IssueTrustTokenInput = {
@@ -43,6 +47,7 @@ export type IssueTrustTokenInput = {
   pin: TrustPin
   allowUnsignedCode?: boolean
   entry?: MarketplacePluginEntry
+  github?: GithubExtensionOrigin
 }
 
 export const TRUST_TOKEN_TTL_MS = 10 * 60 * 1000
@@ -91,6 +96,7 @@ export function createTrustTokenStore(options: { now?: () => number; ttlMs?: num
           pin: { ...input.pin, componentDigests: { ...input.pin.componentDigests } },
           allowUnsignedCode: input.allowUnsignedCode === true && input.source === 'github',
           ...(input.entry ? { entry: input.entry } : {}),
+          ...(input.github && input.source === 'github' ? { github: { ...input.github } } : {}),
         },
         expiresAt: now() + ttlMs,
       })

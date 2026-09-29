@@ -33,6 +33,7 @@ import {
   type ModuleTrustContext,
 } from '../modules/module-signature'
 import { findMarketplaceResourcePath, type MarketplaceResourceResolver } from './resources'
+import { withObservedUnsignedDigests } from './unsigned-component-digests'
 import { verifyBundledSkillFolder } from './skill-content'
 import { readStudioEnv } from '../../shared/studio-env'
 
@@ -179,7 +180,15 @@ export async function downloadMarketplacePluginBundle(
         // this commit, so the bundle cannot change underneath the walk, and
         // the commit is what a later install is pinned to.
         commitSha = await resolveGithubCommit(github, options.commitSha, fetcher, options.timeoutMs)
-        await downloadGithubTree({ ...github, ref: commitSha }, stage, fetcher, options.timeoutMs, limits)
+        // A repository-root bundle (an extension installed from its own
+        // repository) shares the tree with the extension's sources, tests and
+        // docs; only plugin.json and the component folders it names are the
+        // bundle, so only they are read. A registry folder is the bundle whole.
+        if (github.path === '') {
+          await downloadGithubRootBundle({ ...github, ref: commitSha }, stage, fetcher, options.timeoutMs, limits)
+        } else {
+          await downloadGithubTree({ ...github, ref: commitSha }, stage, fetcher, options.timeoutMs, limits)
+        }
       } catch (error) {
         const eligible = isPackagedSeedFallbackEligible(error, github, commitSha)
         // The seed is the app's own copy, read at no commit.
@@ -258,10 +267,14 @@ export async function downloadMarketplacePluginBundle(
       }
     }
 
-    const digestMismatch = marketplaceComponentDigestMismatchIssuesSync(stage, manifest, {
-      bytesLabel: 'downloaded bytes',
-      blockedFileMessage: (path) => `component file "${path}" cannot be installed from marketplace bundles.`,
-    })
+    const digestMismatch = marketplaceComponentDigestMismatchIssuesSync(
+      stage,
+      withObservedUnsignedDigests(stage, manifest),
+      {
+        bytesLabel: 'downloaded bytes',
+        blockedFileMessage: (path) => `component file "${path}" cannot be installed from marketplace bundles.`,
+      },
+    )
     if (digestMismatch.length > 0) {
       await rm(stage, { recursive: true, force: true })
       return {
@@ -511,6 +524,46 @@ async function downloadGithubContentsDirectory(
     }
     const relPath = relativeGithubPath(basePath, entry.path)
     await downloadFile(entry.download_url, join(stage, relPath), fetcher, timeoutMs, limits, state)
+  }
+}
+
+// plugin.json first, then each component path it declares, all at the commit
+// already resolved. A path that is not in the tree fails the fetch here; a
+// plugin.json that does not parse stages alone, so the manifest checks after
+// the walk report what is wrong with it.
+async function downloadGithubRootBundle(
+  source: GithubTreeSource,
+  stage: string,
+  fetcher: MarketplacePluginDownloadFetch,
+  timeoutMs: number | undefined,
+  limits: DownloadLimits,
+): Promise<void> {
+  const state: DownloadState = { files: 0, bytes: 0, dirRequests: 0 }
+  await downloadGithubContentsDirectory(
+    githubContentsUrl({ ...source, path: 'plugin.json' }),
+    '',
+    'plugin.json',
+    stage,
+    fetcher,
+    timeoutMs,
+    limits,
+    state,
+  )
+  const manifest = parseMarketplacePluginAuthoringManifest(await readFile(join(stage, 'plugin.json'), 'utf8'))
+  if (!manifest.ok) return
+  for (const kind of MARKETPLACE_COMPONENT_KINDS) {
+    const componentPath = manifest.manifest.components[kind]?.path
+    if (!componentPath) continue
+    await downloadGithubContentsDirectory(
+      githubContentsUrl({ ...source, path: componentPath }),
+      '',
+      componentPath,
+      stage,
+      fetcher,
+      timeoutMs,
+      limits,
+      state,
+    )
   }
 }
 
@@ -848,7 +901,9 @@ async function fetchBytes(
 function parseGithubTreeSource(url: URL): GithubTreeSource | 'invalid' | null {
   if (url.hostname !== 'github.com') return null
   const segments = url.pathname.split('/').filter(Boolean)
-  if (segments.length < 5 || segments[2] !== 'tree') return null
+  // `tree/<ref>` alone is the repository root: a bundle whose plugin.json
+  // sits at the top of its own repository.
+  if (segments.length < 4 || segments[2] !== 'tree') return null
   const [owner, repo, , ref] = segments
   if (!GITHUB_OWNER_PATTERN.test(owner) || !GITHUB_REPO_PATTERN.test(repo) || !GITHUB_REF_PATTERN.test(ref)) {
     return 'invalid'
@@ -917,7 +972,8 @@ function sha256Hex(bytes: Buffer): string {
 }
 
 function githubContentsUrl(source: GithubTreeSource): string {
-  return `https://api.github.com/repos/${source.owner}/${source.repo}/contents/${source.path}?ref=${encodeURIComponent(source.ref)}`
+  const path = source.path ? `/${source.path}` : ''
+  return `https://api.github.com/repos/${source.owner}/${source.repo}/contents${path}?ref=${encodeURIComponent(source.ref)}`
 }
 
 function relativeGithubPath(basePath: string, path: string | undefined): string {

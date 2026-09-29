@@ -1,6 +1,11 @@
 import { ipcRenderer } from 'electron'
 import type {
   ElectronApi,
+  GithubExtensionCheckUpdateInput,
+  GithubExtensionCheckUpdateResult,
+  GithubExtensionInstallInput,
+  GithubExtensionResolveInput,
+  GithubExtensionResolveResult,
   MarketplacePluginRegistryInstallInput,
   MarketplacePluginRegistryInstallResult,
   MarketplacePluginUninstallInput,
@@ -37,6 +42,18 @@ type MarketplaceIpcRenderer = {
     channel: 'marketplace:plugins:update-states',
     input?: MarketplaceRegistryReadInput,
   ): Promise<MarketplaceUpdateStatesResult>
+  invoke(
+    channel: 'extensions:github:resolve',
+    input: GithubExtensionResolveInput,
+  ): Promise<GithubExtensionResolveResult>
+  invoke(
+    channel: 'extensions:github:install',
+    input: GithubExtensionInstallInput,
+  ): Promise<MarketplacePluginRegistryInstallResult>
+  invoke(
+    channel: 'extensions:github:check-update',
+    input: GithubExtensionCheckUpdateInput,
+  ): Promise<GithubExtensionCheckUpdateResult>
 }
 
 export function createMarketplaceApi(renderer: MarketplaceIpcRenderer) {
@@ -60,6 +77,12 @@ export function createMarketplaceApi(renderer: MarketplaceIpcRenderer) {
       renderer.invoke('marketplace:plugins:uninstall', input),
     readMarketplacePluginUpdateStates: (input?: MarketplaceRegistryReadInput): Promise<MarketplaceUpdateStatesResult> =>
       renderer.invoke('marketplace:plugins:update-states', input),
+    resolveGithubExtension: (input: GithubExtensionResolveInput): Promise<GithubExtensionResolveResult> =>
+      renderer.invoke('extensions:github:resolve', input),
+    installGithubExtension: (input: GithubExtensionInstallInput): Promise<MarketplacePluginRegistryInstallResult> =>
+      renderer.invoke('extensions:github:install', input),
+    checkGithubExtensionUpdate: (input: GithubExtensionCheckUpdateInput): Promise<GithubExtensionCheckUpdateResult> =>
+      renderer.invoke('extensions:github:check-update', input),
   } satisfies Pick<
     ElectronApi,
     | 'readMarketplaceRegistry'
@@ -68,6 +91,9 @@ export function createMarketplaceApi(renderer: MarketplaceIpcRenderer) {
     | 'updateMarketplacePluginFromRegistry'
     | 'uninstallMarketplacePlugin'
     | 'readMarketplacePluginUpdateStates'
+    | 'resolveGithubExtension'
+    | 'installGithubExtension'
+    | 'checkGithubExtensionUpdate'
   >
 }
 

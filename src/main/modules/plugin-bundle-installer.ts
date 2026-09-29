@@ -44,6 +44,7 @@ import {
 } from './module-signature'
 import { defaultUserModuleRoot, installModuleFolder as installCapabilityModuleFolder } from './user-module-registry'
 import { isRecord } from '../../shared/records'
+import { withObservedUnsignedDigests } from '../marketplace/unsigned-component-digests'
 
 const DEFAULT_MCP_CLIENTS: McpClientTarget[] = ['codex', 'claude-code']
 const DEFAULT_SKILL_HARNESSES: SkillHarness[] = ['agents']
@@ -266,10 +267,15 @@ async function buildInstallPlan(
     )
   }
 
-  const digestMismatch = marketplaceComponentDigestMismatchIssuesSync(bundleRoot.path, manifest, {
-    bytesLabel: 'current bytes',
-    blockedFileMessage: (path) => `component file "${path}" cannot be installed from marketplace bundles.`,
-  })
+  const digestMismatch = marketplaceComponentDigestMismatchIssuesSync(
+    bundleRoot.path,
+    // An unsigned bundle's undigested components are held to the pin instead.
+    withObservedUnsignedDigests(bundleRoot.path, manifest),
+    {
+      bytesLabel: 'current bytes',
+      blockedFileMessage: (path) => `component file "${path}" cannot be installed from marketplace bundles.`,
+    },
+  )
   if (digestMismatch.length > 0) {
     return failure('Plugin bundle component digests do not match its signed manifest.', undefined, digestMismatch, {
       trust: trust.status,
