@@ -22,6 +22,7 @@
  * read the chat hand-off that comes back.
  */
 import assert from 'node:assert/strict'
+import { pathToFileURL } from 'node:url'
 
 import type { CardRunResult } from '../../shared/electron-api'
 import { registerCardsIpc, type CardsIpcServices } from './cards-ipc'
@@ -32,6 +33,14 @@ vi.mock('electron', () => import('../../../tests/stubs/electron'))
 
 test('cards-ipc', async () => {
   type Handler = (event: unknown, raw: unknown) => Promise<CardRunResult>
+
+  const { webContents } = await import('../../../tests/stubs/electron')
+  delete process.env['ELECTRON_RENDERER_URL']
+  // The app's own window: its top-level document is the renderer's index.html.
+  const appEvent = {
+    sender: webContents,
+    senderFrame: { parent: null, url: pathToFileURL('/Applications/Studio.app/out/renderer/index.html').href },
+  }
 
   function handler(): Handler {
     let registered: Handler | null = null
@@ -64,10 +73,23 @@ test('cards-ipc', async () => {
   async function main(): Promise<void> {
     const run = handler()
 
+    // ── Only the app's own window presses Go ─────────────────────────────────────
+    // A subframe (an embedded page, a module's iframe) or a bare call is refused
+    // before the envelope is read, and nothing runs.
+    {
+      const subframe = { ...appEvent, senderFrame: { ...appEvent.senderFrame, parent: {} } }
+      for (const event of [subframe, null]) {
+        const result = await run(event, envelope({}))
+        assert.equal(result.ok, false)
+        assert.equal(result.chat, null, 'a refused card hands nothing back to perform')
+        assert.match(result.message ?? '', /did not come from a SprintEngine Studio window/)
+      }
+    }
+
     // ── The chosen row travels, and comes back on the chat ───────────────────────
     {
       const result = await run(
-        null,
+        appEvent,
         envelope({
           model: 'claude-opus-5',
           reasoning: 'high',
@@ -83,7 +105,7 @@ test('cards-ipc', async () => {
     // ── A window built before the two-mode change sends a retired preset ────────
     // It keeps the nearest meaning it still has, never a wider one.
     {
-      const result = await run(null, envelope({ permissionPreset: 'manual' }))
+      const result = await run(appEvent, envelope({ permissionPreset: 'manual' }))
       assert.equal(result.ok, true)
       assert.equal(result.chat?.permissionPreset, 'none')
     }
@@ -94,7 +116,7 @@ test('cards-ipc', async () => {
     // side as a launch axis nobody can honour.
     {
       const result = await run(
-        null,
+        appEvent,
         envelope({
           model: 7,
           reasoning: { level: 'high' },
@@ -113,7 +135,7 @@ test('cards-ipc', async () => {
 
     // ── An envelope with no row at all is the app's own defaults ─────────────────
     {
-      const result = await run(null, envelope({}))
+      const result = await run(appEvent, envelope({}))
       assert.equal(result.ok, true)
       assert.deepEqual(
         { model: result.chat?.model, reasoning: result.chat?.reasoning, preset: result.chat?.permissionPreset },
@@ -124,18 +146,18 @@ test('cards-ipc', async () => {
 
     // ── And the checks that were already here still refuse ───────────────────────
     {
-      const refused = await run(null, envelope({ actions: [{ verb: 'exec', command: 'rm -rf /' }] }))
+      const refused = await run(appEvent, envelope({ actions: [{ verb: 'exec', command: 'rm -rf /' }] }))
       assert.equal(refused.ok, false, 'a verb this build does not implement refuses the whole card')
       assert.equal(refused.chat, null)
     }
     {
-      const noSlug = await run(null, envelope({ slug: '   ' }))
+      const noSlug = await run(appEvent, envelope({ slug: '   ' }))
       assert.equal(noSlug.ok, false, 'a card with no slug could not be read')
     }
     {
       // A relative path is treated as absent rather than joined against the
       // process cwd — the rule the two app-owned paths have always had.
-      const relative = await run(null, envelope({ workspaceRoot: 'relative/path' }))
+      const relative = await run(appEvent, envelope({ workspaceRoot: 'relative/path' }))
       assert.equal(relative.ok, true, 'open.chat needs no workspace')
       assert.equal(relative.workspaceRoot, null, 'and a relative one is absent, not resolved')
     }
