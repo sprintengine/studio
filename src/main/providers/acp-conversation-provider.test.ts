@@ -41,13 +41,15 @@ createInterface({input:process.stdin}).on('line',async line=>{
  }
  if(m.method==='session/set_mode')return result(m.id,{});
  if(m.method==='session/set_config_option'){if(p.configId==='model')model=p.value;return result(m.id,{configOptions:[]})}
- if(m.method==='session/cancel'){if(prompt)result(prompt,{stopReason:'cancelled'});prompt=null;return}
+ if(m.method==='session/cancel'){if(process.env.IGNORE_CANCEL)return;if(prompt)result(prompt,{stopReason:'cancelled'});prompt=null;return}
  if(m.method!=='session/prompt')return result(m.id,{});
  prompt=m.id;const text=p.prompt[0].text;
  if(text.startsWith('/')){if(text==='/refresh')update({sessionUpdate:'available_commands_update',availableCommands:[{name:'fresh',description:'Replaced list'}]});update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:'ran '+text}});result(m.id,{stopReason:'end_turn'});prompt=null;return}
  if(text.includes('inspect history')){update({sessionUpdate:'agent_message_chunk',content:{type:'text',text}});result(m.id,{stopReason:'end_turn'});return}
  if(text==='argv'){update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:JSON.stringify({argv:process.argv.slice(2),opened,model,permission:process.env.OPENCODE_PERMISSION??null})}});result(m.id,{stopReason:'end_turn'});prompt=null;return}
  if(text==='crash')process.exit(2);
+ if(text==='pid'){update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:String(process.pid)}});result(m.id,{stopReason:'end_turn'});prompt=null;return}
+ if(text==='flood'){process.stdout.write('x'.repeat(17*1024*1024));return}
  update({sessionUpdate:'agent_thought_chunk',content:{type:'text',text:'Thinking'}});
  if(text==='hang'){update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:'waiting'}});return}
  update({sessionUpdate:'tool_call',toolCallId:'tool',kind:'edit',title:'Write',rawInput:{path:'result.txt'},status:'pending'});
@@ -94,6 +96,7 @@ async function fixture(resume = false, lostSessionId?: string, env: Record<strin
       detect: async () => process.execPath,
       buildEnv: async () => ({ PATH: process.env.PATH, ...(resume ? { NO_LOAD: '1' } : {}), ...env }),
       startupTimeoutMs: 2000,
+      cancelGraceMs: 300,
     },
   )
   const started = (await provider.startSession(input)) as ConversationEvent[]
@@ -287,6 +290,75 @@ test('ACP cancellation and child crashes always terminate streaming', async () =
     }
     expect(events.some((event) => event.type === 'turn_failed')).toBe(true)
     expect((await turn(f, 'crash')).some((event) => event.type === 'turn_failed')).toBe(true)
+  } finally {
+    await f.cleanup()
+  }
+})
+// Starts a turn the agent keeps open, and stops it once the agent has spoken.
+async function stoppedTurn(f: Awaited<ReturnType<typeof fixture>>, afterStop?: () => void) {
+  const events: ConversationEvent[] = []
+  for await (const event of await f.provider.sendTurn({
+    ...f.input,
+    turnId: 'turn',
+    requestId: 'request',
+    message: 'hang',
+  })) {
+    events.push(event)
+    if (event.type === 'content_delta') {
+      await f.provider.interrupt(f.input)
+      afterStop?.()
+    }
+  }
+  return events
+}
+const pidOf = async (f: Awaited<ReturnType<typeof fixture>>) =>
+  (await turn(f, 'pid')).find((event) => event.type === 'content_delta')?.payload?.text
+test('ACP Stop cancels the turn and keeps the process for the next one', async () => {
+  const f = await fixture()
+  try {
+    const before = await pidOf(f)
+    const events = await stoppedTurn(f)
+    expect(events.at(-1)).toMatchObject({ type: 'turn_failed', payload: { reason: 'interrupted' } })
+    expect(f.provider.listLiveSessions?.()[0]?.hasChildProcess).toBe(true)
+    expect(await pidOf(f)).toBe(before)
+    // Not reopened: the session stayed live in the same process.
+    expect((await launched(f)).opened).toBe('session/new')
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP ends the process of a stopped turn the agent does not wind down', async () => {
+  const f = await fixture(false, undefined, { IGNORE_CANCEL: '1' })
+  try {
+    const before = await pidOf(f)
+    const events = await stoppedTurn(f)
+    expect(events.at(-1)?.type).toBe('turn_failed')
+    expect(f.provider.listLiveSessions?.()[0]?.hasChildProcess).toBe(false)
+    // The next turn starts a new process and reopens the session.
+    expect(await pidOf(f)).not.toBe(before)
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP Settle ends the process of a turn just stopped', async () => {
+  const f = await fixture(false, undefined, { IGNORE_CANCEL: '1' })
+  try {
+    let disposed: boolean | undefined
+    const events = await stoppedTurn(f, () => {
+      disposed = f.provider.disposeChildProcess?.('session')
+    })
+    expect(disposed).toBe(true)
+    expect(events.at(-1)?.type).toBe('turn_failed')
+    expect(f.provider.listLiveSessions?.()[0]?.hasChildProcess).toBe(false)
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP ends an agent whose protocol line exceeds the size limit', async () => {
+  const f = await fixture()
+  try {
+    expect((await turn(f, 'flood')).at(-1)?.type).toBe('turn_failed')
+    expect(f.provider.listLiveSessions?.()[0]?.hasChildProcess).toBe(false)
   } finally {
     await f.cleanup()
   }
