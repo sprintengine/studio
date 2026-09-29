@@ -23,6 +23,9 @@ import {
   skillsCountLine,
 } from './extensionsHomeTiles'
 import { homeCardCount, homeCardGrid, newHomeCardSlugs } from './homeCards'
+import { StudioSkillSuggestion } from '../studioSkills/StudioSkillSuggestion'
+import { BuildExtensionFlow, BuildExtensionPlate } from './BuildExtensionFlow'
+import { subscribeBuildExtensionFlowRequest, takeBuildExtensionFlowRequest } from './buildExtensionHost'
 
 // The Extensions home (the app rail's Extensions glyph, 2026-09-05): the page
 // the glyph opens, in the card region, with the Extensions drawer standing
@@ -433,6 +436,19 @@ export default function ExtensionsHomeSurface(): JSX.Element {
     })
   }, [])
 
+  // "Build your own extension": the plate below opens it, and so does the
+  // command palette, which may ask before this page is up — the request is
+  // latched (buildExtensionHost.ts) and taken on mount, or the moment it
+  // arrives while the page is showing.
+  const [buildOpen, setBuildOpen] = useState(false)
+  useEffect(() => {
+    if (takeBuildExtensionFlowRequest()) setBuildOpen(true)
+    return subscribeBuildExtensionFlowRequest(() => {
+      if (takeBuildExtensionFlowRequest()) setBuildOpen(true)
+    })
+  }, [])
+  const closeBuild = useCallback(() => setBuildOpen(false), [])
+
   return (
     <GlobalSurfaceShell
       ariaLabel="Extensions"
@@ -464,6 +480,12 @@ export default function ExtensionsHomeSurface(): JSX.Element {
       canGoBack={back.canGoBack}
     >
       <div className="flex h-full min-h-0 flex-col gap-6 overflow-y-auto px-5 py-4">
+        {/* The offer of the SDK's skill for every workspace, then the way to
+            build an extension of your own — above the cards and in every state
+            of the feed, because it is the one thing on this page that does not
+            depend on the network. */}
+        <StudioSkillSuggestion skillId="sprintengine-extension-builder" />
+        <BuildExtensionPlate onOpen={() => setBuildOpen(true)} />
         {loading ? <CardGridSkeleton /> : null}
         {!loading && drawable > 0 ? (
           <CardGrid
@@ -575,6 +597,7 @@ export default function ExtensionsHomeSurface(): JSX.Element {
           </div>
         </section>
       </div>
+      <BuildExtensionFlow open={buildOpen} onClose={closeBuild} />
     </GlobalSurfaceShell>
   )
 }

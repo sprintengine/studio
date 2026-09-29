@@ -36,6 +36,8 @@ import {
   type ExtensionSourceRow,
 } from '../palette/extensionsProvider'
 import { createConversationHistoryProvider } from '../palette/conversationHistoryProvider'
+import { createBuildExtensionPaletteProvider } from '../extensions/buildExtensionPaletteProvider'
+import { EXTENSIONS_HOME_SURFACE_ID } from '../workspace/extensionsDrawer'
 import {
   decidePaletteTarget,
   handSkillToAgent,
@@ -1082,16 +1084,25 @@ export default function CommandPalette({
     () => createConversationHistoryProvider(),
     [activeFolderPath, activeWorkspaceId],
   )
+  // "Build your own extension", among the Extensions rows (the flow lives on the
+  // Extensions home; the row latches the request and opens the home).
+  const buildExtensionProvider = useMemo(
+    () =>
+      createBuildExtensionPaletteProvider({
+        openExtensionsHome: () => useWorkspaceStore.getState().openGlobalSurface(EXTENSIONS_HOME_SURFACE_ID),
+      }),
+    [],
+  )
   const providers = useMemo(() => {
     const active: PaletteResultProvider[] = []
     // Installed inventory owns Skills; catalogue providers run in All only.
     if (scope === 'skills') return active
     if (groupInScope('skills', scope)) active.push(skillsProvider)
-    if (groupInScope('extensions', scope)) active.push(extensionsProvider)
+    if (groupInScope('extensions', scope)) active.push(extensionsProvider, buildExtensionProvider)
     if (groupInScope('files', scope) || groupInScope('content', scope)) active.push(diskProvider)
     if (groupInScope('agents', scope)) active.push(conversationHistoryProvider)
     return active
-  }, [skillsProvider, extensionsProvider, diskProvider, conversationHistoryProvider, scope])
+  }, [skillsProvider, extensionsProvider, buildExtensionProvider, diskProvider, conversationHistoryProvider, scope])
   const providerContext = useMemo(
     (): PaletteProviderContext => ({
       workspaceRoot: activeFolderPath,
