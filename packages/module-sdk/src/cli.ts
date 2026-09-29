@@ -74,7 +74,7 @@ the signer fingerprint when all of that holds, exit 1 when the module is
 unsigned, carries no "files", or was changed after signing.
 
 plugin scaffold creates plugin.json plus component placeholders for mcp, skills,
-module, cli, and automation by default. Pass --component repeatedly to scaffold
+module, and automation by default. Pass --component repeatedly to scaffold
 only the kinds you want.
 
 plugin sign writes component file digests into the normalized plugin.json bundle
@@ -167,9 +167,6 @@ function pluginComponentsFromKinds(kinds: MarketplaceComponentKind[], id: string
         break
       case 'module':
         components.module = { path: 'module' }
-        break
-      case 'cli':
-        components.cli = { path: 'cli' }
         break
       case 'automation':
         components.automation = { path: 'automation/automation.json' }
@@ -506,28 +503,6 @@ function pluginScaffold(args: string[]): void {
       entry: { main: 'main.cjs' },
     })
     writeFileSync(join(moduleDir, 'main.cjs'), 'exports.registerMain = () => {}\n')
-  }
-  if (components.cli) {
-    const cliDir = join(outDir, components.cli.path)
-    mkdirSync(cliDir, { recursive: true })
-    writeJson(join(cliDir, 'plugin.json'), {
-      kind: 'cli',
-      id: componentId(id, 'cli'),
-      displayName: `${displayName} CLI`,
-      version: 1,
-      binary: 'node',
-      permissionPresets: {},
-      launch: { argv: ['node', 'index.js', { spreadIf: 'promptArgs' }] },
-      promptInjection: { mode: 'positional-arg' },
-      completion: { mode: 'process-exit' },
-      capabilities: {
-        resumeSession: false,
-        sessionIdFromCaller: false,
-        toolUse: false,
-        mcpServers: false,
-      },
-    })
-    writeFileSync(join(cliDir, 'index.js'), 'console.log("Replace this placeholder with your CLI integration.")\n')
   }
   if (components.automation) {
     // Name, trigger and action only — the three keys the install path actually

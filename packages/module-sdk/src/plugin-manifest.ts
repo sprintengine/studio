@@ -13,13 +13,12 @@ import {
   type ThirdPartyManifestIssue,
 } from './manifest-validate.js'
 
-export type MarketplaceComponentKind = 'mcp' | 'skills' | 'module' | 'cli' | 'automation'
+export type MarketplaceComponentKind = 'mcp' | 'skills' | 'module' | 'automation'
 
 export const MARKETPLACE_COMPONENT_KINDS: readonly MarketplaceComponentKind[] = [
   'mcp',
   'skills',
   'module',
-  'cli',
   'automation',
 ]
 

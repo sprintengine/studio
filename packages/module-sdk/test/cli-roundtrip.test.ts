@@ -211,7 +211,8 @@ test('cli-roundtrip', async () => {
     assert.ok(existsSync(join(pluginDir, 'mcp', 'server.json')))
     assert.ok(existsSync(join(pluginDir, 'skills', 'marketplace-plugin-fixture', 'SKILL.md')))
     assert.ok(existsSync(join(pluginDir, 'module', 'manifest.json')))
-    assert.ok(existsSync(join(pluginDir, 'cli', 'plugin.json')))
+    assert.ok(existsSync(join(pluginDir, 'automation', 'automation.json')))
+    assert.equal(existsSync(join(pluginDir, 'cli')), false, 'a plugin bundle carries no agent CLI')
     const scaffoldedMcp = JSON.parse(readFileSync(join(pluginDir, 'mcp', 'server.json'), 'utf8')) as {
       servers?: Array<{ source?: string }>
     }
@@ -247,11 +248,15 @@ test('cli-roundtrip', async () => {
     assert.equal(runCli(['plugin', 'verify', outDir]).status, 0)
 
     writeFileSync(join(outDir, 'stale-signing.pem'), 'stale key material from an earlier pack')
-    writeFileSync(join(outDir, 'cli', 'stale-plugin.key'), 'stale key material from an earlier pack')
+    writeFileSync(join(outDir, 'module', 'stale-plugin.key'), 'stale key material from an earlier pack')
     const forced = runCli(['plugin', 'pack', pluginDir, '--out', outDir, '--force'])
     assert.equal(forced.status, 0, forced.stderr)
     assert.equal(existsSync(join(outDir, 'stale-signing.pem')), false, 'force pack must remove stale .pem files')
-    assert.equal(existsSync(join(outDir, 'cli', 'stale-plugin.key')), false, 'force pack must remove stale .key files')
+    assert.equal(
+      existsSync(join(outDir, 'module', 'stale-plugin.key')),
+      false,
+      'force pack must remove stale .key files',
+    )
     assert.equal(runCli(['plugin', 'verify', outDir]).status, 0)
     return pluginDir
   }
@@ -289,6 +294,23 @@ test('cli-roundtrip', async () => {
     if (!parsed.ok) return
     assert.equal(verifyModuleSignature(parsed.manifest).valid, false)
     assert.equal(classifySignedManifestTrust(parsed.manifest, { trustedModules: new Map() }).status, 'invalid')
+  }
+
+  // Agent CLIs are the app's own, so a bundle cannot ship one.
+  function testPluginScaffoldRefusesCliComponent(): void {
+    const pluginDir = join(workDir, 'cli-component-plugin-fixture')
+    const scaffold = runCli([
+      'plugin',
+      'scaffold',
+      'cli-component-plugin-fixture',
+      '--out',
+      pluginDir,
+      '--component',
+      'cli',
+    ])
+    assert.equal(scaffold.status, 1)
+    assert.match(scaffold.stderr, /must be one of: mcp, skills, module, automation/)
+    assert.equal(existsSync(pluginDir), false)
   }
 
   function testPluginVerifyRejectsUnsigned(): void {
@@ -335,7 +357,7 @@ test('cli-roundtrip', async () => {
       '--out',
       pluginDir,
       '--component',
-      'cli',
+      'automation',
       '--component',
       'skills',
       '--component',
@@ -344,19 +366,19 @@ test('cli-roundtrip', async () => {
       'module',
     ])
     assert.equal(scaffolded.status, 0, scaffolded.stderr)
-    const canonical = ['mcp', 'skills', 'module', 'cli']
+    const canonical = ['mcp', 'skills', 'module', 'automation']
     assert.deepEqual(
       Object.keys(JSON.parse(readFileSync(join(pluginDir, 'plugin.json'), 'utf8')).components),
       canonical,
       'plugin scaffold writes components in MARKETPLACE_COMPONENT_KINDS order',
     )
-    assert.match(scaffolded.stdout, /Registry entry "provides": \["mcp","skills","module","cli"\]/)
+    assert.match(scaffolded.stdout, /Registry entry "provides": \["mcp","skills","module","automation"\]/)
 
     // And a hand-scrambled plugin.json is re-ordered by `plugin sign` rather than
     // signed in the order it was typed.
     const manifest = JSON.parse(readFileSync(join(pluginDir, 'plugin.json'), 'utf8'))
     manifest.components = {
-      cli: manifest.components.cli,
+      automation: manifest.components.automation,
       module: manifest.components.module,
       skills: manifest.components.skills,
       mcp: manifest.components.mcp,
@@ -369,12 +391,12 @@ test('cli-roundtrip', async () => {
       canonical,
       'plugin sign writes the signed manifest back in canonical component order',
     )
-    assert.match(signed.stdout, /Registry entry "provides": \["mcp","skills","module","cli"\]/)
+    assert.match(signed.stdout, /Registry entry "provides": \["mcp","skills","module","automation"\]/)
     // The re-ordered manifest is still the one that verifies: order is normalized
     // BEFORE the signature is computed, not after.
     const verified = runCli(['plugin', 'verify', pluginDir])
     assert.equal(verified.status, 0, verified.stderr)
-    assert.match(verified.stdout, /Registry entry "provides": \["mcp","skills","module","cli"\]/)
+    assert.match(verified.stdout, /Registry entry "provides": \["mcp","skills","module","automation"\]/)
   }
 
   try {
@@ -389,6 +411,7 @@ test('cli-roundtrip', async () => {
     const signedPluginDir = testPluginScaffoldSignVerifyPackAndAppTrustFlowAccepts()
     testPluginComponentTamperRejectedByCliVerify(signedPluginDir)
     testPluginTamperRejectedByBothPaths(signedPluginDir)
+    testPluginScaffoldRefusesCliComponent()
     testPluginVerifyRejectsUnsigned()
     testPluginPackRejectsMissingComponent()
     console.log('sprintengine-module CLI round-trip tests passed')
