@@ -71,6 +71,21 @@ const transcript = [
   }),
 ]
 
+// Rows the live-row hook watches, so a test can scroll one out of view.
+const observed = new Map<Element, (entries: Array<{ target: Element; isIntersecting: boolean }>) => void>()
+class FakeIntersectionObserver {
+  constructor(private readonly callback: (entries: Array<{ target: Element; isIntersecting: boolean }>) => void) {}
+  observe(target: Element) {
+    observed.set(target, this.callback)
+  }
+  unobserve(target: Element) {
+    observed.delete(target)
+  }
+  disconnect() {
+    observed.clear()
+  }
+}
+
 async function mountAgentsTab({ focused = true }: { focused?: boolean } = {}) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost', pretendToBeVisual: true })
   const previous = Object.getOwnPropertyDescriptors(globalThis)
@@ -84,6 +99,7 @@ async function mountAgentsTab({ focused = true }: { focused?: boolean } = {}) {
     getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
     requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
     cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
+    IntersectionObserver: FakeIntersectionObserver,
     IS_REACT_ACT_ENVIRONMENT: true,
   }
   Object.assign(globalThis, globals)
@@ -299,10 +315,14 @@ test('a working agent’s character is held by the live-row motion rule, as a tr
     await tab.deliver(transcript)
     await showList(tab)
     const row = tab.button('Find the router')!
-    const animated = [...row.querySelectorAll<HTMLElement>('.agent-glyph [class^="agent-glyph__"]')]
-    expect(animated.length).toBeGreaterThan(0)
-    // The fixture's window asks for reduced motion, so the rule holds it still.
-    for (const element of animated) expect(element.style.animationPlayState).toBe('paused')
+    expect(row.querySelectorAll('.agent-glyph [class^="agent-glyph__"]').length).toBeGreaterThan(0)
+    // The row only says it is out of view; the stylesheet's pause rule holds
+    // the character still, and nothing is written inline to beat that rule.
+    expect(row.hasAttribute('data-live-offscreen'), 'on screen, the row is unmarked').toBe(false)
+    await tab.act(async () => observed.get(row)?.([{ target: row, isIntersecting: false }]))
+    expect(row.hasAttribute('data-live-offscreen'), 'scrolled away, the row is marked').toBe(true)
+    const inline = [...row.querySelectorAll<HTMLElement>('*')].map((el) => el.style.animationPlayState)
+    expect(inline.filter(Boolean)).toEqual([])
   } finally {
     await tab.unmount()
   }
