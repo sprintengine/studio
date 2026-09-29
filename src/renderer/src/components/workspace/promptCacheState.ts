@@ -49,6 +49,30 @@ export function promptCacheNeedsAttention(
   return state !== null && state.kind !== 'warm' && (state.recacheTokens ?? 0) >= PROMPT_CACHE_NOTICE_TOKENS
 }
 
+/**
+ * What a mark's clock has to do for it to stay right, from now on:
+ * - `still`: nothing it draws can change with time. The agent is working, the
+ *   conversation is too small to mark, or it is cold where cold is not shown.
+ * - `wake`: warm, so nothing is drawn until the cache starts to expire at `at`.
+ * - `tick`: it is drawn, and its words move with the clock.
+ */
+export type PromptCacheMarkClock = { kind: 'still' } | { kind: 'wake'; at: number } | { kind: 'tick' }
+
+export function promptCacheMarkClock(
+  reading: PromptCacheReading | null | undefined,
+  working: boolean,
+  includeCold: boolean,
+  now: number,
+): PromptCacheMarkClock {
+  if (!reading || working || (reading.recacheTokens ?? 0) < PROMPT_CACHE_NOTICE_TOKENS) return { kind: 'still' }
+  const state = promptCacheState(reading, now)
+  if (state?.kind === 'warm' && reading.expiresAt !== null) {
+    return { kind: 'wake', at: reading.expiresAt - EXPIRING_WITHIN_MS[reading.ttl ?? '1h'] }
+  }
+  if (state?.kind === 'cold' && !includeCold) return { kind: 'still' }
+  return { kind: 'tick' }
+}
+
 // "8m", or "under a minute" where the short form has nothing to say.
 function span(ms: number): string {
   return formatRelativeMs(0, ms) || 'under a minute'

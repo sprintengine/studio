@@ -2,16 +2,44 @@
 // tab and sidebar line when the cache is about to go cold or has, and a line on
 // its card that says what that costs and offers to compact.
 
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { showToast } from '../../store/toastStore'
 import { GhostButton, Tooltip } from '../ui'
 import { CompactGlyph } from '../panels/agentChat/toolRows/ToolKindGlyph'
 import type { PromptCacheReading } from '../../../../shared/prompt-cache'
-import { promptCacheCopy, promptCacheNeedsAttention, promptCacheState } from './promptCacheState'
+import { promptCacheCopy, promptCacheMarkClock, promptCacheNeedsAttention, promptCacheState } from './promptCacheState'
 
 // A minute is the finest a cache's time left is ever said in.
 const CLOCK_MS = 30_000
+
+/**
+ * The time a mark reads, kept current only while it can change what the mark
+ * draws. Every sidebar chat line and agent tab carries a mark, and most of
+ * them can never draw one (a small conversation, or a cold cache where cold is
+ * not shown), so they hold still. A warm cache sleeps until it starts to
+ * expire, on one timer; only a mark that is drawn follows the shared clock.
+ */
+function usePromptCacheMarkNow(
+  reading: PromptCacheReading | null | undefined,
+  working: boolean,
+  includeCold: boolean,
+): number {
+  // The time is read at render; the shared clock and the wake timer below only
+  // ask for renders. Which of them is needed depends on the time itself, and
+  // the shared clock's last tick is stale by design while it is not needed.
+  const now = Date.now()
+  const clock = promptCacheMarkClock(reading, working, includeCold, now)
+  useRelativeNow(CLOCK_MS, clock.kind === 'tick')
+  const [, wake] = useState(0)
+  const wakeAt = clock.kind === 'wake' ? clock.at : null
+  useEffect(() => {
+    if (wakeAt === null) return undefined
+    const timer = setTimeout(() => wake(Date.now()), Math.max(0, wakeAt - Date.now()))
+    return () => clearTimeout(timer)
+  }, [wakeAt])
+  return now
+}
 
 /**
  * The compact mark, in the tone of how soon it matters: warn ink while the
@@ -33,7 +61,7 @@ export function PromptCacheMark({
   includeCold?: boolean
   className?: string
 }): React.ReactElement | null {
-  const now = useRelativeNow(CLOCK_MS, Boolean(reading) && !working)
+  const now = usePromptCacheMarkNow(reading, working, includeCold)
   if (working) return null
   const state = promptCacheState(reading, now)
   if (!promptCacheNeedsAttention(state) || (state.kind === 'cold' && !includeCold)) return null

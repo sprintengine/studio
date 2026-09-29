@@ -4,12 +4,13 @@
 
 import { RowButton, Tooltip, TruncatedText } from '../../ui'
 import { useChangePulse } from '../../../hooks/useChangePulse'
-import React, { createContext, useContext, useState, useEffect } from 'react'
+import React, { createContext, useContext, useState } from 'react'
 import { shortMachineName } from '../../remote/machineRowModel'
 import { RemoteMachineGlyph, FolderTypeIcon, GitBranchGlyph } from '../../AppIcons'
 import { type ProjectColor } from '../../../utils/projectColor'
 import { ProjectPullRequestMark } from '../PullRequestMark'
 import { formatElapsedMs } from '../../../utils/relativeTime'
+import { useRelativeNow } from '../../../hooks/useRelativeNow'
 
 // A shelf's fold row (settled-chats, 2026-09-07): the one line a folder shows
 // for a group of parked chats — its name, and how many — collapsed by default,
@@ -264,13 +265,14 @@ export function ProjectLine({
 }
 
 export function WorkingElapsed({ since }: { since: number }) {
-  const [now, setNow] = useState(() => Date.now())
-  const withinFirstMinute = now - since < 60_000
-  useEffect(() => {
-    setNow(Date.now())
-    const id = window.setInterval(() => setNow(Date.now()), withinFirstMinute ? 1_000 : 30_000)
-    return () => window.clearInterval(id)
-  }, [since, withinFirstMinute])
+  // Seconds for the turn's first minute, the sidebar's coarse scale after.
+  // Both beats are the window's shared clocks, so every working row ticks on
+  // one timer, and it stops while the window cannot be seen.
+  const [inFirstMinute, setInFirstMinute] = useState(true)
+  const now = useRelativeNow(inFirstMinute ? 1_000 : 30_000)
+  // A new turn (a later `since`) is young again, and moves back to seconds.
+  const young = now - since < 60_000
+  if (young !== inFirstMinute) setInFirstMinute(young)
   const text = formatElapsedMs(since, now)
   if (!text) return null
   return (
