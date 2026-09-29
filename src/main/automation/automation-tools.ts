@@ -472,6 +472,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     | {
         workspace: Workspace
         agentId: string
+        session: TerminalSessionSnapshot
         worktreePath?: string
         worktreeBranch?: string
       }
@@ -543,9 +544,13 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     if (!workspace) {
       return failure('unknown_workspace', `Workspace "${plan.workspaceId}" is not known to the running app.`)
     }
+    // `live` is the session the launch actually minted, carried out so a caller
+    // that reports it (terminal.create answers with the session and the preset
+    // it resolved) reads the confirmed one rather than re-searching for it.
     return {
       workspace,
       agentId,
+      session: live,
       ...(worktreePath ? { worktreePath } : {}),
       ...(worktreeBranch ? { worktreeBranch } : {}),
     }
@@ -952,6 +957,198 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         return failure('unknown_agent', `Agent "${agentId}" is not known in workspace "${workspaceId}".`)
       }
       return success({ agent: agentProjection(workspace, agentId) })
+    },
+  }
+
+  // The terminals this app holds, for an agent or MCP client on this machine
+  // that wants to see what else is running before it starts more or reports
+  // back. Local socket only (`localOnlyGatewayToolReason`): terminals do not
+  // cross the tailnet, so a paired device neither sees nor may call it.
+  const terminalList: McpToolRegistration = {
+    name: 'terminal.list',
+    description:
+      'List the terminal sessions open in this app: session id, agent name, CLI, working directory, ' +
+      'workspace, whether the process is live or the session is paused, and the agent phase when the CLI ' +
+      'reports one. Reads the terminal runtime; never writes. Served on this machine only, never to a ' +
+      'paired device.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: 'Report only sessions in this workspace.' },
+        kind: {
+          type: 'string',
+          enum: ['agent', 'terminal'],
+          description: 'Report only agent sessions, or only plain shells. Omit for both.',
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const invalid = firstInvalidOptionalString(args, ['workspaceId', 'kind'])
+      if (invalid) return invalid
+      const kind = optionalString(args.kind)
+      if (kind !== undefined && kind !== 'agent' && kind !== 'terminal') {
+        return failure('invalid_kind', 'The "kind" filter accepts "agent" or "terminal".')
+      }
+      const workspaceId = optionalString(args.workspaceId)
+      // The name lookup reads the sync snapshot ONCE for the whole answer. It
+      // used to go through `findWorkspace` per session, and each of those took
+      // a fresh snapshot — a whole-registry clone per row, which was the
+      // main-thread stall of 2026-09-05.
+      const workspaceRows = new Map(
+        backends.getWorkspaceSyncSnapshot().state.workspaces.map((workspace) => [workspace.id, workspace]),
+      )
+      const sessions = backends
+        .listTerminalSessions()
+        .filter((session) => !workspaceId || session.workspaceId === workspaceId)
+        .filter((session) => !kind || session.kind === kind)
+        .map((session) => ({
+          ...terminalSessionProjection(session),
+          // The workspace's display name, so a caller can say where a session
+          // runs without a second read; null when the id is not one main holds.
+          workspaceName: (session.workspaceId ? workspaceRows.get(session.workspaceId)?.name : null) ?? null,
+        }))
+      return success({ terminals: sessions })
+    },
+  }
+
+  /**
+   * The workspace a `terminal.create` names, by id or by display name.
+   *
+   * A name is accepted because it is how the person names a workspace when
+   * they ask an agent to open one, and it saves the caller a `workspace.list`
+   * round trip for it. A name matching more than one workspace is an explicit
+   * refusal listing the ids — picking the first would open a terminal in
+   * someone else's project.
+   */
+  function resolveTerminalWorkspace(args: Record<string, unknown>): { workspace: Workspace } | McpToolResult {
+    const workspaceId = optionalString(args.workspaceId)?.trim()
+    const workspaceName = optionalString(args.workspaceName)?.trim()
+    if (workspaceId && workspaceName) {
+      return failure('invalid_arguments', 'Name the workspace once: pass "workspaceId" or "workspaceName", not both.')
+    }
+    if (workspaceId) {
+      const workspace = findWorkspace(workspaceId)
+      return workspace
+        ? { workspace }
+        : failure('unknown_workspace', `Workspace "${workspaceId}" is not known to the running app.`)
+    }
+    if (!workspaceName) {
+      return failure(
+        'invalid_arguments',
+        'Name the workspace to open the terminal in: pass "workspaceId" or "workspaceName".',
+      )
+    }
+    const wanted = workspaceName.toLowerCase()
+    const matches = backends
+      .getWorkspaceSyncSnapshot()
+      .state.workspaces.filter((candidate) => candidate.name.trim().toLowerCase() === wanted)
+    if (matches.length === 0) {
+      return failure('unknown_workspace', `No workspace named "${workspaceName}" is open in the running app.`)
+    }
+    if (matches.length > 1) {
+      return failure(
+        'ambiguous_workspace_name',
+        `${matches.length} workspaces are named "${workspaceName}". Name one by id instead: ${matches
+          .map((candidate) => candidate.id)
+          .join(', ')}.`,
+      )
+    }
+    return { workspace: matches[0] }
+  }
+
+  // Open an agent terminal on this machine: `agent.launch`'s plain case, for a
+  // caller that wants a terminal agent in a workspace and nothing else. It
+  // deliberately does NOT carry `agent.launch`'s connector or worktree options:
+  // those create git worktrees and write connector config into the checkout,
+  // and a caller that needs them has `agent.launch`. Local socket only, like
+  // `agent.launch` (`localOnlyGatewayToolReason`).
+  const terminalCreate: McpToolRegistration = {
+    name: 'terminal.create',
+    description:
+      'Open a new agent terminal on the machine running this app and report the agent and the session it runs ' +
+      'in. Works with no window open: the session exists in the main process, and a window opened later shows ' +
+      'it as a pane with its scrollback intact. Name the workspace by "workspaceId" or by "workspaceName". The ' +
+      "CLI and permission preset default to this machine's own launch settings unless you name them, exactly " +
+      'as a launch from the desktop would, and the answer reports the preset the launch resolved. Use ' +
+      'cli.runtime.list for the CLI ids this app holds, and agent.status or terminal.list to follow the agent. ' +
+      'Served on this machine only, never to a paired device.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: 'Target workspace id, from workspace.list or terminal.list.' },
+        workspaceName: {
+          type: 'string',
+          description:
+            'Target workspace by display name instead of id (case-insensitive). Refused when more than one ' +
+            'workspace carries the name.',
+        },
+        cli: {
+          type: 'string',
+          description:
+            "Agent CLI plugin id; defaults to this machine's last-selected CLI. cli.runtime.list enumerates the " +
+            'ids this app actually holds — do not guess one.',
+        },
+        name: { type: 'string', description: 'Agent display name; defaults to an unused name from the shared pool.' },
+        prompt: { type: 'string', description: 'Startup prompt sent to the CLI after launch.' },
+        cliModel: {
+          type: 'string',
+          description: 'Model id for CLIs that support model selection; forwarded verbatim to the CLI.',
+        },
+        permissionPreset: {
+          type: 'string',
+          enum: [...LAUNCH_PERMISSION_PRESETS],
+          description:
+            'CLI permission preset: "bypass" launches the CLI with its own skip-every-prompt flag; "none" ' +
+            "passes no permission flag, so the CLI's own configuration decides. Omitted, the launch takes the " +
+            'preset chosen for that CLI on this machine, else the app default "bypass", exactly as the desktop ' +
+            'launcher would. The older "bypass_all" is read as "bypass", and the retired "manual" and "auto" ' +
+            'as "none".',
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const invalid = firstInvalidOptionalString(args, [
+        'workspaceId',
+        'workspaceName',
+        'cli',
+        'name',
+        'prompt',
+        'cliModel',
+      ])
+      if (invalid) return invalid
+
+      const resolved = resolveTerminalWorkspace(args)
+      if (!('workspace' in resolved)) return resolved
+
+      const requestedPreset = validatePermissionPreset(args)
+      if (requestedPreset !== undefined && typeof requestedPreset !== 'string') return requestedPreset
+
+      // An omitted preset is left to the launch service, which resolves it the
+      // way the desktop launcher does (owner ruling 2026-09-27): the person's
+      // choice for this CLI, else the app default, `bypass`.
+      const launched = await launchConfiguredAgent({
+        workspaceId: resolved.workspace.id,
+        cli: optionalString(args.cli),
+        name: optionalString(args.name),
+        prompt: optionalString(args.prompt),
+        cliModel: optionalString(args.cliModel),
+        ...(requestedPreset ? { permissionPreset: requestedPreset } : {}),
+        worktreeRequested: false,
+      })
+      if (!('agentId' in launched)) return launched
+      return success({
+        workspaceId: launched.workspace.id,
+        agentId: launched.agentId,
+        // What the launch RESOLVED, not what was asked for: the CLI and the
+        // preset both came from this machine's settings when the caller named
+        // none. The launch record on the session is the resolution itself.
+        permissionPreset: launched.session.agentRecord?.cliPermissionPreset ?? requestedPreset ?? null,
+        terminal: terminalSessionProjection(launched.session),
+      })
     },
   }
 
@@ -1713,6 +1910,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     agentLaunch,
     agentStatus,
     cliRuntimeList,
+    terminalList,
+    terminalCreate,
     backlogList,
     backlogRead,
     backlogUpdate,
@@ -1727,6 +1926,37 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     automationCreate,
     automationRun,
   ]
+}
+
+// One terminal session as terminal.list and terminal.create report it: enough
+// to identify it and say what it is doing, and nothing about its contents.
+//
+// `processAlive` and `suspended` are separate on purpose: a paused agent is not
+// running (its pty was killed to reclaim memory) but is not gone either, and a
+// caller that collapsed the two would treat a parked agent as finished.
+function terminalSessionProjection(session: TerminalSessionSnapshot): Record<string, unknown> {
+  return {
+    sessionId: session.sessionId,
+    kind: session.kind,
+    workspaceId: session.workspaceId ?? null,
+    agentId: session.agentId ?? null,
+    agentName: session.agentName ?? null,
+    cli: session.cli ?? null,
+    cwd: session.cwd ?? null,
+    worktreePath: session.worktreePath ?? null,
+    processAlive: session.processAlive,
+    suspended: session.suspended,
+    startedAt: session.startedAt,
+    lastOutputAt: session.lastOutputAt,
+    activity: session.activity.kind,
+    // The agent's phase, marked with its provenance so a caller can tell an
+    // authoritative hook frame from a lifecycle stamp (`starting` at spawn,
+    // `stalled`/`exited`/`failed` from the watchdog and pty). Never an
+    // output-timing guess. Absent for plain shells.
+    agentState: session.agentState
+      ? { phase: session.agentState.phase, source: session.agentState.source, since: session.agentState.since }
+      : null,
+  }
 }
 
 // One agent CLI as cli.runtime.list reports it. Everything here is

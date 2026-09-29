@@ -37,14 +37,13 @@ of the first release that ships it, then delete the line.
   longer lists, watches, types into or starts a terminal on this machine, and
   this machine no longer does so on another. What crosses the tailnet is
   conversations: the phone and a paired Studio follow and start chat agents
-  only. Gone with it: the terminal WebSocket, the `terminal.list` and
-  `terminal.create` tools (from the local socket too — a local agent launches
-  with `agent.launch` and reads it back with `agent.status`), the Mesh terminal
-  pane and its New chat launch (a
-  paired machine is offered for a Chat agent only), the remote band's terminal
-  rows, the "driving a terminal" marks in the Remote popover and on tabs, and
-  the lost/reconnected toasts that came from terminal links. `agent.launch`,
-  `backlog.work` and `automation.run` stay on the local socket and are no
+  only. Gone with it: the terminal WebSocket, the Mesh terminal pane and its
+  New chat launch (a paired machine is offered for a Chat agent only), the
+  remote band's terminal rows, the "driving a terminal" marks in the Remote
+  popover and on tabs, and the lost/reconnected toasts that came from terminal
+  links. `terminal.list`,
+  `terminal.create`, `agent.launch`, `backlog.work` and `automation.run` stay on
+  the local socket, for agents and MCP clients on this machine, and are no
   longer served to a paired device. The two scopes only terminals used,
   `terminal:observe` and `terminal:control`, are retired: a paired device that
   holds them keeps its pairing and loses just those two, silently, on first

@@ -1133,7 +1133,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // Telemetry rides on the OUTSIDE of the composed service rather than inside
   // it. `createAgentLaunchService` is a pure composer with its own tests; a
   // measurement is not part of what it composes, and every caller — agent.launch,
-  // backlog.work, automation spawns — comes through this one
+  // backlog.work, terminal.create, automation spawns — comes through this one
   // door anyway, so wrapping here covers them all without touching that module.
   //
   // Only the resolved CLI and a handful of shape flags go out. The request's

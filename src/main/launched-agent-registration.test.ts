@@ -126,7 +126,7 @@ function host() {
   const launchService = withLaunchedAgentRegistration(composed, registration)
 
   // The gateway tools an MCP client calls, over the same main-owned services.
-  // Only what `agent.launch` and `workspace.list` read.
+  // Only what `agent.launch`, `terminal.create` and `workspace.list` read.
   const backends: Partial<AutomationBackends> = {
     getWorkspaceSyncSnapshot: () => workspaceSync.getSnapshot(),
     listTerminalSessions: () => sessions,
@@ -181,6 +181,31 @@ test('an agent launched through the gateway is in the host registry, and announc
   const listed = await tool(h.tools, 'workspace.list').handler({})
   const workspaces = (listed.structuredContent as { workspaces: Array<{ id: string; agentIds: string[] }> }).workspaces
   assert.deepEqual(workspaces.find((workspace) => workspace.id === h.workspaceId)?.agentIds.sort(), agentIdsOf(h))
+})
+
+test('an agent a local MCP client opens with terminal.create is in the host registry, and announced', async () => {
+  const h = host()
+  const before = h.announced.length
+  const created = await tool(h.tools, 'terminal.create').handler({ workspaceId: h.workspaceId })
+  assert.equal(created.isError, undefined, JSON.stringify(created.structuredContent))
+  const { agentId, terminal } = created.structuredContent as { agentId: string; terminal: { sessionId: string } }
+
+  assert.deepEqual(agentIdsOf(h), ['agent-1', agentId].sort(), 'the workspace lists the new agent beside its own')
+  const agent = h.registry.getRecord(h.workspaceId)!.agents[agentId]!
+  assert.equal(agent.cliSessionId, terminal.sessionId, 'a window opening it attaches to the running session')
+  assert.equal(agent.cliHasLaunched, true, 'and never spawns a second process beside it')
+  assert.ok(
+    h.announced
+      .slice(before)
+      .some((event) => event.type === 'workspace.agents_updated' && event.payload.agentId === agentId),
+    'every window is told at once',
+  )
+
+  // terminal.list reads the same session back, as an agent.
+  const listed = await tool(h.tools, 'terminal.list').handler({ workspaceId: h.workspaceId, kind: 'agent' })
+  const terminals = (listed.structuredContent as { terminals: Array<{ sessionId: string; agentId: string | null }> })
+    .terminals
+  assert.ok(terminals.some((row) => row.sessionId === terminal.sessionId && row.agentId === agentId))
 })
 
 test('agent.launch over MCP registers the agent too', async () => {

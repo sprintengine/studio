@@ -223,12 +223,13 @@ refused over it:
   — the case "withdrawn by a build that keeps the version" above.
 - **The route**, `/tailnet/v1/terminal`. An upgrade there is answered 404, which
   is what a peer from before the route existed answered.
-- **Two tools**, `terminal.list` and `terminal.create`. `tools/list` is read on
-  every connection and never pinned, and a call to a name it does not list is
-  refused as an unknown tool. `agent.launch`, `backlog.work` and
-  `automation.run` still exist but are served on the local socket only, and are
-  refused to a paired device as `tailnet_local_only`, the refusal the `tailnet.*`
-  family already had.
+- **Five tools off the tailnet**, `terminal.list`, `terminal.create`,
+  `agent.launch`, `backlog.work` and `automation.run`. All five still exist and
+  are served on the local socket, to the agents and MCP clients on this machine;
+  a paired device's `tools/list` no longer names them, and a call to one is
+  refused as `tailnet_local_only`, the refusal the `tailnet.*` family already
+  had. `tools/list` is read on every connection and never pinned, so a shorter
+  list is a shape every peer already reads.
 - **A change-feed kind**, `terminals`. No `changed` frame names it, and the
   `hello` frame's `revisions` map no longer has its key. That map is keyed by
   the lists this machine announces and has grown a key before (`conversations`)

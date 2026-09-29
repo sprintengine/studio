@@ -1026,6 +1026,74 @@ test('tailnet', async () => {
     }
   }
 
+  // terminal.list and terminal.create serve agents on this machine. A paired
+  // device, however wide its grant, neither sees them nor may call them, and
+  // a call it makes anyway is refused as local-only; the create, a mutation
+  // like agent.launch, lands in the audit with the device that asked. A list
+  // is a read, and reads stay unaudited.
+  async function testTerminalToolsAreNeverServedOverTheTailnet(): Promise<void> {
+    const terminalTools = ['terminal.list', 'terminal.create']
+    for (const name of terminalTools) {
+      assert.notEqual(localOnlyGatewayToolReason(name), null, `${name} is local-only`)
+    }
+    assert.match(localOnlyGatewayToolReason('terminal.create') ?? '', /conversation\.create/u)
+    assert.notEqual(localOnlyGatewayToolReason('terminal.anything_later'), null, 'the family is local by its prefix')
+    assert.equal(isMutation('terminal.create'), true, 'creating a terminal is audited like agent.launch')
+    assert.equal(isMutation('terminal.list'), false)
+
+    const calls: string[] = []
+    const stubs: McpToolRegistration[] = terminalTools.map((name) => ({
+      name,
+      description: `Test tool ${name}`,
+      inputSchema: { type: 'object', properties: {} },
+      handler: async () => {
+        calls.push(name)
+        return toolSuccess({ ok: true })
+      },
+    }))
+    const harness = await startHarness({ tools: [...testTools(calls), ...stubs] })
+    try {
+      const device = await pairDevice(harness, { scopes: [...TAILNET_SCOPES] })
+      const listed = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
+        token: device.deviceToken,
+        body: rpc(1, 'tools/list'),
+      })
+      const served = (listed.body as { result: { tools: Array<{ name: string }> } }).result.tools.map(
+        (tool) => tool.name,
+      )
+      assert.deepEqual(
+        served.filter((name) => name.startsWith('terminal.')),
+        [],
+        'a paired device is not shown the terminal tools',
+      )
+      assert.ok(served.includes('workspace.list'), 'the rest of a full grant is still served')
+
+      for (const [index, name] of terminalTools.entries()) {
+        const answer = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
+          token: device.deviceToken,
+          body: rpc(2 + index, 'tools/call', { name, arguments: { workspaceId: 'w1' } }),
+        })
+        assert.equal(answer.status, 200, 'a local-only refusal is a tool result, not a transport failure')
+        const result = (answer.body as { result: { isError: boolean; structuredContent: { error: { code: string } } } })
+          .result
+        assert.equal(result.isError, true, `${name} is refused`)
+        assert.equal(result.structuredContent.error.code, 'tailnet_local_only')
+      }
+      assert.deepEqual(calls, [], 'neither handler ran')
+
+      const audited = await harness.auditRecords()
+      assert.deepEqual(
+        audited.map((record) => record.tool),
+        ['terminal.create'],
+      )
+      assert.equal(audited[0].outcome, 'failure')
+      assert.equal(audited[0].errorCode, 'tailnet_local_only')
+      assert.equal(audited[0].connection.deviceId, device.deviceId)
+    } finally {
+      await harness.close()
+    }
+  }
+
   async function testTailnetToolsRefuseRatherThanMintACodeThatPointsAtNothing(): Promise<void> {
     const base: TailnetRemoteStatus = {
       enabled: false,
@@ -1996,6 +2064,7 @@ test('tailnet', async () => {
     testHealthEndpointLeaksNothingBeyondProductAndProtocol,
     testScopesNarrowWhatADeviceSeesAndMayCall,
     testTailnetConfigurationToolsAreNeverServedOverTheTailnet,
+    testTerminalToolsAreNeverServedOverTheTailnet,
     testTailnetToolsRefuseRatherThanMintACodeThatPointsAtNothing,
     testRemoteMutationsAreAuditedWithDeviceAndPeerIdentity,
     testADeclaredIdentityCannotOverwriteTheProvenDeviceIdentity,

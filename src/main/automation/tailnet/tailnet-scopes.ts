@@ -13,10 +13,15 @@ import type { TailnetScope } from '../../../shared/tailnet'
  * it could not see, answer or stop. What a paired device starts is a chat
  * (`conversation.create`), which it can follow. These stay on the local
  * socket, where the agents and automations that call them can see the
- * terminals they start. A phone runs an automation through
- * `workspace.mobile_command`, which never went through `automation.run`.
+ * terminals they start. The rest of the `terminal.*` family is local-only by
+ * its prefix, below.
  */
-const TERMINAL_LAUNCH_TOOLS: ReadonlySet<string> = new Set(['agent.launch', 'backlog.work', 'automation.run'])
+const TERMINAL_LAUNCH_TOOLS: ReadonlySet<string> = new Set([
+  'terminal.create',
+  'agent.launch',
+  'backlog.work',
+  'automation.run',
+])
 
 /**
  * Why a tool is served on the local socket only and never to a paired device,
@@ -30,8 +35,10 @@ const TERMINAL_LAUNCH_TOOLS: ReadonlySet<string> = new Set(['agent.launch', 'bac
  * A prefix rule rather than a list: a tool added to the family later is
  * local-only by default, which is the direction a mistake here should fail.
  *
- * The terminal launchers above are the other kind: not dangerous to name in a
- * grant, just of no use to anyone who cannot see a terminal.
+ * The terminal tools are the other kind: not dangerous to name in a grant,
+ * just of no use to anyone who cannot see a terminal. The `terminal.*` family
+ * is a prefix rule for the same reason the `tailnet.*` one is; the launchers
+ * outside it are named.
  */
 export function localOnlyGatewayToolReason(toolName: string): string | null {
   if (toolName.startsWith('tailnet.')) {
@@ -39,6 +46,9 @@ export function localOnlyGatewayToolReason(toolName: string): string | null {
   }
   if (TERMINAL_LAUNCH_TOOLS.has(toolName)) {
     return `"${toolName}" starts an agent in a terminal on this machine, and terminals are not served over the tailnet. Start a chat agent with conversation.create instead, or run it from an agent on that machine.`
+  }
+  if (toolName.startsWith('terminal.')) {
+    return `"${toolName}" reads the terminals on this machine, and terminals are not served over the tailnet. A paired device follows this machine's chats instead; run it from an agent on that machine.`
   }
   return null
 }

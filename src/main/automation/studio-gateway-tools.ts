@@ -40,6 +40,12 @@ const APP_MUTATION_TOOLS = new Set([
   // (`localOnlyGatewayToolReason`), so unlike every other entry here their
   // scope mapping is never consulted.
   ...TAILNET_MUTATION_TOOL_NAMES,
+  // Starting an agent terminal on this machine, the same act as `agent.launch`
+  // above, so it lands in the same audit. It is served on the local socket
+  // only (`localOnlyGatewayToolReason`); a paired device that asks anyway is
+  // refused, and being a mutation is what puts that attempt in the audit with
+  // the device that made it.
+  'terminal.create',
   // Diff tours: each one writes a tour file in the app's data folder, docks a
   // tab in the person's window, or types a question into an agent's terminal
   // on the owner's behalf. `tour.status` only reads.
