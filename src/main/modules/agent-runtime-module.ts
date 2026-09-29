@@ -1,4 +1,4 @@
-import { app } from 'electron'
+import { app, safeStorage } from 'electron'
 
 import type { AppServices } from '../app-services'
 import type { ConversationCliRuntimeOverrides } from '../../shared/conversation-runtime'
@@ -13,7 +13,9 @@ import {
   ConversationLaunchServiceToken,
   ConversationModuleServiceToken,
   ConversationRuntimeToken,
+  GitHubModuleServiceToken,
   GitHubTokenStoreToken,
+  ModuleSecretsServiceToken,
   ModuleStorageToken,
   SprintEngineAuthToken,
   TerminalRuntimeToken,
@@ -24,6 +26,8 @@ import {
 } from '../module-host/service-tokens'
 import type { CapabilityModule } from '../module-host/load-modules'
 import { createConversationModuleRegistry } from '../module-host/module-conversation-service'
+import { createModuleGitHubRegistry } from '../module-host/module-github'
+import { createModuleSecretsRegistry } from '../module-host/module-secrets'
 import { createModuleStorageRegistry } from '../module-host/module-storage'
 import { moduleToolCallerCeiling } from '../module-host/module-tool-caller'
 import { createCompanionAgentService, createCompanionAgentsModuleRegistry } from '../companion-agent-service'
@@ -130,6 +134,21 @@ export function createAgentRuntimeModule(
       })
       host.provideService(ConversationModuleServiceToken, () => conversations.registry)
       host.onShutdown(() => conversations.dispose())
+      // The brokers behind the SDK's getSecretsService and getGitHubService: a
+      // module stores a secret and spends it on the origins it named, or calls
+      // the signed-in person's GitHub, without ever holding the value itself.
+      // Each checks its permission (`secrets`, `github`) on every call.
+      const secrets = createModuleSecretsRegistry({
+        userDataDir: app.getPath('userData'),
+        safeStorage,
+        getModulePermissions: options.getModulePermissions,
+      })
+      host.provideService(ModuleSecretsServiceToken, () => secrets.registry)
+      const github = createModuleGitHubRegistry({
+        tokenStore: services.githubTokenStore,
+        getModulePermissions: options.getModulePermissions,
+      })
+      host.provideService(GitHubModuleServiceToken, () => github.registry)
     },
   }
 }
