@@ -256,7 +256,7 @@ export type ConversationProjection = {
 // The image references a `user_message` recorded. Anything malformed is left
 // out rather than failing the bubble: a transcript outlives the build that
 // wrote it, and one bad entry should cost one thumbnail.
-function parseStoredAttachments(value: unknown): ConversationStoredImageAttachment[] | undefined {
+export function parseStoredAttachments(value: unknown): ConversationStoredImageAttachment[] | undefined {
   if (!Array.isArray(value)) return undefined
   const stored = value.flatMap((entry): ConversationStoredImageAttachment[] => {
     if (!entry || typeof entry !== 'object') return []

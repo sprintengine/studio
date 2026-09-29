@@ -1102,3 +1102,45 @@ test('a / command the menu does not know is sent as typed', async () => {
     await chat.unmount()
   }
 })
+
+test('a sent picture’s bytes leave the view once the transcript has stored it, and the bubble keeps drawing it', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const chat = await mountChat({ capabilities: { images: true }, sendTurn })
+  const api = (chat.dom.window as unknown as { api: Record<string, unknown> }).api
+  api.readImageDataUrl = async () => 'data:image/png;base64,iVBORw0KGgo='
+  const reads: unknown[] = []
+  api.conversationAttachment = async (input: unknown) => {
+    reads.push(input)
+    return { ok: false, message: 'not read' }
+  }
+  const bubbleImage = () => chat.host.querySelector('[role="log"] img')?.getAttribute('src')
+  try {
+    const paste = new chat.dom.window.Event('paste', { bubbles: true, cancelable: true })
+    Object.defineProperty(paste, 'clipboardData', {
+      value: { items: [], files: [], types: ['text/plain'], getData: () => '/Users/dev/Desktop/shot.png' },
+    })
+    await chat.act(async () => {
+      chat.host.querySelector('textarea')!.dispatchEvent(paste)
+    })
+    await chat.act(async () => chat.type('What is wrong here?'))
+    await chat.act(async () => chat.enter())
+    const sent = sendTurn.mock.calls[0]![0] as { localTurnId: string; attachments: { id: string }[] }
+    expect(bubbleImage()).toBe('data:image/png;base64,iVBORw0KGgo=')
+    await chat.act(async () => {
+      chat.emit({
+        type: 'event',
+        event: event('user_message', {
+          turnId: 't1',
+          text: 'What is wrong here?',
+          localTurnId: sent.localTurnId,
+          attachments: [{ id: sent.attachments[0]!.id, mediaType: 'image/png', byteLength: 8, ref: 'store/shot.png' }],
+        }),
+      })
+    })
+    // Drawn from the store's copy now, which the send seeded: nothing is read back.
+    expect(bubbleImage()).toBe('data:image/png;base64,iVBORw0KGgo=')
+    expect(reads).toEqual([])
+  } finally {
+    await chat.unmount()
+  }
+})

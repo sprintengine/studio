@@ -32,10 +32,25 @@ export function useConversationLinkContext() {
   return useContext(LinkContext)
 }
 
-// What each resolved path turned out to be on this disk, asked once per path
-// for the life of the window: a transcript repeats the same few paths, and a
-// row re-mounting under the virtual list must not re-ask.
+// What each resolved path turned out to be on this disk, asked once per path:
+// a transcript repeats the same few paths, and a row re-mounting under the
+// virtual list must not re-ask. Bounded, least recently used out, since a
+// window stays open for days of transcripts.
+const MAX_PATH_KINDS = 2_000
 const pathKinds = new Map<string, 'file' | 'other'>()
+function knownPathKind(path: string): 'file' | 'other' | undefined {
+  const kind = pathKinds.get(path)
+  if (kind !== undefined) {
+    pathKinds.delete(path)
+    pathKinds.set(path, kind)
+  }
+  return kind
+}
+function rememberPathKind(path: string, kind: 'file' | 'other'): void {
+  pathKinds.delete(path)
+  pathKinds.set(path, kind)
+  if (pathKinds.size > MAX_PATH_KINDS) pathKinds.delete(pathKinds.keys().next().value!)
+}
 
 // A path in prose or inline code is a link only when it is a FILE that exists
 // here. Before the disk has answered, a path whose last segment has an
@@ -44,14 +59,14 @@ const pathKinds = new Map<string, 'file' | 'other'>()
 // because it is far more often a folder. The answer then settles it either way.
 function useExistingFile(resolved: string | null | undefined, path: string | null): boolean {
   const guess = (): boolean => {
-    const known = resolved ? pathKinds.get(resolved) : undefined
+    const known = resolved ? knownPathKind(resolved) : undefined
     if (known) return known === 'file'
     return /\.[A-Za-z0-9]+$/u.test((resolved ?? path ?? '').split(/[\\/]/).at(-1) ?? '')
   }
   const [isFile, setIsFile] = useState(guess)
   useEffect(() => {
     if (!resolved) return
-    const known = pathKinds.get(resolved)
+    const known = knownPathKind(resolved)
     if (known) {
       setIsFile(known === 'file')
       return
@@ -63,7 +78,7 @@ function useExistingFile(resolved: string | null | undefined, path: string | nul
       .then((stat) => (stat.isFile ? 'file' : 'other'))
       .catch(() => 'other' as const)
       .then((kind) => {
-        pathKinds.set(resolved, kind)
+        rememberPathKind(resolved, kind)
         if (!cancelled) setIsFile(kind === 'file')
       })
     return () => {
@@ -146,7 +161,7 @@ export const ConversationFileLink = React.memo(function ConversationFileLink({
     try {
       const stat = await window.api.statPath(resolved)
       if (!stat.isFile) {
-        pathKinds.set(resolved, 'other')
+        rememberPathKind(resolved, 'other')
         report(`File not found: ${target.path}`)
         return
       }

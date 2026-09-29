@@ -24,6 +24,34 @@ export type LocalImage = {
   failed?: boolean
 }
 
+// Pictures read off this disk, by path and the file's size and modification
+// time, so a row the virtual list re-mounts draws what it already read instead
+// of reading and encoding the file again, while a file rewritten under the same
+// name is read afresh. Few entries: each is a data URL, often megabytes.
+const LOCAL_IMAGE_CACHE_ENTRIES = 8
+const localImages = new Map<string, Promise<string>>()
+
+async function readLocalImage(path: string): Promise<string> {
+  if (typeof window.api.statPath !== 'function') return window.api.readImageDataUrl(path)
+  const stat = await window.api.statPath(path).catch(() => null)
+  if (!stat || typeof stat.modifiedAtMs !== 'number') return window.api.readImageDataUrl(path)
+  const key = `${stat.modifiedAtMs}:${stat.sizeBytes}:${path}`
+  const cached = localImages.get(key)
+  if (cached) {
+    localImages.delete(key)
+    localImages.set(key, cached)
+    return cached
+  }
+  const read = window.api.readImageDataUrl(path)
+  localImages.set(key, read)
+  while (localImages.size > LOCAL_IMAGE_CACHE_ENTRIES) localImages.delete(localImages.keys().next().value!)
+  // A failed read is not kept: the next look asks again.
+  read.catch(() => {
+    if (localImages.get(key) === read) localImages.delete(key)
+  })
+  return read
+}
+
 // An image path the agent wrote — a screenshot it read, a picture its reply
 // shows — read from this machine's disk as a data URL. Relative paths resolve
 // against the conversation's folder the way a file link in the same transcript
@@ -39,7 +67,7 @@ export function useLocalImage(path: string | null | undefined): LocalImage {
   useEffect(() => {
     if (!resolved) return
     let cancelled = false
-    window.api.readImageDataUrl(resolved).then(
+    readLocalImage(resolved).then(
       (src) => {
         if (!cancelled) setImage({ path: resolved, src })
       },

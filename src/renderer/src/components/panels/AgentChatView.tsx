@@ -73,7 +73,13 @@ import type { CliRuntimeOption } from '../ui/CliModelPicker'
 import { PermissionFooter } from '../workspace/agentComposer/spawnFooter'
 import { useAgentCliCatalogOptions } from '../workspace/agentComposer/useAgentComposer'
 import { conversationCliRuntimesFor } from '../workspace/newWorkspace/cliRuntimeOptions'
-import { type TranscriptEntry, type UserTurn } from './agentChat/conversationProjection'
+import {
+  parseStoredAttachments,
+  readString,
+  type TranscriptEntry,
+  type UserTurn,
+} from './agentChat/conversationProjection'
+import { rememberSentAttachment } from './agentChat/storedAttachments'
 import { deriveConversationTimelineRows } from './agentChat/conversationTimeline'
 import {
   createConversationProjectionState,
@@ -695,11 +701,47 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   }, [conversation?.providerId, fetchProviderCatalog, modelSwitch, hostEngine])
 
   const projectionStateRef = useRef(createConversationProjectionState())
-  const projection = useMemo(() => {
+  const { projection, structureRevision } = useMemo(() => {
     const state = syncConversationProjection(projectionStateRef.current, events, userTurns)
     projectionStateRef.current = state
-    return state.projection
+    return { projection: state.projection, structureRevision: state.structureRevision }
   }, [events, userTurns])
+
+  // A sent picture's bytes stay with the local turn only until the transcript
+  // has stored it: once its `user_message` names the stored copies, the bubble
+  // reads them from the attachment store (seeded here, so it draws at once)
+  // and the view stops holding up to 16 images' worth of base64 for as long as
+  // it is open.
+  useEffect(() => {
+    if (!transport.attachment || !userTurns.some((turn) => turn.attachments?.length)) return
+    const pending = new Map(userTurns.filter((turn) => turn.attachments?.length).map((turn) => [turn.id, turn]))
+    const released = new Set<string>()
+    // A sent message lands near the end of the log; how far back is looked is
+    // bounded, so a send whose images were never stored costs little.
+    const stop = Math.max(0, events.length - 2_000)
+    for (let index = events.length - 1; index >= stop && released.size < pending.size; index--) {
+      const event = events[index]!
+      if (event.type !== 'user_message') continue
+      const turn = pending.get(readString(event.payload, 'localTurnId') ?? '')
+      const stored = parseStoredAttachments(event.payload?.attachments)
+      if (!turn?.attachments || !stored || stored.length !== turn.attachments.length) continue
+      stored.forEach((reference, position) => {
+        const local = turn.attachments!.find((image) => image.id === reference.id) ?? turn.attachments![position]!
+        rememberSentAttachment(reference.ref, local)
+      })
+      released.add(turn.id)
+    }
+    if (!released.size) return
+    setUserTurns((current) =>
+      current.map((turn) => {
+        if (!released.has(turn.id)) return turn
+        const { attachments: _sent, ...rest } = turn
+        return rest
+      }),
+    )
+    // Only a new message can land one: keyed on the transcript's shape.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [structureRevision, userTurns, transport])
   const previousRowsRef = useRef<ReturnType<typeof deriveConversationTimelineRows>>([])
   const timelineRows = useMemo(() => {
     const rows = deriveConversationTimelineRows(projection.entries, projection.activeTurn, previousRowsRef.current)
