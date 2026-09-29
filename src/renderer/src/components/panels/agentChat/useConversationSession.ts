@@ -8,6 +8,7 @@ import type {
 } from '../../../../../shared/conversation-runtime'
 import { useWindowPageVisible } from '../../../utils/windowActivity'
 import { useConversationTransport, type ConversationTransport } from './conversationTransport'
+import { compactTokenRuns, SeqRanges } from './sessionEventLog'
 
 const TURN_LIMIT = 10
 type SessionState = {
@@ -26,7 +27,12 @@ type Session = {
   state: SessionState
   disposed: boolean
   earlier: Promise<void> | null
-  seenSeq: Set<number>
+  seenSeq: SeqRanges
+  // `state.events` has been handed to readers in a snapshot, so the next live
+  // event copies it before appending; until then events append in place.
+  logShared: boolean
+  // Where the next compaction starts: runs before it are already merged.
+  compactedTo: number
   // Where a resubscribe resumes: the last sequence this panel holds, valid only
   // with the log generation it was read from.
   cursor: { seq: number; generation?: string } | null
@@ -53,7 +59,7 @@ const emptyState = (): SessionState => ({
 export function mergeConversationEvents(
   current: ConversationEvent[],
   incoming: ConversationEvent[],
-  seenSeq: Set<number>,
+  seenSeq: { has(seq: number): boolean; add(seq: number): unknown },
 ): ConversationEvent[] {
   const added: ConversationEvent[] = []
   for (const event of incoming) {
@@ -68,6 +74,46 @@ export function mergeConversationEvents(
   if (added.length === 1 && (current.length === 0 || added[0].seq! > current.at(-1)!.seq!))
     return [...current, added[0]]
   return [...current, ...added].sort((a, b) => a.seq! - b.seq!)
+}
+
+const bySeq = (a: ConversationEvent, b: ConversationEvent) => a.seq! - b.seq!
+
+// Take in one live event. Live events arrive in sequence order and append in
+// place, so a token costs no copy of the log; a copy is made once after a
+// snapshot handed the log to readers, not once per token.
+function appendLive(session: Session, event: ConversationEvent): void {
+  const seq = event.seq!
+  session.seenSeq.add(seq)
+  const events = session.state.events
+  const last = events.at(-1)
+  if (last === undefined || seq > last.seq!) {
+    if (session.logShared) {
+      session.state.events = events.slice()
+      session.logShared = false
+    }
+    session.state.events.push(event)
+    return
+  }
+  session.state.events = [...events, event].sort(bySeq)
+  session.logShared = false
+  session.compactedTo = 0
+}
+
+// Merge the settled runs of streamed tokens that arrived since the last time.
+function compactLive(session: Session): void {
+  const events = session.state.events
+  const compacted = compactTokenRuns(events, session.compactedTo)
+  if (compacted !== events) {
+    session.state.events = compacted
+    session.logShared = false
+  }
+  session.compactedTo = compacted.length
+}
+
+// A page of events (a snapshot, or earlier turns): the ones not held yet, in
+// sequence order, with their token runs merged.
+function takePage(session: Session, incoming: ConversationEvent[]): ConversationEvent[] {
+  return compactTokenRuns(mergeConversationEvents([], incoming, session.seenSeq))
 }
 
 // A failed subscription is retried; the delay doubles up to a ceiling so a
@@ -120,7 +166,9 @@ const TOKEN_FLUSH_FALLBACK_MS = 48
 // the subscription and the last one to go closes it.
 type SharedSession = {
   session: Session
-  snapshot: SessionState
+  // What readers render; null when the session moved on since, and built when
+  // a reader next asks, so a session nobody reads right now copies nothing.
+  snapshot: SessionState | null
   listeners: Set<(urgency: FrameUrgency) => void>
   readers: number
 }
@@ -129,8 +177,16 @@ const sessionKeyOf = (key: ConversationKey) => JSON.stringify([key.workspaceRoot
 
 function publish(shared: SharedSession, urgency: FrameUrgency = 'turn'): void {
   if (shared.session.disposed) return
-  shared.snapshot = { ...shared.session.state }
+  shared.snapshot = null
   for (const listener of shared.listeners) listener(urgency)
+}
+
+function readSnapshot(shared: SharedSession): SessionState {
+  if (!shared.snapshot) {
+    shared.snapshot = { ...shared.session.state }
+    shared.session.logShared = true
+  }
+  return shared.snapshot
 }
 
 function openSharedSession(transport: ConversationTransport, key: ConversationKey): SharedSession {
@@ -147,14 +203,16 @@ function openSharedSession(transport: ConversationTransport, key: ConversationKe
     state: emptyState(),
     disposed: false,
     earlier: null,
-    seenSeq: new Set(),
+    seenSeq: new SeqRanges(),
+    logShared: false,
+    compactedTo: 0,
     cursor: null,
     joining: true,
     retries: 0,
     retryTimer: null,
     unsubscribe: () => {},
   }
-  const shared: SharedSession = { session, snapshot: session.state, listeners: new Set(), readers: 1 }
+  const shared: SharedSession = { session, snapshot: null, listeners: new Set(), readers: 1 }
   byKey.set(id, shared)
   const subscribe = () => {
     session.joining = true
@@ -179,15 +237,20 @@ function openSharedSession(transport: ConversationTransport, key: ConversationKe
           session.state = {
             ...session.state,
             ...frame.page,
-            events: mergeConversationEvents([], frame.page.events, session.seenSeq),
+            events: takePage(session, frame.page.events),
             completionRevision: frame.page.events.findLast((event) => event.type === 'turn_completed')?.seq ?? 0,
           }
+          session.logShared = false
+          session.compactedTo = session.state.events.length
           break
         case 'event':
           if (frame.event.seq === undefined || session.seenSeq.has(frame.event.seq)) return
-          session.state.events = mergeConversationEvents(session.state.events, [frame.event], session.seenSeq)
+          appendLive(session, frame.event)
           if (session.cursor && frame.event.seq > session.cursor.seq) session.cursor.seq = frame.event.seq
           if (frame.event.type === 'turn_completed') session.state.completionRevision = frame.event.seq
+          // A turn's tokens are settled once it ends: its runs become one event
+          // each, which is how the log on disk keeps them.
+          if (frame.event.type === 'turn_completed' || frame.event.type === 'turn_failed') compactLive(session)
           // Tokens stay silent; announce message lifecycle once, independently
           // from the virtualized transcript's aria-live=off subtree.
           if (!session.joining) {
@@ -253,10 +316,15 @@ function loadEarlierTurns(transport: ConversationTransport, shared: SharedSessio
   publish(shared)
   const applyPage = (page: ConversationPage) => {
     if (session.disposed) return
+    const older = takePage(session, page.events)
     session.state = {
       ...session.state,
       ...page,
-      events: mergeConversationEvents(session.state.events, page.events, session.seenSeq),
+      events: older.length ? [...session.state.events, ...older].sort(bySeq) : session.state.events,
+    }
+    if (older.length) {
+      session.logShared = false
+      session.compactedTo = 0
     }
   }
   session.earlier = Promise.resolve()
@@ -319,7 +387,7 @@ export function useConversationSession(
     const flush = () => {
       cancel()
       behind = false
-      setState(shared.snapshot)
+      setState(readSnapshot(shared))
     }
     const listener = (urgency: FrameUrgency) => {
       if (urgency === 'turn') return flush()
@@ -336,7 +404,7 @@ export function useConversationSession(
     shared.listeners.add(listener)
     // A reader joining a conversation already open elsewhere starts from what
     // is already held rather than an empty transcript.
-    if (shared.session.state.hydrated || shared.session.state.error) setState(shared.snapshot)
+    if (shared.session.state.hydrated || shared.session.state.error) setState(readSnapshot(shared))
     return () => {
       cancel()
       catchUpRef.current = () => undefined

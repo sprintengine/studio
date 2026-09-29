@@ -208,7 +208,8 @@ test('a failed subscription resubscribes with backoff and catches up from its cu
     modelId: 'mock',
     createdAt: seq,
     type: 'content_delta',
-    payload: { turnId: 'turn', text: `${seq}` },
+    // A turn each, so no two are a run the session would merge.
+    payload: { turnId: `turn-${seq}`, text: `${seq}` },
   })
   let hook!: ReturnType<typeof useConversationSession>
   function Harness() {
@@ -462,15 +463,119 @@ test('a reader renders tokens once a frame, and one nobody can see rests until i
     expect(renders).toBe(hidden)
     expect(hook.events).toHaveLength(11)
     await act(async () => receive({ type: 'event', event: event('turn_completed', { turnId: 't' }) }))
-    expect(hook.events).toHaveLength(18)
+    // The turn's fifteen tokens are one event once it ends.
+    expect(hook.events.map((entry) => entry.type)).toEqual([
+      'turn_started',
+      'content_delta',
+      'tool_started',
+      'turn_completed',
+    ])
     expect(hook.announcement).toBe('Assistant reply complete.')
 
     // Seen again, it catches up in one render.
     await act(async () => token('late'))
     await act(async () => vi.advanceTimersByTime(1000))
-    expect(hook.events).toHaveLength(18)
+    expect(hook.events).toHaveLength(4)
     await act(async () => root.render(createElement(Reader, { active: true })))
-    expect(hook.events).toHaveLength(19)
+    expect(hook.events).toHaveLength(5)
+  } finally {
+    await act(async () => root.unmount())
+    vi.useRealTimers()
+    dom.window.close()
+    for (const key of ['window', 'document', 'navigator', 'IS_REACT_ACT_ENVIRONMENT']) {
+      if (previous[key]) Object.defineProperty(globalThis, key, previous[key])
+      else Reflect.deleteProperty(globalThis, key)
+    }
+  }
+})
+
+test('the session keeps a settled turn’s tokens as one event, and appends live tokens without copying the log', async () => {
+  const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost' })
+  const previous = Object.getOwnPropertyDescriptors(globalThis)
+  Object.assign(globalThis, {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  })
+  vi.useFakeTimers()
+  const receivers: ((frame: ConversationSessionFrame) => void)[] = []
+  Object.assign(dom.window, {
+    api: {
+      onConversationSession: (
+        _input: ConversationSubscribeInput,
+        receive: (frame: ConversationSessionFrame) => void,
+      ) => {
+        receivers.push(receive)
+        return () => undefined
+      },
+    },
+  })
+  let seq = 0
+  const event = (type: ConversationEvent['type'], payload: Record<string, unknown>): ConversationEvent => ({
+    seq: ++seq,
+    id: `event-${seq}`,
+    workspaceId: 'workspace',
+    agentId: 'agent',
+    sessionId: 'session',
+    providerId: 'mock',
+    modelId: 'mock',
+    createdAt: seq,
+    type,
+    payload,
+  })
+  const { act, createElement } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const { useConversationSession } = await import('./useConversationSession')
+  const { projectConversation } = await import('./conversationProjection')
+  let hook!: ReturnType<typeof useConversationSession>
+  function Reader() {
+    hook = useConversationSession('/Users/dev/compact', 'workspace', 'agent')
+    return null
+  }
+  const root = createRoot(document.createElement('div'))
+  const receive = (frame: ConversationSessionFrame) => receivers.at(-1)!(frame)
+  try {
+    await act(async () => root.render(createElement(Reader)))
+    // A page arrives with its runs already merged.
+    const page = [
+      event('user_message', { turnId: 'a', text: 'Go' }),
+      event('turn_started', { turnId: 'a' }),
+      event('reasoning_delta', { turnId: 'a', text: 'Let me ' }),
+      event('reasoning_delta', { turnId: 'a', text: 'think.' }),
+      event('content_delta', { turnId: 'a', text: 'Hello ' }),
+      event('content_delta', { turnId: 'a', text: 'there.' }),
+      event('turn_completed', { turnId: 'a' }),
+    ]
+    await act(async () => {
+      receive({ type: 'snapshot', page: { events: page, hasMore: false, beforeCursor: null } })
+      receive({ type: 'synchronized', seq })
+    })
+    expect(hook.events.map((entry) => entry.type)).toEqual([
+      'user_message',
+      'turn_started',
+      'reasoning_delta',
+      'content_delta',
+      'turn_completed',
+    ])
+    expect(projectConversation(hook.events)).toEqual(projectConversation(page))
+    // Live tokens render once a frame; the log they go into is the same array
+    // until a reader has been handed it.
+    const live = [event('user_message', { turnId: 'b', text: 'Again' }), event('turn_started', { turnId: 'b' })]
+    await act(async () => live.forEach((item) => receive({ type: 'event', event: item })))
+    const handed = hook.events
+    const tokens = Array.from({ length: 20 }, (_, index) => event('content_delta', { turnId: 'b', text: `w${index} ` }))
+    await act(async () => tokens.forEach((item) => receive({ type: 'event', event: item })))
+    expect(handed).toHaveLength(7)
+    await act(async () => vi.advanceTimersByTime(48))
+    expect(hook.events).toHaveLength(27)
+    // A duplicate of a merged token is still recognised as seen.
+    await act(async () => receive({ type: 'event', event: { ...page[3]! } }))
+    const end = event('turn_completed', { turnId: 'b' })
+    await act(async () => receive({ type: 'event', event: end }))
+    // The page's five, the new turn's message and start, its tokens as one, its end.
+    expect(hook.events).toHaveLength(9)
+    expect(projectConversation(hook.events)).toEqual(projectConversation([...page, ...live, ...tokens, end]))
   } finally {
     await act(async () => root.unmount())
     vi.useRealTimers()
