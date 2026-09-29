@@ -212,6 +212,19 @@ type ToolPreviewThrottle = {
   timer: NodeJS.Timeout | null
 }
 type EmitOptions = { turnId?: string; allowCanceledTurnId?: string | null; prepared?: boolean }
+/**
+ * What a provider stream's emitted events came to, counted as they go by. A
+ * long agentic turn is tens of thousands of deltas and tool outputs, and the
+ * turn's end needs only these.
+ */
+type EmittedSummary = {
+  approvalsRequested: number
+  approvalsResolved: number
+  completed: boolean
+  failed: boolean
+  // The reply's text, gathered only when asked for (a stateless session's history).
+  text: string
+}
 
 /**
  * A running tool's preview is a tail of up to {@link TOOL_PREVIEW_CHARS} of its
@@ -672,7 +685,7 @@ export class ConversationRuntime {
         // adapters read them. The model's history stays text-only: a later turn
         // does not re-send earlier images, and the transcript keeps references
         // for the bubbles, not the bytes.
-        const events = await this.emitAll(
+        const emitted = await this.emitAll(
           session,
           adapter.sendTurn({
             ...session,
@@ -686,7 +699,7 @@ export class ConversationRuntime {
             messages,
             signal: turnAbort.signal,
           }),
-          { turnId },
+          { turnId, collectText: !session.stateful },
         )
         // A steer may have moved the stream on to a later turn; the stream's
         // end is that turn's.
@@ -698,22 +711,14 @@ export class ConversationRuntime {
           currentSession.activeTurnId === ownTurnId &&
           !currentSession.canceledTurnIds.has(ownTurnId)
         ) {
-          this.applyTurnState(currentSession, events, requestId)
+          this.applyTurnState(currentSession, emitted, requestId)
           currentSession.activeTurnAbort = null
           // Record only a cleanly completed turn (no failure) into history, so a
           // failed turn leaves history untouched and a retry re-sends without
           // duplicating the user message. Stateful providers keep their own.
-          const completed =
-            !currentSession.stateful &&
-            events.some((event) => event.type === 'turn_completed') &&
-            !events.some((event) => event.type === 'turn_failed')
-          if (completed) {
+          if (!currentSession.stateful && emitted.completed && !emitted.failed) {
             currentSession.history.push({ role: 'user', content: message })
-            const assistantText = events
-              .filter((event) => event.type === 'content_delta')
-              .map((event) => (typeof event.payload?.text === 'string' ? event.payload.text : ''))
-              .join('')
-            if (assistantText) currentSession.history.push({ role: 'assistant', content: assistantText })
+            if (emitted.text) currentSession.history.push({ role: 'assistant', content: emitted.text })
           }
         }
         return { ok: true, session: this.toSummary(currentSession ?? session) }
@@ -1078,8 +1083,8 @@ export class ConversationRuntime {
 
     const turnId = session.activeTurnId
     if (turnId) this.cancelActiveTurn(session)
-    const events = await this.emitAll(session, adapter.interrupt(session), { allowCanceledTurnId: turnId })
-    if (!events.some((event) => event.type === 'turn_failed' || event.type === 'turn_completed'))
+    const emitted = await this.emitAll(session, adapter.interrupt(session), { allowCanceledTurnId: turnId })
+    if (!emitted.failed && !emitted.completed)
       await this.emit(
         session,
         this.eventForSession(session, 'turn_failed', {
@@ -1354,21 +1359,30 @@ export class ConversationRuntime {
   private async emitAll(
     session: RuntimeSession,
     events: ConversationProviderEventStream,
-    options: { turnId?: string; allowCanceledTurnId?: string | null } = {},
-  ): Promise<ConversationEvent[]> {
-    const emitted: ConversationEvent[] = []
+    options: { turnId?: string; allowCanceledTurnId?: string | null; collectText?: boolean } = {},
+  ): Promise<EmittedSummary> {
+    const { collectText, ...emitOptions } = options
+    const emitted: EmittedSummary = {
+      approvalsRequested: 0,
+      approvalsResolved: 0,
+      completed: false,
+      failed: false,
+      text: '',
+    }
+    const count = (stamped: ConversationEvent | null): void => {
+      if (stamped?.type === 'approval_requested') emitted.approvalsRequested++
+      else if (stamped?.type === 'approval_resolved') emitted.approvalsResolved++
+      else if (stamped?.type === 'turn_completed') emitted.completed = true
+      else if (stamped?.type === 'turn_failed') emitted.failed = true
+      else if (collectText && stamped?.type === 'content_delta' && typeof stamped.payload?.text === 'string')
+        emitted.text += stamped.payload.text
+    }
     const resolved = await events
     if (isAsyncIterable(resolved)) {
-      for await (const event of resolved) {
-        const stamped = await this.emit(session, event, options)
-        if (stamped) emitted.push(stamped)
-      }
+      for await (const event of resolved) count(await this.emit(session, event, emitOptions))
       return emitted
     }
-    for (const event of resolved) {
-      const stamped = await this.emit(session, event, options)
-      if (stamped) emitted.push(stamped)
-    }
+    for (const event of resolved) count(await this.emit(session, event, emitOptions))
     return emitted
   }
 
@@ -1814,13 +1828,12 @@ export class ConversationRuntime {
     }
   }
 
-  private applyTurnState(session: RuntimeSession, events: ConversationEvent[], requestId: string): void {
+  private applyTurnState(session: RuntimeSession, emitted: EmittedSummary, requestId: string): void {
     // A terminal event always wins: a dead turn cannot keep an approval
     // pending (e.g. the provider child crashed while a card was up — leaving
     // the session in awaiting_approval would wedge it forever, since the
     // adapter-side permission no longer exists to resolve).
-    const failed = events.some((event) => event.type === 'turn_failed')
-    const completed = events.some((event) => event.type === 'turn_completed')
+    const { failed, completed } = emitted
     if (failed || completed) {
       session.pendingRequestId = null
       session.pendingApprovalRequestIds.clear()
@@ -1833,9 +1846,7 @@ export class ConversationRuntime {
     // An approval is pending at end-of-stream only when a request was never
     // resolved. Stateless turns end their stream at the request; stateful
     // turns resolve requests mid-stream and keep going.
-    const requested = events.filter((event) => event.type === 'approval_requested').length
-    const resolved = events.filter((event) => event.type === 'approval_resolved').length
-    if (requested > resolved) {
+    if (emitted.approvalsRequested > emitted.approvalsResolved) {
       session.pendingRequestId = session.stateful ? session.pendingRequestId : requestId
       session.status = 'awaiting_approval'
     } else {
