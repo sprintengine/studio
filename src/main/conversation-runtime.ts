@@ -2064,8 +2064,9 @@ export class ConversationRuntime {
 
   /** Explicit deletion removes the paired detail store as well as the transcript. */
   async listThreads(input: ConversationWorkspaceKey) {
+    // The index flushes each transcript of the workspace before it reads it,
+    // so chats in other workspaces keep their write batches.
     try {
-      await this.eventLog.flush()
       return { ok: true as const, threads: await this.threadIndex.list(input) }
     } catch (error) {
       return { ok: false as const, message: String(error) }
@@ -2077,7 +2078,6 @@ export class ConversationRuntime {
     options: { signal?: AbortSignal; onBatch?: (hits: ConversationSearchHit[]) => void } = {},
   ) {
     try {
-      await this.eventLog.flush()
       return { ok: true as const, hits: await this.threadIndex.search(input, options) }
     } catch (error) {
       return { ok: false as const, message: String(error) }
