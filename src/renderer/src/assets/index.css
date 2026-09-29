@@ -2593,31 +2593,40 @@ samp,
     transform: rotate(4deg);
   }
 }
-@keyframes agent-glyph-tilt {
+@keyframes agent-glyph-drift {
   0%,
   100% {
-    transform: rotate(0);
-  }
-  30% {
-    transform: rotate(-8deg);
-  }
-  60% {
-    transform: rotate(6deg);
-  }
-}
-@keyframes agent-glyph-peer {
-  0%,
-  100% {
-    transform: translate(0, 0);
-  }
-  25% {
-    transform: translate(0.5px, -0.3px);
+    transform: translateY(0) rotate(-2deg);
   }
   50% {
-    transform: translate(-0.5px, 0.2px);
+    transform: translateY(-1.4px) rotate(2deg);
   }
-  75% {
-    transform: translate(0.4px, 0.4px);
+}
+@keyframes agent-glyph-doff {
+  0%,
+  70%,
+  100% {
+    transform: rotate(0) translateY(0);
+  }
+  78%,
+  88% {
+    transform: rotate(-14deg) translateY(-1.2px);
+  }
+}
+@keyframes agent-glyph-hop {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+  }
+  70% {
+    transform: translateY(-1.6px);
+  }
+  80% {
+    transform: translateY(0);
+  }
+  86% {
+    transform: translateY(-0.6px);
   }
 }
 
@@ -2638,23 +2647,40 @@ samp,
 .agent-glyph--blob .agent-glyph__eyes {
   animation: agent-glyph-look 2600ms ease-in-out infinite;
 }
-.agent-glyph--octopus .agent-glyph__whole {
-  animation: agent-glyph-float 1600ms ease-in-out infinite;
+.agent-glyph--balloon .agent-glyph__whole {
+  transform-origin: center bottom;
+  animation: agent-glyph-drift 2400ms ease-in-out infinite;
 }
-.agent-glyph--octopus .agent-glyph__legs {
+.agent-glyph--balloon .agent-glyph__string {
   transform-origin: center top;
-  animation: agent-glyph-wiggle 800ms ease-in-out infinite;
+  animation: agent-glyph-wiggle 1200ms ease-in-out infinite;
 }
-.agent-glyph--octopus .agent-glyph__eyes {
+.agent-glyph--balloon .agent-glyph__eyes {
   transform-origin: center;
   animation: agent-glyph-blink 3000ms infinite;
 }
-.agent-glyph--owl .agent-glyph__whole {
+.agent-glyph--bear .agent-glyph__whole {
   transform-origin: center bottom;
-  animation: agent-glyph-tilt 2400ms ease-in-out infinite;
+  animation: agent-glyph-nod 1800ms ease-in-out infinite;
 }
-.agent-glyph--owl .agent-glyph__eyes {
-  animation: agent-glyph-peer 2400ms ease-in-out infinite;
+.agent-glyph--bear .agent-glyph__eyes {
+  transform-origin: center;
+  animation: agent-glyph-blink 3200ms infinite;
+}
+.agent-glyph--gent .agent-glyph__hat {
+  transform-origin: left bottom;
+  animation: agent-glyph-doff 2600ms ease-in-out infinite;
+}
+.agent-glyph--gent .agent-glyph__eyes {
+  animation: agent-glyph-look 2600ms ease-in-out infinite;
+}
+.agent-glyph--mushroom .agent-glyph__whole {
+  transform-origin: center bottom;
+  animation: agent-glyph-squish 1300ms ease-in-out infinite;
+}
+.agent-glyph--mushroom .agent-glyph__eyes {
+  transform-origin: center;
+  animation: agent-glyph-blink 2800ms infinite;
 }
 .agent-glyph--ghost .agent-glyph__whole {
   animation: agent-glyph-float 1800ms ease-in-out infinite;
@@ -2701,6 +2727,46 @@ samp,
 .agent-glyph--santa .agent-glyph__eyes {
   transform-origin: center;
   animation: agent-glyph-blink 3400ms infinite;
+}
+.agent-glyph--witch .agent-glyph__whole {
+  animation: agent-glyph-float 1800ms ease-in-out infinite;
+}
+.agent-glyph--witch .agent-glyph__hat {
+  transform-origin: center bottom;
+  animation: agent-glyph-flop 1800ms ease-in-out infinite;
+}
+.agent-glyph--witch .agent-glyph__eyes {
+  animation: agent-glyph-look 2800ms ease-in-out infinite;
+}
+.agent-glyph--skull .agent-glyph__whole {
+  transform-origin: center bottom;
+  animation: agent-glyph-rock 1400ms ease-in-out infinite;
+}
+.agent-glyph--skull .agent-glyph__eyes {
+  animation: agent-glyph-flicker 900ms steps(1) infinite;
+}
+.agent-glyph--reindeer .agent-glyph__whole {
+  transform-origin: center bottom;
+  animation: agent-glyph-nod 1600ms ease-in-out infinite;
+}
+.agent-glyph--reindeer .agent-glyph__nose {
+  animation: agent-glyph-antenna 1000ms steps(1) infinite;
+}
+.agent-glyph--reindeer .agent-glyph__eyes {
+  transform-origin: center;
+  animation: agent-glyph-blink 3000ms infinite;
+}
+.agent-glyph--present .agent-glyph__whole {
+  transform-origin: center bottom;
+  animation: agent-glyph-hop 1600ms ease-in-out infinite;
+}
+.agent-glyph--present .agent-glyph__bow {
+  transform-origin: center bottom;
+  animation: agent-glyph-flop 1600ms ease-in-out infinite;
+}
+.agent-glyph--present .agent-glyph__eyes {
+  transform-origin: center;
+  animation: agent-glyph-blink 3000ms infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2755,9 +2821,11 @@ samp,
     .agent-glyph__whole,
     .agent-glyph__eyes,
     .agent-glyph__antenna,
-    .agent-glyph__legs,
+    .agent-glyph__string,
     .agent-glyph__whiskers,
     .agent-glyph__hat,
+    .agent-glyph__nose,
+    .agent-glyph__bow,
     .lifecycle-spin,
     .working-edge,
     .chat-shimmer,

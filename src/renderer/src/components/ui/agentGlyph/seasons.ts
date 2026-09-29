@@ -7,9 +7,9 @@ import { stablePick } from './pick'
 export type AgentSeason = 'everyday' | 'halloween' | 'christmas'
 
 export const AGENT_SEASON_POOLS: Record<AgentSeason, readonly AgentCharacterId[]> = {
-  everyday: ['robot', 'blob', 'octopus', 'owl'],
-  halloween: ['robot', 'pumpkin', 'ghost', 'cat'],
-  christmas: ['robot', 'elf', 'santa'],
+  everyday: ['robot', 'blob', 'balloon', 'bear', 'gent', 'mushroom'],
+  halloween: ['robot', 'pumpkin', 'ghost', 'cat', 'witch', 'skull'],
+  christmas: ['robot', 'elf', 'santa', 'reindeer', 'present'],
 }
 
 /** The season a local date falls in: October is Halloween, 1–26 December Christmas. */
