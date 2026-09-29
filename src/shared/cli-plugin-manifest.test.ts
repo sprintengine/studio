@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'vitest'
 
-import { parseCliPluginManifest, validateCliPluginManifest, type CliPluginManifest } from '../src/cli-manifest.js'
+import { parseCliPluginManifest, validateCliPluginManifest, type CliPluginManifest } from './cli-plugin-manifest'
 
 // A minimal-but-complete valid CLI plugin manifest.
 const VALID: CliPluginManifest = {
@@ -139,7 +139,7 @@ test('rejects a themeSelection schemes map missing a scheme', () => {
   assert.ok(result.issues.some((issue) => issue.path === 'themeSelection.schemes.dark'))
 })
 
-test('accepts the bundled codex plugin.json (app and SDK agree)', () => {
+test('accepts the bundled codex plugin.json', () => {
   // The validator must accept manifests the running app ships and loads.
   const source = readFileSync(join(process.cwd(), 'resources', 'plugins', 'codex', 'plugin.json'), 'utf8')
   const result = parseCliPluginManifest(source)

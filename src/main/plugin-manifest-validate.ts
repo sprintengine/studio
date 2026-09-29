@@ -6,7 +6,7 @@ import type {
   PluginManifestValidationIssue,
   PluginManifestValidationResult,
 } from '../shared/plugin-manifest'
-import { validateCliPluginManifest } from '../../packages/module-sdk/src/cli-manifest'
+import { validateCliPluginManifest } from '../shared/cli-plugin-manifest'
 import { isRecord } from '../shared/records'
 
 const VARIABLE_TYPES = ['string', 'enum', 'boolean', 'number'] as const
@@ -37,12 +37,9 @@ export function validateManifestStructure(value: unknown): PluginManifestValidat
     return validateProviderManifestStructure(value, issues)
   }
 
-  // CLI manifest validation is single-sourced in the published SDK
-  // (packages/module-sdk/src/cli-manifest.ts), the same way the third-party
-  // module manifest validator is. The app and the @sprintengine/module-sdk
-  // authoring tooling therefore validate a plugin.json identically — they
-  // cannot drift, because this is the one implementation. Provider manifests
-  // (above) remain app-only.
+  // CLI manifest validation lives in shared/cli-plugin-manifest.ts, the one
+  // implementation the bundled CLIs are checked against. Provider manifests
+  // (above) have their own structure check.
   const cli = validateCliPluginManifest(value)
   if (!cli.ok) return { ok: false, issues: cli.issues }
   return { ok: true, manifest: value as unknown as PluginManifest }

@@ -2781,44 +2781,6 @@ export {
   type ThirdPartyManifestResult,
 } from './manifest-validate.js'
 
-// ── BYO-CLI plugin authoring (kind: 'cli') ───────────────────────────────────
-// A CLI plugin is a separate artifact from a capability module: a `plugin.json`
-// dropped into ~/.sprintengine/plugins/<id>/ that teaches the studio a new agent
-// CLI. Pure validator + types, safe in any runtime.
-
-export {
-  parseCliPluginManifest,
-  validateCliPluginManifest,
-  type CliArgvToken,
-  type CliAuthSpec,
-  type CliCapabilities,
-  type CliCompletionMode,
-  type CliCompletionSpec,
-  type CliContextInjection,
-  type CliContextInjectionMode,
-  type CliLaunchSpec,
-  type CliManifestIssue,
-  type CliManifestResult,
-  type CliMcpConfigFormat,
-  type CliMcpConfigSpec,
-  type CliModelOption,
-  type CliModelSelectionSpec,
-  type CliPermissionPreset,
-  type CliPluginManifest,
-  type CliPromptInjection,
-  type CliPromptInjectionMode,
-  type CliReadinessSignal,
-  type CliResumeSpec,
-  type CliSkillFormat,
-  type CliSkillInstallScope,
-  type CliSkillInstallTarget,
-  type CliSkillIntegration,
-  type CliSkillInvocation,
-  type CliSkillSupport,
-  type CliVariableDecl,
-  type CliVariableType,
-} from './cli-manifest.js'
-
 // ── Marketplace plugin bundle authoring ─────────────────────────────────────
 // A marketplace plugin is a signed bundle manifest (`plugin.json`) that points
 // at existing primitives: MCP configs, skill directories, capability modules,

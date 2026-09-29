@@ -1,19 +1,12 @@
-// @sprintengine/module-sdk — BYO-CLI plugin authoring contract.
+// Agent CLI plugin manifest: the `plugin.json` contract and its validator.
 //
-// A CLI plugin is a folder containing a `plugin.json` that tells the studio how
-// to launch, resume, drive and complete an agent CLI (e.g. claude-code, codex,
-// opencode). Drop it into `~/.sprintengine/plugins/<id>/` or install it from
-// Settings → Agents → "Install CLI from folder". The plugin id must equal the
-// containing folder name; a user plugin with the same id as a bundled CLI
-// overrides the bundled one.
-//
-// This is the SINGLE SOURCE OF TRUTH for CLI manifest validation: the running
-// studio validates a plugin.json by delegating to validateCliPluginManifest
-// here (src/main/plugin-manifest-validate.ts imports it directly from the SDK
-// source, the same way the third-party module manifest validator is shared), so
-// the published authoring contract and the app's loader cannot drift. It is pure
-// (no Node or DOM APIs), safe in any runtime, and runnable as a pre-flight check
-// in an author's own tooling.
+// A CLI plugin tells the studio how to launch, resume, drive and complete an
+// agent CLI (claude-code, codex, opencode, …). The app ships its CLIs as
+// bundled plugins under `resources/plugins/<id>/plugin.json`; this validator is
+// what the plugin registry runs over each one (src/main/plugin-manifest-validate.ts
+// delegates its CLI branch here). It is app-side only: extensions talk to agents
+// through the chat conversation API, so the published SDK carries no CLI plugin
+// contract. Pure (no Node or DOM APIs), safe in any runtime.
 
 // ── Manifest shape ───────────────────────────────────────────────────────────
 
