@@ -14,6 +14,8 @@ import { leadingCommandFor } from '../conversation-commands/leading-command'
 import type { ConversationCommand } from '../../shared/conversation/commands'
 import type {
   ClientSideConnection,
+  McpCapabilities,
+  McpServer,
   RequestPermissionRequest,
   RequestPermissionResponse,
   SessionUpdate,
@@ -23,6 +25,7 @@ import type {
   ConversationCapabilities,
   ConversationCliRuntimeOverrides,
   ConversationEvent,
+  ConversationMcpServer,
   ConversationPermissionPreset,
   ConversationToolKind,
 } from '../../shared/conversation-runtime'
@@ -163,6 +166,8 @@ class Queue implements AsyncIterable<ConversationEvent> {
 type Pending = { options: RequestPermissionRequest['options']; resolve: (value: RequestPermissionResponse) => void }
 type State = {
   input: MockAdapterSessionInput
+  // What the agent said it can connect to, from its handshake.
+  mcpCapabilities?: McpCapabilities
   child?: ChildProcessWithoutNullStreams
   connection?: ClientSideConnection
   starting?: Promise<void>
@@ -661,6 +666,7 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
         const advertised = hello._meta?.availableCommands
         if (Array.isArray(advertised)) publishCommands(state, advertised)
         state.loadSupported = hello.agentCapabilities?.loadSession === true
+        state.mcpCapabilities = hello.agentCapabilities?.mcpCapabilities ?? undefined
         state.capabilities = {
           ...baseCapabilities(profile),
           resume: state.loadSupported,
@@ -684,14 +690,16 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
       const openSession = async (connection: ClientSideConnection) => {
         const resumeId = state.nativeId ?? state.input.resumeSessionId
         state.replayHistory = Boolean(resumeId && !state.loadSupported)
-        const fresh = () => connection.newSession({ cwd: state.input.workspaceRoot!, mcpServers: [] })
+        // The session's own servers, on a new session and a reopened one alike.
+        const mcpServers = acpMcpServers(state.input.mcpServers ?? [], state.mcpCapabilities, profile.displayName)
+        const fresh = () => connection.newSession({ cwd: state.input.workspaceRoot!, mcpServers })
         let session: Awaited<ReturnType<typeof fresh>> | Awaited<ReturnType<ClientSideConnection['loadSession']>>
         if (resumeId && state.loadSupported) {
           try {
             session = await connection.loadSession({
               sessionId: resumeId,
               cwd: state.input.workspaceRoot!,
-              mcpServers: [],
+              mcpServers,
             })
           } catch (error) {
             // The agent answered that it cannot load this session (it was
@@ -757,6 +765,8 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
             `${profile.displayName} could not be started from ${command}: ${spawnError?.message ?? 'the process did not start.'}`,
           )
         }
+        // Not a sign-in problem, so without the sign-in hint.
+        if (error instanceof AcpMcpServerUnsupportedError) throw error
         throw new Error(`${error instanceof Error ? error.message : String(error)} ${profile.authHint}`)
       } finally {
         if (timer) clearTimeout(timer)
@@ -771,6 +781,7 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
     displayName: profile.displayName,
     capabilities: baseCapabilities(profile),
     sessions: 'stateful',
+    acceptsMcpServers: true,
     listModels: () => Array.from(modelIds),
     async startSession(input) {
       if (input.permissionPreset && !supportedPresets(profile).includes(input.permissionPreset))
@@ -1034,4 +1045,50 @@ function isMissingSessionError(error: unknown): boolean {
   return /not found|no such session|unknown session|does not exist|invalid session/i.test(
     `${typeof message === 'string' ? message : ''} ${detail}`,
   )
+}
+
+/** An MCP server this agent cannot connect to; see acpMcpServers. */
+class AcpMcpServerUnsupportedError extends Error {}
+
+/**
+ * A session's MCP servers as ACP's `session/new` takes them. Every agent takes
+ * a stdio server; HTTP and SSE only when its handshake says so, and a server
+ * it cannot take refuses the start rather than being left out. ACP names an
+ * environment explicitly, so the variables a server's entry names
+ * (`envVarNames`) are read from this app's own environment here, as is an
+ * HTTP server's bearer token.
+ */
+export function acpMcpServers(
+  servers: readonly ConversationMcpServer[],
+  capabilities: McpCapabilities | undefined,
+  agentName: string,
+): McpServer[] {
+  const fromEnv = (names: readonly string[] | undefined) =>
+    (names ?? []).flatMap((name) => {
+      const value = process.env[name]
+      return value ? [{ name, value }] : []
+    })
+  return servers.map((server): McpServer => {
+    if (server.transport === 'stdio') {
+      return {
+        name: server.id,
+        command: server.command ?? '',
+        args: server.args ?? [],
+        env: [
+          ...Object.entries(server.env ?? {}).map(([name, value]) => ({ name, value })),
+          ...fromEnv(server.envVarNames),
+        ],
+      }
+    }
+    if (!capabilities?.[server.transport]) {
+      throw new AcpMcpServerUnsupportedError(
+        `${agentName} does not connect to ${server.transport.toUpperCase()} MCP servers, so it cannot run with "${server.name || server.id}". Choose a CLI whose chats can, such as Claude Code or Codex.`,
+      )
+    }
+    const headers = Object.entries(server.headers ?? {}).map(([name, value]) => ({ name, value }))
+    const token = server.envVarNames?.[0] ? process.env[server.envVarNames[0]] : undefined
+    if (token && !headers.some((header) => header.name.toLowerCase() === 'authorization'))
+      headers.push({ name: 'Authorization', value: `Bearer ${token}` })
+    return { type: server.transport, name: server.id, url: server.url ?? '', headers }
+  })
 }

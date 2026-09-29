@@ -21,7 +21,8 @@ import { openConfinedExistingFile, readBoundedConversationFile } from '../conver
 import { asRecord } from '../../shared/records'
 import { CONVERSATION_DEFAULT_MODEL_ID } from '../../shared/conversation-harness'
 import { isWslHostId, type ExecutionHostId } from '../../shared/execution-host'
-import { toWslPath } from '../../shared/host-paths'
+import { isWindowsPath, toWslPath } from '../../shared/host-paths'
+import { AGENT_IDENTITY_ENV_KEYS } from '../../shared/studio-env'
 import { inferConversationToolKind } from '../../shared/conversation/toolKind'
 import { summarizeToolInput } from '../../shared/conversation/approvalSummary'
 import { normalizeApiKeySource } from '../../shared/conversation/apiKeySource'
@@ -62,6 +63,7 @@ import type {
   ConversationCliRuntimeOverrides,
   ConversationEvent,
   ConversationImageAttachment,
+  ConversationMcpServer,
   ConversationPermissionPreset,
   ConversationQuestion,
   ConversationSubagentMessagePayload,
@@ -115,6 +117,9 @@ export type ClaudeAgentProviderOptions = {
   prepareWslTarget?: (hostId: ExecutionHostId) => Promise<WslClaudeTarget>
   // Starts the child inside that machine; tests stand in.
   spawnWslChild?: (target: WslClaudeTarget, request: ClaudeSpawnRequest) => ChildProcess
+  // The app's own MCP gateway on the machine the child runs on, handed to
+  // every child. Null or absent leaves it out.
+  resolveStudioMcpServer?: (input: { hostId?: ExecutionHostId }) => Promise<ConversationMcpServer | null>
 }
 
 export type ClaudeAgentProviderAdapter = ConversationProviderAdapter & {
@@ -177,6 +182,8 @@ type SessionState = {
   cliRuntimes?: ConversationCliRuntimeOverrides
   permissionPreset: ConversationPermissionPreset
   allowedTools?: string[]
+  // The session's own MCP servers (a connector run's), on every child it spawns.
+  mcpServers?: ConversationMcpServer[]
   skillIds?: string[]
   // The per-child plugin directory that carries the attached skills; removed
   // with the child that loaded it.
@@ -664,6 +671,11 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     })
     assertSpawnWanted(state, generation)
     const instructions = await readWorkspaceInstructions(state.workspaceRoot)
+    const studioGateway = await options.resolveStudioMcpServer?.({ ...(hostId ? { hostId } : {}) }).catch(() => null)
+    const mcpServers = claudeMcpServers(
+      [...(studioGateway ? [withAgentIdentity(studioGateway, env)] : []), ...(state.mcpServers ?? [])],
+      { wsl: wslTarget !== null },
+    )
     await swept
     assertSpawnWanted(state, generation)
     const skillPlugin = state.skillIds?.length
@@ -708,6 +720,12 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       // agent does need arrives another way: its CLAUDE.md through the system
       // prompt above, and attached skills as a plugin of their own.
       settingSources: ['user'],
+      // Which is also why the app's MCP gateway is passed here rather than
+      // read from the workspace's `.mcp.json`: a project's MCP servers are
+      // project settings, and this child loads none. The session's own servers
+      // (a connector run's) ride the same option; the person's user-scoped
+      // servers still load from their own configuration.
+      ...(Object.keys(mcpServers).length > 0 ? { mcpServers } : {}),
       ...(skillPlugin
         ? {
             plugins: [
@@ -955,6 +973,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       rewind: true,
     },
     sessions: 'stateful',
+    acceptsMcpServers: true,
     listModels: () => [...CLAUDE_AGENT_MODELS],
 
     startSession(input: MockAdapterSessionInput) {
@@ -968,6 +987,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         cliRuntimes: input.cliRuntimes,
         permissionPreset: input.permissionPreset ?? 'none',
         allowedTools: input.allowedTools,
+        ...(input.mcpServers?.length ? { mcpServers: input.mcpServers } : {}),
         skillPluginDir: null,
         onBeforeTool: input.onBeforeTool,
         providerSessionId: input.resumeSessionId?.trim() || null,
@@ -2344,4 +2364,48 @@ function numberOr(value: unknown, fallback: number): number {
 
 function finiteNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+/**
+ * The SDK's `mcpServers` for a child: each server as Claude Code's own
+ * `.mcp.json` writer renders it (mcp-config-service.ts), keyed by id. A bearer
+ * token named by `envVarNames` stays a `${NAME}` reference, which the CLI
+ * expands from its own environment. A child in WSL gets a stdio server's
+ * Windows paths as the distribution sees them.
+ */
+export function claudeMcpServers(
+  servers: readonly ConversationMcpServer[],
+  options: { wsl?: boolean } = {},
+): NonNullable<Options['mcpServers']> {
+  const hostPath = (value: string): string => (options.wsl && isWindowsPath(value) ? toWslPath(value) : value)
+  const out: NonNullable<Options['mcpServers']> = {}
+  for (const server of servers) {
+    if (server.transport === 'stdio') {
+      if (!server.command) continue
+      out[server.id] = {
+        type: 'stdio',
+        command: hostPath(server.command),
+        args: (server.args ?? []).map(hostPath),
+        ...(server.env ? { env: server.env } : {}),
+      }
+      continue
+    }
+    if (!server.url) continue
+    const headers = { ...server.headers }
+    if (!headers.Authorization && server.envVarNames?.[0]) headers.Authorization = `Bearer \${${server.envVarNames[0]}}`
+    out[server.id] = {
+      type: server.transport,
+      url: server.url,
+      ...(Object.keys(headers).length > 0 ? { headers } : {}),
+    }
+  }
+  return out
+}
+
+// The gateway's bridge says which agent is calling from its environment. A
+// stdio server inherits the child's, but the identity is set on the entry too,
+// so the launch cap never rests on how the CLI builds a server's environment.
+function withAgentIdentity(server: ConversationMcpServer, env: Record<string, string>): ConversationMcpServer {
+  const identity = Object.fromEntries(AGENT_IDENTITY_ENV_KEYS.flatMap((key) => (env[key] ? [[key, env[key]]] : [])))
+  return { ...server, env: { ...server.env, ...identity, SPRINTENGINE_AGENT_CLI: 'claude-code' } }
 }

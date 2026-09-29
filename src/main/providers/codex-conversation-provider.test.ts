@@ -4,6 +4,7 @@ import {
   createCodexConversationProvider,
   codexPermissionPolicy,
   codexChildEnv,
+  codexMcpServerArgs,
   probeCodexConversationCommands,
 } from './codex-conversation-provider'
 import { CodexRpcError, type CodexRpcOptions, type RpcMessage } from './codex-json-rpc'
@@ -1159,4 +1160,51 @@ test('the handshake asks for the experimental API, and extra app-server argument
     capabilities: { experimentalApi: true },
   })
   expect(f.connection.args).toEqual(['-c', 'features.code_mode_host=false'])
+})
+
+test("a chat's own MCP servers reach Codex as config overrides for its app-server alone", async () => {
+  const f = fixture({ env: { SPRINTENGINE_CODEX_APP_SERVER_ARGS: `-c 'features.code_mode_host=false'` } })
+  expect(f.adapter.acceptsMcpServers).toBe(true)
+  Object.assign(f.input, {
+    mcpServers: [
+      {
+        id: 'railway',
+        name: 'Railway',
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', '@railway/mcp'],
+        env: { RAILWAY_ENV: 'prod' },
+        envVarNames: ['RAILWAY_TOKEN'],
+      },
+    ],
+  })
+  await runTurn(f, [])
+  expect(f.connection.args).toEqual([
+    '-c',
+    'features.code_mode_host=false',
+    '-c',
+    'mcp_servers.railway={ "command" = "npx", "args" = ["-y", "@railway/mcp"], "env_vars" = ["RAILWAY_TOKEN"], "env" = { "RAILWAY_ENV" = "prod" } }',
+  ])
+
+  // HTTP: the bearer token by the variable that holds it, other headers as they are.
+  expect(
+    codexMcpServerArgs([
+      {
+        id: 'linear',
+        name: 'Linear',
+        transport: 'http',
+        url: 'https://mcp.linear.app/mcp',
+        headers: { Authorization: 'Bearer stale', 'X-Team': 'acme' },
+        envVarNames: ['LINEAR_TOKEN'],
+      },
+    ]),
+  ).toEqual([
+    '-c',
+    'mcp_servers.linear={ "url" = "https://mcp.linear.app/mcp", "bearer_token_env_var" = "LINEAR_TOKEN", "http_headers" = { "X-Team" = "acme" } }',
+  ])
+  // A dotted id would be read as a deeper config path: refused, never mis-set.
+  expect(() => codexMcpServerArgs([{ id: 'acme.tools', name: 'Acme', transport: 'stdio', command: 'x' }])).toThrow(
+    /"acme\.tools" is not a Codex config key/,
+  )
+  expect(codexMcpServerArgs([])).toEqual([])
 })

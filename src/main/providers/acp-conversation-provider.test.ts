@@ -5,12 +5,17 @@ import { expect, test } from 'vitest'
 import {
   ACP_PROFILES,
   acpLaunchArgv,
+  acpMcpServers,
   acpToolKind,
   confinedAcpPath,
   createAcpConversationProvider,
   probeAcpConversationCommands,
 } from './acp-conversation-provider'
-import type { ConversationEvent, ConversationPermissionPreset } from '../../shared/conversation-runtime'
+import type {
+  ConversationEvent,
+  ConversationMcpServer,
+  ConversationPermissionPreset,
+} from '../../shared/conversation-runtime'
 import type { ConversationCommandCatalog } from '../../shared/conversation/commands'
 import { conversationCommandsFor, onConversationCommandsChanged } from '../conversation-commands/registry'
 
@@ -26,12 +31,13 @@ const request=(method,params)=>new Promise(resolve=>{const id=++serial;pending.s
 createInterface({input:process.stdin}).on('line',async line=>{
  const m=JSON.parse(line),p=m.params||{};
  if(!m.method){pending.get(m.id)?.(m.result||{error:m.error});pending.delete(m.id);return}
- if(m.method==='initialize')return result(m.id,{protocolVersion:1,agentCapabilities:{loadSession:!process.env.NO_LOAD,promptCapabilities:{image:true}},authMethods:[],_meta:{availableCommands:[{name:'handshake',description:'Listed before any session'}]}});
+ if(m.method==='initialize')return result(m.id,{protocolVersion:1,agentCapabilities:{loadSession:!process.env.NO_LOAD,promptCapabilities:{image:true},mcpCapabilities:{http:!!process.env.MCP_HTTP}},authMethods:[],_meta:{availableCommands:[{name:'handshake',description:'Listed before any session'}]}});
  if(m.method==='session/load'&&p.sessionId==='gone')return send({id:m.id,error:{code:-32002,message:'Resource not found'}});
  if(m.method==='session/load'&&require('node:fs').existsSync('busy-session'))return send({id:m.id,error:{code:-32603,message:'Internal error',data:{details:'rate limit reached'}}});
  if((m.method==='session/new'||m.method==='session/load')&&require('node:fs').existsSync('fail-session'))return send({id:m.id,error:{code:-32603,message:'session store unavailable'}});
  if(m.method==='session/new'||m.method==='session/load'){
    opened=m.method;
+   if(p.mcpServers?.length)require('node:fs').writeFileSync('mcp-servers.json',JSON.stringify(p.mcpServers));
    if(m.method==='session/load')update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:'REPLAY SHOULD BE SUPPRESSED'}});
    result(m.id,{...(m.method==='session/new'?{sessionId:'native'}:{}),modes:{currentModeId:'agent',availableModes:[{id:'agent',name:'Agent'},{id:'plan',name:'Plan'},{id:'ask',name:'Ask'}]},configOptions:[{id:'model',name:'Model',category:'model',type:'select',currentValue:'model-one',options:[{value:'model-one',name:'Model One'},{value:'model-two',name:'Model Two'}]}]});
    // Like Cursor and OpenCode: the command list follows the new session, outside any turn. STRAY
@@ -737,5 +743,119 @@ test('ACP lists the commands an agent gives in its handshake without opening a s
     expect(conversationCommandsFor('probe-test', root).commands).toEqual(commands)
   } finally {
     await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("ACP opens the session with the chat's own MCP servers, and refuses one the agent cannot reach", async () => {
+  const start = async (env: Record<string, string>, mcpServers: ConversationMcpServer[]) => {
+    const root = await mkdtemp(join(tmpdir(), 'acp-mcp-'))
+    const provider = createAcpConversationProvider(
+      {
+        id: 'test-acp',
+        displayName: 'Test agent',
+        cli: 'test',
+        argv: ['-e', agent],
+        authHint: 'Configure test agent.',
+        images: true,
+        planMode: true,
+      },
+      {
+        detect: async () => process.execPath,
+        buildEnv: async () => ({ PATH: process.env.PATH, ...env }),
+        startupTimeoutMs: 2000,
+      },
+    )
+    const started = Promise.resolve(
+      provider.startSession({
+        sessionId: 'session',
+        workspaceId: 'workspace',
+        agentId: 'agent',
+        providerId: 'test-acp',
+        modelId: 'default',
+        workspaceRoot: root,
+        mcpServers,
+      }),
+    )
+    return { provider, root, started }
+  }
+  const stdio: ConversationMcpServer = {
+    id: 'railway',
+    name: 'Railway',
+    transport: 'stdio',
+    command: 'npx',
+    args: ['-y', '@railway/mcp'],
+    env: { RAILWAY_ENV: 'prod' },
+  }
+  const http: ConversationMcpServer = {
+    id: 'linear',
+    name: 'Linear',
+    transport: 'http',
+    url: 'https://mcp.linear.app/mcp',
+    headers: { 'X-Team': 'acme' },
+  }
+
+  const plain = await start({}, [stdio])
+  try {
+    expect(createAcpConversationProvider(ACP_PROFILES[0]!).acceptsMcpServers).toBe(true)
+    await plain.started
+    expect(JSON.parse(await readFile(join(plain.root, 'mcp-servers.json'), 'utf8'))).toEqual([
+      { name: 'railway', command: 'npx', args: ['-y', '@railway/mcp'], env: [{ name: 'RAILWAY_ENV', value: 'prod' }] },
+    ])
+  } finally {
+    plain.provider.disposeAll?.()
+    await rm(plain.root, { recursive: true, force: true })
+  }
+
+  // An agent that says nothing about HTTP servers is not handed one; the start fails with why.
+  const refused = await start({}, [http])
+  try {
+    await expect(refused.started).rejects.toThrow(
+      'Test agent does not connect to HTTP MCP servers, so it cannot run with "Linear".',
+    )
+    await expect(refused.started).rejects.not.toThrow('Configure test agent')
+  } finally {
+    refused.provider.disposeAll?.()
+    await rm(refused.root, { recursive: true, force: true })
+  }
+
+  const capable = await start({ MCP_HTTP: '1' }, [http])
+  try {
+    await capable.started
+    expect(JSON.parse(await readFile(join(capable.root, 'mcp-servers.json'), 'utf8'))).toEqual([
+      { type: 'http', name: 'linear', url: 'https://mcp.linear.app/mcp', headers: [{ name: 'X-Team', value: 'acme' }] },
+    ])
+  } finally {
+    capable.provider.disposeAll?.()
+    await rm(capable.root, { recursive: true, force: true })
+  }
+
+  // Variables a server names are read from this app's environment, since ACP names an environment outright.
+  process.env.ACP_MCP_TEST_TOKEN = 'secret-token'
+  try {
+    expect(
+      acpMcpServers(
+        [
+          { ...stdio, env: undefined, envVarNames: ['ACP_MCP_TEST_TOKEN', 'ACP_MCP_TEST_UNSET'] },
+          { ...http, headers: undefined, envVarNames: ['ACP_MCP_TEST_TOKEN'] },
+        ],
+        { http: true },
+        'Test agent',
+      ),
+    ).toEqual([
+      {
+        name: 'railway',
+        command: 'npx',
+        args: ['-y', '@railway/mcp'],
+        env: [{ name: 'ACP_MCP_TEST_TOKEN', value: 'secret-token' }],
+      },
+      {
+        type: 'http',
+        name: 'linear',
+        url: 'https://mcp.linear.app/mcp',
+        headers: [{ name: 'Authorization', value: 'Bearer secret-token' }],
+      },
+    ])
+  } finally {
+    delete process.env.ACP_MCP_TEST_TOKEN
   }
 })

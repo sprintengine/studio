@@ -115,6 +115,7 @@ import { resolveMemoryRoot } from './memory-graph'
 import { getPluginManifest, listPluginRegistryEntries } from './plugin-registry-instance'
 import { createMcpServerResolver } from './mcp-config-readers/resolve-servers'
 import { syncStudioMcpConfig } from './studio-mcp-sync'
+import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../shared/product-identity'
 import { createGitWorktree, excludeMcpConfigFromWorktree, getGitRepoRoot } from './git'
 import { readBranchName, resolveTrunk } from './git-branch-span'
 import { getGitBranches } from './git-read-models'
@@ -595,20 +596,22 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     approvalRules: new ConversationApprovalRuleStore(app.getPath('userData')),
     attachmentStore: new ConversationAttachmentStore(app.getPath('userData')),
     planStore: new ConversationPlanStore(app.getPath('userData')),
-    prepareStudioMcp: async ({ workspaceRoot }) => {
+    // A Claude chat's child loads no project settings, so the gateway pinned
+    // into a workspace's `.mcp.json` never reached it; the child is handed the
+    // gateway itself, on the machine its `claude` runs on.
+    resolveStudioMcpServer: async ({ hostId }) => {
       await whenAgentLaunchReady()
-      const result = await syncStudioMcpConfig(
-        {
-          workspaceRoot,
-          settings: { syncEnabled: false, servers: {} },
-          clients: ['claude-code'],
-        },
-        {
-          mcpConfigService,
-          studioGateway: () => studioGatewayFor(null),
-        },
-      )
-      return result.ok ? { ok: true } : result
+      const gateway = studioGatewayFor(hostId ?? null)
+      if (!gateway) return null
+      return {
+        id: STUDIO_MCP_SERVER_ID,
+        name: STUDIO_MCP_SERVER_NAME,
+        transport: 'stdio',
+        command: gateway.command,
+        args: gateway.args,
+        env: gateway.env,
+        ...(gateway.envVarNames?.length ? { envVarNames: gateway.envVarNames } : {}),
+      }
     },
   })
   conversationRuntime.startIdleSweep(powerActivity)
