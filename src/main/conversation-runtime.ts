@@ -72,7 +72,11 @@ import { applyPromptCacheEvent } from '../shared/prompt-cache'
 import { ConversationApprovalRuleStore } from './conversation-approval-rules'
 import { ConversationAttachmentStore } from './conversation-attachment-store'
 import { ConversationPlanStore } from './conversation-plan-store'
-import type { ApprovalRuleRequest } from '../shared/conversation/approvalRules'
+import {
+  approvalRememberLabels,
+  approvalRuleCandidate,
+  type ApprovalRuleRequest,
+} from '../shared/conversation/approvalRules'
 import { getConversationProviderById } from './plugin-registry-instance'
 import { ProviderSecretStore } from './secret-store'
 import { clampSuspendIdleAfterMs, DEFAULT_SUSPEND_IDLE_AFTER_MS } from './terminal-reap-policy'
@@ -1619,6 +1623,17 @@ export class ConversationRuntime {
       }
       const requestId = stamped.payload.requestId
       session.approvalRequests.set(requestId, request)
+      // Whether "allow for this conversation" can be remembered, in the words
+      // this app's own menu uses: a client on another machine has no
+      // workspace root to work either out from.
+      if (request.requestKind === 'tool') {
+        const candidate = approvalRuleCandidate(request, session.workspaceRoot)
+        stamped.payload = {
+          ...stamped.payload,
+          rememberable: candidate !== null,
+          ...(candidate ? { rememberLabel: approvalRememberLabels(candidate).conversation } : {}),
+        }
+      }
       // Decide whether a human is needed before publication, so remembered
       // grants never briefly trigger OS attention.
       // Resolution starts only after this request has persisted and published.
