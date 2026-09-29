@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react'
 import { resolveTerminalFileReferencePath } from '../../../utils/terminalFileLinks'
 import { useConversationLinkContext } from './conversationLinks'
-import { useConversationTransport } from './conversationTransport'
+import {
+  useConversationTransport,
+  type ConversationToolImageResult,
+  type ConversationTransport,
+} from './conversationTransport'
 
 // The image formats main will hand back as a data URL (filesystem-image.ts).
 const PREVIEWABLE_IMAGE = /\.(apng|avif|bmp|gif|ico|jpe?g|png|svg|webp)$/iu
@@ -49,4 +53,76 @@ export function useLocalImage(path: string | null | undefined): LocalImage {
   }, [resolved])
   const current = image?.path === resolved ? image : undefined
   return { resolved, src: current?.src, failed: current?.failed }
+}
+
+// A remote chat's pictures, per transport (one per followed conversation), so a
+// row that scrolls away and back, or opens after showing collapsed, draws what
+// was already fetched instead of asking the other machine again. A failure is
+// not kept, since the picture may be there on the next look; a machine that
+// does not serve pictures is, since it will not start to mid-conversation. Few
+// entries, since each can be megabytes of data URL.
+const TOOL_IMAGE_CACHE_ENTRIES = 12
+const toolImageCache = new WeakMap<ConversationTransport, Map<string, Promise<ConversationToolImageResult>>>()
+
+function fetchToolImage(
+  transport: ConversationTransport,
+  toolImage: NonNullable<ConversationTransport['toolImage']>,
+  toolUseId: string,
+): Promise<ConversationToolImageResult> {
+  let cache = toolImageCache.get(transport)
+  if (!cache) {
+    cache = new Map()
+    toolImageCache.set(transport, cache)
+  }
+  const cached = cache.get(toolUseId)
+  if (cached) {
+    // The most recently shown stays longest.
+    cache.delete(toolUseId)
+    cache.set(toolUseId, cached)
+    return cached
+  }
+  const asked = toolImage({ toolUseId }).catch((error: unknown): ConversationToolImageResult => ({
+    ok: false,
+    unsupported: false,
+    message: error instanceof Error ? error.message : String(error),
+  }))
+  cache.set(toolUseId, asked)
+  while (cache.size > TOOL_IMAGE_CACHE_ENTRIES) cache.delete(cache.keys().next().value!)
+  void asked.then((answer) => {
+    if (!answer.ok && !answer.unsupported && cache.get(toolUseId) === asked) cache.delete(toolUseId)
+  })
+  return asked
+}
+
+/**
+ * The picture a step made or looked at. On this machine, read off the disk as
+ * `useLocalImage` does. In a chat on a paired machine, asked of that machine by
+ * the step's id — never by path, which names a file over there — and `remote`
+ * says so, since there is no file here to reveal. Unresolved where that
+ * machine does not serve pictures: the picture is on the other machine.
+ */
+export function useToolImage(toolUseId: string, path: string | null | undefined): LocalImage & { remote?: boolean } {
+  const local = useLocalImage(path)
+  const transport = useConversationTransport()
+  const remote = Boolean(path) && !transport.capabilities.localFiles && transport.toolImage !== undefined
+  const [image, setImage] = useState<{ id: string; answer: ConversationToolImageResult }>()
+  useEffect(() => {
+    if (!remote || !transport.toolImage) return
+    let cancelled = false
+    void fetchToolImage(transport, transport.toolImage, toolUseId).then((answer) => {
+      if (!cancelled) setImage({ id: toolUseId, answer })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [remote, transport, toolUseId])
+  if (!remote) return local
+  const answer = image?.id === toolUseId ? image.answer : undefined
+  if (answer && !answer.ok && answer.unsupported) return { resolved: null }
+  return {
+    resolved: path ?? null,
+    src: answer?.ok ? answer.src : undefined,
+    failed: answer ? !answer.ok : undefined,
+    remote: true,
+  }
 }

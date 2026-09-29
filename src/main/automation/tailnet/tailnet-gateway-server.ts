@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http'
 import type { Duplex } from 'stream'
+import { pipeline } from 'stream/promises'
 
 import { SUPPORTED_MCP_PROTOCOL_VERSIONS } from '../../../shared/mcp/protocol'
 import { STUDIO_MCP_SERVER_NAME } from '../../../shared/product-identity'
@@ -39,10 +40,12 @@ import {
   TAILNET_EVENTS_PATH,
   TAILNET_STREAM_PATH,
   TAILNET_CONVERSATION_PATH,
+  TAILNET_CONVERSATION_IMAGE_PATH,
   TAILNET_TRANSPORT_VERSION,
   TAILNET_UPLOAD_PATH,
   TAILNET_WS_TICKET_PATH,
 } from './tailnet-routes'
+import { openConversationImage } from './tailnet-conversation-images'
 import { ATTACHABLE_IMAGE_TYPES, MAX_ATTACHMENT_BYTES } from '../../../shared/conversation-attachments'
 import {
   createResyncBackoff,
@@ -524,6 +527,78 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     }
   }
 
+  /**
+   * The picture one step of a chat made or looked at, streamed as it is on disk.
+   *
+   * The device names the chat and the step; the conversation's record of that
+   * step names the file. A `path` in the query is never read. The bytes are
+   * served under the type their first bytes say, and cached privately for a
+   * day: a step's picture never changes, and a phone scrolling back through a
+   * chat should not fetch it twice.
+   */
+  async function handleConversationImage(response: ServerResponse, device: TailnetDevice, url: URL): Promise<void> {
+    if (!tailnetScopeGrantsAccess(new Set(device.scopes), 'conversation:read')) {
+      writeJson(response, 403, {
+        error: { code: 'tailnet_scope_required', message: 'This device may not read conversations on this machine.' },
+      })
+      return
+    }
+    const conversations = options.conversations
+    const workspaceId = url.searchParams.get('workspaceId')?.trim() ?? ''
+    const agentId = url.searchParams.get('agentId')?.trim() ?? ''
+    const toolUseId = url.searchParams.get('toolUseId')?.trim() ?? ''
+    if (!workspaceId || !agentId || !toolUseId) {
+      writeJson(response, 400, {
+        error: { code: 'invalid_arguments', message: 'A picture is named by workspaceId, agentId and toolUseId.' },
+      })
+      return
+    }
+    const key = conversations?.resolveKey(workspaceId, agentId) ?? null
+    const found = key && conversations?.toolImagePath ? await conversations.toolImagePath(key, toolUseId) : null
+    if (!found || (!found.ok && found.code === 'unknown_conversation')) {
+      writeJson(response, 404, {
+        error: { code: 'unknown_conversation', message: 'No eligible conversation on this machine has that id.' },
+      })
+      return
+    }
+    if (!found.ok) {
+      writeJson(response, 404, {
+        error: { code: 'unknown_image', message: 'That step of the conversation shows no picture.' },
+      })
+      return
+    }
+    const opened = await openConversationImage(found.path)
+    if (!opened.ok) {
+      writeJson(response, opened.refusal.status, {
+        error: { code: opened.refusal.code, message: opened.refusal.message },
+      })
+      return
+    }
+    const { file, size, mediaType } = opened.image
+    if (response.headersSent || response.writableEnded) {
+      await file.close().catch(() => undefined)
+      return
+    }
+    response.writeHead(200, {
+      'Content-Type': mediaType,
+      'Content-Length': size,
+      'Cache-Control': 'private, max-age=86400',
+      'X-Content-Type-Options': 'nosniff',
+    })
+    // Never empty: an empty file has no first bytes to be a picture by.
+    // Bounded to the size the headers promised: a file that grows while it is
+    // read is not allowed to overrun its own Content-Length.
+    const source = file.createReadStream({ start: 0, end: size - 1, autoClose: true })
+    try {
+      await pipeline(source, response)
+    } catch (error) {
+      // The client went away, or the file did. The status line is already
+      // sent, so the only honest thing left is to cut the connection.
+      options.log?.(`tailnet conversation image failed: ${message(error)}`)
+      response.destroy()
+    }
+  }
+
   async function handleRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
     // Any `Origin` means a browser made this request. No client of this
     // transport is a browser, and a page on a tailnet machine must not be able
@@ -616,6 +691,11 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
 
     if (method === 'POST' && path === TAILNET_UPLOAD_PATH) {
       await handleUpload(request, response, device, parseUrl(request.url))
+      return
+    }
+
+    if (method === 'GET' && path === TAILNET_CONVERSATION_IMAGE_PATH) {
+      await handleConversationImage(response, device, parseUrl(request.url))
       return
     }
 

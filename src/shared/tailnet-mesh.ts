@@ -337,6 +337,13 @@ export type MeshConversationListResult =
   | { ok: true; conversations: MeshConversation[]; access: MeshConversationAccess; modelSwitch: boolean }
   | { ok: false; code: string; message: string }
 
+/**
+ * A step's picture from a paired machine, as a data URL a window can draw.
+ * `images_unsupported` is a machine that does not serve pictures (it does not
+ * advertise `conversation-images`); the picture stays over there.
+ */
+export type MeshConversationImageResult = { ok: true; dataUrl: string } | { ok: false; code: string; message: string }
+
 /** The commands a remote device may send. A permanent rule is not among them. */
 export type MeshConversationCommand = ConversationWireCommand
 
@@ -394,3 +401,4 @@ export const MESH_CONVERSATION_EARLIER_CHANNEL = 'mesh:conversation-earlier'
 export const MESH_CONVERSATION_COMMAND_CHANNEL = 'mesh:conversation-command'
 export const MESH_CONVERSATION_TOOL_DETAIL_CHANNEL = 'mesh:conversation-tool-detail'
 export const MESH_CONVERSATION_TURN_DIFF_CHANNEL = 'mesh:conversation-turn-diff'
+export const MESH_CONVERSATION_TOOL_IMAGE_CHANNEL = 'mesh:conversation-tool-image'
