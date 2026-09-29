@@ -383,14 +383,21 @@ export function binaryVersionProbeFrom({ parsed, inconclusive }: ProbeVerdict): 
   return { outcome: 'resolved', version: parsed.version, resolvedPath: parsed.resolvedPath }
 }
 
-export async function probeBinaryVersion(binary: string): Promise<BinaryVersionProbe> {
+// `options.userPathOnly` looks the binary up on the person's own PATH alone,
+// without the app's managed node/npm shims in front of it: the question "can
+// an agent's shell run `npm install` here" is about what that shell has, and
+// the shims are only ever handed to the app's own installers.
+export async function probeBinaryVersion(
+  binary: string,
+  options: { userPathOnly?: boolean } = {},
+): Promise<BinaryVersionProbe> {
   try {
     return binaryVersionProbeFrom(
       await runVersionProbe({
         binary,
         versionArgs: ['--version'],
         target: resolveInstallPlatform(process.platform, LOCAL_HOST_ID),
-        env: defaultProbeEnv(),
+        env: options.userPathOnly ? stringProcessEnv() : defaultProbeEnv(),
       }),
     )
   } catch {

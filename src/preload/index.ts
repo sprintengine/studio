@@ -49,6 +49,7 @@ import { toursApi } from './api/tours'
 import { workspaceBackupApi } from './api/workspace-backup'
 import { workspaceSkillsApi } from './api/workspace-skills'
 import { workspaceSyncApi } from './api/workspace-sync'
+import { extensionScaffoldApi } from './api/extension-scaffold'
 
 const diagnosticsEnabled = process.env.NODE_ENV === 'development' || readStudioEnv('SPRINTENGINE_DIAGNOSTICS') === '1'
 
@@ -104,6 +105,8 @@ const api = {
   ...workspaceBackupApi,
   ...workspaceSkillsApi,
   ...workspaceSyncApi,
+  // ── extension-platform additions ──
+  ...extensionScaffoldApi,
 } satisfies ElectronApi
 
 // Wrap the whole surface for IPC accounting only when diagnostics is enabled, so

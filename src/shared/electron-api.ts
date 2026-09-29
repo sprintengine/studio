@@ -441,6 +441,14 @@ import type {
   WindowPlacement,
   WindowState,
 } from './ipc/window'
+import type {
+  ExtensionScaffoldCheck,
+  ExtensionScaffoldCheckInput,
+  ExtensionScaffoldCreateInput,
+  ExtensionScaffoldCreateResult,
+  ExtensionScaffoldFolderPick,
+  ExtensionTemplateSummary,
+} from './extension-scaffold'
 
 // The contract, one module per domain. Everything a caller imports from this
 // file is declared in one of them; this file adds the ElectronApi shape.
@@ -1498,4 +1506,12 @@ export type ElectronApi = {
   updateBacklogDependencies: (input: BacklogDependenciesInput) => Promise<BacklogMutationResult>
   updateBacklogMockups: (input: BacklogMockupsInput) => Promise<BacklogMutationResult>
   createBacklogEpic: (input: BacklogCreateEpicInput) => Promise<BacklogCreateEpicResult>
+  // ── extension-platform additions ──
+  // "Build your own extension" (the Extensions home): the SDK's templates, what
+  // this machine has to build one, a folder picked in main's own dialog (its
+  // token is what `extensionScaffoldCreate` writes under), and the project.
+  extensionScaffoldTemplates: () => Promise<ExtensionTemplateSummary[]>
+  extensionScaffoldCheck: (input: ExtensionScaffoldCheckInput) => Promise<ExtensionScaffoldCheck[]>
+  extensionScaffoldPickFolder: () => Promise<ExtensionScaffoldFolderPick | null>
+  extensionScaffoldCreate: (input: ExtensionScaffoldCreateInput) => Promise<ExtensionScaffoldCreateResult>
 }

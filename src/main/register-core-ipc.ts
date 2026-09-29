@@ -62,6 +62,7 @@ import { registerEditorRevealIpc } from './ipc/editor-reveal-ipc'
 import { registerToursIpc } from './ipc/tours-ipc'
 import { pickCanvasExportDirectory, revealCanvasBoardFile } from './ipc/canvas-export-dialog'
 import { registerWorkspaceSyncIpc } from './ipc/workspace-sync-ipc'
+import { registerExtensionScaffoldIpc } from './ipc/extension-scaffold-ipc'
 import {
   confirmWorkspaceWindowClose,
   createDiagnosticsWindow,
@@ -270,5 +271,8 @@ export function registerCoreIpc(
       return out
     },
   })
+  // ── extension-platform additions ──
+  // Build your own extension: the SDK's templates, the machine check, the project.
+  registerExtensionScaffoldIpc(ipcMain)
   return { conversationCommands }
 }
