@@ -10,6 +10,7 @@ import {
 } from '../../../panels/agentChat/conversationProjection'
 import { flattenToolEntries, subagentLaneLabel } from '../../../panels/agentChat/conversationTimeline'
 import { LiveElapsed } from '../../../panels/agentChat/liveElapsed'
+import { useLiveRowMotion } from '../../../panels/agentChat/liveVisibility'
 import { SubagentLaneResult, subagentResultPreview } from '../../../panels/agentChat/subagentResult'
 import {
   LaneGlyph,
@@ -279,11 +280,20 @@ function AgentStatus({ lane }: { lane: TranscriptToolEntry }) {
 // and underneath, what it is doing now or the first line of what it found.
 function AgentRow({ lane, onOpen }: { lane: TranscriptToolEntry; onOpen: () => void }) {
   const running = lane.status === 'running'
+  // A working agent's character loops; scrolled out of the list (or with the
+  // window idle) it holds still, as a transcript's lanes do.
+  const rowRef = useRef<HTMLButtonElement>(null)
+  useLiveRowMotion(rowRef, running)
   const task = laneTask(lane)
   const now = lane.agent?.progressSummary ?? (lane.agent?.lastToolName ? `Using ${lane.agent.lastToolName}` : '')
   const detail = running ? now : lane.agent?.error || subagentResultPreview(lane.output)
   return (
-    <RowButton density="row" onClick={onOpen} aria-label={`${subagentLaneLabel(lane)}: ${task || 'agent'}`}>
+    <RowButton
+      ref={rowRef}
+      density="row"
+      onClick={onOpen}
+      aria-label={`${subagentLaneLabel(lane)}: ${task || 'agent'}`}
+    >
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex min-w-0 items-center gap-2 text-meta">
           <LaneGlyph tool={lane} />
@@ -325,12 +335,14 @@ const AgentThread = React.memo(function AgentThread({
   const stepCount = lane.agent?.usage?.toolUses ?? flattenToolEntries(steps).length
   const now = lane.agent?.progressSummary ?? (lane.agent?.lastToolName ? `Using ${lane.agent.lastToolName}` : '')
   const { beforeSteps, afterSteps } = placeAgentMessages(lane)
+  const headRef = useRef<HTMLDivElement>(null)
+  useLiveRowMotion(headRef, running)
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-6 pt-2">
       <GhostButton size="inline" tone="subtle" align="start" onClick={onBack}>
         ‹ All agents
       </GhostButton>
-      <div className="mt-2 flex items-center gap-2 px-2 text-body">
+      <div ref={headRef} className="mt-2 flex items-center gap-2 px-2 text-body">
         <LaneGlyph tool={lane} />
         <span className="font-medium text-[color:var(--text-strong)]">{subagentLaneLabel(lane)}</span>
         <span className="ml-auto shrink-0 text-meta tabular-nums text-[color:var(--text-subtle)]">

@@ -292,3 +292,18 @@ test('while the chat streams, the lanes follow on a short beat rather than every
     await tab.unmount()
   }
 })
+
+test('a working agent’s character is held by the live-row motion rule, as a transcript lane is', async () => {
+  const tab = await mountAgentsTab()
+  try {
+    await tab.deliver(transcript)
+    await showList(tab)
+    const row = tab.button('Find the router')!
+    const animated = [...row.querySelectorAll<HTMLElement>('.agent-glyph [class^="agent-glyph__"]')]
+    expect(animated.length).toBeGreaterThan(0)
+    // The fixture's window asks for reduced motion, so the rule holds it still.
+    for (const element of animated) expect(element.style.animationPlayState).toBe('paused')
+  } finally {
+    await tab.unmount()
+  }
+})
