@@ -357,6 +357,8 @@ import type {
   MarketplacePluginUninstallResult,
   MarketplacePluginVerifyInput,
   MarketplacePluginVerifyResult,
+  ThirdPartyModuleUninstallInput,
+  ThirdPartyModuleUninstallResult,
 } from './ipc/marketplace'
 import type {
   MarketplaceRegistryReadInput,
@@ -1378,6 +1380,8 @@ export type ElectronApi = {
   installThirdPartyModuleFolder: (srcDir: string) => Promise<ThirdPartyModuleInstallResult>
   /** Trust or untrust an installed third-party module. */
   setThirdPartyModuleTrust: (id: string, trusted: boolean) => Promise<ThirdPartyModuleTrustResult>
+  /** Remove a third-party module however it was installed (folder, marketplace, GitHub), with its trust, enablement and secrets. */
+  uninstallThirdPartyModule: (input: ThirdPartyModuleUninstallInput) => Promise<ThirdPartyModuleUninstallResult>
   /** Serve trusted third-party modules' entry.renderer bundles for the renderer loader. */
   listThirdPartyRendererEntries: () => Promise<ThirdPartyRendererEntriesResult>
   /** Install/trust changed; renderer-only modules may now be available. */

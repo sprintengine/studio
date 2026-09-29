@@ -224,7 +224,7 @@ export function registerCoreIpc(
   registerConversationIpc(ipcMain, createConversationIpcHandlers(services.conversationRuntime))
   registerCredentialIpc(ipcMain)
   registerDesignSystemIpc(ipcMain)
-  registerThirdPartyModuleIpc(ipcMain)
+  registerThirdPartyModuleIpc(ipcMain, services)
 
   // The terminal runtime (agent-runtime) is always on, so its IPC registers
   // with the core surfaces.
