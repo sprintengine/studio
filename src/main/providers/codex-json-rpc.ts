@@ -36,6 +36,8 @@ export type CodexRpcOptions = {
  * being answered (a timeout, or the process closing). */
 export class CodexRpcError extends Error {}
 
+const MAX_FRAME_BYTES = 16 * 1024 * 1024
+
 const TOOL_FAILURE_CHARS = 500
 
 /**
@@ -96,9 +98,13 @@ export function createCodexRpcTransport(options: CodexRpcOptions): CodexRpcTrans
     number,
     { resolve(value: unknown): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }
   >()
-  const decoder = new StringDecoder('utf8')
   let sequence = 0
-  let buffer = ''
+  // The unterminated tail of stdout, kept as the chunks it arrived in. A newline
+  // byte never occurs inside a multi-byte UTF-8 sequence, so frames are split on
+  // bytes and each is decoded once; a chunk is scanned only when it arrives, so a
+  // multi-megabyte frame costs linear time rather than a rescan per chunk.
+  let partial: Buffer[] = []
+  let partialBytes = 0
   let closed = false
   let delivery = Promise.resolve()
   const finish = (error: Error) => {
@@ -142,39 +148,52 @@ export function createCodexRpcTransport(options: CodexRpcOptions): CodexRpcTrans
     // A line this long is not a log line worth reading.
     if (stderrLine.length > 64 * 1024) stderrLine = ''
   })
-  child.stdout.on('data', (chunk: Buffer) => {
-    buffer += decoder.write(chunk)
-    if (Buffer.byteLength(buffer) > 16 * 1024 * 1024) {
-      finish(new Error('Codex protocol frame exceeds the size limit.'))
-      child.kill()
+  const deliver = (line: string) => {
+    let message: RpcMessage
+    try {
+      message = JSON.parse(line) as RpcMessage
+    } catch {
       return
     }
+    if (!message || typeof message !== 'object' || Array.isArray(message)) return
+    if (typeof message.method !== 'string' && typeof message.id === 'number') {
+      const request = pending.get(message.id)
+      if (!request) return
+      clearTimeout(request.timer)
+      pending.delete(message.id)
+      if (message.error) request.reject(new CodexRpcError(message.error.message ?? 'Codex request failed.'))
+      else request.resolve(message.result)
+    } else if (typeof message.method === 'string') {
+      delivery = delivery
+        .then(() => options.onMessage(message))
+        .catch((error: unknown) => {
+          finish(error instanceof Error ? error : new Error('Codex event handling failed.'))
+          child.kill()
+        })
+    }
+  }
+  child.stdout.on('data', (chunk: Buffer) => {
+    if (closed) return
+    let start = 0
     let newline: number
-    while ((newline = buffer.indexOf('\n')) >= 0) {
-      const line = buffer.slice(0, newline)
-      buffer = buffer.slice(newline + 1)
-      let message: RpcMessage
-      try {
-        message = JSON.parse(line) as RpcMessage
-      } catch {
-        continue
-      }
-      if (!message || typeof message !== 'object' || Array.isArray(message)) continue
-      if (typeof message.method !== 'string' && typeof message.id === 'number') {
-        const request = pending.get(message.id)
-        if (!request) continue
-        clearTimeout(request.timer)
-        pending.delete(message.id)
-        if (message.error) request.reject(new CodexRpcError(message.error.message ?? 'Codex request failed.'))
-        else request.resolve(message.result)
-      } else if (typeof message.method === 'string') {
-        delivery = delivery
-          .then(() => options.onMessage(message))
-          .catch((error: unknown) => {
-            finish(error instanceof Error ? error : new Error('Codex event handling failed.'))
-            child.kill()
-          })
-      }
+    while ((newline = chunk.indexOf(10, start)) >= 0) {
+      const head = chunk.subarray(start, newline)
+      const frame = partial.length === 0 ? head : Buffer.concat([...partial, head], partialBytes + head.length)
+      partial = []
+      partialBytes = 0
+      start = newline + 1
+      deliver(frame.toString('utf8'))
+      if (closed) return
+    }
+    if (start >= chunk.length) return
+    const rest = chunk.subarray(start)
+    partial.push(rest)
+    partialBytes += rest.length
+    if (partialBytes > MAX_FRAME_BYTES) {
+      partial = []
+      partialBytes = 0
+      finish(new Error('Codex protocol frame exceeds the size limit.'))
+      child.kill()
     }
   })
   return {
