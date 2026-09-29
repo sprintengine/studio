@@ -105,7 +105,17 @@ export type ConversationTransport = {
    * provider declares `rewind` as well.
    */
   rewind?(input: ConversationRewindInput): Promise<ConversationRewindResult>
+  /**
+   * A step's picture as a data URL, asked of the machine the conversation runs
+   * on by the step's id. Absent for a local chat, which reads it off this disk.
+   * `unsupported` is a machine that does not serve pictures: the picture stays
+   * over there.
+   */
+  toolImage?(input: { toolUseId: string }): Promise<ConversationToolImageResult>
 }
+
+export type ConversationToolImageResult =
+  { ok: true; src: string } | { ok: false; unsupported: boolean; message: string }
 
 const LOCAL_CAPABILITIES: ConversationTransportCapabilities = {
   operate: true,
@@ -213,5 +223,11 @@ export function createRemoteConversationTransport(input: {
     // `modelSwitch` on from its list, and the chip stays locked without it.
     setModel: async (change) =>
       commandResult(await window.api.meshConversationSetModel({ key, modelId: change.modelId })),
+    toolImage: async (image) => {
+      const result = await window.api.meshConversationToolImage({ key, toolUseId: image.toolUseId })
+      return result.ok
+        ? { ok: true, src: result.dataUrl }
+        : { ok: false, unsupported: result.code === 'images_unsupported', message: result.message }
+    },
   }
 }

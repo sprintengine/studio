@@ -28,6 +28,7 @@ import {
   type MeshWorkspaceCheckoutResult,
   type MeshConversationCommandResult,
   type MeshConversationFrame,
+  type MeshConversationImageResult,
   type MeshConversationListResult,
 } from '../../../shared/tailnet-mesh'
 import type {
@@ -45,6 +46,7 @@ import { createTailnetMeshStore, type StoredMeshConnection, type TailnetMeshStor
 import { tailnetPeerSupports } from './tailnet-routes'
 import {
   callRemoteTool,
+  fetchRemoteConversationImage,
   formatTailnetEndpoint,
   openRemoteEventsSocket,
   collectPairingFromMachine,
@@ -232,6 +234,12 @@ export type TailnetMeshService = {
   conversationCommand(input: { key: unknown; command: unknown }): Promise<MeshConversationCommandResult>
   conversationToolDetail(input: { key: unknown; toolUseId: unknown }): Promise<ConversationToolDetailResult>
   conversationTurnDiff(input: { key: unknown; turnSeq: unknown; path?: unknown }): Promise<ConversationTurnDiffResult>
+  /**
+   * The picture one step of a followed conversation made or looked at, fetched
+   * from the machine it runs on. Refused without asking for a machine whose
+   * last handshake did not name `conversation-images`.
+   */
+  conversationToolImage(input: { key: unknown; toolUseId: unknown }): Promise<MeshConversationImageResult>
   shutdown(): void
 }
 
@@ -1315,6 +1323,39 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
       if (!key || typeof input.toolUseId !== 'string' || !input.toolUseId || input.toolUseId.length > 200)
         return { ok: false, code: 'invalid_input', message: 'Name the conversation and the tool call.' }
       return remoteConversations.toolDetail(key, input.toolUseId)
+    },
+
+    async conversationToolImage(input): Promise<MeshConversationImageResult> {
+      const key = meshConversationKeyOf(input.key)
+      if (!key || typeof input.toolUseId !== 'string' || !input.toolUseId || input.toolUseId.length > 200)
+        return { ok: false, code: 'invalid_arguments', message: 'Name the conversation and the tool call.' }
+      const connection = connectionFor(key.connectionId)
+      if (!connection) return { ok: false, code: 'unknown_connection', message: 'That machine is not paired here.' }
+      // A machine that said what it can do and left this out cannot serve it.
+      // One that has not said yet is asked, and answers for itself.
+      const unsupported = `This picture is on ${connection.machineName}, which does not share pictures yet.`
+      const capabilities = peerCapabilities.get(connection.id)
+      if (capabilities && !tailnetPeerSupports(capabilities, 'conversation-images'))
+        return { ok: false, code: 'images_unsupported', message: unsupported }
+      const fetched = await fetchRemoteConversationImage({
+        endpoint: endpointOf(connection),
+        token: connection.deviceToken,
+        workspaceId: key.workspaceId,
+        agentId: key.agentId,
+        toolUseId: input.toolUseId,
+      })
+      if (!fetched.ok) {
+        if (fetched.code === 'unauthorized')
+          recordReachability(connection, { reachable: false, unauthorized: true, detail: fetched.message })
+        // A build from before the route answers it as any unknown route.
+        if (fetched.code === 'not_found' || fetched.code === 'http_404')
+          return { ok: false, code: 'images_unsupported', message: unsupported }
+        return fetched
+      }
+      return {
+        ok: true,
+        dataUrl: `data:${fetched.value.mediaType};base64,${fetched.value.bytes.toString('base64')}`,
+      }
     },
 
     async conversationTurnDiff(input): Promise<ConversationTurnDiffResult> {

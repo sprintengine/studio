@@ -26,12 +26,14 @@ import {
   MESH_CONVERSATION_FOLLOW_CHANNEL,
   MESH_CONVERSATION_LIST_CHANNEL,
   MESH_CONVERSATION_TOOL_DETAIL_CHANNEL,
+  MESH_CONVERSATION_TOOL_IMAGE_CHANNEL,
   MESH_CONVERSATION_TURN_DIFF_CHANNEL,
   MESH_CONVERSATION_UNFOLLOW_CHANNEL,
   type MeshConversationCommand,
   type MeshConversationCommandResult,
   type MeshConversationFrame,
   type MeshConversationKey,
+  type MeshConversationImageResult,
   type MeshConversationListResult,
 } from '../../shared/tailnet-mesh'
 import type {
@@ -162,6 +164,11 @@ export const meshApi = {
     path?: string
   }): Promise<ConversationTurnDiffResult> =>
     ipcRenderer.invoke(MESH_CONVERSATION_TURN_DIFF_CHANNEL, input) as Promise<ConversationTurnDiffResult>,
+  meshConversationToolImage: (input: {
+    key: MeshConversationKey
+    toolUseId: string
+  }): Promise<MeshConversationImageResult> =>
+    ipcRenderer.invoke(MESH_CONVERSATION_TOOL_IMAGE_CHANNEL, input) as Promise<MeshConversationImageResult>,
 } satisfies Pick<
   ElectronApi,
   | 'meshListConnections'
@@ -186,6 +193,7 @@ export const meshApi = {
   | 'meshConversationSetModel'
   | 'meshConversationToolDetail'
   | 'meshConversationTurnDiff'
+  | 'meshConversationToolImage'
 >
 
 let nextFollowId = 0

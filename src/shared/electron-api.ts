@@ -119,6 +119,7 @@ import type {
   MeshConversationCommandResult,
   MeshConversationFrame,
   MeshConversationKey,
+  MeshConversationImageResult,
   MeshConversationListResult,
 } from './tailnet-mesh'
 import type {
@@ -829,6 +830,12 @@ export type ElectronApi = {
     turnSeq: number
     path?: string
   }) => Promise<ConversationTurnDiffResult>
+  // The picture a step of a paired machine's chat made or looked at, as a data
+  // URL. Needs `conversation-images` there; the list says whether it has it.
+  meshConversationToolImage: (input: {
+    key: MeshConversationKey
+    toolUseId: string
+  }) => Promise<MeshConversationImageResult>
   // Automations platform (per-project scheduled agent automations). The renderer
   // reads/writes only through these channels; the engine owns the on-disk store.
   listAutomations: (input: AutomationsWorkspaceInput) => Promise<AutomationsListResult>

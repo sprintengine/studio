@@ -16,9 +16,15 @@ import {
   TAILNET_PAIR_COLLECT_PATH,
   TAILNET_PAIR_REQUEST_PATH,
   TAILNET_CONVERSATION_PATH,
+  TAILNET_CONVERSATION_IMAGE_PATH,
   TAILNET_EVENTS_PATH,
   TAILNET_WS_TICKET_PATH,
 } from './tailnet-routes'
+import {
+  CONVERSATION_IMAGE_MAX_BYTES,
+  sniffConversationImage,
+  type ConversationImageMediaType,
+} from './tailnet-conversation-images'
 import {
   computeWebSocketAcceptKey,
   createWebSocketFrameDecoder,
@@ -483,6 +489,124 @@ export async function callRemoteTool(input: {
     }
   }
   return { ok: true, value: structured }
+}
+
+/**
+ * The picture one step of a chat on another machine made or looked at, as that
+ * machine serves it (`conversation-images`).
+ *
+ * Bounded by the same ceiling the far end serves under, whatever it says it
+ * is sending: a body that runs past it is cut off, not buffered. The type is
+ * read off the bytes again here rather than taken from the header, so what
+ * reaches a window is always one of the four formats.
+ */
+export function fetchRemoteConversationImage(input: {
+  endpoint: TailnetEndpoint
+  token: string
+  workspaceId: string
+  agentId: string
+  toolUseId: string
+  timeoutMs?: number
+  maxBytes?: number
+}): Promise<RemoteCallOutcome<{ mediaType: ConversationImageMediaType; bytes: Buffer }>> {
+  const maxBytes = input.maxBytes ?? CONVERSATION_IMAGE_MAX_BYTES
+  const timeoutMs = input.timeoutMs ?? REQUEST_TIMEOUT_MS
+  const query = new URLSearchParams({
+    workspaceId: input.workspaceId,
+    agentId: input.agentId,
+    toolUseId: input.toolUseId,
+  })
+  return new Promise((resolve) => {
+    let settled = false
+    const settle = (outcome: RemoteCallOutcome<{ mediaType: ConversationImageMediaType; bytes: Buffer }>) => {
+      if (settled) return
+      settled = true
+      resolve(outcome)
+    }
+    const call = httpRequest(
+      {
+        host: input.endpoint.host,
+        port: input.endpoint.port,
+        method: 'GET',
+        path: `${TAILNET_CONVERSATION_IMAGE_PATH}?${query.toString()}`,
+        headers: {
+          Accept: 'image/png, image/jpeg, image/webp, image/gif, application/json',
+          Connection: 'close',
+          Authorization: `Bearer ${input.token}`,
+        },
+      },
+      (response) => {
+        const status = response.statusCode ?? 0
+        const tooLarge = () =>
+          settle({
+            ok: false,
+            code: 'image_too_large',
+            message: `That picture is over the ${Math.floor(maxBytes / (1024 * 1024))}MB this app shows.`,
+          })
+        const declared = Number(response.headers['content-length'] ?? '')
+        const limit = status === 200 ? maxBytes : MAX_RESPONSE_BYTES
+        if (Number.isFinite(declared) && declared > limit) {
+          response.destroy()
+          if (status === 200) tooLarge()
+          else settle({ ok: false, code: `http_${status}`, message: `That machine answered HTTP ${status}.` })
+          return
+        }
+        const chunks: Buffer[] = []
+        let bytes = 0
+        response.on('data', (chunk: Buffer) => {
+          bytes += chunk.length
+          if (bytes > limit) {
+            response.destroy()
+            if (status === 200) tooLarge()
+            else settle({ ok: false, code: `http_${status}`, message: `That machine answered HTTP ${status}.` })
+            return
+          }
+          chunks.push(chunk)
+        })
+        response.on('end', () => {
+          const body = Buffer.concat(chunks)
+          if (status === 200) {
+            const mediaType = sniffConversationImage(body.subarray(0, 16))
+            if (!mediaType) {
+              settle({ ok: false, code: 'not_an_image', message: 'That machine sent something that is not a picture.' })
+              return
+            }
+            settle({ ok: true, value: { mediaType, bytes: body } })
+            return
+          }
+          if (status === 401) {
+            settle({ ok: false, code: 'unauthorized', message: UNAUTHORIZED_MESSAGE })
+            return
+          }
+          let error: Record<string, unknown> | null = null
+          try {
+            error = asRecord(asRecord(JSON.parse(body.toString('utf8')))?.error)
+          } catch {
+            error = null
+          }
+          settle({
+            ok: false,
+            code: typeof error?.code === 'string' ? error.code : `http_${status}`,
+            message: typeof error?.message === 'string' ? error.message : `That machine answered HTTP ${status}.`,
+          })
+        })
+        response.on('error', (error) =>
+          settle({ ok: false, code: 'unreachable', message: describeUnreachable(input.endpoint, error) }),
+        )
+        response.on('close', () => {
+          if (!response.complete)
+            settle({ ok: false, code: 'unreachable', message: 'That machine stopped sending the picture.' })
+        })
+      },
+    )
+    call.on('error', (error) =>
+      settle({ ok: false, code: 'unreachable', message: describeUnreachable(input.endpoint, error) }),
+    )
+    call.setTimeout(timeoutMs, () => {
+      call.destroy(new Error(`no answer within ${Math.round(timeoutMs / 1000)}s`))
+    })
+    call.end()
+  })
 }
 
 export type RemoteJsonSocket = {
