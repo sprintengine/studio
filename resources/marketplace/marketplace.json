@@ -91,7 +91,7 @@
       "summary": "Guided, human-led review of a pull request, branch, or patch.",
       "category": "Code Quality",
       "icon": "icons/review.svg",
-      "latest": 1,
+      "latest": 2,
       "source": "https://github.com/sprintengine/studio-releases/tree/main/plugins/review",
       "provides": [
         "module"
@@ -99,7 +99,7 @@
       "signature": {
         "algorithm": "ed25519",
         "publicKey": "MCowBQYDK2VwAyEAptxscrkw0So+0D3Pm2FupKpxqOyaNmpUR909RrGSuX0=",
-        "signature": "1QMOt/EcQM7BuY7T3djoixeTz72Xfza0mE3nymQEj7Vta3dbt9XZsiGIy9DXm+w+fZKAvtY0ef70AcOJ6iDJCQ=="
+        "signature": "ljBGRcu6X4vbNgR01EnVH2dRZbyx50z4SMYoAcOse4JviLvgI7mVic9XR77W6FmsVwZyQv6C0tN0+jSpoR5rCA=="
       }
     },
     {

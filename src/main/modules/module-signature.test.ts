@@ -91,16 +91,22 @@ test('a valid signature verifies and a changed signed field does not', () => {
 })
 
 test('a signature over a manifest without files still verifies byte for byte', () => {
-  // The first-party review module was signed before `files` existed. Its
-  // signature must keep verifying: the payload only grows a `files` key when
-  // the manifest has one.
+  // The payload only grows a `files` key when the manifest has one, so a
+  // signature made before `files` existed keeps verifying.
+  const signed = newSigner().sign(baseManifest())
+  assert.equal(signed.files, undefined)
+  assert.equal(canonicalManifestPayload(signed).includes('"files"'), false)
+  assert.equal(verifyModuleSignature(signed).valid, true)
+})
+
+test('the shipped review module signs the digests of its own code', () => {
   const path = findMarketplaceResourcePath('plugins/review/module/manifest.json')
   assert.ok(path)
   const parsed = parseThirdPartyModuleManifest(readFileSync(path, 'utf8'))
   assert.equal(parsed.ok, true)
   if (!parsed.ok) return
-  assert.equal(parsed.manifest.files, undefined)
-  assert.equal(canonicalManifestPayload(parsed.manifest).includes('"files"'), false)
+  assert.ok(parsed.manifest.files?.['dist/main.cjs'])
+  assert.equal(canonicalManifestPayload(parsed.manifest).includes('"files"'), true)
   assert.equal(verifyModuleSignature(parsed.manifest).valid, true)
 })
 

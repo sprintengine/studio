@@ -976,7 +976,7 @@ test('plugin-bundle-installer', async () => {
 // signed by the same trusted publisher, digests every file of the module, so
 // installing the bundle vouches for the module's code: the install records the
 // content it verified, and discovery holds the folder to exactly that.
-test('a trusted publisher bundle vouches for the code of a module that signs no digests', async () => {
+test('the shipped review bundle installs trusted, and code swapped in afterwards is refused', async () => {
   const bundlePath = findMarketplaceResourcePath('plugins/review')
   assert.ok(bundlePath)
   const temp = await mkdtemp(join(tmpdir(), 'mc-marketplace-review-'))
@@ -1015,20 +1015,21 @@ test('a trusted publisher bundle vouches for the code of a module that signs no 
     const planned = planThirdPartyMainModules(listed)
     assert.deepEqual(planned.ineligible, {}, 'the first-party module stays load eligible')
 
-    // Without that record the same folder is a signed manifest beside unvouched
-    // code, and a reserved id refuses it.
+    // The review module signs its own `files`, so the first-party signature
+    // covers its code even without the install record.
     const unvouched = await discoverUserModules(moduleRoot, baseContext)
-    assert.deepEqual(unvouched.modules, [])
-    assert.match(unvouched.rejected[0]?.issues[0]?.message ?? '', /publisher-locked/)
+    assert.deepEqual(unvouched.rejected, [])
+    assert.equal(unvouched.modules[0]?.trust.status, 'trusted')
 
     // Code swapped in after the install no longer matches what was vouched for.
     await writeFile(join(moduleRoot, 'review', 'dist', 'main.cjs'), 'exports.registerMain = () => {}\n')
     const swapped = await discoverUserModules(moduleRoot, vouched)
-    assert.deepEqual(swapped.modules, [])
+    assert.deepEqual(swapped.modules, [], JSON.stringify(swapped.rejected))
     assert.ok(
-      swapped.rejected[0]?.issues.some((issue) =>
-        /do not match the ones its marketplace install verified/.test(issue.message),
+      swapped.rejected[0]?.issues.some(
+        (issue) => issue.path === 'files.dist/main.cjs' && /does not match the signed digests/.test(issue.message),
       ),
+      JSON.stringify(swapped.rejected),
     )
   } finally {
     await rm(temp, { recursive: true, force: true })
