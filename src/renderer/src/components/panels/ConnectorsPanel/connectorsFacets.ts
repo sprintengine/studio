@@ -144,10 +144,6 @@ export function connectorFacet(category: string): NamedFacet {
  * The install path is unchanged and needs no workspace for a module-only bundle
  * (`needsWorkspace`, BrowseStorefront.tsx): only mcp and skills components
  * write into a project.
- *
- * `cli` stays out: agent CLIs are installed, updated and configured per machine
- * in Settings ▸ Agents (owner ruling 2026-09-25), and a marketplace row for one
- * would be a second list of the same thing with none of those controls.
  */
 export function buildConnectorEntries(plugins: MarketplacePluginEntry[]): ConnectorEntry[] {
   return registryEntriesForKinds(plugins, ['mcp', 'skills', 'module'])
