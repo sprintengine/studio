@@ -18,10 +18,8 @@
 // Every rebuild changes the digests, and trust is granted to exact contents,
 // so Studio asks again after each install — see the skill's pitfalls.md.
 //
-// Step 2 stands in for the SDK CLI's own digest writing: once the installed
-// SDK's `sprintengine-module sign` records `files` itself (and exports
-// computeModuleFileDigestsSync), signing rewrites the same map and this script
-// defers to it.
+// Step 2 uses the SDK's own digest walk, the one `sprintengine-module sign`
+// records, so an unsigned install carries the same map a signed one would.
 
 import { spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
@@ -33,7 +31,6 @@ import {
   digestDrift,
   fail,
   flagValue,
-  isPackExcludedPath,
   loadSdk,
   moduleDirOf,
   projectDirFrom,
@@ -92,14 +89,6 @@ if (keyPath !== undefined) {
   const signed = spawnSync(process.execPath, [cliPath, 'sign', moduleDir, '--key', keyPath], { stdio: 'inherit' })
   if (signed.status !== 0) fail('Signing failed (see above).')
   const after = readJson(manifestPath)
-  if (after.files === undefined) {
-    // An SDK whose sign normalizes `files` away predates code digests; the app
-    // will not trust what it signed. Say so rather than install it quietly.
-    fail(
-      'This @sprintengine/module-sdk signs without file digests, and the app will not trust a module signed that way. ' +
-        'Update the SDK (`npm install @sprintengine/module-sdk@latest`), or install unsigned with --no-sign.',
-    )
-  }
   if (after.engines?.hostApi === undefined && raw.engines?.hostApi !== undefined) {
     fail(
       'This @sprintengine/module-sdk signs without "engines.hostApi", and the app refuses a module without it. Update the SDK.',
@@ -116,7 +105,7 @@ mkdirSync(modulesRoot, { recursive: true })
 rmSync(staging, { recursive: true, force: true })
 cpSync(moduleDir, staging, {
   recursive: true,
-  filter: (source) => !isPackExcludedPath(relative(moduleDir, source).split('\\').join('/')),
+  filter: (source) => !sdk.isPackExcludedPath(relative(moduleDir, source).split('\\').join('/')),
 })
 
 // What landed must be exactly what the manifest lists, or the app refuses it.

@@ -54,7 +54,7 @@ up there first, with the app's own validators.
 
 | Symptom | Fix |
 | --- | --- |
-| `dev:install`: "signs without file digests" | The installed SDK is too old to sign modules Studio will trust. Update it, or `--no-sign` |
+| `validate`/`dev:install`: "cannot digest module files" | The installed SDK is too old to write the `files` map Studio requires. Update it |
 | `validate`: stale `files` warning | Normal between builds; `dev:install` rewrites it. Commit the rewritten manifest before publishing |
 | `validate`: key material in the project | Move the key to `~/.sprintengine/keys/` and rotate it if it was ever committed |
 | `npm test`: "contributed nothing" | `registerRenderer`/`registerMain` registered nothing — check the export name |
