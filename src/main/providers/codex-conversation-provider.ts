@@ -15,6 +15,7 @@ import type {
 } from './conversation-provider-adapter'
 import {
   CodexRpcError,
+  CodexSpawnError,
   codexAppServerArgs,
   createCodexRpcTransport,
   type CodexRpcOptions,
@@ -724,6 +725,7 @@ export function createCodexConversationProvider(
         state.transport = null
         state.spawnedAt = null
         transport.close()
+        if (error instanceof CodexSpawnError) forgetExecutable('codex')
         throw error
       }
     })().finally(() => {
@@ -1014,14 +1016,18 @@ function withReplayedHistory(state: Session, message: string): string {
   return prior ? `Previous conversation:\n${prior}\n\nUser: ${message}` : message
 }
 
+// The executable could not be started from where it was found: look it up
+// again on the next start.
+function forgetExecutable(cli: 'codex') {
+  void import('../cli-runtime-install').then(({ invalidateCliExecutable }) => invalidateCliExecutable(cli))
+}
 async function resolveExecutable(input: Pick<MockAdapterSessionInput, 'cliRuntimes'>): Promise<string> {
   if (input.cliRuntimes?.codex?.hostId && input.cliRuntimes.codex.hostId !== 'local')
     throw new Error('Codex conversation requires a local CLI runtime.')
-  const { detectCli } = await import('../cli-runtime-install')
-  const detection = await detectCli('codex', input.cliRuntimes?.codex)
-  if (!detection.installed || !detection.resolvedPath)
-    throw new Error('Codex CLI is not installed. Install it or configure its command in Settings.')
-  return detection.resolvedPath
+  const { resolveCliExecutable } = await import('../cli-runtime-install')
+  const { path } = await resolveCliExecutable('codex', input.cliRuntimes?.codex)
+  if (!path) throw new Error('Codex CLI is not installed. Install it or configure its command in Settings.')
+  return path
 }
 async function buildEnv(input: MockAdapterSessionInput): Promise<NodeJS.ProcessEnv> {
   const { getTerminalEnv, applyAgentIdentityEnv } = await import('../terminal-launch')

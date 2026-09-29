@@ -36,6 +36,9 @@ export type CodexRpcOptions = {
  * being answered (a timeout, or the process closing). */
 export class CodexRpcError extends Error {}
 
+/** The Codex process could not be started at all. */
+export class CodexSpawnError extends Error {}
+
 const MAX_FRAME_BYTES = 16 * 1024 * 1024
 
 const TOOL_FAILURE_CHARS = 500
@@ -126,7 +129,7 @@ export function createCodexRpcTransport(options: CodexRpcOptions): CodexRpcTrans
   child.on('error', (error) =>
     finish(
       child.pid === undefined
-        ? new Error(`Codex could not be started from ${options.command}: ${error.message}`)
+        ? new CodexSpawnError(`Codex could not be started from ${options.command}: ${error.message}`)
         : error,
     ),
   )

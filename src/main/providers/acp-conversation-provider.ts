@@ -229,11 +229,17 @@ export async function confinedAcpPath(cwd: string, requested: string, writing = 
 }
 
 async function detectAcpCommand(profile: AcpProfile, cliRuntimes?: ConversationCliRuntimeOverrides): Promise<string> {
-  const { detectCli } = await import('../cli-runtime-install')
-  const result = await detectCli(profile.cli, cliRuntimes?.[profile.cli])
-  if (!result.installed || !result.resolvedPath)
+  const { resolveCliExecutable } = await import('../cli-runtime-install')
+  const { path } = await resolveCliExecutable(profile.cli, cliRuntimes?.[profile.cli])
+  if (!path)
     throw new Error(`${profile.displayName} CLI was not found. Install it or configure its command in Settings.`)
-  return result.resolvedPath
+  return path
+}
+
+// The CLI could not be started from where it was found: look it up again on
+// the next start.
+function forgetAcpCommand(profile: AcpProfile): void {
+  void import('../cli-runtime-install').then(({ invalidateCliExecutable }) => invalidateCliExecutable(profile.cli))
 }
 
 async function acpEnvironment(): Promise<NodeJS.ProcessEnv> {
@@ -709,10 +715,12 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
         ])
       } catch (error) {
         dispose(state)
-        if (child.pid === undefined)
+        if (child.pid === undefined) {
+          if (!options.detect) forgetAcpCommand(profile)
           throw new Error(
             `${profile.displayName} could not be started from ${command}: ${spawnError?.message ?? 'the process did not start.'}`,
           )
+        }
         throw new Error(`${error instanceof Error ? error.message : String(error)} ${profile.authHint}`)
       } finally {
         if (timer) clearTimeout(timer)

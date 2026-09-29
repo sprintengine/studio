@@ -1499,6 +1499,13 @@ function spawnTrackedChild(state: SessionState, start: () => ChildProcess, now: 
   child.once('exit', () => {
     if (state.childPid === child.pid) state.childPid = null
   })
+  // Not started at all: the remembered path is looked up again next time.
+  child.once('error', () => {
+    if (child.pid === undefined)
+      void import('../cli-runtime-install').then(({ invalidateCliExecutable }) =>
+        invalidateCliExecutable('claude-code'),
+      )
+  })
   return {
     stdin: child.stdin!,
     stdout: child.stdout!,
@@ -1524,22 +1531,22 @@ async function defaultLoadQuery(): Promise<SdkQueryFunction> {
 export { defaultResolveExecutable as resolveClaudeExecutable }
 
 async function defaultResolveExecutable(cliRuntimes?: ConversationCliRuntimeOverrides): Promise<string> {
-  const { detectCli } = await import('../cli-runtime-install')
+  const { resolveCliExecutable } = await import('../cli-runtime-install')
   const runtime = cliRuntimes?.['claude-code']
-  const detection = await detectCli('claude-code', runtime)
-  if (!detection.installed || !detection.resolvedPath) {
+  const found = await resolveCliExecutable('claude-code', runtime)
+  if (!found.path) {
     if (isWslHostId(runtime?.hostId)) {
       const machine = runtime.hostId.replace(/^wsl:/u, 'WSL: ')
       throw new Error(
         `Claude Code CLI was not found on ${machine}. Install it in that distribution (or set its command for that machine in Settings) to chat there.` +
-          (detection.error ? ` ${detection.error}` : ''),
+          (found.error ? ` ${found.error}` : ''),
       )
     }
     throw new Error(
       'Claude Code CLI is not installed. Install it (or set a command override in Settings) to use Claude conversation agents.',
     )
   }
-  return detection.resolvedPath
+  return found.path
 }
 
 // Auth env this provider must never pass to the child. The conversation path
