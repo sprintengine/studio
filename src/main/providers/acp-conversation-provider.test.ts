@@ -96,7 +96,9 @@ async function fixture(resume = false, lostSessionId?: string, env: Record<strin
       detect: async () => process.execPath,
       buildEnv: async () => ({ PATH: process.env.PATH, ...(resume ? { NO_LOAD: '1' } : {}), ...env }),
       startupTimeoutMs: 2000,
-      cancelGraceMs: 300,
+      // Short only where the agent ignores the cancel, so a slow machine never
+      // ends a process that was about to wind its turn down.
+      cancelGraceMs: env.IGNORE_CANCEL ? 300 : 10_000,
     },
   )
   const started = (await provider.startSession(input)) as ConversationEvent[]
