@@ -30,8 +30,9 @@ id.
 | `openWorkspace(typeId)` | Create or focus the module's zero-config workspace type. Use from a command so people can reopen it. | — |
 | `registerGlobalSurface({ id, label, Icon, Component, views?, railPlacement?, onOpen? })` | A full-page "door". With `label` + `Icon`, the shell lists it in the Extensions drawer and on the Extensions home: that row is how people open it. `views` splits it into several rows. | shows a "not installed" door |
 | `registerModalSurface({ id, label, Component, launcher? })` | A dialog floated over the window. `launcher: { label, letter, Glyph }` adds a row to each workspace pane's "+" menu, the one trigger the shell draws; the body gets `{ workspaceId }`. | closes |
+| `openGlobalSurface(id)` / `openModalSurface(id)` | Open one of THIS module's surfaces from your own trigger (a nav row, a panel button, a command). `false` for an id you did not register, or while the module is off. | — |
 | `registerTopBarItem({ id, order, Component })` | One compact control in the top bar. | yes |
-| `registerSidebarNavEntry({ id, order, Component })` | A row component in the sidebar's top nav. It has no API to open a surface, so prefer a global surface's drawer row unless the row is self-contained. | yes |
+| `registerSidebarNavEntry({ id, order, Component })` | A row component in the sidebar's top nav; `Component` gets `{ collapsed }` (icon-only when true). Its click usually calls `openGlobalSurface(id)` — the global-surface template registers one. | yes |
 | `registerDoorBadge({ rowId, getWaitingCount, subscribe })` | A waiting count on a drawer / nav row. | yes |
 | `registerSettingsSection({ id, label, icon, Component })` | A Settings section. `Component` gets `{ values, setValue }`; values live in the module's settings namespace, which `getModuleAppState(key)` also reads. | yes |
 | `registerBacklogItemAction({ id, label, category, run, isVisible?, getState?, order? })` | A Backlog item menu action. `run(context)` gets `{ workspaceId, workspaceRoot, item, readSource, updateStatus, addLink, updateModuleMetadata }`. | yes |

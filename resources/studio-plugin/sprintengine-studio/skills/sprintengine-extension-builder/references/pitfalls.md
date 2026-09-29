@@ -86,9 +86,10 @@ its working mark. A little coloured circle is not one of them.
 **A panel appears only in a layout.** `registerPanel` alone shows nothing;
 place it with a workspace type's `createTemplate`.
 
-**A sidebar nav entry cannot open a surface.** For a door people can open,
-give `registerGlobalSurface` a `label` and an `Icon`: the Extensions drawer
-lists it.
+**A surface needs a way in.** Give `registerGlobalSurface` a `label` and an
+`Icon` and the Extensions drawer lists it; a sidebar nav entry or a command
+opens it with `host.openGlobalSurface(id)` (a modal: `openModalSurface(id)`).
+Both open only surfaces your module registered.
 
 ## Agents and untrusted input
 
