@@ -73,7 +73,13 @@ import type { CliRuntimeOption } from '../ui/CliModelPicker'
 import { PermissionFooter } from '../workspace/agentComposer/spawnFooter'
 import { useAgentCliCatalogOptions } from '../workspace/agentComposer/useAgentComposer'
 import { conversationCliRuntimesFor } from '../workspace/newWorkspace/cliRuntimeOptions'
-import { type TranscriptEntry, type UserTurn } from './agentChat/conversationProjection'
+import {
+  parseStoredAttachments,
+  readString,
+  type TranscriptEntry,
+  type UserTurn,
+} from './agentChat/conversationProjection'
+import { rememberSentAttachment } from './agentChat/storedAttachments'
 import { deriveConversationTimelineRows } from './agentChat/conversationTimeline'
 import {
   createConversationProjectionState,
@@ -83,6 +89,8 @@ import { ConversationLinkProvider } from './agentChat/conversationLinks'
 import { SubagentTypesProvider } from './agentChat/subagentStatus'
 import { recalledConversationScroll, rememberConversationScroll } from './agentChat/conversationViewState'
 import { useConversationSession } from './agentChat/useConversationSession'
+import { useChatViewActive } from './agentChat/chatViewActivity'
+import { prefersReducedMotion } from './agentChat/reducedMotion'
 import { useConversationTransport } from './agentChat/conversationTransport'
 import { openCliSignInTerminal } from './agentChat/cliSignIn'
 import { useLocalChatBinding, type ChatBinding } from './agentChat/chatBinding'
@@ -205,6 +213,11 @@ export function queuedTurnLabel(text: string, attachmentCount: number): string {
   const images = attachmentCountLabel(attachmentCount)
   return text ? `${text} · ${images}` : images
 }
+
+// What keeps the transcript at its end while the reader is there: a row added
+// or growing, and the list itself resizing (a pane dragged, the composer tray
+// growing). One path, not the list's plus an effect per token.
+const END_FOLLOW_TRIGGERS = { dataChange: true, itemLayout: true, layout: true }
 
 // Stable empty-catalog reference: returned for any provider whose live catalog
 // has not loaded so effects keyed on the derived list do not re-run each render.
@@ -495,6 +508,10 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const reasoningEffort = capabilities?.reasoningEfforts?.includes(agent?.conversationReasoningEffort ?? '')
     ? agent?.conversationReasoningEffort
     : undefined
+  // The chat's root. Whether it can be seen decides whether streamed tokens
+  // render now or wait until it is seen again.
+  const shellRef = useRef<HTMLDivElement | null>(null)
+  const viewActive = useChatViewActive(shellRef)
   const {
     events,
     hydrated,
@@ -504,7 +521,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     error: historyError,
     replayThroughSeq,
     announcement,
-  } = useConversationSession(binding.sessionRoot ?? workspaceRoot, workspaceId, agentId)
+  } = useConversationSession(binding.sessionRoot ?? workspaceRoot, workspaceId, agentId, { active: viewActive })
   const animatedRowIds = useRef(new Set<string>())
   const [userTurns, setUserTurns] = useState<UserTurn[]>([])
   const {
@@ -690,22 +707,60 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   }, [conversation?.providerId, fetchProviderCatalog, modelSwitch, hostEngine])
 
   const projectionStateRef = useRef(createConversationProjectionState())
-  const projection = useMemo(() => {
+  const { projection, structureRevision } = useMemo(() => {
     const state = syncConversationProjection(projectionStateRef.current, events, userTurns)
     projectionStateRef.current = state
-    return state.projection
+    return { projection: state.projection, structureRevision: state.structureRevision }
   }, [events, userTurns])
+  // The transcript's shape — its turns, requests and messages — without the
+  // words streaming into the latest reply. What is derived from the shape is
+  // computed when it changes, not on every token.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const shapeEntries = useMemo(() => projection.entries, [structureRevision])
+  const shape = useMemo(() => transcriptShape(shapeEntries), [shapeEntries])
+
+  // A sent picture's bytes stay with the local turn only until the transcript
+  // has stored it: once its `user_message` names the stored copies, the bubble
+  // reads them from the attachment store (seeded here, so it draws at once)
+  // and the view stops holding up to 16 images' worth of base64 for as long as
+  // it is open.
+  useEffect(() => {
+    if (!transport.attachment || !userTurns.some((turn) => turn.attachments?.length)) return
+    const pending = new Map(userTurns.filter((turn) => turn.attachments?.length).map((turn) => [turn.id, turn]))
+    const released = new Set<string>()
+    // A sent message lands near the end of the log; how far back is looked is
+    // bounded, so a send whose images were never stored costs little.
+    const stop = Math.max(0, events.length - 2_000)
+    for (let index = events.length - 1; index >= stop && released.size < pending.size; index--) {
+      const event = events[index]!
+      if (event.type !== 'user_message') continue
+      const turn = pending.get(readString(event.payload, 'localTurnId') ?? '')
+      const stored = parseStoredAttachments(event.payload?.attachments)
+      if (!turn?.attachments || !stored || stored.length !== turn.attachments.length) continue
+      stored.forEach((reference, position) => {
+        const local = turn.attachments!.find((image) => image.id === reference.id) ?? turn.attachments![position]!
+        rememberSentAttachment(reference.ref, local)
+      })
+      released.add(turn.id)
+    }
+    if (!released.size) return
+    setUserTurns((current) =>
+      current.map((turn) => {
+        if (!released.has(turn.id)) return turn
+        const { attachments: _sent, ...rest } = turn
+        return rest
+      }),
+    )
+    // Only a new message can land one: keyed on the transcript's shape.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [structureRevision, userTurns, transport])
   const previousRowsRef = useRef<ReturnType<typeof deriveConversationTimelineRows>>([])
   const timelineRows = useMemo(() => {
     const rows = deriveConversationTimelineRows(projection.entries, projection.activeTurn, previousRowsRef.current)
     previousRowsRef.current = rows
     return rows
   }, [projection.entries, projection.activeTurn])
-  const promptHistory = useMemo(
-    () => projection.entries.flatMap((entry) => (entry.kind === 'user' && entry.text ? [entry.text] : [])),
-    [projection.entries],
-  )
-  const { handleRecallKeyDown, detachRecall } = useComposerRecall(promptHistory, draft, setDraft)
+  const { handleRecallKeyDown, detachRecall } = useComposerRecall(shape.promptHistory, draft, setDraft)
 
   // A model switch made from a paired device reaches this window as the
   // session's own `session_updated` event naming the model. The agent record
@@ -713,16 +768,31 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // model — name the model the chat is on. Only an event after the replay
   // moves it, and each one once: a switch replayed from an earlier session is
   // history, and the record may have moved since.
+  // Each render looks only at the events that arrived since the last one: the
+  // scan stops at the newest number it has already read.
+  const modelScanRef = useRef<{ replay: number; through: number; found: { id: string; modelId: string } | null }>({
+    replay: -1,
+    through: 0,
+    found: null,
+  })
   const liveModelEvent = useMemo(() => {
     if (!hydrated) return null
+    const scan = modelScanRef.current
+    if (scan.replay !== replayThroughSeq)
+      modelScanRef.current = { replay: replayThroughSeq, through: replayThroughSeq, found: null }
+    const { through } = modelScanRef.current
+    let found: { id: string; modelId: string } | null = null
+    let newest = through
     for (let index = events.length - 1; index >= 0; index--) {
       const event = events[index]!
       if (event.seq === undefined) continue
-      if (event.seq <= replayThroughSeq) break
+      if (event.seq <= through) break
+      newest = Math.max(newest, event.seq)
       const modelId = event.type === 'session_updated' ? event.payload?.modelId : undefined
-      if (typeof modelId === 'string' && modelId) return { id: event.id, modelId }
+      if (!found && typeof modelId === 'string' && modelId) found = { id: event.id, modelId }
     }
-    return null
+    modelScanRef.current = { ...modelScanRef.current, through: newest, found: found ?? modelScanRef.current.found }
+    return modelScanRef.current.found
   }, [events, hydrated, replayThroughSeq])
   const appliedModelEventRef = useRef<string | null>(null)
   useEffect(() => {
@@ -766,6 +836,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   })
   const turnNavigation = useTurnNavigation({ rows: timelineRows, listRef, jumpToRow })
   const stepTurn = turnNavigation.step
+  // Drawn again when the prompts move; the reader's place in them it follows
+  // on its own, and a token changes neither.
+  const minimap = useMemo(() => <TimelineMinimap navigation={turnNavigation} />, [turnNavigation])
   const { isRestoring: isRestoringScroll } = useConversationScrollRestore({
     memory: scrollMemoryRef.current,
     hydrated,
@@ -796,33 +869,52 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // pause is not the reader leaving the end, so it must not show the pill.
   const [followPaused, setFollowPaused] = useState(false)
   const followPausedRef = useRef(false)
+  // A scroll is read once a frame, however many events it fired: an animated
+  // end-follow or a fling fires one per frame or more, and each read measures
+  // the scroller.
+  const scrollFrameRef = useRef(0)
+  const lastScrollRef = useRef<NativeScrollEvent | null>(null)
+  const readLogScroll = useCallback(() => {
+    scrollFrameRef.current = 0
+    const scrolled = lastScrollRef.current
+    lastScrollRef.current = null
+    if (!scrolled || followPausedRef.current) return
+    const { contentOffset, contentSize, layoutMeasurement } = scrolled
+    const element = listRef.current?.getScrollableNode()
+    observeScroll(
+      element?.scrollTop ?? contentOffset.y,
+      element?.scrollHeight ?? contentSize.height,
+      element?.clientHeight ?? layoutMeasurement.height,
+    )
+    // The restore's own jumps are not a place the reader chose; remembering
+    // them would overwrite the position being restored.
+    if (isRestoringScroll()) return
+    // At the end, where the view opens again anyway, there is no row to find.
+    if (atBottomRef.current) {
+      rememberConversationScroll(conversationKey, { offset: 0, atEnd: true })
+      return
+    }
+    const rowId = firstVisibleRowRef.current
+    const position = rowId ? listRef.current?.getState().positionByKey(rowId) : undefined
+    rememberConversationScroll(conversationKey, {
+      rowId,
+      offset: position === undefined ? contentOffset.y : Math.max(0, contentOffset.y - position),
+      atEnd: false,
+    })
+  }, [conversationKey, observeScroll, atBottomRef, isRestoringScroll])
   const handleLogScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       if (followPausedRef.current) return
-      const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
-      const element = listRef.current?.getScrollableNode()
-      observeScroll(
-        element?.scrollTop ?? contentOffset.y,
-        element?.scrollHeight ?? contentSize.height,
-        element?.clientHeight ?? layoutMeasurement.height,
-      )
-      const nearBottom = atBottomRef.current
-      // The restore's own jumps are not a place the reader chose; remembering
-      // them would overwrite the position being restored.
-      if (isRestoringScroll()) return
-      const state = listRef.current?.getState()
-      const rowId = firstVisibleRowRef.current
-      const position = rowId ? state?.positionByKey(rowId) : undefined
-      rememberConversationScroll(conversationKey, {
-        rowId,
-        offset: position === undefined ? contentOffset.y : Math.max(0, contentOffset.y - position),
-        atEnd: nearBottom,
-      })
+      lastScrollRef.current = event.nativeEvent
+      if (scrollFrameRef.current) return
+      if (typeof requestAnimationFrame === 'function') scrollFrameRef.current = requestAnimationFrame(readLogScroll)
+      else readLogScroll()
     },
-    [conversationKey, observeScroll, atBottomRef, isRestoringScroll],
+    [readLogScroll],
   )
+  useEffect(() => () => cancelAnimationFrame(scrollFrameRef.current), [])
   const jumpToLatest = useCallback(() => {
-    void listRef.current?.scrollToEnd({ animated: !window.matchMedia('(prefers-reduced-motion: reduce)').matches })
+    void listRef.current?.scrollToEnd({ animated: !prefersReducedMotion() })
     atBottomRef.current = true
     setAtBottom(true)
   }, [atBottomRef, setAtBottom])
@@ -862,10 +954,13 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     followedInitialSnapshot.current = true
     if (atBottomRef.current) {
       void listRef.current?.scrollToEnd({
-        animated: animate && !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+        animated: animate && !prefersReducedMotion(),
       })
     }
-  }, [events.length, timelineRows.length, projection.activeTurn, hydrated, atBottomRef])
+    // Not on every event: tokens grow the last row, and the list's own
+    // end-follow keeps up with that. This lands the first snapshot at the
+    // end, and follows a turn starting or ending and a row being added.
+  }, [timelineRows.length, projection.activeTurn, hydrated, atBottomRef])
   useEffect(() => {
     const id = pendingUserScrollIdRef.current
     if (!id) return
@@ -1284,7 +1379,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     if (readiness.kind === 'loading') return
     startupHandledRef.current = true
     updateBinding({ chatStartupPrompt: undefined })
-    const started = userTurns.length > 0 || projection.entries.some((entry) => entry.kind === 'user')
+    const started = userTurns.length > 0 || shape.hasUserMessage
     if (started) return
     if (readiness.kind !== 'ready') {
       setDraft((current) => current || startupPrompt)
@@ -1296,7 +1391,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     hydrated,
     readiness.kind,
     userTurns.length,
-    projection.entries,
+    shape.hasUserMessage,
     draftMetadata,
     sendTurn,
     setDraft,
@@ -1399,7 +1494,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         if (!result.ok) setActionError(result.message)
         else if (
           approved &&
-          projection.entries.some(
+          shapeEntries.some(
             (entry) => entry.kind === 'approval' && entry.requestId === requestId && entry.requestKind === 'plan',
           )
         ) {
@@ -1411,7 +1506,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         setRespondingRequestId(null)
       }
     },
-    [sessionId, respondingRequestId, projection.entries, updateBinding, transport],
+    [sessionId, respondingRequestId, shapeEntries, updateBinding, transport],
   )
 
   const interrupt = useCallback(async () => {
@@ -1503,13 +1598,13 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // until its send settles, so a late failure knows the message is already in.
   useEffect(() => {
     if (steeringTurnId === null) return
-    const landed = projection.entries.some(
+    const landed = shapeEntries.some(
       (entry) => entry.kind === 'user' && entry.id === steeringTurnId && entry.seq !== undefined,
     )
     if (!landed) return
     landedSteerIdsRef.current.add(steeringTurnId)
     setSteeringTurnId(null)
-  }, [steeringTurnId, projection.entries])
+  }, [steeringTurnId, shapeEntries])
 
   // What "send it now" does for the queued message: a steer where both the
   // transport and the provider take one, else stop the turn and let the queue
@@ -1584,7 +1679,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.repeat) return false
     if (!projection.activeTurn || !operate || stopDisabledForPending(pending)) return false
     if (modelMenuOpen || composerMenu) return false
-    if (projection.entries.some((entry) => entry.kind === 'approval' && entry.status === 'pending')) return false
+    if (shape.pendingApprovals.length > 0) return false
     return !window.getSelection()?.toString().trim()
   }
   const sendNowShortcutLabel = renderKeybinding(
@@ -1690,13 +1785,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // a session to its model and the picker locks once the chat has started.
   const liveModelSwitch = capabilities?.liveModelSwitch === true && typeof transport.setModel === 'function'
   const modelLocked =
-    !modelSwitch ||
-    (!liveModelSwitch &&
-      isConversationModelLocked(
-        userTurns.length,
-        sessionId,
-        projection.entries.some((entry) => entry.kind === 'user' || entry.kind === 'assistant'),
-      ))
+    !modelSwitch || (!liveModelSwitch && isConversationModelLocked(userTurns.length, sessionId, shape.hasConversation))
   const modelGroups = buildModelGroups(providers, catalogByProvider, keyByProvider)
   const currentModel = modelGroups
     .find((group) => group.providerId === conversation.providerId)
@@ -1731,7 +1820,6 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // palette and the conflict suite all know the chord). The shell's dispatcher
   // resolves the binding and `runCommand` routes the registry's panel-event to
   // the module-level responder above; this view only registers itself.
-  const shellRef = useRef<HTMLDivElement | null>(null)
   const changeReasoningEffort = (effort: string | undefined) => {
     if (effort && !capabilities?.reasoningEfforts?.includes(effort)) return
     updateBinding({ conversationReasoningEffort: effort })
@@ -1967,10 +2055,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     },
   })
 
-  const pendingApprovalEntries = projection.entries.filter(
-    (entry): entry is Extract<TranscriptEntry, { kind: 'approval' }> =>
-      entry.kind === 'approval' && entry.status === 'pending',
-  )
+  const pendingApprovalEntries = shape.pendingApprovals
   const pendingApprovalEntry = pendingApprovalEntries[0]
   const composerPlaceholder = pendingApprovalEntry
     ? pendingApprovalEntry.requestKind === 'question'
@@ -1988,25 +2073,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
 
   // Retry lives on the failed turn's error block in the transcript; only the
   // latest failed turn is retryable (retry re-sends the last user message).
-  const lastFailedTurnId =
-    !projection.activeTurn && ready
-      ? [...projection.entries]
-          .reverse()
-          .find(
-            (entry): entry is Extract<TranscriptEntry, { kind: 'assistant' }> =>
-              entry.kind === 'assistant' && entry.status === 'failed',
-          )?.turnId
-      : undefined
+  const lastFailedTurnId = !projection.activeTurn && ready ? shape.lastFailedTurnId : undefined
 
-  const latestTurnId = latestReplyTurnId(projection.entries)
+  const latestTurnId = shape.latestTurnId
   const oldChrome = chromeRef.current
-  const checkpointSeqs = new Set(
-    projection.entries.flatMap((entry) =>
-      entry.kind === 'assistant' && entry.checkpointAvailable && entry.checkpointTurnSeq !== undefined
-        ? [entry.checkpointTurnSeq]
-        : [],
-    ),
-  )
+  const checkpointSeqs = shape.checkpointSeqs
   const stableCheckpointSeqs =
     oldChrome?.checkpointSeqs &&
     oldChrome.checkpointSeqs.size === checkpointSeqs.size &&
@@ -2046,10 +2117,16 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           cli: chatCli,
         }
   chromeRef.current = chrome
+  // What rows read besides their own item: it changes with a turn starting or
+  // ending, a retry becoming possible, a jump's flash, never with a token.
+  // `chrome` is the previous object while nothing in it changed (above).
+  const rowContext = useMemo(
+    () => ({ chrome, flashRowId, hydrated, replayThroughSeq }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [chrome, flashRowId, hydrated, replayThroughSeq],
+  )
 
-  const completedReplies = projection.entries.filter(
-    (entry) => entry.kind === 'assistant' && entry.status === 'complete',
-  ).length
+  const completedReplies = shape.completedReplies
   if (atBottom && repliesSeenRef.current !== completedReplies) repliesSeenRef.current = completedReplies
   const newReplies = atBottom ? 0 : Math.max(0, completedReplies - repliesSeenRef.current)
   // Install trailing space in the same render as the optimistic prompt, before
@@ -2064,7 +2141,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // Orphan turn failure: lastError set but no transcript entry carries it (a
   // turn_failed with no turnId while nothing was streaming). Without this the
   // chat would look idle/successful with the only trace in Notifications.
-  const hasFailedTurnEntry = projection.entries.some((entry) => entry.kind === 'assistant' && entry.status === 'failed')
+  const hasFailedTurnEntry = shape.lastFailedTurnId !== undefined
   // Whether this chat's permission preset can be changed from its picker: the
   // same gate the separate pill used to have. A preset the provider cannot run
   // stays listed, dimmed, with the reason.
@@ -2212,6 +2289,10 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                 ref={listRef}
                 data={timelineRows}
                 dataKey={conversationKey}
+                // A row on screen renders again only when its item or this
+                // changes, so everything a row reads besides its item rides
+                // here rather than only in the closure below.
+                extraData={rowContext}
                 renderItem={({ item }) => (
                   <ConversationRowFrame
                     key={item.id}
@@ -2269,17 +2350,16 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                 initialScrollIndex={rememberedRowIndex >= 0 ? rememberedRowIndex : undefined}
                 maintainVisibleContentPosition={{ data: true, size: true }}
                 maintainScrollAtEnd={
-                  atBottom && !followPaused
-                    ? { animated: !window.matchMedia('(prefers-reduced-motion: reduce)').matches }
-                    : false
+                  atBottom && !followPaused ? { animated: !prefersReducedMotion(), on: END_FOLLOW_TRIGGERS } : false
                 }
                 anchoredEndSpace={anchorUserIndex >= 0 ? { anchorIndex: anchorUserIndex, anchorOffset: 0 } : undefined}
               />
             )}
-            <TimelineMinimap navigation={turnNavigation} />
+            {minimap}
             <QuoteSelectionToolbar
               rootRef={transcriptRef}
-              enabled={!composerInputDisabled}
+              // A chat nobody can see has no selection to offer a quote for.
+              enabled={!composerInputDisabled && viewActive}
               shortcut={quoteShortcutLabel}
               onQuote={quoteIntoComposer}
             />
@@ -2357,7 +2437,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
               ) : null}
               {requestPending ? null : (
                 <>
-                  <ConversationTodoStrip entries={projection.entries} activeTurn={projection.activeTurn} />
+                  <ConversationTodoStrip entries={shapeEntries} activeTurn={projection.activeTurn} />
                   {/* The prompt cache about to go cold, or gone: what the next
                     message puts at stake, and `/compact` — which Claude Code runs
                     as its own command — to shrink it. Only a Claude chat reports
@@ -2849,6 +2929,43 @@ export type ModelGroup = {
   // 'add-key' — no key configured; 'no-models' — key present but the live
   // catalog came back empty.
   emptyState?: 'add-key' | 'no-models'
+}
+
+// What the view reads off the transcript's shape, in one pass: the requests
+// waiting in the dock, the latest failed turn (the one Retry re-sends), the
+// turn left unfolded, the turns that can be reverted, the prompts recall steps
+// through, and whether anything has been said yet.
+function transcriptShape(entries: readonly TranscriptEntry[]) {
+  const pendingApprovals: Extract<TranscriptEntry, { kind: 'approval' }>[] = []
+  const promptHistory: string[] = []
+  const checkpointSeqs = new Set<number>()
+  let lastFailedTurnId: string | undefined
+  let completedReplies = 0
+  let hasUserMessage = false
+  let hasConversation = false
+  for (const entry of entries) {
+    if (entry.kind === 'approval' && entry.status === 'pending') pendingApprovals.push(entry)
+    if (entry.kind === 'user') {
+      hasUserMessage = true
+      hasConversation = true
+      if (entry.text) promptHistory.push(entry.text)
+    }
+    if (entry.kind !== 'assistant') continue
+    hasConversation = true
+    if (entry.status === 'failed') lastFailedTurnId = entry.turnId
+    if (entry.status === 'complete') completedReplies++
+    if (entry.checkpointAvailable && entry.checkpointTurnSeq !== undefined) checkpointSeqs.add(entry.checkpointTurnSeq)
+  }
+  return {
+    pendingApprovals,
+    promptHistory,
+    checkpointSeqs,
+    lastFailedTurnId,
+    completedReplies,
+    hasUserMessage,
+    hasConversation,
+    latestTurnId: latestReplyTurnId(entries),
+  }
 }
 
 // Model groups: one per provider, merging each provider's own live catalog

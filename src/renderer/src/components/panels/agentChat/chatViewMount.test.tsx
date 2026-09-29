@@ -1,5 +1,5 @@
 import { JSDOM } from 'jsdom'
-import { forwardRef, Fragment, useImperativeHandle, useRef, type ReactNode } from 'react'
+import { forwardRef, memo, useImperativeHandle, useRef, type ReactNode } from 'react'
 import { expect, test, vi } from 'vitest'
 import type {
   ConversationEvent,
@@ -9,7 +9,24 @@ import type {
 } from '../../../../../shared/conversation-runtime'
 
 // The virtual list measures a real viewport, which jsdom does not have; this
-// stand-in renders every row so the rows themselves can be driven.
+// stand-in renders every row so the rows themselves can be driven. Like the
+// real list, a row on screen renders again only when its item or the list's
+// `extraData` changes: a new `renderItem` alone does not reach it.
+const ListRow = memo(
+  function ListRow({
+    item,
+    index,
+    render,
+  }: {
+    item: unknown
+    index: number
+    extraData: unknown
+    render: (props: { item: unknown; index: number }) => ReactNode
+  }) {
+    return <>{render({ item, index })}</>
+  },
+  (previous, next) => previous.item === next.item && previous.extraData === next.extraData,
+)
 vi.mock('@legendapp/list/react', () => ({
   LegendList: forwardRef(function LegendList(
     {
@@ -18,12 +35,14 @@ vi.mock('@legendapp/list/react', () => ({
       keyExtractor,
       ListHeaderComponent,
       className,
+      extraData,
     }: {
       data: unknown[]
       renderItem: (props: { item: unknown; index: number }) => ReactNode
       keyExtractor: (item: unknown) => string
       ListHeaderComponent?: ReactNode
       className?: string
+      extraData?: unknown
     },
     ref,
   ) {
@@ -39,7 +58,7 @@ vi.mock('@legendapp/list/react', () => ({
       <div ref={scroller} className={className}>
         {ListHeaderComponent}
         {data.map((item, index) => (
-          <Fragment key={keyExtractor(item)}>{renderItem({ item, index })}</Fragment>
+          <ListRow key={keyExtractor(item)} item={item} index={index} extraData={extraData} render={renderItem} />
         ))}
       </div>
     )
@@ -1098,6 +1117,75 @@ test('a / command the menu does not know is sent as typed', async () => {
     await chat.key('Enter')
     expect(sendTurn).toHaveBeenCalledOnce()
     expect(sendTurn.mock.calls[0][0]).toMatchObject({ message: '/zzz' })
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a sent picture’s bytes leave the view once the transcript has stored it, and the bubble keeps drawing it', async () => {
+  const sendTurn = vi.fn<SendTurn>(async () => ({ ok: true }))
+  const chat = await mountChat({ capabilities: { images: true }, sendTurn })
+  const api = (chat.dom.window as unknown as { api: Record<string, unknown> }).api
+  api.readImageDataUrl = async () => 'data:image/png;base64,iVBORw0KGgo='
+  const reads: unknown[] = []
+  api.conversationAttachment = async (input: unknown) => {
+    reads.push(input)
+    return { ok: false, message: 'not read' }
+  }
+  const bubbleImage = () => chat.host.querySelector('[role="log"] img')?.getAttribute('src')
+  try {
+    const paste = new chat.dom.window.Event('paste', { bubbles: true, cancelable: true })
+    Object.defineProperty(paste, 'clipboardData', {
+      value: { items: [], files: [], types: ['text/plain'], getData: () => '/Users/dev/Desktop/shot.png' },
+    })
+    await chat.act(async () => {
+      chat.host.querySelector('textarea')!.dispatchEvent(paste)
+    })
+    await chat.act(async () => chat.type('What is wrong here?'))
+    await chat.act(async () => chat.enter())
+    const sent = sendTurn.mock.calls[0]![0] as { localTurnId: string; attachments: { id: string }[] }
+    expect(bubbleImage()).toBe('data:image/png;base64,iVBORw0KGgo=')
+    await chat.act(async () => {
+      chat.emit({
+        type: 'event',
+        event: event('user_message', {
+          turnId: 't1',
+          text: 'What is wrong here?',
+          localTurnId: sent.localTurnId,
+          attachments: [{ id: sent.attachments[0]!.id, mediaType: 'image/png', byteLength: 8, ref: 'store/shot.png' }],
+        }),
+      })
+    })
+    // Drawn from the store's copy now, which the send seeded: nothing is read back.
+    expect(bubbleImage()).toBe('data:image/png;base64,iVBORw0KGgo=')
+    expect(reads).toEqual([])
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('rows already on screen follow the view: the previous turn folds when a new one starts', async () => {
+  // Turn ids of its own: a fold another test opened is remembered per turn.
+  const chat = await mountChat({
+    events: [
+      event('user_message', { turnId: 'fold-first', text: 'Check the build' }),
+      event('turn_started', { turnId: 'fold-first' }),
+      event('tool_started', { turnId: 'fold-first', toolUseId: 'fold-one', name: 'Read', input: { path: 'a.ts' } }),
+      event('tool_output', { turnId: 'fold-first', toolUseId: 'fold-one', output: 'a', status: 'ok' }),
+      event('tool_started', { turnId: 'fold-first', toolUseId: 'fold-two', name: 'Read', input: { path: 'b.ts' } }),
+      event('tool_output', { turnId: 'fold-first', toolUseId: 'fold-two', output: 'b', status: 'ok' }),
+      event('content_delta', { turnId: 'fold-first', text: 'It builds.' }),
+      event('turn_completed', { turnId: 'fold-first' }),
+    ],
+  })
+  const fold = () => chat.button('Worked for')
+  try {
+    expect(fold()?.getAttribute('aria-expanded'), 'the latest turn rests open').toBe('true')
+    await chat.act(async () => {
+      chat.emit({ type: 'event', event: event('user_message', { turnId: 'fold-second', text: 'And the tests?' }) })
+      chat.emit({ type: 'event', event: event('turn_started', { turnId: 'fold-second' }) })
+    })
+    expect(fold()?.getAttribute('aria-expanded'), 'an earlier turn rests folded').toBe('false')
   } finally {
     await chat.unmount()
   }

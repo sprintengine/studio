@@ -83,3 +83,44 @@ test('a replayed bubble reads its images back by reference, and says so when one
     }
   }
 })
+
+test('a picture just sent draws from memory on its first frame, with no read', async () => {
+  const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost' })
+  const previous = Object.getOwnPropertyDescriptors(globalThis)
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document, navigator: dom.window.navigator })
+  const reads: string[] = []
+  Object.assign(dom.window, {
+    api: {
+      platform: 'darwin',
+      conversationAttachment: async ({ ref }: { ref: string }) => {
+        reads.push(ref)
+        return { ok: false, message: 'not read' }
+      },
+    },
+  })
+  try {
+    const { renderToStaticMarkup } = await import('react-dom/server')
+    const { StoredAttachmentThumbnail, rememberSentAttachment } = await import('./storedAttachments')
+    rememberSentAttachment('f/sent.png', {
+      id: 'sent',
+      mediaType: 'image/png',
+      dataBase64: 'YmFy',
+      byteLength: 3,
+      name: 'sent.png',
+    })
+    const html = renderToStaticMarkup(
+      <StoredAttachmentThumbnail
+        attachment={{ id: 'sent', mediaType: 'image/png', byteLength: 3, ref: 'f/sent.png', name: 'sent.png' }}
+        className="h-16 w-16"
+      />,
+    )
+    expect(html).toContain('src="data:image/png;base64,YmFy"')
+    expect(reads).toEqual([])
+  } finally {
+    dom.window.close()
+    for (const key of ['window', 'document', 'navigator']) {
+      if (previous[key]) Object.defineProperty(globalThis, key, previous[key])
+      else Reflect.deleteProperty(globalThis, key)
+    }
+  }
+})

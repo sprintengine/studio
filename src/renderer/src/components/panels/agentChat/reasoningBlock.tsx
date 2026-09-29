@@ -1,7 +1,7 @@
 // The model's reasoning, one quiet block per stretch of thinking, kept at the
 // point in the turn where it happened.
 
-import { useId, useRef } from 'react'
+import { memo, useId, useRef } from 'react'
 import { RowButton } from '../../ui'
 import { ConversationMarkdown, useConversationLinkContext } from './conversationLinks'
 import { useConversationDisclosure } from './conversationViewState'
@@ -38,7 +38,7 @@ export function reasoningPreview(text: string): string {
 // about; opened, the text reads as markdown inside a bounded scroll so a long
 // trace cannot push the conversation a screen down. While the model is still
 // thinking the header shimmers "Thinking" instead.
-export function ReasoningBlock({
+export const ReasoningBlock = memo(function ReasoningBlock({
   text,
   duration,
   live = false,
@@ -108,4 +108,4 @@ export function ReasoningBlock({
       ) : null}
     </div>
   )
-}
+})

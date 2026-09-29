@@ -271,3 +271,56 @@ test('the quote shortcut reaches the chat view whose transcript holds the select
     Object.assign(globals, previous)
   }
 })
+
+test('a chat with no toolbar showing is not woken by scrolls, or by selections elsewhere', async () => {
+  const dom = new JSDOM('<!doctype html><body><div id="log"><p>Reply text</p></div><textarea></textarea></body>', {
+    url: 'http://localhost',
+  })
+  const previous = Object.getOwnPropertyDescriptors(globalThis)
+  let frames = 0
+  const requestFrame = () => ++frames
+  Object.assign(globalThis, {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    requestAnimationFrame: requestFrame,
+    cancelAnimationFrame: () => undefined,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  })
+  Object.assign(dom.window, { requestAnimationFrame: requestFrame, cancelAnimationFrame: () => undefined })
+  const { act, createElement } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const { QuoteSelectionToolbar } = await import('./quoteSelection')
+  const document = dom.window.document
+  const log = document.getElementById('log')!
+  const root = createRoot(document.createElement('div'))
+  try {
+    await act(async () =>
+      root.render(
+        createElement(QuoteSelectionToolbar, { rootRef: { current: log }, enabled: true, onQuote: () => {} }),
+      ),
+    )
+    document.dispatchEvent(new dom.window.Event('scroll'))
+    const field = document.querySelector('textarea')!
+    document.getSelection()!.selectAllChildren(field)
+    document.dispatchEvent(new dom.window.Event('selectionchange'))
+    expect(frames).toBe(0)
+    document.getSelection()!.selectAllChildren(log)
+    document.dispatchEvent(new dom.window.Event('selectionchange'))
+    expect(frames).toBe(1)
+  } finally {
+    await act(async () => root.unmount())
+    dom.window.close()
+    for (const key of [
+      'window',
+      'document',
+      'navigator',
+      'requestAnimationFrame',
+      'cancelAnimationFrame',
+      'IS_REACT_ACT_ENVIRONMENT',
+    ]) {
+      if (previous[key]) Object.defineProperty(globalThis, key, previous[key])
+      else Reflect.deleteProperty(globalThis, key)
+    }
+  }
+})
