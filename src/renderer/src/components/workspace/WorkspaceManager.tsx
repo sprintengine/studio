@@ -117,6 +117,10 @@ import SidebarAccountBar from './SidebarAccountBar'
 import type { SidebarSection } from '../../store/slices/settingsSlice'
 import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { revealAgentTerminalTab } from '../../utils/agentTabReveal'
+import { setWorkspaceChatOpener } from '../../modules/chat-opener'
+import { composerDraftStore } from '../panels/agentChat/draftStore'
+import { setBuildExtensionHost } from '../extensions/buildExtensionHost'
+import { createWorkspaceChatOpener } from './manager/workspaceChatOpener'
 import {
   markLaunchedAgentProjected,
   retiredLaunchedAgents,
@@ -3034,6 +3038,56 @@ export default function WorkspaceManager() {
       onRunCard: (card, launch) => extensionsHostRef.current?.onRunCard(card, launch) ?? Promise.resolve(),
     })
     return () => setExtensionsSurfaceHost(null)
+  }, [])
+
+  // "Build your own extension" ends in a chat on the project it just made: a
+  // new chat workspace on that folder, the agent the flow's picker chose, the
+  // extension-builder skill attached and the brief sent. The flow is on the
+  // Extensions home; the chat is this shell's to make.
+  const openConversationInNewChatRef = useRef(openConversationInNewChat)
+  openConversationInNewChatRef.current = openConversationInNewChat
+  useEffect(() => {
+    setBuildExtensionHost({
+      openChat: ({ folder, confirm, prompt }) => openConversationInNewChatRef.current(folder, confirm, prompt),
+    })
+    return () => setBuildExtensionHost(null)
+  }, [])
+
+  // A module's `openChat` (RendererHost): a chat agent it owns, seeded into a
+  // workspace that is already open and brought to the front, the prompt left
+  // as a draft unless the module asked to send it. Registered while this shell
+  // is mounted — until then `openChat` answers `unavailable`, and
+  // `supports('chat.open')` says so. Everything is read at call time, so the
+  // opener is made once.
+  useEffect(() => {
+    setWorkspaceChatOpener(
+      createWorkspaceChatOpener({
+        getWorkspace: (workspaceId) =>
+          useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === workspaceId) ?? null,
+        lastSelectedCli: () => useWorkspaceStore.getState().appSettings.lastSelectedCli,
+        permissionPresetFor: (cli) =>
+          resolveCliPermissionPreset(
+            cli,
+            useWorkspaceStore.getState().appSettings.lastAgentSpawnPermissionPreset ??
+              DEFAULT_AGENT_SPAWN_PERMISSION_PRESET,
+          ),
+        newAgentId: (providerId) => `conversation-${providerId}-${nanoid(6)}`,
+        pickName: pickRandomAgentName,
+        writeAgent: (workspaceId, agentId, patch) =>
+          useWorkspaceStore.getState().updateAgent(workspaceId, agentId, patch),
+        putDraft: (workspaceId, agentId, draft) =>
+          composerDraftStore()
+            .getState()
+            .put(workspaceId, agentId, { ...draft, mentions: [] }),
+        ensureSkills: (workspaceRoot, skillIds) => {
+          for (const id of skillIds) void ensureSkillForAgent({ workspaceRoot, skill: { id } })
+        },
+        reveal: (workspaceId, agentId, name) => {
+          revealAgentTerminalTab({ workspaceId, agentId, name })
+        },
+      }),
+    )
+    return () => setWorkspaceChatOpener(null)
   }, [])
 
   // The terminal pane's star: "find a skill or plugin, for THIS agent". The
