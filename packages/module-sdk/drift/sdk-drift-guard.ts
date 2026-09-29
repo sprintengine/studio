@@ -98,13 +98,11 @@ import {
   GitHubModuleServiceToken as AppGitHubModuleServiceToken,
   ModuleSecretsServiceToken as AppModuleSecretsServiceToken,
 } from '../../../src/main/module-host/service-tokens'
-// The host-internal chat tokens. They live beside service-tokens.ts until
-// agent-runtime-module provides them itself; the checks below read them from
-// wherever they are exported, so the move needs only this import changed.
+// The host-internal chat tokens, provided by agent-runtime-module.
 import {
   ConversationLaunchServiceToken as AppConversationLaunchServiceToken,
   ConversationRuntimeToken as AppConversationRuntimeToken,
-} from '../../../src/main/module-host/conversation-launch-token'
+} from '../../../src/main/module-host/service-tokens'
 import { THIRD_PARTY_SERVICE_KEYS as APP_THIRD_PARTY_SERVICE_KEYS } from '../../../src/main/module-host/main-host'
 import type { CapabilityModule as AppCapabilityModule } from '../../../src/main/module-host/load-modules'
 import type { ModuleFocusTabInput as AppModuleFocusTabInput } from '../../../src/renderer/src/modules/workspace-tabs'
