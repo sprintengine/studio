@@ -76,6 +76,7 @@ import { ConversationAttachmentStore } from './conversation-attachment-store'
 import { ConversationPlanStore } from './conversation-plan-store'
 import { approvalRememberLabels, approvalRuleCandidate } from '../shared/conversation/approvalRules'
 import {
+  permissionFallbackNotice,
   permissionModeAllows,
   permissionModeApprovalLabel,
   type PermissionModeRequest,
@@ -88,6 +89,7 @@ import type { PowerActivity } from './power-activity'
 import {
   type ConversationMessage,
   type ConversationProviderAdapter,
+  type MockAdapterTurnInput,
   type ConversationProviderCursor,
   type ConversationProviderEventStream,
 } from './providers/conversation-provider-adapter'
@@ -581,8 +583,8 @@ export class ConversationRuntime {
     const resume = stateful
       ? await this.readResumeCursor(session.workspaceRoot, session.workspaceId, session.agentId)
       : undefined
-    try {
-      await this.emitAll(
+    const start = () =>
+      this.emitAll(
         session,
         validation.adapter.startSession({
           ...session,
@@ -595,6 +597,38 @@ export class ConversationRuntime {
           onBeforeTool: (name) => this.captureBeforeTool(session, name),
         }),
       )
+    try {
+      // A runtime that will not start under the chat's permission mode (a flag
+      // its CLI no longer takes, a mode it refuses) is started again with no
+      // permission setting rather than leaving the person with no chat, and
+      // the chat says so. Only when that start works: a runtime that fails
+      // either way reports its first failure, and keeps the mode it was given.
+      let fellBack: string | null = null
+      try {
+        await start()
+      } catch (error) {
+        const preset = session.permissionPreset
+        if (!preset || preset === 'none' || this.sessions.get(sessionId) !== session) throw error
+        validation.adapter.disposeChildProcess?.(sessionId)
+        session.permissionPreset = 'none'
+        try {
+          await start()
+        } catch {
+          session.permissionPreset = preset
+          throw error
+        }
+        fellBack = permissionFallbackNotice(
+          session.displayName ?? session.providerId,
+          preset,
+          error instanceof Error ? error.message : String(error),
+        )
+      }
+      if (fellBack)
+        await this.emit(
+          session,
+          this.eventForSession(session, 'session_updated', { permissionPreset: 'none', notice: fellBack }),
+          {},
+        )
       // Agents the transcript left running belonged to a process that is gone.
       for (const agent of Array.from(session.runningSubagents.values()))
         await this.emit(
@@ -783,7 +817,7 @@ export class ConversationRuntime {
         // for the bubbles, not the bytes.
         const emitted = await this.emitAll(
           session,
-          adapter.sendTurn({
+          this.turnWithoutFlagOnFailure(session, adapter, {
             ...session,
             turnId,
             requestId,
@@ -827,6 +861,76 @@ export class ConversationRuntime {
     if (session.providerTurn === providerTurn) session.providerTurn = null
     providerTurn.settle(result)
     return result
+  }
+
+  /**
+   * A turn whose runtime fails before it does anything, under a permission mode
+   * that passes the CLI a setting, is sent again with no permission setting:
+   * the child a runtime starts for a turn (Claude Code's first message, a
+   * relaunch after a mode change) or the turn itself (Codex's approval policy)
+   * is where a setting the CLI no longer takes shows up. The retry's events
+   * replace the failed attempt's, and the chat says why its mode is No flag
+   * now. A retry that fails too puts the mode back and the first failure
+   * stands, as it would have without the retry: that was not the setting.
+   */
+  private async *turnWithoutFlagOnFailure(
+    session: RuntimeSession,
+    adapter: ConversationProviderAdapter,
+    input: MockAdapterTurnInput,
+  ): AsyncIterable<ConversationEvent> {
+    const preset = session.permissionPreset
+    const first = eventIterator(await adapter.sendTurn(input))
+    if (!preset || preset === 'none' || !adapter.setPermissionPreset) {
+      for (let next = await first.next(); !next.done; next = await first.next()) yield next.value
+      return
+    }
+    // Everything goes out as it arrives; only a failure that comes before the
+    // turn has done anything is held, until the retry says whose it was.
+    let failure: ConversationEvent | null = null
+    let started = false
+    for (let next = await first.next(); !next.done; next = await first.next()) {
+      if (!started && next.value.type === 'turn_failed' && !input.signal?.aborted) {
+        failure = next.value
+        break
+      }
+      if (!TURN_OPENING_EVENTS.has(next.value.type)) started = true
+      yield next.value
+    }
+    if (!failure) return
+    await first.return?.()
+    const noFlag = await adapter
+      .setPermissionPreset({ ...session, permissionPreset: 'none' })
+      .catch((): { ok: false } => ({ ok: false }))
+    if (!noFlag.ok) {
+      yield failure
+      return
+    }
+    session.permissionPreset = 'none'
+    const notice = () =>
+      this.eventForSession(session, 'session_updated', {
+        permissionPreset: 'none',
+        notice: permissionFallbackNotice(session.displayName ?? session.providerId, preset, readTurnFailure(failure)),
+      })
+    const retry = eventIterator(await adapter.sendTurn({ ...input, permissionPreset: 'none' }))
+    let retried = false
+    for (let next = await retry.next(); !next.done; next = await retry.next()) {
+      const event = next.value
+      if (!retried && event.type === 'turn_failed') {
+        await retry.return?.()
+        await adapter.setPermissionPreset({ ...session, permissionPreset: preset }).catch(() => undefined)
+        session.permissionPreset = preset
+        yield failure
+        return
+      }
+      // The turn opened with the first attempt; the retry carries it on.
+      if (event.type === 'turn_started') continue
+      if (!retried && !TURN_OPENING_EVENTS.has(event.type)) {
+        retried = true
+        yield notice()
+      }
+      yield event
+    }
+    if (!retried) yield notice()
   }
 
   /**
@@ -3177,6 +3281,31 @@ function readProviderCursor(value: unknown): ConversationProviderCursor | null {
 /** Beside the transcript: the highest sequence number published that may not be in it. */
 function lostSequencePath(transcriptPath: string): string {
   return transcriptPath.replace(/\.jsonl$/, '.lost-seq.json')
+}
+
+// Events a turn opens with before its runtime has done anything with it. A
+// turn that fails after only these never got as far as the model: its child
+// did not start, or the runtime refused the turn's settings.
+const TURN_OPENING_EVENTS: ReadonlySet<ConversationEvent['type']> = new Set([
+  'turn_started',
+  'session_started',
+  'session_ready',
+  'session_updated',
+])
+
+function eventIterator(
+  stream: ConversationEvent[] | AsyncIterable<ConversationEvent>,
+): AsyncIterator<ConversationEvent> {
+  return (isAsyncIterable(stream) ? stream : fromArray(stream))[Symbol.asyncIterator]()
+}
+
+async function* fromArray(events: ConversationEvent[]): AsyncIterable<ConversationEvent> {
+  yield* events
+}
+
+function readTurnFailure(event: ConversationEvent | null): string {
+  const message = event?.payload?.message
+  return typeof message === 'string' ? message : ''
 }
 
 function isAsyncIterable(

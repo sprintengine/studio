@@ -70,7 +70,11 @@ import {
   cliForConversationProvider,
   conversationPermissionPresetRefusals,
 } from '../../../../shared/conversation-harness'
-import { CLI_PERMISSION_PRESETS, isLooserCliPermissionPreset } from '../../../../shared/cli-permission-preset'
+import {
+  CLI_PERMISSION_PRESETS,
+  isLooserCliPermissionPreset,
+  parseCliPermissionPreset,
+} from '../../../../shared/cli-permission-preset'
 import { pickRandomAgentName } from '../../../../shared/agent-names'
 import { lockedChatEngineOption, isModelDerivedChatName } from './agentChat/chatEngine'
 import { EnginePickerChip } from '../workspace/agentComposer/enginePicker'
@@ -803,30 +807,58 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // history, and the record may have moved since.
   // Each render looks only at the events that arrived since the last one: the
   // scan stops at the newest number it has already read.
-  const modelScanRef = useRef<{ replay: number; through: number; found: { id: string; modelId: string } | null }>({
-    replay: -1,
-    through: 0,
-    found: null,
-  })
-  const liveModelEvent = useMemo(() => {
+  //
+  // The same scan finds the runtime moving the chat to another permission mode
+  // on its own: a runtime that would not start under the chosen mode is
+  // started with none, and says so. The chip follows the live session; the
+  // agent record keeps the person's choice, so the next start tries it again.
+  type LiveSessionScan = {
+    replay: number
+    through: number
+    found: { id: string; modelId: string } | null
+    preset: { id: string; sessionId: string; permissionPreset: CliPermissionPreset } | null
+  }
+  const modelScanRef = useRef<LiveSessionScan>({ replay: -1, through: 0, found: null, preset: null })
+  const liveSessionScan = useMemo(() => {
     if (!hydrated) return null
     const scan = modelScanRef.current
     if (scan.replay !== replayThroughSeq)
-      modelScanRef.current = { replay: replayThroughSeq, through: replayThroughSeq, found: null }
+      modelScanRef.current = { replay: replayThroughSeq, through: replayThroughSeq, found: null, preset: null }
     const { through } = modelScanRef.current
-    let found: { id: string; modelId: string } | null = null
+    let found: LiveSessionScan['found'] = null
+    let preset: LiveSessionScan['preset'] = null
     let newest = through
     for (let index = events.length - 1; index >= 0; index--) {
       const event = events[index]!
       if (event.seq === undefined) continue
       if (event.seq <= through) break
       newest = Math.max(newest, event.seq)
-      const modelId = event.type === 'session_updated' ? event.payload?.modelId : undefined
+      if (event.type !== 'session_updated') continue
+      const modelId = event.payload?.modelId
       if (!found && typeof modelId === 'string' && modelId) found = { id: event.id, modelId }
+      const permissionPreset = parseCliPermissionPreset(event.payload?.permissionPreset)
+      if (!preset && permissionPreset) preset = { id: event.id, sessionId: event.sessionId, permissionPreset }
     }
-    modelScanRef.current = { ...modelScanRef.current, through: newest, found: found ?? modelScanRef.current.found }
-    return modelScanRef.current.found
+    modelScanRef.current = {
+      ...modelScanRef.current,
+      through: newest,
+      found: found ?? modelScanRef.current.found,
+      preset: preset ?? modelScanRef.current.preset,
+    }
+    return modelScanRef.current
   }, [events, hydrated, replayThroughSeq])
+  const liveModelEvent = liveSessionScan?.found ?? null
+  const livePresetEvent = liveSessionScan?.preset ?? null
+  const appliedPresetEventRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!livePresetEvent || appliedPresetEventRef.current === livePresetEvent.id) return
+    appliedPresetEventRef.current = livePresetEvent.id
+    setSession((current) =>
+      current && current.sessionId === livePresetEvent.sessionId
+        ? { ...current, permissionPreset: livePresetEvent.permissionPreset }
+        : current,
+    )
+  }, [livePresetEvent])
   const appliedModelEventRef = useRef<string | null>(null)
   useEffect(() => {
     if (!liveModelEvent || appliedModelEventRef.current === liveModelEvent.id) return

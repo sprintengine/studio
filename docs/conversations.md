@@ -54,6 +54,17 @@ A stricter mode chosen mid-reply cannot hold back what the runtime does without
 asking before it takes the change; its notice says the new permissions apply
 from the next message.
 
+A chat is never left unstarted because of its mode. When a runtime will not
+start under the mode it was given (a flag its installed CLI no longer takes, or
+a mode it refuses, such as Cursor's Manual), it is started again with no
+permission setting. That covers the session's start, and a turn that fails
+before it has done anything, which is where a runtime that spawns its child per
+message (Claude Code) or takes its policy per turn (Codex) shows the failure.
+The failed attempt is dropped, the chip reads No flag, and a warning over the
+chat box names the mode that failed and the runtime's error. The agent record
+keeps the person's choice, so the next start tries it again. A runtime that
+fails with no flag as well keeps its mode and reports its first failure.
+
 Every surface that starts an agent takes all four modes (owner ruling
 2026-09-27, extended 2026-09-30): the launcher, a launch on a paired machine,
 the MCP tools (`agent.launch`, `backlog.work`, `schedule.create`,
