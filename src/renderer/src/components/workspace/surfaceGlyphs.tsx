@@ -1,5 +1,5 @@
 // The glyphs modules hand to the shell's chrome to name a surface: an app-rail
-// square (Automations), an Extensions drawer row (Design, Plugins). A module
+// square, an Extensions drawer row (Design, Plugins). A module
 // that contributes a pane row now carries its own glyph with it
 // (ModalSurfaceDefinition.launcher), so those live in the module's own tree.
 // "Modal" left the name with the Extensions drawer ruling
@@ -32,25 +32,6 @@ export function PluginsGlyph({ className }: { className?: string }) {
         strokeWidth="1.4"
         strokeLinecap="round"
         strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
-// Automations: the bolt-in-arc mark, redrawn on the 16 grid from AppIcons'
-// AutomationsWorkspaceTypeIcon (24 grid). Duplicated rather than imported —
-// AppIcons reaches the module registry, which this leaf must not.
-export function AutomationsGlyph({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
-      <path d="M13 8a5 5 0 1 1-2.27-4.19" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-      <path
-        d="M8.4 4.9 6 8.3h1.8l-.47 2.66L9.73 7.6H7.93l.47-2.7z"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinejoin="round"
-        fill="currentColor"
-        fillOpacity="0.18"
       />
     </svg>
   )

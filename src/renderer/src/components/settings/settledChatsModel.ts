@@ -37,9 +37,9 @@ const bySettledAt = (a: SettledChatEntry, b: SettledChatEntry) => b.settledAt - 
 /**
  * Every settled chat the rail would draw, most recently settled first: the
  * question someone opening this page is asking is "the one I put away the
- * other day", not "the oldest thing I own". Rail-hidden hosts (the
- * Automations workspace, module-hidden workspaces) stay out here for the same
- * reason they are out of the rail — they were never chats.
+ * other day", not "the oldest thing I own". Rail-hidden workspaces (a
+ * module's own background residency) stay out here for the same reason they
+ * are out of the rail — they were never chats.
  */
 export function listSettledChats(
   workspaces: readonly Workspace[],

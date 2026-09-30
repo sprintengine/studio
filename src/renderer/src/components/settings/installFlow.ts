@@ -47,9 +47,7 @@ function hasCodeBearingKind(provides: readonly MarketplaceProvidesKind[]): boole
  * harness dirs. A module installs into `~/.sprintengine/modules/<id>`, which
  * touches no project — so a module-only bundle installs with no workspace open at all, which is what
  * makes a first-party module installable from a fresh app that has never
- * opened a folder (D10). An automation needs one, but an automation-only
- * bundle's own component reports that itself with the sentence that names the
- * project it wants; keeping it out of this gate leaves that message intact.
+ * opened a folder (D10).
  *
  * Lives here rather than inline in `BrowseStorefront` so the rule can be
  * asserted without a renderer, like the rest of the flow.

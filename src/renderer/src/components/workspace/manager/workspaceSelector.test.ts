@@ -111,7 +111,7 @@ test('the mesh signature is computed once per layout object', () => {
 // something unrelated moves: Snooze and Wake did exactly that.
 const RENDERED_FIELD_CHANGES: { [K in keyof Workspace]?: Workspace[K] } = {
   name: 'Renamed',
-  mode: 'automations-host',
+  mode: 'weather-deck',
   folderPath: '/Users/dev/other',
   folderMissing: true,
   remoteOrigin: {

@@ -39,8 +39,7 @@ handler that needs it.
 | `getModuleStorage(host)` | `storage` | `agent-runtime` | JSON key-value store, per workspace (`workspaceRoot`) or global; 1 MB per value; atomic writes |
 | `getSecretsService(host)` | `secrets` | — | API keys the host holds and sends only to named origins — [brokers.md](brokers.md) |
 | `getGitHubService(host)` | `github` | — | GitHub API calls with the user's sign-in — [brokers.md](brokers.md) |
-| `getAutomationsService(host)` | `automations.manage` | `automations` | Create/list/update/delete the module's own automations, and their run events |
-| `registerAutomationTrigger(host, provider)` / `registerAutomationAction(host, provider)` | — | `automations` | New trigger and action kinds for the Automations panel |
+| `getScheduledAgentsService(host)` | `scheduled-agents.manage` | `scheduled-agents` | Create/list/update/remove/run the module's own scheduled agents, and hear when they change |
 | `getCompanionAgentsService(host)` | `agents:companion` | `agent-runtime` | A workspace-bound background agent with a structured `runStructured` task API |
 | `host.requireService(WorkspaceContextToken)` | `ipc:workspace-read` | — (resolve in handlers) | `get(id)` / `list()` of open workspaces: `{ id, name, folderPath, mode }` |
 | `host.requireService(WorkspaceServiceToken)` | `ipc:workspace-write` | — (resolve in handlers) | `create({ name, folderPath })` a workspace |
@@ -67,17 +66,16 @@ host.registerMcpTools([
 - While the module is disabled its tools stay listed and answer with an
   "enable the module" error.
 
-## Automations providers
+## Scheduled agents
 
-A trigger provider needs `kind` (namespaced `<moduleId>.<name>`), `configSchema`,
-`subscribe` (push events; return an unsubscriber) and/or `poll` (the engine
-calls it; return `{ ok: true, events: [{ id, occurredAt, payload }] }` —
-each event id runs at most once — or `{ ok: false, blockedReason }`), plus
-`label`, `glyph` (`agent` | `loop` | `board` | `clock`) and `summary` for the
-panel. An action provider's `run(config, context)` gets
-`context.spawnAgent({ folderPath, prompt, cli?, model?, skills?, … })`, which
-starts the run's agent as a chat and resolves with its `sessionId`, plus
-`reportProgress` and `runCommand`.
+A scheduled agent is a prompt and a cron schedule: each time the schedule
+comes round, a new chat starts in `folderPath` with the prompt as its first
+message, on the CLI, model, permissions, skills, MCP servers and worktree
+setting recorded. `getScheduledAgentsService(host).create(draft)` validates
+the draft (a cron that does not parse, or never comes round, is refused with
+the reason) and answers `{ ok: true, agent }` with `agent.nextRunAt`. The
+module sees and changes only the ones it created; the person sees them in the
+sidebar with their own, and can close them.
 
 ## Storage
 

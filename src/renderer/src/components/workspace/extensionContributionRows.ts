@@ -3,10 +3,10 @@ import { DRAWER_ROWS, EXTENSIONS_HOME_SURFACE_ID } from './extensionsDrawer'
 
 const FIXED_SURFACE_IDS = new Set(DRAWER_ROWS.map((row) => (row.kind === 'nav' ? row.entryId : row.surfaceId)))
 
-// Automations has its own app-rail square. The home is shell-owned. Everything
-// else that was not claimed by a fixed product row is an installed extension's
-// door and needs a route into the Extensions drawer.
-const NON_CONTRIBUTION_SURFACE_IDS = new Set([EXTENSIONS_HOME_SURFACE_ID, 'automations'])
+// The home is shell-owned. Everything else that was not claimed by a fixed
+// product row is an installed extension's door and needs a route into the
+// Extensions drawer.
+const NON_CONTRIBUTION_SURFACE_IDS = new Set([EXTENSIONS_HOME_SURFACE_ID])
 
 export type ExtensionContributionRow = {
   key: string

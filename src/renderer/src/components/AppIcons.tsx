@@ -115,6 +115,18 @@ export function WslMachineGlyph({ className }: IconProps) {
   )
 }
 
+// A scheduled agent: a clock face and nothing else, because what it names is a
+// time still to come. Not the history clock, whose rewind arrow means the
+// past. 16-grid, stroke 1.4; mirrored as design-system/glyphs/schedule.svg.
+export function ScheduleGlyph({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
+      <circle cx="8" cy="8" r="5.6" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M8 4.9V8l2.1 1.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 // ── Device identity ───────────────────────────────────────────────────────
 //
 // Spec: design-system/components/glyphs/component.md → "Device identity".
@@ -300,25 +312,6 @@ export function FolderTypeIcon({
   }
 
   return <ProjectFolderGlyph className={className} color={color} unfiled={unfiled} />
-}
-
-// Automations identity glyph: a schedule dial (the schedule trigger) wrapped
-// around a lightning bolt (the fired action) — "on a schedule, do work". Reads
-// at 16px in the sidebar.
-export function AutomationsWorkspaceTypeIcon({ className }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M19.5 12a7.5 7.5 0 1 1-3.4-6.28" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-      <path
-        d="M12.6 7.3 9 12.4h2.7l-.7 4 3.6-5.1h-2.7l.7-4z"
-        stroke="currentColor"
-        strokeWidth={iconStroke - 0.2}
-        strokeLinejoin="round"
-        fill="currentColor"
-        fillOpacity="0.18"
-      />
-    </svg>
-  )
 }
 
 function StandardWorkspaceTypeIcon({ className }: IconProps) {

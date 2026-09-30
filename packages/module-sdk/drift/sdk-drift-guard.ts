@@ -28,34 +28,17 @@ import type {
   ModuleTrustStatus as AppModuleTrustStatus,
 } from '../../../src/shared/modules/manifest'
 import { BUNDLED_MODULE_IDS as APP_BUNDLED_MODULE_IDS } from '../../../src/shared/modules/manifest'
-import { AUTOMATION_PROVIDER_GLYPHS as APP_AUTOMATION_PROVIDER_GLYPHS } from '../../../src/shared/automations/contracts'
+import type {
+  ScheduledAgent as AppScheduledAgent,
+  ScheduledAgentAttachment as AppScheduledAgentAttachment,
+  ScheduledAgentDraft as AppScheduledAgentDraft,
+  ScheduledAgentLastRun as AppScheduledAgentLastRun,
+  ScheduledAgentSchedule as AppScheduledAgentSchedule,
+  ScheduledAgentView as AppScheduledAgentView,
+  ScheduledAgentWriteResult as AppScheduledAgentWriteResult,
+} from '../../../src/shared/scheduled-agents'
 import type { CapabilityPermission as AppCapabilityPermission } from '../../../src/shared/modules/permissions'
 import { KNOWN_CAPABILITY_PERMISSIONS as APP_KNOWN_CAPABILITY_PERMISSIONS } from '../../../src/shared/modules/permissions'
-import type {
-  ActionContext as AppActionContext,
-  ActionKind as AppActionKind,
-  AutomationActionProvider as AppAutomationActionProvider,
-  AutomationDefinition as AppAutomationDefinition,
-  AutomationDefinitionDraft as AppAutomationDefinitionDraft,
-  AutomationDefinitionPatch as AppAutomationDefinitionPatch,
-  AutomationRun as AppAutomationRun,
-  AutomationRunEventStatus as AppAutomationRunEventStatus,
-  AutomationRunEventTrigger as AppAutomationRunEventTrigger,
-  AutomationRunStatus as AppAutomationRunStatus,
-  AutomationsRunEvent as AppAutomationsRunEvent,
-  AutomationStatus as AppAutomationStatus,
-  ModuleAutomationsError as AppModuleAutomationsError,
-  ModuleAutomationsService as AppModuleAutomationsService,
-  AutomationTriggerPollContext as AppAutomationTriggerPollContext,
-  AutomationTriggerPollEvent as AppAutomationTriggerPollEvent,
-  AutomationTriggerPollResult as AppAutomationTriggerPollResult,
-  AutomationTriggerProvider as AppAutomationTriggerProvider,
-  AutomationTriggerPairing as AppAutomationTriggerPairing,
-  AutomationProviderGlyph as AppAutomationProviderGlyph,
-  JsonSchema as AppJsonSchema,
-  ScheduleTriggerConfig as AppScheduleTriggerConfig,
-  TriggerKind as AppTriggerKind,
-} from '../../../src/shared/automations/contracts'
 import type { ModuleBridgeRefusalCode as AppModuleBridgeRefusalCode } from '../../../src/shared/modules/bridge'
 import type { ModuleEventEnvelope as AppModuleEventEnvelope } from '../../../src/shared/modules/events'
 import type { FileDropPayload as AppFileDropPayload } from '../../../src/renderer/src/utils/terminalDrop'
@@ -188,27 +171,13 @@ import type {
   CompanionAgentStatus as SdkCompanionAgentStatus,
   CompanionAgentsService as SdkCompanionAgentsService,
   CompanionRunStructuredOptions as SdkCompanionRunStructuredOptions,
-  ActionContext as SdkActionContext,
-  ActionKind as SdkActionKind,
-  AutomationActionProvider as SdkAutomationActionProvider,
-  AutomationDefinition as SdkAutomationDefinition,
-  AutomationDefinitionDraft as SdkAutomationDefinitionDraft,
-  AutomationDefinitionPatch as SdkAutomationDefinitionPatch,
-  AutomationRun as SdkAutomationRun,
-  AutomationRunEventStatus as SdkAutomationRunEventStatus,
-  AutomationRunEventTrigger as SdkAutomationRunEventTrigger,
-  AutomationRunStatus as SdkAutomationRunStatus,
-  AutomationsRunEvent as SdkAutomationsRunEvent,
-  AutomationStatus as SdkAutomationStatus,
-  ModuleAutomationsError as SdkModuleAutomationsError,
-  ModuleAutomationsService as SdkModuleAutomationsService,
-  AutomationTriggerPollContext as SdkAutomationTriggerPollContext,
-  AutomationTriggerPollEvent as SdkAutomationTriggerPollEvent,
-  AutomationTriggerPollResult as SdkAutomationTriggerPollResult,
-  AutomationTriggerProvider as SdkAutomationTriggerProvider,
-  AutomationTriggerPairing as SdkAutomationTriggerPairing,
-  AutomationProviderGlyph as SdkAutomationProviderGlyph,
-  JsonSchema as SdkJsonSchema,
+  ScheduledAgent as SdkScheduledAgent,
+  ScheduledAgentAttachment as SdkScheduledAgentAttachment,
+  ScheduledAgentDraft as SdkScheduledAgentDraft,
+  ScheduledAgentLastRun as SdkScheduledAgentLastRun,
+  ScheduledAgentSchedule as SdkScheduledAgentSchedule,
+  ScheduledAgentView as SdkScheduledAgentView,
+  ScheduledAgentWriteResult as SdkScheduledAgentWriteResult,
   FileDropPayload as SdkFileDropPayload,
   GlobalSurfaceDefinition as SdkGlobalSurfaceDefinition,
   ModalSurfaceComponentProps as SdkModalSurfaceComponentProps,
@@ -245,7 +214,6 @@ import type {
   RegisterMain as SdkRegisterMain,
   RegisterRenderer as SdkRegisterRenderer,
   RendererHost as SdkRendererHost,
-  ScheduleTriggerConfig as SdkScheduleTriggerConfig,
   SettingsSectionDefinition as SdkSettingsSectionDefinition,
   SettingsSectionProps as SdkSettingsSectionProps,
   SidebarNavEntryDefinition as SdkSidebarNavEntryDefinition,
@@ -255,7 +223,6 @@ import type {
   SidecarSpec as SdkSidecarSpec,
   SidecarStartOptions as SdkSidecarStartOptions,
   TopBarItemDefinition as SdkTopBarItemDefinition,
-  TriggerKind as SdkTriggerKind,
   WorkspaceCreationStepProps as SdkWorkspaceCreationStepProps,
   WorkspaceLayoutTemplate as SdkWorkspaceLayoutTemplate,
   WorkspacePanelComponent as SdkWorkspacePanelComponent,
@@ -273,7 +240,6 @@ import {
   BUNDLED_MODULE_IDS as SDK_BUNDLED_MODULE_IDS,
   KNOWN_CAPABILITY_PERMISSIONS as SDK_KNOWN_CAPABILITY_PERMISSIONS,
   SPRINTENGINE_FILE_DROP_MIME as SDK_FILE_DROP_MIME,
-  AUTOMATION_PROVIDER_GLYPHS as SDK_AUTOMATION_PROVIDER_GLYPHS,
   WorkspaceContextToken as SdkWorkspaceContextToken,
   WorkspaceServiceToken as SdkWorkspaceServiceToken,
 } from '../src/index'
@@ -381,29 +347,15 @@ type SdkExpectedStorageRegistry = {
 }
 expectType<Extends<AppModuleStorageRegistry, SdkExpectedStorageRegistry>>()
 expectType<IsExact<AppPreviewSlot, SdkPreviewSlot>>()
-expectType<IsExact<AppJsonSchema, SdkJsonSchema>>()
-expectType<IsExact<AppAutomationStatus, SdkAutomationStatus>>()
-expectType<IsExact<AppAutomationRunStatus, SdkAutomationRunStatus>>()
-expectType<IsExact<AppTriggerKind, SdkTriggerKind>>()
-expectType<IsExact<AppScheduleTriggerConfig, SdkScheduleTriggerConfig>>()
-expectType<IsExact<AppAutomationTriggerPollContext, SdkAutomationTriggerPollContext>>()
-expectType<IsExact<AppAutomationTriggerPollEvent, SdkAutomationTriggerPollEvent>>()
-expectType<IsExact<AppAutomationTriggerPollResult, SdkAutomationTriggerPollResult>>()
-expectType<IsExact<AppAutomationTriggerProvider, SdkAutomationTriggerProvider>>()
-expectType<IsExact<AppAutomationTriggerPairing, SdkAutomationTriggerPairing>>()
-expectType<IsExact<AppAutomationProviderGlyph, SdkAutomationProviderGlyph>>()
-expectType<IsExact<AppActionKind, SdkActionKind>>()
-expectType<IsExact<AppAutomationRun, SdkAutomationRun>>()
-expectType<IsExact<AppAutomationDefinition, SdkAutomationDefinition>>()
-expectType<IsExact<AppAutomationDefinitionDraft, SdkAutomationDefinitionDraft>>()
-expectType<IsExact<AppAutomationDefinitionPatch, SdkAutomationDefinitionPatch>>()
-expectType<IsExact<AppAutomationRunEventStatus, SdkAutomationRunEventStatus>>()
-expectType<IsExact<AppAutomationRunEventTrigger, SdkAutomationRunEventTrigger>>()
-expectType<IsExact<AppAutomationsRunEvent, SdkAutomationsRunEvent>>()
-expectType<IsExact<AppModuleAutomationsError, SdkModuleAutomationsError>>()
-expectType<IsExact<AppModuleAutomationsService, SdkModuleAutomationsService>>()
-expectType<IsExact<AppActionContext, SdkActionContext>>()
-expectType<IsExact<AppAutomationActionProvider, SdkAutomationActionProvider>>()
+// Scheduled agents: the records an extension's scoped service hands back and
+// takes are the app's own, field for field.
+expectType<IsExact<AppScheduledAgentSchedule, SdkScheduledAgentSchedule>>()
+expectType<IsExact<AppScheduledAgentAttachment, SdkScheduledAgentAttachment>>()
+expectType<IsExact<AppScheduledAgentLastRun, SdkScheduledAgentLastRun>>()
+expectType<IsExact<AppScheduledAgent, SdkScheduledAgent>>()
+expectType<IsExact<AppScheduledAgentDraft, SdkScheduledAgentDraft>>()
+expectType<IsExact<AppScheduledAgentView, SdkScheduledAgentView>>()
+expectType<IsExact<AppScheduledAgentWriteResult, SdkScheduledAgentWriteResult>>()
 
 // MCP tool contributions: the wire shapes mirror exactly — an
 // optional-property drift on a tool registration would silently change what
@@ -639,11 +591,6 @@ assert.deepEqual(
   [...APP_KNOWN_CAPABILITY_PERMISSIONS],
   'KNOWN_CAPABILITY_PERMISSIONS drifted between SDK and app',
 )
-assert.deepEqual(
-  [...SDK_AUTOMATION_PROVIDER_GLYPHS],
-  [...APP_AUTOMATION_PROVIDER_GLYPHS],
-  'AUTOMATION_PROVIDER_GLYPHS drifted between SDK and app',
-)
 assert.equal(SDK_FILE_DROP_MIME, APP_FILE_DROP_MIME, 'SPRINTENGINE_FILE_DROP_MIME drifted between SDK and app')
 assert.equal(SDK_HOST_API_VERSION, APP_HOST_API_VERSION, 'HOST_API_VERSION drifted between SDK and app')
 assert.equal(
@@ -662,8 +609,7 @@ const SDK_SERVICE_TOKEN_KEYS = [
   'core.workspace',
   'core.workspace-context',
   'core.module-storage',
-  'automations.provider-registry',
-  'automations.module-service',
+  'scheduled-agents.module-service',
   'companion-agents.module-service',
   'conversation.module-service',
   'module-secrets.module-service',
@@ -727,19 +673,9 @@ for (const firstPartyOnly of [AppConversationLaunchServiceToken.key, AppConversa
 const publicTypes = readFileSync(join(process.cwd(), 'packages', 'module-sdk', 'dist', 'index.d.ts'), 'utf8')
 assert.equal((publicTypes.match(/\bany\b/g) ?? []).length, 0, 'SDK public declaration surface must not contain `any`')
 assert.equal(
-  publicTypes.includes('AutomationsProviderRegistryToken'),
+  publicTypes.includes('ScheduledAgentsModuleRegistry'),
   false,
-  'SDK public surface must not expose the raw Automations provider registry token',
-)
-assert.equal(
-  publicTypes.includes('AutomationsProviderRegistry'),
-  false,
-  'SDK public surface must not expose the raw Automations provider registry contract',
-)
-assert.equal(
-  publicTypes.includes('AutomationsModuleRegistry'),
-  false,
-  'SDK public surface must not expose the raw moduleId-first Automations service registry',
+  'SDK public surface must not expose the raw moduleId-first scheduled agents registry',
 )
 assert.equal(
   publicTypes.includes('ModuleStorageRegistry'),

@@ -78,15 +78,14 @@ test('every SDK-published token key is on the third-party allow-list', () => {
     serviceTokens.WorkspaceContextToken,
     serviceTokens.ModuleStorageToken,
     serviceTokens.CompanionAgentsModuleServiceToken,
-    serviceTokens.AutomationsModuleServiceToken,
-    serviceTokens.AutomationsProviderRegistryToken,
+    serviceTokens.ScheduledAgentsModuleServiceToken,
     serviceTokens.ConversationModuleServiceToken,
     serviceTokens.ModuleSecretsServiceToken,
     serviceTokens.GitHubModuleServiceToken,
   ]) {
     assert.ok(THIRD_PARTY_SERVICE_KEYS.has(token.key), token.key)
   }
-  assert.equal(THIRD_PARTY_SERVICE_KEYS.size, 9)
+  assert.equal(THIRD_PARTY_SERVICE_KEYS.size, 8)
 })
 
 test('a third-party module needs mcp:tools to register MCP tools', () => {

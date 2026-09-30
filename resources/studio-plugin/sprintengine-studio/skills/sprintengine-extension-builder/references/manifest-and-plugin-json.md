@@ -27,7 +27,7 @@ other.
 | `source` | yes | `"third-party"`. The validator forces it anyway. |
 | `engines` | yes | `{ "hostApi": 1 }` — the SDK's `HOST_API_VERSION`. Missing, non-integer, newer than Studio, or older than it still loads: the module is refused with a message saying which. |
 | `permissions` | no | See [permissions.md](permissions.md). |
-| `dependsOn` | no | Module ids that must load (and be enabled) first: `agent-runtime`, `automations`. |
+| `dependsOn` | no | Module ids that must load (and be enabled) first: `agent-runtime`, `scheduled-agents`. |
 | `conflictsWith` | no | Module ids that must not be enabled alongside. |
 | `entry` | no | `{ "renderer": "dist/renderer.mjs", "main": "dist/main.cjs" }`, relative to `module/`. `entry.preload` is reserved and never loaded. |
 | `files` | written for you | `{ "<relative path>": "<sha256 hex>" }` for every file in `module/` except `manifest.json`. Studio holds the installed folder to exactly these files and bytes, at discovery and again before it loads `entry.main`; a changed, missing or extra file reads as tampered. `npm run dev:install` and `sprintengine-module sign` write it. |
@@ -54,13 +54,13 @@ so a field the validator does not know is a field Studio never sees.
 
 - `id`, `version` and `permissions` must match the module manifest.
 - `components.module.path` is the folder holding `manifest.json`: `module`.
-  Other component kinds are `mcp`, `skills` and `automation`; an extension
-  that is only a module needs just this one.
+  The other component kinds are `mcp` and `skills`; an extension that is
+  only a module needs just this one.
 - `sprintengine-module plugin sign . --key <key>` adds a `files` list (path
   and sha256) to each component and signs the bundle. Run it AFTER signing the
   module, because the module's manifest is one of the files it digests.
 - A registry entry's `provides` must list the component kinds in canonical
-  order (`mcp`, `skills`, `module`, `automation`); `plugin sign` prints it.
+  order (`mcp`, `skills`, `module`); `plugin sign` prints it.
 
 ## Versions and compatibility
 

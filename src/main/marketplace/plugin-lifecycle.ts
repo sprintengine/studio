@@ -35,7 +35,12 @@ import { trustPinsMatch, type TrustGrant } from './trust-tokens'
 import { isRecord } from '../../shared/records'
 
 const MARKETPLACE_PLUGIN_INSTALLS_FILENAME = 'marketplace-plugin-installs.json'
-const RECEIPT_COMPONENT_KINDS = new Set(['mcp', 'skills', 'module', 'automation'])
+const RECEIPT_COMPONENT_KINDS = new Set(['mcp', 'skills', 'module'])
+// A kind an older receipt may list that this Studio no longer installs: an
+// automation component added a definition to the retired automations engine,
+// which left with the engine. Such an entry is dropped on read — it names
+// nothing left to update or uninstall — and the rest of the receipt stands.
+const RETIRED_RECEIPT_COMPONENT_KINDS = new Set(['automation'])
 const MODULE_TRUST_STATUSES = new Set(['trusted', 'signed', 'unsigned', 'invalid'])
 
 export type MarketplacePluginInstallReceipt = {
@@ -310,7 +315,6 @@ async function installOrUpdateMarketplacePlugin(
       mcpSettings: input.mcpSettings,
       mcpClients: input.mcpClients,
       skillHarnesses: input.skillHarnesses,
-      ...(input.automationDefaultCli ? { automationDefaultCli: input.automationDefaultCli } : {}),
     }
     // G1: a `verified` bundle installs with no trust prompt, so a module inside
     // it must be signed by a trusted publisher in its OWN manifest — the
@@ -1214,13 +1218,6 @@ async function uninstallReceipt(
             }
           }
           break
-        case 'automation':
-          // Deliberately left in place (owner ruling): an added automation is
-          // the user's from the moment it lands — they name it, edit it, and
-          // schedule it against their own repo. Silently deleting a scheduled
-          // job because the plugin that shipped its starter went away is worse
-          // than leaving a record they can see and remove themselves.
-          break
       }
       removed.push(component)
     } catch (error) {
@@ -1385,10 +1382,6 @@ function filesystemComponentPaths(
         paths.push(moduleInstallPath((services.moduleRoot ?? defaultUserModuleRoot)(), component.id))
         break
       case 'mcp':
-      // An automation is a store record, not a path, and an update never
-      // rewrites it: the receipt's id keeps pointing at the record the first
-      // install created, so there is nothing to snapshot or restore.
-      case 'automation':
         break
     }
   }
@@ -1614,9 +1607,9 @@ function validateReceipt(value: unknown, path: string): MarketplacePluginInstall
     sourceUrl: value.sourceUrl,
     classification: value.classification,
     installedAt: value.installedAt,
-    components: value.components.map((component, index) =>
-      validateReceiptComponent(component, `${path}.components[${index}]`),
-    ),
+    components: value.components
+      .filter((component) => !(isRecord(component) && RETIRED_RECEIPT_COMPONENT_KINDS.has(String(component.kind))))
+      .map((component, index) => validateReceiptComponent(component, `${path}.components[${index}]`)),
   }
   if (value.source !== undefined) receipt.source = validateReceiptSource(value.source, `${path}.source`)
   if (value.permissions !== undefined) {

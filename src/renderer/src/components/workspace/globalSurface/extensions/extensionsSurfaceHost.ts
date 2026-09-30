@@ -1,11 +1,10 @@
 // The host-action seam for the Extensions door. The door is a
-// zero-prop registered surface, but four of its actions belong to the shell:
+// zero-prop registered surface, but three of its actions belong to the shell:
 // "New chat" opens the new-chat composer with the connector attached, "Use in
-// automation" opens the automation-authoring flow, and "Use in agent → New
-// agent…" spawns a fresh agent with a skill attached. WorkspaceManager owns
-// those routes (and closing the door around them), so it registers them here on
-// mount — the same pure module-level-seam discipline as the automations
-// surface-target latch: no store, no React, nothing in the eager module graph.
+// agent → New agent…" spawns a fresh agent with a skill attached, and a card's
+// Go runs the card. WorkspaceManager owns those routes (and closing the door
+// around them), so it registers them here on mount — a pure module-level seam:
+// no store, no React, nothing in the eager module graph.
 
 import type { WorkspaceSkill } from '../../../../../../shared/electron-api'
 import type { HostedCard } from '../../../../../../shared/hosted-card-feed'
@@ -16,8 +15,6 @@ export type ExtensionsSurfaceHostPorts = {
   /** Open the new-chat composer with this connector attached (nothing spawns
    *  until the user confirms there). Closes the door. */
   onLaunchConnector: (connector: AgentComposerConnector) => void
-  /** Open the automation-authoring flow seeded with this connector. Closes the door. */
-  onUseInAutomation: (serverId: string) => void
   /** Spawn a fresh agent with this skill ensure-installed and prefilled. Closes the door. */
   onUseSkillInNewAgent: (skill: WorkspaceSkill) => void
   /**
@@ -30,7 +27,7 @@ export type ExtensionsSurfaceHostPorts = {
    * never asked for without one. Its cli, model, reasoning and permission preset
    * are what the chat is spawned on.
    *
-   * It is here for the same reason the three above are: the surface knows
+   * It is here for the same reason the two above are: the surface knows
    * nothing about the open workspace, the MCP settings store, where projects
    * live or how an agent is spawned, and all four are the shell's. The promise
    * settles when the run is over — which is what lets the card's one button

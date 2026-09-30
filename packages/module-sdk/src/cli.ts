@@ -40,7 +40,6 @@ import {
 } from './plugin-manifest.js'
 import {
   computeMarketplacePluginComponentsWithDigestsSync,
-  marketplaceAutomationPayloadIssuesSync,
   marketplaceComponentDigestMismatchIssuesSync,
 } from './plugin-component-digests.js'
 import { generateModuleSigningKeyPair, signManifest, verifyModuleSignature } from './signing.js'
@@ -82,8 +81,8 @@ pack would copy are exactly the ones "files" lists, byte for byte: exit 0 with
 the signer fingerprint when all of that holds, exit 1 when the module is
 unsigned, carries no "files", or was changed after signing.
 
-plugin scaffold creates plugin.json plus component placeholders for mcp, skills,
-module, and automation by default. Pass --component repeatedly to scaffold
+plugin scaffold creates plugin.json plus component placeholders for mcp, skills
+and module by default. Pass --component repeatedly to scaffold
 only the kinds you want.
 
 plugin sign writes component file digests into the normalized plugin.json bundle
@@ -182,9 +181,6 @@ function pluginComponentsFromKinds(kinds: MarketplaceComponentKind[], id: string
       case 'module':
         components.module = { path: 'module' }
         break
-      case 'automation':
-        components.automation = { path: 'automation/automation.json' }
-        break
     }
   }
   return components
@@ -243,11 +239,6 @@ function assertPluginComponentDigestsMatch(pluginDir: string, manifest: Marketpl
     blockedFileMessage: (path) => `component file "${path}" cannot be signed or packed.`,
   })
   if (issues.length > 0) fail(`Plugin component digests do not match ${pluginDir}:`, issues)
-}
-
-function assertPluginAutomationPayload(pluginDir: string, components: MarketplacePluginComponents): void {
-  const issues = marketplaceAutomationPayloadIssuesSync(pluginDir, components)
-  if (issues.length > 0) fail(`Plugin automation payload is not a valid automation definition in ${pluginDir}:`, issues)
 }
 
 function uniqueSiblingPath(parent: string, name: string): string {
@@ -519,29 +510,6 @@ function pluginScaffold(args: string[]): void {
     })
     writeFileSync(join(moduleDir, 'main.cjs'), 'exports.registerMain = () => {}\n')
   }
-  if (components.automation) {
-    // Name, trigger and action only — the three keys the install path actually
-    // reads. A catalogue payload is not a whole definition: `catalogueDraftInput`
-    // (`automations/definition-write.ts`) strips `id`, `status` and
-    // `runInWorktree` and registers the automation `enabled`, because an
-    // automation the user just chose to add is one they want running. Scaffolding
-    // a key the front door deletes teaches an author to configure something they
-    // cannot configure. `autonomyDefault` is retired outright (2026-07-30): the
-    // report-don't-fix intent it used to carry belongs in the prompt, which says
-    // it more precisely, and permission is a `cliPermissionPreset` the user picks
-    // in the editor — never a value on this key, which never accepted one.
-    writeJson(join(outDir, components.automation.path), {
-      name: `${displayName} nightly`,
-      trigger: {
-        kind: 'schedule',
-        config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '03:00' }, timezone: 'UTC' },
-      },
-      action: {
-        kind: 'spawn-agent',
-        config: { prompt: 'Replace this placeholder with the work the automation should do each run.' },
-      },
-    })
-  }
 
   console.log(`Scaffolded marketplace plugin ${id} at ${outDir}`)
   console.log(`Registry entry "provides": ${JSON.stringify(providesForComponents(components))}`)
@@ -565,7 +533,6 @@ function pluginPack(args: string[]): void {
     fail(`${manifest.id} has an INVALID signature. Re-sign the plugin before packing it.`)
   }
   assertPluginComponentDigestsMatch(sourceDir, manifest)
-  assertPluginAutomationPayload(sourceDir, manifest.components)
 
   const outDir = resolve(values.out ?? join('packed', manifest.id))
   if (existsSync(outDir) && !values.force) {
@@ -618,7 +585,6 @@ function pluginSign(args: string[]): void {
 
   const pluginRoot = resolve(pluginDir)
   const { manifestPath, manifest } = readPluginAuthoringManifest(pluginRoot)
-  assertPluginAutomationPayload(pluginRoot, manifest.components)
   const { signature: _prior, ...unsigned } = manifest
   const componentsWithDigests = computeMarketplacePluginComponentsWithDigestsSync(pluginRoot, unsigned.components, {
     blockedFileMessage: (path) => `component file "${path}" cannot be signed or packed.`,
@@ -668,7 +634,6 @@ function pluginVerify(args: string[]): void {
     )
   }
   assertPluginComponentDigestsMatch(sourceDir, manifest)
-  assertPluginAutomationPayload(sourceDir, manifest.components)
   console.log(`${manifest.id}: plugin signature valid`)
   console.log(`Signer fingerprint: ${fingerprint}`)
   console.log(`Registry entry "provides": ${JSON.stringify(providesForComponents(manifest.components))}`)

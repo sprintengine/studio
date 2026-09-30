@@ -1,6 +1,6 @@
 {
   "name": "@sprintengine/module-sdk",
-  "version": "1.0.0-beta.0",
+  "version": "1.0.0-beta.1",
   "description": "Contract types, templates and authoring CLI for building SprintEngine Studio extensions: manifest and host API version, MainHost/RendererHost contributions, chat conversations with the app's agents, brokered secrets and GitHub access, Automations providers, notifications, and signing.",
   "license": "MIT",
   "type": "module",

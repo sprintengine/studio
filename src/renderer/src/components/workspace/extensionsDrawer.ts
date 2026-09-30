@@ -72,8 +72,7 @@ export function isExtensionsDrawerRowId(value: unknown): value is ExtensionsDraw
 /**
  * Which row the card region is showing, from the open surface and — for the
  * rows that are views of one surface — the view it stands on. Null while
- * no drawer row is open (the home, a chat, Automations, a surface that is not
- * a row). This is what "opening a row" means to the row's unread count: the
+ * no drawer row is open (the home, a chat, a surface that is not a row). This is what "opening a row" means to the row's unread count: the
  * moment its page is on screen, its news has been seen.
  */
 export function openExtensionsDrawerRow(
@@ -95,10 +94,9 @@ export function openExtensionsDrawerRow(
  * inside the Extensions section, so the rail glyph follows it and leaving lands
  * back on the drawer rather than on the workspaces tree.
  *
- * Automations is deliberately absent. It stands on the rail because it is what
- * the product DOES rather than something added to it, so opening it must not
- * drag the sidebar into a section it does not belong to — the section glyph
- * that reads current while Automations is open is whichever one was showing.
+ * A surface that stands on the app rail is deliberately absent: it is what the
+ * product DOES rather than something added to it, so opening it must not drag
+ * the sidebar into a section it does not belong to.
  */
 export const EXTENSIONS_DRAWER_SURFACE_IDS: readonly string[] = [
   ...new Set([
@@ -125,8 +123,7 @@ export function isExtensionsDrawerSurface(surfaceId: string): boolean {
  * door that is itself a row of the drawer declares `inline`: the drawer is the
  * navigation that reached it and must stay put while the card region swaps, so
  * taking the column would delete the column the person is navigating with.
- * Automations, which is not a drawer row at all, is what still swaps; so does
- * any module door whose rail is a list of its own.
+ * A module door whose rail is a list of its own still swaps.
  */
 export function surfaceTakesSidebarColumn(
   surface: Pick<RegisteredGlobalSurface, 'railPlacement'> | null | undefined,

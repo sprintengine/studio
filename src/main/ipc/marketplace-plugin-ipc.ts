@@ -41,12 +41,11 @@ import {
 } from '../marketplace/plugin-download'
 import { createMarketplacePluginVerifier } from '../marketplace/plugin-verify'
 import { resolveInstalledSkillHarnesses } from '../marketplace/skill-harness-targets'
-import type { MarketplaceAutomationInstaller } from '../modules/plugin-bundle-installer'
 import { notifyRendererModulesChanged } from '../modules/notify-renderer-modules-changed'
 import { readModuleTrustContextSync } from '../modules/trust-context'
 import { setModuleTrust } from '../modules/trust-store'
 
-export type MarketplacePluginPipelineServices = Pick<AppServices, 'mcpConfigService' | 'getAutomationsAppFrontDoor'>
+export type MarketplacePluginPipelineServices = Pick<AppServices, 'mcpConfigService'>
 
 // The IPC surface also answers "is this a workspace the app has open?" — the
 // renderer names the workspace an install writes into, and main checks it.
@@ -79,19 +78,6 @@ export function createMarketplacePluginPipeline(
       ...(details ? { details } : {}),
     }).catch(() => undefined)
   }
-  // An automation component installs through the Automations module's own front
-  // door — the app's single write path for definitions. The module registers
-  // after app services are built and can be switched off, so it is resolved at
-  // call time and its absence is an explicit failure, never a silent skip.
-  const installAutomationDefinition: MarketplaceAutomationInstaller = async (input) => {
-    const frontDoor = services.getAutomationsAppFrontDoor()
-    if (!frontDoor) {
-      return { ok: false, code: 'automations_unavailable', message: 'The Automations module is not running.' }
-    }
-    const result = await frontDoor.installCatalogueDefinition(input)
-    if (!result.ok) return result
-    return { ok: true, value: { definition: result.value.definition, alreadyAdded: result.value.alreadyAdded } }
-  }
   const verifier = createMarketplacePluginVerifier({
     trustContext,
     stagingRoot: defaultMarketplacePluginStagingRoot(app.getPath('userData')),
@@ -101,7 +87,6 @@ export function createMarketplacePluginPipeline(
   const lifecycle = createMarketplacePluginLifecycleService({
     mcpConfigService: services.mcpConfigService,
     trustContext,
-    installAutomationDefinition,
     receiptStorePath: defaultMarketplacePluginInstallStorePath(app.getPath('userData')),
     stagingRoot: defaultMarketplacePluginStagingRoot(app.getPath('userData')),
     resolveSkillHarnesses: () => resolveInstalledSkillHarnesses(),
@@ -474,9 +459,6 @@ export function installEnvelope(
   if (isRecord(input.mcpSettings)) value.mcpSettings = input.mcpSettings as InstallEnvelope['mcpSettings']
   if (Array.isArray(input.mcpClients)) {
     value.mcpClients = input.mcpClients.filter((client): client is McpClientTarget => typeof client === 'string')
-  }
-  if (typeof input.automationDefaultCli === 'string' && input.automationDefaultCli.trim()) {
-    value.automationDefaultCli = input.automationDefaultCli.trim()
   }
   return { ok: true, value }
 }

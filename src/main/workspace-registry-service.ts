@@ -29,7 +29,6 @@ import {
   normalizeWorkspaceForRegistry,
   parseWorkspaceRegistryFile,
   parseWorkspaceRegistryRecord,
-  resolveWorkspaceReuseTarget,
   shouldApplyFieldEdit,
   toWorkspaceRegistryRecord,
   WORKSPACE_REGISTRY_SCHEMA_VERSION,
@@ -98,8 +97,6 @@ export type WorkspaceCreateResult = {
   workspace: WorkspaceRegistryRecord
   windowId: WorkspaceWindowId
   folderPath: string | null
-  /** True when an existing one-per-project host workspace was reused. */
-  reused: boolean
 }
 
 export type WorkspaceRegistryHydrateResult = {
@@ -356,14 +353,7 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
   }
 
   /**
-   * Mint the record a `workspace.created` event will carry, or resolve the
-   * folder's existing one-per-project host.
-   *
-   * Reuse runs in the same critical section as the mint. The renderer ran the
-   * same check inside `set()` because two calls in one tick each read the store
-   * before either wrote; main's single writer removes that hazard structurally,
-   * and — unlike the renderer check — it holds ACROSS windows, so two windows
-   * both asking for the automations host of one folder get the same id.
+   * Mint the record a `workspace.created` event will carry.
    *
    * The caller applies the returned record through the bus, which is what makes
    * the new id observable in the same tick and retires the 7s confirmation poll.
@@ -371,20 +361,7 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
   function prepareCreate(input: WorkspaceCreateRequest): WorkspaceCreateResult {
     const folderPath = normalizeOptionalString(input.folderPath)
     const windowId = resolveTargetWindowId(input.windowId)
-    const reuseTarget = resolveWorkspaceReuseTarget(getRecords(), input.mode, folderPath)
-    if (reuseTarget) {
-      // Reuse must carry both behaviours the renderer branch had: the folder is
-      // no longer missing (the caller just named it), and the workspace joins
-      // the requesting window's membership if it is not already there.
-      return {
-        workspace: { ...reuseTarget, folderMissing: false },
-        windowId: findWindowForWorkspace(reuseTarget.id) ?? windowId,
-        folderPath,
-        reused: true,
-      }
-    }
-
-    const template = resolveHeadlessLayoutTemplate({ templateId: input.templateId, mode: input.mode })
+    const template = resolveHeadlessLayoutTemplate({ templateId: input.templateId })
     const createdAt = now()
     const name = normalizeOptionalString(input.name) ?? defaultWorkspaceName(template.name, getRecords().length + 1)
     const workspace: Workspace = {
@@ -413,7 +390,6 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
       workspace: toWorkspaceRegistryRecord(workspace, file.revision + 1, stampsForCreate(createdAt)),
       windowId,
       folderPath,
-      reused: false,
     }
   }
 
@@ -436,10 +412,6 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
     const trimmed = requested?.trim()
     if (trimmed && state.workspaceWindows.some((windowState) => windowState.id === trimmed)) return trimmed
     return state.primaryWorkspaceWindowId
-  }
-
-  function findWindowForWorkspace(workspaceId: WorkspaceId): WorkspaceWindowId | null {
-    return state.workspaceWindows.find((windowState) => windowState.workspaceIds.includes(workspaceId))?.id ?? null
   }
 
   // -------------------------------------------------------------------------

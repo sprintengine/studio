@@ -3,7 +3,6 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { test } from 'vitest'
 import { agentPermissionChipLabel, agentPermissionOptions, PermissionPresetMenuRows } from './agentSpawnShared'
-import { PermissionField } from '../../panels/AutomationsPanel/AgentFields'
 
 test('Codex and Claude use their own permission vocabulary without changing stored ids', () => {
   for (const cli of ['codex', 'claude-code', 'claude-agent']) {
@@ -46,12 +45,4 @@ test('a preset the provider cannot run stays listed, dimmed, with its reason', (
   assert.equal((markup.match(/role="menuitemradio"/g) ?? []).length, 2)
   assert.equal((markup.match(/ disabled=""/g) ?? []).length, 1)
   assert.equal((markup.match(/does not support this permission preset/g) ?? []).length, 1)
-})
-
-test('the automation editor names the selected agent’s permission policy', () => {
-  const markup = renderToStaticMarkup(
-    createElement(PermissionField, { cli: 'codex', show: true, value: 'bypass', onChange: () => {} }),
-  )
-  assert.ok(markup.includes('YOLO — No approvals or sandbox.'))
-  assert.ok(!markup.includes('Bypass'))
 })

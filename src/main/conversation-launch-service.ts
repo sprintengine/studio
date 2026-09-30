@@ -50,6 +50,7 @@ import type { EnsureSkillInstalledResult } from '../shared/modules/skills'
 import type { CliPermissionPreset } from '../shared/cli-permission-preset'
 import type { ExecutionHostId } from '../shared/execution-host'
 import { resolveConnectorLaunchFrom } from '../shared/connector-launch'
+import { conversationCliRuntimesForHost } from '../shared/conversation-cli-runtimes'
 import type { McpServerConfig } from '../shared/ipc/mcp'
 import { SOLO_CHAT_AGENT_ID, SOLO_CHAT_TEMPLATE_ID } from '../shared/layouts/templates'
 import { nextNewChatName } from '../shared/workspace-title'
@@ -72,7 +73,18 @@ export type ConversationLaunchWorkspace = {
 }
 
 export type ConversationLaunchRequest = {
-  workspaceId: string
+  /** The workspace the chat joins (or, with `newChat`, whose folder a new one starts in). */
+  workspaceId?: string
+  /**
+   * Start the chat in a new workspace of its own in this folder, on this
+   * machine, with no workspace to borrow them from: a scheduled agent's run.
+   * Takes the place of `workspaceId` and implies `newChat`.
+   */
+  newChatIn?: {
+    folderPath: string
+    hostId?: ExecutionHostId | null
+    worktree?: WorkspaceWorktree | null
+  }
   /**
    * Start the chat in a new workspace of its own, in `workspaceId`'s folder
    * (on its machine, and marked as the same worktree), rather than in that
@@ -112,6 +124,8 @@ export type ConversationLaunchRequest = {
    * CLI whose chats take no MCP servers of their own refuses the start.
    */
   connectorId?: string
+  /** More installed MCP servers the chat runs with, each resolved and refused as `connectorId` is. */
+  connectorIds?: string[]
   /**
    * Send `prompt` as the first message (the default). False starts the session
    * and sends nothing, for a caller that sends the first turn itself.
@@ -177,12 +191,25 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
   const newCommandId = deps.newCommandId ?? (() => randomUUID())
 
   async function launch(request: ConversationLaunchRequest): Promise<ConversationLaunchResult> {
-    const workspace = deps.getWorkspace(request.workspaceId)
+    // A chat born in a folder has no workspace to read the folder, machine and
+    // worktree off, so it stands in for one that has no agents yet.
+    const newChat = request.newChat === true || request.newChatIn !== undefined
+    const workspace: ConversationLaunchWorkspace | null = request.newChatIn
+      ? {
+          id: '',
+          folderPath: request.newChatIn.folderPath,
+          hostId: request.newChatIn.hostId ?? null,
+          worktree: request.newChatIn.worktree ?? null,
+          agents: {},
+        }
+      : request.workspaceId
+        ? deps.getWorkspace(request.workspaceId)
+        : null
     if (!workspace) {
       return {
         ok: false,
         code: 'unknown_workspace',
-        message: `Workspace "${request.workspaceId}" is not known to the running app.`,
+        message: `Workspace "${request.workspaceId ?? ''}" is not known to the running app.`,
       }
     }
     const workspaceRoot = workspace.folderPath?.trim()
@@ -209,15 +236,16 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
         message: `"${cli}" cannot run as a chat agent here. Pick another CLI, or start it as a terminal agent.`,
       }
     }
-    // Never a chat that silently runs without the connector it was asked for.
-    const connectorId = request.connectorId?.trim()
-    const connector = connectorId
-      ? resolveConnectorLaunchFrom({ connectorId, installedServers: settings.mcp?.servers })
-      : null
-    if (connector && !connector.ok) return { ok: false, code: 'connector_unavailable', message: connector.message }
-    const mcpServers = connector?.ok
-      ? Object.values(connector.resolved.mcpSettings.servers).map(conversationMcpServer)
-      : []
+    // Never a chat that silently runs without a connector it was asked for.
+    const connectorIds = [
+      ...new Set([request.connectorId, ...(request.connectorIds ?? [])].map((id) => id?.trim()).filter(Boolean)),
+    ] as string[]
+    const mcpServers: ConversationMcpServer[] = []
+    for (const connectorId of connectorIds) {
+      const connector = resolveConnectorLaunchFrom({ connectorId, installedServers: settings.mcp?.servers })
+      if (!connector.ok) return { ok: false, code: 'connector_unavailable', message: connector.message }
+      mcpServers.push(...Object.values(connector.resolved.mcpSettings.servers).map(conversationMcpServer))
+    }
     const modelId = request.cliModel?.trim() || CONVERSATION_DEFAULT_MODEL_ID
     const permissionPreset = resolveAgentSpawnPermissionPreset(settings, cli, request.permissionPreset)
     // The run worktree when there is one: the session starts there, so the
@@ -251,11 +279,11 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
 
     // A new chat's agent is its workspace's one template tab, as a window's
     // New chat makes it; one joining a workspace takes an id of its own.
-    const agentId = request.newChat ? SOLO_CHAT_AGENT_ID : `agent-${cli}-${newAgentSuffix()}`
+    const agentId = newChat ? SOLO_CHAT_AGENT_ID : `agent-${cli}-${newAgentSuffix()}`
     const name =
       request.name?.trim() ||
       pickRandomAgentName(
-        request.newChat
+        newChat
           ? []
           : Object.values(workspace.agents ?? {})
               .map((agent) => agent?.name)
@@ -276,7 +304,7 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
       ...(request.ownerModuleId?.trim() ? { ownerModuleId: request.ownerModuleId.trim() } : {}),
     }
     let chatWorkspaceId = workspace.id
-    if (request.newChat) {
+    if (newChat) {
       // Born with its agent, in one event, so a window never shows the
       // template's tab with no agent behind it.
       const created = deps.createWorkspace({
@@ -305,6 +333,9 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
       }
     }
 
+    // The chat's CLI on the machine the chat runs on: a WSL workspace's Claude
+    // chat runs that distribution's `claude`, as a window's chat would.
+    const cliRuntimes = conversationCliRuntimesForHost(settings.cliRuntimes, workspace.hostId, settings.hosts)
     const started = await deps
       .startSession({
         workspaceRoot: workingRoot,
@@ -313,8 +344,8 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
         providerId,
         modelId,
         // The person's command overrides, as a window's chat passes them.
-        ...(Object.keys(settings.cliRuntimes ?? {}).length > 0
-          ? { cliRuntimes: settings.cliRuntimes as ConversationCliRuntimeOverrides }
+        ...(Object.keys(cliRuntimes ?? {}).length > 0
+          ? { cliRuntimes: cliRuntimes as ConversationCliRuntimeOverrides }
           : {}),
         permissionPreset,
         ...(mcpServers.length > 0 ? { mcpServers } : {}),
@@ -324,7 +355,7 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
         message: error instanceof Error ? error.message : 'The conversation could not start.',
       }))
     if (!started.ok) {
-      if (request.newChat) deps.removeWorkspace(chatWorkspaceId)
+      if (newChat) deps.removeWorkspace(chatWorkspaceId)
       else deps.writeAgent(workspace.id, agentId, null)
       return { ok: false, code: 'conversation_start_failed', message: started.message }
     }

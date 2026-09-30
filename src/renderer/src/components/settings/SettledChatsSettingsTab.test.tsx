@@ -45,8 +45,6 @@ beforeEach(() => {
       createdAt: now - 10 * DAY,
       settledAt: now - DAY,
     },
-    // The Automations host is never a chat, settled or not.
-    { id: 'w4', name: 'Automations', mode: 'automations-host', folderPath: null, createdAt: now, settledAt: now },
   ]
   fixtures.state.setWorkspaceSettled = (id, settled) => {
     if (!settled) unsettled.push(id)

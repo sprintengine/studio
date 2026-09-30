@@ -10,14 +10,10 @@ import { activeForChannel } from '../shared/modules/dev-only'
 import { resolveModuleEnablement } from '../shared/modules/resolve'
 import { loadMainModules } from './module-host/load-modules'
 import { readModuleOverridesSync } from './module-host/enablement-store'
-import { AutomationsAppFrontDoorToken } from './module-host/service-tokens'
+import { ScheduledAgentsServiceToken } from './module-host/service-tokens'
 import { AGENT_RUNTIME_MANIFEST, createAgentRuntimeModule } from './modules/agent-runtime-module'
 import { LIVE_ENABLED_MODULE_IDS, type CapabilityManifest } from '../shared/modules/manifest'
 import { createBundledMainModules } from './modules'
-import {
-  isFirstPartyAutomationProviderModule,
-  type AutomationProviderPermissionChecker,
-} from './automations/provider-registry'
 import { isLoadEligible, type ModuleTrustContext } from './modules/module-signature'
 import { readModuleTrustContextSync } from './modules/trust-context'
 import { planThirdPartyMainModules, recordThirdPartyMainLaunchReport } from './modules/third-party-main-loader'
@@ -94,11 +90,7 @@ applyHostApiGate(thirdPartyMainLoad.ineligible, thirdPartyMainLoad.modules)
 // predicate can close over it; the set is filled in once the manifest list exists.
 const enabledMainModuleIds = new Set<string>()
 const activeMainModules = activeForChannel(
-  createBundledMainModules({
-    automations: {
-      checkProviderPermission: checkAutomationProviderPermission,
-    },
-  }),
+  createBundledMainModules(),
   (module) => module.manifest.id,
   includeDevModules,
 )
@@ -137,7 +129,7 @@ const moduleLoad = loadMainModules({
   },
 })
 // The manifest universe the enablement gate resolves against — every main module
-// present on this channel, so a module and its dependencies (automations,
+// present on this channel, so a module and its dependencies (scheduled agents,
 // agent-runtime) all resolve. Recompute mirrors the renderer's
 // resolution so the gate's answer matches what the user sees in Settings.
 const mainModuleManifests = [
@@ -153,8 +145,8 @@ const recomputeMainEnablement = (overrides: Record<string, boolean>): void => {
 recomputeMainEnablement(moduleOverrides)
 applyModuleEnablementLive = async (overrides) => {
   const report = await moduleLoad.applyEnablement(overrides, { liveModuleIds: LIVE_ENABLED_MODULE_IDS })
-  const automationsError = report.errors.find((error) => error.id === 'automations')
-  if (automationsError) return { ok: false, message: automationsError.message }
+  const scheduledAgentsError = report.errors.find((error) => error.id === 'scheduled-agents')
+  if (scheduledAgentsError) return { ok: false, message: scheduledAgentsError.message }
   // A module with no live-loadable main half takes its toggle through the
   // enablement gate rather than module load/unload — refresh the resolved set.
   recomputeMainEnablement(overrides)
@@ -164,11 +156,11 @@ applyModuleEnablementLive = async (overrides) => {
   services.automationService.notifyToolsListChanged()
   return { ok: true }
 }
-// Automation server ← Automations module: resolved per tool call so a live
-// module disable/enable cycle is reflected immediately (token absent ⇒ tools
-// report automations_module_unavailable).
-services.setAutomationsAppFrontDoorResolver(
-  () => moduleLoad.kernel.hostFor('@host').getService(AutomationsAppFrontDoorToken) ?? null,
+// Automation server ← Scheduled agents module: resolved per tool call so a live
+// module disable/enable cycle is reflected immediately (service absent ⇒ the
+// scheduled-agent tools say the module is off).
+services.setScheduledAgentsResolver(
+  () => moduleLoad.kernel.hostFor('@host').getService(ScheduledAgentsServiceToken) ?? null,
 )
 // Module enablement for gateway tools that belong to a capability module: the
 // resolved set is recomputed on every override the renderer pushes, so a module
@@ -272,32 +264,6 @@ function readModuleEnablementOverrides(): Record<string, boolean> {
 
 function readModuleTrustContext(): ModuleTrustContext {
   return readModuleTrustContextSync(app.getPath('userData'))
-}
-
-function checkAutomationProviderPermission(
-  registration: Parameters<AutomationProviderPermissionChecker>[0],
-): ReturnType<AutomationProviderPermissionChecker> {
-  if (isFirstPartyAutomationProviderModule(registration.moduleId)) return { ok: true }
-
-  const { modules } = discoverUserModulesSync(defaultUserModuleRoot(), readModuleTrustContext())
-  const installed = modules.find((module) => module.manifest.id === registration.moduleId)
-  if (!installed) {
-    return { ok: false, reason: `Module "${registration.moduleId}" is not installed.` }
-  }
-  if (!isLoadEligible(installed.trust.status)) {
-    if (installed.trust.status === 'invalid') {
-      return { ok: false, reason: `Module "${registration.moduleId}" has an invalid signature.` }
-    }
-    return { ok: false, reason: `Module "${registration.moduleId}" is not trusted in Settings -> Modules.` }
-  }
-
-  const overrides = readModuleEnablementOverrides()
-  const enabled = overrides[registration.moduleId] ?? installed.manifest.defaultEnabled
-  if (!enabled) {
-    return { ok: false, reason: `Module "${registration.moduleId}" is disabled in Settings -> Modules.` }
-  }
-
-  return { ok: true }
 }
 
 // Everything above ran synchronously during entry evaluation: module

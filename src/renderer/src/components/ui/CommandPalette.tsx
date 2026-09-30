@@ -568,8 +568,7 @@ export default function CommandPalette({
       // Agents & workspaces — the switch targets that absorb the sidebar's
       // former "Search workspaces" box. Rail-hidden workspaces are never a switch
       // target: the palette mirrors the rail/hotkey navigation surfaces exactly,
-      // so the background Automations host and any module's own hidden
-      // workspaces stay out. Those are found on the owning door, which lists them across
+      // so any module's own hidden workspaces stay out. Those are found on the owning door, which lists them across
       // every project — including the historical ones no workspace holds. The
       // folder path rides `description` so typing a path filters here too,
       // preserving the sidebar's path matching.

@@ -200,90 +200,32 @@ test('persistenceSlice', async () => {
   assert.equal(migratedAutomationsOnly.workspaces.length, 0, 'automations-only account migrates to an empty list')
   assert.equal(migratedAutomationsOnly.activeWorkspaceId, null, 'active pointer is cleared when nothing survives')
 
-  // v63: before the sync bus persisted workspace modes, each app restart's first
-  // automation run minted a duplicate per-project host. The migration keeps the
-  // earliest-created host per folder (normalized key: slashes, trailing slash,
-  // case) and drops the duplicates; hosts for other folders and non-host
-  // workspaces are untouched.
-  const v62DuplicateHostsState = {
+  // v63 and v64 kept one Automations host per project folder. Automations was
+  // replaced by scheduled agents (2026-09-30) and the host mode retired, so a
+  // profile from before them loses every host row to the retired-mode filter,
+  // and a dangling active pointer lands on a surviving workspace.
+  const v62HostsState = {
     workspaces: [
       { id: 'ws-standard', mode: 'standard', folderPath: '/repo/app', agents: {}, createdAt: 1 },
       { id: 'ws-host-original', mode: 'automations-host', folderPath: '/repo/app', agents: {}, createdAt: 10 },
-      { id: 'ws-host-dup-1', mode: 'automations-host', folderPath: '/repo/app/', agents: {}, createdAt: 20 },
-      { id: 'ws-host-dup-2', mode: 'automations-host', folderPath: '/REPO/app', agents: {}, createdAt: 30 },
-      { id: 'ws-host-other', mode: 'automations-host', folderPath: '/repo/other', agents: {}, createdAt: 40 },
+      { id: 'ws-host-dup', mode: 'automations-host', folderPath: '/repo/app/', agents: {}, createdAt: 20 },
       { id: 'ws-host-folderless', mode: 'automations-host', folderPath: null, agents: {}, createdAt: 50 },
     ],
-    activeWorkspaceId: 'ws-host-dup-2',
+    activeWorkspaceId: 'ws-host-dup',
   }
-  const migratedHostDedup = migratePersistedWorkspaceState(v62DuplicateHostsState, 62) as {
+  const migratedHosts = migratePersistedWorkspaceState(v62HostsState, 62) as {
     workspaces: Array<{ id: string; mode: string }>
     activeWorkspaceId: string | null
   }
   assert.deepEqual(
-    migratedHostDedup.workspaces.map((ws) => ws.id),
-    ['ws-standard', 'ws-host-original', 'ws-host-other', 'ws-host-folderless'],
-    'v63 keeps the earliest host per folder and every non-duplicate workspace',
+    migratedHosts.workspaces.map((ws) => ws.id),
+    ['ws-standard'],
+    'every retired host row is dropped, and the rest kept',
   )
   assert.equal(
-    migratedHostDedup.activeWorkspaceId,
+    migratedHosts.activeWorkspaceId,
     'ws-standard',
-    'v63 reconciles a dangling active pointer to a surviving workspace',
-  )
-
-  // v64: the v63 dedupe could be bypassed — backup recovery and cross-window
-  // storage sync adopt workspace lists without the migrate ladder, and the next
-  // persist write stamped the un-deduped state v63, so it never re-migrated.
-  // v64 re-runs the dedupe on state already stamped 63 and re-brands the kept
-  // host with the stable 'Automations' name.
-  const v63BypassedState = {
-    workspaces: [
-      {
-        id: 'ws-host-run-a',
-        mode: 'automations-host',
-        name: 'Pillars of code reviewer',
-        folderPath: '/repo/app',
-        agents: {},
-        createdAt: 10,
-      },
-      {
-        id: 'ws-host-run-b',
-        mode: 'automations-host',
-        name: 'Nightly performance reviewer',
-        folderPath: '/repo/app',
-        agents: {},
-        createdAt: 20,
-      },
-      {
-        id: 'ws-host-run-c',
-        mode: 'automations-host',
-        name: 'fable5 calendar',
-        folderPath: '/repo/app/',
-        agents: {},
-        createdAt: 30,
-      },
-      { id: 'ws-standard', mode: 'standard', name: 'Chat', folderPath: '/repo/app', agents: {}, createdAt: 1 },
-    ],
-    activeWorkspaceId: 'ws-host-run-c',
-  }
-  const migratedV64 = migratePersistedWorkspaceState(v63BypassedState, 63) as {
-    workspaces: Array<{ id: string; name: string }>
-    activeWorkspaceId: string | null
-  }
-  assert.deepEqual(
-    migratedV64.workspaces.map((ws) => ws.id),
-    ['ws-host-run-a', 'ws-standard'],
-    'v64 re-runs the host dedupe on state already stamped v63',
-  )
-  assert.equal(
-    migratedV64.workspaces[0].name,
-    'Automations',
-    'v64 re-brands the surviving host with the stable surface name',
-  )
-  assert.equal(
-    migratedV64.activeWorkspaceId,
-    'ws-host-run-a',
-    'v64 reconciles a dangling active pointer to a surviving workspace',
+    'a dangling active pointer is reconciled to a surviving workspace',
   )
 
   // v65: the `roadmap` workspace mode retired — Roadmap is an

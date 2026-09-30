@@ -281,6 +281,71 @@ test('a new chat whose session cannot start takes its whole workspace back out',
   )
 })
 
+test('a chat born in a folder gets a workspace of its own there, on its machine and worktree', async () => {
+  const starts: ConversationStartSessionInput[] = []
+  const { service, registry, writes } = registryHarness(async (input) => {
+    starts.push(input)
+    return {
+      ok: true,
+      session: {
+        sessionId: 'conv_1',
+        workspaceId: input.workspaceId,
+        agentId: input.agentId,
+      } as ConversationSessionSummary,
+    }
+  })
+  const before = registry.getRecords().length
+  const result = await service.launch({
+    newChatIn: {
+      folderPath: '/Users/dev/.worktrees/app/nightly-20260930-2100',
+      hostId: 'wsl:Ubuntu',
+      worktree: { branch: 'agent/nightly-20260930-2100', baseRef: 'HEAD', repoRoot: '/Users/dev/app' },
+    },
+    cli: 'claude-code',
+    prompt: 'triage new issues',
+  })
+  assert.equal(result.ok, true)
+  if (!result.ok) return
+  assert.equal(registry.getRecords().length, before + 1, 'a workspace is minted; no existing one is joined')
+  assert.deepEqual(writes, [])
+  assert.equal(result.agentId, SOLO_CHAT_AGENT_ID)
+  const created = registry.getRecord(result.workspaceId)!
+  assert.equal(created.folderPath, '/Users/dev/.worktrees/app/nightly-20260930-2100')
+  assert.equal(created.hostId, 'wsl:Ubuntu')
+  assert.deepEqual(created.worktree, {
+    branch: 'agent/nightly-20260930-2100',
+    baseRef: 'HEAD',
+    repoRoot: '/Users/dev/app',
+  })
+  assert.equal(isDefaultWorkspaceName(created.name), true, 'left open for the first message to title')
+  assert.equal(starts[0]!.workspaceRoot, '/Users/dev/.worktrees/app/nightly-20260930-2100')
+  // The chat runs on the machine it was born on: its Claude chat is that
+  // distribution's `claude`.
+  assert.deepEqual(starts[0]!.cliRuntimes, { 'claude-code': { command: '', hostId: 'wsl:Ubuntu' } })
+})
+
+test("a WSL chat runs that distribution's claude, and every other runtime is the app's own", async () => {
+  const settings = {
+    cliRuntimes: { 'claude-code': { command: 'claude-local' }, codex: { command: 'codex-local' } },
+    hosts: {
+      'wsl:Ubuntu': { enabled: true, cliCommands: { 'claude-code': '/home/dev/.local/bin/claude' }, env: {} },
+    },
+  }
+  const wsl = harness({
+    settings,
+    workspace: { id: 'ws-1', folderPath: '/home/dev/app', hostId: 'wsl:Ubuntu', agents: {} },
+  })
+  await wsl.service.launch({ workspaceId: 'ws-1', cli: 'claude-code' })
+  assert.deepEqual(wsl.record.starts[0]!.cliRuntimes, {
+    'claude-code': { command: '/home/dev/.local/bin/claude', hostId: 'wsl:Ubuntu' },
+    codex: { command: 'codex-local' },
+  })
+
+  const local = harness({ settings })
+  await local.service.launch({ workspaceId: 'ws-1', cli: 'claude-code' })
+  assert.deepEqual(local.record.starts[0]!.cliRuntimes, settings.cliRuntimes, 'a chat on this machine is unchanged')
+})
+
 test("skills are installed in the working root, attached to the first message and kept as the chat's chips", async () => {
   const { service, record } = harness()
   const result = await service.launch({
@@ -330,16 +395,16 @@ test('a worktree launch starts the session in the worktree and records where it 
   const result = await service.launch({
     workspaceId: 'ws-1',
     cli: 'claude-code',
-    worktreePath: '/repo/a/.sprintengine/automations/worktrees/run-1',
+    worktreePath: '/repo/a/.worktrees/run-1',
     skills: ['backlog'],
   })
   assert.equal(result.ok, true)
-  assert.equal(record.starts[0]!.workspaceRoot, '/repo/a/.sprintengine/automations/worktrees/run-1')
-  assert.equal(record.installs[0]!.workingRoot, '/repo/a/.sprintengine/automations/worktrees/run-1')
+  assert.equal(record.starts[0]!.workspaceRoot, '/repo/a/.worktrees/run-1')
+  assert.equal(record.installs[0]!.workingRoot, '/repo/a/.worktrees/run-1')
   assert.deepEqual(record.writes[0]!.agent!.execution, {
     mode: 'worktree',
     worktreeId: null,
-    cwd: '/repo/a/.sprintengine/automations/worktrees/run-1',
+    cwd: '/repo/a/.worktrees/run-1',
   })
   assert.equal(conversationWorkingRoot(record.writes[0]!.agent, '/repo/a'), record.starts[0]!.workspaceRoot)
 })
@@ -442,4 +507,42 @@ test("a connector launch starts the chat with that connector's MCP server, and r
   const plain = harness({ settings })
   await plain.service.launch({ workspaceId: 'ws-1', cli: 'claude-code' })
   assert.equal(plain.record.starts[0]!.mcpServers, undefined)
+})
+
+test('several connectors start the chat with each of their servers, once each, and one unavailable refuses it', async () => {
+  const server = (id: string) => ({
+    id,
+    name: id,
+    transport: 'http' as const,
+    url: `https://mcp.example.com/${id}`,
+    enabled: true,
+    clients: ['claude-code' as const],
+    scope: 'user' as const,
+    source: 'custom' as const,
+    riskLevel: 'network' as const,
+  })
+  const settings = { mcp: { syncEnabled: true, servers: { linear: server('linear'), sentry: server('sentry') } } }
+
+  const { service, record } = harness({ settings })
+  const launched = await service.launch({
+    workspaceId: 'ws-1',
+    cli: 'claude-code',
+    connectorId: 'linear',
+    connectorIds: ['sentry', 'linear', ' '],
+  })
+  assert.equal(launched.ok, true)
+  assert.deepEqual(
+    record.starts[0]!.mcpServers?.map((entry) => entry.id),
+    ['linear', 'sentry'],
+  )
+
+  const refused = harness({ settings })
+  const result = await refused.service.launch({
+    workspaceId: 'ws-1',
+    cli: 'claude-code',
+    connectorIds: ['sentry', 'gone'],
+  })
+  assert.equal(result.ok, false)
+  if (!result.ok) assert.equal(result.code, 'connector_unavailable')
+  assert.deepEqual(refused.record.starts, [])
 })

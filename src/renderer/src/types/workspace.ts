@@ -26,17 +26,15 @@ export type WorkspaceId = string
 export type WorkspaceWindowId = string
 export const STANDARD_WORKSPACE_MODE = 'standard'
 
-export type BundledWorkspaceMode = typeof STANDARD_WORKSPACE_MODE | typeof AUTOMATIONS_HOST_WORKSPACE_MODE
+export type BundledWorkspaceMode = typeof STANDARD_WORKSPACE_MODE
 
 // Lifted to the shared layer so shared contracts can name the mode without
 // importing the renderer; `STANDARD_WORKSPACE_MODE` is its `'standard'` member.
-// The remaining bundled rail-hidden mode (automations-host) lives there too,
-// beside `isModeHiddenFromRail`. Module-registered types that hide from the
-// rail set `WorkspaceTypeDefinition.hiddenFromRail` instead. Imported here
-// (so this module's own references resolve) and re-exported so every existing
-// import site keeps resolving here.
-import { AUTOMATIONS_HOST_WORKSPACE_MODE, type WorkspaceMode } from '../../../shared/workspace-mode'
-export { AUTOMATIONS_HOST_WORKSPACE_MODE }
+// Module-registered types that hide from the rail set
+// `WorkspaceTypeDefinition.hiddenFromRail`. Imported here (so this module's own
+// references resolve) and re-exported so every existing import site keeps
+// resolving here.
+import type { WorkspaceMode } from '../../../shared/workspace-mode'
 export type { WorkspaceMode }
 
 export type HighlightColor = 'red' | 'orange' | 'amber' | 'green' | 'blue' | 'purple' | 'pink'
@@ -471,17 +469,7 @@ export type AgentConfigAdoptionResult =
 
 export type DiagnosticLevel = 'info' | 'warning' | 'error'
 export type DiagnosticSource =
-  | 'agents'
-  | 'auth'
-  | 'automations'
-  | 'cli'
-  | 'filesystem'
-  | 'marketplace'
-  | 'models'
-  | 'terminal'
-  | 'update'
-  | 'voice'
-  | 'workspace'
+  'agents' | 'auth' | 'cli' | 'filesystem' | 'marketplace' | 'models' | 'terminal' | 'update' | 'voice' | 'workspace'
 
 // A typed, serializable deep-focus target for a notification's Open action. The
 // shell treats it as opaque (it only knows how to reveal the workspace); the

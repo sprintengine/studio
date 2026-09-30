@@ -93,7 +93,6 @@ const TEMPLATE_ORDER = [
   'backlog-action',
   'file-action',
   'mcp-tools',
-  'automation-trigger',
 ]
 
 // dist/scaffold.js (published) and src/scaffold.ts (in the repository) both sit

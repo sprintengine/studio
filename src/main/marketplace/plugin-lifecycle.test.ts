@@ -14,16 +14,12 @@ import {
   validateThirdPartyModuleManifest,
 } from '../../shared/modules/third-party-manifest'
 import type { PluginManifest, PluginMcpConfigFormat } from '../../shared/plugin-manifest'
-import { createDefinitionWriteCore } from '../automations/definition-write'
-import { allowAutomationProvider, createBuiltInAutomationProviderRegistry } from '../automations/provider-registry'
-import { AutomationsStore } from '../automations/store'
 import { createMcpConfigService, type PluginLookup } from '../mcp-config-service'
-import type { MarketplaceAutomationInstaller } from '../modules/plugin-bundle-installer'
 import { loadMainModules } from '../module-host/load-modules'
 import { verifyModuleSignature, type ModuleTrustContext } from '../modules/module-signature'
 import { planThirdPartyMainModules } from '../modules/third-party-main-loader'
 import { readTrustedModulesSync, setModuleTrust } from '../modules/trust-store'
-import { discoverUserModules } from '../modules/user-module-registry'
+import { discoverUserModules, installModuleFolder } from '../modules/user-module-registry'
 import {
   createMarketplacePluginLifecycleService,
   readMarketplacePluginInstallReceipts,
@@ -43,7 +39,6 @@ test('plugin-lifecycle', async () => {
     mcp?: { path: string; id: string }
     skills?: { path: string; name: string }
     module?: { path: string; id: string }
-    automation?: { path: string; name: string }
   }
 
   type Signer = {
@@ -247,24 +242,6 @@ test('plugin-lifecycle', async () => {
       )
       files.set(`${components.module.path}/main.cjs`, MODULE_MAIN_SOURCE)
     }
-    if (components.automation) {
-      files.set(
-        components.automation.path,
-        `${JSON.stringify(
-          {
-            name: components.automation.name,
-            status: 'enabled',
-            trigger: {
-              kind: 'schedule',
-              config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '03:00' }, timezone: 'UTC' },
-            },
-            action: { kind: 'spawn-agent', config: { prompt: 'Check for outdated dependencies.' } },
-          },
-          null,
-          2,
-        )}\n`,
-      )
-    }
 
     const signed = signedPluginManifest(components, files, signer, version)
     // An unsigned bundle is the same authoring manifest with the signature
@@ -392,7 +369,6 @@ test('plugin-lifecycle', async () => {
           verifiedModuleInstalls: readVerifiedModuleInstallsSync(receiptStorePath),
         }),
         moduleRoot: () => moduleRoot,
-        installAutomationDefinition: automationInstaller(),
         receiptStorePath,
         stagingRoot: join(temp, 'staging'),
         fetcher,
@@ -400,26 +376,13 @@ test('plugin-lifecycle', async () => {
     }
   }
 
-  // The real automations write path against a real per-project store, so the
-  // receipt and uninstall assertions below are about a definition that exists.
-  function automationInstaller(): MarketplaceAutomationInstaller {
-    const registry = createBuiltInAutomationProviderRegistry()
-    const core = createDefinitionWriteCore({
-      createStore: (workspaceRoot) => new AutomationsStore(workspaceRoot),
-      getTriggerProviderRegistrations: () => registry.listTriggerProviderRegistrations(),
-      getActionProviderRegistrations: () => registry.listActionProviderRegistrations(),
-      checkProviderPermission: allowAutomationProvider,
-      now: () => Date.parse('2026-07-30T12:00:00.000Z'),
-    })
-    return async (input) => {
-      const result = await core.installFromCatalogue(input.workspaceRoot, {
-        payload: input.definition,
-        sourceCatalogueId: input.sourceCatalogueId,
-        ...(input.sourcePublisher ? { sourcePublisher: input.sourcePublisher } : {}),
-      })
-      if (!result.ok) return result
-      return { ok: true, value: result.value }
-    }
+  // A module step that writes the replacement module and then reports failure:
+  // the last component of an update failing after files have changed, which is
+  // what the rollback has to undo.
+  const failAfterWritingModule: typeof installModuleFolder = async (srcDir, root, ctx) => {
+    const written = await installModuleFolder(srcDir, root, ctx)
+    if (!written.ok) return written
+    return { ok: false, message: 'module install exploded', rejected: { path: srcDir, issues: [] } }
   }
 
   async function testVerifiedRegistryInstallFansOutAndRecordsReceipt(): Promise<void> {
@@ -869,57 +832,42 @@ test('plugin-lifecycle', async () => {
     })
   }
 
-  async function testAutomationInstallRecordsReceiptAndSurvivesUninstall(): Promise<void> {
+  async function testOldReceiptListingAnAutomationStillUninstalls(): Promise<void> {
     await withTempDir(async (temp) => {
+      // An install from before automations became scheduled agents recorded an
+      // `automation` component beside the rest. That entry names nothing left to
+      // remove, so it is dropped on read and the rest of the receipt still works.
       const signer = generateKeyPairSync('ed25519')
       const bundle = await writeBundle(
         temp,
-        'automation-plugin',
-        {
-          skills: { path: 'skills/sweep-skill', name: 'sweep-skill' },
-          automation: { path: 'automation/automation.json', name: 'Nightly dependency sweep' },
-        },
+        'sweep-plugin',
+        { skills: { path: 'skills/sweep-skill', name: 'sweep-skill' } },
         signer,
         1,
       )
-      const folders = new Map([['automation-plugin', bundle.files]])
+      const folders = new Map([['sweep-plugin', bundle.files]])
       const { services, workspaceRoot, receiptStorePath } = await createServices(temp, createGithubFetcher(folders), {
         trustedModules: new Map(),
         trustedKeyFingerprints: new Set([bundle.fingerprint]),
       })
       const lifecycle = createMarketplacePluginLifecycleService(services)
-
       const installed = await lifecycle.install({
         entry: bundle.entry,
         workspaceRoot,
         mcpSettings: { syncEnabled: false, servers: {} },
         skillHarnesses: ['agents'],
-        automationDefaultCli: 'claude-code',
       })
-
       assert.equal(installed.ok, true, JSON.stringify(installed))
-      if (!installed.ok) return
-      assert.deepEqual(
-        installed.installed.map((component) => component.kind),
-        ['skills', 'automation'],
-      )
-
-      const definitions = await new AutomationsStore(workspaceRoot).listDefinitions()
-      assert.equal(definitions.ok, true)
-      if (!definitions.ok) return
-      assert.equal(definitions.values.length, 1)
-      const automationId = definitions.values[0].id
 
       const receipts = JSON.parse(await readFile(receiptStorePath, 'utf8')) as {
-        plugins: Record<string, { components: Array<{ kind: string; id: string }> }>
+        plugins: Record<string, { components: Array<Record<string, unknown>> }>
       }
-      const receiptComponents = receipts.plugins['registry-plugin']?.components ?? []
-      const automationReceipt = receiptComponents.find((component) => component.kind === 'automation')
-      assert.equal(
-        automationReceipt?.id,
-        automationId,
-        'the receipt carries the automation kind and the store-issued id it created',
-      )
+      receipts.plugins['registry-plugin']?.components.push({
+        kind: 'automation',
+        id: 'nightly-dependency-sweep',
+        message: 'Added "Nightly dependency sweep" to this project.',
+      })
+      await writeFile(receiptStorePath, `${JSON.stringify(receipts, null, 2)}\n`, 'utf8')
 
       const uninstalled = await lifecycle.uninstall({
         pluginId: 'registry-plugin',
@@ -927,22 +875,12 @@ test('plugin-lifecycle', async () => {
         skillHarnesses: ['agents'],
       })
       assert.equal(uninstalled.ok, true, JSON.stringify(uninstalled))
-      assert.equal(
-        existsSync(join(workspaceRoot, '.agents', 'skills', 'sweep-skill')),
-        false,
-        'the skill copy is removed',
-      )
-
-      // Owner ruling: an added automation is the user's. Uninstalling the plugin
-      // that shipped its starter must not silently delete a scheduled job that
-      // touches their repo.
-      const afterUninstall = await new AutomationsStore(workspaceRoot).listDefinitions()
-      assert.equal(afterUninstall.ok, true)
-      if (!afterUninstall.ok) return
+      if (!uninstalled.ok) return
       assert.deepEqual(
-        afterUninstall.values.map((definition) => definition.id),
-        [automationId],
+        uninstalled.removed.map((component) => component.kind),
+        ['skills'],
       )
+      assert.equal(existsSync(join(workspaceRoot, '.agents', 'skills', 'sweep-skill')), false, 'the skill is removed')
     })
   }
 
@@ -956,7 +894,6 @@ test('plugin-lifecycle', async () => {
           mcp: { path: 'mcp/server.json', id: 'registry-mcp' },
           skills: { path: 'skills/registry-skill', name: 'registry-skill' },
           module: { path: 'module', id: 'registry-module' },
-          automation: { path: 'automation/nightly.json', name: 'Nightly check' },
         },
         signer,
         1,
@@ -968,7 +905,6 @@ test('plugin-lifecycle', async () => {
           mcp: { path: 'mcp/server.json', id: 'registry-mcp' },
           skills: { path: 'skills/registry-skill', name: 'registry-skill' },
           module: { path: 'module', id: 'registry-module' },
-          automation: { path: 'automation/nightly.json', name: 'Nightly check' },
         },
         signer,
         2,
@@ -989,17 +925,12 @@ test('plugin-lifecycle', async () => {
         mcpSettings: { syncEnabled: false, servers: {} },
         mcpClients: ['codex'],
         skillHarnesses: ['agents'],
-        automationDefaultCli: 'claude-code',
       })
       assert.equal(installed.ok, true, JSON.stringify(installed))
       if (!installed.ok) return
 
       // The last component to install fails, after the module was replaced.
-      services.installAutomationDefinition = async () => ({
-        ok: false,
-        code: 'automations_unavailable',
-        message: 'automation install exploded',
-      })
+      services.installModuleFolder = failAfterWritingModule
 
       const updated = await lifecycle.update({
         entry: v2.entry,
@@ -1007,12 +938,11 @@ test('plugin-lifecycle', async () => {
         mcpSettings: installed.mcpSettings,
         mcpClients: ['codex'],
         skillHarnesses: ['agents'],
-        automationDefaultCli: 'claude-code',
       })
       assert.equal(updated.ok, false)
       if (updated.ok) return
       assert.equal(updated.updated, true)
-      assert.match(updated.message, /automation install exploded/)
+      assert.match(updated.message, /module install exploded/)
 
       const codexConfig = await readFile(join(workspaceRoot, '.codex', 'config.toml'), 'utf8')
       assert.match(codexConfig, /registry-mcp/)
@@ -2017,13 +1947,9 @@ test('plugin-lifecycle', async () => {
       const v1: BundleComponents = { module: { path: 'module', id: 'granted-module' } }
       const bundleV1 = await writeBundle(temp, 'granted-plugin-v1', v1, signer, 1)
       bundleV1.entry.publisher.verified = false
-      // v2 adds an automation component, which installs AFTER the module and is
-      // refused because automations are switched off — so the update fails with
-      // the replacement module already written.
-      const v2: BundleComponents = {
-        module: { path: 'module', id: 'granted-module' },
-        automation: { path: 'automation/automation.json', name: 'Nightly sweep' },
-      }
+      // v2's module step writes the replacement module and then fails, so the
+      // update fails with the replacement module already written.
+      const v2: BundleComponents = { module: { path: 'module', id: 'granted-module' } }
       const bundleV2 = await writeBundle(temp, 'granted-plugin-v2', v2, signer, 2)
       bundleV2.entry.publisher.verified = false
       const folders = new Map([
@@ -2046,24 +1972,16 @@ test('plugin-lifecycle', async () => {
       const trustedFingerprint = readTrustedModulesSync(userDataDir).get('granted-module')
       assert.ok(trustedFingerprint, 'the first install granted trust')
 
-      services.installAutomationDefinition = undefined
+      services.installModuleFolder = failAfterWritingModule
       const failed = await lifecycle.update({
         entry: bundleV2.entry,
         workspaceRoot,
         grant: await approve(services, bundleV2.entry),
-        // Satisfies the automation preflight, so the update gets far enough to
-        // install the replacement module and fail on the component AFTER it.
-        automationDefaultCli: 'codex',
       })
 
       assert.equal(failed.ok, false, JSON.stringify(failed))
       if (failed.ok) return
-      assert.equal(failed.component, 'automation')
-      assert.deepEqual(
-        failed.installed?.map((component) => component.kind),
-        ['module'],
-        'the module was installed, then rolled back',
-      )
+      assert.equal(failed.component, 'module')
       const modules = await discoverUserModules(moduleRoot, services.trustContext())
       assert.equal(modules.modules[0]?.manifest.version, 1, 'the previous module was restored')
       assert.equal(readTrustedModulesSync(userDataDir).get('granted-module'), trustedFingerprint)
@@ -2131,7 +2049,7 @@ test('plugin-lifecycle', async () => {
     await testUpdateAvailabilitySettlesThroughRegistryUpdate()
     await testUpdateWithInvalidSignatureIsBlocked()
     await testUpdateSignedByDifferentPublisherReprompts()
-    await testAutomationInstallRecordsReceiptAndSurvivesUninstall()
+    await testOldReceiptListingAnAutomationStillUninstalls()
     await testFailedUpdateRollsBackReplacementAndKeepsReceipt()
     await testReceiptStoreValidationRejectsMalformedAndUnsafeState()
     await testClaudePluginRequiresTrustGrant()

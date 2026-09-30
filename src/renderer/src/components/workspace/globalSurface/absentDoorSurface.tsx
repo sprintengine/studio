@@ -29,8 +29,8 @@ export function doorLabelForSurfaceId(surfaceId: string, registeredLabel?: strin
 }
 
 // The same resolution for a MODAL surface (doors→modals, 2026-09-01). A
-// deep-link opener — an automations run notification whose module was toggled
-// off since, say — must produce feedback, not a silent no-op: the modal opens
+// deep-link opener — a notification whose module was toggled off since, say —
+// must produce feedback, not a silent no-op: the modal opens
 // on the same explainer the absent door shows, named, with the CTA into
 // Plugins. The trigger glyphs never hit this (they are enablement-filtered);
 // only programmatic opens do. The subset of RegisteredModalSurface the mount

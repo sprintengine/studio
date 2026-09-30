@@ -103,7 +103,6 @@ test('marketplace-plugin-ipc', async () => {
               return { ok: true, targets: [] }
             },
           },
-          getAutomationsAppFrontDoor: () => null,
           workspaceSyncService: { getSnapshot: () => ({ state: { workspaces: [{ folderPath: openWorkspace }] } }) },
         } as unknown as Parameters<typeof registerMarketplacePluginIpc>[1],
         { registryReader: { read: async () => registry } },

@@ -41,10 +41,10 @@ test('listeners hear a change, and only a change', async () => {
   const store = createStudioAreaSkillStore({ resolveUserDataDir: () => dir })
   const heard: string[][] = []
   store.onChange((choices) => heard.push([...choices.enabled]))
-  await store.setEnabled('studio-automations', true)
-  await store.setEnabled('studio-automations', true)
-  await store.setEnabled('studio-automations', false)
-  assert.deepEqual(heard, [['studio-automations'], []])
+  await store.setEnabled('studio-scheduled-agents', true)
+  await store.setEnabled('studio-scheduled-agents', true)
+  await store.setEnabled('studio-scheduled-agents', false)
+  assert.deepEqual(heard, [['studio-scheduled-agents'], []])
 })
 
 test('a record that cannot be trusted reads as nothing chosen, and unknown ids are dropped', async () => {
