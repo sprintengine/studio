@@ -2,8 +2,11 @@
 // done by main because no window needs to be open. A new workspace in the
 // project (on its machine, in a fresh worktree when one was asked for), a chat
 // agent in it, and the prompt as its first message. The chat is then an
-// ordinary chat — it appears in the sidebar like any other, and nothing ties it
-// back to the scheduled agent that started it.
+// ordinary chat — it opens, works and settles like any other — with one field
+// more: the id of the scheduled agent that started it, written on its
+// workspace. That is what the sidebar marks a run's chat by, what the schedule's
+// editor lists its runs by, and what keeps a run from starting while the one
+// before it is still working.
 
 import type { ConversationLaunchRequest, ConversationLaunchResult } from '../conversation-launch-service'
 import { agentWorktreePaths } from '../../shared/worktree-paths'
@@ -49,6 +52,7 @@ export async function runScheduledAgent(
       ...(agent.skills.length > 0 ? { skills: agent.skills.map((skill) => skill.id) } : {}),
       ...(agent.mcpServers.length > 0 ? { connectorIds: agent.mcpServers.map((server) => server.id) } : {}),
       ...(agent.ownerModuleId ? { ownerModuleId: agent.ownerModuleId } : {}),
+      scheduledAgentId: agent.id,
     })
     .catch((error: unknown): ConversationLaunchResult => ({
       ok: false,

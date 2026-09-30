@@ -112,6 +112,13 @@ export type ConversationLaunchRequest = {
   /** The module that started the chat; only that module reaches it through the module service. */
   ownerModuleId?: string
   /**
+   * The scheduled agent whose run this is. Written on the workspace a new
+   * chat is born in (`Workspace.scheduledAgentId`), so the chat says where it
+   * came from; a chat joining a workspace that already exists is not a run,
+   * and the field is ignored there.
+   */
+  scheduledAgentId?: string
+  /**
    * The folder the chat works in instead of the workspace checkout: an
    * automation run's worktree. The chat still lives in the workspace.
    */
@@ -328,6 +335,7 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
         templateId: SOLO_CHAT_TEMPLATE_ID,
         ...(workspace.hostId ? { hostId: workspace.hostId } : {}),
         ...(workspace.worktree ? { worktree: workspace.worktree } : {}),
+        ...(request.scheduledAgentId?.trim() ? { scheduledAgentId: request.scheduledAgentId.trim() } : {}),
         agents: { [agentId]: agent },
       })
       if (!created.ok) return { ok: false, code: 'workspace_create_failed', message: created.message }

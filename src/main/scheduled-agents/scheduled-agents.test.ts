@@ -235,6 +235,8 @@ test('a run is a new chat in the project, on its machine, with what it was made 
       prompt: 'Triage the issues opened since the last run.',
       skills: ['triage'],
       connectorIds: ['github'],
+      // The chat says which schedule started it.
+      scheduledAgentId: 'sa-1',
     },
   ])
 })

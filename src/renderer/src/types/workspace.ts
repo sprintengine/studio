@@ -770,6 +770,13 @@ export type Workspace = {
   // created and never changed after — a chat does not move machines.
   hostId?: import('../../../shared/execution-host').ExecutionHostId | null
   worktree?: WorkspaceWorktree | null
+  // The scheduled agent whose run started this chat (shared/scheduled-agents).
+  // Set once, by main, when a run's workspace is created, and never changed:
+  // the chat is otherwise an ordinary chat, and this is how the sidebar marks
+  // it, the schedule's editor lists it, and a run is kept from starting while
+  // the one before it is still working. Absent on every chat a person or an
+  // agent started, which is the unmarked default.
+  scheduledAgentId?: string | null
   templateId: string
   layoutModel: IJsonModel
   agents: Record<AgentId, AgentState>
