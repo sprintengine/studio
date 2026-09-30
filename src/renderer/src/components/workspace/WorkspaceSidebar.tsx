@@ -10,7 +10,6 @@ import {
   conversationLineText,
   conversationsWithTabs,
 } from './sidebar/conversationLines'
-import { ConversationHistoryRows } from './ConversationHistoryRows'
 import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { hasTerminalSessionsSnapshot } from '../../hooks/terminalSessionsStore'
 import { groupConversationSessionsByWorkspace } from '../../hooks/conversationSessionsStore'
@@ -1205,14 +1204,6 @@ function WorkspaceSidebar({
     [activeWorkspaceId],
   )
 
-  // The workspaces whose closed chats the All chats stream lists. A settled
-  // workspace's chats left the rail with it, so its history goes too; it is
-  // found in Settings ▸ Settled chats, like the row.
-  const historyWorkspaces = useMemo(
-    () => localRailWorkspaces.filter((workspace) => !isShelved(workspace)),
-    [localRailWorkspaces, isShelved],
-  )
-
   // Asleep RIGHT NOW: the wake time is still ahead, and that is the whole test
   // — nothing brings a row back early. Reading a chat never sends it to sleep,
   // the same exemption `isShelved` gives the row you are in, though in
@@ -2014,7 +2005,6 @@ function WorkspaceSidebar({
             flatProject: flatProjectOfRemote(conversation),
           }),
         )}
-        <ConversationHistoryRows workspaces={historyWorkspaces} sessions={conversationSessions} />
         {snoozedRows.length > 0 ? (
           <>
             <ShelfFoldRow
