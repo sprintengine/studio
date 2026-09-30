@@ -23,6 +23,7 @@ import {
   skillSourceMonogram,
   sourceHasUpdate,
   type SkillSource,
+  skillRepoLabel,
 } from '../../../../../../../shared/skills'
 
 /** The views of the Extensions door, which are its catalogues. */
@@ -93,7 +94,7 @@ export function catalogueTabLabel(source: SkillSource): string {
   // "claude-plugins-official" (or "studio-releases") until the source list is
   // read again — and the tab renamed itself under the person mid-sync.
   if (source.id === OFFICIAL_PLUGINS_SKILL_SOURCE_ID) return OFFICIAL_PLUGINS_SKILL_SOURCE_NAME
-  if (source.repo) return source.repo
+  if (source.repo) return skillRepoLabel(source.repo)
   if (source.kind === 'local') return localSourceFolderName(source.path ?? source.name)
   return source.name
 }

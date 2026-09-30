@@ -32,7 +32,6 @@ import { isMarketplaceSourceHostAllowed } from '../../shared/marketplace/source-
 import {
   DEFAULT_SKILL_REPO_HOST,
   emptyPluginComponents,
-  joinSkillRepo,
   pluginIconGlyph,
   pluginLogoUrl,
   type PluginReadState,
@@ -45,6 +44,7 @@ import {
   type ScannedSkill,
   type SourceShape,
 } from '../../shared/skills'
+import { parseSkillRepoRef, skillRepoName } from './github-tree'
 import { scanSkillTree, type SkillTreeEntry } from './scan'
 import { isRecord } from '../../shared/records'
 
@@ -1211,29 +1211,31 @@ function parseEntrySource(value: unknown, host?: string): MarketplaceEntry['sour
 /**
  * `https://github.com/o/r.git` → `o/r`; '' for anything not on github.com.
  *
- * `sameHost` is the host of the marketplace being read when that is a
- * self-hosted GitHub: an entry there pointing at another repository on the
- * same host is `host/o/r`, read with the sign-in the marketplace itself was
- * read with. It widens nothing else — a marketplace cannot send the app to a
- * host the person did not add a source on.
+ * `sameHost` is the host of the marketplace being read when that is not
+ * github.com — a self-hosted GitHub, GitLab, Bitbucket, any git host. An entry
+ * there pointing at another repository on the same host is read, by whichever
+ * address it gives (https or ssh), the way the marketplace itself was. It
+ * widens nothing else: a marketplace cannot send the app to a host the person
+ * did not add a source on.
  */
 export function githubRepoFromUrl(value: string, sameHost?: string): string {
+  const other = sameHost && sameHost !== DEFAULT_SKILL_REPO_HOST ? sameHost : ''
+  if (other) {
+    const ref = parseSkillRepoRef(value)
+    if (ref?.host === other) return skillRepoName({ ...ref, ref: '' })
+  }
   let url: URL
   try {
     url = new URL(value)
   } catch {
     return ''
   }
-  const host = url.hostname.toLowerCase()
-  const other = sameHost && sameHost !== DEFAULT_SKILL_REPO_HOST ? sameHost : ''
-  if (host !== DEFAULT_SKILL_REPO_HOST && host !== other) return ''
-  // The other host is read over https alone, exactly as its source was added.
-  if (host === other && (url.protocol !== 'https:' || url.port !== '' || url.username !== '')) return ''
+  if (url.hostname.toLowerCase() !== DEFAULT_SKILL_REPO_HOST) return ''
   const segments = url.pathname.split('/').filter((segment) => segment.length > 0)
   if (segments.length < 2) return ''
   const repo = segments[1].endsWith('.git') ? segments[1].slice(0, -4) : segments[1]
   if (!/^[A-Za-z0-9._-]+$/.test(segments[0]) || !/^[A-Za-z0-9._-]+$/.test(repo)) return ''
-  return joinSkillRepo({ host, owner: segments[0], name: repo })
+  return `${segments[0]}/${repo}`
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

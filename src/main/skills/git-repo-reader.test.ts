@@ -646,6 +646,92 @@ test('git-repo-reader', async () => {
       assert.ok(!scoped.message.includes('gho_withoutTheRepoScope'))
     })
 
+    run('any git host: a nested path and an ssh address each get their own clone address and directory', async () => {
+      const cacheDir = await cacheRoot()
+      assert.equal(
+        gitRepoCacheDir(cacheDir, 'github.com', 'gitlab.com/group/sub/widgets'),
+        join(cacheDir, 'gitlab.com', 'group+sub', 'widgets.git'),
+        'a nested owner stays one directory, so the layout stays three deep',
+      )
+      assert.equal(
+        gitRepoCacheDir(cacheDir, 'github.com', 'ssh://git@git.example.com:7999/proj/widgets'),
+        join(cacheDir, 'git.example.com+ssh-git-7999', 'proj', 'widgets.git'),
+        'an ssh clone never shares a directory with the https one',
+      )
+
+      const asked: string[] = []
+      const seen: Array<{ args: string[]; env: NodeJS.ProcessEnv | undefined }> = []
+      const reads = createGitRepoReader({
+        cacheDir,
+        resolveToken: async () => 'ghp_githubDotComOnly',
+        resolveHostToken: async (host) => {
+          asked.push(host)
+          return 'gho_never'
+        },
+        runGit: async (args, runOptions) => {
+          seen.push({ args, env: runOptions.env })
+          throw Object.assign(new Error('git exited with code 128'), {
+            stderr:
+              'git@git.example.com: Permission denied (publickey).\nfatal: Could not read from remote repository.\n',
+          })
+        },
+      })
+      const error = await reads.resolveCommit('ssh://git@git.example.com:7999/proj/widgets', '').then(
+        () => null,
+        (reason: unknown) => reason,
+      )
+      const lsRemote = seen.find((call) => call.args[0] === 'ls-remote')
+      assert.ok(lsRemote?.args.includes('ssh://git@git.example.com:7999/proj/widgets.git'), 'cloned over ssh')
+      assert.deepEqual(lsRemote?.env, {}, "with no token and no http config: the person's own keys answer")
+      assert.deepEqual(asked, [], 'no token is even looked up for an ssh read')
+      assert.ok(error instanceof GitRepoReadError)
+      assert.equal(error.kind, 'unreadable', 'a refused key is not "offline", though git ends with "Could not read"')
+      assert.match(error.message, /refused this machine's ssh key/)
+      assert.match(error.message, /git ls-remote ssh:\/\/git@git\.example\.com:7999\/proj\/widgets\.git/)
+
+      const unknownHost = createGitRepoReader({
+        cacheDir,
+        runGit: async () => {
+          throw Object.assign(new Error('git exited with code 128'), {
+            stderr: 'Host key verification failed.\nfatal: Could not read from remote repository.\n',
+          })
+        },
+      })
+      const trust = await unknownHost.resolveCommit('ssh://git@git.example.com/proj/widgets', '').then(
+        () => null,
+        (reason: unknown) => reason,
+      )
+      assert.ok(trust instanceof GitRepoReadError)
+      assert.match(trust.message, /not been told to trust git\.example\.com's ssh host key/)
+
+      // …and a nested https path is cloned at its full path.
+      const nested: string[][] = []
+      const https = createGitRepoReader({
+        cacheDir,
+        runGit: async (args) => {
+          nested.push(args)
+          return { stdout: Buffer.from(`${'a'.repeat(40)}\tHEAD\n`), stderr: '' }
+        },
+      })
+      assert.equal(await https.resolveCommit('gitlab.com/group/sub/widgets', ''), 'a'.repeat(40))
+      assert.ok(nested.some((args) => args.includes('https://gitlab.com/group/sub/widgets.git')))
+    })
+
+    run('the sweep clears nested and ssh clones too, and still nothing else', async () => {
+      const cacheDir = await cacheRoot()
+      const old = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
+      const nested = join(cacheDir, 'gitlab.com', 'group+sub', 'widgets.git')
+      const ssh = join(cacheDir, 'git.example.com+ssh-git-7999', 'proj', 'widgets.git')
+      const stranger = join(cacheDir, 'git.example.com+other', 'proj', 'widgets.git')
+      for (const dir of [nested, ssh, stranger]) {
+        await mkdir(dir, { recursive: true })
+        await utimes(dir, old, old)
+      }
+      const swept = await sweepGitRepoCache(cacheDir, 24 * 60 * 60 * 1000)
+      assert.deepEqual([...swept.removed].sort(), [nested, ssh].sort())
+      assert.ok(await exists(stranger), 'a directory this reader would not have written is left alone')
+    })
+
     run('a host-named repository is refused when the host is not a plain dotted hostname', async () => {
       const reads = createGitRepoReader({
         cacheDir: await cacheRoot(),

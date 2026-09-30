@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict'
 
 import {
+  isGithubDotComRepo,
   joinSkillRepo,
   parseSkillFragment,
   parseSkillFrontmatter,
   skillDirName,
   skillNameWarning,
+  skillRepoCloneUrl,
+  skillRepoLabel,
   skillRepoWebUrl,
   skillSourceMonogram,
   splitSkillRepo,
@@ -247,6 +250,41 @@ test('skills', async () => {
     assert.equal(skillRepoWebUrl('acme/skills'), 'https://github.com/acme/skills')
     assert.equal(skillRepoWebUrl('ghe.example.com/acme/skills'), 'https://ghe.example.com/acme/skills')
     assert.equal(skillRepoWebUrl(''), null)
+
+    // Any git host: nested paths, and ssh addresses with their user and port.
+    assert.deepEqual(splitSkillRepo('gitlab.com/group/sub/skills'), {
+      host: 'gitlab.com',
+      owner: 'group/sub',
+      name: 'skills',
+    })
+    const ssh = 'ssh://git@git.example.com:7999/proj/skills'
+    assert.deepEqual(splitSkillRepo(ssh), {
+      host: 'git.example.com',
+      owner: 'proj',
+      name: 'skills',
+      ssh: { user: 'git', port: 7999 },
+    })
+    assert.equal(joinSkillRepo(splitSkillRepo(ssh)!), ssh)
+    assert.equal(skillRepoLabel(ssh), 'git.example.com/proj/skills')
+    assert.equal(skillRepoLabel('acme/skills'), 'acme/skills')
+    assert.equal(skillRepoCloneUrl(ssh), 'ssh://git@git.example.com:7999/proj/skills.git')
+    assert.equal(skillRepoCloneUrl('gitlab.com/group/sub/skills'), 'https://gitlab.com/group/sub/skills.git')
+    assert.equal(skillRepoCloneUrl('acme/skills'), 'https://github.com/acme/skills.git')
+    assert.equal(skillRepoWebUrl(ssh), null, "an ssh port's path is not the web page's")
+    assert.equal(skillRepoWebUrl('ssh://git@gitlab.com/group/skills'), 'https://gitlab.com/group/skills')
+    assert.equal(isGithubDotComRepo('acme/skills'), true)
+    assert.equal(isGithubDotComRepo('gitlab.com/group/skills'), false)
+    for (const repo of [
+      'github.com/acme/skills', // github.com is written without its host
+      'ssh://git@git.example.com:0/proj/skills',
+      'ssh://git@git.example.com:70000/proj/skills',
+      'ssh://git@git.example.com/proj/../skills',
+      'ssh://-oProxyCommand@git.example.com/proj/skills',
+      'https://gitlab.com/group/skills',
+      'gitlab.com/a/b/c/d/e/f/g/h/i',
+    ]) {
+      assert.equal(splitSkillRepo(repo), null, repo)
+    }
   }
 
   function main(): void {

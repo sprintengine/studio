@@ -52,6 +52,7 @@ import { mcpServerConfigFromScanned } from '../../shared/mcp/server-from-scanned
 import {
   DEFAULT_SKILL_REPO_HOST,
   describeUnreadPlugin,
+  skillRepoCloneUrl,
   splitSkillRepo,
   type ScannedMcpServer,
   type ScannedPlugin,
@@ -544,14 +545,17 @@ async function enableClaudePlugin(input: {
 
 /**
  * How Claude Code is told where a marketplace lives. Its `github` source means
- * github.com; a repository on a company's self-hosted GitHub is registered as
- * a plain `git` source at its clone URL, which is the form Claude Code
- * documents for any other host.
+ * github.com over https; a repository anywhere else, or one read over ssh, is
+ * registered as a plain `git` source at the same address this app cloned,
+ * which is the form Claude Code documents for any other host.
  */
 export function claudeMarketplaceSource(repo: string): Record<string, string> {
   const location = splitSkillRepo(repo)
-  if (!location || location.host === DEFAULT_SKILL_REPO_HOST) return { source: 'github', repo }
-  return { source: 'git', url: `https://${location.host}/${location.owner}/${location.name}.git` }
+  const url = skillRepoCloneUrl(repo)
+  if (!location || !url || (location.host === DEFAULT_SKILL_REPO_HOST && !location.ssh)) {
+    return { source: 'github', repo }
+  }
+  return { source: 'git', url }
 }
 
 async function disableClaudePlugin(input: {

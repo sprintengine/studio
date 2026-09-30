@@ -291,7 +291,7 @@ export function createSkillsService(
         return {
           ok: false,
           message:
-            "Enter a GitHub repository, like owner/name, its github.com address, or its address on your company's GitHub.",
+            'Enter a repository: owner/name on GitHub, or the https or ssh address of any git repository, like the one its Clone button gives.',
         }
       }
       const repoName = skillRepoName(ref)
@@ -687,7 +687,7 @@ export function createSkillsService(
     if (plugin.origin.repo === '') {
       return {
         ok: false,
-        message: `${plugin.name} is hosted outside GitHub (${plugin.origin.url}), which this app cannot read.`,
+        message: `${plugin.name} is hosted at ${plugin.origin.url}, which this app does not read from.`,
       }
     }
     const repo = plugin.origin.repo
@@ -1146,8 +1146,8 @@ async function scanGithubSource(
   // plugin listed under the marketplace's own words.
   const plugins = await scanPluginTree({
     entries,
-    // A marketplace on a self-hosted GitHub may link plugins in other
-    // repositories on that same host; nowhere else but github.com.
+    // A marketplace on another host may link plugins in other repositories
+    // on that same host; nowhere else but github.com.
     host: ref.host,
     // Every directory, not just the listable ones: a plugin's own manifest is
     // the authority on what that plugin ships, and a skill this scan will not
@@ -1231,6 +1231,7 @@ function apiSkillRepoReader(github: SkillGithubOptions): SkillRepoReader {
     const location = splitSkillRepo(repo)
     if (!location) return { owner: '', repo: '', ref }
     const base = { owner: location.owner, repo: location.name, ref }
+    if (location.ssh) return { ...base, host: location.host, ssh: location.ssh }
     return location.host === DEFAULT_SKILL_REPO_HOST ? base : { ...base, host: location.host }
   }
   return {

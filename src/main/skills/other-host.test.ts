@@ -1,4 +1,5 @@
-// A source on a company's self-hosted GitHub.
+// A source on any git host other than github.com — a company's self-hosted
+// GitHub, GitLab, Bitbucket, Gitea — over https or ssh.
 //
 // The repository is named `host/owner/name` everywhere below the parser — the
 // source's `repo`, its id, every reader call — and github.com keeps the
@@ -39,7 +40,34 @@ test('other-host sources', async () => {
         'https://ghe.example.com/acme/skills/tree/release',
         { owner: 'acme', repo: 'skills', ref: 'release', host: HOST },
       ],
-      ['git@ghe.example.com:acme/skills.git', { owner: 'acme', repo: 'skills', ref: '', host: HOST }],
+      [
+        'git@ghe.example.com:acme/skills.git',
+        { owner: 'acme', repo: 'skills', ref: '', host: HOST, ssh: { user: 'git', port: null } },
+      ],
+      // Any git host, not only GitHub: a GitLab group nests, and a page URL is
+      // cut where the page begins.
+      ['https://gitlab.com/group/sub/skills', { owner: 'group/sub', repo: 'skills', ref: '', host: 'gitlab.com' }],
+      [
+        'https://gitlab.com/group/sub/skills/-/tree/release/plugins',
+        { owner: 'group/sub', repo: 'skills', ref: 'release', host: 'gitlab.com' },
+      ],
+      [
+        'https://bitbucket.org/team/skills/src/main/',
+        { owner: 'team', repo: 'skills', ref: '', host: 'bitbucket.org' },
+      ],
+      // A clone address is never cut: `scm` is part of a Bitbucket Server path.
+      [
+        'https://git.example.com/scm/proj/skills.git',
+        { owner: 'scm/proj', repo: 'skills', ref: '', host: 'git.example.com' },
+      ],
+      [
+        'ssh://git@git.example.com:7999/proj/skills.git',
+        { owner: 'proj', repo: 'skills', ref: '', host: 'git.example.com', ssh: { user: 'git', port: 7999 } },
+      ],
+      [
+        'git@gitlab.com:group/sub/skills.git',
+        { owner: 'group/sub', repo: 'skills', ref: '', host: 'gitlab.com', ssh: { user: 'git', port: null } },
+      ],
       ['ghe.example.com/acme/skills', { owner: 'acme', repo: 'skills', ref: '', host: HOST }],
       // github.com in any of its spellings is still github.com, with no host.
       ['https://github.com/acme/skills', { owner: 'acme', repo: 'skills', ref: '' }],
@@ -53,8 +81,20 @@ test('other-host sources', async () => {
     // A stray third segment is not a host just because there are three.
     assert.equal(parseSkillRepoRef('acme/skills/extra'), null)
     assert.equal(parseSkillRepoRef('http://ghe.example.com/acme/skills'), null)
+    assert.equal(parseSkillRepoRef('https://git.example.com:8443/acme/skills'), null, 'no https port')
+    assert.equal(parseSkillRepoRef('ssh://git:secret@git.example.com/acme/skills.git'), null, 'no password')
+    assert.equal(parseSkillRepoRef('git@git.example.com:/srv/acme/skills.git'), null, 'no absolute path')
+    assert.equal(parseSkillRepoRef('https://gitlab.com/a/b/c/d/e/f/g/h/i/skills'), null, 'no endless nesting')
     assert.equal(skillRepoName({ owner: 'acme', repo: 'skills', ref: '', host: HOST }), `${HOST}/acme/skills`)
     assert.equal(skillRepoName({ owner: 'acme', repo: 'skills', ref: '' }), 'acme/skills')
+    assert.equal(
+      skillRepoName(parseSkillRepoRef('ssh://git@git.example.com:7999/proj/skills.git')!),
+      'ssh://git@git.example.com:7999/proj/skills',
+    )
+    assert.equal(
+      skillRepoName(parseSkillRepoRef('https://gitlab.com/group/sub/skills')!),
+      'gitlab.com/group/sub/skills',
+    )
   }
 
   function linkedHosts(): void {
@@ -63,6 +103,8 @@ test('other-host sources', async () => {
     assert.equal(githubRepoFromUrl('https://other.example.com/acme/p.git', HOST), '', 'only the same host')
     assert.equal(githubRepoFromUrl('https://ghe.example.com/acme/p.git'), '', 'and only for a marketplace there')
     assert.equal(githubRepoFromUrl('http://ghe.example.com/acme/p.git', HOST), '', 'over https')
+    assert.equal(githubRepoFromUrl(`git@${HOST}:acme/p.git`, HOST), `ssh://git@${HOST}/acme/p`, 'or ssh')
+    assert.equal(githubRepoFromUrl('https://gitlab.com/g/sub/p.git', 'gitlab.com'), 'gitlab.com/g/sub/p')
   }
 
   function claudeCodeIsToldTheHost(): void {
@@ -71,6 +113,10 @@ test('other-host sources', async () => {
     assert.deepEqual(claudeMarketplaceSource(`${HOST}/acme/marketplace`), {
       source: 'git',
       url: `https://${HOST}/acme/marketplace.git`,
+    })
+    assert.deepEqual(claudeMarketplaceSource('ssh://git@git.example.com:7999/proj/skills'), {
+      source: 'git',
+      url: 'ssh://git@git.example.com:7999/proj/skills.git',
     })
   }
 
@@ -183,7 +229,7 @@ test('other-host sources', async () => {
     assert.ok(!reader.asked.some((repo) => repo.includes('other.example.com')))
 
     // Adding it again by another spelling is the same source.
-    const again = await service.addSource({ repo: `git@${HOST}:acme/marketplace.git`, replace: false })
+    const again = await service.addSource({ repo: `https://${HOST}/acme/marketplace.git`, replace: false })
     assert.equal(again.ok, false)
     if (!again.ok) assert.match(again.message, /ghe\.example\.com\/acme\/marketplace is already one of your sources/)
 
@@ -196,6 +242,21 @@ test('other-host sources', async () => {
     const installed = await service.installPlugin({ sourceId: added.source.id, pluginId: 'runner', workspaceRoot })
     assert.equal(installed.ok, true, installed.ok ? '' : installed.message)
     assert.ok(reader.asked.filter((repo) => repo === MARKETPLACE_REPO).length > 2, "the plugin's files were listed")
+  }
+
+  async function anSshAddressIsReadOverSsh(): Promise<void> {
+    const reader = fakeReader()
+    const service = await serviceWith({ repoReader: reader })
+    const added = await service.addSource({ repo: 'ssh://git@git.example.com:7999/proj/skills.git' })
+    assert.equal(added.ok, true, added.ok ? '' : added.message)
+    if (!added.ok) return
+    assert.equal(added.source.repo, 'ssh://git@git.example.com:7999/proj/skills')
+    assert.equal(added.source.id, 'github:ssh://git@git.example.com:7999/proj/skills')
+    assert.equal(added.source.name, 'skills')
+    assert.ok(
+      reader.asked.includes('ssh://git@git.example.com:7999/proj/skills'),
+      'the reader was given the ssh address',
+    )
   }
 
   async function withoutGitTheApiFallbackSaysSo(): Promise<void> {
@@ -218,5 +279,6 @@ test('other-host sources', async () => {
   linkedHosts()
   claudeCodeIsToldTheHost()
   await aMarketplaceOnAnotherHostIsReadThere()
+  await anSshAddressIsReadOverSsh()
   await withoutGitTheApiFallbackSaysSo()
 })
