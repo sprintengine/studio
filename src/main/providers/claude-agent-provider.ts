@@ -545,6 +545,15 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     return state.childPreset === state.permissionPreset
   }
 
+  // Whether the child can be replaced now without ending anything. A
+  // background agent works inside the child with no turn open (its steps open
+  // none), so an idle turn alone does not say the child is free.
+  function childIsIdle(state: SessionState): boolean {
+    if (state.turn) return false
+    for (const agent of state.subagents.values()) if (agent.background) return false
+    return true
+  }
+
   async function pump(state: SessionState, q: Query): Promise<void> {
     try {
       for await (const message of q as AsyncIterable<Record<string, unknown>>) {
@@ -1221,7 +1230,9 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     // looser carries on, and the next turn respawns it (resumed) as `none`
     // spawns; an idle child is replaced at once. A child that refuses the mode
     // is replaced the same way, and mid-reply that waits for the next message,
-    // since disposing it would drop the reply the user is reading.
+    // since disposing it would drop the reply the user is reading. A child a
+    // background agent is still working in waits the same way, or the agent
+    // would end with it.
     async setPermissionPreset(input: MockAdapterPermissionInput): Promise<ConversationProviderPermissionResult> {
       const state = sessions.get(input.sessionId)
       if (!state) return { ok: false, message: 'Conversation session is not registered with the Claude provider.' }
@@ -1232,7 +1243,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       if (!state.query || childHonorsPreset(state)) return { ok: true }
       const next = state.permissionPreset
       const target = SDK_PERMISSION_MODE_BY_PRESET[next]
-      if (target === undefined && !state.turn) {
+      if (target === undefined && childIsIdle(state)) {
         disposeChild(state)
         return { ok: true }
       }
@@ -1241,7 +1252,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         await query.setPermissionMode(target ?? 'default')
       } catch {
         if (state.query !== query) return { ok: true }
-        if (!state.turn) {
+        if (childIsIdle(state)) {
           disposeChild(state)
           return { ok: true }
         }
@@ -1285,7 +1296,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       try {
         await state.query.setModel(input.nextModelId === CONVERSATION_DEFAULT_MODEL_ID ? undefined : input.nextModelId)
       } catch {
-        if (!state.turn) disposeChild(state)
+        if (childIsIdle(state)) disposeChild(state)
       }
       return { ok: true, ...(notice ? { notice } : {}) }
     },

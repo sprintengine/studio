@@ -48,6 +48,7 @@ test('claude-agent-provider', async () => {
     await testExitPlanModeBecomesPlanCard()
     await testPermissionPresetMapsToSdkPermissionMode()
     await testLivePermissionPresetReachesTheChildAndSurvivesRespawn()
+    await testNoFlagWaitsForABackgroundAgentBeforeReplacingTheChild()
     await testAbortSignalEndsTheTurnStream()
     await testSpawnFailureSurfacesAsTurnFailed()
     await testStopDuringSpawnStartsNoChild()
@@ -1286,6 +1287,79 @@ test('claude-agent-provider', async () => {
       },
     )
     await collect(live.adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
+  }
+
+  // A background agent works inside the child after its turn has ended, with
+  // no turn open. Moving to No flag then waits for the next message, as it
+  // does mid-reply, instead of replacing the child and ending the agent.
+  async function testNoFlagWaitsForABackgroundAgentBeforeReplacingTheChild(): Promise<void> {
+    const agentReports = createDeferred<void>()
+    const bg = createAdapter(async (_userMessage, context) => {
+      context.emit({ type: 'system', subtype: 'init', session_id: 'bg-1', model: 'sonnet' })
+      context.emit({
+        type: 'assistant',
+        session_id: 'bg-1',
+        parent_tool_use_id: null,
+        message: {
+          content: [{ type: 'tool_use', id: 'toolu_bg', name: 'Agent', input: { subagent_type: 'Explore' } }],
+        },
+      })
+      context.emit({
+        type: 'system',
+        subtype: 'task_started',
+        session_id: 'bg-1',
+        task_id: 'task_bg',
+        tool_use_id: 'toolu_bg',
+        task_type: 'local_agent',
+        is_backgrounded: true,
+      })
+      context.emit({
+        type: 'result',
+        subtype: 'success',
+        is_error: false,
+        session_id: 'bg-1',
+        usage: { input_tokens: 1, output_tokens: 1 },
+      })
+      await agentReports.promise
+      context.emit({
+        type: 'system',
+        subtype: 'task_notification',
+        session_id: 'bg-1',
+        task_id: 'task_bg',
+        tool_use_id: 'toolu_bg',
+        status: 'completed',
+        summary: 'done',
+      })
+    })
+    const sessionEvents: ConversationEvent[] = []
+    await collect(
+      bg.adapter.startSession({
+        ...SESSION_INPUT,
+        permissionPreset: 'bypass',
+        onSessionEvent: (event) => sessionEvents.push(event),
+      }) as ConversationEvent[],
+    )
+    await collect(bg.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
+
+    assert.deepEqual(await bg.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'none' }), {
+      ok: true,
+    })
+    assert.equal(bg.adapter.listLiveSessions()[0]?.hasChildProcess, true, 'the agent keeps its child')
+    assert.deepEqual(bg.permissionModes, ['default'], 'nothing looser than default carries on meanwhile')
+    assert.equal(
+      sessionEvents.some((event) => event.type === 'subagent_status' && event.payload?.status === 'stopped'),
+      false,
+    )
+
+    // Once the agent has reported, the child is free, and the next change
+    // replaces it as it would any idle child.
+    agentReports.resolve()
+    await waitForContinuationEvent(sessionEvents, 'tool_output')
+    assert.deepEqual(await bg.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'none' }), {
+      ok: true,
+    })
+    assert.equal(bg.adapter.listLiveSessions()[0]?.hasChildProcess, false)
+    await collect(bg.adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
   }
 
   async function testAbortSignalEndsTheTurnStream(): Promise<void> {
