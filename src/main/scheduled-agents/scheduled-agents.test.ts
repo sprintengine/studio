@@ -6,7 +6,7 @@ import { test } from 'vitest'
 
 import type { ConversationLaunchRequest } from '../conversation-launch-service'
 import type { ScheduledAgent, ScheduledAgentDraft } from '../../shared/scheduled-agents'
-import { runScheduledAgent } from './runner'
+import { isRunChatWorking, runScheduledAgent } from './runner'
 import { createScheduledAgentsScheduler } from './scheduler'
 import { createScheduledAgentsModuleRegistry, createScheduledAgentsService } from './service'
 import { createScheduledAgentsStore } from './store'
@@ -196,6 +196,65 @@ test('a schedule that changes counts from now; one that closes stops', async () 
   assert.equal(time.armedAt(), null)
 })
 
+test('a time that comes round while the last run is still working is skipped, and said so', async () => {
+  const time = fakeTime(NOW)
+  let agents = [agent({ lastRun: { at: NOW - 60_000, ok: true, workspaceId: 'run-1' } })]
+  const working = new Set(['run-1'])
+  const runs: string[] = []
+  const skipped: string[] = []
+  const scheduler = createScheduledAgentsScheduler({
+    list: () => agents,
+    run: async (entry) => {
+      runs.push(entry.id)
+      return { at: time.now(), ok: true, workspaceId: 'run-2' }
+    },
+    recordRun: async (id, run) => {
+      agents = agents.map((entry) => (entry.id === id ? { ...entry, lastRun: run } : entry))
+    },
+    isRunWorking: (workspaceId) => working.has(workspaceId),
+    onSkipped: (entry, reason) => skipped.push(`${entry.id}:${reason}`),
+    now: time.now,
+    setTimer: time.setTimer,
+    clearTimer: time.clearTimer,
+  })
+  scheduler.start()
+  await time.advanceTo(Date.UTC(2026, 8, 30, 13, 0))
+  assert.deepEqual(runs, [], 'no second chat starts beside the working one')
+  assert.deepEqual(skipped, ['sa-1:still_working'])
+  // Not queued: the next time counts on from the skipped one.
+  assert.equal(scheduler.nextRunAt('sa-1'), Date.UTC(2026, 9, 1, 13, 0))
+
+  // Run now is refused the same way while the chat works, and runs once it has finished.
+  assert.deepEqual(await scheduler.runNow('sa-1'), { ok: false, refused: 'still_working' })
+  working.clear()
+  const ran = await scheduler.runNow('sa-1')
+  assert.deepEqual(ran, { ok: true, run: { at: time.now(), ok: true, workspaceId: 'run-2' } })
+  assert.deepEqual(runs, ['sa-1'])
+  assert.deepEqual(await scheduler.runNow('nope'), { ok: false, refused: 'unknown' })
+})
+
+test('a failed last run started no chat, so it holds nothing up', async () => {
+  const scheduler = createScheduledAgentsScheduler({
+    list: () => [agent({ lastRun: { at: NOW, ok: false, message: 'not a git repository' } })],
+    run: async () => ({ at: NOW, ok: true, workspaceId: 'run-2' }),
+    recordRun: async () => undefined,
+    isRunWorking: () => true,
+    now: () => NOW,
+    setTimer: () => null,
+    clearTimer: () => undefined,
+  })
+  assert.equal((await scheduler.runNow('sa-1')).ok, true)
+})
+
+test("a run's chat is working while a turn is open or waiting on a person, and not once it rests", () => {
+  assert.equal(isRunChatWorking([]), false, 'no session: the chat settled, or the app restarted since')
+  assert.equal(isRunChatWorking([{ status: 'ready' }]), false)
+  assert.equal(isRunChatWorking([{ status: 'stopped' }]), false)
+  assert.equal(isRunChatWorking([{ status: 'active' }]), true)
+  assert.equal(isRunChatWorking([{ status: 'awaiting_approval' }]), true)
+  assert.equal(isRunChatWorking([{ status: 'ready', turnStartedAt: NOW }]), true)
+})
+
 test('a run is a new chat in the project, on its machine, with what it was made with', async () => {
   const requests: ConversationLaunchRequest[] = []
   const result = await runScheduledAgent(
@@ -235,6 +294,8 @@ test('a run is a new chat in the project, on its machine, with what it was made 
       prompt: 'Triage the issues opened since the last run.',
       skills: ['triage'],
       connectorIds: ['github'],
+      // The chat says which schedule started it.
+      scheduledAgentId: 'sa-1',
     },
   ])
 })
@@ -332,6 +393,33 @@ test('the service validates every write and an extension reaches only its own', 
       ['sa-1'],
     )
     assert.deepEqual(seen, [1, 2, 1])
+  } finally {
+    file.cleanup()
+  }
+})
+
+test("Run now says why it did not run when the last run's chat is still working", async () => {
+  const file = tempFile()
+  try {
+    const store = createScheduledAgentsStore({ filePath: file.path, now: () => NOW, newId: () => 'sa-1' })
+    await store.load()
+    await store.create(draft())
+    await store.recordRun('sa-1', { at: NOW, ok: true, workspaceId: 'run-1' })
+    let working = true
+    const scheduler = createScheduledAgentsScheduler({
+      list: () => store.list(),
+      run: async () => ({ at: NOW, ok: true, workspaceId: 'run-2' }),
+      recordRun: (entry, run) => store.recordRun(entry, run),
+      isRunWorking: () => working,
+      now: () => NOW,
+      setTimer: () => null,
+      clearTimer: () => undefined,
+    })
+    const service = createScheduledAgentsService({ store, scheduler, now: () => NOW })
+    assert.deepEqual(await service.runNow('sa-1'), { ok: false, message: 'Its last run is still working.' })
+    assert.deepEqual(store.get('sa-1')?.lastRun, { at: NOW, ok: true, workspaceId: 'run-1' }, 'nothing is recorded')
+    working = false
+    assert.deepEqual(await service.runNow('sa-1'), { ok: true, run: { at: NOW, ok: true, workspaceId: 'run-2' } })
   } finally {
     file.cleanup()
   }

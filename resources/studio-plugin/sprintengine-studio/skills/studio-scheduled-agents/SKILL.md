@@ -10,8 +10,10 @@ round, Studio starts a **new chat** in the scheduled agent's project with that
 prompt as its first message — the same chat New chat would start, on the same
 machine, with the model, permission preset, skills, MCP servers and worktree
 choice it was scheduled with. Nothing carries over from one run to the next:
-there is no shared conversation, no run history, and no memory between runs
-beyond what the prompt tells the agent to read or write. If a run needs to know
+there is no shared conversation and no memory between runs beyond what the
+prompt tells the agent to read or write. Each run's chat is marked with the
+scheduled agent that started it, and the person sees a schedule's recent runs
+when they open it in the app. If a run needs to know
 what the last one did, the prompt has to say where to look (a file, an issue
 tracker, the git log).
 
@@ -76,6 +78,19 @@ one is stored as the caller's.
 waiting for its schedule, and answers with the `workspaceId` of the chat it
 started. `schedule_delete` with `{id}` stops and removes a scheduled agent;
 chats its earlier runs started are left as they are.
+
+Runs never overlap. While a scheduled agent's last run is still working — a
+turn open, or waiting on an approval card — `schedule_run` is refused with
+"Its last run is still working.", and a scheduled time that comes round then is
+skipped rather than starting a second chat beside the first.
+
+## When you are a scheduled run
+
+A chat a scheduled agent started may read `schedule_list`, but
+`schedule_create`, `schedule_delete` and `schedule_run` refuse it with
+`scheduled_run_refused`: a run never makes, removes or fires a schedule, so no
+run can start a chain of runs. If the task seems to need a schedule changed,
+say so in your reply for the person to do in the app.
 
 ## What is available to schedule
 

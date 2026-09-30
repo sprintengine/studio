@@ -92,9 +92,16 @@ export function createScheduledAgentsService(deps: ScheduledAgentsServiceDeps): 
     },
     async runNow(id, options) {
       if (!reachable(id, options?.ownerModuleId)) return notFound(id)
-      const run = await deps.scheduler.runNow(id)
-      if (!run) return { ok: false, message: 'That scheduled agent is already starting a run.' }
-      return { ok: true, run }
+      const fired = await deps.scheduler.runNow(id)
+      if (fired.ok) return { ok: true, run: fired.run }
+      if (fired.refused === 'unknown') return notFound(id)
+      return {
+        ok: false,
+        message:
+          fired.refused === 'still_working'
+            ? 'Its last run is still working.'
+            : 'That scheduled agent is already starting a run.',
+      }
     },
     async markFailureSeen(id) {
       await deps.store.markFailureSeen(id)

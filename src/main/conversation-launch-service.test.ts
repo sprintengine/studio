@@ -13,6 +13,7 @@ import { SOLO_CHAT_AGENT_ID } from '../shared/layouts/templates'
 import {
   emptyWorkspaceRegistryFile,
   normalizeWorkspaceForRegistry,
+  parseWorkspaceRegistryRecord,
   toWorkspaceRegistryRecord,
 } from '../shared/workspace-registry'
 import { deriveWorkspaceTitle, isDefaultWorkspaceName } from '../shared/workspace-title'
@@ -352,6 +353,32 @@ test('a chat born in a folder gets a workspace of its own there, on its machine 
   // The chat runs on the machine it was born on: its Claude chat is that
   // distribution's `claude`.
   assert.deepEqual(starts[0]!.cliRuntimes, { 'claude-code': { command: '', hostId: 'wsl:Ubuntu' } })
+})
+
+test("a scheduled run's chat carries its schedule's id on its workspace, through a restart", async () => {
+  const { service, registry } = registryHarness()
+  const result = await service.launch({
+    newChatIn: { folderPath: '/Users/dev/app' },
+    cli: 'claude-code',
+    prompt: 'triage new issues',
+    scheduledAgentId: 'sa-1',
+  })
+  assert.equal(result.ok, true)
+  if (!result.ok) return
+  const created = registry.getRecord(result.workspaceId)!
+  assert.equal(created.scheduledAgentId, 'sa-1')
+  // What main writes to disk and reads back at start-up keeps it.
+  const reread = parseWorkspaceRegistryRecord(JSON.parse(JSON.stringify(created)))
+  assert.ok('record' in reread)
+  if ('record' in reread) assert.equal(reread.record.scheduledAgentId, 'sa-1')
+
+  // A chat joining a workspace is not a run, and a chat nobody scheduled is unmarked.
+  const joined = await service.launch({ workspaceId: 'ws-old', cli: 'claude-code', scheduledAgentId: 'sa-1' })
+  assert.equal(joined.ok, true)
+  assert.equal(registry.getRecord('ws-old')!.scheduledAgentId, undefined)
+  const plain = await service.launch({ newChatIn: { folderPath: '/Users/dev/app' }, cli: 'claude-code' })
+  assert.equal(plain.ok, true)
+  if (plain.ok) assert.equal(registry.getRecord(plain.workspaceId)!.scheduledAgentId, undefined)
 })
 
 test("a WSL chat runs that distribution's claude, and every other runtime is the app's own", async () => {

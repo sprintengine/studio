@@ -54,6 +54,8 @@ test('studio-plugin-skills', async () => {
     // A launch-permission refusal code, not a tool.
     'permission_escalation',
     'project_root_required',
+    // A schedule tool's refusal to a chat a scheduled agent started, not a tool.
+    'scheduled_run_refused',
     'too_large',
   ])
 

@@ -2179,6 +2179,49 @@ test('automation', async () => {
     }
   }
 
+  // A chat a schedule started may list the schedules but not make, remove or
+  // fire one, so no run can start a chain of runs. Any other chat, and a
+  // caller with no identity, keeps every tool.
+  async function testAScheduledRunsChatMayNotChangeSchedules(): Promise<void> {
+    const { service, calls } = fakeScheduledAgents()
+    const tools = createAutomationTools(
+      backendsOf({
+        workspaces: [
+          testWorkspace('ws-1', { folderPath: '/tmp/project-a' }),
+          testWorkspace('ws-run', { folderPath: '/tmp/project-a', scheduledAgentId: 'sa-1' }),
+        ],
+        getScheduledAgents: () => service,
+      }),
+    )
+    const fromRun = agentContext('ws-run')
+    const listed = await tool(tools, 'schedule.list').handler({}, fromRun)
+    assert.equal(listed.isError, undefined, 'a run may still read the schedules')
+    for (const [name, args] of [
+      ['schedule.create', { workspaceId: 'ws-1', prompt: 'x', cron: '0 9 * * *' }],
+      ['schedule.delete', { id: 'sa-1' }],
+      ['schedule.run', { id: 'sa-1' }],
+    ] as const) {
+      const result = await tool(tools, name).handler(args as Record<string, unknown>, fromRun)
+      const error = (result.structuredContent as { error: { code: string; message: string } }).error
+      assert.equal(error.code, 'scheduled_run_refused', name)
+      assert.match(error.message, /started by a scheduled agent/u, name)
+    }
+    assert.deepEqual(calls, { created: [], ran: [], removed: [] }, 'nothing reached the service')
+
+    // The same calls from an ordinary chat, and from a caller that named no chat, go through.
+    for (const context of [agentContext('ws-1'), undefined]) {
+      const created = await tool(tools, 'schedule.create').handler(
+        { workspaceId: 'ws-1', prompt: 'x', cron: '0 9 * * *' },
+        context,
+      )
+      assert.equal(created.isError, undefined, JSON.stringify(created.structuredContent))
+      const ran = await tool(tools, 'schedule.run').handler({ id: 'sa-1' }, context)
+      assert.equal(ran.isError, undefined, JSON.stringify(ran.structuredContent))
+      const removed = await tool(tools, 'schedule.delete').handler({ id: 'sa-1' }, context)
+      assert.equal(removed.isError, undefined, JSON.stringify(removed.structuredContent))
+    }
+  }
+
   // Every surface may spawn in bypass (owner ruling 2026-09-27): an external
   // caller gets the same two presets a person at the launcher does, and an
   // omitted one means what it means there. This pins that the tool boundary
@@ -3427,6 +3470,7 @@ test('automation', async () => {
     testBacklogWorkFallsBackAndRefusesFinishedItems,
     testBacklogWorkPresetsAndPostLaunchLinkFailure,
     testScheduleToolsDriveTheScheduledAgentsService,
+    testAScheduledRunsChatMayNotChangeSchedules,
     testBothPresetsAreOpenAtTheExternalToolBoundary,
     testAnOmittedPresetResolvesLikeTheDesktopLauncher,
     testScheduleToolsPassServiceFailuresThrough,

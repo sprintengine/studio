@@ -4,13 +4,15 @@ import { createGitWorktree, getGitRepoRoot } from '../git'
 import { withGitHost } from '../git-run'
 import { hostRegistry } from '../hosts/host-registry'
 import { powerActivity } from '../power-activity'
+import { writeDiagnosticLog } from '../diagnostics-service'
 import {
   ConversationLaunchServiceToken,
+  ConversationRuntimeToken,
   ScheduledAgentsModuleServiceToken,
   ScheduledAgentsServiceToken,
 } from '../module-host/service-tokens'
 import type { CapabilityModule } from '../module-host/load-modules'
-import { runScheduledAgent } from '../scheduled-agents/runner'
+import { isRunChatWorking, runScheduledAgent } from '../scheduled-agents/runner'
 import { createScheduledAgentsScheduler } from '../scheduled-agents/scheduler'
 import {
   createScheduledAgentsModuleRegistry,
@@ -22,6 +24,7 @@ import { isWslHostId, type ExecutionHostId } from '../../shared/execution-host'
 import {
   SCHEDULED_AGENTS_CHANGED_CHANNEL,
   SCHEDULED_AGENTS_IPC,
+  scheduledAgentTitle,
   type ScheduledAgentView,
 } from '../../shared/scheduled-agents'
 import { isRecord } from '../../shared/records'
@@ -57,6 +60,7 @@ export function createScheduledAgentsModule(): CapabilityModule {
     },
     registerMain(host) {
       const conversationLaunchService = host.requireService(ConversationLaunchServiceToken)
+      const conversationRuntime = host.requireService(ConversationRuntimeToken)
       const store = createScheduledAgentsStore({
         filePath: scheduledAgentsFilePath(app.getPath('userData')),
         warn: (message) => console.warn(`[scheduled-agents] ${message}`),
@@ -68,6 +72,26 @@ export function createScheduledAgentsModule(): CapabilityModule {
         list: () => store.list(),
         recordRun: (id, run) => store.recordRun(id, run),
         onRan: () => service?.notifyChanged(),
+        isRunWorking: (workspaceId) => {
+          const listed = conversationRuntime.listSessions({ workspaceId })
+          return listed.ok && isRunChatWorking(listed.sessions)
+        },
+        // A skipped time is not a failed run — nothing was tried, and the
+        // schedule's card has nothing to say about it — but it is written down,
+        // so "why did it not run at nine" has an answer.
+        onSkipped: (agent, reason) => {
+          const workspaceId = agent.lastRun?.ok ? agent.lastRun.workspaceId : undefined
+          void writeDiagnosticLog({
+            level: 'info',
+            source: 'agents',
+            title: 'Scheduled run skipped',
+            message:
+              reason === 'still_working'
+                ? `"${scheduledAgentTitle(agent.prompt)}" did not start a run: its last run is still working.`
+                : `"${scheduledAgentTitle(agent.prompt)}" did not start a run: its last one is still starting.`,
+            ...(workspaceId ? { workspaceId } : {}),
+          }).catch(() => undefined)
+        },
         run: (agent) =>
           runScheduledAgent(agent, {
             launchConversation: (request) => conversationLaunchService.launch(request),

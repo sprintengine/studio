@@ -8,7 +8,6 @@ import { type FolderIdentityMap, folderIdentityKey } from '../useFolderRepositor
 import { workspaceProjectRoot } from '../../../utils/workspaceWorktree'
 import { shortMachineName } from '../../remote/machineRowModel'
 import { isMeshConversationPane } from '../../../../../shared/tailnet-mesh'
-import type { ScheduledAgentView } from '../../../../../shared/scheduled-agents'
 
 export type FolderGroup = {
   key: string
@@ -42,8 +41,6 @@ export type FolderGroup = {
    * workspace, so they cannot be `Workspace`s until they are opened.
    */
   remoteRows: RemoteConversation[]
-  /** The project's scheduled agents, each a card at the top of its rows. */
-  scheduledAgents?: ScheduledAgentView[]
 }
 
 export const NULL_FOLDER_KEY = '__no_folder__'

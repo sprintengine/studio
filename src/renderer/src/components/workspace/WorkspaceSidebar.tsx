@@ -90,6 +90,7 @@ import { workspaceRowEmphasis } from '../../utils/workspaceRowEmphasis'
 import { useScheduledAgents } from '../../store/scheduledAgentsStore'
 import { showToast } from '../../store/toastStore'
 import { ScheduledAgentRow } from './sidebar/ScheduledAgentRow'
+import { isScheduledRunChat, scheduledAgentRunInProgress } from '../../utils/scheduledAgentRuns'
 import type { ScheduledAgentView } from '../../../../shared/scheduled-agents'
 import {
   buildFolderGroups,
@@ -119,6 +120,7 @@ import {
   BranchChip,
   ProjectLine,
   RemoteRowGlyph,
+  ScheduledRunGlyph,
   RowTooltip,
   RowTooltipsSuppressed,
   ShelfFoldRow,
@@ -237,6 +239,9 @@ type WorkspaceSidebarProps = {
 // key no folder can produce.
 const ALL_CHATS_SNOOZE_SHELF_KEY = '__all_chats_snoozed__'
 const ALL_CHATS_SNOOZE_SHELF_ID = 'ws-snoozed-all-chats'
+// The Scheduled section's fold, keyed beside the Snoozed shelves' in the same state.
+const SCHEDULED_SHELF_KEY = '__scheduled__'
+const SCHEDULED_SHELF_ID = 'ws-scheduled-agents'
 const NO_SCHEDULED_AGENTS: ScheduledAgentView[] = []
 
 const DRAG_MIME_WORKSPACE = 'application/x-sprintengine-workspace'
@@ -295,8 +300,12 @@ function WorkspaceSidebar({
   // and hidden under Extensions (its folds and scroll offset are the
   // operator's), and both step aside while a door's rail owns the column.
   const sidebarSection = useWorkspaceStore((s) => s.sidebarSection)
-  // Scheduled agents are cards of their projects like any chat (owner,
-  // 2026-09-30): no list of their own. Off with their module.
+  // Scheduled agents have a section of their own at the foot of the list
+  // (owner ruling 2026-09-30). Filed among their project's chats, a schedule
+  // whose run was working read as a second agent beside the run's own chat,
+  // and opened an editor where the person expected the run. The schedule is
+  // the long-lived thing and each run an ordinary chat, marked with the
+  // schedule's clock, so the two now live apart. Off with their module.
   const scheduledAgentsEnabled = useWorkspaceStore((s) =>
     selectModuleEnabled(s.appSettings.modules, 'scheduled-agents'),
   )
@@ -955,28 +964,8 @@ function WorkspaceSidebar({
       }
       group.remoteRows.push(conversation)
     }
-    // Each scheduled agent files under its project's header; a project with
-    // nothing else open here still gets one, since the card is its row.
-    for (const agent of scheduledAgents) {
-      const key = folderKey(agent.folderPath)
-      let group = byKey.get(key)
-      if (!group) {
-        group = {
-          key,
-          displayName: folderDisplayName(agent.folderPath),
-          fullPath: agent.folderPath,
-          missing: false,
-          workspaces: [],
-          remote: null,
-          remoteRows: [],
-        }
-        byKey.set(key, group)
-        order.push(key)
-      }
-      group.scheduledAgents = [...(group.scheduledAgents ?? []), agent]
-    }
     return order.map((key) => byKey.get(key)!)
-  }, [localGroups, unattachedRemote, remoteGroupKeyOf, scheduledAgents])
+  }, [localGroups, unattachedRemote, remoteGroupKeyOf])
 
   // Which shape this rail lists chats in — the project tree, or one stream of
   // all of them (all-chats-view, 2026-09-07). Read from the store rather than
@@ -1179,8 +1168,9 @@ function WorkspaceSidebar({
     [groupByKey, remoteGroupKeyOf, openPullRequestsByGroup, projectColorOf],
   )
 
-  // The same line for a scheduled agent's card, through the header the tree
-  // files it under.
+  // The same line for a scheduled agent's row in the Scheduled section: the
+  // project its runs start in, named and coloured as that project's header
+  // is, since the row no longer sits under it.
   const flatProjectOfScheduled = useCallback(
     (agent: ScheduledAgentView): FlatProjectLine => {
       const groupKey = folderKey(agent.folderPath)
@@ -1299,7 +1289,6 @@ function WorkspaceSidebar({
       groups.filter(
         (group) =>
           group.remoteRows.length > 0 ||
-          (group.scheduledAgents?.length ?? 0) > 0 ||
           !group.workspaces.every((w) => isShelved(w) || isAsleep(w) || starredWorkspaceIds.has(w.id)),
       ),
     [groups, isShelved, isAsleep, starredWorkspaceIds],
@@ -1905,14 +1894,10 @@ function WorkspaceSidebar({
     // and interleaving them by numbers that mean different things would put
     // rows in an order nobody could read.
     const remoteRows = group.remoteRows.map((conversation) => renderRemoteConversationRow(conversation))
-    // Its scheduled agents first: they stand, where the chats below them come
-    // and go, and a chat's clock (your last message) is not one a schedule has.
-    const scheduledRows = (group.scheduledAgents ?? []).map((agent) => renderScheduledAgentRow(agent))
 
     if (snoozedRows.length === 0) {
       return (
         <div id={folderBodyId}>
-          {scheduledRows}
           {activeRows.map((workspace) => renderWorkspaceRow(workspace, group.key))}
           {remoteRows}
         </div>
@@ -1926,7 +1911,6 @@ function WorkspaceSidebar({
 
     return (
       <div id={folderBodyId}>
-        {scheduledRows}
         {activeRows.map((workspace) => renderWorkspaceRow(workspace, group.key))}
         {remoteRows}
         <ShelfFoldRow
@@ -1967,21 +1951,45 @@ function WorkspaceSidebar({
   // green machine glyph beside the folder icon saying where it runs. They come
   // after the local rows for the reason the tree puts them after: the two have
   // no shared clock to interleave on.
-  // A scheduled agent's card. Working while the chat its latest run started
-  // is: that chat is where the run is, and the card says so from here.
-  const renderScheduledAgentRow = (agent: ScheduledAgentView, flatProject?: FlatProjectLine) => {
-    const runWorkspaceId = agent.lastRun?.ok ? agent.lastRun.workspaceId : null
+  // The Scheduled section, after every chat in either shape of the list: one
+  // fold row over a row per scheduled agent, hidden when there are none. The
+  // fold is the Snoozed shelves' own, and its state lives beside theirs, but
+  // it starts open: a schedule is something the person set up to keep, and
+  // one they just made should be on screen, not behind a count.
+  //
+  // A row opens its schedule's editor, never a run — the runs are chats, in
+  // the list above with the schedule's clock on them, and the editor lists a
+  // schedule's recent ones.
+  const renderScheduledSection = () => {
+    if (scheduledAgents.length === 0) return null
+    const expanded = expandedShelves[SCHEDULED_SHELF_KEY] !== false
     return (
-      <ScheduledAgentRow
-        key={`scheduled-${agent.id}`}
-        agent={agent}
-        now={now}
-        {...(flatProject ? { flatProject } : {})}
-        working={runWorkspaceId !== null && activityByWorkspaceId[runWorkspaceId] === 'working'}
-        selected={openScheduledAgentId === agent.id}
-        onOpen={() => onOpenScheduledAgent?.(agent.id)}
-        onClose={() => closeScheduledAgent(agent)}
-      />
+      <section className="relative pt-1" aria-label="Scheduled agents">
+        <ShelfFoldRow
+          label="Scheduled"
+          count={scheduledAgents.length}
+          expanded={expanded}
+          flush
+          controlsId={SCHEDULED_SHELF_ID}
+          onToggle={() => setExpandedShelves((prev) => ({ ...prev, [SCHEDULED_SHELF_KEY]: !expanded }))}
+        />
+        <div id={SCHEDULED_SHELF_ID} role="group" aria-label="Scheduled agents" hidden={!expanded}>
+          {expanded
+            ? scheduledAgents.map((agent) => (
+                <ScheduledAgentRow
+                  key={`scheduled-${agent.id}`}
+                  agent={agent}
+                  now={now}
+                  project={flatProjectOfScheduled(agent)}
+                  runInProgress={scheduledAgentRunInProgress(agent, activityByWorkspaceId)}
+                  selected={openScheduledAgentId === agent.id}
+                  onOpen={() => onOpenScheduledAgent?.(agent.id)}
+                  onClose={() => closeScheduledAgent(agent)}
+                />
+              ))
+            : null}
+        </div>
+      </section>
     )
   }
 
@@ -1993,7 +2001,6 @@ function WorkspaceSidebar({
     const snoozeExpanded = expandedShelves[ALL_CHATS_SNOOZE_SHELF_KEY] === true
     return (
       <section className="relative pt-1" aria-label="All chats">
-        {scheduledAgents.map((agent) => renderScheduledAgentRow(agent, flatProjectOfScheduled(agent)))}
         {streamRows.map((workspace) =>
           renderWorkspaceRow(workspace, keyOf(workspace), {
             keyPrefix: 'all-',
@@ -2492,6 +2499,7 @@ function WorkspaceSidebar({
             SESSION. They are rows of their projects now, below, wearing one
             green machine glyph each. */}
           {chatListView === 'all' ? renderChatStream() : activeGroups.map((group) => renderFolderSection(group))}
+          {renderScheduledSection()}
         </nav>
       </div>
       {/* The account + Settings cluster that used to pin to this column's foot
@@ -3399,6 +3407,9 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
           project line above already carries this mark beside the folder
           icon, so the title does not say it twice. */}
       {rowMachineName && !flatProject ? <RemoteRowGlyph machineName={rowMachineName} /> : null}
+      {/* A schedule started this chat. Beside the title in both shapes of the
+          list: the project line says where a chat is, not how it began. */}
+      {isScheduledRunChat(workspace) ? <ScheduledRunGlyph scheduledAgentId={workspace.scheduledAgentId} /> : null}
       {starred ? <StarGlyph filled className="icon-xs shrink-0 text-[color:var(--tone-warn)]" label="Starred" /> : null}
       {(() => {
         const RowMark = resolveEnabledWorkspaceType(workspace.mode, moduleOverrides)?.RowMark

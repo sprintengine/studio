@@ -2,10 +2,14 @@
 // done by main because no window needs to be open. A new workspace in the
 // project (on its machine, in a fresh worktree when one was asked for), a chat
 // agent in it, and the prompt as its first message. The chat is then an
-// ordinary chat — it appears in the sidebar like any other, and nothing ties it
-// back to the scheduled agent that started it.
+// ordinary chat — it opens, works and settles like any other — with one field
+// more: the id of the scheduled agent that started it, written on its
+// workspace. That is what the sidebar marks a run's chat by, what the schedule's
+// editor lists its runs by, and what keeps a run from starting while the one
+// before it is still working.
 
 import type { ConversationLaunchRequest, ConversationLaunchResult } from '../conversation-launch-service'
+import type { ConversationSessionSummary } from '../../shared/conversation-runtime'
 import { agentWorktreePaths } from '../../shared/worktree-paths'
 import type { ExecutionHostId } from '../../shared/execution-host'
 import type { ScheduledAgent, ScheduledAgentLastRun } from '../../shared/scheduled-agents'
@@ -49,6 +53,7 @@ export async function runScheduledAgent(
       ...(agent.skills.length > 0 ? { skills: agent.skills.map((skill) => skill.id) } : {}),
       ...(agent.mcpServers.length > 0 ? { connectorIds: agent.mcpServers.map((server) => server.id) } : {}),
       ...(agent.ownerModuleId ? { ownerModuleId: agent.ownerModuleId } : {}),
+      scheduledAgentId: agent.id,
     })
     .catch((error: unknown): ConversationLaunchResult => ({
       ok: false,
@@ -57,6 +62,22 @@ export async function runScheduledAgent(
     }))
   if (!launched.ok) return { at, ok: false, message: launched.message }
   return { at, ok: true, workspaceId: launched.workspaceId }
+}
+
+/**
+ * Whether a run's chat is still at work, read off its workspace's conversation
+ * sessions: a turn open, or the agent stopped on an approval card. A turn
+ * waiting on a person is not finished, and a run started beside it would be
+ * doing the same job twice. A chat whose session has gone (settled, the app
+ * restarted since) is finished.
+ */
+export function isRunChatWorking(
+  sessions: readonly Pick<ConversationSessionSummary, 'status' | 'turnStartedAt'>[],
+): boolean {
+  return sessions.some(
+    (session) =>
+      session.turnStartedAt !== undefined || session.status === 'active' || session.status === 'awaiting_approval',
+  )
 }
 
 // Each run gets a worktree of its own, named after the one picked and stamped

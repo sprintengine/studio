@@ -2843,6 +2843,113 @@ test('NewAgentPanel', async () => {
       door.view.unmount()
     })
 
+    await check(
+      'a scheduled agent’s editor lists its runs, each opening its chat, and Run now points there',
+      async () => {
+        seedStore()
+        const api = (dom.window as unknown as { api: Record<string, unknown> }).api
+        api.markScheduledAgentFailureSeen = async () => ({ ok: true })
+        api.runScheduledAgentNow = async () => ({ ok: true, run: { at: 5, ok: true, workspaceId: 'w-run-3' } })
+        const opened: string[] = []
+        const now = Date.now()
+        const door = await scheduleDoor({
+          editingScheduledAgent: {
+            id: 'sa-9',
+            prompt: 'Refresh the forecast.',
+            schedule: { cron: '0 21 * * 0', timezone: 'UTC' },
+            folderPath: '/proj',
+            hostId: null,
+            cli: 'claude-code',
+            cliModel: null,
+            permissionPreset: null,
+            skills: [],
+            mcpServers: [],
+            worktree: null,
+            ownerModuleId: null,
+            createdAt: 0,
+            updatedAt: 0,
+            lastRun: { at: 5, ok: true, workspaceId: 'w-run-2' },
+            lastFailureSeenAt: null,
+            nextRunAt: null,
+          },
+          scheduledRuns: [
+            { workspaceId: 'w-run-2', title: 'Forecast for Sunday', startedAt: now - 5 * 60_000, activity: 'working' },
+            {
+              workspaceId: 'w-run-1',
+              title: 'Forecast for last week',
+              startedAt: now - 3 * 3_600_000,
+              activity: 'idle',
+            },
+          ],
+          onOpenScheduledRun: (workspaceId: string) => opened.push(workspaceId),
+        })
+        const rows = [...door.view.container.querySelectorAll<HTMLElement>('[data-scheduled-run-row]')]
+        assert.deepEqual(
+          rows.map((row) => row.dataset.scheduledRunRow),
+          ['w-run-2', 'w-run-1'],
+          'its runs, newest first',
+        )
+        assert.ok(door.view.text().includes('Recent runs'))
+        assert.ok(rows[0]!.querySelector('[aria-label="Working"]'), 'the working run is marked as working')
+        assert.equal(rows[1]!.querySelector('[aria-label="Working"]'), null)
+        assert.match(rows[1]!.textContent ?? '', /3h ago/u)
+        await act(async () => {
+          rows[1]!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+        })
+        assert.deepEqual(opened, ['w-run-1'], 'a run opens its chat')
+
+        useToastStore.setState({ toasts: [] })
+        const runNow = door.view.find((el) => el.tagName === 'BUTTON' && el.textContent === 'Run now')
+        assert.ok(runNow)
+        await act(async () => {
+          runNow!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+        })
+        await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+        const started = useToastStore.getState().toasts.find((toast) => toast.title === 'Started')
+        assert.match(String(started?.description ?? ''), /schedule's clock/u, 'the toast points at the run')
+        door.view.unmount()
+      },
+    )
+
+    await check('Run now says so when the last run is still working', async () => {
+      seedStore()
+      const api = (dom.window as unknown as { api: Record<string, unknown> }).api
+      api.markScheduledAgentFailureSeen = async () => ({ ok: true })
+      api.runScheduledAgentNow = async () => ({ ok: false, message: 'Its last run is still working.' })
+      const door = await scheduleDoor({
+        editingScheduledAgent: {
+          id: 'sa-9',
+          prompt: 'Refresh the forecast.',
+          schedule: { cron: '0 21 * * 0', timezone: 'UTC' },
+          folderPath: '/proj',
+          hostId: null,
+          cli: 'claude-code',
+          cliModel: null,
+          permissionPreset: null,
+          skills: [],
+          mcpServers: [],
+          worktree: null,
+          ownerModuleId: null,
+          createdAt: 0,
+          updatedAt: 0,
+          lastRun: null,
+          lastFailureSeenAt: null,
+          nextRunAt: null,
+        },
+        onOpenScheduledRun: () => {},
+      })
+      assert.equal(door.view.container.querySelector('[data-scheduled-run-row]'), null, 'no runs, no list')
+      useToastStore.setState({ toasts: [] })
+      const runNow = door.view.find((el) => el.tagName === 'BUTTON' && el.textContent === 'Run now')
+      await act(async () => {
+        runNow!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+      const refused = useToastStore.getState().toasts.find((toast) => toast.title === 'Did not run')
+      assert.equal(refused?.description, 'Its last run is still working.')
+      door.view.unmount()
+    })
+
     // ── Extension mode ──────────────────────────────────────────────────────
     // "Build your own extension" is this door with the builder skill attached,
     // a required name chip where the worktree chip sits, and ideas that fill

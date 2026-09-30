@@ -97,6 +97,8 @@ export type WorkspaceCreateRequest = {
    * with a model-written title. Absent, a name that is not app-minted locks.
    */
   titleOpen?: boolean
+  /** The scheduled agent whose run this chat is; see `Workspace.scheduledAgentId`. */
+  scheduledAgentId?: string
 }
 
 export type WorkspaceCreateResult = {
@@ -384,6 +386,7 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
       folderMissing: false,
       ...(input.hostId && input.hostId !== 'local' ? { hostId: input.hostId } : {}),
       ...(input.worktree ? { worktree: input.worktree } : {}),
+      ...(input.scheduledAgentId?.trim() ? { scheduledAgentId: input.scheduledAgentId.trim() } : {}),
       templateId: template.id,
       layoutModel: template.layout,
       agents: { ...input.agents },
