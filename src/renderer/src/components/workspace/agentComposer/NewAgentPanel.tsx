@@ -1268,9 +1268,10 @@ export default function NewAgentPanel({
       setLastRunFailure(result.run.message)
     } else {
       setLastRunFailure(null)
-      // The run is a chat of its own, and it lands first in Recent runs below
-      // as soon as this window hears of it — the place to open it from.
-      showToast({ tone: 'good', title: 'Started', description: 'Its chat is first under Recent runs, below.' })
+      // The run is a chat of its own. The window usually moves to it as it
+      // opens, so the toast names the mark it carries wherever it is found:
+      // the schedule's clock beside its title, and first under Recent runs.
+      showToast({ tone: 'good', title: 'Started', description: "Its chat has the schedule's clock beside its title." })
     }
   }
 
