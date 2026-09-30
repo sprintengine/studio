@@ -60,10 +60,15 @@ export type CatalogueSection<T> = {
  */
 export type CatalogueSearchScope = 'tab' | 'sources'
 
-/** The two ways a source gets added, from the plus after the last tab. */
+/**
+ * What the plus after the last tab adds: a source (a folder on this machine,
+ * or a repository of skills on GitHub) — and, where the door offers it, an
+ * extension installed straight from its own repository.
+ */
 export type CatalogueAddMenu = {
   onAddFromFile: () => void
   onAddFromGitHub: () => void
+  onInstallExtensionFromGitHub?: () => void
 }
 
 export function CatalogueSurface<T>({
@@ -320,10 +325,13 @@ function UpdateMark(): JSX.Element {
 }
 
 /**
- * The plus after the last tab. Two ways in and no more: a folder on this
- * machine, or a repository on GitHub. It is the kit's overflow menu wearing a
- * plus rather than a kebab, so Enter opens it, the arrows rove and Escape
- * closes it without this file writing a menu of its own.
+ * The plus after the last tab: a folder on this machine or a repository of
+ * skills on GitHub, and — a different act, so it says so in its own words —
+ * an extension installed from its repository. The two GitHub items name what
+ * each repository is, because the same pasted URL means different things to
+ * each. It is the kit's overflow menu wearing a plus rather than a kebab, so
+ * Enter opens it, the arrows rove and Escape closes it without this file
+ * writing a menu of its own.
  */
 function AddSourceMenu({ add }: { add: CatalogueAddMenu }): JSX.Element {
   return (
@@ -332,7 +340,16 @@ function AddSourceMenu({ add }: { add: CatalogueAddMenu }): JSX.Element {
       align="end"
       items={[
         { id: 'file', label: ADD_LOCAL_SKILL_SOURCE_LABEL, onSelect: add.onAddFromFile },
-        { id: 'github', label: 'Add from GitHub…', onSelect: add.onAddFromGitHub },
+        { id: 'github', label: 'Add skill source from GitHub…', onSelect: add.onAddFromGitHub },
+        ...(add.onInstallExtensionFromGitHub
+          ? [
+              {
+                id: 'install-extension-github',
+                label: 'Install extension from GitHub…',
+                onSelect: add.onInstallExtensionFromGitHub,
+              },
+            ]
+          : []),
       ]}
       trigger={(open, opened) => (
         <Tooltip content="Add source" placement="bottom">

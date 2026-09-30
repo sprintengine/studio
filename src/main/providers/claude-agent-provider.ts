@@ -21,7 +21,8 @@ import { openConfinedExistingFile, readBoundedConversationFile } from '../conver
 import { asRecord } from '../../shared/records'
 import { CONVERSATION_DEFAULT_MODEL_ID } from '../../shared/conversation-harness'
 import { isWslHostId, type ExecutionHostId } from '../../shared/execution-host'
-import { toWslPath } from '../../shared/host-paths'
+import { isWindowsPath, toWslPath } from '../../shared/host-paths'
+import { AGENT_IDENTITY_ENV_KEYS } from '../../shared/studio-env'
 import { inferConversationToolKind } from '../../shared/conversation/toolKind'
 import { summarizeToolInput } from '../../shared/conversation/approvalSummary'
 import { normalizeApiKeySource } from '../../shared/conversation/apiKeySource'
@@ -62,6 +63,7 @@ import type {
   ConversationCliRuntimeOverrides,
   ConversationEvent,
   ConversationImageAttachment,
+  ConversationMcpServer,
   ConversationPermissionPreset,
   ConversationQuestion,
   ConversationSubagentMessagePayload,
@@ -115,6 +117,9 @@ export type ClaudeAgentProviderOptions = {
   prepareWslTarget?: (hostId: ExecutionHostId) => Promise<WslClaudeTarget>
   // Starts the child inside that machine; tests stand in.
   spawnWslChild?: (target: WslClaudeTarget, request: ClaudeSpawnRequest) => ChildProcess
+  // The app's own MCP gateway on the machine the child runs on, handed to
+  // every child. Null or absent leaves it out.
+  resolveStudioMcpServer?: (input: { hostId?: ExecutionHostId }) => Promise<ConversationMcpServer | null>
 }
 
 export type ClaudeAgentProviderAdapter = ConversationProviderAdapter & {
@@ -141,6 +146,9 @@ type PendingPermissionResolve = (decision: PermissionDecision) => void
 type PendingPermission = {
   turnId: string
   resolve: PendingPermissionResolve
+  // Whether bypass would have answered it without asking: switching to bypass
+  // while it waits answers it the same way.
+  bypassable: boolean
 }
 
 // A spawned agent the child reported through its task messages, keyed by the
@@ -174,6 +182,8 @@ type SessionState = {
   cliRuntimes?: ConversationCliRuntimeOverrides
   permissionPreset: ConversationPermissionPreset
   allowedTools?: string[]
+  // The session's own MCP servers (a connector run's), on every child it spawns.
+  mcpServers?: ConversationMcpServer[]
   skillIds?: string[]
   // The per-child plugin directory that carries the attached skills; removed
   // with the child that loaded it.
@@ -202,11 +212,12 @@ type SessionState = {
   // Claude Code can hold several permission callbacks open at once (parallel
   // tool_use blocks), so pending permissions are keyed by requestId.
   pendingPermissions: Map<string, PendingPermission>
-  // The preset the live child was spawned with. Claude Code takes bypass only
-  // from the flag its child started with, and `none` means leaving the child
-  // on whatever its own configuration starts it on, which no control-channel
-  // mode names. So a preset change is a respawn (resumed), not a mode change.
-  spawnedPreset: ConversationPermissionPreset | null
+  // The preset the live child runs under: the one it was spawned with, or
+  // the one a live switch moved it to. Null when it runs under neither — a
+  // bypass child switched back mid-reply is on 'default', which is not
+  // necessarily the CLI's own default that `none` means — so the next turn
+  // respawns it (resumed) under the preset the session recorded.
+  childPreset: ConversationPermissionPreset | null
   // Session-level events (resume cursor updates) that arrived while no turn
   // stream was open to carry them; flushed at the next turn start.
   pendingSessionEvents: ConversationEvent[]
@@ -490,7 +501,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     state.abort?.abort()
     state.abort = null
     state.query = null
-    state.spawnedPreset = null
+    state.childPreset = null
     state.childPid = null
     state.spawnedAt = null
     if (state.skillPluginDir) removeSkillPlugin(state.skillPluginDir)
@@ -517,7 +528,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
 
   // Whether the live child runs under the session's recorded preset.
   function childHonorsPreset(state: SessionState): boolean {
-    return state.spawnedPreset === state.permissionPreset
+    return state.childPreset === state.permissionPreset
   }
 
   async function pump(state: SessionState, q: Query): Promise<void> {
@@ -660,6 +671,11 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     })
     assertSpawnWanted(state, generation)
     const instructions = await readWorkspaceInstructions(state.workspaceRoot)
+    const studioGateway = await options.resolveStudioMcpServer?.({ ...(hostId ? { hostId } : {}) }).catch(() => null)
+    const mcpServers = claudeMcpServers(
+      [...(studioGateway ? [withAgentIdentity(studioGateway, env)] : []), ...(state.mcpServers ?? [])],
+      { wsl: wslTarget !== null },
+    )
     await swept
     assertSpawnWanted(state, generation)
     const skillPlugin = state.skillIds?.length
@@ -687,7 +703,12 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       // the agent's own context about every 30s; shown on its lane and card.
       agentProgressSummaries: true,
       permissionMode,
-      ...(state.permissionPreset === 'bypass' ? { allowDangerouslySkipPermissions: true } : {}),
+      // Every child may be switched into bypass while it runs: the CLI takes
+      // `setPermissionMode('bypassPermissions')` only from a child started with
+      // this opt-in. The opt-in itself bypasses nothing; the mode does. It
+      // also lets a `defaultMode` of bypassPermissions in the user's own
+      // settings stand under `none`, which is that CLI's own default.
+      allowDangerouslySkipPermissions: true,
       ...(state.allowedTools?.length ? { allowedTools: state.allowedTools } : {}),
       systemPrompt: { type: 'preset', preset: 'claude_code', ...(instructions ? { append: instructions } : {}) },
       // Never the repository's own settings. `.claude/settings.json` and
@@ -699,6 +720,12 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       // agent does need arrives another way: its CLAUDE.md through the system
       // prompt above, and attached skills as a plugin of their own.
       settingSources: ['user'],
+      // Which is also why the app's MCP gateway is passed here rather than
+      // read from the workspace's `.mcp.json`: a project's MCP servers are
+      // project settings, and this child loads none. The session's own servers
+      // (a connector run's) ride the same option; the person's user-scoped
+      // servers still load from their own configuration.
+      ...(Object.keys(mcpServers).length > 0 ? { mcpServers } : {}),
       ...(skillPlugin
         ? {
             plugins: [
@@ -756,7 +783,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     const q = sdkQuery({ prompt: inputQueue, options: queryOptions })
     state.query = q
     state.queryCostUsd = 0
-    state.spawnedPreset = state.permissionPreset
+    state.childPreset = state.permissionPreset
     state.inputQueue = inputQueue
     state.abort = abort
     void pump(state, q)
@@ -825,19 +852,16 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     // reach the person: a safety check the CLI marks as not approvable by a
     // stray keystroke, and one forced by the user's own `permissions.ask`
     // rule. Questions and plans are answers, not permissions, so they always
-    // show. The preset the child was spawned under decides, matching the
-    // "this reply finishes under the permissions it started with" contract.
-    if (
-      state.spawnedPreset === 'bypass' &&
+    // show. The preset the child runs under decides, so a live switch to
+    // bypass answers the rest of the reply too.
+    const bypassable =
       state.mode !== 'plan' &&
       state.mode !== 'ask' &&
       toolName !== 'AskUserQuestion' &&
       toolName !== 'ExitPlanMode' &&
       !permissionContext?.defaultToNo &&
       !permissionContext?.matchedAskRule
-    ) {
-      return { behavior: 'allow', updatedInput: toolInput }
-    }
+    if (bypassable && state.childPreset === 'bypass') return { behavior: 'allow', updatedInput: toolInput }
     // A tool that fires after the turn's `result` (e.g. once a background
     // subagent completes and the model resumes) has no open turn. Open a
     // continuation turn so its approval card reaches the UI instead of being
@@ -878,7 +902,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     turn.queue.push(eventFor(state, 'approval_requested', requestPayload))
 
     const decision = await new Promise<PermissionDecision>((resolve) => {
-      state.pendingPermissions.set(requestId, { turnId: turn.turnId, resolve })
+      state.pendingPermissions.set(requestId, { turnId: turn.turnId, resolve, bypassable })
       signal?.addEventListener(
         'abort',
         () => {
@@ -949,6 +973,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       rewind: true,
     },
     sessions: 'stateful',
+    acceptsMcpServers: true,
     listModels: () => [...CLAUDE_AGENT_MODELS],
 
     startSession(input: MockAdapterSessionInput) {
@@ -962,6 +987,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         cliRuntimes: input.cliRuntimes,
         permissionPreset: input.permissionPreset ?? 'none',
         allowedTools: input.allowedTools,
+        ...(input.mcpServers?.length ? { mcpServers: input.mcpServers } : {}),
         skillPluginDir: null,
         onBeforeTool: input.onBeforeTool,
         providerSessionId: input.resumeSessionId?.trim() || null,
@@ -976,7 +1002,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         spawnedAt: null,
         turn: null,
         pendingPermissions: new Map(),
-        spawnedPreset: null,
+        childPreset: null,
         pendingSessionEvents: [],
         onSessionEvent: input.onSessionEvent ?? null,
         continuationSequence: 0,
@@ -1139,11 +1165,17 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       return []
     },
 
-    // Live permission switch. The preset is recorded, and a running child is
-    // replaced rather than asked: the next turn respawns it with `resume`, so
-    // the conversation continues under the new preset (childHonorsPreset).
-    // Mid-turn the disposal waits — it would drop the reply the user is
-    // reading — and ensureQuery makes the swap at the next turn instead.
+    // Live permission switch. The preset is recorded and pushed into a running
+    // child through the SDK's `setPermissionMode`, which takes effect at once,
+    // mid-reply included. Bypass is the child's own 'bypassPermissions' (every
+    // child is spawned able to take it), and the approvals already waiting that
+    // bypass would not have asked are answered yes, through the same callback a
+    // person's answer takes. `none` is the CLI's own default, which no mode
+    // names: mid-reply the child drops to 'default' so bypass stops now, and
+    // the next turn respawns it (resumed) as `none` spawns; an idle child is
+    // replaced at once. A child that refuses the mode is replaced the same
+    // way, and mid-reply that waits for the next message, since disposing it
+    // would drop the reply the user is reading.
     async setPermissionPreset(input: MockAdapterPermissionInput): Promise<ConversationProviderPermissionResult> {
       const state = sessions.get(input.sessionId)
       if (!state) return { ok: false, message: 'Conversation session is not registered with the Claude provider.' }
@@ -1152,18 +1184,37 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       if (state.mode === 'ask' || state.mode === 'plan')
         return { ok: true, notice: 'The permission preset applies when you return to the default mode.' }
       if (!state.query || childHonorsPreset(state)) return { ok: true }
-      if (state.turn) {
+      const bypass = state.permissionPreset === 'bypass'
+      if (!bypass && !state.turn) {
+        disposeChild(state)
+        return { ok: true }
+      }
+      const query = state.query
+      try {
+        await query.setPermissionMode(bypass ? 'bypassPermissions' : 'default')
+      } catch {
+        if (state.query !== query) return { ok: true }
+        if (!state.turn) {
+          disposeChild(state)
+          return { ok: true }
+        }
         return {
           ok: true,
-          // Not "the current permissions": the chip has already moved by the
-          // time this is read, so "current" would name the preset that is NOT
-          // in force for the reply on screen. The permissions the reply started
-          // under is the one phrase that stays true either way.
-          notice:
-            'The new permissions start with your next message — this reply finishes under the permissions it started with.',
+          notice: bypass
+            ? 'Bypass permissions applies from your next message.'
+            : 'The new permissions apply from your next message.',
         }
       }
-      disposeChild(state)
+      if (state.query !== query) return { ok: true }
+      // Moved again while the child answered: which mode it ended on is not
+      // known here, so it bypasses nothing more and the next turn respawns it.
+      state.childPreset = bypass && state.permissionPreset === 'bypass' ? 'bypass' : null
+      if (state.childPreset !== 'bypass') return { ok: true }
+      for (const [requestId, pending] of Array.from(state.pendingPermissions)) {
+        if (!pending.bypassable) continue
+        state.pendingPermissions.delete(requestId)
+        pending.resolve({ approved: true })
+      }
       return { ok: true }
     },
 
@@ -2313,4 +2364,48 @@ function numberOr(value: unknown, fallback: number): number {
 
 function finiteNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+/**
+ * The SDK's `mcpServers` for a child: each server as Claude Code's own
+ * `.mcp.json` writer renders it (mcp-config-service.ts), keyed by id. A bearer
+ * token named by `envVarNames` stays a `${NAME}` reference, which the CLI
+ * expands from its own environment. A child in WSL gets a stdio server's
+ * Windows paths as the distribution sees them.
+ */
+export function claudeMcpServers(
+  servers: readonly ConversationMcpServer[],
+  options: { wsl?: boolean } = {},
+): NonNullable<Options['mcpServers']> {
+  const hostPath = (value: string): string => (options.wsl && isWindowsPath(value) ? toWslPath(value) : value)
+  const out: NonNullable<Options['mcpServers']> = {}
+  for (const server of servers) {
+    if (server.transport === 'stdio') {
+      if (!server.command) continue
+      out[server.id] = {
+        type: 'stdio',
+        command: hostPath(server.command),
+        args: (server.args ?? []).map(hostPath),
+        ...(server.env ? { env: server.env } : {}),
+      }
+      continue
+    }
+    if (!server.url) continue
+    const headers = { ...server.headers }
+    if (!headers.Authorization && server.envVarNames?.[0]) headers.Authorization = `Bearer \${${server.envVarNames[0]}}`
+    out[server.id] = {
+      type: server.transport,
+      url: server.url,
+      ...(Object.keys(headers).length > 0 ? { headers } : {}),
+    }
+  }
+  return out
+}
+
+// The gateway's bridge says which agent is calling from its environment. A
+// stdio server inherits the child's, but the identity is set on the entry too,
+// so the launch cap never rests on how the CLI builds a server's environment.
+function withAgentIdentity(server: ConversationMcpServer, env: Record<string, string>): ConversationMcpServer {
+  const identity = Object.fromEntries(AGENT_IDENTITY_ENV_KEYS.flatMap((key) => (env[key] ? [[key, env[key]]] : [])))
+  return { ...server, env: { ...server.env, ...identity, SPRINTENGINE_AGENT_CLI: 'claude-code' } }
 }

@@ -3,16 +3,13 @@ import assert from 'node:assert/strict'
 import type { HostedCard } from '../../../shared/hosted-card-feed'
 import type { AppNotification } from '../types/workspace'
 import {
-  AUTOMATIONS_NOTIFICATION_SOURCES,
   CORE_NOTIFICATION_SOURCE_ROWS,
   EXTENSIONS_NOTIFICATION_SOURCES,
-  automationsRailBadge,
   extensionsRailBadge,
   extensionsRowBadge,
   extensionsRowOfNotification,
   homeRailBadge,
   unreadByExtensionsRow,
-  unreadNotificationsFrom,
   unseenCardCount,
 } from './railBadges'
 import { test } from 'vitest'
@@ -22,7 +19,7 @@ test('railBadges', async () => {
     id: over.id ?? 'n',
     timestamp: '2026-09-07T10:00:00.000Z',
     level: 'info',
-    source: 'automations',
+    source: 'marketplace',
     title: 't',
     message: 'm',
     read: false,
@@ -49,40 +46,16 @@ test('railBadges', async () => {
 
   // ── Sources → squares ─────────────────────────────────────────────────────────
   const list = [
-    note({ id: 'a', source: 'automations', level: 'error' }),
-    note({ id: 'b', source: 'automations', read: true }),
+    note({ id: 'b', source: 'marketplace', read: true }),
     note({ id: 'c', source: 'marketplace' }),
     note({ id: 'd', source: 'models', level: 'warning' }),
     note({ id: 'e', source: 'terminal', level: 'error' }),
     note({ id: 'f', source: 'cli' }),
   ]
-  assert.deepEqual(
-    unreadNotificationsFrom(list, AUTOMATIONS_NOTIFICATION_SOURCES).map((n) => n.id),
-    ['a'],
-    'read rows do not count',
-  )
-  assert.deepEqual(
-    unreadNotificationsFrom(list, EXTENSIONS_NOTIFICATION_SOURCES).map((n) => n.id),
-    ['c'],
-    'a CLI update and model news are Settings ▸ Agents news now, not an Extensions row’s',
-  )
+  assert.deepEqual([...EXTENSIONS_NOTIFICATION_SOURCES], ['marketplace'])
   assert.ok(
-    !EXTENSIONS_NOTIFICATION_SOURCES.has('terminal') && !AUTOMATIONS_NOTIFICATION_SOURCES.has('terminal'),
-    'a terminal crash badges no section',
-  )
-
-  // ── Automations ───────────────────────────────────────────────────────────────
-  assert.equal(automationsRailBadge([]), null)
-  assert.deepEqual(automationsRailBadge([note({ id: 'x' })]), {
-    count: 1,
-    tone: 'accent',
-    label: '1 automation run to look at',
-  })
-  assert.equal(automationsRailBadge([note({ id: 'x' }), note({ id: 'y', level: 'warning' })])?.tone, 'warn')
-  assert.equal(
-    automationsRailBadge([note({ id: 'x', level: 'warning' }), note({ id: 'y', level: 'error' })])?.tone,
-    'error',
-    'the loudest level wins',
+    !EXTENSIONS_NOTIFICATION_SOURCES.has('terminal') && !EXTENSIONS_NOTIFICATION_SOURCES.has('cli'),
+    'a terminal crash badges no section, and a CLI update is Settings ▸ Agents news now',
   )
 
   // ── Cards since last seen ─────────────────────────────────────────────────────

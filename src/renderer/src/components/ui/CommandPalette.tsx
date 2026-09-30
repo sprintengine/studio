@@ -36,6 +36,8 @@ import {
   type ExtensionSourceRow,
 } from '../palette/extensionsProvider'
 import { createConversationHistoryProvider } from '../palette/conversationHistoryProvider'
+import { createBuildExtensionPaletteProvider } from '../extensions/buildExtensionPaletteProvider'
+import { EXTENSIONS_HOME_SURFACE_ID } from '../workspace/extensionsDrawer'
 import {
   decidePaletteTarget,
   handSkillToAgent,
@@ -566,8 +568,7 @@ export default function CommandPalette({
       // Agents & workspaces — the switch targets that absorb the sidebar's
       // former "Search workspaces" box. Rail-hidden workspaces are never a switch
       // target: the palette mirrors the rail/hotkey navigation surfaces exactly,
-      // so the background Automations host and any module's own hidden
-      // workspaces stay out. Those are found on the owning door, which lists them across
+      // so any module's own hidden workspaces stay out. Those are found on the owning door, which lists them across
       // every project — including the historical ones no workspace holds. The
       // folder path rides `description` so typing a path filters here too,
       // preserving the sidebar's path matching.
@@ -1082,16 +1083,25 @@ export default function CommandPalette({
     () => createConversationHistoryProvider(),
     [activeFolderPath, activeWorkspaceId],
   )
+  // "Build your own extension", among the Extensions rows (the flow lives on the
+  // Extensions home; the row latches the request and opens the home).
+  const buildExtensionProvider = useMemo(
+    () =>
+      createBuildExtensionPaletteProvider({
+        openExtensionsHome: () => useWorkspaceStore.getState().openGlobalSurface(EXTENSIONS_HOME_SURFACE_ID),
+      }),
+    [],
+  )
   const providers = useMemo(() => {
     const active: PaletteResultProvider[] = []
     // Installed inventory owns Skills; catalogue providers run in All only.
     if (scope === 'skills') return active
     if (groupInScope('skills', scope)) active.push(skillsProvider)
-    if (groupInScope('extensions', scope)) active.push(extensionsProvider)
+    if (groupInScope('extensions', scope)) active.push(extensionsProvider, buildExtensionProvider)
     if (groupInScope('files', scope) || groupInScope('content', scope)) active.push(diskProvider)
     if (groupInScope('agents', scope)) active.push(conversationHistoryProvider)
     return active
-  }, [skillsProvider, extensionsProvider, diskProvider, conversationHistoryProvider, scope])
+  }, [skillsProvider, extensionsProvider, buildExtensionProvider, diskProvider, conversationHistoryProvider, scope])
   const providerContext = useMemo(
     (): PaletteProviderContext => ({
       workspaceRoot: activeFolderPath,

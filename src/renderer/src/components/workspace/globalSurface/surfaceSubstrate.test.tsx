@@ -1,6 +1,4 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 
 import { JSDOM } from 'jsdom'
 
@@ -467,28 +465,6 @@ test('surfaceSubstrate', async () => {
         'a rail with one level marks no outer-context group',
       )
       oneLevel.unmount()
-    }
-
-    // ── 8. the Automations glyph fits its own box ─────────────────────────────
-    // `AutomationTypeGlyph` drew an `icon-md` (18px) svg inside a 16px flex box —
-    // a 2px overflow on every automation row and in the editor head. Read from the
-    // source because the sizes are class names jsdom never resolves to pixels.
-
-    {
-      const glyphSource = readFileSync(
-        join(process.cwd(), 'src/renderer/src/components/panels/AutomationsPanel/AutomationTypeGlyph.tsx'),
-        'utf8',
-      )
-      const boxStep = glyphSource.match(/className="flex (size-icon-\w+)/)?.[1]
-      const svgStep = glyphSource.match(/<svg viewBox="0 0 16 16" fill="none" className="(icon-\w+)"/)?.[1]
-      assert.ok(boxStep, 'the glyph box is sized from the icon ramp')
-      assert.ok(svgStep, 'the glyph svg is sized from the icon ramp')
-      assert.equal(
-        svgStep,
-        boxStep!.replace('size-', ''),
-        'the svg and the box it sits in are the same icon step — the svg cannot overflow its own wrapper',
-      )
-      console.log('ok - the automation type glyph fits inside its box')
     }
 
     console.log('surface substrate: all checks passed')

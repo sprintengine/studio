@@ -26,7 +26,6 @@ import { FLEX_LAYOUT_ICONS } from './flexLayoutIcons'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { openExternalFileWindow } from '../auxWindows/openFileWindow'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
-import { isModeHiddenFromRail } from '../../../../shared/workspace-mode'
 import { samePath } from '../../utils/paths'
 import { EXTENSIONS_BROWSE_DEEPLINK, MODULES_SETTINGS_TAB } from '../settings/extensionsRoute'
 import { MissingModulePanelSurface, ModuleNotInstalledSurface, workspaceModuleAbsence } from './ModuleAbsenceSurfaces'
@@ -67,6 +66,7 @@ import { AgentTabIdentityPopover, type AgentTabIdentity } from './AgentTabIdenti
 import { agentCheckoutOf, type AgentTabCheckout } from './agentCheckout'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import { TabPromptPeek } from './TabPromptPeek'
+import { ModuleContributionBoundary } from '../../modules/ModuleContributionBoundary'
 import { GitBranchGlyph } from './WorkspaceActions'
 import { changelistOwnerId } from '../../../../shared/git/changelists'
 import {
@@ -701,7 +701,18 @@ function WorkspaceLayoutBody({
           }
           const moduleId = host.getPanelModule(component!)
           if (moduleId && !selectModuleEnabled(moduleOverrides, moduleId)) return DISABLED_SURFACE
-          return timedPanel(component!, <Panel workspaceId={workspaceId} />)
+          // Outside the Suspense, so a chunk that fails to load is contained
+          // with a render throw: either stays in this tab.
+          return (
+            <ModuleContributionBoundary
+              moduleId={moduleId ?? component!}
+              surface={`panel "${component}"`}
+              variant="panel"
+              label={node.getName()}
+            >
+              {timedPanel(component!, <Panel workspaceId={workspaceId} />)}
+            </ModuleContributionBoundary>
+          )
         }
       }
     },
@@ -1583,7 +1594,6 @@ function WorkspaceLayoutBody({
   // rule itself — which modes can be absent, and which of the two states this
   // is — lives in `workspaceModuleAbsence`; this only paints the answer.
   const moduleAbsence = workspaceModuleAbsence(workspaceMode, {
-    isBundledHiddenMode: isModeHiddenFromRail,
     workspaceTypeModuleId: (mode) => getRendererHost().getWorkspaceType(mode)?.moduleId,
     isModuleEnabled: (moduleId) => selectModuleEnabled(moduleOverrides, moduleId),
   })

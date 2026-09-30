@@ -6,7 +6,9 @@ import { CONVERSATION_MUTATION_TOOL_NAMES } from './conversation-tools'
 import { CONVERSATION_COMMAND_TOOL_NAMES } from './tailnet/tailnet-conversation-stream'
 import { TAILNET_MUTATION_TOOL_NAMES } from './tailnet/tailnet-tools'
 import { TOUR_MUTATION_TOOL_NAMES } from './tour-tools'
-import { toolError, type McpToolRegistration } from '../../shared/modules/mcp-tools'
+import type { CliPermissionPreset } from '../../shared/cli-permission-preset'
+import { toolError, type McpConnectionContext, type McpToolRegistration } from '../../shared/modules/mcp-tools'
+import { runAsModuleToolCall } from '../module-host/module-tool-caller'
 
 const APP_MUTATION_TOOLS = new Set([
   ...BROWSER_MUTATION_TOOL_NAMES,
@@ -20,8 +22,9 @@ const APP_MUTATION_TOOLS = new Set([
   // `workspace:operate` from a paired device. `editor.state` only looks.
   ...EDITOR_MUTATION_TOOL_NAMES,
   'agent.launch',
-  'automation.create',
-  'automation.run',
+  'schedule.create',
+  'schedule.delete',
+  'schedule.run',
   'backlog.assign',
   'backlog.repair',
   'backlog.update',
@@ -71,6 +74,12 @@ export function createStudioGatewayTools(options: {
   resolveModuleTools: () => ReadonlyArray<McpToolContribution>
   /** Live enablement of a contributing module; resolved per call, never captured. */
   isModuleEnabled: (moduleId: string) => boolean
+  /**
+   * The calling agent's launch ceiling (launch-permission-cap.ts), which a
+   * module tool's handler runs under: an agent the module starts during the
+   * call is held to it. Absent, module tools run uncapped.
+   */
+  callerPermissionCeiling?: (context: McpConnectionContext | undefined) => CliPermissionPreset | null
   warn?: (message: string) => void
 }): () => McpToolRegistration[] {
   const coreNames = new Set<string>()
@@ -104,7 +113,7 @@ export function createStudioGatewayTools(options: {
         continue
       }
       names.add(registration.name)
-      merged.push(gateOnModuleEnablement(contribution, options.isModuleEnabled))
+      merged.push(gateOnModuleEnablement(contribution, options.isModuleEnabled, options.callerPermissionCeiling))
     }
     return merged
   }
@@ -114,16 +123,22 @@ export function createStudioGatewayTools(options: {
 // tool keeps being advertised so an agent learns the capability exists, and a
 // call while the owner is disabled answers one plain, actionable sentence as a
 // normal MCP tool result — never a protocol error, never the orphaned handler.
+//
+// An enabled module's handler runs as its caller (module-tool-caller.ts), so a
+// chat it starts for a capped agent is no looser than that agent.
 function gateOnModuleEnablement(
   contribution: McpToolContribution,
   isModuleEnabled: (moduleId: string) => boolean,
+  callerPermissionCeiling: ((context: McpConnectionContext | undefined) => CliPermissionPreset | null) | undefined,
 ): McpToolRegistration {
   const { moduleId, moduleDisplayName, registration } = contribution
   return {
     ...registration,
     handler: async (args, context) =>
       isModuleEnabled(moduleId)
-        ? registration.handler(args, context)
+        ? runAsModuleToolCall({ permissionCeiling: callerPermissionCeiling?.(context) ?? null }, () =>
+            registration.handler(args, context),
+          )
         : toolError(
             `${moduleId}_module_disabled`,
             `The ${moduleDisplayName} module is disabled. Enable it in Settings → Modules to use ${moduleId} tools.`,

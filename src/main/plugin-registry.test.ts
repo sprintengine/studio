@@ -28,7 +28,8 @@ test('plugin-registry', async () => {
     await testCursorBundledRenderMatchesExpected()
     await testBundledManifestsDeclareOnlyBypass()
     await testFixtureManifestsValidate()
-    await testUserPluginOverridesBundled()
+    await testUserPluginCannotAddOrReplaceAnAgentCli()
+    await testUserProviderCannotTakeABundledId()
     await testInvalidManifestRejectedWithIssues()
     await testIdDirectoryMismatchRejected()
     await testMissingPermissionPresetsRejected()
@@ -452,7 +453,12 @@ test('plugin-registry', async () => {
     assert.deepEqual(ids, ['aider', 'opencode', 'pi'])
   }
 
-  async function testUserPluginOverridesBundled(): Promise<void> {
+  // M-F5: a user plugin named `claude-code` used to replace the built-in
+  // launcher — binary, argv and the installer's shell — for every agent that
+  // chose Claude Code. Agent CLIs now come from the app bundle only: a CLI
+  // manifest in the user root is refused, the bundled one stays, and a new CLI
+  // id does not appear either.
+  async function testUserPluginCannotAddOrReplaceAnAgentCli(): Promise<void> {
     const userRootParent = await mkdtemp(join(tmpdir(), 'sprintengine-user-plugins-'))
     const userRoot = join(userRootParent, 'plugins')
     const overrideRoot = join(userRoot, 'claude-code')
@@ -478,16 +484,56 @@ test('plugin-registry', async () => {
     }
     await writeFile(join(overrideRoot, 'plugin.json'), JSON.stringify(overrideManifest, null, 2), 'utf-8')
 
+    const newCliRoot = join(userRoot, 'aider')
+    await mkdir(newCliRoot, { recursive: true })
+    await writeFile(
+      join(newCliRoot, 'plugin.json'),
+      JSON.stringify({ ...overrideManifest, id: 'aider', displayName: 'Aider' }, null, 2),
+      'utf-8',
+    )
+
+    const report = await createPluginRegistry({ bundledRoot: BUNDLED_ROOT, userRoot }).load()
+    const refused = report.rejected.filter((rejected) => rejected.source === 'user')
+    assert.equal(refused.length, 2)
+    for (const rejected of refused) assert.match(rejected.issues[0]?.message ?? '', /Agent CLIs ship with the app/)
+    // The synchronous load the launch path uses answers the same.
     const registry = createPluginRegistry({ bundledRoot: BUNDLED_ROOT, userRoot })
-    await registry.load()
+    registry.loadSync()
     const loaded = registry.get('claude-code')
     assert.ok(loaded)
-    assert.equal(loaded!.source, 'user')
-    assert.equal(loaded!.manifest.displayName, 'Claude Code (Custom Fork)')
-    assert.equal(loaded!.manifest.binary, '/usr/local/bin/claude')
+    assert.equal(loaded!.source, 'bundled')
+    assert.notEqual(loaded!.manifest.binary, '/usr/local/bin/claude')
+    assert.equal(registry.get('aider'), undefined)
+    assert.equal(registry.list().filter((p) => p.id === 'claude-code').length, 1)
+  }
 
-    const list = registry.list().filter((p) => p.id === 'claude-code')
-    assert.equal(list.length, 1, 'overridden plugin should appear only once')
+  // A provider is what the user root is for, but not under a name the app
+  // already uses — a CLI's or a bundled provider's.
+  async function testUserProviderCannotTakeABundledId(): Promise<void> {
+    const userRootParent = await mkdtemp(join(tmpdir(), 'sprintengine-user-providers-'))
+    const userRoot = join(userRootParent, 'plugins')
+    for (const id of ['claude-agent', 'codex']) {
+      await mkdir(join(userRoot, id), { recursive: true })
+      await writeFile(
+        join(userRoot, id, 'plugin.json'),
+        JSON.stringify({
+          kind: 'provider',
+          id,
+          displayName: `Not ${id}`,
+          version: 1,
+          providerType: 'model-provider',
+          models: [{ id: 'm' }],
+        }),
+        'utf-8',
+      )
+    }
+    const registry = createPluginRegistry({ bundledRoot: BUNDLED_ROOT, userRoot })
+    const report = await registry.load()
+    const refused = report.rejected.filter((rejected) => rejected.source === 'user')
+    assert.equal(refused.length, 2)
+    for (const rejected of refused) assert.match(rejected.issues[0]?.message ?? '', /built-in id/)
+    assert.notEqual(registry.getConversationProvider('claude-agent')?.source, 'user')
+    assert.equal(registry.getConversationProvider('codex'), undefined)
   }
 
   async function testInvalidManifestRejectedWithIssues(): Promise<void> {

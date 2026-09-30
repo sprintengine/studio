@@ -1,14 +1,14 @@
 {
   "id": "review",
   "displayName": "Reviews",
-  "version": 1,
+  "version": 2,
   "defaultEnabled": true,
   "source": "third-party",
   "permissions": [
     "ipc:invoke",
-    "ipc:agents",
     "ipc:workspace-read",
-    "agents:session",
+    "conversation:operate",
+    "mcp:tools",
     "filesystem:read-workspace",
     "filesystem:write-workspace",
     "process:spawn",
@@ -21,13 +21,24 @@
   "dependsOn": [
     "agent-runtime"
   ],
+  "engines": {
+    "hostApi": 1
+  },
   "entry": {
     "main": "dist/main.cjs",
     "renderer": "dist/renderer.mjs"
   },
+  "files": {
+    "README.md": "2388c4a2938b887306ff11bc4f327a6f8208412f6e49d0d4e918743845cda0e2",
+    "dist/main.cjs": "f0c3a1da848c428ced750adf009e314e0659967cedde28a99405c7adba801f07",
+    "dist/renderer.mjs": "0df16b4064830293e9b7d8b3650abde938a2d9d75fff99caecafcef2d5daa8f0",
+    "skills/review-guide/SKILL.md": "f310690389e45efcae9fca7f3a7d8b968c0226683b9fb86340ac9ce4093d39a8",
+    "skills/review-guide/agents/openai.yaml": "76b855443e0694464a9093633107a758db5211464a4046b7edda4db064ff270c",
+    "skills/studio-review/SKILL.md": "ce9205ebcb75fd717cdde3c01926731128fdc3f7ee1aa9c121f243bd954e9e79"
+  },
   "signature": {
     "algorithm": "ed25519",
     "publicKey": "MCowBQYDK2VwAyEAptxscrkw0So+0D3Pm2FupKpxqOyaNmpUR909RrGSuX0=",
-    "signature": "EwmX5Yn3rY7QfejxKkMHks04HMoCbF+YYLdnvZCCEdLRBUgFdTFuQNzhxO1vRSR5c3GcL0+Af7eLY1uzkBEBDA=="
+    "signature": "zV8PUag7+Hhq1Ed2fypvp0IZceEvxiahGm/7/nZaImyJNAPBwoI6fjewS4MiwhcFzHzj3+WdXe9Kd0dcsQIAAg=="
   }
 }

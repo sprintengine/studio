@@ -45,6 +45,12 @@ import {
   type ModuleRegistrySnapshot,
 } from '../../shared/modules/registry-snapshot'
 import type { Workspace } from '../../renderer/src/types/workspace'
+import type {
+  ScheduledAgentLastRun,
+  ScheduledAgentView,
+  ScheduledAgentWriteResult,
+} from '../../shared/scheduled-agents'
+import type { ScheduledAgentsService } from '../scheduled-agents/service'
 import { test } from 'vitest'
 
 test('automation', async () => {
@@ -98,10 +104,8 @@ test('automation', async () => {
     defaultCli?: string
     listBacklogItems?: AutomationBackends['listBacklogItems']
     readBacklogItem?: AutomationBackends['readBacklogItem']
-    listAutomationDefinitions?: AutomationBackends['listAutomationDefinitions']
-    listAutomationRuns?: AutomationBackends['listAutomationRuns']
     backlogWrite?: Partial<AutomationBackends['backlogWrite']>
-    getAutomationsFrontDoor?: AutomationBackends['getAutomationsFrontDoor']
+    getScheduledAgents?: AutomationBackends['getScheduledAgents']
     mobileControl?: AutomationBackends['mobileControl']
     createAgentWorktree?: AutomationBackends['createAgentWorktree']
     readWorkspaceCheckout?: AutomationBackends['readWorkspaceCheckout']
@@ -139,6 +143,9 @@ test('automation', async () => {
       launchAgent:
         overrides.launchAgent ??
         (async () => ({ ok: false, code: 'no_launch_service', message: 'no launch service in test' })),
+      // Every agent on bypass, as the owner runs them: the suites here are about
+      // what a launch does, and launch-permission-cap.test.ts about the cap.
+      resolveAgentPermissionPreset: () => 'bypass',
       // Default: the mobile lane is unwired. A test that exercises the mobile
       // tools stubs this; anything else that reaches it fails loudly.
       mobileControl: overrides.mobileControl ?? {
@@ -153,8 +160,6 @@ test('automation', async () => {
       readBacklogItem:
         overrides.readBacklogItem ??
         (async (_root, relativePath) => ({ ok: false, message: `no item ${relativePath}` })),
-      listAutomationDefinitions: overrides.listAutomationDefinitions ?? (async () => ({ ok: true, values: [] })),
-      listAutomationRuns: overrides.listAutomationRuns ?? (async () => ({ ok: true, values: [] })),
       backlogWrite: {
         updateStatus: unexpectedCall('updateStatus'),
         updateType: unexpectedCall('updateType'),
@@ -165,7 +170,8 @@ test('automation', async () => {
         repairIntegrity: unexpectedCall('repairIntegrity'),
         ...overrides.backlogWrite,
       },
-      getAutomationsFrontDoor: overrides.getAutomationsFrontDoor ?? (() => null),
+      getScheduledAgents: overrides.getScheduledAgents ?? (() => null),
+      defaultChatCli: () => 'claude-code',
       createAgentWorktree:
         overrides.createAgentWorktree ??
         (async ({ workspaceRoot, name }) => ({
@@ -282,10 +288,6 @@ test('automation', async () => {
     assert.deepEqual(tools.map((registration) => registration.name).sort(), [
       'agent.launch',
       'agent.status',
-      'automation.create',
-      'automation.list',
-      'automation.run',
-      'automation.runs',
       'backlog.assign',
       'backlog.list',
       'backlog.read',
@@ -296,6 +298,10 @@ test('automation', async () => {
       'marketplace.list',
       'module.list',
       'module.status',
+      'schedule.create',
+      'schedule.delete',
+      'schedule.list',
+      'schedule.run',
       'terminal.create',
       'terminal.list',
       'workspace.checkout',
@@ -1619,10 +1625,6 @@ test('automation', async () => {
             ],
           }
         },
-        listAutomationDefinitions: async (root) => {
-          seenRoots.push(root)
-          return { ok: true, values: [] }
-        },
       }),
     )
 
@@ -1636,15 +1638,13 @@ test('automation', async () => {
       ],
     })
 
-    const automations = await tool(tools, 'automation.list').handler({ workspaceId: 'ws-1' })
-    assert.deepEqual(automations.structuredContent, { automations: [] })
-    assert.deepEqual(seenRoots, ['/tmp/project-a', '/tmp/project-a'], 'both tools resolve the snapshot folderPath')
+    assert.deepEqual(seenRoots, ['/tmp/project-a'], 'the tool resolves the snapshot folderPath')
 
     // An explicit projectRoot addresses any folder directly — external callers
     // are not gated on the app's workspace registry.
     const external = await tool(tools, 'backlog.list').handler({ projectRoot: '/tmp/external-clone' })
     assert.equal(external.isError, undefined, 'projectRoot works without any connection identity')
-    assert.equal(seenRoots[2], '/tmp/external-clone')
+    assert.equal(seenRoots[1], '/tmp/external-clone')
 
     const relative = await tool(tools, 'backlog.list').handler({ projectRoot: 'not/absolute' })
     assert.equal((relative.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
@@ -1659,9 +1659,13 @@ test('automation', async () => {
     // connected from it — the connection itself is the liveness proof.
     const routing = await tool(tools, 'backlog.list').handler({}, agentContext('ws-routing'))
     assert.equal(routing.isError, undefined, 'a connected agent may use its restored folder route')
-    assert.equal(seenRoots[3], '/tmp/stale')
+    assert.equal(seenRoots[2], '/tmp/stale')
 
-    const folderless = await tool(tools, 'automation.list').handler({ workspaceId: 'ws-folderless' })
+    const folderless = await tool(tools, 'schedule.create').handler({
+      workspaceId: 'ws-folderless',
+      prompt: 'tidy up',
+      cron: '0 9 * * *',
+    })
     assert.equal((folderless.structuredContent as { error: { code: string } }).error.code, 'workspace_without_folder')
   }
 
@@ -2032,77 +2036,140 @@ test('automation', async () => {
     assert.equal(linkFail.requests.length, 1, 'the agent was launched exactly once')
   }
 
-  async function testAutomationMutationToolsGateOnModule(): Promise<void> {
-    const created: unknown[] = []
-    const ran: unknown[] = []
-    const withFrontDoor = createAutomationTools(
+  // A fake of the scheduled agents service: it records what the tools hand it
+  // and answers as `answers` says. Validation is the service's, not the tools'.
+  function fakeScheduledAgents(
+    answers: {
+      create?: (input: unknown) => ScheduledAgentWriteResult
+      runNow?: (id: string) => { ok: true; run: ScheduledAgentLastRun } | { ok: false; message: string }
+    } = {},
+  ) {
+    const calls = { created: [] as unknown[], ran: [] as string[], removed: [] as string[] }
+    const agents: ScheduledAgentView[] = [scheduledAgentView({ id: 'sa-1' })]
+    const service = {
+      list: () => agents,
+      get: (id: string) => agents.find((agent) => agent.id === id) ?? null,
+      create: async (input: unknown): Promise<ScheduledAgentWriteResult> => {
+        calls.created.push(input)
+        return answers.create?.(input) ?? { ok: true, agent: scheduledAgentView({ id: 'sa-2' }) }
+      },
+      remove: async (id: string) => {
+        calls.removed.push(id)
+        return agents.some((agent) => agent.id === id)
+          ? ({ ok: true } as const)
+          : ({ ok: false, message: `No scheduled agent "${id}".` } as const)
+      },
+      runNow: async (id: string) => {
+        calls.ran.push(id)
+        return answers.runNow?.(id) ?? { ok: true as const, run: { at: 0, ok: true as const, workspaceId: 'ws-run' } }
+      },
+    } as unknown as ScheduledAgentsService
+    return { service, calls }
+  }
+
+  function scheduledAgentView(fields: Partial<ScheduledAgentView>): ScheduledAgentView {
+    return {
+      id: 'sa-1',
+      prompt: 'Triage new issues',
+      schedule: { cron: '0 21 * * 0', timezone: 'UTC' },
+      folderPath: '/tmp/project-a',
+      hostId: null,
+      cli: 'claude-code',
+      cliModel: null,
+      permissionPreset: null,
+      skills: [],
+      mcpServers: [],
+      worktree: null,
+      ownerModuleId: null,
+      createdAt: 0,
+      updatedAt: 0,
+      lastRun: null,
+      lastFailureSeenAt: null,
+      nextRunAt: Date.UTC(2026, 9, 4, 21, 0),
+      ...fields,
+    }
+  }
+
+  async function testScheduleToolsDriveTheScheduledAgentsService(): Promise<void> {
+    const { service, calls } = fakeScheduledAgents()
+    const tools = createAutomationTools(
       backendsOf({
-        workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
-        getAutomationsFrontDoor: () => ({
-          createDefinition: async (input) => {
-            created.push(input)
-            return { ok: true, value: { id: 'auto-1', name: 'Nightly' } as never }
-          },
-          // No MCP tool edits a definition (create + run only), so an update here
-          // would mean the surface grew: refuse rather than fake a success.
-          updateDefinition: async () => ({
-            ok: false,
-            code: 'not_stubbed',
-            message: 'No automation tool updates definitions.',
-          }),
-          // Nor does any MCP tool install a marketplace automation — that is the
-          // marketplace install path's door, reached from the app, not from a tool.
-          installCatalogueDefinition: async () => ({
-            ok: false,
-            code: 'not_stubbed',
-            message: 'No automation tool installs catalogue automations.',
-          }),
-          runNow: async (input) => {
-            ran.push(input)
-            return { ok: true, value: { definition: { id: 'auto-1' }, run: { runId: 'run-1' } } as never }
-          },
-        }),
+        workspaces: [
+          testWorkspace('ws-1', { folderPath: '/tmp/project-a' }),
+          testWorkspace('ws-tree', {
+            folderPath: '/tmp/project-a/.worktrees/fix',
+            worktree: { branch: 'agent/fix', baseRef: 'HEAD', repoRoot: '/tmp/project-a' },
+            hostId: 'wsl:Ubuntu',
+          } as Partial<Workspace>),
+        ],
+        getScheduledAgents: () => service,
       }),
     )
 
-    const definition = {
-      name: 'Nightly',
-      trigger: { kind: 'schedule', config: { cadence: 'daily' } },
-      action: { kind: 'spawn-agent', config: { prompt: 'do it', permissionPreset: 'none' } },
-    }
-    const ok = await tool(withFrontDoor, 'automation.create').handler({ workspaceId: 'ws-1', definition })
-    assert.equal(ok.isError, undefined)
-    assert.deepEqual(created, [{ workspaceRoot: '/tmp/project-a', definition }])
-    assert.deepEqual(ok.structuredContent, { automation: { id: 'auto-1', name: 'Nightly' } })
+    // The list says each schedule in words and its next run as an instant.
+    const listed = await tool(tools, 'schedule.list').handler({})
+    const first = (listed.structuredContent as { scheduledAgents: Array<Record<string, unknown>> }).scheduledAgents[0]!
+    assert.equal(first.scheduleWords, 'Every Sunday at 9:00 PM')
+    assert.equal(first.nextRunAt, '2026-10-04T21:00:00.000Z')
 
-    const okRun = await tool(withFrontDoor, 'automation.run').handler({ workspaceId: 'ws-1', automationId: 'auto-1' })
-    assert.deepEqual(ran, [{ workspaceRoot: '/tmp/project-a', automationId: 'auto-1' }])
-    assert.deepEqual(okRun.structuredContent, { definition: { id: 'auto-1' }, run: { runId: 'run-1' } })
-
-    // A bypass draft goes to the front door like any other.
-    const bypass = await tool(withFrontDoor, 'automation.create').handler({
+    // A create is a draft for the service: the workspace's project and machine,
+    // the last-picked CLI when none is named, and this computer's zone.
+    const created = await tool(tools, 'schedule.create').handler({
       workspaceId: 'ws-1',
-      definition: {
-        ...definition,
-        action: { kind: 'spawn-agent', config: { prompt: 'do it', permissionPreset: 'bypass' } },
-      },
+      prompt: 'Triage new issues',
+      cron: '0 9 * * 1-5',
+      worktree: true,
+      skills: ['gh-triage'],
     })
-    assert.equal(bypass.isError, undefined, JSON.stringify(bypass.structuredContent))
-    assert.equal(created.length, 2, 'the bypass draft reached the front door')
+    assert.equal(created.isError, undefined, JSON.stringify(created.structuredContent))
+    const draft = calls.created[0] as Record<string, unknown>
+    assert.equal(draft.prompt, 'Triage new issues')
+    assert.equal((draft.schedule as { cron: string }).cron, '0 9 * * 1-5')
+    assert.equal((draft.schedule as { timezone: string }).timezone, Intl.DateTimeFormat().resolvedOptions().timeZone)
+    assert.equal(draft.folderPath, '/tmp/project-a')
+    assert.equal(draft.hostId, null)
+    assert.equal(draft.cli, 'claude-code')
+    assert.equal(draft.permissionPreset, null, 'an omitted preset follows the choice at run time')
+    assert.deepEqual(draft.worktree, { name: '' })
+    assert.deepEqual(draft.skills, [{ id: 'gh-triage', name: 'gh-triage' }])
+
+    // A workspace on a worktree schedules into its project, on its machine.
+    await tool(tools, 'schedule.create').handler({
+      workspaceId: 'ws-tree',
+      prompt: 'x',
+      cron: '@daily',
+      timezone: 'UTC',
+    })
+    const fromTree = calls.created[1] as Record<string, unknown>
+    assert.equal(fromTree.folderPath, '/tmp/project-a')
+    assert.equal(fromTree.hostId, 'wsl:Ubuntu')
+    assert.equal((fromTree.schedule as { timezone: string }).timezone, 'UTC')
+
+    const ran = await tool(tools, 'schedule.run').handler({ id: 'sa-1' })
+    assert.deepEqual(ran.structuredContent, { workspaceId: 'ws-run' })
+    assert.deepEqual(calls.ran, ['sa-1'])
+
+    const removed = await tool(tools, 'schedule.delete').handler({ id: 'sa-1' })
+    assert.deepEqual(removed.structuredContent, { removed: 'sa-1' })
+    const unknown = await tool(tools, 'schedule.delete').handler({ id: 'nope' })
+    assert.equal((unknown.structuredContent as { error: { code: string } }).error.code, 'unknown_scheduled_agent')
 
     // Module disabled/not loaded ⇒ explicit failure, never buffering.
     const withoutModule = createAutomationTools(
       backendsOf({ workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })] }),
     )
     for (const [name, args] of [
-      ['automation.create', { workspaceId: 'ws-1', definition }],
-      ['automation.run', { workspaceId: 'ws-1', automationId: 'auto-1' }],
+      ['schedule.list', {}],
+      ['schedule.create', { workspaceId: 'ws-1', prompt: 'x', cron: '0 9 * * *' }],
+      ['schedule.delete', { id: 'sa-1' }],
+      ['schedule.run', { id: 'sa-1' }],
     ] as const) {
       const result = await tool(withoutModule, name).handler(args as Record<string, unknown>)
       assert.equal(result.isError, true)
       assert.equal(
         (result.structuredContent as { error: { code: string } }).error.code,
-        'automations_module_unavailable',
+        'scheduled_agents_unavailable',
+        name,
       )
     }
   }
@@ -2112,29 +2179,11 @@ test('automation', async () => {
   // omitted one means what it means there. This pins that the tool boundary
   // neither refuses bypass nor quietly floors an omission to `none`.
   async function testBothPresetsAreOpenAtTheExternalToolBoundary(): Promise<void> {
-    const created: Array<{ definition: unknown }> = []
+    const { service, calls } = fakeScheduledAgents()
     const tools = createAutomationTools(
       backendsOf({
         workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
-        getAutomationsFrontDoor: () => ({
-          createDefinition: async (input) => {
-            created.push(input as { definition: unknown })
-            return { ok: true, value: { id: 'auto-1', name: 'Nightly' } as never }
-          },
-          updateDefinition: async () => ({
-            ok: false,
-            code: 'not_stubbed',
-            message: 'No automation tool updates definitions.',
-          }),
-          // Nor does any MCP tool install a marketplace automation — that is the
-          // marketplace install path's door, reached from the app, not from a tool.
-          installCatalogueDefinition: async () => ({
-            ok: false,
-            code: 'not_stubbed',
-            message: 'No automation tool installs catalogue automations.',
-          }),
-          runNow: async () => ({ ok: false, code: 'not_stubbed', message: 'Not exercised here.' }),
-        }),
+        getScheduledAgents: () => service,
       }),
     )
 
@@ -2151,35 +2200,46 @@ test('automation', async () => {
         /Omitted, the launch takes the preset chosen for that CLI on this machine, else the app default "bypass"/,
         `${name} says what an omitted preset resolves to`,
       )
-      assert.doesNotMatch(properties.permissionPreset?.description ?? '', /refused/, `${name} refuses no preset`)
+      // The one refusal it names is an agent of this app asking above its own
+      // preset (launch-permission-cap.test.ts); nobody else is refused one.
+      assert.match(
+        properties.permissionPreset?.description ?? '',
+        /Called by an agent of this app, the launch runs no looser than that agent's own preset: a looser one is refused/,
+        `${name} refuses a preset only to an agent above its own`,
+      )
     }
 
-    // Every spelling an automation definition may carry reaches the create
-    // pipeline untouched — the pipeline, not this tool, validates the draft —
-    // and so does a draft that names none, which runs on the automation default.
-    const draft = (config: Record<string, unknown>) => ({
-      name: 'Nightly',
-      trigger: { kind: 'schedule', config: { cadence: 'daily' } },
-      action: { kind: 'spawn-agent', config: { prompt: 'do it', ...config } },
-    })
+    // Both presets, and every retired spelling of them, are stored as the
+    // preset they mean; a schedule that names none follows the choice at run
+    // time.
     const spellings = ['bypass', 'bypass_all', 'none', 'manual', 'auto', 'default']
     for (const preset of spellings) {
-      const answer = await tool(tools, 'automation.create').handler({
+      const answer = await tool(tools, 'schedule.create').handler({
         workspaceId: 'ws-1',
-        definition: draft({ permissionPreset: preset }),
+        prompt: 'do it',
+        cron: '0 9 * * *',
+        permissionPreset: preset,
       })
-      assert.equal(answer.isError, undefined, `an explicit "${preset}" automation is created`)
+      assert.equal(answer.isError, undefined, `an explicit "${preset}" scheduled agent is created`)
     }
-    const omitted = await tool(tools, 'automation.create').handler({ workspaceId: 'ws-1', definition: draft({}) })
-    assert.equal(omitted.isError, undefined, 'an agent-backed draft that names no preset is created')
+    const omitted = await tool(tools, 'schedule.create').handler({
+      workspaceId: 'ws-1',
+      prompt: 'do it',
+      cron: '0 9 * * *',
+    })
+    assert.equal(omitted.isError, undefined, 'a scheduled agent that names no preset is created')
     assert.deepEqual(
-      created.map(
-        (input) =>
-          (input.definition as { action: { config: { permissionPreset?: string } } }).action.config.permissionPreset,
-      ),
-      [...spellings, undefined],
-      'each draft reaches the pipeline as the caller wrote it',
+      calls.created.map((input) => (input as { permissionPreset: string | null }).permissionPreset),
+      ['bypass', 'bypass', 'none', 'none', 'none', 'none', null],
+      'each preset is stored as the preset it means',
     )
+    const unreadable = await tool(tools, 'schedule.create').handler({
+      workspaceId: 'ws-1',
+      prompt: 'do it',
+      cron: '0 9 * * *',
+      permissionPreset: 'root',
+    })
+    assert.equal((unreadable.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
   }
 
   // The acceptance the owner ruling states, end to end through the real launch
@@ -2259,50 +2319,34 @@ test('automation', async () => {
     assert.deepEqual(resolvePermissionArgs(claudeManifest, named.preset), bypassFlag)
   }
 
-  async function testAutomationMutationToolsPassPipelineFailuresThrough(): Promise<void> {
+  async function testScheduleToolsPassServiceFailuresThrough(): Promise<void> {
+    const { service } = fakeScheduledAgents({
+      create: () => ({ ok: false, message: 'Hour 25 doesn’t exist — use 0–23.' }),
+      runNow: () => ({ ok: true, run: { at: 0, ok: false, message: 'not a git repository' } }),
+    })
     const tools = createAutomationTools(
       backendsOf({
         workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
-        getAutomationsFrontDoor: () => ({
-          createDefinition: async () => ({
-            ok: false,
-            code: 'workspace_root_untrusted',
-            message: 'Folder is not an open workspace.',
-          }),
-          updateDefinition: async () => ({
-            ok: false,
-            code: 'not_stubbed',
-            message: 'No automation tool updates definitions.',
-          }),
-          // Nor does any MCP tool install a marketplace automation — that is the
-          // marketplace install path's door, reached from the app, not from a tool.
-          installCatalogueDefinition: async () => ({
-            ok: false,
-            code: 'not_stubbed',
-            message: 'No automation tool installs catalogue automations.',
-          }),
-          runNow: async () => ({
-            ok: false,
-            code: 'unsupported_trigger',
-            message: 'Run now needs a schedule trigger.',
-          }),
-        }),
+        getScheduledAgents: () => service,
       }),
     )
-    const created = await tool(tools, 'automation.create').handler({
+    const created = await tool(tools, 'schedule.create').handler({
       workspaceId: 'ws-1',
-      // An explicit allowed preset, so the draft clears the preset gate and the
-      // pipeline's own failure is what surfaces.
-      definition: {
-        name: 'X',
-        trigger: { kind: 'schedule', config: {} },
-        action: { kind: 'spawn-agent', config: { permissionPreset: 'none' } },
-      },
+      prompt: 'x',
+      cron: '0 25 * * *',
     })
-    assert.equal((created.structuredContent as { error: { code: string } }).error.code, 'workspace_root_untrusted')
+    const createError = (created.structuredContent as { error: { code: string; message: string } }).error
+    assert.equal(createError.code, 'scheduled_agent_invalid')
+    assert.match(createError.message, /Hour 25/)
 
-    const ran = await tool(tools, 'automation.run').handler({ workspaceId: 'ws-1', automationId: 'auto-1' })
-    assert.equal((ran.structuredContent as { error: { code: string } }).error.code, 'unsupported_trigger')
+    // A run that could not start says why, rather than reporting a chat.
+    const ran = await tool(tools, 'schedule.run').handler({ id: 'sa-1' })
+    const runError = (ran.structuredContent as { error: { code: string; message: string } }).error
+    assert.equal(runError.code, 'scheduled_agent_run_failed')
+    assert.match(runError.message, /not a git repository/)
+
+    const unknown = await tool(tools, 'schedule.run').handler({ id: 'nope' })
+    assert.equal((unknown.structuredContent as { error: { code: string } }).error.code, 'unknown_scheduled_agent')
   }
 
   // `cli` and `cliModel` were blind strings until an agent could
@@ -2400,10 +2444,6 @@ test('automation', async () => {
           ok: false,
           message: 'Backlog item backlog/gone.md does not exist in this workspace.',
         }),
-        listAutomationRuns: async () => ({
-          ok: false,
-          errors: [{ code: 'io_error', message: 'runs folder unreadable' } as never],
-        }),
       }),
     )
 
@@ -2413,14 +2453,8 @@ test('automation', async () => {
     assert.equal(readError.code, 'backlog_read_failed')
     assert.match(readError.message, /does not exist/)
 
-    const runs = await tool(tools, 'automation.runs').handler({ workspaceId: 'ws-1', automationId: 'auto-1' })
-    assert.equal(runs.isError, true)
-    const runsError = (runs.structuredContent as { error: { code: string; message: string } }).error
-    assert.equal(runsError.code, 'automations_unavailable')
-    assert.match(runsError.message, /runs folder unreadable/)
-
     // Missing/blank arguments stay explicit invalid_arguments failures.
-    const missing = await tool(tools, 'automation.runs').handler({ workspaceId: 'ws-1' })
+    const missing = await tool(tools, 'backlog.read').handler({}, agentContext('ws-1'))
     assert.equal((missing.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
   }
 
@@ -2532,6 +2566,7 @@ test('automation', async () => {
         summary: 'test module',
         defaultEnabled: true,
         source: 'third-party',
+        permissions: ['mcp:tools'],
       },
       registerMain: (host) => host.registerMcpTools(tools),
     })
@@ -2617,6 +2652,7 @@ test('automation', async () => {
         summary: 'fixture module',
         defaultEnabled: true,
         source: 'third-party',
+        permissions: ['mcp:tools'],
       },
       registerMain: (host) => host.registerMcpTools([forecastTool]),
     }
@@ -2969,6 +3005,7 @@ test('automation', async () => {
       summary: 'fixture module',
       defaultEnabled: true,
       source: 'third-party' as const,
+      permissions: ['mcp:tools' as const],
     }
     const fixtureModule: CapabilityModule = { manifest, registerMain: (host) => host.registerMcpTools([forecastTool]) }
     const { kernel } = loadMainModules({ ipcMain: createFakeIpcMain().ipcMain, modules: [fixtureModule] })
@@ -3382,10 +3419,10 @@ test('automation', async () => {
     testBacklogWorkHandsItemToAgent,
     testBacklogWorkFallsBackAndRefusesFinishedItems,
     testBacklogWorkPresetsAndPostLaunchLinkFailure,
-    testAutomationMutationToolsGateOnModule,
+    testScheduleToolsDriveTheScheduledAgentsService,
     testBothPresetsAreOpenAtTheExternalToolBoundary,
     testAnOmittedPresetResolvesLikeTheDesktopLauncher,
-    testAutomationMutationToolsPassPipelineFailuresThrough,
+    testScheduleToolsPassServiceFailuresThrough,
     testAgentLaunchWidensConfigAndIsolation,
     testTerminalCreateSpawnsAndReturnsTheAttachableSession,
     testTerminalCreateTakesThisMachinesLaunchDefaults,

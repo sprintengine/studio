@@ -1,7 +1,7 @@
 import type React from 'react'
 import { useCallback, useMemo } from 'react'
 
-import type { AgentState } from '../../../../../shared/agent-state'
+import { conversationWorkingRoot, type AgentState } from '../../../../../shared/agent-state'
 import type { ConversationSessionSummary } from '../../../../../shared/conversation-runtime'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type { Workspace } from '../../../types/workspace'
@@ -75,7 +75,9 @@ export function useLocalChatBinding(workspaceId: string, agentId: string): ChatB
             agent: agent as ChatAgentFields,
             update,
             workspace,
-            workspaceRoot: workspace?.folderPath ?? null,
+            // A chat started in a run worktree is keyed by that worktree; the
+            // workspace folder would start a second session beside it.
+            workspaceRoot: conversationWorkingRoot(agent, workspace?.folderPath),
             recordUserMessage,
             rememberModel,
           }

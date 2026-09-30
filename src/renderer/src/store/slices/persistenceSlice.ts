@@ -17,7 +17,7 @@ import {
 } from './settingsSlice'
 import { normalizeWorkspaceFileExplorerState, normalizeWorkspaceMode } from './workspacesSlice'
 import { normalizeWorkspaceWorktreeState } from './worktreesSlice'
-import { dedupeAutomationsHostWorkspaces, dropRetiredModeWorkspaces, mapMigrationWorkspaces } from './normalizers'
+import { dropRetiredModeWorkspaces, mapMigrationWorkspaces } from './normalizers'
 
 export const WORKSPACE_STORAGE_KEY = 'sprintengine-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'sprintengine-app-settings'
@@ -523,55 +523,9 @@ export function migratePersistedWorkspaceState(persisted: unknown, version: numb
       migrationState.activeWorkspaceId = migrationState.workspaces[0]?.id ?? null
     }
   }
-  if (version < 63) {
-    // The per-project Automations host is one-per-folder, but before v63 the
-    // automation executor could not see restored hosts' modes on the sync bus
-    // (main rehydrated every workspace as 'standard'), so each restart's first
-    // run minted a duplicate host. Keep the earliest-created host per folder —
-    // the one the user most likely arranged — and drop the duplicates. Nothing
-    // durable is lost: automation definitions and run history live on disk under
-    // each project's `.sprintengine/automations/`, and host agents are finalized
-    // runs whose launch state is cleared on load anyway. Window membership is
-    // reconciled by normalizeWorkspaceWindows during merge.
-    const keptHostByFolder = new Map<string, WorkspaceId>()
-    const folderKey = (value: string | null | undefined): string | null => {
-      const trimmed = value?.trim()
-      return trimmed ? trimmed.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase() : null
-    }
-    const hosts = (migrationState.workspaces ?? []).filter((ws) => ws.mode === 'automations-host')
-    for (const host of [...hosts].sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))) {
-      const key = folderKey(host.folderPath)
-      if (key === null) continue
-      if (!keptHostByFolder.has(key)) keptHostByFolder.set(key, host.id)
-    }
-    migrationState.workspaces = (migrationState.workspaces ?? []).filter((ws) => {
-      if (ws.mode !== 'automations-host') return true
-      const key = folderKey(ws.folderPath)
-      return key === null || keptHostByFolder.get(key) === ws.id
-    })
-    if (
-      migrationState.activeWorkspaceId &&
-      !migrationState.workspaces.some((ws) => ws.id === migrationState.activeWorkspaceId)
-    ) {
-      migrationState.activeWorkspaceId = migrationState.workspaces[0]?.id ?? null
-    }
-  }
-  if (version < 64) {
-    // Re-run the v63 host dedupe via the shared normalizer. v63 could be
-    // bypassed: backup recovery and cross-window storage sync both apply
-    // workspace lists without the migrate ladder, and the next persist write
-    // stamped the un-deduped state with the current version — leaving stores
-    // at v63 that still hold one host per automation run. The shared helper
-    // also restores the kept host's stable 'Automations' name, which v63 left
-    // branded after whichever run minted it.
-    migrationState.workspaces = dedupeAutomationsHostWorkspaces(migrationState.workspaces ?? [])
-    if (
-      migrationState.activeWorkspaceId &&
-      !migrationState.workspaces.some((ws) => ws.id === migrationState.activeWorkspaceId)
-    ) {
-      migrationState.activeWorkspaceId = migrationState.workspaces[0]?.id ?? null
-    }
-  }
+  // v63 and v64 kept one Automations host per project folder. Retired with
+  // Automations (2026-09-30): the host mode is dropped outright by
+  // dropRetiredModeWorkspaces.
   if (version < 65) {
     // The `roadmap` workspace mode retired: Roadmap became an
     // instance-global sidebar surface, itself deleted on 2026-09-05. Drop any

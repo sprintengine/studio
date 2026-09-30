@@ -136,16 +136,21 @@ test('installedInventoryUpdates', async () => {
         ],
       }
     },
-    verifyMarketplacePlugin: async (entry: { id: string }) => {
-      calls.verify.push(entry.id)
-      return { classification: 'verified', permissions: [], sourceUrl: 'https://example.com' }
+    verifyMarketplacePlugin: async (input: { id: string }) => {
+      calls.verify.push(input.id)
+      return {
+        classification: 'verified',
+        permissions: [],
+        sourceUrl: 'https://example.com',
+        trustToken: 'token-from-verify',
+      }
     },
-    updateMarketplacePluginFromRegistry: async (input: { entry: { id: string }; trustGranted?: boolean }) => {
+    updateMarketplacePluginFromRegistry: async (input: { id: string; trustToken?: string }) => {
       calls.updateEntry.push(input)
       installedVersion = 2
       return {
         ok: true,
-        id: input.entry.id,
+        id: input.id,
         displayName: 'Acme Design Kit',
         version: 2,
         trust: 'trusted',
@@ -246,9 +251,12 @@ test('installedInventoryUpdates', async () => {
     await settle()
     assert.equal(calls.verify.length, 1, 'update verifies before installing (trust re-check)')
     assert.equal(calls.updateEntry.length, 1)
-    const updateInput = calls.updateEntry[0] as { entry: { id: string }; trustGranted?: boolean }
-    assert.equal(updateInput.entry.id, 'acme-design-kit')
-    assert.equal(updateInput.trustGranted, false, 'a verified update never fabricates a trust grant')
+    const updateInput = calls.updateEntry[0] as { id: string; trustToken?: string; entry?: unknown }
+    assert.equal(updateInput.id, 'acme-design-kit')
+    assert.equal(updateInput.entry, undefined, 'main resolves the entry; the renderer names it')
+    // The only approval is the one main issued at verify; the renderer never
+    // makes one up, and a verified update carries verify's token through.
+    assert.equal(updateInput.trustToken, 'token-from-verify')
     const settled = first.host.textContent ?? ''
     assert.doesNotMatch(settled, /update · v1 → v2/, 'the banner is gone once the row is current')
     assert.match(settled, /Acme Design Kit updated to v2\./)

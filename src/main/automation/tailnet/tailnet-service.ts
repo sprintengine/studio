@@ -22,7 +22,7 @@ import {
   type TailnetGatewayServer,
 } from './tailnet-gateway-server'
 import { resolveTailnetInterface } from './tailnet-interface'
-import { createTailnetPeerResolver, type TailnetPeerResolver } from './tailnet-peer-identity'
+import { createTailnetPeerResolver, type TailnetPeerIdentity, type TailnetPeerResolver } from './tailnet-peer-identity'
 import { createTailnetPeerScanner, type TailnetPeerScanner } from './tailnet-peers'
 import { readTailnetSettings, writeTailnetSettings, type TailnetSettings } from './tailnet-settings'
 import type { ConversationGatewayHost } from './tailnet-conversation-host'
@@ -60,7 +60,12 @@ export type TailnetRemoteService = {
    * for a listener that is down would be a credential pointing at nothing —
    * and the caller says so instead of offering it.
    */
-  grantReverseDevice(input: { machineName: string; scopes: TailnetScope[] }): {
+  grantReverseDevice(input: {
+    machineName: string
+    scopes: TailnetScope[]
+    /** whois for the machine being asked, which is the one that will present this token. */
+    peer?: TailnetPeerIdentity | null
+  }): {
     device: TailnetDevice
     deviceToken: string
     endpoint: string
@@ -109,6 +114,8 @@ export type TailnetRemoteService = {
    * one question.
    */
   resolvePeerName(address: string): Promise<string | null>
+  /** The whole whois answer for a tailnet address, from the same resolver and cache. */
+  resolvePeerIdentity(address: string): Promise<TailnetPeerIdentity | null>
   /**
    * Live connections, derived from the listener's open sockets — which devices
    * hold a stream right now. Nothing here is persisted; it is exactly what the
@@ -648,6 +655,9 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
         name: input.machineName,
         scopes: input.scopes,
         origin: { kind: 'reverse', by: input.machineName },
+        // Bound to the machine this one is asking to drive: it is the one that
+        // will hold this token and dial back in with it.
+        peer: input.peer ?? null,
       })
       emit({ kind: 'devices-changed' })
       return { ...minted, endpoint: formatEndpoint(bound.address, bound.port) }
@@ -729,6 +739,10 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
 
     resolvePeerName(address): Promise<string | null> {
       return peers.resolve(address)
+    },
+
+    resolvePeerIdentity(address): Promise<TailnetPeerIdentity | null> {
+      return peers.identify(address)
     },
 
     getLiveState,

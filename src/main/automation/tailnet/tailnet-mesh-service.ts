@@ -43,6 +43,7 @@ import {
   type RemoteConversationsOptions,
 } from './tailnet-remote-conversations'
 import { createTailnetMeshStore, type StoredMeshConnection, type TailnetMeshStore } from './tailnet-mesh-store'
+import type { TailnetPeerIdentity } from './tailnet-peer-identity'
 import { tailnetPeerSupports } from './tailnet-routes'
 import {
   callRemoteTool,
@@ -286,6 +287,11 @@ export type TailnetMeshServiceOptions = {
   /** Tailscale node name for an address, so a machine is listed by name rather than by IP. */
   resolvePeerName?: (address: string) => Promise<string | null>
   /**
+   * The whole whois answer for an address. A reverse device is bound to the
+   * node it names, so only the machine being asked can use that grant.
+   */
+  resolvePeerIdentity?: (address: string) => Promise<TailnetPeerIdentity | null>
+  /**
    * Whole-app mesh lifecycle for the live-state push (remote-sessions-ux):
    * a machine paired or forgotten, answering or not, a request's wait moving
    * on. These are the facts chrome in every window may show. Payloads never
@@ -298,7 +304,12 @@ export type TailnetMeshServiceOptions = {
    * drive (phase 6). Null when nothing is listening here. Absent in a build
    * with no listener at all, which simply never offers the reverse half.
    */
-  mintReverseDevice?: (input: { machineName: string; scopes: TailnetScope[] }) => {
+  mintReverseDevice?: (input: {
+    machineName: string
+    scopes: TailnetScope[]
+    /** whois for the machine being asked; null leaves the device to bind on first use. */
+    peer?: TailnetPeerIdentity | null
+  }) => {
     device: TailnetDevice
     deviceToken: string
     endpoint: string
@@ -622,7 +633,13 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
         }
       }
     }
-    const peerName = (await options.resolvePeerName?.(endpoint.host).catch(() => null)) ?? null
+    // Asked only when a reverse half will be minted: that device is bound to
+    // the node being asked, which is the one that will present its token.
+    const peerIdentity =
+      input.reverseScopes === undefined
+        ? null
+        : ((await options.resolvePeerIdentity?.(endpoint.host).catch(() => null)) ?? null)
+    const peerName = peerIdentity?.name ?? (await options.resolvePeerName?.(endpoint.host).catch(() => null)) ?? null
     const machineName = peerName ?? endpoint.host
 
     // The reverse half first (phase 6): minted before the ask so a listener
@@ -638,7 +655,7 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
           message: 'This machine cannot be driven back: it has no listener to grant.',
         }
       }
-      const minted = options.mintReverseDevice({ machineName, scopes: reverseScopes })
+      const minted = options.mintReverseDevice({ machineName, scopes: reverseScopes, peer: peerIdentity })
       if (!minted) {
         return {
           ok: false,
@@ -1414,23 +1431,32 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
       return { ok: false, code: 'invalid_arguments', message: 'Name the remote workspace to start the chat in.' }
     }
     // Forwarded verbatim: the remote validates every field, and its refusal
-    // reaches the caller word for word.
-    const answer = await callRemoteTool({
-      endpoint: endpointOf(connection),
-      token: connection.deviceToken,
-      tool: 'conversation.create',
-      args: {
-        workspaceId: input.workspaceId,
-        ...(typeof input.cli === 'string' && input.cli ? { cli: input.cli } : {}),
-        ...(typeof input.prompt === 'string' && input.prompt ? { prompt: input.prompt } : {}),
-        ...(typeof input.cliModel === 'string' && input.cliModel ? { cliModel: input.cliModel } : {}),
-        ...(typeof input.permissionPreset === 'string' && input.permissionPreset
-          ? { permissionPreset: input.permissionPreset }
-          : {}),
-      },
-      // Starting a chat starts its CLI over there; a healthy slow start is not a failure.
-      timeoutMs: 60_000,
-    })
+    // reaches the caller word for word. The workspace names the project the
+    // picker chose, not a chat to join, so the chat is asked for as a new one.
+    const args = {
+      workspaceId: input.workspaceId,
+      ...(typeof input.cli === 'string' && input.cli ? { cli: input.cli } : {}),
+      ...(typeof input.prompt === 'string' && input.prompt ? { prompt: input.prompt } : {}),
+      ...(typeof input.cliModel === 'string' && input.cliModel ? { cliModel: input.cliModel } : {}),
+      ...(typeof input.permissionPreset === 'string' && input.permissionPreset
+        ? { permissionPreset: input.permissionPreset }
+        : {}),
+    }
+    const create = (newChat: boolean) =>
+      callRemoteTool({
+        endpoint: endpointOf(connection),
+        token: connection.deviceToken,
+        tool: 'conversation.create',
+        args: newChat ? { ...args, newChat: true } : args,
+        // Starting a chat starts its CLI over there; a healthy slow start is not a failure.
+        timeoutMs: 60_000,
+      })
+    let answer = await create(true)
+    // A machine that refuses the argument by name is asked the way it was
+    // before there was one, and adds the chat to that workspace. One from
+    // before the argument that ignores it does the same without asking.
+    if (!answer.ok && answer.code === 'invalid_arguments' && /newChat/u.test(answer.message))
+      answer = await create(false)
     if (!answer.ok) {
       // A machine on a build from before `conversation.create` does not have
       // the tool; say that rather than pass on the gateway's bare refusal.

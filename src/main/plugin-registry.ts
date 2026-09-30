@@ -115,6 +115,11 @@ export function createPluginRegistry(options: PluginRegistryOptions): PluginRegi
         continue
       }
 
+      if (source === 'user' && result.manifest.kind !== 'provider') {
+        rejected.push(userAgentCliRejection(manifestPath))
+        continue
+      }
+
       if (result.manifest.kind === 'provider') {
         loadedConversationProviders.push({
           manifest: result.manifest,
@@ -193,6 +198,11 @@ export function createPluginRegistry(options: PluginRegistryOptions): PluginRegi
         continue
       }
 
+      if (source === 'user' && result.manifest.kind !== 'provider') {
+        rejected.push(userAgentCliRejection(manifestPath))
+        continue
+      }
+
       if (result.manifest.kind === 'provider') {
         loadedConversationProviders.push({
           manifest: result.manifest,
@@ -214,6 +224,12 @@ export function createPluginRegistry(options: PluginRegistryOptions): PluginRegi
     return { loaded, loadedConversationProviders, rejected }
   }
 
+  // The user root adds conversation providers and nothing else, and none of
+  // them may take a bundled id: a user plugin named `claude-code` used to
+  // replace the built-in launcher — its binary, its argv and the shell its
+  // installer runs — for every agent that picked it. Agent CLIs now come only
+  // from the app bundle; a user provider that reuses any bundled id is
+  // refused with the reason, and the bundled one stays.
   function mergeBundledAndUser(
     bundled: PluginRegistryLoadReport,
     user: PluginRegistryLoadReport,
@@ -229,28 +245,21 @@ export function createPluginRegistry(options: PluginRegistryOptions): PluginRegi
       plugins.set(plugin.manifest.id, plugin)
       report.loaded.push(plugin)
     }
-    for (const plugin of user.loaded) {
-      const previous = plugins.get(plugin.manifest.id)
-      if (previous) {
-        const replacedIndex = report.loaded.findIndex((p) => p.manifest.id === plugin.manifest.id)
-        if (replacedIndex >= 0) report.loaded.splice(replacedIndex, 1)
-      }
-      plugins.set(plugin.manifest.id, plugin)
-      report.loaded.push(plugin)
-    }
     for (const provider of bundled.loadedConversationProviders) {
       providers.set(provider.manifest.id, provider)
       report.loadedConversationProviders.push(provider)
     }
     for (const provider of user.loadedConversationProviders) {
-      const previous = providers.get(provider.manifest.id)
-      if (previous) {
-        const replacedIndex = report.loadedConversationProviders.findIndex(
-          (p) => p.manifest.id === provider.manifest.id,
-        )
-        if (replacedIndex >= 0) report.loadedConversationProviders.splice(replacedIndex, 1)
+      const id = provider.manifest.id
+      if (plugins.has(id) || providers.has(id)) {
+        report.rejected.push({
+          source: 'user',
+          manifestPath: provider.manifestPath,
+          issues: [{ path: 'id', message: `"${id}" is a built-in id; a user plugin cannot replace it.` }],
+        })
+        continue
       }
-      providers.set(provider.manifest.id, provider)
+      providers.set(id, provider)
       report.loadedConversationProviders.push(provider)
     }
     return report
@@ -308,6 +317,19 @@ export function createPluginRegistry(options: PluginRegistryOptions): PluginRegi
     },
 
     validateManifestSource,
+  }
+}
+
+function userAgentCliRejection(manifestPath: string): PluginRegistryLoadReport['rejected'][number] {
+  return {
+    source: 'user',
+    manifestPath,
+    issues: [
+      {
+        path: 'kind',
+        message: 'Agent CLIs ship with the app; the user plugin folder holds conversation providers only.',
+      },
+    ],
   }
 }
 

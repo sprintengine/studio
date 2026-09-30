@@ -3,7 +3,6 @@ import assert from 'node:assert/strict'
 import {
   MARKETPLACE_COMPONENT_KINDS,
   canonicalManifestPayload,
-  marketplaceAutomationPayloadIssues,
   parseMarketplaceIndex,
   parseMarketplacePluginManifest,
   validateMarketplaceIndex,
@@ -30,24 +29,7 @@ test('manifest', async () => {
       mcp: { path: 'mcp/server.json', files: [{ path: 'mcp/server.json', sha256: VALID_DIGEST }] },
       skills: { path: 'skills/pack', files: [{ path: 'skills/pack/SKILL.md', sha256: VALID_DIGEST }] },
       module: { path: 'module', files: [{ path: 'module/manifest.json', sha256: VALID_DIGEST }] },
-      cli: { path: 'cli', files: [{ path: 'cli/plugin.json', sha256: VALID_DIGEST }] },
-      automation: {
-        path: 'automation/automation.json',
-        files: [{ path: 'automation/automation.json', sha256: VALID_DIGEST }],
-      },
     },
-  }
-
-  // The payload an `automation` component points at: a JSON automation
-  // definition draft. Only its structure is checked at the manifest tier.
-  const VALID_AUTOMATION_PAYLOAD = {
-    name: 'Nightly dependency sweep',
-    status: 'paused',
-    trigger: {
-      kind: 'schedule',
-      config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '03:00' }, timezone: 'UTC' },
-    },
-    action: { kind: 'spawn-agent', config: { prompt: 'Check for outdated dependencies.' } },
   }
 
   const VALID_MARKETPLACE = {
@@ -62,7 +44,7 @@ test('manifest', async () => {
         icon: 'icons/dev-helper.svg',
         latest: 1,
         source: 'https://github.com/sprintengine/studio-releases/plugins/dev-helper',
-        provides: ['mcp', 'skills', 'module', 'cli'],
+        provides: ['mcp', 'skills', 'module'],
         signature: VALID_SIGNATURE,
       },
     ],
@@ -139,8 +121,8 @@ test('manifest', async () => {
       assert.equal(result.manifest.components.mcp?.path, 'mcp/server.json')
       assert.equal(result.manifest.components.skills?.path, 'skills/pack')
       assert.equal(result.manifest.components.module?.path, 'module')
-      assert.equal(result.manifest.components.cli?.path, 'cli')
-      assert.equal(result.manifest.components.automation?.path, 'automation/automation.json')
+      // Agent CLIs ship with the app; a bundle cannot carry one.
+      assert.equal((result.manifest.components as Record<string, unknown>).cli, undefined)
       assert.deepEqual(result.manifest.components.mcp?.files, [{ path: 'mcp/server.json', sha256: VALID_DIGEST }])
     }
   }
@@ -218,7 +200,7 @@ test('manifest', async () => {
       const entry = result.marketplace.plugins[0]
       assert.equal(result.marketplace.schemaVersion, 1)
       assert.equal(entry.publisher.verified, true)
-      assert.deepEqual(entry.provides, ['mcp', 'skills', 'module', 'cli'])
+      assert.deepEqual(entry.provides, ['mcp', 'skills', 'module'])
       // Legacy singular category parses and no widened fields are invented.
       assert.equal(entry.category, 'dev-tools')
       assert.equal(entry.categories, undefined)
@@ -453,6 +435,13 @@ test('manifest', async () => {
       'plugins[0].cli.pluginId',
       validateMarketplaceIndex,
     )
+    // `cli` is the inline lane only: a bundle entry that says it provides an
+    // agent CLI is refused, because no bundle can install one.
+    assertRejectsAt(
+      { ...VALID_MARKETPLACE, plugins: [{ ...VALID_MARKETPLACE.plugins[0], provides: ['mcp', 'cli'] }] },
+      'plugins[0].provides',
+      validateMarketplaceIndex,
+    )
     assertRejectsAt(
       { ...VALID_MARKETPLACE, plugins: [{ ...VALID_INLINE_CLI_ENTRY, cli: { pluginId: 'Not A Plugin Id' } }] },
       'plugins[0].cli.pluginId',
@@ -541,35 +530,39 @@ test('manifest', async () => {
     assert.equal(parseMarketplaceIndex('{not json').ok, false)
   }
 
-  function testAutomationIsAComponentKind(): void {
-    assert.deepEqual([...MARKETPLACE_COMPONENT_KINDS], ['mcp', 'skills', 'module', 'cli', 'automation'])
-    const result = validateMarketplaceIndex({
-      ...VALID_MARKETPLACE,
-      plugins: [{ ...VALID_MARKETPLACE.plugins[0], provides: ['automation'] }],
+  function testAutomationIsARetiredComponentKind(): void {
+    assert.deepEqual([...MARKETPLACE_COMPONENT_KINDS], ['mcp', 'skills', 'module'])
+    // A bundle built for an older Studio says why it is refused, not just that
+    // the kind is unknown.
+    const bundle = validateMarketplacePluginManifest({
+      ...VALID_PLUGIN,
+      components: {
+        ...VALID_PLUGIN.components,
+        automation: {
+          path: 'automation/automation.json',
+          files: [{ path: 'automation/automation.json', sha256: VALID_DIGEST }],
+        },
+      },
     })
-    assert.equal(result.ok, true)
-    if (result.ok) assert.deepEqual(result.marketplace.plugins[0]?.provides, ['automation'])
-  }
-
-  function testAutomationPayloadStructure(): void {
-    assert.deepEqual(marketplaceAutomationPayloadIssues(JSON.stringify(VALID_AUTOMATION_PAYLOAD)), [])
-
-    assert.deepEqual(issuePaths(marketplaceAutomationPayloadIssues('{not json')), ['components.automation'])
-    assert.deepEqual(issuePaths(marketplaceAutomationPayloadIssues('[]')), ['components.automation'])
-
-    for (const [field, path] of [
-      ['name', 'components.automation.name'],
-      ['trigger', 'components.automation.trigger'],
-      ['action', 'components.automation.action'],
-    ] as const) {
-      const issues = marketplaceAutomationPayloadIssues(JSON.stringify(withoutField(VALID_AUTOMATION_PAYLOAD, field)))
-      assert.deepEqual(issuePaths(issues), [path], `missing ${field} must be reported at ${path}`)
+    assert.equal(bundle.ok, false)
+    if (!bundle.ok) {
+      assert.deepEqual(issuePaths(bundle.issues), ['components.automation'])
+      assert.match(bundle.issues[0]?.message ?? '', /Automation components are no longer supported/)
     }
-
-    const untypedTrigger = marketplaceAutomationPayloadIssues(
-      JSON.stringify({ ...VALID_AUTOMATION_PAYLOAD, trigger: { config: {} } }),
-    )
-    assert.deepEqual(issuePaths(untypedTrigger), ['components.automation.trigger.kind'])
+    // A registry still listing a retired row loses that row, and only that row.
+    const index = validateMarketplaceIndex({
+      ...VALID_MARKETPLACE,
+      plugins: [
+        { ...VALID_MARKETPLACE.plugins[0], id: 'nightly-sweep-automation', provides: ['automation'] },
+        VALID_MARKETPLACE.plugins[0],
+      ],
+    })
+    assert.equal(index.ok, true)
+    if (index.ok)
+      assert.deepEqual(
+        index.marketplace.plugins.map((plugin) => plugin.id),
+        ['dev-helper'],
+      )
   }
 
   testValidPluginManifest()
@@ -598,7 +591,6 @@ test('manifest', async () => {
   testMarketplaceMissingPluginFields()
   testMarketplaceRejectsNestedInvalidFields()
   testParseMarketplaceInvalidJson()
-  testAutomationIsAComponentKind()
-  testAutomationPayloadStructure()
+  testAutomationIsARetiredComponentKind()
   console.log('marketplace manifest tests passed')
 })

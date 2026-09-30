@@ -3,6 +3,7 @@ import type {
   ConversationCliRuntimeOverrides,
   ConversationEvent,
   ConversationImageAttachment,
+  ConversationMcpServer,
   ConversationPermissionPreset,
 } from '../../shared/conversation-runtime'
 
@@ -42,6 +43,10 @@ export type ConversationProviderAdapter = {
   // the runtime must not replay history and routes approval responses to the
   // still-active turn.
   sessions?: 'stateless' | 'stateful'
+  // The adapter starts its provider with the session's `mcpServers`. Absent,
+  // the runtime refuses a start that names any: a connector's agent run
+  // without its connector would be a different agent.
+  acceptsMcpServers?: boolean
   startSession(input: MockAdapterSessionInput): ConversationProviderEventStream
   sendTurn(input: MockAdapterTurnInput): ConversationProviderEventStream
   resolveApproval(input: MockAdapterApprovalInput): ConversationProviderEventStream
@@ -104,6 +109,8 @@ export type MockAdapterSessionInput = {
   cliRuntimes?: ConversationCliRuntimeOverrides
   permissionPreset?: ConversationPermissionPreset
   allowedTools?: string[]
+  // MCP servers the provider starts this session with (`acceptsMcpServers`).
+  mcpServers?: ConversationMcpServer[]
   // Session-scoped continuation channel (provider → runtime), set on
   // startSession for stateful adapters whose child outlives a single turn. A
   // long-lived agent legitimately keeps working after the SDK `result` that

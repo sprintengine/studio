@@ -53,7 +53,3 @@ export type PluginDetectAvailabilityInput = {
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
   force?: boolean
 }
-
-export type PluginInstallResult =
-  | { ok: true; id: string; kind: 'cli' | 'provider'; displayName: string }
-  | { ok: false; message: string; issues?: Array<{ path: string; message: string }> }

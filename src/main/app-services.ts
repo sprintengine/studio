@@ -33,6 +33,7 @@ import { CANVAS_MODULE_DEFAULT_ENABLED } from '../shared/modules/manifest'
 import { createTailnetNotifier } from './tailnet-notifications'
 import { revealMainWindow } from './window-factory'
 import { createAutomationTools } from './automation/automation-tools'
+import { createAgentPermissionResolver, launchPermissionCeiling } from './automation/launch-permission-cap'
 import { createTailnetTools, type TailnetToolsFrontDoor } from './automation/tailnet/tailnet-tools'
 import { createStudioGatewayTools } from './automation/studio-gateway-tools'
 import type { McpToolContribution } from './module-host/main-host'
@@ -40,12 +41,10 @@ import { createDefaultMarketplaceRegistryClient } from './ipc/marketplace-regist
 import { toThirdPartyModuleView } from './ipc/third-party-module-ipc'
 import { getGitRepoWatch } from './ipc/git-repo-watch-ipc'
 import { resolveCheckoutForCwd } from './checkout-resolve'
-import { readTrustedMarketplacePublisherFingerprintsSync } from './marketplace/trusted-publishers'
 import { createModuleRegistryMirror } from './modules/registry-mirror'
-import { readTrustedModulesSync } from './modules/trust-store'
+import { readModuleTrustContextSync } from './modules/trust-context'
 import { defaultUserModuleRoot, discoverUserModules } from './modules/user-module-registry'
-import { AutomationsStore } from './automations/store'
-import type { AutomationsAppFrontDoor } from './ipc/automations-ipc'
+import type { ScheduledAgentsService } from './scheduled-agents/service'
 import {
   addOrUpdateBacklogLink,
   listBacklogItems,
@@ -115,6 +114,7 @@ import { resolveMemoryRoot } from './memory-graph'
 import { getPluginManifest, listPluginRegistryEntries } from './plugin-registry-instance'
 import { createMcpServerResolver } from './mcp-config-readers/resolve-servers'
 import { syncStudioMcpConfig } from './studio-mcp-sync'
+import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../shared/product-identity'
 import { createGitWorktree, excludeMcpConfigFromWorktree, getGitRepoRoot } from './git'
 import { readBranchName, resolveTrunk } from './git-branch-span'
 import { getGitBranches } from './git-read-models'
@@ -595,20 +595,22 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     approvalRules: new ConversationApprovalRuleStore(app.getPath('userData')),
     attachmentStore: new ConversationAttachmentStore(app.getPath('userData')),
     planStore: new ConversationPlanStore(app.getPath('userData')),
-    prepareStudioMcp: async ({ workspaceRoot }) => {
+    // A Claude chat's child loads no project settings, so the gateway pinned
+    // into a workspace's `.mcp.json` never reached it; the child is handed the
+    // gateway itself, on the machine its `claude` runs on.
+    resolveStudioMcpServer: async ({ hostId }) => {
       await whenAgentLaunchReady()
-      const result = await syncStudioMcpConfig(
-        {
-          workspaceRoot,
-          settings: { syncEnabled: false, servers: {} },
-          clients: ['claude-code'],
-        },
-        {
-          mcpConfigService,
-          studioGateway: () => studioGatewayFor(null),
-        },
-      )
-      return result.ok ? { ok: true } : result
+      const gateway = studioGatewayFor(hostId ?? null)
+      if (!gateway) return null
+      return {
+        id: STUDIO_MCP_SERVER_ID,
+        name: STUDIO_MCP_SERVER_NAME,
+        transport: 'stdio',
+        command: gateway.command,
+        args: gateway.args,
+        env: gateway.env,
+        ...(gateway.envVarNames?.length ? { envVarNames: gateway.envVarNames } : {}),
+      }
     },
   })
   conversationRuntime.startIdleSweep(powerActivity)
@@ -717,12 +719,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     return owner ? hosts.get(owner) : null
   })
 
-  // The Automations module (and its app front door) registers on the module
-  // kernel AFTER app services are constructed; index.ts injects the resolver once
-  // the kernel is up. Declared here because the automation tools resolve it
-  // lazily, at call time. Until the module is up, they report the module as
-  // unavailable rather than buffering.
-  let resolveAutomationsAppFrontDoor: () => AutomationsAppFrontDoor | null = () => null
+  // The Scheduled agents module registers on the module kernel AFTER app
+  // services are constructed; index.ts injects the resolver once the kernel is
+  // up. Declared here because the scheduled-agent tools resolve it lazily, at
+  // call time. Until the module is up, they report it as unavailable rather
+  // than buffering.
+  let resolveScheduledAgents: () => ScheduledAgentsService | null = () => null
   // Live main-process module enablement, injected by index.ts once the manifest
   // universe exists; it recomputes on every override the renderer pushes, so a
   // module the user just switched off is off here on the next call. Until then
@@ -1374,10 +1376,44 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     getLaunchSettings: () => agentLaunchSettings.get(),
     writeAgent: (workspaceId, agentId, agent) =>
       workspaceSyncService.updateWorkspaceAgent(workspaceId, agentId, agent, 'system'),
+    listWorkspaces: () => workspaceRegistry.getRecords(),
+    createWorkspace: (request) => {
+      const created = workspaceSyncService.createWorkspace(request, 'system')
+      return created.ok ? { ok: true, workspaceId: created.result.workspace.id } : created
+    },
+    removeWorkspace: (workspaceId) => {
+      workspaceSyncService.removeWorkspace(workspaceId, 'system')
+    },
     startSession: (input) => conversationRuntime.startSession(input),
     send: (input) => conversationRuntime.sendTurn(input),
+    // The same installer a terminal launch's skill-at-spawn uses, into the
+    // folder the chat works in (a run's worktree when it has one).
+    ensureSkillInstalled: (workingRoot, skillId) => ensureSkillInstalled(workingRoot, skillId),
     warn: (message) => {
       void writeDiagnosticLog({ level: 'warning', source: 'workspace', title: 'Chat launch', message })
+    },
+  })
+
+  // What an agent of this app is running on now, for the gateway's launch cap:
+  // an agent may start agents only at its own preset or stricter.
+  const resolveAgentPermissionPreset = createAgentPermissionResolver({
+    listConversationSessions: (agentId) => {
+      const listed = conversationRuntime.listSessions({ agentId })
+      return listed.ok ? listed.sessions : []
+    },
+    // The live session objects, not `listTerminals()` snapshots: only four
+    // fields are read, and a snapshot of every session is not cheap.
+    listTerminalSessions: () =>
+      listLiveTerminalSessions().map((session) => ({
+        kind: session.kind,
+        workspaceId: session.workspaceId,
+        agentId: session.agentId,
+        processAlive: isTerminalProcessAlive(session),
+        agentRecord: session.agentRecord,
+      })),
+    readAgentRecordPreset: (workspaceId, agentId) => {
+      const agent = workspaceRegistry.getRecord(workspaceId)?.agents[agentId]
+      return agent ? { found: true, preset: agent.cliPermissionPreset } : { found: false }
     },
   })
 
@@ -1448,6 +1484,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     resolveGatewayTools: createStudioGatewayTools({
       resolveModuleTools: () => resolveModuleMcpTools(),
       isModuleEnabled: (moduleId) => resolveModuleEnabled(moduleId),
+      // A module tool runs under its caller's launch cap, so a chat the module
+      // starts for a capped agent is no looser than that agent.
+      callerPermissionCeiling: (context) => launchPermissionCeiling(context, resolveAgentPermissionPreset),
       warn: (details) => {
         void writeDiagnosticLog({
           level: 'warning',
@@ -1488,19 +1527,18 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           hasWorkspace: (workspaceId) =>
             workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
         }),
-        ...createConversationTools({ launch: (request) => conversationLaunchService.launch(request) }),
+        ...createConversationTools({
+          launch: (request) => conversationLaunchService.launch(request),
+          resolveAgentPermissionPreset,
+        }),
         ...createAutomationTools({
           getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
           listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
           launchAgent: (request) => agentLaunchService.launch(request),
+          resolveAgentPermissionPreset,
           createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
           listBacklogItems: (workspaceRoot) => listBacklogItems(workspaceRoot),
           readBacklogItem: (workspaceRoot, relativePath) => readBacklogItem(workspaceRoot, relativePath),
-          // Same filesystem store the Automations IPC front door reads; roots are
-          // snapshot-resolved, so only open workspaces are reachable.
-          listAutomationDefinitions: (workspaceRoot) => new AutomationsStore(workspaceRoot).listDefinitions(),
-          listAutomationRuns: (workspaceRoot, automationId) =>
-            new AutomationsStore(workspaceRoot).listRuns(automationId),
           backlogWrite: {
             updateStatus: updateBacklogStatus,
             updateType: updateBacklogType,
@@ -1510,7 +1548,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
             addOrUpdateLink: addOrUpdateBacklogLink,
             repairIntegrity: repairBacklogIntegrity,
           },
-          getAutomationsFrontDoor: () => resolveAutomationsAppFrontDoor(),
+          getScheduledAgents: () => resolveScheduledAgents(),
+          defaultChatCli: () => effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastSelectedCli ?? null,
           // The mobile companion, which reaches this desktop only over the
           // tailnet gateway: the snapshot builder and the command service behind
           // `workspace.snapshot` and `workspace.mobile_command`, scoped to the
@@ -1662,10 +1701,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           // same client the Extensions storefront's IPC uses, cache included.
           getModuleRegistrySnapshot: () => moduleRegistryMirror.read(),
           listInstalledThirdPartyModules: async () => {
-            const { modules, rejected } = await discoverUserModules(defaultUserModuleRoot(), {
-              trustedModules: readTrustedModulesSync(app.getPath('userData')),
-              trustedKeyFingerprints: readTrustedMarketplacePublisherFingerprintsSync(),
-            })
+            const { modules, rejected } = await discoverUserModules(
+              defaultUserModuleRoot(),
+              readModuleTrustContextSync(app.getPath('userData')),
+            )
             return { modules: modules.map((module) => toThirdPartyModuleView(module)), rejected }
           },
           listModuleContributedTools: () =>
@@ -1901,13 +1940,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     telemetryConsentStore,
     analytics,
     readBackgroundStatus,
-    setAutomationsAppFrontDoorResolver(resolver: () => AutomationsAppFrontDoor | null): void {
-      resolveAutomationsAppFrontDoor = resolver
+    setScheduledAgentsResolver(resolver: () => ScheduledAgentsService | null): void {
+      resolveScheduledAgents = resolver
     },
-    // Read side of the same lazy resolver: the marketplace install path adds a
-    // catalogue automation through this door, and gets null while the module is
-    // down rather than a second way into the automations store.
-    getAutomationsAppFrontDoor: (): AutomationsAppFrontDoor | null => resolveAutomationsAppFrontDoor(),
     setModuleEnabledResolver(resolver: (moduleId: string) => boolean): void {
       resolveModuleEnabled = resolver
     },
@@ -1917,6 +1952,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     moduleRegistryMirror,
     agentControlPlane,
     agentLaunchService,
+    conversationLaunchService,
     tourService,
     setTourAttention: tours.setAttention,
     builtinSkillManager,

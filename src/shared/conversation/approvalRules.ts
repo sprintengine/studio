@@ -1,5 +1,6 @@
 import { inferConversationToolKind } from './toolKind'
 import type { ConversationToolKind } from '../conversation-runtime'
+import { STUDIO_MCP_SERVER_ID } from '../product-identity'
 
 export type ConversationApprovalDecision = 'once' | 'conversation' | 'always' | 'deny'
 export type ApprovalRuleRequest = {
@@ -604,6 +605,26 @@ export function isApprovalPathInGitDirectory(path: string, root: string): boolea
     .some((part) => /^\.git[.\s]*$/iu.test(part))
 }
 
+// The gateway tools that start an agent, or give one a workspace to start in.
+// Each call hands a prompt of the caller's choosing to an agent that then acts
+// on its own, so a person who asks to be asked sees every one of them: no
+// remembered grant covers them, and a rule saved before this is not honoured.
+// Matched on any server named for the gateway (the plugin copy prefixes it)
+// and on the tool as either spelling, since some CLIs rewrite the dot.
+const AGENT_LAUNCHING_GATEWAY_TOOLS = new Set([
+  'agent.launch',
+  'backlog.work',
+  'conversation.create',
+  'schedule.create',
+  'schedule.run',
+  'terminal.create',
+  'workspace.create',
+])
+
+function isAgentLaunchingGatewayTool(server: string, tool: string): boolean {
+  return server.includes(STUDIO_MCP_SERVER_ID) && AGENT_LAUNCHING_GATEWAY_TOOLS.has(tool.replace('_', '.'))
+}
+
 export function approvalRuleCandidate(
   request: ApprovalRuleRequest,
   workspaceRoot: string,
@@ -632,6 +653,7 @@ export function approvalRuleCandidate(
   if (kind === 'mcp') {
     const match = /^mcp__(?<server>[\w.-]+)__(?<tool>[\w.-]+)$/u.exec(request.action)
     if (!match?.groups) return null
+    if (isAgentLaunchingGatewayTool(match.groups.server, match.groups.tool)) return null
     return {
       ...base,
       matcher: { type: 'mcp', server: match.groups.server, tool: match.groups.tool },

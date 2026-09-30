@@ -22,39 +22,23 @@ import { join } from 'node:path'
 import type {
   CapabilityManifest as AppCapabilityManifest,
   ModuleEntry as AppModuleEntry,
+  ModuleFileDigests as AppModuleFileDigests,
   ModuleSignature as AppModuleSignature,
   ModuleSource as AppModuleSource,
   ModuleTrustStatus as AppModuleTrustStatus,
 } from '../../../src/shared/modules/manifest'
 import { BUNDLED_MODULE_IDS as APP_BUNDLED_MODULE_IDS } from '../../../src/shared/modules/manifest'
-import { AUTOMATION_PROVIDER_GLYPHS as APP_AUTOMATION_PROVIDER_GLYPHS } from '../../../src/shared/automations/contracts'
+import type {
+  ScheduledAgent as AppScheduledAgent,
+  ScheduledAgentAttachment as AppScheduledAgentAttachment,
+  ScheduledAgentDraft as AppScheduledAgentDraft,
+  ScheduledAgentLastRun as AppScheduledAgentLastRun,
+  ScheduledAgentSchedule as AppScheduledAgentSchedule,
+  ScheduledAgentView as AppScheduledAgentView,
+  ScheduledAgentWriteResult as AppScheduledAgentWriteResult,
+} from '../../../src/shared/scheduled-agents'
 import type { CapabilityPermission as AppCapabilityPermission } from '../../../src/shared/modules/permissions'
 import { KNOWN_CAPABILITY_PERMISSIONS as APP_KNOWN_CAPABILITY_PERMISSIONS } from '../../../src/shared/modules/permissions'
-import type {
-  ActionContext as AppActionContext,
-  ActionKind as AppActionKind,
-  AutomationActionProvider as AppAutomationActionProvider,
-  AutomationDefinition as AppAutomationDefinition,
-  AutomationDefinitionDraft as AppAutomationDefinitionDraft,
-  AutomationDefinitionPatch as AppAutomationDefinitionPatch,
-  AutomationRun as AppAutomationRun,
-  AutomationRunEventStatus as AppAutomationRunEventStatus,
-  AutomationRunEventTrigger as AppAutomationRunEventTrigger,
-  AutomationRunStatus as AppAutomationRunStatus,
-  AutomationsRunEvent as AppAutomationsRunEvent,
-  AutomationStatus as AppAutomationStatus,
-  ModuleAutomationsError as AppModuleAutomationsError,
-  ModuleAutomationsService as AppModuleAutomationsService,
-  AutomationTriggerPollContext as AppAutomationTriggerPollContext,
-  AutomationTriggerPollEvent as AppAutomationTriggerPollEvent,
-  AutomationTriggerPollResult as AppAutomationTriggerPollResult,
-  AutomationTriggerProvider as AppAutomationTriggerProvider,
-  AutomationTriggerPairing as AppAutomationTriggerPairing,
-  AutomationProviderGlyph as AppAutomationProviderGlyph,
-  JsonSchema as AppJsonSchema,
-  ScheduleTriggerConfig as AppScheduleTriggerConfig,
-  TriggerKind as AppTriggerKind,
-} from '../../../src/shared/automations/contracts'
 import type { ModuleBridgeRefusalCode as AppModuleBridgeRefusalCode } from '../../../src/shared/modules/bridge'
 import type { ModuleEventEnvelope as AppModuleEventEnvelope } from '../../../src/shared/modules/events'
 import type { FileDropPayload as AppFileDropPayload } from '../../../src/renderer/src/utils/terminalDrop'
@@ -83,36 +67,30 @@ import type {
   ModuleSkillRegistration as AppModuleSkillRegistration,
   ModuleSkillTargetPolicy as AppModuleSkillTargetPolicy,
 } from '../../../src/shared/modules/skills'
-import type {
-  LaunchContribution as AppLaunchContribution,
-  LaunchContributionHostContextSection as AppLaunchContributionHostContextSection,
-  LaunchContributionMcpServer as AppLaunchContributionMcpServer,
-  LaunchContributionPathStyle as AppLaunchContributionPathStyle,
-  LaunchContributionRequest as AppLaunchContributionRequest,
-  LaunchContributionResult as AppLaunchContributionResult,
-  LaunchContributionSessionTag as AppLaunchContributionSessionTag,
-} from '../../../src/shared/modules/launch-contributions'
 import type { ModuleWorkspaceContextService as AppModuleWorkspaceContextService } from '../../../src/main/modules/module-workspace-service'
 import type {
   ModuleStorageErrorCode as AppModuleStorageErrorCode,
   ModuleStorageRegistry as AppModuleStorageRegistry,
   ModuleStorageResult as AppModuleStorageResult,
 } from '../../../src/main/module-host/module-storage'
+// Every token the host exports, read as one namespace so the key check below
+// does not depend on what each token is called.
+import * as appServiceTokens from '../../../src/main/module-host/service-tokens'
 import {
-  AgentSessionsModuleServiceToken as AppAgentSessionsModuleServiceToken,
-  ModuleStorageToken as AppModuleStorageToken,
-  WorkspaceContextToken as AppWorkspaceContextToken,
-  WorkspaceServiceToken as AppWorkspaceServiceToken,
+  ConversationModuleServiceToken as AppConversationModuleServiceToken,
+  GitHubModuleServiceToken as AppGitHubModuleServiceToken,
+  ModuleSecretsServiceToken as AppModuleSecretsServiceToken,
 } from '../../../src/main/module-host/service-tokens'
+// The host-internal chat tokens, provided by agent-runtime-module.
+import {
+  ConversationLaunchServiceToken as AppConversationLaunchServiceToken,
+  ConversationRuntimeToken as AppConversationRuntimeToken,
+} from '../../../src/main/module-host/service-tokens'
+import { THIRD_PARTY_SERVICE_KEYS as APP_THIRD_PARTY_SERVICE_KEYS } from '../../../src/main/module-host/main-host'
+import type { CapabilityModule as AppCapabilityModule } from '../../../src/main/module-host/load-modules'
+import type { ModuleFocusTabInput as AppModuleFocusTabInput } from '../../../src/renderer/src/modules/workspace-tabs'
+import type { CompanionAgentsModuleRegistry as AppCompanionAgentsModuleRegistry } from '../../../src/main/companion-agent-service'
 import type {
-  ModuleAgentExitEvent as AppModuleAgentExitEvent,
-  ModuleAgentSessionRecord as AppModuleAgentSessionRecord,
-  ModuleAgentSessionService as AppModuleAgentSessionService,
-  ModuleAgentSpawnRequest as AppModuleAgentSpawnRequest,
-  ModuleAgentSpawnResult as AppModuleAgentSpawnResult,
-} from '../../../src/shared/modules/agent-sessions'
-import type {
-  AgentIdNamespaceDefinition as AppAgentIdNamespaceDefinition,
   BacklogItemAction as AppBacklogItemAction,
   BacklogItemActionContext as AppBacklogItemActionContext,
   BacklogLinkProvider as AppBacklogLinkProvider,
@@ -155,15 +133,7 @@ import type {
 } from '../../../src/renderer/src/commands/types'
 import type { ModuleWorkspaceView as AppModuleWorkspaceView } from '../../../src/shared/modules/workspace-view'
 import type { WorkspaceFileWatchEvent as AppWorkspaceFileWatchEvent } from '../../../src/renderer/src/modules/workspace-file-watch'
-import type { ModuleAgentSessionView as AppModuleAgentSessionView } from '../../../src/renderer/src/modules/agent-session-watch'
 import type { ModuleColorScheme as AppModuleColorScheme } from '../../../src/renderer/src/modules/color-scheme-watch'
-import type {
-  ModuleAgentRuntimeModelOption as AppModuleAgentRuntimeModelOption,
-  ModuleAgentRuntimeOption as AppModuleAgentRuntimeOption,
-  ModuleFocusTabInput as AppModuleFocusTabInput,
-  ModuleSpawnAgentInput as AppModuleSpawnAgentInput,
-  ModuleSpawnAgentResult as AppModuleSpawnAgentResult,
-} from '../../../src/renderer/src/modules/agent-spawn'
 import type {
   BacklogItemLink as AppBacklogItemLink,
   BacklogItemStatus as AppBacklogItemStatus,
@@ -175,7 +145,6 @@ import type {
 } from '../../../src/renderer/src/types/workspace'
 
 import type {
-  AgentIdNamespaceDefinition as SdkAgentIdNamespaceDefinition,
   BacklogItemAction as SdkBacklogItemAction,
   BacklogItemActionContext as SdkBacklogItemActionContext,
   FileAction as SdkFileAction,
@@ -196,27 +165,19 @@ import type {
   CapabilityPermission as SdkCapabilityPermission,
   CommandAvailability as SdkCommandAvailability,
   CommandScope as SdkCommandScope,
-  ActionContext as SdkActionContext,
-  ActionKind as SdkActionKind,
-  AutomationActionProvider as SdkAutomationActionProvider,
-  AutomationDefinition as SdkAutomationDefinition,
-  AutomationDefinitionDraft as SdkAutomationDefinitionDraft,
-  AutomationDefinitionPatch as SdkAutomationDefinitionPatch,
-  AutomationRun as SdkAutomationRun,
-  AutomationRunEventStatus as SdkAutomationRunEventStatus,
-  AutomationRunEventTrigger as SdkAutomationRunEventTrigger,
-  AutomationRunStatus as SdkAutomationRunStatus,
-  AutomationsRunEvent as SdkAutomationsRunEvent,
-  AutomationStatus as SdkAutomationStatus,
-  ModuleAutomationsError as SdkModuleAutomationsError,
-  ModuleAutomationsService as SdkModuleAutomationsService,
-  AutomationTriggerPollContext as SdkAutomationTriggerPollContext,
-  AutomationTriggerPollEvent as SdkAutomationTriggerPollEvent,
-  AutomationTriggerPollResult as SdkAutomationTriggerPollResult,
-  AutomationTriggerProvider as SdkAutomationTriggerProvider,
-  AutomationTriggerPairing as SdkAutomationTriggerPairing,
-  AutomationProviderGlyph as SdkAutomationProviderGlyph,
-  JsonSchema as SdkJsonSchema,
+  CompanionAgentEvent as SdkCompanionAgentEvent,
+  CompanionAgentHandle as SdkCompanionAgentHandle,
+  CompanionAgentSpec as SdkCompanionAgentSpec,
+  CompanionAgentStatus as SdkCompanionAgentStatus,
+  CompanionAgentsService as SdkCompanionAgentsService,
+  CompanionRunStructuredOptions as SdkCompanionRunStructuredOptions,
+  ScheduledAgent as SdkScheduledAgent,
+  ScheduledAgentAttachment as SdkScheduledAgentAttachment,
+  ScheduledAgentDraft as SdkScheduledAgentDraft,
+  ScheduledAgentLastRun as SdkScheduledAgentLastRun,
+  ScheduledAgentSchedule as SdkScheduledAgentSchedule,
+  ScheduledAgentView as SdkScheduledAgentView,
+  ScheduledAgentWriteResult as SdkScheduledAgentWriteResult,
   FileDropPayload as SdkFileDropPayload,
   GlobalSurfaceDefinition as SdkGlobalSurfaceDefinition,
   ModalSurfaceComponentProps as SdkModalSurfaceComponentProps,
@@ -227,13 +188,6 @@ import type {
   McpConnectionMetadata as SdkMcpConnectionMetadata,
   McpToolRegistration as SdkMcpToolRegistration,
   EnsureSkillInstalledResult as SdkEnsureSkillInstalledResult,
-  LaunchContribution as SdkLaunchContribution,
-  LaunchContributionHostContextSection as SdkLaunchContributionHostContextSection,
-  LaunchContributionMcpServer as SdkLaunchContributionMcpServer,
-  LaunchContributionPathStyle as SdkLaunchContributionPathStyle,
-  LaunchContributionRequest as SdkLaunchContributionRequest,
-  LaunchContributionResult as SdkLaunchContributionResult,
-  LaunchContributionSessionTag as SdkLaunchContributionSessionTag,
   ModuleSkillRegistration as SdkModuleSkillRegistration,
   ModuleSkillTargetPolicy as SdkModuleSkillTargetPolicy,
   McpToolResult as SdkMcpToolResult,
@@ -245,20 +199,11 @@ import type {
   ModuleNotification as SdkModuleNotification,
   ModuleNotificationSeverity as SdkModuleNotificationSeverity,
   ModuleNotifyInput as SdkModuleNotifyInput,
+  ModuleFileDigests as SdkModuleFileDigests,
   ModuleSignature as SdkModuleSignature,
   ModuleSource as SdkModuleSource,
-  ModuleAgentRuntimeModelOption as SdkModuleAgentRuntimeModelOption,
-  ModuleAgentRuntimeOption as SdkModuleAgentRuntimeOption,
-  ModuleAgentSessionView as SdkModuleAgentSessionView,
   ModuleColorScheme as SdkModuleColorScheme,
   ModuleFocusTabInput as SdkModuleFocusTabInput,
-  ModuleSpawnAgentInput as SdkModuleSpawnAgentInput,
-  ModuleAgentExitEvent as SdkModuleAgentExitEvent,
-  ModuleAgentSessionRecord as SdkModuleAgentSessionRecord,
-  ModuleAgentSessionService as SdkModuleAgentSessionService,
-  ModuleAgentSpawnRequest as SdkModuleAgentSpawnRequest,
-  ModuleAgentSpawnResult as SdkModuleAgentSpawnResult,
-  ModuleSpawnAgentResult as SdkModuleSpawnAgentResult,
   ModuleStorageErrorCode as SdkModuleStorageErrorCode,
   ModuleStorageResult as SdkModuleStorageResult,
   ModuleStorageService as SdkModuleStorageService,
@@ -266,8 +211,9 @@ import type {
   ModuleWorkspaceView as SdkModuleWorkspaceView,
   WorkspaceContextService as SdkWorkspaceContextService,
   PreviewSlot as SdkPreviewSlot,
+  RegisterMain as SdkRegisterMain,
+  RegisterRenderer as SdkRegisterRenderer,
   RendererHost as SdkRendererHost,
-  ScheduleTriggerConfig as SdkScheduleTriggerConfig,
   SettingsSectionDefinition as SdkSettingsSectionDefinition,
   SettingsSectionProps as SdkSettingsSectionProps,
   SidebarNavEntryDefinition as SdkSidebarNavEntryDefinition,
@@ -277,7 +223,6 @@ import type {
   SidecarSpec as SdkSidecarSpec,
   SidecarStartOptions as SdkSidecarStartOptions,
   TopBarItemDefinition as SdkTopBarItemDefinition,
-  TriggerKind as SdkTriggerKind,
   WorkspaceCreationStepProps as SdkWorkspaceCreationStepProps,
   WorkspaceLayoutTemplate as SdkWorkspaceLayoutTemplate,
   WorkspacePanelComponent as SdkWorkspacePanelComponent,
@@ -295,7 +240,8 @@ import {
   BUNDLED_MODULE_IDS as SDK_BUNDLED_MODULE_IDS,
   KNOWN_CAPABILITY_PERMISSIONS as SDK_KNOWN_CAPABILITY_PERMISSIONS,
   SPRINTENGINE_FILE_DROP_MIME as SDK_FILE_DROP_MIME,
-  AUTOMATION_PROVIDER_GLYPHS as SDK_AUTOMATION_PROVIDER_GLYPHS,
+  WorkspaceContextToken as SdkWorkspaceContextToken,
+  WorkspaceServiceToken as SdkWorkspaceServiceToken,
 } from '../src/index'
 
 // The bridged UI kit and door shell (D6). The SDK restates these shapes by
@@ -317,6 +263,20 @@ import type * as appSdkSurface from '../../../src/renderer/src/modules/sdk-surfa
 // against the emitted declarations below instead of against a namespace.
 import type * as sdkUi from '../src/ui'
 import type * as sdkSurface from '../src/surface'
+// Host API version, conversations and brokered credentials: the SDK side is
+// read off the public index, the app side off its shared twins.
+import type * as sdk from '../src/index'
+import {
+  HOST_API_MIN_SUPPORTED as SDK_HOST_API_MIN_SUPPORTED,
+  HOST_API_VERSION as SDK_HOST_API_VERSION,
+} from '../src/index'
+import type * as appHostApi from '../../../src/shared/modules/host-api'
+import {
+  HOST_API_MIN_SUPPORTED as APP_HOST_API_MIN_SUPPORTED,
+  HOST_API_VERSION as APP_HOST_API_VERSION,
+} from '../../../src/shared/modules/host-api'
+import type * as appConversation from '../../../src/shared/modules/conversation-service'
+import type * as appBrokers from '../../../src/shared/modules/brokers'
 
 type Extends<A, B> = [A] extends [B] ? true : false
 // Type identity via the generic-function-identity trick: detects added/removed
@@ -332,6 +292,7 @@ function expectType<_T extends true>(): void {}
 expectType<IsExact<AppCapabilityManifest, SdkCapabilityManifest>>()
 expectType<IsExact<AppModuleEntry, SdkModuleEntry>>()
 expectType<IsExact<AppModuleSignature, SdkModuleSignature>>()
+expectType<IsExact<AppModuleFileDigests, SdkModuleFileDigests>>()
 expectType<IsExact<AppModuleSource, SdkModuleSource>>()
 expectType<IsExact<AppModuleTrustStatus, SdkModuleTrustStatus>>()
 expectType<IsExact<AppCapabilityPermission, SdkCapabilityPermission>>()
@@ -359,28 +320,18 @@ expectType<IsExact<AppSettingsSectionProps, SdkSettingsSectionProps>>()
 // provided under WorkspaceContextToken must match the SDK's contract.
 expectType<IsExact<AppModuleWorkspaceView, SdkModuleWorkspaceView>>()
 expectType<IsExact<AppModuleWorkspaceContextService, SdkWorkspaceContextService>>()
-// Agent sessions (D5 / WP-B): the five public shapes a module's entry.main
-// programs against. Exact, not assignable — an optional field added on one side
-// only is precisely the drift a module author would discover as a spawn that
-// silently ignored what they asked for.
-expectType<IsExact<AppModuleAgentSessionRecord, SdkModuleAgentSessionRecord>>()
-expectType<IsExact<AppModuleAgentSpawnRequest, SdkModuleAgentSpawnRequest>>()
-expectType<IsExact<AppModuleAgentSpawnResult, SdkModuleAgentSpawnResult>>()
-expectType<IsExact<AppModuleAgentExitEvent, SdkModuleAgentExitEvent>>()
-expectType<IsExact<AppModuleAgentSessionService, SdkModuleAgentSessionService>>()
 // Live runtime surfaces: the published views/inputs mirror the
 // app-side declarations exactly; RendererHost method soundness rides the
 // AppRendererHost extends SdkRendererHost assertion below.
 expectType<IsExact<AppWorkspaceFileWatchEvent, SdkWorkspaceFileWatchEvent>>()
-expectType<IsExact<AppModuleAgentSessionView, SdkModuleAgentSessionView>>()
-expectType<IsExact<AppModuleAgentRuntimeModelOption, SdkModuleAgentRuntimeModelOption>>()
-expectType<IsExact<AppModuleAgentRuntimeOption, SdkModuleAgentRuntimeOption>>()
 // The published 'light' | 'dark' must stay the app's own resolved scheme: the
 // module host's watchColorScheme republishes exactly what useResolvedColorScheme
 // resolves, and a third value added app-side has to be published or refused.
 expectType<IsExact<AppModuleColorScheme, SdkModuleColorScheme>>()
-expectType<IsExact<AppModuleSpawnAgentInput, SdkModuleSpawnAgentInput>>()
-expectType<IsExact<AppModuleSpawnAgentResult, SdkModuleSpawnAgentResult>>()
+// focusTab opens a chat or a file; pinned on the method so the input shape
+// is checked wherever the host declares it.
+expectType<IsExact<AppRendererHost['focusTab'], SdkRendererHost['focusTab']>>()
+// …and the input itself, against the tab focuser that serves it.
 expectType<IsExact<AppModuleFocusTabInput, SdkModuleFocusTabInput>>()
 // Module storage: the SDK publishes the scoped service (getModuleStorage);
 // the app provides the moduleId-first registry under 'core.module-storage'.
@@ -396,29 +347,15 @@ type SdkExpectedStorageRegistry = {
 }
 expectType<Extends<AppModuleStorageRegistry, SdkExpectedStorageRegistry>>()
 expectType<IsExact<AppPreviewSlot, SdkPreviewSlot>>()
-expectType<IsExact<AppJsonSchema, SdkJsonSchema>>()
-expectType<IsExact<AppAutomationStatus, SdkAutomationStatus>>()
-expectType<IsExact<AppAutomationRunStatus, SdkAutomationRunStatus>>()
-expectType<IsExact<AppTriggerKind, SdkTriggerKind>>()
-expectType<IsExact<AppScheduleTriggerConfig, SdkScheduleTriggerConfig>>()
-expectType<IsExact<AppAutomationTriggerPollContext, SdkAutomationTriggerPollContext>>()
-expectType<IsExact<AppAutomationTriggerPollEvent, SdkAutomationTriggerPollEvent>>()
-expectType<IsExact<AppAutomationTriggerPollResult, SdkAutomationTriggerPollResult>>()
-expectType<IsExact<AppAutomationTriggerProvider, SdkAutomationTriggerProvider>>()
-expectType<IsExact<AppAutomationTriggerPairing, SdkAutomationTriggerPairing>>()
-expectType<IsExact<AppAutomationProviderGlyph, SdkAutomationProviderGlyph>>()
-expectType<IsExact<AppActionKind, SdkActionKind>>()
-expectType<IsExact<AppAutomationRun, SdkAutomationRun>>()
-expectType<IsExact<AppAutomationDefinition, SdkAutomationDefinition>>()
-expectType<IsExact<AppAutomationDefinitionDraft, SdkAutomationDefinitionDraft>>()
-expectType<IsExact<AppAutomationDefinitionPatch, SdkAutomationDefinitionPatch>>()
-expectType<IsExact<AppAutomationRunEventStatus, SdkAutomationRunEventStatus>>()
-expectType<IsExact<AppAutomationRunEventTrigger, SdkAutomationRunEventTrigger>>()
-expectType<IsExact<AppAutomationsRunEvent, SdkAutomationsRunEvent>>()
-expectType<IsExact<AppModuleAutomationsError, SdkModuleAutomationsError>>()
-expectType<IsExact<AppModuleAutomationsService, SdkModuleAutomationsService>>()
-expectType<IsExact<AppActionContext, SdkActionContext>>()
-expectType<IsExact<AppAutomationActionProvider, SdkAutomationActionProvider>>()
+// Scheduled agents: the records an extension's scoped service hands back and
+// takes are the app's own, field for field.
+expectType<IsExact<AppScheduledAgentSchedule, SdkScheduledAgentSchedule>>()
+expectType<IsExact<AppScheduledAgentAttachment, SdkScheduledAgentAttachment>>()
+expectType<IsExact<AppScheduledAgentLastRun, SdkScheduledAgentLastRun>>()
+expectType<IsExact<AppScheduledAgent, SdkScheduledAgent>>()
+expectType<IsExact<AppScheduledAgentDraft, SdkScheduledAgentDraft>>()
+expectType<IsExact<AppScheduledAgentView, SdkScheduledAgentView>>()
+expectType<IsExact<AppScheduledAgentWriteResult, SdkScheduledAgentWriteResult>>()
 
 // MCP tool contributions: the wire shapes mirror exactly — an
 // optional-property drift on a tool registration would silently change what
@@ -441,22 +378,15 @@ expectType<IsExact<AppEnsureSkillInstalledResult, SdkEnsureSkillInstalledResult>
 expectType<IsExact<AppMainHost['registerSkills'], SdkMainHost['registerSkills']>>()
 expectType<IsExact<AppMainHost['ensureSkillInstalled'], SdkMainHost['ensureSkillInstalled']>>()
 
-// Launch contributions: the request/result shapes a module's entry.main
-// programs against, and the host method itself. Exact, not assignable — an
-// optional field added on one side only is the drift that would silently drop
-// a PATH entry or a host-context section.
-expectType<IsExact<AppLaunchContributionPathStyle, SdkLaunchContributionPathStyle>>()
-expectType<IsExact<AppLaunchContributionRequest, SdkLaunchContributionRequest>>()
-expectType<IsExact<AppLaunchContributionMcpServer, SdkLaunchContributionMcpServer>>()
-expectType<IsExact<AppLaunchContributionHostContextSection, SdkLaunchContributionHostContextSection>>()
-expectType<IsExact<AppLaunchContributionSessionTag, SdkLaunchContributionSessionTag>>()
-expectType<IsExact<AppLaunchContributionResult, SdkLaunchContributionResult>>()
-expectType<IsExact<AppLaunchContribution, SdkLaunchContribution>>()
-expectType<IsExact<AppMainHost['registerLaunchContribution'], SdkMainHost['registerLaunchContribution']>>()
-
 // Host soundness: the app host handed to module code satisfies the SDK view.
 expectType<Extends<AppMainHost, SdkMainHost>>()
 expectType<Extends<AppRendererHost, SdkRendererHost>>()
+// Host parity: the hosts a module is handed carry exactly the members the SDK
+// publishes, no more. `Extends` alone lets the app grow a member no module can
+// type (or keep one the SDK removed); anything first-party-only belongs on the
+// host's internal type, not on these.
+expectType<IsExact<keyof AppMainHost, keyof SdkMainHost>>()
+expectType<IsExact<keyof AppRendererHost, keyof SdkRendererHost>>()
 // Per-module workspace state: the accessor pair is the pinned SDK
 // shape for module-owned workspace state — exact identity, because the
 // one-directional host assertion above would let an optional-parameter or
@@ -526,6 +456,10 @@ expectType<IsExact<AppModalSurfaceDefinition, SdkModalSurfaceDefinition>>()
 expectType<IsExact<AppModalSurfaceLauncher, SdkModalSurfaceLauncher>>()
 expectType<IsExact<AppModalSurfaceComponentProps, SdkModalSurfaceComponentProps>>()
 expectType<IsExact<AppRendererHost['registerModalSurface'], SdkRendererHost['registerModalSurface']>>()
+// The openers a module calls for its OWN surfaces (the host refuses another
+// module's id); a module draws its own trigger, so these are its only way in.
+expectType<IsExact<AppRendererHost['openGlobalSurface'], SdkRendererHost['openGlobalSurface']>>()
+expectType<IsExact<AppRendererHost['openModalSurface'], SdkRendererHost['openModalSurface']>>()
 
 // Renderer host additions for module-owned surfaces (WP-C, 2026-09-10). Pinned
 // exactly for the reason the whole file gives: the one-directional host
@@ -534,14 +468,12 @@ expectType<IsExact<AppRendererHost['registerModalSurface'], SdkRendererHost['reg
 expectType<IsExact<AppRendererHost['listWorkspaces'], SdkRendererHost['listWorkspaces']>>()
 expectType<IsExact<AppRendererHost['watchWorkspaces'], SdkRendererHost['watchWorkspaces']>>()
 expectType<IsExact<AppRendererHost['watchColorScheme'], SdkRendererHost['watchColorScheme']>>()
-expectType<IsExact<AppRendererHost['watchAgentSessions'], SdkRendererHost['watchAgentSessions']>>()
-expectType<IsExact<AppRendererHost['listAgentRuntimes'], SdkRendererHost['listAgentRuntimes']>>()
 
-// ── The four module-boundary surfaces ──────────────────────────────
+// ── The three module-boundary surfaces ──────────────────────────────
 // Each is pinned exactly rather than by `Extends`, for the reason spelled out
 // above: the one-directional host assertion compares method parameters
 // bivariantly, so an app-side widening (or a dropped optional) would ride
-// through unnoticed on all four.
+// through unnoticed on all three.
 
 // 1. Async workspace creation: the hook and both of its wire shapes.
 expectType<IsExact<AppWorkspaceTypeCreateRequest, SdkWorkspaceTypeCreateRequest>>()
@@ -553,21 +485,94 @@ expectType<
   >
 >()
 
-// 2. Module-owned agent-id namespaces.
-expectType<IsExact<AppAgentIdNamespaceDefinition, SdkAgentIdNamespaceDefinition>>()
-expectType<IsExact<AppRendererHost['registerAgentIdNamespace'], SdkRendererHost['registerAgentIdNamespace']>>()
-
-// 3. App-level module state — the renderer-side, synchronously-readable scope
+// 2. App-level module state — the renderer-side, synchronously-readable scope
 // above the per-workspace bag. The accessor trio is pinned like the workspace-state pair.
 expectType<IsExact<AppRendererHost['getModuleAppState'], SdkRendererHost['getModuleAppState']>>()
 expectType<IsExact<AppRendererHost['setModuleAppState'], SdkRendererHost['setModuleAppState']>>()
 expectType<IsExact<AppRendererHost['watchModuleAppState'], SdkRendererHost['watchModuleAppState']>>()
 
-// 4. The module-owned event channel: the emit half on MainHost, the subscribe
+// 3. The module-owned event channel: the emit half on MainHost, the subscribe
 // half on RendererHost, and the envelope both processes agree on.
 expectType<IsExact<AppModuleEventEnvelope, SdkModuleEventEnvelope>>()
 expectType<IsExact<AppMainHost['emit'], SdkMainHost['emit']>>()
 expectType<IsExact<AppRendererHost['subscribe'], SdkRendererHost['subscribe']>>()
+
+// The entry contracts may be async: the main loader awaits what registerMain
+// returns, so the SDK's export contract must be exactly what it accepts.
+expectType<IsExact<ReturnType<NonNullable<AppCapabilityModule['registerMain']>>, ReturnType<SdkRegisterMain>>>()
+expectType<IsExact<Parameters<SdkRegisterMain>, [host: SdkMainHost]>>()
+expectType<IsExact<Parameters<SdkRegisterRenderer>, [host: SdkRendererHost]>>()
+expectType<IsExact<ReturnType<SdkRegisterRenderer>, void | Promise<void>>>()
+
+// ── Host API version, conversations, brokered credentials ──────────────────
+// Every shape exact. The event, status and attachment types are the app's own
+// conversation-runtime types on the app side, so these pin the SDK's hand
+// restatement to what the chat runtime actually emits.
+expectType<IsExact<appHostApi.HostCapability, sdk.HostCapability>>()
+expectType<IsExact<appHostApi.HostApiCompatibility, sdk.HostApiCompatibility>>()
+expectType<IsExact<AppMainHost['hostApiVersion'], SdkMainHost['hostApiVersion']>>()
+expectType<IsExact<AppMainHost['supports'], SdkMainHost['supports']>>()
+expectType<IsExact<AppRendererHost['hostApiVersion'], SdkRendererHost['hostApiVersion']>>()
+expectType<IsExact<AppRendererHost['supports'], SdkRendererHost['supports']>>()
+expectType<IsExact<AppRendererHost['openChat'], SdkRendererHost['openChat']>>()
+expectType<IsExact<AppRendererHost['listChatRuntimes'], SdkRendererHost['listChatRuntimes']>>()
+
+expectType<IsExact<appConversation.ModuleConversationEventType, sdk.ModuleConversationEventType>>()
+expectType<IsExact<appConversation.ModuleConversationEvent, sdk.ModuleConversationEvent>>()
+expectType<IsExact<appConversation.ModuleConversationStatus, sdk.ModuleConversationStatus>>()
+expectType<IsExact<appConversation.ModuleConversationRef, sdk.ModuleConversationRef>>()
+expectType<IsExact<appConversation.ModuleConversationSummary, sdk.ModuleConversationSummary>>()
+expectType<IsExact<appConversation.ModuleConversationImageAttachment, sdk.ModuleConversationImageAttachment>>()
+expectType<IsExact<appConversation.ModuleConversationPermissionPreset, sdk.ModuleConversationPermissionPreset>>()
+expectType<IsExact<appConversation.ModuleConversationErrorCode, sdk.ModuleConversationErrorCode>>()
+expectType<IsExact<appConversation.ModuleConversationCreateInput, sdk.ModuleConversationCreateInput>>()
+expectType<
+  IsExact<
+    appConversation.ModuleConversationResult<{ events: appConversation.ModuleConversationEvent[] }>,
+    sdk.ModuleConversationResult<{ events: sdk.ModuleConversationEvent[] }>
+  >
+>()
+expectType<IsExact<appConversation.ModuleConversationService, sdk.ModuleConversationService>>()
+expectType<IsExact<appConversation.ModuleOpenChatInput, sdk.ModuleOpenChatInput>>()
+expectType<IsExact<appConversation.ModuleOpenChatResult, sdk.ModuleOpenChatResult>>()
+expectType<IsExact<appConversation.ModuleChatRuntimeOption, sdk.ModuleChatRuntimeOption>>()
+
+expectType<IsExact<appBrokers.ModuleSecretsError, sdk.ModuleSecretsError>>()
+expectType<IsExact<appBrokers.ModuleSecretFetchInit, sdk.ModuleSecretFetchInit>>()
+expectType<IsExact<appBrokers.ModuleSecretFetchResult, sdk.ModuleSecretFetchResult>>()
+expectType<IsExact<appBrokers.ModuleSecretsService, sdk.ModuleSecretsService>>()
+expectType<IsExact<appBrokers.ModuleGitHubRequest, sdk.ModuleGitHubRequest>>()
+expectType<IsExact<appBrokers.ModuleGitHubResponse, sdk.ModuleGitHubResponse>>()
+expectType<IsExact<appBrokers.ModuleGitHubService, sdk.ModuleGitHubService>>()
+
+// The moduleId-first registries the app provides must accept exactly what the
+// SDK helpers forward (the same derivation the storage registry is pinned by).
+type SdkExpectedRegistry<S> = {
+  [K in keyof S]: S[K] extends (...args: infer A) => infer R ? (moduleId: string, ...args: A) => R : never
+}
+expectType<IsExact<appConversation.ModuleConversationRegistry, SdkExpectedRegistry<sdk.ModuleConversationService>>>()
+expectType<IsExact<appBrokers.ModuleSecretsRegistry, SdkExpectedRegistry<sdk.ModuleSecretsService>>>()
+expectType<IsExact<appBrokers.ModuleGitHubRegistry, SdkExpectedRegistry<sdk.ModuleGitHubService>>>()
+
+// Companion agents. The app declares these shapes inline on the registry it
+// serves under 'companion-agents.module-service', so they are read off it: the
+// spec `attach` takes, the handle it returns, and what the handle's methods
+// take and give. Exact, except the event the handle streams: the SDK widens
+// `type` to string so a new app event kind never breaks a compiled module, so
+// the app's event must satisfy that view and carry exactly its fields.
+type AppCompanionAttach = AppCompanionAgentsModuleRegistry['attach']
+type AppCompanionAgentHandle = ReturnType<AppCompanionAttach>
+type AppCompanionAgentEvent = Parameters<Parameters<AppCompanionAgentHandle['onEvent']>[0]>[0]
+expectType<IsExact<Parameters<AppCompanionAttach>, [moduleId: string, spec: SdkCompanionAgentSpec]>>()
+expectType<IsExact<keyof AppCompanionAgentsModuleRegistry, keyof SdkCompanionAgentsService>>()
+expectType<IsExact<Omit<AppCompanionAgentHandle, 'onEvent'>, Omit<SdkCompanionAgentHandle, 'onEvent'>>>()
+expectType<IsExact<keyof AppCompanionAgentHandle, keyof SdkCompanionAgentHandle>>()
+expectType<IsExact<ReturnType<AppCompanionAgentHandle['status']>, SdkCompanionAgentStatus>>()
+expectType<
+  IsExact<Parameters<AppCompanionAgentHandle['runStructured']>[0], SdkCompanionRunStructuredOptions<unknown>>
+>()
+expectType<Extends<AppCompanionAgentEvent, SdkCompanionAgentEvent>>()
+expectType<IsExact<keyof AppCompanionAgentEvent, keyof SdkCompanionAgentEvent>>()
 
 // Callback-input soundness: what the app passes into module callbacks
 // satisfies the SDK's (intentionally widened) read views.
@@ -586,24 +591,81 @@ assert.deepEqual(
   [...APP_KNOWN_CAPABILITY_PERMISSIONS],
   'KNOWN_CAPABILITY_PERMISSIONS drifted between SDK and app',
 )
-assert.deepEqual(
-  [...SDK_AUTOMATION_PROVIDER_GLYPHS],
-  [...APP_AUTOMATION_PROVIDER_GLYPHS],
-  'AUTOMATION_PROVIDER_GLYPHS drifted between SDK and app',
-)
 assert.equal(SDK_FILE_DROP_MIME, APP_FILE_DROP_MIME, 'SPRINTENGINE_FILE_DROP_MIME drifted between SDK and app')
-
-// Service-token keys the SDK mirrors as private literals: pin the app side to
-// the documented strings so an accidental key edit fails here instead of
-// silently unresolving every module's requireService at runtime.
-assert.equal(AppWorkspaceServiceToken.key, 'core.workspace', 'WorkspaceServiceToken key drifted')
-assert.equal(AppWorkspaceContextToken.key, 'core.workspace-context', 'WorkspaceContextToken key drifted')
-assert.equal(AppModuleStorageToken.key, 'core.module-storage', 'ModuleStorageToken key drifted')
+assert.equal(SDK_HOST_API_VERSION, APP_HOST_API_VERSION, 'HOST_API_VERSION drifted between SDK and app')
 assert.equal(
-  AppAgentSessionsModuleServiceToken.key,
-  'agent-sessions.module-service',
-  'AgentSessionsModuleServiceToken key drifted',
+  SDK_HOST_API_MIN_SUPPORTED,
+  APP_HOST_API_MIN_SUPPORTED,
+  'HOST_API_MIN_SUPPORTED drifted between SDK and app',
 )
+
+// Service-token keys. The SDK resolves every host service by a string key it
+// keeps private (or publishes as a token), so the two sides agree only if the
+// host provides a token under each of those exact strings. Checked both ways:
+// every key below must appear in the emitted SDK, and the host must export a
+// token with it — an accidental key edit on either side fails here instead of
+// silently unresolving every module's requireService at runtime.
+const SDK_SERVICE_TOKEN_KEYS = [
+  'core.workspace',
+  'core.workspace-context',
+  'core.module-storage',
+  'scheduled-agents.module-service',
+  'companion-agents.module-service',
+  'conversation.module-service',
+  'module-secrets.module-service',
+  'github.module-service',
+] as const
+const sdkRuntime = ['index.js', 'conversation.js', 'brokers.js']
+  .map((file) => readFileSync(join(process.cwd(), 'packages', 'module-sdk', 'dist', file), 'utf8'))
+  .join('\n')
+const sdkKeysInRuntime = new Set(
+  [...sdkRuntime.matchAll(/createServiceToken\(['"]([^'"]+)['"]\)|\{\s*key:\s*['"]([^'"]+)['"],?\s*\}/g)].map(
+    (match) => match[1] ?? match[2],
+  ),
+)
+assert.deepEqual(
+  [...sdkKeysInRuntime].sort(),
+  [...SDK_SERVICE_TOKEN_KEYS].sort(),
+  'the SDK resolves a different set of host service keys than the drift guard pins',
+)
+const appServiceTokenKeys = new Set(
+  Object.values(appServiceTokens as Record<string, unknown>)
+    .filter((value): value is { key: string } => typeof (value as { key?: unknown } | null)?.key === 'string')
+    .map((token) => token.key),
+)
+for (const key of SDK_SERVICE_TOKEN_KEYS) {
+  assert.ok(appServiceTokenKeys.has(key), `the host provides no service token under the SDK key "${key}"`)
+}
+// The two tokens the SDK publishes by value are the same strings.
+assert.equal(SdkWorkspaceServiceToken.key, 'core.workspace', 'WorkspaceServiceToken key drifted')
+assert.equal(SdkWorkspaceContextToken.key, 'core.workspace-context', 'WorkspaceContextToken key drifted')
+// The host tokens behind the SDK's conversation and broker helpers, by name,
+// so a rename or a key edit on the host side fails here.
+assert.equal(
+  AppConversationModuleServiceToken.key,
+  'conversation.module-service',
+  'ConversationModuleServiceToken key drifted',
+)
+assert.equal(AppModuleSecretsServiceToken.key, 'module-secrets.module-service', 'ModuleSecretsServiceToken key drifted')
+assert.equal(AppGitHubModuleServiceToken.key, 'github.module-service', 'GitHubModuleServiceToken key drifted')
+// A third-party module may resolve exactly the keys the SDK resolves — every
+// one of them, and nothing app-internal. The chat launch and the conversation
+// runtime are first-party only: a module reaches chats through its own
+// moduleId-scoped conversation service, never the unscoped host services.
+assert.deepEqual(
+  [...APP_THIRD_PARTY_SERVICE_KEYS].sort(),
+  [...SDK_SERVICE_TOKEN_KEYS].sort(),
+  'the third-party service allow-list differs from the keys the SDK resolves',
+)
+assert.equal(AppConversationLaunchServiceToken.key, 'core.conversation-launch')
+assert.equal(AppConversationRuntimeToken.key, 'core.conversation-runtime')
+for (const firstPartyOnly of [AppConversationLaunchServiceToken.key, AppConversationRuntimeToken.key]) {
+  assert.equal(
+    APP_THIRD_PARTY_SERVICE_KEYS.has(firstPartyOnly),
+    false,
+    `"${firstPartyOnly}" is first-party only and must not be on the third-party service allow-list`,
+  )
+}
 
 // The published surface must not contain `any` (the source is also compiled
 // with strict settings; this guards the emitted declarations the tarball ships).
@@ -611,19 +673,9 @@ assert.equal(
 const publicTypes = readFileSync(join(process.cwd(), 'packages', 'module-sdk', 'dist', 'index.d.ts'), 'utf8')
 assert.equal((publicTypes.match(/\bany\b/g) ?? []).length, 0, 'SDK public declaration surface must not contain `any`')
 assert.equal(
-  publicTypes.includes('AutomationsProviderRegistryToken'),
+  publicTypes.includes('ScheduledAgentsModuleRegistry'),
   false,
-  'SDK public surface must not expose the raw Automations provider registry token',
-)
-assert.equal(
-  publicTypes.includes('AutomationsProviderRegistry'),
-  false,
-  'SDK public surface must not expose the raw Automations provider registry contract',
-)
-assert.equal(
-  publicTypes.includes('AutomationsModuleRegistry'),
-  false,
-  'SDK public surface must not expose the raw moduleId-first Automations service registry',
+  'SDK public surface must not expose the raw moduleId-first scheduled agents registry',
 )
 assert.equal(
   publicTypes.includes('ModuleStorageRegistry'),
@@ -635,6 +687,17 @@ assert.equal(
   false,
   'SDK public surface must not expose the raw storage registry token',
 )
+// The conversation and broker helpers keep their moduleId-first registries and
+// tokens private the same way; their declarations ship as separate files.
+for (const file of ['conversation.d.ts', 'brokers.d.ts', 'host-api.d.ts']) {
+  const declarations = readFileSync(join(process.cwd(), 'packages', 'module-sdk', 'dist', file), 'utf8')
+  assert.equal((declarations.match(/\bany\b/g) ?? []).length, 0, `SDK ${file} must not contain \`any\``)
+  assert.equal(
+    /Registry\b|ServiceToken\b/.test(declarations),
+    false,
+    `SDK ${file} must not expose a raw moduleId-first registry or its token`,
+  )
+}
 
 // ── Bridged UI kit and door shell (D6) ───────────────────────────────────────
 //

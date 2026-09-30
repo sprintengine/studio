@@ -13,6 +13,7 @@ import {
   type MergedCliModelCatalog,
 } from '../../../../../shared/cli-model-catalog'
 import { isWslHostId, type ExecutionHostId, type ExecutionHostSettings } from '../../../../../shared/execution-host'
+import { conversationCliRuntimesForHost } from '../../../../../shared/conversation-cli-runtimes'
 
 // What each CLI reported about its own models, keyed by plugin id — the
 // `cliModelCatalog` app setting, passed in rather than read from the store so
@@ -241,24 +242,15 @@ export function cliRuntimeOnMachine(
 }
 
 /**
- * The CLI runtimes a chat in a workspace runs with. A workspace on a WSL
- * machine runs its Claude chat with that machine's `claude` (its command
- * override there, and the host id that sends the child into the distribution);
- * every other runtime is the app's own.
+ * The CLI runtimes a chat in a workspace runs with — the shared rule main's
+ * own chat launches follow too (`conversationCliRuntimesForHost`).
  */
 export function conversationCliRuntimesFor(
   cliRuntimes: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>> | undefined,
   hostId: ExecutionHostId | null | undefined,
   hosts: Partial<Record<ExecutionHostId, ExecutionHostSettings>> | undefined,
 ): Partial<Record<AgentCli, Partial<CliRuntimeSettings>>> | undefined {
-  if (!hostId || !isWslHostId(hostId)) return cliRuntimes
-  return {
-    ...cliRuntimes,
-    [CLAUDE_CODE_PLUGIN_ID]: {
-      ...cliRuntimes?.[CLAUDE_CODE_PLUGIN_ID],
-      ...cliRuntimeOnMachine(CLAUDE_CODE_PLUGIN_ID, hostId, { cliRuntimes, hosts }),
-    },
-  }
+  return conversationCliRuntimesForHost<CliRuntimeSettings>(cliRuntimes, hostId, hosts)
 }
 
 export function isAgentCliAvailable(cli: AgentCli, catalog: AgentCliCatalogOption[]): boolean {

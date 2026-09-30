@@ -127,7 +127,7 @@ function cardRequiredCli(card: HostedCard): AgentCli | null {
  *
  * **Derived from the ACTIONS, never from `kind`.** `kind` is the word on the
  * stamp — what the card is about — and the schema lets a showcase card open a
- * chat exactly as it lets an automation card open a surface. Keying off it would
+ * chat exactly as it lets a plugin card open a surface. Keying off it would
  * be this same bug with a different key, and the card that broke it would be a
  * card that spawns an agent behind a plain button.
  *
@@ -184,10 +184,44 @@ export function CardGoPicker({
    *  not close onto a picker still standing underneath. */
   onNavigate: () => void
 }): JSX.Element {
+  const required = cardRequiredCli(card)
+  return (
+    <LaunchModelPicker
+      ariaLabel={`Run ${card.title}`}
+      selection={CARD_SELECTION}
+      required={required ? { cli: required, missing: `This card runs on ${required}, which is not installed.` } : null}
+      onChoose={onChoose}
+      onNavigate={onNavigate}
+    />
+  )
+}
+
+/**
+ * The same surface for any launch that is chosen by clicking a row, not only a
+ * card's: the build flow's agent choice (components/extensions) opens it on
+ * the chat selection, which lists only the CLIs that run as a chat. Everything
+ * the notes above say about a card's picker — the row is the launch, nothing
+ * is remembered, effort is held for this launch alone — holds for every host.
+ */
+export function LaunchModelPicker({
+  ariaLabel,
+  selection,
+  required = null,
+  onChoose,
+  onNavigate,
+}: {
+  ariaLabel: string
+  /** Which roster the rows come from: a general agent's, or a chat's. */
+  selection: AgentComposerSelection
+  /** A runtime this launch asks for: preselected, and said when it is missing. */
+  required?: { cli: AgentCli; missing: string } | null
+  onChoose: (choice: CardLaunchChoice) => void
+  onNavigate: () => void
+}): JSX.Element {
   const composer = useAgentComposer({
     showTerminal: false,
-    conversationAvailable: false,
-    initialSelection: CARD_SELECTION,
+    conversationAvailable: selection.kind === 'conversation',
+    initialSelection: selection,
   })
   // The app-wide default a CLI nobody has set still resolves to. The footer
   // writes per CLI; this reads the CLI back at the moment a row is clicked, which
@@ -211,16 +245,13 @@ export function CardGoPicker({
   // level a person set here leaves on the launch instead.
   const [effort, setEffort] = React.useState<Partial<Record<AgentCli, string | null>>>({})
   const effortFor = (cli: AgentCli): string | undefined =>
-    cli in effort ? (effort[cli] ?? undefined) : composer.reasoningForSelection(CARD_SELECTION, cli)
+    cli in effort ? (effort[cli] ?? undefined) : composer.reasoningForSelection(selection, cli)
 
-  const required = cardRequiredCli(card)
-  const requiredOption = required
-    ? (composer.agentCliOptions.find((option) => option.value === required) ?? null)
-    : null
-  // The whole catalogue, always. `require.cli` leads the list; it does not
-  // shorten it. See the note at the top of this file.
-  const options = composer.agentCliOptions
-  const currentCli = requiredOption ? requiredOption.value : composer.cliForSelection(CARD_SELECTION)
+  // The whole catalogue for the selection, always. `require.cli` leads the
+  // list; it does not shorten it. See the note at the top of this file.
+  const options = composer.optionsFor(selection)
+  const requiredOption = required ? (options.find((option) => option.value === required.cli) ?? null) : null
+  const currentCli = requiredOption ? requiredOption.value : composer.cliForSelection(selection)
 
   // One row, chosen — and that is the launch. Nothing is written: the run
   // carries the row, and the person's remembered New-chat engine is theirs.
@@ -236,11 +267,13 @@ export function CardGoPicker({
   // With no agent CLI on this machine at all there is no row that could run the
   // card; the install route is the only honest content (as in the spawn picker
   // and in "Hand to agent").
-  if (composer.noAgentCliInstalled) {
+  //
+  // A chat launch reads the same way when no installed CLI runs as a chat.
+  if (composer.noAgentCliInstalled || (options.length === 0 && composer.catalogStatus === 'ready')) {
     return (
       <div className="w-[380px] max-w-[calc(100vw-2rem)] py-1">
         <div className="px-3 py-1.5 text-micro text-[color:var(--text-muted)]" role="status">
-          No agent CLI is installed.
+          {composer.noAgentCliInstalled ? 'No agent CLI is installed.' : 'No installed agent CLI runs as a chat.'}
         </div>
         <CliInstallRosterRow onNavigate={onNavigate} />
       </div>
@@ -260,7 +293,7 @@ export function CardGoPicker({
     return (
       <div className="w-[380px] max-w-[calc(100vw-2rem)] py-1">
         <div className="px-3 py-1.5 text-micro text-[color:var(--text-muted)]" role="status">
-          This card runs on {required}, which is not installed.
+          {required.missing}
         </div>
         <CliInstallRosterRow onNavigate={onNavigate} />
       </div>
@@ -284,10 +317,10 @@ export function CardGoPicker({
 
   return (
     <CliModelPopoverSurface
-      ariaLabel={`Run ${card.title}`}
+      ariaLabel={ariaLabel}
       options={options}
       currentCli={currentCli}
-      effectiveModelFor={(cli) => composer.modelForSelection(CARD_SELECTION, cli)}
+      effectiveModelFor={(cli) => composer.modelForSelection(selection, cli)}
       // Effort is a property of the model, so it belongs in the model's own
       // picker here exactly as it does in the New chat engine control. It comes
       // free wherever the CLI declares the axis and is absent everywhere else —

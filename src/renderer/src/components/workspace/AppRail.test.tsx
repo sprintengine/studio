@@ -70,30 +70,15 @@ test('AppRail', async () => {
   // ── The pure picks ────────────────────────────────────────────────────────────
   // Plugins left the rail (Extensions drawer ruling): it is one of the rows
   // UNDER Extensions, not a thing standing beside it.
-  assert.deepEqual([...RAIL_SURFACE_IDS], ['automations'], 'Automations is the rail’s one promoted surface')
-  {
-    const picked = railSurfacesOf([
-      surface('design', 'Design'),
-      surface('extensions', 'Plugins'),
-      surface('automations', 'Automations'),
-    ])
-    assert.deepEqual(
-      picked.map((s) => s.id),
-      ['automations'],
-      'only the promoted surface is taken, whatever else is registered',
-    )
-    // A disabled automations module leaves the host's list without it, and the
-    // rail simply has no glyph for it — never a dead square.
-    assert.deepEqual(railSurfacesOf([surface('extensions', 'Plugins')]), [])
-    // A door may register without a name or a glyph — a module that draws its own
-    // nav-entry row names itself there — and a nameless square is not a square the
-    // rail can draw, so such a door is skipped rather than rendered blank.
-    assert.deepEqual(
-      railSurfacesOf([{ id: 'automations', moduleId: 'automations', Component: () => null }]),
-      [],
-      'a door with no label or glyph contributes no rail square',
-    )
-  }
+  // Automations stood on the rail until scheduled agents replaced it
+  // (2026-09-30); nothing is promoted today, so the host's registered doors
+  // contribute no square, whatever is registered.
+  assert.deepEqual([...RAIL_SURFACE_IDS], [], 'no surface is promoted to the rail today')
+  assert.deepEqual(
+    railSurfacesOf([surface('design', 'Design'), surface('extensions', 'Plugins')]),
+    [],
+    'nothing registered takes a rail square unless the list promotes it',
+  )
   assert.ok(
     APP_RAIL_WIDTH < TRAFFIC_LIGHT_RESERVE,
     'the rail is narrower than the traffic lights, so the sidebar chrome insets for the rest',
@@ -105,7 +90,9 @@ test('AppRail', async () => {
   function render(
     section: 'home' | 'extensions',
     activeGlobalSurface: string | null,
-    surfaces: RailSurface[] = [surface('automations', 'Automations') as RailSurface],
+    // The component draws whatever surfaces the host hands it; a probe stands
+    // in for a promoted one.
+    surfaces: RailSurface[] = [surface('tides', 'Tides') as RailSurface],
     badges?: RailBadges,
   ) {
     const host = dom.window.document.createElement('div')
@@ -131,8 +118,8 @@ test('AppRail', async () => {
   render('home', null)
   assert.deepEqual(
     buttons().map((b) => b.getAttribute('aria-label')),
-    ['Home', 'Automations', 'Extensions'],
-    'three named glyphs: Home, Automations, Extensions',
+    ['Home', 'Tides', 'Extensions'],
+    'three named glyphs: Home, the promoted surface, Extensions',
   )
   assert.ok(
     buttons().every((b) => (b.textContent ?? '').trim() === ''),
@@ -166,7 +153,7 @@ test('AppRail', async () => {
   act(() => {
     buttons()[1]?.click()
   })
-  assert.deepEqual(opened, ['automations'], 'the Automations glyph opens its surface')
+  assert.deepEqual(opened, ['tides'], 'a surface glyph opens its surface')
 
   // ── The badges ───────────────────────────────────────────────────────────────
   // The rail's unread activity badge: a count docked on the square, in the tone of
@@ -174,7 +161,7 @@ test('AppRail', async () => {
   dom.window.document.body.innerHTML = ''
   render('home', null, undefined, {
     home: { count: 3, tone: 'warn', label: '3 chats want you' },
-    automations: { count: 120, tone: 'error', label: '120 automation runs to look at' },
+    tides: { count: 120, tone: 'error', label: '120 tide tables to look at' },
     extensions: null,
   })
   {
@@ -217,12 +204,12 @@ test('AppRail', async () => {
   }
 
   dom.window.document.body.innerHTML = ''
-  render('extensions', 'automations')
+  render('extensions', 'tides')
   assert.equal(buttons()[2]?.getAttribute('aria-current'), 'page')
   assert.equal(
     buttons()[1]?.getAttribute('aria-pressed'),
     'true',
-    'Automations reads pressed while its door holds the card region',
+    'a surface glyph reads pressed while its door holds the card region',
   )
 
   // ── A disabled module takes its glyph with it ─────────────────────────────────
@@ -231,7 +218,7 @@ test('AppRail', async () => {
   assert.deepEqual(
     buttons().map((b) => b.getAttribute('aria-label')),
     ['Home', 'Extensions'],
-    'with the automations module off the rail is Home and Extensions, and the gap closes',
+    'with no promoted surface the rail is Home and Extensions, and the gap closes',
   )
 
   console.log('AppRail.test.tsx: ok')

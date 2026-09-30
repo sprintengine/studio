@@ -35,7 +35,10 @@ export const BUNDLED_MODULE_IDS: readonly string[] = [
   // this id. Reserved rather than bundled so nothing else can claim the name.
   'sprint-engine',
   'review',
+  // RETIRED, still reserved: Automations became scheduled agents 2026-09-30.
+  // Same rule as 'switchboard'.
   'automations',
+  'scheduled-agents',
   // RETIRED, still reserved: the hosted mobile relay was removed 2026-09-27,
   // when the phone moved to pairing over the tailnet. Same rule as 'switchboard'.
   'mobile-relay',
@@ -67,7 +70,7 @@ export const CANVAS_MODULE_DEFAULT_ENABLED = true
  * appear until they relaunch. Live enable/disable for the rest is a recorded
  * follow-up, and this constant is the one place to widen when it lands.
  */
-export const LIVE_ENABLED_MODULE_IDS: readonly string[] = ['automations']
+export const LIVE_ENABLED_MODULE_IDS: readonly string[] = ['scheduled-agents']
 
 export type CapabilityCategory =
   'core' | 'dev-tools' | 'vcs' | 'orchestration' | 'insight' | 'connectivity' | (string & {})
@@ -99,6 +102,11 @@ export type ModuleEntry = {
   renderer?: string
 }
 
+// sha256 digests of a third-party module's own files: POSIX path relative to
+// the module root → lowercase hex, every regular file except manifest.json.
+// Mirrored from the SDK (drift-guarded); checked in module-signature.ts.
+export type ModuleFileDigests = Record<string, string>
+
 export type CapabilityManifest = {
   id: string
   displayName: string
@@ -121,8 +129,18 @@ export type CapabilityManifest = {
   source?: ModuleSource
   /** Capability scopes a third-party module requests (shown at install/trust). */
   permissions?: string[]
+  /**
+   * The host API the module was built against (see shared/modules/host-api.ts).
+   * Required for third-party modules; absent on bundled ones.
+   */
+  engines?: { hostApi: number }
   /** Code entry points (third-party); trusted `entry.main` loads in the main process. */
   entry?: ModuleEntry
+  /**
+   * Digests of every file a third-party module ships, inside the signed
+   * payload. A publisher key vouches for a module's code only through these.
+   */
+  files?: ModuleFileDigests
   /** Detached signature over the manifest, if the module is signed. */
   signature?: ModuleSignature
 }
@@ -138,6 +156,8 @@ type ThirdPartyModuleLaunchStatus =
   | 'blocked_unsigned'
   | 'blocked_signed'
   | 'blocked_invalid'
+  // Built for a host API this app does not provide (engines.hostApi).
+  | 'blocked_host_api'
   | 'launch_error'
 
 // Whether a module's `entry.renderer` can be served to the renderer loader:
@@ -253,6 +273,8 @@ export type ModuleResolutionErrorCode =
   | 'untrusted'
   // A third-party module whose signature failed verification (tampered).
   | 'invalid_signature'
+  // A third-party module built for a host API this app does not provide.
+  | 'incompatible_host_api'
 
 export type ModuleResolutionError = {
   /** The module the error is attributed to (empty for whole-graph errors). */

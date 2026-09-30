@@ -1,5 +1,11 @@
 import { ipcRenderer, type IpcRendererEvent } from 'electron'
-import type { ElectronApi, ModuleEnablementOverrides, ModuleEnablementWriteResult } from '../../shared/electron-api'
+import type {
+  ElectronApi,
+  ModuleEnablementOverrides,
+  ModuleEnablementWriteResult,
+  ThirdPartyModuleUninstallInput,
+  ThirdPartyModuleUninstallResult,
+} from '../../shared/electron-api'
 import type { ModuleBridgeInvokeRequest, ModuleBridgeInvokeResult } from '../../shared/modules/bridge'
 import { MODULE_BRIDGE_INVOKE_CHANNEL } from '../../shared/modules/bridge'
 import type { ModuleEventEnvelope } from '../../shared/modules/events'
@@ -26,6 +32,10 @@ type ModulesIpcRenderer = {
     channel: 'modules:third-party:set-trust',
     payload: { id: string; trusted: boolean },
   ): Promise<ThirdPartyModuleTrustResult>
+  invoke(
+    channel: 'modules:third-party:uninstall',
+    input: ThirdPartyModuleUninstallInput,
+  ): Promise<ThirdPartyModuleUninstallResult>
   invoke(channel: typeof THIRD_PARTY_RENDERER_ENTRIES_CHANNEL): Promise<ThirdPartyRendererEntriesResult>
   invoke(
     channel: typeof MODULE_BRIDGE_INVOKE_CHANNEL,
@@ -52,6 +62,8 @@ export function createModulesApi(renderer: ModulesIpcRenderer) {
       renderer.invoke('modules:third-party:install-folder', srcDir),
     setThirdPartyModuleTrust: (id: string, trusted: boolean): Promise<ThirdPartyModuleTrustResult> =>
       renderer.invoke('modules:third-party:set-trust', { id, trusted }),
+    uninstallThirdPartyModule: (input: ThirdPartyModuleUninstallInput): Promise<ThirdPartyModuleUninstallResult> =>
+      renderer.invoke('modules:third-party:uninstall', input),
     listThirdPartyRendererEntries: (): Promise<ThirdPartyRendererEntriesResult> =>
       renderer.invoke(THIRD_PARTY_RENDERER_ENTRIES_CHANNEL),
     onThirdPartyModulesChanged: (cb: () => void) => {
@@ -77,6 +89,7 @@ export function createModulesApi(renderer: ModulesIpcRenderer) {
     | 'listThirdPartyModules'
     | 'installThirdPartyModuleFolder'
     | 'setThirdPartyModuleTrust'
+    | 'uninstallThirdPartyModule'
     | 'listThirdPartyRendererEntries'
     | 'onThirdPartyModulesChanged'
     | 'moduleBridgeInvoke'

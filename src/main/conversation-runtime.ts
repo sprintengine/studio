@@ -15,6 +15,7 @@ import type {
   ConversationEvent,
   ConversationImageAttachment,
   ConversationInterruptInput,
+  ConversationMcpServer,
   ConversationPermissionPreset,
   ConversationListSessionsInput,
   ConversationListSessionsResult,
@@ -43,6 +44,7 @@ import type {
   ConversationRewindInput,
   ConversationRewindResult,
 } from '../shared/conversation-runtime'
+import type { ExecutionHostId } from '../shared/execution-host'
 import { inferConversationToolKind } from '../shared/conversation/toolKind'
 import { readSubagentStatus } from '../shared/conversation/subagents'
 import {
@@ -72,7 +74,11 @@ import { applyPromptCacheEvent } from '../shared/prompt-cache'
 import { ConversationApprovalRuleStore } from './conversation-approval-rules'
 import { ConversationAttachmentStore } from './conversation-attachment-store'
 import { ConversationPlanStore } from './conversation-plan-store'
-import type { ApprovalRuleRequest } from '../shared/conversation/approvalRules'
+import {
+  approvalRememberLabels,
+  approvalRuleCandidate,
+  type ApprovalRuleRequest,
+} from '../shared/conversation/approvalRules'
 import { getConversationProviderById } from './plugin-registry-instance'
 import { ProviderSecretStore } from './secret-store'
 import { clampSuspendIdleAfterMs, DEFAULT_SUSPEND_IDLE_AFTER_MS } from './terminal-reap-policy'
@@ -149,6 +155,9 @@ type RuntimeSession = ConversationSessionSummary & {
   permissionChangeTail?: Promise<ConversationSessionActionResult>
   modelChangeTail?: Promise<ConversationSessionActionResult>
   allowedTools?: string[]
+  // Handed to the adapter at start and never reported: a server's env and
+  // headers can carry the person's tokens.
+  mcpServers?: ConversationMcpServer[]
   // Detail files of tools still open in this session, closed when a turn ends.
   toolDetailPaths: Set<string>
   // The provider stream of the turn a send is running, once the provider has
@@ -197,11 +206,10 @@ type ConversationRuntimeOptions = {
   randomId?: () => string
   // Least time between two running previews of one tool's output; tests shorten it.
   toolPreviewIntervalMs?: number
-  prepareStudioMcp?: (input: {
-    workspaceRoot: string
-    workspaceId: string
-    agentId: string
-  }) => Promise<{ ok: true } | { ok: false; message: string }>
+  // The app's own MCP gateway for a Claude chat, on the machine its `claude`
+  // runs on (a WSL host's, or this one's). Null leaves it out; the chat runs
+  // without Studio's tools rather than not at all.
+  resolveStudioMcpServer?: (input: { hostId?: ExecutionHostId }) => Promise<ConversationMcpServer | null>
 }
 
 type ConversationRuntimeListener = (event: ConversationEvent) => void
@@ -286,7 +294,6 @@ export class ConversationRuntime {
   private readonly transcriptLimits: ConversationTranscriptLimits
   private readonly now: () => number
   private readonly randomId: () => string
-  private readonly prepareStudioMcp?: ConversationRuntimeOptions['prepareStudioMcp']
   private readonly resolveSkills: ConversationSkillsResolver
   private readonly checkpoints = new ConversationCheckpoints()
   private readonly approvalRules: ConversationApprovalRuleStore
@@ -342,7 +349,9 @@ export class ConversationRuntime {
         getProviderById: this.getProviderById,
         resolveSecret: (providerId) => this.resolveSecret(providerId),
       }),
-      createClaudeAgentProvider(),
+      createClaudeAgentProvider({
+        ...(options.resolveStudioMcpServer ? { resolveStudioMcpServer: options.resolveStudioMcpServer } : {}),
+      }),
       createCodexConversationProvider(),
       ...ACP_PROFILES.map((profile) => createAcpConversationProvider(profile)),
     ]
@@ -369,7 +378,6 @@ export class ConversationRuntime {
     this.now = options.now ?? Date.now
     this.toolPreviewIntervalMs = options.toolPreviewIntervalMs ?? DEFAULT_TOOL_PREVIEW_INTERVAL_MS
     this.randomId = options.randomId ?? (() => Math.random().toString(36).slice(2, 10))
-    this.prepareStudioMcp = options.prepareStudioMcp
     this.resolveSkills = options.resolveSkills ?? createConversationSkillsResolver()
     this.approvalRules = options.approvalRules ?? new ConversationApprovalRuleStore()
     this.attachmentStore = options.attachmentStore ?? new ConversationAttachmentStore()
@@ -434,7 +442,8 @@ export class ConversationRuntime {
     const sameProcess =
       existing.providerId === input.providerId.trim() &&
       JSON.stringify(existing.cliRuntimes ?? null) === JSON.stringify(input.cliRuntimes ?? null) &&
-      JSON.stringify(existing.allowedTools ?? null) === JSON.stringify(input.allowedTools ?? null)
+      JSON.stringify(existing.allowedTools ?? null) === JSON.stringify(input.allowedTools ?? null) &&
+      JSON.stringify(existing.mcpServers ?? null) === JSON.stringify(input.mcpServers ?? null)
     if (sameProcess) {
       const modelId = input.modelId.trim()
       const model =
@@ -475,9 +484,12 @@ export class ConversationRuntime {
     if (!validation.ok) {
       return { ok: false, message: validation.message }
     }
-    if (input.providerId === CLAUDE_AGENT_PROVIDER_ID && this.prepareStudioMcp) {
-      const prepared = await this.prepareStudioMcp(input)
-      if (!prepared.ok) return prepared
+    if (input.mcpServers?.length && !validation.adapter.acceptsMcpServers) {
+      const provider = validation.adapter.displayName ?? input.providerId
+      return {
+        ok: false,
+        message: `A ${provider} chat cannot be started with MCP servers of its own, so it cannot run with ${input.mcpServers.map((server) => `"${server.name || server.id}"`).join(', ')}. Choose a CLI whose chats can: Claude Code, Codex, or an ACP agent.`,
+      }
     }
     for (const stale of previous) {
       if (stale.status !== 'stopped') await this.stopSession({ sessionId: stale.sessionId })
@@ -526,6 +538,7 @@ export class ConversationRuntime {
       cliRuntimes: input.cliRuntimes,
       permissionPreset: input.permissionPreset,
       allowedTools: input.allowedTools,
+      ...(input.mcpServers?.length ? { mcpServers: input.mcpServers } : {}),
       toolDetailPaths: new Set(),
       runningSubagents: new Map(),
       providerTurn: null,
@@ -1619,6 +1632,17 @@ export class ConversationRuntime {
       }
       const requestId = stamped.payload.requestId
       session.approvalRequests.set(requestId, request)
+      // Whether "allow for this conversation" can be remembered, in the words
+      // this app's own menu uses: a client on another machine has no
+      // workspace root to work either out from.
+      if (request.requestKind === 'tool') {
+        const candidate = approvalRuleCandidate(request, session.workspaceRoot)
+        stamped.payload = {
+          ...stamped.payload,
+          rememberable: candidate !== null,
+          ...(candidate ? { rememberLabel: approvalRememberLabels(candidate).conversation } : {}),
+        }
+      }
       // Decide whether a human is needed before publication, so remembered
       // grants never briefly trigger OS attention.
       // Resolution starts only after this request has persisted and published.

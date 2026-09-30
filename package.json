@@ -110,6 +110,20 @@
         ]
       },
       {
+        "from": "packages/module-sdk/templates",
+        "to": "sdk-templates",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "packages/module-sdk/skills",
+        "to": "sdk-skills",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
         "from": "resources/icon.png",
         "to": "icon.png"
       },

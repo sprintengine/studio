@@ -1877,8 +1877,6 @@ test('designSystemConformance', async () => {
     // THESE files', and a tree-wide rule would be a repo-wide field sweep wearing
     // this item's name — asserting a convergence that did not happen.
     const SWEPT_FIELD_SURFACES = [
-      'components/panels/AutomationsPanel/AutomationEditor.tsx',
-      'components/panels/AutomationsPanel/TriggerFields.tsx',
       'components/panels/BacklogCreateDialog.tsx',
       'components/panels/ConnectorsPanel/CustomMcpServerForm.tsx',
       'components/panels/FileExplorer.tsx',

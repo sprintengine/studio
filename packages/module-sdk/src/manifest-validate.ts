@@ -16,7 +16,13 @@
 //
 // Everything here is pure (no Node or DOM APIs) so it is safe in any runtime.
 
-import type { CapabilityManifest, CapabilityPermission, ModuleEntry, ModuleSignature } from './index.js'
+import type {
+  CapabilityManifest,
+  CapabilityPermission,
+  ModuleEntry,
+  ModuleFileDigests,
+  ModuleSignature,
+} from './index.js'
 
 export type PermissionValidationIssue = { path: string; message: string }
 
@@ -106,6 +112,92 @@ function validateEntry(value: unknown, issues: ThirdPartyManifestIssue[]): Modul
   return Object.keys(entry).length > 0 ? entry : undefined
 }
 
+// ── Code digests (`files`) ──────────────────────────────────────────────────
+// `files` sits inside the canonical payload like any other field, which is what
+// makes a signature cover the code; a manifest without it keeps the exact
+// payload it was signed over before the field existed.
+
+// The file a module's digests can never cover: it carries them, so hashing it
+// would make the signature depend on its own output.
+export const MODULE_MANIFEST_FILENAME = 'manifest.json'
+
+// Paths `sprintengine-module pack` never ships: dependency trees, version
+// control and key material. Signing leaves them out for the same reason, so a
+// packed copy digests exactly as its source did — and an installed module that
+// has one of them was not installed from a pack. Shared with the plugin bundle
+// digest walk, which refuses the same paths.
+export function isPackExcludedPath(path: string): boolean {
+  const segments = path.split('/')
+  const name = segments[segments.length - 1] ?? ''
+  return (
+    segments.includes('node_modules') || segments.includes('.git') || name.endsWith('.key') || name.endsWith('.pem')
+  )
+}
+
+function isSha256Hex(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)
+}
+
+export type ModuleFileDigestsValidation =
+  { ok: true; files: ModuleFileDigests } | { ok: false; issues: ThirdPartyManifestIssue[] }
+
+// Validate a manifest's `files` map. Every key is a path a module folder could
+// really hold and the app could really load: relative, inside the root, not
+// manifest.json, not a path pack leaves out. The result is re-keyed in sorted
+// order so the written manifest reads the same however it was produced.
+export function validateModuleFileDigests(value: unknown, path = 'files'): ModuleFileDigestsValidation {
+  if (!isObject(value)) {
+    return { ok: false, issues: [{ path, message: `${path} must be an object of relative path → sha256 hex.` }] }
+  }
+  const issues: ThirdPartyManifestIssue[] = []
+  const files: ModuleFileDigests = {}
+  for (const key of Object.keys(value).sort()) {
+    const digest = value[key]
+    const entryPath = `${path}.${key}`
+    if (!isSafeManifestRelativePath(key)) {
+      issues.push({
+        path: entryPath,
+        message: 'must be a safe relative path inside the module (no absolute paths or "..").',
+      })
+    } else if (key === MODULE_MANIFEST_FILENAME) {
+      issues.push({ path: entryPath, message: 'manifest.json cannot list a digest of itself.' })
+    } else if (isPackExcludedPath(key)) {
+      issues.push({ path: entryPath, message: 'node_modules, .git and key files are never part of a module.' })
+    } else if (!isSha256Hex(digest)) {
+      issues.push({ path: entryPath, message: 'must be a lowercase 64-character sha256 hex digest.' })
+    } else {
+      files[key] = digest
+    }
+  }
+  return issues.length > 0 ? { ok: false, issues } : { ok: true, files }
+}
+
+// Exact-set comparison of the digests a module is held to against the ones
+// its folder has now. A listed file that is missing or changed, and a file
+// that is there but not listed, are all mismatches: an unlisted file is code
+// the listed code can load without anybody having vouched for it.
+export function compareModuleFileDigests(
+  expected: ModuleFileDigests,
+  actual: ModuleFileDigests,
+  label = 'signed digests',
+): ThirdPartyManifestIssue[] {
+  const issues: ThirdPartyManifestIssue[] = []
+  for (const path of Object.keys(expected).sort()) {
+    const digest = actual[path]
+    if (digest === undefined) {
+      issues.push({ path: `files.${path}`, message: `listed in the ${label} but missing.` })
+    } else if (digest !== expected[path]) {
+      issues.push({ path: `files.${path}`, message: `does not match the ${label}.` })
+    }
+  }
+  for (const path of Object.keys(actual).sort()) {
+    if (expected[path] === undefined) {
+      issues.push({ path: `files.${path}`, message: `is not listed in the ${label}.` })
+    }
+  }
+  return issues
+}
+
 function isBase64(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(value)
 }
@@ -129,6 +221,27 @@ function validateSignature(value: unknown, issues: ThirdPartyManifestIssue[]): M
     return undefined
   }
   return { algorithm: 'ed25519', publicKey: value.publicKey as string, signature: value.signature as string }
+}
+
+// `engines.hostApi` is checked for shape here and signed with the rest of the
+// manifest. Whether a module may omit it is the host's call, not the
+// validator's (checkHostApiCompatibility in host-api.ts): this validator also
+// reads plugin bundle manifests and registry entries, which carry no host API.
+function validateEngines(value: unknown, issues: ThirdPartyManifestIssue[]): { hostApi: number } | undefined {
+  if (value === undefined) return undefined
+  if (!isObject(value)) {
+    issues.push({ path: 'engines', message: 'engines must be an object.' })
+    return undefined
+  }
+  for (const key of Object.keys(value)) {
+    if (key !== 'hostApi') issues.push({ path: `engines.${key}`, message: 'unsupported engines field.' })
+  }
+  const hostApi = value.hostApi
+  if (typeof hostApi !== 'number' || !Number.isInteger(hostApi) || hostApi < 1) {
+    issues.push({ path: 'engines.hostApi', message: 'engines.hostApi must be a positive integer.' })
+    return undefined
+  }
+  return { hostApi }
 }
 
 export function validateThirdPartyModuleManifest(value: unknown): ThirdPartyManifestResult {
@@ -162,7 +275,14 @@ export function validateThirdPartyModuleManifest(value: unknown): ThirdPartyMani
   if (!permissionResult.ok) issues.push(...permissionResult.issues)
 
   const entry = validateEntry(value.entry, issues)
+  let files: ModuleFileDigests | undefined
+  if (value.files !== undefined) {
+    const filesResult = validateModuleFileDigests(value.files)
+    if (filesResult.ok) files = filesResult.files
+    else issues.push(...filesResult.issues)
+  }
   const signature = validateSignature(value.signature, issues)
+  const engines = validateEngines(value.engines, issues)
 
   if (issues.length > 0) return { ok: false, issues }
 
@@ -181,7 +301,9 @@ export function validateThirdPartyModuleManifest(value: unknown): ThirdPartyMani
   if (typeof value.summary === 'string') manifest.summary = value.summary
   if (dependsOn && dependsOn.length > 0) manifest.dependsOn = dependsOn
   if (conflictsWith && conflictsWith.length > 0) manifest.conflictsWith = conflictsWith
+  if (engines) manifest.engines = engines
   if (entry) manifest.entry = entry
+  if (files) manifest.files = files
   if (signature) manifest.signature = signature
   return { ok: true, manifest }
 }

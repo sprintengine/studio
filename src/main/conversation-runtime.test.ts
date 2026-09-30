@@ -67,63 +67,58 @@ test('conversation-runtime', async () => {
     await testShutdownStopsSessionsAndDisposesChildren()
     await testStartingAChatAgainKeepsOneSessionForIt()
     await testListLiveConversationRootsMapsAdapterInventory()
-    await testClaudeConversationPreparesStudioMcpBeforeSession()
+    await testMcpServersReachOnlyAProviderThatTakesThem()
 
     await shutdownRuntimes()
     console.log('conversation-runtime tests passed')
   }
 
-  async function testClaudeConversationPreparesStudioMcpBeforeSession(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-studio-mcp-'))
-    const prepared: Array<{ workspaceRoot: string; workspaceId: string; agentId: string }> = []
-    const adapter: ConversationProviderAdapter = {
-      id: 'claude-agent',
+  async function testMcpServersReachOnlyAProviderThatTakesThem(): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-mcp-servers-'))
+    const received: Array<MockAdapterSessionInput['mcpServers']> = []
+    const adapter = (id: string, acceptsMcpServers: boolean): ConversationProviderAdapter => ({
+      id,
+      displayName: id === 'takes' ? 'Takes' : 'Plain',
       sessions: 'stateful',
-      listModels: () => ['sonnet'],
-      startSession: (input) => [runtimeEvent(input, 'session_started'), runtimeEvent(input, 'session_ready')],
+      ...(acceptsMcpServers ? { acceptsMcpServers } : {}),
+      listModels: () => ['model'],
+      startSession: (input) => {
+        received.push(input.mcpServers)
+        return [runtimeEvent(input, 'session_started'), runtimeEvent(input, 'session_ready')]
+      },
       sendTurn: async function* () {},
       resolveApproval: () => [],
       interrupt: () => [],
       stopSession: () => [],
-    }
+    })
+    const server = { id: 'railway', name: 'Railway', transport: 'stdio' as const, command: 'npx' }
     try {
       const runtime = new TrackedConversationRuntime({
-        adapters: [adapter],
+        adapters: [adapter('takes', true), adapter('plain', false)],
         getProviderById: () => undefined,
         secretStore: unusedSecretStore(),
-        prepareStudioMcp: async (input) => {
-          prepared.push({
-            workspaceRoot: input.workspaceRoot,
-            workspaceId: input.workspaceId,
-            agentId: input.agentId,
-          })
-          return { ok: true }
-        },
       })
-      const started = await runtime.startSession({
-        workspaceRoot,
-        workspaceId: 'ws-1',
-        agentId: 'agent-a',
-        providerId: 'claude-agent',
-        modelId: 'sonnet',
-      })
+      const base = { workspaceRoot, workspaceId: 'ws-1', modelId: 'model' }
+      const started = await runtime.startSession({ ...base, agentId: 'a', providerId: 'takes', mcpServers: [server] })
       assert.equal(started.ok, true)
-      assert.deepEqual(prepared, [{ workspaceRoot, workspaceId: 'ws-1', agentId: 'agent-a' }])
+      assert.deepEqual(received, [[server]])
+      // Never reported: a server's env can carry the person's tokens.
+      assert.equal(started.ok && 'mcpServers' in started.session, false)
 
-      const blocked = new TrackedConversationRuntime({
-        adapters: [adapter],
-        getProviderById: () => undefined,
-        secretStore: unusedSecretStore(),
-        prepareStudioMcp: async () => ({ ok: false, message: 'Studio MCP config failed.' }),
-      })
-      const refused = await blocked.startSession({
-        workspaceRoot,
-        workspaceId: 'ws-1',
-        agentId: 'agent-b',
-        providerId: 'claude-agent',
-        modelId: 'sonnet',
-      })
-      assert.deepEqual(refused, { ok: false, message: 'Studio MCP config failed.' })
+      // Refused before the provider is asked, naming the provider and the server.
+      const refused = await runtime.startSession({ ...base, agentId: 'b', providerId: 'plain', mcpServers: [server] })
+      assert.equal(refused.ok, false)
+      assert.match(refused.ok ? '' : refused.message, /A Plain chat cannot be started with MCP servers of its own/)
+      assert.match(refused.ok ? '' : refused.message, /"Railway"/)
+      assert.equal(received.length, 1)
+
+      // Without servers, a provider that takes none starts as always.
+      assert.equal((await runtime.startSession({ ...base, agentId: 'c', providerId: 'plain' })).ok, true)
+
+      // The same chat asked for with other servers is a different process.
+      const again = await runtime.startSession({ ...base, agentId: 'a', providerId: 'takes', mcpServers: [] })
+      assert.equal(again.ok, true)
+      assert.notEqual(again.ok && again.session.sessionId, started.ok && started.session.sessionId)
     } finally {
       await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })

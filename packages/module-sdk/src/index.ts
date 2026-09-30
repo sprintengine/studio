@@ -13,6 +13,9 @@
 
 import type { ComponentType, LazyExoticComponent } from 'react'
 
+import type { ModuleChatRuntimeOption, ModuleOpenChatInput, ModuleOpenChatResult } from './conversation.js'
+import type { HostCapability } from './host-api.js'
+
 // ── Manifest ─────────────────────────────────────────────────────────────────
 
 export type CapabilityCategory =
@@ -39,6 +42,14 @@ export type ModuleEntry = {
   renderer?: string
 }
 
+/**
+ * sha256 digests of a module's own files: POSIX path relative to the module
+ * root → lowercase hex. Covers every regular file under the root except
+ * `manifest.json` itself, and nothing else — a file on disk that is not listed
+ * is as much a mismatch as a listed file whose bytes changed.
+ */
+export type ModuleFileDigests = Record<string, string>
+
 export type CapabilityManifest = {
   id: string
   displayName: string
@@ -58,7 +69,20 @@ export type CapabilityManifest = {
   source?: ModuleSource
   /** Permission scopes requested (install-time disclosure, not runtime enforcement). */
   permissions?: string[]
+  /**
+   * The host API this module was built against (`HOST_API_VERSION` of the SDK
+   * it compiled with). Required for third-party modules; the host refuses one
+   * built for an API it does not provide.
+   */
+  engines?: { hostApi: number }
   entry?: ModuleEntry
+  /**
+   * Digests of every file the module ships. `sprintengine-module sign` writes
+   * them, so the signature covers the code and not only the declaration; the
+   * app trusts a module by its publisher key only when they match the files
+   * on disk exactly.
+   */
+  files?: ModuleFileDigests
   signature?: ModuleSignature
 }
 
@@ -83,7 +107,9 @@ export const BUNDLED_MODULE_IDS: readonly string[] = [
   // can take it.
   'sprint-engine',
   'review',
+  // Retired but still reserved: Automations became scheduled agents 2026-09-30.
   'automations',
+  'scheduled-agents',
   // Retired but still reserved (the hosted mobile relay, removed 2026-09-27).
   'mobile-relay',
   'voice-dictation',
@@ -99,29 +125,37 @@ export type CapabilityPermission =
   | 'network'
   | 'ipc:workspace-read'
   | 'ipc:workspace-write'
-  | 'ipc:agents'
   | 'ipc:settings'
   | 'ipc:invoke'
   | 'backlog.read'
   | 'backlog.write'
   | 'backlog.link.open'
-  // Create and manage the module's own automations through the SDK's scoped
-  // Automations service. Disclosure-level like every other scope: the service
-  // does not runtime-check it.
-  | 'automations.manage'
+  // Create and manage the module's own scheduled agents through the SDK's
+  // scoped service. Disclosure-level like every other scope: the service does
+  // not runtime-check it.
+  | 'scheduled-agents.manage'
   // Attach workspace-bound background (companion) agents through the SDK's
   // Companion Agents service. Unlike the disclosure-only scopes above, the
   // companion service checks this one explicitly at attach time.
   | 'agents:companion'
-  // Launch, prompt and stop the module's OWN agent terminals through the SDK's
-  // scoped Agent Sessions service. Runtime-checked like `agents:companion`, and
-  // scoped further by agent-id namespace: a module reaches the sessions it
-  // started and named, never another module's and never the user's.
-  | 'agents:session'
   // Persist the module's own data through the SDK's scoped storage service
   // (host-placed: the workspace's app-owned `.sprintengine/modules/<id>/`, or
   // per-user app data).
   | 'storage'
+  // Read the conversations the module started through the SDK's scoped
+  // conversation service: their events, transcripts and list.
+  | 'conversation:read'
+  // Start, prompt, interrupt and stop the module's own conversations, and open
+  // a chat in the renderer (`RendererHost.openChat`). Implies read.
+  | 'conversation:operate'
+  // Store secrets the host sends only to origins the module named, never
+  // handing the value back (the SDK's scoped secrets service).
+  | 'secrets'
+  // Call the GitHub API with the user's sign-in through the SDK's GitHub
+  // service; the host attaches the token and never hands it over.
+  | 'github'
+  // Contribute tools to the Studio MCP gateway (`MainHost.registerMcpTools`).
+  | 'mcp:tools'
   | (string & {})
 
 export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
@@ -132,16 +166,19 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'network',
   'ipc:workspace-read',
   'ipc:workspace-write',
-  'ipc:agents',
   'ipc:settings',
   'ipc:invoke',
   'backlog.read',
   'backlog.write',
   'backlog.link.open',
-  'automations.manage',
+  'scheduled-agents.manage',
   'agents:companion',
-  'agents:session',
   'storage',
+  'conversation:read',
+  'conversation:operate',
+  'secrets',
+  'github',
+  'mcp:tools',
 ]
 
 // ── Notifications ────────────────────────────────────────────────────────────
@@ -297,9 +334,13 @@ export type McpToolRegistration = {
    * decisions: a remote (tailnet) caller must hold `<family>:operate` rather
    * than the read-only `<family>:read` to invoke it, and every call — including
    * one refused for want of that scope — is written to the gateway audit with
-   * the calling device. Omitted or false means a read: advertised to every
-   * paired device on the read scope and not audited. Declare it on anything
-   * that writes to disk, spawns a process, or reconfigures the machine.
+   * the calling device. `false` means a read: advertised to every paired
+   * device on the read scope and not audited.
+   *
+   * Omitted counts as a change: a tool from an installed module is treated as
+   * `mutates: true` unless it says `mutates: false`. Declare `false` only on a
+   * tool that genuinely reads — never on one that writes to disk, spawns a
+   * process, or reconfigures the machine.
    */
   mutates?: boolean
   handler: (args: Record<string, unknown>, context?: McpConnectionContext) => Promise<McpToolResult>
@@ -349,84 +390,16 @@ export type EnsureSkillInstalledResult = {
   message?: string
 }
 
-// ── Launch contributions ─────────────────────────────────────────────────────
-
-/** Path style of the launched shell, so a contribution can quote paths it can open. */
-export type LaunchContributionPathStyle = 'posix' | 'windows' | 'wsl'
-
-/**
- * What the host knows about this spawn when it asks modules to contribute.
- *
- * `knowledgeRoot` is a value the caller already resolved. Core does not
- * interpret it; the module that owns it reads it and writes env / session tags
- * itself.
- */
-export type LaunchContributionRequest = {
-  cli: string
-  workspaceRoot: string
-  sessionId: string
-  agentId?: string
-  agentKind?: string
-  resume?: boolean
-  /** Absolute Knowledge Graph root when the launch resolved one. */
-  knowledgeRoot?: string
-  /**
-   * Path style of the launched shell. POSIX env uses `'posix'`; a native
-   * Windows PTY uses `'windows'`; a WSL bootstrap uses `'wsl'` so the module
-   * can quote paths the Linux shell can open.
-   */
-  pathStyle: LaunchContributionPathStyle
-}
-
-/** One managed-MCP server entry, in the shape `mcp-config-service` already takes. */
-export type LaunchContributionMcpServer = {
-  id: string
-  name?: string
-  command?: string
-  args?: string[]
-  env?: Record<string, string>
-  url?: string
-  transport?: string
-}
-
-export type LaunchContributionHostContextSection = {
-  heading: string
-  body: string
-}
-
-export type LaunchContributionSessionTag = {
-  /** A module owns this session's lifetime (reaper recency-floor exclusion). */
-  managed: boolean
-  /** Hold this session out of the idle reaper entirely. */
-  reapExempt?: boolean
-}
-
-export type LaunchContributionResult = {
-  env?: Record<string, string>
-  /** Directories prepended to `PATH`. The module writes its own shims here. */
-  pathEntries?: string[]
-  /** POSIX function definitions (and their `export -f`) appended to the shell bootstrap. */
-  shellFunctions?: string[]
-  mcpServers?: LaunchContributionMcpServer[]
-  /** Sections appended to the host-context document after design-system and knowledge. */
-  hostContext?: LaunchContributionHostContextSection[]
-  session?: LaunchContributionSessionTag
-  /**
-   * Env keys the shell strips from inherited env before applying this
-   * contribution, so a stale value from the app's own process cannot leak
-   * into a spawn that did not set its own. Core always strips the
-   * agent-identity keys; this list is in addition.
-   */
-  identityKeys?: string[]
-}
-
-export type LaunchContribution = (launch: LaunchContributionRequest) => LaunchContributionResult
-
 export type MainHost = {
   /** The module currently registering; stamped by the host. */
   readonly moduleId: string
-  /** Raw Electron ipcMain; typed `unknown` to keep the SDK Electron-free. */
-  readonly ipcMain: unknown
+  /** The host API this app provides (`HOST_API_VERSION` of the SDK it was built with). */
+  readonly hostApiVersion: number
+  /**
+   * Whether the running host provides `capability` now. False for names it
+   * does not know, so a module may probe for capabilities newer than its SDK.
+   */
+  supports(capability: HostCapability): boolean
   registerIpc(channel: string, handler: IpcInvokeHandler): void
   /**
    * Contribute MCP tools to the Studio gateway, owned by this module's id. A
@@ -434,7 +407,8 @@ export type MainHost = {
    * whole batch is rejected). Availability follows the module's enablement
    * live: a disabled module's tools stay listed on the gateway and answer
    * calls with an actionable enable error instead of running. An MCP tool is
-   * agent-reachable capability — declare the `ipc:agents` permission.
+   * agent-reachable capability: declare the `mcp:tools` permission, without
+   * which the host refuses the registration.
    */
   registerMcpTools(tools: McpToolRegistration[]): void
   /**
@@ -476,14 +450,6 @@ export type MainHost = {
    */
   registerSidecar(spec: SidecarSpec): SidecarHandle
   /**
-   * Contribute env, PATH shims, shell functions, managed-MCP server entries,
-   * host-context sections and a session lifetime tag to every agent launch.
-   * Called per spawn in module registration order; a throw is recorded as a
-   * module diagnostic and skipped — it never fails the launch. A disabled or
-   * absent module contributes nothing. Declare `ipc:agents`.
-   */
-  registerLaunchContribution(contribution: LaunchContribution): void
-  /**
    * Surface a user-visible status notification. Identity is stamped from this
    * host's scope; emission is flood-bounded per module.
    */
@@ -513,8 +479,12 @@ export type MainHost = {
   emit(topic: string, payload?: unknown): void
 }
 
-/** The export contract of `entry.main`: `export function registerMain(host) { … }`. */
-export type RegisterMain = (host: MainHost) => void
+/**
+ * The export contract of `entry.main`: `export function registerMain(host) { … }`.
+ * It may be async: the host waits for the returned promise (bounded) before it
+ * counts the module as loaded, and a rejection fails the module alone.
+ */
+export type RegisterMain = (host: MainHost) => void | Promise<void>
 
 // ── Workspace service (host-provided, consumed via the service bridge) ────────
 
@@ -559,8 +529,8 @@ export type ModuleWorkspaceView = {
   name: string
   /**
    * Absolute folder the workspace opened (its primary checkout); null for
-   * folderless workspaces. Note for worktree-backed workspaces (an automation
-   * run with `runInWorktree`, and whatever else a module opens): the agents work
+   * folderless workspaces. Note for worktree-backed workspaces (a scheduled
+   * agent's run on a worktree, and whatever else a module opens): the agents work
    * in a git worktree under this folder — this snapshot deliberately reports the
    * durable project root (the right base for persistence and scoped services),
    * not the transient worktree.
@@ -599,376 +569,122 @@ export type WorkspaceContextService = {
 export const WorkspaceContextToken: ServiceToken<WorkspaceContextService> =
   createServiceToken<WorkspaceContextService>('core.workspace-context')
 
-// ── Automations providers (host-provided, consumed via the service bridge) ────
+// ── Scheduled agents (host-provided, consumed via the service bridge) ────────
 
-export type JsonSchema = Record<string, unknown>
+/** The machine a scheduled agent runs on: this computer, or one of its WSL distributions. */
+export type ScheduledAgentHostId = 'local' | `wsl:${string}`
 
-export type AutomationStatus = 'enabled' | 'paused' | 'blocked'
-
-export type AutomationRunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'blocked' | 'skipped'
-
-export type TriggerKind = 'schedule' | string
-
-export type ScheduleTriggerConfig = {
-  kind: 'schedule'
-  cadence:
-    | { type: 'interval'; everyMinutes: number }
-    | { type: 'daily'; timeLocal: string }
-    | { type: 'weekly'; timeLocal: string; daysOfWeek: number[] }
-    /**
-     * One-shot: run once at `datetime` — ISO-8601 local wall-clock
-     * (`YYYY-MM-DDTHH:mm`, seconds optional and ignored, NO trailing `Z` or
-     * offset; the config's `timezone` field is the sole timezone authority,
-     * matching daily/weekly). Once the fire time passes, `computeNextRun`
-     * returns null and the automation never fires again — it stays listed
-     * with no upcoming run. A past datetime is valid and simply never fires.
-     * A wall-clock that falls in a DST spring-forward gap resolves to the
-     * first instant after the gap, the same rule daily/weekly use.
-     */
-    | { type: 'at'; datetime: string }
-    | { type: 'cron'; expression: string }
+export type ScheduledAgentSchedule = {
+  /** Five-field cron; several expressions separated by `;`. */
+  cron: string
+  /** The IANA zone the cron's wall-clock is read in. */
   timezone: string
 }
 
-export type AutomationTriggerPollContext = {
-  getSharedValue<T>(key: string, factory: () => Promise<T>): Promise<T>
-}
+/** A skill or an installed MCP server, by id, with the name its chip shows. */
+export type ScheduledAgentAttachment = { id: string; name: string }
 
-export type AutomationTriggerPollEvent = {
-  id: string
-  occurredAt: string
-  payload: Record<string, unknown>
-}
-
-export type AutomationTriggerPollResult =
-  { ok: true; events: AutomationTriggerPollEvent[] } | { ok: false; blockedReason: string }
+export type ScheduledAgentLastRun =
+  { at: number; ok: true; workspaceId: string } | { at: number; ok: false; message: string }
 
 /**
- * Bundled action kinds the host ships, plus module-namespaced kinds
- * (`<module-id>.<suffix>`). The union stays open so a compiled module can
- * register its own kinds; the literals document the ones the panel already
- * knows how to author.
+ * A scheduled agent: a prompt and a schedule. Each time the schedule comes
+ * round, a new chat starts in `folderPath` with `prompt` as its first message,
+ * on the machine, CLI, model, permissions, skills, MCP servers and worktree
+ * setting recorded here. Nothing carries from one run to the next.
  */
-export type ActionKind = 'spawn-agent' | 'run-command' | 'run-skill-loop' | string
-
-/**
- * Closed vocabulary of Automations panel type-glyphs. The panel draws these
- * shapes; a module names one rather than shipping SVG. `agent` is a
- * head-and-shoulders figure, `loop` is the repeat arrows, `board` is a
- * four-pane board, `clock` is the automations clock (and the fallback for an
- * omitted glyph).
- */
-export const AUTOMATION_PROVIDER_GLYPHS = ['agent', 'loop', 'board', 'clock'] as const
-export type AutomationProviderGlyph = (typeof AUTOMATION_PROVIDER_GLYPHS)[number]
-
-/**
- * When a definition pairs this trigger with `actionKind` and leaves
- * `disableAfterRun` unspecified, the write path applies `defaultDisableAfterRun`.
- * Used to bound ping-pong between a completion trigger and a start action
- * without the host naming either kind.
- */
-export type AutomationTriggerPairing = {
-  actionKind: ActionKind
-  defaultDisableAfterRun?: boolean
-}
-
-export type AutomationTriggerProvider = {
-  kind: TriggerKind
-  /** Sentence-case family label the Automations panel shows. */
-  label?: string
-  glyph?: AutomationProviderGlyph
-  /** One-line summary for the panel's supporting line. */
-  summary?: string
-  pairsWith?: AutomationTriggerPairing
-  configSchema: JsonSchema
-  requiredIntegrations?: string[]
-  validateConfig?(config: unknown): { ok: true } | { ok: false; error: string }
-  subscribe(input: { config: unknown; fire: (payload: Record<string, unknown>) => void; now: () => number }): () => void
-  computeNextRun?(config: unknown, after: number): number | null
-  poll?(input: {
-    config: unknown
-    workspaceRoot: string
-    now: () => number
-    context?: AutomationTriggerPollContext
-  }): Promise<AutomationTriggerPollResult>
-}
-
-export type AutomationRunIsolation = 'worktree' | 'workspace-checkout'
-
-export type AutomationRun = {
+export type ScheduledAgent = {
   id: string
-  automationId: string
-  status: AutomationRunStatus
-  dueAt: string
-  startedAt: string | null
-  completedAt: string | null
-  blockedReason?: string
-  workspaceId?: string
-  agentId?: string
-  /**
-   * Terminal-session executionId of the spawned agent, resolved at launch-confirm
-   * time. Correlates an agent-lifecycle exit back to this run. Optional: historical
-   * runs and resolution misses degrade to the poll-scan.
-   */
-  executionId?: string
-  promptFingerprint?: string
-  touchedFiles?: string[]
-  commandsRan?: string[]
-  summary?: string
-  /**
-   * Isolation the run actually got, stamped by the built-in agent-backed actions
-   * at launch. `worktree` is the contained shape: its own worktree, its own
-   * branch, and a pull request on completion. `workspace-checkout` is the
-   * deliberate opt-out (`runInWorktree: false`): the agent ran in the user's own
-   * checkout, so the run has no branch and opens no pull request. Absent on
-   * historical runs and on runs that never launched an agent — read it, not the
-   * absence of {@link worktreePath}, to tell a contained run from an uncontained
-   * one without re-reading the definition.
-   */
-  isolation?: AutomationRunIsolation
-  /** Git worktree the agent-backed run executes in (per-run isolation). */
-  worktreePath?: string
-  /** Branch the run's worktree is checked out on. */
-  branch?: string
-  /** Pull request opened for the run's branch on completion, when available. */
-  pullRequestUrl?: string
-  /** Report files the run produced, project-relative and contained under `reports/`. */
-  reportPaths?: string[]
+  prompt: string
+  schedule: ScheduledAgentSchedule
+  folderPath: string
+  hostId: ScheduledAgentHostId | null
+  cli: string
+  cliModel: string | null
+  /** Null follows the preset the person chose for that CLI, read at run time. */
+  permissionPreset: 'none' | 'bypass' | null
+  skills: ScheduledAgentAttachment[]
+  mcpServers: ScheduledAgentAttachment[]
+  /** A fresh worktree per run, named from this; null runs in the project's checkout. */
+  worktree: { name: string } | null
+  /** The module that created it; the SDK service stamps it and only that module reaches it. */
+  ownerModuleId: string | null
+  createdAt: number
+  updatedAt: number
+  lastRun: ScheduledAgentLastRun | null
+  lastFailureSeenAt: number | null
 }
 
-export type AutomationCliPermissionPreset = 'none' | 'bypass'
-
-export type ActionContext = {
-  automationId: string
-  runId: string
-  workspaceRoot: string
-  triggerPayload: Record<string, unknown>
-  spawnAgent(input: {
-    workspaceId?: string
-    folderPath: string
-    cli?: string
-    cliModel?: string
-    permissionPreset?: AutomationCliPermissionPreset
-    worktreePath?: string
-    name?: string
-    prompt: string
-  }): Promise<{ workspaceId: string; agentId: string }>
-  runCommand(input: { command: string[]; cwd: string }): Promise<{ code: number; output: string }>
-  reportProgress(patch: Partial<AutomationRun>): void
-  requireIntegration(id: string): void
-}
-
-export type AutomationActionProvider = {
-  kind: ActionKind
-  /** Sentence-case label the Automations panel shows for this action. */
-  label?: string
-  glyph?: AutomationProviderGlyph
-  /** One-line summary for the panel's supporting line. */
-  summary?: string
-  configSchema: JsonSchema
-  requiredIntegrations?: string[]
-  run(config: unknown, ctx: ActionContext): Promise<Partial<AutomationRun>>
-}
-
-type AutomationsProviderRegistry = {
-  registerTriggerProvider(moduleId: string, provider: AutomationTriggerProvider): string
-  registerActionProvider(moduleId: string, provider: AutomationActionProvider): string
-}
-
-const automationsProviderRegistryToken: ServiceToken<AutomationsProviderRegistry> =
-  createServiceToken<AutomationsProviderRegistry>('automations.provider-registry')
-
-export function registerAutomationTrigger(host: MainHost, provider: AutomationTriggerProvider): string {
-  return host.requireService(automationsProviderRegistryToken).registerTriggerProvider(host.moduleId, provider)
-}
-
-export function registerAutomationAction(host: MainHost, provider: AutomationActionProvider): string {
-  return host.requireService(automationsProviderRegistryToken).registerActionProvider(host.moduleId, provider)
-}
-
-// ── Scoped Automations service (owned CRUD + run events) ─────────────────────
-
-export type AutomationDefinition = {
-  id: string
-  name: string
-  status: AutomationStatus
-  trigger: { kind: TriggerKind; config: unknown }
-  condition?: { kind: string; config: unknown }
-  action: { kind: ActionKind; config: unknown }
-  /**
-   * The capability module that created this automation through the SDK's
-   * scoped Automations service; absent ⇒ user-owned. Stamped server-side from
-   * the creating module's identity — never accepted from the renderer — and
-   * immutable thereafter (patches cannot carry it). The user outranks the
-   * module: panel edits to module-owned automations stay allowed; only the
-   * module service enforces ownership.
-   */
-  ownerModuleId?: string
-  /**
-   * Whether an agent-backed run executes in its own per-run git worktree (branch
-   * isolation from the user's checkout, and the prerequisite for opening a PR —
-   * a non-worktree run has no branch to review). Absent ⇒ true, so existing
-   * automations keep running in a worktree.
-   */
-  runInWorktree?: boolean
-  /**
-   * Runtime-only bridge for definitions written before `autonomyDefault` was
-   * retired (2026-07-30) whose author set it to `review_only`. That intent —
-   * report, do not fix — now lives in the automation's prompt, so the store read
-   * translates the retired key into this marker and the launch prompt carries a
-   * write-up-only instruction. Host-populated and never persisted: a module must
-   * not send it, and it is stripped again on write, so it exists only between a
-   * legacy file's read and the run it starts.
-   */
-  legacyWriteUpOnly?: true
-  /**
-   * Run once, then pause: after one triggered fire (schedule due-run, skipped
-   * overdue run, webhook or polling trigger event) the definition transitions to
-   * `status: 'paused'`; re-enabling arms it again. A manual "Run now" never
-   * consumes the shot — the flag means "after one *triggered* fire". Absent ⇒
-   * false. Works for every trigger kind; orthogonal to the `at` cadence's own
-   * natural exhaustion.
-   */
-  disableAfterRun?: boolean
-  /**
-   * The marketplace catalogue entry this automation was added from, and that
-   * entry's publisher. Provenance only: stamped once by the marketplace install
-   * path and immutable thereafter (patches cannot carry either field), so the
-   * shelf can answer "is this already added" for a project and open the record
-   * the entry produced. Distinct from `ownerModuleId`, which is module identity
-   * and governs who may write the record — a catalogue automation is the user's
-   * the moment it lands, and survives uninstalling the plugin that shipped it.
-   */
-  sourceCatalogueId?: string
-  sourcePublisher?: string
-  nextRunAt: string | null
-  lastRunAt: string | null
-  lastRunId: string | null
-  createdAt: string
-  updatedAt: string
-}
-
-export type AutomationDefinitionDraft = {
-  id?: string
-  name: string
-  status: AutomationStatus
-  trigger: { kind: TriggerKind; config: unknown }
-  condition?: { kind: string; config: unknown }
-  action: { kind: ActionKind; config: unknown }
-  runInWorktree?: boolean
-  disableAfterRun?: boolean
-  /**
-   * Owning module for drafts created through the SDK's scoped Automations
-   * service. Optional echo of the creating module's own id — a draft claiming
-   * a different module is refused, and ownership is always stamped by the
-   * host. The user-facing IPC create path ignores it entirely.
-   */
-  ownerModuleId?: string
-  /**
-   * Catalogue provenance for drafts created by the marketplace install path.
-   * Stamped by the host from the bundle being installed — like `ownerModuleId`,
-   * never read off a caller-supplied payload.
-   */
-  sourceCatalogueId?: string
-  sourcePublisher?: string
-}
-
-export type AutomationDefinitionPatch = Partial<
-  Omit<AutomationDefinitionDraft, 'id' | 'ownerModuleId' | 'sourceCatalogueId' | 'sourcePublisher'>
+/** What a module writes: everything but the bookkeeping. */
+export type ScheduledAgentDraft = Pick<
+  ScheduledAgent,
+  | 'prompt'
+  | 'schedule'
+  | 'folderPath'
+  | 'hostId'
+  | 'cli'
+  | 'cliModel'
+  | 'permissionPreset'
+  | 'skills'
+  | 'mcpServers'
+  | 'worktree'
 >
 
-export type AutomationRunEventStatus = Extract<AutomationRunStatus, 'completed' | 'failed' | 'blocked'>
-export type AutomationRunEventTrigger = 'timer' | 'manual'
+/** A scheduled agent as listed: the record plus when it runs next (epoch ms). */
+export type ScheduledAgentView = ScheduledAgent & { nextRunAt: number | null }
 
-export type AutomationsRunEvent = {
-  automationId: string
-  runId: string
-  workspaceId: string
-  agentId?: string
-  definitionName: string
-  status: AutomationRunEventStatus
-  trigger: AutomationRunEventTrigger
-}
-
-export type ModuleAutomationsError =
-  'invalid_draft' | 'invalid_workspace' | 'not_found' | 'not_owner' | 'store_error' | 'engine_unavailable'
-
-export type ModuleAutomationsResult<T> =
-  ({ ok: true } & T) | { ok: false; code: ModuleAutomationsError; message: string }
+export type ScheduledAgentWriteResult = { ok: true; agent: ScheduledAgentView } | { ok: false; message: string }
 
 /**
- * Owned automation CRUD + run events for a module's `entry.main`, obtained via
- * `getAutomationsService(host)`. Every method is pre-scoped to your module:
- * `create` stamps `ownerModuleId`, mutations refuse records your module does
- * not own (`not_owner` — user-created automations included), `list` returns
- * only owned records, and `onRunEvent` fires only for owned automations.
- * Declare the `automations.manage` permission (install-time disclosure) and
- * `dependsOn: ['automations']` so the service exists before your entry runs.
+ * Scheduled agents for a module's `entry.main`, obtained via
+ * `getScheduledAgentsService(host)`. Every method is pre-scoped to your
+ * module: `create` stamps it as the owner, `list` returns only the ones it
+ * owns, and every other call refuses an id it does not own as if the id did
+ * not exist. Declare the `scheduled-agents.manage` permission (install-time
+ * disclosure) and `dependsOn: ['scheduled-agents']` so the service exists
+ * before your entry runs.
  */
-export type ModuleAutomationsService = {
-  /** Create an automation owned by this module (`ownerModuleId` is stamped). */
-  create(input: {
-    workspaceRoot: string
-    draft: AutomationDefinitionDraft
-  }): Promise<ModuleAutomationsResult<{ automation: AutomationDefinition }>>
-  update(input: {
-    workspaceRoot: string
-    automationId: string
-    patch: AutomationDefinitionPatch
-  }): Promise<ModuleAutomationsResult<{ automation: AutomationDefinition }>>
-  delete(input: { workspaceRoot: string; automationId: string }): Promise<ModuleAutomationsResult<object>>
-  /** Automations this module owns in the workspace (never other modules' or the user's). */
-  list(input: { workspaceRoot: string }): Promise<ModuleAutomationsResult<{ automations: AutomationDefinition[] }>>
-  listRuns(input: {
-    workspaceRoot: string
-    automationId: string
-  }): Promise<ModuleAutomationsResult<{ runs: AutomationRun[] }>>
-  /** Subscribe to run events for automations this module owns. Returns the unsubscriber; call it in `onShutdown`. */
-  onRunEvent(listener: (event: AutomationsRunEvent) => void): () => void
+export type ModuleScheduledAgentsService = {
+  create(draft: ScheduledAgentDraft): Promise<ScheduledAgentWriteResult>
+  update(id: string, draft: ScheduledAgentDraft): Promise<ScheduledAgentWriteResult>
+  remove(id: string): Promise<{ ok: true } | { ok: false; message: string }>
+  list(): Promise<ScheduledAgentView[]>
+  /** Start a run now, without waiting for the schedule. */
+  runNow(id: string): Promise<{ ok: true; run: ScheduledAgentLastRun } | { ok: false; message: string }>
+  /** Called with this module's scheduled agents whenever one of them changes. Returns the unsubscriber; call it in `onShutdown`. */
+  onChanged(listener: (agents: ScheduledAgentView[]) => void): () => void
 }
 
-type AutomationsModuleRegistry = {
-  create(
+type ScheduledAgentsModuleRegistry = {
+  create(moduleId: string, draft: ScheduledAgentDraft): Promise<ScheduledAgentWriteResult>
+  update(moduleId: string, id: string, draft: ScheduledAgentDraft): Promise<ScheduledAgentWriteResult>
+  remove(moduleId: string, id: string): Promise<{ ok: true } | { ok: false; message: string }>
+  list(moduleId: string): Promise<ScheduledAgentView[]>
+  runNow(
     moduleId: string,
-    input: { workspaceRoot: string; draft: unknown },
-  ): Promise<ModuleAutomationsResult<{ automation: AutomationDefinition }>>
-  update(
-    moduleId: string,
-    input: { workspaceRoot: string; automationId: string; patch: unknown },
-  ): Promise<ModuleAutomationsResult<{ automation: AutomationDefinition }>>
-  delete(
-    moduleId: string,
-    input: { workspaceRoot: string; automationId: string },
-  ): Promise<ModuleAutomationsResult<object>>
-  list(
-    moduleId: string,
-    input: { workspaceRoot: string },
-  ): Promise<ModuleAutomationsResult<{ automations: AutomationDefinition[] }>>
-  listRuns(
-    moduleId: string,
-    input: { workspaceRoot: string; automationId: string },
-  ): Promise<ModuleAutomationsResult<{ runs: AutomationRun[] }>>
-  onRunEvent(moduleId: string, listener: (event: AutomationsRunEvent) => void): () => void
+    id: string,
+  ): Promise<{ ok: true; run: ScheduledAgentLastRun } | { ok: false; message: string }>
+  onChanged(moduleId: string, listener: (agents: ScheduledAgentView[]) => void): () => void
 }
 
-const automationsModuleServiceToken: ServiceToken<AutomationsModuleRegistry> =
-  createServiceToken<AutomationsModuleRegistry>('automations.module-service')
+const scheduledAgentsModuleServiceToken: ServiceToken<ScheduledAgentsModuleRegistry> =
+  createServiceToken<ScheduledAgentsModuleRegistry>('scheduled-agents.module-service')
 
 /**
- * The scoped Automations service for `host`'s module. The raw host registry
- * takes a module id on every call; this helper closes over `host.moduleId`
- * exactly like `registerAutomationTrigger`/`registerAutomationAction`.
+ * The scoped scheduled agents service for `host`'s module. The raw host
+ * registry is moduleId-first; this binds `host.moduleId` so a module cannot
+ * reach another's scheduled agents or the person's own.
  */
-export function getAutomationsService(host: MainHost): ModuleAutomationsService {
-  const registry = host.requireService(automationsModuleServiceToken)
+export function getScheduledAgentsService(host: MainHost): ModuleScheduledAgentsService {
+  const registry = host.requireService(scheduledAgentsModuleServiceToken)
   const moduleId = host.moduleId
   return {
-    create: (input) => registry.create(moduleId, input),
-    update: (input) => registry.update(moduleId, input),
-    delete: (input) => registry.delete(moduleId, input),
-    list: (input) => registry.list(moduleId, input),
-    listRuns: (input) => registry.listRuns(moduleId, input),
-    onRunEvent: (listener) => registry.onRunEvent(moduleId, listener),
+    create: (draft) => registry.create(moduleId, draft),
+    update: (id, draft) => registry.update(moduleId, id, draft),
+    remove: (id) => registry.remove(moduleId, id),
+    list: () => registry.list(moduleId),
+    runNow: (id) => registry.runNow(moduleId, id),
+    onChanged: (listener) => registry.onChanged(moduleId, listener),
   }
 }
 
@@ -988,6 +704,8 @@ export type CompanionAgentStatus =
  */
 export type CompanionAgentEvent = {
   id: string
+  /** Order within the session; absent only on events recorded before the host stamped one. */
+  seq?: number
   sessionId: string
   workspaceId: string
   agentId: string
@@ -1065,176 +783,13 @@ const companionAgentsModuleServiceToken: ServiceToken<CompanionAgentsRegistry> =
 /**
  * The scoped Companion Agents service for `host`'s module. The raw host registry
  * takes a module id on every call; this helper closes over `host.moduleId`
- * exactly like `getAutomationsService`.
+ * exactly like `getScheduledAgentsService`.
  */
 export function getCompanionAgentsService(host: MainHost): CompanionAgentsService {
   const registry = host.requireService(companionAgentsModuleServiceToken)
   const moduleId = host.moduleId
   return {
     attach: (spec) => registry.attach(moduleId, spec),
-  }
-}
-
-// ── Agent sessions (host-provided, consumed via the service bridge) ──────────
-
-/**
- * A terminal agent session as a module sees it: the coordinates it needs to
- * address the session again, and the liveness facts it needs to decide whether
- * to. Deliberately narrower than the app's own session snapshot — identity and
- * liveness, never scrollback, cwd, or file-change telemetry.
- */
-export type ModuleAgentSessionRecord = {
-  sessionId: string
-  agentId: string | null
-  name: string | null
-  cli: string | null
-  workspaceId: string | null
-  executionId: string | null
-  /** The pty is running and not frozen by the idle reaper. */
-  isLive: boolean
-  suspended: boolean
-  reapExempt: boolean
-  startedAt: number
-}
-
-export type ModuleAgentSpawnRequest = {
-  /**
-   * The workspace the agent belongs to. Required: a module surface is always
-   * opened FROM somewhere, and an agent parked in a workspace nobody named is
-   * one the user cannot find again.
-   */
-  workspaceId: string
-  /** Absolute working directory for the agent's terminal. */
-  cwd: string
-  /** Agent CLI plugin id. Absent takes the user's last-selected CLI. */
-  cli?: string
-  /** Model id for CLIs declaring modelSelection; forwarded verbatim. */
-  cliModel?: string
-  /** Delivered as the opening turn on a fresh spawn, or pasted into a reused one. */
-  prompt: string
-  /**
-   * A skill the host installs into the working directory before the CLI starts.
-   * An id the host cannot resolve fails the spawn with `unknown_skill` rather
-   * than starting an agent without the instructions it was meant to run on.
-   * The CLI-native invocation comes back as `skillInvocation` for the prompt to
-   * lead with.
-   */
-  skill?: { id: string }
-  /** Session-manager label for the terminal. Absent picks a name from the shared pool. */
-  label?: string
-  /**
-   * The agent's identity: `${agentIdPrefix}${agentIdKey}`. The prefix must be a
-   * namespace this module registered; the key is whatever the module keys its
-   * agents by (a review id, a document id). Stable across spawns, which is what
-   * `reuseLive` and `list()` match on. Absent mints an app-owned id.
-   */
-  agentIdPrefix?: string
-  agentIdKey?: string
-  /**
-   * The launch permission preset. Absent takes the user's configured default —
-   * never an escalation the module chose for them.
-   */
-  permissionPreset?: 'none' | 'bypass'
-  /**
-   * Deliver the prompt to a live session under the same agent id instead of
-   * spawning a second one (`reused: true`). Default true; a dead or suspended
-   * session under that id is disposed and replaced either way.
-   */
-  reuseLive?: boolean
-  /** Free-form role ('review-guide'). Accepted; the host does not record it today. */
-  role?: string
-}
-
-export type ModuleAgentSpawnResult =
-  | {
-      ok: true
-      sessionId: string
-      agentId: string
-      executionId: string
-      workspaceId: string
-      cli: string
-      reused: boolean
-      /**
-       * The CLI-native explicit invocation for the requested skill (`/review-guide`
-       * on Claude, `Use $review-guide.` on Codex). Absent when no skill was asked
-       * for, or when this CLI's plugin declares no native skill form — point the
-       * agent at the installed `.agents/skills/<id>/SKILL.md` instead.
-       */
-      skillInvocation?: string
-    }
-  | {
-      ok: false
-      code:
-        | 'unknown_workspace'
-        | 'missing_cwd'
-        | 'no_cli_selected'
-        | 'cli_not_agent_selectable'
-        | 'unknown_skill'
-        | 'spawn_failed'
-        | 'send_failed'
-        | 'permission_missing'
-      message: string
-    }
-
-/** A module agent's terminal ended. Fans out from the runtime's own exit report. */
-export type ModuleAgentExitEvent = {
-  agentId: string | null
-  executionId: string
-  workspaceId: string | null
-  exitCode: number
-}
-
-/**
- * Terminal agent sessions for a module's `entry.main`, obtained via
- * `getAgentSessionService(host)`.
- *
- * Declare the `agents:session` permission — every method here checks it — and
- * `dependsOn: ['agent-runtime']` so the service exists before your entry runs.
- */
-export type ModuleAgentSessionService = {
-  spawn(request: ModuleAgentSpawnRequest): Promise<ModuleAgentSpawnResult>
-  /** One prompt into a live session, submitted as a turn, serialized per session. */
-  send(sessionId: string, text: string): Promise<{ ok: boolean; message?: string }>
-  kill(sessionId: string): void
-  /**
-   * Hold a session out of the idle reaper's reach while it is mid-task. The
-   * host clears the exemption when that session exits, so a module that never
-   * balances its own call cannot leave an unsuspendable pty behind.
-   */
-  setReapExempt(sessionId: string, exempt: boolean): void
-  onExit(listener: (event: ModuleAgentExitEvent) => void): () => void
-  /** Only sessions whose agent id starts with a prefix this module owns. */
-  list(): ModuleAgentSessionRecord[]
-}
-
-type AgentSessionsRegistry = {
-  spawn(moduleId: string, request: ModuleAgentSpawnRequest): Promise<ModuleAgentSpawnResult>
-  send(moduleId: string, sessionId: string, text: string): Promise<{ ok: boolean; message?: string }>
-  kill(moduleId: string, sessionId: string): void
-  setReapExempt(moduleId: string, sessionId: string, exempt: boolean): void
-  onExit(moduleId: string, listener: (event: ModuleAgentExitEvent) => void): () => void
-  list(moduleId: string): ModuleAgentSessionRecord[]
-}
-
-const agentSessionsModuleServiceToken: ServiceToken<AgentSessionsRegistry> = createServiceToken<AgentSessionsRegistry>(
-  'agent-sessions.module-service',
-)
-
-/**
- * The scoped Agent Sessions service for `host`'s module. The raw host registry
- * takes a module id on every call; this helper closes over `host.moduleId`
- * exactly like `getCompanionAgentsService`.
- */
-export function getAgentSessionService(host: MainHost): ModuleAgentSessionService {
-  const registry = host.requireService(agentSessionsModuleServiceToken)
-  const moduleId = host.moduleId
-  return {
-    spawn: (request) => registry.spawn(moduleId, request),
-    send: (sessionId, text) => registry.send(moduleId, sessionId, text),
-    kill: (sessionId) => registry.kill(moduleId, sessionId),
-    setReapExempt: (sessionId, exempt) => registry.setReapExempt(moduleId, sessionId, exempt),
-    onExit: (listener) => registry.onExit(moduleId, listener),
-    list: () => registry.list(moduleId),
   }
 }
 
@@ -1282,9 +837,9 @@ const moduleStorageToken: ServiceToken<ModuleStorageRegistry> =
 /**
  * The scoped storage service for `host`'s module. The raw host registry takes
  * a module id on every call; this helper closes over `host.moduleId` exactly
- * like `getAutomationsService`. Provided by the agent-runtime core — declare
+ * like `getScheduledAgentsService`. Provided by the agent-runtime core — declare
  * `dependsOn: ['agent-runtime']` (a chain that reaches it, e.g.
- * `['automations']`, also works) so your `entry.main` registers after the
+ * `['scheduled-agents']`, also works) so your `entry.main` registers after the
  * provider; without the dependency edge, load order is alphabetical and a
  * top-of-registerMain call can race the provider and fail your module's load.
  */
@@ -1762,7 +1317,6 @@ export type CommandAvailability =
   | 'gitPanelActive'
   | 'terminalActive'
   | 'diagnosticsEnabled'
-  | 'automationsEnabled'
   // Open at the type level so new shell conditions never break a compiled
   // module; an unknown condition reads as unsatisfied (fail closed). Prefer
   // an availability predicate for module-specific gating.
@@ -1840,7 +1394,7 @@ export type SidebarNavEntryComponent =
 
 /**
  * A top-nav door your module contributes to the workspace sidebar's
- * instance-level nav cluster (the band holding New chat, Automations,
+ * instance-level nav cluster (the band holding New chat and
  * Connectors). The entry is a self-contained row component that owns its full
  * behavior — a status dot, an open action against the local window's store,
  * active state. The sidebar shows it only while your module is enabled and
@@ -2078,30 +1632,6 @@ export type ModalSurfaceLauncher = {
   Glyph: ModalSurfaceIconComponent
 }
 
-// ── Agent id namespaces ──────────────────────────────────────────────────────
-
-/**
- * An agent-id namespace your module claims. A module that spawns agents outside
- * a window's knowledge — a background guide, a companion — owns ids the shell
- * then has to reason about without knowing whose they are: what to call the
- * session when no workspace claims it, and whether the id is one it may adopt
- * onto a workspace. This is how it asks you instead of guessing.
- */
-export type AgentIdNamespaceDefinition = {
-  /**
-   * Every agent id starting with this belongs to your module. Keep it
-   * distinctive and terminated (`'review-guide-'`, not `'review'`) so it cannot
-   * swallow another module's ids. A prefix overlapping one already claimed is a
-   * registration error.
-   */
-  prefix: string
-  /**
-   * What the shell calls sessions in this namespace that no workspace claims,
-   * e.g. "Reviews". Sentence case; it is a group name in a session list.
-   */
-  label: string
-}
-
 // ── Live runtime surfaces (renderer) ─────────────────────────────────────────
 
 export type WorkspaceFileWatchEvent = {
@@ -2113,75 +1643,10 @@ export type WorkspaceFileWatchEvent = {
 /** The resolved surface of the app's active theme (`watchColorScheme`). */
 export type ModuleColorScheme = 'light' | 'dark'
 
-/** Read-only view of one live agent session (enum-ish fields widened to string). */
-export type ModuleAgentSessionView = {
-  /** The studio's terminal-tracking id (stable per session). */
-  sessionId: string
-  agentId: string | null
-  /** Display name from spawn metadata, when known. */
-  name: string | null
-  /** Session kind ('terminal', 'agent', …). */
-  kind: string
-  /** Owning orchestration system tag, when the session belongs to one. */
-  system: string | null
-  /** The owning execution's id within its system, when the session belongs to one. */
-  executionId: string | null
-  /** True while the underlying process is alive (false when suspended/exited). */
-  isLive: boolean
-}
-
-/** One model a runtime offers, as a picker row. */
-export type ModuleAgentRuntimeModelOption = {
-  /** Model id to pass as `spawnAgent`'s `cliModel`. */
-  id: string
-  /** Display label; falls back to the id when the catalog names none. */
-  label: string
-}
-
-export type ModuleAgentRuntimeOption = {
-  /** Runtime id to pass as `spawnAgent`'s `cli` (e.g. 'claude', 'codex'). */
-  id: string
-  /** Display label for pickers. */
-  label: string
-  /**
-   * Whether this machine has the runtime's binary. Rows detected as missing
-   * are still listed so your picker can show them disabled rather than
-   * pretending the CLI does not exist; spawning one fails.
-   */
-  available: boolean
-  /**
-   * The model ids this runtime offers — the plugin manifest's list merged with
-   * what the CLI reported about itself and the ids the user added, the same
-   * rows the shell's own model picker shows. Empty means the runtime exposes
-   * no model choice: omit `cliModel` and it launches with its own default.
-   */
-  models: ModuleAgentRuntimeModelOption[]
-  /** True for the runtime the user last chose — what a picker should preselect. */
-  isDefault: boolean
-}
-
-export type ModuleSpawnAgentInput = {
-  workspaceId: string
-  /** Display name for the agent tab; defaults to a shell-picked agent name. */
-  name?: string
-  /** Runtime id from `listAgentRuntimes()`; defaults to the user's last-used CLI. */
-  cli?: string
-  /** Model id for the runtime; omitted = the CLI's default model. */
-  cliModel?: string
-  /** Launch prompt handed to the agent once the session starts. */
-  prompt?: string
-  /** Focus the new agent's tab (default true). */
-  focus?: boolean
-}
-
-export type ModuleSpawnAgentResult =
-  | { ok: true; agentId: string }
-  | { ok: false; code: 'unknown_workspace' | 'missing_folder' | 'unknown_runtime' | 'spawn_failed'; message: string }
-
 export type ModuleFocusTabInput = {
   workspaceId: string
-  kind: 'agent' | 'file'
-  /** Agent id, or a workspace-relative file path. */
+  kind: 'chat' | 'file'
+  /** A chat's agent id (from `openChat` or the conversation service), or a workspace-relative file path. */
   id: string
 }
 
@@ -2218,6 +1683,13 @@ export type NotificationActionProvider = {
 // ── Renderer host registration contract ──────────────────────────────────────
 
 export type RendererHost = {
+  /** The host API this app provides (`HOST_API_VERSION` of the SDK it was built with). */
+  readonly hostApiVersion: number
+  /**
+   * Whether the running host provides `capability` now. False for names it
+   * does not know, so a module may probe for capabilities newer than its SDK.
+   */
+  supports(capability: HostCapability): boolean
   /**
    * Stable URL for a file packaged inside this trusted module (e.g. runtime/index.html).
    * Inside packaged HTML, relative resources, WebAssembly, workers and IndexedDB share a stable,
@@ -2294,6 +1766,20 @@ export type RendererHost = {
    * character, a missing Glyph) is a registration error too.
    */
   registerModalSurface(definition: ModalSurfaceDefinition): void
+  /**
+   * Open one of THIS module's global surfaces — the page a
+   * `registerGlobalSurface` with the same id contributed — as if its door had
+   * been picked. A module may only open surfaces it registered: false for an
+   * id that is not yours, not registered, or while your module is disabled.
+   */
+  openGlobalSurface(id: string): boolean
+  /**
+   * Open one of THIS module's modal surfaces over whatever the window is
+   * showing — the trigger you draw yourself from a panel, a row action or a
+   * command. A module may only open surfaces it registered: false for an id
+   * that is not yours, not registered, or while your module is disabled.
+   */
+  openModalSurface(id: string): boolean
   /**
    * The workspace's Backlog items as read-only views. Declare the
    * `backlog.read` permission (install-time disclosure). Mutations go through
@@ -2411,21 +1897,10 @@ export type RendererHost = {
    */
   subscribe(topic: string, cb: (payload: unknown) => void): () => void
   /**
-   * Claim an agent-id namespace for your module: every agent id starting with
-   * `prefix` is yours, and `label` is what the shell calls those sessions where
-   * no workspace claims them. Without it, an agent your module spawned outside
-   * a window's knowledge is an unlabelled, unadoptable session. Registered once
-   * at boot; the shell gates on your module's live enablement. A prefix
-   * overlapping one another module already claimed is a registration error,
-   * reported as a module load error that gates off your other contributions.
-   * Declare the `ipc:agents` permission.
-   */
-  registerAgentIdNamespace(definition: AgentIdNamespaceDefinition): void
-  /**
    * The workspace's *effective working root*: where its live work happens.
    * `ModuleWorkspaceView.folderPath` deliberately reports the durable primary
-   * checkout; a worktree-backed workspace (an automation run with
-   * `runInWorktree`, for one) does live work under a worktree, and this
+   * checkout; a worktree-backed workspace (a scheduled agent's run on a
+   * worktree, for one) does live work under a worktree, and this
    * resolves that root. The live-runtime methods below
    * resolve workspace-relative paths against it. Null means "not currently
    * resolvable" — never a throw. Declare `ipc:workspace-read`.
@@ -2445,41 +1920,24 @@ export type RendererHost = {
     cb: (event: WorkspaceFileWatchEvent) => void,
   ): Promise<() => void>
   /**
-   * Observe live agent sessions: `cb` fires once with the current read-only
-   * views, then on every change (deduped). Returns the unsubscriber — call it
-   * on unmount. Throws with a named cause when agent runtime is unavailable.
-   *
-   * A workspace id watches that workspace's sessions, whoever spawned them.
-   * `undefined` watches every workspace, narrowed to sessions whose agent id
-   * falls in a namespace you claimed with `registerAgentIdNamespace` — which
-   * is how you follow agents your own `entry.main` spawned without a
-   * window's knowledge. Claim no namespace and the unscoped watch reports an
-   * empty list; it is never a window onto other modules' sessions.
-   * Declare `ipc:agents`.
-   */
-  watchAgentSessions(workspaceId: string | undefined, cb: (sessions: ModuleAgentSessionView[]) => void): () => void
-  /**
-   * Spawn an agent session through the app's SHARED session runtime (the
-   * same path every shell surface uses) and add its tab to the workspace
-   * layout. Structured result — expected failures (unknown workspace,
-   * folderless workspace, unavailable runtime, spawn failure) never throw;
-   * rejects only when agent runtime is unavailable. Declare `ipc:agents`.
-   */
-  spawnAgent(input: ModuleSpawnAgentInput): Promise<ModuleSpawnAgentResult>
-  /**
-   * Focus a workspace tab: an agent's terminal tab (added if missing) or a
+   * Focus a workspace tab: a chat by its agent id (added if missing) or a
    * file tab by workspace-relative path. False when not focusable; throws
    * with a named cause when agent runtime is unavailable.
    */
   focusTab(input: ModuleFocusTabInput): boolean
   /**
-   * The agent runtimes available to spawn, from the same
-   * availability-filtered catalog the shell's own pickers read: id, display
-   * label, whether the binary is on this machine, the runtime's model rows,
-   * and which one the user last chose. Plugin internals stay unexposed.
-   * Throws with a named cause when agent runtime is unavailable.
+   * Open a chat in a workspace and focus it. By default the prompt lands in the
+   * composer as a draft the user sends themselves; `send: true` sends it as the
+   * first turn. Expected failures come back as a result, never a throw
+   * (`unavailable` when this window cannot open chats). Declare
+   * `conversation:operate`.
    */
-  listAgentRuntimes(): ModuleAgentRuntimeOption[]
+  openChat(input: ModuleOpenChatInput): Promise<ModuleOpenChatResult>
+  /**
+   * The agent runtimes a chat can run on, from the same catalog the shell's
+   * own chat picker reads, with the one the user last chose marked.
+   */
+  listChatRuntimes(): ModuleChatRuntimeOption[]
   /**
    * Invoke an IPC channel this module's own `entry.main` registered via
    * `MainHost.registerIpc`, e.g. `host.invoke('my-module:save', data)`.
@@ -2648,61 +2106,72 @@ export const THEME_TOKENS = [
 
 export type ThemeToken = (typeof THEME_TOKENS)[number]
 
-/** The export contract of `entry.renderer`: `export function registerRenderer(host) { … }`. */
-export type RegisterRenderer = (host: RendererHost) => void
+/**
+ * The export contract of `entry.renderer`: `export function registerRenderer(host) { … }`.
+ * It may be async: the host waits for the returned promise (bounded) before it
+ * counts the module as loaded, and a rejection fails the module alone.
+ */
+export type RegisterRenderer = (host: RendererHost) => void | Promise<void>
+
+// ── Host API version, conversations, brokered credentials ────────────────────
+
+export {
+  HOST_API_MIN_SUPPORTED,
+  HOST_API_VERSION,
+  checkHostApiCompatibility,
+  type HostApiCompatibility,
+  type HostCapability,
+} from './host-api.js'
+
+export {
+  getConversationService,
+  type ModuleChatRuntimeOption,
+  type ModuleConversationCreateInput,
+  type ModuleConversationErrorCode,
+  type ModuleConversationEvent,
+  type ModuleConversationEventType,
+  type ModuleConversationImageAttachment,
+  type ModuleConversationPermissionPreset,
+  type ModuleConversationRef,
+  type ModuleConversationResult,
+  type ModuleConversationService,
+  type ModuleConversationStatus,
+  type ModuleConversationSummary,
+  type ModuleOpenChatInput,
+  type ModuleOpenChatResult,
+} from './conversation.js'
+
+export {
+  getGitHubService,
+  getSecretsService,
+  type ModuleGitHubRequest,
+  type ModuleGitHubResponse,
+  type ModuleGitHubService,
+  type ModuleSecretFetchInit,
+  type ModuleSecretFetchResult,
+  type ModuleSecretsError,
+  type ModuleSecretsService,
+} from './brokers.js'
 
 // ── Manifest validation + canonical signing payload ──────────────────────────
 // Pure (no Node APIs) and safe in any runtime. The ed25519 sign/verify
-// functions need node:crypto and live behind the `./signing` subpath export.
+// functions, and the walk that digests a module folder, need node:crypto and
+// node:fs and live behind the `./signing` subpath export.
 
 export {
   canonicalManifestPayload,
+  compareModuleFileDigests,
+  isPackExcludedPath,
   parseThirdPartyModuleManifest,
   validateCapabilityPermissions,
+  validateModuleFileDigests,
   validateThirdPartyModuleManifest,
+  type ModuleFileDigestsValidation,
   type PermissionValidationIssue,
   type PermissionValidationResult,
   type ThirdPartyManifestIssue,
   type ThirdPartyManifestResult,
 } from './manifest-validate.js'
-
-// ── BYO-CLI plugin authoring (kind: 'cli') ───────────────────────────────────
-// A CLI plugin is a separate artifact from a capability module: a `plugin.json`
-// dropped into ~/.sprintengine/plugins/<id>/ that teaches the studio a new agent
-// CLI. Pure validator + types, safe in any runtime.
-
-export {
-  parseCliPluginManifest,
-  validateCliPluginManifest,
-  type CliArgvToken,
-  type CliAuthSpec,
-  type CliCapabilities,
-  type CliCompletionMode,
-  type CliCompletionSpec,
-  type CliContextInjection,
-  type CliContextInjectionMode,
-  type CliLaunchSpec,
-  type CliManifestIssue,
-  type CliManifestResult,
-  type CliMcpConfigFormat,
-  type CliMcpConfigSpec,
-  type CliModelOption,
-  type CliModelSelectionSpec,
-  type CliPermissionPreset,
-  type CliPluginManifest,
-  type CliPromptInjection,
-  type CliPromptInjectionMode,
-  type CliReadinessSignal,
-  type CliResumeSpec,
-  type CliSkillFormat,
-  type CliSkillInstallScope,
-  type CliSkillInstallTarget,
-  type CliSkillIntegration,
-  type CliSkillInvocation,
-  type CliSkillSupport,
-  type CliVariableDecl,
-  type CliVariableType,
-} from './cli-manifest.js'
 
 // ── Marketplace plugin bundle authoring ─────────────────────────────────────
 // A marketplace plugin is a signed bundle manifest (`plugin.json`) that points

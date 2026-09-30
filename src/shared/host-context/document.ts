@@ -65,11 +65,6 @@ export type HostContextInput = {
     relativeRoot?: string
   }
   /**
-   * Sections a module contributed for this launch. Appended after the
-   * design-system and Knowledge Graph sections, in module registration order.
-   */
-  moduleSections?: Array<{ heading: string; body: string }>
-  /**
    * The session can reach the app's `editor_*` tools: an agent launched with a
    * workspace and an agent identity, which is what binds its gateway
    * connection. Absent for a plain launch, whose document is unchanged.
@@ -116,13 +111,6 @@ export function buildHostContextDocument(input: HostContextInput): string | null
 
   if (input.editorTools) {
     sections.push(['## Showing files and diffs', '', EDITOR_TOOLS_HOST_CONTEXT_SECTION].join('\n'))
-  }
-
-  for (const section of input.moduleSections ?? []) {
-    const heading = section.heading.trim()
-    const body = section.body.trim()
-    if (!heading || !body) continue
-    sections.push([`## ${heading}`, '', body].join('\n'))
   }
 
   if (sections.length === 0) return null

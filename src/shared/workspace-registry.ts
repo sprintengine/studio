@@ -26,7 +26,6 @@ import type {
   AgentState,
   Workspace,
   WorkspaceId,
-  WorkspaceMode,
   WorkspaceRegistryEmptyState,
   WorkspaceWindowId,
   WorkspaceWindowState,
@@ -465,39 +464,6 @@ export function isWorkspaceTombstoned(tombstones: WorkspaceRegistryTombstone[], 
 export function workspaceRegistryFolderKey(value: string | null | undefined): string | null {
   const trimmed = value?.trim()
   return trimmed ? trimmed.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase() : null
-}
-
-/** The modes that are strictly one-per-project and reuse an existing record. */
-const WORKSPACE_REUSE_MODES = ['automations-host'] as const
-
-type WorkspaceReuseMode = (typeof WORKSPACE_REUSE_MODES)[number]
-
-function isWorkspaceReuseMode(mode: string | undefined | null): mode is WorkspaceReuseMode {
-  return WORKSPACE_REUSE_MODES.includes(mode as WorkspaceReuseMode)
-}
-
-/**
- * The folder's existing automations-host, or null.
- *
- * The renderer ran this check inside `set()` because two calls in one tick each
- * read the store before either wrote (`workspacesSlice.ts`, the host-reuse
- * branch). Main's single writer removes that hazard structurally — this runs
- * inside the same critical section as the mint, so two concurrent creates for
- * one folder resolve to the same id. Across WINDOWS the renderer check could
- * never hold at all; this one does.
- */
-export function resolveWorkspaceReuseTarget<T extends Pick<Workspace, 'id' | 'mode' | 'folderPath'>>(
-  records: T[],
-  mode: WorkspaceMode | undefined,
-  folderPath: string | null | undefined,
-): T | null {
-  if (!isWorkspaceReuseMode(mode)) return null
-  const folderKey = workspaceRegistryFolderKey(folderPath)
-  if (!folderKey) return null
-  return (
-    records.find((record) => record.mode === mode && workspaceRegistryFolderKey(record.folderPath) === folderKey) ??
-    null
-  )
 }
 
 // ---------------------------------------------------------------------------

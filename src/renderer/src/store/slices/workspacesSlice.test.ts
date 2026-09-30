@@ -55,7 +55,7 @@ test('workspacesSlice', async () => {
   }
   assert.equal(normalizeWorkspaceMode(legacyPersistedWorkspace.mode), 'future-plugin-mode')
   assert.equal(normalizeWorkspaceMode('  future-plugin-mode  '), '  future-plugin-mode  ')
-  assert.equal(normalizeWorkspaceMode('automations-host'), 'automations-host')
+  assert.equal(normalizeWorkspaceMode('weather-deck'), 'weather-deck')
   assert.equal(normalizeWorkspaceMode(''), 'standard')
   assert.equal(normalizeWorkspaceMode('   '), 'standard')
   assert.equal(normalizeWorkspaceMode(null), 'standard')
@@ -420,40 +420,6 @@ test('workspacesSlice', async () => {
     false,
   )
 
-  // The Automations host is one-per-project: a
-  // second create for the same folder (door or automation executor) reuses
-  // the existing host instead of minting a duplicate.
-  const firstHostId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
-    name: 'Automations',
-    folderPath: '/Users/example/automations',
-    mode: 'automations-host',
-  })
-  useWorkspaceStore.getState().setFolderMissing(firstHostId, true)
-  const reusedHostId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
-    name: 'Nightly reviewer',
-    folderPath: '/Users/example/automations/',
-    mode: 'automations-host',
-  })
-  state = useWorkspaceStore.getState()
-  assert.equal(reusedHostId, firstHostId, 'a same-folder automations-host create reuses the existing host')
-  assert.equal(state.workspaces.filter((workspace) => workspace.mode === 'automations-host').length, 1)
-  assert.equal(state.workspaces.find((workspace) => workspace.id === firstHostId)?.folderMissing, false)
-  assert.equal(
-    state.workspaces.find((workspace) => workspace.id === firstHostId)?.name,
-    'Automations',
-    "reuse keeps the existing host untouched — the second create's name never rebrands it",
-  )
-  assert.equal(state.activeWorkspaceId, firstHostId)
-  // A different folder still gets its own host.
-  const secondFolderHostId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
-    name: 'Automations',
-    folderPath: '/Users/example/other-project',
-    mode: 'automations-host',
-  })
-  assert.notEqual(secondFolderHostId, firstHostId)
-  useWorkspaceStore.getState().removeWorkspace(firstHostId)
-  useWorkspaceStore.getState().removeWorkspace(secondFolderHostId)
-
   // A second workspace in the same folder inserts directly above the first
   // (top of that folder's block), not at the global head and not at the tail.
   const blockFolder = '/Users/example/insert-order'
@@ -802,19 +768,19 @@ test('workspacesSlice', async () => {
     'the source template is never mutated',
   )
 
-  // --- Explicit automations-host mode (T2) ------------------------------------
-  // An explicit non-standard `mode` is honored at creation so the automations
-  // executor can create the hidden background host.
-  const automationsHostId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
-    name: 'Automations Host',
+  // --- Explicit module-registered mode ----------------------------------------
+  // An explicit non-standard `mode` is honored at creation: it is the identity
+  // every mode-derived surface keys on.
+  const moduleTypeId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+    name: 'Weather deck',
     folderPath: '/Users/example/project',
-    mode: 'automations-host',
+    mode: 'weather-deck',
   })
   state = useWorkspaceStore.getState()
   assert.equal(
-    state.workspaces.find((workspace) => workspace.id === automationsHostId)?.mode,
-    'automations-host',
-    'an explicit automations-host mode wins over standard-derivation',
+    state.workspaces.find((workspace) => workspace.id === moduleTypeId)?.mode,
+    'weather-deck',
+    'an explicit module mode wins over standard-derivation',
   )
 
   // Omitting mode behaves exactly as today: standard-derivation is unchanged.
@@ -935,47 +901,18 @@ test('workspacesSlice', async () => {
     null,
     'addWorkspace clears the active surface (new-workspace path)',
   )
-  useWorkspaceStore.getState().openGlobalSurface('roadmap')
-  const hostReuseId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
-    folderPath: '/Users/example/door-chat',
-    mode: 'automations-host',
-  })
-  useWorkspaceStore.getState().openGlobalSurface('roadmap')
-  assert.equal(
-    useWorkspaceStore.getState().addWorkspace(standardTemplate, {
-      folderPath: '/Users/example/door-chat',
-      mode: 'automations-host',
-    }),
-    hostReuseId,
-    'a second host add for the folder reuses the existing workspace',
-  )
-  assert.equal(
-    useWorkspaceStore.getState().activeGlobalSurface,
-    null,
-    'addWorkspace clears the active surface (host reuse early-return)',
-  )
-  // A BACKGROUND create (the automation executor's hidden host) must leave an
+  // A BACKGROUND create (one made by code rather than a person) must leave an
   // open door alone — only operator-initiated creation dismisses the surface.
   useWorkspaceStore.getState().openGlobalSurface('roadmap')
   useWorkspaceStore.getState().addWorkspace(standardTemplate, {
-    name: 'Executor-created host',
-    folderPath: '/Users/example/executor-host',
+    name: 'Background create',
+    folderPath: '/Users/example/background',
     background: true,
   })
   assert.equal(
     useWorkspaceStore.getState().activeGlobalSurface,
     'roadmap',
     'a background create leaves the door the operator is reading untouched',
-  )
-  useWorkspaceStore.getState().addWorkspace(standardTemplate, {
-    folderPath: '/Users/example/door-chat',
-    mode: 'automations-host',
-    background: true,
-  })
-  assert.equal(
-    useWorkspaceStore.getState().activeGlobalSurface,
-    'roadmap',
-    'a background reuse early-return leaves it untouched as well',
   )
   useWorkspaceStore.getState().closeGlobalSurface()
 

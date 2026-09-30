@@ -813,6 +813,44 @@ test('remembered approvals auto-resolve later matching tools and persistence fai
   }
 })
 
+test('a tool approval says whether it can be allowed for the conversation, in the words the menu uses', async () => {
+  const requests = [
+    { requestId: 'simple', action: 'Bash', kind: 'tool', input: { command: 'git status --short' } },
+    { requestId: 'compound', action: 'Bash', kind: 'tool', input: { command: 'ls && echo --- && cat x 2>/dev/null' } },
+    { requestId: 'flagged', action: 'Bash', kind: 'tool', input: { command: 'git status' }, defaultToNo: true },
+    { requestId: 'question', action: 'AskUserQuestion', kind: 'question', input: {} },
+  ]
+  const mock = createMockConversationProvider()
+  const { runtime, sessionId, cleanup } = await fixture({
+    ...mock,
+    sendTurn: (input) => [
+      event(input, 'turn_started', { turnId: input.turnId }),
+      ...requests.map((request) => event(input, 'approval_requested', { turnId: input.turnId, ...request })),
+    ],
+  })
+  try {
+    const events: ConversationEvent[] = []
+    runtime.onEvent((value) => events.push(value))
+    await runtime.sendTurn({ sessionId, message: 'look around' })
+    const stamped = new Map(
+      events
+        .filter((value) => value.type === 'approval_requested')
+        .map((value) => [value.payload?.requestId, value.payload]),
+    )
+    assert.equal(stamped.get('simple')?.rememberable, true)
+    assert.equal(stamped.get('simple')?.rememberLabel, 'Allow "git status …" for this conversation')
+    // A compound command has no rule a remembered grant could name.
+    for (const requestId of ['compound', 'flagged']) {
+      assert.equal(stamped.get(requestId)?.rememberable, false, requestId)
+      assert.equal(stamped.get(requestId)?.rememberLabel, undefined, requestId)
+    }
+    // Only a tool request is a permission; a question carries neither field.
+    assert.equal(stamped.get('question')?.rememberable, undefined)
+  } finally {
+    await cleanup()
+  }
+})
+
 /** A provider whose turn streams whatever the test pushes, until it ends the turn. */
 function pushProvider() {
   let push: (text: string | null) => void = () => undefined

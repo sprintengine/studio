@@ -26,7 +26,7 @@
 // `raw.mcpServers` went through untouched, which would have let a malformed row
 // reach a sync and be written into every CLI's config.
 
-import { app, type IpcMain } from 'electron'
+import { app, type IpcMain, type IpcMainInvokeEvent } from 'electron'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -38,6 +38,7 @@ import { detectCli } from '../cli-runtime-install'
 import { cloneGitHubRepo } from '../git-clone'
 import { githubRepoFromRemote } from '../git-github'
 import { runGit } from '../git-utils'
+import { isAppSender } from './ipc-sender'
 import type { GitHubTokenStore } from '../github-token-store'
 import {
   defaultMarketplacePluginInstallStorePath,
@@ -45,7 +46,6 @@ import {
 } from '../marketplace/plugin-lifecycle'
 import type { McpConfigService } from '../mcp-config-service'
 import { listPluginRegistryEntries } from '../plugin-registry-instance'
-import type { AppServices } from '../app-services'
 import type { SkillsService } from '../skills'
 import { createMarketplacePluginPipeline } from './marketplace-plugin-ipc'
 import { createDefaultMarketplaceRegistryClient } from './marketplace-registry-ipc'
@@ -57,13 +57,6 @@ export type CardsIpcServices = {
   skillsService: SkillsService
   mcpConfigService: McpConfigService
   githubTokenStore: GitHubTokenStore
-  /**
-   * The Automations module's front door, for the one case where a module bundle
-   * a card installs also carries an automation component. Resolved at call time
-   * (the module can be switched off), which is why it is a getter and why an
-   * absent one is a component-level failure rather than a silent skip.
-   */
-  getAutomationsAppFrontDoor?: AppServices['getAutomationsAppFrontDoor']
 }
 
 export function registerCardsIpc(
@@ -74,10 +67,7 @@ export function registerCardsIpc(
   let registryReader: ReturnType<typeof createDefaultMarketplaceRegistryClient> | undefined
   let pipeline: ReturnType<typeof createMarketplacePluginPipeline> | undefined
   const marketplacePipeline = () =>
-    (pipeline ??= createMarketplacePluginPipeline({
-      mcpConfigService: services.mcpConfigService,
-      getAutomationsAppFrontDoor: services.getAutomationsAppFrontDoor ?? (() => null),
-    }))
+    (pipeline ??= createMarketplacePluginPipeline({ mcpConfigService: services.mcpConfigService }))
   const deps: CardRunDeps = {
     syncMcp: (input) => services.mcpConfigService.sync(input),
     getSkillScan: (input) => services.skillsService.getScan(input),
@@ -125,11 +115,24 @@ export function registerCardsIpc(
     readMarketplaceRegistry: () => (registryReader ??= createDefaultMarketplaceRegistryClient()).read(),
     listMarketplaceReceipts: () =>
       readMarketplacePluginInstallReceipts(defaultMarketplacePluginInstallStorePath(app.getPath('userData'))),
-    installMarketplaceEntry: (input) => marketplacePipeline().lifecycle.installFromRegistry(input),
+    installMarketplaceEntry: (input) => marketplacePipeline().lifecycle.install(input),
     ...overrides,
   }
 
-  ipcMain.handle('cards:run', async (_event, raw: unknown): Promise<CardRunResult> => {
+  ipcMain.handle('cards:run', async (event: IpcMainInvokeEvent, raw: unknown): Promise<CardRunResult> => {
+    // A card installs modules and writes MCP servers into agent CLIs' configs,
+    // so only the app's own window may press Go.
+    if (!isAppSender(event)) {
+      return {
+        ok: false,
+        outcomes: [],
+        workspaceRoot: null,
+        mcpServers: [],
+        chat: null,
+        surface: null,
+        message: 'This request did not come from a SprintEngine Studio window.',
+      }
+    }
     const request = parseRequest(raw)
     if (!request.ok) {
       return {

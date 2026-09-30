@@ -8,7 +8,7 @@ import { appearanceApi } from './api/appearance'
 import { authApi } from './api/auth'
 import { automationApi } from './api/automation'
 import { meshApi } from './api/mesh'
-import { automationsApi } from './api/automations'
+import { scheduledAgentsApi } from './api/scheduled-agents'
 import { backlogApi } from './api/backlog'
 import { buildStampApi } from './api/build-stamp'
 import { builtinSkillsApi } from './api/builtinSkills'
@@ -49,6 +49,7 @@ import { toursApi } from './api/tours'
 import { workspaceBackupApi } from './api/workspace-backup'
 import { workspaceSkillsApi } from './api/workspace-skills'
 import { workspaceSyncApi } from './api/workspace-sync'
+import { extensionScaffoldApi } from './api/extension-scaffold'
 
 const diagnosticsEnabled = process.env.NODE_ENV === 'development' || readStudioEnv('SPRINTENGINE_DIAGNOSTICS') === '1'
 
@@ -70,7 +71,7 @@ const api = {
   ...authApi,
   ...automationApi,
   ...meshApi,
-  ...automationsApi,
+  ...scheduledAgentsApi,
   ...backlogApi,
   ...builtinSkillsApi,
   ...clipboardApi,
@@ -104,6 +105,8 @@ const api = {
   ...workspaceBackupApi,
   ...workspaceSkillsApi,
   ...workspaceSyncApi,
+  // ── extension-platform additions ──
+  ...extensionScaffoldApi,
 } satisfies ElectronApi
 
 // Wrap the whole surface for IPC accounting only when diagnostics is enabled, so

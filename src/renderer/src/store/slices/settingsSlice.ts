@@ -1059,6 +1059,12 @@ export interface SettingsSliceActions {
   resetAllKeybindings: () => void
   setModuleEnabled: (moduleId: string, enabled: boolean) => void
   /**
+   * Forget uninstalled modules: their enablement override and their settings
+   * namespace. A later module that takes the same id starts from its own
+   * manifest default, not from the choices made for the one before it.
+   */
+  forgetModules: (moduleIds: readonly string[]) => void
+  /**
    * Write one value in a module's settings namespace (`module:<moduleId>`).
    * `undefined` deletes the key. Module enablement never touches this state,
    * so values survive a disable/enable cycle.
@@ -1620,6 +1626,20 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
           ...normalizeModuleOverrides(state.appSettings.modules),
           [id]: enabled,
         }
+      }),
+
+    forgetModules: (moduleIds) =>
+      set((state) => {
+        const modules = { ...normalizeModuleOverrides(state.appSettings.modules) }
+        const moduleSettings = { ...normalizeModuleSettings(state.appSettings.moduleSettings) }
+        for (const moduleId of moduleIds) {
+          const id = moduleId.trim()
+          if (!id) continue
+          delete modules[id]
+          delete moduleSettings[moduleSettingsNamespace(id)]
+        }
+        state.appSettings.modules = modules
+        state.appSettings.moduleSettings = moduleSettings
       }),
 
     setModuleSettingValue: (moduleId, key, value) =>

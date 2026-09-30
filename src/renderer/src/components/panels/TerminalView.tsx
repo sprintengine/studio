@@ -1038,8 +1038,8 @@ export default function TerminalView({
       //
       // 'inert' — a cold-loaded persisted agent with no pty, no painted screen,
       // and no live launch intent. It has nothing to show and nobody asked for it,
-      // so it must sit idle. This is the branch whose absence turned every cold
-      // load of an automations-host agent into a fresh CLI launch.
+      // so it must sit idle. Without this branch every cold load of such an
+      // agent became a fresh CLI launch.
       const coldLoadDecision = resolveAgentColdLoadDecision({
         attachedSessionId,
         processAlive: terminalStatus.processAlive,
@@ -1051,8 +1051,8 @@ export default function TerminalView({
       const pauseInsteadOfLaunch = coldLoadDecision === 'paused'
       inertRef.current = coldLoadDecision === 'inert'
       if (coldLoadDecision === 'inert') {
-        // Return BEFORE the worktree resolution below. A finished automation
-        // agent's run worktree is routinely finalized away, and
+        // Return BEFORE the worktree resolution below. An idle agent's worktree
+        // may have been removed since it last ran, and
         // `resolveWorktreeSpawnFallback` would silently redirect the spawn into
         // the main checkout — the dead-cwd relaunch loop. Inert outranks that
         // fallback: there is nothing to spawn, so there is nothing to redirect.

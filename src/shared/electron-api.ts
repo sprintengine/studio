@@ -123,27 +123,11 @@ import type {
   MeshConversationListResult,
 } from './tailnet-mesh'
 import type {
-  AutomationsBuiltinInstallInput,
-  AutomationsBuiltinInstallResult,
-  AutomationsBuiltinListResult,
-  AutomationsCreateInput,
-  AutomationsDefinitionInput,
-  AutomationsDefinitionResult,
-  AutomationsDeleteResult,
-  AutomationsEngineStatusResult,
-  AutomationsInstanceListResult,
-  AutomationsListResult,
-  AutomationsProvidersResult,
-  AutomationsDefinitionsChangedEvent,
-  AutomationsRunEvent,
-  AutomationsRunFinalizeInput,
-  AutomationsRunFinalizeResult,
-  AutomationsRunNowResult,
-  AutomationsRunsListInput,
-  AutomationsRunsListResult,
-  AutomationsUpdateInput,
-  AutomationsWorkspaceInput,
-} from './automations/contracts'
+  ScheduledAgentDraft,
+  ScheduledAgentLastRun,
+  ScheduledAgentView,
+  ScheduledAgentWriteResult,
+} from './scheduled-agents'
 // Write-back config + IPC contracts: schema owned by T10, IPC surface
 // consumed by the T11 settings UI. Re-exported through the single electron-api
 // surface like the rest of the tracker seam.
@@ -157,7 +141,6 @@ import type {
   DesignSystemAttachSource,
   DesignSystemDetachResult,
 } from './design-system/attach'
-import type { MarketplacePluginEntry } from './marketplace/manifest'
 import type {
   ConversationEvent,
   ConversationInterruptInput,
@@ -237,7 +220,6 @@ import type {
   AgentLaunchPreviewResult,
   PluginAvailabilityResult,
   PluginDetectAvailabilityInput,
-  PluginInstallResult,
 } from './ipc/agent-cli'
 import type {
   AgentConfigAdoptInput,
@@ -345,11 +327,19 @@ import type {
 } from './ipc/git'
 import type { HostedCardFeedReadInput, HostedCardFeedReadResult, HostedSourcesFeedReadResult } from './ipc/hosted-feeds'
 import type {
+  GithubExtensionCheckUpdateInput,
+  GithubExtensionCheckUpdateResult,
+  GithubExtensionInstallInput,
+  GithubExtensionResolveInput,
+  GithubExtensionResolveResult,
   MarketplacePluginRegistryInstallInput,
   MarketplacePluginRegistryInstallResult,
   MarketplacePluginUninstallInput,
   MarketplacePluginUninstallResult,
+  MarketplacePluginVerifyInput,
   MarketplacePluginVerifyResult,
+  ThirdPartyModuleUninstallInput,
+  ThirdPartyModuleUninstallResult,
 } from './ipc/marketplace'
 import type {
   MarketplaceRegistryReadInput,
@@ -439,6 +429,14 @@ import type {
   WindowPlacement,
   WindowState,
 } from './ipc/window'
+import type {
+  ExtensionScaffoldCheck,
+  ExtensionScaffoldCheckInput,
+  ExtensionScaffoldCreateInput,
+  ExtensionScaffoldCreateResult,
+  ExtensionScaffoldFolderPick,
+  ExtensionTemplateSummary,
+} from './extension-scaffold'
 
 // The contract, one module per domain. Everything a caller imports from this
 // file is declared in one of them; this file adds the ElectronApi shape.
@@ -836,40 +834,19 @@ export type ElectronApi = {
     key: MeshConversationKey
     toolUseId: string
   }) => Promise<MeshConversationImageResult>
-  // Automations platform (per-project scheduled agent automations). The renderer
-  // reads/writes only through these channels; the engine owns the on-disk store.
-  listAutomations: (input: AutomationsWorkspaceInput) => Promise<AutomationsListResult>
-  /**
-   * Instance-wide automation index: every automation across every known project
-   * root with live rail state (status, last-run outcome/time, running-now). The
-   * full-page Automations surface reads this instead of one host folder's list.
-   */
-  listInstanceAutomations: () => Promise<AutomationsInstanceListResult>
-  /**
-   * The five automations that ship inside the app (Extensions drawer ruling,
-   * 2026-09-05). Read, never imported: main decides what is built in, so the
-   * Automations surface's "Built in" group asks rather than holding its own copy.
-   */
-  listBuiltinAutomations: () => Promise<AutomationsBuiltinListResult>
-  /**
-   * Writes a built-in's definition into a project — the same catalogue write the
-   * marketplace shelf's Get used, keyed on the built-in's stable id, so adding
-   * one twice reports the copy the project already has instead of duplicating it.
-   */
-  addBuiltinAutomation: (input: AutomationsBuiltinInstallInput) => Promise<AutomationsBuiltinInstallResult>
-  createAutomation: (input: AutomationsCreateInput) => Promise<AutomationsDefinitionResult>
-  updateAutomation: (input: AutomationsUpdateInput) => Promise<AutomationsDefinitionResult>
-  deleteAutomation: (input: AutomationsDefinitionInput) => Promise<AutomationsDeleteResult>
-  runAutomationNow: (input: AutomationsDefinitionInput) => Promise<AutomationsRunNowResult>
-  listAutomationRuns: (input: AutomationsRunsListInput) => Promise<AutomationsRunsListResult>
-  finalizeAutomationRun: (input: AutomationsRunFinalizeInput) => Promise<AutomationsRunFinalizeResult>
-  listAutomationProviders: () => Promise<AutomationsProvidersResult>
-  // Read-only health of the Automations engine/scheduler sidecar for the control
-  // center indicator. Never mutates; main reads kernel sidecar status (T5).
-  getAutomationsEngineStatus: () => Promise<AutomationsEngineStatusResult>
-  onAutomationRunEvent: (cb: (event: AutomationsRunEvent) => void) => () => void
-  /** Fires after any automation-definition write (user IPC or module service); panels reload their list. */
-  onAutomationsDefinitionsChanged: (cb: (event: AutomationsDefinitionsChangedEvent) => void) => () => void
+  // Scheduled agents: a prompt and a schedule, each run a new chat. Main owns
+  // the list and the scheduler; the renderer reads and writes through these.
+  listScheduledAgents: () => Promise<ScheduledAgentView[]>
+  createScheduledAgent: (draft: ScheduledAgentDraft) => Promise<ScheduledAgentWriteResult>
+  updateScheduledAgent: (id: string, draft: ScheduledAgentDraft) => Promise<ScheduledAgentWriteResult>
+  removeScheduledAgent: (id: string) => Promise<{ ok: true } | { ok: false; message: string }>
+  runScheduledAgentNow: (
+    id: string,
+  ) => Promise<{ ok: true; run: ScheduledAgentLastRun } | { ok: false; message: string }>
+  /** The card's "Failed" was seen: it goes back to saying when the agent runs next. */
+  markScheduledAgentFailureSeen: (id: string) => Promise<{ ok: true }>
+  /** The whole list, after every change — a write from anywhere, or a run's outcome. */
+  onScheduledAgentsChanged: (cb: (agents: ScheduledAgentView[]) => void) => () => void
   authGetState: () => Promise<SprintEngineAuthState>
   authLogin: (organizationId?: string | null) => Promise<{ state: string; authorizationUrl: string }>
   authLogout: () => Promise<{ loggedOut: true }>
@@ -956,8 +933,10 @@ export type ElectronApi = {
   cliVersionAdvisories: (input?: CliVersionAdvisoriesInput) => Promise<CliVersionAdvisoriesResult>
   cliVersionChecksSetEnabled: (enabled: boolean) => Promise<{ enabled: boolean }>
   onCliVersionAdvisoriesChanged: (cb: (result: CliVersionAdvisoriesResult) => void) => () => void
-  installPluginFolder: (srcDir: string) => Promise<PluginInstallResult>
-  verifyMarketplacePlugin: (entry: MarketplacePluginEntry) => Promise<MarketplacePluginVerifyResult>
+  // Verify resolves the entry by id in main and answers with what an install
+  // would put on the machine, plus the one-time trust token that installs
+  // exactly that (see src/main/marketplace/trust-tokens.ts).
+  verifyMarketplacePlugin: (input: MarketplacePluginVerifyInput) => Promise<MarketplacePluginVerifyResult>
   installMarketplacePluginFromRegistry: (
     input: MarketplacePluginRegistryInstallInput,
   ) => Promise<MarketplacePluginRegistryInstallResult>
@@ -971,6 +950,13 @@ export type ElectronApi = {
   // it is the user's from the moment it lands.
   uninstallMarketplacePlugin: (input: MarketplacePluginUninstallInput) => Promise<MarketplacePluginUninstallResult>
   readMarketplacePluginUpdateStates: (input?: MarketplaceRegistryReadInput) => Promise<MarketplaceUpdateStatesResult>
+  // Install extension from GitHub: main resolves the repository's default
+  // branch (or the ref the URL names) to a commit, discloses what it found
+  // there, and issues the one-time token `installGithubExtension` spends.
+  // `checkGithubExtensionUpdate` is the same review of where the branch is now.
+  resolveGithubExtension: (input: GithubExtensionResolveInput) => Promise<GithubExtensionResolveResult>
+  installGithubExtension: (input: GithubExtensionInstallInput) => Promise<MarketplacePluginRegistryInstallResult>
+  checkGithubExtensionUpdate: (input: GithubExtensionCheckUpdateInput) => Promise<GithubExtensionCheckUpdateResult>
   conversationProvidersList: (input?: ConversationProvidersListInput) => Promise<ConversationProviderListResult>
   conversationProviderModels: (input: ConversationProviderModelsInput) => Promise<ConversationProviderModelsResult>
   // The line a plain terminal on this machine runs to sign a chat's CLI back
@@ -1346,6 +1332,8 @@ export type ElectronApi = {
   installThirdPartyModuleFolder: (srcDir: string) => Promise<ThirdPartyModuleInstallResult>
   /** Trust or untrust an installed third-party module. */
   setThirdPartyModuleTrust: (id: string, trusted: boolean) => Promise<ThirdPartyModuleTrustResult>
+  /** Remove a third-party module however it was installed (folder, marketplace, GitHub), with its trust, enablement and secrets. */
+  uninstallThirdPartyModule: (input: ThirdPartyModuleUninstallInput) => Promise<ThirdPartyModuleUninstallResult>
   /** Serve trusted third-party modules' entry.renderer bundles for the renderer loader. */
   listThirdPartyRendererEntries: () => Promise<ThirdPartyRendererEntriesResult>
   /** Install/trust changed; renderer-only modules may now be available. */
@@ -1486,4 +1474,12 @@ export type ElectronApi = {
   updateBacklogDependencies: (input: BacklogDependenciesInput) => Promise<BacklogMutationResult>
   updateBacklogMockups: (input: BacklogMockupsInput) => Promise<BacklogMutationResult>
   createBacklogEpic: (input: BacklogCreateEpicInput) => Promise<BacklogCreateEpicResult>
+  // ── extension-platform additions ──
+  // "Build your own extension" (the Extensions home): the SDK's templates, what
+  // this machine has to build one, a folder picked in main's own dialog (its
+  // token is what `extensionScaffoldCreate` writes under), and the project.
+  extensionScaffoldTemplates: () => Promise<ExtensionTemplateSummary[]>
+  extensionScaffoldCheck: (input: ExtensionScaffoldCheckInput) => Promise<ExtensionScaffoldCheck[]>
+  extensionScaffoldPickFolder: () => Promise<ExtensionScaffoldFolderPick | null>
+  extensionScaffoldCreate: (input: ExtensionScaffoldCreateInput) => Promise<ExtensionScaffoldCreateResult>
 }

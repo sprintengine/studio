@@ -337,8 +337,7 @@ export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
             // persist normalizers stopped doing it, sending a cold-loaded tab
             // back down the mint-a-fresh-uuid → spawn path. Nothing auto-resumes
             // off the id alone — `shouldResume` (TerminalView) reads the flags
-            // cleared below. This is the same contract as
-            // `clearAutomationsHostAgentLaunchState`.
+            // cleared below.
             // Post-launch: rely on the resume flag already stamped from the
             // manifest capability at session assign, not a re-derivation from cli.
             if (agent.cliHasLaunched && agent.cliResumeAvailable) {

@@ -38,9 +38,6 @@ export type CommandAvailability =
   // Dev build or SPRINTENGINE_DIAGNOSTICS=1: the performance diagnostics panel is
   // an engineering tool, so its command is offered only when diagnostics are on.
   | 'diagnosticsEnabled'
-  // The automations capability module is enabled, so the global Automations
-  // screen has a backing store/IPC and can be opened.
-  | 'automationsEnabled'
   // Open at the type level so a compiled module built against a
   // newer SDK enum never breaks on an older shell: an unknown condition is
   // simply absent from the runtime context, so the command stays unavailable

@@ -7,7 +7,7 @@ import { isStudioGatewayMutation } from './studio-gateway-tools'
 import { requiredScopeForTool } from './tailnet/tailnet-scopes'
 
 function tool(launch: (request: ConversationLaunchRequest) => Promise<ConversationLaunchResult>) {
-  const [registration] = createConversationTools({ launch })
+  const [registration] = createConversationTools({ launch, resolveAgentPermissionPreset: () => 'bypass' })
   assert.equal(registration?.name, 'conversation.create')
   return registration!
 }
@@ -57,6 +57,8 @@ test('conversation.create refuses bad arguments and passes a launch refusal thro
   assert.equal((missing.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
   const badPreset = await handler({ workspaceId: 'ws-1', permissionPreset: 'yolo' })
   assert.equal((badPreset.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
+  const badNewChat = await handler({ workspaceId: 'ws-1', newChat: 'yes' })
+  assert.equal((badNewChat.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
   assert.equal(launched, 0)
   const refused = await handler({ workspaceId: 'ws-1', cli: 'kimi-code' })
   assert.equal(refused.isError, true)
@@ -64,4 +66,30 @@ test('conversation.create refuses bad arguments and passes a launch refusal thro
     code: 'cli_not_conversational',
     message: 'no chat',
   })
+})
+
+test('conversation.create asks for a chat of its own when newChat is set, and declares the argument', async () => {
+  const requests: ConversationLaunchRequest[] = []
+  const registration = tool(async (request) => {
+    requests.push(request)
+    return {
+      ok: true,
+      workspaceId: 'ws-new',
+      agentId: 'agent-1',
+      name: 'Ada',
+      cli: 'codex',
+      providerId: 'codex-agent',
+      modelId: 'default',
+      sessionId: 'conv_2',
+    }
+  })
+  const schema = registration.inputSchema as { properties: Record<string, { type: string }> }
+  assert.equal(schema.properties.newChat?.type, 'boolean')
+  const result = await registration.handler({ workspaceId: 'ws-1', newChat: true, prompt: 'hi' })
+  await registration.handler({ workspaceId: 'ws-1', newChat: false })
+  assert.deepEqual(requests, [{ workspaceId: 'ws-1', newChat: true, prompt: 'hi' }, { workspaceId: 'ws-1' }])
+  assert.equal(
+    (result.structuredContent as { conversation: { workspaceId: string } }).conversation.workspaceId,
+    'ws-new',
+  )
 })

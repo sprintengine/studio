@@ -212,11 +212,11 @@ test('globalDoorsIntegration', async () => {
 
     // ═══ 1. The doors, and the one modal surface left, on the real kernel ══════
     // Registration is module-owned and eager, so this reads the SAME host the app
-    // boots with — not a hand-built one. Automations, Extensions (user-facing
-    // "Plugins") and Design spent 2026-09-01 to 2026-09-05 in the modal registry
-    // and are doors again (Extensions drawer ruling: a destination the shell's
-    // own chrome offers routes the card region, it does not float over it). The
-    // modal registry is now EMPTY in a stock build — Reviews, its last member,
+    // boots with — not a hand-built one. Extensions (user-facing "Plugins") and
+    // Design spent 2026-09-01 to 2026-09-05 in the modal registry and are doors
+    // again (Extensions drawer ruling: a destination the shell's own chrome
+    // offers routes the card region, it does not float over it). The modal
+    // registry is now EMPTY in a stock build — Reviews, its last member,
     // left for the installable Reviews module (2026-09-10), which registers its
     // own modal surface and pane-row launcher when installed. Design is owned by
     // its OWN bundled `design` module.
@@ -236,7 +236,6 @@ test('globalDoorsIntegration', async () => {
       assert.deepEqual(
         doorSurfaces,
         [
-          ['automations', 'Automations', 'sidebar'],
           ['design', 'Design', 'inline'],
           ['extensions', 'Plugins', 'sidebar'],
         ],
@@ -620,7 +619,7 @@ test('globalDoorsIntegration', async () => {
         'and it says what it holds rather than rendering as an empty page',
       )
 
-      // ── The plus menu: two ways in, and only two ────────────────────────────
+      // ── The plus menu: two sources, and an extension from its repository ────
       await act(async () => {
         ;(plus as HTMLElement).click()
       })
@@ -629,8 +628,8 @@ test('globalDoorsIntegration', async () => {
       )
       assert.deepEqual(
         menuItems,
-        ['Add from folder…', 'Add from GitHub…'],
-        'the plus offers a folder on this machine and a repository, and nothing else',
+        ['Add from folder…', 'Add skill source from GitHub…', 'Install extension from GitHub…'],
+        'the plus offers a folder, a repository of skills, and an extension installed from its own repository',
       )
       await act(async () => {
         document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
