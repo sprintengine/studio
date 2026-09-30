@@ -151,7 +151,9 @@ export function AddSkillSourceModal({
           onKeyDown={(event) => {
             if (event.key === 'Enter') void scan()
           }}
-          placeholder="owner/repo"
+          // A URL is the one shape that names a host, so it is what someone on a
+          // company's self-hosted GitHub pastes; `owner/repo` is github.com.
+          placeholder="owner/repo or https://github.example.com/owner/repo"
           aria-label="Repository"
           className="font-mono"
         />

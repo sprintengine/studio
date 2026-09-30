@@ -11,6 +11,7 @@ import {
   SKILL_UNLISTED_GROUP,
   skillDirName,
   skillNameWarning,
+  skillRepoWebUrl,
   type ScanResult,
   type ScannedSkill,
   type SkillFileRef,
@@ -293,7 +294,8 @@ export function summarizeSyncRun(report: SkillSyncReport): string {
 /** The repository's own commit history — the answer to "what changed?". */
 export function skillSourceCommitsUrl(source: SkillSource): string | null {
   if (source.kind !== 'github' || !source.repo) return null
-  return `https://github.com/${source.repo}/commits/${source.commitSha || 'HEAD'}`
+  const page = skillRepoWebUrl(source.repo)
+  return page ? `${page}/commits/${source.commitSha || 'HEAD'}` : null
 }
 
 // ── Header facts ─────────────────────────────────────────────────────────────

@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict'
 
 import {
+  joinSkillRepo,
   parseSkillFragment,
   parseSkillFrontmatter,
   skillDirName,
   skillNameWarning,
+  skillRepoWebUrl,
   skillSourceMonogram,
+  splitSkillRepo,
 } from './skills'
 import { test } from 'vitest'
 
@@ -224,7 +227,30 @@ test('skills', async () => {
     assert.equal(skillSourceMonogram(''), '?')
   }
 
+  function repositoryHosts(): void {
+    // github.com keeps the `owner/name` every source was written with.
+    assert.equal(joinSkillRepo({ host: 'github.com', owner: 'acme', name: 'skills' }), 'acme/skills')
+    assert.equal(joinSkillRepo({ host: 'WWW.GitHub.com', owner: 'acme', name: 'skills' }), 'acme/skills')
+    assert.equal(
+      joinSkillRepo({ host: 'GHE.Example.com', owner: 'acme', name: 'skills' }),
+      'ghe.example.com/acme/skills',
+    )
+    assert.deepEqual(splitSkillRepo('acme/skills'), { host: 'github.com', owner: 'acme', name: 'skills' })
+    assert.deepEqual(splitSkillRepo('ghe.example.com/acme/skills'), {
+      host: 'ghe.example.com',
+      owner: 'acme',
+      name: 'skills',
+    })
+    for (const repo of ['', 'acme', 'owner/name/extra', 'localhost/acme/skills', 'a/b/c/d', 'ghe.example.com/../x']) {
+      assert.equal(splitSkillRepo(repo), null, repo)
+    }
+    assert.equal(skillRepoWebUrl('acme/skills'), 'https://github.com/acme/skills')
+    assert.equal(skillRepoWebUrl('ghe.example.com/acme/skills'), 'https://ghe.example.com/acme/skills')
+    assert.equal(skillRepoWebUrl(''), null)
+  }
+
   function main(): void {
+    repositoryHosts()
     frontmatter()
     allowedToolsIsSpaceSeparated()
     byteOrderMarkedFrontmatter()

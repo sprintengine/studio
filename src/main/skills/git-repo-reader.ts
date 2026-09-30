@@ -37,6 +37,7 @@ import {
   DEFAULT_SKILL_MAX_LISTING_BYTES,
   DEFAULT_SKILL_MAX_TREE_ENTRIES,
 } from './github-tree'
+import { normalizeSkillRepoHost } from '../../shared/skills'
 import type { SkillRepoReader } from './repo-reader'
 import type { SkillTreeEntry } from './scan'
 
@@ -79,16 +80,28 @@ export type RunGit = (args: string[], options: GitRunOptions) => Promise<GitRunR
 export type GitRepoReaderOptions = {
   /** Directory the per-repository clones live under (the integrator passes `<userData>/skill-repos`). */
   cacheDir: string
-  /** Host the `owner/name` names live on; default 'github.com'. */
+  /**
+   * Host a bare `owner/name` lives on; default 'github.com'. A repository on
+   * any other host names it — `host/owner/name` — and is read from there.
+   */
   host?: string
   /**
-   * Resolved GitHub token or ''. Used ONLY as an `Authorization: Bearer` header
+   * Resolved GitHub token or ''. Sent ONLY to the default host, never to a
+   * repository on any other. Used ONLY as an `Authorization: Bearer` header
    * passed to git through `GIT_CONFIG_*` in the environment — never in argv,
    * where `ps` would show it, and never written into the clone's config or the
    * remote URL, so a token that is later revoked or rotated leaves nothing
    * behind on disk to leak or to go stale.
    */
   resolveToken?: () => Promise<string>
+  /**
+   * A token for a host other than the default one — a company's self-hosted
+   * GitHub — or '' when there is none. The integrator answers from the GitHub
+   * CLI's sign-in for that host. With a token the read carries it the same way
+   * the default host's is carried; without one the person's own git credential
+   * helper answers, exactly as it does for a `git clone` in their terminal.
+   */
+  resolveHostToken?: (host: string) => Promise<string>
   /** How many git processes may talk to the network at once; default 16. */
   concurrency?: number
   /** Per-command timeout for anything that reaches the host, ms; default 60_000. */
@@ -117,18 +130,27 @@ export type GitRepoReaderOptions = {
 const REPO_NAME_PATTERN = /^[A-Za-z0-9._-]+$/
 const HOST_PATTERN = /^[A-Za-z0-9][A-Za-z0-9.-]*$/
 
-type ParsedRepo = { owner: string; name: string }
+type ParsedRepo = { host: string; owner: string; name: string }
 
-function parseRepo(repo: string): ParsedRepo {
+/**
+ * `owner/name` on the reader's own host, or `host/owner/name` on another. The
+ * host is checked with the same pattern the source's `repo` was written with,
+ * so the directory and the URL it becomes are never anything stranger than a
+ * dotted hostname.
+ */
+function parseRepo(repo: string, defaultHost: string): ParsedRepo {
   const segments = repo.trim().split('/')
-  if (segments.length !== 2) throw refused(repo)
-  const owner = segments[0]
-  const name = segments[1].endsWith('.git') ? segments[1].slice(0, -4) : segments[1]
+  if (segments.length !== 2 && segments.length !== 3) throw refused(repo)
+  const host = segments.length === 3 ? normalizeSkillRepoHost(segments[0]) : defaultHost
+  if (!host) throw refused(repo)
+  const owner = segments[segments.length - 2]
+  const last = segments[segments.length - 1]
+  const name = last.endsWith('.git') ? last.slice(0, -4) : last
   for (const segment of [owner, name]) {
     if (!REPO_NAME_PATTERN.test(segment)) throw refused(repo)
     if (segment === '.' || segment === '..' || segment.startsWith('-')) throw refused(repo)
   }
-  return { owner, name }
+  return { host: checkedHost(host), owner, name }
 }
 
 function refused(repo: string): GitRepoReadError {
@@ -144,8 +166,8 @@ function checkedHost(host: string): string {
 
 /** Where a repository's clone lives, so the integrator can report disk usage later. */
 export function gitRepoCacheDir(cacheDir: string, host: string, repo: string): string {
-  const { owner, name } = parseRepo(repo)
-  return join(cacheDir, checkedHost(host), owner, `${name}.git`)
+  const parsed = parseRepo(repo, checkedHost(host))
+  return join(cacheDir, parsed.host, parsed.owner, `${parsed.name}.git`)
 }
 
 // ── Running git ──────────────────────────────────────────────────────────────
@@ -320,8 +342,31 @@ function firstLine(text: string): string {
   return line ?? ''
 }
 
-function classify(error: unknown, what: string): GitRepoReadError {
+// What git says when a host wanted credentials and nothing supplied them: no
+// token, no helper holding one, and every prompt closed.
+const GIT_NEEDS_SIGN_IN =
+  /terminal prompts disabled|could not read username|could not read password|authentication failed|invalid username or password/i
+
+/**
+ * `otherHost` is the host of a repository that is not on the reader's default
+ * host, '' otherwise. A read there that failed for want of a sign-in is the
+ * one failure whose fix is not on this machine's screen, so it names the fix.
+ */
+function classify(error: unknown, what: string, otherHost = ''): GitRepoReadError {
   if (error instanceof GitRepoReadError) return error
+  const failed = classifyGitFailure(error, what)
+  if (otherHost && failed.kind === 'unreadable' && GIT_NEEDS_SIGN_IN.test(failed.stderr || failed.message)) {
+    return new GitRepoReadError(
+      'unreadable',
+      `${otherHost} asked for a sign-in. Run \`gh auth login --hostname ${otherHost}\` in a terminal, ` +
+        `or make sure \`git clone\` of this repository works there, then try again.`,
+      failed.stderr,
+    )
+  }
+  return failed
+}
+
+function classifyGitFailure(error: unknown, what: string): GitRepoReadError {
   const detail = error as
     { stderr?: unknown; message?: unknown; timedOut?: unknown; overflow?: unknown; killed?: unknown } | undefined
   const stderr = typeof detail?.stderr === 'string' ? detail.stderr : ''
@@ -545,15 +590,18 @@ export function createGitRepoReader(options: GitRepoReaderOptions): SkillRepoRea
   // Hosts that answered a `--filter` fetch by sending everything.
   const noPartialClone = new Set<string>()
 
+  const parse = (repo: string): ParsedRepo => parseRepo(repo, host)
+
   const remoteUrl = (repo: string): string => {
-    const { owner, name } = parseRepo(repo)
-    return options.remoteUrl ? options.remoteUrl(repo) : `https://${host}/${owner}/${name}.git`
+    const parsed = parse(repo)
+    return options.remoteUrl ? options.remoteUrl(repo) : `https://${parsed.host}/${parsed.owner}/${parsed.name}.git`
   }
 
   // Keyed off the PARSED name, so `acme/widgets` and `acme/widgets.git` — which
   // already share one directory — share one cache entry as well.
-  const repoKey = (parsed: ParsedRepo): string => `${host}/${parsed.owner}/${parsed.name}`
-  const cloneDir = (parsed: ParsedRepo): string => join(options.cacheDir, host, parsed.owner, `${parsed.name}.git`)
+  const repoKey = (parsed: ParsedRepo): string => `${parsed.host}/${parsed.owner}/${parsed.name}`
+  const cloneDir = (parsed: ParsedRepo): string =>
+    join(options.cacheDir, parsed.host, parsed.owner, `${parsed.name}.git`)
 
   /**
    * The environment every network command carries. The token goes here and NOT
@@ -563,8 +611,30 @@ export function createGitRepoReader(options: GitRepoReaderOptions): SkillRepoRea
    * it. Git passes these variables on to the children it spawns itself, which is
    * how the promisor `fetch` behind a `cat-file` ends up authenticated too
    * (verified against git 2.50; the mechanism is git ≥ 2.31).
+   *
+   * Another host — a company's self-hosted GitHub — never sees the default
+   * host's token. Its own, when the integrator has one, goes as Basic
+   * credentials, which every GitHub Enterprise Server release accepts over git
+   * where Bearer is not promised. Without one the person's credential helper is
+   * LEFT IN PLACE: an internal repository is private by definition, and the
+   * helper that answers their own `git clone` of it is the sign-in they already
+   * have. It cannot prompt — GIT_TERMINAL_PROMPT, GIT_ASKPASS and
+   * GCM_INTERACTIVE are closed in `gitEnv` — so a helper with nothing stored
+   * fails the read, and `classify` says how to sign in.
    */
-  const networkEnv = async (): Promise<NodeJS.ProcessEnv> => {
+  const networkEnv = async (repoHost: string): Promise<NodeJS.ProcessEnv> => {
+    if (repoHost !== host) {
+      const hostToken = (await options.resolveHostToken?.(repoHost).catch(() => ''))?.trim() ?? ''
+      if (!hostToken) return {}
+      const basic = Buffer.from(`x-access-token:${hostToken}`, 'utf8').toString('base64')
+      return {
+        GIT_CONFIG_COUNT: '2',
+        GIT_CONFIG_KEY_0: 'credential.helper',
+        GIT_CONFIG_VALUE_0: '',
+        GIT_CONFIG_KEY_1: `http.https://${repoHost}/.extraHeader`,
+        GIT_CONFIG_VALUE_1: `Authorization: Basic ${basic}`,
+      }
+    }
     const token = (await options.resolveToken?.())?.trim() ?? ''
     if (!token) {
       return { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'credential.helper', GIT_CONFIG_VALUE_0: '' }
@@ -579,17 +649,18 @@ export function createGitRepoReader(options: GitRepoReaderOptions): SkillRepoRea
   }
 
   const runNetwork = async (
+    parsed: ParsedRepo,
     args: string[],
     cwd: string | undefined,
     what: string,
     stdin?: string,
   ): Promise<GitRunResult> => {
-    const env = await networkEnv()
+    const env = await networkEnv(parsed.host)
     const release = await network.acquire()
     try {
       return await runGit(args, { cwd, timeoutMs: networkTimeoutMs, env, stdin })
     } catch (error) {
-      throw classify(error, what)
+      throw classify(error, what, parsed.host === host ? '' : parsed.host)
     } finally {
       release()
     }
@@ -704,19 +775,19 @@ export function createGitRepoReader(options: GitRepoReaderOptions): SkillRepoRea
   }
 
   /** What a fetch said about itself. Two of git's warnings mean "this host cannot serve us". */
-  const checkFetchOutput = (repo: string, text: string): void => {
+  const checkFetchOutput = (repo: string, repoHost: string, text: string): void => {
     if (NO_PARTIAL_CLONE.test(text)) {
-      noPartialClone.add(host)
+      noPartialClone.add(repoHost)
       throw new GitRepoReadError(
         'unreadable',
-        `${host} does not support partial clone, so reading ${repo} would download the whole repository.`,
+        `${repoHost} does not support partial clone, so reading ${repo} would download the whole repository.`,
         text,
       )
     }
     if (UNADVERTISED.test(text)) {
       throw new GitRepoReadError(
         'unreadable',
-        `${host} will not serve ${repo} at a commit no branch or tag points at.`,
+        `${repoHost} will not serve ${repo} at a commit no branch or tag points at.`,
         text,
       )
     }
@@ -739,10 +810,10 @@ export function createGitRepoReader(options: GitRepoReaderOptions): SkillRepoRea
       present.add(key)
       return dir
     }
-    if (noPartialClone.has(host)) {
+    if (noPartialClone.has(parsed.host)) {
       throw new GitRepoReadError(
         'unreadable',
-        `${host} does not support partial clone, so reading ${repo} would download the whole repository.`,
+        `${parsed.host} does not support partial clone, so reading ${repo} would download the whole repository.`,
       )
     }
     // GitHub serves an unadvertised commit by full SHA (`uploadpack.allowAnySHA1InWant`),
@@ -751,6 +822,7 @@ export function createGitRepoReader(options: GitRepoReaderOptions): SkillRepoRea
     let fetched: GitRunResult
     try {
       fetched = await runNetwork(
+        parsed,
         ['fetch', '--filter=blob:none', '--no-tags', '--quiet', 'origin', sha],
         dir,
         `Fetching ${repo} at ${sha.slice(0, 7)}`,
@@ -758,10 +830,10 @@ export function createGitRepoReader(options: GitRepoReaderOptions): SkillRepoRea
     } catch (error) {
       // A fetch that failed BECAUSE the host cannot serve us this way says so on
       // stderr; that reads better than "fetching failed" and never retries.
-      if (error instanceof GitRepoReadError) checkFetchOutput(repo, error.stderr)
+      if (error instanceof GitRepoReadError) checkFetchOutput(repo, parsed.host, error.stderr)
       throw error
     }
-    checkFetchOutput(repo, fetched.stderr)
+    checkFetchOutput(repo, parsed.host, fetched.stderr)
     if (!(await hasCommit(dir, sha))) {
       throw new GitRepoReadError('unreadable', `${repo} does not contain the commit ${sha}.`)
     }
@@ -793,6 +865,7 @@ export function createGitRepoReader(options: GitRepoReaderOptions): SkillRepoRea
 
   return {
     async resolveCommit(repo: string, ref: string): Promise<string> {
+      const parsed = parse(repo)
       const url = remoteUrl(repo)
       const wanted = ref.trim()
       // A ref that IS a commit resolves to itself. The API accepted a SHA here,
@@ -811,6 +884,7 @@ export function createGitRepoReader(options: GitRepoReaderOptions): SkillRepoRea
         wanted === '' ? ['HEAD'] : [`refs/heads/${wanted}`, `refs/tags/${wanted}`, `refs/tags/${wanted}^{}`, wanted]
       await mkdir(options.cacheDir, { recursive: true })
       const { stdout } = await runNetwork(
+        parsed,
         ['ls-remote', url, ...patterns],
         options.cacheDir,
         `Reading the current commit of ${repo}`,
@@ -834,7 +908,7 @@ export function createGitRepoReader(options: GitRepoReaderOptions): SkillRepoRea
     },
 
     async readTree(repo: string, sha: string): Promise<readonly SkillTreeEntry[]> {
-      const parsed = parseRepo(repo)
+      const parsed = parse(repo)
       const commit = checkedSha(repo, sha)
       const key = `${repoKey(parsed)}@${commit}`
       const cached = recallTree(key)
@@ -870,7 +944,7 @@ export function createGitRepoReader(options: GitRepoReaderOptions): SkillRepoRea
     },
 
     async readFile(repo: string, sha: string, path: string): Promise<Buffer | null> {
-      const parsed = parseRepo(repo)
+      const parsed = parse(repo)
       const commit = checkedSha(repo, sha)
       // A newline is refused as well as a NUL: `--batch-check` below takes one
       // request per LINE, so a path with a newline in it would be asked as two
@@ -891,7 +965,7 @@ export function createGitRepoReader(options: GitRepoReaderOptions): SkillRepoRea
       // object.
       let checked: GitRunResult
       try {
-        checked = await runNetwork(['cat-file', '--batch-check'], dir, what, `${target}\n`)
+        checked = await runNetwork(parsed, ['cat-file', '--batch-check'], dir, what, `${target}\n`)
       } catch (error) {
         // A path that is not in this tree is an answer, not a failure — the
         // scanners ask for files they are not sure exist. A promisor fetch that
@@ -920,7 +994,7 @@ export function createGitRepoReader(options: GitRepoReaderOptions): SkillRepoRea
       // and cannot land on a different path. The blob is local by now, but the
       // call keeps the network settings anyway: it is the same object store and
       // the same promisor, and one of them being reachable is the read working.
-      const { stdout } = await runNetwork(['cat-file', '-p', oid], dir, what)
+      const { stdout } = await runNetwork(parsed, ['cat-file', '-p', oid], dir, what)
       await touchGitRepoCache(dir)
       return stdout
     },

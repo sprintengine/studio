@@ -515,6 +515,128 @@ test('git-repo-reader', async () => {
       assert.ok(!String((error as Error).stack ?? '').includes(token))
     })
 
+    // ── Another host ───────────────────────────────────────────────────────────
+
+    run("a repository on another host is read from that host, with that host's own sign-in", async () => {
+      const githubToken = 'ghp_belongsToGithubDotCom'
+      const hostToken = 'ghe_belongsToTheCompanyHost'
+      const cacheDir = await cacheRoot()
+      const watcher = spy()
+      const asked: string[] = []
+      const urls: string[] = []
+      const reads = createGitRepoReader({
+        cacheDir,
+        runGit: watcher.runGit,
+        remoteUrl: (repo) => {
+          urls.push(repo)
+          return fixture.url
+        },
+        resolveToken: async () => githubToken,
+        resolveHostToken: async (host) => {
+          asked.push(host)
+          return hostToken
+        },
+      })
+      const repo = 'ghe.example.com/acme/widgets'
+      const sha = await reads.resolveCommit(repo, 'main')
+      assert.equal(sha, fixture.second)
+      assert.equal(
+        (await reads.readFile(repo, sha, 'README.md'))?.toString('utf8'),
+        'two\n',
+        'the whole read works through a host-named repository',
+      )
+      assert.ok(
+        urls.every((value) => value === repo),
+        'the clone URL is built for the host-named repository',
+      )
+      assert.ok(asked.length > 0 && asked.every((host) => host === 'ghe.example.com'))
+      assert.ok(await exists(join(cacheDir, 'ghe.example.com', 'acme', 'widgets.git')), 'the clone sits under its host')
+      assert.equal(
+        gitRepoCacheDir(cacheDir, 'github.com', repo),
+        join(cacheDir, 'ghe.example.com', 'acme', 'widgets.git'),
+      )
+
+      // Every command that talks to the host: `cat-file -e` is the one local
+      // check that carries an environment of its own.
+      const network = watcher.seen.filter(
+        (call) =>
+          call.args[0] === 'ls-remote' ||
+          call.args[0] === 'fetch' ||
+          (call.args[0] === 'cat-file' && call.args[1] !== '-e'),
+      )
+      assert.ok(network.length >= 3, 'ls-remote, fetch and the file read all reached the host')
+      const basic = Buffer.from(`x-access-token:${hostToken}`, 'utf8').toString('base64')
+      for (const call of network) {
+        const env = JSON.stringify(call.options.env)
+        assert.ok(!env.includes(githubToken), `the github.com token never goes to another host: ${call.args.join(' ')}`)
+        assert.equal(call.options.env?.GIT_CONFIG_KEY_1, 'http.https://ghe.example.com/.extraHeader')
+        assert.equal(call.options.env?.GIT_CONFIG_VALUE_1, `Authorization: Basic ${basic}`)
+        for (const arg of call.args) assert.ok(!arg.includes(hostToken), 'and neither token is ever in argv')
+      }
+    })
+
+    run("with no token for the other host, the person's own credential helper is left to answer", async () => {
+      const githubToken = 'ghp_belongsToGithubDotCom'
+      const watcher = spy()
+      const reads = createGitRepoReader({
+        cacheDir: await cacheRoot(),
+        runGit: watcher.runGit,
+        remoteUrl: () => fixture.url,
+        resolveToken: async () => githubToken,
+        resolveHostToken: async () => '',
+      })
+      await reads.resolveCommit('ghe.example.com/acme/widgets', 'main')
+      const network = watcher.seen.find((call) => call.args.includes('ls-remote'))
+      assert.ok(network)
+      assert.equal(network.options.env?.GIT_CONFIG_COUNT, undefined, 'no helper override, no header')
+      assert.ok(!JSON.stringify(network.options.env).includes(githubToken))
+
+      // …and github.com's own reads are exactly what they were.
+      await reads.resolveCommit('acme/widgets', 'main')
+      const github = watcher.seen.filter((call) => call.args.includes('ls-remote')).at(-1)
+      assert.equal(github?.options.env?.GIT_CONFIG_KEY_1, 'http.https://github.com/.extraHeader')
+      assert.equal(github?.options.env?.GIT_CONFIG_VALUE_1, `Authorization: Bearer ${githubToken}`)
+    })
+
+    run('another host that wants a sign-in says how to give it one', async () => {
+      const seen: string[][] = []
+      const reads = createGitRepoReader({
+        cacheDir: await cacheRoot(),
+        runGit: async (args) => {
+          seen.push(args)
+          throw Object.assign(new Error('git exited with code 128'), {
+            stderr: "fatal: could not read Username for 'https://ghe.example.com': terminal prompts disabled\n",
+          })
+        },
+      })
+      const error = await reads.resolveCommit('ghe.example.com/acme/widgets', '').then(
+        () => null,
+        (reason: unknown) => reason,
+      )
+      assert.ok(error instanceof GitRepoReadError)
+      assert.equal(error.kind, 'unreadable', 'a missing sign-in is not "offline"')
+      assert.match(error.message, /gh auth login --hostname ghe\.example\.com/)
+      assert.ok(
+        seen.some((args) => args.includes('https://ghe.example.com/acme/widgets.git')),
+        'the production clone URL is on the named host',
+      )
+    })
+
+    run('a host-named repository is refused when the host is not a plain dotted hostname', async () => {
+      const reads = createGitRepoReader({
+        cacheDir: await cacheRoot(),
+        runGit: async () => ({ stdout: Buffer.alloc(0), stderr: '' }),
+      })
+      for (const repo of [
+        'localhost/acme/widgets',
+        'ghe.example.com:8443/acme/widgets',
+        '../acme/widgets',
+        'a/b/c/d',
+      ]) {
+        await assert.rejects(reads.resolveCommit(repo, ''), GitRepoReadError, repo)
+      }
+    })
+
     run('a failure with nothing on stderr says the exit code, not the command', async () => {
       // Node's own error message for a failed child spells out the whole argv,
       // which is exactly what must never be reported.

@@ -30,7 +30,9 @@
 
 import { isMarketplaceSourceHostAllowed } from '../../shared/marketplace/source-policy'
 import {
+  DEFAULT_SKILL_REPO_HOST,
   emptyPluginComponents,
+  joinSkillRepo,
   pluginIconGlyph,
   pluginLogoUrl,
   type PluginReadState,
@@ -83,6 +85,12 @@ export type PluginTreeScanInput = {
   skills: readonly ScannedSkill[]
   marketplaceManifest: string | null
   readFile: PluginFileReader
+  /**
+   * The host the scanned repository lives on, when it is not github.com. A
+   * linked plugin on that same host is read; one anywhere else but github.com
+   * is still refused.
+   */
+  host?: string
 }
 
 export type PluginTreeScan = {
@@ -98,7 +106,7 @@ export type PluginTreeScan = {
 export async function scanPluginTree(input: PluginTreeScanInput): Promise<PluginTreeScan> {
   const blobs = new Set(input.entries.filter((entry) => entry.type === 'blob').map((entry) => entry.path))
   const pluginDirs = findPluginDirs(blobs)
-  const marketplace = parseMarketplaceManifest(input.marketplaceManifest)
+  const marketplace = parseMarketplaceManifest(input.marketplaceManifest, { host: input.host })
 
   // In-tree plugins: those the marketplace lists first, in its order, then any
   // manifest directory the marketplace forgot — a plugin that exists is a
@@ -559,8 +567,9 @@ function markLinked(plugin: ScannedPlugin, readState: PluginReadState): ScannedP
 /**
  * Why this app will not even try a repository, or null when it will.
  *
- * `repo` is '' for anything `githubRepoFromUrl` could not place on github.com,
- * which is the only host these reads speak: the tree listing is the GitHub API.
+ * `repo` is '' for anything `githubRepoFromUrl` could not place on github.com
+ * or on the marketplace's own self-hosted GitHub, the only hosts these reads
+ * speak.
  * The allowlist (src/shared/marketplace/source-policy.ts) is consulted so the
  * two refusals read differently — a host nobody allowed and a host that is
  * allowed to serve bundles but cannot serve a git tree are not the same fact,
@@ -574,7 +583,7 @@ function hostRefusal(
   const host = hostnameOf(origin.url)
   if (host === '') return 'Names no repository this app can read.'
   return isMarketplaceSourceHostAllowed(host, extraHosts)
-    ? `Hosted on ${host}; plugin repositories are read from github.com only.`
+    ? `Hosted on ${host}; plugin repositories are read from github.com and the marketplace's own host only.`
     : `Hosted on ${host}, which is not on this app's allowlist.`
 }
 
@@ -1117,7 +1126,10 @@ type MarketplaceManifest = {
  * documented siblings. An entry whose source cannot be placed is listed as
  * linked with no repository, so the surface can say it is hosted elsewhere.
  */
-export function parseMarketplaceManifest(raw: string | null): MarketplaceManifest | null {
+export function parseMarketplaceManifest(
+  raw: string | null,
+  options: { host?: string } = {},
+): MarketplaceManifest | null {
   const parsed = parseJsonObject(raw)
   if (!parsed || !Array.isArray(parsed.plugins)) return null
   const plugins: MarketplaceEntry[] = []
@@ -1126,7 +1138,7 @@ export function parseMarketplaceManifest(raw: string | null): MarketplaceManifes
     if (!isRecord(item)) continue
     const name = stringOf(item.name).trim()
     if (name === '' || seen.has(name)) continue
-    const source = parseEntrySource(item.source)
+    const source = parseEntrySource(item.source, options.host)
     if (!source) continue
     seen.add(name)
     plugins.push({
@@ -1170,7 +1182,7 @@ function parseRenames(value: unknown): Record<string, string> {
   return renames
 }
 
-function parseEntrySource(value: unknown): MarketplaceEntry['source'] | null {
+function parseEntrySource(value: unknown, host?: string): MarketplaceEntry['source'] | null {
   if (typeof value === 'string') {
     const path = normalizeRelative(value)
     if (path.split('/').some((segment) => segment === '..')) return null
@@ -1193,23 +1205,35 @@ function parseEntrySource(value: unknown): MarketplaceEntry['source'] | null {
   }
   const url = stringOf(value.url).trim()
   if (url === '') return null
-  return { kind: 'linked', repo: githubRepoFromUrl(url), ref, sha, path, url }
+  return { kind: 'linked', repo: githubRepoFromUrl(url, host), ref, sha, path, url }
 }
 
-/** `https://github.com/o/r.git` → `o/r`; '' for anything not on github.com. */
-export function githubRepoFromUrl(value: string): string {
+/**
+ * `https://github.com/o/r.git` → `o/r`; '' for anything not on github.com.
+ *
+ * `sameHost` is the host of the marketplace being read when that is a
+ * self-hosted GitHub: an entry there pointing at another repository on the
+ * same host is `host/o/r`, read with the sign-in the marketplace itself was
+ * read with. It widens nothing else — a marketplace cannot send the app to a
+ * host the person did not add a source on.
+ */
+export function githubRepoFromUrl(value: string, sameHost?: string): string {
   let url: URL
   try {
     url = new URL(value)
   } catch {
     return ''
   }
-  if (url.hostname.toLowerCase() !== 'github.com') return ''
+  const host = url.hostname.toLowerCase()
+  const other = sameHost && sameHost !== DEFAULT_SKILL_REPO_HOST ? sameHost : ''
+  if (host !== DEFAULT_SKILL_REPO_HOST && host !== other) return ''
+  // The other host is read over https alone, exactly as its source was added.
+  if (host === other && (url.protocol !== 'https:' || url.port !== '' || url.username !== '')) return ''
   const segments = url.pathname.split('/').filter((segment) => segment.length > 0)
   if (segments.length < 2) return ''
   const repo = segments[1].endsWith('.git') ? segments[1].slice(0, -4) : segments[1]
   if (!/^[A-Za-z0-9._-]+$/.test(segments[0]) || !/^[A-Za-z0-9._-]+$/.test(repo)) return ''
-  return `${segments[0]}/${repo}`
+  return joinSkillRepo({ host, owner: segments[0], name: repo })
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

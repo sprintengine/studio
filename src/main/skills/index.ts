@@ -10,6 +10,7 @@ import { readFile } from 'node:fs/promises'
 import { join, resolve, sep } from 'node:path'
 
 import {
+  DEFAULT_SKILL_REPO_HOST,
   describeUnreadPlugin,
   LOCAL_SKILL_SOURCE_ID_PREFIX,
   localSourceFolderName,
@@ -19,6 +20,7 @@ import {
   scanPlugins,
   SKILL_ENTRY_FILE,
   skillSourceMonogram,
+  splitSkillRepo,
   STUDIO_SKILL_SOURCE_ID,
   type ScanResult,
   type ScannedPlugin,
@@ -68,6 +70,7 @@ import {
   parseSkillRepoRef,
   resolveSkillRepoCommit,
   SkillFetchError,
+  skillRepoName,
   type SkillGithubOptions,
   type SkillRepoRef,
 } from './github-tree'
@@ -287,10 +290,12 @@ export function createSkillsService(
         skillSourceLog('source-add', { repo: input.repo ?? '', outcome: 'not-a-repository' })
         return {
           ok: false,
-          message: 'Enter a public GitHub repository, like owner/name or its github.com address.',
+          message:
+            "Enter a GitHub repository, like owner/name, its github.com address, or its address on your company's GitHub.",
         }
       }
-      const id = `github:${ref.owner}/${ref.repo}`
+      const repoName = skillRepoName(ref)
+      const id = `github:${repoName}`
       // Pasting one of the always-present repositories is not an add: the store
       // keeps a single record per id, so the paste lands in the Anthropic or
       // SprintEngine Studio tab and no row appears in the list. It used to
@@ -300,7 +305,7 @@ export function createSkillsService(
       const existing = await store.getSource(id)
       if (existing && input.replace !== true && !mergedIntoBuiltin) {
         skillSourceLog('source-add', { id, outcome: 'already-in-list' })
-        return { ok: false, message: `${ref.owner}/${ref.repo} is already one of your sources.` }
+        return { ok: false, message: `${repoName} is already one of your sources.` }
       }
       try {
         const context = await repoContext()
@@ -1119,7 +1124,7 @@ async function scanGithubSource(
   previous?: ScanResult | null,
 ): Promise<{ source: SkillSource; scan: ScanResult }> {
   const { reader } = context
-  const repo = `${ref.owner}/${ref.repo}`
+  const repo = skillRepoName(ref)
   const commitSha = await reader.resolveCommit(repo, ref.ref)
   const entries = [...(await reader.readTree(repo, commitSha))]
   const manifest = entries.some((entry) => entry.type === 'blob' && entry.path === SKILL_MARKETPLACE_MANIFEST_PATH)
@@ -1140,6 +1145,9 @@ async function scanGithubSource(
   // plugin listed under the marketplace's own words.
   const plugins = await scanPluginTree({
     entries,
+    // A marketplace on a self-hosted GitHub may link plugins in other
+    // repositories on that same host; nowhere else but github.com.
+    host: ref.host,
     // Every directory, not just the listable ones: a plugin's own manifest is
     // the authority on what that plugin ships, and a skill this scan will not
     // list is still a directory the plugin shipped.
@@ -1179,7 +1187,7 @@ async function scanGithubSource(
     mcpServers: dedupeScannedMcpServers([...plugins.mcpServers, ...followed.mcpServers]),
   }
 
-  const name = `${ref.owner}/${ref.repo}`
+  const name = repo
   return {
     source: {
       id,
@@ -1216,9 +1224,13 @@ type RepoContext = {
  * plugin that ships nothing.
  */
 function apiSkillRepoReader(github: SkillGithubOptions): SkillRepoReader {
+  // A repository on another host keeps it, so the API calls below refuse it
+  // by name rather than asking github.com about a repository it has never had.
   const refFor = (repo: string, ref = ''): SkillRepoRef => {
-    const [owner, name] = repo.split('/')
-    return { owner: owner ?? '', repo: name ?? '', ref }
+    const location = splitSkillRepo(repo)
+    if (!location) return { owner: '', repo: '', ref }
+    const base = { owner: location.owner, repo: location.name, ref }
+    return location.host === DEFAULT_SKILL_REPO_HOST ? base : { ...base, host: location.host }
   }
   return {
     resolveCommit: (repo, ref) => resolveSkillRepoCommit(refFor(repo, ref), github),

@@ -48,7 +48,65 @@ export type SkillHarness = 'claude' | 'codex' | 'cursor' | 'gemini' | 'opencode'
  */
 export type SkillRepoTransport = 'git' | 'api'
 
-/** A place skills come from. `repo` is `owner/name` for github, '' otherwise. */
+/** The host a repository source lives on when its `repo` names none. */
+export const DEFAULT_SKILL_REPO_HOST = 'github.com'
+
+/** Where a repository source lives, split out of its `repo`. */
+export type SkillRepoLocation = { host: string; owner: string; name: string }
+
+const SKILL_REPO_SEGMENT = /^[A-Za-z0-9._-]+$/
+// A bare, dotted hostname: no scheme, no port, no credentials. A port is
+// refused rather than carried, because the host becomes a directory under the
+// clone cache and `:` is not a character every filesystem will hold. The dot is
+// what tells `host/owner/name` from a mistyped `owner/name/extra` — no GitHub
+// account name can hold one.
+const SKILL_REPO_HOST = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/
+
+/**
+ * The host as a source records it, or '' when it is not one a repository can
+ * be read from. `www.github.com` is github.com.
+ */
+export function normalizeSkillRepoHost(value: string): string {
+  const host = value.trim().toLowerCase()
+  if (host === 'www.github.com') return DEFAULT_SKILL_REPO_HOST
+  return SKILL_REPO_HOST.test(host) ? host : ''
+}
+
+/**
+ * The `repo` a source records: `owner/name` on github.com, `host/owner/name`
+ * on any other host — a company's self-hosted GitHub. Keeping github.com's form
+ * unchanged is what leaves every source, receipt and feed entry written before
+ * other hosts existed meaning exactly what it meant.
+ */
+export function joinSkillRepo(location: SkillRepoLocation): string {
+  const host = normalizeSkillRepoHost(location.host) || DEFAULT_SKILL_REPO_HOST
+  const path = `${location.owner}/${location.name}`
+  return host === DEFAULT_SKILL_REPO_HOST ? path : `${host}/${path}`
+}
+
+// The names become URL path segments and directories under the clone cache, so
+// the three that are legal characters but not names are refused as well.
+function isSkillRepoSegment(segment: string): boolean {
+  return SKILL_REPO_SEGMENT.test(segment) && segment !== '.' && segment !== '..' && !segment.startsWith('-')
+}
+
+/** A source's `repo` split into host, owner and name; null for anything else. */
+export function splitSkillRepo(repo: string): SkillRepoLocation | null {
+  const segments = repo.trim().split('/')
+  if (segments.length !== 2 && segments.length !== 3) return null
+  const host = segments.length === 3 ? normalizeSkillRepoHost(segments[0]) : DEFAULT_SKILL_REPO_HOST
+  const [owner, name] = segments.slice(-2)
+  if (!host || !isSkillRepoSegment(owner) || !isSkillRepoSegment(name)) return null
+  return { host, owner, name }
+}
+
+/** The repository's page in a browser, on whichever host it lives. */
+export function skillRepoWebUrl(repo: string): string | null {
+  const location = splitSkillRepo(repo)
+  return location ? `https://${location.host}/${location.owner}/${location.name}` : null
+}
+
+/** A place skills come from. `repo` is `owner/name` for github.com, `host/owner/name` elsewhere, '' otherwise. */
 export type SkillSource = {
   id: string
   kind: SkillSourceKind

@@ -14,6 +14,7 @@ import {
   pluginAliases,
   scanPluginRenames,
   scanPlugins,
+  skillRepoWebUrl,
   unreadPluginChip,
   type ScanResult,
   type ScannedPlugin,
@@ -189,9 +190,10 @@ export function findPlugin(scan: ScanResult, pluginId: string): ScannedPlugin | 
 export function pluginExternalUrl(plugin: ScannedPlugin, source: SkillSource): string | null {
   if (plugin.homepage) return plugin.homepage
   if (plugin.origin.kind === 'linked') return plugin.origin.url || null
-  if (plugin.origin.kind === 'in-tree' && source.repo) {
+  const page = plugin.origin.kind === 'in-tree' && source.repo ? skillRepoWebUrl(source.repo) : null
+  if (plugin.origin.kind === 'in-tree' && page) {
     const path = plugin.origin.path ? `/tree/${source.commitSha || 'HEAD'}/${plugin.origin.path}` : ''
-    return `https://github.com/${source.repo}${path}`
+    return `${page}${path}`
   }
   if (plugin.origin.kind === 'registry') return plugin.origin.sourceUrl || null
   return null
