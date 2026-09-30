@@ -39,10 +39,14 @@ import { renderKeybinding } from '../../commands/keybindings'
 import { PANEL_COMMAND_EVENT } from '../../utils/panelCommands'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import {
+  dataTransferHasDroppableFiles,
   dataTransferHasFiles,
   imageFilesFromDataTransfer,
   pastedImagePaths,
+  pathlessDropMessage,
+  quotePromptPath,
   readPastedImagePaths,
+  sortDroppedFiles,
 } from '../../utils/imageFileTransfer'
 import {
   attachmentCountLabel,
@@ -1386,7 +1390,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // Replace the menu's captured selection with `text` ('' for a plain cut) and
   // put the caret after what was inserted.
   const replaceComposerSelection = useCallback(
-    (menu: ComposerMenuState, text: string) => {
+    (menu: Pick<ComposerMenuState, 'selectionStart' | 'selectionEnd'>, text: string) => {
       setDraft((current) => current.slice(0, menu.selectionStart) + text + current.slice(menu.selectionEnd))
       pendingCaretRef.current = menu.selectionStart + text.length
     },
@@ -2259,20 +2263,35 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
             label: `Allow and switch to ${agentPermissionOptions(chatCli).find((option) => option.value === preset)?.label ?? preset}`,
           }))
       : []
-  // An image dropped anywhere on the chat attaches — over the transcript as
-  // much as on the composer. Aiming a drag at a field a few lines tall is a
-  // needless target, and a drop that missed it used to do nothing at all. The
-  // composer still lights up as the drop's destination.
-  const imageDropHandlers: React.HTMLAttributes<HTMLDivElement> = {
+  // Type dropped paths at the caret, spaced off the words around them. The
+  // field keeps its selection while the pointer is over the transcript, so a
+  // drop there lands where the user left off typing.
+  const insertComposerPaths = (paths: string[]) => {
+    const field = composerRef.current
+    const selectionStart = field?.selectionStart ?? draft.length
+    const selectionEnd = field?.selectionEnd ?? selectionStart
+    const before = draft.slice(0, selectionStart)
+    const lead = before.length > 0 && !/\s$/.test(before) ? ' ' : ''
+    replaceComposerSelection({ selectionStart, selectionEnd }, `${lead}${paths.map(quotePromptPath).join(' ')} `)
+  }
+
+  // A file dropped anywhere on the chat lands in the composer — over the
+  // transcript as much as on the composer. Aiming a drag at a field a few lines
+  // tall is a needless target, and a drop that missed it used to do nothing at
+  // all. The composer still lights up as the drop's destination. Any file takes:
+  // one from the OS or the studio's own panes is typed as its path, and an image
+  // attaches instead where the provider reads images.
+  const fileDropHandlers: React.HTMLAttributes<HTMLDivElement> = {
     onDragEnter: (event) => {
-      if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
+      if (composerInputDisabled || !dataTransferHasDroppableFiles(event.dataTransfer)) return
       setDropActive(true)
     },
     onDragOver: (event) => {
       // Claiming the drag is what stops the window from navigating to the
       // dropped file, so it has to happen on every dragover.
-      if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
+      if (composerInputDisabled || !dataTransferHasDroppableFiles(event.dataTransfer)) return
       event.preventDefault()
+      event.dataTransfer.dropEffect = 'copy'
     },
     // Enter and leave fire for every child the pointer crosses, and a row the
     // stream or the list's virtualization removes mid-drag never reports its
@@ -2283,15 +2302,16 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       setDropActive(false)
     },
     onDrop: (event) => {
-      if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
+      if (composerInputDisabled || !dataTransferHasDroppableFiles(event.dataTransfer)) return
+      // Also what keeps the field's own drop from typing a studio drag's paths
+      // a second time when it lands on the field itself.
       event.preventDefault()
       setDropActive(false)
-      const files = imageFilesFromDataTransfer(event.dataTransfer)
-      if (files.length === 0) {
-        setActionError('Only PNG, JPEG, WebP, and GIF images can be attached.')
-        return
-      }
-      void attachFiles(files)
+      const { paths, images, pathless } = sortDroppedFiles(event.dataTransfer, imagesEnabled)
+      if (paths.length > 0) insertComposerPaths(paths)
+      if (images.length > 0) void attachFiles(images)
+      else setActionError(pathless.length > 0 ? pathlessDropMessage(pathless) : null)
+      composerRef.current?.focus()
     },
   }
 
@@ -2345,7 +2365,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       workspaceRoot={workspaceRoot ?? ''}
     >
       <SubagentTypesProvider value={projection.agentTypes}>
-        <ChatShell shellRef={shellRef} dropHandlers={imageDropHandlers}>
+        <ChatShell shellRef={shellRef} dropHandlers={fileDropHandlers}>
           {/* No title row above the transcript: the tab names the agent, as it
             does a terminal agent, and a thread title here repeated the first
             message over its own bubble. A remote pane brings its own header. */}
@@ -2646,10 +2666,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                 dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
               }`}
             >
-              {/* Gated on imagesEnabled too, so a provider/readiness change mid-drag
-              can never strand the overlay over a composer that stopped accepting
-              images. */}
-              {dropActive && imagesEnabled ? (
+              {/* Gated on the field too, so a readiness change mid-drag can never
+              strand the overlay over a composer that stopped taking input. */}
+              {dropActive && !composerInputDisabled ? (
                 // Opaque, not a scrim: the field's own text ghosting through the
                 // drop state reads as a rendering artifact rather than a state.
                 <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-[color:var(--bg-surface)] text-meta font-medium text-[color:var(--accent-primary)]">

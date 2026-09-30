@@ -753,6 +753,93 @@ test('the drop overlay leaves with the drag, however many rows it crossed or los
   }
 })
 
+// A drop's payload as the chat reads it: OS files with the paths Electron
+// reports, or the studio's own file drag from the Files pane.
+function dropTransfer(
+  window: Window,
+  source: { files: { name: string; type: string; path: string }[] } | { studioPaths: string[] },
+) {
+  if ('studioPaths' in source) {
+    const payload = JSON.stringify({
+      version: 1,
+      workspaceId: 'workspace',
+      rootPath: '/Users/dev/project',
+      files: source.studioPaths.map((path) => ({ path, name: path.split('/').at(-1) })),
+    })
+    return {
+      types: ['application/x-sprintengine-file-drop', 'text/plain'],
+      items: [],
+      files: [],
+      getData: (type: string) => (type === 'application/x-sprintengine-file-drop' ? payload : ''),
+    }
+  }
+  const files = source.files.map((file) => new File(['x'], file.name, { type: file.type }))
+  const paths = new Map(files.map((file, index) => [file, source.files[index].path]))
+  ;(window as unknown as { api: Record<string, unknown> }).api.getPathForFile = (file: File) => paths.get(file) ?? ''
+  return {
+    types: ['Files'],
+    items: files.map((file) => ({ kind: 'file', getAsFile: () => file })),
+    files,
+    getData: () => '',
+  }
+}
+
+function dropOn(chat: Awaited<ReturnType<typeof mountChat>>, target: EventTarget, dataTransfer: unknown) {
+  const drop = new chat.dom.window.MouseEvent('drop', { bubbles: true, cancelable: true })
+  Object.defineProperty(drop, 'dataTransfer', { value: dataTransfer })
+  target.dispatchEvent(drop)
+  return drop
+}
+
+test('any file dropped from the OS is typed as its path, whether or not the provider reads images', async () => {
+  const chat = await mountChat({})
+  try {
+    await chat.act(async () => chat.type('Summarise'))
+    const transcript = chat.host.querySelector('button')!
+    const drop = dropTransfer(chat.dom.window as unknown as Window, {
+      files: [
+        { name: 'Q3 budget.xlsx', type: 'application/vnd.ms-excel', path: '/Users/dev/Desktop/Q3 budget.xlsx' },
+        { name: 'shot.png', type: 'image/png', path: '/Users/dev/Desktop/shot.png' },
+      ],
+    })
+    let event: Event | undefined
+    await chat.act(async () => {
+      event = dropOn(chat, transcript, drop)
+    })
+    expect(event!.defaultPrevented, 'the drop is claimed, not handed to the window').toBe(true)
+    expect(chat.host.querySelector('textarea')!.value).toBe(
+      "Summarise '/Users/dev/Desktop/Q3 budget.xlsx' /Users/dev/Desktop/shot.png ",
+    )
+    expect(chat.host.textContent).not.toContain('can be attached')
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('files dragged out of the Files pane are typed as their paths', async () => {
+  const chat = await mountChat({ capabilities: { images: true } })
+  try {
+    const composer = chat.host.querySelector('textarea')!
+    const drop = dropTransfer(chat.dom.window as unknown as Window, {
+      studioPaths: ['/Users/dev/project/src/app.ts', '/Users/dev/project/docs/logo.png'],
+    })
+    const over = new chat.dom.window.MouseEvent('dragover', { bubbles: true, cancelable: true })
+    Object.defineProperty(over, 'dataTransfer', { value: { ...drop, dropEffect: 'none' } })
+    await chat.act(async () => {
+      composer.dispatchEvent(over)
+    })
+    expect(over.defaultPrevented, 'the drag is accepted, so the cursor does not refuse it').toBe(true)
+    let event: Event | undefined
+    await chat.act(async () => {
+      event = dropOn(chat, composer, drop)
+    })
+    expect(event!.defaultPrevented, "the field's own text drop does not type the paths twice").toBe(true)
+    expect(composer.value).toBe('/Users/dev/project/src/app.ts /Users/dev/project/docs/logo.png ')
+  } finally {
+    await chat.unmount()
+  }
+})
+
 test('a pasted path to an image in the workspace is typed, not attached', async () => {
   const chat = await mountChat({ capabilities: { images: true } })
   const readImageDataUrl = vi.fn(async () => 'data:image/png;base64,iVBORw0K')
