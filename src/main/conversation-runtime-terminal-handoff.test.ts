@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, test } from 'vitest'
@@ -152,6 +152,45 @@ test('a chat hands a terminal its CLI session, its folder and its mode', async (
       workspaceRoot: chat.key.workspaceRoot,
       providerSessionId: 'provider-1',
     },
+  })
+})
+
+test('a terminal is never handed a CLI session another provider wrote', async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-handoff-'))
+  roots.add(workspaceRoot)
+  // The chat ran on another provider before this one: its thread id is the
+  // newest cursor in the transcript, and means nothing to this provider's CLI.
+  const dir = join(workspaceRoot, '.sprintengine', 'conversations', 'workspace')
+  await mkdir(dir, { recursive: true })
+  const other = {
+    id: 'old_1',
+    sessionId: 'conv_other',
+    workspaceId: 'workspace',
+    agentId: 'agent',
+    providerId: 'other-provider',
+    modelId: 'model',
+    type: 'session_updated',
+    createdAt: 1,
+    payload: { providerSessionId: 'other-provider-thread' },
+  }
+  await writeFile(join(dir, 'agent.jsonl'), JSON.stringify(other) + '\n', 'utf-8')
+  const runtime = new ConversationRuntime({
+    adapters: [rewindingProvider({ starts: [], rewinds: [] })],
+    getProviderById: () => undefined,
+    secretStore: { getStatus: async () => ({ ok: false, message: 'unused' }) },
+  })
+  runtimes.add(runtime)
+  const started = await runtime.startSession({
+    workspaceRoot,
+    workspaceId: 'workspace',
+    agentId: 'agent',
+    providerId: 'rewinding',
+    modelId: 'model',
+  })
+  assert.ok(started.ok)
+  assert.deepEqual(await runtime.terminalHandoffTarget({ sessionId: started.session.sessionId }), {
+    ok: false,
+    message: 'This chat has no CLI session yet. Send it a message first.',
   })
 })
 

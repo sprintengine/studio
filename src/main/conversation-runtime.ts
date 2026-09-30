@@ -1462,7 +1462,12 @@ export class ConversationRuntime {
         ok: false,
         message: 'An agent this chat started is still running. Continue it in a terminal once that agent is done.',
       }
-    const cursor = await this.readResumeCursor(session.workspaceRoot, session.workspaceId, session.agentId)
+    const cursor = await this.readResumeCursor(
+      session.workspaceRoot,
+      session.workspaceId,
+      session.agentId,
+      session.providerId,
+    )
     if (!cursor?.sessionId) return { ok: false, message: 'This chat has no CLI session yet. Send it a message first.' }
     // After Edit from here the chat's next turn forks the CLI session at an
     // earlier point. A terminal resuming the id would load the turns the
