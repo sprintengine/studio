@@ -531,8 +531,10 @@ test('a queued message is a row of the composer tray, not a bubble over the tran
   }
 })
 
-test('a message sent while the turn runs goes straight into it, not the queue', async () => {
+test('a message sent while the turn runs waits in the queue until Send now hands it to the turn', async () => {
   const turn = runningTurnSend()
+  // Even an agent that takes messages mid-turn gets one only when the person
+  // asks: a message the turn never took in must still be there to see.
   const chat = await mountChat({ capabilities: { steer: true }, sendTurn: turn.sendTurn })
   try {
     await chat.act(async () => chat.type('Investigate the flaky test'))
@@ -544,6 +546,9 @@ test('a message sent while the turn runs goes straight into it, not the queue', 
     })
     await chat.act(async () => chat.type('Use the staging config'))
     await chat.act(async () => chat.enter())
+    expect(turn.sendTurn).toHaveBeenCalledOnce()
+    expect(chat.host.querySelector('[aria-label="Queued message"]')?.textContent).toContain('Use the staging config')
+    await chat.act(async () => chat.button('Send now')!.click())
     expect(turn.calls[1]).toMatchObject({ message: 'Use the staging config', steer: true })
     expect(chat.host.querySelector('[aria-label="Queued message"]')).toBeNull()
     // The steered message is a bubble in the transcript straight away.
@@ -588,8 +593,8 @@ test('⌘↵ mid-turn sends the draft now; a provider without steering stops the
   }
 })
 
-// Starts a turn and sends a second message while it runs, the way the steer
-// cases below all begin.
+// Starts a turn and queues a second message while it runs, the way the cases
+// below all begin.
 async function sendBehindRunningTurn(chat: Awaited<ReturnType<typeof mountChat>>, calls: Record<string, unknown>[]) {
   await chat.act(async () => chat.type('Investigate the flaky test'))
   await chat.act(async () => chat.enter())
@@ -602,6 +607,11 @@ async function sendBehindRunningTurn(chat: Awaited<ReturnType<typeof mountChat>>
   })
   await chat.act(async () => chat.type('Use the staging config'))
   await chat.act(async () => chat.enter())
+}
+
+// Hands the queued message to the running turn, as "Send now" does.
+async function steerQueued(chat: Awaited<ReturnType<typeof mountChat>>) {
+  await chat.act(async () => chat.button('Send now')!.click())
 }
 
 test('a steer that fails after its message landed reports the failure and is not sent a second time', async () => {
@@ -618,6 +628,7 @@ test('a steer that fails after its message landed reports the failure and is not
   const chat = await mountChat({ capabilities: { steer: true }, sendTurn })
   try {
     await sendBehindRunningTurn(chat, calls)
+    await steerQueued(chat)
     expect(calls[1]).toMatchObject({ message: 'Use the staging config', steer: true })
     await chat.act(async () => {
       chat.emit({
@@ -642,7 +653,7 @@ test('a steer that fails after its message landed reports the failure and is not
   }
 })
 
-test('a message sent while the last one is still going in queues, and follows it in once it lands', async () => {
+test('a message sent while a steer is still going in queues, and stays queued once it lands', async () => {
   const calls: Array<Record<string, unknown>> = []
   const sendTurn = vi.fn<SendTurn>(async (input) => {
     calls.push(input as Record<string, unknown>)
@@ -652,6 +663,7 @@ test('a message sent while the last one is still going in queues, and follows it
   const chat = await mountChat({ capabilities: { steer: true }, sendTurn })
   try {
     await sendBehindRunningTurn(chat, calls)
+    await steerQueued(chat)
     expect(calls[1]).toMatchObject({ message: 'Use the staging config', steer: true })
     await chat.act(async () => chat.type('And the prod one'))
     await chat.act(async () => chat.enter())
@@ -668,6 +680,10 @@ test('a message sent while the last one is still going in queues, and follows it
       })
       chat.emit({ type: 'event', event: event('turn_started', { turnId: 't2' }) })
     })
+    // It goes when the turn ends, or when the person says so — not by itself.
+    expect(sendTurn).toHaveBeenCalledTimes(2)
+    expect(chat.host.querySelector('[aria-label="Queued message"]')?.textContent).toContain('And the prod one')
+    await steerQueued(chat)
     expect(calls[2]).toMatchObject({ message: 'And the prod one', steer: true })
     expect(chat.host.querySelector('[aria-label="Queued message"]')).toBeNull()
   } finally {
@@ -685,6 +701,7 @@ test('a steer refused before its message landed goes back to the queue', async (
   const chat = await mountChat({ capabilities: { steer: true }, sendTurn })
   try {
     await sendBehindRunningTurn(chat, turn.calls)
+    await steerQueued(chat)
     expect(chat.host.querySelector('[aria-label="Queued message"]')?.textContent).toContain('Use the staging config')
     expect(chat.host.textContent).toContain('This agent cannot take a message while it is working.')
     expect(sendTurn, 'a refused steer is not handed straight back').toHaveBeenCalledTimes(2)

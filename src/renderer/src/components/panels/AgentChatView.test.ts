@@ -1617,6 +1617,25 @@ test('AgentChatView', async () => {
     'a recorded change is information; the error line stays for actual failures',
   )
 
+  // A message committed while the agent works waits in the queue, where it
+  // can be seen, sent now or taken back. Handing it to the running turn on
+  // Enter lost messages that turn never took in, so only "Send now" steers.
+  const submitSource = chatViewSource.slice(
+    chatViewSource.indexOf('const submitComposer = useCallback('),
+    chatViewSource.indexOf('const openComposerMenu = useCallback('),
+  )
+  assert.match(submitSource, /setQueuedTurn\(turn\)/, 'a busy submit queues the message')
+  assert.doesNotMatch(
+    submitSource,
+    /steerTurn\(|steerOnSend/,
+    'a busy submit never hands the message to the running turn',
+  )
+  assert.doesNotMatch(
+    chatViewSource,
+    /useEffect\(\(\) => \{\s*if \(queuedTurn === null[^}]*\}\s*if \(steer/,
+    'nothing steers a queued message without the person asking',
+  )
+
   // The composer's attach wiring is window/DOM-bound (FileReader, canvas, the
   // send IPC) and cannot be mounted here, so the ends that would silently drop a
   // staged image are pinned at the source.
