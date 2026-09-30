@@ -604,6 +604,20 @@ export function DesignSystemSettingsIcon({ className }: IconProps) {
   )
 }
 
+// Four tiles identify additions to the product beyond chat (the rail's
+// Extensions door, an extension being made), drawn in the icon family's
+// 16-box round-stroke idiom.
+export function ExtensionsGlyph({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
+      <rect x="2.5" y="2.5" width="4.6" height="4.6" rx="1.1" stroke="currentColor" strokeWidth="1.4" />
+      <rect x="8.9" y="2.5" width="4.6" height="4.6" rx="1.1" stroke="currentColor" strokeWidth="1.4" />
+      <rect x="2.5" y="8.9" width="4.6" height="4.6" rx="1.1" stroke="currentColor" strokeWidth="1.4" />
+      <rect x="8.9" y="8.9" width="4.6" height="4.6" rx="1.1" stroke="currentColor" strokeWidth="1.4" />
+    </svg>
+  )
+}
+
 export function ModulesSettingsIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">

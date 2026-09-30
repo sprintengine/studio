@@ -114,7 +114,8 @@ import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { revealAgentTerminalTab } from '../../utils/agentTabReveal'
 import { setWorkspaceChatOpener } from '../../modules/chat-opener'
 import { composerDraftStore } from '../panels/agentChat/draftStore'
-import { setBuildExtensionHost } from '../extensions/buildExtensionHost'
+import { setBuildExtensionOpener } from '../extensions/buildExtensionHost'
+import { extensionBriefMarkdown } from '../../../../shared/extension-scaffold'
 import { createWorkspaceChatOpener } from './manager/workspaceChatOpener'
 import {
   markLaunchedAgentProjected,
@@ -3041,18 +3042,19 @@ export default function WorkspaceManager() {
     return () => setExtensionsSurfaceHost(null)
   }, [])
 
-  // "Build your own extension" ends in a chat on the project it just made: a
-  // new chat workspace on that folder, the agent the flow's picker chose, the
-  // extension-builder skill attached and the brief sent. The flow is on the
-  // Extensions home; the chat is this shell's to make.
-  const openConversationInNewChatRef = useRef(openConversationInNewChat)
-  openConversationInNewChatRef.current = openConversationInNewChat
+  // "Build your own extension" (the Extensions home's plate, the palette) is
+  // the New chat door in extension mode: the same machine, project, engine and
+  // composer, with the extension-builder skill attached, a name chip, and ideas
+  // for cards. Never through the parked chat draft, which is the person's next
+  // chat and not this (see `draftKey` below).
+  const openBuildExtensionDoor = useStableCallback(() => {
+    openNewChatPanel()
+    setNewChatPanelState((prev) => (prev ? { ...prev, mode: 'extension', editingScheduledAgentId: null } : prev))
+  })
   useEffect(() => {
-    setBuildExtensionHost({
-      openChat: ({ folder, confirm, prompt }) => openConversationInNewChatRef.current(folder, confirm, prompt),
-    })
-    return () => setBuildExtensionHost(null)
-  }, [])
+    setBuildExtensionOpener(openBuildExtensionDoor)
+    return () => setBuildExtensionOpener(null)
+  }, [openBuildExtensionDoor])
 
   // A module's `openChat` (RendererHost): a chat agent it owns, seeded into a
   // workspace that is already open and brought to the front, the prompt left
@@ -3258,11 +3260,12 @@ export default function WorkspaceManager() {
     confirm: AgentComposerConfirm & { hostId?: ExecutionHostId | null },
     folderPathOverride?: string | null,
     startupPrompt?: string,
+    extension?: { id: string },
   ) => {
     if (newChatConfirmInFlight.current) return
     newChatConfirmInFlight.current = true
     try {
-      await confirmNewChatNow(confirm, folderPathOverride, startupPrompt)
+      await confirmNewChatNow(confirm, folderPathOverride, startupPrompt, extension)
     } finally {
       newChatConfirmInFlight.current = false
     }
@@ -3271,13 +3274,14 @@ export default function WorkspaceManager() {
     confirm: AgentComposerConfirm & { hostId?: ExecutionHostId | null },
     folderPathOverride?: string | null,
     startupPrompt?: string,
+    extension?: { id: string },
   ) => {
     const scopedFolder = folderPathOverride !== undefined ? folderPathOverride : (newChatPanelState?.folderPath ?? null)
     // The machine the door's dropdown stands on rides every creation below
     // (they all end in createSoloChatWorkspace), then lets go.
     newChatHostRef.current = confirm.hostId ?? null
     try {
-      await confirmNewChatOnHost(confirm, scopedFolder, startupPrompt)
+      await confirmNewChatOnHost(confirm, scopedFolder, startupPrompt, extension)
     } finally {
       newChatHostRef.current = null
     }
@@ -3286,13 +3290,35 @@ export default function WorkspaceManager() {
     confirm: AgentComposerConfirm & { hostId?: ExecutionHostId | null },
     scopedFolder: string | null,
     startupPrompt?: string,
+    extension?: { id: string },
   ) => {
     // An agent asked for a worktree starts IN it: the folder becomes the
     // worktree and the marker rides along. A worktree that cannot be made
     // leaves the door open with the diagnostic, never a chat in the checkout.
     let folderPath = scopedFolder
     let worktree: WorkspaceWorktree | undefined
-    if ((confirm.kind === 'general' || confirm.kind === 'conversation') && confirm.worktree) {
+    // An extension starts in a folder of its own inside the project, made from
+    // the SDK's template before the chat (which needs the skill the scaffold
+    // puts there). One already holding an extension is carried on as it is. A
+    // project that cannot be made leaves the door open, with why.
+    if (extension) {
+      if (!scopedFolder) return
+      const made = await window.api
+        .extensionScaffoldCreate({
+          parentDir: scopedFolder,
+          id: extension.id,
+          ideaMarkdown: extensionBriefMarkdown(extension.id, startupPrompt ?? ''),
+        })
+        .catch((caught: unknown) => ({
+          ok: false as const,
+          message: caught instanceof Error ? caught.message : 'The project could not be created.',
+        }))
+      if (!made.ok) {
+        showToast({ tone: 'error', title: `${extension.id} was not created`, description: made.message })
+        return
+      }
+      folderPath = made.folder
+    } else if ((confirm.kind === 'general' || confirm.kind === 'conversation') && confirm.worktree) {
       const made = await createNewChatWorktree(scopedFolder, confirm.worktree.name)
       if (!made) return
       folderPath = made.folderPath
@@ -4527,9 +4553,9 @@ export default function WorkspaceManager() {
                               initialSelection={newChatPanelState.forcedSelection ?? lastNewChatAgent}
                               forceSelection={newChatPanelState.forcedSelection}
                               permissionPreset={agentSpawnPermissionPreset}
-                              onLaunch={({ prompt, ...confirm }) => {
+                              onLaunch={({ prompt, extension, ...confirm }) => {
                                 // confirmNewChat closes the panel (and forgets the draft) itself.
-                                void confirmNewChat(confirm, newChatPanelState.folderPath, prompt)
+                                void confirmNewChat(confirm, newChatPanelState.folderPath, prompt, extension)
                               }}
                               // The promise itself, not a void wrapper: the panel's
                               // one-launch-at-a-time guard waits on it, and a wrapper
@@ -4540,7 +4566,12 @@ export default function WorkspaceManager() {
                               // The parked draft lives per window; the panel seeds
                               // from it and writes through, the host clears it. A
                               // scheduled agent being edited is not a draft.
-                              draftKey={editingScheduledAgent ? undefined : workspaceWindowId}
+                              // An extension being made is not the next chat either.
+                              draftKey={
+                                editingScheduledAgent || newChatPanelState.mode === 'extension'
+                                  ? undefined
+                                  : workspaceWindowId
+                              }
                               initialMode={newChatPanelState.mode ?? 'chat'}
                               editingScheduledAgent={editingScheduledAgent}
                               onScheduled={(agent) => {

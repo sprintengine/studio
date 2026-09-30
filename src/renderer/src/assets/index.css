@@ -304,6 +304,12 @@
      themes, and staying constant keeps "merged" recognisable across themes the
      way GitHub keeps it constant across light/dark. */
   --tone-merged: var(--sem-color-status-merged);
+  /* An extension being made: the New chat door's extension-name chip, beside
+     the worktree chip it is modelled on. The violet mark rather than a second
+     accent: several themes' accent is blue, so a blue chip would read as the
+     worktree chip, and the marks do not change with the theme. */
+  --extension-ink: var(--sem-color-mark-violet);
+  --extension-soft: color-mix(in srgb, var(--sem-color-mark-violet) 16%, transparent);
   --tone-neutral-soft: var(--sem-color-status-neutral-soft);
   --tone-accent-soft: rgba(63, 148, 104, 0.16);
   --tone-good-soft: var(--sem-color-status-good-soft);

@@ -31,9 +31,10 @@ the user has trusted execute code.
 - Author against [`@sprintengine/module-sdk`](../../packages/module-sdk/README.md).
   The fastest start is a template:
   `npx -p @sprintengine/module-sdk sprintengine-module init my-extension --template panel`,
-  or **Build your own extension** in the Extensions door, which scaffolds the
-  project and opens a chat with an agent primed by the
-  `sprintengine-extension-builder` skill.
+  or **Build your own extension** (the Extensions door, or the palette), which
+  opens New chat in extension mode: name the extension, pick the project it goes
+  in, describe it, and the project is scaffolded in `<project>/<name>` with a
+  chat on it, the `sprintengine-extension-builder` skill attached.
 - Declare the host API the module was built for: `"engines": { "hostApi": 1 }`.
   A module without it, or built for a host API this app does not load, is
   refused with a message saying which side to update — never shown as merely

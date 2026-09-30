@@ -9,7 +9,7 @@ import type {
 } from '../../../../../shared/tailnet-mesh'
 import { sameRepository, type RepositoryIdentity } from '../../../../../shared/repository-identity'
 import { folderIdentityKey, useFolderRepositoryIdentities } from '../useFolderRepositoryIdentities'
-import { FolderTypeIcon, RemoteMachineGlyph, ScheduleGlyph, WslMachineGlyph } from '../../AppIcons'
+import { ExtensionsGlyph, FolderTypeIcon, RemoteMachineGlyph, ScheduleGlyph, WslMachineGlyph } from '../../AppIcons'
 import {
   hostIdForFolder,
   isWslHostId,
@@ -48,6 +48,7 @@ import {
   EmptyState,
   GhostButton,
   InlineSkillPicker,
+  LinkButton,
   MenuOption,
   Popover,
   PrimaryButton,
@@ -76,6 +77,13 @@ import { launchCommandLineKey, launchPreviewRequest, type LaunchCommandLineState
 import { drawSuggestions, newSuggestionSeed, type SuggestionEntry } from './suggestionBank'
 import { WorktreeChip } from './WorktreeChip'
 import { ScheduleTray } from './schedule/SchedulePicker'
+import { ExtensionNameChip } from './ExtensionNameChip'
+import { EXTENSION_IDEAS, EXTENSION_IDEAS_FIRST, type ExtensionIdea } from './extensionIdeas'
+import {
+  EXTENSION_BUILDER_SKILL_ID,
+  extensionIdProblem,
+  type ExtensionScaffoldTargetState,
+} from '../../../../../shared/extension-scaffold'
 import { ScheduleSlashPicker, type ScheduleSlashPickerHandle } from './schedule/ScheduleSlashPicker'
 import { localTimeZone } from './schedule/scheduleEditor'
 import { rememberSchedule } from './schedule/recentSchedules'
@@ -107,6 +115,12 @@ export type NewAgentLaunch = AgentComposerConfirm & {
    * spawns into a workspace whose machine is already fixed).
    */
   hostId?: ExecutionHostId
+  /**
+   * Extension mode: the extension's name. The host makes `<project>/<id>` from
+   * the SDK's template first, and the chat starts in that folder rather than
+   * the project.
+   */
+  extension?: { id: string }
 }
 
 /** One choosable project scope: a folder some open workspace lives in. */
@@ -186,8 +200,12 @@ export type NewAgentPanelProps = {
   onScheduled?: (agent: ScheduledAgentView) => void
 }
 
-/** What the door starts: a chat now, or a scheduled agent that starts one each time its schedule comes round. */
-export type NewAgentPanelMode = 'chat' | 'scheduled'
+/**
+ * What the door starts: a chat now, a scheduled agent that starts one each
+ * time its schedule comes round, or an extension — a new project made inside
+ * the chosen one, and a chat in it with the extension-builder skill.
+ */
+export type NewAgentPanelMode = 'chat' | 'scheduled' | 'extension'
 
 /**
  * What a remote launch carries: the target, and the launch identity. It is
@@ -334,6 +352,10 @@ function scheduledSkill(skill: { id: string; name: string }): WorkspaceSkill {
   return { id: skill.id, name: skill.name, source: 'custom', harnesses: [], installState: 'installed' }
 }
 
+// The skill an extension's chat opens with, as its chip shows it. Removing the
+// chip is how the door goes back to a plain New chat.
+const EXTENSION_BUILDER_CHIP = scheduledSkill({ id: EXTENSION_BUILDER_SKILL_ID, name: 'extension-builder' })
+
 // `/schedule` at the end of the prompt, and whatever follows it on that line.
 const SCHEDULE_COMMAND = /(?:^|\s)\/schedule(?:[ \t]+([^\n]*))?$/u
 
@@ -382,6 +404,7 @@ export default function NewAgentPanel({
   // stays a scheduled agent: there is no switching it to a chat.
   const editing = editingScheduledAgent
   const [mode, setMode] = React.useState<NewAgentPanelMode>(editing ? 'scheduled' : initialMode)
+  const extensionMode = mode === 'extension'
   const [cron, setCron] = React.useState(() => editing?.schedule.cron ?? DEFAULT_SCHEDULED_AGENT_CRON)
   // Written in this computer's zone: the scheduler runs here, on its clock.
   const [scheduleTimezone] = React.useState(() => editing?.schedule.timezone ?? localTimeZone())
@@ -457,9 +480,10 @@ export default function NewAgentPanel({
       : {}),
     showTerminal: true,
     conversationAvailable: conversationModeEnabled,
-    // A scheduled agent's runs are chats: a terminal needs someone at it.
+    // A scheduled agent's runs are chats: a terminal needs someone at it. An
+    // extension is built in a chat too, with its skill attached.
     initialSelection:
-      editing || initialMode === 'scheduled'
+      editing || initialMode === 'scheduled' || initialMode === 'extension'
         ? { kind: 'conversation' }
         : (forceSelection ?? draft?.selection ?? initialSelection),
     initialMcpServers: editing
@@ -467,7 +491,11 @@ export default function NewAgentPanel({
       : draft
         ? mergeDraftConnectors(initialMcpServers, draft.mcpServers)
         : initialMcpServers,
-    initialSkills: editing ? editing.skills.map(scheduledSkill) : draft?.skills,
+    initialSkills: editing
+      ? editing.skills.map(scheduledSkill)
+      : initialMode === 'extension'
+        ? [EXTENSION_BUILDER_CHIP]
+        : draft?.skills,
     initialWorktreeName: editing ? (editing.worktree?.name ?? null) : null,
     // The engine a parked draft was made on, when whoever made it stored none —
     // a card's `Go` picker, which must not move this door's remembered engine
@@ -491,9 +519,17 @@ export default function NewAgentPanel({
   React.useEffect(() => {
     if (pickedForRoot.current === workspaceRoot) return
     pickedForRoot.current = workspaceRoot
-    composer.setSkills([])
+    // The builder skill is not a pick: the scaffold puts it in the new
+    // project, wherever that is, so it stays with the extension.
+    composer.setSkills(extensionMode ? [EXTENSION_BUILDER_CHIP] : [])
     composer.setMcpServers([])
-  }, [composer, workspaceRoot])
+  }, [composer, extensionMode, workspaceRoot])
+  // Removing the builder chip is leaving extension mode: the door is a plain
+  // New chat again, with the project it was on.
+  const builderAttached = composer.skills.some((skill) => skill.id === EXTENSION_BUILDER_SKILL_ID)
+  React.useEffect(() => {
+    if (extensionMode && !builderAttached) setMode('chat')
+  }, [builderAttached, extensionMode])
   // The PROJECT, not the workspace: a solo-chat workspace is called things like
   // "new chat panel", which says nothing about where the agent will run. The
   // folder it opens in is the fact worth showing, so a wrong-project spawn is
@@ -600,12 +636,16 @@ export default function NewAgentPanel({
   const remoteSelectable = remoteCapable && chatAvailable && selection.kind !== 'terminal'
   // Scheduling is the door's, and needs a chat to start: a run happens with
   // nobody at it, which a terminal cannot do.
-  const scheduleOffered = hostChoosable && scheduledAgentsEnabled && chatAvailable
+  const scheduleOffered = hostChoosable && scheduledAgentsEnabled && chatAvailable && !extensionMode
   const scheduled = mode === 'scheduled' && (scheduleOffered || editing !== null)
+  // Both run as a chat: a scheduled agent's runs have nobody at them, and an
+  // extension is built with its skill in a conversation.
+  const chatOnly = scheduled || extensionMode
   React.useEffect(() => {
-    if (scheduled && composer.selection.kind !== 'conversation') composer.setSelection({ kind: 'conversation' })
-  }, [composer, scheduled])
-  const remoteChosenAway = !remoteSelectable || selection.kind !== 'conversation' || scheduled
+    if (chatOnly && composer.selection.kind !== 'conversation') composer.setSelection({ kind: 'conversation' })
+  }, [composer, chatOnly])
+  // An extension is made on this computer: the scaffold writes to its disk.
+  const remoteChosenAway = !remoteSelectable || selection.kind !== 'conversation' || chatOnly
   React.useEffect(() => {
     if (remoteChosenAway) setRemoteTarget(null)
   }, [remoteChosenAway])
@@ -1055,6 +1095,66 @@ export default function NewAgentPanel({
   }, [previewKey])
 
   const suggestions = React.useMemo(() => drawSuggestions(seed), [seed])
+
+  // ── Extension ─────────────────────────────────────────────────────────────
+  // The name is the folder made inside the project and the module id. What is
+  // at `<project>/<name>` is asked as it is typed, so a name already taken by
+  // something else is said before the press: an empty folder is filled, an
+  // extension there is carried on, anything else is never written over.
+  const [extensionName, setExtensionName] = React.useState('')
+  const [allIdeas, setAllIdeas] = React.useState(false)
+  const extensionNameProblem = extensionName === '' ? null : extensionIdProblem(extensionName)
+  const [extensionTarget, setExtensionTarget] = React.useState<{
+    key: string
+    state: ExtensionScaffoldTargetState
+  } | null>(null)
+  const extensionTargetKey =
+    extensionMode && workspaceRoot && extensionName && !extensionNameProblem
+      ? `${workspaceRoot}\u0000${extensionName}`
+      : null
+  React.useEffect(() => {
+    if (!extensionTargetKey || !workspaceRoot || typeof window.api.extensionScaffoldTarget !== 'function') return
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      void window.api
+        .extensionScaffoldTarget({ parentDir: workspaceRoot, id: extensionName })
+        .then((target) => {
+          if (!cancelled && target) setExtensionTarget({ key: extensionTargetKey, state: target.state })
+        })
+        .catch(() => undefined)
+    }, 150)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+    // extensionTargetKey is (workspaceRoot, extensionName); listing them too would ask twice.
+  }, [extensionTargetKey])
+  const extensionTargetState = extensionTarget?.key === extensionTargetKey ? extensionTarget.state : null
+  const extensionNote = extensionNameProblem
+    ? extensionNameProblem
+    : extensionTargetState === 'taken'
+      ? `${projectLabel ?? 'The project'} already has a ${extensionName} folder. Choose another name.`
+      : extensionTargetState === 'no_parent'
+        ? 'That project folder is not there any more. Choose another project.'
+        : null
+  // Everything the extension needs before ⏎: a project to make it in, a name
+  // that is free (or an extension to carry on), and something to build.
+  const extensionReady =
+    !extensionMode ||
+    (Boolean(workspaceRoot?.trim()) &&
+      extensionName !== '' &&
+      !extensionNameProblem &&
+      (extensionTargetState === 'free' || extensionTargetState === 'extension') &&
+      prompt.trim() !== '')
+  const pickIdea = (idea: ExtensionIdea): void => {
+    setPrompt(idea.prompt)
+    window.requestAnimationFrame(() => {
+      const field = promptRef.current
+      if (!field) return
+      field.focus()
+      field.setSelectionRange(idea.prompt.length, idea.prompt.length)
+    })
+  }
   // A Claude chat can run on a WSL machine; the other chat runtimes start
   // their CLI on this machine only, so one of them there has nowhere to run.
   const chatStrandedOnWsl = isChatLaunch && isWslHostId(hostId) && !conversationRunsOnWsl(launchCli)
@@ -1159,7 +1259,7 @@ export default function NewAgentPanel({
   }
 
   const launch = (text: string) => {
-    if (!canLaunch) return
+    if (!canLaunch || !extensionReady) return
     if (scheduled) {
       void schedule(text)
       return
@@ -1217,7 +1317,12 @@ export default function NewAgentPanel({
         modelLabel: engineNames.modelLabel ?? engineNames.cliLabel,
       }
     }
-    onLaunch({ ...confirm, prompt, ...(hostChoosable ? { hostId } : {}) })
+    onLaunch({
+      ...confirm,
+      prompt,
+      ...(hostChoosable ? { hostId } : {}),
+      ...(extensionMode ? { extension: { id: extensionName } } : {}),
+    })
   }
 
   React.useEffect(() => {
@@ -1302,7 +1407,9 @@ export default function NewAgentPanel({
     ? 'A shell opens with nothing typed'
     : scheduled
       ? 'What each run should do…'
-      : 'Describe the task…'
+      : extensionMode
+        ? 'Describe the extension…'
+        : 'Describe the task…'
   // No agent CLI at all, or (for a chat agent) none with a chat runtime: the
   // same install route either way, because installing a CLI is the answer to
   // both.
@@ -1343,12 +1450,20 @@ export default function NewAgentPanel({
             mark is what made this fill the pane. */}
           {scheduled ? (
             <ScheduleGlyph className="icon-lg mx-auto text-[color:var(--text-strong)]" />
+          ) : extensionMode ? (
+            <ExtensionsGlyph className="icon-lg mx-auto text-[color:var(--text-strong)]" />
           ) : (
             <SprintEngineFrond tone="current" className="icon-lg mx-auto text-[color:var(--text-strong)]" />
           )}
           <h1 className="mt-2.5 text-title font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
             {/* Editing, the tray below already says when; the heading names what. */}
-            {scheduled ? (editing ? 'Scheduled agent' : 'What should run on a schedule?') : greeting}
+            {scheduled
+              ? editing
+                ? 'Scheduled agent'
+                : 'What should run on a schedule?'
+              : extensionMode
+                ? 'What should your extension do?'
+                : greeting}
           </h1>
           {/* State, not decoration: where this agent will run.
               Whether this is a PICKER is decided by what the host can do, never
@@ -1371,7 +1486,7 @@ export default function NewAgentPanel({
                 // A scheduled agent runs on this computer or one of its WSL
                 // distributions: the scheduler is this computer's, and a paired
                 // machine's chat would need its own.
-                machines={remoteSelectable && !scheduled ? remoteMachines : []}
+                machines={remoteSelectable && !chatOnly ? remoteMachines : []}
                 selected={remoteTarget?.connection ?? null}
                 onSelect={(connection) => pickRemoteMachine(connection)}
                 localHosts={localHosts}
@@ -1658,7 +1773,11 @@ export default function NewAgentPanel({
                 (owner, 2026-09-30): off until turned on or named. This machine
                 only, and only inside a git repository — a paired machine's
                 chat has no checkout here to fork. */}
-            {selection.kind !== 'terminal' && !remoteTarget && workspaceIsGitRepo ? (
+            {/* An extension's folder is new, so there is nothing to fork: its
+                name takes the worktree chip's place, in the extension violet. */}
+            {extensionMode ? (
+              <ExtensionNameChip name={extensionName} onChange={setExtensionName} invalid={extensionNote !== null} />
+            ) : selection.kind !== 'terminal' && !remoteTarget && workspaceIsGitRepo ? (
               <WorktreeChip name={composer.worktreeName} onChange={composer.setWorktreeName} />
             ) : null}
 
@@ -1733,9 +1852,9 @@ export default function NewAgentPanel({
                     setLastNewChatAgent(next)
                     setMoreOpen(false)
                   }}
-                  // A scheduled agent's runs are chats; the kinds that are not
-                  // cannot be scheduled, so they are not offered.
-                  scheduled={scheduled}
+                  // A scheduled agent's runs are chats, and so is an extension's
+                  // build; the kinds that are not are not offered.
+                  scheduled={chatOnly}
                 />
               </Popover>
             }
@@ -1783,13 +1902,15 @@ export default function NewAgentPanel({
                 content={
                   selection.kind === 'terminal'
                     ? 'Opens a shell in this folder'
-                    : isChatLaunch
-                      ? `Starts ${engineNames.cliLabel} as a chat`
-                      : commandLine.status === 'ready'
-                        ? commandLine.preview.display
-                        : commandLine.status === 'error'
-                          ? commandLine.message
-                          : 'Reading this agent’s launch command…'
+                    : extensionMode
+                      ? `Makes ${extensionName || 'the extension'} in ${projectLabel ?? 'the project'} and starts ${engineNames.cliLabel} there`
+                      : isChatLaunch
+                        ? `Starts ${engineNames.cliLabel} as a chat`
+                        : commandLine.status === 'ready'
+                          ? commandLine.preview.display
+                          : commandLine.status === 'error'
+                            ? commandLine.message
+                            : 'Reading this agent’s launch command…'
                 }
                 placement="top"
                 multiline
@@ -1806,7 +1927,7 @@ export default function NewAgentPanel({
                 <PrimaryButton
                   size="xs"
                   onClick={() => launch(prompt)}
-                  disabled={!canLaunch}
+                  disabled={!canLaunch || !extensionReady}
                   aria-label="Start agent"
                   aria-keyshortcuts="Enter"
                   className="aspect-square shrink-0 font-mono"
@@ -1823,6 +1944,15 @@ export default function NewAgentPanel({
             {attachNote}
           </p>
         ) : null}
+        {extensionMode && extensionNote ? (
+          <p role="status" className="mt-1.5 text-meta leading-5 text-[color:var(--tone-error)]">
+            {extensionNote}
+          </p>
+        ) : extensionMode && extensionTargetState === 'extension' ? (
+          <p role="status" className="mt-1.5 text-meta leading-5 text-[color:var(--text-muted)]">
+            {extensionName} is already an extension in {projectLabel ?? 'this project'}: the chat opens it to carry on.
+          </p>
+        ) : null}
         {chatStrandedOnWsl ? (
           <p role="status" className="mt-1.5 text-meta leading-5 text-[color:var(--text-muted)]">
             {engineNames.cliLabel} chats run on This PC only. Pick Claude Code to chat on{' '}
@@ -1830,7 +1960,24 @@ export default function NewAgentPanel({
           </p>
         ) : null}
 
-        {terminalUnavailable || isTerminalLaunch || scheduled ? null : (
+        {/* Extension mode's cards fill the box and start nothing: the words
+            are the person's to change, and the chat needs a name first. */}
+        {extensionMode && !terminalUnavailable ? (
+          <section aria-label="Extension ideas" className="mt-4">
+            <div className="mb-2 flex items-baseline justify-between gap-3">
+              <h2 className="m-0 text-meta font-medium text-[color:var(--text-subtle)]">Start from an idea</h2>
+              <LinkButton ink="quiet" onClick={() => setAllIdeas((current) => !current)}>
+                {allIdeas ? 'Show fewer' : `Show all ${EXTENSION_IDEAS.length}`}
+              </LinkButton>
+            </div>
+            <div className="grid grid-cols-1 gap-2 @[520px]:grid-cols-2">
+              {(allIdeas ? EXTENSION_IDEAS : EXTENSION_IDEAS.slice(0, EXTENSION_IDEAS_FIRST)).map((idea) => (
+                <ExtensionIdeaCard key={idea.id} idea={idea} onPick={() => pickIdea(idea)} />
+              ))}
+            </div>
+          </section>
+        ) : null}
+        {terminalUnavailable || isTerminalLaunch || scheduled || extensionMode ? null : (
           <div className="mt-4 grid grid-cols-1 gap-2 @[520px]:grid-cols-2">
             {suggestions.map((entry) => (
               <SuggestionCard
@@ -2325,6 +2472,18 @@ function SuggestionCard({
       <span className="mt-1.5 inline-block self-start rounded border border-[color:var(--border-default)] px-1.5 text-micro text-[color:var(--text-subtle)]">
         {entry.outcome}
       </span>
+    </CardButton>
+  )
+}
+
+function ExtensionIdeaCard({ idea, onPick }: { idea: ExtensionIdea; onPick: () => void }) {
+  return (
+    // The suggestion tile's shape; the surface it adds leads, because the cards
+    // together are a map of what an extension can be.
+    <CardButton variant="bordered" onClick={onPick} className="px-3 py-2.5">
+      <span className="text-micro text-[color:var(--text-subtle)]">{idea.surface}</span>
+      <div className="mt-0.5 text-body font-medium text-[color:var(--text-strong)]">{idea.title}</div>
+      <p className="mt-0.5 text-meta leading-5 text-[color:var(--text-muted)]">{idea.description}</p>
     </CardButton>
   )
 }
