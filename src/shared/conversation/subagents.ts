@@ -2,8 +2,28 @@
 // by the runtime (which counts background agents) and the chat projection
 // (which keeps a background agent's lane open until the agent finishes).
 
-import type { ConversationSubagentState, ConversationSubagentStatusPayload } from '../conversation-runtime'
+import type {
+  ConversationEvent,
+  ConversationSubagentState,
+  ConversationSubagentStatusPayload,
+} from '../conversation-runtime'
 import { asRecord } from '../records'
+
+/** A spawned agent's own tool call or its result: work inside the agent's
+ * lane, stamped with the call that spawned it. */
+export function isSubagentStep(event: ConversationEvent): boolean {
+  if (event.type !== 'tool_started' && event.type !== 'tool_output') return false
+  const parentToolUseId = event.payload?.parentToolUseId
+  return typeof parentToolUseId === 'string' && parentToolUseId.length > 0
+}
+
+/** A step a background agent took after the turn that launched it ended. It
+ * belongs to the agent's lane, not to any turn: the conversation is idle while
+ * the agent works, so the step must not read as the agent working on a turn. */
+export function isTurnlessSubagentStep(event: ConversationEvent): boolean {
+  const turnId = event.payload?.turnId
+  return isSubagentStep(event) && !(typeof turnId === 'string' && turnId.length > 0)
+}
 
 // What Claude Code returns at once for an agent launched in the background.
 // The text is written for the model ("never quote or paste any part of it"),

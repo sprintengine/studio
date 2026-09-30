@@ -1,6 +1,7 @@
 import type { AgentPhaseEvent } from '../shared/agent-runtime'
 import type { ConversationEvent } from '../shared/conversation-runtime'
 import type { AgentAttention } from './agent-attention'
+import { isTurnlessSubagentStep } from '../shared/conversation/subagents'
 
 /** Adapt live conversation events into the same passive OS attention channel
  * as terminal agents. Tokens/tool output never notify, and concurrent approval
@@ -33,6 +34,9 @@ export function createConversationAttentionListener(attention: Pick<AgentAttenti
         break
       case 'tool_started':
         if (state.pending.size) return
+        // A background agent working after its turn ended: no turn end will
+        // follow to put the conversation back to idle.
+        if (isTurnlessSubagentStep(event)) return
         phase = 'tool_use'
         break
       case 'approval_requested':

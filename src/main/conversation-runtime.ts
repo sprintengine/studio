@@ -46,7 +46,7 @@ import type {
 } from '../shared/conversation-runtime'
 import type { ExecutionHostId } from '../shared/execution-host'
 import { inferConversationToolKind } from '../shared/conversation/toolKind'
-import { readSubagentStatus } from '../shared/conversation/subagents'
+import { isTurnlessSubagentStep, readSubagentStatus } from '../shared/conversation/subagents'
 import {
   readToolDetail,
   writeToolDetail,
@@ -1889,7 +1889,10 @@ export class ConversationRuntime {
       }
     if (event.type === 'session_updated' && typeof event.payload?.revertedAfterSeq === 'number')
       session.revertedNote = `Files were ${event.payload.undo ? 'restored from the undo checkpoint' : `reverted to before conversation turn ${event.payload.revertedAfterSeq}`}. Inspect the current files before continuing; later transcript messages describe the previous file state.`
-    if (event.type === 'tool_started')
+    // A background agent's step between turns is not what the conversation is
+    // doing: it would name a tool while the conversation sits idle.
+    const ownStep = !isTurnlessSubagentStep(event)
+    if (ownStep && event.type === 'tool_started')
       session.currentToolTitle = presentToolItem({
         kind: event.payload?.kind as import('../shared/conversation-runtime').ConversationToolKind,
         name: String(event.payload?.name ?? event.payload?.tool ?? ''),
@@ -1898,7 +1901,7 @@ export class ConversationRuntime {
       }).title
     // Streamed output (`partial`) arrives while the tool is still running.
     else if (
-      (event.type === 'tool_output' && event.payload?.partial !== true) ||
+      (ownStep && event.type === 'tool_output' && event.payload?.partial !== true) ||
       (event.type === 'turn_completed' && event.payload?.steered !== true) ||
       event.type === 'turn_failed'
     )

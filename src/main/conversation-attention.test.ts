@@ -167,3 +167,16 @@ test('a conversation is remembered only while an approval it raised is outstandi
   h.send('approval_requested', { requestId: 'c' }, 'settled')
   expect(h.bounces).toEqual([1, 1, 1, 1])
 })
+
+test("a background agent's step after its turn ended neither clears the turn's notice nor reads as working", () => {
+  const h = harness()
+  h.send('user_message', { turnId: 'turn-1' })
+  h.send('turn_completed', { turnId: 'turn-1' })
+  expect(h.attention.pendingCount()).toBe(1)
+  h.send('tool_started', { parentToolUseId: 'toolu_bg', name: 'Edit' })
+  h.send('tool_output', { parentToolUseId: 'toolu_bg', toolUseId: 'child_1' })
+  expect(h.attention.pendingCount()).toBe(1)
+  // The model's own work after that is new work, and clears it.
+  h.send('turn_started', { turnId: 'turn-2' })
+  expect(h.attention.pendingCount()).toBe(0)
+})

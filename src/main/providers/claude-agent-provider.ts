@@ -47,7 +47,7 @@ import {
   mapClaudeCommands,
   sameCommandNames,
 } from '../conversation-commands/claude'
-import { isBackgroundLaunchAck } from '../../shared/conversation/subagents'
+import { isBackgroundLaunchAck, isSubagentStep } from '../../shared/conversation/subagents'
 export { summarizeToolInput } from '../../shared/conversation/approvalSummary'
 import { LOOKUP_TOOL_KINDS } from '../../shared/conversation/permissionModes'
 
@@ -295,14 +295,27 @@ function isSessionScopedEvent(event: ConversationEvent): boolean {
 }
 
 // Session-scoped events that still matter between turns and ride the session
-// channel when no turn is open to carry them.
+// channel when no turn is open to carry them. A background agent's own steps
+// ride it too: the agent works on after the turn that launched it has ended,
+// and its steps belong to its lane, not to a turn of the conversation.
 function ridesSessionChannel(event: ConversationEvent): boolean {
   return (
     event.type === 'session_updated' ||
     event.type === 'subagent_status' ||
     event.type === 'subagent_message' ||
-    (event.type === 'tool_output' && event.payload?.backgroundResult === true)
+    (event.type === 'tool_output' && event.payload?.backgroundResult === true) ||
+    isSubagentStep(event)
   )
+}
+
+// Activity after the turn's `result` that means the model itself is working
+// again, so it needs a continuation turn. A background agent's steps do not:
+// opened for them, the turn would hold the conversation busy, refuse the
+// person's next send, and end in a "done" notice and a diff for a turn nobody
+// sent. An approval the agent raises still opens one, from the permission
+// callback, because the agent is then waiting on the person.
+function opensContinuationTurn(event: ConversationEvent): boolean {
+  return !isSessionScopedEvent(event) && !isSubagentStep(event)
 }
 
 // Minimal push-based async iterable: producers push/end, one consumer drains.
@@ -379,7 +392,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       // Post-`result` turn-scoped activity with no open `sendTurn`: open a
       // continuation turn so the event (and any approval it raises) reaches the
       // runtime instead of being dropped. Requires the session channel.
-      if (!openTurn(state) && state.onSessionEvent && !isSessionScopedEvent(event)) {
+      if (!openTurn(state) && state.onSessionEvent && opensContinuationTurn(event)) {
         ensureContinuationTurn(state)
       }
       const turn = openTurn(state)
@@ -388,9 +401,9 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         // stamp the continuation id so the runtime attaches them to its mirror.
         turn.queue.push(withContinuationTurnId(event, turn.turnId))
       } else if (ridesSessionChannel(event)) {
-        // A resume-cursor update or a background agent's progress between
-        // turns: ride the session channel if it is open, else buffer for the
-        // next turn start.
+        // A resume-cursor update or a background agent's progress or steps
+        // between turns: ride the session channel if it is open, else buffer
+        // for the next turn start.
         if (state.onSessionEvent) state.onSessionEvent(event)
         else state.pendingSessionEvents.push(event)
       }
