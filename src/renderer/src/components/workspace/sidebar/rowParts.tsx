@@ -1,12 +1,12 @@
 // The small pieces a sidebar row is built from: the shelf fold row, the
-// attention pulse, row tooltips, the project line, the branch chip and the
-// working timer.
+// attention pulse, row tooltips, the machine and schedule marks, the project
+// line, the branch chip and the working timer.
 
 import { RowButton, Tooltip, TruncatedText } from '../../ui'
 import { useChangePulse } from '../../../hooks/useChangePulse'
 import React, { createContext, useContext, useState } from 'react'
 import { shortMachineName } from '../../remote/machineRowModel'
-import { RemoteMachineGlyph, FolderTypeIcon, GitBranchGlyph } from '../../AppIcons'
+import { RemoteMachineGlyph, FolderTypeIcon, GitBranchGlyph, ScheduleGlyph } from '../../AppIcons'
 import { type ProjectColor } from '../../../utils/projectColor'
 import { ProjectPullRequestMark } from '../PullRequestMark'
 import { formatElapsedMs } from '../../../utils/relativeTime'
@@ -203,6 +203,28 @@ export function RemoteRowGlyph({ machineName }: { machineName: string }) {
         data-remote-row-glyph={machineName}
       >
         <RemoteMachineGlyph className="icon-xs shrink-0 text-[color:var(--tone-good)]" />
+      </span>
+    </Tooltip>
+  )
+}
+
+/**
+ * The mark on a chat a schedule started (owner ruling 2026-09-30): the
+ * schedule's own clock, in the accent the Scheduled section's rows draw it in,
+ * so a run's chat and the schedule behind it read as one thing seen from two
+ * places. It says where the chat came from and nothing else — the chat is an
+ * ordinary chat, and its working state is the row's own.
+ */
+export function ScheduledRunGlyph({ scheduledAgentId }: { scheduledAgentId: string }) {
+  return (
+    <Tooltip content="Started by a schedule" placement="bottom" wrapperClassName="flex shrink-0 items-center">
+      <span
+        role="img"
+        aria-label="Started by a schedule"
+        className="flex shrink-0 items-center"
+        data-scheduled-run={scheduledAgentId}
+      >
+        <ScheduleGlyph className="icon-xs shrink-0 text-[color:var(--accent-primary)]" />
       </span>
     </Tooltip>
   )

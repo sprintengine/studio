@@ -1,6 +1,6 @@
 import React from 'react'
 
-import { IconButton, Tooltip, WorkingMark } from '../../ui'
+import { IconButton, Tooltip } from '../../ui'
 import { FOCUS_RING_CLASS } from '../../ui/tokens'
 import { ScheduleGlyph } from '../../AppIcons'
 import CliIcon from '../../CliIcon'
@@ -46,29 +46,48 @@ export function scheduledAgentFailureUnseen(agent: ScheduledAgentView): string |
 }
 
 /**
- * A scheduled agent's card in the sidebar: the same card a chat has, so the
- * two read as one list — two lines in the project tree, three in All chats.
- * What differs is only what the lines say: the clock before the title; under
- * it the schedule in words (or, while its latest run's chat is working, the
- * working mark; or why its last run did not start, until opened); and in the
- * seat, when it runs next rather than when it last finished. × on hover closes
- * it, which stops the schedule.
+ * What a scheduled agent's status line says about it: what is true of the
+ * schedule, never what a chat is doing. While its latest run is going the line
+ * says so — "Run in progress", or "Run waiting on you" — as a fact about the
+ * schedule; the working mark and the gold surface stay on the run's own chat,
+ * which is the thing that is working. A run that did not start says why until
+ * the schedule is opened; otherwise the line is the schedule in words.
+ */
+export function scheduledAgentStatusLine(
+  agent: ScheduledAgentView,
+  runInProgress: 'working' | 'needs-input' | null,
+): { text: string; tone: 'default' | 'error' } {
+  if (runInProgress === 'working') return { text: 'Run in progress', tone: 'default' }
+  if (runInProgress === 'needs-input') return { text: 'Run waiting on you', tone: 'default' }
+  const failure = scheduledAgentFailureUnseen(agent)
+  if (failure) return { text: `Last run failed — ${failure}`, tone: 'error' }
+  return { text: scheduledAgentScheduleWords(agent.schedule) ?? agent.schedule.cron, tone: 'default' }
+}
+
+/**
+ * A scheduled agent's row in the sidebar's Scheduled section: the same card a
+ * chat has in All chats, three lines, so the two read as one kind of row. The
+ * project line on top (the row no longer sits under its project's header);
+ * the clock before the title; under it the status line above. In the seat,
+ * when it runs next rather than when it last finished. Opening it opens the
+ * schedule's editor, where its runs are listed; × on hover closes it, which
+ * stops the schedule.
  */
 export function ScheduledAgentRow({
   agent,
   now,
-  flatProject,
-  working,
+  project,
+  runInProgress,
   selected,
   onOpen,
   onClose,
 }: {
   agent: ScheduledAgentView
   now: number
-  /** The project line the All chats list puts on top; absent in the tree. */
-  flatProject?: FlatProjectLine
-  /** Its latest run's chat is working right now. */
-  working: boolean
+  /** The project each run starts in, drawn as the All chats rows draw theirs. */
+  project: FlatProjectLine
+  /** Its latest run's chat is working, or waiting on the person; null otherwise. */
+  runInProgress: 'working' | 'needs-input' | null
   /** Open in the door this window is showing. */
   selected: boolean
   onOpen: () => void
@@ -76,16 +95,14 @@ export function ScheduledAgentRow({
 }) {
   const title = scheduledAgentTitle(agent.prompt)
   const words = scheduledAgentScheduleWords(agent.schedule) ?? agent.schedule.cron
-  const failure = scheduledAgentFailureUnseen(agent)
+  const status = scheduledAgentStatusLine(agent, runInProgress)
   const next = nextRunLabel(agent.nextRunAt, now)
   const nextFull = agent.nextRunAt === null ? null : new Date(agent.nextRunAt).toLocaleString()
 
   const seat = (
     <span className="relative ml-auto flex h-5 min-w-[44px] shrink-0 items-center justify-end pl-2">
       <span className="inline-flex items-center gap-1 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
-        {working ? (
-          <WorkingMark label="Its run is working" seed={agent.id} />
-        ) : next ? (
+        {next ? (
           <Tooltip content={`Next run ${nextFull}`}>
             <span className="text-meta tabular-nums text-[color:var(--text-muted)]">
               <span aria-hidden="true">{next}</span>
@@ -125,7 +142,9 @@ export function ScheduledAgentRow({
       role="treeitem"
       tabIndex={-1}
       aria-current={selected ? 'true' : undefined}
-      aria-label={`Scheduled agent: ${title}. ${words}.${failure ? ` Last run did not start: ${failure}.` : ''}`}
+      aria-label={`Scheduled agent: ${title}, in ${project.name}. ${words}.${
+        status.text === words ? '' : ` ${status.text}.`
+      }`}
       data-scheduled-agent={agent.id}
       onClick={onOpen}
       onKeyDown={(event) => {
@@ -134,32 +153,28 @@ export function ScheduledAgentRow({
           onOpen()
         }
       }}
-      // The chat card's own box — the same inset, rail, radius and rhythm —
-      // so a scheduled agent sits in the list as one of its rows.
-      // design-tokens-allow: alignment — the chat rows' 26px inset after their 4px rail, so the title lands on the sidebar's content column
-      className={`interactive group relative mx-1.5 my-0.5 flex min-h-control-sm cursor-pointer select-none flex-col justify-center gap-0.5 rounded-md border-l-[4px] py-1 pr-1.5 text-heading ${
-        flatProject ? 'pl-1.5' : 'pl-[26px]'
-      } ${FOCUS_RING_CLASS} ${
+      // The All chats card's own box — the same inset, rail, radius and
+      // rhythm — so a scheduled agent sits in the list as one of its rows.
+      className={`interactive group relative mx-1.5 my-0.5 flex min-h-control-sm cursor-pointer select-none flex-col justify-center gap-0.5 rounded-md border-l-[4px] py-1 px-1.5 text-heading ${FOCUS_RING_CLASS} ${
         // Selected as a chat row is: the neutral fill and the edge ring, no bar.
         selected
           ? `border-l-transparent ${SELECTED_ROW_ACCENT.bg} ${SELECTED_ROW_ACCENT.text} ${SELECTION_EDGE_CLASS}`
           : 'border-l-transparent text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]'
       }`}
     >
-      {flatProject ? <ProjectLine project={flatProject}>{seat}</ProjectLine> : null}
+      <ProjectLine project={project}>{seat}</ProjectLine>
       <div className="flex min-w-0 items-center gap-1.5">
         <ScheduleGlyph className="icon-xs shrink-0 text-[color:var(--accent-primary)]" />
-        <span className={`min-w-0 flex-1 truncate ${working || failure ? 'font-semibold' : ''}`}>{title}</span>
+        <span className={`min-w-0 flex-1 truncate ${status.tone === 'error' ? 'font-semibold' : ''}`}>{title}</span>
       </div>
       <div className="flex h-5 min-w-0 items-center gap-2 overflow-hidden text-meta text-[color:var(--text-subtle)]">
         {/* The ringed CLI mark a chat's line wears: each run is a chat on it. */}
         <span className="flex size-icon-sm shrink-0 items-center justify-center rounded-full border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)]">
           <CliIcon cli={agent.cli} className="icon-xs" />
         </span>
-        <span className={`min-w-0 flex-1 truncate ${failure ? 'text-[color:var(--tone-error)]' : ''}`}>
-          {working ? 'Running now' : failure ? `Failed — ${failure}` : words}
+        <span className={`min-w-0 flex-1 truncate ${status.tone === 'error' ? 'text-[color:var(--tone-error)]' : ''}`}>
+          {status.text}
         </span>
-        {flatProject ? null : seat}
       </div>
     </div>
   )
