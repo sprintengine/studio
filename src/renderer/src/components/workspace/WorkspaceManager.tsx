@@ -2038,10 +2038,13 @@ export default function WorkspaceManager() {
   // the hand-rename lock all behave identically. A chat has no prompt hook;
   // its runtime summary carries what the person sent instead.
   useEffect(() => {
-    for (const offer of conversationTitleOffers(conversationSessions, titledConversationTextRef.current)) {
+    const known = new Set(workspaces.map((workspace) => workspace.id))
+    for (const offer of conversationTitleOffers(conversationSessions, titledConversationTextRef.current, (id) =>
+      known.has(id),
+    )) {
       generatedWorkspaceTitleRequester().titleFromPrompt(offer.workspaceId, offer.prompt)
     }
-  }, [conversationSessions])
+  }, [conversationSessions, workspaces])
 
   useEffect(() => {
     if (window.api.platform === 'darwin') return
