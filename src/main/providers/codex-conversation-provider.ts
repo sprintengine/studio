@@ -972,6 +972,12 @@ export function createCodexConversationProvider(
         // is what rejected the request: the stop has happened.
         if (state.turn === turn) throw error
       }
+      // Codex answering the request has only taken the stop: the turn runs on
+      // until its `turn/completed`, and a patch it was applying can still land
+      // before then. Returning only once the turn has ended (or the watchdog
+      // has given up on it) lets the runtime end the turn, and capture its
+      // files, after the last change Codex made.
+      await turn.ended
       return []
     },
     stopSession(input) {

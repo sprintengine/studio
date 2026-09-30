@@ -696,21 +696,25 @@ export function projectConversation(
         break
       }
       case 'tool_started': {
-        if (!turnId) break
-        const turn = ensureTurn(turnId)
+        // A background agent's step after the turn that launched it ended
+        // carries no turn: it joins the agent's lane, in the turn that holds it.
+        const parentToolUseId = readString(event.payload, 'parentToolUseId')
+        const ownerTurnId = turnId ?? (parentToolUseId ? toolsById.get(parentToolUseId)?.turnId : undefined)
+        if (!ownerTurnId) break
+        const turn = ensureTurn(ownerTurnId)
         closeReasoning(turn, event.createdAt)
         const id =
-          readString(event.payload, 'toolUseId', 'callId', 'id', 'toolCallId') ?? `${turnId}:${turn.tools.size}`
+          readString(event.payload, 'toolUseId', 'callId', 'id', 'toolCallId') ?? `${ownerTurnId}:${turn.tools.size}`
         const name = readString(event.payload, 'name', 'toolName', 'tool') ?? 'tool'
         // Prose before a tool explains that work, rather than ending the turn.
         // Updates to an existing call must not shift the explanation again.
-        if (!turn.tools.has(id) && !readString(event.payload, 'parentToolUseId') && turn.text) {
+        if (!turn.tools.has(id) && !parentToolUseId && turn.text) {
           turn.intermediateText ??= []
           turn.intermediateText.push({ text: turn.text, beforeToolUseId: id })
           turn.text = ''
         }
         // Thinking before a tool stays at that point in the turn, like prose.
-        if (!turn.tools.has(id) && !readString(event.payload, 'parentToolUseId') && turn.reasoning) {
+        if (!turn.tools.has(id) && !parentToolUseId && turn.reasoning) {
           turn.reasoningSegments ??= []
           turn.reasoningSegments.push({
             text: turn.reasoning,
@@ -722,7 +726,7 @@ export function projectConversation(
         }
         const tool: ToolAccumulator = {
           id,
-          turnId,
+          turnId: ownerTurnId,
           name,
           toolKind: readToolKind(event.payload, name),
           input: readJson(event.payload, 'input'),
@@ -736,7 +740,7 @@ export function projectConversation(
           removedLines: readNumber(event.payload, 'removedLines'),
           subagentLane: readBoolean(event.payload, 'subagentLane'),
           subagentType: readString(event.payload, 'subagentType'),
-          parentToolUseId: readString(event.payload, 'parentToolUseId'),
+          parentToolUseId,
         }
         const pendingMessage = pendingMessages.get(id)
         if (pendingMessage) {

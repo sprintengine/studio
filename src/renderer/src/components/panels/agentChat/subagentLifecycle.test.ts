@@ -209,3 +209,22 @@ test('what an agent says is kept on its lane, never in the reply of the chat tha
     ['Early words.'],
   )
 })
+
+test("a background agent's steps after its turn ended nest in its lane and leave the conversation idle", () => {
+  const launched = launch('turn-1', 'lane-1')
+  const steps = [
+    ev('tool_started', { toolCallId: 'edit-1', tool: 'Edit', name: 'Edit', parentToolUseId: 'lane-1' }),
+    ev('tool_output', { toolCallId: 'edit-1', toolUseId: 'edit-1', output: 'edited', parentToolUseId: 'lane-1' }),
+  ]
+  const events = [...launched, ...steps]
+  const projection = projectConversation(events)
+  assert.equal(projection.activeTurn, false, 'no turn is running while the agent works')
+  const [lane, ...rest] = tools(events)
+  assert.equal(rest.length, 0, 'the step is no row of its own')
+  assert.equal(lane?.children?.[0]?.id, 'edit-1', 'the step sits in the lane that launched the agent')
+  assert.equal(lane?.children?.[0]?.status, 'done')
+
+  let state = createConversationProjectionState(launched)
+  for (const step of steps) state = applyEvent(state, step)
+  assert.deepEqual(state.projection.entries, projection.entries, 'the live projection folds it the same way')
+})

@@ -48,13 +48,14 @@ test('claude-agent-provider', async () => {
     await testExitPlanModeBecomesPlanCard()
     await testPermissionPresetMapsToSdkPermissionMode()
     await testLivePermissionPresetReachesTheChildAndSurvivesRespawn()
+    await testNoFlagWaitsForABackgroundAgentBeforeReplacingTheChild()
     await testAbortSignalEndsTheTurnStream()
     await testSpawnFailureSurfacesAsTurnFailed()
     await testStopDuringSpawnStartsNoChild()
     await testSuspendDuringSpawnStartsNoChild()
     await testDisposeChildKeepsSessionAndCursorForRespawn()
     await testToolAfterResultOpensContinuationInsteadOfDenying()
-    await testSubagentEventsAfterResultRideTheContinuationChannel()
+    await testSubagentStepsAfterResultRideTheSessionChannelWithoutATurn()
     await testAskUserQuestionAfterResultReachesTheUserAndAnswersFlowBack()
     await testTurnTakeoverEndsTheReplacedContinuationQueue()
 
@@ -1288,6 +1289,79 @@ test('claude-agent-provider', async () => {
     await collect(live.adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
   }
 
+  // A background agent works inside the child after its turn has ended, with
+  // no turn open. Moving to No flag then waits for the next message, as it
+  // does mid-reply, instead of replacing the child and ending the agent.
+  async function testNoFlagWaitsForABackgroundAgentBeforeReplacingTheChild(): Promise<void> {
+    const agentReports = createDeferred<void>()
+    const bg = createAdapter(async (_userMessage, context) => {
+      context.emit({ type: 'system', subtype: 'init', session_id: 'bg-1', model: 'sonnet' })
+      context.emit({
+        type: 'assistant',
+        session_id: 'bg-1',
+        parent_tool_use_id: null,
+        message: {
+          content: [{ type: 'tool_use', id: 'toolu_bg', name: 'Agent', input: { subagent_type: 'Explore' } }],
+        },
+      })
+      context.emit({
+        type: 'system',
+        subtype: 'task_started',
+        session_id: 'bg-1',
+        task_id: 'task_bg',
+        tool_use_id: 'toolu_bg',
+        task_type: 'local_agent',
+        is_backgrounded: true,
+      })
+      context.emit({
+        type: 'result',
+        subtype: 'success',
+        is_error: false,
+        session_id: 'bg-1',
+        usage: { input_tokens: 1, output_tokens: 1 },
+      })
+      await agentReports.promise
+      context.emit({
+        type: 'system',
+        subtype: 'task_notification',
+        session_id: 'bg-1',
+        task_id: 'task_bg',
+        tool_use_id: 'toolu_bg',
+        status: 'completed',
+        summary: 'done',
+      })
+    })
+    const sessionEvents: ConversationEvent[] = []
+    await collect(
+      bg.adapter.startSession({
+        ...SESSION_INPUT,
+        permissionPreset: 'bypass',
+        onSessionEvent: (event) => sessionEvents.push(event),
+      }) as ConversationEvent[],
+    )
+    await collect(bg.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
+
+    assert.deepEqual(await bg.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'none' }), {
+      ok: true,
+    })
+    assert.equal(bg.adapter.listLiveSessions()[0]?.hasChildProcess, true, 'the agent keeps its child')
+    assert.deepEqual(bg.permissionModes, ['default'], 'nothing looser than default carries on meanwhile')
+    assert.equal(
+      sessionEvents.some((event) => event.type === 'subagent_status' && event.payload?.status === 'stopped'),
+      false,
+    )
+
+    // Once the agent has reported, the child is free, and the next change
+    // replaces it as it would any idle child.
+    agentReports.resolve()
+    await waitForContinuationEvent(sessionEvents, 'tool_output')
+    assert.deepEqual(await bg.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'none' }), {
+      ok: true,
+    })
+    assert.equal(bg.adapter.listLiveSessions()[0]?.hasChildProcess, false)
+    await collect(bg.adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
+  }
+
   async function testAbortSignalEndsTheTurnStream(): Promise<void> {
     const { adapter } = createAdapter((_userMessage, context) => {
       context.emit({
@@ -1525,11 +1599,14 @@ test('claude-agent-provider', async () => {
     await collect(adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
   }
 
-  // A background subagent that finishes after the turn's `result` — the fan-out
-  // case from 1777. Its tool calls must reach the runtime over the session
-  // channel instead of being dropped with the closed turn.
-  async function testSubagentEventsAfterResultRideTheContinuationChannel(): Promise<void> {
-    const gate = createDeferred<void>()
+  // A background subagent working after the turn's `result`. Its tool calls
+  // reach the runtime over the session channel, still linked to their lane,
+  // but they open no turn: the conversation is idle while the agent works, so
+  // the person can send, and no "done" notice or diff follows for a turn
+  // nobody sent. A turn opens only once the model itself resumes.
+  async function testSubagentStepsAfterResultRideTheSessionChannelWithoutATurn(): Promise<void> {
+    const agentWorks = createDeferred<void>()
+    const modelResumes = createDeferred<void>()
     const { adapter } = createAdapter(async (_userMessage, context) => {
       context.emit({
         type: 'assistant',
@@ -1544,18 +1621,26 @@ test('claude-agent-provider', async () => {
         session_id: 's1',
         usage: { input_tokens: 1, output_tokens: 1 },
       })
-      await gate.promise
+      await agentWorks.promise
       context.emit({
         type: 'assistant',
         session_id: 's1',
         parent_tool_use_id: 'task_1',
-        message: { content: [{ type: 'tool_use', id: 'child_1', name: 'Read', input: { file_path: 'a.ts' } }] },
+        message: { content: [{ type: 'tool_use', id: 'child_1', name: 'Edit', input: { file_path: 'a.ts' } }] },
       })
       context.emit({
         type: 'user',
         session_id: 's1',
         parent_tool_use_id: 'task_1',
-        message: { content: [{ type: 'tool_result', tool_use_id: 'child_1', content: 'file body' }] },
+        message: { content: [{ type: 'tool_result', tool_use_id: 'child_1', content: 'edited' }] },
+      })
+      await modelResumes.promise
+      // The agent has reported; the model reads its answer and acts on it.
+      context.emit({
+        type: 'assistant',
+        session_id: 's1',
+        parent_tool_use_id: null,
+        message: { content: [{ type: 'tool_use', id: 'main_2', name: 'Read', input: { file_path: 'a.ts' } }] },
       })
       context.emit({
         type: 'result',
@@ -1578,27 +1663,29 @@ test('claude-agent-provider', async () => {
     const lane = turnEvents.find((event) => event.type === 'tool_started')
     assert.equal(lane?.payload?.subagentLane, true, 'the lane header rides the turn that spawned it')
 
-    gate.resolve()
-    await waitForContinuationEvent(continuation, 'turn_completed')
+    agentWorks.resolve()
+    await waitForContinuationEvent(continuation, 'tool_output')
     assert.deepEqual(
       continuation.map((event) => event.type),
-      ['turn_started', 'tool_started', 'tool_output', 'usage_updated', 'turn_completed'],
+      ['tool_started', 'tool_output'],
+      "the agent's steps open no turn",
     )
-    const childStart = continuation[1]
-    assert.equal(
-      childStart?.payload?.parentToolUseId,
-      'task_1',
-      'the child stays linked to its lane after the turn closed',
+    for (const step of continuation) {
+      assert.equal(step.payload?.parentToolUseId, 'task_1', 'each step stays linked to its lane')
+      assert.equal(step.payload?.turnId, undefined, 'a step between turns belongs to no turn')
+    }
+    assert.equal(continuation[0]?.payload?.tool, 'Edit')
+
+    modelResumes.resolve()
+    await waitForContinuationEvent(continuation, 'turn_completed')
+    assert.deepEqual(
+      continuation.slice(2).map((event) => event.type),
+      ['turn_started', 'tool_started', 'usage_updated', 'turn_completed'],
+      "the model's own work opens the continuation turn",
     )
-    assert.equal(childStart?.payload?.tool, 'Read')
-    assert.equal(continuation[2]?.payload?.parentToolUseId, 'task_1')
-    const contTurnId = continuation[0]?.payload?.turnId
+    const contTurnId = continuation[2]?.payload?.turnId
     assert.equal(typeof contTurnId === 'string' && contTurnId.includes('_cont_'), true)
-    assert.equal(
-      childStart?.payload?.turnId,
-      contTurnId,
-      'child events carry the continuation turn the runtime mirrors',
-    )
+    assert.equal(continuation[3]?.payload?.turnId, contTurnId)
 
     await collect(adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
   }

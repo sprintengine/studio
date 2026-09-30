@@ -46,7 +46,7 @@ import type {
 } from '../shared/conversation-runtime'
 import type { ExecutionHostId } from '../shared/execution-host'
 import { inferConversationToolKind } from '../shared/conversation/toolKind'
-import { readSubagentStatus } from '../shared/conversation/subagents'
+import { isTurnlessSubagentStep, readSubagentStatus } from '../shared/conversation/subagents'
 import {
   readToolDetail,
   writeToolDetail,
@@ -581,7 +581,7 @@ export class ConversationRuntime {
     // Stateful providers resume their own durable session; the latest cursor
     // lives in the JSONL transcript this runtime already writes.
     const resume = stateful
-      ? await this.readResumeCursor(session.workspaceRoot, session.workspaceId, session.agentId)
+      ? await this.readResumeCursor(session.workspaceRoot, session.workspaceId, session.agentId, session.providerId)
       : undefined
     const start = () =>
       this.emitAll(
@@ -1889,7 +1889,10 @@ export class ConversationRuntime {
       }
     if (event.type === 'session_updated' && typeof event.payload?.revertedAfterSeq === 'number')
       session.revertedNote = `Files were ${event.payload.undo ? 'restored from the undo checkpoint' : `reverted to before conversation turn ${event.payload.revertedAfterSeq}`}. Inspect the current files before continuing; later transcript messages describe the previous file state.`
-    if (event.type === 'tool_started')
+    // A background agent's step between turns is not what the conversation is
+    // doing: it would name a tool while the conversation sits idle.
+    const ownStep = !isTurnlessSubagentStep(event)
+    if (ownStep && event.type === 'tool_started')
       session.currentToolTitle = presentToolItem({
         kind: event.payload?.kind as import('../shared/conversation-runtime').ConversationToolKind,
         name: String(event.payload?.name ?? event.payload?.tool ?? ''),
@@ -1898,7 +1901,7 @@ export class ConversationRuntime {
       }).title
     // Streamed output (`partial`) arrives while the tool is still running.
     else if (
-      (event.type === 'tool_output' && event.payload?.partial !== true) ||
+      (ownStep && event.type === 'tool_output' && event.payload?.partial !== true) ||
       (event.type === 'turn_completed' && event.payload?.steered !== true) ||
       event.type === 'turn_failed'
     )
@@ -3121,9 +3124,15 @@ export class ConversationRuntime {
     workspaceRoot: string,
     workspaceId: string,
     agentId: string,
+    providerId: string,
   ): Promise<{ sessionId?: string; at?: string } | undefined> {
     const text = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim() : undefined)
+    // Only a cursor this provider wrote: a transcript restarted on another
+    // provider holds that one's cursors too, and a session id means nothing to
+    // any provider but the one that issued it (a Claude session id handed to
+    // Codex, or a Codex thread id to Claude, fails every turn).
     const isCursor = (event: ConversationEvent) =>
+      event.providerId === providerId &&
       (event.type === 'session_updated' || event.type === 'session_started') &&
       (text(event.payload?.providerSessionId) !== undefined || typeof event.payload?.rewoundFromSeq === 'number')
     try {

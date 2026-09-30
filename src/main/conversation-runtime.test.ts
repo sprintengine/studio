@@ -60,6 +60,7 @@ test('conversation-runtime', async () => {
     await testContinuationTurnDoesNotSuppressAnInFlightUserTurn()
     await testSubagentToolEventsKeepTheirParentLink()
     await testStatefulProviderResumeCursorReadFromTranscript()
+    await testResumeCursorWrittenByAnotherProviderIsIgnored()
     await testReadTranscriptClosesUnfinishedTurns()
     await testTurnFailureWithDanglingApprovalDoesNotWedgeTheSession()
     await testIdleSweepDisposesOnlyTrulyIdleSessions()
@@ -1240,6 +1241,67 @@ test('conversation-runtime', async () => {
       })
       assert.equal(started.ok, true)
       assert.deepEqual(capture.resumeSessionIds, ['cursor-from-disk'])
+    } finally {
+      await shutdownRuntimes()
+      await rm(workspaceRoot, { recursive: true, force: true })
+    }
+  }
+
+  // A transcript restarted on another provider holds that provider's cursor
+  // last; this one resumes from the newest cursor it wrote itself.
+  async function testResumeCursorWrittenByAnotherProviderIsIgnored(): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-runtime-'))
+    try {
+      const capture: {
+        resumeSessionIds: Array<string | undefined>
+        messages: Array<ConversationMessage[] | undefined>
+      } = {
+        resumeSessionIds: [],
+        messages: [],
+      }
+      const dir = join(workspaceRoot, '.sprintengine', 'conversations', 'workspace')
+      await mkdir(dir, { recursive: true })
+      const cursor = (
+        id: string,
+        sessionId: string,
+        providerId: string,
+        providerSessionId: string,
+        createdAt: number,
+      ) => ({
+        id,
+        sessionId,
+        workspaceId: 'workspace',
+        agentId: 'agent',
+        providerId,
+        modelId: 'model',
+        type: 'session_updated',
+        createdAt,
+        payload: { providerSessionId },
+      })
+      const priorEvents = [
+        cursor('old_1', 'conv_first', 'stateful-provider', 'own-cursor', 1),
+        cursor('old_2', 'conv_second', 'other-provider', 'other-provider-thread', 2),
+      ]
+      await writeFile(
+        join(dir, 'agent.jsonl'),
+        priorEvents.map((event) => JSON.stringify(event)).join('\n') + '\n',
+        'utf-8',
+      )
+
+      const runtime = new TrackedConversationRuntime({
+        getProviderById: () => undefined,
+        secretStore: unusedSecretStore(),
+        adapters: [createStatefulProvider(capture)],
+      })
+      const started = await runtime.startSession({
+        workspaceRoot,
+        workspaceId: 'workspace',
+        agentId: 'agent',
+        providerId: 'stateful-provider',
+        modelId: 'stateful-model',
+      })
+      assert.equal(started.ok, true)
+      assert.deepEqual(capture.resumeSessionIds, ['own-cursor'])
     } finally {
       await shutdownRuntimes()
       await rm(workspaceRoot, { recursive: true, force: true })
