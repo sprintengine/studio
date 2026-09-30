@@ -297,14 +297,18 @@ test('conversation-ipc', async () => {
       ok: true,
       session: { ...SENT_SESSION, permissionPreset: 'bypass' },
     })
-    for (const legacy of ['manual', 'auto', 'default'])
-      assert.deepEqual(await setPermission?.(null, { sessionId: 'conv_1', permissionPreset: legacy }), {
+    for (const [sent, preset] of [
+      ['manual', 'manual'],
+      ['auto', 'auto'],
+      ['default', 'manual'],
+    ] as const)
+      assert.deepEqual(await setPermission?.(null, { sessionId: 'conv_1', permissionPreset: sent }), {
         ok: true,
-        session: { ...SENT_SESSION, permissionPreset: 'none' },
+        session: { ...SENT_SESSION, permissionPreset: preset },
       })
-    assert.deepEqual(captured, ['bypass', 'none', 'none', 'none'])
+    assert.deepEqual(captured, ['bypass', 'manual', 'auto', 'manual'])
 
-    const presetError = { ok: false, message: 'permissionPreset must be none or bypass.' }
+    const presetError = { ok: false, message: 'permissionPreset must be none or manual or auto or bypass.' }
     assert.deepEqual(await setPermission?.(null, { sessionId: 'conv_1', permissionPreset: 'yolo' }), presetError)
     assert.deepEqual(await setPermission?.(null, { sessionId: 'conv_1' }), presetError)
     assert.deepEqual(await setPermission?.(null, { permissionPreset: 'none' }), {

@@ -24,6 +24,7 @@ import { asRecord } from '../../../../../shared/records'
 import { useConversationTransport } from './conversationTransport'
 import { OpenPlanButton, usePlanOpener } from './planCard'
 import type { ConversationQuestion } from '../../../../../shared/conversation-runtime'
+import type { CliPermissionPreset } from '../../../../../shared/cli-permission-preset'
 import {
   approvalFilePath,
   approvalRememberLabels,
@@ -39,6 +40,14 @@ type ApprovalHandler = (
   answers?: Record<string, string>,
   decision?: ConversationApprovalDecision,
 ) => void
+
+/**
+ * A permission mode a card can allow into: the request is allowed once, then
+ * the chat moves to `preset`, which answers the requests still waiting that it
+ * covers and every later one. `label` is the whole row ("Allow and switch to
+ * Auto"), in the chat's own names for its modes.
+ */
+export type ApprovalModeSwitch = { preset: CliPermissionPreset; label: string }
 
 export function orderedPendingRequests(entries: readonly ApprovalEntry[]): ApprovalEntry[] {
   const order = { tool: 0, question: 1, plan: 2 }
@@ -229,6 +238,8 @@ export function ConversationPendingDock({
   workspaceName,
   workspaceRoot,
   onApprove,
+  modeSwitches,
+  onApproveAndSwitch,
   busy,
 }: {
   pendingApproval?: ApprovalEntry
@@ -236,6 +247,9 @@ export function ConversationPendingDock({
   workspaceName?: string
   workspaceRoot?: string
   onApprove: ApprovalHandler
+  /** The looser modes a permission card offers to allow into; none offers none. */
+  modeSwitches?: ApprovalModeSwitch[]
+  onApproveAndSwitch?: (requestId: string, preset: CliPermissionPreset) => void
   busy: boolean
 }) {
   const entries = orderedPendingRequests(pendingApprovals ?? (pendingApproval ? [pendingApproval] : []))
@@ -287,6 +301,7 @@ export function ConversationPendingDock({
               workspaceName={workspaceName}
               workspaceRoot={workspaceRoot}
               onApprove={onApprove}
+              {...(modeSwitches?.length && onApproveAndSwitch ? { modeSwitches, onApproveAndSwitch } : {})}
               busy={busy}
               active={index === selectedIndex}
             />
@@ -300,11 +315,18 @@ export function ConversationPendingDock({
 // Permission request: lead with WHAT (the literal command in a terminal block
 // for Bash, the summary otherwise) and WHERE (the workspace), not tool jargon.
 // Enter approves, Escape denies.
+//
+// "Allow once" is the primary; its menu holds the other routes to the same
+// yes: remembering the grant, and allowing it while moving the whole chat to a
+// looser permission mode, for the person who is tired of being asked. Both are
+// alternatives rather than targets, so the primary never moves.
 export function ConversationPermissionCard({
   entry,
   workspaceName,
   workspaceRoot,
   onApprove,
+  modeSwitches = [],
+  onApproveAndSwitch,
   busy,
   active = true,
 }: {
@@ -312,6 +334,8 @@ export function ConversationPermissionCard({
   workspaceName?: string
   workspaceRoot?: string
   onApprove: ApprovalHandler
+  modeSwitches?: ApprovalModeSwitch[]
+  onApproveAndSwitch?: (requestId: string, preset: CliPermissionPreset) => void
   busy: boolean
   active?: boolean
 }) {
@@ -339,6 +363,39 @@ export function ConversationPermissionCard({
   // The menu names exactly what a remembered rule grants ("git status …"),
   // not a generic "allow", since the rule outlives this one request.
   const rememberLabels = rememberable ? approvalRememberLabels(rememberable) : null
+  const rememberItems = rememberLabels
+    ? [
+        {
+          id: 'conversation',
+          label: rememberLabels.conversation,
+          onSelect: () => onApprove(entry.requestId, true, undefined, 'conversation'),
+        },
+        // A rule that outlives the conversation is this machine's
+        // decision; a transport that cannot make it does not offer it.
+        ...(permanentApprovals
+          ? [
+              {
+                id: 'always',
+                label: rememberLabels.always,
+                onSelect: () => onApprove(entry.requestId, true, undefined, 'always'),
+              },
+            ]
+          : []),
+      ]
+    : []
+  const switchItems = onApproveAndSwitch
+    ? modeSwitches.map((option) => ({
+        id: `switch-${option.preset}`,
+        label: option.label,
+        onSelect: () => onApproveAndSwitch(entry.requestId, option.preset),
+      }))
+    : []
+  // Headings only when both kinds are there: one run of rows needs no title.
+  const grouped = rememberItems.length > 0 && switchItems.length > 0
+  const allowItems = [
+    ...rememberItems.map((item) => (grouped ? { ...item, group: 'Remember' } : item)),
+    ...switchItems.map((item) => (grouped ? { ...item, group: 'Change permissions' } : item)),
+  ]
   const literalCommand = asRecord(entry.input)?.command
   const command =
     typeof literalCommand === 'string'
@@ -386,32 +443,15 @@ export function ConversationPermissionCard({
           >
             Deny
           </GhostButton>
-          {rememberLabels ? (
+          {allowItems.length > 0 ? (
             <SplitButton
               label="Allow once"
               primaryAriaLabel="Allow once"
-              menuAriaLabel="Remember permission"
+              menuAriaLabel={switchItems.length > 0 ? 'More ways to allow' : 'Remember permission'}
               menuKind="alternatives"
               onPrimary={() => onApprove(entry.requestId, true, undefined, 'once')}
               disabled={busy}
-              items={[
-                {
-                  id: 'conversation',
-                  label: rememberLabels.conversation,
-                  onSelect: () => onApprove(entry.requestId, true, undefined, 'conversation'),
-                },
-                // A rule that outlives the conversation is this machine's
-                // decision; a transport that cannot make it does not offer it.
-                ...(permanentApprovals
-                  ? [
-                      {
-                        id: 'always',
-                        label: rememberLabels.always,
-                        onSelect: () => onApprove(entry.requestId, true, undefined, 'always'),
-                      },
-                    ]
-                  : []),
-              ]}
+              items={allowItems}
             />
           ) : (
             <OutlineButton

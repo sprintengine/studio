@@ -24,6 +24,7 @@ export type CliVariableDecl = {
 export type CliPermissionPreset = {
   label: string
   args: string[]
+  env?: Record<string, string>
 }
 
 /**
@@ -479,6 +480,12 @@ function validatePermissionPresets(value: unknown, issues: CliManifestIssue[]): 
     requireString(preset, 'label', issues, undefined, path)
     if (!Array.isArray(preset.args) || preset.args.some((arg) => typeof arg !== 'string')) {
       issues.push({ path: `${path}.args`, message: 'args must be an array of strings.' })
+    }
+    if (
+      preset.env !== undefined &&
+      (!isObject(preset.env) || Object.values(preset.env).some((entry) => typeof entry !== 'string'))
+    ) {
+      issues.push({ path: `${path}.env`, message: 'env must be an object of strings.' })
     }
   }
 }

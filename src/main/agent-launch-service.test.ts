@@ -65,6 +65,7 @@ test('agent-launch-service', async () => {
       spawnResult?: TerminalSpawnResult
       resolveKnowledgeRoot?: AgentLaunchServiceDeps['resolveKnowledgeRoot']
       isAgentSelectableCli?: AgentLaunchServiceDeps['isAgentSelectableCli']
+      permissionPresetsForCli?: AgentLaunchServiceDeps['permissionPresetsForCli']
     } = {},
   ) {
     const spawns: TerminalSpawnPayload[] = []
@@ -74,6 +75,7 @@ test('agent-launch-service', async () => {
       listWorkspaces: () => options.workspaces ?? [workspace()],
       getLaunchSettings: () => options.settings ?? settings(),
       ...(options.isAgentSelectableCli ? { isAgentSelectableCli: options.isAgentSelectableCli } : {}),
+      ...(options.permissionPresetsForCli ? { permissionPresetsForCli: options.permissionPresetsForCli } : {}),
       ...(options.resolveKnowledgeRoot ? { resolveKnowledgeRoot: options.resolveKnowledgeRoot } : {}),
       terminal: {
         list: () => sessions,
@@ -195,6 +197,22 @@ test('agent-launch-service', async () => {
     })
     const launchedOk = await allowed.service.launch({ workspaceId: 'ws-1' })
     assert.equal(launchedOk.ok, true, !launchedOk.ok ? launchedOk.message : '')
+  })
+
+  run('a preset the CLI has no setting for in a terminal is refused, never launched with no flag', async () => {
+    const presets = (cli: string) => (cli === 'kimi-code' ? (['none', 'bypass'] as const) : null)
+    const refusing = harness({ permissionPresetsForCli: presets })
+    const refused = await refusing.service.launch({ workspaceId: 'ws-1', cli: 'kimi-code', permissionPreset: 'manual' })
+    assert.equal(!refused.ok && refused.code, 'unsupported_permission_preset')
+    assert.match(!refused.ok ? refused.message : '', /Pass one of: none, bypass/)
+    assert.equal(refusing.spawns.length, 0)
+
+    // A preset it names, and a CLI the registry does not hold, launch as asked.
+    const ok = await refusing.service.launch({ workspaceId: 'ws-1', cli: 'kimi-code', permissionPreset: 'bypass' })
+    assert.equal(ok.ok, true, !ok.ok ? ok.message : '')
+    const unknown = await refusing.service.launch({ workspaceId: 'ws-1', cli: 'claude-code', permissionPreset: 'auto' })
+    assert.equal(unknown.ok, true, !unknown.ok ? unknown.message : '')
+    assert.equal(refusing.spawns.at(-1)?.cliPermissionPreset, 'auto')
   })
 
   run('an unknown or unsupported workspace refuses before spawning', async () => {

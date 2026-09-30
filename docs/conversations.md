@@ -19,21 +19,51 @@ Requests that cannot be represented safely as a rule offer only a one-time
 decision. Deny-by-default requests focus Deny. Workspace rules can be reviewed
 and revoked. Remote clients cannot choose a permanent rule.
 
-Every chat has one of two permission presets, the same two a terminal agent
-has: **Bypass permissions** (Codex: **YOLO**), the default, which starts the
-CLI with its own skip-every-prompt setting, and **No flag**, which passes no
-permission setting at all, so the CLI runs on its own configured default. An
-organization that does not allow bypass chooses No flag. Plan mode is a
-separate toggle, not a preset. Under No flag the CLI can still ask, and its
-requests appear as approval cards.
+### Permission modes
 
-Every surface that starts an agent takes both presets (owner ruling
-2026-09-27): the launcher, a launch on a paired machine, the MCP tools
-(`agent.launch`, `backlog.work`, `schedule.create`, `conversation.create`), and
-scheduled agents themselves. A launch that names no preset resolves the way the
-launcher does: the preset chosen for that CLI on the machine that runs it, else
-Bypass. The launcher names its preset when it starts an agent on a paired
-machine, so the agent there runs on the choice the launcher showed.
+Every chat runs on one of four permission modes, the same four a terminal agent
+takes where its CLI has a setting for them (owner request 2026-09-30):
+
+| Mode | What it means |
+| --- | --- |
+| **Bypass permissions** (Codex: **YOLO**) | The default. Never asks: the CLI's own skip-every-prompt setting. |
+| **Auto** | Reads and edits files inside the workspace without asking. Commands the runtime does not already treat as safe, web access, MCP tools, subagents and anything outside the workspace ask. |
+| **Manual** | Asks before every action that changes something or reaches out: each edit, command, web request and MCP tool. Reading, searching and listing inside the workspace do not ask, since a card for every file read would stop a chat from getting anywhere. |
+| **No flag** | Passes no permission setting at all, so the CLI runs on its own configured default. That can mean asking, or not. |
+
+Plan mode is a separate toggle, not a mode. Questions and plans are answers, not
+permissions, so every mode shows them; so does a request the runtime marks as
+needing a person (a safety check it will not let a stray keystroke pass, or the
+person's own "always ask" rule).
+
+The mode is chosen in the launcher and changed at any time from the chat box's
+permission chip, mid-reply included. A permission card offers, beside Allow
+once and Deny, **Allow and switch to Auto** and **Allow and switch to Bypass
+permissions** (whichever would ask less than the chat does now): the request is
+allowed once, and then the chat moves to that mode. The mode is stored on the
+chat's agent record, so a resumed chat starts on it.
+
+A mode is applied twice. Each runtime is told it in its own words when its
+child starts, and again when it changes where the runtime takes that mid-session
+(below). And the app answers what the mode covers: a request that still reaches
+the app is allowed without a card when the chat's mode allows it (the transcript
+says "Auto-approved: Auto mode"), and switching mode answers the requests
+already waiting that the new mode covers. Nothing is ever denied that way, and a
+request the person has already answered is never answered again or relabelled.
+A stricter mode chosen mid-reply cannot hold back what the runtime does without
+asking before it takes the change; its notice says the new permissions apply
+from the next message.
+
+Every surface that starts an agent takes all four modes (owner ruling
+2026-09-27, extended 2026-09-30): the launcher, a launch on a paired machine,
+the MCP tools (`agent.launch`, `backlog.work`, `schedule.create`,
+`conversation.create`), and scheduled agents themselves. A
+launch that names no mode resolves the way the launcher does: the mode chosen
+for that CLI on the machine that runs it, else Bypass. The launcher names its
+mode when it starts an agent on a paired machine, so the agent there runs on
+the choice the launcher showed. A terminal agent takes only the modes its CLI's
+manifest names a setting for (`cli.runtime.list` says which); the launcher dims
+the rest, and a launch that asks for one is refused.
 
 Completed turns may expose changed files and a checkpoint diff. Reverting asks
 for confirmation and refuses when the working tree no longer matches the
@@ -47,12 +77,22 @@ adapter and declare profile-specific capabilities. The user's installed CLI
 and native credentials remain authoritative; Studio does not bundle these ACP
 executables or copy credentials to a remote client.
 
-Bypass reaches each CLI its own way: Claude through the SDK's
-`bypassPermissions` mode, Codex as `approvalPolicy: never` with full-access
-sandboxing, Cursor as `--force`, Grok as `--always-approve`, and OpenCode as an
-`OPENCODE_PERMISSION` rule set that allows everything, since `opencode acp`
-takes no permission flag. No flag sends none of these. Do not interpret a hidden
-approval control as a promise that a provider will ask for permission.
+Each mode reaches each chat runtime its own way. No flag sends none of these.
+
+| Runtime | Bypass | Auto | Manual | Mid-conversation change |
+| --- | --- | --- | --- | --- |
+| Claude Code | SDK `bypassPermissions` | SDK `acceptEdits` | SDK `default`, plus a hook that sends every non-read tool to a card | Live over the SDK's `setPermissionMode`, mid-reply included; No flag respawns the child (resumed) at the next turn |
+| Codex | `approvalPolicy: never`, full access | `on-request` in the `workspaceWrite` sandbox, no network | `untrusted` in a read-only sandbox | Rides the next `turn/start`; No flag restarts the app-server before the next turn |
+| Cursor | `--force` | `--auto-review` (its classifier) | Not offered: Cursor edits files without asking | Launch flag: the child is replaced at the end of the running turn |
+| Grok | `--always-approve` | `--permission-mode acceptEdits` | `--permission-mode default` | Launch flag, as Cursor; its own `/always-approve` and `/auto` commands are refused under a stricter mode |
+| OpenCode | `OPENCODE_PERMISSION` allowing everything | A rule set asking for everything but reads, listings and edits | The same rule set asking for edits too | Launch environment, as Cursor |
+
+Claude's Auto is `acceptEdits` rather than its classifier mode: the classifier
+answers for the person instead of asking, and is offered only on some plans and
+models, so the same choice would mean different things on different accounts.
+Chats on an API-key provider run no tools and have no permission control. Do
+not interpret a hidden approval control as a promise that a provider will ask
+for permission.
 
 A Claude chat loads only the person's user settings, never the project's, so
 the app's MCP gateway is handed to each Claude chat directly rather than read
@@ -95,9 +135,11 @@ same socket and the same frames; nothing in the wire is specific to a phone.
   stream it holds (4401).
 - **What a remote command can do.** A device with `conversation:operate` drives
   a chat exactly as the host can, preset included: it can send to a chat in
-  Bypass, and switch a chat between Bypass and No flag. A conversation a remote
-  send resumes starts under the preset it was left on. The one thing a remote
-  command cannot choose is a permanent approval rule, which outlives the
+  Bypass, and switch a chat between any of the modes the host runs (all four on
+  a host that advertises `conversation-permission-modes`, Bypass and No flag on
+  one that does not, which is never sent Manual or Auto). A conversation a
+  remote send resumes starts under the preset it was left on. The one thing a
+  remote command cannot choose is a permanent approval rule, which outlives the
   conversation; that is refused before the runtime sees it.
 - **Starting a chat.** The same grant starts one: `conversation.create` adds a
   chat agent to one of this machine's workspaces, starts its session on the

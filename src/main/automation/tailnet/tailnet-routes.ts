@@ -109,6 +109,13 @@ export const TAILNET_MIN_SUPPORTED_TRANSPORT_VERSION = 1
  * read of a picture), by the step's tool call id, to a device with
  * `conversation:read`. A client that finds it missing says the picture is on
  * the other machine, as it did before the route existed.
+ *
+ * `conversation-permission-modes` (owner request 2026-09-30): chats run on
+ * `manual` and `auto` as well as `none` and `bypass`. The list may name either
+ * as a chat's preset, names the presets each chat's provider can run, and
+ * `setPermissionPreset` takes all four. A machine without it reads `manual`
+ * and `auto` as `none`, so a client offers only the two it knows there. The
+ * string is the protocol package's `CONVERSATION_PERMISSION_MODES_CAPABILITY`.
  */
 export const TAILNET_CAPABILITIES = [
   'events',
@@ -116,6 +123,7 @@ export const TAILNET_CAPABILITIES = [
   'conversations',
   'conversation-models',
   'conversation-images',
+  'conversation-permission-modes',
 ] as const
 
 export type TailnetCapability = (typeof TAILNET_CAPABILITIES)[number]

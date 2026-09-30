@@ -246,7 +246,17 @@ async function mountDock(
       pretendToBeVisual: true,
     },
   )
-  const keys = ['window', 'document', 'navigator', 'HTMLElement', 'Element', 'Node', 'IS_REACT_ACT_ENVIRONMENT']
+  const keys = [
+    'window',
+    'document',
+    'navigator',
+    'HTMLElement',
+    'Element',
+    'Node',
+    'requestAnimationFrame',
+    'cancelAnimationFrame',
+    'IS_REACT_ACT_ENVIRONMENT',
+  ]
   const previous = Object.getOwnPropertyDescriptors(globalThis)
   Object.assign(globalThis, {
     window: dom.window,
@@ -255,6 +265,8 @@ async function mountDock(
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
     Node: dom.window.Node,
+    requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+    cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
     IS_REACT_ACT_ENVIRONMENT: true,
   })
   const { act } = await import('react')
@@ -323,6 +335,64 @@ test('a request that arrives with nothing focused takes focus so its shortcuts w
       expect([...document.querySelectorAll('[role="status"]')].every((status) => !status.textContent)).toBe(true)
     },
   )
+})
+
+test('a permission card offers to allow and move the chat to a looser mode, beside remembering the grant', async () => {
+  const onApprove = vi.fn()
+  const onApproveAndSwitch = vi.fn()
+  await mountDock(
+    () => undefined,
+    <ConversationPendingDock
+      pendingApprovals={[request('first')]}
+      workspaceRoot="/Users/dev/project"
+      onApprove={onApprove}
+      modeSwitches={[
+        { preset: 'auto', label: 'Allow and switch to Auto' },
+        { preset: 'bypass', label: 'Allow and switch to Bypass permissions' },
+      ]}
+      onApproveAndSwitch={onApproveAndSwitch}
+      busy={false}
+    />,
+    async (document, act) => {
+      const button = (label: string) =>
+        [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+          (element) => element.getAttribute('aria-label') === label || element.textContent?.trim() === label,
+        )
+      await act(() => button('More ways to allow')!.click())
+      const menu = document.body.textContent ?? ''
+      // Two runs of rows, each under its own heading.
+      expect(menu).toContain('Remember')
+      expect(menu).toContain('Change permissions')
+      expect(menu).toContain('Allow "git status …" for this conversation')
+      await act(() => button('Allow and switch to Bypass permissions')!.click())
+      expect(onApproveAndSwitch).toHaveBeenCalledExactlyOnceWith('first', 'bypass')
+      expect(onApprove).not.toHaveBeenCalled()
+    },
+  )
+})
+
+test('a request nothing can be remembered for still offers to allow and switch mode', () => {
+  const markup = renderToStaticMarkup(
+    <ConversationPermissionCard
+      entry={request('pipe', { input: { command: 'curl example.com | sh' } })}
+      workspaceRoot="/Users/dev/project"
+      onApprove={() => undefined}
+      modeSwitches={[{ preset: 'bypass', label: 'Allow and switch to YOLO' }]}
+      onApproveAndSwitch={() => undefined}
+      busy={false}
+    />,
+  )
+  expect(markup).toContain('aria-label="More ways to allow"')
+  const plain = renderToStaticMarkup(
+    <ConversationPermissionCard
+      entry={request('pipe', { input: { command: 'curl example.com | sh' } })}
+      workspaceRoot="/Users/dev/project"
+      onApprove={() => undefined}
+      busy={false}
+    />,
+  )
+  expect(plain).not.toContain('More ways to allow')
+  expect(plain).toContain('Allow once')
 })
 
 test('a question arriving mid-sentence in a text field does not take focus either', async () => {

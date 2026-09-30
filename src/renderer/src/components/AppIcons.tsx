@@ -191,11 +191,12 @@ export function DevicePhoneGlyph({ className }: IconProps) {
 }
 
 // The permission-preset vocabulary (remote-sessions-ux / selector-menus-premium),
-// a pair that reads at a glance and is drawn ONCE: a quiet dial for the CLI's
-// own default, an open lock for Bypass. The chat composer's permission pill and
-// the shared preset menu both draw from here, so one preset is one glyph
-// everywhere rather than a 14-grid twin in one file and a 16-grid twin in
-// another. 16-grid, `currentColor`, sized by the caller's `icon-*` step.
+// a set that reads at a glance and is drawn ONCE: a quiet dial for the CLI's
+// own default, a closed lock for Manual, a spark for Auto, an open lock for
+// Bypass. The chat composer's permission pill and the shared preset menu both
+// draw from here, so one preset is one glyph everywhere rather than a 14-grid
+// twin in one file and a 16-grid twin in another. 16-grid, `currentColor`,
+// sized by the caller's `icon-*` step.
 export function PresetDialGlyph({ className }: IconProps) {
   return (
     <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
@@ -205,7 +206,32 @@ export function PresetDialGlyph({ className }: IconProps) {
   )
 }
 
-// An open shackle: the agent is NOT stopping to ask.
+// A closed shackle: the agent stops to ask before it changes anything.
+export function LockGlyph({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
+      <rect x="3.5" y="7" width="9" height="6" rx="1.4" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M5.5 7V5.4a2.5 2.5 0 0 1 5 0V7" stroke="currentColor" strokeWidth="1.4" />
+    </svg>
+  )
+}
+
+// A spark: the agent carries on through what it can safely do, and asks for the rest.
+export function SparkGlyph({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
+      <path
+        d="M8 2.5l1.35 3.4 3.4 1.35-3.4 1.35L8 12l-1.35-3.4-3.4-1.35 3.4-1.35L8 2.5Z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+      />
+      <path d="M12.6 11.2l.6 1.5 1.5.6-1.5.6-.6 1.5-.6-1.5-1.5-.6 1.5-.6.6-1.5Z" fill="currentColor" />
+    </svg>
+  )
+}
+
+// An open shackle, the twin of LockGlyph: the agent is NOT stopping to ask.
 export function UnlockedGlyph({ className }: IconProps) {
   return (
     <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>

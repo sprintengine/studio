@@ -181,6 +181,7 @@ import { createWorkspaceRegistryService } from './workspace-registry-service'
 import { createWorkspaceSyncService } from './workspace-sync-service'
 import { writeDiagnosticLog } from './diagnostics-service'
 import { getPluginRegistry } from './plugin-registry-instance'
+import { declaredPermissionPresets } from './plugin-render'
 import { createStudioPluginService } from './studio-plugin-service'
 import { resolveInstalledSkillHarnesses } from './marketplace/skill-harness-targets'
 import { buildLauncherMcpServer, usableLocalLauncherRef } from './integrations/launcher'
@@ -1088,6 +1089,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         .loaded()
         .find((candidate) => candidate.manifest.id === cli)
       return plugin ? Boolean(plugin.manifest.agentStateSpec) : true
+    },
+    permissionPresetsForCli: (cli) => {
+      const plugin = getPluginRegistry()
+        .loaded()
+        .find((candidate) => candidate.manifest.id === cli)
+      return plugin ? declaredPermissionPresets(plugin.manifest) : null
     },
     // The same resolver the renderer reaches over `memory:resolve-root`, so a
     // headless launch carries the project's Knowledge Graph exactly like an

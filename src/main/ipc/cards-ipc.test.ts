@@ -102,12 +102,13 @@ test('cards-ipc', async () => {
       assert.equal(result.chat?.permissionPreset, 'bypass', 'the preset the row carried is the preset handed back')
     }
 
-    // ── A window built before the two-mode change sends a retired preset ────────
-    // It keeps the nearest meaning it still has, never a wider one.
+    // ── Manual rides the row as itself, and a pre-rename spelling as its meaning ─
     {
       const result = await run(appEvent, envelope({ permissionPreset: 'manual' }))
       assert.equal(result.ok, true)
-      assert.equal(result.chat?.permissionPreset, 'none')
+      assert.equal(result.chat?.permissionPreset, 'manual')
+      const older = await run(appEvent, envelope({ permissionPreset: 'default' }))
+      assert.equal(older.chat?.permissionPreset, 'manual')
     }
 
     // ── A row that is not a row is dropped, and the card still runs ──────────────

@@ -1,5 +1,9 @@
 import { toTomlBasicString } from '../shared/host-context/document'
-import { parseCliPermissionPreset } from '../shared/cli-permission-preset'
+import {
+  CLI_PERMISSION_PRESETS,
+  parseCliPermissionPreset,
+  type CliPermissionPreset,
+} from '../shared/cli-permission-preset'
 import type {
   PluginArgvToken,
   PluginManifest,
@@ -106,6 +110,8 @@ function renderArgvSpec(
   const env = {
     ...renderEnv(launchSpec.env, variables),
     ...renderEnv(contextEnvSpec(manifest, context), variables),
+    // A preset told through the CLI's configuration rides the same record.
+    ...resolvePermissionPreset(manifest, context.permissionPreset)?.env,
   }
   return { argv, cwd, env }
 }
@@ -126,21 +132,33 @@ function contextEnvSpec(manifest: PluginManifest, context: PluginRenderContext):
   return injection.env
 }
 
-// Only `bypass` reads the manifest. `none` passes no permission flag and lets
-// the CLI's own configuration decide, which every CLI can express, so no
-// manifest declares it. A manifest that declares no bypass renders no flag
-// either: passing a flag the CLI does not know is fatal to it, and the one
-// fallback that can never grant more than was asked for is none at all.
-//
-// A third-party plugin written before the two-mode change can still declare
-// keys for the retired presets (`manual`, `auto`, `default`, `auto_workspace`).
-// They are read as nothing. Its pre-rename `bypass_all` is still its bypass.
+// `none` passes no permission flag and lets the CLI's own configuration
+// decide, which every CLI can express, so no manifest declares it. Every other
+// preset is what the manifest names for it, under its own key or the one it
+// had before the rename (`default`, `auto_workspace`, `bypass_all`). One the
+// manifest does not name renders no flag: passing a flag the CLI does not know
+// is fatal to it, and inventing one is worse. The launcher offers a terminal
+// agent only the presets its manifest names (`declaredPermissionPresets`).
+const LEGACY_PRESET_KEYS: Record<Exclude<CliPermissionPreset, 'none'>, string> = {
+  manual: 'default',
+  auto: 'auto_workspace',
+  bypass: 'bypass_all',
+}
+
 function resolvePermissionPreset(
   manifest: PluginManifest,
   requested: string | undefined,
 ): PluginPermissionPreset | undefined {
-  if (parseCliPermissionPreset(requested) !== 'bypass') return undefined
-  return manifest.permissionPresets.bypass ?? manifest.permissionPresets.bypass_all
+  const preset = parseCliPermissionPreset(requested)
+  if (!preset || preset === 'none') return undefined
+  return manifest.permissionPresets[preset] ?? manifest.permissionPresets[LEGACY_PRESET_KEYS[preset]]
+}
+
+/** The presets a launch of this CLI is told in its own words: `none`, and each one the manifest names. */
+export function declaredPermissionPresets(manifest: PluginManifest): CliPermissionPreset[] {
+  return CLI_PERMISSION_PRESETS.filter(
+    (preset) => preset === 'none' || resolvePermissionPreset(manifest, preset) !== undefined,
+  )
 }
 
 /**

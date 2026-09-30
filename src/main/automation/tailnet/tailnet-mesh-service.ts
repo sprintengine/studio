@@ -59,7 +59,8 @@ import {
   readRemoteIdentity,
   type RemoteJsonSocket,
 } from './tailnet-remote-client'
-import { asRecord } from '../../../shared/records'
+import { asRecord, isRecord } from '../../../shared/records'
+import { parseCliPermissionPreset } from '../../../shared/cli-permission-preset'
 import { powerActivity, type PowerActivity } from '../../power-activity'
 
 // The Mesh: this Studio driving other machines.
@@ -918,6 +919,26 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
    * A machine that published no list is left exactly as it was — see the gate
    * in `dialWatch` for why silence is not a denial.
    */
+  // A machine that does not advertise the four permission modes reads Manual
+  // and Auto as No flag, so neither is sent to it: the person would be told one
+  // mode while the agent ran on another. Unlike a picture, which a machine can
+  // refuse for itself, a mode it misreads is not refused, so a machine that
+  // has not said what it can do is not sent one either.
+  function permissionModeRefusal(
+    connection: { id: string; machineName: string },
+    requested: unknown,
+  ): { ok: false; code: string; message: string } | null {
+    const preset = parseCliPermissionPreset(requested)
+    if (preset !== 'manual' && preset !== 'auto') return null
+    const capabilities = peerCapabilities.get(connection.id)
+    if (capabilities && tailnetPeerSupports(capabilities, 'conversation-permission-modes')) return null
+    return {
+      ok: false,
+      code: 'unsupported_permission_preset',
+      message: `${connection.machineName} runs a Studio that takes only Bypass or No flag. Update it there to use ${preset === 'manual' ? 'Manual' : 'Auto'}.`,
+    }
+  }
+
   function rememberCapabilities(connectionId: string, capabilities: string[] | null): void {
     peerCapabilities.set(connectionId, capabilities)
     if (capabilities === null) return
@@ -1430,6 +1451,8 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     if (typeof input.workspaceId !== 'string' || !input.workspaceId) {
       return { ok: false, code: 'invalid_arguments', message: 'Name the remote workspace to start the chat in.' }
     }
+    const presetRefusal = permissionModeRefusal(connection, input.permissionPreset)
+    if (presetRefusal) return presetRefusal
     // Forwarded verbatim: the remote validates every field, and its refusal
     // reaches the caller word for word. The workspace names the project the
     // picker chose, not a chat to join, so the chat is asked for as a new one.
@@ -1525,7 +1548,11 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     // the model they have and the picker says so.
     const listed = await remoteConversations.list(connection.id)
     return listed.ok
-      ? { ...listed, modelSwitch: tailnetPeerSupports(identity.value.capabilities, 'conversation-models') }
+      ? {
+          ...listed,
+          modelSwitch: tailnetPeerSupports(identity.value.capabilities, 'conversation-models'),
+          permissionModes: tailnetPeerSupports(identity.value.capabilities, 'conversation-permission-modes'),
+        }
       : listed
   }
 
@@ -1685,6 +1712,12 @@ export function createTailnetMeshService(options: TailnetMeshServiceOptions): Ta
     async conversationCommand(input): Promise<MeshConversationCommandResult> {
       const key = meshConversationKeyOf(input.key)
       if (!key) return { ok: false, code: 'invalid_arguments', message: 'Name the conversation to send to.' }
+      const command = isRecord(input.command) ? input.command : null
+      if (command?.kind === 'setPermissionPreset') {
+        const connection = connectionFor(key.connectionId)
+        const refused = connection ? permissionModeRefusal(connection, command.preset) : null
+        if (refused) return refused
+      }
       const result = await remoteConversations.command(key, input.command)
       // A command carried out (a model switched, a preset changed) changes
       // what the list says, and the list is re-read straight after it.

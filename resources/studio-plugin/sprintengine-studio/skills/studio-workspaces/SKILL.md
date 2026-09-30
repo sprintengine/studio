@@ -46,9 +46,12 @@ and `terminal_list`'s `kind` filter counts it as `agent`, not as a plain shell.
 There is no tool here that opens a bare shell. Name the workspace by
 `workspaceId` or by `workspaceName`. The CLI and the permission preset default
 to this machine's own launch settings unless you name them: the preset chosen
-for that CLI, else `bypass`, exactly as the app's launcher would. Name `none`
-(no permission flag, so the CLI's own configuration decides) when the person
-asks for it; the answer reports the preset the launch resolved. Follow the
+for that CLI, else `bypass`, exactly as the app's launcher would. Name `auto`
+(edits go through, commands ask), `manual` (every edit and command asks) or
+`none` (no permission flag, so the CLI's own configuration decides) when the
+person asks for it; a terminal agent takes only the presets its CLI has a
+setting for, which `cli_runtime_list` names. The answer reports the preset the
+launch resolved. Follow the
 agent with `agent_status` or `terminal_list`.
 
 `terminal_list` lists open sessions — session id, agent name, CLI, working

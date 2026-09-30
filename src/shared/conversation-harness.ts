@@ -18,6 +18,27 @@ const CONVERSATION_PROVIDER_CLI: Readonly<Record<string, string>> = {
   'grok-agent': 'grok',
 }
 
+// The permission presets a CLI's chat cannot be held to, with the reason its
+// row in the permission menu gives. The provider refuses them with the same
+// sentence (acp-conversation-provider.ts), and the launcher and the chat box
+// dim them rather than letting a chat start on something looser under the
+// preset's name. A CLI missing here runs every preset.
+const CONVERSATION_PERMISSION_PRESET_REFUSALS: Readonly<
+  Record<string, Partial<Record<import('./cli-permission-preset').CliPermissionPreset, string>>>
+> = {
+  // Observed with Cursor's default allowlist: commands outside the allowlist
+  // are sent for approval, file edits in the workspace are applied directly,
+  // and no flag makes it ask about them.
+  cursor: { manual: 'Cursor edits files without asking, so it cannot ask before every change.' },
+}
+
+/** The presets a CLI's chat cannot run, each with the reason; empty when it runs every one. */
+export function conversationPermissionPresetRefusals(
+  cli: string | null | undefined,
+): Partial<Record<import('./cli-permission-preset').CliPermissionPreset, string>> {
+  return (cli && CONVERSATION_PERMISSION_PRESET_REFUSALS[cli]) || {}
+}
+
 /** The CLI a conversation provider rides, or null for a provider that is not a CLI. */
 export function cliForConversationProvider(providerId: string | null | undefined): string | null {
   return (providerId && CONVERSATION_PROVIDER_CLI[providerId]) || null

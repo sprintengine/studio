@@ -8,7 +8,7 @@ import {
   probeCodexConversationCommands,
 } from './codex-conversation-provider'
 import { CodexRpcError, type CodexRpcOptions, type RpcMessage } from './codex-json-rpc'
-import type { ConversationEvent } from '../../shared/conversation-runtime'
+import type { ConversationEvent, ConversationPermissionPreset } from '../../shared/conversation-runtime'
 import { conversationCommandsFor } from '../conversation-commands/registry'
 
 function fixture(
@@ -77,7 +77,7 @@ function fixture(
     providerId: 'codex-agent',
     modelId: 'gpt-6-sol',
     workspaceRoot: '/workspace/app',
-    permissionPreset: 'none' as 'none' | 'bypass',
+    permissionPreset: 'none' as ConversationPermissionPreset,
   }
   const events: ConversationEvent[] = []
   const send = async (reasoningEffort?: string, mode?: 'default' | 'ask' | 'plan', message = 'Make a change.') => {
@@ -396,14 +396,43 @@ test('unowned threads and unknown server requests never get an implicit approval
   expect(f.events.some((event) => event.type === 'approval_requested')).toBe(false)
 })
 
-test('bypass is YOLO — never ask, full access — and none sends no override', () => {
+test('bypass is YOLO, auto is the workspace sandbox asking past it, manual asks in a read-only sandbox, none sends nothing', () => {
   expect(codexPermissionPolicy('bypass')).toEqual({
     approvalPolicy: 'never',
     sandbox: 'danger-full-access',
     sandboxPolicy: { type: 'dangerFullAccess' },
   })
+  expect(codexPermissionPolicy('auto')).toMatchObject({
+    approvalPolicy: 'on-request',
+    sandbox: 'workspace-write',
+    sandboxPolicy: { type: 'workspaceWrite', networkAccess: false },
+  })
+  expect(codexPermissionPolicy('manual')).toEqual({
+    approvalPolicy: 'untrusted',
+    sandbox: 'read-only',
+    sandboxPolicy: { type: 'readOnly', networkAccess: false },
+  })
   expect(codexPermissionPolicy('none')).toEqual({})
   expect(codexPermissionPolicy()).toEqual({})
+})
+
+test('each preset rides thread start and every turn', async () => {
+  for (const [permissionPreset, approvalPolicy, sandbox, type] of [
+    ['auto', 'on-request', 'workspace-write', 'workspaceWrite'],
+    ['manual', 'untrusted', 'read-only', 'readOnly'],
+  ] as const) {
+    const f = fixture()
+    await f.adapter.startSession({ ...f.input, permissionPreset })
+    const done = f.send()
+    await f.started
+    expect(f.calls.find((call) => call.method === 'thread/start')?.params).toMatchObject({ approvalPolicy, sandbox })
+    expect(f.calls.find((call) => call.method === 'turn/start')?.params).toMatchObject({
+      approvalPolicy,
+      sandboxPolicy: { type },
+    })
+    await f.message({ method: 'turn/completed', params: { threadId: 'native-thread', turn: { status: 'completed' } } })
+    await done
+  }
 })
 
 test('a bypass session sends never and full access on thread start and every turn', async () => {
@@ -528,16 +557,56 @@ test('entering bypass keeps the connection: the next turn carries the override i
   expect(f.transports).toEqual({ created: 1, closed: 0 })
 })
 
-test('a preset change waits for the running Codex turn to finish', async () => {
+test('a preset change mid-turn is taken, and Codex runs it from the next turn', async () => {
   const f = fixture()
   f.input.permissionPreset = 'bypass'
   await f.adapter.startSession(f.input)
   const done = f.send()
   await f.started
-  expect(await f.adapter.setPermissionPreset?.({ ...f.input, permissionPreset: 'none' })).toMatchObject({ ok: false })
+  expect(await f.adapter.setPermissionPreset?.({ ...f.input, permissionPreset: 'auto' })).toEqual({
+    ok: true,
+    notice: 'Codex takes the new permissions from your next message.',
+  })
   expect(f.transports.closed).toBe(0)
   await f.message({ method: 'turn/completed', params: { threadId: 'native-thread', turn: { status: 'completed' } } })
   await done
+
+  f.input.permissionPreset = 'auto'
+  f.calls.length = 0
+  f.nextTurn()
+  const second = f.send()
+  await f.started
+  expect(f.transports).toEqual({ created: 1, closed: 0 })
+  expect(f.calls.find((call) => call.method === 'turn/start')?.params).toMatchObject({
+    approvalPolicy: 'on-request',
+    sandboxPolicy: { type: 'workspaceWrite' },
+  })
+  await f.message({ method: 'turn/completed', params: { threadId: 'native-thread', turn: { status: 'completed' } } })
+  await second
+})
+
+test('leaving an override for none mid-turn restarts Codex before the next turn, not during this one', async () => {
+  const f = fixture()
+  f.input.permissionPreset = 'manual'
+  await f.adapter.startSession(f.input)
+  const done = f.send()
+  await f.started
+  expect(await f.adapter.setPermissionPreset?.({ ...f.input, permissionPreset: 'none' })).toMatchObject({ ok: true })
+  expect(f.transports.closed).toBe(0)
+  await f.message({ method: 'turn/completed', params: { threadId: 'native-thread', turn: { status: 'completed' } } })
+  await done
+
+  f.input.permissionPreset = 'none'
+  f.calls.length = 0
+  f.nextTurn()
+  const second = f.send()
+  await f.started
+  expect(f.transports).toEqual({ created: 2, closed: 1 })
+  const resume = f.calls.find((call) => call.method === 'thread/resume')
+  expect(resume?.params).not.toHaveProperty('approvalPolicy')
+  expect(f.calls.find((call) => call.method === 'turn/start')?.params).not.toHaveProperty('approvalPolicy')
+  await f.message({ method: 'turn/completed', params: { threadId: 'native-thread', turn: { status: 'completed' } } })
+  await second
 })
 
 test('Ask is read-only without escalation even when the session preset bypasses approval', async () => {

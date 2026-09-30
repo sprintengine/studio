@@ -1203,8 +1203,8 @@ test('claude-agent-provider', async () => {
     assert.equal(none.capturedOptions[0]?.permissionMode, undefined)
     assert.equal(none.capturedOptions[0]?.allowDangerouslySkipPermissions, true)
 
-    // Plan mode is a separate toggle, not a preset: it spawns 'plan' under either.
-    for (const permissionPreset of ['none', 'bypass'] as const) {
+    // Plan mode is a separate toggle, not a preset: it spawns 'plan' under any.
+    for (const permissionPreset of ['none', 'manual', 'auto', 'bypass'] as const) {
       const plan = createAdapter((_userMessage, context) => emitResult(context))
       await collect(plan.adapter.startSession({ ...SESSION_INPUT, permissionPreset }) as ConversationEvent[])
       await collect(plan.adapter.sendTurn(turnInput({ mode: 'plan' })) as AsyncIterable<ConversationEvent>)
@@ -3018,6 +3018,130 @@ test("leaving bypass mid-reply stops bypassing at once, and the next message run
     assert.equal(h.spawned[1].permissionMode, undefined)
     h.emit(success({ user_message_uuids: [h.uuidOf(1)] }))
     await second.done
+  } finally {
+    await h.adapter.disposeAll()
+  }
+})
+
+type PreToolUseHook = (input: Record<string, unknown>) => Promise<Record<string, unknown>>
+const preToolUse = (options: Record<string, unknown>): PreToolUseHook =>
+  (options.hooks as { PreToolUse: Array<{ hooks: PreToolUseHook[] }> }).PreToolUse[0].hooks[0]
+const hookCall = (tool_name: string) => ({ hook_event_name: 'PreToolUse', tool_name, tool_use_id: `use-${tool_name}` })
+const hookDecision = async (hook: PreToolUseHook, tool: string) =>
+  ((await hook(hookCall(tool))).hookSpecificOutput as Record<string, unknown> | undefined)?.permissionDecision
+
+test('a Claude chat spawns Manual as default and Auto as acceptEdits', async () => {
+  for (const [permissionPreset, mode] of [
+    ['manual', 'default'],
+    ['auto', 'acceptEdits'],
+  ] as const) {
+    const h = scriptedHarness()
+    try {
+      await h.adapter.startSession({ ...h.turn('turn_1'), permissionPreset })
+      const first = reader((await h.adapter.sendTurn(h.turn('turn_1'))) as AsyncIterable<ConversationEvent>)
+      await promptsRead(h.prompts, 1)
+      assert.equal(h.spawned[0].permissionMode, mode, permissionPreset)
+      h.emit(success({ user_message_uuids: [h.uuidOf(0)] }))
+      await first.done
+    } finally {
+      await h.adapter.disposeAll()
+    }
+  }
+})
+
+test('Manual sends every action that changes something to a card, and lets lookups run', async () => {
+  const h = scriptedHarness()
+  try {
+    await h.adapter.startSession({ ...h.turn('turn_1'), permissionPreset: 'manual' })
+    const first = reader((await h.adapter.sendTurn(h.turn('turn_1'))) as AsyncIterable<ConversationEvent>)
+    await promptsRead(h.prompts, 1)
+    const hook = preToolUse(h.spawned[0])
+    for (const tool of ['Bash', 'Edit', 'Write', 'WebFetch', 'mcp__github__create_pr', 'Task'])
+      assert.equal(await hookDecision(hook, tool), 'ask', tool)
+    for (const tool of ['Read', 'Grep', 'Glob', 'TodoWrite', 'AskUserQuestion', 'ExitPlanMode'])
+      assert.deepEqual(await hook(hookCall(tool)), {}, tool)
+
+    // Leaving Manual lets the CLI's own mode decide again, from the next call.
+    await h.adapter.setPermissionPreset({ ...h.turn('turn_1'), permissionPreset: 'auto' })
+    assert.deepEqual(h.modes, ['acceptEdits'])
+    assert.deepEqual(await hook(hookCall('Bash')), {})
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)] }))
+    await first.done
+  } finally {
+    await h.adapter.disposeAll()
+  }
+})
+
+test('choosing Manual mid-reply holds the very next call, even before the child has taken the mode', async () => {
+  const h = scriptedHarness({ refuseModes: true })
+  try {
+    await h.adapter.startSession({ ...h.turn('turn_1'), permissionPreset: 'bypass' })
+    const first = reader((await h.adapter.sendTurn(h.turn('turn_1'))) as AsyncIterable<ConversationEvent>)
+    await promptsRead(h.prompts, 1)
+    const hook = preToolUse(h.spawned[0])
+    assert.deepEqual(await hook(hookCall('Bash')), {})
+    assert.deepEqual(await h.adapter.setPermissionPreset({ ...h.turn('turn_1'), permissionPreset: 'manual' }), {
+      ok: true,
+      notice: 'The new permissions apply from your next message.',
+    })
+    assert.equal(await hookDecision(hook, 'Bash'), 'ask')
+    // What the child, still on bypass, sends to canUseTool is not answered
+    // for the person any more.
+    const canUseTool = h.spawned[0].canUseTool as CanUseTool
+    const asked = canUseTool('Bash', { command: 'npm publish' }, {})
+    await settle()
+    assert.equal(requestIdsOf(first.events, 'approval_requested').length, 1, 'the call asks')
+    h.adapter.resolveApproval({ ...h.turn('turn_1'), requestId: 'approval_turn_1', approved: false })
+    assert.equal((await asked).behavior, 'deny')
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)] }))
+    await first.done
+
+    // The next message respawns the child under Manual.
+    const second = reader((await h.adapter.sendTurn(h.turn('turn_2'))) as AsyncIterable<ConversationEvent>)
+    await promptsRead(h.prompts, 2)
+    assert.equal(h.spawned.length, 2)
+    assert.equal(h.spawned[1].permissionMode, 'default')
+    h.emit(success({ user_message_uuids: [h.uuidOf(1)] }))
+    await second.done
+  } finally {
+    await h.adapter.disposeAll()
+  }
+})
+
+test('an idle Claude child moves between Manual, Auto and Bypass in place', async () => {
+  const h = scriptedHarness()
+  try {
+    const first = await running(h)
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)] }))
+    await first.done
+    for (const permissionPreset of ['auto', 'manual', 'bypass'] as const)
+      assert.deepEqual(await h.adapter.setPermissionPreset({ ...h.turn('turn_1'), permissionPreset }), { ok: true })
+    assert.deepEqual(h.modes, ['acceptEdits', 'default', 'bypassPermissions'])
+    assert.equal(h.spawned.length, 1)
+    assert.equal(h.adapter.listLiveSessions()[0]?.hasChildProcess, true)
+  } finally {
+    await h.adapter.disposeAll()
+  }
+})
+
+test('an ask bypass would still have made is marked as one no mode answers', async () => {
+  const h = scriptedHarness()
+  try {
+    const first = await running(h)
+    const canUseTool = h.spawned[0].canUseTool as CanUseTool
+    void canUseTool('Bash', { command: 'npm test' }, {})
+    void canUseTool('Bash', { command: 'rm -rf build' }, { defaultToNo: true })
+    void canUseTool('Bash', { command: 'git push' }, { matchedAskRule: { toolName: 'Bash' } } as never)
+    await settle()
+    const asked = first.events.filter((event) => event.type === 'approval_requested')
+    assert.deepEqual(
+      asked.map((event) => event.payload?.mustAsk === true),
+      [false, true, true],
+    )
+    for (const event of asked)
+      h.adapter.resolveApproval({ ...h.turn('turn_1'), requestId: String(event.payload?.requestId), approved: false })
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)] }))
+    await first.done
   } finally {
     await h.adapter.disposeAll()
   }

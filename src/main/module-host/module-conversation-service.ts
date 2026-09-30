@@ -350,9 +350,9 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
         if (input.permissionPreset !== undefined && !PERMISSION_PRESETS.has(input.permissionPreset)) {
           return failure('invalid_input', '"permissionPreset" must be "none" or "bypass".')
         }
-        // A module tool called by an agent capped at `none` starts a `none`
-        // chat, whatever the module asked for: otherwise the module would be
-        // the capped agent's way to a chat that never asks.
+        // A module tool called by an agent held to a stricter preset starts
+        // its chat on that preset, whatever the module asked for: otherwise
+        // the module would be the capped agent's way to a chat that asks less.
         const permissionPreset = clampToModuleToolCaller(
           input.permissionPreset,
           deps.getCallerPermissionCeiling?.() ?? null,

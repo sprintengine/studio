@@ -111,11 +111,12 @@ test('module-tool-caller', async () => {
     assert.equal(start.permissionPreset, 'none')
   }
 
-  // An agent that names itself and cannot be found is capped at `none` too.
+  // An agent that names itself and cannot be found is capped at the strictest
+  // preset, `manual`.
   {
     const { call } = harness({})
     const { record } = await call(agent('nobody-holds-this'))
-    assert.equal(record.cliPermissionPreset, 'none')
+    assert.equal(record.cliPermissionPreset, 'manual')
   }
 
   // A `bypass` agent, the person's own script, and a paired device are not capped.

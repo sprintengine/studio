@@ -89,11 +89,13 @@ async function mountRemote({
   permissionPreset,
   models,
   modelSwitch = false,
+  permissionModes = false,
 }: {
   access: 'read' | 'operate'
   permissionPreset?: MeshConversation['permissionPreset']
   models?: MeshConversation['models']
   modelSwitch?: boolean
+  permissionModes?: boolean
 }) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost', pretendToBeVisual: true })
   const previous = Object.getOwnPropertyDescriptors(globalThis)
@@ -128,6 +130,7 @@ async function mountRemote({
       ],
       access,
       modelSwitch,
+      permissionModes,
     })),
     onMeshConversationSession: vi.fn(
       (input: { key: MeshConversationKey }, receive: (frame: MeshConversationFrame) => void) => {
@@ -318,32 +321,99 @@ test('a pairing that may only follow sees the conversation with every action clo
   }
 })
 
-test('a chat whose machine names its preset offers the same two presets on its engine picker, and a pick goes over the mesh', async () => {
+const permissionsChip = (document: Document) =>
+  Array.from(document.querySelectorAll('button')).find((item) =>
+    item.getAttribute('aria-label')?.startsWith('Permissions:'),
+  )
+
+test('a chat on a machine that runs only two presets dims the other two, and a pick goes over the mesh', async () => {
   const chat = await mountRemote({ access: 'operate', permissionPreset: 'bypass' })
   try {
-    // One control for engine, effort and permissions: the chip opens the
-    // terminal agent's picker, whose trailing row holds the preset.
-    const chip = () =>
-      Array.from(chat.host.querySelectorAll('button')).find((item) =>
-        item.getAttribute('aria-label')?.startsWith('Engine:'),
-      )
-    const permissions = () =>
-      Array.from(chat.document.querySelectorAll('button')).find((item) =>
-        item.getAttribute('aria-label')?.startsWith('Permissions:'),
-      )
-    expect(chip()).toBeDefined()
-    await chat.act(async () => chip()!.click())
-    expect(permissions()?.getAttribute('aria-label')).toBe('Permissions: Bypass permissions')
-    await chat.act(async () => permissions()!.click())
+    // The permission chip sits in the chat box itself, beside the engine chip.
+    expect(permissionsChip(chat.document)?.getAttribute('aria-label')).toBe('Permissions: Bypass permissions')
+    await chat.act(async () => permissionsChip(chat.document)!.click())
     const rows = Array.from(chat.document.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]'))
-    expect(
-      rows.map((row) => row.textContent?.startsWith('Bypass permissions') || row.textContent?.startsWith('No flag')),
-    ).toEqual([true, true])
-    expect(rows.some((row) => row.disabled)).toBe(false)
-    await chat.act(async () => rows[1]!.click())
+    expect(rows).toHaveLength(4)
+    // An older machine reads Manual and Auto as No flag, so neither is offered
+    // as if it would hold, and each says why.
+    expect(rows.map((row) => row.disabled)).toEqual([false, true, true, false])
+    expect(rows[1]!.textContent).toContain('mac-mini needs a newer Studio for this.')
+    await chat.act(async () => rows[3]!.click())
     expect(chat.api.meshConversationSetPermissionPreset).toHaveBeenCalledExactlyOnceWith({ key, preset: 'none' })
-    await chat.act(async () => chip()!.click())
-    expect(permissions()?.getAttribute('aria-label')).toBe('Permissions: No flag')
+    expect(permissionsChip(chat.document)?.getAttribute('aria-label')).toBe('Permissions: No flag')
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a chat on a machine that runs all four presets offers them, and Auto goes over the mesh', async () => {
+  const chat = await mountRemote({ access: 'operate', permissionPreset: 'none', permissionModes: true })
+  try {
+    await chat.act(async () => permissionsChip(chat.document)!.click())
+    const rows = Array.from(chat.document.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]'))
+    expect(rows.map((row) => row.disabled)).toEqual([false, false, false, false])
+    await chat.act(async () => rows[1]!.click())
+    expect(chat.api.meshConversationSetPermissionPreset).toHaveBeenCalledExactlyOnceWith({ key, preset: 'auto' })
+    expect(permissionsChip(chat.document)?.getAttribute('aria-label')).toBe('Permissions: Auto')
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test("a permission card's Allow and switch allows that request first, then moves the chat over the mesh", async () => {
+  const chat = await mountRemote({ access: 'operate', permissionPreset: 'none', permissionModes: true })
+  try {
+    const order: string[] = []
+    chat.api.meshConversationResolveApproval.mockImplementation(async () => {
+      order.push('allow')
+      return { ok: true }
+    })
+    chat.api.meshConversationSetPermissionPreset.mockImplementation(async () => {
+      order.push('switch')
+      return { ok: true }
+    })
+    const menu = Array.from(chat.host.querySelectorAll('button')).find(
+      (item) => item.getAttribute('aria-label') === 'More ways to allow',
+    )
+    expect(menu).toBeDefined()
+    await chat.act(async () => menu!.click())
+    const row = (label: string) =>
+      Array.from(chat.document.querySelectorAll('button')).find((item) => item.textContent?.trim() === label)
+    // Looser than No flag, and runnable there: Auto and Bypass.
+    expect(row('Allow and switch to Auto')).toBeDefined()
+    await chat.act(async () => row('Allow and switch to Bypass permissions')!.click())
+    expect(chat.api.meshConversationResolveApproval).toHaveBeenCalledExactlyOnceWith({
+      key,
+      requestId: 'approval-1',
+      decision: 'once',
+    })
+    expect(chat.api.meshConversationSetPermissionPreset).toHaveBeenCalledExactlyOnceWith({ key, preset: 'bypass' })
+    expect(order).toEqual(['allow', 'switch'])
+    expect(permissionsChip(chat.document)?.getAttribute('aria-label')).toBe('Permissions: Bypass permissions')
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test('a refused allow leaves the chat on the mode it was on', async () => {
+  const chat = await mountRemote({ access: 'operate', permissionPreset: 'none', permissionModes: true })
+  try {
+    chat.api.meshConversationResolveApproval.mockImplementation(async () => ({
+      ok: false,
+      code: 'invalid',
+      message: 'This request has already been answered.',
+    }))
+    const menu = Array.from(chat.host.querySelectorAll('button')).find(
+      (item) => item.getAttribute('aria-label') === 'More ways to allow',
+    )
+    await chat.act(async () => menu!.click())
+    const row = Array.from(chat.document.querySelectorAll('button')).find(
+      (item) => item.textContent?.trim() === 'Allow and switch to Auto',
+    )
+    await chat.act(async () => row!.click())
+    expect(chat.api.meshConversationSetPermissionPreset).not.toHaveBeenCalled()
+    expect(chat.host.textContent).toContain('This request has already been answered.')
+    expect(permissionsChip(chat.document)?.getAttribute('aria-label')).toBe('Permissions: No flag')
   } finally {
     await chat.unmount()
   }

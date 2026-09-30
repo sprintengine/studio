@@ -46,9 +46,9 @@ Read it before creating one, so you do not schedule the same thing twice.
   when omitted.
 - `cli` and `model` (optional) — read `cli_runtime_list` first; the CLI picked
   last on this computer when omitted.
-- `permissionPreset` (optional) — `bypass` or `none`, the same two a person
-  picks in the app. Omitted, the run uses the preset chosen for that CLI at run
-  time.
+- `permissionPreset` (optional) — `bypass`, `auto`, `manual` or `none`, the
+  same four a person picks in the app. Omitted, the run uses the preset chosen
+  for that CLI at run time.
 - `worktree` (optional) — `true` runs each time in a fresh git worktree rather
   than the project's checkout.
 - `skills` and `mcpServers` (optional) — ids attached to every run.
@@ -59,9 +59,12 @@ saved. The answer carries the new scheduled agent with its `scheduleWords` and
 wrong and the words are how they check it.
 
 A run starts with nobody watching. `bypass` is the right preset for an agent
-nobody is watching; `none` passes no permission flag, so the CLI runs on its own
-configured default, and if that asks for approval the run waits for a person.
-Say so when you create one on `none`.
+nobody is watching. `auto` lets edits in the workspace through and asks before
+commands and anything outside it; `manual` asks before every edit, command and
+outside call; `none` passes no permission flag, so the CLI runs on its own
+configured default. Any of them can ask for approval, and then the run waits on
+its approval card for a person. Say so when you create one on any preset but
+`bypass`.
 
 Called by an agent of this app, the scheduled agent is held to that agent's own
 preset: a looser one is refused with `permission_escalation`, and an omitted

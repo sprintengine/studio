@@ -8,8 +8,11 @@ import {
   agentPermissionChipLabel,
   focusActivePresetRow,
   PermissionPresetMenuRows,
+  PresetGlyph,
 } from './agentSpawnShared'
 import type { AgentCli, CliPermissionPreset } from '../../../types/workspace'
+import { useWorkspaceStore } from '../../../store/workspaceStore'
+import { conversationPermissionPresetRefusals } from '../../../../../shared/conversation-harness'
 
 // The model picker's footer controls — the row of trailing settings a spawn
 // surface hands `CliModelPopoverSurface` through its `footer` slot.
@@ -154,19 +157,62 @@ function permissionAccessibleName(preset: CliPermissionPreset, cli: AgentCli): s
 export function SpawnPermissionFooter({
   cli,
   fallback,
+  launch,
 }: {
   cli: AgentCli
   fallback: CliPermissionPreset
+  /**
+   * What the launch starts: a chat, or an agent in a terminal. Each can be held
+   * to a different set of presets, and the rows it cannot take are dimmed with
+   * the reason. Absent, every row is offered.
+   */
+  launch?: 'chat' | 'terminal'
 }): JSX.Element {
   const preset = useCliPermissionPreset(cli, fallback)
-  return <PermissionFooter cli={cli} preset={preset} onSelect={(next) => setCliPermissionPreset(cli, next)} />
+  const disabledReasons = useLaunchPermissionRefusals(cli, launch)
+  return (
+    <PermissionFooter
+      cli={cli}
+      preset={preset}
+      disabledReasons={disabledReasons}
+      onSelect={(next) => setCliPermissionPreset(cli, next)}
+    />
+  )
+}
+
+/**
+ * The presets a launch of `cli` cannot be held to, each with the one line its
+ * row shows. A chat's come from the runtime's own limits
+ * (`conversationPermissionPresetRefusals`); a terminal agent's from the presets
+ * its manifest names a setting for, which main lists with the plugin. A CLI
+ * the catalog has not listed yet dims nothing: the launch refuses a preset it
+ * cannot take and says why.
+ */
+export function useLaunchPermissionRefusals(
+  cli: AgentCli,
+  launch: 'chat' | 'terminal' | undefined,
+): Partial<Record<CliPermissionPreset, string>> | undefined {
+  const entry = useWorkspaceStore((state) =>
+    launch === 'terminal' ? state.pluginCatalogEntries.find((candidate) => candidate.id === cli) : undefined,
+  )
+  return React.useMemo(() => {
+    if (launch === 'chat') return conversationPermissionPresetRefusals(cli)
+    if (launch !== 'terminal' || !entry?.permissionPresets) return undefined
+    const declared = entry.permissionPresets
+    return Object.fromEntries(
+      agentPermissionOptions(cli)
+        .filter((option) => !declared.includes(option.value))
+        .map((option) => [option.value, `${entry.displayName} has no setting for this in a terminal.`]),
+    )
+  }, [cli, entry, launch])
 }
 
 /**
  * The permission dropdown itself, over a value the host owns. The launcher's
- * `SpawnPermissionFooter` binds it to the per-CLI memory; a running chat agent
- * binds it to that agent's own preset, which a live session changes in place.
- * Same chip, same rows, same place on the picker's trailing row either way.
+ * `SpawnPermissionFooter` binds it to the per-CLI memory, on the picker's
+ * trailing row; a running chat binds it to that chat's own preset, which a
+ * live session changes in place, as a chip of its own in the chat box. Same
+ * chip and same rows either way.
  */
 export function PermissionFooter({
   cli,
@@ -174,6 +220,7 @@ export function PermissionFooter({
   onSelect,
   disabled = false,
   disabledReasons,
+  placement = 'top-end',
 }: {
   cli: AgentCli
   preset: CliPermissionPreset
@@ -182,16 +229,26 @@ export function PermissionFooter({
   disabled?: boolean
   /** Presets this agent cannot run, each with the one-line reason its row shows. */
   disabledReasons?: Partial<Record<CliPermissionPreset, string>>
+  /** Which side the menu opens on: the end of a trailing row, the start of a leading one. */
+  placement?: 'top-start' | 'top-end'
 }): JSX.Element {
   return (
     <FooterMenu
       ariaLabel={permissionAccessibleName(preset, cli)}
       heading="Permissions"
-      label={permissionLabel(preset, cli)}
+      label={
+        <>
+          <PresetGlyph preset={preset} />
+          {permissionLabel(preset, cli)}
+        </>
+      }
       // Bypass is WARN, not danger: `danger` is the error tone, and the preset
-      // wears amber everywhere else in the app.
-      tone={preset === 'bypass' ? 'warn' : 'quiet'}
-      placement="top-end"
+      // wears amber everywhere else in the app. So is a preset this agent
+      // cannot run (an app-wide default a CLI has no setting for), which says
+      // why on hover rather than reading as if it would hold.
+      tone={preset === 'bypass' || disabledReasons?.[preset] ? 'warn' : 'quiet'}
+      {...(disabledReasons?.[preset] ? { tooltip: disabledReasons[preset] } : {})}
+      placement={placement}
       chevron
       // The rows need the width their summaries were written for, and they land
       // focus on the checked row.
