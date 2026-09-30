@@ -6,6 +6,7 @@ import { relativeSeen } from '../../../../shared/tailnet-machines'
 import { GhostButton, LinkButton, MicroChip, OutlineButton, Popover, SettingCard, deviceGlyphFor } from '../ui'
 import { conversationGapNote, missingScopes } from './scopePickerModel'
 import { platformLabel } from './machineRowModel'
+import { pairRoute } from './pairRouteModel'
 
 // One machine in Settings → Remote (remote-settings-rebuild), whichever
 // directions it is known from.
@@ -17,9 +18,11 @@ import { platformLabel } from './machineRowModel'
 // IS acted on is the scope set, and that used to be a bare count with no way to
 // see or change it; it is now the one link on the row.
 //
-// Dimming is the whole vocabulary for "asleep". The word "offline" never
-// appears: a machine that is off is not in an error state, and a red dot beside
-// four of five rows on a personal tailnet trains a person to ignore dots.
+// Dimming is the vocabulary for "asleep". The word "offline" never appears: a
+// machine that is off is not in an error state, and a red dot beside four of
+// five rows on a personal tailnet trains a person to ignore dots. The one
+// place "Asleep" is written out is beside a disabled Pair, where it is the
+// reason the button cannot be pressed (`pairRouteModel`).
 
 /**
  * The machines list surface: one bordered card, rows divided by hairlines.
@@ -46,7 +49,7 @@ export function MachineRow({
 }: {
   machine: TailnetMachine
   now: number
-  /** Opens the pairing modal against this machine's Studio endpoint. */
+  /** Opens the pairing modal: asking this machine's Studio, or a link for a phone. */
   onPair: (machine: TailnetMachine) => void
   onRevoke: (machine: TailnetMachine) => void
   /** Widen the inbound grant to the full Standard set. */
@@ -56,6 +59,7 @@ export function MachineRow({
   const [scopesOpen, setScopesOpen] = React.useState(false)
   const Glyph = deviceGlyphFor({ os: machine.os, hostName: machine.name })
   const paired = machine.inbound !== null || machine.outbound !== null
+  const route = pairRoute(machine)
   // "Asleep" for the dimming rule is about a REMOTE machine: this one is never
   // dimmed, whatever Tailscale thinks of its own node.
   const dim = !machine.isSelf && !machine.live && !machine.online
@@ -75,6 +79,11 @@ export function MachineRow({
         busy={busy}
       />,
     )
+  }
+  if (route.route === 'unavailable') {
+    // Why Pair is disabled, beside it. Without this the only difference
+    // between "asleep" and "Remote is off over there" was nothing at all.
+    supporting.push(<span key="pair-reason">{route.reason}</span>)
   }
   if (machine.live) {
     supporting.push(
@@ -142,12 +151,9 @@ export function MachineRow({
         ) : (
           // Dead rather than absent for a machine that is asleep or runs no
           // Studio: the row is still the answer to "can I pair with that?", and
-          // a button that vanished would read as the scan having missed it.
-          <OutlineButton
-            size="xs"
-            disabled={busy || !machine.online || !machine.studio}
-            onClick={() => onPair(machine)}
-          >
+          // a button that vanished would read as the scan having missed it. The
+          // supporting line says which of the two it is.
+          <OutlineButton size="xs" disabled={busy || route.route === 'unavailable'} onClick={() => onPair(machine)}>
             Pair
           </OutlineButton>
         )}
