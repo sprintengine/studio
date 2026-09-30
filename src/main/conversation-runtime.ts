@@ -581,7 +581,7 @@ export class ConversationRuntime {
     // Stateful providers resume their own durable session; the latest cursor
     // lives in the JSONL transcript this runtime already writes.
     const resume = stateful
-      ? await this.readResumeCursor(session.workspaceRoot, session.workspaceId, session.agentId)
+      ? await this.readResumeCursor(session.workspaceRoot, session.workspaceId, session.agentId, session.providerId)
       : undefined
     const start = () =>
       this.emitAll(
@@ -3124,9 +3124,15 @@ export class ConversationRuntime {
     workspaceRoot: string,
     workspaceId: string,
     agentId: string,
+    providerId: string,
   ): Promise<{ sessionId?: string; at?: string } | undefined> {
     const text = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim() : undefined)
+    // Only a cursor this provider wrote: a transcript restarted on another
+    // provider holds that one's cursors too, and a session id means nothing to
+    // any provider but the one that issued it (a Claude session id handed to
+    // Codex, or a Codex thread id to Claude, fails every turn).
     const isCursor = (event: ConversationEvent) =>
+      event.providerId === providerId &&
       (event.type === 'session_updated' || event.type === 'session_started') &&
       (text(event.payload?.providerSessionId) !== undefined || typeof event.payload?.rewoundFromSeq === 'number')
     try {
