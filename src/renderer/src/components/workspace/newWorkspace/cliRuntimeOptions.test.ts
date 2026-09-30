@@ -704,15 +704,14 @@ test('a CLI with no declared modelSelection surfaces no model UI even when disco
 
 // Every surface that renders a model picker must hand the merge what the CLIs
 // reported, or it offers the manifest seed while the others offer the CLI's own
-// list: the New chat composer (and the hosts that borrow its catalog) and the
-// automation editor's model field did exactly that. Read from source because the
-// defect is a missing argument, invisible to the merge's own tests.
+// list: the New chat composer (and the hosts that borrow its catalog) once did
+// exactly that. Read from source because the defect is a missing argument,
+// invisible to the merge's own tests.
 test('every model-picker surface passes the discovered catalog to the merge', async () => {
   const { readFileSync } = await import('node:fs')
   const { join } = await import('node:path')
   const surfaces = [
     'src/renderer/src/components/workspace/agentComposer/useAgentComposer.ts',
-    'src/renderer/src/components/panels/AutomationsPanel/AutomationEditor.tsx',
     'src/renderer/src/components/workspace/WorkspaceManager.tsx',
     'src/renderer/src/components/settings/TextGenerationSettingsSection.tsx',
     'src/renderer/src/modules/index.ts',

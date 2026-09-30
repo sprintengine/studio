@@ -19,10 +19,10 @@ import {
   parseMarketplaceExtraHosts,
   parseMarketplacePluginAuthoringManifest,
   resolveOptionallySignedManifest,
+  retiredMarketplaceComponentIssue,
 } from '../../shared/marketplace'
 import { isSafeManifestRelativePath } from '../../../packages/module-sdk/src/manifest-validate'
 import {
-  marketplaceAutomationPayloadIssuesSync,
   marketplaceComponentDigestMismatchIssuesSync,
   marketplaceComponentDigestPaths,
 } from '../../../packages/module-sdk/src/plugin-component-digests'
@@ -287,22 +287,6 @@ export async function downloadMarketplacePluginBundle(
       }
     }
 
-    // An automation component ships a definition the app will schedule and run.
-    // Refuse a payload that is not one before the bundle is handed on, so the
-    // failure names the manifest rather than surfacing at install time.
-    const automationIssues = marketplaceAutomationPayloadIssuesSync(stage, manifest.components)
-    if (automationIssues.length > 0) {
-      await rm(stage, { recursive: true, force: true })
-      return {
-        ok: false,
-        sourceUrl,
-        classification: 'invalid',
-        trust,
-        message: 'Downloaded plugin bundle automation payload is not a valid automation definition.',
-        issues: automationIssues,
-      }
-    }
-
     return {
       ok: true,
       sourceUrl,
@@ -401,6 +385,12 @@ function resolveDownloadedManifest(source: string, trustContext: ModuleTrustCont
       manifest: resolved.manifest,
       trust: classifySignedManifestTrust(resolved.manifest, trustContext),
     }
+  }
+  // A bundle built for an older Studio is refused for that, whatever else is
+  // true of it — "unsigned" would send its author looking in the wrong place.
+  const retired = retiredMarketplaceComponentIssue(resolved.issues)
+  if (retired) {
+    return { ok: false, classification: 'invalid', message: retired.message, issues: resolved.issues }
   }
   const unsigned = classifyUnsignedManifest(source, trustContext)
   if (unsigned) {

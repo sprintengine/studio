@@ -4,12 +4,9 @@ import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { Workspace } from '../../types/workspace'
 import {
-  AUTOMATIONS_NOTIFICATION_SOURCES,
-  automationsRailBadge,
   extensionsRailBadge,
   extensionsRowOfNotification,
   homeRailBadge,
-  unreadNotificationsFrom,
   unseenCardCount,
 } from '../../utils/railBadges'
 import type { RailBadges } from './AppRail'
@@ -72,7 +69,6 @@ export function useRailBadges(input: {
 
   const notifications = useNotificationStore((s) => s.notifications)
   const sectionSeenAt = useNotificationStore((s) => s.sectionSeenAt)
-  const markReadBySources = useNotificationStore((s) => s.markReadBySources)
   const markReadWhere = useNotificationStore((s) => s.markReadWhere)
   const markSectionSeen = useNotificationStore((s) => s.markSectionSeen)
   const cards = useWorkspaceStore((s) => s.cards)
@@ -81,17 +77,12 @@ export function useRailBadges(input: {
   const doorBadges = useDoorBadgeContributions()
   const sourceRows = useMemo(() => doorBadgeSourceRows(doorBadges), [doorBadges])
 
-  const automationsOpen = activeGlobalSurface === 'automations'
   // The drawer row whose page is on screen — for the three rows that are views
   // of one surface, the view it stands on, so opening Plugins reads Plugins
   // and not the Skills news beside it.
   const activeView = useSurfaceView(activeGlobalSurface ?? '')
   const openRow = openExtensionsDrawerRow(activeGlobalSurface, activeView)
 
-  const unreadAutomations = useMemo(
-    () => unreadNotificationsFrom(notifications, AUTOMATIONS_NOTIFICATION_SOURCES),
-    [notifications],
-  )
   const extensionsSeenAt = sectionSeenAt.extensions
   const unseenCards = useMemo(() => unseenCardCount(cards, extensionsSeenAt), [cards, extensionsSeenAt])
   const openRowHasUnread = useMemo(
@@ -103,12 +94,9 @@ export function useRailBadges(input: {
     [notifications, openRow, sourceRows],
   )
 
-  // Reading. The Automations door reads its rows; an open drawer row reads its
+  // Reading. An open drawer row reads its
   // own — and keeps doing so while it is open, so a push that lands mid-visit
   // is seen rather than badged behind the person.
-  useEffect(() => {
-    if (automationsOpen && unreadAutomations.length > 0) markReadBySources(AUTOMATIONS_NOTIFICATION_SOURCES)
-  }, [automationsOpen, unreadAutomations, markReadBySources])
   useEffect(() => {
     if (openRow === null || !openRowHasUnread) return
     markReadWhere((notification) => extensionsRowOfNotification(notification, sourceRows) === openRow)
@@ -135,7 +123,6 @@ export function useRailBadges(input: {
     }
     return {
       home: homeRailBadge({ needsInput, failed, finished }),
-      automations: automationsOpen ? null : automationsRailBadge(unreadAutomations),
       extensions: extensionsRailBadge({ rows: rowBadges, unseenCards }),
     }
   }, [
@@ -144,9 +131,7 @@ export function useRailBadges(input: {
     unseenDoneIds,
     snoozedWorkspaceIds,
     onScreenWorkspaceId,
-    automationsOpen,
     rowBadges,
-    unreadAutomations,
     unseenCards,
   ])
 }

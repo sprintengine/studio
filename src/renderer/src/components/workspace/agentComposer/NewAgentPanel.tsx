@@ -9,7 +9,7 @@ import type {
 } from '../../../../../shared/tailnet-mesh'
 import { sameRepository, type RepositoryIdentity } from '../../../../../shared/repository-identity'
 import { folderIdentityKey, useFolderRepositoryIdentities } from '../useFolderRepositoryIdentities'
-import { FolderTypeIcon, RemoteMachineGlyph, WslMachineGlyph } from '../../AppIcons'
+import { FolderTypeIcon, RemoteMachineGlyph, ScheduleGlyph, WslMachineGlyph } from '../../AppIcons'
 import {
   hostIdForFolder,
   isWslHostId,
@@ -46,11 +46,12 @@ import {
   MENU_LIST_CLASS,
   Input,
   EmptyState,
+  GhostButton,
   InlineSkillPicker,
-  MenuItem,
   MenuOption,
   Popover,
   PrimaryButton,
+  SegmentedControl,
   Textarea,
   StarGlyph,
   Tooltip,
@@ -73,6 +74,17 @@ import { showToast } from '../../../store/toastStore'
 import { SkillsAndMcpsPicker } from './SkillsAndMcpsPicker'
 import { launchCommandLineKey, launchPreviewRequest, type LaunchCommandLineState } from './launchCommandLine'
 import { drawSuggestions, newSuggestionSeed, type SuggestionEntry } from './suggestionBank'
+import { WorktreeChip } from './WorktreeChip'
+import { ScheduleTray } from './schedule/SchedulePicker'
+import { ScheduleSlashPicker, type ScheduleSlashPickerHandle } from './schedule/ScheduleSlashPicker'
+import { localTimeZone } from './schedule/scheduleEditor'
+import { rememberSchedule } from './schedule/recentSchedules'
+import { selectModuleEnabled } from '../../../modules'
+import {
+  DEFAULT_SCHEDULED_AGENT_CRON,
+  type ScheduledAgentDraft,
+  type ScheduledAgentView,
+} from '../../../../../shared/scheduled-agents'
 import {
   CONVERSATION_DEFAULT_MODEL_ID,
   conversationProviderForCli,
@@ -157,7 +169,25 @@ export type NewAgentPanelProps = {
    * passes none and keeps its per-tab state.
    */
   draftKey?: string
+  /**
+   * Door-only: open switched to Scheduled agent (the clock beside New chat).
+   * The switch itself is offered wherever the door is and the Scheduled
+   * agents module is on.
+   */
+  initialMode?: NewAgentPanelMode
+  /**
+   * Door-only: the scheduled agent this panel edits, opened from its sidebar
+   * card. The panel opens on its prompt, schedule, machine, engine, skills,
+   * MCP servers and worktree, and its primary action saves rather than
+   * creates. Absent, the panel creates.
+   */
+  editingScheduledAgent?: ScheduledAgentView | null
+  /** Told once a scheduled agent was created or saved, with the record main returned. */
+  onScheduled?: (agent: ScheduledAgentView) => void
 }
+
+/** What the door starts: a chat now, or a scheduled agent that starts one each time its schedule comes round. */
+export type NewAgentPanelMode = 'chat' | 'scheduled'
 
 /**
  * What a remote launch carries: the target, and the launch identity. It is
@@ -297,6 +327,16 @@ export function sortMachines(machines: MeshConnection[]): MeshConnection[] {
   return [...machines].sort((a, b) => a.machineName.localeCompare(b.machineName, undefined, { sensitivity: 'base' }))
 }
 
+// A scheduled agent keeps its skills by id and name; the composer's chips
+// want the skill as the inventory lists it, and the id and name are what they
+// show and what the run attaches.
+function scheduledSkill(skill: { id: string; name: string }): WorkspaceSkill {
+  return { id: skill.id, name: skill.name, source: 'custom', harnesses: [], installState: 'installed' }
+}
+
+// `/schedule` at the end of the prompt, and whatever follows it on that line.
+const SCHEDULE_COMMAND = /(?:^|\s)\/schedule(?:[ \t]+([^\n]*))?$/u
+
 /**
  * The launch surface behind the tab strip's "+" (v2).
  *
@@ -330,11 +370,24 @@ export default function NewAgentPanel({
   onLaunchRemote,
   onCloneProject,
   draftKey,
+  initialMode = 'chat',
+  editingScheduledAgent = null,
+  onScheduled,
 }: NewAgentPanelProps) {
   // The parked draft, read once at mount: what the door held when the person
   // last stepped off it. An explicit connector attachment leads the draft's
   // own picks (a connector "New chat" over a parked draft adds, never doubles).
   const [draft] = React.useState(() => (draftKey ? readNewChatDraft(draftKey) : null))
+  // A scheduled agent being edited opens on everything it was made with, and
+  // stays a scheduled agent: there is no switching it to a chat.
+  const editing = editingScheduledAgent
+  const [mode, setMode] = React.useState<NewAgentPanelMode>(editing ? 'scheduled' : initialMode)
+  const [cron, setCron] = React.useState(() => editing?.schedule.cron ?? DEFAULT_SCHEDULED_AGENT_CRON)
+  // Written in this computer's zone: the scheduler runs here, on its clock.
+  const [scheduleTimezone] = React.useState(() => editing?.schedule.timezone ?? localTimeZone())
+  const scheduledAgentsEnabled = useWorkspaceStore((s) =>
+    selectModuleEnabled(s.appSettings.modules, 'scheduled-agents'),
+  )
   // The machines on THIS computer (this one, and the WSL distributions turned
   // on in Settings ▸ Machines). Offered only where a launch creates its
   // workspace — the door — because a workspace's machine is fixed once it
@@ -342,7 +395,9 @@ export default function NewAgentPanel({
   const hostChoosable = Boolean(onBrowseProject || onSelectProject)
   const { listing: hostListing } = useExecutionHosts()
   const localHosts: ExecutionHostSummary[] = hostChoosable ? (hostListing?.hosts ?? []) : []
-  const [pickedHostId, setPickedHostId] = React.useState<ExecutionHostId | null>(() => lastPickedHostId)
+  const [pickedHostId, setPickedHostId] = React.useState<ExecutionHostId | null>(() =>
+    editing ? editing.hostId : lastPickedHostId,
+  )
   const scopeFolder = folderPath !== undefined ? folderPath : null
   // A remembered pick counts only while that machine is still offered: one
   // turned off in Settings, or gone from WSL, falls back to this machine
@@ -402,14 +457,23 @@ export default function NewAgentPanel({
       : {}),
     showTerminal: true,
     conversationAvailable: conversationModeEnabled,
-    initialSelection: forceSelection ?? draft?.selection ?? initialSelection,
-    initialMcpServers: draft ? mergeDraftConnectors(initialMcpServers, draft.mcpServers) : initialMcpServers,
-    initialSkills: draft?.skills,
+    // A scheduled agent's runs are chats: a terminal needs someone at it.
+    initialSelection:
+      editing || initialMode === 'scheduled'
+        ? { kind: 'conversation' }
+        : (forceSelection ?? draft?.selection ?? initialSelection),
+    initialMcpServers: editing
+      ? editing.mcpServers
+      : draft
+        ? mergeDraftConnectors(initialMcpServers, draft.mcpServers)
+        : initialMcpServers,
+    initialSkills: editing ? editing.skills.map(scheduledSkill) : draft?.skills,
+    initialWorktreeName: editing ? (editing.worktree?.name ?? null) : null,
     // The engine a parked draft was made on, when whoever made it stored none —
     // a card's `Go` picker, which must not move this door's remembered engine
     // on its way past (item 2473). The panel opens standing on that row and
     // launches it; the first row picked here retires it.
-    initialEngine: draft?.engine ?? null,
+    initialEngine: editing ? { cli: editing.cli, model: editing.cliModel, reasoning: null } : (draft?.engine ?? null),
   })
   const { selection } = composer
   const setLastNewChatAgent = useWorkspaceStore((s) => s.setLastNewChatAgent)
@@ -534,7 +598,14 @@ export default function NewAgentPanel({
   const chatAvailable =
     conversationWorkspaceSupported && composer.visibleRows.some((row) => row.kind === 'conversation')
   const remoteSelectable = remoteCapable && chatAvailable && selection.kind !== 'terminal'
-  const remoteChosenAway = !remoteSelectable || selection.kind !== 'conversation'
+  // Scheduling is the door's, and needs a chat to start: a run happens with
+  // nobody at it, which a terminal cannot do.
+  const scheduleOffered = hostChoosable && scheduledAgentsEnabled && chatAvailable
+  const scheduled = mode === 'scheduled' && (scheduleOffered || editing !== null)
+  React.useEffect(() => {
+    if (scheduled && composer.selection.kind !== 'conversation') composer.setSelection({ kind: 'conversation' })
+  }, [composer, scheduled])
+  const remoteChosenAway = !remoteSelectable || selection.kind !== 'conversation' || scheduled
   React.useEffect(() => {
     if (remoteChosenAway) setRemoteTarget(null)
   }, [remoteChosenAway])
@@ -716,7 +787,7 @@ export default function NewAgentPanel({
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const displayName = useWorkspaceStore((s) => s.authState.user?.displayName ?? null)
 
-  const [prompt, setPrompt] = React.useState(() => draft?.prompt ?? '')
+  const [prompt, setPrompt] = React.useState(() => editing?.prompt ?? draft?.prompt ?? '')
   const [enginePopoverOpen, setEnginePopoverOpen] = React.useState(false)
   const [moreOpen, setMoreOpen] = React.useState(false)
   const [workspaceIsGitRepo, setWorkspaceIsGitRepo] = React.useState(false)
@@ -870,13 +941,34 @@ export default function NewAgentPanel({
   }, [commandCli, pluginCatalogEntries])
   const mentionPrefix = resolveSkillMentionPrefix(skillIntegration)
 
+  // `/schedule every weekday at 9`: the schedule said where the cursor is.
+  // Offered wherever scheduling is, from a chat launch too — picking a
+  // schedule is what switches the door to Scheduled agent.
+  const [slashDismissed, setSlashDismissed] = React.useState(false)
+  const slashRef = React.useRef<ScheduleSlashPickerHandle | null>(null)
+  const slashQuery = React.useMemo(() => {
+    if (!scheduleOffered || editing || slashDismissed) return null
+    const match = SCHEDULE_COMMAND.exec(prompt)
+    return match ? (match[1] ?? '') : null
+  }, [editing, prompt, scheduleOffered, slashDismissed])
+  // A dismissal holds for that `/schedule`, not for the next one typed.
+  React.useEffect(() => {
+    if (slashDismissed && !SCHEDULE_COMMAND.test(prompt)) setSlashDismissed(false)
+  }, [prompt, slashDismissed])
+  const applySlashSchedule = React.useCallback((picked: { cron: string }) => {
+    setPrompt((current) => current.replace(SCHEDULE_COMMAND, '').trimEnd())
+    setMode('scheduled')
+    setCron(picked.cron)
+    promptRef.current?.focus()
+  }, [])
+
   const [mentionDismissed, setMentionDismissed] = React.useState(false)
   const mentionRef = React.useRef<InlineSkillPickerHandle | null>(null)
   const mentionQuery = React.useMemo(() => {
-    if (!mentionPrefix || mentionDismissed) return null
+    if (!mentionPrefix || mentionDismissed || slashQuery !== null) return null
     const match = new RegExp(`(?:^|\\s)\\${mentionPrefix}([^\\s]*)$`).exec(prompt)
     return match ? match[1] : null
-  }, [mentionDismissed, mentionPrefix, prompt])
+  }, [mentionDismissed, mentionPrefix, prompt, slashQuery])
 
   const applySkillMention = (skill: WorkspaceSkill) => {
     const mention = renderSkillMention(skillIntegration, skill.id)
@@ -970,8 +1062,108 @@ export default function NewAgentPanel({
     composer.visibleRows.some((row) => rowMatchesSelection(row, selection)) &&
     (!isChatLaunch || (conversationWorkspaceSupported && pickerOptions.length > 0 && !chatStrandedOnWsl))
 
+  // ── Scheduling ────────────────────────────────────────────────────────────
+  // What a scheduled agent is made of is exactly what this launch would start
+  // now — the machine, project, CLI, model, preset, skills, MCP servers and
+  // worktree on screen — plus the schedule in the tray. Main owns the list;
+  // the door closes on the card it lands as.
+  const [scheduleBusy, setScheduleBusy] = React.useState(false)
+  // Why the last run did not start, until the person has seen it here.
+  const [lastRunFailure, setLastRunFailure] = React.useState<string | null>(() =>
+    editing?.lastRun && !editing.lastRun.ok && (editing.lastFailureSeenAt ?? 0) < editing.lastRun.at
+      ? editing.lastRun.message
+      : null,
+  )
+  const editingId = editing?.id ?? null
+  React.useEffect(() => {
+    if (editingId && lastRunFailure) void window.api.markScheduledAgentFailureSeen(editingId).catch(() => {})
+    // Once, on open: seeing it here is what the card's "Failed" was waiting for.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingId])
+
+  const schedule = async (text: string) => {
+    if (!canLaunch || scheduleBusy) return
+    const folder = workspaceRoot?.trim()
+    if (!folder) {
+      showToast({
+        tone: 'warn',
+        title: 'Choose a project',
+        description: 'A scheduled agent starts its chats in a project.',
+      })
+      return
+    }
+    const body = [text.trim(), ...images.map((image) => quotePath(image.path))].filter(Boolean).join(' ')
+    if (!body) {
+      showToast({
+        tone: 'warn',
+        title: 'Say what it should do',
+        description: 'Each run starts with this prompt, so a scheduled agent needs one.',
+      })
+      promptRef.current?.focus()
+      return
+    }
+    const confirm = composer.buildConfirm(selection)
+    if (confirm.kind !== 'conversation' || !confirm.cli) return
+    const draftRecord: ScheduledAgentDraft = {
+      prompt: body,
+      schedule: { cron, timezone: scheduleTimezone },
+      folderPath: folder,
+      hostId: hostId === LOCAL_HOST_ID ? null : hostId,
+      cli: confirm.cli,
+      cliModel: confirm.model ?? null,
+      // The preset this launcher shows, recorded, so each run is the launch
+      // the person saw rather than whatever the default is by then.
+      permissionPreset: effectivePreset,
+      skills: (confirm.skills ?? []).map((skill) => ({ id: skill.id, name: skill.name })),
+      mcpServers: composer.mcpServers.map((server) => ({ id: server.id, name: server.name })),
+      worktree: confirm.worktree ? { name: confirm.worktree.name } : null,
+    }
+    setScheduleBusy(true)
+    try {
+      const result = editing
+        ? await window.api.updateScheduledAgent(editing.id, draftRecord)
+        : await window.api.createScheduledAgent(draftRecord)
+      if (!result.ok) {
+        showToast({ tone: 'error', title: editing ? 'Not saved' : 'Not scheduled', description: result.message })
+        return
+      }
+      rememberSchedule(cron)
+      onScheduled?.(result.agent)
+    } catch (error) {
+      showToast({
+        tone: 'error',
+        title: editing ? 'Not saved' : 'Not scheduled',
+        description: error instanceof Error ? error.message : String(error),
+      })
+    } finally {
+      setScheduleBusy(false)
+    }
+  }
+
+  // Run now starts what is saved, not what is on screen: an unsaved edit is
+  // still a question, and a run is an answer.
+  const runSavedNow = async () => {
+    if (!editing) return
+    const result = await window.api.runScheduledAgentNow(editing.id).catch((error: unknown) => ({
+      ok: false as const,
+      message: error instanceof Error ? error.message : String(error),
+    }))
+    if (!result.ok) {
+      showToast({ tone: 'error', title: 'Did not run', description: result.message })
+    } else if (!result.run.ok) {
+      setLastRunFailure(result.run.message)
+    } else {
+      setLastRunFailure(null)
+      showToast({ tone: 'good', title: 'Started', description: 'Its chat is in the sidebar under the project.' })
+    }
+  }
+
   const launch = (text: string) => {
     if (!canLaunch) return
+    if (scheduled) {
+      void schedule(text)
+      return
+    }
     if (remoteTarget) {
       if (!remoteTarget.picked || !onLaunchRemote || remoteLaunching) return
       const confirm = composer.buildConfirm(selection)
@@ -1057,6 +1249,24 @@ export default function NewAgentPanel({
   }, [onClose])
 
   const onPromptKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (slashQuery !== null) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        if (slashRef.current?.moveSelection(event.key === 'ArrowDown' ? 1 : -1)) {
+          event.preventDefault()
+          return
+        }
+      } else if (event.key === 'Enter' && !event.shiftKey) {
+        // Enter with nothing to pick is not a launch: the words after
+        // `/schedule` are not the prompt.
+        event.preventDefault()
+        slashRef.current?.pickActive()
+        return
+      } else if (event.key === 'Escape') {
+        event.preventDefault()
+        setSlashDismissed(true)
+        return
+      }
+    }
     if (mentionQuery !== null) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         if (mentionRef.current?.moveSelection(event.key === 'ArrowDown' ? 1 : -1)) {
@@ -1088,7 +1298,11 @@ export default function NewAgentPanel({
   const isTerminalLaunch = selection.kind === 'terminal'
   // The Skills & MCPs trigger on the row is where skills are offered now; the
   // inline `$`/`/` type-ahead still works, it just no longer needs advertising.
-  const placeholder = isTerminalLaunch ? 'A shell opens with nothing typed' : 'Describe the task…'
+  const placeholder = isTerminalLaunch
+    ? 'A shell opens with nothing typed'
+    : scheduled
+      ? 'What each run should do…'
+      : 'Describe the task…'
   // No agent CLI at all, or (for a chat agent) none with a chat runtime: the
   // same install route either way, because installing a CLI is the answer to
   // both.
@@ -1106,12 +1320,35 @@ export default function NewAgentPanel({
       ) : null}
       <div className="@container mx-auto w-full max-w-[620px]">
         <div className="text-center">
+          {/* What the door starts: a chat now, or a scheduled agent that starts
+              one each time its schedule comes round. A choice of value, so the
+              kit's segmented control; the rest of the panel is the same either
+              way, bar the schedule's row in the tray. Not offered while editing
+              one — a scheduled agent stays one. */}
+          {scheduleOffered && !editing ? (
+            <div className="mb-4 flex justify-center">
+              <SegmentedControl
+                ariaLabel="What to start"
+                items={[
+                  { value: 'chat', label: 'Chat' },
+                  { value: 'scheduled', label: 'Scheduled agent' },
+                ]}
+                value={mode}
+                onChange={(next) => setMode(next)}
+              />
+            </div>
+          ) : null}
           {/* icon-lg is the top of the icon scale and the step the system names for
             empty-state glyphs. There is no larger token, and an off-scale hero
             mark is what made this fill the pane. */}
-          <SprintEngineFrond tone="current" className="icon-lg mx-auto text-[color:var(--text-strong)]" />
+          {scheduled ? (
+            <ScheduleGlyph className="icon-lg mx-auto text-[color:var(--text-strong)]" />
+          ) : (
+            <SprintEngineFrond tone="current" className="icon-lg mx-auto text-[color:var(--text-strong)]" />
+          )}
           <h1 className="mt-2.5 text-title font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
-            {greeting}
+            {/* Editing, the tray below already says when; the heading names what. */}
+            {scheduled ? (editing ? 'Scheduled agent' : 'What should run on a schedule?') : greeting}
           </h1>
           {/* State, not decoration: where this agent will run.
               Whether this is a PICKER is decided by what the host can do, never
@@ -1131,7 +1368,10 @@ export default function NewAgentPanel({
                 line reads exactly as it always did. */}
             {(remoteSelectable && remoteMachines.length > 0) || localHosts.length > 1 ? (
               <MachineScopePicker
-                machines={remoteSelectable ? remoteMachines : []}
+                // A scheduled agent runs on this computer or one of its WSL
+                // distributions: the scheduler is this computer's, and a paired
+                // machine's chat would need its own.
+                machines={remoteSelectable && !scheduled ? remoteMachines : []}
                 selected={remoteTarget?.connection ?? null}
                 onSelect={(connection) => pickRemoteMachine(connection)}
                 localHosts={localHosts}
@@ -1217,7 +1457,7 @@ export default function NewAgentPanel({
                 to grow here the moment a remote project was picked, which put
                 the worktree question in TWO places on one surface: up on this
                 line for a remote target, and down behind ⋯ for a local one.
-                One control now — the ⋯ Worktree row — and it serves both. */}
+                One control now — the Worktree chip beside the agent picker. */}
           </div>
         </div>
 
@@ -1237,13 +1477,27 @@ export default function NewAgentPanel({
             action={<CliInstallCta />}
           />
         ) : null}
+        {/* The schedule is one sentence in the tray behind the box, where the
+            composer says everything it has to say — not a field in the prompt,
+            which stays the prompt's alone. Change opens the picker over it. */}
+        {scheduled && !terminalUnavailable ? (
+          <div className="mt-5">
+            <ScheduleTray
+              cron={cron}
+              timezone={scheduleTimezone}
+              onChange={setCron}
+              failure={lastRunFailure}
+              onDismissFailure={() => setLastRunFailure(null)}
+            />
+          </div>
+        ) : null}
         <div
           // The box owns the visible border while the textarea inside it is the
           // tab stop, so the product's one focus ring lands on the box keyed to
           // the textarea's own focus (`FOCUS_RING_WITHIN_TEXTAREA_CLASS`) — not
           // an accent border swap on `focus-within`, which lit the box for the
           // footer's buttons too and was a second focus idiom.
-          className={`relative mt-5 px-3 pb-2 pt-2.5 ${terminalUnavailable ? 'hidden' : ''} ${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} ${
+          className={`relative ${scheduled ? '' : 'mt-5'} px-3 pb-2 pt-2.5 ${terminalUnavailable ? 'hidden' : ''} ${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} ${
             dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
           }`}
           onDragEnter={(event) => {
@@ -1276,6 +1530,14 @@ export default function NewAgentPanel({
             <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-[color:var(--bg-app)] text-meta font-medium text-[color:var(--accent-primary)]">
               Drop to attach
             </div>
+          ) : null}
+          {slashQuery !== null ? (
+            <ScheduleSlashPicker
+              ref={slashRef}
+              query={slashQuery}
+              onPick={applySlashSchedule}
+              onDismiss={() => setSlashDismissed(true)}
+            />
           ) : null}
           {mentionQuery !== null ? (
             <InlineSkillPicker
@@ -1392,6 +1654,14 @@ export default function NewAgentPanel({
               />
             ) : null}
 
+            {/* Worktree sits beside the agent it isolates rather than behind ⋯
+                (owner, 2026-09-30): off until turned on or named. This machine
+                only, and only inside a git repository — a paired machine's
+                chat has no checkout here to fork. */}
+            {selection.kind !== 'terminal' && !remoteTarget && workspaceIsGitRepo ? (
+              <WorktreeChip name={composer.worktreeName} onChange={composer.setWorktreeName} />
+            ) : null}
+
             {/* Every pick is a chip; the one trigger opens the picker for more.
                 A terminal launches nothing that reads a skill or an MCP. */}
             {selection.kind !== 'terminal' ? (
@@ -1432,33 +1702,6 @@ export default function NewAgentPanel({
               </>
             ) : null}
 
-            {/* Set rarities rise onto the row; unset ones live behind ⋯. */}
-            {composer.worktreeName !== null ? (
-              <span className="inline-flex items-center gap-1.5 rounded bg-[color:var(--accent-primary-soft)] px-2 py-0.5 text-meta text-[color:var(--text-strong)]">
-                <BranchGlyph />
-                {/* Sized to what is typed, not a fixed field: a chip that
-                    reserves 128px for a three-letter branch is what pushed this
-                    row onto a second line. */}
-                <Input
-                  variant="seamless"
-                  fullWidth={false}
-                  value={composer.worktreeName}
-                  onChange={(event) => composer.setWorktreeName(event.currentTarget.value)}
-                  placeholder="branch name"
-                  aria-label="Worktree name — leave empty to derive from the agent’s name"
-                  // `field-sizing-content` in place of the `size` attribute the
-                  // kit's `size` prop takes the name of: the box tracks what is
-                  // typed rather than a character count guessed per render.
-                  className="field-sizing-content min-w-[8ch] max-w-[160px] text-meta"
-                />
-                <CloseIconButton
-                  onClick={() => composer.setWorktreeName(null)}
-                  aria-label="Remove worktree"
-                  className="-mr-1"
-                />
-              </span>
-            ) : null}
-
             {/* Always rendered, whatever is selected: this menu is the only way
                 to change WHAT is being launched, so hiding it for a terminal
                 stranded the surface with no way back to an agent. */}
@@ -1490,12 +1733,9 @@ export default function NewAgentPanel({
                     setLastNewChatAgent(next)
                     setMoreOpen(false)
                   }}
-                  worktreeName={composer.worktreeName}
-                  onToggleWorktree={() => composer.setWorktreeName(composer.worktreeName === null ? '' : null)}
-                  onChangeWorktree={composer.setWorktreeName}
-                  // This device only: a paired machine runs chats, which have
-                  // no checkout of their own to fork.
-                  worktreeAvailable={!remoteTarget && workspaceIsGitRepo}
+                  // A scheduled agent's runs are chats; the kinds that are not
+                  // cannot be scheduled, so they are not offered.
+                  scheduled={scheduled}
                 />
               </Popover>
             }
@@ -1505,41 +1745,76 @@ export default function NewAgentPanel({
             {/* The invocation lives on Start's hover: the one moment someone
                 asks "what am I about to run?", and it answers with the line
                 main renders through the spawn's own argv renderer. */}
-            <Tooltip
-              content={
-                selection.kind === 'terminal'
-                  ? 'Opens a shell in this folder'
-                  : isChatLaunch
-                    ? `Starts ${engineNames.cliLabel} as a chat`
-                    : commandLine.status === 'ready'
-                      ? commandLine.preview.display
-                      : commandLine.status === 'error'
-                        ? commandLine.message
-                        : 'Reading this agent’s launch command…'
-              }
-              placement="top"
-              multiline
-            >
-              {/* The key that starts it, not the word "Start" and not a chat
-                  send-arrow: this launches a command, and a circle-arrow is the
-                  idiom for posting a message into a thread. The glyph names the
-                  keyboard path, so the shortcut stops being invisible, and the
-                  accessible name carries the verb for anyone who cannot see it. */}
-              {/* The composer's one primary, built from the kit (ruling 9):
-                  `PrimaryButton` squared to the `xs` control step, so the
-                  send carries the accent fill, the canon disabled treatment
-                  and the shared ring rather than a private 28px recipe. */}
-              <PrimaryButton
-                size="xs"
-                onClick={() => launch(prompt)}
-                disabled={!canLaunch}
-                aria-label="Start agent"
-                aria-keyshortcuts="Enter"
-                className="aspect-square shrink-0 font-mono"
+            {scheduled ? (
+              <>
+                {/* Run now starts what is saved; only a scheduled agent that
+                    exists has anything saved to run. */}
+                {editing ? (
+                  <GhostButton size="xs" onClick={() => void runSavedNow()}>
+                    Run now
+                  </GhostButton>
+                ) : null}
+                {/* A scheduled agent is made, not started, so this primary says
+                    so in a word rather than the ⏎ that starts a chat now. */}
+                <Tooltip
+                  content={
+                    editing
+                      ? 'Save the prompt, schedule and settings'
+                      : `Starts a new ${engineNames.cliLabel} chat with this prompt each time the schedule comes round`
+                  }
+                  placement="top"
+                  multiline
+                >
+                  <PrimaryButton
+                    size="xs"
+                    onClick={() => launch(prompt)}
+                    disabled={!canLaunch}
+                    busy={scheduleBusy}
+                    aria-keyshortcuts="Enter"
+                    className="shrink-0 gap-1.5"
+                  >
+                    <ScheduleGlyph className="icon-xs" />
+                    {editing ? 'Save' : 'Schedule'}
+                  </PrimaryButton>
+                </Tooltip>
+              </>
+            ) : (
+              <Tooltip
+                content={
+                  selection.kind === 'terminal'
+                    ? 'Opens a shell in this folder'
+                    : isChatLaunch
+                      ? `Starts ${engineNames.cliLabel} as a chat`
+                      : commandLine.status === 'ready'
+                        ? commandLine.preview.display
+                        : commandLine.status === 'error'
+                          ? commandLine.message
+                          : 'Reading this agent’s launch command…'
+                }
+                placement="top"
+                multiline
               >
-                <span aria-hidden="true">⏎</span>
-              </PrimaryButton>
-            </Tooltip>
+                {/* The key that starts it, not the word "Start" and not a chat
+                    send-arrow: this launches a command, and a circle-arrow is the
+                    idiom for posting a message into a thread. The glyph names the
+                    keyboard path, so the shortcut stops being invisible, and the
+                    accessible name carries the verb for anyone who cannot see it. */}
+                {/* The composer's one primary, built from the kit (ruling 9):
+                    `PrimaryButton` squared to the `xs` control step, so the
+                    send carries the accent fill, the canon disabled treatment
+                    and the shared ring rather than a private 28px recipe. */}
+                <PrimaryButton
+                  size="xs"
+                  onClick={() => launch(prompt)}
+                  disabled={!canLaunch}
+                  aria-label="Start agent"
+                  aria-keyshortcuts="Enter"
+                  className="aspect-square shrink-0 font-mono"
+                >
+                  <span aria-hidden="true">⏎</span>
+                </PrimaryButton>
+              </Tooltip>
+            )}
           </div>
         </div>
 
@@ -1555,7 +1830,7 @@ export default function NewAgentPanel({
           </p>
         ) : null}
 
-        {terminalUnavailable || isTerminalLaunch ? null : (
+        {terminalUnavailable || isTerminalLaunch || scheduled ? null : (
           <div className="mt-4 grid grid-cols-1 gap-2 @[520px]:grid-cols-2">
             {suggestions.map((entry) => (
               <SuggestionCard
@@ -1584,17 +1859,6 @@ function ChevronGlyph() {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-    </svg>
-  )
-}
-
-function BranchGlyph() {
-  return (
-    <svg className="icon-xs text-[color:var(--accent-primary)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <circle cx="4.5" cy="3.5" r="1.75" stroke="currentColor" strokeWidth="1.3" />
-      <circle cx="4.5" cy="12.5" r="1.75" stroke="currentColor" strokeWidth="1.3" />
-      <circle cx="11.5" cy="6" r="1.75" stroke="currentColor" strokeWidth="1.3" />
-      <path d="M4.5 5.25v5.5M11.5 7.75c0 2-1.5 3-4 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
     </svg>
   )
 }
@@ -1943,22 +2207,15 @@ function MoreMenu({
   selection,
   chatAvailable,
   onSelectKind,
-  worktreeName,
-  onToggleWorktree,
-  onChangeWorktree,
-  worktreeAvailable,
+  scheduled,
 }: {
   selection: AgentComposerSelection
   /** Whether the Chat agent row is offered (the roster has it). */
   chatAvailable: boolean
   onSelectKind: (next: AgentComposerSelection) => void
-  worktreeName: string | null
-  onToggleWorktree: () => void
-  onChangeWorktree: (next: string | null) => void
-  worktreeAvailable: boolean
+  /** A scheduled agent runs as a chat, so only that kind is offered. */
+  scheduled: boolean
 }) {
-  const worktreeRef = React.useRef<HTMLInputElement>(null)
-
   // The Popover surface is the menu and carries the list class; this is its
   // content, not a second menu.
   return (
@@ -1966,108 +2223,32 @@ function MoreMenu({
       {/* The only place the kind of launch is chosen. The two agent rows are
           the same CLI with the same picker; they differ only in the interface
           it opens in. Chat agent is listed only where the workspace can host
-          one. */}
-      <MenuRow
-        selected={selection.kind === 'general'}
-        label="Agent"
-        hint="A CLI agent, in a terminal"
-        onClick={() => onSelectKind({ kind: 'general' })}
-      />
+          one. Worktree left this menu for the launch row (2026-09-30). */}
+      {scheduled ? null : (
+        <MenuRow
+          selected={selection.kind === 'general'}
+          label="Agent"
+          hint="A CLI agent, in a terminal"
+          onClick={() => onSelectKind({ kind: 'general' })}
+        />
+      )}
       {chatAvailable ? (
         <MenuRow
           selected={selection.kind === 'conversation'}
           label="Chat agent"
-          hint="The same CLI agent, as a chat"
+          hint={scheduled ? 'Each run is a chat of its own' : 'The same CLI agent, as a chat'}
           onClick={() => onSelectKind({ kind: 'conversation' })}
         />
       ) : null}
-      <MenuRow
-        selected={selection.kind === 'terminal'}
-        label="Terminal"
-        hint="A plain shell — no agent"
-        onClick={() => onSelectKind({ kind: 'terminal' })}
-      />
-      <div className={MENU_DIVIDER_CLASS} role="separator" />
-
-      {/* A conversation has no repo checkout of its own, so no worktree. */}
-      {worktreeAvailable && selection.kind !== 'conversation' ? (
-        <>
-          <MenuValueRow
-            label="Worktree"
-            value={worktreeName === null ? 'Off' : worktreeName || 'Named on start'}
-            expanded={worktreeName !== null}
-            onClick={() => {
-              onToggleWorktree()
-              // Opening it puts the caret where the name goes — the click that
-              // turns it on is the same click that starts typing.
-              if (worktreeName === null) {
-                window.requestAnimationFrame(() => worktreeRef.current?.focus())
-              }
-            }}
-          />
-          {/* The reveal is the app's "just changed" motion, and it collapses to
-              nothing when off rather than reserving the row. */}
-          <div
-            className={`grid transition-[grid-template-rows,opacity] duration-[var(--motion-normal)] ease-[var(--motion-ease)] ${
-              worktreeName === null ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100'
-            }`}
-          >
-            <div className="overflow-hidden">
-              {/* `quiet` is the field a floating surface hosts: a transparent
-                  ground and a `border.subtle` hairline, because `bg.field`
-                  inside an already-grounded menu reads as a panel nested in a
-                  panel. `content` gives the height back to the menu's own
-                  rhythm. */}
-              <Input
-                ref={worktreeRef}
-                variant="quiet"
-                size="content"
-                value={worktreeName ?? ''}
-                onChange={(event) => onChangeWorktree(event.currentTarget.value)}
-                placeholder="Branch name — blank uses the agent’s"
-                aria-label="Worktree branch name"
-                aria-hidden={worktreeName === null}
-                tabIndex={worktreeName === null ? -1 : 0}
-                className="mx-2 mb-1 w-[calc(100%-1rem)] text-meta"
-              />
-            </div>
-          </div>
-        </>
-      ) : null}
+      {scheduled ? null : (
+        <MenuRow
+          selected={selection.kind === 'terminal'}
+          label="Terminal"
+          hint="A plain shell — no agent"
+          onClick={() => onSelectKind({ kind: 'terminal' })}
+        />
+      )}
     </>
-  )
-}
-
-function MenuValueRow({
-  label,
-  value,
-  expanded = false,
-  onClick,
-}: {
-  label: string
-  value: string
-  expanded?: boolean
-  onClick: () => void
-}) {
-  return (
-    // The kit's action row, with `expanded` — the prop that says a row is a
-    // DOOR rather than a choice — and the current value plus the chevron in the
-    // trailing slot. Full-bleed like its sibling rows (menu spec): the inset
-    // rounded fill is the card-in-a-card the spec retires.
-    <MenuItem
-      onClick={onClick}
-      expanded={expanded || undefined}
-      trailing={
-        <>
-          <span className="max-w-[110px] shrink-0 truncate text-[color:var(--text-subtle)]">{value}</span>
-          <span aria-hidden="true" className="shrink-0 text-micro text-[color:var(--text-disabled)]">
-            ›
-          </span>
-        </>
-      }
-    >
-      {label}
-    </MenuItem>
   )
 }
 

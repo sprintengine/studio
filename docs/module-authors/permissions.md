@@ -31,7 +31,7 @@ known scopes.
 | `backlog.read` | Read Backlog item details and source content | `listBacklogItems`, `watchBacklogItems` |
 | `backlog.write` | Change Backlog item status, links, and metadata | Backlog status/link/metadata writes |
 | `backlog.link.open` | Open links and targets attached to Backlog items | Opening a link provider's target |
-| `automations.manage` | Create and manage its own scheduled automations | Registering and running its own automations |
+| `scheduled-agents.manage` | Schedule agents of its own that start a chat on a timer | Creating, changing and running its own scheduled agents |
 | `agents:companion` | Run its own background agents inside the workspace | The companion-agents service |
 | `storage` | Save its own data in the workspace folder and app data | The module storage bags |
 | `conversation:read` | Read the chats it started, including everything the agent says in them | `getConversationService`: `subscribe`, `transcript`, `list`, `watch` |

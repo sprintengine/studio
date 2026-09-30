@@ -1,7 +1,7 @@
 // Extension marketplace bundle + registry contracts.
 //
 // A marketplace plugin is a thin bundle over primitives the studio already owns:
-// MCP configs, skill packs, capability modules, and automations. The
+// MCP configs, skill packs and capability modules. The
 // bundle manifest validator lives in the published SDK so authoring tools and
 // the app cannot drift on the signing-critical plugin.json shape, including
 // component file digests. This module re-exports that plugin contract and adds
@@ -28,9 +28,9 @@ export { canonicalManifestPayload } from '../../../packages/module-sdk/src/manif
 
 export {
   MARKETPLACE_COMPONENT_KINDS,
-  marketplaceAutomationPayloadIssues,
   parseMarketplacePluginAuthoringManifest,
   parseMarketplacePluginManifest,
+  retiredMarketplaceComponentIssue,
   validateMarketplacePluginAuthoringManifest,
   validateMarketplacePluginManifest,
   type MarketplaceComponentKind,
@@ -149,6 +149,9 @@ export type MarketplaceIndexResult =
   { ok: true; marketplace: MarketplaceIndex } | { ok: false; issues: MarketplaceManifestIssue[] }
 
 const PROVIDES_KIND_SET = new Set<string>(MARKETPLACE_PROVIDES_KINDS)
+// Kinds a registry row once provided and this Studio no longer installs: the
+// automation starters, retired when automations became scheduled agents.
+const RETIRED_PROVIDES_KINDS = new Set<string>(['automation'])
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0 && !value.includes('\0')
@@ -429,6 +432,12 @@ function validateMarketplaceEntry(
   const path = `plugins[${index}]`
   if (!isRecord(value)) {
     issues.push({ path, message: 'marketplace plugin entry must be an object.' })
+    return undefined
+  }
+  // A row for a retired kind is left off the shelf rather than failing the
+  // index: a published registry that still lists one must not take every other
+  // row down with it.
+  if (Array.isArray(value.provides) && value.provides.some((kind) => RETIRED_PROVIDES_KINDS.has(String(kind)))) {
     return undefined
   }
   const startIssues = issues.length

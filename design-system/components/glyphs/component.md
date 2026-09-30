@@ -1,8 +1,9 @@
 # Glyphs
 
 The product's icon language: one concept per glyph, drawn in `currentColor`
-line work, sized only by the `--sem-icon-size-*` ramp. The fifty-eight SVGs in
+line work, sized only by the `--sem-icon-size-*` ramp. The fifty-nine SVGs in
 `glyphs/` (close, search, spinner, sprintengine-mark, git-branch, remote-machine,
+schedule,
 the four `device-*` marks,
 commit, worktree, history, folder, file-typescript, file-generic, the three
 pull-request marks — pull-request-open, pull-request-merged,
@@ -385,6 +386,7 @@ working tree), `FileTypeGlyph` `lock` (the padlock), `glyphs/commit.svg`,
 | `GitBranchGlyph` | The branch fork beside a branch name — sidebar rows, the git button, the run-on strip. `glyphs/git-branch.svg` |
 | `PresetDialGlyph` · `LockGlyph` · `UnlockedGlyph` · `SparkGlyph` | The access-level vocabulary (CLI default · Manual · Bypass · Auto) on the permission-preset menu rows and the composer's permission pill — one drawing per concept, shared by both hosts. Inline in `AppIcons.tsx`; no standalone asset. |
 | `RemoteMachineGlyph` | Also the Device identity family's fallback (above). The stacked-server mark for anything remote — rows, group headers, pickers, the top-bar glyph (remote-sessions-ux decision 7: one glyph, machine name beside it or in the tooltip). Stroke 1.4. `glyphs/remote-machine.svg` |
+| `ScheduleGlyph` | A scheduled agent: a prompt that starts a new chat each time its schedule comes round. The plain clock face — hands at the hour, nothing else — on the New chat panel's Scheduled agent switch, its schedule row, the entry beside New chat, and each scheduled agent's sidebar card. **Not** `glyphs/history.svg`, whose clock carries a rewind arrow and means *the past* (the Git log); this one means *a time that is coming*. Stroke 1.4. `glyphs/schedule.svg` |
 | `WslMachineGlyph` | A WSL distribution on this computer, which is a machine of its own ("WSL: Ubuntu"): a terminal window with a prompt, because the distribution is reached as a shell. It is not remote — it sits beside `RemoteMachineGlyph` in the New chat machine dropdown and must not be mistaken for it — and it is not a Device identity mark, because it names no hardware. Stroke 1.4. `glyphs/wsl-machine.svg` |
 
 ### Code block actions (16-grid — `ui/CodeBlockGlyphs.tsx`)

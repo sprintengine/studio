@@ -17,7 +17,6 @@ import {
   type PaletteRankable,
 } from './commandPaletteSearch'
 import { createRendererHost } from '../modules/renderer-host'
-import { registerAutomationsWorkspaceTypes } from '../modules/automations-workspace-types'
 import { test } from 'vitest'
 
 test('commandPaletteSearch', async () => {
@@ -93,12 +92,25 @@ test('commandPaletteSearch', async () => {
   // so behavior for the existing modes is identical with the arrays gone.
   run('workspace mode search terms derive from the live registry registration', () => {
     const kernel = createRendererHost()
-    registerAutomationsWorkspaceTypes(kernel.hostFor('automations'))
-    const keywords = workspaceKeywordsFromDefinition(kernel.getWorkspaceType('automations-host'), 'automations-host')
-    const row = { label: 'Switch to: Ops automations', keywords }
-    assert.equal(commandMatchesQuery(row, 'cron'), true)
-    assert.equal(commandMatchesQuery(row, 'automations'), true)
-    assert.equal(commandMatchesQuery(row, 'trigger'), true)
+    kernel.hostFor('tide-tables').registerWorkspaceType({
+      id: 'tide-tables',
+      label: 'Tide tables',
+      description: 'A workspace type registered for this check alone.',
+      icon: () => null,
+      searchTerms: ['tides', 'harbour', 'almanac'],
+      createTemplate: () => ({
+        id: 'tide-tables',
+        name: 'Tide tables',
+        description: 'A workspace type registered for this check alone.',
+        previewSlots: [],
+        layout: { global: {}, borders: [], layout: { type: 'row', children: [] } },
+      }),
+    } as never)
+    const keywords = workspaceKeywordsFromDefinition(kernel.getWorkspaceType('tide-tables'), 'tide-tables')
+    const row = { label: 'Switch to: Spring tides', keywords }
+    assert.equal(commandMatchesQuery(row, 'harbour'), true)
+    assert.equal(commandMatchesQuery(row, 'almanac'), true)
+    assert.equal(commandMatchesQuery(row, 'kanban'), false)
   })
 
   // The ⌘⇧F scope. `all` and `files` are one list filtered two ways, so the

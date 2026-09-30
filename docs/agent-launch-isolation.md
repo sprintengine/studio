@@ -32,9 +32,9 @@ build under the profile's userData directory
   Settings is applied to this copy in place, not by rebuilding it.
 - `--plugin-dir <userData>/agent-integration/<version>/launch-skills/<id>`,
   **only on the launch whose prompt invokes that skill**: `backlog`, for a
-  Backlog handoff (Hand to agent, `backlog.work`, an automation's
-  `spawnSkillId`). It is a plugin holding that one skill, so no other session
-  sees it and nothing is written to the repository. It is the only skill the
+  Backlog handoff (Hand to agent, `backlog.work`). It is a plugin holding that
+  one skill, so no other session sees it and nothing is written to the
+  repository. It is the only skill the
   app ships (`resources/builtin-skills`). A `studio-skills` bundle holding it,
   `debug` and seven general workflow skills was passed to every launch until
   2026-09-28 and is gone; so is Debug Mode, the feature `debug` backed.
@@ -158,7 +158,7 @@ session ends.
 ### Not agent integration
 
 The app's own features keep their state under `.sprintengine/` already:
-worktrees, automations, the backlog link cache, browser captures, conversation
+worktrees, the backlog link cache, browser captures, conversation
 records, module storage and phone uploads. The caches ignore themselves. None
 of it is read by an agent CLI's configuration loader, so none of it carries the
 app's behaviour into a plain-terminal session.

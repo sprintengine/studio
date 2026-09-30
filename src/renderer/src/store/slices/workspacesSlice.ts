@@ -45,7 +45,6 @@ import type {
   WorkspaceMode,
   WorkspaceWorktreeState,
 } from '../../types/workspace'
-import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../../types/workspace'
 import { deriveWorkspaceTitle, isDefaultWorkspaceName } from '../../../../shared/workspace-title'
 import { MESH_CONVERSATION_COMPONENT, meshConversationSessionId } from '../../../../shared/tailnet-mesh'
 
@@ -297,9 +296,9 @@ interface WorkspacesSliceActions {
       // When set, overrides the remembered `lastSelectedCli` default below.
       templateAgentCli?: AgentCli | null
       mode?: Workspace['mode']
-      // Externally-triggered creation (the automation executor's hidden host):
-      // it must not dismiss whatever the operator is reading, so a background
-      // create skips the door-surface clear that user-initiated creation does.
+      // Externally-triggered creation: it must not dismiss whatever the
+      // operator is reading, so a background create skips the door-surface
+      // clear that user-initiated creation does.
       // activeWorkspaceId assignment is unchanged either way.
       background?: boolean
       windowId?: WorkspaceWindowId | null
@@ -1161,12 +1160,9 @@ export function createWorkspacesSlice(
 
     addWorkspace: (template, options) => {
       let id = nanoid()
-      // Captured for a genuinely new workspace (not the host-reuse early
-      // return) so creation is broadcast through main as a workspace.created
-      // event — and for an Automations-host reuse, where the offer heals a main
-      // process whose routing snapshot forgot the host. Local creation stays the
-      // functional path; storage-event sync is the rollback. Fire-and-forget
-      // after the synchronous set().
+      // Captured so creation is broadcast through main as a workspace.created
+      // event. Local creation stays the functional path; storage-event sync is
+      // the rollback. Fire-and-forget after the synchronous set().
       let createdEventPayload: { workspace: Workspace; windowId: WorkspaceWindowId; folderPath: string | null } | null =
         null
 
@@ -1174,53 +1170,10 @@ export function createWorkspacesSlice(
         const folderPath = options?.folderPath ?? null
         const fallbackName = `${template.name} ${state.workspaces.length + 1}`
         const explicitMode = options?.mode
-        const isAutomationsHost = explicitMode === AUTOMATIONS_HOST_WORKSPACE_MODE
         const targetWindowId =
           options?.windowId ??
           (state.activeWorkspaceId ? findWorkspaceWindow(state, state.activeWorkspaceId)?.id : null) ??
           state.primaryWorkspaceWindowId
-        // A background host — Automations (item 1707) — is strictly
-        // one-per-project. Every
-        // creation path funnels here, so reusing the folder's existing host at
-        // this boundary is what guarantees a duplicate can never be minted,
-        // whatever the caller believed. It is created by code rather than by a
-        // person, which is exactly why the check has to be inside `set()`: two
-        // calls in one tick each read the store before either writes.
-        const hostMode = isAutomationsHost ? AUTOMATIONS_HOST_WORKSPACE_MODE : null
-        const hostFolderKey = hostMode ? workspaceFolderKey(folderPath) : null
-        const existingHost = hostFolderKey
-          ? state.workspaces.find(
-              (workspace) => workspace.mode === hostMode && workspaceFolderKey(workspace.folderPath) === hostFolderKey,
-            )
-          : null
-        if (existingHost) {
-          if (folderPath) {
-            state.appSettings.recentWorkspaceFolders = normalizeRecentWorkspaceFolders(
-              [folderPath],
-              state.appSettings.recentWorkspaceFolders,
-            )
-          }
-          id = existingHost.id
-          existingHost.folderMissing = false
-          state.activeWorkspaceId = existingHost.id
-          if (!options?.background) clearRoutedSurfaces(state)
-          const targetWindow = ensureWorkspaceWindow(
-            state,
-            options?.windowId ?? findWorkspaceWindow(state, existingHost.id)?.id ?? targetWindowId,
-          )
-          if (!targetWindow.workspaceIds.includes(existingHost.id)) {
-            targetWindow.workspaceIds.push(existingHost.id)
-          }
-          targetWindow.activeWorkspaceId = existingHost.id
-          normalizeWindowAssignments(state)
-          // No re-offer to main. That step existed only to heal a
-          // restart-restored routing placeholder whose mode main had lost
-          // (moving workspace creation to main removed the placeholder), and reuse itself is main's call
-          // now: `prepareCreate` resolves the folder's existing host inside the
-          // same critical section as the mint, which is the only place the
-          // check can hold ACROSS windows.
-          return
-        }
         const workspaceName = options?.name?.trim() || fallbackName
         // Only a workspace on an app-minted name ("Chat 44", "Solo 3") is a
         // candidate for auto-titling. A wizard-typed name or a chained run's
@@ -1273,14 +1226,12 @@ export function createWorkspacesSlice(
           id,
           name: workspaceName,
           ...(titleLocked ? { titleLocked: true } : {}),
-          mode: isAutomationsHost
-            ? AUTOMATIONS_HOST_WORKSPACE_MODE
-            : // Module-contributed workspace types: the explicit mode
-              // from buildModuleTypeCreation IS the identity every
-              // mode-derived surface (panel scopes, run glyphs, the
-              // not-installed state, creation re-resolution) keys on —
-              // dropping it to 'standard' silently strips all of them.
-              (explicitMode ?? 'standard'),
+          // Module-contributed workspace types: the explicit mode from
+          // buildModuleTypeCreation IS the identity every mode-derived surface
+          // (panel scopes, run glyphs, the not-installed state, creation
+          // re-resolution) keys on — dropping it to 'standard' silently strips
+          // all of them.
+          mode: explicitMode ?? 'standard',
           folderPath,
           folderMissing: false,
           ...(options?.remoteOrigin ? { remoteOrigin: options.remoteOrigin } : {}),

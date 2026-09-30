@@ -64,7 +64,7 @@ describe('extensions:scaffold:templates', () => {
     assert.ok(panel)
     assert.equal(panel.title, 'Panel')
     assert.deepEqual(panel.permissions, ['storage'])
-    assert.ok(templates.length >= 11)
+    assert.ok(templates.length >= 10)
   })
 
   test('reads the shipped copies when packaged and the SDK package in a checkout', () => {

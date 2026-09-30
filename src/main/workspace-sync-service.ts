@@ -156,26 +156,18 @@ export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions)
     const modeCheck = registry.precheckWorkspaceMode(input.mode)
     if (!modeCheck.ok) return modeCheck
     const prepared = registry.prepareCreate(input)
-    // A reuse is not a creation. Emitting `workspace.created` for a record that
-    // already exists would announce a workspace every window already has and
-    // bump its revision for nothing. What reuse actually owes the caller is the
-    // two behaviours the renderer branch had: the folder is no longer missing,
-    // and the workspace joins the requesting window's membership if it is not
-    // already there.
-    const emitted = prepared.reused
-      ? reuseExisting(prepared, actor)
-      : emit(
-          {
-            type: 'workspace.created',
-            payload: {
-              workspace: prepared.workspace,
-              windowId: prepared.windowId,
-              insert: { kind: 'folder_head', folderPath: prepared.folderPath },
-            },
-          },
-          prepared.windowId,
-          actor,
-        )
+    const emitted = emit(
+      {
+        type: 'workspace.created',
+        payload: {
+          workspace: prepared.workspace,
+          windowId: prepared.windowId,
+          insert: { kind: 'folder_head', folderPath: prepared.folderPath },
+        },
+      },
+      prepared.windowId,
+      actor,
+    )
     if (!emitted.ok) return { ok: false, reason: emitted.reason, message: emitted.message }
     const committed = registry.getRecord(prepared.workspace.id)
     if (!committed) {
@@ -288,57 +280,6 @@ export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions)
     subscribeEvents,
     updateWorkspaceAgent,
     updateWorkspaceFields,
-  }
-
-  /**
-   * Land a reuse: clear `folderMissing` if the caller's folder resolved it, and
-   * assign the workspace to the requesting window when it is not already there.
-   * Both are no-ops when nothing changed, so a repeated reuse is silent.
-   */
-  function reuseExisting(prepared: WorkspaceCreateResult, actor: WorkspaceMutationActor): WorkspaceSyncCommandResult {
-    const existing = registry.getRecord(prepared.workspace.id)
-    if (!existing) {
-      return failure('unknown_workspace', `Workspace "${prepared.workspace.id}" vanished during reuse.`)
-    }
-    const alreadyInWindow = registry
-      .getState()
-      .workspaceWindows.some((windowState) => windowState.workspaceIds.includes(existing.id))
-    if (existing.folderMissing) {
-      const cleared = emit(
-        {
-          type: 'workspace.update_fields',
-          payload: { workspaceId: existing.id, patch: { folderMissing: false }, editedAt: now() },
-        },
-        prepared.windowId,
-        actor,
-      )
-      if (!cleared.ok) return cleared
-    }
-    if (alreadyInWindow) {
-      return {
-        ok: true,
-        event: {
-          id: `workspace-reuse-${existing.id}`,
-          type: 'workspace.created',
-          sourceWindowId: prepared.windowId,
-          sequence: registry.getState().lastAppliedWorkspaceSyncSequence,
-          createdAt: now(),
-          payload: {
-            workspace: existing,
-            windowId: prepared.windowId,
-            insert: { kind: 'folder_head', folderPath: prepared.folderPath },
-          },
-        },
-      }
-    }
-    return emit(
-      {
-        type: 'workspace.move_to_window',
-        payload: { workspaceId: existing.id, fromWindowId: null, toWindowId: prepared.windowId, makeActive: false },
-      },
-      prepared.windowId,
-      actor,
-    )
   }
 
   /** Mint, apply, log, and announce one accepted command. */

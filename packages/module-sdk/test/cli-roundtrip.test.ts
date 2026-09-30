@@ -237,7 +237,7 @@ test('cli-roundtrip', async () => {
     assert.ok(existsSync(join(pluginDir, 'mcp', 'server.json')))
     assert.ok(existsSync(join(pluginDir, 'skills', 'marketplace-plugin-fixture', 'SKILL.md')))
     assert.ok(existsSync(join(pluginDir, 'module', 'manifest.json')))
-    assert.ok(existsSync(join(pluginDir, 'automation', 'automation.json')))
+    assert.equal(existsSync(join(pluginDir, 'automation')), false, 'a plugin bundle carries no automation')
     assert.equal(existsSync(join(pluginDir, 'cli')), false, 'a plugin bundle carries no agent CLI')
     const scaffoldedMcp = JSON.parse(readFileSync(join(pluginDir, 'mcp', 'server.json'), 'utf8')) as {
       servers?: Array<{ source?: string }>
@@ -335,7 +335,7 @@ test('cli-roundtrip', async () => {
       'cli',
     ])
     assert.equal(scaffold.status, 1)
-    assert.match(scaffold.stderr, /must be one of: mcp, skills, module, automation/)
+    assert.match(scaffold.stderr, /must be one of: mcp, skills, module\./)
     assert.equal(existsSync(pluginDir), false)
   }
 
@@ -383,8 +383,6 @@ test('cli-roundtrip', async () => {
       '--out',
       pluginDir,
       '--component',
-      'automation',
-      '--component',
       'skills',
       '--component',
       'mcp',
@@ -392,19 +390,18 @@ test('cli-roundtrip', async () => {
       'module',
     ])
     assert.equal(scaffolded.status, 0, scaffolded.stderr)
-    const canonical = ['mcp', 'skills', 'module', 'automation']
+    const canonical = ['mcp', 'skills', 'module']
     assert.deepEqual(
       Object.keys(JSON.parse(readFileSync(join(pluginDir, 'plugin.json'), 'utf8')).components),
       canonical,
       'plugin scaffold writes components in MARKETPLACE_COMPONENT_KINDS order',
     )
-    assert.match(scaffolded.stdout, /Registry entry "provides": \["mcp","skills","module","automation"\]/)
+    assert.match(scaffolded.stdout, /Registry entry "provides": \["mcp","skills","module"\]/)
 
     // And a hand-scrambled plugin.json is re-ordered by `plugin sign` rather than
     // signed in the order it was typed.
     const manifest = JSON.parse(readFileSync(join(pluginDir, 'plugin.json'), 'utf8'))
     manifest.components = {
-      automation: manifest.components.automation,
       module: manifest.components.module,
       skills: manifest.components.skills,
       mcp: manifest.components.mcp,
@@ -417,12 +414,12 @@ test('cli-roundtrip', async () => {
       canonical,
       'plugin sign writes the signed manifest back in canonical component order',
     )
-    assert.match(signed.stdout, /Registry entry "provides": \["mcp","skills","module","automation"\]/)
+    assert.match(signed.stdout, /Registry entry "provides": \["mcp","skills","module"\]/)
     // The re-ordered manifest is still the one that verifies: order is normalized
     // BEFORE the signature is computed, not after.
     const verified = runCli(['plugin', 'verify', pluginDir])
     assert.equal(verified.status, 0, verified.stderr)
-    assert.match(verified.stdout, /Registry entry "provides": \["mcp","skills","module","automation"\]/)
+    assert.match(verified.stdout, /Registry entry "provides": \["mcp","skills","module"\]/)
   }
 
   try {

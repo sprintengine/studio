@@ -44,8 +44,7 @@ import { resolveCheckoutForCwd } from './checkout-resolve'
 import { createModuleRegistryMirror } from './modules/registry-mirror'
 import { readModuleTrustContextSync } from './modules/trust-context'
 import { defaultUserModuleRoot, discoverUserModules } from './modules/user-module-registry'
-import { AutomationsStore } from './automations/store'
-import type { AutomationsAppFrontDoor } from './ipc/automations-ipc'
+import type { ScheduledAgentsService } from './scheduled-agents/service'
 import {
   addOrUpdateBacklogLink,
   listBacklogItems,
@@ -722,12 +721,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     return owner ? hosts.get(owner) : null
   })
 
-  // The Automations module (and its app front door) registers on the module
-  // kernel AFTER app services are constructed; index.ts injects the resolver once
-  // the kernel is up. Declared here because the automation tools resolve it
-  // lazily, at call time. Until the module is up, they report the module as
-  // unavailable rather than buffering.
-  let resolveAutomationsAppFrontDoor: () => AutomationsAppFrontDoor | null = () => null
+  // The Scheduled agents module registers on the module kernel AFTER app
+  // services are constructed; index.ts injects the resolver once the kernel is
+  // up. Declared here because the scheduled-agent tools resolve it lazily, at
+  // call time. Until the module is up, they report it as unavailable rather
+  // than buffering.
+  let resolveScheduledAgents: () => ScheduledAgentsService | null = () => null
   // Live main-process module enablement, injected by index.ts once the manifest
   // universe exists; it recomputes on every override the renderer pushes, so a
   // module the user just switched off is off here on the next call. Until then
@@ -1545,11 +1544,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
           listBacklogItems: (workspaceRoot) => listBacklogItems(workspaceRoot),
           readBacklogItem: (workspaceRoot, relativePath) => readBacklogItem(workspaceRoot, relativePath),
-          // Same filesystem store the Automations IPC front door reads; roots are
-          // snapshot-resolved, so only open workspaces are reachable.
-          listAutomationDefinitions: (workspaceRoot) => new AutomationsStore(workspaceRoot).listDefinitions(),
-          listAutomationRuns: (workspaceRoot, automationId) =>
-            new AutomationsStore(workspaceRoot).listRuns(automationId),
           backlogWrite: {
             updateStatus: updateBacklogStatus,
             updateType: updateBacklogType,
@@ -1559,7 +1553,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
             addOrUpdateLink: addOrUpdateBacklogLink,
             repairIntegrity: repairBacklogIntegrity,
           },
-          getAutomationsFrontDoor: () => resolveAutomationsAppFrontDoor(),
+          getScheduledAgents: () => resolveScheduledAgents(),
+          defaultChatCli: () => effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastSelectedCli ?? null,
           // The mobile companion, which reaches this desktop only over the
           // tailnet gateway: the snapshot builder and the command service behind
           // `workspace.snapshot` and `workspace.mobile_command`, scoped to the
@@ -1950,13 +1945,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     telemetryConsentStore,
     analytics,
     readBackgroundStatus,
-    setAutomationsAppFrontDoorResolver(resolver: () => AutomationsAppFrontDoor | null): void {
-      resolveAutomationsAppFrontDoor = resolver
+    setScheduledAgentsResolver(resolver: () => ScheduledAgentsService | null): void {
+      resolveScheduledAgents = resolver
     },
-    // Read side of the same lazy resolver: the marketplace install path adds a
-    // catalogue automation through this door, and gets null while the module is
-    // down rather than a second way into the automations store.
-    getAutomationsAppFrontDoor: (): AutomationsAppFrontDoor | null => resolveAutomationsAppFrontDoor(),
     setModuleEnabledResolver(resolver: (moduleId: string) => boolean): void {
       resolveModuleEnabled = resolver
     },

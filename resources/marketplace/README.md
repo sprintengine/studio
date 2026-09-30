@@ -42,15 +42,12 @@ signature, and the signature path itself is still exercised: the publish test
 signs a probe bundle with a throwaway key it generates and trusts for the length
 of the run.
 
-**Unsigned automation starters** (`*-automation`). Each is a definition — a
-schedule trigger, a `spawn-agent` action and a prompt — interpreted by the app's
-automation engine, never loaded as code, so it ships unsigned like every other
-non-code-bearing bundle. A signature is what would let an entry claim
-`publisher.verified`, so these declare `false`; integrity of the committed bytes
-comes from the component file digests instead, which the verifier requires.
-Their marks are committed at `icons/<id>.svg` for review and inlined into
-`marketplace.json` as `data:` URIs so they render without resolving against the
-remote registry.
+**The automation starters are gone** (2026-09-30). The five `*-automation`
+rows each installed a scheduled automation definition; automations became
+scheduled agents, which a person creates from New chat and an extension creates
+at runtime, so their rows, their `plugins/<id>/` bundles and their
+`icons/*.svg` marks are removed. A bundle that still declares an `automation`
+component no longer validates.
 
 Every entry in `marketplace.json` is now hand-authored. The generator that used
 to project most of it from a private catalogue-snapshot package
@@ -79,10 +76,8 @@ is no longer the *only* source the app will consume:
   bundle. Existing signed-bundle entries (this seed) stay valid unchanged.
 - **Trust is by signature + component kind, not by listing**: code-bearing
   bundles (`module`/`cli`) keep the hard signature gate; unsigned
-  MCP/skills/automation and inline-MCP entries install only through the community
-  trust prompt. The four MCP seeds remain signed and verified via the
-  trusted-publisher fingerprint; the automation starters do not, and say so by
-  declaring `publisher.verified: false`.
+  MCP/skills and inline-MCP entries install only through the community trust
+  prompt, and say so by declaring `publisher.verified: false`.
 - **Registry read is config-swappable**: `SPRINTENGINE_MARKETPLACE_REGISTRY_URL`
   can point the read at a hosted catalogue's `GET /v1/registry`; this seed
   stays the offline/packaged fallback either way.
@@ -112,8 +107,7 @@ material.
 
 An unsigned entry that ships a committed bundle gets an equivalent gate rather
 than the CLI one: its manifest must parse, it must carry no `module`/`cli`
-component, its component digests must match the committed bytes, and an
-`automation` payload must be a valid definition draft. Two rules apply to every
+component, and its component digests must match the committed bytes. Two rules apply to every
 entry regardless of shape — an entry with no signature may not set
 `publisher.verified`, and every committed `plugins/<id>/` payload must be
 claimed by an entry the verifier actually checked.

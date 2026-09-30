@@ -14,13 +14,21 @@ test('bundled-ids', async () => {
   // RESERVED-BUT-UNBUNDLED ids stay in BUNDLED_MODULE_IDS on purpose. A module id
   // the app once shipped — or ships today as an installable module rather than an
   // in-tree one — is still an id a person recognises and a first-party trust
-  // decision keys on (`isFirstPartyAutomationProviderModule`), so releasing it
-  // back into the third-party namespace would let an impostor inherit that trust.
-  // `review` is the extracted Reviews module and `sprint-engine` the extracted
-  // Sprint Engine (both publisher-locked reservations); the others are retired —
-  // `mobile-relay` with the hosted relay, when the phone moved to the tailnet.
+  // decision may key on, so releasing it back into the third-party namespace
+  // would let an impostor inherit that trust. `review` is the extracted Reviews
+  // module and `sprint-engine` the extracted Sprint Engine (both
+  // publisher-locked reservations); the others are retired — `mobile-relay` with
+  // the hosted relay, when the phone moved to the tailnet, and `automations` when
+  // scheduled agents replaced it.
   // They are listed here, not silently tolerated, so the set stays deliberate.
-  const RETIRED_RESERVED_IDS = ['switchboard', 'design-wizard', 'review', 'sprint-engine', 'mobile-relay']
+  const RETIRED_RESERVED_IDS = [
+    'switchboard',
+    'design-wizard',
+    'review',
+    'sprint-engine',
+    'mobile-relay',
+    'automations',
+  ]
 
   const bundled = [...BUNDLED_RENDERER_MODULE_MANIFESTS.map((m) => m.id)].sort()
   const reserved = [...BUNDLED_MODULE_IDS].sort()

@@ -1,13 +1,10 @@
 import type { AppServices } from '../app-services'
-import type { AutomationsEngine } from '../automations/engine'
-import type { ModuleAutomationsRegistry } from '../automations/module-service'
-import type { AutomationProviderRegistryService } from '../automations/provider-registry'
-import type { AutomationsAppFrontDoor } from '../ipc/automations-ipc'
 import type { ModuleWorkspaceContextService, ModuleWorkspaceService } from '../modules/module-workspace-service'
 import type { ModuleStorageRegistry } from './module-storage'
 import type { CompanionAgentService, CompanionAgentsModuleRegistry } from '../companion-agent-service'
 import type { ModuleGitHubRegistry, ModuleSecretsRegistry } from '../../shared/modules/brokers'
 import type { ModuleConversationRegistry } from '../../shared/modules/conversation-service'
+import type { ScheduledAgentsModuleRegistry, ScheduledAgentsService } from '../scheduled-agents/service'
 import { createServiceToken } from './main-host'
 
 // Tokens for the shared services that capability modules consume across module
@@ -47,16 +44,13 @@ export const ConversationLaunchServiceToken =
   createServiceToken<AppServices['conversationLaunchService']>('core.conversation-launch')
 export const ConversationRuntimeToken =
   createServiceToken<AppServices['conversationRuntime']>('core.conversation-runtime')
-export const AutomationsEngineToken = createServiceToken<AutomationsEngine>('automations.engine')
-// Key mirrors the private service token used by module-sdk's Automations helpers.
-export const AutomationsProviderRegistryToken = createServiceToken<AutomationProviderRegistryService>(
-  'automations.provider-registry',
+// Scheduled agents: the one door every caller — the New chat panel, an
+// extension, an agent's MCP call — creates and changes them through.
+export const ScheduledAgentsServiceToken = createServiceToken<ScheduledAgentsService>('scheduled-agents.service')
+// Key mirrors the private token behind the SDK's getScheduledAgentsService.
+export const ScheduledAgentsModuleServiceToken = createServiceToken<ScheduledAgentsModuleRegistry>(
+  'scheduled-agents.module-service',
 )
-// Key mirrors the private token behind the SDK's getAutomationsService helper.
-export const AutomationsModuleServiceToken = createServiceToken<ModuleAutomationsRegistry>('automations.module-service')
-// The IPC-equivalent create/run-now pipeline for app-level (non-module)
-// callers — today the automation server's automation.create/automation.run.
-export const AutomationsAppFrontDoorToken = createServiceToken<AutomationsAppFrontDoor>('automations.app-front-door')
 // Programmatic workspace creation for capability modules. The key MUST equal the
 // SDK's WorkspaceServiceToken ('core.workspace') so a module that imports the
 // token from @sprintengine/module-sdk resolves the instance the app provides here.

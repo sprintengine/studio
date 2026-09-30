@@ -251,7 +251,7 @@ test('ExtensionsHomeSurface', async () => {
   // latches before the shell opens, exactly as a drawer row does, so an
   // already-open surface and a cold one both land on the tile that was clicked.
   act(() => {
-    useWorkspaceStore.getState().openGlobalSurface('automations')
+    useWorkspaceStore.getState().openGlobalSurface('design')
   })
   consumePendingExtensionsSurfaceTarget()
   act(() => {
@@ -303,10 +303,10 @@ test('ExtensionsHomeSurface', async () => {
   const FEED: HostedCard[] = [
     {
       slug: 'big-task',
-      kind: 'automation',
+      kind: 'showcase',
       title: 'Big task? No problem.',
       dek: 'Hand it something too big for one sitting and let it run.',
-      credit: 'Automations',
+      credit: 'Studio',
       art: 'split',
       publishedAt: '2026-09-01T00:00:00.000Z',
       hero: true,
@@ -405,7 +405,7 @@ test('ExtensionsHomeSurface', async () => {
 
   // The stamp, the sentences and the credit — Frame 2’s anatomy, in the DOM.
   for (const [title, stamp, credit] of [
-    ['Big task? No problem.', 'Automation', 'Automations'],
+    ['Big task? No problem.', 'Showcase', 'Studio'],
     ['Let an agent drive your browser', 'MCP server', 'Playwright'],
     ['Build a 3D apocalypse of your own street', 'Showcase', 'Unreal Engine'],
   ]) {
@@ -450,14 +450,14 @@ test('ExtensionsHomeSurface', async () => {
       'the accessible name leads with the visible label and then says which card it belongs to',
     )
   }
-  // This hero is an `automation` card that opens a chat, so its kind names the offer.
+  // This hero is a `showcase` card that opens a chat, so its kind names the offer.
   // The other direction — a card whose actions only navigate, which must say so
   // whatever its stamp claims — is the pure function's own business and is
   // asserted in homeCards.test.ts, where it needs no DOM.
   const heroButton = cardButtons().find((button) =>
     (button.getAttribute('aria-label') ?? '').endsWith('Big task? No problem.'),
   )
-  assert.equal(heroButton?.textContent?.trim(), 'Create', 'the word is the offer the card makes')
+  assert.equal(heroButton?.textContent?.trim(), 'See it', 'the word is the offer the card makes')
   const accented = cardButtons().filter((button) =>
     (button.getAttribute('class') ?? '').includes('var(--accent-primary)'),
   )
@@ -590,7 +590,6 @@ test('ExtensionsHomeSurface', async () => {
       const ran: Array<{ slug: string; launch: CardLaunchChoice }> = []
       setExtensionsSurfaceHost({
         onLaunchConnector: () => {},
-        onUseInAutomation: () => {},
         onUseSkillInNewAgent: () => {},
         onRunCard: (card, launch) => {
           ran.push({ slug: card.slug, launch })
@@ -812,7 +811,6 @@ test('ExtensionsHomeSurface', async () => {
       const rememberedModel = useWorkspaceStore.getState().appSettings.lastSelectedAgentModel
       setExtensionsSurfaceHost({
         onLaunchConnector: () => {},
-        onUseInAutomation: () => {},
         onUseSkillInNewAgent: () => {},
         onRunCard: (card, launch) => {
           ran.push({ slug: card.slug, launch })
@@ -938,8 +936,8 @@ test('ExtensionsHomeSurface', async () => {
     // no browser globals at all and this predicate's module reaches the store.
     //
     // The case worth writing down is the LAST one: `kind` is the word on the
-    // stamp, and the schema lets a showcase card open a chat exactly as it lets an
-    // automation card open a surface. A gate keyed on `kind` would pass every
+    // stamp, and the schema lets a showcase card open a chat exactly as it lets a
+    // plugin card open a surface. A gate keyed on `kind` would pass every
     // assertion above and put a plain button in front of an agent launch.
     const asCard = (kind: HostedCard['kind'], go: HostedCard['go']): HostedCard => ({
       slug: 'probe',
@@ -950,9 +948,9 @@ test('ExtensionsHomeSurface', async () => {
       publishedAt: '2026-09-06T00:00:00.000Z',
       go,
     })
-    assert.equal(cardRunsAModel(asCard('automation', [])), false, 'no actions at all runs no model')
+    assert.equal(cardRunsAModel(asCard('showcase', [])), false, 'no actions at all runs no model')
     assert.equal(
-      cardRunsAModel(asCard('automation', [{ verb: 'open.surface', view: 'agent-clis' }])),
+      cardRunsAModel(asCard('showcase', [{ verb: 'open.surface', view: 'agent-clis' }])),
       false,
       'opening a door runs no model — this is the shipped hero',
     )
@@ -962,7 +960,7 @@ test('ExtensionsHomeSurface', async () => {
       'and installing a server runs no model either',
     )
     assert.equal(
-      cardRunsAModel(asCard('automation', [{ verb: 'require.cli', cli: 'claude-code' }, CHAT])),
+      cardRunsAModel(asCard('showcase', [{ verb: 'require.cli', cli: 'claude-code' }, CHAT])),
       true,
       'a card that ends in a chat runs one',
     )
@@ -990,7 +988,7 @@ test('ExtensionsHomeSurface', async () => {
         cards: [
           {
             slug: 'opens-a-door',
-            kind: 'automation' as const,
+            kind: 'showcase' as const,
             title: 'Big task? No problem.',
             dek: 'Its whole go is one open.surface, exactly as the shipped hero’s is.',
             art: 'split',
@@ -1016,7 +1014,6 @@ test('ExtensionsHomeSurface', async () => {
       const ran: Array<{ slug: string; launch: CardLaunchChoice }> = []
       setExtensionsSurfaceHost({
         onLaunchConnector: () => {},
-        onUseInAutomation: () => {},
         onUseSkillInNewAgent: () => {},
         onRunCard: (card, launch) => {
           ran.push({ slug: card.slug, launch })
@@ -1169,7 +1166,6 @@ test('ExtensionsHomeSurface', async () => {
       const ran: string[] = []
       setExtensionsSurfaceHost({
         onLaunchConnector: () => {},
-        onUseInAutomation: () => {},
         onUseSkillInNewAgent: () => {},
         onRunCard: (card) => {
           ran.push(card.slug)

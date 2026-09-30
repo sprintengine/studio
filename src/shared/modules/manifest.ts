@@ -35,7 +35,10 @@ export const BUNDLED_MODULE_IDS: readonly string[] = [
   // this id. Reserved rather than bundled so nothing else can claim the name.
   'sprint-engine',
   'review',
+  // RETIRED, still reserved: Automations became scheduled agents 2026-09-30.
+  // Same rule as 'switchboard'.
   'automations',
+  'scheduled-agents',
   // RETIRED, still reserved: the hosted mobile relay was removed 2026-09-27,
   // when the phone moved to pairing over the tailnet. Same rule as 'switchboard'.
   'mobile-relay',
@@ -67,7 +70,7 @@ export const CANVAS_MODULE_DEFAULT_ENABLED = true
  * appear until they relaunch. Live enable/disable for the rest is a recorded
  * follow-up, and this constant is the one place to widen when it lands.
  */
-export const LIVE_ENABLED_MODULE_IDS: readonly string[] = ['automations']
+export const LIVE_ENABLED_MODULE_IDS: readonly string[] = ['scheduled-agents']
 
 export type CapabilityCategory =
   'core' | 'dev-tools' | 'vcs' | 'orchestration' | 'insight' | 'connectivity' | (string & {})
