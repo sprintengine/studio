@@ -16,7 +16,7 @@ test('workspaceRunGlyph', async () => {
   //   · only the provider of the workspace's own MODE is asked;
   //   · a disabled module's provider is not asked at all.
 
-  const PROBE_MODULE = 'automations'
+  const PROBE_MODULE = 'scheduled-agents'
   const host = getRendererHost()
 
   // Enablement reaches the dispatcher through the host's resolver, which

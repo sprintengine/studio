@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
-import type { AppNotification, DiagnosticLogEntry, DiagnosticSource } from '../types/workspace'
+import type { AppNotification, DiagnosticLogEntry } from '../types/workspace'
 
 const NOTIFICATION_STORAGE_KEY = 'sprintengine-notifications'
 const MAX_NOTIFICATIONS = 120
@@ -16,8 +16,9 @@ type RailSeenSection = 'extensions'
 // removed has nothing left to open and no rail section to be read from, so it is
 // dropped when the store loads rather than sitting in the bell forever. The
 // in-tree Sprint Engine published as `sprintengine` until it was removed
-// (2026-09-16).
-const RETIRED_NOTIFICATION_SOURCES: ReadonlySet<string> = new Set(['sprintengine'])
+// (2026-09-16), and Automations as `automations` until scheduled agents
+// replaced it (2026-09-30).
+const RETIRED_NOTIFICATION_SOURCES: ReadonlySet<string> = new Set(['sprintengine', 'automations'])
 
 type PersistedNotificationState = Pick<NotificationStore, 'notifications' | 'sectionSeenAt' | 'dismissedUpdates'>
 
@@ -61,7 +62,6 @@ interface NotificationStore {
   markRead: (id: string) => void
   markAllRead: () => void
   /** Opening a rail section reads everything its badge was counting. */
-  markReadBySources: (sources: ReadonlySet<DiagnosticSource>) => void
   /**
    * Opening a drawer row reads the rows it was counting. The caller says which
    * — the store does not know how news is attributed to rows, only that reading
@@ -116,13 +116,6 @@ export const useNotificationStore = create<NotificationStore>()(
           state.notifications.forEach((notification) => {
             notification.read = true
           })
-        }),
-
-      markReadBySources: (sources) =>
-        set((state) => {
-          for (const notification of state.notifications) {
-            if (!notification.read && sources.has(notification.source)) notification.read = true
-          }
         }),
 
       markReadWhere: (predicate) =>

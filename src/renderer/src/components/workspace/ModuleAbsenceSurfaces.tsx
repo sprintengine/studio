@@ -59,8 +59,7 @@ export function moduleLabelForModuleId(moduleId: string): string {
  *    its own dead placeholder, which is the grid of blanks the rule exists to
  *    prevent. The module is on the machine, so the remedy is a toggle.
  *
- * `standard` is the shell's own mode and a bundled hidden host (the Automations
- * host) is a background container nobody opens, so neither can be absent.
+ * `standard` is the shell's own mode, so it can never be absent.
  *
  * Pure and dependency-injected so the rule is asserted without a renderer host.
  */
@@ -70,14 +69,12 @@ export type WorkspaceModuleAbsence =
 export function workspaceModuleAbsence(
   mode: string,
   deps: {
-    isBundledHiddenMode: (mode: string) => boolean
     /** The module that registered this workspace type, or undefined when none did. */
     workspaceTypeModuleId: (mode: string) => string | undefined
     isModuleEnabled: (moduleId: string) => boolean
   },
 ): WorkspaceModuleAbsence {
   if (mode === 'standard') return null
-  if (deps.isBundledHiddenMode(mode)) return null
   const moduleId = deps.workspaceTypeModuleId(mode)
   if (!moduleId) return { kind: 'not-installed', label: moduleLabelForMode(mode) }
   if (deps.isModuleEnabled(moduleId)) return null

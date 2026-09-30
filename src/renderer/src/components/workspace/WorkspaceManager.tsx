@@ -101,11 +101,6 @@ import {
   type AgentComposerConnector,
   type AgentComposerSelection,
 } from './agentComposer/useAgentComposer'
-// Always-on observer of background automation run events (raises run
-// notifications). Automations is no longer a workspace type, so the shell mounts
-// its global supervisor directly, gated on the automations module + primary
-// window — the same role the workspace-type `supervisors` list used to play.
-import AutomationsRunSupervisor from '../automations/AutomationsRunSupervisor'
 import WorkspaceLayout from './WorkspaceLayout'
 import WorkspaceSidebar from './WorkspaceSidebar'
 import { AppRail, railSurfacesOf, type RailSurface } from './AppRail'
@@ -138,7 +133,10 @@ import { SidebarChrome } from './SidebarChrome'
 import { useStableCallback } from '../../hooks/useStableCallback'
 import { remotePaneTabName, remoteWorkspaceName, type RemoteSessionOpenSpec } from './remoteBand/remoteSessionsModel'
 import { useSurfaceView } from './surfaceView'
-import type { RemoteNewChatLaunch } from './agentComposer/NewAgentPanel'
+import type { NewAgentPanelMode, RemoteNewChatLaunch } from './agentComposer/NewAgentPanel'
+import { useScheduledAgents } from '../../store/scheduledAgentsStore'
+import { formatRunTimes } from './agentComposer/schedule/scheduleEditor'
+import { scheduledAgentScheduleWords } from '../../../../shared/scheduled-agents'
 import {
   clearNewChatDraft,
   newChatDraftHasContent,
@@ -407,7 +405,6 @@ export default function WorkspaceManager() {
     (moduleId: string) => selectModuleEnabled(moduleEnablement, moduleId),
     [moduleEnablement],
   )
-  const automationsEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'automations'))
   const firstRunCliCardDismissed = useWorkspaceStore((s) => s.appSettings.firstRunCliCardDismissed)
   const dismissFirstRunCliCard = useWorkspaceStore((s) => s.dismissFirstRunCliCard)
   const hasAdoptedAgentConfig = useWorkspaceStore((s) => s.appSettings.hasAdoptedAgentConfig)
@@ -578,7 +575,13 @@ export default function WorkspaceManager() {
     folderLabel: string | null
     connector: AgentComposerConnector | null
     forcedSelection: AgentComposerSelection | null
+    // Opened on the clock beside New chat: the panel starts switched to
+    // Scheduled agent. Absent opens on Chat.
+    mode?: NewAgentPanelMode
+    // Opened on a scheduled agent's card: the panel edits that one.
+    editingScheduledAgentId?: string | null
   } | null>(null)
+  const scheduledAgents = useScheduledAgents()
   const newChatPanelOpen = newChatPanelState !== null
   // Guards the async adoption against a second workspace creation landing before
   // the persisted `hasAdoptedAgentConfig` flag has been written.
@@ -715,8 +718,6 @@ export default function WorkspaceManager() {
     // The Canvas tab is a pane tab the canvas module gates; with it off the
     // pane renders the unavailable surface, so the toggle is not offered.
     if (selectModuleEnabled(moduleEnablement, 'canvas')) context.canvasEnabled = true
-    // The global Automations screen needs the automations module (its store/IPC).
-    if (selectModuleEnabled(moduleEnablement, 'automations')) context.automationsEnabled = true
     // The Git panel mounts only while its pane tab is the one showing (the
     // pane unmounts a hidden Git tab) and the git module is on — a disabled
     // module renders the unavailable surface, whose handlers cannot act.
@@ -2533,13 +2534,20 @@ export default function WorkspaceManager() {
     folderPath: string | null | undefined,
     confirm: Parameters<typeof conversationNewChatSeed>[0] & { cli?: AgentCli },
     startupPrompt?: string,
+    // The worktree New chat made for it: `folderPath` is already the worktree,
+    // and the marker files the chat under the project it was cut from.
+    worktree?: WorkspaceWorktree,
   ) => {
     const seed = conversationNewChatSeed(confirm, {
       prompt: startupPrompt,
       permissionPreset: resolveCliPermissionPreset(confirm.cli, agentSpawnPermissionPreset),
     })
     if (!seed) return
-    createSoloChatWorkspace({ folderPath, seedAgent: { agentPatch: seed.agentPatch } })
+    createSoloChatWorkspace({
+      folderPath,
+      seedAgent: { agentPatch: seed.agentPatch },
+      ...(worktree ? { worktree } : {}),
+    })
   }
 
   // New-chat picks: each spawns the chosen agent in a fresh chat AND remembers
@@ -2703,6 +2711,15 @@ export default function WorkspaceManager() {
   // The project the door is scoped to rides with the draft, so a reopen lands
   // on the project the person last picked — Browse, the selector, or a clone.
   const newChatPanelFolderPath = newChatPanelState?.folderPath
+  // The scheduled agent the door is editing, as main last listed it. One
+  // closed from elsewhere while it is open closes the door with it.
+  const editingScheduledAgentId = newChatPanelState?.editingScheduledAgentId ?? null
+  const editingScheduledAgent = editingScheduledAgentId
+    ? (scheduledAgents.find((agent) => agent.id === editingScheduledAgentId) ?? null)
+    : null
+  useEffect(() => {
+    if (editingScheduledAgentId && !editingScheduledAgent) setNewChatPanelState(null)
+  }, [editingScheduledAgentId, editingScheduledAgent])
   useEffect(() => {
     if (newChatPanelFolderPath === undefined) return
     writeNewChatDraft(workspaceWindowId, { folderPath: newChatPanelFolderPath })
@@ -3011,29 +3028,10 @@ export default function WorkspaceManager() {
       void addNewCliAgent(resolveTemplateAgentCli(null, lastSelectedCli, agentCliCatalog), [skill])
     },
     onRunCard: (card, launch) => runCardGo(card, launch),
-    onUseInAutomation: () => {
-      // The route to author a connector automation is the Automations door
-      // (Extensions drawer ruling, 2026-09-05; a modal before that); the
-      // connector pre-selection lands in T8. Plugins is itself a door, so the
-      // hop is door→door and the card region simply changes hands. The button
-      // renders whether or not the module is on, and the door host resolves a
-      // disabled module to the not-installed explainer — say so rather than let
-      // the click land silently.
-      if (!selectModuleEnabled(moduleEnablement, 'automations')) {
-        showToast({
-          tone: 'warn',
-          title: 'Automations is turned off',
-          description: 'Turn the Automations module on in Settings → Modules to use a connector in an automation.',
-        })
-        return
-      }
-      openGlobalSurface('automations')
-    },
   }
   useEffect(() => {
     setExtensionsSurfaceHost({
       onLaunchConnector: (connector) => extensionsHostRef.current?.onLaunchConnector(connector),
-      onUseInAutomation: (serverId) => extensionsHostRef.current?.onUseInAutomation(serverId),
       onUseSkillInNewAgent: (skill) => extensionsHostRef.current?.onUseSkillInNewAgent(skill),
       onRunCard: (card, launch) => extensionsHostRef.current?.onRunCard(card, launch) ?? Promise.resolve(),
     })
@@ -3291,7 +3289,7 @@ export default function WorkspaceManager() {
     // leaves the door open with the diagnostic, never a chat in the checkout.
     let folderPath = scopedFolder
     let worktree: WorkspaceWorktree | undefined
-    if (confirm.kind === 'general' && confirm.worktree) {
+    if ((confirm.kind === 'general' || confirm.kind === 'conversation') && confirm.worktree) {
       const made = await createNewChatWorktree(scopedFolder, confirm.worktree.name)
       if (!made) return
       folderPath = made.folderPath
@@ -3318,7 +3316,7 @@ export default function WorkspaceManager() {
         break
       case 'conversation':
         setLastNewChatAgent({ kind: 'conversation' })
-        openConversationInNewChat(folderPath, confirm, startupPrompt)
+        openConversationInNewChat(folderPath, confirm, startupPrompt, worktree)
         break
     }
     closeNewChatPanel()
@@ -4175,6 +4173,31 @@ export default function WorkspaceManager() {
   const sidebarNavigateForward = useStableCallback(() => runCommand('workspace.history.forward'))
   const sidebarOpenSearch = useStableCallback(() => runCommand('commandPalette.open'))
   const sidebarNewChat = useStableCallback(() => openNewChatPanel())
+  // The clock beside New chat: the same panel, switched to Scheduled agent. It
+  // keeps the chat's parked draft — a prompt typed as a chat can become a
+  // scheduled agent's.
+  const sidebarNewScheduledAgent = useStableCallback(() => {
+    openNewChatPanel()
+    setNewChatPanelState((prev) => (prev ? { ...prev, mode: 'scheduled', editingScheduledAgentId: null } : prev))
+  })
+  // A scheduled agent's card: the panel, editing it. Never through the parked
+  // chat draft, which is the person's next chat and not this.
+  const sidebarOpenScheduledAgent = useStableCallback((id: string) => {
+    const agent = scheduledAgents.find((candidate) => candidate.id === id)
+    if (!agent) return
+    closeGlobalSurface()
+    closeModalSurface()
+    setNotificationsOpen(false)
+    setSidebarSection('home')
+    setNewChatPanelState({
+      folderPath: agent.folderPath,
+      folderLabel: newChatFolderLabel(agent.folderPath),
+      connector: null,
+      forcedSelection: null,
+      mode: 'scheduled',
+      editingScheduledAgentId: id,
+    })
+  })
   const sidebarNewChatInFolder = useStableCallback((folderPath: string) => openNewChatPanel(folderPath))
   const sidebarShowMenu = useStableCallback(
     (event: React.MouseEvent<HTMLButtonElement>, label: (typeof MENU_BAR_ITEMS)[number]) =>
@@ -4247,7 +4270,6 @@ export default function WorkspaceManager() {
       {workspaceTypeSupervisors.map((supervisor) => (
         <WorkspaceTypeSupervisorHost key={supervisor.key} supervisor={supervisor} />
       ))}
-      {automationsEnabled && ownsGlobalSupervisors ? <AutomationsRunSupervisor /> : null}
       {/* The one toast region (design-system/components/toast) + its app-level
           producers. Fixed-position; its place in this tree carries no layout. */}
       <React.Suspense fallback={null}>
@@ -4306,6 +4328,9 @@ export default function WorkspaceManager() {
           onCloseWorkspace={sidebarCloseWorkspace}
           onForgetFolder={sidebarForgetFolder}
           onNewChat={sidebarNewChat}
+          onNewScheduledAgent={sidebarNewScheduledAgent}
+          onOpenScheduledAgent={sidebarOpenScheduledAgent}
+          openScheduledAgentId={newChatPanelState?.editingScheduledAgentId ?? null}
           onNewChatInFolder={sidebarNewChatInFolder}
           onRevealFolder={sidebarRevealFolder}
           onSetSidebarCollapsed={setSidebarCollapsed}
@@ -4488,7 +4513,7 @@ export default function WorkspaceManager() {
                         open panel must remount; keyed on identity, so removing
                         the chip never does. */}
                             <NewAgentPanel
-                              key={`${newChatPanelState.connector?.id ?? 'plain'}:${newChatPanelState.forcedSelection?.kind ?? 'remembered'}`}
+                              key={`${newChatPanelState.connector?.id ?? 'plain'}:${newChatPanelState.forcedSelection?.kind ?? 'remembered'}:${newChatPanelState.mode ?? 'chat'}:${newChatPanelState.editingScheduledAgentId ?? ''}`}
                               initialMcpServers={newChatPanelState.connector ? [newChatPanelState.connector] : null}
                               workspaceId={windowActiveWorkspaceId ?? ''}
                               conversationWorkspaceSupported={conversationSpawnEnabled}
@@ -4510,8 +4535,28 @@ export default function WorkspaceManager() {
                               onCloneProject={cloneNewChatProject}
                               onClose={closeNewChatPanel}
                               // The parked draft lives per window; the panel seeds
-                              // from it and writes through, the host clears it.
-                              draftKey={workspaceWindowId}
+                              // from it and writes through, the host clears it. A
+                              // scheduled agent being edited is not a draft.
+                              draftKey={editingScheduledAgent ? undefined : workspaceWindowId}
+                              initialMode={newChatPanelState.mode ?? 'chat'}
+                              editingScheduledAgent={editingScheduledAgent}
+                              onScheduled={(agent) => {
+                                if (editingScheduledAgent) setNewChatPanelState(null)
+                                else closeNewChatPanel()
+                                const words = scheduledAgentScheduleWords(agent.schedule)
+                                showToast({
+                                  tone: 'good',
+                                  title: editingScheduledAgent ? 'Saved' : 'Scheduled',
+                                  description: [
+                                    words,
+                                    agent.nextRunAt
+                                      ? `next ${formatRunTimes([agent.nextRunAt], agent.schedule.timezone, Date.now())[0]}`
+                                      : null,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(' · '),
+                                })
+                              }}
                               // The door has no tab to close, so the surface carries the
                               // control itself.
                               showCloseButton

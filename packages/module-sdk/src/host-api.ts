@@ -27,7 +27,7 @@ export type HostCapability =
   | 'conversations'
   | 'chat.open'
   | 'companion-agents'
-  | 'automations'
+  | 'scheduled-agents'
   | 'secrets'
   | 'github'
   | 'storage'

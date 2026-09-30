@@ -136,11 +136,11 @@ test.each([
   'mcp__sprintengine-studio__terminal.create',
   'mcp__sprintengine-studio__conversation.create',
   'mcp__sprintengine-studio__backlog.work',
-  'mcp__sprintengine-studio__automation.create',
-  'mcp__sprintengine-studio__automation.run',
+  'mcp__sprintengine-studio__schedule.create',
+  'mcp__sprintengine-studio__schedule.run',
   'mcp__sprintengine-studio__workspace.create',
   'mcp__plugin_sprintengine-studio_sprintengine-studio__agent_launch',
-  'mcp__plugin_sprintengine-studio_sprintengine-studio__automation_run',
+  'mcp__plugin_sprintengine-studio_sprintengine-studio__schedule_run',
 ])('no remembered grant covers %s, which starts an agent', (action) => {
   expect(approvalRuleCandidate({ action, input: {} }, '/workspace/app')).toBeNull()
   const saved = {

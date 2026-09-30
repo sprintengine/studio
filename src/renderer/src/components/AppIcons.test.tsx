@@ -4,15 +4,42 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import type { ModuleEnablementOverrides } from '../../../shared/modules/manifest'
 import type { Workspace } from '../types/workspace'
 import { FolderTypeIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from './AppIcons'
+import { getRendererHost } from '../modules'
 import { test } from 'vitest'
 
 test('AppIcons', async () => {
-  // Distinctive path fragment per bundled mode's canonical glyph, so the test pins
+  // No bundled module registers a workspace type today, so a module-registered
+  // type is exercised against one registered here, under a bundled module whose
+  // enablement the overrides below can switch.
+  const PROBE_MODE = 'tide-tables'
+  const PROBE_MODULE = 'scheduled-agents'
+  getRendererHost()
+    .hostFor(PROBE_MODULE)
+    .registerWorkspaceType({
+      id: PROBE_MODE,
+      label: 'Tide tables',
+      description: 'Test-only workspace type.',
+      icon: ({ className }: { className?: string }) => (
+        <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M3 17c3-3 6 3 9 0s6 3 9 0" />
+        </svg>
+      ),
+      accentToken: '--accent-primary',
+      hiddenFromPicker: true,
+      createTemplate: () => ({
+        id: PROBE_MODE,
+        name: 'Tide tables',
+        description: 'Test-only workspace type.',
+        previewSlots: [],
+        layout: { global: {}, borders: [], layout: { type: 'row', children: [] } },
+      }),
+    } as never)
+
+  // Distinctive path fragment per mode's canonical glyph, so the test pins
   // icon identity rather than just "an svg renders".
   const EXPECTED_ICON_PATH: Record<string, string> = {
     standard: 'M7.25 10L10 12.5L7.25 15',
-    // The automations host's dial-and-bolt mark, from its own module.
-    'automations-host': 'M19.5 12a7.5 7.5 0 1 1-3.4-6.28',
+    [PROBE_MODE]: 'M3 17c3-3 6 3 9 0s6 3 9 0',
   }
 
   function iconHtml(mode: Workspace['mode']): string {
@@ -31,25 +58,22 @@ test('AppIcons', async () => {
 
   // AC4: with moduleOverrides disabling the module, WorkspaceTypeIcon degrades to
   // the generic standard glyph instead of the type's icon.
-  const automationsOffIcon = renderToStaticMarkup(
-    <WorkspaceTypeIcon mode="automations-host" moduleOverrides={{ automations: false }} className="icon-sm" />,
+  const moduleOffIcon = renderToStaticMarkup(
+    <WorkspaceTypeIcon mode={PROBE_MODE} moduleOverrides={{ [PROBE_MODULE]: false }} className="icon-sm" />,
   )
-  assert.ok(automationsOffIcon.includes(EXPECTED_ICON_PATH.standard), 'a disabled module renders the generic glyph')
-  assert.ok(
-    !automationsOffIcon.includes(EXPECTED_ICON_PATH['automations-host']),
-    'a disabled module drops its own glyph',
+  assert.ok(moduleOffIcon.includes(EXPECTED_ICON_PATH.standard), 'a disabled module renders the generic glyph')
+  assert.ok(!moduleOffIcon.includes(EXPECTED_ICON_PATH[PROBE_MODE]), 'a disabled module drops its own glyph')
+  const moduleOnIcon = renderToStaticMarkup(
+    <WorkspaceTypeIcon mode={PROBE_MODE} moduleOverrides={{}} className="icon-sm" />,
   )
-  const automationsOnIcon = renderToStaticMarkup(
-    <WorkspaceTypeIcon mode="automations-host" moduleOverrides={{}} className="icon-sm" />,
-  )
-  assert.ok(automationsOnIcon.includes(EXPECTED_ICON_PATH['automations-host']), 'an enabled module renders its glyph')
+  assert.ok(moduleOnIcon.includes(EXPECTED_ICON_PATH[PROBE_MODE]), 'an enabled module renders its glyph')
 
   // AC4: enablement gating — a disabled module resolves to no definition, so the
   // caller degrades to the generic icon/default accent. resolveEnabledWorkspaceType
   // is the pure seam both WorkspaceTypeIcon and workspaceTabIconClass use.
   const allEnabled: ModuleEnablementOverrides = {}
-  assert.equal(resolveEnabledWorkspaceType('automations-host', allEnabled)?.id, 'automations-host')
-  assert.equal(resolveEnabledWorkspaceType('automations-host', allEnabled)?.accentToken, '--accent-primary')
+  assert.equal(resolveEnabledWorkspaceType(PROBE_MODE, allEnabled)?.id, PROBE_MODE)
+  assert.equal(resolveEnabledWorkspaceType(PROBE_MODE, allEnabled)?.accentToken, '--accent-primary')
   assert.equal(
     resolveEnabledWorkspaceType('standard', allEnabled),
     undefined,
@@ -62,7 +86,7 @@ test('AppIcons', async () => {
   )
 
   assert.equal(
-    resolveEnabledWorkspaceType('automations-host', { automations: false }),
+    resolveEnabledWorkspaceType(PROBE_MODE, { [PROBE_MODULE]: false }),
     undefined,
     'a disabled module resolves to no definition (generic degradation)',
   )
@@ -70,9 +94,9 @@ test('AppIcons', async () => {
   // AC1: top-bar view sets live on the registry; no bundled type contributes one
   // today, and a disabled module exposes none.
   assert.equal(
-    resolveEnabledWorkspaceType('automations-host', allEnabled)?.topBarViews,
+    resolveEnabledWorkspaceType(PROBE_MODE, allEnabled)?.topBarViews,
     undefined,
-    'automations-host has no top-bar views',
+    'a type that declares no top-bar views has none',
   )
 
   // Re-sited by the owner on 2026-09-02: the FOLDER header's icon slot

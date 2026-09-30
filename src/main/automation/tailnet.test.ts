@@ -970,18 +970,19 @@ test('tailnet', async () => {
     )
     // The tools that start an agent in a terminal stay local too: a paired
     // device could not see the terminal it started. What it starts is a chat.
-    const launchers = ['agent.launch', 'backlog.work', 'automation.run']
+    const launchers = ['agent.launch', 'backlog.work']
     for (const name of [...launchers, 'tailnet.status']) {
       assert.notEqual(localOnlyGatewayToolReason(name), null, `${name} is local-only`)
     }
-    for (const name of ['conversation.create', 'workspace.list', 'backlog.list']) {
+    // A scheduled agent's run is a chat, which a paired device can follow.
+    for (const name of ['conversation.create', 'schedule.run', 'workspace.list', 'backlog.list']) {
       assert.equal(localOnlyGatewayToolReason(name), null, `${name} may be served over the tailnet`)
     }
     assert.match(localOnlyGatewayToolReason('agent.launch') ?? '', /conversation\.create/u)
 
     const calls: string[] = []
     // `agent.launch` is already one of the named stubs.
-    const stubs: McpToolRegistration[] = [...names, 'backlog.work', 'automation.run'].map((name) => ({
+    const stubs: McpToolRegistration[] = [...names, 'backlog.work'].map((name) => ({
       name,
       description: `Test tool ${name}`,
       inputSchema: { type: 'object', properties: {} },

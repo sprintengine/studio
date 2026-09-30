@@ -7,7 +7,6 @@ import {
   MobileControlSnapshotService,
   sanitizeMobileSnapshotForTransport,
 } from './snapshot'
-import { AutomationsStore } from '../../automations/store'
 import { createBacklogItem } from '../../backlog-service'
 import { stableBacklogObjectId } from '../../../shared/backlog/object-id'
 import { mobileControlProtocolVersion, mobileSnapshotCollections, validateMobileControlSnapshot } from './protocol'
@@ -286,21 +285,12 @@ test('snapshot', async () => {
   async function assertSnapshotCarriesNoAutomations(): Promise<void> {
     const workspaceRoot = await makeWorkspaceRoot('no-automations')
     await writeBacklogFixture(workspaceRoot, 'backlog_no_automations', 'Still here')
-    await new AutomationsStore(workspaceRoot).createDefinition({
-      id: 'nightly',
-      name: 'Nightly sweep',
-      status: 'enabled',
-      trigger: {
-        kind: 'schedule',
-        config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 90 }, timezone: 'UTC' },
-      },
-      action: { kind: 'agent-run', config: { prompt: 'sweep' } },
-      nextRunAt: null,
-      lastRunAt: generatedAt,
-      lastRunId: null,
-      createdAt: generatedAt,
-      updatedAt: generatedAt,
-    })
+    // What an older build wrote for its automations: the snapshot never reads it.
+    await mkdir(join(workspaceRoot, '.sprintengine', 'automations', 'definitions'), { recursive: true })
+    await writeFile(
+      join(workspaceRoot, '.sprintengine', 'automations', 'definitions', 'nightly.json'),
+      JSON.stringify({ id: 'nightly', name: 'Nightly sweep', status: 'enabled' }),
+    )
     const service = new MobileControlSnapshotService()
 
     const snapshot = await service.readSnapshot({ desktopSessionId: 'desktop_1', workspaceRoots: [workspaceRoot] })

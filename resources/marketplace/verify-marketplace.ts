@@ -4,10 +4,7 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
 import { buildSync } from 'esbuild'
 
-import {
-  marketplaceAutomationPayloadIssuesSync,
-  marketplaceComponentDigestMismatchIssuesSync,
-} from '../../packages/module-sdk/src/plugin-component-digests'
+import { marketplaceComponentDigestMismatchIssuesSync } from '../../packages/module-sdk/src/plugin-component-digests'
 import { normalizeMcpServerConfig } from '../../src/main/mcp-config-service'
 import { readStudioEnv } from '../../src/shared/studio-env'
 import { verifyBundledSkillFolder } from '../../src/main/marketplace/skill-content'
@@ -229,8 +226,8 @@ function validateEntrySource(entryId: string, source: string, issues: Verificati
  * file. A remote icon is display-only, never fetched at verify time.
  *
  * A data URI renders offline and needs no registry base to resolve, which is
- * why the automation starters use one — but a base64 blob is unreviewable, so
- * those entries also commit the mark at `icons/<id>.svg`. When both exist they
+ * why the inline agent-CLI entries use one — but a base64 blob is unreviewable,
+ * so those entries also commit the mark at `icons/<id>.svg`. When both exist they
  * must be the same bytes: otherwise the reviewed mark and the shipped mark
  * quietly diverge.
  */
@@ -345,18 +342,17 @@ function assertNoOrphanPluginPayloads(
 }
 
 /**
- * A committed payload whose entry carries no signature (the automation
- * starters, which are declarative definitions and so ship unsigned like every
- * other non-code-bearing bundle). The signature gate is replaced, not dropped:
+ * A committed payload whose entry carries no signature (a declarative bundle —
+ * an MCP config or a skill — which ships unsigned like every other
+ * non-code-bearing bundle). The signature gate is replaced, not dropped:
  *
  * - the manifest must parse under the optionally-signed authoring contract;
  * - it must carry no `module`/`cli` component, mirroring the download and
  *   install gates that refuse an unsigned code-bearing bundle;
  * - its component digests must match the committed bytes, so the payload cannot
  *   drift from what the manifest declares;
- * - an automation payload must be a valid definition draft, and an MCP
- *   component must parse — the same per-kind content checks the signed path
- *   runs, so the two lanes differ only in how identity is proven.
+ * - an MCP component must parse — the same per-kind content check the signed
+ *   path runs, so the two lanes differ only in how identity is proven.
  *
  * What a signature would additionally prove — that the bundle came from the
  * named publisher — is why an unsigned entry may not claim
@@ -392,10 +388,6 @@ function validateUnsignedPluginPayload(
   issues.push(...formatValidatorIssues(
     `plugins/${entry.id}/plugin.json`,
     marketplaceComponentDigestMismatchIssuesSync(pluginRoot, manifest, { bytesLabel: 'committed bytes' })
-  ))
-  issues.push(...formatValidatorIssues(
-    `plugins/${entry.id}/plugin.json`,
-    marketplaceAutomationPayloadIssuesSync(pluginRoot, manifest.components)
   ))
   const mcpPath = manifest.components.mcp?.path
   if (mcpPath) validateMcpComponent(root, pluginRoot, entry.id, mcpPath, issues)
@@ -525,9 +517,8 @@ async function validateMarketplace(root: string, cliBundle: string): Promise<Ver
     const hasCommittedPayload = isInsideOrEqual(root, pluginRoot) && existsSync(pluginManifestPath)
 
     // Unsigned entries (source-bearing plugin references, inline-MCP configs
-    // and inline-CLI entries) are legal now, and since unsigned starters shipped an
-    // unsigned entry may also ship a committed bundle when nothing in it is
-    // code-bearing — the automation starters do. Most reference external
+    // and inline-CLI entries) are legal, and an unsigned entry may also ship a
+    // committed bundle when nothing in it is code-bearing. Most reference external
     // content only and have no local manifest at all; the
     // schema/source-host/icon checks above are the whole publish contract for
     // those.

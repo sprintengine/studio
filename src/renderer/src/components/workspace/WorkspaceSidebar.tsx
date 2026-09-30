@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChatGlyph, NewChatIcon, RemoteMachineGlyph, resolveEnabledWorkspaceType } from '../AppIcons'
+import { ChatGlyph, NewChatIcon, RemoteMachineGlyph, ScheduleGlyph, resolveEnabledWorkspaceType } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import { PromptCacheMark } from './PromptCacheMark'
 import type { ConversationSessionSummary } from '../../../../shared/conversation-runtime'
@@ -88,6 +88,10 @@ import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { isSettledWorkspace } from '../../utils/workspaceSettle'
 import { isSnoozedWorkspace, resolveSnoozePresets, snoozeWakeLabel, workspaceWokeAt } from '../../utils/workspaceSnooze'
 import { workspaceRowEmphasis } from '../../utils/workspaceRowEmphasis'
+import { useScheduledAgents } from '../../store/scheduledAgentsStore'
+import { showToast } from '../../store/toastStore'
+import { ScheduledAgentRow } from './sidebar/ScheduledAgentRow'
+import type { ScheduledAgentView } from '../../../../shared/scheduled-agents'
 import {
   buildFolderGroups,
   meshPanesOf,
@@ -212,6 +216,13 @@ type WorkspaceSidebarProps = {
   // folder — the create control. The one way in (owner, 2026-09-04): the split
   // "New…" half and its create menu are gone with the New workspace hub.
   onNewChat: () => void
+  // Open New chat switched to Scheduled agent: the clock beside New chat.
+  // Absent, there is no clock (a host with no scheduling).
+  onNewScheduledAgent?: () => void
+  // Open a scheduled agent's card: New chat, editing it.
+  onOpenScheduledAgent?: (id: string) => void
+  // The scheduled agent the door in this window is editing, drawn selected.
+  openScheduledAgentId?: string | null
   // Scope a new chat to a specific project folder (workspace-row context menu).
   // The panel owns the agent/engine choice — the sidebar only opens it.
   onNewChatInFolder: (folderPath: string) => void
@@ -227,6 +238,7 @@ type WorkspaceSidebarProps = {
 // key no folder can produce.
 const ALL_CHATS_SNOOZE_SHELF_KEY = '__all_chats_snoozed__'
 const ALL_CHATS_SNOOZE_SHELF_ID = 'ws-snoozed-all-chats'
+const NO_SCHEDULED_AGENTS: ScheduledAgentView[] = []
 
 const DRAG_MIME_WORKSPACE = 'application/x-sprintengine-workspace'
 const DRAG_MIME_FOLDER = 'application/x-sprintengine-folder'
@@ -271,6 +283,9 @@ function WorkspaceSidebar({
   onCloseWorkspace,
   onForgetFolder,
   onNewChat,
+  onNewScheduledAgent,
+  onOpenScheduledAgent,
+  openScheduledAgentId = null,
   onNewChatInFolder,
   onRevealFolder,
   onSetSidebarCollapsed,
@@ -281,6 +296,28 @@ function WorkspaceSidebar({
   // and hidden under Extensions (its folds and scroll offset are the
   // operator's), and both step aside while a door's rail owns the column.
   const sidebarSection = useWorkspaceStore((s) => s.sidebarSection)
+  // Scheduled agents are cards of their projects like any chat (owner,
+  // 2026-09-30): no list of their own. Off with their module.
+  const scheduledAgentsEnabled = useWorkspaceStore((s) =>
+    selectModuleEnabled(s.appSettings.modules, 'scheduled-agents'),
+  )
+  const allScheduledAgents = useScheduledAgents()
+  const scheduledAgents = scheduledAgentsEnabled ? allScheduledAgents : NO_SCHEDULED_AGENTS
+  // Closing a card is how a scheduled agent is switched off: removed at once,
+  // and said so. No Undo on the toast — the toast spec keeps its action row for
+  // its two named consumers, and an undo racing a dismissal timer is not one.
+  const closeScheduledAgent = useCallback((agent: ScheduledAgentView) => {
+    void window.api
+      .removeScheduledAgent(agent.id)
+      .then((removed) => {
+        showToast(
+          removed.ok
+            ? { tone: 'neutral', title: 'Scheduled agent closed', description: 'It will not run again.' }
+            : { tone: 'error', title: 'Not closed', description: removed.message },
+        )
+      })
+      .catch(() => {})
+  }, [])
   const extensionsSection = sidebarSection === 'extensions'
   const homeHidden = extensionsSection || Boolean(contextRailActive)
   const renameWorkspace = useWorkspaceStore((s) => s.renameWorkspace)
@@ -919,8 +956,28 @@ function WorkspaceSidebar({
       }
       group.remoteRows.push(conversation)
     }
+    // Each scheduled agent files under its project's header; a project with
+    // nothing else open here still gets one, since the card is its row.
+    for (const agent of scheduledAgents) {
+      const key = folderKey(agent.folderPath)
+      let group = byKey.get(key)
+      if (!group) {
+        group = {
+          key,
+          displayName: folderDisplayName(agent.folderPath),
+          fullPath: agent.folderPath,
+          missing: false,
+          workspaces: [],
+          remote: null,
+          remoteRows: [],
+        }
+        byKey.set(key, group)
+        order.push(key)
+      }
+      group.scheduledAgents = [...(group.scheduledAgents ?? []), agent]
+    }
     return order.map((key) => byKey.get(key)!)
-  }, [localGroups, unattachedRemote, remoteGroupKeyOf])
+  }, [localGroups, unattachedRemote, remoteGroupKeyOf, scheduledAgents])
 
   // Which shape this rail lists chats in — the project tree, or one stream of
   // all of them (all-chats-view, 2026-09-07). Read from the store rather than
@@ -1123,6 +1180,23 @@ function WorkspaceSidebar({
     [groupByKey, remoteGroupKeyOf, openPullRequestsByGroup, projectColorOf],
   )
 
+  // The same line for a scheduled agent's card, through the header the tree
+  // files it under.
+  const flatProjectOfScheduled = useCallback(
+    (agent: ScheduledAgentView): FlatProjectLine => {
+      const groupKey = folderKey(agent.folderPath)
+      const group = groupByKey.get(groupKey)
+      return {
+        name: group?.displayName ?? folderDisplayName(agent.folderPath),
+        folderPath: agent.folderPath,
+        openPullRequests: openPullRequestsByGroup.get(groupKey) ?? 0,
+        color: projectColorOf(groupKey),
+        unfiled: false,
+      }
+    },
+    [groupByKey, openPullRequestsByGroup, projectColorOf],
+  )
+
   // The row you are in always has a row: a settled chat you selected (or
   // settled from its own menu) keeps its place in the active list until you
   // leave it, and leaves the rail then. Reading it never wakes it.
@@ -1234,6 +1308,7 @@ function WorkspaceSidebar({
       groups.filter(
         (group) =>
           group.remoteRows.length > 0 ||
+          (group.scheduledAgents?.length ?? 0) > 0 ||
           !group.workspaces.every((w) => isShelved(w) || isAsleep(w) || starredWorkspaceIds.has(w.id)),
       ),
     [groups, isShelved, isAsleep, starredWorkspaceIds],
@@ -1839,10 +1914,14 @@ function WorkspaceSidebar({
     // and interleaving them by numbers that mean different things would put
     // rows in an order nobody could read.
     const remoteRows = group.remoteRows.map((conversation) => renderRemoteConversationRow(conversation))
+    // Its scheduled agents first: they stand, where the chats below them come
+    // and go, and a chat's clock (your last message) is not one a schedule has.
+    const scheduledRows = (group.scheduledAgents ?? []).map((agent) => renderScheduledAgentRow(agent))
 
     if (snoozedRows.length === 0) {
       return (
         <div id={folderBodyId}>
+          {scheduledRows}
           {activeRows.map((workspace) => renderWorkspaceRow(workspace, group.key))}
           {remoteRows}
         </div>
@@ -1856,6 +1935,7 @@ function WorkspaceSidebar({
 
     return (
       <div id={folderBodyId}>
+        {scheduledRows}
         {activeRows.map((workspace) => renderWorkspaceRow(workspace, group.key))}
         {remoteRows}
         <ShelfFoldRow
@@ -1896,6 +1976,24 @@ function WorkspaceSidebar({
   // green machine glyph beside the folder icon saying where it runs. They come
   // after the local rows for the reason the tree puts them after: the two have
   // no shared clock to interleave on.
+  // A scheduled agent's card. Working while the chat its latest run started
+  // is: that chat is where the run is, and the card says so from here.
+  const renderScheduledAgentRow = (agent: ScheduledAgentView, flatProject?: FlatProjectLine) => {
+    const runWorkspaceId = agent.lastRun?.ok ? agent.lastRun.workspaceId : null
+    return (
+      <ScheduledAgentRow
+        key={`scheduled-${agent.id}`}
+        agent={agent}
+        now={now}
+        {...(flatProject ? { flatProject } : {})}
+        working={runWorkspaceId !== null && activityByWorkspaceId[runWorkspaceId] === 'working'}
+        selected={openScheduledAgentId === agent.id}
+        onOpen={() => onOpenScheduledAgent?.(agent.id)}
+        onClose={() => closeScheduledAgent(agent)}
+      />
+    )
+  }
+
   const renderChatStream = () => {
     const snoozedRows = sortByWake(localRailWorkspaces.filter((w) => !isShelved(w) && isAsleep(w)))
     const streamRows = sortWorkspacesByUserMessage(
@@ -1904,6 +2002,7 @@ function WorkspaceSidebar({
     const snoozeExpanded = expandedShelves[ALL_CHATS_SNOOZE_SHELF_KEY] === true
     return (
       <section className="relative pt-1" aria-label="All chats">
+        {scheduledAgents.map((agent) => renderScheduledAgentRow(agent, flatProjectOfScheduled(agent)))}
         {streamRows.map((workspace) =>
           renderWorkspaceRow(workspace, keyOf(workspace), {
             keyPrefix: 'all-',
@@ -2289,6 +2388,23 @@ function WorkspaceSidebar({
                 </span>
               </RowButton>
             </Tooltip>
+            {/* The way in to scheduled agents (owner, 2026-09-30): a clock beside
+                New chat, which opens the same panel switched to Scheduled agent.
+                A scheduled agent is a New chat that starts itself, so it has no
+                door of its own. */}
+            {onNewScheduledAgent && scheduledAgentsEnabled ? (
+              <Tooltip content="New scheduled agent" placement="right">
+                <IconButton
+                  size="md"
+                  tone="quiet"
+                  aria-label="New scheduled agent"
+                  onClick={onNewScheduledAgent}
+                  className="shrink-0"
+                >
+                  <ScheduleGlyph className="icon-sm" />
+                </IconButton>
+              </Tooltip>
+            ) : null}
           </div>
         </div>
 

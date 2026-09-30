@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.0.0-beta.1
+
+Automations became scheduled agents: a prompt and a cron schedule, each run a
+new chat. The app no longer has an automations engine for a module to extend.
+
+### Breaking: removed
+
+- **The `automation` bundle component.** Automations became scheduled agents,
+  which an extension creates at runtime rather than ships as a file. A
+  `plugin.json` that declares `components.automation` no longer validates: the
+  app refuses it at verify, download and install with the reason, and
+  `plugin scaffold` no longer offers the kind. `MARKETPLACE_COMPONENT_KINDS` is
+  `mcp`, `skills`, `module`.
+- **Automations.** `registerAutomationTrigger`, `registerAutomationAction`,
+  `getAutomationsService` and every `Automation*` type, the
+  `automations.manage` permission, the `automations` host capability, the
+  `automationsEnabled` command availability and the `automation-trigger`
+  template. A module schedules work with scheduled agents instead (below):
+  custom trigger and action kinds have no replacement, because a scheduled
+  agent's only trigger is its schedule and its only action is starting a chat.
+
+### Added
+
+- **Scheduled agents.** `getScheduledAgentsService(host)` creates, updates,
+  removes, lists and runs the module's own scheduled agents — a prompt and a
+  cron schedule, each run a new chat in the project — and tells the module
+  when they change. Declare `scheduled-agents.manage` and
+  `dependsOn: ["scheduled-agents"]`; `host.supports('scheduled-agents')` says
+  whether the host in front of the module provides it.
+
 ## 1.0.0-beta.0
 
 The first beta of the contract 1.0 will ship: modules reach the

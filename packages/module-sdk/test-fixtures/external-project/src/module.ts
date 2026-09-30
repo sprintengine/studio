@@ -10,18 +10,14 @@ import {
   HOST_API_VERSION,
   checkHostApiCompatibility,
   createServiceToken,
-  getAutomationsService,
   getCompanionAgentsService,
   getConversationService,
   getGitHubService,
   getModuleStorage,
+  getScheduledAgentsService,
   getSecretsService,
   hasFileDropData,
   readFileDropPayload,
-  registerAutomationAction,
-  registerAutomationTrigger,
-  type AutomationActionProvider,
-  type AutomationTriggerProvider,
   type BacklogItemAction,
   type FileAction,
   type NotificationActionProvider,
@@ -61,7 +57,7 @@ export const manifest: CapabilityManifest = {
     'ipc:workspace-read',
     'ipc:invoke',
     'mcp:tools',
-    'automations.manage',
+    'scheduled-agents.manage',
     'backlog.read',
     'agents:companion',
     'conversation:operate',
@@ -70,7 +66,7 @@ export const manifest: CapabilityManifest = {
     'storage',
     'process:spawn',
   ],
-  dependsOn: ['automations', 'agent-runtime'],
+  dependsOn: ['scheduled-agents', 'agent-runtime'],
   entry: {
     main: 'dist/main.cjs',
     renderer: 'dist/renderer.mjs',
@@ -82,25 +78,6 @@ const hostApiCheck = checkHostApiCompatibility(manifest)
 if (!hostApiCheck.ok) throw new Error(`${hostApiCheck.code}: ${hostApiCheck.message}`)
 
 const forecastService = createServiceToken<{ refresh(): Promise<void> }>('weather-deck.forecast')
-
-const forecastTrigger: AutomationTriggerProvider = {
-  kind: 'weather-deck.forecast-ready',
-  label: 'Forecast ready',
-  glyph: 'clock',
-  summary: 'When a watched city forecast updates',
-  pairsWith: { actionKind: 'weather-deck.refresh-forecast', defaultDisableAfterRun: true },
-  configSchema: {
-    type: 'object',
-    properties: {
-      city: { type: 'string' },
-    },
-  },
-  subscribe: () => () => undefined,
-  poll: async () => ({
-    ok: true,
-    events: [],
-  }),
-}
 
 // An agent-reachable MCP tool on the Studio gateway (declares `mcp:tools`).
 // Availability follows the module's enablement live: while Weather Deck is
@@ -136,38 +113,12 @@ const forecastTool: McpToolRegistration = {
   },
 }
 
-const forecastAction: AutomationActionProvider = {
-  kind: 'weather-deck.refresh-forecast',
-  label: 'Refresh forecast',
-  glyph: 'clock',
-  summary: 'Pull the latest forecast for the watched city',
-  configSchema: {
-    type: 'object',
-    properties: {
-      city: { type: 'string' },
-    },
-  },
-  run: async (_config, context) => {
-    context.reportProgress({ summary: 'Forecast refresh started.' })
-    // The run's agent is a chat conversation; the run finishes with its turn.
-    const launched = await context.spawnAgent({
-      folderPath: context.workspaceRoot,
-      model: 'sonnet',
-      prompt: 'Refresh the forecast notes for the watched city.',
-      skills: ['weather-deck-forecast'],
-    })
-    return { status: 'running', agentId: launched.agentId, sessionId: launched.sessionId }
-  },
-}
-
 export const registerMain: RegisterMain = (host) => {
   host.provideService(forecastService, () => ({
     refresh: async () => undefined,
   }))
-  registerAutomationTrigger(host, forecastTrigger)
-  registerAutomationAction(host, forecastAction)
   host.registerMcpTools([forecastTool])
-  // The skill the forecaster chats and the automation run invoke.
+  // The skill the forecaster chats and the scheduled refresh invoke.
   host.registerSkills([
     {
       id: 'weather-deck-forecast',
@@ -213,33 +164,30 @@ export const registerMain: RegisterMain = (host) => {
     if (!roundTrip.ok) throw new Error(`${roundTrip.code}: ${roundTrip.message}`)
     return { found: roundTrip.found, value: roundTrip.value }
   })
-  // Owned-automation CRUD through the scoped service. Idempotent via the fixed
-  // id: a second call finds the existing record in list() and skips creation.
-  host.registerIpc('weather-deck:setup-refresh-automation', async (_event, workspaceRoot: unknown) => {
-    if (typeof workspaceRoot !== 'string' || workspaceRoot.trim().length === 0) {
-      throw new Error('weather-deck:setup-refresh-automation requires a workspace root.')
+  // A scheduled agent the module owns, through the scoped service: a morning
+  // chat that refreshes the forecast notes with the module's skill. Idempotent:
+  // a second call finds the one it made in list() and makes no other.
+  host.registerIpc('weather-deck:schedule-refresh', async (_event, folderPath: unknown) => {
+    if (typeof folderPath !== 'string' || folderPath.trim().length === 0) {
+      throw new Error('weather-deck:schedule-refresh requires a project folder.')
     }
-    const automations = getAutomationsService(host)
-    const existing = await automations.list({ workspaceRoot })
-    if (!existing.ok) throw new Error(`${existing.code}: ${existing.message}`)
-    if (existing.automations.some((definition) => definition.id === 'weather-deck-refresh')) {
-      return { created: false }
-    }
-    const created = await automations.create({
-      workspaceRoot,
-      draft: {
-        id: 'weather-deck-refresh',
-        name: 'Weather Deck: refresh forecast',
-        status: 'paused',
-        trigger: {
-          kind: 'schedule',
-          config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '09:00' }, timezone: 'UTC' },
-        },
-        action: { kind: 'weather-deck.refresh-forecast', config: { city: 'Dublin' } },
-      },
+    const scheduled = getScheduledAgentsService(host)
+    const existing = (await scheduled.list()).find((agent) => agent.folderPath === folderPath)
+    if (existing) return { created: false, id: existing.id }
+    const created = await scheduled.create({
+      prompt: 'Refresh the forecast notes for the watched city.',
+      schedule: { cron: '0 9 * * *', timezone: 'UTC' },
+      folderPath,
+      hostId: null,
+      cli: 'claude-code',
+      cliModel: 'sonnet',
+      permissionPreset: null,
+      skills: [{ id: 'weather-deck-forecast', name: 'Weather Deck forecast' }],
+      mcpServers: [],
+      worktree: null,
     })
-    if (!created.ok) throw new Error(`${created.code}: ${created.message}`)
-    return { created: true, automationId: created.automation.id }
+    if (!created.ok) throw new Error(created.message)
+    return { created: true, id: created.agent.id }
   })
   // Cross-surface briefing (seam proof): ONE channel that composes workspace
   // context resolution with a scoped storage round-trip — the resolved view's

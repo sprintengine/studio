@@ -32,7 +32,7 @@ test('studio-plugin-skills', async () => {
   const MAX_BODY_LINES = 500
 
   /** The areas the item names. One more is fine; a missing one is not. */
-  const REQUIRED_AREAS = ['studio-backlog', 'studio-automations', 'studio-canvas', 'studio-workspaces']
+  const REQUIRED_AREAS = ['studio-backlog', 'studio-scheduled-agents', 'studio-canvas', 'studio-workspaces']
 
   /**
    * Backticked snake_case words the skills use that are NOT tool names — statuses,
@@ -51,6 +51,8 @@ test('studio-plugin-skills', async () => {
     'needs_input',
     'node_modules',
     'not_found',
+    // A launch-permission refusal code, not a tool.
+    'permission_escalation',
     'project_root_required',
     'too_large',
   ])
@@ -60,7 +62,7 @@ test('studio-plugin-skills', async () => {
    * backticks) still counts, because the removed sprint skill named its tools in
    * prose as often as in code spans.
    */
-  const RETIRED_TOOL_FAMILIES = ['sprint', 'sprintengine']
+  const RETIRED_TOOL_FAMILIES = ['sprint', 'sprintengine', 'automation']
 
   /**
    * The tool names the app's MCP server registers, in the form an agent sees

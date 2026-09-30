@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
-import { AUTOMATIONS_HOST_WORKSPACE_MODE, STANDARD_WORKSPACE_MODE, type BundledWorkspaceMode } from '../types/workspace'
-import { isModeHiddenFromRail } from '../../../shared/workspace-mode'
-import { isAutomationsHostWorkspace, isHiddenFromRail, isRailHiddenModuleWorkspace } from './workspaceVisibility'
+import { STANDARD_WORKSPACE_MODE, type BundledWorkspaceMode } from '../types/workspace'
+import { isHiddenFromRail, isRailHiddenModuleWorkspace } from './workspaceVisibility'
 import { getRendererHost } from '../modules'
 import { test } from 'vitest'
 
@@ -23,23 +22,9 @@ test('workspaceVisibility', async () => {
   // and is covered separately below.
   const EXPECTED_HIDDEN: Record<BundledWorkspaceMode, boolean> = {
     [STANDARD_WORKSPACE_MODE]: false,
-    // Automations moved to an instance-level surface (the sidebar door), so their
-    // host workspaces are rail-hidden background runtime containers — never a
-    // Projects-list row, switch target, or palette result.
-    [AUTOMATIONS_HOST_WORKSPACE_MODE]: true,
   }
 
   const BUNDLED_MODES = Object.keys(EXPECTED_HIDDEN) as BundledWorkspaceMode[]
-
-  run('isAutomationsHostWorkspace is true only for the automations-host mode', () => {
-    for (const mode of BUNDLED_MODES) {
-      assert.equal(
-        isAutomationsHostWorkspace({ mode }),
-        mode === AUTOMATIONS_HOST_WORKSPACE_MODE,
-        `unexpected isAutomationsHostWorkspace for ${mode}`,
-      )
-    }
-  })
 
   run('isHiddenFromRail hides exactly the bundled modes flagged hidden', () => {
     for (const mode of BUNDLED_MODES) {
@@ -52,7 +37,7 @@ test('workspaceVisibility', async () => {
   // the rule is exercised against a type registered here.
   const HIDDEN_TYPE_ID = 'rail-hidden-probe'
   getRendererHost()
-    .hostFor('automations')
+    .hostFor('scheduled-agents')
     .registerWorkspaceType({
       id: HIDDEN_TYPE_ID,
       label: 'Rail-hidden probe',
@@ -75,7 +60,7 @@ test('workspaceVisibility', async () => {
   })
 
   run('a persisted workspace of that type is not rail-hidden when its module is off', () => {
-    const moduleOff = { automations: false }
+    const moduleOff = { 'scheduled-agents': false }
     assert.equal(isRailHiddenModuleWorkspace({ mode: HIDDEN_TYPE_ID }, moduleOff), false)
     assert.equal(
       isHiddenFromRail({ mode: HIDDEN_TYPE_ID }, moduleOff),
@@ -84,17 +69,7 @@ test('workspaceVisibility', async () => {
     )
   })
 
-  run('the renderer predicate still matches the shared rule for bundled modes', () => {
-    assert.equal(AUTOMATIONS_HOST_WORKSPACE_MODE, 'automations-host')
-    for (const mode of [...BUNDLED_MODES, 'custom-plugin-mode']) {
-      if (mode === AUTOMATIONS_HOST_WORKSPACE_MODE) {
-        assert.equal(isModeHiddenFromRail(mode), isHiddenFromRail({ mode }), `shared rule differs for ${mode}`)
-      }
-    }
-  })
-
   run('predicates treat an unknown custom mode as a normal visible workspace', () => {
-    assert.equal(isAutomationsHostWorkspace({ mode: 'custom-plugin-mode' }), false)
     assert.equal(isRailHiddenModuleWorkspace({ mode: 'custom-plugin-mode' }), false)
     assert.equal(isHiddenFromRail({ mode: 'custom-plugin-mode' }), false)
   })

@@ -218,8 +218,8 @@ test('plugin-download', async () => {
     )}\n`
   }
 
-  // Serves a bundle whose only component is the automation definition, so the
-  // staged tree is exactly what the manifest declares.
+  // Serves a bundle whose only component is an automation definition — the
+  // shape an older Studio's bundles had.
   function createAutomationGithubFetcher(pluginJson: string, automationJson: string): MarketplacePluginDownloadFetch {
     return async (url) => {
       if (url === API_ROOT) {
@@ -564,64 +564,14 @@ test('plugin-download', async () => {
     })
   }
 
-  async function testUnsignedAutomationOnlyBundleStagesAsUnsigned(): Promise<void> {
+  async function testRetiredAutomationComponentRejected(): Promise<void> {
     await withTempDir(async (dir) => {
-      // An automation is a declarative definition, not code: it joins mcp/skills
-      // on the may-stage-unsigned side of the trust split.
+      // A bundle built for an older Studio, when automations shipped as files:
+      // refused before staging, with the reason, rather than installed with
+      // one of its components silently missing.
       const automationJson = automationComponentSource()
       const fixture = createUnsignedFixture({
-        provides: ['automation'],
-        components: automationComponents(automationJson),
-      })
-      const fetcher = createAutomationGithubFetcher(`${JSON.stringify(fixture.manifest, null, 2)}\n`, automationJson)
-
-      const result = await downloadMarketplacePluginBundle({
-        entry: fixture.entry,
-        trustContext: { trustedModules: new Map() },
-        stagingRoot: join(dir, 'staging'),
-        fetcher,
-      })
-
-      assert.equal(result.ok, true, result.ok ? '' : result.message)
-      if (!result.ok) return
-      assert.equal(result.classification, 'unsigned')
-      assert.equal(result.loadEligible, false)
-      assert.equal(existsSync(join(result.stagedBundlePath, 'automation', 'automation.json')), true)
-    })
-  }
-
-  async function testUnsignedAutomationWithCodeComponentRejected(): Promise<void> {
-    await withTempDir(async (dir) => {
-      // The regression that matters: adding an automation must not become a way
-      // to smuggle an unsigned code-bearing component past the gate.
-      const automationJson = automationComponentSource()
-      const fixture = createUnsignedFixture({
-        provides: ['automation', 'module'],
-        components: { ...automationComponents(automationJson), module: { path: 'module' } },
-      })
-      const fetcher = createAutomationGithubFetcher(`${JSON.stringify(fixture.manifest, null, 2)}\n`, automationJson)
-      const stagingRoot = join(dir, 'staging')
-
-      const result = await downloadMarketplacePluginBundle({
-        entry: fixture.entry,
-        trustContext: { trustedModules: new Map() },
-        stagingRoot,
-        fetcher,
-      })
-
-      assert.equal(result.ok, false)
-      if (result.ok) return
-      assert.equal(result.classification, 'unsigned')
-      assert.match(result.message, /unsigned/i)
-      assert.deepEqual(await readdir(stagingRoot), [])
-    })
-  }
-
-  async function testAutomationPayloadThatIsNotADefinitionRejected(): Promise<void> {
-    await withTempDir(async (dir) => {
-      const automationJson = `${JSON.stringify({ name: 'No trigger, no action' }, null, 2)}\n`
-      const fixture = createUnsignedFixture({
-        provides: ['automation'],
+        provides: ['mcp'],
         components: automationComponents(automationJson),
       })
       const fetcher = createAutomationGithubFetcher(`${JSON.stringify(fixture.manifest, null, 2)}\n`, automationJson)
@@ -637,11 +587,9 @@ test('plugin-download', async () => {
       assert.equal(result.ok, false)
       if (result.ok) return
       assert.equal(result.classification, 'invalid')
-      assert.deepEqual(
-        result.issues?.map((issue) => issue.path),
-        ['components.automation.trigger', 'components.automation.action'],
-      )
-      assert.deepEqual(await readdir(stagingRoot), [])
+      assert.ok(result.issues?.some((issue) => issue.path === 'components.automation'))
+      assert.match(result.message, /Automation components are no longer supported/)
+      assert.deepEqual(await readdir(stagingRoot).catch(() => []), [])
     })
   }
 
@@ -1229,9 +1177,7 @@ test('plugin-download', async () => {
     await testTamperedPluginSignatureBlocksAndRemovesStage()
     await testUnsignedMcpOnlyBundleStagesAsUnsigned()
     await testUnsignedCodeBearingBundleRejectedAndRemovesStage()
-    await testUnsignedAutomationOnlyBundleStagesAsUnsigned()
-    await testUnsignedAutomationWithCodeComponentRejected()
-    await testAutomationPayloadThatIsNotADefinitionRejected()
+    await testRetiredAutomationComponentRejected()
     await testUnsignedBundleUnderSignedRegistryEntryRejected()
     await testRejectsNonHttpsSourceBeforeFetch()
     await testRejectsNonAllowlistedSourceHostBeforeFetch()

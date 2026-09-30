@@ -228,12 +228,8 @@ test('agent-launch-service', async () => {
     assert.equal(!refused.ok && refused.code, 'unsupported_workspace_mode')
     assert.equal(moduleHost.spawns.length, 0)
 
-    // An automations host IS a valid launch target — the default route resolves one.
-    const automationsHost = harness({
-      workspaces: [workspace({ mode: 'automations-host' })],
-      settings: settings({ lastSelectedCli: 'codex' }),
-    })
-    const allowed = await automationsHost.service.launch({ workspaceId: 'ws-1' })
+    // A caller that owns its own residency may name any mode.
+    const allowed = await moduleHost.service.launch({ workspaceId: 'ws-1', anyWorkspaceMode: true })
     assert.equal(allowed.ok, true, JSON.stringify(allowed))
   })
 
@@ -395,7 +391,7 @@ test('agent-launch-service', async () => {
   run('the launch carries an execution identity, or the run could never finalize', async () => {
     // Without `agentSession` the runtime fires NO agent-session exit for this
     // terminal (the listener is gated on `agentSession?.executionId`) and
-    // `resolveAgentExecutionId` never matches it — an agent-backed automation run
+    // `resolveAgentExecutionId` never matches it — an agent
     // would start and have no way to end, and its teardown could not find the
     // terminal to kill. This is the field that makes both work.
     const app = harness({

@@ -7,8 +7,8 @@ test('NewAgentPanel', async () => {
   // The launch surface behind the tab strip's "+". Rendered for real,
   // because the acceptance is about what a person sees and presses:
   //
-  //   1. the row shows what a launch usually changes — engine and access — while
-  //      role, worktree and reasoning stay behind the ⋯ menu until set;
+  //   1. the row shows what a launch usually changes — engine, worktree and
+  //      access — while the launch kind stays behind the ⋯ menu;
   //   2. the invocation main renders rides Start's hover, not a line of chrome;
   //   3. Start hands the host a confirm plus the typed prompt — and creates
   //      nothing itself;
@@ -349,7 +349,9 @@ test('NewAgentPanel', async () => {
       assert.ok(text.includes('Skills & MCPs'), 'the one picker for skills and MCP servers is offered')
       assert.ok(text.includes('⋯'), 'the overflow is there')
 
-      assert.ok(!text.includes('+ Worktree'), 'worktree is not on the row until it is set')
+      // Worktree sits beside the engine, off until turned on or named.
+      const worktreeChip = view.container.querySelector('[data-worktree-chip]')
+      assert.equal(worktreeChip?.getAttribute('data-worktree-chip'), 'off', 'worktree is on the row, and off')
       assert.ok(!text.includes('+ Skill') && !text.includes('+ Connector'), 'the two old chips are gone')
       assert.ok(!/debug/i.test(text), 'and Debug Mode is gone entirely')
 
@@ -437,7 +439,7 @@ test('NewAgentPanel', async () => {
     //     things. The Role control left with the identity picker it belonged to;
     //     reasoning effort moved into the model's own picker, where it is a
     //     property of the model.
-    await check('the ⋯ menu holds the launch kind and worktree, and nothing else', async () => {
+    await check('the ⋯ menu holds the launch kind, and nothing else', async () => {
       seedStore()
       const view = await render()
       const more = [...view.container.querySelectorAll('button')].find(
@@ -449,28 +451,50 @@ test('NewAgentPanel', async () => {
       })
       const menu = dom.window.document.querySelector('[aria-label="More launch options"][role="menu"]')
       const menuText = menu?.textContent ?? ''
-      assert.ok(menuText.includes('Worktree'), 'worktree is a row')
-      assert.ok(menuText.includes('Off'), 'showing its current value')
+      assert.ok(!menuText.includes('Worktree'), 'worktree left the menu for the row')
       assert.ok(!/debug/i.test(menuText), 'Debug Mode is gone from the menu')
-      // The kind of thing being launched lives here too — the only surface that
+      // The kind of thing being launched lives here — the only surface that
       // starts a plain shell or a conversation agent.
       assert.ok(menuText.includes('Agent'), 'an agent is the default kind')
       assert.ok(menuText.includes('Terminal'), 'a plain shell is reachable')
       assert.ok(!menuText.includes('Role'), 'the Role control is gone from this surface entirely')
       assert.ok(!menuText.includes('Reasoning'), 'and reasoning lives in the model picker now')
+      view.unmount()
+    })
 
-      // Worktree expands in place to type its branch — the click that turns it on
-      // is the click that starts typing.
-      const worktreeRow = [...(menu?.querySelectorAll('button') ?? [])].find((button) =>
-        (button.textContent ?? '').startsWith('Worktree'),
-      )
-      assert.ok(worktreeRow, 'the worktree row is pressable')
+    // 1c. Worktree is a switch that can be named: the glyph turns it on with a
+    //     name made up at start, and typing a name turns it on with that name.
+    await check('worktree turns on from its glyph, or by typing a name', async () => {
+      seedStore()
+      const view = await render()
+      const chip = () => view.container.querySelector('[data-worktree-chip]')
+      const glyph = () =>
+        [...view.container.querySelectorAll('button')].find(
+          (button) => button.getAttribute('aria-label') === 'Run in a worktree',
+        )
+      assert.equal(chip()?.getAttribute('data-worktree-chip'), 'off')
       await act(async () => {
-        worktreeRow!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+        glyph()!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
       })
-      const branchInput = dom.window.document.querySelector('[aria-label="Worktree branch name"]')
-      assert.ok(branchInput, 'and reveals the branch field')
-      assert.notEqual(branchInput?.getAttribute('aria-hidden'), 'true', 'which is reachable once open')
+      assert.equal(chip()?.getAttribute('data-worktree-chip'), 'on', 'the glyph turns it on')
+      const name = chip()!.querySelector('input')!
+      assert.equal(name.getAttribute('placeholder'), 'auto-named', 'with a name made up at start')
+      const off = [...view.container.querySelectorAll('button')].find(
+        (button) => button.getAttribute('aria-label') === 'Turn worktree off',
+      )
+      await act(async () => {
+        off!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+      assert.equal(chip()?.getAttribute('data-worktree-chip'), 'off', '× turns it off')
+      const nameField = chip()!.querySelector('input')!
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')!.set!.call(
+          nameField,
+          'fix-login',
+        )
+        nameField.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+      })
+      assert.equal(chip()?.getAttribute('data-worktree-chip'), 'on', 'typing a name turns it on')
       view.unmount()
     })
 
@@ -1855,7 +1879,7 @@ test('NewAgentPanel', async () => {
     )
 
     await check(
-      'a remote chat carries no checkout control: no worktree row, and the branch the panel read rides the launch',
+      'a remote chat carries no checkout control: no worktree chip, and the branch the panel read rides the launch',
       async () => {
         seedStore()
         resetRememberedMachineForTests()
@@ -1901,16 +1925,11 @@ test('NewAgentPanel', async () => {
         )
         assert.equal(view.container.querySelector('[data-branch-trigger="true"]'), null, 'and no branch picker')
 
-        const menu = await openMoreMenu(view)
-        const worktreeRow = [...(menu?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find((button) =>
-          (button.textContent ?? '').startsWith('Worktree'),
+        assert.equal(
+          view.container.querySelector('[data-worktree-chip]'),
+          null,
+          'a chat on another machine has no checkout here to fork, so no worktree chip',
         )
-        assert.equal(worktreeRow, undefined, 'a chat has no checkout of its own to fork, so no worktree row')
-        await act(async () => {
-          dom.window.document.dispatchEvent(
-            new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
-          )
-        })
 
         const textarea = view.container.querySelector('textarea')!
         await act(async () => {
@@ -2691,6 +2710,137 @@ test('NewAgentPanel', async () => {
       assert.deepEqual(readPaths, [])
       delete api.readImageDataUrl
       view.unmount()
+    })
+
+    // ── Scheduled agents ────────────────────────────────────────────────────
+    // The door's switch makes the launch a scheduled agent: the same launch,
+    // saved with the schedule in the tray, rather than started.
+
+    const scheduleDoor = async (extra: Record<string, unknown> = {}) => {
+      const api = (dom.window as unknown as { api: Record<string, unknown> }).api
+      const drafts: Array<Record<string, unknown>> = []
+      api.createScheduledAgent = async (draft: Record<string, unknown>) => {
+        drafts.push(draft)
+        return { ok: true, agent: { ...draft, id: 'sa-1', nextRunAt: null } }
+      }
+      const scheduled: unknown[] = []
+      const view = await render({
+        initialSelection: { kind: 'conversation' },
+        folderPath: '/proj',
+        projectOptions: [],
+        onSelectProject: () => {},
+        onBrowseProject: () => {},
+        onScheduled: (agent: unknown) => scheduled.push(agent),
+        ...extra,
+      })
+      const type = async (text: string) => {
+        const field = view.container.querySelector('textarea')!
+        await act(async () => {
+          Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!.call(field, text)
+          field.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+        })
+        return field
+      }
+      const enter = async (field: HTMLTextAreaElement) => {
+        await act(async () => {
+          field.dispatchEvent(
+            new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+          )
+        })
+        await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+      }
+      return { view, drafts, scheduled, type, enter }
+    }
+
+    await check('Scheduled agent saves the launch on screen, on the tray’s schedule, and starts nothing', async () => {
+      seedStore()
+      const door = await scheduleDoor()
+      const toggle = [...door.view.container.querySelectorAll('[role="radio"]')].find(
+        (el) => el.textContent === 'Scheduled agent',
+      )
+      assert.ok(toggle, 'the door offers Scheduled agent beside Chat')
+      await act(async () => {
+        toggle!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+      assert.ok(door.view.text().includes('Weekdays at 9:00 AM'), 'a new one starts on weekdays at 9 AM, in the tray')
+      const field = await door.type('Triage the new issues.')
+      await door.enter(field)
+      assert.equal(door.view.launches.length, 0, 'nothing is started')
+      assert.equal(door.drafts.length, 1, 'one scheduled agent is made')
+      const draft = door.drafts[0]!
+      assert.equal(draft.prompt, 'Triage the new issues.')
+      assert.deepEqual((draft.schedule as { cron: string }).cron, '0 9 * * 1-5')
+      assert.equal(draft.folderPath, '/proj')
+      assert.equal(draft.hostId, null)
+      assert.equal(draft.cli, 'claude-code')
+      assert.equal(draft.worktree, null)
+      assert.equal(door.scheduled.length, 1, 'and the host hears of it')
+      door.view.unmount()
+    })
+
+    await check('/schedule at the cursor picks the schedule and switches the door to it', async () => {
+      seedStore()
+      const door = await scheduleDoor()
+      const field = await door.type('Sweep for dead code. /schedule sundays 9pm')
+      const picker = dom.window.document.querySelector('[aria-label="Schedule this agent"]')
+      assert.ok(picker?.textContent?.includes('Every Sunday at 9:00 PM'), 'the words are read as they are typed')
+      await door.enter(field)
+      assert.equal(field.value, 'Sweep for dead code.', 'the /schedule words leave the prompt')
+      assert.equal(door.drafts.length, 0, 'picking a schedule schedules nothing yet')
+      const toggle = [...door.view.container.querySelectorAll('[role="radio"]')].find(
+        (el) => el.textContent === 'Scheduled agent',
+      )
+      assert.equal(toggle?.getAttribute('aria-checked'), 'true', 'the door is on Scheduled agent')
+      assert.ok(door.view.text().includes('Every Sunday at 9:00 PM'), 'on that schedule')
+      door.view.unmount()
+    })
+
+    await check('a scheduled agent opened from its card saves rather than creates', async () => {
+      seedStore()
+      const api = (dom.window as unknown as { api: Record<string, unknown> }).api
+      const updates: Array<{ id: string; draft: Record<string, unknown> }> = []
+      api.updateScheduledAgent = async (id: string, draft: Record<string, unknown>) => {
+        updates.push({ id, draft })
+        return { ok: true, agent: { ...draft, id, nextRunAt: null } }
+      }
+      api.markScheduledAgentFailureSeen = async () => ({ ok: true })
+      const door = await scheduleDoor({
+        editingScheduledAgent: {
+          id: 'sa-9',
+          prompt: 'Refresh the forecast.',
+          schedule: { cron: '0 21 * * 0', timezone: 'UTC' },
+          folderPath: '/proj',
+          hostId: null,
+          cli: 'claude-code',
+          cliModel: null,
+          permissionPreset: null,
+          skills: [],
+          mcpServers: [],
+          worktree: { name: '' },
+          ownerModuleId: null,
+          createdAt: 0,
+          updatedAt: 0,
+          lastRun: { at: 5, ok: false, message: 'gh: authentication required' },
+          lastFailureSeenAt: null,
+          nextRunAt: null,
+        },
+      })
+      const text = door.view.text()
+      assert.ok(!text.includes('Chat'), 'no switch: a scheduled agent stays one')
+      assert.ok(text.includes('Every Sunday at 9:00 PM'), 'it opens on its schedule')
+      assert.ok(text.includes('gh: authentication required'), 'and on why its last run did not start')
+      assert.equal(
+        door.view.container.querySelector('[data-worktree-chip]')?.getAttribute('data-worktree-chip'),
+        'on',
+        'with its worktree on',
+      )
+      const field = door.view.container.querySelector('textarea')!
+      assert.equal(field.value, 'Refresh the forecast.')
+      await door.enter(field)
+      assert.equal(updates.length, 1)
+      assert.equal(updates[0]?.id, 'sa-9')
+      assert.deepEqual(updates[0]?.draft.worktree, { name: '' })
+      door.view.unmount()
     })
 
     if (failures > 0) {

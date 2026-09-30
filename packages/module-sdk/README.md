@@ -3,7 +3,7 @@
 The contract, templates and authoring CLI for building **SprintEngine Studio
 extensions** (capability modules): the manifest and its host API version, the
 `MainHost` / `RendererHost` registration contracts, chat conversations with the
-app's agents, brokered secrets and GitHub access, Automations providers, module
+app's agents, brokered secrets and GitHub access, scheduled agents, module
 storage, notifications, and signing.
 
 Studio is a home for agent runtimes — Claude Code, Codex and the ACP agents —
@@ -46,7 +46,6 @@ scaffolds a project that already builds, passes its own smoke test and installs.
 | `backlog-action` | A Backlog item action that opens a planning chat for the item |
 | `file-action` | A Files-tree context-menu action |
 | `mcp-tools` | Tools any agent in a workspace calls through the Studio MCP gateway |
-| `automation-trigger` | An Automations trigger that fires when a project file changes |
 | `chat-companion` | Starts and follows chats of its own, and opens chat drafts with `openChat` |
 
 Studio can do the same from the Extensions door: **Build your own extension**
@@ -99,7 +98,7 @@ The manifest fields that matter most:
 | `source` | `"third-party"`. |
 | `engines` | `{ "hostApi": 1 }` — **required**. See "Host API version". |
 | `permissions` | What the module touches; shown before anyone trusts it. |
-| `dependsOn` | Module ids that load first, e.g. `automations`, `agent-runtime`. |
+| `dependsOn` | Module ids that load first, e.g. `scheduled-agents`, `agent-runtime`. |
 | `entry` | `{ "renderer": "dist/renderer.mjs", "main": "dist/main.cjs" }`. |
 | `files` | Written by `sign` / `dev:install`: every file's sha256. **Required** to load. |
 | `signature` | Written by `sign`. |
@@ -138,7 +137,7 @@ if (host.supports('conversations')) registerChatFeatures(host)
 `host.hostApiVersion` is the app's `HOST_API_VERSION`; `host.supports(name)`
 is true for a capability the host provides now — a service can be missing
 because the module that provides it is turned off. Names: `conversations`,
-`chat.open`, `companion-agents`, `automations`, `secrets`, `github`,
+`chat.open`, `companion-agents`, `scheduled-agents`, `secrets`, `github`,
 `storage`, `mcp-tools`, `skills`, `module-assets`, `notifications`. An unknown
 name answers `false`, so a module may probe for capabilities newer than its
 SDK.
@@ -400,37 +399,36 @@ const view = await host.requireService(WorkspaceContextToken).get(workspaceId) /
 `create` resolves once the workspace is confirmed, so a returned id is real.
 The context service (declare `ipc:workspace-read`) also has `list()`.
 
-## Automations
+## Scheduled agents
 
-A module can register trigger and action **kinds**
-(`registerAutomationTrigger`, `registerAutomationAction`; declare
-`dependsOn: ["automations"]`) and create automation **records** of its own
-(`getAutomationsService(host)`; declare `automations.manage`). Every method is
-scoped to your module: `list` returns only yours, and `update` / `delete` /
-`listRuns` refuse records you do not own. Providers declare `label`, `glyph`
-(one of `AUTOMATION_PROVIDER_GLYPHS`) and `summary` so the Automations panel
-can name them.
-
-Every automation's agent is a chat. An action provider starts one with
-`ActionContext.spawnAgent({ folderPath, prompt, cli?, model?, skills?, … })`,
-which resolves with the chat's `sessionId` once it has started; the run
-finishes when that chat's turn completes or fails, and `AutomationRun.sessionId`
-records it.
+A scheduled agent is a prompt and a cron schedule: each time the schedule
+comes round, a new chat starts in the project with that prompt as its first
+message, on the CLI, model, permissions, skills, MCP servers and worktree
+setting it was made with. Nothing carries from one run to the next. A module
+creates its own with `getScheduledAgentsService(host)` (declare
+`scheduled-agents.manage` and `dependsOn: ["scheduled-agents"]`). Every method
+is scoped to your module: `list` returns only yours, and `update`, `remove`
+and `runNow` refuse an id you did not create. They appear in the person's
+sidebar like the ones they make themselves, and they can close them.
 
 ```ts
-import { registerAutomationAction, type RegisterMain } from '@sprintengine/module-sdk'
+import { getScheduledAgentsService, type RegisterMain } from '@sprintengine/module-sdk'
 
 export const registerMain: RegisterMain = (host) => {
-  registerAutomationAction(host, {
-    kind: 'weather-deck.refresh-forecast',
-    configSchema: { type: 'object' },
-    label: 'Refresh forecast',
-    glyph: 'clock',
-    summary: 'Pull the latest forecast for the watched city',
-    run: async (_config, context) => {
-      context.reportProgress({ summary: 'Refreshing forecast.' })
-      return { status: 'completed', summary: 'Forecast refreshed.' }
-    },
+  host.registerIpc('weather-deck:schedule-refresh', async (_event, folderPath: string) => {
+    const created = await getScheduledAgentsService(host).create({
+      prompt: 'Refresh the forecast notes for the watched city.',
+      schedule: { cron: '0 9 * * 1-5', timezone: 'Europe/Dublin' },
+      folderPath,
+      hostId: null,
+      cli: 'claude-code',
+      cliModel: null,
+      permissionPreset: null,
+      skills: [],
+      mcpServers: [],
+      worktree: null,
+    })
+    return created.ok ? created.agent.id : null
   })
 }
 ```
@@ -532,8 +530,8 @@ build. The checks are exported for tooling: `validateModuleFileDigests`,
 For a bundle, `sprintengine-module plugin sign <dir> --key …` writes each
 component's digests into `plugin.json` and signs it; sign the module first,
 since signing rewrites its manifest. `plugin scaffold`, `plugin verify` and
-`plugin pack` round it out. Bundle components are `mcp`, `skills`, `module`
-and `automation`.
+`plugin pack` round it out. Bundle components are `mcp`, `skills` and
+`module`.
 
 ## Installing
 

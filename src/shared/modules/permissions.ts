@@ -65,10 +65,10 @@ export type CapabilityPermission =
   | 'backlog.read'
   | 'backlog.write'
   | 'backlog.link.open'
-  // Create and manage the module's own automations through the SDK's scoped
-  // Automations service. Disclosure-level like every other scope: the service
-  // does not runtime-check it.
-  | 'automations.manage'
+  // Create and manage the module's own scheduled agents through the SDK's
+  // scoped service. Disclosure-level like every other scope: the service does
+  // not runtime-check it.
+  | 'scheduled-agents.manage'
   // Attach workspace-bound background (companion) agents through the SDK's
   // Companion Agents service. Unlike the disclosure-only scopes above, the
   // companion service DOES check this one explicitly at attach time (there is no
@@ -109,7 +109,7 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'backlog.read',
   'backlog.write',
   'backlog.link.open',
-  'automations.manage',
+  'scheduled-agents.manage',
   'agents:companion',
   'storage',
   'conversation:read',
@@ -135,7 +135,7 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'backlog.read': 'Read Backlog item details and source content',
   'backlog.write': 'Change Backlog item status, links, and metadata',
   'backlog.link.open': 'Open links and targets attached to Backlog items',
-  'automations.manage': 'Create and manage its own scheduled automations',
+  'scheduled-agents.manage': 'Schedule agents of its own that start a chat on a timer',
   'agents:companion': 'Run its own background agents inside the workspace',
   storage: 'Save its own data in the workspace folder and app data',
   'conversation:read': 'Read the chats it started, including everything the agent says in them',

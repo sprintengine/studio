@@ -59,11 +59,11 @@ export const APP_RAIL_WIDTH = 56
 export const TRAFFIC_LIGHT_RESERVE = 78
 
 // The registered surfaces that stand on the rail, in rail order. Ids, not
-// modules. One of them today: the ruling promotes only Automations. The
-// mechanism stays a LIST because what the rail holds is a ruling rather than a
-// constant of the code — a second standing tool would join it here rather than
-// be hand-placed in the JSX.
-export const RAIL_SURFACE_IDS = ['automations'] as const
+// modules. None today: Automations stood here until scheduled agents replaced
+// it (2026-09-30). The mechanism stays a LIST because what the rail holds is a
+// ruling rather than a constant of the code — a standing tool would join it
+// here rather than be hand-placed in the JSX.
+export const RAIL_SURFACE_IDS: readonly string[] = []
 
 // A rail square needs a name and a glyph, and a door declares both optionally
 // (a door may name itself through its own nav-entry row instead). Narrowing here
@@ -119,8 +119,8 @@ export type RailBadge = {
   label: string
 }
 
-// Keyed by what the square opens: `home`, `extensions`, or a rail surface's id
-// (`automations`). Derived by the host (useRailBadges); the rail only wears them.
+// Keyed by what the square opens: `home`, `extensions`, or a rail surface's id.
+// Derived by the host (useRailBadges); the rail only wears them.
 export type RailBadges = Readonly<Partial<Record<string, RailBadge | null>>>
 
 type AppRailProps = {

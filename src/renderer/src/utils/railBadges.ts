@@ -2,7 +2,7 @@
 // rail, as the kit's corner counter. Each square carries the number of things
 // in its area that the person has not seen or that are waiting on them, so a
 // person reading the Extensions home still knows a chat finished, and a person
-// in a chat knows an overnight automation failed. Pure derivations over data
+// in a chat knows a plugin has news. Pure derivations over data
 // the stores already hold — no second source of truth about what an agent is
 // doing (that is `getWorkspaceActivity`), what finished while you were away
 // (the sidebar's unseen-done mark), or what a notification is (the bell's own
@@ -22,12 +22,10 @@ import { newHomeCardSlugs } from '../components/extensions/homeCards'
 import type { HostedCard } from '../../../shared/hosted-card-feed'
 import type { AppNotification, DiagnosticSource } from '../types/workspace'
 
-// Which bell notifications belong under which rail square. A source that is
-// not in either set (a git failure, a terminal crash, an auth problem) is a
+// Which bell notifications belong under which drawer row. A source that is
+// not in the set (a git failure, a terminal crash, an auth problem) is a
 // workspace-level or window-level fact and badges no section.
-export const AUTOMATIONS_NOTIFICATION_SOURCES: ReadonlySet<DiagnosticSource> = new Set<DiagnosticSource>([
-  'automations',
-])
+//
 // Plugins and skills (marketplace). A module's own source→row mapping is a
 // door-badge contribution (`notificationSource`), not an import from here.
 //
@@ -76,13 +74,6 @@ export function unreadByExtensionsRow(
   return byRow
 }
 
-export function unreadNotificationsFrom(
-  notifications: readonly AppNotification[],
-  sources: ReadonlySet<DiagnosticSource>,
-): AppNotification[] {
-  return notifications.filter((notification) => !notification.read && sources.has(notification.source))
-}
-
 // The loudest level decides the badge's tone: a failure is red, something
 // blocked or waiting is gold, and plain news is the accent.
 function notificationsTone(unread: readonly AppNotification[]): RailBadge['tone'] {
@@ -123,17 +114,6 @@ export function homeRailBadge(input: { needsInput: number; failed: number; finis
   if (count <= 0) return null
   const tone = input.needsInput > 0 ? 'warn' : input.failed > 0 ? 'error' : 'good'
   return { count, tone, label: count === 1 ? '1 chat wants you' : `${count} chats want you` }
-}
-
-/** Automations: the scheduled runs that ended while the door was closed. */
-export function automationsRailBadge(unread: readonly AppNotification[]): RailBadge | null {
-  const count = unread.length
-  if (count <= 0) return null
-  return {
-    count,
-    tone: notificationsTone(unread),
-    label: count === 1 ? '1 automation run to look at' : `${count} automation runs to look at`,
-  }
 }
 
 /**

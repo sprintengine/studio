@@ -46,7 +46,6 @@ import {
 } from '../marketplace/plugin-lifecycle'
 import type { McpConfigService } from '../mcp-config-service'
 import { listPluginRegistryEntries } from '../plugin-registry-instance'
-import type { AppServices } from '../app-services'
 import type { SkillsService } from '../skills'
 import { createMarketplacePluginPipeline } from './marketplace-plugin-ipc'
 import { createDefaultMarketplaceRegistryClient } from './marketplace-registry-ipc'
@@ -58,13 +57,6 @@ export type CardsIpcServices = {
   skillsService: SkillsService
   mcpConfigService: McpConfigService
   githubTokenStore: GitHubTokenStore
-  /**
-   * The Automations module's front door, for the one case where a module bundle
-   * a card installs also carries an automation component. Resolved at call time
-   * (the module can be switched off), which is why it is a getter and why an
-   * absent one is a component-level failure rather than a silent skip.
-   */
-  getAutomationsAppFrontDoor?: AppServices['getAutomationsAppFrontDoor']
 }
 
 export function registerCardsIpc(
@@ -75,10 +67,7 @@ export function registerCardsIpc(
   let registryReader: ReturnType<typeof createDefaultMarketplaceRegistryClient> | undefined
   let pipeline: ReturnType<typeof createMarketplacePluginPipeline> | undefined
   const marketplacePipeline = () =>
-    (pipeline ??= createMarketplacePluginPipeline({
-      mcpConfigService: services.mcpConfigService,
-      getAutomationsAppFrontDoor: services.getAutomationsAppFrontDoor ?? (() => null),
-    }))
+    (pipeline ??= createMarketplacePluginPipeline({ mcpConfigService: services.mcpConfigService }))
   const deps: CardRunDeps = {
     syncMcp: (input) => services.mcpConfigService.sync(input),
     getSkillScan: (input) => services.skillsService.getScan(input),

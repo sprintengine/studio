@@ -37,7 +37,7 @@ test('dev-only-gate', async () => {
 
   // 2. The expected production survivors are present (sanity that we didn't drop
   //    too much — agent-runtime + the non-dev-only bundled modules).
-  for (const id of ['agent-runtime', 'backlog', 'dev-tools', 'git', 'memory-graph', 'automations']) {
+  for (const id of ['agent-runtime', 'backlog', 'dev-tools', 'git', 'memory-graph', 'scheduled-agents']) {
     assert.ok(activeIds.includes(id), `production build must keep "${id}"`)
   }
 

@@ -3,10 +3,9 @@ import type { RepositoryIdentity } from '../../shared/repository-identity'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type { CliPermissionPreset, TerminalSessionSnapshot } from '../../shared/electron-api'
 import { projectColorKey, projectHue } from '../../shared/project-hue'
-import { isMostPermissiveCliPermissionPreset, parseCliPermissionPreset } from '../../shared/cli-permission-preset'
+import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
 import { declaredPermissionPresets } from '../plugin-render'
 import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
-import type { AutomationDefinition, AutomationRun } from '../../shared/automations/contracts'
 import { mobileSnapshotCollections, retiredMobileSnapshotCollections } from '../mobile/control/protocol'
 import type { Workspace } from '../../renderer/src/types/workspace'
 import type {
@@ -29,8 +28,8 @@ import type {
   BacklogListItemsResult,
   BacklogReadItemResult,
 } from '../backlog-service'
-import type { AutomationStoreListResult } from '../automations/store'
-import type { AutomationsAppFrontDoor } from '../ipc/automations-ipc'
+import type { ScheduledAgentsService } from '../scheduled-agents/service'
+import { scheduledAgentScheduleWords, type ScheduledAgentView } from '../../shared/scheduled-agents'
 import type { LoadedPlugin } from '../../shared/plugin-manifest'
 import type { MarketplaceRegistryReadInput, MarketplaceRegistryReadResult } from '../../shared/electron-api'
 import {
@@ -60,17 +59,17 @@ import type { WorkspaceCreateRequest, WorkspaceCreateResult } from '../workspace
 import type { WorkspaceMutationActor } from '../workspace-sync-service'
 import { getWorkspaceChangeSummary } from '../workspace-change-summary'
 import {
-  capAutomationDraft,
+  capScheduledAgentPreset,
   capLaunchPermissionPreset,
   launchPermissionCeiling,
-  refuseAutomationRun,
+  refuseScheduledAgentRun,
   type AgentPermissionResolver,
 } from './launch-permission-cap'
 import { normalizeExecutionHostId, type ExecutionHostId } from '../../shared/execution-host'
 
 // The automation tool surface. v1: workspace.create / workspace.list /
 // workspace.status / agent.launch / agent.status; the read expansion adds
-// backlog.list / backlog.read / automation.list / automation.runs. Reads and
+// backlog.list / backlog.read / schedule.list. Reads and
 // mutations alike answer from main's own services — there is one lane, and it is
 // main's. No tool on this surface needs a window, and the renderer
 // delegate that used to carry mutations, along with its `no_primary_window` /
@@ -120,19 +119,17 @@ export type AutomationBackends = {
   listBacklogItems(workspaceRoot: string): Promise<BacklogListItemsResult>
   /** Read one backlog item (validated backlog/ relative path). */
   readBacklogItem(workspaceRoot: string, relativePath: string): Promise<BacklogReadItemResult>
-  /** Automation definitions from the workspace's .sprintengine/automations store. */
-  listAutomationDefinitions(workspaceRoot: string): Promise<AutomationStoreListResult<AutomationDefinition>>
-  /** Run history for one automation, newest-first (store-capped). */
-  listAutomationRuns(workspaceRoot: string, automationId: string): Promise<AutomationStoreListResult<AutomationRun>>
   /** Backlog write services (main-owned file/store writers in backlog-service). */
   backlogWrite: BacklogWriteBackends
   /**
-   * The Automations module's IPC-equivalent create/run-now pipeline, resolved
-   * lazily (the module kernel boots after the automation server's tools are
-   * constructed). Null while the Automations module is disabled or not yet
-   * loaded — tools report that explicitly instead of buffering.
+   * The scheduled agents service, resolved lazily (the module kernel boots
+   * after the automation server's tools are constructed). Null while the
+   * Scheduled agents module is disabled or not yet loaded — tools report that
+   * explicitly instead of buffering.
    */
-  getAutomationsFrontDoor(): AutomationsAppFrontDoor | null
+  getScheduledAgents(): ScheduledAgentsService | null
+  /** The CLI a scheduled agent runs when its creator names none: the last one picked here. */
+  defaultChatCli(): string | null
   /**
    * Create a git worktree for a widened agent.launch (model/preset launches
    * that request isolation, and every connector launch). Worktree
@@ -1301,56 +1298,6 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     },
   }
 
-  const automationList: McpToolRegistration = {
-    name: 'automation.list',
-    description:
-      "List a workspace's Automations (the outbound trigger/action definitions in .sprintengine/automations). Read-only.",
-    inputSchema: {
-      type: 'object',
-      properties: { workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' } },
-      required: ['workspaceId'],
-      additionalProperties: false,
-    },
-    handler: async (args) => {
-      const workspaceId = requireString(args, 'workspaceId')
-      if (typeof workspaceId !== 'string') return workspaceId
-      const resolved = resolveWorkspaceRoot(workspaceId)
-      if (!('root' in resolved)) return resolved
-      const listed = await backends.listAutomationDefinitions(resolved.root)
-      if (!listed.ok) {
-        return failure('automations_unavailable', listed.errors.map((problem) => problem.message).join('; '))
-      }
-      return success({ automations: listed.values })
-    },
-  }
-
-  const automationRuns: McpToolRegistration = {
-    name: 'automation.runs',
-    description: "One automation's run history, newest first (the store keeps the most recent 50). Read-only.",
-    inputSchema: {
-      type: 'object',
-      properties: {
-        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
-        automationId: { type: 'string', description: 'Automation id from automation.list.' },
-      },
-      required: ['workspaceId', 'automationId'],
-      additionalProperties: false,
-    },
-    handler: async (args) => {
-      const workspaceId = requireString(args, 'workspaceId')
-      if (typeof workspaceId !== 'string') return workspaceId
-      const automationId = requireString(args, 'automationId')
-      if (typeof automationId !== 'string') return automationId
-      const resolved = resolveWorkspaceRoot(workspaceId)
-      if (!('root' in resolved)) return resolved
-      const listed = await backends.listAutomationRuns(resolved.root, automationId)
-      if (!listed.ok) {
-        return failure('automations_unavailable', listed.errors.map((problem) => problem.message).join('; '))
-      }
-      return success({ runs: listed.values })
-    },
-  }
-
   // module.* / marketplace.*. Read-only by decision: install,
   // uninstall, and enable/disable mutate trust, and belong to the item that
   // models that permission question — not to the surface that reports state.
@@ -1910,120 +1857,171 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     },
   }
 
-  function automationsFrontDoorOrFailure(): AutomationsAppFrontDoor | McpToolResult {
-    const frontDoor = backends.getAutomationsFrontDoor()
-    if (!frontDoor) {
+  function scheduledAgentsOrFailure(): ScheduledAgentsService | McpToolResult {
+    const service = backends.getScheduledAgents()
+    if (!service) {
       return failure(
-        'automations_module_unavailable',
-        'The Automations module is disabled or not loaded in this app session; enable it in Settings → Modules.',
+        'scheduled_agents_unavailable',
+        'Scheduled agents are switched off or not loaded in this app session; turn them on in Settings → Modules.',
       )
     }
-    return frontDoor
+    return service
   }
 
-  const automationCreate: McpToolRegistration = {
-    name: 'automation.create',
+  // What a caller reads about a scheduled agent: the record, its schedule in
+  // words, and when it runs next as an ISO instant.
+  const scheduledAgentForCaller = (agent: ScheduledAgentView) => ({
+    ...agent,
+    scheduleWords: scheduledAgentScheduleWords(agent.schedule),
+    nextRunAt: agent.nextRunAt === null ? null : new Date(agent.nextRunAt).toISOString(),
+  })
+
+  const scheduledAgentList: McpToolRegistration = {
+    name: 'schedule.list',
     description:
-      'Create an Automation definition through the same validated pipeline the UI uses (provider/permission ' +
-      'checks, schedule validation, workspace-root trust). The definition object carries name, trigger ' +
-      "{kind, config}, action {kind, config}, and an optional status. An agent-backed action's " +
-      'config.permissionPreset is "bypass", "auto", "manual" or "none"; omitted, the agent runs unattended ' +
-      'on "bypass", which launches the CLI with its own skip-every-prompt flag. Any other preset can ask ' +
-      'for approval ("none" passes no flag, so the CLI\'s own configuration decides), and an automation ' +
-      'agent has nobody watching: a run that asks waits on its approval card until someone answers or the ' +
-      'idle reaper fails it. ' +
+      'List the scheduled agents on this computer: each is a prompt and a cron schedule, and each time the ' +
+      'schedule comes round a new chat starts in its project with that prompt. Read-only.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    handler: async () => {
+      const service = scheduledAgentsOrFailure()
+      if (!('list' in service)) return service
+      return success({ scheduledAgents: service.list().map(scheduledAgentForCaller) })
+    },
+  }
+
+  const scheduledAgentCreate: McpToolRegistration = {
+    name: 'schedule.create',
+    description:
+      "Schedule an agent: each time the cron schedule comes round, a new chat starts in the workspace's " +
+      'project, on its machine, with `prompt` as its first message. Nothing carries over between runs. ' +
+      '`cron` is five-field cron (minute hour day month weekday), several separated by ";". The schedule is ' +
+      "read in this computer's timezone unless `timezone` names another IANA zone. " +
       CALLER_PRESET_CAP_SENTENCE,
     inputSchema: {
       type: 'object',
       properties: {
-        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
-        definition: {
-          type: 'object',
+        workspaceId: { type: 'string', description: 'Workspace id from workspace.list: its project and machine.' },
+        prompt: { type: 'string', description: 'The first message each run is sent.' },
+        cron: { type: 'string', description: 'Five-field cron, e.g. "0 9 * * 1-5" for weekdays at 9:00 AM.' },
+        timezone: { type: 'string', description: "IANA zone the cron is read in; this computer's when omitted." },
+        cli: { type: 'string', description: 'Agent CLI id (e.g. "claude-code"); the last-picked one when omitted.' },
+        model: { type: 'string', description: "The CLI's model id; its default when omitted." },
+        permissionPreset: {
+          type: 'string',
+          enum: [...LAUNCH_PERMISSION_PRESETS],
           description:
-            'Automation definition draft: { name, trigger: { kind, config }, action: { kind, config }, ' +
-            'status? }. See automation.list output for the shape of existing definitions.',
+            'Each run\'s CLI permission preset: "bypass" skips every prompt; "auto" lets edits in the ' +
+            'workspace through and asks before commands and anything outside it; "manual" asks before every ' +
+            'edit, command and outside call; "none" passes no flag. Nobody watches a run, so one that asks ' +
+            'waits on its approval card. Omitted, each run takes the preset chosen for its CLI at run time.',
         },
+        worktree: {
+          type: 'boolean',
+          description: 'Run each time in a fresh git worktree rather than the project checkout.',
+        },
+        skills: { type: 'array', items: { type: 'string' }, description: 'Skill ids attached to each run.' },
+        mcpServers: { type: 'array', items: { type: 'string' }, description: 'Installed MCP server ids.' },
       },
-      required: ['workspaceId', 'definition'],
+      required: ['workspaceId', 'prompt', 'cron'],
       additionalProperties: false,
     },
     handler: async (args, context) => {
       const workspaceId = requireString(args, 'workspaceId')
       if (typeof workspaceId !== 'string') return workspaceId
-      if (typeof args.definition !== 'object' || args.definition === null || Array.isArray(args.definition)) {
-        return failure('invalid_arguments', '"definition" must be an object.')
+      const workspace = findWorkspace(workspaceId)
+      if (!workspace?.folderPath) return resolveWorkspaceRoot(workspaceId) as McpToolResult
+      const service = scheduledAgentsOrFailure()
+      if (!('create' in service)) return service
+      const requested =
+        typeof args.permissionPreset === 'string' ? parseCliPermissionPreset(args.permissionPreset) : null
+      if (typeof args.permissionPreset === 'string' && requested === null) {
+        return failure('invalid_arguments', `"permissionPreset" must be one of: ${LAUNCH_PERMISSION_PRESETS.join(', ')}.`)
       }
-      // The preset is the create pipeline's to validate, the same as a draft
-      // from the Automations panel: an automation made from outside may run on
-      // bypass exactly as one a person makes can (owner ruling 2026-09-27).
-      // One made by an agent of this app stores no looser a preset than the
-      // agent's own, since it launches later with nobody watching.
-      const capped = capAutomationDraft(
-        args.definition as Record<string, unknown>,
+      // A scheduled agent launches later with nobody watching, so one made by
+      // an agent of this app stores no looser a preset than the agent's own.
+      const capped = capScheduledAgentPreset(
+        requested,
         launchPermissionCeiling(context, backends.resolveAgentPermissionPreset),
       )
       if ('refused' in capped) return failure(capped.refused.code, capped.refused.message)
-      const resolved = resolveWorkspaceRoot(workspaceId)
-      if (!('root' in resolved)) return resolved
-      const frontDoor = automationsFrontDoorOrFailure()
-      if (!('createDefinition' in frontDoor)) return frontDoor
-      const created = await frontDoor.createDefinition({ workspaceRoot: resolved.root, definition: capped.definition })
-      if (!created.ok) return failure(created.code || 'automation_create_failed', created.message)
-      return success({ automation: created.value })
+      const cli = (typeof args.cli === 'string' && args.cli.trim()) || backends.defaultChatCli()
+      if (!cli) return failure('no_cli_selected', 'Name a "cli": no agent CLI has been picked on this computer yet.')
+      const strings = (value: unknown) =>
+        Array.isArray(value)
+          ? value.filter((id): id is string => typeof id === 'string').map((id) => ({ id, name: id }))
+          : []
+      const created = await service.create({
+        prompt: args.prompt,
+        schedule: {
+          cron: args.cron,
+          timezone:
+            typeof args.timezone === 'string' && args.timezone.trim()
+              ? args.timezone
+              : Intl.DateTimeFormat().resolvedOptions().timeZone,
+        },
+        // A workspace on a worktree schedules into its project, not into that
+        // one worktree: each run makes its own.
+        folderPath: workspace.worktree?.repoRoot ?? workspace.folderPath,
+        hostId: workspace.hostId ?? null,
+        cli,
+        cliModel: typeof args.model === 'string' ? args.model : null,
+        permissionPreset: capped.permissionPreset,
+        skills: strings(args.skills),
+        mcpServers: strings(args.mcpServers),
+        worktree: args.worktree === true ? { name: '' } : null,
+      })
+      if (!created.ok) return failure('scheduled_agent_invalid', created.message)
+      return success({ scheduledAgent: scheduledAgentForCaller(created.agent) })
     },
   }
 
-  // Running an automation now launches what it stores, so an agent of this
-  // app may run only one whose launch would not exceed its own preset. The
-  // definition is read here rather than trusted to the run: nothing else on
-  // this path knows who asked.
-  async function refuseCappedAutomationRun(
-    workspaceRoot: string,
-    automationId: string,
-    context: McpConnectionContext | undefined,
-  ): Promise<McpToolResult | null> {
-    const ceiling = launchPermissionCeiling(context, backends.resolveAgentPermissionPreset)
-    if (ceiling === null || isMostPermissiveCliPermissionPreset(ceiling)) return null
-    const listed = await backends.listAutomationDefinitions(workspaceRoot)
-    if (!listed.ok) {
-      return failure('automations_unavailable', listed.errors.map((problem) => problem.message).join('; '))
-    }
-    // Unknown here is unknown to the run as well, which refuses it itself.
-    const definition = listed.values.find((candidate) => candidate.id === automationId)
-    const refusal = definition ? refuseAutomationRun(definition, ceiling) : null
-    return refusal ? failure(refusal.code, refusal.message) : null
-  }
-
-  const automationRun: McpToolRegistration = {
-    name: 'automation.run',
-    description:
-      'Run an existing schedule-triggered Automation now (the same "Run now" the panel offers). The run record ' +
-      'is confirmed in the store before success. Agent-backed actions launch in the main process, so the run ' +
-      'works with no app window open. Called by an agent of this app, the automation must launch no looser ' +
-      'than that agent\'s own preset, or the run is refused with "permission_escalation".',
+  const scheduledAgentDelete: McpToolRegistration = {
+    name: 'schedule.delete',
+    description: 'Stop and remove a scheduled agent. Chats its past runs started are left as they are.',
     inputSchema: {
       type: 'object',
-      properties: {
-        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
-        automationId: { type: 'string', description: 'Automation id from automation.list.' },
-      },
-      required: ['workspaceId', 'automationId'],
+      properties: { id: { type: 'string', description: 'Scheduled agent id from schedule.list.' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const id = requireString(args, 'id')
+      if (typeof id !== 'string') return id
+      const service = scheduledAgentsOrFailure()
+      if (!('remove' in service)) return service
+      const removed = await service.remove(id)
+      return removed.ok ? success({ removed: id }) : failure('unknown_scheduled_agent', removed.message)
+    },
+  }
+
+  const scheduledAgentRun: McpToolRegistration = {
+    name: 'schedule.run',
+    description:
+      "Start a scheduled agent's run now, without waiting for its schedule: a new chat with its prompt. " +
+      "Called by an agent of this app, the scheduled agent must launch no looser than that agent's own " +
+      'preset, or the run is refused with "permission_escalation".',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'Scheduled agent id from schedule.list.' } },
+      required: ['id'],
       additionalProperties: false,
     },
     handler: async (args, context) => {
-      const workspaceId = requireString(args, 'workspaceId')
-      if (typeof workspaceId !== 'string') return workspaceId
-      const automationId = requireString(args, 'automationId')
-      if (typeof automationId !== 'string') return automationId
-      const resolved = resolveWorkspaceRoot(workspaceId)
-      if (!('root' in resolved)) return resolved
-      const frontDoor = automationsFrontDoorOrFailure()
-      if (!('runNow' in frontDoor)) return frontDoor
-      const refused = await refuseCappedAutomationRun(resolved.root, automationId, context)
-      if (refused) return refused
-      const ran = await frontDoor.runNow({ workspaceRoot: resolved.root, automationId })
-      if (!ran.ok) return failure(ran.code || 'automation_run_failed', ran.message)
-      return success({ definition: ran.value.definition, run: ran.value.run })
+      const id = requireString(args, 'id')
+      if (typeof id !== 'string') return id
+      const service = scheduledAgentsOrFailure()
+      if (!('runNow' in service)) return service
+      const agent = service.get(id)
+      if (!agent) return failure('unknown_scheduled_agent', `No scheduled agent "${id}".`)
+      const refusal = refuseScheduledAgentRun(
+        agent.permissionPreset,
+        launchPermissionCeiling(context, backends.resolveAgentPermissionPreset),
+      )
+      if (refusal) return failure(refusal.code, refusal.message)
+      const ran = await service.runNow(id)
+      if (!ran.ok) return failure('scheduled_agent_run_failed', ran.message)
+      if (!ran.run.ok) return failure('scheduled_agent_run_failed', ran.run.message)
+      return success({ workspaceId: ran.run.workspaceId })
     },
   }
 
@@ -2045,13 +2043,13 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     backlogRepair,
     backlogAssign,
     backlogWork,
-    automationList,
-    automationRuns,
     moduleList,
     moduleStatus,
     marketplaceList,
-    automationCreate,
-    automationRun,
+    scheduledAgentList,
+    scheduledAgentCreate,
+    scheduledAgentDelete,
+    scheduledAgentRun,
   ]
 }
 

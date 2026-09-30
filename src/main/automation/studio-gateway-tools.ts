@@ -22,8 +22,9 @@ const APP_MUTATION_TOOLS = new Set([
   // `workspace:operate` from a paired device. `editor.state` only looks.
   ...EDITOR_MUTATION_TOOL_NAMES,
   'agent.launch',
-  'automation.create',
-  'automation.run',
+  'schedule.create',
+  'schedule.delete',
+  'schedule.run',
   'backlog.assign',
   'backlog.repair',
   'backlog.update',

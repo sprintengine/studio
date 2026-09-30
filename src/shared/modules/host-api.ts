@@ -24,7 +24,7 @@ const HOST_CAPABILITIES: ReadonlySet<HostCapability> = new Set<HostCapability>([
   'secrets',
   'github',
   'companion-agents',
-  'automations',
+  'scheduled-agents',
   'storage',
   'mcp-tools',
   'skills',

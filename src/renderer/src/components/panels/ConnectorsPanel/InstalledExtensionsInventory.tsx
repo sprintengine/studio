@@ -7,7 +7,7 @@
 // ConnectorRow as Browse so the whole surface reads as one system. The
 // list-building lives in the DOM-free `extensionsInstalled` view-model for unit
 // coverage; this component owns the IPC loading and rendering, and its per-row
-// actions (launch / automation / remove) only delegate to handlers the host
+// actions (launch / remove) only delegate to handlers the host
 // already owns — a primitive with no handler simply shows no action.
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
@@ -27,7 +27,6 @@ import type { McpServerConfig, McpSettings } from '../../../types/workspace'
 import {
   CloseIconButton,
   EmptyState,
-  GhostButton,
   InlineNotice,
   Pager,
   PrimaryButton,
@@ -72,7 +71,6 @@ import { cliOnlyRegistryIds, deriveManageUpdateBanner } from './extensionUpdates
 // today (no new IPC), and rows without a matching handler carry no affordance.
 type InventoryActions = {
   onLaunchConnector?: (connector: AgentComposerConnector) => void
-  onUseInAutomation?: (serverId: string) => void
   onRemoveMcpServer?: (serverId: string) => void
   // A module-bundle update can carry MCP servers; reflecting them in the store
   // keeps the MCP group live without a re-list (the storefront install rule).
@@ -589,13 +587,6 @@ function InstalledRow({
 
   const rowActions: ReactNode[] = []
   if (item.kind === 'mcp') {
-    if (launchable && actions.onUseInAutomation) {
-      rowActions.push(
-        <GhostButton key="automation" size="sm" onClick={() => actions.onUseInAutomation!(item.id)}>
-          Use in automation
-        </GhostButton>,
-      )
-    }
     if (launchable && actions.onLaunchConnector) {
       rowActions.push(
         <PrimaryButton

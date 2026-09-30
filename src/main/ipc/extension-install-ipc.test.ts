@@ -97,7 +97,6 @@ test('extension install and uninstall IPC', async () => {
     }
     const services = {
       mcpConfigService: { sync: () => ({ ok: true, targets: [] }) },
-      getAutomationsAppFrontDoor: () => null,
       workspaceSyncService: { getSnapshot: () => ({ state: { workspaces: [{ folderPath: openWorkspace }] } }) },
     } as unknown as Parameters<typeof registerMarketplacePluginIpc>[1]
     const handlers = new Map<string, Handler>()

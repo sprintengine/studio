@@ -7,11 +7,7 @@ import { join } from 'node:path'
 
 import { buildSync } from 'esbuild'
 
-import { parseSpawnAgentConfig } from '../../src/main/automations/actions/spawn-agent'
-import { parseDefinitionDraft } from '../../src/main/automations/definition-write'
-import { computeNextRun, validateScheduleTriggerConfig } from '../../src/main/automations/schedule'
 import { skillContentDigest } from '../../src/main/marketplace/skill-content'
-import { AUTOMATION_DEFAULT_PERMISSION_PRESET } from '../../src/shared/automations/contracts'
 import { test } from 'vitest'
 
 test("verify-marketplace", async () => {
@@ -32,9 +28,9 @@ buildSync({
 
 /**
  * The seed registry carries no signed bundle any more: the four first-party MCP
- * bundles left with the third-party retirement (2026-09-08), and what
- * remains — 13 inline agent-CLI rows and 5 unsigned automation starters — is
- * signature-free by construction.
+ * bundles left with the third-party retirement (2026-09-08), the automation
+ * starters with automations (2026-09-30), and what remains is inline agent-CLI
+ * rows and one signed capability module (Reviews).
  *
  * The signature gate is still the whole trust story for anything code-bearing,
  * so rather than delete the tests that cover it, they build their own signed
@@ -157,6 +153,92 @@ function addSignedProbeBundle(root: string): Record<string, unknown> {
   return entry
 }
 
+const UNSIGNED_PROBE_ID = 'unsigned-probe-mcp'
+
+/**
+ * Commit an unsigned MCP bundle into `root` and list it in that copy's index:
+ * the declarative lane, where component digests stand in for a signature.
+ * Returns the bundle's directory.
+ */
+function addUnsignedProbeBundle(root: string): string {
+  const pluginRoot = join(root, 'plugins', UNSIGNED_PROBE_ID)
+  mkdirSync(join(pluginRoot, 'mcp'), { recursive: true })
+  const server = `${JSON.stringify(
+    {
+      servers: [
+        {
+          id: 'unsigned-probe',
+          name: 'Unsigned Probe',
+          category: 'Development',
+          description: 'A probe MCP server that exists only to exercise the unsigned lane.',
+          transport: 'stdio',
+          command: 'npx',
+          args: ['-y', 'unsigned-probe-mcp@latest'],
+          clients: ['codex', 'claude-code'],
+          scope: 'workspace',
+          source: 'custom',
+          riskLevel: 'local-command',
+          auth: 'None',
+          capabilities: ['Probing'],
+          envVarNames: [],
+        },
+      ],
+    },
+    null,
+    2
+  )}\n`
+  writeFileSync(join(pluginRoot, 'mcp', 'server.json'), server, 'utf8')
+  writeUnsignedProbeManifest(pluginRoot, {
+    mcp: {
+      path: 'mcp/server.json',
+      files: [{ path: 'mcp/server.json', sha256: createHash('sha256').update(server, 'utf8').digest('hex') }],
+    },
+  })
+  const marketplacePath = join(root, 'marketplace.json')
+  const marketplace = JSON.parse(readFileSync(marketplacePath, 'utf8')) as { plugins: Array<unknown> }
+  marketplace.plugins.push({
+    id: UNSIGNED_PROBE_ID,
+    name: 'Unsigned Probe MCP',
+    publisher: { name: 'Probe Labs', verified: false },
+    summary: 'An unsigned probe bundle that exists only to exercise the unsigned lane.',
+    category: 'Development',
+    icon: 'data:image/svg+xml;base64,PHN2Zy8+',
+    latest: 1,
+    source: `https://github.com/sprintengine/studio-releases/tree/main/plugins/${UNSIGNED_PROBE_ID}`,
+    provides: ['mcp'],
+  })
+  writeFileSync(marketplacePath, `${JSON.stringify(marketplace, null, 2)}\n`, 'utf8')
+  return pluginRoot
+}
+
+function writeUnsignedProbeManifest(pluginRoot: string, components: Record<string, unknown>): void {
+  writeFileSync(
+    join(pluginRoot, 'plugin.json'),
+    `${JSON.stringify(
+      {
+        id: UNSIGNED_PROBE_ID,
+        displayName: 'Unsigned Probe MCP',
+        version: 1,
+        defaultEnabled: false,
+        source: 'third-party',
+        permissions: ['network', 'process:spawn'],
+        publisher: 'Probe Labs',
+        category: 'Development',
+        summary: 'An unsigned probe bundle that exists only to exercise the unsigned lane.',
+        components,
+      },
+      null,
+      2
+    )}\n`,
+    'utf8'
+  )
+}
+
+function readUnsignedProbeComponents(pluginRoot: string): Record<string, unknown> {
+  return (JSON.parse(readFileSync(join(pluginRoot, 'plugin.json'), 'utf8')) as { components: Record<string, unknown> })
+    .components
+}
+
 type VerifyRun = {
   status: number | null
   stdout: string
@@ -187,7 +269,7 @@ function testSampleRegistryPasses(): void {
   const result = runVerifier(root)
   assert.equal(result.status, 0, result.stderr)
   const seed = JSON.parse(readFileSync(join(seedRoot, 'marketplace.json'), 'utf8')) as { plugins: unknown[] }
-  assert.ok(seed.plugins.length >= 4, 'seed registry must carry the agent CLIs and automation starters')
+  assert.ok(seed.plugins.length >= 4, 'seed registry must carry the agent CLIs')
   assert.match(result.stdout, new RegExp(`marketplace registry verified \\(${seed.plugins.length} plugins\\)`))
 }
 
@@ -200,7 +282,7 @@ function testSampleRegistryPasses(): void {
  * commits that marketplace pins. What is left is the three kinds a GitHub
  * marketplace genuinely cannot deliver, because `component-trust.ts` refuses
  * code-bearing components from any GitHub source unless they are signed: the
- * agent CLIs, the automation starters, and the signed first-party bundles.
+ * agent CLIs and the signed first-party bundles.
  *
  * Pinned as an exact multiset rather than a floor, because the failure this
  * guards against is the index GROWING a population that belongs in a
@@ -220,19 +302,18 @@ function testRegistryHoldsOnlyWhatAMarketplaceCannotCarry(): void {
       .sort()
       .join('+')
     assert.ok(
-      ['automation', 'cli', 'module'].includes(names),
-      `${plugin.id} provides "${names}"; the registry carries agent CLIs, automation starters and signed capability modules — anything a Claude marketplace can list belongs in one`
+      ['cli', 'module'].includes(names),
+      `${plugin.id} provides "${names}"; the registry carries agent CLIs and signed capability modules — anything a Claude marketplace can list belongs in one`
     )
     kinds.set(names, (kinds.get(names) ?? 0) + 1)
   }
   assert.deepEqual(
     [...kinds.entries()].sort(),
     [
-      ['automation', 5],
       ['cli', 17],
       ['module', 1],
     ],
-    'the registry is 17 agent CLI integrations, 5 automation starters and 1 capability module (Reviews)'
+    'the registry is 17 agent CLI integrations and 1 capability module (Reviews)'
   )
 }
 
@@ -320,7 +401,7 @@ function testUnclaimedPayloadDirFails(): void {
   // A committed payload nothing in the index claims is verified by nothing, yet
   // the packaged-seed install path would still stage it.
   const root = copySeedRegistry('orphan-payload-registry')
-  cpSync(join(root, 'plugins', AUTOMATION_STARTER_ID), join(root, 'plugins', 'nobody-claims-me'), { recursive: true })
+  cpSync(join(root, 'plugins', 'review'), join(root, 'plugins', 'nobody-claims-me'), { recursive: true })
 
   const result = runVerifier(root)
   assert.equal(result.status, 1)
@@ -328,50 +409,49 @@ function testUnclaimedPayloadDirFails(): void {
   assert.match(result.stderr, /no verified marketplace\.json entry/)
 }
 
-const AUTOMATION_STARTER_ID = 'dead-code-sweep-automation'
-const AUTOMATION_STARTER_PAYLOAD = join('plugins', AUTOMATION_STARTER_ID, 'automation', 'automation.json')
-
-function testUnsignedAutomationPayloadIsDigestChecked(): void {
-  // The automation starters ship unsigned, so the digest walk — not a
-  // signature — is what stops their committed bytes drifting from the manifest.
-  const root = copySeedRegistry('automation-digest-registry')
-  const path = join(root, AUTOMATION_STARTER_PAYLOAD)
-  const payload = JSON.parse(readFileSync(path, 'utf8')) as { action: { config: { prompt: string } } }
-  payload.action.config.prompt = 'Do something else entirely.'
-  writeFileSync(path, `${JSON.stringify(payload, null, 2)}\n`, 'utf8')
+function testUnsignedPayloadIsDigestChecked(): void {
+  // An unsigned bundle has no signature, so the digest walk is what stops its
+  // committed bytes drifting from the manifest.
+  const root = copySeedRegistry('unsigned-digest-registry')
+  const pluginRoot = addUnsignedProbeBundle(root)
+  assert.equal(runVerifier(root).status, 0, 'the unsigned probe must verify before it is changed')
+  writeFileSync(join(pluginRoot, 'mcp', 'server.json'), '{"servers":[]}\n', 'utf8')
 
   const result = runVerifier(root)
   assert.equal(result.status, 1)
-  assert.match(result.stderr, new RegExp(`plugins/${AUTOMATION_STARTER_ID}/plugin\\.json`))
+  assert.match(result.stderr, new RegExp(`plugins/${UNSIGNED_PROBE_ID}/plugin\\.json`))
   assert.match(result.stderr, /digest does not match committed bytes/)
 }
 
-function testUnsignedAutomationPayloadMustParseAsADefinition(): void {
-  const root = copySeedRegistry('automation-shape-registry')
-  const payloadPath = join(root, AUTOMATION_STARTER_PAYLOAD)
-  const manifestPath = join(root, 'plugins', AUTOMATION_STARTER_ID, 'plugin.json')
-  const body = '{"name":"No trigger"}\n'
-  writeFileSync(payloadPath, body, 'utf8')
-  // Re-digest so the payload check, not the digest check, is what fails.
-  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
-    components: { automation: { files: Array<{ sha256: string }> } }
-  }
-  manifest.components.automation.files[0].sha256 = createHash('sha256').update(body, 'utf8').digest('hex')
-  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+function testRetiredAutomationComponentIsRefused(): void {
+  // Automations became scheduled agents, which nothing ships as a file: a
+  // bundle that still declares one is refused with the reason.
+  const root = copySeedRegistry('retired-automation-registry')
+  const pluginRoot = addUnsignedProbeBundle(root)
+  const body = '{"name":"Nightly","trigger":{"kind":"schedule"},"action":{"kind":"spawn-agent"}}\n'
+  mkdirSync(join(pluginRoot, 'automation'), { recursive: true })
+  writeFileSync(join(pluginRoot, 'automation', 'automation.json'), body, 'utf8')
+  writeUnsignedProbeManifest(pluginRoot, {
+    ...readUnsignedProbeComponents(pluginRoot),
+    automation: {
+      path: 'automation/automation.json',
+      files: [{ path: 'automation/automation.json', sha256: createHash('sha256').update(body, 'utf8').digest('hex') }],
+    },
+  })
 
   const result = runVerifier(root)
   assert.equal(result.status, 1)
-  assert.match(result.stderr, /components\.automation\.trigger/)
+  assert.match(result.stderr, /components\.automation/)
+  assert.match(result.stderr, /Automation components are no longer supported/)
 }
 
 function testUnsignedBundleMayNotCarryCode(): void {
   const root = copySeedRegistry('unsigned-code-registry')
-  const manifestPath = join(root, 'plugins', AUTOMATION_STARTER_ID, 'plugin.json')
-  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
-    components: Record<string, unknown>
-  }
-  manifest.components.module = { path: 'module/index.js' }
-  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+  const pluginRoot = addUnsignedProbeBundle(root)
+  writeUnsignedProbeManifest(pluginRoot, {
+    ...readUnsignedProbeComponents(pluginRoot),
+    module: { path: 'module/index.js' },
+  })
 
   const result = runVerifier(root)
   assert.equal(result.status, 1)
@@ -382,7 +462,7 @@ function testInlineIconMustMatchTheCommittedMark(): void {
   // The shipped mark is a base64 blob nobody can review; the committed SVG is
   // what a reviewer reads. They have to be the same bytes.
   const root = copySeedRegistry('icon-drift-registry')
-  const markPath = join(root, 'icons', `${AUTOMATION_STARTER_ID}.svg`)
+  const markPath = join(root, 'icons', 'claude-code.svg')
   writeFileSync(markPath, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128"/>\n', 'utf8')
 
   const result = runVerifier(root)
@@ -433,18 +513,21 @@ function testTamperedComponentFailsThroughCliVerify(): void {
   assert.match(result.stderr, /component digests/i)
 }
 
+// The seed's one entry with a bundle `source` to point somewhere else.
+const SOURCE_BEARING_ID = 'review'
+
 function testEntrySourceOnNonAllowlistedHostFails(): void {
   const root = copySeedRegistry('evil-source-registry')
   const path = join(root, 'marketplace.json')
   const marketplace = JSON.parse(readFileSync(path, 'utf8')) as { plugins: Array<{ id: string; source?: string }> }
-  const target = marketplace.plugins.find((plugin) => plugin.id === AUTOMATION_STARTER_ID)
-  assert.ok(target, `seed registry must carry the ${AUTOMATION_STARTER_ID} starter`)
-  target.source = `https://evil.example.com/plugins/${AUTOMATION_STARTER_ID}`
+  const target = marketplace.plugins.find((plugin) => plugin.id === SOURCE_BEARING_ID)
+  assert.ok(target, `seed registry must carry the ${SOURCE_BEARING_ID} entry`)
+  target.source = `https://evil.example.com/plugins/${SOURCE_BEARING_ID}`
   writeFileSync(path, `${JSON.stringify(marketplace, null, 2)}\n`, 'utf8')
 
   const result = runVerifier(root)
   assert.equal(result.status, 1)
-  assert.match(result.stderr, new RegExp(`plugins\\.${AUTOMATION_STARTER_ID}\\.source`))
+  assert.match(result.stderr, new RegExp(`plugins\\.${SOURCE_BEARING_ID}\\.source`))
   assert.match(result.stderr, /allowlist/)
 }
 
@@ -452,8 +535,8 @@ function testEntrySourceOnAllowlistedNonCanonicalOwnerPasses(): void {
   const root = copySeedRegistry('non-canonical-owner-registry')
   const path = join(root, 'marketplace.json')
   const marketplace = JSON.parse(readFileSync(path, 'utf8')) as { plugins: Array<{ id: string; source?: string }> }
-  const first = marketplace.plugins.find((plugin) => plugin.id === AUTOMATION_STARTER_ID)
-  assert.ok(first, `seed registry must carry the ${AUTOMATION_STARTER_ID} starter`)
+  const first = marketplace.plugins.find((plugin) => plugin.id === SOURCE_BEARING_ID)
+  assert.ok(first, `seed registry must carry the ${SOURCE_BEARING_ID} entry`)
   first.source = `https://github.com/another-org/registry/tree/main/plugins/${first.id}`
   writeFileSync(path, `${JSON.stringify(marketplace, null, 2)}\n`, 'utf8')
 
@@ -511,81 +594,6 @@ function testBundledSkillPayloadDigestsGateThePublish(): void {
   assert.match(missing.stderr, /payload dir is missing/)
 }
 
-// The nightly starters. The registry checks above prove the bundles
-// are well-formed; these prove the payloads survive the code that actually
-// reads them — the install parse, the schedule arm, and the fire-time action
-// config — instead of only looking right in the diff.
-const STARTER_CADENCES: Array<{ id: string; name: string; timeLocal: string }> = [
-  { id: 'dead-code-sweep-automation', name: 'Dead code sweep', timeLocal: '02:00' },
-  { id: 'duplication-review-automation', name: 'Duplication review', timeLocal: '02:30' },
-  { id: 'unit-test-coverage-automation', name: 'Unit test coverage', timeLocal: '03:00' },
-  { id: 'ui-ux-review-automation', name: 'UI & UX review', timeLocal: '03:30' },
-  { id: 'merged-pr-seam-review-automation', name: 'Merged-PR seam review', timeLocal: '18:00' },
-]
-
-function readStarterPayload(id: string): Record<string, unknown> {
-  return JSON.parse(
-    readFileSync(join(seedRoot, 'plugins', id, 'automation', 'automation.json'), 'utf8')
-  ) as Record<string, unknown>
-}
-
-function testStarterPayloadsInstallAndArm(): void {
-  const fired = new Set<string>()
-  for (const starter of STARTER_CADENCES) {
-    const payload = readStarterPayload(starter.id)
-
-    // The install path stamps its own id, status and isolation, so the payload
-    // must not carry them: a shelf item cannot opt a user out of run isolation,
-    // and a payload id would collide across projects and repeat installs.
-    for (const forbidden of ['id', 'runInWorktree', 'ownerModuleId', 'sourceCatalogueId', 'sourcePublisher']) {
-      assert.equal(payload[forbidden], undefined, `${starter.id} payload must not carry ${forbidden}`)
-    }
-
-    const draft = parseDefinitionDraft(payload)
-    assert.ok(draft.ok, `${starter.id} must parse through the app's authoritative definition parse`)
-    assert.equal(draft.value.name, starter.name)
-    assert.equal(draft.value.status, 'enabled')
-
-    const schedule = validateScheduleTriggerConfig(draft.value.trigger.config)
-    assert.ok(schedule.ok, `${starter.id} schedule must validate`)
-    assert.deepEqual(schedule.value.cadence, { type: 'daily', timeLocal: starter.timeLocal })
-    // The authored zone, which is a placeholder and not what any user gets:
-    // the install stamps the installing machine's own zone over it, so an
-    // authored 02:00 is 02:00 wherever the starter is added (item 2039,
-    // `localiseCatalogueSchedule` in src/main/automations/definition-write.ts;
-    // the install-side proof is in that file's tests and the shelf e2e). What
-    // this asserts is that the payload carries a zone the schedule validator
-    // accepts, so a starter still parses on a host that cannot name its own.
-    assert.equal(schedule.value.timezone, 'UTC')
-    assert.ok(computeNextRun(schedule.value, Date.parse('2026-07-30T12:00:00Z')) !== null)
-
-    // Staggered: five agents, five worktrees and five pull requests at one
-    // instant is the load the cadences exist to spread.
-    assert.equal(fired.has(starter.timeLocal), false, `${starter.timeLocal} is claimed by two starters`)
-    fired.add(starter.timeLocal)
-
-    assert.equal(draft.value.action.kind, 'spawn-agent')
-    const action = parseSpawnAgentConfig(draft.value.action.config)
-    assert.ok(action.prompt.length > 0)
-    // Unattended preset by default, and the live CLI fallback.
-    assert.equal(action.cli, undefined)
-    assert.equal(action.permissionPreset, AUTOMATION_DEFAULT_PERMISSION_PRESET)
-  }
-}
-
-function testStarterPromptsNameTheirDeliverable(): void {
-  // The agent composes the pull request title and body itself, so anything a
-  // starter wants a human to read has to be a file in its diff. A prompt that
-  // only says "open a pull request" produces an empty branch and a failed
-  // `gh pr create`.
-  for (const starter of STARTER_CADENCES) {
-    const { prompt } = parseSpawnAgentConfig(
-      (readStarterPayload(starter.id).action as { config: unknown }).config
-    )
-    assert.match(prompt, new RegExp(`reports/${starter.id.replace(/-automation$/, '')}-`), starter.id)
-  }
-}
-
 function testPublishScriptsTargetRegistryRoot(): void {
   const appPackage = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8')) as {
     scripts?: Record<string, string>
@@ -610,8 +618,8 @@ try {
   testInlineCliMustReferenceABundledPluginInTheAppRepoLayout()
   testStrippedSignatureCannotKeepAVerifiedPublisher()
   testUnclaimedPayloadDirFails()
-  testUnsignedAutomationPayloadIsDigestChecked()
-  testUnsignedAutomationPayloadMustParseAsADefinition()
+  testUnsignedPayloadIsDigestChecked()
+  testRetiredAutomationComponentIsRefused()
   testUnsignedBundleMayNotCarryCode()
   testInlineIconMustMatchTheCommittedMark()
   testSchemaInvalidRegistryFailsClearly()
@@ -620,8 +628,6 @@ try {
   testEntrySourceOnNonAllowlistedHostFails()
   testEntrySourceOnAllowlistedNonCanonicalOwnerPasses()
   testBundledSkillPayloadDigestsGateThePublish()
-  testStarterPayloadsInstallAndArm()
-  testStarterPromptsNameTheirDeliverable()
   testPublishScriptsTargetRegistryRoot()
   console.log('marketplace publish validation tests passed')
 } finally {

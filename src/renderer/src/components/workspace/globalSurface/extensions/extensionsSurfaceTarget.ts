@@ -2,10 +2,10 @@
 // `openExtensionsSurface({ view })` callers — the command palette, Settings →
 // Modules, and the agent "Manage skills" footers — mean "open the door and land
 // on this row", but the door may open a tick before the surface mounts and
-// subscribes. So, exactly like the automations surface-target latch,
-// the producer both stashes the pending target and emits a live event; the
-// surface drains the latch on mount and also handles the live event, so the
-// deep-link lands whether the door was already open or just mounted.
+// subscribes. So the producer both stashes the pending target and emits a
+// live event; the surface drains the latch on mount and also handles the live
+// event, so the deep-link lands whether the door was already open or just
+// mounted.
 //
 // Pure (a module-level ref + window CustomEvent, no store, no React) so entry
 // points can import it without pulling the door bundle into their graph.

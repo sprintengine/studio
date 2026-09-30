@@ -39,9 +39,13 @@ export const HOSTED_CARD_FEED_URL =
 // What the card is, which is also the word on its stamp. Not a taxonomy to
 // filter by — the home page is marketing, not a catalogue — but the renderer
 // needs to know whether it is showing an MCP server or a showcase.
-export type HostedCardKind = 'mcp' | 'skill' | 'plugin' | 'automation' | 'showcase'
+//
+// `automation` was a kind until automations became scheduled agents
+// (2026-09-30): a card of that kind named something this build no longer has,
+// so it is dropped and counted like any other kind a build does not know.
+export type HostedCardKind = 'mcp' | 'skill' | 'plugin' | 'showcase'
 
-const CARD_KINDS: readonly HostedCardKind[] = ['mcp', 'skill', 'plugin', 'automation', 'showcase']
+const CARD_KINDS: readonly HostedCardKind[] = ['mcp', 'skill', 'plugin', 'showcase']
 
 // The doors a card may open. `plugins` and `skills` are VIEWS OF THE EXTENSIONS
 // DOOR — exactly `EXTENSIONS_DRAWER_VIEWS` in the renderer's

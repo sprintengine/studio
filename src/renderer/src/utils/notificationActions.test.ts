@@ -11,7 +11,7 @@ test('notificationActions', async () => {
     return {
       id: 'n1',
       level: 'error',
-      source: 'automations',
+      source: 'marketplace',
       title: 'T',
       message: 'M',
       timestamp: '2026-01-01T00:00:00.000Z',
@@ -28,17 +28,16 @@ test('notificationActions', async () => {
   }
 
   // --- Regression: a provider deep-link is offered even with NO workspaceId. ----
-  // This is the bug the Automations-screen retirement exposed: a manual Run-now
-  // failure publishes a source-'automations' notification with a run deep-link but
-  // no workspaceId (the screen has no backing workspace). The provider action must
-  // still be returned — previously the shell dropped ALL actions when workspaceId
-  // was absent.
+  // A module's notification can carry a deep-link into a screen that has no
+  // backing workspace, and so no workspaceId. The provider action must still be
+  // returned — previously the shell dropped ALL actions when workspaceId was
+  // absent.
   {
     let ran = false
     const providers = [
-      provider('automations', () => [
+      provider('marketplace', () => [
         {
-          id: 'automations.open-run',
+          id: 'marketplace.open-entry',
           label: 'Open',
           run: () => {
             ran = true
@@ -47,14 +46,14 @@ test('notificationActions', async () => {
       ]),
     ]
     const actions = resolveNotificationActions({
-      notification: notification({ source: 'automations', workspaceId: undefined }),
+      notification: notification({ source: 'marketplace', workspaceId: undefined }),
       providers,
       revealWorkspace: () => assert.fail('must not use the workspace-reveal fallback when a provider action exists'),
       workspaceExists: () => true,
     })
     assert.deepEqual(
       actions.map((a) => a.id),
-      ['automations.open-run'],
+      ['marketplace.open-entry'],
       'provider action survives a missing workspaceId',
     )
     actions[0].run()
@@ -95,16 +94,16 @@ test('notificationActions', async () => {
 
   // --- Provider actions present do NOT also add the generic fallback. -----------
   {
-    const providers = [provider('automations', () => [{ id: 'automations.open-run', label: 'Open', run: () => {} }])]
+    const providers = [provider('marketplace', () => [{ id: 'marketplace.open-entry', label: 'Open', run: () => {} }])]
     const actions = resolveNotificationActions({
-      notification: notification({ source: 'automations', workspaceId: 'ws-1' }),
+      notification: notification({ source: 'marketplace', workspaceId: 'ws-1' }),
       providers,
       revealWorkspace: () => assert.fail('provider action replaces the generic fallback'),
       workspaceExists: () => true,
     })
     assert.deepEqual(
       actions.map((a) => a.id),
-      ['automations.open-run'],
+      ['marketplace.open-entry'],
       'provider actions replace the generic reveal',
     )
   }
@@ -113,17 +112,17 @@ test('notificationActions', async () => {
   {
     const providers = [
       provider('agents', () => [{ id: 'agents.open', label: 'Open task', run: () => {} }]),
-      provider('automations', () => [{ id: 'automations.open-run', label: 'Open', run: () => {} }]),
+      provider('marketplace', () => [{ id: 'marketplace.open-entry', label: 'Open', run: () => {} }]),
     ]
     const actions = resolveNotificationActions({
-      notification: notification({ source: 'automations', workspaceId: 'ws-1' }),
+      notification: notification({ source: 'marketplace', workspaceId: 'ws-1' }),
       providers,
       revealWorkspace: () => {},
       workspaceExists: () => true,
     })
     assert.deepEqual(
       actions.map((a) => a.id),
-      ['automations.open-run'],
+      ['marketplace.open-entry'],
       'cross-source providers are ignored',
     )
   }
@@ -131,13 +130,13 @@ test('notificationActions', async () => {
   // --- isVisible:false actions are filtered out (and can fall through). ---------
   {
     const providers = [
-      provider('automations', (ctx: NotificationActionContext) => [
+      provider('marketplace', (ctx: NotificationActionContext) => [
         { id: 'hidden', label: 'Hidden', isVisible: () => false, run: () => {} },
         { id: 'shown', label: 'Shown', isVisible: () => Boolean(ctx.notification), run: () => {} },
       ]),
     ]
     const actions = resolveNotificationActions({
-      notification: notification({ source: 'automations', workspaceId: 'ws-1' }),
+      notification: notification({ source: 'marketplace', workspaceId: 'ws-1' }),
       providers,
       revealWorkspace: () => {},
       workspaceExists: () => true,
@@ -153,10 +152,10 @@ test('notificationActions', async () => {
   {
     let revealed: string | null = null
     const providers = [
-      provider('automations', () => [{ id: 'hidden', label: 'Hidden', isVisible: () => false, run: () => {} }]),
+      provider('marketplace', () => [{ id: 'hidden', label: 'Hidden', isVisible: () => false, run: () => {} }]),
     ]
     const actions = resolveNotificationActions({
-      notification: notification({ source: 'automations', workspaceId: 'ws-1' }),
+      notification: notification({ source: 'marketplace', workspaceId: 'ws-1' }),
       providers,
       revealWorkspace: (id) => {
         revealed = id
@@ -188,16 +187,16 @@ test('notificationActions', async () => {
 
   // --- A provider action is still offered when the named workspace is gone. -----
   {
-    const providers = [provider('automations', () => [{ id: 'automations.open-run', label: 'Open', run: () => {} }])]
+    const providers = [provider('marketplace', () => [{ id: 'marketplace.open-entry', label: 'Open', run: () => {} }])]
     const actions = resolveNotificationActions({
-      notification: notification({ source: 'automations', workspaceId: 'ws-gone' }),
+      notification: notification({ source: 'marketplace', workspaceId: 'ws-gone' }),
       providers,
       revealWorkspace: () => {},
       workspaceExists: () => false,
     })
     assert.deepEqual(
       actions.map((a) => a.id),
-      ['automations.open-run'],
+      ['marketplace.open-entry'],
       'provider deep-links do not depend on the workspace',
     )
   }

@@ -107,7 +107,9 @@ export const BUNDLED_MODULE_IDS: readonly string[] = [
   // can take it.
   'sprint-engine',
   'review',
+  // Retired but still reserved: Automations became scheduled agents 2026-09-30.
   'automations',
+  'scheduled-agents',
   // Retired but still reserved (the hosted mobile relay, removed 2026-09-27).
   'mobile-relay',
   'voice-dictation',
@@ -128,10 +130,10 @@ export type CapabilityPermission =
   | 'backlog.read'
   | 'backlog.write'
   | 'backlog.link.open'
-  // Create and manage the module's own automations through the SDK's scoped
-  // Automations service. Disclosure-level like every other scope: the service
-  // does not runtime-check it.
-  | 'automations.manage'
+  // Create and manage the module's own scheduled agents through the SDK's
+  // scoped service. Disclosure-level like every other scope: the service does
+  // not runtime-check it.
+  | 'scheduled-agents.manage'
   // Attach workspace-bound background (companion) agents through the SDK's
   // Companion Agents service. Unlike the disclosure-only scopes above, the
   // companion service checks this one explicitly at attach time.
@@ -169,7 +171,7 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'backlog.read',
   'backlog.write',
   'backlog.link.open',
-  'automations.manage',
+  'scheduled-agents.manage',
   'agents:companion',
   'storage',
   'conversation:read',
@@ -527,8 +529,8 @@ export type ModuleWorkspaceView = {
   name: string
   /**
    * Absolute folder the workspace opened (its primary checkout); null for
-   * folderless workspaces. Note for worktree-backed workspaces (an automation
-   * run with `runInWorktree`, and whatever else a module opens): the agents work
+   * folderless workspaces. Note for worktree-backed workspaces (a scheduled
+   * agent's run on a worktree, and whatever else a module opens): the agents work
    * in a git worktree under this folder — this snapshot deliberately reports the
    * durable project root (the right base for persistence and scoped services),
    * not the transient worktree.
@@ -567,384 +569,122 @@ export type WorkspaceContextService = {
 export const WorkspaceContextToken: ServiceToken<WorkspaceContextService> =
   createServiceToken<WorkspaceContextService>('core.workspace-context')
 
-// ── Automations providers (host-provided, consumed via the service bridge) ────
+// ── Scheduled agents (host-provided, consumed via the service bridge) ────────
 
-export type JsonSchema = Record<string, unknown>
+/** The machine a scheduled agent runs on: this computer, or one of its WSL distributions. */
+export type ScheduledAgentHostId = 'local' | `wsl:${string}`
 
-export type AutomationStatus = 'enabled' | 'paused' | 'blocked'
-
-export type AutomationRunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'blocked' | 'skipped'
-
-export type TriggerKind = 'schedule' | string
-
-export type ScheduleTriggerConfig = {
-  kind: 'schedule'
-  cadence:
-    | { type: 'interval'; everyMinutes: number }
-    | { type: 'daily'; timeLocal: string }
-    | { type: 'weekly'; timeLocal: string; daysOfWeek: number[] }
-    /**
-     * One-shot: run once at `datetime` — ISO-8601 local wall-clock
-     * (`YYYY-MM-DDTHH:mm`, seconds optional and ignored, NO trailing `Z` or
-     * offset; the config's `timezone` field is the sole timezone authority,
-     * matching daily/weekly). Once the fire time passes, `computeNextRun`
-     * returns null and the automation never fires again — it stays listed
-     * with no upcoming run. A past datetime is valid and simply never fires.
-     * A wall-clock that falls in a DST spring-forward gap resolves to the
-     * first instant after the gap, the same rule daily/weekly use.
-     */
-    | { type: 'at'; datetime: string }
-    | { type: 'cron'; expression: string }
+export type ScheduledAgentSchedule = {
+  /** Five-field cron; several expressions separated by `;`. */
+  cron: string
+  /** The IANA zone the cron's wall-clock is read in. */
   timezone: string
 }
 
-export type AutomationTriggerPollContext = {
-  getSharedValue<T>(key: string, factory: () => Promise<T>): Promise<T>
-}
+/** A skill or an installed MCP server, by id, with the name its chip shows. */
+export type ScheduledAgentAttachment = { id: string; name: string }
 
-export type AutomationTriggerPollEvent = {
-  id: string
-  occurredAt: string
-  payload: Record<string, unknown>
-}
-
-export type AutomationTriggerPollResult =
-  { ok: true; events: AutomationTriggerPollEvent[] } | { ok: false; blockedReason: string }
+export type ScheduledAgentLastRun =
+  { at: number; ok: true; workspaceId: string } | { at: number; ok: false; message: string }
 
 /**
- * Bundled action kinds the host ships, plus module-namespaced kinds
- * (`<module-id>.<suffix>`). The union stays open so a compiled module can
- * register its own kinds; the literals document the ones the panel already
- * knows how to author.
+ * A scheduled agent: a prompt and a schedule. Each time the schedule comes
+ * round, a new chat starts in `folderPath` with `prompt` as its first message,
+ * on the machine, CLI, model, permissions, skills, MCP servers and worktree
+ * setting recorded here. Nothing carries from one run to the next.
  */
-export type ActionKind = 'spawn-agent' | 'run-command' | 'run-skill-loop' | string
-
-/**
- * Closed vocabulary of Automations panel type-glyphs. The panel draws these
- * shapes; a module names one rather than shipping SVG. `agent` is a
- * head-and-shoulders figure, `loop` is the repeat arrows, `board` is a
- * four-pane board, `clock` is the automations clock (and the fallback for an
- * omitted glyph).
- */
-export const AUTOMATION_PROVIDER_GLYPHS = ['agent', 'loop', 'board', 'clock'] as const
-export type AutomationProviderGlyph = (typeof AUTOMATION_PROVIDER_GLYPHS)[number]
-
-/**
- * When a definition pairs this trigger with `actionKind` and leaves
- * `disableAfterRun` unspecified, the write path applies `defaultDisableAfterRun`.
- * Used to bound ping-pong between a completion trigger and a start action
- * without the host naming either kind.
- */
-export type AutomationTriggerPairing = {
-  actionKind: ActionKind
-  defaultDisableAfterRun?: boolean
-}
-
-export type AutomationTriggerProvider = {
-  kind: TriggerKind
-  /** Sentence-case family label the Automations panel shows. */
-  label?: string
-  glyph?: AutomationProviderGlyph
-  /** One-line summary for the panel's supporting line. */
-  summary?: string
-  pairsWith?: AutomationTriggerPairing
-  configSchema: JsonSchema
-  requiredIntegrations?: string[]
-  validateConfig?(config: unknown): { ok: true } | { ok: false; error: string }
-  subscribe(input: { config: unknown; fire: (payload: Record<string, unknown>) => void; now: () => number }): () => void
-  computeNextRun?(config: unknown, after: number): number | null
-  poll?(input: {
-    config: unknown
-    workspaceRoot: string
-    now: () => number
-    context?: AutomationTriggerPollContext
-  }): Promise<AutomationTriggerPollResult>
-}
-
-export type AutomationRunIsolation = 'worktree' | 'workspace-checkout'
-
-export type AutomationRun = {
+export type ScheduledAgent = {
   id: string
-  automationId: string
-  status: AutomationRunStatus
-  dueAt: string
-  startedAt: string | null
-  completedAt: string | null
-  blockedReason?: string
-  workspaceId?: string
-  agentId?: string
-  /**
-   * The chat session the run's agent conversation started, known once it has
-   * launched. The run finishes when that conversation's turn completes or
-   * fails, or its session closes. Absent on runs that never launched an agent.
-   */
-  sessionId?: string
-  promptFingerprint?: string
-  touchedFiles?: string[]
-  commandsRan?: string[]
-  summary?: string
-  /**
-   * Isolation the run actually got, stamped by the built-in agent-backed actions
-   * at launch. `worktree` is the contained shape: its own worktree, its own
-   * branch, and a pull request on completion. `workspace-checkout` is the
-   * deliberate opt-out (`runInWorktree: false`): the agent ran in the user's own
-   * checkout, so the run has no branch and opens no pull request. Absent on
-   * historical runs and on runs that never launched an agent — read it, not the
-   * absence of {@link worktreePath}, to tell a contained run from an uncontained
-   * one without re-reading the definition.
-   */
-  isolation?: AutomationRunIsolation
-  /** Git worktree the agent-backed run executes in (per-run isolation). */
-  worktreePath?: string
-  /** Branch the run's worktree is checked out on. */
-  branch?: string
-  /** Pull request opened for the run's branch on completion, when available. */
-  pullRequestUrl?: string
-  /** Report files the run produced, project-relative and contained under `reports/`. */
-  reportPaths?: string[]
+  prompt: string
+  schedule: ScheduledAgentSchedule
+  folderPath: string
+  hostId: ScheduledAgentHostId | null
+  cli: string
+  cliModel: string | null
+  /** Null follows the preset the person chose for that CLI, read at run time. */
+  permissionPreset: 'none' | 'bypass' | null
+  skills: ScheduledAgentAttachment[]
+  mcpServers: ScheduledAgentAttachment[]
+  /** A fresh worktree per run, named from this; null runs in the project's checkout. */
+  worktree: { name: string } | null
+  /** The module that created it; the SDK service stamps it and only that module reaches it. */
+  ownerModuleId: string | null
+  createdAt: number
+  updatedAt: number
+  lastRun: ScheduledAgentLastRun | null
+  lastFailureSeenAt: number | null
 }
 
-export type AutomationCliPermissionPreset = 'none' | 'bypass'
-
-export type ActionContext = {
-  automationId: string
-  runId: string
-  workspaceRoot: string
-  triggerPayload: Record<string, unknown>
-  /**
-   * Start the run's agent as a chat conversation and send `prompt` as its
-   * first turn. `worktreePath` is the working root when the run is isolated in
-   * a worktree; `skills` are installed before the turn and invoked in it (an
-   * unknown id fails the launch). Resolves once the conversation's session has
-   * started; the run finishes with that session's turn.
-   */
-  spawnAgent(input: {
-    workspaceId?: string
-    folderPath: string
-    cli?: string
-    model?: string
-    permissionPreset?: AutomationCliPermissionPreset
-    worktreePath?: string
-    name?: string
-    prompt: string
-    skills?: string[]
-  }): Promise<{ workspaceId: string; agentId: string; sessionId: string }>
-  runCommand(input: { command: string[]; cwd: string }): Promise<{ code: number; output: string }>
-  reportProgress(patch: Partial<AutomationRun>): void
-  requireIntegration(id: string): void
-}
-
-export type AutomationActionProvider = {
-  kind: ActionKind
-  /** Sentence-case label the Automations panel shows for this action. */
-  label?: string
-  glyph?: AutomationProviderGlyph
-  /** One-line summary for the panel's supporting line. */
-  summary?: string
-  configSchema: JsonSchema
-  requiredIntegrations?: string[]
-  run(config: unknown, ctx: ActionContext): Promise<Partial<AutomationRun>>
-}
-
-type AutomationsProviderRegistry = {
-  registerTriggerProvider(moduleId: string, provider: AutomationTriggerProvider): string
-  registerActionProvider(moduleId: string, provider: AutomationActionProvider): string
-}
-
-const automationsProviderRegistryToken: ServiceToken<AutomationsProviderRegistry> =
-  createServiceToken<AutomationsProviderRegistry>('automations.provider-registry')
-
-export function registerAutomationTrigger(host: MainHost, provider: AutomationTriggerProvider): string {
-  return host.requireService(automationsProviderRegistryToken).registerTriggerProvider(host.moduleId, provider)
-}
-
-export function registerAutomationAction(host: MainHost, provider: AutomationActionProvider): string {
-  return host.requireService(automationsProviderRegistryToken).registerActionProvider(host.moduleId, provider)
-}
-
-// ── Scoped Automations service (owned CRUD + run events) ─────────────────────
-
-export type AutomationDefinition = {
-  id: string
-  name: string
-  status: AutomationStatus
-  trigger: { kind: TriggerKind; config: unknown }
-  condition?: { kind: string; config: unknown }
-  action: { kind: ActionKind; config: unknown }
-  /**
-   * The capability module that created this automation through the SDK's
-   * scoped Automations service; absent ⇒ user-owned. Stamped server-side from
-   * the creating module's identity — never accepted from the renderer — and
-   * immutable thereafter (patches cannot carry it). The user outranks the
-   * module: panel edits to module-owned automations stay allowed; only the
-   * module service enforces ownership.
-   */
-  ownerModuleId?: string
-  /**
-   * Whether an agent-backed run executes in its own per-run git worktree (branch
-   * isolation from the user's checkout, and the prerequisite for opening a PR —
-   * a non-worktree run has no branch to review). Absent ⇒ true, so existing
-   * automations keep running in a worktree.
-   */
-  runInWorktree?: boolean
-  /**
-   * Runtime-only bridge for definitions written before `autonomyDefault` was
-   * retired (2026-07-30) whose author set it to `review_only`. That intent —
-   * report, do not fix — now lives in the automation's prompt, so the store read
-   * translates the retired key into this marker and the launch prompt carries a
-   * write-up-only instruction. Host-populated and never persisted: a module must
-   * not send it, and it is stripped again on write, so it exists only between a
-   * legacy file's read and the run it starts.
-   */
-  legacyWriteUpOnly?: true
-  /**
-   * Run once, then pause: after one triggered fire (schedule due-run, skipped
-   * overdue run, webhook or polling trigger event) the definition transitions to
-   * `status: 'paused'`; re-enabling arms it again. A manual "Run now" never
-   * consumes the shot — the flag means "after one *triggered* fire". Absent ⇒
-   * false. Works for every trigger kind; orthogonal to the `at` cadence's own
-   * natural exhaustion.
-   */
-  disableAfterRun?: boolean
-  /**
-   * The marketplace catalogue entry this automation was added from, and that
-   * entry's publisher. Provenance only: stamped once by the marketplace install
-   * path and immutable thereafter (patches cannot carry either field), so the
-   * shelf can answer "is this already added" for a project and open the record
-   * the entry produced. Distinct from `ownerModuleId`, which is module identity
-   * and governs who may write the record — a catalogue automation is the user's
-   * the moment it lands, and survives uninstalling the plugin that shipped it.
-   */
-  sourceCatalogueId?: string
-  sourcePublisher?: string
-  nextRunAt: string | null
-  lastRunAt: string | null
-  lastRunId: string | null
-  createdAt: string
-  updatedAt: string
-}
-
-export type AutomationDefinitionDraft = {
-  id?: string
-  name: string
-  status: AutomationStatus
-  trigger: { kind: TriggerKind; config: unknown }
-  condition?: { kind: string; config: unknown }
-  action: { kind: ActionKind; config: unknown }
-  runInWorktree?: boolean
-  disableAfterRun?: boolean
-  /**
-   * Owning module for drafts created through the SDK's scoped Automations
-   * service. Optional echo of the creating module's own id — a draft claiming
-   * a different module is refused, and ownership is always stamped by the
-   * host. The user-facing IPC create path ignores it entirely.
-   */
-  ownerModuleId?: string
-  /**
-   * Catalogue provenance for drafts created by the marketplace install path.
-   * Stamped by the host from the bundle being installed — like `ownerModuleId`,
-   * never read off a caller-supplied payload.
-   */
-  sourceCatalogueId?: string
-  sourcePublisher?: string
-}
-
-export type AutomationDefinitionPatch = Partial<
-  Omit<AutomationDefinitionDraft, 'id' | 'ownerModuleId' | 'sourceCatalogueId' | 'sourcePublisher'>
+/** What a module writes: everything but the bookkeeping. */
+export type ScheduledAgentDraft = Pick<
+  ScheduledAgent,
+  | 'prompt'
+  | 'schedule'
+  | 'folderPath'
+  | 'hostId'
+  | 'cli'
+  | 'cliModel'
+  | 'permissionPreset'
+  | 'skills'
+  | 'mcpServers'
+  | 'worktree'
 >
 
-export type AutomationRunEventStatus = Extract<AutomationRunStatus, 'completed' | 'failed' | 'blocked'>
-export type AutomationRunEventTrigger = 'timer' | 'manual'
+/** A scheduled agent as listed: the record plus when it runs next (epoch ms). */
+export type ScheduledAgentView = ScheduledAgent & { nextRunAt: number | null }
 
-export type AutomationsRunEvent = {
-  automationId: string
-  runId: string
-  workspaceId: string
-  agentId?: string
-  definitionName: string
-  status: AutomationRunEventStatus
-  trigger: AutomationRunEventTrigger
-}
-
-export type ModuleAutomationsError =
-  'invalid_draft' | 'invalid_workspace' | 'not_found' | 'not_owner' | 'store_error' | 'engine_unavailable'
-
-export type ModuleAutomationsResult<T> =
-  ({ ok: true } & T) | { ok: false; code: ModuleAutomationsError; message: string }
+export type ScheduledAgentWriteResult = { ok: true; agent: ScheduledAgentView } | { ok: false; message: string }
 
 /**
- * Owned automation CRUD + run events for a module's `entry.main`, obtained via
- * `getAutomationsService(host)`. Every method is pre-scoped to your module:
- * `create` stamps `ownerModuleId`, mutations refuse records your module does
- * not own (`not_owner` — user-created automations included), `list` returns
- * only owned records, and `onRunEvent` fires only for owned automations.
- * Declare the `automations.manage` permission (install-time disclosure) and
- * `dependsOn: ['automations']` so the service exists before your entry runs.
+ * Scheduled agents for a module's `entry.main`, obtained via
+ * `getScheduledAgentsService(host)`. Every method is pre-scoped to your
+ * module: `create` stamps it as the owner, `list` returns only the ones it
+ * owns, and every other call refuses an id it does not own as if the id did
+ * not exist. Declare the `scheduled-agents.manage` permission (install-time
+ * disclosure) and `dependsOn: ['scheduled-agents']` so the service exists
+ * before your entry runs.
  */
-export type ModuleAutomationsService = {
-  /** Create an automation owned by this module (`ownerModuleId` is stamped). */
-  create(input: {
-    workspaceRoot: string
-    draft: AutomationDefinitionDraft
-  }): Promise<ModuleAutomationsResult<{ automation: AutomationDefinition }>>
-  update(input: {
-    workspaceRoot: string
-    automationId: string
-    patch: AutomationDefinitionPatch
-  }): Promise<ModuleAutomationsResult<{ automation: AutomationDefinition }>>
-  delete(input: { workspaceRoot: string; automationId: string }): Promise<ModuleAutomationsResult<object>>
-  /** Automations this module owns in the workspace (never other modules' or the user's). */
-  list(input: { workspaceRoot: string }): Promise<ModuleAutomationsResult<{ automations: AutomationDefinition[] }>>
-  listRuns(input: {
-    workspaceRoot: string
-    automationId: string
-  }): Promise<ModuleAutomationsResult<{ runs: AutomationRun[] }>>
-  /** Subscribe to run events for automations this module owns. Returns the unsubscriber; call it in `onShutdown`. */
-  onRunEvent(listener: (event: AutomationsRunEvent) => void): () => void
+export type ModuleScheduledAgentsService = {
+  create(draft: ScheduledAgentDraft): Promise<ScheduledAgentWriteResult>
+  update(id: string, draft: ScheduledAgentDraft): Promise<ScheduledAgentWriteResult>
+  remove(id: string): Promise<{ ok: true } | { ok: false; message: string }>
+  list(): Promise<ScheduledAgentView[]>
+  /** Start a run now, without waiting for the schedule. */
+  runNow(id: string): Promise<{ ok: true; run: ScheduledAgentLastRun } | { ok: false; message: string }>
+  /** Called with this module's scheduled agents whenever one of them changes. Returns the unsubscriber; call it in `onShutdown`. */
+  onChanged(listener: (agents: ScheduledAgentView[]) => void): () => void
 }
 
-type AutomationsModuleRegistry = {
-  create(
+type ScheduledAgentsModuleRegistry = {
+  create(moduleId: string, draft: ScheduledAgentDraft): Promise<ScheduledAgentWriteResult>
+  update(moduleId: string, id: string, draft: ScheduledAgentDraft): Promise<ScheduledAgentWriteResult>
+  remove(moduleId: string, id: string): Promise<{ ok: true } | { ok: false; message: string }>
+  list(moduleId: string): Promise<ScheduledAgentView[]>
+  runNow(
     moduleId: string,
-    input: { workspaceRoot: string; draft: unknown },
-  ): Promise<ModuleAutomationsResult<{ automation: AutomationDefinition }>>
-  update(
-    moduleId: string,
-    input: { workspaceRoot: string; automationId: string; patch: unknown },
-  ): Promise<ModuleAutomationsResult<{ automation: AutomationDefinition }>>
-  delete(
-    moduleId: string,
-    input: { workspaceRoot: string; automationId: string },
-  ): Promise<ModuleAutomationsResult<object>>
-  list(
-    moduleId: string,
-    input: { workspaceRoot: string },
-  ): Promise<ModuleAutomationsResult<{ automations: AutomationDefinition[] }>>
-  listRuns(
-    moduleId: string,
-    input: { workspaceRoot: string; automationId: string },
-  ): Promise<ModuleAutomationsResult<{ runs: AutomationRun[] }>>
-  onRunEvent(moduleId: string, listener: (event: AutomationsRunEvent) => void): () => void
+    id: string,
+  ): Promise<{ ok: true; run: ScheduledAgentLastRun } | { ok: false; message: string }>
+  onChanged(moduleId: string, listener: (agents: ScheduledAgentView[]) => void): () => void
 }
 
-const automationsModuleServiceToken: ServiceToken<AutomationsModuleRegistry> =
-  createServiceToken<AutomationsModuleRegistry>('automations.module-service')
+const scheduledAgentsModuleServiceToken: ServiceToken<ScheduledAgentsModuleRegistry> =
+  createServiceToken<ScheduledAgentsModuleRegistry>('scheduled-agents.module-service')
 
 /**
- * The scoped Automations service for `host`'s module. The raw host registry
- * takes a module id on every call; this helper closes over `host.moduleId`
- * exactly like `registerAutomationTrigger`/`registerAutomationAction`.
+ * The scoped scheduled agents service for `host`'s module. The raw host
+ * registry is moduleId-first; this binds `host.moduleId` so a module cannot
+ * reach another's scheduled agents or the person's own.
  */
-export function getAutomationsService(host: MainHost): ModuleAutomationsService {
-  const registry = host.requireService(automationsModuleServiceToken)
+export function getScheduledAgentsService(host: MainHost): ModuleScheduledAgentsService {
+  const registry = host.requireService(scheduledAgentsModuleServiceToken)
   const moduleId = host.moduleId
   return {
-    create: (input) => registry.create(moduleId, input),
-    update: (input) => registry.update(moduleId, input),
-    delete: (input) => registry.delete(moduleId, input),
-    list: (input) => registry.list(moduleId, input),
-    listRuns: (input) => registry.listRuns(moduleId, input),
-    onRunEvent: (listener) => registry.onRunEvent(moduleId, listener),
+    create: (draft) => registry.create(moduleId, draft),
+    update: (id, draft) => registry.update(moduleId, id, draft),
+    remove: (id) => registry.remove(moduleId, id),
+    list: () => registry.list(moduleId),
+    runNow: (id) => registry.runNow(moduleId, id),
+    onChanged: (listener) => registry.onChanged(moduleId, listener),
   }
 }
 
@@ -1043,7 +783,7 @@ const companionAgentsModuleServiceToken: ServiceToken<CompanionAgentsRegistry> =
 /**
  * The scoped Companion Agents service for `host`'s module. The raw host registry
  * takes a module id on every call; this helper closes over `host.moduleId`
- * exactly like `getAutomationsService`.
+ * exactly like `getScheduledAgentsService`.
  */
 export function getCompanionAgentsService(host: MainHost): CompanionAgentsService {
   const registry = host.requireService(companionAgentsModuleServiceToken)
@@ -1097,9 +837,9 @@ const moduleStorageToken: ServiceToken<ModuleStorageRegistry> =
 /**
  * The scoped storage service for `host`'s module. The raw host registry takes
  * a module id on every call; this helper closes over `host.moduleId` exactly
- * like `getAutomationsService`. Provided by the agent-runtime core — declare
+ * like `getScheduledAgentsService`. Provided by the agent-runtime core — declare
  * `dependsOn: ['agent-runtime']` (a chain that reaches it, e.g.
- * `['automations']`, also works) so your `entry.main` registers after the
+ * `['scheduled-agents']`, also works) so your `entry.main` registers after the
  * provider; without the dependency edge, load order is alphabetical and a
  * top-of-registerMain call can race the provider and fail your module's load.
  */
@@ -1577,7 +1317,6 @@ export type CommandAvailability =
   | 'gitPanelActive'
   | 'terminalActive'
   | 'diagnosticsEnabled'
-  | 'automationsEnabled'
   // Open at the type level so new shell conditions never break a compiled
   // module; an unknown condition reads as unsatisfied (fail closed). Prefer
   // an availability predicate for module-specific gating.
@@ -1655,7 +1394,7 @@ export type SidebarNavEntryComponent =
 
 /**
  * A top-nav door your module contributes to the workspace sidebar's
- * instance-level nav cluster (the band holding New chat, Automations,
+ * instance-level nav cluster (the band holding New chat and
  * Connectors). The entry is a self-contained row component that owns its full
  * behavior — a status dot, an open action against the local window's store,
  * active state. The sidebar shows it only while your module is enabled and
@@ -2160,8 +1899,8 @@ export type RendererHost = {
   /**
    * The workspace's *effective working root*: where its live work happens.
    * `ModuleWorkspaceView.folderPath` deliberately reports the durable primary
-   * checkout; a worktree-backed workspace (an automation run with
-   * `runInWorktree`, for one) does live work under a worktree, and this
+   * checkout; a worktree-backed workspace (a scheduled agent's run on a
+   * worktree, for one) does live work under a worktree, and this
    * resolves that root. The live-runtime methods below
    * resolve workspace-relative paths against it. Null means "not currently
    * resolvable" — never a throw. Declare `ipc:workspace-read`.

@@ -39,6 +39,20 @@ commit or squash, never rebase, with Conventional Commit titles; see
 Removals an installed profile cannot be migrated through. State each in the notes
 of the first release that ships it, then delete the line.
 
+- Automations, 2026-09-30 (owner ruling): replaced by scheduled agents — a
+  prompt and a cron schedule, set up from New chat, each run a new chat in the
+  project. Gone with them: the Automations door and its rail square, webhook and
+  module-provided triggers, the skill-loop action, "run once then pause",
+  paused automations, the approval review, run history and reports, the five
+  built-in starters and the marketplace's automation plugins, the plugin
+  bundle's `automation` component, and the agent tools `automation.list`,
+  `automation.runs`, `automation.create` and `automation.run` (now
+  `schedule.list`, `schedule.create`, `schedule.delete` and `schedule.run`).
+  Definitions on disk under a project's `.sprintengine/automations/` are left
+  untouched and no longer run; the hidden per-project Automations workspace
+  and its notifications are dropped on load. The area skill
+  `studio-automations` is now `studio-scheduled-agents`, and a person who had
+  switched it on is asked again.
 - Terminals over the tailnet, 2026-09-29 (owner ruling): a paired device no
   longer lists, watches, types into or starts a terminal on this machine, and
   this machine no longer does so on another. What crosses the tailnet is

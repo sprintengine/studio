@@ -8,7 +8,7 @@ import { appearanceApi } from './api/appearance'
 import { authApi } from './api/auth'
 import { automationApi } from './api/automation'
 import { meshApi } from './api/mesh'
-import { automationsApi } from './api/automations'
+import { scheduledAgentsApi } from './api/scheduled-agents'
 import { backlogApi } from './api/backlog'
 import { buildStampApi } from './api/build-stamp'
 import { builtinSkillsApi } from './api/builtinSkills'
@@ -71,7 +71,7 @@ const api = {
   ...authApi,
   ...automationApi,
   ...meshApi,
-  ...automationsApi,
+  ...scheduledAgentsApi,
   ...backlogApi,
   ...builtinSkillsApi,
   ...clipboardApi,

@@ -613,10 +613,10 @@ export function isApprovalPathInGitDirectory(path: string, root: string): boolea
 // and on the tool as either spelling, since some CLIs rewrite the dot.
 const AGENT_LAUNCHING_GATEWAY_TOOLS = new Set([
   'agent.launch',
-  'automation.create',
-  'automation.run',
   'backlog.work',
   'conversation.create',
+  'schedule.create',
+  'schedule.run',
   'terminal.create',
   'workspace.create',
 ])

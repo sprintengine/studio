@@ -44,7 +44,8 @@ test('notificationStore', async () => {
         notifications: [
           notification('keep-terminal', 'terminal'),
           notification('drop-sprint', 'sprintengine'),
-          notification('keep-automations', 'automations'),
+          notification('drop-automations', 'automations'),
+          notification('keep-marketplace', 'marketplace'),
         ],
         sectionSeenAt: { extensions: '2026-09-02T00:00:00.000Z' },
       },
@@ -64,8 +65,8 @@ test('notificationStore', async () => {
     const state = useNotificationStore.getState()
     assert.deepEqual(
       state.notifications.map((n) => n.id),
-      ['keep-terminal', 'keep-automations'],
-      'a persisted sprintengine notification is dropped on load',
+      ['keep-terminal', 'keep-marketplace'],
+      'a persisted sprintengine or automations notification is dropped on load',
     )
     assert.deepEqual(state.sectionSeenAt, { extensions: '2026-09-02T00:00:00.000Z' }, 'other persisted state survives')
     assert.equal(typeof state.addNotification, 'function', 'actions survive the merge')
