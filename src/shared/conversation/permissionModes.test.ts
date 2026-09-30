@@ -87,6 +87,34 @@ test('auto asks before anything outside the workspace or inside its git director
   assert.equal(permissionModeAllows('auto', read, ''), false)
 })
 
+test('auto asks before a lookup it cannot place, or one that climbs out under a key it does not know', () => {
+  // An ACP agent may send no input at all, or name its file only in `locations`.
+  assert.equal(permissionModeAllows('auto', { ...read, input: undefined }, root), false)
+  assert.equal(permissionModeAllows('auto', { ...read, input: {} }, root), false)
+  assert.equal(
+    permissionModeAllows('auto', { ...read, input: { locations: [{ path: '/Users/dev/.aws/credentials' }] } }, root),
+    false,
+  )
+  assert.equal(
+    permissionModeAllows('auto', { ...read, input: { locations: [{ path: `${root}/src/a.ts` }] } }, root),
+    true,
+  )
+  assert.equal(permissionModeAllows('auto', { ...read, input: { target_file: 'docs/../../secret/.env' } }, root), false)
+  assert.equal(
+    permissionModeAllows('auto', { action: 'Grep', toolKind: 'search', input: { glob: 'a/../../../**' } }, root),
+    false,
+  )
+  assert.equal(permissionModeAllows('auto', { ...read, input: { file_path: '.git/config' } }, root), false)
+})
+
+test('auto asks before an edit that moves its file outside the workspace', () => {
+  assert.equal(
+    permissionModeAllows('auto', edit({ edits: [{ path: 'src/a.ts', movePath: '/Users/dev/.zshrc' }] }), root),
+    false,
+  )
+  assert.equal(permissionModeAllows('auto', edit({ edits: [{ path: 'src/a.ts', movePath: 'src/b.ts' }] }), root), true)
+})
+
 test('auto leaves a request the runtime would not let be remembered to the person', () => {
   assert.equal(permissionModeAllows('auto', { ...read, suppressAlwaysAllowRule: true }, root), false)
 })

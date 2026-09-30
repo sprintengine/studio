@@ -6,6 +6,7 @@ import {
   ACP_PROFILES,
   acpLaunchArgv,
   acpLaunchEnv,
+  acpApprovalInput,
   acpMcpServers,
   acpToolKind,
   confinedAcpPath,
@@ -591,6 +592,19 @@ test('ACP file helpers reject traversal, absolute escapes and symlink ancestors'
   } finally {
     await rm(root, { recursive: true, force: true })
   }
+})
+test('an ACP permission request carries the locations the agent listed beside its input', () => {
+  const locations = [{ path: '/Users/dev/proj/a.ts', line: 3 }]
+  expect(acpApprovalInput(undefined, locations)).toEqual({ locations: [{ path: '/Users/dev/proj/a.ts' }] })
+  expect(acpApprovalInput({ target_file: 'a.ts' }, locations)).toEqual({
+    target_file: 'a.ts',
+    locations: [{ path: '/Users/dev/proj/a.ts' }],
+  })
+  expect(acpApprovalInput('cat a.ts', locations)).toEqual({
+    input: 'cat a.ts',
+    locations: [{ path: '/Users/dev/proj/a.ts' }],
+  })
+  expect(acpApprovalInput({ target_file: 'a.ts' }, [])).toEqual({ target_file: 'a.ts' })
 })
 test("ACP launches each preset through the CLI's own switch, and Cursor offers no Manual", () => {
   const profile = (id: string) => ACP_PROFILES.find((entry) => entry.id === id)!

@@ -211,6 +211,20 @@ const baseCapabilities = (profile: AcpProfile): ConversationCapabilities => ({
   contextMeter: false,
   liveModelSwitch: true,
 })
+// What a permission request is read as. ACP agents name the files a call
+// touches in `locations`, beside an input that may use its own key for them or
+// be absent, so the locations go with it: a mode places a lookup by them.
+export function acpApprovalInput(
+  rawInput: unknown,
+  locations: ReadonlyArray<{ path: string }> | null | undefined,
+): unknown {
+  if (!locations?.length) return rawInput
+  const listed = locations.map((location) => ({ path: location.path }))
+  if (rawInput === undefined || rawInput === null) return { locations: listed }
+  if (typeof rawInput !== 'object' || Array.isArray(rawInput) || 'locations' in rawInput)
+    return { input: rawInput, locations: listed }
+  return { ...rawInput, locations: listed }
+}
 export const acpToolKind = (kind?: ToolKind | null): ConversationToolKind =>
   ({
     read: 'file_read',
@@ -501,7 +515,7 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
       requestId,
       kind: 'tool',
       action: params.toolCall.name ?? params.toolCall.title ?? params.toolCall.kind ?? 'Tool',
-      input: params.toolCall.rawInput,
+      input: acpApprovalInput(params.toolCall.rawInput, params.toolCall.locations),
       toolKind: acpToolKind(params.toolCall.kind),
       toolUseId: params.toolCall.toolCallId,
       cwd: state.input.workspaceRoot,

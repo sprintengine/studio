@@ -42,12 +42,14 @@ const AUTO_EDIT_KINDS = new Set(['file_edit', 'file_write'])
  *   not let a stray keystroke pass, or the person's own "always ask" rule) is
  *   never answered either.
  * - `bypass` answers every other tool request.
- * - `auto` answers reads, searches and listings inside the workspace, and edits
- *   whose every file is inside it (never its git directory). Commands, the
- *   network, MCP tools, subagents and anything it cannot place ask, and so
- *   does a lookup that mentions a path outside the workspace anywhere in its
- *   input, whatever key the runtime put it under. (An edit's content is text
- *   for the file, not a place, so an edit is placed by the files it names.)
+ * - `auto` answers the agent's to-do list, reads, searches and listings whose
+ *   every place is inside the workspace, and edits whose every file (and every
+ *   file one is moved to) is inside it; never its git directory. Commands, the
+ *   network, MCP tools, subagents and anything it cannot place ask: a lookup
+ *   that names no place it can resolve asks, and so does one that mentions a
+ *   path outside the workspace anywhere in its input, whatever key the runtime
+ *   put it under. (An edit's content is text for the file, not a place, so an
+ *   edit is placed by the files it names.)
  * - `manual` and `none` answer nothing: the person decides.
  */
 export function permissionModeAllows(
@@ -61,22 +63,21 @@ export function permissionModeAllows(
   if (mode === 'bypass') return true
   if (request.suppressAlwaysAllowRule || !workspaceRoot) return false
   const kind = request.toolKind ?? inferConversationToolKind(request.action)
-  if (LOOKUP_TOOL_KINDS.has(kind)) {
-    if (mentionsOutside(request.input, workspaceRoot)) return false
-    const path = approvalFilePath(request, workspaceRoot)
-    return path === null ? !namesAnyPath(request) : isPathWithinApprovalRoot(path, workspaceRoot)
-  }
-  if (AUTO_EDIT_KINDS.has(kind)) {
-    const paths = editedPaths(request, workspaceRoot)
-    return (
-      paths !== null &&
-      paths.length > 0 &&
-      paths.every(
-        (path) => isPathWithinApprovalRoot(path, workspaceRoot) && !isApprovalPathInGitDirectory(path, workspaceRoot),
-      )
+  if (kind === 'todo') return true
+  const paths = LOOKUP_TOOL_KINDS.has(kind)
+    ? mentionsOutside(request.input, workspaceRoot)
+      ? null
+      : lookedUpPaths(request, workspaceRoot)
+    : AUTO_EDIT_KINDS.has(kind)
+      ? editedPaths(request, workspaceRoot)
+      : null
+  return (
+    paths !== null &&
+    paths.length > 0 &&
+    paths.every(
+      (path) => isPathWithinApprovalRoot(path, workspaceRoot) && !isApprovalPathInGitDirectory(path, workspaceRoot),
     )
-  }
-  return false
+  )
 }
 
 /** The line an automatically answered request carries: "Auto-approved: <this>". */
@@ -95,7 +96,8 @@ function mentionsOutside(value: unknown, workspaceRoot: string): boolean {
   if (typeof value !== 'string') return false
   return value.split(/[\s'"`;|,=()]+/u).some((token) => {
     if (token.startsWith('~')) return true
-    if (!/^(?:\/|[A-Za-z]:[\\/]|\.\.(?:[\\/]|$))/u.test(token)) return false
+    // An absolute path, or one that climbs anywhere in it (`docs/../../x`).
+    if (!/^(?:\/|[A-Za-z]:[\\/])|(?:^|[\\/])\.\.(?:[\\/]|$)/u.test(token)) return false
     const path = approvalFilePath({ action: '', input: { path: token } }, workspaceRoot)
     return !path || !isPathWithinApprovalRoot(path, workspaceRoot)
   })
@@ -107,16 +109,38 @@ function namedPath(input: Record<string, unknown>): boolean {
   return PATH_KEYS.some((key) => typeof input[key] === 'string' && input[key] !== '')
 }
 
-// A read that names a location it could not be resolved from (`~/…`, a
-// relative climb) is not a read inside the workspace.
-function namesAnyPath(request: PermissionModeRequest): boolean {
-  return namedPath(approvalInput(request.input))
+// Every place a lookup reads, or null when one of them cannot be placed: the
+// file it names, and the locations its runtime listed beside the input (an ACP
+// agent's `toolCall.locations`). A search that names neither runs where the
+// agent does, the workspace; any other lookup that names neither is not placed.
+function lookedUpPaths(request: PermissionModeRequest, workspaceRoot: string): string[] | null {
+  const input = approvalInput(request.input)
+  const paths: string[] = []
+  if (namedPath(input)) {
+    const path = approvalFilePath(request, workspaceRoot)
+    if (!path) return null
+    paths.push(path)
+  }
+  if (Array.isArray(input.locations)) {
+    for (const location of input.locations) {
+      const path = approvalFilePath({ action: request.action, input: location }, workspaceRoot)
+      if (!path) return null
+      paths.push(path)
+    }
+  }
+  if (paths.length === 0 && (hasText(input.pattern) || hasText(input.query))) paths.push(workspaceRoot)
+  return paths
+}
+
+function hasText(value: unknown): boolean {
+  return typeof value === 'string' && value.trim() !== ''
 }
 
 // Every file an edit request touches, or null when one of them cannot be
 // placed. A request names its file at the top (`file_path`), per edit
 // (`edits[].path`, a patch across files), or both; an edit that names none is
-// an edit of the top-level file.
+// an edit of the top-level file. An edit that moves its file (`movePath`)
+// touches the destination too.
 function editedPaths(request: PermissionModeRequest, workspaceRoot: string): string[] | null {
   const input = approvalInput(request.input)
   const top = namedPath(input) ? approvalFilePath(request, workspaceRoot) : undefined
@@ -132,6 +156,14 @@ function editedPaths(request: PermissionModeRequest, workspaceRoot: string): str
     const path = approvalFilePath({ action: request.action, input: entry }, workspaceRoot)
     if (!path) return null
     paths.push(path)
+    if (entry.movePath !== undefined) {
+      const destination =
+        typeof entry.movePath === 'string'
+          ? approvalFilePath({ action: request.action, input: { path: entry.movePath } }, workspaceRoot)
+          : null
+      if (!destination) return null
+      paths.push(destination)
+    }
   }
   return paths
 }
