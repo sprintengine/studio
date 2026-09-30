@@ -1935,7 +1935,10 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       const requested =
         typeof args.permissionPreset === 'string' ? parseCliPermissionPreset(args.permissionPreset) : null
       if (typeof args.permissionPreset === 'string' && requested === null) {
-        return failure('invalid_arguments', `"permissionPreset" must be one of: ${LAUNCH_PERMISSION_PRESETS.join(', ')}.`)
+        return failure(
+          'invalid_arguments',
+          `"permissionPreset" must be one of: ${LAUNCH_PERMISSION_PRESETS.join(', ')}.`,
+        )
       }
       // A scheduled agent launches later with nobody watching, so one made by
       // an agent of this app stores no looser a preset than the agent's own.
