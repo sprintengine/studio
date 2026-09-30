@@ -11,7 +11,6 @@ import {
   parseWorkspaceRegistryFile,
   parseWorkspaceRegistryRecord,
   pruneWorkspaceRegistryTombstones,
-  resolveWorkspaceReuseTarget,
   serializeWorkspaceRegistryFile,
   shouldApplyFieldEdit,
   toWorkspaceRegistryRecord,
@@ -86,8 +85,9 @@ test('every retired-mode record is filtered on parse, with its window references
   assert.deepEqual(parsed.file.workspaceWindows[0]?.workspaceIds, ['ws-keep'])
   assert.equal(parsed.file.workspaceWindows[0]?.activeWorkspaceId, null)
   assert.ok(RETIRED_WORKSPACE_MODES.includes('sprintengine'))
+  assert.ok(RETIRED_WORKSPACE_MODES.includes('automations-host'))
   assert.equal(isRetiredWorkspaceMode('standard'), false)
-  assert.equal(isRetiredWorkspaceMode('automations-host'), false)
+  assert.equal(isRetiredWorkspaceMode('weather-deck'), false, 'a module-registered mode is not retired')
 })
 
 test('a default-named record locked at birth is healed on read', () => {
@@ -287,19 +287,6 @@ test('folder keys are case- and separator-insensitive with no trailing slash', (
   assert.equal(workspaceRegistryFolderKey('C:\\Repo\\App'), 'c:/repo/app')
   assert.equal(workspaceRegistryFolderKey('  '), null)
   assert.equal(workspaceRegistryFolderKey(null), null)
-})
-
-test('reuse resolves the folder’s host for the one-per-project modes only', () => {
-  const records = [
-    workspace({ id: 'auto', mode: 'automations-host', folderPath: '/repo' }),
-    workspace({ id: 'std', mode: 'standard', folderPath: '/repo' }),
-  ]
-  assert.equal(resolveWorkspaceReuseTarget(records, 'automations-host', '/Repo/')?.id, 'auto')
-  assert.equal(resolveWorkspaceReuseTarget(records, 'automations-host', '/repo')?.id, 'auto')
-  assert.equal(resolveWorkspaceReuseTarget(records, 'weather-deck', '/repo'), null, 'non-reuse modes never reuse')
-  assert.equal(resolveWorkspaceReuseTarget(records, 'standard', '/repo'), null, 'standard workspaces never reuse')
-  assert.equal(resolveWorkspaceReuseTarget(records, 'automations-host', null), null, 'a folderless host cannot collide')
-  assert.equal(resolveWorkspaceReuseTarget(records, 'automations-host', '/other'), null)
 })
 
 test('classification: every hydration row of the migration table', () => {

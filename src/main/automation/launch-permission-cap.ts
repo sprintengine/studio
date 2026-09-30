@@ -5,9 +5,7 @@ import {
   parseCliPermissionPreset,
   type CliPermissionPreset,
 } from '../../shared/cli-permission-preset'
-import { AGENT_BACKED_ACTION_KINDS, AUTOMATION_DEFAULT_PERMISSION_PRESET } from '../../shared/automations/contracts'
 import type { McpConnectionContext } from '../../shared/modules/mcp-tools'
-import { isRecord } from '../../shared/records'
 
 // An agent can only start an agent with the permissions it has itself (owner
 // ruling 2026-09-29). Without this, one gateway call — `agent.launch` with
@@ -77,61 +75,36 @@ export function capLaunchPermissionPreset(
 }
 
 /**
- * An automation draft as an agent under `ceiling` may store it.
+ * A scheduled agent's preset as an agent under `ceiling` may store it.
  *
- * An automation launches later, with nobody watching, so the preset it stores
- * is held to the same cap as a launch now. An agent-backed action that names
- * no preset would run on the automation default, `bypass`; under a stricter
- * ceiling the draft is given the ceiling explicitly. Any other action kind is
- * a provider's own code, which can start an agent on whatever preset it
- * chooses, so a capped agent may not create one at all.
+ * A scheduled agent launches later, with nobody watching, so the preset it
+ * stores is held to the same cap as a launch now. One that names no preset
+ * runs on whatever the person chose for its CLI at run time, which may be
+ * `bypass`; under a stricter ceiling it is given the ceiling explicitly.
  */
-export function capAutomationDraft(
-  definition: Record<string, unknown>,
+export function capScheduledAgentPreset(
+  requested: CliPermissionPreset | null,
   ceiling: CliPermissionPreset | null,
-): { definition: Record<string, unknown> } | { refused: LaunchPermissionRefusal } {
-  if (ceiling === null || isMostPermissiveCliPermissionPreset(ceiling)) return { definition }
-  const action = isRecord(definition.action) ? definition.action : null
-  const kind = typeof action?.kind === 'string' ? action.kind : null
-  if (!action || !kind || !AGENT_BACKED_ACTION_KINDS.includes(kind)) return { refused: unboundedAction(kind, ceiling) }
-  const config = isRecord(action.config) ? action.config : {}
-  const stored = automationActionPreset(config)
-  // An unreadable preset launches nothing (spawn-agent refuses it at run time),
-  // and one at or below the ceiling is the caller's to choose.
-  if (!stored || !isLooserCliPermissionPreset(stored, ceiling)) return { definition }
-  if (namedActionPreset(config) !== undefined) return { refused: escalation(stored, ceiling) }
-  return { definition: { ...definition, action: { ...action, config: { ...config, permissionPreset: ceiling } } } }
+): { permissionPreset: CliPermissionPreset | null } | { refused: LaunchPermissionRefusal } {
+  if (ceiling === null || isMostPermissiveCliPermissionPreset(ceiling)) return { permissionPreset: requested }
+  if (requested === null) return { permissionPreset: ceiling }
+  if (isLooserCliPermissionPreset(requested, ceiling)) return { refused: escalation(requested, ceiling) }
+  return { permissionPreset: requested }
 }
 
 /**
- * Whether an agent under `ceiling` may run a stored automation now: refused
- * when the run would launch looser than the caller, or when its action is not
- * one of the app's own and so could launch on anything.
+ * Whether an agent under `ceiling` may run a stored scheduled agent now:
+ * refused when the run could launch looser than the caller. One that names no
+ * preset follows the person's choice at run time, which the cap cannot see, so
+ * it is treated as the loosest.
  */
-export function refuseAutomationRun(
-  definition: { action: { kind: string; config: unknown } },
+export function refuseScheduledAgentRun(
+  stored: CliPermissionPreset | null,
   ceiling: CliPermissionPreset | null,
 ): LaunchPermissionRefusal | null {
   if (ceiling === null || isMostPermissiveCliPermissionPreset(ceiling)) return null
-  const { kind, config } = definition.action
-  if (!AGENT_BACKED_ACTION_KINDS.includes(kind)) return unboundedAction(kind, ceiling)
-  const stored = automationActionPreset(isRecord(config) ? config : {})
-  // Unreadable: the run fails in spawn-agent before it launches anything.
-  if (!stored) return null
-  return isLooserCliPermissionPreset(stored, ceiling) ? escalation(stored, ceiling) : null
-}
-
-// The preset an agent-backed action launches on, read exactly as spawn-agent
-// reads it: a blank or non-string value is no value, and takes the automation
-// default. Null when the value is not a preset, which spawn-agent refuses.
-function automationActionPreset(config: Record<string, unknown>): CliPermissionPreset | null {
-  const named = namedActionPreset(config)
-  return named === undefined ? AUTOMATION_DEFAULT_PERMISSION_PRESET : parseCliPermissionPreset(named)
-}
-
-function namedActionPreset(config: Record<string, unknown>): string | undefined {
-  const value = config.permissionPreset
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined
+  const effective = stored ?? 'bypass'
+  return isLooserCliPermissionPreset(effective, ceiling) ? escalation(effective, ceiling) : null
 }
 
 function escalation(requested: CliPermissionPreset, ceiling: CliPermissionPreset): LaunchPermissionRefusal {
@@ -141,16 +114,6 @@ function escalation(requested: CliPermissionPreset, ceiling: CliPermissionPreset
       `This agent runs on the "${ceiling}" permission preset, so it may only launch agents at that level or ` +
       `stricter; "${requested}" would give the new agent permissions its launcher does not have. Omit ` +
       `"permissionPreset" or pass "${ceiling}".`,
-  }
-}
-
-function unboundedAction(kind: string | null, ceiling: CliPermissionPreset): LaunchPermissionRefusal {
-  return {
-    code: 'permission_escalation',
-    message:
-      `This agent runs on the "${ceiling}" permission preset, so it may only launch agents at that level or ` +
-      `stricter. ${kind ? `The "${kind}" action` : 'An action without a kind'} can start an agent on any ` +
-      `preset, so only ${AGENT_BACKED_ACTION_KINDS.join(' and ')} automations are open to it.`,
   }
 }
 

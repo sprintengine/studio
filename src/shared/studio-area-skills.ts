@@ -17,7 +17,7 @@ export type StudioAreaSkillId =
   | 'studio-backlog'
   | 'studio-design-system'
   | 'studio-canvas'
-  | 'studio-automations'
+  | 'studio-scheduled-agents'
   | 'studio-diff-tours'
   | 'studio-workspaces'
   | 'sprintengine-extension-builder'
@@ -26,7 +26,7 @@ export type StudioAreaSkillId =
  * Where the skill is offered. `settings` is the one with no surface of its own:
  * the workspaces skill is about the app as a whole, so it is only a switch.
  */
-type StudioAreaSkillSurface = 'backlog' | 'design' | 'canvas' | 'automations' | 'diff' | 'extensions' | 'settings'
+type StudioAreaSkillSurface = 'backlog' | 'design' | 'canvas' | 'scheduled-agents' | 'diff' | 'extensions' | 'settings'
 
 export type StudioAreaSkill = {
   id: StudioAreaSkillId
@@ -58,10 +58,10 @@ export const STUDIO_AREA_SKILLS: readonly StudioAreaSkill[] = [
     surface: 'canvas',
   },
   {
-    id: 'studio-automations',
-    name: 'Automations',
-    gives: 'Teaches agents to create, run and inspect automations.',
-    surface: 'automations',
+    id: 'studio-scheduled-agents',
+    name: 'Scheduled agents',
+    gives: 'Teaches agents to schedule an agent with a prompt, and to list, run and remove scheduled agents.',
+    surface: 'scheduled-agents',
   },
   {
     id: 'studio-diff-tours',

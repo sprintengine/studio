@@ -12,16 +12,11 @@ import type { TailnetScope } from '../../../shared/tailnet'
  * neither watch nor type into one, so a terminal it started would be a process
  * it could not see, answer or stop. What a paired device starts is a chat
  * (`conversation.create`), which it can follow. These stay on the local
- * socket, where the agents and automations that call them can see the
+ * socket, where the agents that call them can see the
  * terminals they start. The rest of the `terminal.*` family is local-only by
  * its prefix, below.
  */
-const TERMINAL_LAUNCH_TOOLS: ReadonlySet<string> = new Set([
-  'terminal.create',
-  'agent.launch',
-  'backlog.work',
-  'automation.run',
-])
+const TERMINAL_LAUNCH_TOOLS: ReadonlySet<string> = new Set(['terminal.create', 'agent.launch', 'backlog.work'])
 
 /**
  * Why a tool is served on the local socket only and never to a paired device,
@@ -63,7 +58,7 @@ export function localOnlyGatewayToolReason(toolName: string): string | null {
  *
  * `workspace` is the deliberate catch-all for the app-wide families
  * (`workspace.*`, `agent.*`, `cli.*`, `module.*`, `marketplace.*`,
- * `automation.*`, `editor.*`, `review_*`) and for any tool this mapping has not
+ * `schedule.*`, `editor.*`, `review_*`) and for any tool this mapping has not
  * been taught. `editor.open` and `editor.open_diff` change what is on the
  * person's screen, so they are mutations and need `workspace:operate`.
  * Unknown does not mean unrestricted: an unmapped mutation still requires

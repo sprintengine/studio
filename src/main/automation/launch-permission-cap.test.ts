@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
 import type { AgentLaunchRequest } from '../../shared/agent-launch'
-import type { AutomationDefinition } from '../../shared/automations/contracts'
 import type { CliPermissionPreset } from '../../shared/cli-permission-preset'
+import type { ScheduledAgentView } from '../../shared/scheduled-agents'
 import type { TerminalSessionSnapshot } from '../../shared/electron-api'
 import type { McpConnectionContext, McpToolRegistration, McpToolResult } from '../../shared/modules/mcp-tools'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
@@ -62,7 +62,7 @@ type Harness = {
  */
 function harness(
   callerPreset: CliPermissionPreset | null,
-  options: { automations?: AutomationDefinition[] } = {},
+  options: { scheduled?: ScheduledAgentView[] } = {},
 ): Harness {
   const sessions: TerminalSessionSnapshot[] = []
   const h: Harness = {
@@ -117,15 +117,17 @@ function harness(
       body: '',
     }),
     backlogWrite: { addOrUpdateLink: async () => ({ ok: true, store: { schemaVersion: 1, items: [] } }) },
-    listAutomationDefinitions: async () => ({ ok: true, values: options.automations ?? [] }),
-    getAutomationsFrontDoor: () => ({
-      createDefinition: async (input: unknown) => {
+    defaultChatCli: () => 'claude-code',
+    getScheduledAgents: () => ({
+      list: () => options.scheduled ?? [],
+      get: (id: string) => (options.scheduled ?? []).find((agent) => agent.id === id) ?? null,
+      create: async (input: unknown) => {
         h.created.push(input)
-        return { ok: true, value: { id: 'auto-1' } }
+        return { ok: true, agent: scheduledAgent(input as Partial<ScheduledAgentView>) }
       },
-      runNow: async (input: unknown) => {
-        h.ran.push(input)
-        return { ok: true, value: { definition: { id: 'auto-1' }, run: { runId: 'run-1' } } }
+      runNow: async (id: string) => {
+        h.ran.push(id)
+        return { ok: true, run: { at: 0, ok: true, workspaceId: 'ws-run' } }
       },
     }),
     now: () => 0,
@@ -174,22 +176,34 @@ function errorMessage(result: McpToolResult): string {
   return (result.structuredContent as { error?: { message?: string } } | undefined)?.error?.message ?? ''
 }
 
-function spawnAgentDraft(config: Record<string, unknown>): Record<string, unknown> {
+function scheduledAgent(fields: Partial<ScheduledAgentView>): ScheduledAgentView {
   return {
-    name: 'Nightly',
-    trigger: { kind: 'schedule', config: { cadence: { type: 'daily', timeLocal: '09:00' }, timezone: 'UTC' } },
-    action: { kind: 'spawn-agent', config: { prompt: 'tidy up', ...config } },
+    id: 'sa-1',
+    prompt: 'tidy up',
+    schedule: { cron: '0 9 * * *', timezone: 'UTC' },
+    folderPath: '/Users/dev/app',
+    hostId: null,
+    cli: 'claude-code',
+    cliModel: null,
+    permissionPreset: null,
+    skills: [],
+    mcpServers: [],
+    worktree: null,
+    ownerModuleId: null,
+    createdAt: 0,
+    updatedAt: 0,
+    lastRun: null,
+    lastFailureSeenAt: null,
+    nextRunAt: null,
+    ...fields,
   }
 }
 
-function storedAutomation(kind: string, config: Record<string, unknown>): AutomationDefinition {
-  return {
-    id: 'auto-1',
-    name: 'Nightly',
-    status: 'enabled',
-    trigger: { kind: 'schedule', config: {} },
-    action: { kind, config: { prompt: 'tidy up', ...config } },
-  } as AutomationDefinition
+const SCHEDULE_ARGS = { workspaceId: 'ws-1', prompt: 'tidy up', cron: '0 9 * * *' }
+
+// The preset each scheduled agent was stored with.
+function storedPresets(h: Harness): Array<CliPermissionPreset | null> {
+  return h.created.map((input) => (input as { permissionPreset: CliPermissionPreset | null }).permissionPreset)
 }
 
 for (const { tool, args } of LAUNCHING_TOOLS) {
@@ -265,121 +279,78 @@ for (const { tool, args } of LAUNCHING_TOOLS) {
   })
 }
 
-test('automation.create: an agent on none cannot store a spawn-agent automation on bypass', async () => {
+test('schedule.create: an agent on none cannot schedule an agent on bypass', async () => {
   const h = harness('none')
-  const result = await h.call(
-    'automation.create',
-    { workspaceId: 'ws-1', definition: spawnAgentDraft({ permissionPreset: 'bypass' }) },
-    AGENT_CALLER,
-  )
+  const result = await h.call('schedule.create', { ...SCHEDULE_ARGS, permissionPreset: 'bypass' }, AGENT_CALLER)
   assert.equal(errorCode(result), 'permission_escalation')
   assert.deepEqual(h.created, [], 'nothing was written')
 })
 
-test('automation.create: an agent on none that names no preset stores none, not the bypass default', async () => {
+test('schedule.create: an agent on none that names no preset stores none, not the run-time choice', async () => {
   const h = harness('none')
-  for (const config of [{}, { permissionPreset: '' }, { permissionPreset: 7 }]) {
-    const result = await h.call(
-      'automation.create',
-      { workspaceId: 'ws-1', definition: spawnAgentDraft(config) },
-      AGENT_CALLER,
-    )
-    assert.equal(result.isError, undefined, JSON.stringify(result.structuredContent))
-  }
-  const stored = h.created.map(
-    (input) => (input as { definition: { action: { config: { permissionPreset?: unknown } } } }).definition,
-  )
-  assert.deepEqual(
-    stored.map((definition) => definition.action.config.permissionPreset),
-    ['none', 'none', 'none'],
-  )
-})
-
-test('automation.create: an agent on none may store a run-skill-loop automation, held to none', async () => {
-  const h = harness('none')
-  const draft = { ...spawnAgentDraft({}), action: { kind: 'run-skill-loop', config: { prompt: 'loop' } } }
-  const result = await h.call('automation.create', { workspaceId: 'ws-1', definition: draft }, AGENT_CALLER)
+  const result = await h.call('schedule.create', SCHEDULE_ARGS, AGENT_CALLER)
   assert.equal(result.isError, undefined, JSON.stringify(result.structuredContent))
-  const stored = (h.created[0] as { definition: { action: { config: Record<string, unknown> } } }).definition
-  assert.deepEqual(stored.action.config, { prompt: 'loop', permissionPreset: 'none' })
+  assert.deepEqual(storedPresets(h), ['none'])
 })
 
-test('automation.create: an agent on none cannot store an action whose launches it cannot bound', async () => {
+test('schedule.create: an agent on none may schedule an agent on none', async () => {
   const h = harness('none')
-  const draft = { ...spawnAgentDraft({}), action: { kind: 'acme-deploy', config: {} } }
-  const result = await h.call('automation.create', { workspaceId: 'ws-1', definition: draft }, AGENT_CALLER)
-  assert.equal(errorCode(result), 'permission_escalation')
-  assert.match(errorMessage(result), /"acme-deploy" action/u)
-  assert.deepEqual(h.created, [])
+  const result = await h.call('schedule.create', { ...SCHEDULE_ARGS, permissionPreset: 'none' }, AGENT_CALLER)
+  assert.equal(result.isError, undefined, JSON.stringify(result.structuredContent))
+  assert.deepEqual(storedPresets(h), ['none'])
 })
 
-test('automation.create: an agent on bypass stores the draft exactly as sent', async () => {
+test('schedule.create: an agent on bypass stores the preset exactly as sent', async () => {
   const h = harness('bypass')
-  const drafts = [
-    spawnAgentDraft({ permissionPreset: 'bypass' }),
-    spawnAgentDraft({}),
-    { ...spawnAgentDraft({}), action: { kind: 'acme-deploy', config: {} } },
-  ]
-  for (const definition of drafts) {
-    const result = await h.call('automation.create', { workspaceId: 'ws-1', definition }, AGENT_CALLER)
+  for (const preset of ['bypass', 'none', undefined]) {
+    const args = preset === undefined ? SCHEDULE_ARGS : { ...SCHEDULE_ARGS, permissionPreset: preset }
+    const result = await h.call('schedule.create', args, AGENT_CALLER)
     assert.equal(result.isError, undefined, JSON.stringify(result.structuredContent))
   }
-  assert.deepEqual(
-    h.created.map((input) => (input as { definition: unknown }).definition),
-    drafts,
-  )
+  assert.deepEqual(storedPresets(h), ['bypass', 'none', null])
 })
 
-test('automation.create: an agent that cannot be found is capped as none', async () => {
+test('schedule.create: an agent that cannot be found is capped as none', async () => {
   const h = harness(null)
-  const refused = await h.call(
-    'automation.create',
-    { workspaceId: 'ws-1', definition: spawnAgentDraft({ permissionPreset: 'bypass' }) },
-    AGENT_CALLER,
-  )
+  const refused = await h.call('schedule.create', { ...SCHEDULE_ARGS, permissionPreset: 'bypass' }, AGENT_CALLER)
   assert.equal(errorCode(refused), 'permission_escalation')
 })
 
-test('automation.create: a caller with no agent identity stores the draft exactly as sent', async () => {
+test('schedule.create: a caller with no agent identity stores the preset exactly as sent', async () => {
   const h = harness('none')
-  const definition = spawnAgentDraft({})
-  await h.call('automation.create', { workspaceId: 'ws-1', definition }, EXTERNAL_CALLER)
-  assert.deepEqual((h.created[0] as { definition: unknown }).definition, definition)
+  await h.call('schedule.create', { ...SCHEDULE_ARGS, permissionPreset: 'bypass' }, EXTERNAL_CALLER)
+  await h.call('schedule.create', SCHEDULE_ARGS, EXTERNAL_CALLER)
+  assert.deepEqual(storedPresets(h), ['bypass', null])
   assert.equal(h.resolved, 0)
 })
 
-test('automation.run: an agent on none cannot run an automation that launches on bypass', async () => {
-  for (const config of [{ permissionPreset: 'bypass' }, {}]) {
-    const h = harness('none', { automations: [storedAutomation('spawn-agent', config)] })
-    const result = await h.call('automation.run', { workspaceId: 'ws-1', automationId: 'auto-1' }, AGENT_CALLER)
-    assert.equal(errorCode(result), 'permission_escalation', JSON.stringify(config))
+test('schedule.run: an agent on none cannot run a scheduled agent that may launch on bypass', async () => {
+  // One that names no preset follows the person's choice at run time, which
+  // the cap cannot see, so it counts as bypass.
+  for (const permissionPreset of ['bypass', null] as const) {
+    const h = harness('none', { scheduled: [scheduledAgent({ permissionPreset })] })
+    const result = await h.call('schedule.run', { id: 'sa-1' }, AGENT_CALLER)
+    assert.equal(errorCode(result), 'permission_escalation', String(permissionPreset))
     assert.deepEqual(h.ran, [])
   }
 })
 
-test('automation.run: an agent on none cannot run an automation whose action it cannot bound', async () => {
-  const h = harness('none', { automations: [storedAutomation('acme-deploy', {})] })
-  const result = await h.call('automation.run', { workspaceId: 'ws-1', automationId: 'auto-1' }, AGENT_CALLER)
-  assert.equal(errorCode(result), 'permission_escalation')
-  assert.deepEqual(h.ran, [])
-})
-
-test('automation.run: an agent on none may run an automation that launches on none', async () => {
-  const h = harness('none', { automations: [storedAutomation('spawn-agent', { permissionPreset: 'none' })] })
-  const result = await h.call('automation.run', { workspaceId: 'ws-1', automationId: 'auto-1' }, AGENT_CALLER)
+test('schedule.run: an agent on none may run a scheduled agent that launches on none', async () => {
+  const h = harness('none', { scheduled: [scheduledAgent({ permissionPreset: 'none' })] })
+  const result = await h.call('schedule.run', { id: 'sa-1' }, AGENT_CALLER)
   assert.equal(result.isError, undefined, JSON.stringify(result.structuredContent))
-  assert.equal(h.ran.length, 1)
+  assert.deepEqual(h.ran, ['sa-1'])
 })
 
-test('automation.run: an agent on bypass, or a caller with no agent identity, runs any automation', async () => {
+test('schedule.run: an agent on bypass, or a caller with no agent identity, runs any scheduled agent', async () => {
   for (const [preset, context] of [
     ['bypass', AGENT_CALLER],
     ['none', EXTERNAL_CALLER],
   ] as const) {
-    const h = harness(preset, { automations: [storedAutomation('acme-deploy', {})] })
-    const result = await h.call('automation.run', { workspaceId: 'ws-1', automationId: 'auto-1' }, context)
+    const h = harness(preset, { scheduled: [scheduledAgent({ permissionPreset: 'bypass' })] })
+    const result = await h.call('schedule.run', { id: 'sa-1' }, context)
     assert.equal(result.isError, undefined, JSON.stringify(result.structuredContent))
-    assert.equal(h.ran.length, 1)
+    assert.deepEqual(h.ran, ['sa-1'])
   }
 })
 

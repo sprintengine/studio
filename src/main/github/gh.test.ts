@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 
 import { buildShellGhDescriptor, createDefaultGhRunner, sharedGhRunner, type GhSpawn } from './gh'
-import { createGhCommandRunner } from '../automations/pull-request'
 import { test } from 'vitest'
 
 test('gh', async () => {
@@ -108,53 +107,12 @@ test('gh', async () => {
     }
 
     // ---------------------------------------------------------------------------
-    // ONE runner (epic decision 11): every caller — the version-control probe, the
-    // review paths, and the automations path that used to lack the fallback
-    // entirely — reaches this module's factory and its shell retry.
+    // ONE runner (epic decision 11): every caller — the version-control probe and
+    // the review paths — reaches this module's factory and its shell retry.
     // ---------------------------------------------------------------------------
     {
       assert.equal(sharedGhRunner(), sharedGhRunner(), 'one process-wide instance')
     }
-    {
-      const { spawn, calls } = spawnStub((call) =>
-        call.file === 'gh' ? enoent() : Promise.resolve({ stdout: 'https://github.com/o/r/pull/7\n', stderr: '' }),
-      )
-      const runGh = createGhCommandRunner(createDefaultGhRunner({ spawn, shell: '/bin/zsh', platform: 'darwin' }))
-      const result = await runGh('/worktree', ['pr', 'view', 'feature', '--json', 'url'])
-
-      assert.deepEqual(result, { ok: true, stdout: 'https://github.com/o/r/pull/7\n', stderr: '' })
-      assert.deepEqual(
-        calls.map((call) => call.file),
-        ['gh', '/bin/zsh'],
-        'the automations path gets the PATH fallback',
-      )
-      assert.equal(calls[1].cwd, '/worktree', 'and still runs in the run worktree')
-    }
-
-    // The automations path keeps its Fallback Discipline wording: a missing gh is a
-    // reason, never a faked pull request.
-    {
-      const missing = createGhCommandRunner({
-        available: async () => false,
-        run: async () => ({ found: false, code: -1, stdout: '', stderr: '' }),
-      })
-      assert.deepEqual(await missing('/worktree', ['pr', 'create']), {
-        ok: false,
-        stdout: '',
-        stderr: 'the GitHub CLI (gh) is not installed or not on PATH',
-      })
-
-      const failing = createGhCommandRunner({
-        available: async () => true,
-        run: async () => ({ found: true, code: 1, stdout: '', stderr: '  ' }),
-      })
-      assert.deepEqual(await failing('/worktree', ['pr', 'create']), {
-        ok: false,
-        stdout: '',
-        stderr: 'gh command failed',
-      })
-    }
-
     // ---------------------------------------------------------------------------
     // REVIEW FIX (finding 6). A read's bound has to KILL the child, not merely
     // stop waiting on it: a caller that races a timer leaves a `gh` — and on the

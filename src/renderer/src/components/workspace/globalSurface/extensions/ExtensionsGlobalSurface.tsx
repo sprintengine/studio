@@ -6,8 +6,8 @@
 //
 //   Plugins · Skills
 //
-// and the things that left are each somewhere better: the Automations shelf's
-// five built-ins are the Automations surface's "Built in" list, Modules are
+// and the things that left are each somewhere better: the Automations shelf
+// went with automations themselves, which became scheduled agents, Modules are
 // switches in Settings → Modules (they were offered in two shapes on two
 // surfaces), the automation server is a Settings concern rather than a
 // catalogue row, Featured ranked the catalogue by a fact about the machine,
@@ -131,9 +131,8 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
   }, [])
   const landed = useCallback(() => setLanding(null), [])
 
-  // Deep-link: drain the latch on mount and subscribe live (the automations
-  // surface-target idiom), so entry points land on the right view whether the
-  // door was already open or just mounted.
+  // Deep-link: drain the latch on mount and subscribe live, so entry points
+  // land on the right view whether the door was already open or just mounted.
   useEffect(() => {
     const pending = consumePendingExtensionsSurfaceTarget()
     if (pending) applyTarget(pending)
@@ -160,9 +159,6 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
   // missing host (tests, detached mounts) no-ops rather than throwing.
   const launchConnector = useCallback((connector: AgentComposerConnector) => {
     getExtensionsSurfaceHost()?.onLaunchConnector(connector)
-  }, [])
-  const useInAutomation = useCallback((serverId: string) => {
-    getExtensionsSurfaceHost()?.onUseInAutomation(serverId)
   }, [])
   const useSkillInNewAgent = useCallback((skill: WorkspaceSkill) => {
     getExtensionsSurfaceHost()?.onUseSkillInNewAgent(skill)
@@ -299,7 +295,6 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
           onAddMcpServers={addMcpServers}
           onRemoveMcpServers={removeMcpServers}
           onLaunchConnector={launchConnector}
-          onUseInAutomation={useInAutomation}
         />
       )}
       <AddSkillSourceModal

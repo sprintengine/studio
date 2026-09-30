@@ -107,7 +107,7 @@ test('ExtensionsRail', async () => {
   // absurd: the drawer's order is the ruling's, not the registry's.
   const registerDoorEntry = (id: string, order: number, label: string): void => {
     getRendererHost()
-      .hostFor('automations')
+      .hostFor('scheduled-agents')
       .registerSidebarNavEntry({
         id,
         order,
@@ -155,13 +155,6 @@ test('ExtensionsRail', async () => {
     getRendererHost().getGlobalSurface('extensions')?.railPlacement,
     undefined,
     'the extensions door declares no rail at all, so the host keeps the drawer',
-  )
-  // Automations is not a drawer row, and its own list of automations IS the
-  // navigation while it is open — so it keeps the swap every door used to make.
-  assert.equal(
-    getRendererHost().getGlobalSurface('automations')?.railPlacement,
-    undefined,
-    'Automations takes the sidebar column (the default), because it is not a drawer row',
   )
 
   // ── The three rows, in the ruled order ───────────────────────────────────────

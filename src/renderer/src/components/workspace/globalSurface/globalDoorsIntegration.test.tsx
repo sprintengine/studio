@@ -212,11 +212,11 @@ test('globalDoorsIntegration', async () => {
 
     // ═══ 1. The doors, and the one modal surface left, on the real kernel ══════
     // Registration is module-owned and eager, so this reads the SAME host the app
-    // boots with — not a hand-built one. Automations, Extensions (user-facing
-    // "Plugins") and Design spent 2026-09-01 to 2026-09-05 in the modal registry
-    // and are doors again (Extensions drawer ruling: a destination the shell's
-    // own chrome offers routes the card region, it does not float over it). The
-    // modal registry is now EMPTY in a stock build — Reviews, its last member,
+    // boots with — not a hand-built one. Extensions (user-facing "Plugins") and
+    // Design spent 2026-09-01 to 2026-09-05 in the modal registry and are doors
+    // again (Extensions drawer ruling: a destination the shell's own chrome
+    // offers routes the card region, it does not float over it). The modal
+    // registry is now EMPTY in a stock build — Reviews, its last member,
     // left for the installable Reviews module (2026-09-10), which registers its
     // own modal surface and pane-row launcher when installed. Design is owned by
     // its OWN bundled `design` module.
@@ -236,7 +236,6 @@ test('globalDoorsIntegration', async () => {
       assert.deepEqual(
         doorSurfaces,
         [
-          ['automations', 'Automations', 'sidebar'],
           ['design', 'Design', 'inline'],
           ['extensions', 'Plugins', 'sidebar'],
         ],

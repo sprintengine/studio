@@ -1,8 +1,10 @@
 # SprintEngine Studio Marketplace Plugin Author Guide
 
 Marketplace plugins are signed bundles over extension primitives the studio
-already supports. The four component kinds (`MARKETPLACE_COMPONENT_KINDS`) are
-`mcp`, `skills`, `module` and `automation`. There is no `cli` kind: agent CLIs
+already supports. The three component kinds (`MARKETPLACE_COMPONENT_KINDS`) are
+`mcp`, `skills` and `module`; an `automation` component is no longer accepted,
+because an extension schedules agents at runtime instead
+(`getScheduledAgentsService`). There is no `cli` kind: agent CLIs
 ship with the app, and no bundle adds or replaces one. A marketplace submission
 is accepted only when the registry entry, `plugin.json`, declared component
 files, and ed25519 signature all validate through the same code paths the app

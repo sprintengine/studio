@@ -53,7 +53,7 @@ const REPO = process.cwd()
 const SDK = join(REPO, 'packages/module-sdk')
 const TEMPLATES = join(SDK, 'templates')
 const SKILL = join(SDK, 'skills', EXTENSION_BUILDER_SKILL_ID)
-const SDK_VERSION = '1.0.0-beta.0'
+const SDK_VERSION = '1.0.0-beta.1'
 
 function walk(dir: string, prefix = ''): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -124,7 +124,6 @@ test('scaffold', async () => {
       'settings-section',
       'mcp-tools',
       'chat-companion',
-      'automation-trigger',
       'backlog-action',
       'file-action',
     ]) {

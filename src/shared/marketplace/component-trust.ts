@@ -15,12 +15,9 @@ import {
 
 // A code-bearing component executes arbitrary code once loaded — a module —
 // so an unsigned bundle carrying one must never be permitted to proceed unless
-// the person trusted it as code (a GitHub-URL install, and only that). MCP,
-// skills, and automation components are declarative and may stage unsigned
-// (load-ineligible). `automation` is declared declarative deliberately: an
-// automation payload is a definition — a trigger, an action, and a prompt —
-// interpreted by the app's own automation engine, never loaded as code. Agent
-// CLIs are not a bundle component at all: they ship with the app.
+// the person trusted it as code (a GitHub-URL install, and only that). MCP and
+// skills components are declarative and may stage unsigned (load-ineligible).
+// Agent CLIs are not a bundle component at all: they ship with the app.
 export function hasCodeBearingComponent(components: MarketplacePluginComponents): boolean {
   return components.module !== undefined
 }

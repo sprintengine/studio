@@ -41,9 +41,9 @@ export type AgentComposerConfirm = (
   // defaults for this; the same-turn miss that dropped `--model` would drop
   // the effort flag the same way.
   reasoning?: string | null
-  // Optional "+ Worktree" attachment (General only): the spawn creates a git
-  // worktree off the workspace repo and executes the agent in it. An empty name
-  // means "derive from the agent's name at spawn".
+  // Optional worktree (terminal agents and chats): the spawn creates a git
+  // worktree off the workspace repo and the agent works in it. An empty name
+  // means "make one up at spawn".
   worktree?: { name: string }
   // MCP servers picked for this launch. They were added to the app's MCP
   // settings and synced into the workspace's CLI config on pick, so the agent
@@ -148,6 +148,8 @@ type UseAgentComposerOptions = {
    * here writes a default and retires it.
    */
   initialEngine?: { cli: AgentCli; model: string | null; reasoning: string | null } | null
+  /** The worktree a surface opens with: null off, '' on with a made-up name. A scheduled agent being edited. */
+  initialWorktreeName?: string | null
   /**
    * Which CLIs the launch's machine has, when it is not this one (a WSL
    * distribution picked in the New chat dropdown). Absent reads this machine's
@@ -203,6 +205,7 @@ export function useAgentComposer({
   initialMcpServers,
   initialSkills,
   initialEngine,
+  initialWorktreeName,
   availability,
 }: UseAgentComposerOptions) {
   const lastSelectedCli = useWorkspaceStore((s) => normalizeSelectedCli(s.appSettings.lastSelectedCli))
@@ -243,9 +246,9 @@ export function useAgentComposer({
   // The Skills & MCPs picks, carried onto the confirm in pick order; state
   // dies with the composer when the surface closes.
   const [skills, setSkills] = React.useState<WorkspaceSkill[]>(() => initialSkills ?? [])
-  // Optional "+ Worktree" attachment: null = off; a string (possibly empty =
-  // auto-name) means the spawn should create a worktree and run the agent there.
-  const [worktreeName, setWorktreeName] = React.useState<string | null>(null)
+  // Worktree: null = off; a string (possibly empty = a made-up name) means the
+  // spawn creates a worktree and the agent works there.
+  const [worktreeName, setWorktreeName] = React.useState<string | null>(initialWorktreeName ?? null)
   // A surface that opened with a server in hand (the connector "New chat"
   // buttons) seeds it here; from then on it is an ordinary pick.
   const [mcpServers, setMcpServers] = React.useState<AgentComposerConnector[]>(() => initialMcpServers ?? [])
@@ -331,8 +334,8 @@ export function useAgentComposer({
   const buildConfirm = React.useCallback(
     (target: AgentComposerSelection, engine?: { cli: AgentCli; model: string | null }): AgentComposerConfirm => {
       const picked = skills.length > 0 ? { skills } : {}
-      // Worktree execution only applies to CLI agents spawned into the active
-      // workspace: terminal/conversation have no agent execution.
+      // A worktree is where the agent works, terminal or chat: the chat starts
+      // in it the way a terminal agent does. A plain shell has none.
       const worktree = worktreeName !== null ? { worktree: { name: worktreeName } } : {}
       // MCP servers reach CLI agents through their workspace config, so only
       // the General confirm carries the picks.
@@ -341,10 +344,10 @@ export function useAgentComposer({
       const cli = engine?.cli ?? cliForSelection(target)
       const model = engine ? engine.model : (modelForSelection(target, cli) ?? null)
       const reasoning = reasoningForSelection(target, cli) ?? null
-      // A chat carries the same engine a terminal launch would; it has no
-      // checkout of its own (no worktree) and reads MCP servers from the
-      // workspace config it runs in, as the CLI does.
-      if (target.kind === 'conversation') return { kind: 'conversation', cli, model, reasoning, ...picked }
+      // A chat carries the same engine and worktree a terminal launch would,
+      // and reads MCP servers from the workspace config it runs in, as the CLI
+      // does.
+      if (target.kind === 'conversation') return { kind: 'conversation', cli, model, reasoning, ...picked, ...worktree }
       return { kind: 'general', cli, model, reasoning, ...picked, ...worktree, ...servers }
     },
     [cliForSelection, modelForSelection, reasoningForSelection, skills, worktreeName, mcpServers],

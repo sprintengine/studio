@@ -5,7 +5,6 @@ import { isAbsolute, join, relative } from 'node:path'
 import { isPackExcludedPath } from './manifest-validate.js'
 import {
   MARKETPLACE_COMPONENT_KINDS,
-  marketplaceAutomationPayloadIssues,
   type MarketplaceComponentFileDigest,
   type MarketplaceComponentKind,
   type MarketplaceManifestIssue,
@@ -150,30 +149,6 @@ export function marketplaceComponentDigestMismatchIssuesSync(
     }
   }
   return dedupeIssues(issues)
-}
-
-// Read the declared automation payload off disk and structurally validate it.
-// The bundle gates (pack/sign, download-stage, install preflight) all reach the
-// bytes through a bundle root, so the read lives here beside the digest walk
-// rather than in the node-free manifest module.
-export function marketplaceAutomationPayloadIssuesSync(
-  bundleRoot: string,
-  components: MarketplacePluginComponents,
-): MarketplaceManifestIssue[] {
-  const component = components.automation
-  if (!component) return []
-  let source: string
-  try {
-    source = readFileSync(join(bundleRoot, component.path), 'utf8')
-  } catch (error) {
-    return [
-      {
-        path: 'components.automation.path',
-        message: `automation payload "${component.path}" could not be read: ${error instanceof Error ? error.message : 'read error'}.`,
-      },
-    ]
-  }
-  return marketplaceAutomationPayloadIssues(source)
 }
 
 function componentKinds(manifest: Pick<MarketplacePluginManifest, 'components'>): MarketplaceComponentKind[] {

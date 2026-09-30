@@ -167,7 +167,6 @@ export function PluginsCatalogue({
   onAddMcpServers,
   onRemoveMcpServers,
   onLaunchConnector,
-  onUseInAutomation,
 }: {
   sources: SkillSourcesState
   /** The MCP catalogue and the marketplace registry, read once by the door. */
@@ -192,7 +191,6 @@ export function PluginsCatalogue({
   onAddMcpServers: (servers: McpServerConfig[]) => void
   onRemoveMcpServers: (serverIds: string[]) => void
   onLaunchConnector: (connector: AgentComposerConnector) => void
-  onUseInAutomation: (serverId: string) => void
 }): JSX.Element {
   const [openRow, setOpenRow] = useState<OpenRow | null>(null)
   const [reading, setReading] = useState<string | null>(null)
@@ -604,8 +602,7 @@ export function PluginsCatalogue({
   // leads it — it is the one plugin every install already has, and burying it
   // under the marketplace's other entries would put the app's own plugin
   // somewhere a person has to search for it — and the signed registry: the
-  // agent CLIs, automation starters and signed modules a Claude marketplace
-  // cannot carry.
+  // agent CLIs and signed modules a Claude marketplace cannot carry.
   const builtinRow = useCallback(
     (needle: string): PluginItem | null => {
       const builtin = deriveStudioPluginRow(studioPluginStatus)
@@ -1001,7 +998,6 @@ export function PluginsCatalogue({
             paging={{ noun: 'MCP server', query }}
             onUpsertMcpServer={connectors.upsertMcpServer}
             onLaunchConnector={onLaunchConnector}
-            onUseInAutomation={onUseInAutomation}
             onRemoveMcpServer={removeMcpServer}
           />
           <CustomMcpServerForm activeWorkspaceRoot={workspaceRoot} />

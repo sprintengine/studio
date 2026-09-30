@@ -1,6 +1,6 @@
 ---
 name: sprintengine-extension-builder
-description: Build, test, sign, publish and install SprintEngine Studio extensions (capability modules) with @sprintengine/module-sdk. Use when working in an extension project, when asked to add a panel, workspace type, door surface, top-bar control, settings section, command, Backlog or Files action, MCP tool, automation trigger, or a chat the extension starts or opens; when writing module/manifest.json or plugin.json or choosing permissions; when an extension will not load, is not trusted, or shows as tampered or incompatible; and when signing, packing, side-loading with dev:install, or publishing an extension on GitHub or the marketplace.
+description: Build, test, sign, publish and install SprintEngine Studio extensions (capability modules) with @sprintengine/module-sdk. Use when working in an extension project, when asked to add a panel, workspace type, door surface, top-bar control, settings section, command, Backlog or Files action, MCP tool, scheduled agent, or a chat the extension starts or opens; when writing module/manifest.json or plugin.json or choosing permissions; when an extension will not load, is not trusted, or shows as tampered or incompatible; and when signing, packing, side-loading with dev:install, or publishing an extension on GitHub or the marketplace.
 ---
 
 # Building a SprintEngine Studio extension
@@ -77,8 +77,7 @@ Then in Studio: **Settings → Modules**, find the module, trust it.
 | Tools agents call | main: `host.registerMcpTools` | `mcp:tools` | mcp-tools |
 | An agent doing work in a chat | main: `getConversationService(host)` | `conversation:operate` (or `:read`) | chat-companion |
 | Hand the person a prepared chat | `host.openChat({ workspaceId, prompt })` | `conversation:operate` | backlog-action |
-| A trigger or action for Automations | main: `registerAutomationTrigger` / `registerAutomationAction` | `dependsOn: ["automations"]` | automation-trigger |
-| The module's own automations | main: `getAutomationsService(host)` | `automations.manage` | — |
+| An agent that runs on a schedule | main: `getScheduledAgentsService(host)` | `scheduled-agents.manage`, `dependsOn: ["scheduled-agents"]` | — |
 | Calling an API with a key | main: `getSecretsService(host).fetchWithSecret` | `secrets` | — |
 | Calling GitHub as the user | main: `getGitHubService(host).request` | `github` | — |
 | Saving data | renderer: `get/setModuleAppState`, `get/setWorkspaceModuleState`; main: `getModuleStorage(host)` | `storage` | panel |

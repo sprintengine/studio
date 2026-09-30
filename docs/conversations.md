@@ -28,9 +28,9 @@ separate toggle, not a preset. Under No flag the CLI can still ask, and its
 requests appear as approval cards.
 
 Every surface that starts an agent takes both presets (owner ruling
-2026-09-27): the launcher, a launch on a paired machine, the automation and MCP
-tools (`agent.launch`, `backlog.work`, `automation.create`,
-`conversation.create`), and automations themselves. A launch that names no preset resolves the way the
+2026-09-27): the launcher, a launch on a paired machine, the MCP tools
+(`agent.launch`, `backlog.work`, `schedule.create`, `conversation.create`), and
+scheduled agents themselves. A launch that names no preset resolves the way the
 launcher does: the preset chosen for that CLI on the machine that runs it, else
 Bypass. The launcher names its preset when it starts an agent on a paired
 machine, so the agent there runs on the choice the launcher showed.
@@ -56,8 +56,8 @@ approval control as a promise that a provider will ask for permission.
 
 A Claude chat loads only the person's user settings, never the project's, so
 the app's MCP gateway is handed to each Claude chat directly rather than read
-from the workspace's `.mcp.json`. An automation that runs with a connector
-starts its chat with that connector's MCP server the same way: Claude through
+from the workspace's `.mcp.json`. A scheduled agent's run that carries MCP
+servers starts its chat with them the same way: Claude through
 the SDK's `mcpServers`, Codex as `mcp_servers` config overrides for that chat's
 app-server, and ACP agents through `session/new` (HTTP and SSE servers only
 where the agent's handshake says it takes them). A provider that cannot take
@@ -234,13 +234,11 @@ Conversations are the only agents that cross the tailnet (2026-09-29). A
 paired device, phone or desktop, cannot list, watch, type into, or start a
 terminal on this machine: there is no terminal socket and no terminal scope,
 and the tools that list terminals or start an agent in one (`terminal.list`,
-`terminal.create`, `agent.launch`, `backlog.work`, `automation.run`) are served
+`terminal.create`, `agent.launch`, `backlog.work`) are served
 on the local socket only, to the agents and MCP clients on this machine. What a
 paired device starts is a chat, through `conversation.create`, and the machine
-dropdown in New chat offers a paired machine only for a Chat agent. Automations
-stay on the machine too: the phone neither lists nor runs them, and the
-desktop's own Automations surface and the local `automation.*` tools are
-unchanged. A tab left open on a remote terminal by an earlier build reopens as
+dropdown in New chat offers a paired machine only for a Chat agent. Scheduled
+agents stay on the machine too: the phone neither lists nor runs them. A tab left open on a remote terminal by an earlier build reopens as
 an unavailable panel.
 
 ## Manual verification

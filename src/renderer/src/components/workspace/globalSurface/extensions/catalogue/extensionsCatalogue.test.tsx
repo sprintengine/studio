@@ -446,7 +446,7 @@ test('extensionsCatalogue', async () => {
       ok: true,
       bundledVersion: '1.0.0',
       installedVersion: '1.0.0',
-      skillDirNames: ['studio-backlog', 'studio-automations', 'studio-workspaces'],
+      skillDirNames: ['studio-backlog', 'studio-scheduled-agents', 'studio-workspaces'],
     }),
     workspaceSkillsList: async () => ({ ok: true, skills: [] }),
     skillsListInstalledPlugins: async () => ({ ok: true, plugins: [] }),

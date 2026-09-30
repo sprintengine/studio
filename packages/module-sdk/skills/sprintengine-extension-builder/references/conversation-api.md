@@ -91,12 +91,12 @@ Error codes: `permission_missing`, `invalid_input`, `unknown_workspace`,
 `unknown_skill`, `not_owned`, `agent_write_failed`,
 `conversation_start_failed`, `runtime_refused`.
 
-## Automations start chats too
+## Scheduled agents start chats too
 
-An automation action's `context.spawnAgent({ folderPath, prompt, cli?, model?,
-skills?, permissionPreset?, worktreePath?, name? })` starts the run's agent as
-a chat and resolves `{ workspaceId, agentId, sessionId }`; the run ends with
-that chat's turn.
+Each run of a scheduled agent (`getScheduledAgentsService`) is a new chat the
+host starts with the scheduled agent's prompt. A run of one the module created
+is the module's chat, so the conversation service lists and follows it like
+one the module started itself.
 
 ## Handling what an agent says
 

@@ -140,9 +140,9 @@ person's choice (`src/shared/studio-area-skills.ts`):
 - **Off by default.** A fresh machine installs the bridge and the hook and no
   area skill, in every copy: the workspace copy, the app-owned `--plugin-dir`
   copy, each WSL distribution's copy, and the per-harness skill directories.
-- **Offered where it applies.** Backlog, Design, Canvas, Automations and the
-  Diff viewer each show one muted line offering their skill until the person
-  answers it (Install, or Not now). `studio-workspaces` has no surface of its
+- **Offered where it applies.** Backlog, Design, Canvas, scheduled agents and
+  the Diff viewer each show one muted line offering their skill until the
+  person answers it (Install, or Not now). `studio-workspaces` has no surface of its
   own and is a switch in Settings only. Switching one off in Settings counts as
   an answer, so the surface does not offer it back.
 - **Machine-wide.** The choice lives in `<userData>/studio-area-skills.json`
@@ -158,7 +158,7 @@ person's choice (`src/shared/studio-area-skills.ts`):
   `BOOT_WORKSPACE_SYNC_BUDGET_MS` (4 s, `src/main/boot-discovery.ts`); past
   that the app opens and the pass carries on in the background.
 
-One per area: `studio-backlog`, `studio-automations`, `studio-canvas`,
+One per area: `studio-backlog`, `studio-scheduled-agents`, `studio-canvas`,
 `studio-diff-tours`, `studio-workspaces`, and `studio-design-system` — six. (`studio-review` left
 with the Reviews module, which ships it itself.) A seventh, offered by the
 Extensions home, is not the plugin's own: `sprintengine-extension-builder` is

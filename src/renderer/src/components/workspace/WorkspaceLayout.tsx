@@ -26,7 +26,6 @@ import { FLEX_LAYOUT_ICONS } from './flexLayoutIcons'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { openExternalFileWindow } from '../auxWindows/openFileWindow'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
-import { isModeHiddenFromRail } from '../../../../shared/workspace-mode'
 import { samePath } from '../../utils/paths'
 import { EXTENSIONS_BROWSE_DEEPLINK, MODULES_SETTINGS_TAB } from '../settings/extensionsRoute'
 import { MissingModulePanelSurface, ModuleNotInstalledSurface, workspaceModuleAbsence } from './ModuleAbsenceSurfaces'
@@ -1595,7 +1594,6 @@ function WorkspaceLayoutBody({
   // rule itself — which modes can be absent, and which of the two states this
   // is — lives in `workspaceModuleAbsence`; this only paints the answer.
   const moduleAbsence = workspaceModuleAbsence(workspaceMode, {
-    isBundledHiddenMode: isModeHiddenFromRail,
     workspaceTypeModuleId: (mode) => getRendererHost().getWorkspaceType(mode)?.moduleId,
     isModuleEnabled: (moduleId) => selectModuleEnabled(moduleOverrides, moduleId),
   })

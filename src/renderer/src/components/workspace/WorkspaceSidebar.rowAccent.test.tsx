@@ -12,8 +12,8 @@ test('WorkspaceSidebar.rowAccent', async () => {
   // Selection is a neutral fill: no identity border for an accent to live on, and
   // — since the row lost its icon on 2026-09-02 — nothing per-mode left to tint.
   // Every mode reads the same, which is the thing this suite now pins.
-  const host = rowAccent(ws('automations-host'))
-  assert.deepEqual(host, rowAccent(ws('standard')), 'a background host row and a chat row wear the same accent')
+  const host = rowAccent(ws('weather-deck'))
+  assert.deepEqual(host, rowAccent(ws('standard')), 'a module-registered row and a chat row wear the same accent')
   assert.deepEqual(
     host,
     rowAccent(ws('future-plugin-mode' as Workspace['mode'])),

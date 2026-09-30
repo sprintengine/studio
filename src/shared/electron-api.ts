@@ -123,30 +123,11 @@ import type {
   MeshConversationListResult,
 } from './tailnet-mesh'
 import type {
-  AutomationsApproveInput,
-  AutomationsApproveResult,
-  AutomationsBuiltinInstallInput,
-  AutomationsBuiltinInstallResult,
-  AutomationsBuiltinListResult,
-  AutomationsCreateInput,
-  AutomationsDefinitionInput,
-  AutomationsDefinitionResult,
-  AutomationsDeleteResult,
-  AutomationsEngineStatusResult,
-  AutomationsInstanceListResult,
-  AutomationsListResult,
-  AutomationsProvidersResult,
-  AutomationsDefinitionsChangedEvent,
-  AutomationsRevokeApprovalResult,
-  AutomationsRunEvent,
-  AutomationsRunFinalizeInput,
-  AutomationsRunFinalizeResult,
-  AutomationsRunNowResult,
-  AutomationsRunsListInput,
-  AutomationsRunsListResult,
-  AutomationsUpdateInput,
-  AutomationsWorkspaceInput,
-} from './automations/contracts'
+  ScheduledAgentDraft,
+  ScheduledAgentLastRun,
+  ScheduledAgentView,
+  ScheduledAgentWriteResult,
+} from './scheduled-agents'
 // Write-back config + IPC contracts: schema owned by T10, IPC surface
 // consumed by the T11 settings UI. Re-exported through the single electron-api
 // surface like the rest of the tracker seam.
@@ -853,48 +834,19 @@ export type ElectronApi = {
     key: MeshConversationKey
     toolUseId: string
   }) => Promise<MeshConversationImageResult>
-  // Automations platform (per-project scheduled agent automations). The renderer
-  // reads/writes only through these channels; the engine owns the on-disk store.
-  listAutomations: (input: AutomationsWorkspaceInput) => Promise<AutomationsListResult>
-  /**
-   * Instance-wide automation index: every automation across every known project
-   * root with live rail state (status, last-run outcome/time, running-now). The
-   * full-page Automations surface reads this instead of one host folder's list.
-   */
-  listInstanceAutomations: () => Promise<AutomationsInstanceListResult>
-  /**
-   * The five automations that ship inside the app (Extensions drawer ruling,
-   * 2026-09-05). Read, never imported: main decides what is built in, so the
-   * Automations surface's "Built in" group asks rather than holding its own copy.
-   */
-  listBuiltinAutomations: () => Promise<AutomationsBuiltinListResult>
-  /**
-   * Writes a built-in's definition into a project — the same catalogue write the
-   * marketplace shelf's Get used, keyed on the built-in's stable id, so adding
-   * one twice reports the copy the project already has instead of duplicating it.
-   */
-  addBuiltinAutomation: (input: AutomationsBuiltinInstallInput) => Promise<AutomationsBuiltinInstallResult>
-  createAutomation: (input: AutomationsCreateInput) => Promise<AutomationsDefinitionResult>
-  updateAutomation: (input: AutomationsUpdateInput) => Promise<AutomationsDefinitionResult>
-  deleteAutomation: (input: AutomationsDefinitionInput) => Promise<AutomationsDeleteResult>
-  runAutomationNow: (input: AutomationsDefinitionInput) => Promise<AutomationsRunNowResult>
-  /**
-   * The review's Allow: approve automations this machine did not write, each
-   * pinned to the fingerprint the review showed. Main re-reads and approves its
-   * own hash; one that changed since it was shown is reported, not approved.
-   */
-  approveAutomations: (input: AutomationsApproveInput) => Promise<AutomationsApproveResult>
-  /** Take an approval back: the automation asks again before it next runs. */
-  revokeAutomationApproval: (input: AutomationsDefinitionInput) => Promise<AutomationsRevokeApprovalResult>
-  listAutomationRuns: (input: AutomationsRunsListInput) => Promise<AutomationsRunsListResult>
-  finalizeAutomationRun: (input: AutomationsRunFinalizeInput) => Promise<AutomationsRunFinalizeResult>
-  listAutomationProviders: () => Promise<AutomationsProvidersResult>
-  // Read-only health of the Automations engine/scheduler sidecar for the control
-  // center indicator. Never mutates; main reads kernel sidecar status (T5).
-  getAutomationsEngineStatus: () => Promise<AutomationsEngineStatusResult>
-  onAutomationRunEvent: (cb: (event: AutomationsRunEvent) => void) => () => void
-  /** Fires after any automation-definition write (user IPC or module service); panels reload their list. */
-  onAutomationsDefinitionsChanged: (cb: (event: AutomationsDefinitionsChangedEvent) => void) => () => void
+  // Scheduled agents: a prompt and a schedule, each run a new chat. Main owns
+  // the list and the scheduler; the renderer reads and writes through these.
+  listScheduledAgents: () => Promise<ScheduledAgentView[]>
+  createScheduledAgent: (draft: ScheduledAgentDraft) => Promise<ScheduledAgentWriteResult>
+  updateScheduledAgent: (id: string, draft: ScheduledAgentDraft) => Promise<ScheduledAgentWriteResult>
+  removeScheduledAgent: (id: string) => Promise<{ ok: true } | { ok: false; message: string }>
+  runScheduledAgentNow: (
+    id: string,
+  ) => Promise<{ ok: true; run: ScheduledAgentLastRun } | { ok: false; message: string }>
+  /** The card's "Failed" was seen: it goes back to saying when the agent runs next. */
+  markScheduledAgentFailureSeen: (id: string) => Promise<{ ok: true }>
+  /** The whole list, after every change — a write from anywhere, or a run's outcome. */
+  onScheduledAgentsChanged: (cb: (agents: ScheduledAgentView[]) => void) => () => void
   authGetState: () => Promise<SprintEngineAuthState>
   authLogin: (organizationId?: string | null) => Promise<{ state: string; authorizationUrl: string }>
   authLogout: () => Promise<{ loggedOut: true }>

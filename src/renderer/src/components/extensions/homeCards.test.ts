@@ -193,7 +193,7 @@ test('homeCards', async () => {
   // ── The stamp ────────────────────────────────────────────────────────────────
 
   run('every kind the schema knows has a word on its stamp', () => {
-    const kinds: HostedCardKind[] = ['mcp', 'skill', 'plugin', 'automation', 'showcase']
+    const kinds: HostedCardKind[] = ['mcp', 'skill', 'plugin', 'showcase']
     for (const kind of kinds) {
       const label = cardStampLabel(kind)
       assert.ok(label && label.length > 0, `${kind} has a stamp`)
@@ -284,13 +284,12 @@ test('homeCards', async () => {
 
     // Every kind has a word, and the table is keyed on the union so a kind added
     // to the schema is a typecheck failure rather than a button with nothing in it.
-    for (const kind of ['mcp', 'skill', 'plugin', 'automation', 'showcase'] as const) {
+    for (const kind of ['mcp', 'skill', 'plugin', 'showcase'] as const) {
       const label = cardActionLabel(card(kind, [CHAT]))
       assert.ok(label.length > 0, `${kind}: has a word`)
       assert.notEqual(label, 'Go', `${kind}: and it is not "Go"`)
     }
     assert.equal(cardActionLabel(card('plugin', [CHAT])), 'Install', 'a plugin card offers an install')
-    assert.equal(cardActionLabel(card('automation', [CHAT])), 'Create', 'an automation card creates one')
 
     // The ACTIONS outrank the kind: a showcase card's kind alone would say
     // "See it", and a card that only opens a door shows nothing.

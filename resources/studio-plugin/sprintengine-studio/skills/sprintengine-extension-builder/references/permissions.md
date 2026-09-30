@@ -31,7 +31,7 @@ Rules:
 | `backlog.read` | Read Backlog item details and source content | `listBacklogItems`, `watchBacklogItems` | — |
 | `backlog.write` | Change Backlog item status, links, and metadata | `updateStatus`, `addLink`, `updateModuleMetadata` in a Backlog action | — |
 | `backlog.link.open` | Open links and targets attached to Backlog items | A link provider's `openLink` | — |
-| `automations.manage` | Create and manage its own scheduled automations | `getAutomationsService` | — |
+| `scheduled-agents.manage` | Schedule agents of its own that start a chat on a timer | `getScheduledAgentsService` | — |
 | `agents:companion` | Run its own background agents inside the workspace | `getCompanionAgentsService` | yes |
 | `conversation:read` | Read the chats it started, including everything the agent says in them | `subscribe`, `transcript`, `list`, `watch` | yes |
 | `conversation:operate` | Start chats with agents, send them messages, and stop them | `openChat`, and every conversation-service call (implies read) | yes |
@@ -40,12 +40,11 @@ Rules:
 | `mcp:tools` | Add tools that agents in your workspaces can call | `registerMcpTools` | yes |
 
 Registering commands, panels, workspace types, doors, top-bar items, settings
-sections, Backlog and Files actions, skills and automation providers needs no
+sections, Backlog and Files actions and skills needs no
 permission: what they can then do is what the permissions above cover.
 
 `dependsOn` is not a permission but is checked: a module that uses
-`registerAutomationTrigger`/`Action` or `getAutomationsService` lists
-`"automations"`; one that calls `getConversationService`, `getModuleStorage` or
+`getScheduledAgentsService` lists `"scheduled-agents"`; one that calls `getConversationService`, `getModuleStorage` or
 `getCompanionAgentsService` at the top of `registerMain` lists
 `"agent-runtime"`, so the provider registers first.
 

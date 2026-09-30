@@ -863,14 +863,14 @@ test('workspaceStore.persistence', async () => {
     'a legacy marker derives its project from the container path',
   )
 
-  // ── Duplicate Automations hosts in a CURRENT-version envelope ───────────────
-  // The v63/v64 dedupe migrations only run on a version mismatch, but a dev-HMR
-  // module swap (or any writer holding un-migrated state) can stamp the current
-  // WORKSPACE_STORE_VERSION onto a registry that still carries one host per
-  // automation run — the migrate ladder then never looks at it again. merge()
-  // must therefore enforce the one-host-per-folder invariant on EVERY hydration:
-  // earliest host survives, gets the stable 'Automations' name, and a dangling
-  // active pointer falls back to a surviving workspace.
+  // ── Retired Automations hosts in a CURRENT-version envelope ─────────────────
+  // Automations was replaced by scheduled agents (2026-09-30) and its hidden
+  // per-project host mode retired. The migrate ladder only runs on a version
+  // mismatch, but a dev-HMR module swap (or any writer holding un-migrated
+  // state) can stamp the current WORKSPACE_STORE_VERSION onto a registry that
+  // still carries host rows — the ladder then never looks at it again. merge()
+  // must therefore drop them on EVERY hydration, and a dangling active pointer
+  // falls back to a surviving workspace.
   {
     const hostWorkspace = (id: string, name: string, createdAt: number): Workspace =>
       ({
@@ -890,8 +890,8 @@ test('workspaceStore.persistence', async () => {
       state: {
         workspaces: [
           { ...persistedWorkspace },
-          hostWorkspace('ws-host-early', 'Pillars of code reviewer', 100),
-          hostWorkspace('ws-host-late', 'fable5 calendar', 200),
+          hostWorkspace('ws-host-early', 'Automations', 100),
+          hostWorkspace('ws-host-late', 'Nightly reviewer', 200),
         ],
         activeWorkspaceId: 'ws-host-late',
         workspaceRegistryEmptyState: null,
@@ -900,14 +900,19 @@ test('workspaceStore.persistence', async () => {
     })
     await useWorkspaceStore.persist.rehydrate()
     const rehydrated = useWorkspaceStore.getState()
-    const hosts = rehydrated.workspaces.filter((ws) => ws.mode === 'automations-host')
-    assert.equal(hosts.length, 1, 'merge dedupes duplicate hosts even at the current store version')
-    assert.equal(hosts[0].id, 'ws-host-early', 'the earliest-created host survives')
-    assert.equal(hosts[0].name, 'Automations', 'the surviving host is re-branded with the stable name')
+    assert.deepEqual(
+      rehydrated.workspaces.filter((ws) => ws.mode === 'automations-host'),
+      [],
+      'merge drops retired host rows even at the current store version',
+    )
+    assert.ok(
+      rehydrated.workspaces.some((ws) => ws.id === persistedWorkspace.id),
+      'the ordinary workspace beside them survives',
+    )
     assert.notEqual(
       rehydrated.activeWorkspaceId,
       'ws-host-late',
-      'the active pointer does not dangle at a deduped host',
+      'the active pointer does not dangle at a dropped host',
     )
   }
 
@@ -958,9 +963,8 @@ test('workspaceStore.persistence', async () => {
   // Store v69 adds `cliModelCatalog`. Its shape rules cannot live only in the
   // migrate ladder: a dev-HMR module swap (or any writer holding un-migrated
   // state) stamps the current version onto a profile the ladder then never looks
-  // at again — exactly how the v63 dedupe was bypassed in the wild. The envelope
-  // below is stamped CURRENT, so the v69 rung never runs and merge() alone has to
-  // hold the line: an entry that does not carry the recorded shape is dropped
+  // at again. The envelope below is stamped CURRENT, so the v69 rung never runs
+  // and merge() alone has to hold the line: an entry that does not carry the recorded shape is dropped
   // rather than fed to the pickers, and the user's own model ids are untouched
   // either way.
   {

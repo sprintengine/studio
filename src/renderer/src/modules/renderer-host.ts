@@ -203,10 +203,9 @@ export type WorkspaceTypeDefinition = {
   /**
    * Keep the type registered (so its runtime workspaces still resolve, render,
    * and get created programmatically) but withhold it from the new-workspace
-   * creation picker. For a runtime-only container the user never creates by hand
-   * — the `automations-host` mode, whose automations are created from the
-   * full-page Automations door, not the picker (global-surfaces epic 1704). The
-   * picker analog of `isHiddenFromRail`.
+   * creation picker. For a runtime-only container the user never creates by
+   * hand — one a module's own door creates instead. The picker analog of
+   * `isHiddenFromRail`.
    */
   hiddenFromPicker?: boolean
   /**
@@ -566,9 +565,9 @@ export type ModuleSurfaceOpener = {
 // ruling, 2026-09-05).
 //
 //   sidebar — the context-rail swap (item 1993): the door's rail REPLACES the
-//             app sidebar's column for the length of the visit. Automations and
-//             Automations, whose rail is a list the person walks (runs;
-//             automations), and which is the navigation while they are open.
+//             app sidebar's column for the length of the visit: for a door
+//             whose rail is a list the person walks, and which is the
+//             navigation while it is open.
 //   inline  — the rail renders inside the card region beside the canvas, and
 //             the sidebar column keeps whatever it was showing. This is what
 //             the ruling means by "the drawer stays put": a door that IS a row
