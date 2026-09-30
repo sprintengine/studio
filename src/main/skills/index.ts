@@ -805,8 +805,9 @@ export function createSkillsService(
     // which for a pinned entry IS `origin.sha` and for an unpinned one is the
     // ref's head as of a moment ago.
     const commitSha = origin.kind === 'linked' ? plugin.readCommit || origin.sha : source.commitSha
-    // `owner/name`, which is the only address a reader takes; '' when this
-    // plugin's bytes are not in a repository at all.
+    // `owner/name` (or `host/owner/name` off github.com), which is the only
+    // address a reader takes; '' when this plugin's bytes are not in a
+    // repository at all.
     const bytesRepo: string = origin.kind === 'linked' ? origin.repo : source.kind === 'github' ? source.repo : ''
     const harnesses = await listHarnesses()
     // The plugin's OWN files, listed only when a server it declares runs out of
@@ -934,7 +935,7 @@ export function createSkillsService(
         return { ok: false, message: describeFetchError(error) }
       }
     }
-    if (bytesRepo === '' || bytesRepo.split('/').filter(Boolean).length !== 2) {
+    if (bytesRepo === '' || splitSkillRepo(bytesRepo) === null) {
       return { ok: false, message: `${plugin.name} is not in a repository this app can read its files from.` }
     }
     try {

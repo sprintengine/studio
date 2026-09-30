@@ -348,22 +348,28 @@ const GIT_NEEDS_SIGN_IN =
   /terminal prompts disabled|could not read username|could not read password|authentication failed|invalid username or password/i
 
 /**
- * `otherHost` is the host of a repository that is not on the reader's default
- * host, '' otherwise. A read there that failed for want of a sign-in is the
- * one failure whose fix is not on this machine's screen, so it names the fix.
+ * `other` describes a repository that is not on the reader's default host:
+ * which host, and whether a token went with the request. A read there that
+ * failed for want of a sign-in is the one failure whose fix is not on this
+ * machine's screen, so it names the fix — and a token that WAS sent and
+ * refused is a different fix from having none.
  */
-function classify(error: unknown, what: string, otherHost = ''): GitRepoReadError {
+function classify(
+  error: unknown,
+  what: string,
+  other: { host: string; tokenSent: boolean } | null = null,
+): GitRepoReadError {
   if (error instanceof GitRepoReadError) return error
   const failed = classifyGitFailure(error, what)
-  if (otherHost && failed.kind === 'unreadable' && GIT_NEEDS_SIGN_IN.test(failed.stderr || failed.message)) {
-    return new GitRepoReadError(
-      'unreadable',
-      `${otherHost} asked for a sign-in. Run \`gh auth login --hostname ${otherHost}\` in a terminal, ` +
-        `or make sure \`git clone\` of this repository works there, then try again.`,
-      failed.stderr,
-    )
+  if (!other || failed.kind !== 'unreadable' || !GIT_NEEDS_SIGN_IN.test(failed.stderr || failed.message)) {
+    return failed
   }
-  return failed
+  const message = other.tokenSent
+    ? `${other.host} refused the GitHub CLI's sign-in for it. It may lack the repo scope or single sign-on ` +
+      `authorization for this organization; \`gh auth refresh --hostname ${other.host} --scopes repo\` renews it.`
+    : `${other.host} asked for a sign-in. Run \`gh auth login --hostname ${other.host}\` in a terminal, ` +
+      `or make sure \`git clone\` of this repository works there, then try again.`
+  return new GitRepoReadError('unreadable', message, failed.stderr)
 }
 
 function classifyGitFailure(error: unknown, what: string): GitRepoReadError {
@@ -619,13 +625,19 @@ export function createGitRepoReader(options: GitRepoReaderOptions): SkillRepoRea
    * LEFT IN PLACE: an internal repository is private by definition, and the
    * helper that answers their own `git clone` of it is the sign-in they already
    * have. It cannot prompt — GIT_TERMINAL_PROMPT, GIT_ASKPASS and
-   * GCM_INTERACTIVE are closed in `gitEnv` — so a helper with nothing stored
-   * fails the read, and `classify` says how to sign in.
+   * GCM_INTERACTIVE are closed in `gitEnv`, and `credential.interactive=false`
+   * is the same request in the form every helper that honours one reads — so
+   * a helper with nothing stored fails the read, and `classify` says how to
+   * sign in. A helper that raises its own OS dialog regardless (a locked
+   * keychain) is the one thing this cannot close; `gh auth login` for the host
+   * takes the helper out of the read altogether.
    */
   const networkEnv = async (repoHost: string): Promise<NodeJS.ProcessEnv> => {
     if (repoHost !== host) {
       const hostToken = (await options.resolveHostToken?.(repoHost).catch(() => ''))?.trim() ?? ''
-      if (!hostToken) return {}
+      if (!hostToken) {
+        return { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'credential.interactive', GIT_CONFIG_VALUE_0: 'false' }
+      }
       const basic = Buffer.from(`x-access-token:${hostToken}`, 'utf8').toString('base64')
       return {
         GIT_CONFIG_COUNT: '2',
@@ -660,7 +672,8 @@ export function createGitRepoReader(options: GitRepoReaderOptions): SkillRepoRea
     try {
       return await runGit(args, { cwd, timeoutMs: networkTimeoutMs, env, stdin })
     } catch (error) {
-      throw classify(error, what, parsed.host === host ? '' : parsed.host)
+      const other = parsed.host === host ? null : { host: parsed.host, tokenSent: env.GIT_CONFIG_KEY_1 !== undefined }
+      throw classify(error, what, other)
     } finally {
       release()
     }

@@ -80,12 +80,27 @@ test('other-host sources', async () => {
       { name: 'same-host', source: { source: 'url', url: `https://${HOST}/acme/plugin.git` } },
       { name: 'on-github', source: { source: 'github', repo: 'acme/public-plugin' } },
       { name: 'elsewhere', source: { source: 'url', url: 'https://other.example.com/acme/plugin.git' } },
+      // A server that runs out of the plugin's own directory: installing it
+      // lists and copies the plugin's files from the marketplace repository.
+      { name: 'runner', source: './plugins/runner' },
     ],
   })
 
+  const MARKETPLACE_FILES: Record<string, string> = {
+    [SKILL_MARKETPLACE_MANIFEST_PATH]: MANIFEST,
+    'plugins/runner/.claude-plugin/plugin.json': JSON.stringify({ name: 'runner' }),
+    'plugins/runner/.mcp.json': JSON.stringify({
+      mcpServers: { run: { command: '${CLAUDE_PLUGIN_ROOT}/bin/run' } },
+    }),
+    'plugins/runner/bin/run': '#!/bin/sh\n',
+  }
   const MARKETPLACE_TREE: SkillTreeEntry[] = [
     { path: '.claude-plugin', mode: '040000', type: 'tree', sha: 't' },
-    { path: SKILL_MARKETPLACE_MANIFEST_PATH, mode: '100644', type: 'blob', sha: 'm' },
+    { path: 'plugins', mode: '040000', type: 'tree', sha: 't' },
+    { path: 'plugins/runner', mode: '040000', type: 'tree', sha: 't' },
+    { path: 'plugins/runner/.claude-plugin', mode: '040000', type: 'tree', sha: 't' },
+    { path: 'plugins/runner/bin', mode: '040000', type: 'tree', sha: 't' },
+    ...Object.keys(MARKETPLACE_FILES).map((path) => ({ path, mode: '100644', type: 'blob', sha: 'b' })),
   ]
   const PLUGIN_TREE: SkillTreeEntry[] = [
     { path: 'skills', mode: '040000', type: 'tree', sha: 't' },
@@ -106,7 +121,7 @@ test('other-host sources', async () => {
         return repo === MARKETPLACE_REPO ? MARKETPLACE_TREE : PLUGIN_TREE
       },
       readFile: async (repo, _sha, path) =>
-        repo === MARKETPLACE_REPO && path === SKILL_MARKETPLACE_MANIFEST_PATH ? Buffer.from(MANIFEST, 'utf8') : null,
+        repo === MARKETPLACE_REPO && path in MARKETPLACE_FILES ? Buffer.from(MARKETPLACE_FILES[path], 'utf8') : null,
     }
   }
 
@@ -175,6 +190,12 @@ test('other-host sources', async () => {
     // And a Sync re-reads it from what was stored.
     const synced = await service.syncSource({ sourceId: added.source.id, workspaceRoot: '' })
     assert.equal(synced.ok, true, synced.ok ? '' : synced.message)
+
+    // A plugin whose server runs from its own files installs from it too.
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-other-host-ws-'))
+    const installed = await service.installPlugin({ sourceId: added.source.id, pluginId: 'runner', workspaceRoot })
+    assert.equal(installed.ok, true, installed.ok ? '' : installed.message)
+    assert.ok(reader.asked.filter((repo) => repo === MARKETPLACE_REPO).length > 2, "the plugin's files were listed")
   }
 
   async function withoutGitTheApiFallbackSaysSo(): Promise<void> {

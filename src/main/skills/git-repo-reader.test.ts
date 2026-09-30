@@ -588,8 +588,13 @@ test('git-repo-reader', async () => {
       await reads.resolveCommit('ghe.example.com/acme/widgets', 'main')
       const network = watcher.seen.find((call) => call.args.includes('ls-remote'))
       assert.ok(network)
-      assert.equal(network.options.env?.GIT_CONFIG_COUNT, undefined, 'no helper override, no header')
-      assert.ok(!JSON.stringify(network.options.env).includes(githubToken))
+      // The helper is not emptied, no header is added, and the one key set asks
+      // the helper not to raise a prompt of its own.
+      assert.deepEqual(network.options.env, {
+        GIT_CONFIG_COUNT: '1',
+        GIT_CONFIG_KEY_0: 'credential.interactive',
+        GIT_CONFIG_VALUE_0: 'false',
+      })
 
       // …and github.com's own reads are exactly what they were.
       await reads.resolveCommit('acme/widgets', 'main')
@@ -620,6 +625,25 @@ test('git-repo-reader', async () => {
         seen.some((args) => args.includes('https://ghe.example.com/acme/widgets.git')),
         'the production clone URL is on the named host',
       )
+
+      // A token that went with the request and was refused is a different fix.
+      const refused = createGitRepoReader({
+        cacheDir: await cacheRoot(),
+        resolveHostToken: async () => 'gho_withoutTheRepoScope',
+        runGit: async () => {
+          throw Object.assign(new Error('git exited with code 128'), {
+            stderr: "fatal: could not read Username for 'https://ghe.example.com': terminal prompts disabled\n",
+          })
+        },
+      })
+      const scoped = await refused.resolveCommit('ghe.example.com/acme/widgets', '').then(
+        () => null,
+        (reason: unknown) => reason,
+      )
+      assert.ok(scoped instanceof GitRepoReadError)
+      assert.match(scoped.message, /refused the GitHub CLI's sign-in/)
+      assert.match(scoped.message, /gh auth refresh --hostname ghe\.example\.com --scopes repo/)
+      assert.ok(!scoped.message.includes('gho_withoutTheRepoScope'))
     })
 
     run('a host-named repository is refused when the host is not a plain dotted hostname', async () => {
