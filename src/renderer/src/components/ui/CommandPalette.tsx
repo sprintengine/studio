@@ -37,7 +37,6 @@ import {
 } from '../palette/extensionsProvider'
 import { createConversationHistoryProvider } from '../palette/conversationHistoryProvider'
 import { createBuildExtensionPaletteProvider } from '../extensions/buildExtensionPaletteProvider'
-import { EXTENSIONS_HOME_SURFACE_ID } from '../workspace/extensionsDrawer'
 import {
   decidePaletteTarget,
   handSkillToAgent,
@@ -1083,15 +1082,9 @@ export default function CommandPalette({
     () => createConversationHistoryProvider(),
     [activeFolderPath, activeWorkspaceId],
   )
-  // "Build your own extension", among the Extensions rows (the flow lives on the
-  // Extensions home; the row latches the request and opens the home).
-  const buildExtensionProvider = useMemo(
-    () =>
-      createBuildExtensionPaletteProvider({
-        openExtensionsHome: () => useWorkspaceStore.getState().openGlobalSurface(EXTENSIONS_HOME_SURFACE_ID),
-      }),
-    [],
-  )
+  // "Build your own extension", among the Extensions rows: it opens the New
+  // chat door in extension mode.
+  const buildExtensionProvider = useMemo(() => createBuildExtensionPaletteProvider(), [])
   const providers = useMemo(() => {
     const active: PaletteResultProvider[] = []
     // Installed inventory owns Skills; catalogue providers run in All only.

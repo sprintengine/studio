@@ -726,13 +726,12 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       // (a connector run's) ride the same option; the person's user-scoped
       // servers still load from their own configuration.
       ...(Object.keys(mcpServers).length > 0 ? { mcpServers } : {}),
-      ...(skillPlugin
-        ? {
-            plugins: [
-              { type: 'local', path: wslTarget ? toWslPath(skillPlugin) : skillPlugin, skipMcpDiscovery: true },
-            ],
-          }
-        : {}),
+      // Plain `--plugin-dir`, never `skipMcpDiscovery`: the SDK spells that
+      // `--plugin-dir-no-mcp`, which a Claude Code older than the SDK does not
+      // know, and the child exits on it. There is nothing to skip anyway: the
+      // staged plugin is written here with no `.mcp.json` and no `mcpServers`,
+      // so it can carry skills and nothing else.
+      ...(skillPlugin ? { plugins: [{ type: 'local', path: wslTarget ? toWslPath(skillPlugin) : skillPlugin }] } : {}),
       ...(state.skillIds?.length ? { skills: state.skillIds.map(attachedSkillName) } : {}),
       env,
       abortController: abort,

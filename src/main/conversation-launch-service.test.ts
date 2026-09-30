@@ -15,7 +15,7 @@ import {
   normalizeWorkspaceForRegistry,
   toWorkspaceRegistryRecord,
 } from '../shared/workspace-registry'
-import { isDefaultWorkspaceName } from '../shared/workspace-title'
+import { deriveWorkspaceTitle, isDefaultWorkspaceName } from '../shared/workspace-title'
 import type { Workspace } from '../renderer/src/types/workspace'
 import {
   createConversationLaunchService,
@@ -270,6 +270,33 @@ test('a new chat is born in a workspace of its own, in the named workspace’s f
   assert.equal(created.agents[SOLO_CHAT_AGENT_ID]?.name, result.name)
 })
 
+test('a new chat main starts is named after its first message, and the name stays open for a model title', async () => {
+  const { service, registry } = registryHarness()
+  const prompt = 'Fix the upload retry on flaky networks'
+  const result = await service.launch({ workspaceId: 'ws-old', newChat: true, cli: 'claude-code', prompt })
+  assert.equal(result.ok, true)
+  if (!result.ok) return
+  const created = registry.getRecord(result.workspaceId)!
+  // No window may be showing this chat (a phone started it), so main titles
+  // it; a window's model-written title can still replace the heuristic one.
+  assert.equal(created.name, deriveWorkspaceTitle(prompt))
+  assert.equal(created.titleLocked, undefined)
+})
+
+test('a new chat that sends nothing first keeps an app-minted name', async () => {
+  const { service, registry } = registryHarness()
+  const result = await service.launch({
+    workspaceId: 'ws-old',
+    newChat: true,
+    cli: 'claude-code',
+    prompt: 'Fix the upload retry on flaky networks',
+    sendFirst: false,
+  })
+  assert.equal(result.ok, true)
+  if (!result.ok) return
+  assert.equal(registry.getRecord(result.workspaceId)?.name, 'Chat 2')
+})
+
 test('a new chat whose session cannot start takes its whole workspace back out', async () => {
   const { service, registry } = registryHarness(async () => ({ ok: false, message: 'CLI not installed' }))
   const before = registry.getRecords().map((record) => record.id)
@@ -317,7 +344,10 @@ test('a chat born in a folder gets a workspace of its own there, on its machine 
     baseRef: 'HEAD',
     repoRoot: '/Users/dev/app',
   })
-  assert.equal(isDefaultWorkspaceName(created.name), true, 'left open for the first message to title')
+  // A scheduled run is named after what it was sent, since no window may be
+  // there to title it; the name stays open for a model-written one.
+  assert.equal(created.name, deriveWorkspaceTitle('triage new issues'))
+  assert.equal(created.titleLocked, undefined)
   assert.equal(starts[0]!.workspaceRoot, '/Users/dev/.worktrees/app/nightly-20260930-2100')
   // The chat runs on the machine it was born on: its Claude chat is that
   // distribution's `claude`.

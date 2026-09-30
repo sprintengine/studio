@@ -259,8 +259,11 @@ test('claude-agent-provider', async () => {
       // so they are never loaded, with or without skills attached.
       assert.deepEqual(capturedOptions[0]?.settingSources, ['user'])
       assert.deepEqual(capturedOptions[0]?.skills, ['attached-skills:example'])
-      const plugins = capturedOptions[0]?.plugins as Array<{ type: string; path: string }>
+      const plugins = capturedOptions[0]?.plugins as Array<{ type: string; path: string; skipMcpDiscovery?: boolean }>
       assert.equal(plugins.length, 1)
+      // `skipMcpDiscovery` becomes `--plugin-dir-no-mcp`, which an older
+      // installed Claude Code rejects and exits on.
+      assert.equal(plugins[0].skipMcpDiscovery, undefined)
       assert.equal(
         await readFile(join(plugins[0].path, 'skills', 'example', 'SKILL.md'), 'utf8'),
         '---\nname: example\n---\nDo it.',

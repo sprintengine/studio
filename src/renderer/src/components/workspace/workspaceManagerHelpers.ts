@@ -429,12 +429,19 @@ export function buildSidebarWorkspaceOrder(workspaces: Workspace[]): Map<string,
 // title (filler, an image-only turn's empty text), so a later message still
 // gets its turn; this only has to avoid offering the same text twice.
 // `offered` holds the last text offered per session and is updated in place.
+//
+// A session whose workspace this window does not hold yet is skipped without
+// being marked: a chat main created can report its first message before the
+// workspace reaches this window, and an offer made then would land nowhere and
+// never be made again.
 export function conversationTitleOffers(
   sessions: readonly ConversationSessionSummary[],
   offered: Map<string, string>,
+  isKnownWorkspace: (workspaceId: string) => boolean = () => true,
 ): Array<{ workspaceId: string; prompt: string }> {
   const offers: Array<{ workspaceId: string; prompt: string }> = []
   for (const session of sessions) {
+    if (!isKnownWorkspace(session.workspaceId)) continue
     const previous = offered.get(session.sessionId)
     const candidates = previous === undefined ? [session.firstUserText, session.lastUserText] : [session.lastUserText]
     for (const text of candidates) {

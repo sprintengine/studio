@@ -99,6 +99,8 @@
   --sem-color-mark-violet: var(--ref-color-violet-500);
   --sem-color-mark-project-lightness: 0.54;
   --sem-color-mark-project-chroma: 0.09;
+  --sem-color-scaffold-ink: var(--ref-color-violet-500);
+  --sem-color-scaffold-soft: rgba(137, 87, 229, 0.16);
   --sem-shadow-drawer: 0 1px 3px rgba(16, 20, 24, 0.06), 0 8px 24px -6px rgba(16, 20, 24, 0.10);
   --sem-shadow-popover: 0 1px 2px rgba(16, 20, 24, 0.08), 0 4px 12px -4px rgba(16, 20, 24, 0.12);
   --sem-shadow-modal: 0 2px 6px rgba(16, 20, 24, 0.08), 0 16px 48px -12px rgba(16, 20, 24, 0.18);

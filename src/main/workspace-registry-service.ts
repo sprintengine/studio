@@ -91,6 +91,12 @@ export type WorkspaceCreateRequest = {
    * window never sees a tab with no agent behind it.
    */
   agents?: Record<AgentId, AgentState>
+  /**
+   * The name is one the app derived (a chat named after the first message main
+   * sent it), so it is not locked: a window's own titling may still replace it
+   * with a model-written title. Absent, a name that is not app-minted locks.
+   */
+  titleOpen?: boolean
 }
 
 export type WorkspaceCreateResult = {
@@ -372,7 +378,7 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
       // creation path applies. An app-minted name ("Chat 63" from the New chat
       // button, "Solo 4" from a headless create) is NOT meaningful and stays
       // open for the first prompt to name.
-      ...(isDefaultWorkspaceName(name, template.name) ? {} : { titleLocked: true }),
+      ...(isDefaultWorkspaceName(name, template.name) || input.titleOpen ? {} : { titleLocked: true }),
       mode: input.mode ?? 'standard',
       folderPath,
       folderMissing: false,
