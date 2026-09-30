@@ -29,6 +29,10 @@ new chat. The app no longer has an automations engine for a module to extend.
   when they change. Declare `scheduled-agents.manage` and
   `dependsOn: ["scheduled-agents"]`; `host.supports('scheduled-agents')` says
   whether the host in front of the module provides it.
+  A scheduled agent's `permissionPreset` is any of the four modes a chat
+  takes (`bypass`, `auto`, `manual`, `none`), or null to follow the person's
+  choice at run time; a chat an extension starts with `conversation.create`
+  still names only `none` or `bypass`.
 
 ## 1.0.0-beta.0
 

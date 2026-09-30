@@ -601,8 +601,14 @@ export type ScheduledAgent = {
   hostId: ScheduledAgentHostId | null
   cli: string
   cliModel: string | null
-  /** Null follows the preset the person chose for that CLI, read at run time. */
-  permissionPreset: 'none' | 'bypass' | null
+  /**
+   * `bypass` skips every prompt; `auto` lets edits in the project through and
+   * asks before commands and anything outside it; `manual` asks before every
+   * edit, command and outside call; `none` passes no flag, so the CLI's own
+   * configuration decides. Null follows the preset the person chose for that
+   * CLI, read at run time.
+   */
+  permissionPreset: 'none' | 'manual' | 'auto' | 'bypass' | null
   skills: ScheduledAgentAttachment[]
   mcpServers: ScheduledAgentAttachment[]
   /** A fresh worktree per run, named from this; null runs in the project's checkout. */
