@@ -1629,8 +1629,8 @@ test('AgentChatView', async () => {
     assert.ok(chatViewSource.includes(handler), `the composer wires ${handler}`)
   }
   assert.ok(
-    chatViewSource.includes('dropHandlers={imageDropHandlers}'),
-    'an image dropped anywhere on the chat attaches, not only on the composer',
+    chatViewSource.includes('dropHandlers={fileDropHandlers}'),
+    'a file dropped anywhere on the chat lands in the composer, not only on the field',
   )
   assert.match(
     chatViewSource.slice(chatViewSource.indexOf("event.key === 'Backspace'")),
@@ -1638,9 +1638,9 @@ test('AgentChatView', async () => {
     'Backspace at the draft start removes the last staged image after other context chips',
   )
   assert.equal(
-    (chatViewSource.match(/imagesEnabled/g) ?? []).length >= 5,
+    (chatViewSource.match(/imagesEnabled/g) ?? []).length >= 4,
     true,
-    'every attach entry point (paste, drag, drop, picker) is gated on provider support',
+    'every image attach entry point (paste, drop, picker) is gated on provider support',
   )
   assert.match(
     chatViewSource.slice(chatViewSource.indexOf('queueComposerDraft(queuedTurn')),

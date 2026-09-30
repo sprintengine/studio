@@ -24,14 +24,15 @@ import { useProjectColor, useProjectColors } from '../../../hooks/useProjectColo
 import { projectColorKey, resolveProjectColor, type ProjectColor } from '../../../utils/projectColor'
 import { resolveSkillMentionPrefix, renderSkillMention } from '../../../../../shared/skill-invocation'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
-import { ATTACHABLE_IMAGE_TYPES } from '../../../../../shared/conversation-attachments'
 import {
-  dataTransferHasFiles,
-  filesFromDataTransfer,
+  dataTransferHasDroppableFiles,
   imageFilesFromDataTransfer,
   pastedImagePaths,
+  pathlessDropMessage,
+  quotePromptPath as quotePath,
   readFileAsBase64,
   readPastedImagePaths,
+  sortDroppedFiles,
 } from '../../../utils/imageFileTransfer'
 import { ComposerAttachmentStrip } from '../../panels/ComposerAttachmentStrip'
 import { basename } from '../../../utils/paths'
@@ -872,18 +873,21 @@ export default function NewAgentPanel({
     promptRef.current?.focus()
   }
 
+  // A drop, whatever it carries: every file with a path is typed as its path,
+  // the way a drop onto a terminal would be; images attach; a file with no path
+  // and no image to read is refused with a message rather than swallowed.
+  const dropFiles = (data: DataTransfer) => {
+    const { paths, images, pathless } = sortDroppedFiles(data, true)
+    for (const path of paths) insertPromptPath(path)
+    if (images.length > 0) void attachDroppedFiles(images)
+    else setAttachNote(pathless.length > 0 ? pathlessDropMessage(pathless) : null)
+    promptRef.current?.focus()
+  }
+
   const attachDroppedFiles = async (files: File[]) => {
     setAttachNote(null)
     for (const file of files) {
       const existingPath = window.api.getPathForFile(file)
-      const isImage = (ATTACHABLE_IMAGE_TYPES as readonly string[]).includes(file.type)
-      // A non-image with a path is a path: it goes into the prompt as text, the
-      // way a drop onto a terminal would. One with no path falls through to the
-      // save, which refuses it with a message rather than silently swallowing it.
-      if (existingPath && !isImage) {
-        insertPromptPath(existingPath)
-        continue
-      }
       setAttachingCount((count) => count + 1)
       try {
         const { mediaType, dataBase64 } = await readFileAsBase64(file)
@@ -1616,27 +1620,27 @@ export default function NewAgentPanel({
             dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
           }`}
           onDragEnter={(event) => {
-            if (isTerminalLaunch || !dataTransferHasFiles(event.dataTransfer)) return
+            if (isTerminalLaunch || !dataTransferHasDroppableFiles(event.dataTransfer)) return
             dragDepthRef.current += 1
             setDropActive(true)
           }}
           onDragOver={(event) => {
             // Claiming the drag is what stops the window from navigating to the
             // dropped file, so it has to happen on every dragover.
-            if (isTerminalLaunch || !dataTransferHasFiles(event.dataTransfer)) return
+            if (isTerminalLaunch || !dataTransferHasDroppableFiles(event.dataTransfer)) return
             event.preventDefault()
           }}
           onDragLeave={(event) => {
-            if (isTerminalLaunch || !dataTransferHasFiles(event.dataTransfer)) return
+            if (isTerminalLaunch || !dataTransferHasDroppableFiles(event.dataTransfer)) return
             dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
             if (dragDepthRef.current === 0) setDropActive(false)
           }}
           onDrop={(event) => {
-            if (isTerminalLaunch || !dataTransferHasFiles(event.dataTransfer)) return
+            if (isTerminalLaunch || !dataTransferHasDroppableFiles(event.dataTransfer)) return
             event.preventDefault()
             dragDepthRef.current = 0
             setDropActive(false)
-            void attachDroppedFiles(filesFromDataTransfer(event.dataTransfer))
+            dropFiles(event.dataTransfer)
           }}
         >
           {/* Opaque, not a scrim: the field's own text ghosting through the
@@ -2409,11 +2413,6 @@ function MoreMenu({
 // shared strip renders it) plus the file path that stands in for it once the
 // prompt becomes text.
 type PromptImage = NewChatDraftImage
-
-// Quoted only when the path needs it, matching the terminal drop idiom.
-function quotePath(path: string): string {
-  return /\s/.test(path) ? `'${path}'` : path
-}
 
 function MenuRow({
   selected,

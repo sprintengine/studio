@@ -1,4 +1,5 @@
 import { ATTACHABLE_IMAGE_TYPES } from '../../../shared/conversation-attachments'
+import { hasFileDropData, readFileDropPayload, SPRINTENGINE_FILE_DROP_MIME } from './terminalDrop'
 
 // DataTransfer plumbing shared by every surface that takes an image from a
 // paste or a drop — the chat composer (AgentChatView) and the new-chat launch
@@ -39,6 +40,61 @@ export function filesFromDataTransfer(data: DataTransfer | null): File[] {
 /** The image files in a paste or drop, filtered to the types agents accept. */
 export function imageFilesFromDataTransfer(data: DataTransfer | null): File[] {
   return filesFromDataTransfer(data).filter((file) => (ATTACHABLE_IMAGE_TYPES as readonly string[]).includes(file.type))
+}
+
+/**
+ * Whether a drag carries anything a composer can take: files from the OS, or
+ * the studio's own file drag (the Files pane, the Backlog). The studio's drag
+ * carries no `Files` entry, so `dataTransferHasFiles` alone refuses it.
+ */
+export function dataTransferHasDroppableFiles(data: DataTransfer | null): boolean {
+  if (!data) return false
+  return dataTransferHasFiles(data) || hasFileDropData(data)
+}
+
+export type DroppedFiles = {
+  /** Paths to type into the prompt: every file the agent reads by path. */
+  paths: string[]
+  /** Images to attach as images, when the surface attaches them. */
+  images: File[]
+  /** Files with no path on disk (an image dragged out of a web page). */
+  pathless: File[]
+}
+
+/**
+ * A drop, sorted by what a composer does with each file. Any file with a path
+ * becomes its path, whatever its type — a spreadsheet or a folder is as much the
+ * agent's to read as a source file. Images attach instead where `attachImages`
+ * says the surface can send them; one from the studio's own panes stays a path,
+ * as a pasted path into the workspace does.
+ */
+export function sortDroppedFiles(data: DataTransfer, attachImages: boolean): DroppedFiles {
+  const studioDrop = Array.from(data.types ?? []).includes(SPRINTENGINE_FILE_DROP_MIME)
+    ? readFileDropPayload(data)
+    : null
+  if (studioDrop) return { paths: studioDrop.files.map((file) => file.path), images: [], pathless: [] }
+  const sorted: DroppedFiles = { paths: [], images: [], pathless: [] }
+  for (const file of filesFromDataTransfer(data)) {
+    if (attachImages && (ATTACHABLE_IMAGE_TYPES as readonly string[]).includes(file.type)) {
+      sorted.images.push(file)
+      continue
+    }
+    const path = window.api.getPathForFile(file)
+    if (path) sorted.paths.push(path)
+    else sorted.pathless.push(file)
+  }
+  return sorted
+}
+
+/** The refusal for files a drop could neither attach nor name by path. */
+export function pathlessDropMessage(files: File[]): string {
+  const name = files[0]?.name
+  return `${name ? name : 'That file'} has no path on disk, so it cannot be added to the message.`
+}
+
+/** A path as prompt text, quoted only when it needs it — the terminal drop idiom. */
+export function quotePromptPath(path: string): string {
+  return /\s/.test(path) ? `'${path}'` : path
 }
 
 /** One file's bytes as base64, with the media type the browser reports. */
