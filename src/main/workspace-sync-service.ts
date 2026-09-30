@@ -163,6 +163,7 @@ export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions)
           workspace: prepared.workspace,
           windowId: prepared.windowId,
           insert: { kind: 'folder_head', folderPath: prepared.folderPath },
+          ...(input.background ? { activate: false as const } : {}),
         },
       },
       prepared.windowId,

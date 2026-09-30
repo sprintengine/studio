@@ -296,6 +296,8 @@ test('a run is a new chat in the project, on its machine, with what it was made 
       connectorIds: ['github'],
       // The chat says which schedule started it.
       scheduledAgentId: 'sa-1',
+      // And it opens without taking the window from whatever is on screen.
+      background: true,
     },
   ])
 })

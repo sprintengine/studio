@@ -882,7 +882,7 @@ export function createWorkspacesSlice(
     // target window claims the single global active id. A retired-mode record
     // (`RETIRED_WORKSPACE_MODES`) is ignored: main refuses to mint one, and an
     // older main's broadcast must not bring a dropped row back.
-    applyWorkspaceCreatedEvent: ({ workspace, windowId, createdAt, isCurrentWindowTarget }) =>
+    applyWorkspaceCreatedEvent: ({ workspace, windowId, createdAt, isCurrentWindowTarget, activate }) =>
       set((state) => {
         if (isRetiredWorkspaceMode(workspace.mode)) return
         if (!state.workspaces.some((candidate) => candidate.id === workspace.id)) {
@@ -904,9 +904,13 @@ export function createWorkspacesSlice(
         }
         const target = ensureWorkspaceWindow(state, windowId)
         target.workspaceIds = [workspace.id, ...target.workspaceIds]
-        target.activeWorkspaceId = workspace.id
-        if (Number.isFinite(createdAt)) target.lastFocusedAt = createdAt
-        if (isCurrentWindowTarget) state.activeWorkspaceId = workspace.id
+        // A workspace created in the background (a scheduled run) joins the
+        // list and leaves what the window shows alone, as main's reducer does.
+        if (activate) {
+          target.activeWorkspaceId = workspace.id
+          if (Number.isFinite(createdAt)) target.lastFocusedAt = createdAt
+          if (isCurrentWindowTarget) state.activeWorkspaceId = workspace.id
+        }
         state.workspaceRegistryEmptyState = null
         normalizeWindowAssignments(state)
       }),

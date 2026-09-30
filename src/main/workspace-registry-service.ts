@@ -99,6 +99,12 @@ export type WorkspaceCreateRequest = {
   titleOpen?: boolean
   /** The scheduled agent whose run this chat is; see `Workspace.scheduledAgentId`. */
   scheduledAgentId?: string
+  /**
+   * Join the window without becoming its active workspace (the
+   * `workspace.created` event's `activate: false`), for a chat started on
+   * nobody's request at that moment.
+   */
+  background?: boolean
 }
 
 export type WorkspaceCreateResult = {

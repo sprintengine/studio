@@ -381,6 +381,29 @@ test("a scheduled run's chat carries its schedule's id on its workspace, through
   if (plain.ok) assert.equal(registry.getRecord(plain.workspaceId)!.scheduledAgentId, undefined)
 })
 
+test('a chat launched in the background joins the list without becoming the active chat', async () => {
+  const { service, registry } = registryHarness()
+  const front = await service.launch({ newChatIn: { folderPath: '/Users/dev/app' }, cli: 'claude-code' })
+  assert.equal(front.ok, true)
+  if (!front.ok) return
+  assert.equal(registry.getState().activeWorkspaceId, front.workspaceId, 'an ordinary new chat is brought to the front')
+
+  const run = await service.launch({
+    newChatIn: { folderPath: '/Users/dev/app' },
+    cli: 'claude-code',
+    prompt: 'triage new issues',
+    scheduledAgentId: 'sa-1',
+    background: true,
+  })
+  assert.equal(run.ok, true)
+  if (!run.ok) return
+  const state = registry.getState()
+  assert.equal(state.activeWorkspaceId, front.workspaceId, 'the window keeps what it was showing')
+  const primary = state.workspaceWindows.find((windowState) => windowState.id === state.primaryWorkspaceWindowId)
+  assert.ok(primary?.workspaceIds.includes(run.workspaceId), 'the run is in the window list all the same')
+  assert.equal(primary?.activeWorkspaceId, front.workspaceId)
+})
+
 test("a WSL chat runs that distribution's claude, and every other runtime is the app's own", async () => {
   const settings = {
     cliRuntimes: { 'claude-code': { command: 'claude-local' }, codex: { command: 'codex-local' } },

@@ -54,6 +54,10 @@ export async function runScheduledAgent(
       ...(agent.mcpServers.length > 0 ? { connectorIds: agent.mcpServers.map((server) => server.id) } : {}),
       ...(agent.ownerModuleId ? { ownerModuleId: agent.ownerModuleId } : {}),
       scheduledAgentId: agent.id,
+      // A run starts on the schedule's time, not on anyone's request, so it
+      // must not take the window from whatever the person is doing; it waits
+      // in the list with the schedule's clock on it.
+      background: true,
     })
     .catch((error: unknown): ConversationLaunchResult => ({
       ok: false,

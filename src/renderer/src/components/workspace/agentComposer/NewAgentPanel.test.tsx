@@ -2906,7 +2906,7 @@ test('NewAgentPanel', async () => {
         })
         await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
         const started = useToastStore.getState().toasts.find((toast) => toast.title === 'Started')
-        assert.match(String(started?.description ?? ''), /schedule's clock/u, 'the toast points at the run')
+        assert.match(String(started?.description ?? ''), /Recent runs/u, 'the toast points at the run')
         door.view.unmount()
       },
     )
