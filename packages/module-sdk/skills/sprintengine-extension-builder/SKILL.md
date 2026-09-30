@@ -39,9 +39,13 @@ IDEA.md               what the person wants — read it first
    not, fix that before changing anything.
 3. Read `IDEA.md`. If the brief leaves the surface, the data or the
    permissions open, ask — at most three questions, each with a suggested
-   answer — before writing code.
+   answer — before writing code. A project Studio's New chat made starts on the
+   `blank` template, and its first message is the person's request as they
+   wrote it (IDEA.md quotes it): that request is the brief.
 4. Pick the smallest surface that does the job (table below) and change the
    template toward it. Delete what the idea does not need.
+5. When it works, `npm run dev:install` and tell the person what to click to
+   try it (the loop below).
 
 ## The loop
 

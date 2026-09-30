@@ -15,6 +15,13 @@ import {
   isMarketplaceSourceHostAllowed,
   parseMarketplaceExtraHosts,
 } from '../../shared/marketplace/source-policy'
+import {
+  DEFAULT_SKILL_REPO_HOST,
+  joinSkillRepo,
+  normalizeSkillRepoHost,
+  splitSkillRepo,
+  type SkillRepoSsh,
+} from '../../shared/skill-repo'
 import type { SkillTreeEntry } from './scan'
 import { readStudioEnv } from '../../shared/studio-env'
 
@@ -32,7 +39,20 @@ export const DEFAULT_SKILL_MAX_LISTING_BYTES = 48 * 1024 * 1024
 // report rather than silently scanning a partial repository.
 export const DEFAULT_SKILL_MAX_TREE_ENTRIES = 200_000
 
-export type SkillRepoRef = { owner: string; repo: string; ref: string }
+export type SkillRepoRef = {
+  owner: string
+  repo: string
+  ref: string
+  /**
+   * The host, when it is not github.com — a self-hosted GitHub, GitLab,
+   * Bitbucket, any host git can clone from. Absent means github.com, which is
+   * every ref written before other hosts could be added. On such a host
+   * `owner` may hold slashes: a GitLab group nests.
+   */
+  host?: string
+  /** Present when the repository is read over ssh, with the person's own keys. */
+  ssh?: SkillRepoSsh
+}
 
 export type SkillRepoTree = {
   commitSha: string
@@ -49,17 +69,41 @@ export type SkillGithubOptions = {
 
 /**
  * Accept what a user actually has in their clipboard: `owner/repo`, a repo URL,
- * a `/tree/<ref>` deep link, or a `.git` clone URL. Anything else is refused
+ * a `/tree/<ref>` deep link, or a clone address. Anything else is refused
  * rather than guessed at.
+ *
+ * The repository may be on any host git can clone from, not only github.com:
+ * sources are read over git's own protocol, which a self-hosted GitHub,
+ * GitLab, Bitbucket and Gitea all speak. The shapes:
+ *
+ *   owner/repo                          github.com
+ *   https://host/path/repo[.git]        any host; a page URL is cut at the
+ *                                       first path segment that is a page
+ *                                       rather than a repository (`/tree/`,
+ *                                       GitLab's `/-/`, Bitbucket's `/src/`)
+ *   host/path/repo                      any host other than github.com
+ *   git@host:path/repo.git              read over ssh (github.com excepted)
+ *   ssh://user@host[:port]/path/repo    read over ssh
+ *
+ * A github.com clone address over ssh is read over https: its public
+ * repositories need no keys, and a private one reads with the token.
  */
 export function parseSkillRepoRef(input: string): SkillRepoRef | null {
   const trimmed = input.trim()
   if (trimmed.length === 0) return null
 
+  const scp = /^([A-Za-z0-9._-]+)@([^:/]+):(?!\/)(.+)$/.exec(trimmed)
+  if (scp) return sshRef(scp[1], scp[2], null, scp[3])
+
   if (!trimmed.includes('://')) {
     const segments = trimmed.split('/').filter((segment) => segment.length > 0)
-    if (segments.length !== 2) return null
-    return validRef({ owner: segments[0], repo: stripGitSuffix(segments[1]), ref: '' })
+    if (segments.length === 2) return validRef({ owner: segments[0], repo: stripGitSuffix(segments[1]), ref: '' })
+    // Three or more segments are a host only when the first one looks like
+    // one: a stray `owner/repo/extra` is still refused rather than read as a host.
+    if (segments.length >= 3 && segments[0].includes('.')) {
+      return refOn(segments[0], segments.slice(1), '')
+    }
+    return null
   }
 
   let url: URL
@@ -68,11 +112,81 @@ export function parseSkillRepoRef(input: string): SkillRepoRef | null {
   } catch {
     return null
   }
-  if (url.protocol !== 'https:' || url.hostname.toLowerCase() !== 'github.com') return null
+  if (url.protocol === 'ssh:') {
+    const port = url.port === '' ? null : Number.parseInt(url.port, 10)
+    return url.password === '' && url.username !== ''
+      ? sshRef(decodeURIComponent(url.username), url.hostname, port, url.pathname)
+      : null
+  }
+  // https only, and credentials in the URL are refused rather than carried into
+  // a clone's config on disk. A port is refused as well: the host becomes a
+  // directory under the clone cache, and `:` is not portable there.
+  if (url.protocol !== 'https:' || url.port !== '' || url.username !== '' || url.password !== '') return null
   const segments = url.pathname.split('/').filter((segment) => segment.length > 0)
-  if (segments.length < 2) return null
-  const ref = segments.length >= 4 && segments[2] === 'tree' ? segments[3] : ''
-  return validRef({ owner: segments[0], repo: stripGitSuffix(segments[1]), ref })
+  const host = normalizeSkillRepoHost(url.hostname)
+  if (host === DEFAULT_SKILL_REPO_HOST) {
+    if (segments.length < 2) return null
+    const ref = segments.length >= 4 && segments[2] === 'tree' ? segments[3] : ''
+    return validRef({ owner: segments[0], repo: stripGitSuffix(segments[1]), ref })
+  }
+  const { path, ref } = repositoryPath(segments)
+  return refOn(host, path, ref)
+}
+
+// Path segments that begin a page ABOUT a repository rather than naming it.
+// Only honoured from the third segment on, so a repository called `src` at the
+// top of an account is still a repository; a clone address, whose `.git` ends
+// the path, is never cut by them at all.
+const PAGE_SEGMENTS = new Set(['-', 'tree', 'blob', 'src', 'commits', 'commit', 'browse', 'raw', 'pull', 'pulls'])
+
+function repositoryPath(segments: readonly string[]): { path: string[]; ref: string } {
+  const suffixed = segments.findIndex((segment) => segment.endsWith('.git'))
+  if (suffixed >= 1) return { path: segments.slice(0, suffixed + 1), ref: '' }
+  const page = segments.findIndex((segment, index) => index >= 2 && PAGE_SEGMENTS.has(segment))
+  if (page === -1) return { path: [...segments], ref: '' }
+  // `/tree/<ref>` on a self-hosted GitHub or Gitea, `/-/tree/<ref>` on GitLab.
+  const tree = segments[page] === '-' ? page + 1 : page
+  const ref = segments[tree] === 'tree' && segments[tree + 1] ? segments[tree + 1] : ''
+  return { path: segments.slice(0, page), ref }
+}
+
+/** A ref on `host` over https: github.com's carries no host, any other keeps its own. */
+function refOn(rawHost: string, path: readonly string[], ref: string): SkillRepoRef | null {
+  const host = normalizeSkillRepoHost(rawHost)
+  if (!host || path.length < 2) return null
+  if (host === DEFAULT_SKILL_REPO_HOST) {
+    return path.length === 2 ? validRef({ owner: path[0], repo: stripGitSuffix(path[1]), ref }) : null
+  }
+  const location = splitSkillRepo(`${host}/${[...path.slice(0, -1), stripGitSuffix(path[path.length - 1])].join('/')}`)
+  if (!location) return null
+  return validRef({ owner: location.owner, repo: location.name, ref, host })
+}
+
+/** A ref read over ssh — except github.com's, which is read over https (see above). */
+function sshRef(user: string, rawHost: string, port: number | null, rawPath: string): SkillRepoRef | null {
+  const path = rawPath.split('/').filter((segment) => segment.length > 0)
+  const host = normalizeSkillRepoHost(rawHost)
+  if (host === DEFAULT_SKILL_REPO_HOST) return refOn(host, path, '')
+  if (!host || path.length < 2) return null
+  const name = stripGitSuffix(path[path.length - 1])
+  const location = splitSkillRepo(
+    joinSkillRepo({ host, owner: path.slice(0, -1).join('/'), name, ssh: { user, port } }),
+  )
+  if (!location?.ssh) return null
+  return validRef({ owner: location.owner, repo: location.name, ref: '', host, ssh: location.ssh })
+}
+
+/**
+ * The name the readers, the source's `repo` and its id all use — see
+ * `src/shared/skill-repo.ts` for its three shapes.
+ */
+export function skillRepoName(ref: SkillRepoRef): string {
+  return joinSkillRepo({
+    host: ref.host ?? DEFAULT_SKILL_REPO_HOST,
+    owner: ref.owner,
+    name: ref.repo,
+    ...(ref.ssh ? { ssh: ref.ssh } : {}),
+  })
 }
 
 function stripGitSuffix(value: string): string {
@@ -81,7 +195,9 @@ function stripGitSuffix(value: string): string {
 
 function validRef(ref: SkillRepoRef): SkillRepoRef | null {
   const namePattern = /^[A-Za-z0-9._-]+$/
-  if (!namePattern.test(ref.owner) || !namePattern.test(ref.repo)) return null
+  // A nested owner is only ever one `splitSkillRepo` has already checked.
+  const ownerOk = ref.host ? splitSkillRepo(skillRepoName(ref)) !== null : namePattern.test(ref.owner)
+  if (!ownerOk || !namePattern.test(ref.repo)) return null
   if (ref.ref !== '' && !/^[A-Za-z0-9._/-]+$/.test(ref.ref)) return null
   return ref
 }
@@ -132,8 +248,23 @@ function readRateLimitHint(response: Pick<Response, 'status' | 'headers'>): Skil
   }
 }
 
+/**
+ * The REST API this file speaks is github.com's alone, and it only ever
+ * carries the github.com token — so a repository on any other host, or one
+ * named by its ssh address, is read over git or not at all, and says so
+ * rather than failing as a 404.
+ */
+function refuseOtherHost(ref: SkillRepoRef): void {
+  if (ref.ssh || (ref.host && ref.host !== DEFAULT_SKILL_REPO_HOST)) {
+    throw new SkillFetchError(
+      `Reading a repository on ${ref.host ?? DEFAULT_SKILL_REPO_HOST} needs git, which is not installed on this machine. Install git and try again.`,
+    )
+  }
+}
+
 /** Resolve a ref (or the default branch) to the commit SHA the scan pins to. */
 export async function resolveSkillRepoCommit(ref: SkillRepoRef, options: SkillGithubOptions = {}): Promise<string> {
+  refuseOtherHost(ref)
   const target = ref.ref || (await fetchDefaultBranch(ref, options))
   const body = await fetchJson<{ sha?: unknown }>(
     `https://api.github.com/repos/${ref.owner}/${ref.repo}/commits/${encodeURIComponent(target)}`,
@@ -166,6 +297,7 @@ export async function fetchSkillRepoTree(
   commitSha: string,
   options: SkillGithubOptions = {},
 ): Promise<SkillRepoTree> {
+  refuseOtherHost(ref)
   const body = await fetchJson<{ tree?: unknown; truncated?: unknown }>(
     `https://api.github.com/repos/${ref.owner}/${ref.repo}/git/trees/${encodeURIComponent(commitSha)}?recursive=1`,
     options,
@@ -210,6 +342,7 @@ export async function fetchSkillRepoFile(
   path: string,
   options: SkillGithubOptions = {},
 ): Promise<Buffer> {
+  refuseOtherHost(ref)
   const encoded = path.split('/').map(encodeURIComponent).join('/')
   return fetchBytes(
     `https://raw.githubusercontent.com/${ref.owner}/${ref.repo}/${encodeURIComponent(commitSha)}/${encoded}`,

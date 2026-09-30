@@ -2843,6 +2843,133 @@ test('NewAgentPanel', async () => {
       door.view.unmount()
     })
 
+    // ── Extension mode ──────────────────────────────────────────────────────
+    // "Build your own extension" is this door with the builder skill attached,
+    // a required name chip where the worktree chip sits, and ideas that fill
+    // the box rather than start anything.
+
+    const extensionDoor = async (targets: Record<string, string> = {}) => {
+      const api = (dom.window as unknown as { api: Record<string, unknown> }).api
+      const asked: Array<Record<string, unknown>> = []
+      api.extensionScaffoldTarget = async (input: { parentDir: string; id: string }) => {
+        asked.push(input)
+        return { state: targets[input.id] ?? 'free', folder: `${input.parentDir}/${input.id}` }
+      }
+      const view = await render({
+        initialSelection: { kind: 'conversation' },
+        initialMode: 'extension',
+        folderPath: '/proj',
+        projectOptions: [],
+        onSelectProject: () => {},
+        onBrowseProject: () => {},
+      })
+      const setValue = async (field: HTMLInputElement | HTMLTextAreaElement, text: string) => {
+        const proto =
+          field.tagName === 'TEXTAREA'
+            ? dom.window.HTMLTextAreaElement.prototype
+            : dom.window.HTMLInputElement.prototype
+        await act(async () => {
+          Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(field, text)
+          field.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+        })
+      }
+      const nameField = () => view.container.querySelector('[aria-label="Extension name"]') as HTMLInputElement | null
+      const settle = async () => {
+        await act(async () => new Promise((resolve) => dom.window.setTimeout(resolve, 200)))
+      }
+      const enter = async () => {
+        const field = view.container.querySelector('textarea')!
+        await act(async () => {
+          field.dispatchEvent(
+            new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+          )
+        })
+        await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+      }
+      return { view, asked, setValue, nameField, settle, enter }
+    }
+
+    await check('extension mode: the builder skill, a name chip, and ideas that fill the box', async () => {
+      seedStore()
+      const door = await extensionDoor()
+      const text = door.view.text()
+      assert.ok(text.includes('What should your extension do?'))
+      assert.ok(text.includes('extension-builder'), 'the builder skill is attached')
+      assert.ok(!text.includes('Scheduled agent'), 'no Chat / Scheduled switch')
+      assert.equal(
+        door.view.container.querySelector('[data-extension-name-chip]')?.getAttribute('data-extension-name-chip'),
+        'empty',
+      )
+      assert.equal(door.view.container.querySelector('[data-worktree-chip]'), null, 'no worktree chip')
+      assert.ok(text.includes('Show all 10'))
+
+      const idea = door.view.find((el) => el.tagName === 'BUTTON' && (el.textContent ?? '').includes('PR review badge'))
+      assert.ok(idea, 'the first idea is offered')
+      await act(async () => {
+        idea!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+      const field = door.view.container.querySelector('textarea')!
+      assert.match(field.value, /^A top-bar badge counting the pull requests/, 'the idea is now the prompt')
+      assert.equal(door.view.launches.length, 0, 'an idea starts nothing')
+
+      await door.enter()
+      assert.equal(door.view.launches.length, 0, 'nor does ⏎ without a name')
+
+      await door.setValue(door.nameField()!, 'PR Radar')
+      assert.equal(door.nameField()!.value, 'pr-radar', 'the name is kept to the id rule as it is typed')
+      await door.settle()
+      assert.deepEqual(door.asked.at(-1), { parentDir: '/proj', id: 'pr-radar' })
+      await door.enter()
+      assert.equal(door.view.launches.length, 1)
+      const launch = door.view.launches[0]!
+      assert.deepEqual(launch.extension, { id: 'pr-radar' })
+      assert.equal(launch.kind, 'conversation')
+      assert.match(String(launch.prompt), /^A top-bar badge counting the pull requests/)
+      assert.deepEqual(
+        (launch.skills as Array<{ id: string }>).map((skill) => skill.id),
+        ['sprintengine-extension-builder'],
+      )
+      door.view.unmount()
+    })
+
+    await check('extension mode: a name taken by something else is said, and holds ⏎', async () => {
+      seedStore()
+      const door = await extensionDoor({ notes: 'taken', 'focus-timer': 'extension' })
+      await door.setValue(door.view.container.querySelector('textarea')!, 'A notes panel.')
+      await door.setValue(door.nameField()!, 'notes')
+      await door.settle()
+      assert.ok(door.view.text().includes('already has a notes folder'))
+      assert.equal(
+        door.view.container.querySelector('[data-extension-name-chip]')?.getAttribute('data-extension-name-chip'),
+        'invalid',
+      )
+      await door.enter()
+      assert.equal(door.view.launches.length, 0)
+
+      // An extension already there is carried on: no error, and ⏎ starts.
+      await door.setValue(door.nameField()!, 'focus-timer')
+      await door.settle()
+      assert.ok(!door.view.text().includes('already has'))
+      assert.ok(door.view.text().includes('focus-timer is already an extension'), 'carrying on is said')
+      await door.enter()
+      assert.deepEqual(door.view.launches[0]?.extension, { id: 'focus-timer' })
+      door.view.unmount()
+    })
+
+    await check('removing the builder chip leaves extension mode for a plain New chat', async () => {
+      seedStore()
+      const door = await extensionDoor()
+      const remove = door.view.container.querySelector('[aria-label="Remove skill extension-builder"]')
+      assert.ok(remove, 'the builder chip can be removed')
+      await act(async () => {
+        remove!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+      const text = door.view.text()
+      assert.ok(!text.includes('What should your extension do?'))
+      assert.equal(door.view.container.querySelector('[data-extension-name-chip]'), null)
+      door.view.unmount()
+    })
+
     if (failures > 0) {
       console.error(`NewAgentPanel.test.tsx: ${failures} failing check(s)`)
       process.exit(1)

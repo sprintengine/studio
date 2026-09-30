@@ -49,8 +49,11 @@ scaffolds a project that already builds, passes its own smoke test and installs.
 | `chat-companion` | Starts and follows chats of its own, and opens chat drafts with `openChat` |
 
 Studio can do the same from the Extensions door: **Build your own extension**
-asks for the idea, scaffolds the project, and opens a chat with the agent you
-pick, primed to build it with you.
+opens New chat in extension mode. You name the extension, pick the project it
+goes in and describe it (or start from one of the ideas, one per template);
+Studio scaffolds `<project>/<name>` from the `blank` template and opens a chat
+on it with the agent you pick and the extension-builder skill, which adds the
+surfaces your description needs.
 
 ### The extension-builder skill
 

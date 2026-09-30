@@ -53,7 +53,7 @@ import { resolveConnectorLaunchFrom } from '../shared/connector-launch'
 import { conversationCliRuntimesForHost } from '../shared/conversation-cli-runtimes'
 import type { McpServerConfig } from '../shared/ipc/mcp'
 import { SOLO_CHAT_AGENT_ID, SOLO_CHAT_TEMPLATE_ID } from '../shared/layouts/templates'
-import { nextNewChatName } from '../shared/workspace-title'
+import { deriveWorkspaceTitle, nextNewChatName } from '../shared/workspace-title'
 import type { WorkspaceWorktree } from '../renderer/src/types/workspace'
 import type { WorkspaceCreateRequest } from './workspace-registry-service'
 import {
@@ -305,15 +305,25 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
     }
     let chatWorkspaceId = workspace.id
     if (newChat) {
+      // Named after the message it is about to be sent, as a window names a chat
+      // after its first prompt. Only a window titles a chat, and a chat started
+      // here (from a phone, a paired machine, a schedule) may have no window
+      // showing it, so without this it kept "Chat N" everywhere, the phone
+      // included. The name stays open: a window's model-written title still
+      // replaces it when one is on.
+      const firstTitle = request.sendFirst !== false && request.prompt ? deriveWorkspaceTitle(request.prompt) : null
       // Born with its agent, in one event, so a window never shows the
       // template's tab with no agent behind it.
       const created = deps.createWorkspace({
-        name: nextNewChatName(
-          deps
-            .listWorkspaces()
-            .filter((other) => other.folderPath === workspace.folderPath)
-            .map((other) => other.name ?? ''),
-        ),
+        name:
+          firstTitle ??
+          nextNewChatName(
+            deps
+              .listWorkspaces()
+              .filter((other) => other.folderPath === workspace.folderPath)
+              .map((other) => other.name ?? ''),
+          ),
+        ...(firstTitle ? { titleOpen: true } : {}),
         folderPath: workspace.folderPath,
         templateId: SOLO_CHAT_TEMPLATE_ID,
         ...(workspace.hostId ? { hostId: workspace.hostId } : {}),

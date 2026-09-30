@@ -1,5 +1,6 @@
 import React from 'react'
 
+import { ExtensionsGlyph } from '../AppIcons'
 import type { RegisteredGlobalSurface, SurfaceIconComponent } from '../../modules/renderer-host'
 import type { SidebarSection } from '../../store/slices/settingsSlice'
 import { Badge } from '../ui/Badge'
@@ -89,19 +90,6 @@ function HomeGlyph({ className }: { className?: string }) {
         strokeWidth="1.4"
         strokeLinejoin="round"
       />
-    </svg>
-  )
-}
-
-// Four tiles identify additions to the product beyond chat, drawn in the
-// icon family's 16-box round-stroke idiom.
-function ExtensionsGlyph({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
-      <rect x="2.5" y="2.5" width="4.6" height="4.6" rx="1.1" stroke="currentColor" strokeWidth="1.4" />
-      <rect x="8.9" y="2.5" width="4.6" height="4.6" rx="1.1" stroke="currentColor" strokeWidth="1.4" />
-      <rect x="2.5" y="8.9" width="4.6" height="4.6" rx="1.1" stroke="currentColor" strokeWidth="1.4" />
-      <rect x="8.9" y="8.9" width="4.6" height="4.6" rx="1.1" stroke="currentColor" strokeWidth="1.4" />
     </svg>
   )
 }
