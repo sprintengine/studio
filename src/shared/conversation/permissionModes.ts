@@ -80,6 +80,28 @@ export function permissionModeAllows(
   )
 }
 
+const PERMISSION_MODE_NAMES: Record<ConversationPermissionPreset, string> = {
+  bypass: 'Bypass permissions',
+  auto: 'Auto',
+  manual: 'Manual',
+  none: 'No flag',
+}
+
+/**
+ * What a chat says when its runtime would not start under the mode it was
+ * given and it was started again with no permission setting, so the person
+ * learns why the chip reads No flag and what that means for what it asks.
+ */
+export function permissionFallbackNotice(runtime: string, from: ConversationPermissionPreset, error: string): string {
+  const reason = error.trim().split('\n')[0]?.trim() ?? ''
+  const clipped = reason.length > 200 ? `${reason.slice(0, 199)}…` : reason
+  return (
+    `${runtime} would not start with ${PERMISSION_MODE_NAMES[from]}, so this chat runs with no permission flag: ` +
+    `${runtime}'s own settings decide what it asks about. Pick a mode again from the chat box to retry it.` +
+    (clipped ? ` (${clipped})` : '')
+  )
+}
+
 /** The line an automatically answered request carries: "Auto-approved: <this>". */
 export function permissionModeApprovalLabel(mode: ConversationPermissionPreset): string {
   return mode === 'bypass' ? 'Bypass permissions mode' : mode === 'auto' ? 'Auto mode' : `${mode} mode`
