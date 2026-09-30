@@ -9,6 +9,7 @@
 // before it is still working.
 
 import type { ConversationLaunchRequest, ConversationLaunchResult } from '../conversation-launch-service'
+import type { ConversationSessionSummary } from '../../shared/conversation-runtime'
 import { agentWorktreePaths } from '../../shared/worktree-paths'
 import type { ExecutionHostId } from '../../shared/execution-host'
 import type { ScheduledAgent, ScheduledAgentLastRun } from '../../shared/scheduled-agents'
@@ -61,6 +62,22 @@ export async function runScheduledAgent(
     }))
   if (!launched.ok) return { at, ok: false, message: launched.message }
   return { at, ok: true, workspaceId: launched.workspaceId }
+}
+
+/**
+ * Whether a run's chat is still at work, read off its workspace's conversation
+ * sessions: a turn open, or the agent stopped on an approval card. A turn
+ * waiting on a person is not finished, and a run started beside it would be
+ * doing the same job twice. A chat whose session has gone (settled, the app
+ * restarted since) is finished.
+ */
+export function isRunChatWorking(
+  sessions: readonly Pick<ConversationSessionSummary, 'status' | 'turnStartedAt'>[],
+): boolean {
+  return sessions.some(
+    (session) =>
+      session.turnStartedAt !== undefined || session.status === 'active' || session.status === 'awaiting_approval',
+  )
 }
 
 // Each run gets a worktree of its own, named after the one picked and stamped

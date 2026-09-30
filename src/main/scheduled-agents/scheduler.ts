@@ -7,6 +7,12 @@
 // armed for it, and a run late by the length of a nap is still the run the
 // person asked for. Several missed times of the same schedule run once, not
 // once each.
+//
+// Runs never overlap. A run is skipped, scheduled or asked for, while the
+// schedule's previous run is still starting or its chat is still working: a
+// schedule that comes round faster than its runs finish would otherwise stack
+// chats doing the same job on the same checkout. A skipped time is not queued —
+// the next one counts on from it, as a missed one does.
 
 import { nextScheduledAgentRun, type ScheduledAgent, type ScheduledAgentLastRun } from '../../shared/scheduled-agents'
 
@@ -15,11 +21,24 @@ import { nextScheduledAgentRun, type ScheduledAgent, type ScheduledAgentLastRun 
 // is about 24.8 days.
 const MAX_TIMER_MS = 60 * 60 * 1000
 
+/** Why a run did not start at all: it was never tried, so it is not a failed run. */
+export type ScheduledAgentRunRefusal = 'unknown' | 'starting' | 'still_working'
+
+export type ScheduledAgentFireResult =
+  { ok: true; run: ScheduledAgentLastRun } | { ok: false; refused: ScheduledAgentRunRefusal }
+
 export type ScheduledAgentsSchedulerDeps = {
   list: () => ScheduledAgent[]
   run: (agent: ScheduledAgent) => Promise<ScheduledAgentLastRun>
   recordRun: (id: string, run: ScheduledAgentLastRun) => Promise<void>
   onRan?: (agent: ScheduledAgent, run: ScheduledAgentLastRun) => void
+  /**
+   * Whether the chat a run started is still working — a turn open, or one
+   * waiting on a person. Absent, a run that has started is taken as done.
+   */
+  isRunWorking?: (workspaceId: string) => boolean
+  /** A time came round and its run was skipped, and why. */
+  onSkipped?: (agent: ScheduledAgent, reason: Exclude<ScheduledAgentRunRefusal, 'unknown'>) => void
   now?: () => number
   setTimer?: (callback: () => void, ms: number) => unknown
   clearTimer?: (handle: unknown) => void
@@ -33,7 +52,7 @@ export type ScheduledAgentsScheduler = {
   /** When each scheduled agent runs next, as the scheduler will fire it. */
   nextRunAt(id: string): number | null
   isRunning(): boolean
-  runNow(id: string): Promise<ScheduledAgentLastRun | null>
+  runNow(id: string): Promise<ScheduledAgentFireResult>
 }
 
 export function createScheduledAgentsScheduler(deps: ScheduledAgentsSchedulerDeps): ScheduledAgentsScheduler {
@@ -80,8 +99,10 @@ export function createScheduledAgentsScheduler(deps: ScheduledAgentsSchedulerDep
     timer = setTimer(tick, delay)
   }
 
-  const fire = async (agent: ScheduledAgent): Promise<ScheduledAgentLastRun | null> => {
-    if (inFlight.has(agent.id)) return null
+  const fire = async (agent: ScheduledAgent): Promise<ScheduledAgentFireResult> => {
+    if (inFlight.has(agent.id)) return { ok: false, refused: 'starting' }
+    const previous = agent.lastRun
+    if (previous?.ok && deps.isRunWorking?.(previous.workspaceId)) return { ok: false, refused: 'still_working' }
     inFlight.add(agent.id)
     try {
       const run = await deps.run(agent).catch((error: unknown): ScheduledAgentLastRun => ({
@@ -93,7 +114,7 @@ export function createScheduledAgentsScheduler(deps: ScheduledAgentsSchedulerDep
       // is not recorded against nothing.
       if (deps.list().some((candidate) => candidate.id === agent.id)) await deps.recordRun(agent.id, run)
       deps.onRan?.(agent, run)
-      return run
+      return { ok: true, run }
     } finally {
       inFlight.delete(agent.id)
     }
@@ -110,7 +131,9 @@ export function createScheduledAgentsScheduler(deps: ScheduledAgentsSchedulerDep
       // The next time counts from now, so every time missed in a long sleep
       // collapses into the one run below.
       entry.at = dueFor(agent, at)
-      void fire(agent)
+      void fire(agent).then((fired) => {
+        if (!fired.ok && fired.refused !== 'unknown') deps.onSkipped?.(agent, fired.refused)
+      })
     }
     arm()
   }
@@ -146,7 +169,7 @@ export function createScheduledAgentsScheduler(deps: ScheduledAgentsSchedulerDep
     isRunning: () => running,
     async runNow(id) {
       const agent = deps.list().find((candidate) => candidate.id === id)
-      return agent ? fire(agent) : null
+      return agent ? fire(agent) : { ok: false, refused: 'unknown' }
     },
   }
 }
