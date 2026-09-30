@@ -34,6 +34,9 @@ test('Studio’s commands come first and win a name the CLI also reports', () =>
 test('a chat with no effort control is not offered /effort', () => {
   expect(studioAppCommands({ model: true, effort: false }).map((entry) => entry.name)).toEqual(['model'])
   expect(studioAppCommands({ model: false, effort: false })).toEqual([])
+  expect(studioAppCommands({ model: false, effort: false, terminal: true }).map((entry) => entry.name)).toEqual([
+    'terminal',
+  ])
 })
 
 let cleanup: (() => Promise<void>) | null = null

@@ -120,6 +120,13 @@ export type AgentLaunchServiceDeps = {
    */
   permissionPresetsForCli?: (cli: string) => readonly CliPermissionPreset[] | null
   /**
+   * Whether this CLI's manifest declares a resume it has been verified to
+   * honour (`capabilities.resumeSession`). A launch that asks to resume a
+   * session on one that does not is refused rather than started fresh under
+   * the resumed conversation's name. Optional, like `isAgentSelectableCli`.
+   */
+  cliResumesSessions?: (cli: string) => boolean
+  /**
    * Resolve a project's Knowledge Graph root on disk (`memory-graph.ts`'s
    * `resolveMemoryRoot`, the same call the renderer makes over IPC). Optional:
    * a host that cannot resolve one launches without the graph rather than
@@ -205,6 +212,15 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
       }
     }
 
+    const resumeCliSessionId = request.resumeCliSessionId?.trim() || undefined
+    if (resumeCliSessionId && deps.cliResumesSessions && !deps.cliResumesSessions(cli)) {
+      return {
+        ok: false,
+        code: 'cli_resume_unsupported',
+        message: `Agent CLI "${cli}" cannot resume a session in a terminal.`,
+      }
+    }
+
     // A connector-backed launch resolves the same way a connector chat does
     // (the installed, enabled server → a single-server MCP config); the resolved
     // settings ride the spawn so the connector's .mcp.json lands in the run
@@ -249,7 +265,9 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
     // about an attached design system, are built into the host-context document
     // by `terminal-launch.ts` from the root/relativeRoot pair below — which is
     // how a headless launch now receives exactly what an interactive one does.
-    const initialPrompt = request.prompt
+    // A resumed conversation already has its opening; a prompt would be sent
+    // into it as a new message nobody typed there.
+    const initialPrompt = resumeCliSessionId ? undefined : request.prompt
 
     const record: AgentLaunchRecord = {
       agentId,
@@ -280,6 +298,10 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
       cwd,
       cli,
       ...(initialPrompt ? { initialPrompt } : {}),
+      // The spawn renders the manifest's resume command around this id, and
+      // seeds the session's harness id with it so a later relaunch resumes the
+      // same conversation.
+      ...(resumeCliSessionId ? { resume: true, cliSessionId: resumeCliSessionId } : {}),
       // The user's command overrides. The two shapes are field-identical
       // (`command`, `models?`); the cast is only the keying — the
       // mirror types its map by plain string, the payload by `AgentCli`, which

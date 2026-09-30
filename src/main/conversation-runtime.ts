@@ -31,6 +31,7 @@ import type {
   ConversationStartSessionResult,
   ConversationStopSessionInput,
   ConversationSuspendSessionInput,
+  ConversationTerminalHandoffInput,
   ConversationTranscriptInput,
   ConversationTranscriptResult,
   ConversationToolDetailInput,
@@ -112,6 +113,20 @@ import {
   type ConversationTranscriptLimits,
   type TranscriptSyncResult,
 } from './conversation-transcript-reader'
+
+/** What a terminal needs to resume a chat's CLI session (`terminalHandoffTarget`). */
+export type ConversationTerminalHandoffTarget = {
+  workspaceId: string
+  agentId: string
+  providerId: string
+  modelId: string
+  /** Where the chat runs: its worktree, else the workspace folder. The CLI keys its sessions by it. */
+  workspaceRoot: string
+  /** The CLI's own session id: Claude's session, Codex's thread. */
+  providerSessionId: string
+  permissionPreset?: ConversationPermissionPreset
+  cliRuntimes?: ConversationCliRuntimeOverrides
+}
 
 type RuntimeSession = ConversationSessionSummary & {
   // Spawned agents still running, by spawning tool call.
@@ -1427,6 +1442,62 @@ export class ConversationRuntime {
     this.releaseTranscript(session)
     this.markResting(session)
     return { ok: true, session: this.toSummary(session) }
+  }
+
+  // Resume in terminal, the chat's half: what a terminal needs to take this
+  // chat's CLI session over. Refused while anything in the chat is still
+  // running, since the terminal and the chat's child would both write to the
+  // one session; the caller suspends the chat before the terminal starts.
+  async terminalHandoffTarget(
+    input: ConversationTerminalHandoffInput,
+  ): Promise<{ ok: true; target: ConversationTerminalHandoffTarget } | { ok: false; message: string }> {
+    const session = this.sessions.get(input.sessionId)
+    if (!session) return { ok: false, message: 'Conversation session is invalid.' }
+    if (!session.stateful)
+      return { ok: false, message: 'This chat has no CLI session behind it for a terminal to resume.' }
+    if (isSessionBusy(session) || session.status === 'starting')
+      return { ok: false, message: 'The agent is still working. Continue it in a terminal once its turn is over.' }
+    if (session.runningSubagents.size > 0 || (session.backgroundAgents ?? 0) > 0)
+      return {
+        ok: false,
+        message: 'An agent this chat started is still running. Continue it in a terminal once that agent is done.',
+      }
+    const cursor = await this.readResumeCursor(
+      session.workspaceRoot,
+      session.workspaceId,
+      session.agentId,
+      session.providerId,
+    )
+    if (!cursor?.sessionId) return { ok: false, message: 'This chat has no CLI session yet. Send it a message first.' }
+    // After Edit from here the chat's next turn forks the CLI session at an
+    // earlier point. A terminal resuming the id would load the turns the
+    // person edited away.
+    if (cursor.at)
+      return {
+        ok: false,
+        message:
+          'This chat was taken back to an earlier message. Send it a message first, so a terminal resumes it from where it now stands.',
+      }
+    return {
+      ok: true,
+      target: {
+        workspaceId: session.workspaceId,
+        agentId: session.agentId,
+        providerId: session.providerId,
+        modelId: session.modelId,
+        workspaceRoot: session.workspaceRoot,
+        providerSessionId: cursor.sessionId,
+        ...(session.permissionPreset ? { permissionPreset: session.permissionPreset } : {}),
+        ...(session.cliRuntimes ? { cliRuntimes: session.cliRuntimes } : {}),
+      },
+    }
+  }
+
+  // Tell the chat where its conversation went, in its own tray.
+  async noteTerminalHandoff(input: { sessionId: string; notice: string }): Promise<void> {
+    const session = this.sessions.get(input.sessionId)
+    if (!session) return
+    await this.emit(session, this.eventForSession(session, 'session_updated', { notice: input.notice }))
   }
 
   listSessions(input: ConversationListSessionsInput = {}): ConversationListSessionsResult {

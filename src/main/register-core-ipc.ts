@@ -217,7 +217,10 @@ export function registerCoreIpc(
   registerCliVersionIpc(ipcMain)
   registerMarketplacePluginIpc(ipcMain, services)
   registerPluginIpc(ipcMain)
-  registerConversationIpc(ipcMain, createConversationIpcHandlers(services.conversationRuntime))
+  registerConversationIpc(ipcMain, {
+    ...createConversationIpcHandlers(services.conversationRuntime),
+    terminalHandoff: (input) => services.conversationTerminalHandoff.handoff(input),
+  })
   registerCredentialIpc(ipcMain)
   registerDesignSystemIpc(ipcMain)
   registerThirdPartyModuleIpc(ipcMain, services)

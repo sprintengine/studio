@@ -158,6 +158,8 @@ import type {
   ConversationStartSessionResult,
   ConversationStopSessionInput,
   ConversationSuspendSessionInput,
+  ConversationTerminalHandoffInput,
+  ConversationTerminalHandoffResult,
   ConversationTranscriptInput,
   ConversationTranscriptResult,
   ConversationToolDetailInput,
@@ -984,6 +986,11 @@ export type ElectronApi = {
   // Settle and Snooze: end the chat's child process, keeping the session so the
   // next message respawns it.
   conversationSessionSuspend: (input: ConversationSuspendSessionInput) => Promise<ConversationSessionActionResult>
+  // Resume in terminal: suspend the chat and open a terminal agent that
+  // resumes its CLI session (`claude --resume <id>`, `codex resume <id>`).
+  conversationSessionTerminalHandoff: (
+    input: ConversationTerminalHandoffInput,
+  ) => Promise<ConversationTerminalHandoffResult>
   conversationSessionsList: (input?: ConversationListSessionsInput) => Promise<ConversationListSessionsResult>
   conversationTranscript: (input: ConversationTranscriptInput) => Promise<ConversationTranscriptResult>
   conversationToolDetail: (input: ConversationToolDetailInput) => Promise<ConversationToolDetailResult>

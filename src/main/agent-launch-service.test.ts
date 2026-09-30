@@ -66,6 +66,7 @@ test('agent-launch-service', async () => {
       resolveKnowledgeRoot?: AgentLaunchServiceDeps['resolveKnowledgeRoot']
       isAgentSelectableCli?: AgentLaunchServiceDeps['isAgentSelectableCli']
       permissionPresetsForCli?: AgentLaunchServiceDeps['permissionPresetsForCli']
+      cliResumesSessions?: AgentLaunchServiceDeps['cliResumesSessions']
     } = {},
   ) {
     const spawns: TerminalSpawnPayload[] = []
@@ -76,6 +77,7 @@ test('agent-launch-service', async () => {
       getLaunchSettings: () => options.settings ?? settings(),
       ...(options.isAgentSelectableCli ? { isAgentSelectableCli: options.isAgentSelectableCli } : {}),
       ...(options.permissionPresetsForCli ? { permissionPresetsForCli: options.permissionPresetsForCli } : {}),
+      ...(options.cliResumesSessions ? { cliResumesSessions: options.cliResumesSessions } : {}),
       ...(options.resolveKnowledgeRoot ? { resolveKnowledgeRoot: options.resolveKnowledgeRoot } : {}),
       terminal: {
         list: () => sessions,
@@ -90,6 +92,33 @@ test('agent-launch-service', async () => {
     })
     return { service, spawns, kills, sessions }
   }
+
+  run('a resume launch runs the CLI resume on the session it names, with no startup prompt', async () => {
+    const app = harness({ cliResumesSessions: (cli) => cli === 'claude-code' })
+
+    const launched = await app.service.launch({
+      workspaceId: 'ws-1',
+      cli: 'claude-code',
+      prompt: 'ignored',
+      resumeCliSessionId: ' 5d1c2a3e-chat-session ',
+    })
+
+    assert.equal(launched.ok, true, JSON.stringify(launched))
+    const spawn = app.spawns[0]!
+    assert.equal(spawn.resume, true)
+    assert.equal(spawn.cliSessionId, '5d1c2a3e-chat-session', 'the spawn resumes the named session')
+    assert.equal(spawn.initialPrompt, undefined, 'a resumed conversation is not sent a message nobody typed')
+  })
+
+  run('a resume is refused on a CLI that cannot resume, rather than started fresh', async () => {
+    const app = harness({ cliResumesSessions: () => false })
+
+    const launched = await app.service.launch({ workspaceId: 'ws-1', cli: 'cursor', resumeCliSessionId: 'id' })
+
+    assert.equal(launched.ok, false)
+    assert.equal(!launched.ok && launched.code, 'cli_resume_unsupported')
+    assert.equal(app.spawns.length, 0)
+  })
 
   run('composes a launch with no window: settings defaults reach the spawn', async () => {
     const app = harness({

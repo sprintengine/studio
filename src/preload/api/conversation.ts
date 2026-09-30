@@ -34,6 +34,8 @@ import type {
   ConversationStartSessionResult,
   ConversationStopSessionInput,
   ConversationSuspendSessionInput,
+  ConversationTerminalHandoffInput,
+  ConversationTerminalHandoffResult,
   ConversationProvidersListInput,
   ConversationProviderSignInInput,
   ConversationProviderSignInResult,
@@ -155,6 +157,10 @@ type ConversationIpcRenderer = {
     input: ConversationSuspendSessionInput,
   ): Promise<ConversationSessionActionResult>
   invoke(
+    channel: 'conversation:sessions:terminal-handoff',
+    input: ConversationTerminalHandoffInput,
+  ): Promise<ConversationTerminalHandoffResult>
+  invoke(
     channel: 'conversation:sessions:list',
     input?: ConversationListSessionsInput,
   ): Promise<ConversationListSessionsResult>
@@ -242,6 +248,9 @@ export function createConversationApi(renderer: ConversationIpcRenderer) {
       renderer.invoke('conversation:sessions:stop', input),
     conversationSessionSuspend: (input: ConversationSuspendSessionInput): Promise<ConversationSessionActionResult> =>
       renderer.invoke('conversation:sessions:suspend', input),
+    conversationSessionTerminalHandoff: (
+      input: ConversationTerminalHandoffInput,
+    ): Promise<ConversationTerminalHandoffResult> => renderer.invoke('conversation:sessions:terminal-handoff', input),
     conversationSessionsList: (input?: ConversationListSessionsInput): Promise<ConversationListSessionsResult> =>
       renderer.invoke('conversation:sessions:list', input),
     conversationTranscript: (input: ConversationTranscriptInput): Promise<ConversationTranscriptResult> =>
@@ -330,6 +339,7 @@ export function createConversationApi(renderer: ConversationIpcRenderer) {
     | 'conversationSessionSetModel'
     | 'conversationSessionStop'
     | 'conversationSessionSuspend'
+    | 'conversationSessionTerminalHandoff'
     | 'conversationSessionsList'
     | 'conversationTranscript'
     | 'conversationToolDetail'

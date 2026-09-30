@@ -184,6 +184,10 @@ test('conversation-ipc', async () => {
         calls.push(`suspend:${input.sessionId}`)
         return actionResult
       },
+      terminalHandoff: async (input) => {
+        calls.push(`terminal-handoff:${input.sessionId}`)
+        return { ok: true, workspaceId: 'workspace', agentId: 'agent-claude-code-abc123' }
+      },
       listSessions: () => ({ ok: true, sessions: [startResult.session] }),
       onEvent: (cb) => {
         runtimeListeners.push(cb)
@@ -216,6 +220,18 @@ test('conversation-ipc', async () => {
     await ipcMain.handlers.get('conversation:sessions:stop')?.(null, { sessionId: 'conv_1' })
     await ipcMain.handlers.get('conversation:sessions:suspend')?.(null, { sessionId: 'conv_1' })
     assert.deepEqual(await ipcMain.handlers.get('conversation:sessions:suspend')?.(null, {}), {
+      ok: false,
+      message: 'sessionId is required.',
+    })
+    assert.deepEqual(
+      await ipcMain.handlers.get('conversation:sessions:terminal-handoff')?.(null, { sessionId: 'conv_1' }),
+      {
+        ok: true,
+        workspaceId: 'workspace',
+        agentId: 'agent-claude-code-abc123',
+      },
+    )
+    assert.deepEqual(await ipcMain.handlers.get('conversation:sessions:terminal-handoff')?.(null, {}), {
       ok: false,
       message: 'sessionId is required.',
     })
@@ -271,6 +287,7 @@ test('conversation-ipc', async () => {
       'permission:conv_1:bypass',
       'stop:conv_1',
       'suspend:conv_1',
+      'terminal-handoff:conv_1',
     ])
   }
 

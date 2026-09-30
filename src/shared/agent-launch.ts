@@ -69,6 +69,13 @@ export type AgentLaunchRequest = {
    * a choice (`wsl:<distro>`); anywhere else every launch runs locally.
    */
   host?: ExecutionHostId
+  /**
+   * The CLI's own session id to resume instead of starting a new
+   * conversation: the launch runs the CLI's resume command
+   * (`claude --resume <id>`, `codex resume <id>`). A resume carries no
+   * startup prompt. Refused for a CLI whose manifest declares no resume.
+   */
+  resumeCliSessionId?: string
 }
 
 export type AgentDisposeRequest = {

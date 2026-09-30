@@ -102,6 +102,7 @@ import {
 import { ConversationLinkProvider } from './agentChat/conversationLinks'
 import { SubagentTypesProvider } from './agentChat/subagentStatus'
 import { recalledConversationScroll, rememberConversationScroll } from './agentChat/conversationViewState'
+import { chatResumesInTerminal, resumeChatInTerminal } from './agentChat/resumeInTerminal'
 import { useConversationSession } from './agentChat/useConversationSession'
 import { useChatViewActive } from './agentChat/chatViewActivity'
 import { prefersReducedMotion } from './agentChat/reducedMotion'
@@ -399,12 +400,14 @@ export type MountedChatView = {
   isFocused: () => boolean
   toggleModelPicker: () => void
   cycleEffort?: () => void
+  resumeInTerminal?: () => void
   stepTurn?: (direction: -1 | 1) => void
   /** Quote the document's selection when it is in this view's transcript; whether it was. */
   quoteSelection?: () => boolean
 }
 const mountedChatViews: MountedChatView[] = []
 export const MODEL_PICKER_TOGGLE_COMMAND = 'chat.modelPicker.toggle'
+const RESUME_IN_TERMINAL_COMMAND = 'chat.resumeInTerminal'
 
 /**
  * Answer `chat.modelPicker.toggle` (⌘⇧M, or the palette row) with ONE chat
@@ -435,6 +438,14 @@ function onModelPickerPanelCommand(event: Event): void {
         .reverse()
         .find((view) => view.workspaceId === useWorkspaceStore.getState().activeWorkspaceId)
     responder?.cycleEffort?.()
+  }
+  if (detail?.id === RESUME_IN_TERMINAL_COMMAND) {
+    const responder =
+      mountedChatViews.find((view) => view.isFocused()) ??
+      [...mountedChatViews]
+        .reverse()
+        .find((view) => view.workspaceId === useWorkspaceStore.getState().activeWorkspaceId)
+    responder?.resumeInTerminal?.()
   }
   if (detail?.id === 'chat.turn.previous' || detail?.id === 'chat.turn.next') {
     const responder =
@@ -1899,6 +1910,23 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const cycleEffortRef = useRef(() => {})
   cycleEffortRef.current = () =>
     changeReasoningEffort(nextConversationEffort(capabilities?.reasoningEfforts ?? [], reasoningEffort))
+  // Continue in terminal (the palette, `/terminal`, the tab's menu): main
+  // suspends this chat and opens a terminal agent resuming its CLI session.
+  // Only a chat on this machine: a paired machine's session is not here.
+  const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
+  const resumesInTerminal = transport.kind === 'local' && chatResumesInTerminal(agent, pluginCatalogEntries)
+  const resumeInTerminalRef = useRef(() => {})
+  resumeInTerminalRef.current = () => {
+    if (!resumesInTerminal) {
+      setActionError('A terminal cannot resume this kind of chat yet.')
+      return
+    }
+    void resumeChatInTerminal({ workspaceId, agentId }).then(
+      (result) => setActionError(result.ok ? null : result.message),
+      (error: unknown) =>
+        setActionError(error instanceof Error ? error.message : 'The chat could not be continued in a terminal.'),
+    )
+  }
   const keybindingSettings = useWorkspaceStore((s) => s.appSettings.keybindings)
   const toggleModelPickerRef = useRef<() => void>(() => {})
   // The picker stays reachable once the chat has started: its model is fixed
@@ -1932,6 +1960,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         isFocused: () => Boolean(shellRef.current?.contains(document.activeElement)),
         toggleModelPicker: () => toggleModelPickerRef.current(),
         cycleEffort: () => cycleEffortRef.current(),
+        resumeInTerminal: () => resumeInTerminalRef.current(),
         stepTurn,
         quoteSelection: () => quoteSelectionRef.current(),
       }),
@@ -2047,8 +2076,13 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // reached this machine.
   const localCommands = transport.capabilities.composerContext
   const appCommands = useMemo(
-    () => studioAppCommands({ model: Boolean(chatCli), effort: Boolean(capabilities?.reasoningEfforts?.length) }),
-    [chatCli, capabilities?.reasoningEfforts?.length],
+    () =>
+      studioAppCommands({
+        model: Boolean(chatCli),
+        effort: Boolean(capabilities?.reasoningEfforts?.length),
+        terminal: resumesInTerminal,
+      }),
+    [chatCli, capabilities?.reasoningEfforts?.length, resumesInTerminal],
   )
   const conversationCommands = useConversationCommands(
     chatCli,
@@ -2097,6 +2131,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         }
         removeContextTrigger(range)
         if (command.name === 'effort') cycleEffortRef.current()
+        if (command.name === 'terminal') resumeInTerminalRef.current()
         return
       }
       // Everything else is text the CLI expands when the message goes out.

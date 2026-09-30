@@ -66,6 +66,7 @@ import { AgentTabIdentityPopover, type AgentTabIdentity } from './AgentTabIdenti
 import { agentCheckoutOf, type AgentTabCheckout } from './agentCheckout'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import { TabPromptPeek } from './TabPromptPeek'
+import { chatResumesInTerminal, resumeChatInTerminalOrToast } from '../panels/agentChat/resumeInTerminal'
 import { ModuleContributionBoundary } from '../../modules/ModuleContributionBoundary'
 import { GitBranchGlyph } from './WorkspaceActions'
 import { changelistOwnerId } from '../../../../shared/git/changelists'
@@ -162,6 +163,8 @@ type TabMenuState = {
   canCloseOtherTabs: boolean
   isTerminal: boolean
   currentColor: HighlightColor | null
+  /** The chat this tab shows, when its CLI can carry the conversation on in a terminal. */
+  resumableChatId: string | null
 }
 
 /**
@@ -940,36 +943,45 @@ function WorkspaceLayoutBody({
   // Title-Cased checkbox rows of their NAMES — the same choice the workspace
   // sidebar has always made as a row of swatches. Availability is sampled at
   // open time; nothing here can change while the menu is up.
-  const openTabContextMenu = useCallback((event: React.MouseEvent, node: TabNode) => {
-    event.preventDefault()
-    event.stopPropagation()
+  const openTabContextMenu = useCallback(
+    (event: React.MouseEvent, node: TabNode) => {
+      event.preventDefault()
+      event.stopPropagation()
 
-    const parent = node.getParent()
-    const otherClosableTabs =
-      parent instanceof TabSetNode
-        ? parent
-            .getChildren()
-            .filter((child) => child instanceof TabNode && child.getId() !== node.getId() && child.isEnableClose())
-        : []
+      const parent = node.getParent()
+      const otherClosableTabs =
+        parent instanceof TabSetNode
+          ? parent
+              .getChildren()
+              .filter((child) => child instanceof TabNode && child.getId() !== node.getId() && child.isEnableClose())
+          : []
 
-    let agentTabCount = 0
-    modelRef.current?.visitNodes((candidate) => {
-      if (candidate instanceof TabNode && candidate.getComponent() === 'agent') agentTabCount += 1
-    })
+      let agentTabCount = 0
+      modelRef.current?.visitNodes((candidate) => {
+        if (candidate instanceof TabNode && candidate.getComponent() === 'agent') agentTabCount += 1
+      })
 
-    const config = node.getConfig() as { highlightColor?: HighlightColor } | undefined
+      const config = node.getConfig() as { highlightColor?: HighlightColor; agentId?: string } | undefined
+      const tabAgentId = node.getComponent() === 'agent' ? (config?.agentId ?? node.getId()) : null
+      const store = useWorkspaceStore.getState()
+      const tabAgent = tabAgentId
+        ? store.workspaces.find((workspace) => workspace.id === workspaceId)?.agents[tabAgentId]
+        : undefined
 
-    setTabMenu({
-      x: event.clientX,
-      y: event.clientY,
-      node,
-      canHideTab: node.getComponent() === 'agent',
-      canHideAllTabs: agentTabCount > 0,
-      canCloseOtherTabs: otherClosableTabs.length > 0,
-      isTerminal: node.getComponent() === 'terminal',
-      currentColor: config?.highlightColor ?? null,
-    })
-  }, [])
+      setTabMenu({
+        x: event.clientX,
+        y: event.clientY,
+        node,
+        canHideTab: node.getComponent() === 'agent',
+        canHideAllTabs: agentTabCount > 0,
+        canCloseOtherTabs: otherClosableTabs.length > 0,
+        isTerminal: node.getComponent() === 'terminal',
+        currentColor: config?.highlightColor ?? null,
+        resumableChatId: tabAgentId && chatResumesInTerminal(tabAgent, store.pluginCatalogEntries) ? tabAgentId : null,
+      })
+    },
+    [workspaceId],
+  )
 
   const setTabHighlightColor = useCallback((node: TabNode, nextColor: HighlightColor | undefined) => {
     const nextConfig = { ...node.getConfig(), highlightColor: nextColor }
@@ -1675,6 +1687,20 @@ function WorkspaceLayoutBody({
           >
             Close other tabs
           </MenuItem>
+          {tabMenu.resumableChatId ? (
+            <>
+              <MenuDivider />
+              <MenuItem
+                onClick={() => {
+                  const agentId = tabMenu.resumableChatId!
+                  setTabMenu(null)
+                  void resumeChatInTerminalOrToast({ workspaceId, agentId })
+                }}
+              >
+                Continue in terminal
+              </MenuItem>
+            </>
+          ) : null}
           {tabMenu.isTerminal ? (
             <>
               <MenuDivider />
