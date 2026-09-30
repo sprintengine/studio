@@ -99,7 +99,7 @@ test('boot reads main, offers the localStorage values once, and adopts main reco
   assert.ok(offer)
   assert.deepEqual(Object.keys(offer).sort(), [...LAUNCH_SETTINGS_KEYS].sort(), 'the offer carries every launch input')
   assert.equal(offer.lastSelectedCli, 'codex')
-  assert.equal(offer.lastAgentSpawnPermissionPreset, 'none', 'a retired preset is offered as its nearest meaning')
+  assert.equal(offer.lastAgentSpawnPermissionPreset, 'manual', 'a stored Manual is offered as itself')
   assert.equal(offer.cliRuntimes.codex?.command, '/Users/dev/bin/codex')
   assert.deepEqual(offer.cliRuntimes['claude-code']?.models, ['opus-custom'])
   assert.equal(offer.mcp.syncEnabled, true)
@@ -109,7 +109,7 @@ test('boot reads main, offers the localStorage values once, and adopts main reco
   assert.equal(record.settings.lastSelectedCli, 'codex')
   const fields = storeLaunchFields()
   assert.equal(fields.lastSelectedCli, 'codex')
-  assert.equal(fields.lastAgentSpawnPermissionPreset, 'none')
+  assert.equal(fields.lastAgentSpawnPermissionPreset, 'manual')
   assert.equal(fields.cliRuntimes.codex?.command, '/Users/dev/bin/codex')
   // The retired per-CLI WSL switch a legacy copy still carries does not ride
   // into main: a WSL distribution is a machine with its own settings now.

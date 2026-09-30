@@ -2,7 +2,7 @@
 // this hookless module free of the barrel's whole component graph.
 import type React from 'react'
 import { MenuOption } from '../../ui/MenuOption'
-import { PresetDialGlyph, UnlockedGlyph } from '../../AppIcons'
+import { LockGlyph, PresetDialGlyph, SparkGlyph, UnlockedGlyph } from '../../AppIcons'
 import type { CliPermissionPreset } from '../../../types/workspace'
 
 // Shared, presentation-only pieces of the agent spawn surfaces (the compact
@@ -12,7 +12,9 @@ import type { CliPermissionPreset } from '../../../types/workspace'
 // Permission preset chips shown in the picker footer. Exported because the top
 // bar's split-button trigger tooltip names the active preset. Bypass leads: it
 // is what every agent spawns with unless the person, or their organization,
-// chooses to pass no flag (owner ruling 2026-09-27).
+// chooses otherwise (owner ruling 2026-09-27); the rest follow from least to
+// most asking, and No flag, which asks whatever the CLI is configured to, last
+// (owner request 2026-09-30 for all four in a chat).
 export const AGENT_SPAWN_PERMISSION_OPTIONS: Array<{
   value: CliPermissionPreset
   label: string
@@ -28,6 +30,20 @@ export const AGENT_SPAWN_PERMISSION_OPTIONS: Array<{
     title: 'Skip CLI permission prompts. Use only in repos and environments you trust.',
   },
   {
+    value: 'auto',
+    label: 'Auto',
+    summary: 'Edits go through; commands and the rest ask.',
+    title:
+      'Read and edit files in the workspace without asking. Commands, web access, MCP tools and anything outside the workspace ask first.',
+  },
+  {
+    value: 'manual',
+    label: 'Manual',
+    summary: 'Asks before every edit and command.',
+    title:
+      'Ask before every action that changes something or reaches out: each edit, command, web request and MCP tool. Reading and searching the workspace does not ask.',
+  },
+  {
     value: 'none',
     label: 'No flag',
     summary: 'The CLI’s default — no permission flag is passed.',
@@ -41,11 +57,14 @@ export const AGENT_SPAWN_PERMISSION_OPTIONS: Array<{
 // because the model picker's permission footer wears the same short label.
 export const PRESET_CHIP_LABEL: Record<CliPermissionPreset, string> = {
   none: 'No flag',
+  manual: 'Manual',
+  auto: 'Auto',
   bypass: 'Bypass',
 }
 
-// Keep stored preset ids stable; only the vocabulary depends on the runtime.
-// A GPT model alone does not imply Codex: callers pass the selected agent id.
+// Keep stored preset ids stable; only the vocabulary depends on the runtime,
+// and only where the runtime means something different by it. A GPT model
+// alone does not imply Codex: callers pass the selected agent id.
 export function agentPermissionOptions(cli?: string | null): typeof AGENT_SPAWN_PERMISSION_OPTIONS {
   return AGENT_SPAWN_PERMISSION_OPTIONS.map((option) => {
     if (cli === 'codex' && option.value === 'bypass') {
@@ -54,6 +73,21 @@ export function agentPermissionOptions(cli?: string | null): typeof AGENT_SPAWN_
         label: 'YOLO',
         summary: 'No approvals or sandbox.',
         title: 'Run Codex without approval prompts or sandbox restrictions.',
+      }
+    }
+    if (cli === 'codex' && option.value === 'auto') {
+      return {
+        ...option,
+        summary: 'Workspace sandbox; asks to go past it.',
+        title:
+          'Codex edits and runs commands inside the workspace sandbox without asking, and asks before it writes outside the workspace or uses the network.',
+      }
+    }
+    if (cli === 'cursor' && option.value === 'auto') {
+      return {
+        ...option,
+        summary: 'Cursor runs what it judges safe; asks for the rest.',
+        title: 'Cursor’s own auto-review: a classifier runs the tool calls it judges safe and asks for the rest.',
       }
     }
     return option
@@ -65,11 +99,19 @@ export function agentPermissionChipLabel(preset: CliPermissionPreset, cli?: stri
 }
 
 // One glyph per preset, a vocabulary that reads at a glance, drawn once in
-// AppIcons: an open lock for Bypass, a quiet dial for the CLI's own default.
-// All-or-nothing per the menu spec's leading-slot rule — every row carries one.
-function PresetGlyph({ preset }: { preset: CliPermissionPreset }) {
-  const className = 'icon-xs shrink-0'
+// AppIcons: an open lock for Bypass, a spark for Auto, a closed lock for
+// Manual, a quiet dial for the CLI's own default. All-or-nothing per the menu
+// spec's leading-slot rule — every row carries one.
+export function PresetGlyph({
+  preset,
+  className = 'icon-xs shrink-0',
+}: {
+  preset: CliPermissionPreset
+  className?: string
+}) {
   if (preset === 'bypass') return <UnlockedGlyph className={className} />
+  if (preset === 'auto') return <SparkGlyph className={className} />
+  if (preset === 'manual') return <LockGlyph className={className} />
   return <PresetDialGlyph className={className} />
 }
 

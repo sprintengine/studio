@@ -839,13 +839,12 @@ test('remote always is refused before host execution, while a preset switch reac
     command: { kind: 'resolveApproval', requestId: 'r', decision: 'always' },
   })
   socket.receive({ type: 'command', commandId: 'c2', command: { kind: 'setPermissionPreset', preset: 'bypass' } })
-  // A client built before the two-mode change offers only Manual and Auto;
-  // either reaches the host as `none`.
+  // Manual reaches the host as itself.
   socket.receive({ type: 'command', commandId: 'c3', command: { kind: 'setPermissionPreset', preset: 'manual' } })
   await waitFor(() => executed.length === 2, 'both switches reach the host')
   assert.deepEqual(executed, [
     { kind: 'setPermissionPreset', preset: 'bypass' },
-    { kind: 'setPermissionPreset', preset: 'none' },
+    { kind: 'setPermissionPreset', preset: 'manual' },
   ])
   const results = (socket.output() as Frame[])
     .filter((frame) => frame.type === 'commandResult')

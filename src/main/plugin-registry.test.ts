@@ -26,7 +26,7 @@ test('plugin-registry', async () => {
     await testOpencodeBundledRenderMatchesExpected()
     await testKimiCodeBundledRenderMatchesExpected()
     await testCursorBundledRenderMatchesExpected()
-    await testBundledManifestsDeclareOnlyBypass()
+    await testBundledManifestsDeclareOnlyCurrentPresets()
     await testFixtureManifestsValidate()
     await testUserPluginCannotAddOrReplaceAnAgentCli()
     await testUserProviderCannotTakeABundledId()
@@ -280,11 +280,19 @@ test('plugin-registry', async () => {
       'do the thing',
     ])
 
-    // `none`, an unnamed preset and a stored retired `manual` all send no
-    // permission flag: Claude Code runs on its own configured default.
-    for (const permissionPreset of ['none', undefined, 'manual']) {
+    // `none` and an unnamed preset send no permission flag: Claude Code runs on
+    // its own configured default.
+    for (const permissionPreset of ['none', undefined]) {
       const launchedNone = renderPluginLaunch(plugin!.manifest, { sessionId: 'sid_demo', permissionPreset })
       assert.deepEqual(launchedNone.argv, ['claude', '--session-id', 'sid_demo'], `${permissionPreset}: no flag`)
+    }
+    // Manual is the CLI's asking mode, Auto the one that lets edits through.
+    for (const [permissionPreset, mode] of [
+      ['manual', 'default'],
+      ['auto', 'acceptEdits'],
+    ] as const) {
+      const launchedMode = renderPluginLaunch(plugin!.manifest, { sessionId: 'sid_demo', permissionPreset })
+      assert.deepEqual(launchedMode.argv, ['claude', '--permission-mode', mode, '--session-id', 'sid_demo'])
     }
   }
 
@@ -338,10 +346,13 @@ test('plugin-registry', async () => {
       '--',
       'do the thing',
     ])
-    // `none` grants neither a mode nor trust, and neither does a stored `auto`,
-    // which once carried --trust and now runs as `none`.
+    // `none` grants neither a mode nor trust, and Auto and Manual set a mode
+    // without trust: trust would run the hooks committed in the repository,
+    // which nobody is asked about.
     const launchedAuto = renderPluginLaunch(plugin!.manifest, { sessionId: 'sid_demo', permissionPreset: 'auto' })
-    assert.deepEqual(launchedAuto.argv, ['grok', '--session-id', 'sid_demo'])
+    assert.deepEqual(launchedAuto.argv, ['grok', '--permission-mode', 'acceptEdits', '--session-id', 'sid_demo'])
+    const launchedManual = renderPluginLaunch(plugin!.manifest, { sessionId: 'sid_demo', permissionPreset: 'manual' })
+    assert.deepEqual(launchedManual.argv, ['grok', '--permission-mode', 'default', '--session-id', 'sid_demo'])
     const launchedNone = renderPluginLaunch(plugin!.manifest, {
       sessionId: 'sid_demo',
       permissionPreset: 'none',
@@ -377,6 +388,24 @@ test('plugin-registry', async () => {
 
     const none = renderPluginLaunch(plugin!.manifest, { permissionPreset: 'none', prompt: 'do the thing' })
     assert.deepEqual(none.argv, ['opencode', 'run', 'do the thing'])
+    assert.equal(none.env.OPENCODE_PERMISSION, undefined)
+
+    // Manual and Auto have no flag: they travel as OpenCode's own permission
+    // rule set, the wildcard first so every named tool after it wins.
+    for (const [permissionPreset, edit] of [
+      ['manual', 'ask'],
+      ['auto', 'allow'],
+    ] as const) {
+      const launched = renderPluginLaunch(plugin!.manifest, { permissionPreset, prompt: 'do the thing' })
+      assert.deepEqual(launched.argv, ['opencode', 'run', 'do the thing'])
+      const rules = JSON.parse(launched.env.OPENCODE_PERMISSION ?? '{}') as Record<string, string>
+      assert.equal(Object.keys(rules)[0], '*')
+      assert.deepEqual(
+        { '*': rules['*'], read: rules.read, edit: rules.edit, bash: rules.bash },
+        { '*': 'ask', read: 'allow', edit, bash: 'ask' },
+        permissionPreset,
+      )
+    }
   }
 
   // Kimi's flags read backwards from their names: `--yolo` auto-approves
@@ -394,17 +423,21 @@ test('plugin-registry', async () => {
     assert.deepEqual(renderPluginLaunch(plugin!.manifest, { permissionPreset: 'bypass' }).argv, ['kimi', '--auto'])
   }
 
-  // Only bypass is declared by a bundled manifest now. Keys for the retired
-  // presets would never be read, and one left behind would look like a mode
-  // the app still offers.
-  async function testBundledManifestsDeclareOnlyBypass(): Promise<void> {
+  // A bundled manifest declares presets under the names the app offers, never
+  // a pre-rename spelling, and the list the renderer reads says which ones.
+  async function testBundledManifestsDeclareOnlyCurrentPresets(): Promise<void> {
     const registry = await bundledRegistry()
     for (const entry of registry.list()) {
       const manifest = registry.get(entry.id)?.manifest
       assert.ok(manifest, `${entry.id}: registry.get must resolve a listed plugin`)
       for (const name of Object.keys(manifest.permissionPresets ?? {})) {
-        assert.equal(name, 'bypass', `${manifest.id}: declares a "${name}" preset`)
+        assert.ok(['manual', 'auto', 'bypass'].includes(name), `${manifest.id}: declares a "${name}" preset`)
       }
+      assert.deepEqual(
+        entry.permissionPresets,
+        ['manual', 'none', 'auto', 'bypass'].filter((name) => name === 'none' || name in manifest.permissionPresets),
+        `${manifest.id}: listed presets`,
+      )
     }
   }
 

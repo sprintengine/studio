@@ -251,6 +251,7 @@ import type {
   CliInstallInput,
   CliInstallMethodInfo,
   CliInstallResult,
+  CliPermissionPreset,
   CliRuntimeSettings,
 } from './ipc/agent-runtime'
 import type {
@@ -828,9 +829,10 @@ export type ElectronApi = {
     requestId: string
     answers: Record<string, string>
   }) => Promise<MeshConversationCommandResult>
+  // `manual` and `auto` need `conversation-permission-modes` there.
   meshConversationSetPermissionPreset: (input: {
     key: MeshConversationKey
-    preset: 'none' | 'bypass'
+    preset: CliPermissionPreset
   }) => Promise<MeshConversationCommandResult>
   // Switch a paired machine's chat to another model of its CLI, from the
   // catalog that machine's list names. Needs `conversation-models` there.

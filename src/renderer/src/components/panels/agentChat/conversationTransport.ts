@@ -68,6 +68,12 @@ export type ConversationTransportCapabilities = {
    */
   reportsPreset: boolean
   /**
+   * The chat takes all four permission presets. A paired machine built before
+   * Manual and Auto came back reads either as No flag, so there only Bypass
+   * and No flag are offered.
+   */
+  permissionModes: boolean
+  /**
    * Hand a message to a turn that is running (a steer), where the provider
    * takes one. Without it, sending a queued message now stops the turn first.
    */
@@ -128,6 +134,7 @@ const LOCAL_CAPABILITIES: ConversationTransportCapabilities = {
   localFiles: true,
   optimisticTurns: true,
   reportsPreset: true,
+  permissionModes: true,
   steer: true,
 }
 
@@ -186,6 +193,8 @@ export function createRemoteConversationTransport(input: {
       localFiles: false,
       optimisticTurns: false,
       reportsPreset: false,
+      // Turned on from the machine's list, when it advertises the four modes.
+      permissionModes: false,
       // The Fleet's send carries the message alone; a steer would need the
       // wire to say so, so a remote Send now stops the turn and sends after.
       steer: false,

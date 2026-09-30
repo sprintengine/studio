@@ -153,18 +153,18 @@ test('settingsSlice', async () => {
     'standalone keybinding normalization rejects duplicates and invalid chords',
   )
 
-  // The two-mode migration table (owner ruling 2026-09-27). Every retired
-  // preset asked more often than bypass does, so each lands on `none` — the CLI's
-  // own default — and none of them is ever widened into bypass. Only the
-  // pre-rename spelling of bypass itself, an absent value, or one no version
-  // ever wrote reads as `bypass`, the default.
-  const migration: Array<[unknown, 'none' | 'bypass']> = [
+  // The migration table. Each of the four presets reads as itself, and each
+  // pre-rename spelling as the preset its label promised; none of them that
+  // asked is ever widened into bypass. Only the pre-rename spelling of bypass
+  // itself, an absent value, or one no version ever wrote reads as `bypass`,
+  // the default.
+  const migration: Array<[unknown, 'none' | 'manual' | 'auto' | 'bypass']> = [
     ['none', 'none'],
     ['bypass', 'bypass'],
-    ['manual', 'none'],
-    ['auto', 'none'],
-    ['default', 'none'],
-    ['auto_workspace', 'none'],
+    ['manual', 'manual'],
+    ['auto', 'auto'],
+    ['default', 'manual'],
+    ['auto_workspace', 'auto'],
     ['bypass_all', 'bypass'],
     [undefined, 'bypass'],
     [null, 'bypass'],
@@ -562,11 +562,13 @@ test('settingsSlice', async () => {
   assert.equal(carrier.appSettings.lastAgentSpawnPermissionPreset, 'bypass')
   slice.setLastAgentSpawnPermissionPreset('none')
   assert.equal(carrier.appSettings.lastAgentSpawnPermissionPreset, 'none')
-  slice.setLastAgentSpawnPermissionPreset('manual' as never)
+  slice.setLastAgentSpawnPermissionPreset('manual')
+  assert.equal(carrier.appSettings.lastAgentSpawnPermissionPreset, 'manual')
+  slice.setLastAgentSpawnPermissionPreset('auto_workspace' as never)
   assert.equal(
     carrier.appSettings.lastAgentSpawnPermissionPreset,
-    'none',
-    'a retired pick from an older window keeps its nearest meaning',
+    'auto',
+    'a pre-rename pick from an older window keeps what its label promised',
   )
 
   const store = useWorkspaceStore.getState()

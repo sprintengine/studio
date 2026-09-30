@@ -13,7 +13,7 @@ import {
   resolveCliRuntimeSettings,
 } from './agent-launch-render'
 import { createPluginRegistry } from './plugin-registry'
-import { resolvePermissionArgs } from './plugin-render'
+import { declaredPermissionPresets, resolvePermissionArgs } from './plugin-render'
 import { buildCodexLegacyNativeAgentLaunchPowerShellScript } from './terminal-launch'
 import { __resetPluginRegistryForTest, __setPluginRegistryForTest, getPluginById } from './plugin-registry-instance'
 import { test } from 'vitest'
@@ -31,7 +31,7 @@ test('agent-launch-render', async () => {
       testLaunchExecutesProbedPathAndGuardFailsHard()
       testCodexRenderDefault()
       testCodexRenderWithBypass()
-      testEveryBundledCliRendersBothModes()
+      testEveryBundledCliRendersItsModes()
       testCodexRenderResume()
       testOpenCodeRenderDefault()
       testOpenCodeRenderWithBypassAndModel()
@@ -565,34 +565,47 @@ test('agent-launch-render', async () => {
     assert.deepEqual(out.argv, ['codex', '--dangerously-bypass-approvals-and-sandbox', 'fix it'])
   }
 
-  // The two modes, for every bundled CLI: `bypass` is that CLI's own
-  // skip-every-prompt flag, `none` is no permission flag at all. A CLI with no
-  // documented bypass flag launches with none either way.
-  function testEveryBundledCliRendersBothModes(): void {
-    const bypassArgs: Record<string, string[]> = {
-      'claude-code': ['--permission-mode', 'bypassPermissions'],
-      'kimi-claude': ['--permission-mode', 'bypassPermissions'],
-      zai: ['--permission-mode', 'bypassPermissions'],
-      codex: ['--dangerously-bypass-approvals-and-sandbox'],
-      cursor: ['--force'],
-      grok: ['--always-approve', '--trust'],
-      opencode: ['--auto'],
-      'kimi-code': ['--auto'],
-      muse: [],
-      'generic-shell': [],
+  // The four modes, for every bundled CLI: each is that CLI's own setting for
+  // it, and `none` is no permission flag at all. A mode a CLI has no setting
+  // for is not declared, renders no flag, and is not listed as one it takes.
+  function testEveryBundledCliRendersItsModes(): void {
+    const claudeModes = {
+      manual: ['--permission-mode', 'default'],
+      auto: ['--permission-mode', 'acceptEdits'],
+      bypass: ['--permission-mode', 'bypassPermissions'],
     }
-    for (const [cli, expected] of Object.entries(bypassArgs)) {
+    const modeArgs: Record<string, Partial<Record<'manual' | 'auto' | 'bypass', string[]>>> = {
+      'claude-code': claudeModes,
+      'kimi-claude': claudeModes,
+      zai: claudeModes,
+      codex: {
+        manual: ['--ask-for-approval', 'untrusted', '--sandbox', 'read-only'],
+        auto: ['--ask-for-approval', 'on-request', '--sandbox', 'workspace-write'],
+        bypass: ['--dangerously-bypass-approvals-and-sandbox'],
+      },
+      cursor: { auto: ['--auto-review'], bypass: ['--force'] },
+      grok: {
+        manual: ['--permission-mode', 'default'],
+        auto: ['--permission-mode', 'acceptEdits'],
+        bypass: ['--always-approve', '--trust'],
+      },
+      // OpenCode is told Manual and Auto through its environment.
+      opencode: { manual: [], auto: [], bypass: ['--auto'] },
+      'kimi-code': { bypass: ['--auto'] },
+      muse: {},
+      'generic-shell': {},
+    }
+    for (const [cli, modes] of Object.entries(modeArgs)) {
       const plugin = getPluginById(cli)
       assert.ok(plugin, `bundled ${cli} is loaded`)
-      assert.deepEqual(resolvePermissionArgs(plugin!.manifest, 'bypass'), expected, `${cli}: bypass flags`)
+      for (const mode of ['manual', 'auto', 'bypass'] as const)
+        assert.deepEqual(resolvePermissionArgs(plugin!.manifest, mode), modes[mode] ?? [], `${cli}: ${mode} flags`)
       assert.deepEqual(resolvePermissionArgs(plugin!.manifest, 'none'), [], `${cli}: none passes no flag`)
-      for (const retired of ['manual', 'auto', 'default']) {
-        assert.deepEqual(
-          resolvePermissionArgs(plugin!.manifest, retired),
-          [],
-          `${cli}: a stored ${retired} runs as none`,
-        )
-      }
+      assert.deepEqual(
+        declaredPermissionPresets(plugin!.manifest),
+        (['manual', 'none', 'auto', 'bypass'] as const).filter((mode) => mode === 'none' || mode in modes),
+        `${cli}: the modes it takes`,
+      )
     }
 
     // And through the launch itself: no flag between the binary and the prompt.

@@ -23,6 +23,9 @@ type PluginVariableDecl = {
 export type PluginPermissionPreset = {
   label: string
   args: string[]
+  // Environment the launch adds under this preset, for a CLI told its
+  // permissions through its configuration rather than a flag.
+  env?: Record<string, string>
 }
 
 export type PluginArgvToken = string | { spread: string } | { spreadIf: string } | { valueIf: string; value: string }
@@ -669,6 +672,11 @@ export type PluginRegistryListEntry = {
   // label to render a key-entry row in Agents settings. The secret value itself
   // is never sent to the renderer — only this descriptor.
   auth?: { label: string }
+  // The permission presets a terminal launch of this CLI is told in its own
+  // words: `none` always, and each one its manifest names a setting for. The
+  // launcher dims the rest for a terminal agent rather than launching one
+  // with no flag and calling it that mode.
+  permissionPresets?: import('./cli-permission-preset').CliPermissionPreset[]
 }
 
 export type ConversationProviderListEntry = {

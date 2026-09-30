@@ -1,9 +1,5 @@
-import type {
-  ActionContext,
-  AutomationActionProvider,
-  AutomationCliPermissionPreset,
-  AutomationRun,
-} from '../../shared/automations/contracts'
+import type { ActionContext, AutomationActionProvider, AutomationRun } from '../../shared/automations/contracts'
+import type { CliPermissionPreset } from '../../shared/cli-permission-preset'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 
 import type { Workspace, WorkspaceMode } from '../../renderer/src/types/workspace'
@@ -240,7 +236,7 @@ async function spawnAgent(
     folderPath: string
     cli?: string
     cliModel?: string
-    permissionPreset?: AutomationCliPermissionPreset
+    permissionPreset?: CliPermissionPreset
     worktreePath?: string
     name?: string
     prompt: string

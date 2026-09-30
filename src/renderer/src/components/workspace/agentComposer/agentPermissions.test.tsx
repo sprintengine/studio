@@ -10,8 +10,8 @@ test('Codex and Claude use their own permission vocabulary without changing stor
     const options = agentPermissionOptions(cli)
     assert.deepEqual(
       options.map((option) => option.value),
-      ['bypass', 'none'],
-      'exactly two presets, bypass (the default) first',
+      ['bypass', 'auto', 'manual', 'none'],
+      'four presets, bypass (the default) first and No flag last',
     )
     const label = cli === 'codex' ? 'YOLO' : 'Bypass permissions'
     assert.equal(options.find((option) => option.value === 'bypass')?.label, label)
@@ -25,12 +25,20 @@ test('Codex and Claude use their own permission vocabulary without changing stor
   }
 })
 
-test('Codex help names YOLO for what it is, and the no-flag row inherits configuration', () => {
-  const options = agentPermissionOptions('codex')
-  assert.match(options[0].title, /without approval prompts or sandbox restrictions/)
-  assert.match(options[1].title, /configured permissions/)
-  assert.equal(agentPermissionOptions('claude-code')[1].label, 'No flag')
+test('Codex help names YOLO and its sandbox for what they are, and the no-flag row inherits configuration', () => {
+  const byValue = (cli: string) => new Map(agentPermissionOptions(cli).map((option) => [option.value, option]))
+  const codex = byValue('codex')
+  assert.match(codex.get('bypass')!.title, /without approval prompts or sandbox restrictions/)
+  assert.match(codex.get('auto')!.title, /inside the workspace sandbox without asking/)
+  assert.match(codex.get('none')!.title, /configured permissions/)
+  const claude = byValue('claude-code')
+  assert.equal(claude.get('none')!.label, 'No flag')
+  assert.match(claude.get('auto')!.title, /edit files in the workspace without asking/)
+  assert.match(claude.get('manual')!.title, /Ask before every action that changes something/)
+  assert.match(byValue('cursor').get('auto')!.summary, /Cursor runs what it judges safe/)
   assert.equal(agentPermissionChipLabel('none', 'codex'), 'No flag')
+  assert.equal(agentPermissionChipLabel('auto', 'codex'), 'Auto')
+  assert.equal(agentPermissionChipLabel('manual', 'claude-code'), 'Manual')
 })
 
 test('a preset the provider cannot run stays listed, dimmed, with its reason', () => {
@@ -43,7 +51,7 @@ test('a preset the provider cannot run stays listed, dimmed, with its reason', (
     }),
   )
   assert.ok(markup.includes('>YOLO<'))
-  assert.equal((markup.match(/role="menuitemradio"/g) ?? []).length, 2)
+  assert.equal((markup.match(/role="menuitemradio"/g) ?? []).length, 4)
   assert.equal((markup.match(/ disabled=""/g) ?? []).length, 1)
   assert.equal((markup.match(/does not support this permission preset/g) ?? []).length, 1)
 })

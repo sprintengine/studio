@@ -232,14 +232,14 @@ test('spawn-agent', async () => {
       assert.equal(explicit.permissionPreset, preset, `an explicit "${preset}" is honored verbatim`)
     }
 
-    // Retired spellings still parse: a definition saved before the change
-    // names one, and it keeps the nearest meaning it has rather than being
-    // rejected. Every one that asked more than bypass lands on `none`.
+    // Manual and Auto are honored as they are, and pre-rename spellings still
+    // parse: a definition saved before the rename names one, and it keeps the
+    // meaning its label promised rather than being rejected.
     for (const [legacy, canonical] of [
-      ['manual', 'none'],
-      ['auto', 'none'],
-      ['default', 'none'],
-      ['auto_workspace', 'none'],
+      ['manual', 'manual'],
+      ['auto', 'auto'],
+      ['default', 'manual'],
+      ['auto_workspace', 'auto'],
       ['bypass_all', 'bypass'],
     ] as const) {
       const saved: CapturedLaunch = { prompt: '' }

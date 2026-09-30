@@ -74,11 +74,12 @@ import { applyPromptCacheEvent } from '../shared/prompt-cache'
 import { ConversationApprovalRuleStore } from './conversation-approval-rules'
 import { ConversationAttachmentStore } from './conversation-attachment-store'
 import { ConversationPlanStore } from './conversation-plan-store'
+import { approvalRememberLabels, approvalRuleCandidate } from '../shared/conversation/approvalRules'
 import {
-  approvalRememberLabels,
-  approvalRuleCandidate,
-  type ApprovalRuleRequest,
-} from '../shared/conversation/approvalRules'
+  permissionModeAllows,
+  permissionModeApprovalLabel,
+  type PermissionModeRequest,
+} from '../shared/conversation/permissionModes'
 import { getConversationProviderById } from './plugin-registry-instance'
 import { ProviderSecretStore } from './secret-store'
 import { clampSuspendIdleAfterMs, DEFAULT_SUSPEND_IDLE_AFTER_MS } from './terminal-reap-policy'
@@ -148,8 +149,18 @@ type RuntimeSession = ConversationSessionSummary & {
   // runs that message as the command, so they wait here and go with the next
   // message that is not one, exactly once.
   pendingSkills?: ConversationSkillRef[]
-  approvalRequests: Map<string, ApprovalRuleRequest>
+  approvalRequests: Map<string, PermissionModeRequest>
   automaticApprovals: Map<string, string>
+  // Requests an answer has been sent for, by the person, a remembered rule or
+  // the chat's mode, whose resolution the provider has not reported yet. A
+  // second answer to one of them is refused, so a mode switch that sweeps the
+  // waiting requests never answers, or labels, one the person just answered.
+  answeredApprovals: Set<string>
+  // Requests whose `approval_requested` is still being decided on (a
+  // remembered rule is being looked up) and has not been published. The mode
+  // is read again once that is done, so a switch meanwhile leaves them to it
+  // rather than resolving a request no client has been shown yet.
+  unpublishedApprovals: Set<string>
   cliRuntimes?: ConversationCliRuntimeOverrides
   permissionPreset?: ConversationPermissionPreset
   permissionChangeTail?: Promise<ConversationSessionActionResult>
@@ -535,6 +546,8 @@ export class ConversationRuntime {
       checkpointCaptured: false,
       approvalRequests: new Map(),
       automaticApprovals: new Map(),
+      answeredApprovals: new Set(),
+      unpublishedApprovals: new Set(),
       cliRuntimes: input.cliRuntimes,
       permissionPreset: input.permissionPreset,
       allowedTools: input.allowedTools,
@@ -1036,30 +1049,41 @@ export class ConversationRuntime {
     if (!session.activeTurnId || !requestIsPending) {
       return { ok: false, message: 'Conversation approval request is invalid.' }
     }
+    if (session.answeredApprovals.has(input.requestId))
+      return { ok: false, message: 'This request has already been answered.' }
     const adapter = this.getAdapterForProviderId(session.providerId)
     if (!adapter) return { ok: false, message: 'Conversation provider is unavailable.' }
 
+    session.answeredApprovals.add(input.requestId)
     if (input.approved && (input.decision === 'conversation' || input.decision === 'always')) {
       const request = session.approvalRequests.get(input.requestId)
-      if (!request || (request.requestKind && request.requestKind !== 'tool'))
+      if (!request || (request.requestKind && request.requestKind !== 'tool')) {
+        session.answeredApprovals.delete(input.requestId)
         return { ok: false, message: 'This request can only be allowed once.' }
+      }
       try {
         await this.approvalRules.remember(session.workspaceRoot, session.sessionId, request, input.decision)
       } catch (error) {
+        session.answeredApprovals.delete(input.requestId)
         return { ok: false, message: error instanceof Error ? error.message : 'Permission rule could not be saved.' }
       }
     }
 
-    await this.emitAll(
-      session,
-      adapter.resolveApproval({
-        ...session,
-        turnId: session.activeTurnId,
-        requestId: input.requestId,
-        approved: input.decision === 'deny' ? false : input.approved,
-        answers: input.answers,
-      }),
-    )
+    try {
+      await this.emitAll(
+        session,
+        adapter.resolveApproval({
+          ...session,
+          turnId: session.activeTurnId,
+          requestId: input.requestId,
+          approved: input.decision === 'deny' ? false : input.approved,
+          answers: input.answers,
+        }),
+      )
+    } catch (error) {
+      session.answeredApprovals.delete(input.requestId)
+      throw error
+    }
     if (session.stateful) {
       // The turn is still streaming inside the adapter (the approval resolved
       // a mid-turn permission callback); restore the turn lock and let the
@@ -1115,7 +1139,34 @@ export class ConversationRuntime {
     if (!applied.ok) return { ok: false, message: applied.message }
     session.permissionPreset = input.permissionPreset
     session.updatedAt = this.now()
+    this.answerWaitingApprovalsByMode(session)
     return { ok: true, session: this.toSummary(session), ...(applied.notice ? { notice: applied.notice } : {}) }
+  }
+
+  // A mode chosen while requests wait answers the ones it covers, as it would
+  // have had it been in force when they were asked; the rest keep waiting for
+  // the person. One already answered (a click an instant before the switch,
+  // "Allow and switch") is left to that answer. Nothing is ever denied here.
+  private answerWaitingApprovalsByMode(session: RuntimeSession): void {
+    const mode = session.permissionPreset
+    for (const requestId of Array.from(session.pendingApprovalRequestIds)) {
+      if (session.answeredApprovals.has(requestId) || session.unpublishedApprovals.has(requestId)) continue
+      const request = session.approvalRequests.get(requestId)
+      if (!request || !permissionModeAllows(mode, request, session.workspaceRoot)) continue
+      const label = permissionModeApprovalLabel(mode!)
+      session.automaticApprovals.set(requestId, label)
+      // An answer that did not go through leaves no label behind to be pinned
+      // on whatever answers the request next.
+      const unlabel = () => {
+        if (session.automaticApprovals.get(requestId) === label) session.automaticApprovals.delete(requestId)
+      }
+      void this.respondToRequest({ sessionId: session.sessionId, requestId, approved: true, decision: 'once' }).then(
+        (answered) => {
+          if (!answered.ok) unlabel()
+        },
+        unlabel,
+      )
+    }
   }
 
   // Switch a running conversation to another model of the same provider. The
@@ -1224,6 +1275,7 @@ export class ConversationRuntime {
     this.approvalRules.dropSession(session.sessionId)
     session.approvalRequests.clear()
     session.automaticApprovals.clear()
+    session.answeredApprovals.clear()
     // Kept only to be listed until the chat's next session supersedes it, so
     // it holds nothing a turn would need.
     session.history = null
@@ -1266,6 +1318,7 @@ export class ConversationRuntime {
       session.history = null
       session.approvalRequests.clear()
       session.automaticApprovals.clear()
+      session.answeredApprovals.clear()
     }
     this.releaseTranscript(session)
     this.markResting(session)
@@ -1622,13 +1675,14 @@ export class ConversationRuntime {
     this.trackStatefulSessionEvent(session, stamped)
     let automaticRequestId: string | undefined
     if (stamped.type === 'approval_requested' && typeof stamped.payload?.requestId === 'string') {
-      const request: ApprovalRuleRequest = {
+      const request: PermissionModeRequest = {
         action: String(stamped.payload.action ?? ''),
         input: stamped.payload.input,
-        toolKind: stamped.payload.toolKind as ApprovalRuleRequest['toolKind'],
+        toolKind: stamped.payload.toolKind as PermissionModeRequest['toolKind'],
         requestKind: String(stamped.payload.kind ?? 'tool'),
         defaultToNo: stamped.payload.defaultToNo === true,
         suppressAlwaysAllowRule: stamped.payload.suppressAlwaysAllowRule === true,
+        mustAsk: stamped.payload.mustAsk === true,
       }
       const requestId = stamped.payload.requestId
       session.approvalRequests.set(requestId, request)
@@ -1646,10 +1700,25 @@ export class ConversationRuntime {
       // Decide whether a human is needed before publication, so remembered
       // grants never briefly trigger OS attention.
       // Resolution starts only after this request has persisted and published.
-      const rule = await this.approvalRules.match(session.workspaceRoot, session.sessionId, request).catch(() => null)
-      if (rule && session.approvalRequests.has(requestId) && session.status !== 'stopped') {
-        session.automaticApprovals.set(requestId, rule.label)
-        stamped.payload = { ...stamped.payload, autoApproved: true, ruleLabel: rule.label }
+      // A remembered rule first, then the chat's permission mode: a request
+      // either one answers never reaches the person.
+      session.unpublishedApprovals.add(requestId)
+      const rule = await this.approvalRules
+        .match(session.workspaceRoot, session.sessionId, request)
+        .catch(() => null)
+        .finally(() => session.unpublishedApprovals.delete(requestId))
+      const mode = session.permissionPreset
+      const label =
+        rule?.label ??
+        (permissionModeAllows(mode, request, session.workspaceRoot) ? permissionModeApprovalLabel(mode!) : null)
+      if (
+        label &&
+        session.approvalRequests.has(requestId) &&
+        !session.answeredApprovals.has(requestId) &&
+        session.status !== 'stopped'
+      ) {
+        session.automaticApprovals.set(requestId, label)
+        stamped.payload = { ...stamped.payload, autoApproved: true, ruleLabel: label }
         automaticRequestId = requestId
       }
     } else if (stamped.type === 'approval_resolved' && typeof stamped.payload?.requestId === 'string') {
@@ -1899,7 +1968,10 @@ export class ConversationRuntime {
       }
     } else if (event.type === 'approval_resolved') {
       const requestId = typeof event.payload?.requestId === 'string' ? event.payload.requestId : null
-      if (requestId) session.pendingApprovalRequestIds.delete(requestId)
+      if (requestId) {
+        session.pendingApprovalRequestIds.delete(requestId)
+        session.answeredApprovals.delete(requestId)
+      }
       const remaining = Array.from(session.pendingApprovalRequestIds)
       if (remaining.length > 0) {
         session.pendingRequestId = remaining[remaining.length - 1]
@@ -1911,6 +1983,7 @@ export class ConversationRuntime {
       session.updatedAt = this.now()
     } else if (event.type === 'turn_failed' || (event.type === 'turn_completed' && event.payload?.steered !== true)) {
       session.pendingApprovalRequestIds.clear()
+      session.answeredApprovals.clear()
     }
   }
 

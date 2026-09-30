@@ -42,6 +42,7 @@ import type {
   ConversationTurnDiffResult,
 } from '../../shared/conversation-runtime'
 import type { TailnetScope } from '../../shared/tailnet'
+import type { CliPermissionPreset } from '../../shared/cli-permission-preset'
 import type { ElectronApi } from '../../shared/electron-api'
 
 // The Mesh's data path: the machines this Studio drives, what they
@@ -149,7 +150,7 @@ export const meshApi = {
     requestId: string
     answers: Record<string, string>
   }) => command(input.key, { kind: 'answerQuestion', requestId: input.requestId, answers: input.answers }),
-  meshConversationSetPermissionPreset: (input: { key: MeshConversationKey; preset: 'none' | 'bypass' }) =>
+  meshConversationSetPermissionPreset: (input: { key: MeshConversationKey; preset: CliPermissionPreset }) =>
     command(input.key, { kind: 'setPermissionPreset', preset: input.preset }),
   meshConversationSetModel: (input: { key: MeshConversationKey; modelId: string }) =>
     command(input.key, { kind: 'setModel', modelId: input.modelId }),

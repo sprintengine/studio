@@ -1,24 +1,26 @@
 import { createHash } from 'node:crypto'
 
 import { AUTOMATION_DEFAULT_PERMISSION_PRESET } from '../../../shared/automations/contracts'
-import { parseCliPermissionPreset } from '../../../shared/cli-permission-preset'
+import { parseCliPermissionPreset, type CliPermissionPreset } from '../../../shared/cli-permission-preset'
 import { isRecord } from '../../../shared/records'
 import type {
   AutomationActionProvider,
-  AutomationCliPermissionPreset,
   AutomationDefinition,
   AutomationRun,
   AutomationRunIsolation,
 } from '../../../shared/automations/contracts'
 
-const PERMISSION_PRESETS: readonly AutomationCliPermissionPreset[] = ['none', 'bypass']
+// Every mode a chat takes. An extension's own action provider names only the
+// two the SDK's `AutomationCliPermissionPreset` lists; the app's own action is
+// not limited to them.
+const PERMISSION_PRESETS: readonly CliPermissionPreset[] = ['none', 'manual', 'auto', 'bypass']
 
 // Spellings from earlier vocabularies. An automation saved before the change
 // still carries one, and rejecting it would break a definition nobody edited,
 // so they stay accepted on read (and in the config schema, which validates
 // saved definitions as well as new ones) and are normalized the way every
 // stored preset is (parseCliPermissionPreset).
-const LEGACY_PERMISSION_PRESETS = ['manual', 'auto', 'default', 'auto_workspace', 'bypass_all'] as const
+const LEGACY_PERMISSION_PRESETS = ['default', 'auto_workspace', 'bypass_all'] as const
 
 export type SpawnAgentConfig = {
   folderPath?: string
@@ -26,7 +28,7 @@ export type SpawnAgentConfig = {
   cli?: string
   cliModel?: string
   // Always resolved — an omitted preset becomes AUTOMATION_DEFAULT_PERMISSION_PRESET.
-  permissionPreset: AutomationCliPermissionPreset
+  permissionPreset: CliPermissionPreset
   name?: string
   prompt: string
   requiredIntegrations?: string[]
@@ -51,7 +53,7 @@ export type SpawnAgentRuntime = {
     resolvedTarget?: SpawnAgentResolvedTarget
     cli?: string
     cliModel?: string
-    permissionPreset?: AutomationCliPermissionPreset
+    permissionPreset?: CliPermissionPreset
     name?: string
     prompt: string
     connectorId?: string

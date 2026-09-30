@@ -51,6 +51,9 @@ const wireCapabilities = (session: ConversationSessionSummary) =>
         planMode: session.capabilities.planMode,
         interrupt: session.capabilities.interrupt,
         checkpoints: session.capabilities.checkpoints === true,
+        ...(session.capabilities.permissionPresets
+          ? { permissionPresets: [...session.capabilities.permissionPresets] }
+          : {}),
       }
     : undefined
 

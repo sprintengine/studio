@@ -65,12 +65,18 @@ import {
   TruncatedText,
 } from '../ui'
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
-import { CONVERSATION_DEFAULT_MODEL_ID, cliForConversationProvider } from '../../../../shared/conversation-harness'
+import {
+  CONVERSATION_DEFAULT_MODEL_ID,
+  cliForConversationProvider,
+  conversationPermissionPresetRefusals,
+} from '../../../../shared/conversation-harness'
+import { CLI_PERMISSION_PRESETS, isLooserCliPermissionPreset } from '../../../../shared/cli-permission-preset'
 import { pickRandomAgentName } from '../../../../shared/agent-names'
 import { lockedChatEngineOption, isModelDerivedChatName } from './agentChat/chatEngine'
 import { EnginePickerChip } from '../workspace/agentComposer/enginePicker'
 import type { CliRuntimeOption } from '../ui/CliModelPicker'
 import { PermissionFooter } from '../workspace/agentComposer/spawnFooter'
+import { agentPermissionOptions } from '../workspace/agentComposer/agentSpawnShared'
 import { useAgentCliCatalogOptions } from '../workspace/agentComposer/useAgentComposer'
 import { conversationCliRuntimesFor } from '../workspace/newWorkspace/cliRuntimeOptions'
 import {
@@ -121,7 +127,7 @@ import {
   attachmentRejection,
   readImageAttachment,
 } from './agentChat/imageAttachments'
-import { ConversationPendingDock } from './agentChat/pendingDock'
+import { ConversationPendingDock, type ApprovalModeSwitch } from './agentChat/pendingDock'
 import { QueuedTurnRow, queuedTurnSendNow } from './agentChat/queuedTurnBubble'
 import { ComposerTray, ComposerTrayRow } from './agentChat/composerTray'
 import { CompactGlyph } from './agentChat/toolRows/ToolKindGlyph'
@@ -335,6 +341,33 @@ export function isConversationModelLocked(
   hasTranscriptHistory = false,
 ): boolean {
   return userTurnCount > 0 || sessionId !== null || hasTranscriptHistory
+}
+
+/**
+ * The presets a chat cannot be switched to, each with the one line its row
+ * shows: one its CLI cannot be held to (Cursor never asks before an edit), one
+ * the provider does not list, and — on a paired machine built before Manual
+ * and Auto came back — the two it would read as No flag.
+ */
+export function chatPermissionRefusals(input: {
+  cli: string | null | undefined
+  allowed: readonly CliPermissionPreset[] | undefined
+  permissionModes: boolean
+  machineName?: string
+}): Partial<Record<CliPermissionPreset, string>> | undefined {
+  const refusals = conversationPermissionPresetRefusals(input.cli)
+  const reasons: Partial<Record<CliPermissionPreset, string>> = {}
+  for (const preset of CLI_PERMISSION_PRESETS) {
+    const reason =
+      refusals[preset] ??
+      (!input.permissionModes && (preset === 'manual' || preset === 'auto')
+        ? `${input.machineName ?? 'That machine'} needs a newer Studio for this.`
+        : input.allowed?.length && !input.allowed.includes(preset)
+          ? 'This agent cannot run with this preset.'
+          : null)
+    if (reason) reasons[preset] = reason
+  }
+  return Object.keys(reasons).length > 0 ? reasons : undefined
 }
 
 // The tool-permission preset the pill reports, in precedence order (1809):
@@ -1509,6 +1542,32 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     [sessionId, respondingRequestId, shapeEntries, updateBinding, transport],
   )
 
+  // "Allow and switch to …" on a permission card: this request is allowed
+  // once, and only then does the chat move to the looser mode, which answers
+  // the requests still waiting that it covers. The order keeps the person's
+  // own answer theirs — the switch never answers, or relabels, the card they
+  // clicked — and a refused allow (the request was already answered) leaves
+  // the mode where it was.
+  const approveAndSwitchMode = useCallback(
+    async (requestId: string, next: CliPermissionPreset) => {
+      if (!sessionId || respondingRequestId) return
+      setActionError(null)
+      setRespondingRequestId(requestId)
+      let allowed = false
+      try {
+        const result = await transport.respond({ sessionId, requestId, approved: true, decision: 'once' })
+        if (result.ok) allowed = true
+        else setActionError(result.message)
+      } catch (err) {
+        setActionError(err instanceof Error ? err.message : 'Could not record the approval.')
+      } finally {
+        setRespondingRequestId(null)
+      }
+      if (allowed) await changePermissionPreset(next)
+    },
+    [sessionId, respondingRequestId, transport, changePermissionPreset],
+  )
+
   const interrupt = useCallback(async () => {
     if (!sessionId || pending === 'stopping') return
     setPending('stopping')
@@ -2149,14 +2208,25 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     operate &&
     (transport.capabilities.reportsPreset || session?.permissionPreset !== undefined) &&
     Boolean(capabilities?.approvals || capabilities?.permissionPresets?.length)
-  const allowedPresets = capabilities?.permissionPresets
-  const permissionDisabledReasons = allowedPresets?.length
-    ? Object.fromEntries(
-        (['bypass', 'none'] as const)
-          .filter((preset) => !allowedPresets.includes(preset))
-          .map((preset) => [preset, 'This agent cannot run with this preset.']),
-      )
-    : undefined
+  const permissionDisabledReasons = chatPermissionRefusals({
+    cli: chatCli,
+    allowed: capabilities?.permissionPresets,
+    permissionModes: transport.capabilities.permissionModes,
+    machineName: transport.machineName,
+  })
+  // The looser modes a permission card offers to allow into: Auto and Bypass,
+  // where they would ask less than the chat does now and the chat can run them.
+  const approvalModeSwitches: ApprovalModeSwitch[] =
+    permissionsEditable && chatCli
+      ? (['auto', 'bypass'] as const)
+          .filter(
+            (preset) => isLooserCliPermissionPreset(preset, permissionPreset) && !permissionDisabledReasons?.[preset],
+          )
+          .map((preset) => ({
+            preset,
+            label: `Allow and switch to ${agentPermissionOptions(chatCli).find((option) => option.value === preset)?.label ?? preset}`,
+          }))
+      : []
   // An image dropped anywhere on the chat attaches — over the transcript as
   // much as on the composer. Aiming a drag at a field a few lines tall is a
   // needless target, and a drop that missed it used to do nothing at all. The
@@ -2500,6 +2570,8 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                 workspaceRoot={workspaceRoot ?? undefined}
                 workspaceName={workspace?.name}
                 onApprove={resolveApproval}
+                modeSwitches={approvalModeSwitches}
+                onApproveAndSwitch={(requestId, preset) => void approveAndSwitchMode(requestId, preset)}
                 // Read-only: the pending requests are shown, not answerable.
                 busy={respondingRequestId !== null || !operate}
               />
@@ -2718,24 +2790,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                       {...(modelLocked && modelSwitch
                         ? { groupNote: { cli: chatCli, note: '· model is set once the chat starts' } }
                         : {})}
-                      permissions={() =>
-                        permissionsEditable ? (
-                          <PermissionFooter
-                            cli={chatCli}
-                            preset={permissionPreset}
-                            disabled={permissionChanging}
-                            disabledReasons={permissionDisabledReasons}
-                            onSelect={(next) => {
-                              // Close on pick like every other picker here: a refusal
-                              // rolls the preset back and writes the reason to the
-                              // composer error line, which an open popover would
-                              // sit on top of.
-                              setModelMenuOpen(false)
-                              void changePermissionPreset(next)
-                            }}
-                          />
-                        ) : null
-                      }
+                      // A chat's permissions are its own chip beside this one
+                      // (owner request 2026-09-30), not a row inside the model
+                      // picker: they change far more often than the model, at
+                      // any point in the conversation.
+                      permissions={() => null}
                     />
                   ) : (
                     // A provider that is not a CLI (an API-key provider) has no
@@ -2746,6 +2805,16 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                       className="max-w-[180px] px-1.5 text-meta text-[color:var(--text-muted)]"
                     />
                   )}
+                  {chatCli && permissionsEditable ? (
+                    <PermissionFooter
+                      cli={chatCli}
+                      preset={permissionPreset}
+                      placement="top-start"
+                      disabled={permissionChanging}
+                      disabledReasons={permissionDisabledReasons}
+                      onSelect={(next) => void changePermissionPreset(next)}
+                    />
+                  ) : null}
                 </div>
                 {projection.activeTurn && !operate ? null : projection.activeTurn ? (
                   <ComposerActionButton

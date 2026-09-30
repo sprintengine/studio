@@ -94,10 +94,10 @@ test('agentsSlice', async () => {
     'bypass',
   )
   assert.equal(
-    normalizeAgentState({ ...defaultAgent('agent-normalize-legacy'), cliPermissionPreset: 'manual' as never })
+    normalizeAgentState({ ...defaultAgent('agent-normalize-legacy'), cliPermissionPreset: 'default' as never })
       .cliPermissionPreset,
-    'none',
-    'an agent record saved on a retired preset keeps its nearest meaning, never bypass',
+    'manual',
+    'an agent record saved on a pre-rename preset keeps what its label promised, never bypass',
   )
   assert.equal(
     normalizeAgentState(

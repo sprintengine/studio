@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 
 import type { PluginManifest } from '../shared/plugin-manifest'
-import { renderPluginLaunch, renderPluginResume } from './plugin-render'
+import { declaredPermissionPresets, renderPluginLaunch, renderPluginResume } from './plugin-render'
 import { test } from 'vitest'
 
 test('plugin-render', async () => {
@@ -34,7 +34,8 @@ test('plugin-render', async () => {
     testLiteralSubstitution()
     testContextOverridesBinary()
     testPermissionArgsSpread()
-    testOnlyBypassReadsTheManifest()
+    testEachPresetReadsTheManifest()
+    testPresetEnvRidesTheLaunch()
     testValueIfPresentAndAbsent()
     testEnvSubstitution()
     testVariableDefaults()
@@ -87,55 +88,93 @@ test('plugin-render', async () => {
     assert.deepEqual(withDefault.argv, ['test', '--session-id', 'exec_2'])
   }
 
-  // Only `bypass` reads the manifest. `none` passes no flag whatever the
-  // manifest declares, a CLI with no bypass flag launches with none rather
-  // than an unknown one (fatal to the CLI), and keys for retired presets that
-  // an older third-party manifest still declares are never rendered.
-  function testOnlyBypassReadsTheManifest(): void {
+  // Every preset but `none` reads the manifest, under its own key or the one
+  // it had before the rename. `none` passes no flag whatever the manifest
+  // declares, and a preset the manifest does not name launches with none rather
+  // than an unknown flag (fatal to the CLI) or a neighbouring rung.
+  function testEachPresetReadsTheManifest(): void {
     const argv = ['{{binary}}', { spreadIf: 'permissionArgs' }] as PluginManifest['launch']['argv']
-    const legacy = baseManifest({
+    const four = baseManifest({
+      permissionPresets: {
+        manual: { label: 'Manual', args: ['--permission-mode', 'default'] },
+        auto: { label: 'Auto', args: ['--permission-mode', 'acceptEdits'] },
+        bypass: { label: 'Bypass', args: ['--yolo'] },
+      },
+      launch: { argv },
+    })
+    assert.deepEqual(renderPluginLaunch(four, { permissionPreset: 'manual' }).argv, [
+      'test',
+      '--permission-mode',
+      'default',
+    ])
+    assert.deepEqual(renderPluginLaunch(four, { permissionPreset: 'auto' }).argv, [
+      'test',
+      '--permission-mode',
+      'acceptEdits',
+    ])
+    assert.deepEqual(renderPluginLaunch(four, { permissionPreset: 'bypass' }).argv, ['test', '--yolo'])
+    assert.deepEqual(renderPluginLaunch(four, { permissionPreset: 'none' }).argv, ['test'])
+    assert.deepEqual(renderPluginLaunch(four, {}).argv, ['test'], 'no preset at all is no flag')
+    assert.deepEqual(declaredPermissionPresets(four), ['manual', 'none', 'auto', 'bypass'])
+
+    const preRename = baseManifest({
       permissionPresets: {
         default: { label: 'Default', args: ['--ask'] },
-        manual: { label: 'Manual', args: ['--permission-mode', 'default'] },
-        auto: { label: 'Auto', args: ['--ask-for-approval', 'never', '--sandbox', 'workspace-write'] },
+        auto_workspace: { label: 'Auto', args: ['--sandbox', 'workspace-write'] },
+        bypass_all: { label: 'Bypass', args: ['--yolo'] },
       },
       launch: { argv },
     })
     assert.deepEqual(
-      renderPluginLaunch(legacy, { permissionPreset: 'bypass' }).argv,
-      ['test'],
-      'a CLI with no bypass flag launches with no permission flag, never a narrower rung',
+      renderPluginLaunch(preRename, { permissionPreset: 'manual' }).argv,
+      ['test', '--ask'],
+      "a manifest's pre-rename default is its manual",
     )
-    for (const retired of ['manual', 'auto', 'default', 'auto_workspace']) {
-      assert.deepEqual(
-        renderPluginLaunch(legacy, { permissionPreset: retired }).argv,
-        ['test'],
-        `a stored "${retired}" runs as none`,
-      )
-    }
-
-    const empty = baseManifest({ permissionPresets: {}, launch: { argv } })
-    assert.deepEqual(renderPluginLaunch(empty, { permissionPreset: 'bypass' }).argv, ['test'])
-
-    const onlyBypass = baseManifest({
-      permissionPresets: { bypass: { label: 'Bypass', args: ['--yolo'] } },
-      launch: { argv },
-    })
-    assert.deepEqual(renderPluginLaunch(onlyBypass, { permissionPreset: 'none' }).argv, ['test'])
-    assert.deepEqual(renderPluginLaunch(onlyBypass, { permissionPreset: 'manual' }).argv, ['test'])
-    assert.deepEqual(renderPluginLaunch(onlyBypass, {}).argv, ['test'], 'no preset at all is no flag')
-    assert.deepEqual(renderPluginLaunch(onlyBypass, { permissionPreset: 'bypass' }).argv, ['test', '--yolo'])
-
-    const preRename = baseManifest({
-      permissionPresets: { bypass_all: { label: 'Bypass', args: ['--yolo'] } },
-      launch: { argv },
-    })
+    assert.deepEqual(renderPluginLaunch(preRename, { permissionPreset: 'auto' }).argv, [
+      'test',
+      '--sandbox',
+      'workspace-write',
+    ])
     assert.deepEqual(
       renderPluginLaunch(preRename, { permissionPreset: 'bypass' }).argv,
       ['test', '--yolo'],
       "a manifest's pre-rename bypass_all is still its bypass",
     )
     assert.deepEqual(renderPluginLaunch(preRename, { permissionPreset: 'bypass_all' }).argv, ['test', '--yolo'])
+
+    const onlyBypass = baseManifest({
+      permissionPresets: { bypass: { label: 'Bypass', args: ['--yolo'] } },
+      launch: { argv },
+    })
+    for (const undeclared of ['manual', 'auto'])
+      assert.deepEqual(
+        renderPluginLaunch(onlyBypass, { permissionPreset: undeclared }).argv,
+        ['test'],
+        `an undeclared ${undeclared} renders no flag, never bypass`,
+      )
+    assert.deepEqual(declaredPermissionPresets(onlyBypass), ['none', 'bypass'])
+
+    const empty = baseManifest({ permissionPresets: {}, launch: { argv } })
+    assert.deepEqual(renderPluginLaunch(empty, { permissionPreset: 'bypass' }).argv, ['test'])
+    assert.deepEqual(declaredPermissionPresets(empty), ['none'])
+  }
+
+  // A preset told through the CLI's configuration adds its environment to the
+  // launch, and only under that preset.
+  function testPresetEnvRidesTheLaunch(): void {
+    const manifest = baseManifest({
+      permissionPresets: {
+        manual: { label: 'Manual', args: [], env: { TOOL_PERMISSION: '{"*":"ask"}' } },
+        bypass: { label: 'Bypass', args: ['--auto'] },
+      },
+      launch: { argv: ['{{binary}}', { spreadIf: 'permissionArgs' }], env: { KEEP: 'yes' } },
+    })
+    assert.deepEqual(renderPluginLaunch(manifest, { permissionPreset: 'manual' }).env, {
+      KEEP: 'yes',
+      TOOL_PERMISSION: '{"*":"ask"}',
+    })
+    assert.deepEqual(renderPluginLaunch(manifest, { permissionPreset: 'bypass' }).env, { KEEP: 'yes' })
+    assert.deepEqual(renderPluginLaunch(manifest, { permissionPreset: 'none' }).env, { KEEP: 'yes' })
   }
 
   function testValueIfPresentAndAbsent(): void {

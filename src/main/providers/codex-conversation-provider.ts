@@ -126,6 +126,10 @@ type Session = {
   children: Map<string, Child>
   // MCP servers already reported as failing to start, by name.
   failedServers: Set<string>
+  // The preset moved to `none` from an override the thread keeps; the
+  // app-server is restarted before the next turn so the thread resumes
+  // without it. Set while a turn was running, when it could not be then.
+  resetPolicy?: boolean
 }
 export type CodexConversationProviderOptions = {
   resolveExecutable?: (input: MockAdapterSessionInput) => Promise<string>
@@ -137,12 +141,42 @@ export type CodexConversationProviderOptions = {
 
 /**
  * The approval and sandbox override for a preset, matching the terminal
- * launch: `bypass` is Codex's YOLO — never ask, full access — and `none` sends
- * no override at all, so Codex runs on its own configured default.
+ * launch. Codex takes both on every `turn/start`, so a change reaches the next
+ * turn without restarting anything.
+ *
+ * - `bypass` is Codex's YOLO: never ask, full access.
+ * - `auto` is Codex's own Auto: it reads, edits and runs commands inside the
+ *   workspace sandbox without asking, and asks before it goes past it (a write
+ *   outside the workspace, the network).
+ * - `manual` asks before every command Codex does not already know to be a
+ *   safe read (`untrusted`), in a read-only sandbox, so every edit asks too.
+ * - `none` sends no override at all, so Codex runs on its own configured default.
  */
-export function codexPermissionPolicy(preset: ConversationPermissionPreset = 'none') {
+export function codexPermissionPolicy(preset: ConversationPermissionPreset = 'none'): {
+  approvalPolicy?: 'never' | 'on-request' | 'untrusted'
+  sandbox?: 'danger-full-access' | 'workspace-write' | 'read-only'
+  sandboxPolicy?: Record<string, unknown>
+} {
   if (preset === 'bypass')
     return { approvalPolicy: 'never', sandbox: 'danger-full-access', sandboxPolicy: { type: 'dangerFullAccess' } }
+  if (preset === 'auto')
+    return {
+      approvalPolicy: 'on-request',
+      sandbox: 'workspace-write',
+      sandboxPolicy: {
+        type: 'workspaceWrite',
+        writableRoots: [],
+        networkAccess: false,
+        excludeTmpdirEnvVar: false,
+        excludeSlashTmp: false,
+      },
+    }
+  if (preset === 'manual')
+    return {
+      approvalPolicy: 'untrusted',
+      sandbox: 'read-only',
+      sandboxPolicy: { type: 'readOnly', networkAccess: false },
+    }
   return {}
 }
 
@@ -212,6 +246,17 @@ export function createCodexConversationProvider(
     const seam = turn.textItem !== null && turn.textItem !== itemId
     turn.textItem = itemId
     emit(state, 'content_delta', { text: seam ? `\n\n${value}` : value })
+  }
+  // Closes the app-server so the next turn resumes the thread without the
+  // approval and sandbox override an earlier turn left on it.
+  function restartForPolicy(state: Session) {
+    state.resetPolicy = false
+    const transport = state.transport
+    if (!transport) return
+    state.transport = null
+    state.spawnedAt = null
+    stopLanes(state, 'The agent stopped when Codex restarted with the new permissions.')
+    transport.close()
   }
   // Ends the turn on this side and closes the app-server, whose thread the
   // next turn resumes. Used when a stopped turn cannot be confirmed by Codex.
@@ -846,6 +891,7 @@ export function createCodexConversationProvider(
             return finish(state, 'There is no conversation to compact yet.')
           // Capture before starting the autonomous turn, not after an edit notification.
           await state.input.onBeforeTool?.('Edit')
+          if (state.resetPolicy) restartForPolicy(state)
           await ensureConnected(state)
           if (state.closed || !state.turn || state.turn.cancelled || input.signal?.aborted) {
             finish(state, undefined, true)
@@ -938,25 +984,24 @@ export function createCodexConversationProvider(
       sessions.delete(input.sessionId)
       return [event(state, 'session_closed')]
     },
-    // A turn's override stays with the thread for the turns after it, so
-    // omitting one cannot take a thread back to Codex's configured default.
-    // Leaving bypass is therefore a reconnect: the app-server is closed, and
-    // the next turn resumes the thread with no override (ensureConnected), the
-    // way it would after the idle reaper.
+    // Every preset but `none` rides the next `turn/start` (codexPermissionPolicy),
+    // so a change needs no restart and is accepted mid-turn as well: the turn
+    // already running keeps the policy it started with, and the runtime answers
+    // what it still asks by the new mode. A turn's override stays with the
+    // thread for the turns after it, though, so omitting one cannot take a
+    // thread back to Codex's configured default. Moving to `none` is therefore
+    // a reconnect: the app-server is closed, and the next turn resumes the
+    // thread with no override (ensureConnected), the way it would after the
+    // idle reaper. Mid-turn that waits for the next message.
     async setPermissionPreset(input) {
       const state = sessions.get(input.sessionId)
       if (!state) return { ok: false, message: 'Codex conversation is not active.' }
-      if (state.turn)
-        return { ok: false, message: 'Finish or stop the current turn before changing Codex permissions.' }
-      const previous = state.input.permissionPreset
+      const previous = state.input.permissionPreset ?? 'none'
       state.input = { ...state.input, permissionPreset: input.permissionPreset }
-      if (input.permissionPreset === 'none' && previous !== 'none' && state.transport) {
-        const transport = state.transport
-        state.transport = null
-        state.spawnedAt = null
-        stopLanes(state, 'The agent stopped when Codex restarted with the new permissions.')
-        transport.close()
-      }
+      if (input.permissionPreset === 'none' && previous !== 'none') state.resetPolicy = true
+      else if (input.permissionPreset !== 'none') state.resetPolicy = false
+      if (state.turn) return { ok: true, notice: 'Codex takes the new permissions from your next message.' }
+      if (state.resetPolicy) restartForPolicy(state)
       return { ok: true }
     },
     // Codex takes the model on every `turn/start`, and the runtime hands each

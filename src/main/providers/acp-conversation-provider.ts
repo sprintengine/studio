@@ -12,6 +12,8 @@ import { publishConversationCommands } from '../conversation-commands/registry'
 import { acpConversationCommands } from '../conversation-commands/acp'
 import { leadingCommandFor } from '../conversation-commands/leading-command'
 import type { ConversationCommand } from '../../shared/conversation/commands'
+import { conversationPermissionPresetRefusals } from '../../shared/conversation-harness'
+import { isLooserCliPermissionPreset } from '../../shared/cli-permission-preset'
 import type {
   ClientSideConnection,
   McpCapabilities,
@@ -35,6 +37,11 @@ import type {
   MockAdapterTurnInput,
 } from './conversation-provider-adapter'
 
+type EnforcedPreset = Exclude<ConversationPermissionPreset, 'none'>
+
+/** How a CLI is told one permission preset: launch argv in place of the plain one, environment on top, or both. */
+type AcpPresetLaunch = { argv?: string[]; env?: Record<string, string> }
+
 export type AcpProfile = {
   id: string
   displayName: string
@@ -42,16 +49,51 @@ export type AcpProfile = {
   // The launch argv under `none`: no permission flag, so the CLI's own
   // configuration decides.
   argv: string[]
-  // How the CLI is told to skip every approval, as launch argv, environment,
-  // or both. Either is fixed when the child starts, so changing the preset
-  // respawns it and reloads the session. A profile with neither offers only
-  // `none`.
-  bypassArgv?: string[]
-  bypassEnv?: Record<string, string>
+  // How the CLI is told each preset it can be held to. Both are fixed when
+  // the child starts, so changing the preset respawns it and reloads the
+  // session, at the next turn when one is running. A preset missing here is
+  // one the CLI cannot be held to; `unsupported` says why, and it is refused
+  // rather than run as something else.
+  presets?: Partial<Record<EnforcedPreset, AcpPresetLaunch>>
+  unsupported?: Partial<Record<EnforcedPreset, string>>
+  // Commands the CLI accepts in the prompt that switch its own permission mode,
+  // with the least permissive preset that already allows what they switch to.
+  // Typed under a stricter preset, they would undo the person's choice from
+  // inside the conversation, where the permission picker cannot see it.
+  permissionCommands?: Record<string, EnforcedPreset>
   authHint: string
   authenticate?: string
   images: boolean
   planMode: boolean
+}
+
+// OpenCode's permission rule set for a preset. `opencode acp` takes no
+// permission flag (`--auto` belongs to the TUI and `run`), but its
+// configuration takes a rule set from OPENCODE_PERMISSION, merged over the
+// person's own, and the last matching rule wins. So the wildcard comes first
+// and every tool OpenCode names follows it, each overriding the person's rule
+// for the same tool; reads, searches, listings and the to-do list run, and
+// `external_directory` (anything outside the project) asks.
+function opencodePermission(edit: 'allow' | 'ask'): Record<string, string> {
+  return {
+    OPENCODE_PERMISSION: JSON.stringify({
+      '*': 'ask',
+      read: 'allow',
+      glob: 'allow',
+      grep: 'allow',
+      list: 'allow',
+      lsp: 'allow',
+      todoread: 'allow',
+      todowrite: 'allow',
+      edit,
+      bash: 'ask',
+      task: 'ask',
+      webfetch: 'ask',
+      websearch: 'ask',
+      codesearch: 'ask',
+      external_directory: 'ask',
+    }),
+  }
 }
 
 /** Profiles are protocol observations, not guesses based on a CLI's terminal features. */
@@ -63,8 +105,13 @@ export const ACP_PROFILES: AcpProfile[] = [
     argv: ['acp'],
     // Cursor's permission flags are top-level options and must precede the
     // subcommand. Without a flag it sends session/request_permission for what
-    // its own configuration does not already allow.
-    bypassArgv: ['--force', 'acp'],
+    // its own configuration does not already allow. `--auto-review` is its own
+    // Auto: a classifier runs the calls it judges safe and asks for the rest.
+    presets: {
+      auto: { argv: ['--auto-review', 'acp'] },
+      bypass: { argv: ['--force', 'acp'] },
+    },
+    unsupported: conversationPermissionPresetRefusals('cursor'),
     authHint: 'Run agent login in a terminal.',
     authenticate: 'cursor_login',
     images: true,
@@ -75,11 +122,12 @@ export const ACP_PROFILES: AcpProfile[] = [
     displayName: 'OpenCode',
     cli: 'opencode',
     argv: ['acp'],
-    // `opencode acp` takes no permission flag (`--auto` belongs to the TUI and
-    // `run`). Its configuration does take a permission rule set from
-    // OPENCODE_PERMISSION, merged over the user's own, and the last matching
-    // rule wins — so a wildcard allow is what `--auto` does for the TUI.
-    bypassEnv: { OPENCODE_PERMISSION: JSON.stringify({ '*': 'allow' }) },
+    presets: {
+      manual: { env: opencodePermission('ask') },
+      auto: { env: opencodePermission('allow') },
+      // A wildcard allow is what `--auto` does for the TUI.
+      bypass: { env: { OPENCODE_PERMISSION: JSON.stringify({ '*': 'allow' }) } },
+    },
     authHint: 'Run opencode auth login in a terminal and configure a working model.',
     images: true,
     planMode: true,
@@ -89,23 +137,62 @@ export const ACP_PROFILES: AcpProfile[] = [
     displayName: 'Grok',
     cli: 'grok',
     // --no-leader keeps one agent process per conversation even when Grok's
-    // config enables its shared leader, so the flag below governs this session
-    // alone. --always-approve is an agent option (after `agent`, before the
-    // transport).
+    // config enables its shared leader, so the flags below govern this session
+    // alone. --permission-mode is a top-level option (before `agent`) and
+    // overrides the configured mode for this process: Grok has the same modes
+    // Claude Code does, so Manual is `default` and Auto `acceptEdits`.
+    // --always-approve is an agent option (after `agent`, before the transport).
     argv: ['agent', '--no-leader', 'stdio'],
-    bypassArgv: ['agent', '--always-approve', '--no-leader', 'stdio'],
+    presets: {
+      manual: { argv: ['--permission-mode', 'default', 'agent', '--no-leader', 'stdio'] },
+      auto: { argv: ['--permission-mode', 'acceptEdits', 'agent', '--no-leader', 'stdio'] },
+      bypass: { argv: ['agent', '--always-approve', '--no-leader', 'stdio'] },
+    },
+    // Grok's `/auto` hands its approvals to a classifier, which answers for the
+    // person the way bypass does rather than asking; `/always-approve` is bypass.
+    permissionCommands: { '/always-approve': 'bypass', '/auto': 'bypass' },
     authHint: 'Run grok login in a terminal.',
     images: false,
     planMode: false,
   },
 ]
 
-const supportedPresets = (profile: AcpProfile): ConversationPermissionPreset[] =>
-  profile.bypassArgv || profile.bypassEnv ? ['none', 'bypass'] : ['none']
+const supportedPresets = (profile: AcpProfile): ConversationPermissionPreset[] => [
+  'none',
+  ...(Object.keys(profile.presets ?? {}) as EnforcedPreset[]),
+]
 
 /** The argv a conversation's child is launched with under a permission preset. */
 export function acpLaunchArgv(profile: AcpProfile, preset: ConversationPermissionPreset = 'none'): string[] {
-  return (preset === 'bypass' && profile.bypassArgv) || profile.argv
+  return (preset !== 'none' && profile.presets?.[preset]?.argv) || profile.argv
+}
+
+/** What a conversation's child gets on top of its environment under a permission preset. */
+export function acpLaunchEnv(
+  profile: AcpProfile,
+  preset: ConversationPermissionPreset = 'none',
+): Record<string, string> {
+  return (preset !== 'none' && profile.presets?.[preset]?.env) || {}
+}
+
+/** Why a CLI cannot run a preset, or null when it can. */
+function presetRefusal(profile: AcpProfile, preset: ConversationPermissionPreset): string | null {
+  if (supportedPresets(profile).includes(preset)) return null
+  const reason = preset === 'none' ? undefined : profile.unsupported?.[preset]
+  return `${reason ?? `${profile.displayName} cannot be held to this permission preset.`} Choose another permission preset.`
+}
+
+/** A prompt that would switch the CLI's own permission mode past the chosen preset. */
+function permissionCommandRefusal(
+  profile: AcpProfile,
+  preset: ConversationPermissionPreset | undefined,
+  message: string,
+): string | undefined {
+  if (!preset || preset === 'none') return undefined
+  const command = message.trim().split(/\s/, 1)[0]?.toLowerCase() ?? ''
+  const needs = profile.permissionCommands?.[command]
+  if (!needs || !isLooserCliPermissionPreset(needs, preset)) return undefined
+  return `${command} would change ${profile.displayName}'s permissions from inside the conversation. Use the permission picker in the chat box instead.`
 }
 
 const baseCapabilities = (profile: AcpProfile): ConversationCapabilities => ({
@@ -203,6 +290,8 @@ type State = {
   // replacement session's identity, so the person knows context was replayed.
   resumeNotice?: string
   assistantText: string
+  // The preset changed while a turn ran; the next turn starts a new child.
+  relaunch?: boolean
 }
 // A change larger than this is approved by path and size: the approval card is
 // persisted with the transcript, and a multi-megabyte diff would dominate it.
@@ -513,7 +602,7 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
         throw new Error(`${profile.displayName} conversation requires a local CLI runtime.`)
       const command = await (options.detect ?? ((input) => detectAcpCommand(profile, input.cliRuntimes)))(state.input)
       const env = await environment(state.input)
-      if (state.input.permissionPreset === 'bypass') Object.assign(env, profile.bypassEnv)
+      Object.assign(env, acpLaunchEnv(profile, state.input.permissionPreset))
       if (state.closed) throw new Error('Conversation was stopped during startup.')
       const sdk = await import('@agentclientprotocol/sdk')
       if (state.closed) throw new Error('Conversation was stopped during startup.')
@@ -571,8 +660,13 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
       )
       const connection = new sdk.ClientSideConnection(
         () => ({
-          requestPermission: (params) => permission(state, params),
+          // A child that has been replaced (a permission change relaunches it)
+          // can still be flushing what it said last; none of it belongs to the
+          // turn its replacement is running.
+          requestPermission: (params) =>
+            state.child === child ? permission(state, params) : Promise.resolve({ outcome: { outcome: 'cancelled' } }),
           sessionUpdate: async (params) => {
+            if (state.child !== child) return
             if (params.sessionId === state.nativeId || state.loading) update(state, params.update)
           },
           readTextFile: async (params) => {
@@ -784,10 +878,8 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
     acceptsMcpServers: true,
     listModels: () => Array.from(modelIds),
     async startSession(input) {
-      if (input.permissionPreset && !supportedPresets(profile).includes(input.permissionPreset))
-        throw new Error(
-          `${profile.displayName} ACP cannot enforce the ${input.permissionPreset} permission preset. Choose another permission preset.`,
-        )
+      const refused = input.permissionPreset ? presetRefusal(profile, input.permissionPreset) : null
+      if (refused) throw new Error(refused)
       const state: State = {
         input,
         closed: false,
@@ -839,6 +931,8 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
       input.signal?.addEventListener('abort', abort, { once: true })
       void (async () => {
         try {
+          const refusal = permissionCommandRefusal(profile, state.input.permissionPreset, input.message)
+          if (refusal) throw new Error(refusal)
           const previousId = state.nativeId
           await ensure(state)
           // A reconnect can land in a different session; record it as the
@@ -926,6 +1020,13 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
           state.toolCalls.clear()
           state.turn = undefined
           state.queue = undefined
+          // A preset chosen while this turn ran is a launch flag: the child it
+          // ran in is replaced now, once nothing it still says can reach a
+          // turn, and the next turn reloads the session under the new flags.
+          if (state.relaunch) {
+            state.relaunch = false
+            dispose(state)
+          }
           queue.end()
           turnEnded()
         }
@@ -966,18 +1067,20 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
           }
         : { ok: true }
     },
+    // The preset is a launch flag (or a launch environment), so the child is
+    // replaced: the next turn starts a new one under the new flags and reloads
+    // this session. A turn already running finishes in the child it started
+    // in, and the runtime answers what it still asks by the new mode.
     async setPermissionPreset(input) {
       const state = sessions.get(input.sessionId)
       if (!state) return { ok: false, message: 'ACP session is unavailable.' }
-      if (!supportedPresets(profile).includes(input.permissionPreset))
-        return {
-          ok: false,
-          message: `${profile.displayName} ACP cannot enforce this permission preset. Choose another permission preset.`,
-        }
-      if (state.turn) return { ok: false, message: 'Wait for the active turn before changing ACP permissions.' }
+      const refused = presetRefusal(profile, input.permissionPreset)
+      if (refused) return { ok: false, message: refused }
       state.input.permissionPreset = input.permissionPreset
-      // The preset is a launch flag, so the child is replaced: the next turn
-      // starts a new one under the new flags and reloads this session.
+      if (state.turn && (state.child || state.starting)) {
+        state.relaunch = true
+        return { ok: true, notice: `${profile.displayName} takes the new permissions from your next message.` }
+      }
       dispose(state)
       return { ok: true }
     },

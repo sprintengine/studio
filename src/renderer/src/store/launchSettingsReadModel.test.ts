@@ -38,14 +38,19 @@ test('a chosen value is shown and launched as chosen', () => {
   assert.equal(shown.lastAgentSpawnPermissionPreset, 'none')
 })
 
-test('a retired stored preset never escalates to the default', () => {
-  // Every retired spelling that asked more than bypass keeps the nearest meaning
-  // it still has — no flag — instead of reading as "never chosen" and so as the
-  // bypass default. Only an absent value, or one no version wrote, takes it.
-  for (const retired of ['manual', 'auto', 'default', 'auto_workspace']) {
-    const legacy = normalizeAgentLaunchSettings({ lastAgentSpawnPermissionPreset: retired })
-    assert.equal(effectiveAgentLaunchSettings(legacy).lastAgentSpawnPermissionPreset, 'none', retired)
-    assert.equal(withLaunchSettings(defaultAppSettings(), legacy, []).lastAgentSpawnPermissionPreset, 'none', retired)
+test('a stored preset that asks never escalates to the default', () => {
+  // Manual and Auto read as themselves, and each pre-rename spelling as the
+  // preset its label promised, instead of reading as "never chosen" and so as
+  // the bypass default. Only an absent value, or one no version wrote, takes it.
+  for (const [stored, preset] of [
+    ['manual', 'manual'],
+    ['auto', 'auto'],
+    ['default', 'manual'],
+    ['auto_workspace', 'auto'],
+  ] as const) {
+    const legacy = normalizeAgentLaunchSettings({ lastAgentSpawnPermissionPreset: stored })
+    assert.equal(effectiveAgentLaunchSettings(legacy).lastAgentSpawnPermissionPreset, preset, stored)
+    assert.equal(withLaunchSettings(defaultAppSettings(), legacy, []).lastAgentSpawnPermissionPreset, preset, stored)
   }
   const corrupt = normalizeAgentLaunchSettings({ lastAgentSpawnPermissionPreset: 'root' })
   assert.equal(corrupt.lastAgentSpawnPermissionPreset, null)

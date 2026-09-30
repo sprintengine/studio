@@ -32,17 +32,20 @@ checks, schedule validation, workspace-root trust. The definition carries
 optional `status`. Read the tool's schema for the trigger and action kinds this
 build actually holds rather than assuming a vocabulary.
 
-An agent-backed action's `permissionPreset` is `bypass` or `none`, the same two
-a person picks in the app. Naming none runs the agent on `bypass`, which starts
-the CLI with its own skip-every-prompt flag — the right default for an agent
-nobody is watching. Name `none` only when the person asks for it or their
-organization does not allow bypass.
+An agent-backed action's `permissionPreset` is `bypass`, `auto`, `manual` or
+`none`, the same four a person picks in the app. Naming none runs the agent on
+`bypass`, which starts the CLI with its own skip-every-prompt flag — the right
+default for an agent nobody is watching. Name another only when the person asks
+for it or their organization does not allow bypass.
 
-`none` passes no permission flag, so the CLI runs on its own configured
-default. If that default asks for approval, an automation agent has nobody at
-its terminal and the run hangs until the idle reaper fails it; say so when you
-create one. Old definitions naming the retired `manual`, `auto` or `default`
-run as `none`; do not write those into a new one.
+`auto` lets edits in the workspace through and asks before commands and
+anything outside it; `manual` asks before every edit, command and outside
+call; `none` passes no permission flag, so the CLI runs on its own configured
+default. Any of them can ask for approval, and an automation agent has nobody
+watching: the run waits on its approval card until someone answers it or the
+idle reaper fails it; say so when you create one. Old definitions naming a
+spelling from before the presets were renamed still run as what it meant; write
+only the four names above into a new one.
 
 ## Run
 

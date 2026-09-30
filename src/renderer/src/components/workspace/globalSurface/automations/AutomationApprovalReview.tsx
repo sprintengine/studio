@@ -58,6 +58,10 @@ export function AutomationApprovalReview({
               The agent edits files and runs commands without asking.
             </span>
           </span>
+        ) : facts.permission === 'auto' ? (
+          <Value text="Edits files in the workspace without asking; asks before commands and anything outside it." />
+        ) : facts.permission === 'manual' ? (
+          <Value text="Asks before every edit, command and outside call." />
         ) : facts.permission === 'none' ? (
           <Value text="Asks as its CLI is configured to — no bypass flag." />
         ) : (

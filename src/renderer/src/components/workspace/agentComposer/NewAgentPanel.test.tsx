@@ -1730,7 +1730,7 @@ test('NewAgentPanel', async () => {
     })
 
     await check(
-      'a remote target offers both presets and launches on the one the launcher shows, bypass included',
+      'a remote target offers every preset and launches on the one the launcher shows, bypass included',
       async () => {
         seedStore()
         resetRememberedMachineForTests()
@@ -1759,11 +1759,11 @@ test('NewAgentPanel', async () => {
         const menu = await openPermissionsMenu(view, 'Bypass permissions')
         assert.ok(!/Not available/.test(menu.textContent ?? ''), 'no row carries a remote refusal')
         const rows = [...menu.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]')]
-        assert.equal(rows.length, 2, 'the switcher lists exactly the two presets')
+        assert.equal(rows.length, 4, 'the switcher lists the four presets')
         assert.deepEqual(
           rows.map((row) => row.disabled),
-          [false, false],
-          'both presets are open on a remote machine',
+          [false, false, false, false],
+          'every preset is open on a remote machine',
         )
         const checked = rows.find((row) => row.getAttribute('aria-checked') === 'true')!
         assert.equal(checked, rows[0], 'Bypass is the checked row')
@@ -2424,20 +2424,21 @@ test('NewAgentPanel', async () => {
       const view = await render({ permissionPreset: 'none' })
       const menu = await openPermissionsMenu(view, 'No flag')
       const rows = [...menu.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]')]
-      assert.equal(rows.length, 2, 'exactly two presets: Bypass and No flag')
+      assert.equal(rows.length, 4, 'four presets: Bypass, Auto, Manual and No flag')
       assert.ok(rows[0]?.textContent?.startsWith('Bypass permissions'), 'Bypass, the default, leads')
-      assert.ok(rows[1]?.textContent?.startsWith('No flag'), 'the no-flag row follows')
-      assert.ok(!/Manual|Auto\b/.test(menu.textContent ?? ''), 'the retired presets are gone')
-      assert.equal(dom.window.document.activeElement, rows[1], 'focus opens on the checked row')
+      assert.ok(rows[1]?.textContent?.startsWith('Auto'), 'Auto follows')
+      assert.ok(rows[2]?.textContent?.startsWith('Manual'), 'then Manual')
+      assert.ok(rows[3]?.textContent?.startsWith('No flag'), 'and the no-flag row closes the list')
+      assert.equal(dom.window.document.activeElement, rows[3], 'focus opens on the checked row')
       const key = (el: Element, k: string) =>
         act(async () => {
           el.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }))
         })
-      await key(rows[1]!, 'ArrowDown')
+      await key(rows[3]!, 'ArrowDown')
       assert.equal(dom.window.document.activeElement, rows[0], 'ArrowDown wraps to the start')
       await key(rows[0]!, 'ArrowUp')
-      assert.equal(dom.window.document.activeElement, rows[1], 'ArrowUp wraps to the end')
-      await key(rows[1]!, 'ArrowUp')
+      assert.equal(dom.window.document.activeElement, rows[3], 'ArrowUp wraps to the end')
+      await key(rows[3]!, 'Home')
       await key(rows[0]!, 'Enter')
       assert.equal(
         storedCliPermissionPreset('claude-code'),

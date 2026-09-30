@@ -236,13 +236,13 @@ for (const { tool, args } of LAUNCHING_TOOLS) {
     assert.deepEqual(forwarded(h), ['bypass', 'none', undefined])
   })
 
-  test(`${tool}: an agent that cannot be found is capped as none`, async () => {
+  test(`${tool}: an agent that cannot be found is capped at the strictest preset`, async () => {
     const h = harness(null)
     const refused = await h.call(tool, { ...args, permissionPreset: 'bypass' }, AGENT_CALLER)
     assert.equal(errorCode(refused), 'permission_escalation')
     const omitted = await h.call(tool, args, AGENT_CALLER)
     assert.equal(omitted.isError, undefined, JSON.stringify(omitted.structuredContent))
-    assert.deepEqual(forwarded(h), ['none'])
+    assert.deepEqual(forwarded(h), ['manual'])
   })
 
   test(`${tool}: a caller with no agent identity launches as it did before`, async () => {
@@ -330,7 +330,7 @@ test('automation.create: an agent on bypass stores the draft exactly as sent', a
   )
 })
 
-test('automation.create: an agent that cannot be found is capped as none', async () => {
+test('automation.create: an agent that cannot be found is capped at the strictest preset', async () => {
   const h = harness(null)
   const refused = await h.call(
     'automation.create',
@@ -415,7 +415,7 @@ test('resolver: a running chat answers with the preset it has now, not the one i
   assert.equal(resolve({ workspaceId: 'ws-1', agentId: 'agent-a' }), 'none')
 })
 
-test('resolver: a running chat that never chose a preset asks, so it reads as none', () => {
+test('resolver: a running chat that never chose a preset passes no override, so it reads as none', () => {
   const resolve = resolverOver({ chats: [{ workspaceId: 'ws-1', agentId: 'agent-a', status: 'active' }] })
   assert.equal(resolve({ workspaceId: 'ws-1', agentId: 'agent-a' }), 'none')
 })

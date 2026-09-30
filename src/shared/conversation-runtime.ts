@@ -123,9 +123,10 @@ export type ConversationCliRuntimeOverrides = Record<
 >
 
 // Mirrors the terminal-side `cliPermissionPreset` vocabulary
-// (CliPermissionPreset) without importing electron-api types. The
-// value tuple is exported so the IPC boundary validates against one list.
-export const CONVERSATION_PERMISSION_PRESETS = ['none', 'bypass'] as const
+// (CliPermissionPreset, shared/cli-permission-preset.ts, where each mode's
+// meaning is written down) without importing electron-api types. The value
+// tuple is exported so the IPC boundary validates against one list.
+export const CONVERSATION_PERMISSION_PRESETS = ['none', 'manual', 'auto', 'bypass'] as const
 
 export type ConversationPermissionPreset = (typeof CONVERSATION_PERMISSION_PRESETS)[number]
 
@@ -156,9 +157,11 @@ export type ConversationStartSessionInput = {
   modelId: string
   cliRuntimes?: ConversationCliRuntimeOverrides
   // How tool permissions behave for CLI-backed stateful providers: 'bypass'
-  // skips the CLI's permission prompts (the default for every agent), 'none'
-  // passes no override and lets the CLI's own configuration decide — which
-  // can still ask, as approval cards.
+  // skips the CLI's permission prompts (the default for every agent), 'auto'
+  // lets workspace edits through and asks before anything riskier, 'manual'
+  // asks before every edit, command and outside call, and 'none' passes no
+  // override and lets the CLI's own configuration decide — which can still
+  // ask, as approval cards.
   permissionPreset?: ConversationPermissionPreset
   // Tools auto-allowed without an approval card. Lets unattended flows (the
   // long-running authoring sessions) run file writes without stalling while interactive tools

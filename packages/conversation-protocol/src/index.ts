@@ -14,6 +14,16 @@ export const CONVERSATION_CAPABILITY = 'conversations' as const
  */
 export const CONVERSATION_MODELS_CAPABILITY = 'conversation-models' as const
 /**
+ * An additive capability of the tailnet gateway, beside `conversations`: the
+ * desktop runs chats on all four permission presets, not only `none` and
+ * `bypass`. Its list may name `manual` or `auto` as a chat's preset and names
+ * the presets each chat's provider can run (`capabilities.permissionPresets`),
+ * and it takes `setPermissionPreset` with either. A desktop without it reads
+ * `manual` and `auto` as `none`, so a client offers them only where this is
+ * advertised.
+ */
+export const CONVERSATION_PERMISSION_MODES_CAPABILITY = 'conversation-permission-modes' as const
+/**
  * The model id that asks a chat's CLI for its own default model, as a launch
  * without a model flag does. `setModel` always accepts it for a chat that has a
  * catalog, and a catalog never lists it.
@@ -63,8 +73,20 @@ export function conversationCloseRetryAfterMs(reason: string): number | null {
 export type ConversationWirePhase =
   'idle' | 'starting' | 'running' | 'waiting_for_approval' | 'waiting_for_input' | 'failed' | 'completed'
 export type ConversationWireKey = { workspaceId: string; agentId: string }
-/** `bypass` skips the CLI's approval prompts; `none` passes no permission flag. */
-export type ConversationWirePermissionPreset = 'none' | 'bypass'
+/**
+ * `bypass` skips the CLI's approval prompts; `auto` lets edits in the
+ * workspace through and asks before anything riskier; `manual` asks before
+ * every edit, command and outside call; `none` passes no permission flag.
+ * `manual` and `auto` need `conversation-permission-modes`.
+ */
+export type ConversationWirePermissionPreset = 'none' | 'manual' | 'auto' | 'bypass'
+/** Every wire preset, strictest first. */
+export const CONVERSATION_WIRE_PERMISSION_PRESETS: readonly ConversationWirePermissionPreset[] = [
+  'manual',
+  'none',
+  'auto',
+  'bypass',
+]
 /** One model a chat can switch to: the id its CLI takes, and the name the desktop's own picker shows. */
 export type ConversationWireModelOption = { id: string; label?: string }
 /**
@@ -112,6 +134,11 @@ export type ConversationWireThread = ConversationWireKey & {
     planMode: boolean
     interrupt: boolean
     checkpoints: boolean
+    /**
+     * The presets the chat's provider can run, from a desktop that advertises
+     * `conversation-permission-modes`. Absent means unknown.
+     */
+    permissionPresets?: ConversationWirePermissionPreset[]
   }
 }
 export type ConversationWireErrorCode =
@@ -281,13 +308,15 @@ export function explainRejectedConversationFrame(value: unknown): ConversationFr
   return { code: 'invalid_frame', message: 'Unsupported conversation frame.', ...ids }
 }
 
-// A client built before the two-mode change offers only `manual` and `auto`.
-// Both asked more often than bypass does, so both read as `none`: a remote
-// switch never widens what the agent may do past what was asked for.
+// Every client that ever sent `manual` or `auto` meant those modes: one built
+// before the two-mode change, or one that saw `conversation-permission-modes`.
 function wirePermissionPreset(value: unknown): ConversationWirePermissionPreset | null {
-  if (value === 'none' || value === 'bypass') return value
-  if (value === 'manual' || value === 'auto') return 'none'
-  return null
+  return isConversationWirePermissionPreset(value) ? value : null
+}
+
+/** Whether a value is one of the wire's permission presets. */
+export function isConversationWirePermissionPreset(value: unknown): value is ConversationWirePermissionPreset {
+  return CONVERSATION_WIRE_PERMISSION_PRESETS.includes(value as ConversationWirePermissionPreset)
 }
 
 /** Validate supported fields and strip unknown members before handing a frame to main. */

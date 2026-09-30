@@ -5,9 +5,10 @@ import { BUNDLED_MODULE_IDS } from '../modules/manifest'
 
 export type JsonSchema = Record<string, unknown>
 
-// CLI permission preset for a spawned automation agent. Mirrors
-// CliPermissionPreset (src/shared/electron-api.ts) so the automations
-// contract stays self-contained; kept in sync as a closed union.
+// CLI permission preset an extension's action provider may start its run's
+// agent on. The two the published SDK names, a subset of CliPermissionPreset
+// (src/shared/cli-permission-preset.ts); the app's own spawn-agent action
+// takes every mode a chat does.
 export type AutomationCliPermissionPreset = 'none' | 'bypass'
 
 // The preset an agent-backed automation runs on when its definition names none.

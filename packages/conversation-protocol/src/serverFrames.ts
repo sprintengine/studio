@@ -1,4 +1,5 @@
 import {
+  isConversationWirePermissionPreset,
   parseConversationWireModels,
   type ConversationServerFrame,
   type ConversationWireErrorCode,
@@ -181,9 +182,7 @@ function thread(value: unknown): ConversationWireThread | null {
     lastSeq: value.lastSeq,
     ...(value.sessionId === undefined ? {} : { sessionId: value.sessionId as string }),
     // A preset this client does not know is left out rather than guessed at.
-    ...(value.permissionPreset === 'none' || value.permissionPreset === 'bypass'
-      ? { permissionPreset: value.permissionPreset }
-      : {}),
+    ...(isConversationWirePermissionPreset(value.permissionPreset) ? { permissionPreset: value.permissionPreset } : {}),
     ...(models ? { models } : {}),
     ...(flags
       ? {
@@ -194,6 +193,9 @@ function thread(value: unknown): ConversationWireThread | null {
             planMode: flag('planMode'),
             interrupt: flag('interrupt'),
             checkpoints: flag('checkpoints'),
+            ...(Array.isArray(flags.permissionPresets)
+              ? { permissionPresets: flags.permissionPresets.filter(isConversationWirePermissionPreset) }
+              : {}),
           },
         }
       : {}),

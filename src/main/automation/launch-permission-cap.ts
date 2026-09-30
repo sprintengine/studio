@@ -1,4 +1,5 @@
 import {
+  CLI_PERMISSION_PRESETS,
   isLooserCliPermissionPreset,
   isMostPermissiveCliPermissionPreset,
   normalizeCliPermissionPreset,
@@ -8,6 +9,9 @@ import {
 import { AGENT_BACKED_ACTION_KINDS, AUTOMATION_DEFAULT_PERMISSION_PRESET } from '../../shared/automations/contracts'
 import type { McpConnectionContext } from '../../shared/modules/mcp-tools'
 import { isRecord } from '../../shared/records'
+
+// What an agent whose own preset cannot be found or read is held to.
+const STRICTEST_PRESET: CliPermissionPreset = CLI_PERMISSION_PRESETS[0]
 
 // An agent can only start an agent with the permissions it has itself (owner
 // ruling 2026-09-29). Without this, one gateway call — `agent.launch` with
@@ -39,8 +43,8 @@ export type LaunchPermissionRefusal = { code: 'permission_escalation'; message: 
 /**
  * The loosest preset a launch this connection asks for may run on, or null
  * when the connection is not capped. An agent that names itself and cannot be
- * found is capped at `none`: failing open there would make "claim an id
- * nobody holds" the way out of the cap.
+ * found is capped at the strictest preset, `manual`: failing open there would
+ * make "claim an id nobody holds" the way out of the cap.
  */
 export function launchPermissionCeiling(
   context: McpConnectionContext | undefined,
@@ -50,7 +54,7 @@ export function launchPermissionCeiling(
   if (metadata?.kind !== 'studio-agent' || !metadata.agentId) return null
   return (
     resolve({ agentId: metadata.agentId, ...(metadata.workspaceId ? { workspaceId: metadata.workspaceId } : {}) }) ??
-    'none'
+    STRICTEST_PRESET
   )
 }
 
@@ -189,9 +193,14 @@ export function createAgentPermissionResolver(deps: {
       .listConversationSessions(agentId)
       .filter((session) => session.agentId === agentId && sameWorkspace(session.workspaceId))
       .filter((session) => session.status !== 'stopped')
-    // A running chat that never chose a preset runs on its provider's default,
-    // which is to ask.
-    if (chats.length > 0) return strictest(chats.map((session) => parseCliPermissionPreset(session.permissionPreset)))
+    // A running chat that never chose a preset passes no override, which is
+    // what `none` means.
+    if (chats.length > 0)
+      return strictest(
+        chats.map((session) =>
+          session.permissionPreset === undefined ? 'none' : parseCliPermissionPreset(session.permissionPreset),
+        ),
+      )
 
     const terminals = deps
       .listTerminalSessions()
@@ -213,13 +222,13 @@ export function createAgentPermissionResolver(deps: {
   }
 }
 
-// Unreadable counts as `none`: a session whose preset cannot be read is not
-// evidence that it may do more.
+// Unreadable counts as the strictest preset: a session whose preset cannot be
+// read is not evidence that it may do more.
 function strictest(presets: ReadonlyArray<CliPermissionPreset | null>): CliPermissionPreset {
   let lowest: CliPermissionPreset | undefined
   for (const preset of presets) {
-    const read = preset ?? 'none'
+    const read = preset ?? STRICTEST_PRESET
     if (lowest === undefined || isLooserCliPermissionPreset(lowest, read)) lowest = read
   }
-  return lowest ?? 'none'
+  return lowest ?? STRICTEST_PRESET
 }

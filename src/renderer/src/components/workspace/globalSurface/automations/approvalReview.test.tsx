@@ -78,9 +78,9 @@ test('the review reads presets and isolation the way the run does', () => {
   assert.equal(legacy.cli, 'codex')
   assert.equal(
     approvalReviewFacts(
-      definition({ action: { kind: 'spawn-agent', config: { prompt: 'x', permissionPreset: 'auto' } } }),
+      definition({ action: { kind: 'spawn-agent', config: { prompt: 'x', permissionPreset: 'auto_workspace' } } }),
     ).permission,
-    'none',
+    'auto',
   )
   assert.equal(
     approvalReviewFacts(

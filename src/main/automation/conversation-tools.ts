@@ -49,10 +49,12 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
           cliModel: { type: 'string', description: "The CLI's model id; the CLI's own default when omitted." },
           permissionPreset: {
             type: 'string',
-            enum: ['bypass', 'none'],
+            enum: ['bypass', 'auto', 'manual', 'none'],
             description:
-              'Tool permissions: "bypass" skips the CLI\'s prompts; "none" lets the CLI\'s configuration decide, ' +
-              'surfacing its prompts as approvals. Omitted, the preset chosen for that CLI on this machine. ' +
+              'Tool permissions: "bypass" skips the CLI\'s prompts; "auto" lets edits in the workspace through ' +
+              'and asks before commands and anything outside it; "manual" asks before every edit, command and ' +
+              'outside call; "none" lets the CLI\'s configuration decide. Prompts surface as approvals. ' +
+              'Omitted, the preset chosen for that CLI on this machine. ' +
               "Called by an agent of this app, the chat runs no looser than that agent's own preset: a looser " +
               'one is refused with "permission_escalation", and an omitted one takes the stricter of the two.',
           },
@@ -77,7 +79,7 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
         const permissionPreset =
           args.permissionPreset === undefined ? undefined : parseCliPermissionPreset(args.permissionPreset)
         if (permissionPreset === null) {
-          return toolError('invalid_arguments', '"permissionPreset" must be "bypass" or "none".')
+          return toolError('invalid_arguments', '"permissionPreset" must be "bypass", "auto", "manual" or "none".')
         }
         const capped = capLaunchPermissionPreset(
           permissionPreset,

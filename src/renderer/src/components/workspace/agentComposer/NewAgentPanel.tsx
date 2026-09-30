@@ -1388,7 +1388,13 @@ export default function NewAgentPanel({
                 // chosen where the runtime is, remembered once per CLI for all
                 // of its models, and sits on the picker's one trailing row
                 // beside the effort control.
-                permissions={(cli) => <SpawnPermissionFooter cli={cli} fallback={permissionPreset} />}
+                permissions={(cli) => (
+                  <SpawnPermissionFooter
+                    cli={cli}
+                    fallback={permissionPreset}
+                    launch={isChatLaunch ? 'chat' : 'terminal'}
+                  />
+                )}
               />
             ) : null}
 

@@ -1,42 +1,50 @@
 /**
- * Core CLI permission-preset vocabulary. The values are what every agent CLI
- * launch understands: `bypass` sends the CLI's own skip-every-prompt flag
- * (Codex calls it YOLO), and `none` sends no permission flag at all, so the
- * CLI's own configuration decides.
+ * Core CLI permission-preset vocabulary: how much an agent may do before it
+ * stops to ask. The same four values reach every agent the app starts, a chat
+ * or a terminal, and each runtime is told them in its own words.
+ *
+ * - `bypass` never asks. The CLI's own skip-every-prompt setting (Codex calls
+ *   it YOLO).
+ * - `auto` edits files inside the workspace and reads without asking, and asks
+ *   before anything riskier: shell commands the runtime does not already treat
+ *   as safe, network access, MCP tools, and anything outside the workspace.
+ * - `manual` asks before every action that changes something or reaches out:
+ *   each edit, command, web request and MCP tool. Read-only lookups inside the
+ *   workspace (reading, searching, listing files) run without a card, since a
+ *   card for every file read would stop any chat from getting anywhere.
+ * - `none` passes no permission setting at all, so the CLI runs on whatever its
+ *   own configuration says. That can mean asking, or not.
  */
-export type CliPermissionPreset = 'none' | 'bypass'
+export type CliPermissionPreset = 'none' | 'manual' | 'auto' | 'bypass'
 
 /**
- * Two modes, and nothing between them (owner ruling 2026-09-27): every agent
- * spawns with its CLI's bypass flag, and an organization that forbids that
- * picks `none`, which passes no flag and leaves the CLI on its own default.
- * The rungs between — ask before every action, a classifier or a sandbox
- * deciding — were each a different mechanism per CLI, and choosing among them
- * was a decision the CLI's own configuration already makes better.
+ * Four modes again (owner request 2026-09-30). For three days there were only
+ * `bypass` and `none`; before that the same four existed, and a chat could not
+ * change its mode once it had started. Values written in either period read
+ * back as what they were chosen as.
  *
- * Retired values map to `none`, never to `bypass`. Every one of them was a
- * choice to be asked more often than bypass asks, and a migration that quietly
- * widened what an agent may do without asking would override that choice.
- * `none` is the honest remainder: the CLI does what it is configured to do.
- *
- * Retired spellings are accepted forever on read (persisted settings, saved
- * automations, agent records, third-party plugin manifests, external MCP
- * callers, older paired clients) and never emitted; this is the one place that
- * maps them. Only the absence of a value, or one no version ever wrote, takes
- * the default, which is `bypass`.
+ * Retired spellings map to the mode that kept their promise: `default` (whose
+ * label promised "prompts for permissions") to `manual`, `auto_workspace`
+ * ("auto-approve workspace edits") to `auto`, `bypass_all` to `bypass`. They
+ * are accepted forever on read (persisted settings, saved automations, agent
+ * records, third-party plugin manifests, external MCP callers, older paired
+ * clients) and never emitted; this is the one place that maps them. Only the
+ * absence of a value, or one no version ever wrote, takes the default, which
+ * is `bypass`.
  */
 export function parseCliPermissionPreset(input: unknown): CliPermissionPreset | null {
   switch (input) {
     case 'none':
+    case 'manual':
+    case 'auto':
     case 'bypass':
       return input
     case 'bypass_all':
       return 'bypass'
-    case 'manual':
-    case 'auto':
     case 'default':
+      return 'manual'
     case 'auto_workspace':
-      return 'none'
+      return 'auto'
     default:
       return null
   }
@@ -53,14 +61,18 @@ export function normalizeCliPermissionPreset(input: unknown): CliPermissionPrese
  * `CliPermissionPreset` does not compile until somebody decides where it sits.
  *
  * The order is what the gateway's launch cap compares: an agent may start
- * another agent only at its own rank or below, so a preset added between the
- * two has to be placed by what it permits, not by when it was added. `none`
- * permits nothing the CLI's own configuration does not; `bypass` skips every
- * prompt the CLI has.
+ * another agent only at its own rank or below, so a preset has to be placed by
+ * what it permits, not by when it was added. `manual` is the only one the app
+ * itself holds to asking. `none` permits nothing the CLI's own configuration
+ * does not, which is usually asking before edits and commands but can be more.
+ * `auto` lets edits through on top of that, and `bypass` skips every prompt
+ * the CLI has.
  */
 const CLI_PERMISSION_PRESET_RANK: Record<CliPermissionPreset, number> = {
-  none: 0,
-  bypass: 1,
+  manual: 0,
+  none: 1,
+  auto: 2,
+  bypass: 3,
 }
 
 /** Whether `candidate` lets an agent do more without asking than `reference` does. */
@@ -74,3 +86,8 @@ export function isMostPermissiveCliPermissionPreset(preset: CliPermissionPreset)
     (other) => !isLooserCliPermissionPreset(other, preset),
   )
 }
+
+/** Every preset, strictest first. */
+export const CLI_PERMISSION_PRESETS: readonly CliPermissionPreset[] = (
+  Object.keys(CLI_PERMISSION_PRESET_RANK) as CliPermissionPreset[]
+).sort((a, b) => CLI_PERMISSION_PRESET_RANK[a] - CLI_PERMISSION_PRESET_RANK[b])
