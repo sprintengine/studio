@@ -118,6 +118,17 @@ export const COMMAND_REGISTRY = [
     allowInEditableTarget: true,
     handlerPath: { kind: 'panel-event', eventId: 'chat.effort.cycle' },
   }),
+  // Resume in terminal: the focused chat's conversation carried on by a
+  // terminal agent running the CLI's own resume.
+  command({
+    id: 'chat.resumeInTerminal',
+    title: 'Continue Chat in Terminal',
+    category: 'panel',
+    scopes: ['workspace'],
+    defaultKeybindings: [],
+    availability: ['activeWorkspace'],
+    handlerPath: { kind: 'panel-event', eventId: 'chat.resumeInTerminal' },
+  }),
   // Step through a conversation one prompt at a time — the chat's reading of
   // what `terminal.promptPrevious` / `terminal.promptNext` do in a shell, so it
   // takes the same chords. The terminal's pair sits on the more specific

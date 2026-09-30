@@ -38,6 +38,8 @@ import type {
   ConversationStartSessionResult,
   ConversationStopSessionInput,
   ConversationSuspendSessionInput,
+  ConversationTerminalHandoffInput,
+  ConversationTerminalHandoffResult,
   ConversationTranscriptInput,
   ConversationTranscriptResult,
   ConversationToolDetailInput,
@@ -99,6 +101,7 @@ export type ConversationIpcHandlers = {
   setModel?(input: ConversationSetModelInput): Promise<ConversationSessionActionResult>
   stopSession(input: ConversationStopSessionInput): Promise<ConversationSessionActionResult>
   suspendSession?(input: ConversationSuspendSessionInput): Promise<ConversationSessionActionResult>
+  terminalHandoff?(input: ConversationTerminalHandoffInput): Promise<ConversationTerminalHandoffResult>
   listSessions(input?: ConversationListSessionsInput): ConversationListSessionsResult
   readTranscript(input: ConversationTranscriptInput): Promise<ConversationTranscriptResult>
   getToolDetail?(input: ConversationToolDetailInput): Promise<ConversationToolDetailResult>
@@ -686,6 +689,20 @@ export function registerConversationIpc(
       if (!handlers.suspendSession) return { ok: false, message: 'Suspending a conversation is unavailable.' }
       try {
         return await handlers.suspendSession(parsed.input)
+      } catch (err) {
+        return { ok: false, message: formatError(err) }
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'conversation:sessions:terminal-handoff',
+    async (_, input: unknown): Promise<ConversationTerminalHandoffResult> => {
+      const parsed = parseSessionIdInput(input)
+      if (!parsed.ok) return parsed
+      if (!handlers.terminalHandoff) return { ok: false, message: 'Resuming a chat in a terminal is unavailable.' }
+      try {
+        return await handlers.terminalHandoff(parsed.input)
       } catch (err) {
         return { ok: false, message: formatError(err) }
       }

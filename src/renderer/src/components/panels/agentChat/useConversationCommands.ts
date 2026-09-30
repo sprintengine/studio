@@ -126,13 +126,20 @@ function peek(cli: string, cwd: string): void {
 }
 
 /** Studio's own commands, answered in the view and never sent. */
-export function studioAppCommands(input: { model: boolean; effort: boolean }): ConversationCommand[] {
+export function studioAppCommands(input: {
+  model: boolean
+  effort: boolean
+  terminal?: boolean
+}): ConversationCommand[] {
   return [
     ...(input.model
       ? [{ name: 'model', description: 'Choose the model, effort and permissions', source: 'app' as const }]
       : []),
     ...(input.effort
       ? [{ name: 'effort', description: 'Step to the next reasoning effort', source: 'app' as const }]
+      : []),
+    ...(input.terminal
+      ? [{ name: 'terminal', description: 'Continue this conversation in a terminal', source: 'app' as const }]
       : []),
   ]
 }

@@ -124,6 +124,7 @@ import { listGitWorktrees } from './git-worktree-list'
 import { readRepositoryIdentity } from './repository-identity'
 import { agentWorktreePaths } from '../shared/worktree-paths'
 import { createConversationPeekService } from './conversation-peek/service'
+import { createConversationTerminalHandoff } from './conversation-terminal-handoff'
 import { createAgentPromptStore, registeredAgentOwners } from './agent-prompt-store'
 import {
   cliResumeCapabilities,
@@ -1096,6 +1097,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         .find((candidate) => candidate.manifest.id === cli)
       return plugin ? declaredPermissionPresets(plugin.manifest) : null
     },
+    cliResumesSessions: (cli) => cliResumeCapabilities(cli).resumeSession,
     // The same resolver the renderer reaches over `memory:resolve-root`, so a
     // headless launch carries the project's Knowledge Graph exactly like an
     // interactively-spawned agent does.
@@ -1167,6 +1169,24 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       return result
     },
   }
+
+  // Resume in terminal: a chat's CLI session handed to a terminal agent,
+  // through the same launch door as every other agent.
+  const conversationTerminalHandoff = createConversationTerminalHandoff({
+    runtime: conversationRuntime,
+    launch: (request) => agentLaunchService.launch(request),
+    cliResumesSessions: (cli) => cliResumeCapabilities(cli).resumeSession,
+    permissionPresetsForCli: (cli) => {
+      const plugin = getPluginRegistry()
+        .loaded()
+        .find((candidate) => candidate.manifest.id === cli)
+      return plugin ? declaredPermissionPresets(plugin.manifest) : null
+    },
+    chatName: (workspaceId, agentId) =>
+      workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId)?.agents?.[
+        agentId
+      ]?.name,
+  })
 
   // Built after workspace sync because adopting the retired skill packs needs to
   // know which projects are open — that is where a previously installed pack's
@@ -1964,6 +1984,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     moduleRegistryMirror,
     agentControlPlane,
     agentLaunchService,
+    conversationTerminalHandoff,
     conversationLaunchService,
     tourService,
     setTourAttention: tours.setAttention,
