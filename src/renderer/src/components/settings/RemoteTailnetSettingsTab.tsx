@@ -25,6 +25,7 @@ import { SettingCard, SettingsPageHeader, SettingsSectionTitle, SettingToggle } 
 import { outstandingPairingNote, pairingExpiry, tailnetReadiness } from './tailnetPanelModel'
 import { MachineList, MachineRow } from '../remote/MachineRow'
 import { PairDeviceModal, type PairDeviceTarget } from '../remote/PairDeviceModal'
+import { pairRoute } from '../remote/pairRouteModel'
 import { STANDARD_SCOPES } from '../remote/scopePickerModel'
 import { PairRequestCard } from '../remote/PairRequestCard'
 import { OutboundPairRequestCard } from '../remote/OutboundPairRequestCard'
@@ -161,6 +162,22 @@ export function RemoteTailnetSettingsTab() {
         now,
       }),
     [status?.devices, presence.mesh, scan, now],
+  )
+
+  // The machines "Pair a device" can ask, in list order. Built here rather than
+  // in the dialog because the endpoint needs the scan's address and port.
+  const pairablePeers = useMemo(
+    () =>
+      scan
+        ? machines
+            .filter((machine) => pairRoute(machine).route === 'ask')
+            .map((machine) => ({
+              kind: 'peer' as const,
+              endpoint: `${peerAddressOf(machine, scan)}:${scan.probedPort}`,
+              machineName: machine.name,
+            }))
+        : [],
+    [machines, scan],
   )
 
   const run = async (message: string, work: () => Promise<void>): Promise<void> => {
@@ -335,7 +352,9 @@ export function RemoteTailnetSettingsTab() {
                     onSelect: () => setPasteOpen(true),
                   },
                 ]}
-                onPrimary={() => setPairTarget({ kind: 'code' })}
+                // A machine to ask comes first: asking needs nothing carried
+                // between the two machines. The link is the fallback.
+                onPrimary={() => setPairTarget(pairablePeers[0] ?? { kind: 'code' })}
               />
             }
           >
@@ -362,6 +381,14 @@ export function RemoteTailnetSettingsTab() {
           </div>
         ) : null}
 
+        {/* A failed scan still leaves rows — this machine, and every machine
+            already paired — so the reason cannot wait for an empty list. Shown
+            that way, a scan that broke read exactly like a tailnet with no
+            other Studio on it. */}
+        {machines.length > 0 && scan?.unavailableReason ? (
+          <p className="text-body leading-5 text-[color:var(--text-muted)]">{scan.unavailableReason}</p>
+        ) : null}
+
         {machines.length > 0 ? (
           <MachineList ariaLabel="Machines">
             {machines.map((machine) => (
@@ -371,15 +398,7 @@ export function RemoteTailnetSettingsTab() {
                 now={now}
                 busy={busy}
                 onPair={(target) =>
-                  setPairTarget(
-                    scan
-                      ? {
-                          kind: 'peer',
-                          endpoint: `${peerAddressOf(target, scan)}:${scan.probedPort}`,
-                          machineName: target.name,
-                        }
-                      : { kind: 'code' },
-                  )
+                  setPairTarget(pairablePeers.find((peer) => peer.machineName === target.name) ?? { kind: 'code' })
                 }
                 onRevoke={(target) => void forgetMachine(target)}
                 onGrant={(target) => void grantStandard(target)}
@@ -426,6 +445,7 @@ export function RemoteTailnetSettingsTab() {
       <PairDeviceModal
         open={pairTarget !== null}
         target={pairTarget ?? { kind: 'code' }}
+        peers={pairablePeers}
         onClose={() => setPairTarget(null)}
         onCreate={createPairing}
         busy={busy}
