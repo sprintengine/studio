@@ -1868,6 +1868,27 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     return service
   }
 
+  // A chat a schedule started may read the schedules but not make, remove or
+  // fire one. A run that could schedule runs could fill the list with copies
+  // of itself, each starting more, with nobody watching any of them; and one
+  // that could fire its own schedule would be a loop by another name. The
+  // schedule is the one long-lived thing, set up by a person, and its runs
+  // come and go under it.
+  //
+  // The caller is the chat whose agent declared itself on this connection
+  // (`launchPermissionCeiling` reads the same identity). A caller that
+  // declared no workspace is not a run's chat as far as anything here can
+  // tell, and keeps what it had.
+  function refuseScheduledRunCaller(context: McpConnectionContext | undefined, action: string): McpToolResult | null {
+    if (context?.metadata.kind !== 'studio-agent') return null
+    if (!connectionWorkspace(context)?.scheduledAgentId) return null
+    return failure(
+      'scheduled_run_refused',
+      `This chat was started by a scheduled agent, and a scheduled run may not ${action} one. ` +
+        'Ask the person to change schedules from the app.',
+    )
+  }
+
   // What a caller reads about a scheduled agent: the record, its schedule in
   // words, and when it runs next as an ISO instant.
   const scheduledAgentForCaller = (agent: ScheduledAgentView) => ({
@@ -1896,7 +1917,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       'project, on its machine, with `prompt` as its first message. Nothing carries over between runs. ' +
       '`cron` is five-field cron (minute hour day month weekday), several separated by ";". The schedule is ' +
       "read in this computer's timezone unless `timezone` names another IANA zone. " +
-      CALLER_PRESET_CAP_SENTENCE,
+      CALLER_PRESET_CAP_SENTENCE +
+      ' Refused to a chat a scheduled agent started.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1926,6 +1948,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       additionalProperties: false,
     },
     handler: async (args, context) => {
+      const refused = refuseScheduledRunCaller(context, 'create')
+      if (refused) return refused
       const workspaceId = requireString(args, 'workspaceId')
       if (typeof workspaceId !== 'string') return workspaceId
       const workspace = findWorkspace(workspaceId)
@@ -1980,14 +2004,18 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
 
   const scheduledAgentDelete: McpToolRegistration = {
     name: 'schedule.delete',
-    description: 'Stop and remove a scheduled agent. Chats its past runs started are left as they are.',
+    description:
+      'Stop and remove a scheduled agent. Chats its past runs started are left as they are. ' +
+      'Refused to a chat a scheduled agent started.',
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string', description: 'Scheduled agent id from schedule.list.' } },
       required: ['id'],
       additionalProperties: false,
     },
-    handler: async (args) => {
+    handler: async (args, context) => {
+      const refused = refuseScheduledRunCaller(context, 'delete')
+      if (refused) return refused
       const id = requireString(args, 'id')
       if (typeof id !== 'string') return id
       const service = scheduledAgentsOrFailure()
@@ -2002,7 +2030,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     description:
       "Start a scheduled agent's run now, without waiting for its schedule: a new chat with its prompt. " +
       "Called by an agent of this app, the scheduled agent must launch no looser than that agent's own " +
-      'preset, or the run is refused with "permission_escalation".',
+      'preset, or the run is refused with "permission_escalation". Refused to a chat a scheduled agent ' +
+      "started, and while the scheduled agent's last run is still working.",
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string', description: 'Scheduled agent id from schedule.list.' } },
@@ -2010,6 +2039,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       additionalProperties: false,
     },
     handler: async (args, context) => {
+      const refused = refuseScheduledRunCaller(context, 'run')
+      if (refused) return refused
       const id = requireString(args, 'id')
       if (typeof id !== 'string') return id
       const service = scheduledAgentsOrFailure()

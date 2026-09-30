@@ -5,7 +5,9 @@
 // it was scheduled. Nothing carries from one run to the next, and nothing about
 // a run is kept here but whether the last one started: each run's chat carries
 // this record's id (`Workspace.scheduledAgentId`) instead, so the chats are
-// where the runs are listed from.
+// where the runs are listed from. A run never makes, removes or fires a
+// scheduled agent (the MCP tools refuse a run's chat), so the schedule a person
+// set up is the one long-lived thing, and its runs come and go under it.
 //
 // Scheduled agents live in the app's own data on this computer, never in the
 // project, so a commit someone else pushes can never schedule anything here.
