@@ -76,6 +76,17 @@ test('gh', async () => {
         file: '/bin/bash',
         args: ['-ilc', `'gh' 'pr' 'view' 'a'\\''; rm -rf /'`],
       })
+      // A variable to keep from gh is unset inside the login shell too, after the
+      // rc files that would export it have run; a name that is not a plain
+      // identifier is dropped rather than spliced into the command.
+      assert.deepEqual(
+        buildShellGhDescriptor(['auth', 'token'], '/bin/zsh', 'darwin', [
+          'GH_ENTERPRISE_TOKEN',
+          'X; rm -rf /',
+          'GH_TOKEN',
+        ]),
+        { file: '/bin/zsh', args: ['-ilc', "unset GH_ENTERPRISE_TOKEN GH_TOKEN; 'gh' 'auth' 'token'"] },
+      )
       assert.equal(buildShellGhDescriptor(['--version'], '/bin/zsh', 'win32'), null, 'no shell retry on Windows')
       assert.equal(buildShellGhDescriptor(['--version'], undefined, 'darwin'), null, 'no $SHELL, no retry')
       assert.equal(buildShellGhDescriptor(['--version'], '/usr/bin/fish', 'darwin'), null, 'only zsh/bash take -ilc')

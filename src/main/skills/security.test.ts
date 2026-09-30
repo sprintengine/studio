@@ -282,22 +282,47 @@ test('security', async () => {
 
   async function refusesAHostileRepoRefBeforeAnyRequest(): Promise<void> {
     // The allowlist is the second line; the ref parser is the first. A pasted
-    // string cannot name a non-github host or smuggle a path.
-    for (const input of [
-      'https://evil.com/owner/repo',
+    // string cannot smuggle a path, a scheme, a port or credentials.
+    const hostile = [
       'http://github.com/owner/repo',
-      'https://github.com.evil.com/owner/repo',
+      'https://github.com:8443/owner/repo',
+      'https://user:secret@ghe.example.com/owner/repo',
       'file:///etc/passwd',
       'javascript:alert(1)',
       'owner/repo/../../other',
       '../../etc/passwd',
       'owner/re po',
       'owner/repo;rm -rf /',
-    ]) {
+      'ghe.example.com/owner/../other',
+    ]
+    for (const input of hostile) {
       assert.equal(parseSkillRepoRef(input), null, `refuses ${JSON.stringify(input)}`)
     }
     assert.deepEqual(parseSkillRepoRef('anthropics/skills'), { owner: 'anthropics', repo: 'skills', ref: '' })
-    console.log('  repo refs: 9 hostile inputs refused before any network call')
+
+    // A repository on another host is one the person typed — a company's
+    // self-hosted GitHub. It keeps that host, is never mistaken for github.com
+    // (suffix confusion included), and the API path — the only one carrying
+    // the github.com token over fetch — refuses it before any request.
+    for (const [input, host] of [
+      ['https://evil.com/owner/repo', 'evil.com'],
+      ['https://github.com.evil.com/owner/repo', 'github.com.evil.com'],
+    ] as const) {
+      const ref = parseSkillRepoRef(input)
+      assert.equal(ref?.host, host, `${input} keeps its own host`)
+      const seen: string[] = []
+      const fetcher: SkillFetch = async (url) => {
+        seen.push(url)
+        return jsonResponse('{}')
+      }
+      await assert.rejects(resolveSkillRepoCommit(ref!, { fetcher, token: 'ghp_secret' }), /needs git/)
+      await assert.rejects(fetchSkillRepoTree(ref!, COMMIT, { fetcher, token: 'ghp_secret' }), /needs git/)
+      await assert.rejects(fetchSkillRepoFile(ref!, COMMIT, 'SKILL.md', { fetcher, token: 'ghp_secret' }), /needs git/)
+      assert.deepEqual(seen, [], `${input}: no request made over the API path`)
+    }
+    console.log(
+      `  repo refs: ${hostile.length} hostile inputs refused; other hosts kept apart and refused by the API path`,
+    )
   }
 
   // GAP — pins finding: the allowlist is checked on the request URL only. The
