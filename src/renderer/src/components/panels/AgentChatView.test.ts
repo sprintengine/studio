@@ -1196,19 +1196,20 @@ test('AgentChatView', async () => {
   assert.ok(footerMarkup('bypass', 'codex').includes('YOLO'), 'a Codex chat names bypass the way Codex does')
 
   // The pill's rows (remote-sessions-ux / selector-menus-premium): roving
-  // tabIndex, one-line summaries, and the two glyphs drawn from AppIcons — not
-  // a paragraph per row. Exactly two presets exist (owner ruling 2026-09-27).
+  // tabIndex, one-line summaries, and the four glyphs drawn from AppIcons —
+  // not a paragraph per row (owner request 2026-09-30 for four presets).
   const { PermissionPresetMenuRows } = await import('../workspace/agentComposer/agentSpawnShared')
   const rowsMarkup = renderToStaticMarkup(
     createElement(PermissionPresetMenuRows, { value: 'bypass', onSelect: () => {} }),
   )
-  assert.equal((rowsMarkup.match(/role="menuitemradio"/g) ?? []).length, 2, 'exactly two preset rows')
+  assert.equal((rowsMarkup.match(/role="menuitemradio"/g) ?? []).length, 4, 'four preset rows')
   assert.equal((rowsMarkup.match(/tabindex="0"/g) ?? []).length, 1, 'exactly one tab stop: the checked row')
   assert.ok(
-    rowsMarkup.indexOf('Bypass permissions') < rowsMarkup.indexOf('No flag'),
-    'Bypass, the default, leads; No flag follows',
+    rowsMarkup.indexOf('Bypass permissions') < rowsMarkup.indexOf('>Auto<') &&
+      rowsMarkup.indexOf('>Auto<') < rowsMarkup.indexOf('>Manual<') &&
+      rowsMarkup.indexOf('>Manual<') < rowsMarkup.indexOf('No flag'),
+    'Bypass, the default, leads; Auto, Manual and No flag follow',
   )
-  assert.ok(!/Manual|>Auto</.test(rowsMarkup), 'the retired presets are not offered')
   assert.ok(
     rowsMarkup.includes('The CLI’s default — no permission flag is passed.'),
     'the no-flag row carries a one-line summary',

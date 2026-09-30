@@ -340,7 +340,13 @@ export function LaunchModelPicker({
       // Permissions sit with the model, remembered per CLI — the same control
       // every other picker host carries, so the preset a person set for a
       // runtime in New chat is the preset this card launches on.
-      permissions={(cli) => <SpawnPermissionFooter cli={cli} fallback={permissionFallback} />}
+      permissions={(cli) => (
+        <SpawnPermissionFooter
+          cli={cli}
+          fallback={permissionFallback}
+          launch={selection.kind === 'conversation' ? 'chat' : 'terminal'}
+        />
+      )}
     />
   )
 }

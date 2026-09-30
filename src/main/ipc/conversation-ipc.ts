@@ -990,8 +990,9 @@ function parseSessionIdInput(
   }
 }
 
-// A window built before the two-mode change can still send `manual` or `auto`;
-// parseCliPermissionPreset reads both as `none` rather than refusing them.
+// A window built before the preset rename can still send `default`,
+// `auto_workspace` or `bypass_all`; parseCliPermissionPreset reads each as the
+// preset it meant rather than refusing it.
 const PERMISSION_PRESET_ERROR = `permissionPreset must be ${CONVERSATION_PERMISSION_PRESETS.join(' or ')}.`
 
 function parseSetPermissionInput(

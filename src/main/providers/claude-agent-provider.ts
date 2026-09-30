@@ -49,6 +49,7 @@ import {
 } from '../conversation-commands/claude'
 import { isBackgroundLaunchAck } from '../../shared/conversation/subagents'
 export { summarizeToolInput } from '../../shared/conversation/approvalSummary'
+import { LOOKUP_TOOL_KINDS } from '../../shared/conversation/permissionModes'
 
 import type {
   Options,
@@ -726,13 +727,12 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       // (a connector run's) ride the same option; the person's user-scoped
       // servers still load from their own configuration.
       ...(Object.keys(mcpServers).length > 0 ? { mcpServers } : {}),
-      ...(skillPlugin
-        ? {
-            plugins: [
-              { type: 'local', path: wslTarget ? toWslPath(skillPlugin) : skillPlugin, skipMcpDiscovery: true },
-            ],
-          }
-        : {}),
+      // Plain `--plugin-dir`, never `skipMcpDiscovery`: the SDK spells that
+      // `--plugin-dir-no-mcp`, which a Claude Code older than the SDK does not
+      // know, and the child exits on it. There is nothing to skip anyway: the
+      // staged plugin is written here with no `.mcp.json` and no `mcpServers`,
+      // so it can carry skills and nothing else.
+      ...(skillPlugin ? { plugins: [{ type: 'local', path: wslTarget ? toWslPath(skillPlugin) : skillPlugin }] } : {}),
       ...(state.skillIds?.length ? { skills: state.skillIds.map(attachedSkillName) } : {}),
       env,
       abortController: abort,
@@ -754,6 +754,16 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
                         hookEventName: 'PreToolUse' as const,
                         permissionDecision: 'deny' as const,
                         permissionDecisionReason: 'Ask mode permits read-only tools only.',
+                      },
+                    }
+                  }
+                  if (manualAsks(state, input.tool_name)) {
+                    await state.onBeforeTool?.(input.tool_name)
+                    return {
+                      hookSpecificOutput: {
+                        hookEventName: 'PreToolUse' as const,
+                        permissionDecision: 'ask' as const,
+                        permissionDecisionReason: 'Manual mode asks before every action that changes something.',
                       },
                     }
                   }
@@ -794,6 +804,21 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
   // with a hook that reads `state.mode` for every tool call.
   function nativePermissionMode(state: SessionState, mode: SessionState['mode']) {
     return mode === 'plan' || mode === 'ask' ? 'plan' : SDK_PERMISSION_MODE_BY_PRESET[state.permissionPreset]
+  }
+
+  // Whether Manual sends this call to a card even where the CLI would run it
+  // unasked. 'default' already asks before edits and most commands, but it
+  // runs the commands it judges read-only and whatever the person's own allow
+  // rules name; Manual promises a card for every action that changes something
+  // or reaches out. Read-only lookups still run, and questions and plans reach
+  // canUseTool anyway. Read from the session's preset, not the child's, so
+  // choosing Manual mid-reply holds the very next call.
+  function manualAsks(state: SessionState, toolName: string): boolean {
+    if (state.permissionPreset !== 'manual' || state.mode === 'plan' || state.mode === 'ask') return false
+    if (toolName === 'AskUserQuestion' || toolName === 'ExitPlanMode') return false
+    // A tool the session was started pre-approved for stays pre-approved.
+    if (state.allowedTools?.includes(toolName)) return false
+    return !LOOKUP_TOOL_KINDS.has(inferConversationToolKind(toolName))
   }
 
   // Move the live child to another chat mode over the control channel rather
@@ -852,8 +877,10 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     // reach the person: a safety check the CLI marks as not approvable by a
     // stray keystroke, and one forced by the user's own `permissions.ask`
     // rule. Questions and plans are answers, not permissions, so they always
-    // show. The preset the child runs under decides, so a live switch to
-    // bypass answers the rest of the reply too.
+    // show. The child has to run under bypass, so a live switch to bypass
+    // answers the rest of the reply too; and the chat has to still be on it,
+    // so a stricter mode chosen while a child that could not take it goes on
+    // bypassing holds whatever that child still asks about.
     const bypassable =
       state.mode !== 'plan' &&
       state.mode !== 'ask' &&
@@ -861,7 +888,8 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       toolName !== 'ExitPlanMode' &&
       !permissionContext?.defaultToNo &&
       !permissionContext?.matchedAskRule
-    if (bypassable && state.childPreset === 'bypass') return { behavior: 'allow', updatedInput: toolInput }
+    if (bypassable && state.childPreset === 'bypass' && state.permissionPreset === 'bypass')
+      return { behavior: 'allow', updatedInput: toolInput }
     // A tool that fires after the turn's `result` (e.g. once a background
     // subagent completes and the model resumes) has no open turn. Open a
     // continuation turn so its approval card reaches the UI instead of being
@@ -889,6 +917,9 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       ...(permissionContext?.agentID ? { originAgentId: permissionContext.agentID } : {}),
       ...(permissionContext?.defaultToNo ? { defaultToNo: true } : {}),
       ...(permissionContext?.suppressAlwaysAllowRule ? { suppressAlwaysAllowRule: true } : {}),
+      // What bypass would still have asked (a safety check, the person's own
+      // ask rule, anything in plan or ask mode): no mode answers it for them.
+      ...(bypassable ? {} : { mustAsk: true }),
       summary: questions
         ? (questions[0]?.question ?? 'The agent has a question.')
         : plan !== null
@@ -1167,15 +1198,17 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
 
     // Live permission switch. The preset is recorded and pushed into a running
     // child through the SDK's `setPermissionMode`, which takes effect at once,
-    // mid-reply included. Bypass is the child's own 'bypassPermissions' (every
-    // child is spawned able to take it), and the approvals already waiting that
+    // mid-reply included: Manual is the child's 'default' (and the hook in
+    // `manualAsks`), Auto its 'acceptEdits', Bypass its 'bypassPermissions'
+    // (every child is spawned able to take it). Approvals already waiting that
     // bypass would not have asked are answered yes, through the same callback a
-    // person's answer takes. `none` is the CLI's own default, which no mode
-    // names: mid-reply the child drops to 'default' so bypass stops now, and
-    // the next turn respawns it (resumed) as `none` spawns; an idle child is
-    // replaced at once. A child that refuses the mode is replaced the same
-    // way, and mid-reply that waits for the next message, since disposing it
-    // would drop the reply the user is reading.
+    // person's answer takes; the runtime answers the ones Auto covers
+    // (shared/conversation/permissionModes.ts). `none` is the CLI's own default,
+    // which no mode names: mid-reply the child drops to 'default' so nothing
+    // looser carries on, and the next turn respawns it (resumed) as `none`
+    // spawns; an idle child is replaced at once. A child that refuses the mode
+    // is replaced the same way, and mid-reply that waits for the next message,
+    // since disposing it would drop the reply the user is reading.
     async setPermissionPreset(input: MockAdapterPermissionInput): Promise<ConversationProviderPermissionResult> {
       const state = sessions.get(input.sessionId)
       if (!state) return { ok: false, message: 'Conversation session is not registered with the Claude provider.' }
@@ -1184,14 +1217,15 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       if (state.mode === 'ask' || state.mode === 'plan')
         return { ok: true, notice: 'The permission preset applies when you return to the default mode.' }
       if (!state.query || childHonorsPreset(state)) return { ok: true }
-      const bypass = state.permissionPreset === 'bypass'
-      if (!bypass && !state.turn) {
+      const next = state.permissionPreset
+      const target = SDK_PERMISSION_MODE_BY_PRESET[next]
+      if (target === undefined && !state.turn) {
         disposeChild(state)
         return { ok: true }
       }
       const query = state.query
       try {
-        await query.setPermissionMode(bypass ? 'bypassPermissions' : 'default')
+        await query.setPermissionMode(target ?? 'default')
       } catch {
         if (state.query !== query) return { ok: true }
         if (!state.turn) {
@@ -1200,15 +1234,17 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         }
         return {
           ok: true,
-          notice: bypass
-            ? 'Bypass permissions applies from your next message.'
-            : 'The new permissions apply from your next message.',
+          notice:
+            next === 'bypass'
+              ? 'Bypass permissions applies from your next message.'
+              : 'The new permissions apply from your next message.',
         }
       }
       if (state.query !== query) return { ok: true }
       // Moved again while the child answered: which mode it ended on is not
-      // known here, so it bypasses nothing more and the next turn respawns it.
-      state.childPreset = bypass && state.permissionPreset === 'bypass' ? 'bypass' : null
+      // known here, so it is trusted with nothing more and the next turn
+      // respawns it. `none` has no mode of its own either.
+      state.childPreset = target !== undefined && state.permissionPreset === next ? next : null
       if (state.childPreset !== 'bypass') return { ok: true }
       for (const [requestId, pending] of Array.from(state.pendingPermissions)) {
         if (!pending.bypassable) continue
@@ -1420,12 +1456,23 @@ async function readWorkspaceInstructions(workspaceRoot: string): Promise<string>
 }
 
 // Terminal-preset → SDK permission-mode mapping, mirroring the claude-code
-// plugin manifest's bypass flag (`--permission-mode bypassPermissions`). `none`
-// maps to undefined on purpose: it means "pass no permission flag and let the
-// harness's own default win", which for the SDK is leaving permissionMode unset
-// rather than pinning it to 'default'.
-const SDK_PERMISSION_MODE_BY_PRESET: Record<ConversationPermissionPreset, 'bypassPermissions' | undefined> = {
+// plugin manifest's flags (`--permission-mode default|acceptEdits|
+// bypassPermissions`). `none` maps to undefined on purpose: it means "pass no
+// permission flag and let the harness's own default win", which for the SDK is
+// leaving permissionMode unset rather than pinning it to 'default'.
+//
+// Auto is 'acceptEdits' rather than the CLI's classifier mode ('auto'): Auto
+// promises that edits in the workspace go through and everything riskier asks,
+// on every runtime. The classifier decides for the person instead of asking
+// them, and is only offered on some plans and models, so the same choice would
+// mean different things on different accounts.
+const SDK_PERMISSION_MODE_BY_PRESET: Record<
+  ConversationPermissionPreset,
+  'default' | 'acceptEdits' | 'bypassPermissions' | undefined
+> = {
   none: undefined,
+  manual: 'default',
+  auto: 'acceptEdits',
   bypass: 'bypassPermissions',
 }
 

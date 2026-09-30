@@ -65,6 +65,16 @@ model applies from the next turn. Validate `models` with
 `parseConversationWireModels`, and hide the model control for a desktop that
 does not advertise the capability.
 
+A desktop that advertises `conversation-permission-modes`
+(`CONVERSATION_PERMISSION_MODES_CAPABILITY`) runs chats on four permission
+presets — `bypass`, `auto`, `manual` and `none` — where one without it takes
+only `bypass` and `none` and reads `manual` and `auto` as `none`. Its list may
+name either new preset as a thread's `permissionPreset`, and names the presets
+the chat's provider can run in `capabilities.permissionPresets`;
+`setPermissionPreset` takes all four. Offer `manual` and `auto` only to a
+desktop that advertises the capability, and leave a listed preset you do not
+know out rather than guessing at it (`isConversationWirePermissionPreset`).
+
 Grants are read live. A device whose grant loses `conversation:operate` keeps
 its socket and has further commands refused with `conversation_operate_required`;
 one that loses `conversation:read` is sent that error and closed with

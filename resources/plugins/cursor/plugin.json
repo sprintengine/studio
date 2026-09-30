@@ -9,6 +9,11 @@
   "binary": "cursor-agent",
   "$comment": "Cursor's docs now present `agent` as the primary command, but the installer still ships `cursor-agent` and `agent` is far too generic a name to probe for (`command -v agent` can false-positive on unrelated binaries). `cursor-agent` remains supported as the stable alias, so it is both the probe target and the launch binary.",
   "permissionPresets": {
+    "auto": {
+      "$comment": "Cursor's own auto mode. `cursor-agent --help`: `--auto-review  Use Auto-review (Smart Auto): a server classifier auto-runs safe tool calls and prompts for the rest`. No `manual` is declared: Cursor applies file edits in the workspace without asking whatever flag it gets, so it cannot be held to asking before every change.",
+      "label": "Auto — a classifier runs the safe calls, asks for the rest",
+      "args": ["--auto-review"]
+    },
     "bypass": {
       "$comment": "`--yolo` is documented as an alias for `--force`; only one is sent.",
       "label": "Bypass all approvals (dangerous)",

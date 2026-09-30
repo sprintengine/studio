@@ -67,6 +67,7 @@ import {
   type KnowledgeLaunchContext,
 } from '../shared/project-knowledge'
 import { normalizeExecutionHostId } from '../shared/execution-host'
+import type { CliPermissionPreset } from '../shared/cli-permission-preset'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 
 /**
@@ -110,6 +111,14 @@ export type AgentLaunchServiceDeps = {
    * keep working; production wiring always provides it.
    */
   isAgentSelectableCli?: (cli: string) => boolean
+  /**
+   * The permission presets a terminal launch of this CLI is told in its own
+   * words (`declaredPermissionPresets`), or null for a CLI the registry does
+   * not hold. A preset the caller names outside the list is refused rather
+   * than launched with no flag under that preset's name. Optional, like
+   * `isAgentSelectableCli`.
+   */
+  permissionPresetsForCli?: (cli: string) => readonly CliPermissionPreset[] | null
   /**
    * Resolve a project's Knowledge Graph root on disk (`memory-graph.ts`'s
    * `resolveMemoryRoot`, the same call the renderer makes over IPC). Optional:
@@ -184,6 +193,15 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
         ok: false,
         code: 'cli_not_agent_selectable',
         message: `Agent CLI "${cli}" cannot report agent status (its plugin declares no lifecycle-hook support), so it is not selectable as an agent. Pick another CLI.`,
+      }
+    }
+
+    const declared = request.permissionPreset ? deps.permissionPresetsForCli?.(cli) : null
+    if (request.permissionPreset && declared && !declared.includes(request.permissionPreset)) {
+      return {
+        ok: false,
+        code: 'unsupported_permission_preset',
+        message: `Agent CLI "${cli}" has no setting for the "${request.permissionPreset}" permission preset in a terminal. Pass one of: ${declared.join(', ')}.`,
       }
     }
 

@@ -82,6 +82,8 @@ import { createCapabilityWatcher } from './capability-watcher'
 import { createMcpConfigService } from './mcp-config-service'
 import { createSkillsService } from './skills'
 import { createGitRepoReader, sweepGitRepoCache } from './skills/git-repo-reader'
+import { sharedGhRunner } from './github/gh'
+import { createGhHostTokenResolver } from './github/host-token'
 import type { SkillRepoReader } from './skills/repo-reader'
 import { SKILL_SOURCES_UPDATED_CHANNEL } from './skills/source-updates'
 import {
@@ -179,6 +181,7 @@ import { createWorkspaceRegistryService } from './workspace-registry-service'
 import { createWorkspaceSyncService } from './workspace-sync-service'
 import { writeDiagnosticLog } from './diagnostics-service'
 import { getPluginRegistry } from './plugin-registry-instance'
+import { declaredPermissionPresets } from './plugin-render'
 import { createStudioPluginService } from './studio-plugin-service'
 import { resolveInstalledSkillHarnesses } from './marketplace/skill-harness-targets'
 import { buildLauncherMcpServer, usableLocalLauncherRef } from './integrations/launcher'
@@ -1087,6 +1090,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         .find((candidate) => candidate.manifest.id === cli)
       return plugin ? Boolean(plugin.manifest.agentStateSpec) : true
     },
+    permissionPresetsForCli: (cli) => {
+      const plugin = getPluginRegistry()
+        .loaded()
+        .find((candidate) => candidate.manifest.id === cli)
+      return plugin ? declaredPermissionPresets(plugin.manifest) : null
+    },
     // The same resolver the renderer reaches over `memory:resolve-root`, so a
     // headless launch carries the project's Knowledge Graph exactly like an
     // interactively-spawned agent does.
@@ -1176,6 +1185,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const gitTransport = createGitTransportProbe({
     cacheDir: skillRepoCacheDir,
     resolveToken: () => githubTokenStore.resolveToken(),
+    // A source on a company's self-hosted GitHub reads with the GitHub CLI's
+    // sign-in for that host; the stored token above only ever goes to github.com.
+    resolveHostToken: createGhHostTokenResolver(sharedGhRunner()),
   })
   void Promise.all([app.whenReady(), bootJobsGate]).then(async () => {
     await gitTransport.refresh()
@@ -2071,7 +2083,11 @@ const GIT_VERSION_FLOOR: readonly [number, number] = [2, 19]
 const GIT_REPROBE_MS = 60_000
 const SKILL_REPO_CACHE_IDLE_MS = 60 * 24 * 60 * 60 * 1000
 
-function createGitTransportProbe(options: { cacheDir: string; resolveToken: () => Promise<string> }): {
+function createGitTransportProbe(options: {
+  cacheDir: string
+  resolveToken: () => Promise<string>
+  resolveHostToken: (host: string) => Promise<string>
+}): {
   readonly reader: SkillRepoReader | undefined
   readonly installed: boolean
   refresh(): Promise<void>

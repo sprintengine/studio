@@ -70,7 +70,7 @@ test('the localStorage map is handed to main once, for the CLIs main holds nothi
     [LEGACY_CLI_PERMISSION_PRESETS_KEY]: JSON.stringify({
       'claude-code': 'bypass',
       codex: 'auto',
-      // A retired preset the old store kept: it keeps the nearest meaning it has.
+      // Manual and Auto the old store kept arrive as themselves.
       grok: 'manual',
       cursor: 'auto',
       gemini: 'yolo',
@@ -90,8 +90,8 @@ test('the localStorage map is handed to main once, for the CLIs main holds nothi
   })
   assert.deepEqual(
     patches,
-    [{ cliPermissionPresets: { 'claude-code': 'bypass', grok: 'none', cursor: 'none' } }],
-    'Codex keeps the newer choice, manual and auto arrive as no flag, and a value this build does not recognise is not carried',
+    [{ cliPermissionPresets: { 'claude-code': 'bypass', grok: 'manual', cursor: 'auto' } }],
+    'Codex keeps the newer choice, manual and auto arrive as themselves, and a value this build does not recognise is not carried',
   )
   assert.equal(storage.map.size, 0, 'both old keys are gone once main has it on disk')
 })

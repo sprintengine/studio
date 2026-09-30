@@ -332,9 +332,19 @@ export type MeshConversationFrame = ConversationSessionFrame | MeshConversationL
  * `modelSwitch`: the machine advertises `conversation-models` — its list names
  * each chat's model catalog and it takes `setModel`. False for a machine that
  * does not, whose chats keep the model they have.
+ *
+ * `permissionModes`: the machine advertises `conversation-permission-modes` —
+ * its chats run on `manual` and `auto` too. False for a machine that reads
+ * those as `none`, where only `none` and `bypass` are offered.
  */
 export type MeshConversationListResult =
-  | { ok: true; conversations: MeshConversation[]; access: MeshConversationAccess; modelSwitch: boolean }
+  | {
+      ok: true
+      conversations: MeshConversation[]
+      access: MeshConversationAccess
+      modelSwitch: boolean
+      permissionModes?: boolean
+    }
   | { ok: false; code: string; message: string }
 
 /**

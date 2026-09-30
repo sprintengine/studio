@@ -116,6 +116,8 @@ function remoteConversationSession(
       // list says; a machine that does not offer model switching never will.
       liveModelSwitch: modelSwitch && thread?.models?.liveModelSwitch === true,
       checkpoints: capabilities?.checkpoints ?? false,
+      // The presets the chat's provider over there can run, where its list names them.
+      ...(capabilities?.permissionPresets ? { permissionPresets: capabilities.permissionPresets } : {}),
     },
   }
 }
@@ -137,6 +139,8 @@ export default function RemoteConversationPanel({
   const [listedAccess, setListedAccess] = useState<MeshConversationAccess | null>(null)
   // The machine advertises model switching and lists this chat's catalog.
   const [listedModelSwitch, setListedModelSwitch] = useState(false)
+  // The machine runs chats on Manual and Auto as well as Bypass and No flag.
+  const [permissionModes, setPermissionModes] = useState(false)
   const modelSwitch = listedModelSwitch && Boolean(thread?.models)
   // Bumped after an accepted model switch, so the list is read again and the
   // chip names what the machine says the chat is now on.
@@ -152,6 +156,8 @@ export default function RemoteConversationPanel({
   accessRef.current = access
   const modelSwitchRef = useRef(modelSwitch)
   modelSwitchRef.current = modelSwitch
+  const permissionModesRef = useRef(permissionModes)
+  permissionModesRef.current = permissionModes
   const transport = useMemo(() => {
     const base = createRemoteConversationTransport({ key, machineName, access: null, onLink: setLink })
     const capabilities = base.capabilities
@@ -159,7 +165,12 @@ export default function RemoteConversationPanel({
     return {
       ...base,
       get capabilities(): ConversationTransportCapabilities {
-        return { ...capabilities, operate: accessRef.current === 'operate', modelSwitch: modelSwitchRef.current }
+        return {
+          ...capabilities,
+          operate: accessRef.current === 'operate',
+          modelSwitch: modelSwitchRef.current,
+          permissionModes: permissionModesRef.current,
+        }
       },
       ...(setModel
         ? {
@@ -192,6 +203,7 @@ export default function RemoteConversationPanel({
         if (cancelled || !result.ok) return
         setListedAccess(result.access)
         setListedModelSwitch(result.modelSwitch === true)
+        setPermissionModes(result.permissionModes === true)
         setThread(
           result.conversations.find(
             (entry) => entry.workspaceId === remoteWorkspaceId && entry.agentId === remoteAgentId,

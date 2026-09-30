@@ -461,6 +461,20 @@ test('a chat offers its first message to the auto-titler once', () => {
   assert.deepEqual(conversationTitleOffers([sent], offered), [], 'a repeated summary offers nothing')
 })
 
+test('a chat whose workspace this window does not hold yet is offered once it arrives', () => {
+  const offered = new Map<string, string>()
+  const sent = chatSummary({ firstUserText: 'Fix the upload retry', lastUserText: 'Fix the upload retry' })
+  assert.deepEqual(
+    conversationTitleOffers([sent], offered, () => false),
+    [],
+    'nowhere to land yet',
+  )
+  assert.deepEqual(
+    conversationTitleOffers([sent], offered, () => true),
+    [{ workspaceId: 'ws-chat', prompt: 'Fix the upload retry' }],
+  )
+})
+
 test('a chat reopened after a restart is offered its first message before its last', () => {
   const offered = new Map<string, string>()
   const resumed = chatSummary({ firstUserText: 'Fix the upload retry', lastUserText: 'Now add a test' })

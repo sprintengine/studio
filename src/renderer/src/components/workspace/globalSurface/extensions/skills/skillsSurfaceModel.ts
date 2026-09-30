@@ -11,10 +11,13 @@ import {
   SKILL_UNLISTED_GROUP,
   skillDirName,
   skillNameWarning,
+  skillRepoWebUrl,
   type ScanResult,
   type ScannedSkill,
   type SkillFileRef,
   type SkillSource,
+  isGithubDotComRepo,
+  skillRepoLabel,
 } from '../../../../../../../shared/skills'
 
 /**
@@ -24,7 +27,7 @@ import {
  * three rail rows all reading "skills" would be unnavigable.
  */
 export function sourceDisplayName(source: SkillSource): string {
-  return source.repo || source.name
+  return source.repo ? skillRepoLabel(source.repo) : source.name
 }
 
 /** Per-source scan read. Sources list first; each scan lands independently. */
@@ -293,7 +296,11 @@ export function summarizeSyncRun(report: SkillSyncReport): string {
 /** The repository's own commit history — the answer to "what changed?". */
 export function skillSourceCommitsUrl(source: SkillSource): string | null {
   if (source.kind !== 'github' || !source.repo) return null
-  return `https://github.com/${source.repo}/commits/${source.commitSha || 'HEAD'}`
+  const page = skillRepoWebUrl(source.repo)
+  // github.com's history page is `/commits/<sha>`; other hosts spell it their
+  // own way, and their repository page is where its history is one click away.
+  if (!page || !isGithubDotComRepo(source.repo)) return page
+  return `${page}/commits/${source.commitSha || 'HEAD'}`
 }
 
 // ── Header facts ─────────────────────────────────────────────────────────────

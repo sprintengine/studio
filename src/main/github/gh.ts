@@ -59,6 +59,13 @@ export interface GhRunOptions {
    * process table is what enforces it.
    */
   timeoutMs?: number
+  /**
+   * Variables gh must NOT see, removed from the child's environment and —
+   * because the login-shell fallback sources the person's rc files, which is
+   * exactly where a token export lives — unset again inside that shell before
+   * gh runs. Only fixed variable names belong here, never a value.
+   */
+  unsetEnv?: readonly string[]
 }
 
 export interface GhRunner {
@@ -120,7 +127,7 @@ export function createDefaultGhRunner(environment: GhRunnerEnvironment = {}): Gh
         ...spawnTimeout(options),
         maxBuffer: GH_MAX_BUFFER_BYTES,
         windowsHide: true,
-        env: gitSafetyEnv(),
+        env: ghEnv(options),
       })
       return { found: true, code: 0, stdout, stderr }
     } catch (error) {
@@ -128,7 +135,7 @@ export function createDefaultGhRunner(environment: GhRunnerEnvironment = {}): Gh
     }
   }
   const runViaShell = async (args: string[], options: GhRunOptions): Promise<GhResult | null> => {
-    const descriptor = buildShellGhDescriptor(args, shell, platform)
+    const descriptor = buildShellGhDescriptor(args, shell, platform, options.unsetEnv)
     if (!descriptor) return null
     try {
       const { stdout, stderr } = await spawn(descriptor.file, descriptor.args, {
@@ -136,7 +143,7 @@ export function createDefaultGhRunner(environment: GhRunnerEnvironment = {}): Gh
         ...spawnTimeout(options),
         maxBuffer: GH_MAX_BUFFER_BYTES,
         windowsHide: true,
-        env: gitSafetyEnv(),
+        env: ghEnv(options),
       })
       return { found: true, code: 0, stdout, stderr }
     } catch (error) {
@@ -155,6 +162,13 @@ export function createDefaultGhRunner(environment: GhRunnerEnvironment = {}): Gh
       return result.found && result.code === 0
     },
   }
+}
+
+/** The child's environment: the git-safe one, less anything the caller unset. */
+function ghEnv(options: GhRunOptions): NodeJS.ProcessEnv {
+  const env = gitSafetyEnv()
+  for (const name of options.unsetEnv ?? []) delete env[name]
+  return env
 }
 
 /** The kill terms for one call, or nothing at all when the caller set no bound. */
@@ -185,6 +199,7 @@ export function buildShellGhDescriptor(
   args: string[],
   shell: string | undefined,
   platform: NodeJS.Platform = process.platform,
+  unsetEnv: readonly string[] = [],
 ): { file: string; args: string[] } | null {
   if (platform !== 'darwin' && platform !== 'linux') return null
   const shellPath = shell?.trim()
@@ -192,7 +207,9 @@ export function buildShellGhDescriptor(
   const shellName = shellPath.split('/').pop()
   if (shellName !== 'zsh' && shellName !== 'bash') return null
   const command = ['gh', ...args].map(posixSingleQuote).join(' ')
-  return { file: shellPath, args: ['-ilc', command] }
+  const names = unsetEnv.filter((name) => /^[A-Z_][A-Z0-9_]*$/.test(name))
+  const unset = names.length > 0 ? `unset ${names.join(' ')}; ` : ''
+  return { file: shellPath, args: ['-ilc', `${unset}${command}`] }
 }
 
 function posixSingleQuote(value: string): string {

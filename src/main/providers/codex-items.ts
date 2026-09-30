@@ -31,9 +31,12 @@ export function codexTool(item: ThreadItem): CodexTool | null {
         name: 'Edit',
         kind: 'file_edit',
         input: {
+          // A move names its destination only in the change's kind; the
+          // destination is a file the change writes, so it rides with it.
           edits: (Array.isArray(item.changes) ? item.changes : []).map((change) => ({
             path: change.path,
             patch: change.diff,
+            ...(change.kind?.type === 'update' && change.kind.move_path ? { movePath: change.kind.move_path } : {}),
           })),
         },
       }

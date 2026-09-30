@@ -165,7 +165,7 @@ function HandToAgentPicker({
       // Permissions sit with the model, remembered per CLI — the same control
       // the New chat picker carries, so the preset a person set for a runtime
       // there is the preset this handoff launches on.
-      permissions={(cli) => <SpawnPermissionFooter cli={cli} fallback={permissionFallback} />}
+      permissions={(cli) => <SpawnPermissionFooter cli={cli} fallback={permissionFallback} launch="terminal" />}
     />
   )
 }

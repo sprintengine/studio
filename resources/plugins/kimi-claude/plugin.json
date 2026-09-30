@@ -13,6 +13,16 @@
     "env": "MOONSHOT_API_KEY"
   },
   "permissionPresets": {
+    "manual": {
+      "$comment": "Claude Code's default mode: it asks before edits and commands. A chat adds a hook that asks before the commands it would otherwise judge read-only too; a terminal agent gets the CLI's own default mode.",
+      "label": "Manual — ask before every change",
+      "args": ["--permission-mode", "default"]
+    },
+    "auto": {
+      "$comment": "acceptEdits, not the CLI's classifier mode (`auto`): Auto promises that edits in the workspace go through and everything riskier asks, on every CLI. The classifier answers for the person instead of asking, and is offered only on some plans and models.",
+      "label": "Auto — edits go through, commands ask",
+      "args": ["--permission-mode", "acceptEdits"]
+    },
     "bypass": {
       "label": "Bypass all approvals (dangerous)",
       "args": ["--permission-mode", "bypassPermissions"]
@@ -115,7 +125,10 @@
       {
         "event": "Notification",
         "phase": "awaiting_input",
-        "when": { "field": "notificationType", "oneOf": ["permission_prompt", "elicitation_dialog", "agent_needs_input"] }
+        "when": {
+          "field": "notificationType",
+          "oneOf": ["permission_prompt", "elicitation_dialog", "agent_needs_input"]
+        }
       },
       { "event": "Stop", "phase": "idle", "turnEnd": true },
       { "event": "SubagentStart", "phase": "tool_use", "background": "start" },

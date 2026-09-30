@@ -24,8 +24,7 @@ import {
 } from './extensionsHomeTiles'
 import { homeCardCount, homeCardGrid, newHomeCardSlugs } from './homeCards'
 import { StudioSkillSuggestion } from '../studioSkills/StudioSkillSuggestion'
-import { BuildExtensionFlow, BuildExtensionPlate } from './BuildExtensionFlow'
-import { subscribeBuildExtensionFlowRequest, takeBuildExtensionFlowRequest } from './buildExtensionHost'
+import { openBuildExtension } from './buildExtensionHost'
 
 // The Extensions home (the app rail's Extensions glyph, 2026-09-05): the page
 // the glyph opens, in the card region, with the Extensions drawer standing
@@ -436,19 +435,6 @@ export default function ExtensionsHomeSurface(): JSX.Element {
     })
   }, [])
 
-  // "Build your own extension": the plate below opens it, and so does the
-  // command palette, which may ask before this page is up — the request is
-  // latched (buildExtensionHost.ts) and taken on mount, or the moment it
-  // arrives while the page is showing.
-  const [buildOpen, setBuildOpen] = useState(false)
-  useEffect(() => {
-    if (takeBuildExtensionFlowRequest()) setBuildOpen(true)
-    return subscribeBuildExtensionFlowRequest(() => {
-      if (takeBuildExtensionFlowRequest()) setBuildOpen(true)
-    })
-  }, [])
-  const closeBuild = useCallback(() => setBuildOpen(false), [])
-
   return (
     <GlobalSurfaceShell
       ariaLabel="Extensions"
@@ -485,7 +471,7 @@ export default function ExtensionsHomeSurface(): JSX.Element {
             of the feed, because it is the one thing on this page that does not
             depend on the network. */}
         <StudioSkillSuggestion skillId="sprintengine-extension-builder" />
-        <BuildExtensionPlate onOpen={() => setBuildOpen(true)} />
+        <BuildExtensionPlate onOpen={() => void openBuildExtension()} />
         {loading ? <CardGridSkeleton /> : null}
         {!loading && drawable > 0 ? (
           <CardGrid
@@ -597,7 +583,21 @@ export default function ExtensionsHomeSurface(): JSX.Element {
           </div>
         </section>
       </div>
-      <BuildExtensionFlow open={buildOpen} onClose={closeBuild} />
     </GlobalSurfaceShell>
+  )
+}
+
+/**
+ * The plate that opens "Build your own extension": the New chat door in
+ * extension mode. Always there, whatever the card feed says.
+ */
+function BuildExtensionPlate({ onOpen }: { onOpen: () => void }): JSX.Element {
+  return (
+    <CardButton variant="bordered" onClick={onOpen} className="px-4 py-3">
+      <span className="text-body font-semibold text-[color:var(--text-strong)]">Build your own extension</span>
+      <span className="mt-0.5 text-meta text-[color:var(--text-muted)]">
+        Describe it, and an agent builds it with you in a chat, with the SDK and the skill that teaches it.
+      </span>
+    </CardButton>
   )
 }

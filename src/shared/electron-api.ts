@@ -232,6 +232,7 @@ import type {
   CliInstallInput,
   CliInstallMethodInfo,
   CliInstallResult,
+  CliPermissionPreset,
   CliRuntimeSettings,
 } from './ipc/agent-runtime'
 import type {
@@ -430,12 +431,10 @@ import type {
   WindowState,
 } from './ipc/window'
 import type {
-  ExtensionScaffoldCheck,
-  ExtensionScaffoldCheckInput,
   ExtensionScaffoldCreateInput,
   ExtensionScaffoldCreateResult,
-  ExtensionScaffoldFolderPick,
-  ExtensionTemplateSummary,
+  ExtensionScaffoldTarget,
+  ExtensionScaffoldTargetInput,
 } from './extension-scaffold'
 
 // The contract, one module per domain. Everything a caller imports from this
@@ -809,9 +808,10 @@ export type ElectronApi = {
     requestId: string
     answers: Record<string, string>
   }) => Promise<MeshConversationCommandResult>
+  // `manual` and `auto` need `conversation-permission-modes` there.
   meshConversationSetPermissionPreset: (input: {
     key: MeshConversationKey
-    preset: 'none' | 'bypass'
+    preset: CliPermissionPreset
   }) => Promise<MeshConversationCommandResult>
   // Switch a paired machine's chat to another model of its CLI, from the
   // catalog that machine's list names. Needs `conversation-models` there.
@@ -1475,11 +1475,9 @@ export type ElectronApi = {
   updateBacklogMockups: (input: BacklogMockupsInput) => Promise<BacklogMutationResult>
   createBacklogEpic: (input: BacklogCreateEpicInput) => Promise<BacklogCreateEpicResult>
   // ── extension-platform additions ──
-  // "Build your own extension" (the Extensions home): the SDK's templates, what
-  // this machine has to build one, a folder picked in main's own dialog (its
-  // token is what `extensionScaffoldCreate` writes under), and the project.
-  extensionScaffoldTemplates: () => Promise<ExtensionTemplateSummary[]>
-  extensionScaffoldCheck: (input: ExtensionScaffoldCheckInput) => Promise<ExtensionScaffoldCheck[]>
-  extensionScaffoldPickFolder: () => Promise<ExtensionScaffoldFolderPick | null>
+  // Build an extension (the New chat door's extension mode): what is at
+  // `<project>/<name>` while the name is typed (null for a name that is not an
+  // id yet), and the project made there.
+  extensionScaffoldTarget: (input: ExtensionScaffoldTargetInput) => Promise<ExtensionScaffoldTarget | null>
   extensionScaffoldCreate: (input: ExtensionScaffoldCreateInput) => Promise<ExtensionScaffoldCreateResult>
 }

@@ -8,6 +8,16 @@
   "icon": "icon.svg",
   "binary": "codex",
   "permissionPresets": {
+    "manual": {
+      "$comment": "`untrusted` asks before every command Codex does not already know to be a safe read, and the read-only sandbox makes every edit ask as well.",
+      "label": "Manual — ask before every change",
+      "args": ["--ask-for-approval", "untrusted", "--sandbox", "read-only"]
+    },
+    "auto": {
+      "$comment": "Codex's own Auto (what `--full-auto` sets): it edits and runs commands inside the workspace sandbox without asking, and asks before it goes past it — a write outside the workspace, the network.",
+      "label": "Auto — the workspace sandbox, asks past it",
+      "args": ["--ask-for-approval", "on-request", "--sandbox", "workspace-write"]
+    },
     "bypass": {
       "label": "YOLO — no approvals or sandbox",
       "args": ["--dangerously-bypass-approvals-and-sandbox"]
@@ -124,7 +134,7 @@
   "detect": {
     "versionArgs": ["--version"]
   },
-  "package": {"npm": "@openai/codex", "brew": "codex"},
+  "package": { "npm": "@openai/codex", "brew": "codex" },
   "install": {
     "darwin": [
       {

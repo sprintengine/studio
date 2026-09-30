@@ -770,16 +770,21 @@ test('automation', async () => {
     assert.equal(req.cliModel, 'opus')
     assert.equal(req.permissionPreset, 'none')
 
-    // A caller written before the two-mode change still names `manual` or
-    // `auto`; both launch as `none` rather than failing.
-    for (const legacy of ['manual', 'auto']) {
+    // Manual and Auto launch as themselves, and a caller written before the
+    // preset rename still gets what its spelling meant.
+    for (const [spelled, preset] of [
+      ['manual', 'manual'],
+      ['auto', 'auto'],
+      ['default', 'manual'],
+      ['auto_workspace', 'auto'],
+    ] as const) {
       const older = launchHarness()
       const answered = await tool(older.tools, 'agent.launch').handler({
         workspaceId: 'ws-1',
-        permissionPreset: legacy,
+        permissionPreset: spelled,
       })
       assert.equal(answered.isError, undefined, JSON.stringify(answered.structuredContent))
-      assert.equal(older.requests[0].permissionPreset, 'none', `${legacy} launches as none`)
+      assert.equal(older.requests[0].permissionPreset, preset, `${spelled} launches as ${preset}`)
     }
     assert.equal(req.worktreePath, undefined)
     assert.equal((okConfig.structuredContent as { worktreePath?: string }).worktreePath, undefined)
@@ -2187,14 +2192,18 @@ test('automation', async () => {
       }),
     )
 
-    // The advertised vocabulary is exactly the two presets, on every tool that
+    // The advertised vocabulary is exactly the four presets, on every tool that
     // launches an agent, and the text says what an omission means.
     for (const name of ['agent.launch', 'backlog.work', 'terminal.create'] as const) {
       const properties = tool(tools, name).inputSchema.properties as Record<
         string,
         { enum?: unknown; description?: string }
       >
-      assert.deepEqual(properties.permissionPreset?.enum, ['none', 'bypass'], `${name} advertises both presets`)
+      assert.deepEqual(
+        properties.permissionPreset?.enum,
+        ['none', 'manual', 'auto', 'bypass'],
+        `${name} advertises every preset`,
+      )
       assert.match(
         properties.permissionPreset?.description ?? '',
         /Omitted, the launch takes the preset chosen for that CLI on this machine, else the app default "bypass"/,
@@ -2209,10 +2218,9 @@ test('automation', async () => {
       )
     }
 
-    // Both presets, and every retired spelling of them, are stored as the
-    // preset they mean; a schedule that names none follows the choice at run
-    // time.
-    const spellings = ['bypass', 'bypass_all', 'none', 'manual', 'auto', 'default']
+    // Every preset, and every retired spelling of one, is stored as the preset
+    // it means; a schedule that names none follows the choice at run time.
+    const spellings = ['bypass', 'bypass_all', 'none', 'manual', 'default', 'auto', 'auto_workspace']
     for (const preset of spellings) {
       const answer = await tool(tools, 'schedule.create').handler({
         workspaceId: 'ws-1',
@@ -2230,7 +2238,7 @@ test('automation', async () => {
     assert.equal(omitted.isError, undefined, 'a scheduled agent that names no preset is created')
     assert.deepEqual(
       calls.created.map((input) => (input as { permissionPreset: string | null }).permissionPreset),
-      ['bypass', 'bypass', 'none', 'none', 'none', 'none', null],
+      ['bypass', 'bypass', 'none', 'manual', 'manual', 'auto', 'auto', null],
       'each preset is stored as the preset it means',
     )
     const unreadable = await tool(tools, 'schedule.create').handler({
@@ -2386,9 +2394,8 @@ test('automation', async () => {
         } as never),
         // A CLI that declares neither: it must still be listed, with the honest
         // empty answer — "no model may be passed" is not the same as "unlisted".
-        // It also names no bypass flag (a retired `manual` key is read as
-        // nothing), so the one preset it can honour is `none`.
-        plugin('plain-cli', { permissionPresets: { manual: { label: 'Manual', args: [] } } }),
+        // It also names only a manual setting, so it honours that and `none`.
+        plugin('plain-cli', { permissionPresets: { manual: { label: 'Manual', args: ['--ask'] } } }),
         // Hooks-only selectability: a spec-less CLI stays LISTED (marked, not
         // omitted, so a remote caller holding a stale id learns why it is
         // refused) but flagged agentSelectable: false.
@@ -2417,7 +2424,7 @@ test('automation', async () => {
     assert.deepEqual(clis[0].reasoningLevels, [{ id: 'medium' }, { id: 'high', label: 'High' }])
     assert.equal(clis[0].defaultReasoningLevel, 'medium')
     assert.deepEqual(clis[0].permissionPresets, ['none', 'bypass'])
-    assert.deepEqual(clis[1].permissionPresets, ['none'], 'no bypass flag declared, so only none')
+    assert.deepEqual(clis[1].permissionPresets, ['manual', 'none'], 'only the presets it names, and none')
     assert.equal(clis[1].supportsModelSelection, false)
     assert.deepEqual(clis[1].models, [])
     assert.equal(clis[1].allowCustomModelId, false)
