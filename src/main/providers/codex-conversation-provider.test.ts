@@ -316,14 +316,48 @@ test('interrupt uses native turn identity and ends the event stream', async () =
   expect(f.events.at(-1)?.payload?.interrupted).toBe(true)
 })
 
+test('a stop settles only once Codex has ended the turn, after the last change it made', async () => {
+  const f = fixture({ silentInterrupt: true })
+  await f.adapter.startSession(f.input)
+  const done = f.send()
+  await f.started
+  await f.message({ method: 'turn/started', params: { turn: { id: 'native-turn' } } })
+  let stopped = false
+  const stopping = Promise.resolve(f.adapter.interrupt(f.input)).then(() => {
+    stopped = true
+  })
+  await vi.waitFor(() => expect(f.calls.some((call) => call.method === 'turn/interrupt')).toBe(true))
+  // Codex has taken the stop but is still applying a patch.
+  await f.message({
+    method: 'item/completed',
+    params: {
+      threadId: 'native-thread',
+      item: { type: 'fileChange', id: 'patch', changes: [{ path: 'src/a.ts', diff: '@@ -1 +1 @@\n-old\n+new\n' }] },
+    },
+  })
+  expect(stopped).toBe(false)
+  await f.message({
+    method: 'turn/completed',
+    params: { threadId: 'native-thread', turn: { id: 'native-turn', status: 'interrupted' } },
+  })
+  await stopping
+  await done
+  const patchAt = f.events.findIndex((event) => event.type === 'tool_started' || event.type === 'tool_output')
+  expect(patchAt).toBeGreaterThan(-1)
+  expect(f.events.at(-1)).toMatchObject({ type: 'turn_completed', payload: { interrupted: true } })
+})
+
 test('a stopped turn Codex has not confirmed yet does not keep its process from being disposed', async () => {
   const f = fixture({ silentInterrupt: true })
   await f.adapter.startSession(f.input)
   const done = f.send()
   await f.started
-  await f.adapter.interrupt(f.input)
+  const stopping = f.adapter.interrupt(f.input)
+  await vi.waitFor(() => expect(f.calls.some((call) => call.method === 'turn/interrupt')).toBe(true))
   expect(f.adapter.listLiveSessions?.()[0]?.turnActive).toBe(true)
   expect(f.adapter.disposeChildProcess?.('session')).toBe(true)
+  // Ending the process ends the turn, and with it the stop.
+  await stopping
   await done
   expect(f.transports.closed).toBe(1)
   expect(f.events.at(-1)).toMatchObject({ type: 'turn_completed', payload: { interrupted: true } })
@@ -348,11 +382,12 @@ test('a stopped turn Codex never confirms is ended and the next message goes thr
     await f.adapter.startSession(f.input)
     const done = f.send()
     await vi.waitFor(() => expect(f.calls.some((call) => call.method === 'turn/start')).toBe(true))
-    await f.adapter.interrupt(f.input)
+    const stopping = f.adapter.interrupt(f.input)
     // Sent straight after the stop: it waits for the old turn rather than refusing.
     f.nextTurn()
     const next = f.send(undefined, undefined, 'Try again.')
     await vi.advanceTimersByTimeAsync(CODEX_INTERRUPT_GRACE_MS)
+    await stopping
     await done
     expect(f.transports.closed).toBe(1)
     await vi.waitFor(() => expect(f.calls.filter((call) => call.method === 'turn/start')).toHaveLength(2))
@@ -1106,10 +1141,12 @@ test('a stopped turn Codex never confirms ends the lanes of the subagents its pr
       agentPath: '/root/slow',
     }
     await f.message({ method: 'item/completed', params: { threadId: 'native-thread', item: activity } })
-    await f.adapter.interrupt(f.input)
+    const stopping = f.adapter.interrupt(f.input)
+    await vi.waitFor(() => expect(f.calls.some((call) => call.method === 'turn/interrupt')).toBe(true))
     // A subagent still working keeps the process from the reaper and Settle.
     expect(f.adapter.disposeChildProcess?.('session')).toBe(false)
     await vi.advanceTimersByTimeAsync(CODEX_INTERRUPT_GRACE_MS)
+    await stopping
     await done
     expect(f.transports.closed).toBe(1)
     expect(payloads(f.events, 'subagent_status').map((payload) => payload.status)).toEqual(['running', 'stopped'])
