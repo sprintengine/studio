@@ -1019,6 +1019,32 @@
             }
           }
         }
+      },
+      "scaffold": {
+        "ink": {
+          "$type": "color",
+          "$value": "{ref.color.violet-500}",
+          "$description": "Ink of the chip that names something a chat is about to make, such as the extension-name chip on the New chat door (owner, 2026-09-30). Violet so it cannot read as the worktree chip beside it, which several themes draw in a blue accent.",
+          "$extensions": {
+            "com.sprintengine": {
+              "role": "scaffold",
+              "use": "Glyph ink and the dashed empty edge of a name chip for something being made.",
+              "doNotUse": "A second accent on buttons or selection, status of any kind, or file-type glyphs (mark.violet)."
+            }
+          }
+        },
+        "soft": {
+          "$type": "color",
+          "$value": "rgba(137, 87, 229, 0.16)",
+          "$description": "Soft fill of a named scaffold chip: scaffold.ink at 16%.",
+          "$extensions": {
+            "com.sprintengine": {
+              "role": "scaffold",
+              "use": "Fill of a name chip for something being made, once it holds a name.",
+              "doNotUse": "Row selection, banners, or any fill that is not a scaffold chip."
+            }
+          }
+        }
       }
     },
     "shadow": {

@@ -2708,13 +2708,17 @@ export default function WorkspaceManager() {
   // besides launch that forgets the draft. Every other way off the door
   // (Back, a sidebar click, a door) only parks it:
   // `setNewChatPanelState(null)` alone.
+  // A door making an extension is not the parked draft (its `draftKey` is
+  // unset), so closing it, or picking its project, leaves the draft as it was.
+  const newChatPanelIsDraftRef = useRef(true)
+  newChatPanelIsDraftRef.current = newChatPanelState?.mode !== 'extension'
   const closeNewChatPanel = useCallback(() => {
     setNewChatPanelState(null)
-    clearNewChatDraft(workspaceWindowId)
+    if (newChatPanelIsDraftRef.current) clearNewChatDraft(workspaceWindowId)
   }, [workspaceWindowId])
   // The project the door is scoped to rides with the draft, so a reopen lands
   // on the project the person last picked — Browse, the selector, or a clone.
-  const newChatPanelFolderPath = newChatPanelState?.folderPath
+  const newChatPanelFolderPath = newChatPanelState?.mode === 'extension' ? undefined : newChatPanelState?.folderPath
   // The scheduled agent the door is editing, as main last listed it. One
   // closed from elsewhere while it is open closes the door with it.
   const editingScheduledAgentId = newChatPanelState?.editingScheduledAgentId ?? null
