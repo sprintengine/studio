@@ -584,6 +584,7 @@ test('workspacesSlice', async () => {
     folderPath: '/repo/a',
     createdAt: 4000,
     isCurrentWindowTarget: false,
+    activate: true,
   })
   state = useWorkspaceStore.getState()
   assert.deepEqual(
@@ -613,6 +614,7 @@ test('workspacesSlice', async () => {
     folderPath: '/repo/a',
     createdAt: 4100,
     isCurrentWindowTarget: true,
+    activate: true,
   })
   state = useWorkspaceStore.getState()
   assert.equal(
@@ -634,6 +636,7 @@ test('workspacesSlice', async () => {
     folderPath: '/repo/.sprintengine-worktrees/b/chat-a1b2',
     createdAt: 4200,
     isCurrentWindowTarget: true,
+    activate: true,
   })
   state = useWorkspaceStore.getState()
   assert.deepEqual(
@@ -641,6 +644,22 @@ test('workspacesSlice', async () => {
     ['repo-a-3', 'repo-a-2', 'repo-a-1', 'repo-b-worktree', 'repo-b-1'],
     'a created worktree chat inserts at the head of the project it was cut from',
   )
+
+  // A scheduled run's chat is created in the background: it joins this
+  // window's list without taking the window from what the person is looking at.
+  useWorkspaceStore.getState().applyWorkspaceCreatedEvent({
+    workspace: driftWorkspace('repo-a-run', '/repo/a'),
+    windowId: 'primary',
+    folderPath: '/repo/a',
+    createdAt: 4300,
+    isCurrentWindowTarget: true,
+    activate: false,
+  })
+  state = useWorkspaceStore.getState()
+  const primaryAfterRun = state.workspaceWindows.find((windowState) => windowState.id === 'primary')
+  assert.ok(primaryAfterRun?.workspaceIds.includes('repo-a-run'), 'a background creation joins the window')
+  assert.equal(primaryAfterRun?.activeWorkspaceId, 'repo-b-worktree', 'the window keeps showing what it showed')
+  assert.equal(state.activeWorkspaceId, 'repo-b-worktree', 'the global active does not move to a background creation')
 
   // --- Open-in-new-chat seeding (addWorkspace `seedAgent`) ---------------------
 

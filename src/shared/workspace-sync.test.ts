@@ -224,6 +224,27 @@ test('workspace-sync', async () => {
   assert.deepEqual(createResult.state.workspaceWindows[0]?.workspaceIds, ['ws-new', 'ws-two', 'ws-three', 'ws-one'])
   assert.equal(createResult.state.workspaceWindows[0]?.activeWorkspaceId, 'ws-new')
   assert.equal(createResult.state.workspaceWindows[0]?.lastFocusedAt, 14)
+
+  // A background creation (a scheduled run) joins the window without taking
+  // it: the window and the global active stay where they were.
+  const backgroundResult = applyWorkspaceSyncEvent(
+    createResult.state,
+    event<Extract<WorkspaceSyncEvent, { type: 'workspace.created' }>>({
+      type: 'workspace.created',
+      sequence: 15,
+      payload: {
+        workspace: workspace('ws-run', '/repo/a'),
+        windowId: 'primary',
+        insert: { kind: 'folder_head', folderPath: '/repo/a' },
+        activate: false,
+      },
+    }),
+  )
+  assert.equal(backgroundResult.status, 'applied')
+  assert.ok(backgroundResult.state.workspaceWindows[0]?.workspaceIds.includes('ws-run'))
+  assert.equal(backgroundResult.state.workspaceWindows[0]?.activeWorkspaceId, 'ws-new')
+  assert.equal(backgroundResult.state.activeWorkspaceId, createResult.state.activeWorkspaceId)
+  assert.equal(backgroundResult.state.workspaceWindows[0]?.lastFocusedAt, 14)
   state = createResult.state
 
   // A worktree chat's folderPath is the worktree, but the block it joins is the

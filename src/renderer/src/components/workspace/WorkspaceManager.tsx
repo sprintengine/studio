@@ -3251,8 +3251,16 @@ export default function WorkspaceManager() {
   )
   // Switching workspaces parks the pre-creation panel: the user has moved on,
   // and the panel would otherwise sit over the newly revealed workspace. The
-  // draft stays parked — Forward, or the next New chat, resumes it.
+  // draft stays parked — Forward, or the next New chat, resumes it. A window
+  // that had no workspace and gains one did not switch away from anything: a
+  // scheduled run landing in an empty window must not close the editor the
+  // person is using, and a workspace they pick themselves parks the panel on
+  // its own (`sidebarSelectWorkspace`), as a chat started here closes it.
+  const previousWindowActiveWorkspaceIdRef = useRef(windowActiveWorkspaceId)
   useEffect(() => {
+    const previous = previousWindowActiveWorkspaceIdRef.current
+    previousWindowActiveWorkspaceIdRef.current = windowActiveWorkspaceId
+    if (previous === null && windowActiveWorkspaceId !== null) return
     setNewChatPanelState(null)
   }, [windowActiveWorkspaceId])
   // So does opening a door. Left mounted under the door's inert canvas the

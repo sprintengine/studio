@@ -119,6 +119,12 @@ export type ConversationLaunchRequest = {
    */
   scheduledAgentId?: string
   /**
+   * Open the new chat without bringing it to the front of the window: it
+   * joins the list and waits there. For a chat nobody is watching start, like
+   * a scheduled run; ignored when joining an existing workspace.
+   */
+  background?: boolean
+  /**
    * The folder the chat works in instead of the workspace checkout: an
    * automation run's worktree. The chat still lives in the workspace.
    */
@@ -336,6 +342,7 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
         ...(workspace.hostId ? { hostId: workspace.hostId } : {}),
         ...(workspace.worktree ? { worktree: workspace.worktree } : {}),
         ...(request.scheduledAgentId?.trim() ? { scheduledAgentId: request.scheduledAgentId.trim() } : {}),
+        ...(request.background ? { background: true } : {}),
         agents: { [agentId]: agent },
       })
       if (!created.ok) return { ok: false, code: 'workspace_create_failed', message: created.message }
