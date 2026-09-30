@@ -138,6 +138,7 @@ import type { NewAgentPanelMode, RemoteNewChatLaunch } from './agentComposer/New
 import { useScheduledAgents } from '../../store/scheduledAgentsStore'
 import { formatRunTimes } from './agentComposer/schedule/scheduleEditor'
 import { scheduledAgentScheduleWords } from '../../../../shared/scheduled-agents'
+import { scheduledAgentRuns } from '../../utils/scheduledAgentRuns'
 import {
   clearNewChatDraft,
   newChatDraftHasContent,
@@ -2728,6 +2729,15 @@ export default function WorkspaceManager() {
   useEffect(() => {
     if (editingScheduledAgentId && !editingScheduledAgent) setNewChatPanelState(null)
   }, [editingScheduledAgentId, editingScheduledAgent])
+  // Its recent runs, which the editor lists: the chats in this window's list
+  // that carry its id, each with the activity its sidebar row shows.
+  const editingScheduledAgentRuns = useMemo(
+    () =>
+      editingScheduledAgentId
+        ? scheduledAgentRuns(visibleWorkspaces, editingScheduledAgentId, activityByWorkspaceId)
+        : [],
+    [editingScheduledAgentId, visibleWorkspaces, activityByWorkspaceId],
+  )
   useEffect(() => {
     if (newChatPanelFolderPath === undefined) return
     writeNewChatDraft(workspaceWindowId, { folderPath: newChatPanelFolderPath })
@@ -4213,8 +4223,9 @@ export default function WorkspaceManager() {
     openNewChatPanel()
     setNewChatPanelState((prev) => (prev ? { ...prev, mode: 'scheduled', editingScheduledAgentId: null } : prev))
   })
-  // A scheduled agent's card: the panel, editing it. Never through the parked
-  // chat draft, which is the person's next chat and not this.
+  // A scheduled agent's row in the Scheduled section: the panel, editing it.
+  // Never through the parked chat draft, which is the person's next chat and
+  // not this.
   const sidebarOpenScheduledAgent = useStableCallback((id: string) => {
     const agent = scheduledAgents.find((candidate) => candidate.id === id)
     if (!agent) return
@@ -4578,6 +4589,10 @@ export default function WorkspaceManager() {
                               }
                               initialMode={newChatPanelState.mode ?? 'chat'}
                               editingScheduledAgent={editingScheduledAgent}
+                              scheduledRuns={editingScheduledAgentRuns}
+                              // A run's chat opens the way its sidebar row does,
+                              // which parks the editor.
+                              onOpenScheduledRun={sidebarSelectWorkspace}
                               onScheduled={(agent) => {
                                 if (editingScheduledAgent) setNewChatPanelState(null)
                                 else closeNewChatPanel()

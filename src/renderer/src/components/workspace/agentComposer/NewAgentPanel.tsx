@@ -78,6 +78,8 @@ import { launchCommandLineKey, launchPreviewRequest, type LaunchCommandLineState
 import { drawSuggestions, newSuggestionSeed, type SuggestionEntry } from './suggestionBank'
 import { WorktreeChip } from './WorktreeChip'
 import { ScheduleTray } from './schedule/SchedulePicker'
+import { ScheduledRuns } from './schedule/ScheduledRuns'
+import type { ScheduledRunEntry } from '../../../utils/scheduledAgentRuns'
 import { ExtensionNameChip } from './ExtensionNameChip'
 import { EXTENSION_IDEAS, EXTENSION_IDEAS_FIRST, type ExtensionIdea } from './extensionIdeas'
 import {
@@ -191,14 +193,18 @@ export type NewAgentPanelProps = {
    */
   initialMode?: NewAgentPanelMode
   /**
-   * Door-only: the scheduled agent this panel edits, opened from its sidebar
-   * card. The panel opens on its prompt, schedule, machine, engine, skills,
+   * Door-only: the scheduled agent this panel edits, opened from its row in
+   * the sidebar's Scheduled section. The panel opens on its prompt, schedule, machine, engine, skills,
    * MCP servers and worktree, and its primary action saves rather than
    * creates. Absent, the panel creates.
    */
   editingScheduledAgent?: ScheduledAgentView | null
   /** Told once a scheduled agent was created or saved, with the record main returned. */
   onScheduled?: (agent: ScheduledAgentView) => void
+  /** The edited scheduled agent's recent runs, newest first: the chats its runs started. */
+  scheduledRuns?: readonly ScheduledRunEntry[]
+  /** Open one of those runs' chats. */
+  onOpenScheduledRun?: (workspaceId: string) => void
 }
 
 /**
@@ -355,6 +361,8 @@ function scheduledSkill(skill: { id: string; name: string }): WorkspaceSkill {
 
 // The skill an extension's chat opens with, as its chip shows it. Removing the
 // chip is how the door goes back to a plain New chat.
+const NO_SCHEDULED_RUNS: readonly ScheduledRunEntry[] = []
+
 const EXTENSION_BUILDER_CHIP = scheduledSkill({ id: EXTENSION_BUILDER_SKILL_ID, name: 'extension-builder' })
 
 // `/schedule` at the end of the prompt, and whatever follows it on that line.
@@ -396,6 +404,8 @@ export default function NewAgentPanel({
   initialMode = 'chat',
   editingScheduledAgent = null,
   onScheduled,
+  scheduledRuns = NO_SCHEDULED_RUNS,
+  onOpenScheduledRun,
 }: NewAgentPanelProps) {
   // The parked draft, read once at mount: what the door held when the person
   // last stepped off it. An explicit connector attachment leads the draft's
@@ -1258,7 +1268,9 @@ export default function NewAgentPanel({
       setLastRunFailure(result.run.message)
     } else {
       setLastRunFailure(null)
-      showToast({ tone: 'good', title: 'Started', description: 'Its chat is in the sidebar under the project.' })
+      // The run is a chat of its own, and it lands first in Recent runs below
+      // as soon as this window hears of it — the place to open it from.
+      showToast({ tone: 'good', title: 'Started', description: 'Its chat is first under Recent runs, below.' })
     }
   }
 
@@ -1986,6 +1998,9 @@ export default function NewAgentPanel({
               ))}
             </div>
           </section>
+        ) : null}
+        {editing && scheduled && onOpenScheduledRun ? (
+          <ScheduledRuns runs={scheduledRuns} onOpen={onOpenScheduledRun} />
         ) : null}
         {terminalUnavailable || isTerminalLaunch || scheduled || extensionMode ? null : (
           <div className="mt-4 grid grid-cols-1 gap-2 @[520px]:grid-cols-2">
