@@ -50,7 +50,10 @@ import type { McpServerConfig, SkillHarness } from '../../shared/electron-api'
 import { pluginNeedsOwnFiles, referencesPluginRoot, resolvePluginRoot } from '../../shared/mcp/plugin-root'
 import { mcpServerConfigFromScanned } from '../../shared/mcp/server-from-scanned'
 import {
+  DEFAULT_SKILL_REPO_HOST,
   describeUnreadPlugin,
+  skillRepoCloneUrl,
+  splitSkillRepo,
   type ScannedMcpServer,
   type ScannedPlugin,
   type ScannedSkill,
@@ -531,13 +534,28 @@ async function enableClaudePlugin(input: {
   const settings = read.settings
   const marketplaces = isRecord(settings.extraKnownMarketplaces) ? settings.extraKnownMarketplaces : {}
   if (!(input.marketplaceName in marketplaces)) {
-    marketplaces[input.marketplaceName] = { source: { source: 'github', repo: input.marketplaceRepo } }
+    marketplaces[input.marketplaceName] = { source: claudeMarketplaceSource(input.marketplaceRepo) }
   }
   const enabled = isRecord(settings.enabledPlugins) ? settings.enabledPlugins : {}
   enabled[input.pluginKey] = true
   settings.extraKnownMarketplaces = marketplaces
   settings.enabledPlugins = enabled
   return writeClaudeSettings(path, settings)
+}
+
+/**
+ * How Claude Code is told where a marketplace lives. Its `github` source means
+ * github.com over https; a repository anywhere else, or one read over ssh, is
+ * registered as a plain `git` source at the same address this app cloned,
+ * which is the form Claude Code documents for any other host.
+ */
+export function claudeMarketplaceSource(repo: string): Record<string, string> {
+  const location = splitSkillRepo(repo)
+  const url = skillRepoCloneUrl(repo)
+  if (!location || !url || (location.host === DEFAULT_SKILL_REPO_HOST && !location.ssh)) {
+    return { source: 'github', repo }
+  }
+  return { source: 'git', url }
 }
 
 async function disableClaudePlugin(input: {
