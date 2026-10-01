@@ -105,9 +105,12 @@ test.runIf(posix)('a run directory that is a symlink, or open to others, is not 
 test('a long data directory falls back to a private directory in temp; Windows gets an unguessable pipe', () => {
   const long = `/Users/dev/${'nested/'.repeat(20)}profile`
   const fallback = resolveStudioSocketPath(long, 'darwin', '/tmp/t')
-  assert.match(fallback, /^\/tmp\/t\/sprintengine-studio-[^/]+-[0-9a-f]{12}-[0-9a-f]{12}\/studio\.sock$/)
+  assert.match(fallback, /^\/tmp\/t\/sprintengine-[0-9a-f]{12}\/studio\.sock$/)
   // Not predictable: another account cannot prepare it in advance.
   assert.notEqual(fallback, resolveStudioSocketPath(long, 'darwin', '/tmp/t'))
+  // Within what a socket path may be, under macOS's own long temp dir.
+  const macTemp = '/var/folders/ab/abcdefghijklmnopqrstuvwxyz0000gn/T'
+  assert.ok(resolveStudioSocketPath(long, 'darwin', macTemp).length <= 103)
   assert.equal(resolveStudioSocketPath('/Users/dev/app-data', 'linux'), '/Users/dev/app-data/run/studio.sock')
   const pipe = resolveStudioSocketPath('C:\\Users\\dev\\AppData', 'win32')
   assert.match(pipe, /^\\\\\.\\pipe\\sprintengine-studio-[0-9a-f]{12}-[0-9a-f]{16}$/)

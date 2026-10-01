@@ -149,6 +149,7 @@ beforeAll(async () => {
     audit: () => audit,
   })
   await service.start()
+  assert.equal(service.getStatus().lastError, null)
   assert.equal(service.getStatus().running, true)
 })
 

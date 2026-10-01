@@ -90,10 +90,11 @@ export function resolveStudioSocketPath(
   if (platform === 'win32') return `\\\\.\\pipe\\sprintengine-studio-${profile}-${randomBytes(8).toString('hex')}`
   const direct = join(dataDir, STUDIO_RUN_DIRECTORY, 'studio.sock')
   if (direct.length <= MAX_POSIX_SOCKET_PATH) return direct
-  // A random part, so the directory cannot be predicted and prepared by
-  // another account first; clients learn the path from the discovery file.
-  const owner = typeof process.getuid === 'function' ? process.getuid() : 'user'
-  return join(temporaryDir, `sprintengine-studio-${owner}-${profile}-${randomBytes(6).toString('hex')}`, 'studio.sock')
+  // A random name, so the directory cannot be predicted and prepared by
+  // another account first (clients learn the path from the discovery file),
+  // and a short one: macOS's per-user temp dir alone is about fifty bytes of
+  // the hundred a socket path may have.
+  return join(temporaryDir, `sprintengine-${randomBytes(6).toString('hex')}`, 'studio.sock')
 }
 
 /**
