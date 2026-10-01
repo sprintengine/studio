@@ -116,6 +116,6 @@ and adds, each behind its capability:
 `ConversationCreateRequest` is what starting a conversation takes, with
 `allowedTools` — tools the chat may use without asking — beside the preset.
 Validate one with `parseConversationCreateRequest`. The tailnet lane does not
-create conversations; the module SDK and the desktop's local socket do.
+create conversations; the module SDK does, and the desktop's local socket will.
 
 Transcript frames travel directly over the tailnet between paired machines.
