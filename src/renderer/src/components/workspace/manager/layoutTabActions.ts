@@ -1,16 +1,18 @@
 // Actions on the active layout tab: close, cycle, stop, kill its terminal,
 // and where a tab dropped outside the window opens.
 
-import { convertNewAgentTabToAgent, addAgentTabTiled, getModel } from '../../../utils/modelRegistry'
+import { convertNewAgentTabToAgent, addAgentTabAfter, addAgentTabTiled, getModel } from '../../../utils/modelRegistry'
 import type { Workspace } from '../../../types/workspace'
 import { TabNode, Actions, type Model, TabSetNode } from 'flexlayout-react'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 
-// Where a spawn should land, and what it should start with. Present only when
-// the spawn came from the tab strip's "+": `tabId` names that tab's
-// node and `prompt` is what was typed on the launch surface inside it.
+// Where a spawn should land, and what it should start with. From the tab
+// strip's "+", `tabId` names that tab's node and `prompt` is what was typed on
+// the launch surface inside it. A chat forked from another names that chat in
+// `afterAgentId`, and opens right after its tab.
 export type AgentSpawnPlacement = {
   tabId?: string
+  afterAgentId?: string
   prompt?: string
   /**
    * The name the tab already wears. The new-agent tab is named when it opens,
@@ -23,9 +25,10 @@ export type AgentSpawnPlacement = {
 /**
  * Put a freshly spawned agent in its tab. From a new-agent tab that means
  * retyping the SAME node — the launch surface becomes the terminal, in place,
- * with no pane moving under the person who just pressed Start. Everywhere else,
- * and whenever that tab is gone (closed while the composer was open), it falls
- * back to the ordinary tiled dock rather than losing the agent.
+ * with no pane moving under the person who just pressed Start. A fork opens
+ * beside the chat it came from. Everywhere else, and whenever that tab is gone
+ * (closed while the composer was open), it falls back to the ordinary tiled
+ * dock rather than losing the agent.
  */
 export function placeSpawnedAgentTab(
   workspaceId: string,
@@ -36,6 +39,7 @@ export function placeSpawnedAgentTab(
   if (placement?.tabId && convertNewAgentTabToAgent(workspaceId, placement.tabId, agentId, tabName)) {
     return
   }
+  if (placement?.afterAgentId && addAgentTabAfter(workspaceId, agentId, tabName, placement.afterAgentId)) return
   addAgentTabTiled(workspaceId, agentId, tabName)
 }
 

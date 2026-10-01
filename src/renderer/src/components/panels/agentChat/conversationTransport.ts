@@ -3,6 +3,8 @@ import { createContext, useContext } from 'react'
 import type {
   ConversationAttachmentInput,
   ConversationAttachmentResult,
+  ConversationForkInput,
+  ConversationForkResult,
   ConversationInterruptInput,
   ConversationLoadEarlierInput,
   ConversationPageResult,
@@ -112,6 +114,13 @@ export type ConversationTransport = {
    */
   rewind?(input: ConversationRewindInput): Promise<ConversationRewindResult>
   /**
+   * Start a new chat beside this one holding it up to an earlier message
+   * ("Fork from here"). Absent where the transport cannot: a paired machine's
+   * chat would fork into a chat over there that no tab here could open.
+   * Offered only where the provider declares `fork` as well.
+   */
+  fork?(input: ConversationForkInput): Promise<ConversationForkResult>
+  /**
    * A step's picture as a data URL, asked of the machine the conversation runs
    * on by the step's id. Absent for a local chat, which reads it off this disk.
    * `unsupported` is a machine that does not serve pictures: the picture stays
@@ -153,6 +162,7 @@ const localConversationTransport: ConversationTransport = {
   setModel: (input) => window.api.conversationSessionSetModel(input),
   attachment: (input) => window.api.conversationAttachment(input),
   rewind: (input) => window.api.conversationRewindToTurn(input),
+  fork: (input) => window.api.conversationForkAtTurn(input),
 }
 
 const ConversationTransportContext = createContext<ConversationTransport>(localConversationTransport)

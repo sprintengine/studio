@@ -1,0 +1,171 @@
+// "Fork from here" on a message: a new chat opens in the tab after this one,
+// holding the conversation up to that point, and carries on by itself. Forked
+// at a reply, the fork holds that turn; forked at one of the person's messages,
+// it holds what came before it, and the message waits in the fork's composer
+// to be sent again, changed or not. Nothing about this chat changes, and both
+// chats work in the same files, which the toast that announces the fork says.
+
+import { useState } from 'react'
+import { nanoid } from 'nanoid'
+
+import type { ConversationKey } from '../../../../../shared/conversation-runtime'
+import type { AgentState } from '../../../types/workspace'
+import { GhostButton, Tooltip } from '../../ui'
+import { showToast } from '../../../store/toastStore'
+import { useWorkspaceStore } from '../../../store/workspaceStore'
+import { placeSpawnedAgentTab } from '../../workspace/manager/layoutTabActions'
+import { conversationAgentRuntimePatch } from '../../workspace/conversationSpawnOptions'
+import { composerDraftStore, type ComposerDraft } from './draftStore'
+import type { TranscriptEntry } from './conversationProjection'
+import { useConversationTransport, type ConversationTransport } from './conversationTransport'
+
+type UserEntry = Extract<TranscriptEntry, { kind: 'user' }>
+
+/** Where to fork: after a reply's turn, or before one of the person's messages, which the fork's composer gets back. */
+export type ForkFromHereTarget =
+  { side: 'assistant'; turnId: string } | { side: 'user'; turnSeq: number; draft: Omit<ComposerDraft, 'updatedAt'> }
+
+/** "Fork from here" under one of the person's messages. */
+export function ForkMessageAction({
+  entry,
+  running,
+  onFork,
+  className,
+}: {
+  entry: UserEntry
+  running: boolean
+  onFork: (target: ForkFromHereTarget) => Promise<void>
+  className?: string
+}) {
+  const transport = useConversationTransport()
+  const turnSeq = entry.seq
+  // A bubble not yet in the transcript has no point to fork at.
+  if (turnSeq === undefined || typeof transport.fork !== 'function') return null
+  return (
+    <ForkFromHereButton
+      running={running}
+      tooltip="Open a new chat with the conversation before this message, and this message ready to send"
+      className={className}
+      onFork={() =>
+        onFork({
+          side: 'user',
+          turnSeq,
+          draft: { text: entry.text, skillIds: entry.skills ?? [], mentions: entry.mentions ?? [] },
+        })
+      }
+    />
+  )
+}
+
+/** "Fork from here" on a reply's meta line. */
+export function ForkReplyAction({
+  turnId,
+  running,
+  onFork,
+  className,
+}: {
+  turnId: string
+  running: boolean
+  onFork: (target: ForkFromHereTarget) => Promise<void>
+  className?: string
+}) {
+  // Only a transport that can fork offers it, as for a message; the
+  // provider's own `fork` capability is the caller's gate.
+  const transport = useConversationTransport()
+  if (typeof transport.fork !== 'function') return null
+  return (
+    <ForkFromHereButton
+      running={running}
+      tooltip="Open a new chat with the conversation up to this reply"
+      className={className}
+      onFork={() => onFork({ side: 'assistant', turnId })}
+    />
+  )
+}
+
+function ForkFromHereButton({
+  running,
+  tooltip,
+  onFork,
+  className,
+}: {
+  running: boolean
+  tooltip: string
+  onFork: () => Promise<void>
+  className?: string
+}) {
+  const [pending, setPending] = useState(false)
+  async function fork() {
+    if (running || pending) return
+    setPending(true)
+    try {
+      await onFork()
+    } catch (error) {
+      showToast({
+        tone: 'error',
+        title: `Could not fork from here: ${error instanceof Error ? error.message : String(error)}`,
+      })
+    } finally {
+      setPending(false)
+    }
+  }
+  return (
+    <Tooltip content={running ? 'Stop the running turn before forking from an earlier message' : tooltip}>
+      <span className={className}>
+        <GhostButton size="inline" disabled={running || pending} onClick={() => void fork()}>
+          {pending ? 'Forking…' : 'Fork from here'}
+        </GhostButton>
+      </span>
+    </Tooltip>
+  )
+}
+
+/**
+ * Make the fork and open it: the runtime writes its conversation, then the
+ * new chat joins the workspace as this one's twin (its CLI, model, effort,
+ * permission mode, skills and working folder), named after it, in the tab
+ * after this one's. A message forked before goes into its composer.
+ */
+export async function forkChat(input: {
+  transport: Pick<ConversationTransport, 'fork'>
+  key: ConversationKey
+  target: ForkFromHereTarget
+}): Promise<void> {
+  const { key, target } = input
+  const parent = useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === key.workspaceId)?.agents[
+    key.agentId
+  ]
+  if (!input.transport.fork || !parent?.conversation) throw new Error('This chat cannot be forked here.')
+  const agentId = `conversation-${parent.conversation.providerId}-${nanoid(6)}`
+  const name = `${parent.name || 'Chat'} (fork)`
+  const forked = await input.transport.fork({
+    key,
+    newAgentId: agentId,
+    title: name,
+    ...(target.side === 'user'
+      ? { side: 'user' as const, turnSeq: target.turnSeq }
+      : { side: 'assistant' as const, turnId: target.turnId }),
+  })
+  if (!forked.ok) throw new Error(forked.message)
+  useWorkspaceStore.getState().updateAgent(key.workspaceId, agentId, forkedAgentPatch(parent, name))
+  if (target.side === 'user') composerDraftStore().getState().put(key.workspaceId, agentId, target.draft)
+  placeSpawnedAgentTab(key.workspaceId, agentId, name, { afterAgentId: key.agentId })
+  showToast({ tone: 'neutral', title: `Forked into ${name}. Both chats work in the same files.` })
+}
+
+/** The fork's agent record: the parent's engine and folder under the fork's own name. */
+export function forkedAgentPatch(parent: AgentState, name: string): Partial<AgentState> {
+  const conversation = parent.conversation!
+  return {
+    name,
+    ...conversationAgentRuntimePatch(conversation.providerId, conversation.modelId),
+    // A chat started in a worktree is keyed by it; the fork's transcript was
+    // written there.
+    execution: { ...parent.execution },
+    ...(parent.cliPermissionPreset ? { cliPermissionPreset: parent.cliPermissionPreset } : {}),
+    ...(parent.cliPermissionMode ? { cliPermissionMode: parent.cliPermissionMode } : {}),
+    ...(parent.conversationMode ? { conversationMode: parent.conversationMode } : {}),
+    ...(parent.conversationReasoningEffort ? { conversationReasoningEffort: parent.conversationReasoningEffort } : {}),
+    ...(parent.conversationSkills?.length ? { conversationSkills: [...parent.conversationSkills] } : {}),
+  }
+}
