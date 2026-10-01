@@ -43,7 +43,7 @@ pool per repository and machine so Windows and WSL never share slots.
 | Decision                | Ruling                                                                                                                                                                                                                                                |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Idle cost               | None. The pool is finished worktrees kept on disk; no timers, no background refresh, no idle installs. The only idle cost is disk.                                                                                                                    |
-| When a slot is prepared | On intent: when the person ticks "worktree" in New chat or starts naming one, fetch once and reset a free slot to the chosen base in the background, so it is ready by the time they press Enter.                                                     |
+| When a slot is prepared | On intent: when the person turns on the Worktree chip in New chat or starts typing its name, fetch once and reset a free slot to the chosen base in the background, so it is ready by the time they press Enter.                                      |
 | Base                    | `origin/<default branch>` by default, with a base-branch picker in New chat. A feature-branch base still reuses a pooled slot and switches it to that base.                                                                                           |
 | Installs                | After hand-out, and only when the lockfile fingerprint changed since the slot last installed. No approval step. Covers npm, pnpm, yarn, bun, Cargo, Go, uv, Poetry, Bundler, Composer and Gradle/Maven, plus a per-repository setup command override. |
 | Pool size               | Keep 1–3 finished worktrees per repository; anything beyond that is removed by the automatic agent-worktree cleanup (#57's rules).                                                                                                                    |
@@ -59,9 +59,10 @@ pool per repository and machine so Windows and WSL never share slots.
    worktree") and tell agents to use it through the Studio skill, or install a
    `git` shim on the agent's `PATH` that routes `git worktree add` to the pool?
    The tool is simpler and less surprising; the shim covers everything.
-2. **Prepare-on-intent triggers.** Is ticking "worktree" enough, or should
-   typing the prompt first and ticking afterwards also count? What happens when
-   the person abandons New chat — keep the prepared slot warm or leave it?
+2. **Prepare-on-intent triggers.** Is turning the Worktree chip on enough, or
+   should typing the prompt first and turning it on afterwards also count? What
+   happens when the person abandons New chat — keep the prepared slot warm or
+   leave it?
 3. **Default base.** `origin/<default>` (decided above) or the checkout's
    current branch, which is what New chat did before the pool?
 4. **Where install progress shows.** In the agent's terminal before the CLI
@@ -74,7 +75,9 @@ pool per repository and machine so Windows and WSL never share slots.
    removed?
 7. **Merged agent branches.** Keep them indefinitely, or delete them once
    merged into the default branch?
-8. **Automation runs.** Keep creating and removing their own worktrees, or
-   lease from the pool?
+8. **Scheduled agents.** Each run of a scheduled agent is a new chat, started
+   with no window open and with the worktree setting the agent was made with.
+   Should those runs keep creating and removing their own worktrees, or lease
+   from the pool?
 9. **Disk cap and eviction.** Defaults (the first implementation used 20 GB and
    7 days idle) and whether the person sees them in Settings.
