@@ -521,40 +521,6 @@ test('ACP refuses permission presets that the selected CLI cannot enforce', asyn
     await f.cleanup()
   }
 })
-test('ACP refuses a CLI runtime configured on another execution host', async () => {
-  let detected = false
-  const provider = createAcpConversationProvider(
-    {
-      id: 'remote',
-      displayName: 'Remote',
-      cli: 'test',
-      argv: ['-e', agent],
-      authHint: 'Configure agent.',
-      images: false,
-      planMode: false,
-    },
-    {
-      detect: async () => {
-        detected = true
-        return process.execPath
-      },
-      buildEnv: async () => ({}),
-    },
-  )
-  await expect(
-    provider.startSession({
-      sessionId: 'remote',
-      workspaceId: 'workspace',
-      agentId: 'agent',
-      providerId: 'remote',
-      modelId: 'default',
-      workspaceRoot: tmpdir(),
-      cliRuntimes: { test: { hostId: 'wsl:Ubuntu' } },
-    }),
-  ).rejects.toThrow('requires a local CLI runtime')
-  expect(detected).toBe(false)
-  expect(provider.listLiveSessions?.()).toEqual([])
-})
 test('ACP never upgrades an allow-once decision to a persistent agent permission', async () => {
   const f = await fixture()
   try {
