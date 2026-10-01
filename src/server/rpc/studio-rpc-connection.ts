@@ -31,7 +31,7 @@ import {
   conversationSnapshotParts,
   type ConversationSnapshotFrame,
 } from '../conversation-stream-shaping'
-import type { StudioRpcAnswer, StudioRpcRouter } from './studio-rpc-router'
+import { studioErrorId, type StudioRpcAnswer, type StudioRpcRouter } from './studio-rpc-router'
 import type {
   StudioAuditEntry,
   StudioAuthenticator,
@@ -391,7 +391,13 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
     enqueueLive({ t: 'res', id, ok: false, error })
   }
 
-  function subscriptionFailed(id: string, code: string, message: string, retryAfterMs?: number): void {
+  function subscriptionFailed(
+    id: string,
+    code: string,
+    message: string,
+    retryAfterMs?: number,
+    errorId?: string,
+  ): void {
     enqueueLive({
       t: 'subFailed',
       sub: id,
@@ -399,6 +405,7 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
       message,
       retryable: retryAfterMs !== undefined,
       ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+      ...(errorId === undefined ? {} : { errorId }),
     })
   }
 
@@ -486,7 +493,21 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
       // The join could not read the log. Retryable: a log being written by a
       // turn that is starting is readable a moment later.
       dropSubscription(subscription)
-      subscriptionFailed(subscription.id, 'unavailable', source.message, SUBSCRIBE_RETRY_MS)
+      // The runtime's words can name paths and processes: a client is told in
+      // stable ones with an id the log keeps them under. Studio's own window
+      // reads them as its IPC gives them.
+      if (ownWindow) subscriptionFailed(subscription.id, 'unavailable', source.message, SUBSCRIBE_RETRY_MS)
+      else {
+        const errorId = studioErrorId()
+        options.log?.(`Studio RPC conversation.session failed [${errorId}]: ${source.message}`)
+        subscriptionFailed(
+          subscription.id,
+          'unavailable',
+          'Studio could not read this conversation just now.',
+          SUBSCRIBE_RETRY_MS,
+          errorId,
+        )
+      }
       return
     }
     // Every snapshot and fence names its conversation, as on the tailnet.

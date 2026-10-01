@@ -14,6 +14,8 @@ import {
   type StudioMethodResult,
   type StudioServerInfo,
 } from '../../../packages/studio-protocol/src/public'
+import { randomBytes } from 'node:crypto'
+
 import { isLooserCliPermissionPreset } from '../../shared/cli-permission-preset'
 import { ceilingAllowsUnaskedTools, clampPresetToCeiling } from '../../shared/permission-ceiling'
 import type {
@@ -124,6 +126,11 @@ const STABLE_MESSAGES: Readonly<Record<string, string>> = {
   conversation_start_failed: 'The conversation could not be started.',
 }
 
+/** An opaque id for one refusal, logged beside its real cause. */
+export function studioErrorId(): string {
+  return randomBytes(6).toString('hex')
+}
+
 /** The receipt key a client's command id is held under. */
 export function studioRuntimeCommandId(grant: StudioGrant, commandId: string): string {
   return grant.owner ? `owner:${commandId}` : `client:${grant.clientId}:${commandId}`
@@ -158,11 +165,14 @@ function drivesChat(command: ConversationCommand): boolean {
 
 export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRpcRouter {
   const { backend } = options
-  // A refusal from below: logged in its own words, answered in stable ones.
+  // A refusal from below: logged in its own words under an opaque id, answered
+  // in stable ones carrying that id, so a person can quote it and the log
+  // still says what really happened.
   const failed = (code: string, detail: string | undefined, context: string): { ok: false; error: StudioErrorBody } => {
     const known = Object.hasOwn(STABLE_MESSAGES, code) ? code : 'unavailable'
-    if (detail) options.log?.(`Studio RPC ${context} refused (${code}): ${detail}`)
-    return refuse(known, STABLE_MESSAGES[known])
+    const errorId = studioErrorId()
+    options.log?.(`Studio RPC ${context} refused (${code}) [${errorId}]: ${detail || STABLE_MESSAGES[known]}`)
+    return { ok: false, error: { code: known, message: STABLE_MESSAGES[known], errorId } }
   }
   const clientVoice: Voice = { redact: (value) => backend.redact(value), failed }
   // Studio's own window hears what its IPC would have said, in the same words.

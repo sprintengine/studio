@@ -357,7 +357,10 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
     }
     requests.delete(frame.id)
     if (frame.ok) pending.resolve(frame.result)
-    else pending.reject(new StudioError(frame.error.code, frame.error.message, frame.error.retryAfterMs))
+    else
+      pending.reject(
+        new StudioError(frame.error.code, frame.error.message, frame.error.retryAfterMs, frame.error.errorId),
+      )
   }
 
   // ── The connection ────────────────────────────────────────────────────────
@@ -459,7 +462,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
             return
           }
           streams.delete(stream.id)
-          stream.queue.fail(new StudioError(frame.code, frame.message, frame.retryAfterMs))
+          stream.queue.fail(new StudioError(frame.code, frame.message, frame.retryAfterMs, frame.errorId))
           return
         }
       }
@@ -611,7 +614,13 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
     try {
       return { ok: true, ...(await request(method, params)) } as ConversationResult<StudioMethodResult<M>>
     } catch (error) {
-      if (error instanceof StudioError) return { ok: false, code: error.code, message: error.message }
+      if (error instanceof StudioError)
+        return {
+          ok: false,
+          code: error.code,
+          message: error.message,
+          ...(error.errorId === undefined ? {} : { errorId: error.errorId }),
+        }
       throw error
     }
   }

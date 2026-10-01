@@ -41,7 +41,9 @@ export type ConversationRef = { workspaceId: string; agentId: string; workspaceR
  */
 export type CommandOptions = { commandId?: string }
 
-export type ConversationResult<T = object> = ({ ok: true } & T) | { ok: false; code: string; message: string }
+/** `errorId` is the id Studio logged the real cause under, when it answered in stable words. */
+export type ConversationResult<T = object> =
+  ({ ok: true } & T) | { ok: false; code: string; message: string; errorId?: string }
 
 /** What `follow` and `events` deliver: the conversation lane's stream frames, snapshot parts already joined. */
 export type ConversationFollowFrame =

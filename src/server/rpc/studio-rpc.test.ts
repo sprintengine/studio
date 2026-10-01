@@ -449,16 +449,20 @@ test('an answer over the frame cap arrives chunked and whole', async () => {
   assert.equal(!elsewhere.ok && elsewhere.error.code, 'not_found')
 })
 
-test('a refusal from below is answered in stable words, never the runtime’s own', async () => {
-  const { path, auth } = await serve()
+test('a refusal from below is answered in stable words, never the runtime’s own, with an id the log keeps them under', async () => {
+  const { path, auth, logs } = await serve()
   const c = await open(path, pairFakeClient(auth, 'app', ['conversation:operate', 'conversation:create']))
   const sent = await request(c, 's1', 'conversation.send', { key, commandId: 'boom', message: 'explode' })
-  assert.deepEqual(!sent.ok && sent.error, { code: 'unavailable', message: 'Studio could not carry that out.' })
+  const { errorId, ...said } = (!sent.ok && sent.error) || { errorId: undefined }
+  assert.deepEqual(said, { code: 'unavailable', message: 'Studio could not carry that out.' })
+  assert.match(errorId ?? '', /^[0-9a-f]{12}$/)
+  // The log has the real cause, under the id the client was given.
+  assert.ok(logs.some((line) => line.includes(`[${errorId}]`) && line.includes('ENOENT')))
   const created = await request(c, 'c1', 'conversation.create', { workspaceId: 'ws-9', commandId: 'nowhere' })
-  assert.deepEqual(!created.ok && created.error, {
-    code: 'unknown_workspace',
-    message: 'There is no workspace with that id here.',
-  })
+  assert.equal(!created.ok && created.error.code, 'unknown_workspace')
+  assert.equal(!created.ok && created.error.message, 'There is no workspace with that id here.')
+  const otherId = !created.ok && created.error.errorId
+  assert.ok(otherId && otherId !== errorId, 'each refusal has an id of its own')
 })
 
 test('a line over the client cap is refused under its id, and the connection stays open', async () => {

@@ -339,6 +339,8 @@ export async function startTestServer(
   backend: FakeBackend
   auth: FakeAuthenticator
   audit: StudioAuditEntry[]
+  /** What the server logged, in order. */
+  logs: string[]
   dataDir: string
   path: string
   dispose(): Promise<void>
@@ -347,6 +349,7 @@ export async function startTestServer(
   const backend = input.backend ?? createFakeBackend()
   const auth = input.auth ?? createFakeAuthenticator()
   const audit: StudioAuditEntry[] = []
+  const logs: string[] = []
   const server = createStudioRpcServer({
     dataDir,
     version: '0.0.0-test',
@@ -355,6 +358,7 @@ export async function startTestServer(
     authenticator: auth,
     ...(input.chat ? { chat: () => input.chat! } : {}),
     audit: (entry) => audit.push(entry),
+    log: (message) => logs.push(message),
     resyncRetryAfterMs: () => 1_500,
     ...(input.helloTimeoutMs ? { helloTimeoutMs: input.helloTimeoutMs } : {}),
     ...(input.maxConnections ? { maxConnections: input.maxConnections } : {}),
@@ -366,6 +370,7 @@ export async function startTestServer(
     backend,
     auth,
     audit,
+    logs,
     dataDir,
     path: server.socketPath()!,
     async dispose() {

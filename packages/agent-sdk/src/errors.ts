@@ -6,12 +6,15 @@
 export class StudioError extends Error {
   readonly code: string
   readonly retryAfterMs?: number
+  /** The id Studio logged the real cause under, when it answered in stable words instead. */
+  readonly errorId?: string
 
-  constructor(code: string, message: string, retryAfterMs?: number) {
+  constructor(code: string, message: string, retryAfterMs?: number, errorId?: string) {
     super(message)
     this.name = 'StudioError'
     this.code = code
     if (retryAfterMs !== undefined) this.retryAfterMs = retryAfterMs
+    if (errorId !== undefined) this.errorId = errorId
   }
 }
 

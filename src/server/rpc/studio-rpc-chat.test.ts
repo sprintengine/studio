@@ -407,3 +407,27 @@ test('a window is answered as its IPC was, never busy: a transcript checks every
   )
   window.close()
 })
+
+test('a stream Studio cannot read is told to a client in stable words with an id, and to a window as its IPC says it', async () => {
+  const { server, path, backend, logs } = await served()
+  backend.follow = (_key, _cursor, listener) => {
+    queueMicrotask(() =>
+      listener({ type: 'error', message: 'EACCES: /Users/dev/app/.sprintengine/conversations/a.jsonl' }),
+    )
+    return { dispose: () => undefined, ready: Promise.resolve() }
+  }
+  const key = { workspaceId: 'ws-1', agentId: 'agent-1' }
+  const owner = await socketClient(path, OWNER_TOKEN)
+  owner.send({ t: 'sub', id: 'o', topic: 'conversation.session', params: { key } })
+  const told = await owner.next(isT('subFailed'))
+  assert.ok(told.t === 'subFailed')
+  assert.equal(told.message, 'Studio could not read this conversation just now.')
+  assert.equal(told.retryable, true)
+  assert.ok(logs.some((line) => line.includes(`[${told.errorId}]`) && line.includes('EACCES')))
+  const window = await windowClient(server)
+  window.send({ t: 'sub', id: 'w', topic: 'conversation.session', params: { key } })
+  const shown = await window.next(isT('subFailed'))
+  assert.equal(shown.t === 'subFailed' && shown.message, 'EACCES: /Users/dev/app/.sprintengine/conversations/a.jsonl')
+  owner.close()
+  window.close()
+})

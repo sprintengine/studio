@@ -127,8 +127,12 @@ export type StudioWelcomeFrame = {
   pairing?: { token: string }
 }
 
-/** Why a request was refused, as a `res` carries it. */
-export type StudioErrorBody = { code: string; message: string; retryAfterMs?: number }
+/**
+ * Why a request was refused, as a `res` carries it. A refusal told in stable
+ * words in place of the real cause carries `errorId`: an opaque id Studio
+ * logged beside that cause, for someone looking into it to quote.
+ */
+export type StudioErrorBody = { code: string; message: string; retryAfterMs?: number; errorId?: string }
 
 export type StudioResponseFrame =
   { t: 'res'; id: string; ok: true; result: unknown } | { t: 'res'; id: string; ok: false; error: StudioErrorBody }
@@ -156,6 +160,8 @@ export type StudioSubscriptionFailedFrame = {
   message: string
   retryable: boolean
   retryAfterMs?: number
+  /** As on a refused request: the id Studio logged the real cause under. */
+  errorId?: string
 }
 
 /** A logical frame over `STUDIO_MAX_FRAME_BYTES`: its `json` strings, in `index` order, concatenate to it. */
@@ -271,6 +277,11 @@ function secret(value: unknown): value is string {
 }
 function retry(value: Record<string, unknown>): { retryAfterMs?: number } {
   return integer(value.retryAfterMs) ? { retryAfterMs: value.retryAfterMs } : {}
+}
+function errorId(value: Record<string, unknown>): { errorId?: string } {
+  return typeof value.errorId === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(value.errorId)
+    ? { errorId: value.errorId }
+    : {}
 }
 
 /** A stream cursor, or null when it is not one. */
@@ -425,7 +436,7 @@ export function parseStudioServerFrame(value: unknown): StudioParsedServerFrame 
         t: 'res',
         id: frame.id,
         ok: false,
-        error: { code: error.code, message: error.message, ...retry(error) },
+        error: { code: error.code, message: error.message, ...retry(error), ...errorId(error) },
       }
     }
     case 'frame': {
@@ -446,6 +457,7 @@ export function parseStudioServerFrame(value: unknown): StudioParsedServerFrame 
             message: frame.message,
             retryable: frame.retryable,
             ...retry(frame),
+            ...errorId(frame),
           }
         : null
     case 'chunk':
