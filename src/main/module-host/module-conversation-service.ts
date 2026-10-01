@@ -82,6 +82,7 @@ import type {
   ModuleConversationSummary,
 } from '../../shared/modules/conversation-service'
 import { isLooserCliPermissionPreset, type CliPermissionPreset } from '../../shared/cli-permission-preset'
+import { ceilingAllowsUnaskedTools } from '../../shared/permission-ceiling'
 import {
   CONVERSATION_DEFAULT_MODEL_ID,
   CONVERSATION_MAX_MESSAGE_CHARS,
@@ -334,8 +335,10 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
   // whose chats may go as far as `bypass`, and not while it is serving an
   // agent's tool call that is capped below that.
   function mayAllowTools(moduleId: string): boolean {
-    const caller = deps.getCallerPermissionCeiling?.() ?? null
-    return moduleConversationCeiling(declared(moduleId)) === 'bypass' && (caller === null || caller === 'bypass')
+    return ceilingAllowsUnaskedTools(
+      moduleConversationCeiling(declared(moduleId)),
+      deps.getCallerPermissionCeiling?.() ?? null,
+    )
   }
 
   // The runtime's receipt key for a module's command: its own id, namespaced
