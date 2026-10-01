@@ -521,40 +521,6 @@ test('ACP refuses permission presets that the selected CLI cannot enforce', asyn
     await f.cleanup()
   }
 })
-test('ACP refuses a CLI runtime configured on another execution host', async () => {
-  let detected = false
-  const provider = createAcpConversationProvider(
-    {
-      id: 'remote',
-      displayName: 'Remote',
-      cli: 'test',
-      argv: ['-e', agent],
-      authHint: 'Configure agent.',
-      images: false,
-      planMode: false,
-    },
-    {
-      detect: async () => {
-        detected = true
-        return process.execPath
-      },
-      buildEnv: async () => ({}),
-    },
-  )
-  await expect(
-    provider.startSession({
-      sessionId: 'remote',
-      workspaceId: 'workspace',
-      agentId: 'agent',
-      providerId: 'remote',
-      modelId: 'default',
-      workspaceRoot: tmpdir(),
-      cliRuntimes: { test: { hostId: 'wsl:Ubuntu' } },
-    }),
-  ).rejects.toThrow('requires a local CLI runtime')
-  expect(detected).toBe(false)
-  expect(provider.listLiveSessions?.()).toEqual([])
-})
 test('ACP never upgrades an allow-once decision to a persistent agent permission', async () => {
   const f = await fixture()
   try {
@@ -625,8 +591,26 @@ test("ACP launches each preset through the CLI's own switch, and Cursor offers n
   expect(acpLaunchArgv(cursor, 'bypass')).toEqual(['--force', 'acp'])
   expect(acpLaunchArgv(grok, 'none')).toEqual(['agent', '--no-leader', 'stdio'])
   expect(acpLaunchArgv(grok, 'manual')).toEqual(['--permission-mode', 'default', 'agent', '--no-leader', 'stdio'])
-  expect(acpLaunchArgv(grok, 'auto')).toEqual(['--permission-mode', 'acceptEdits', 'agent', '--no-leader', 'stdio'])
+  expect(acpLaunchArgv(grok, 'auto')).toEqual(['--permission-mode', 'auto', 'agent', '--no-leader', 'stdio'])
   expect(acpLaunchArgv(grok, 'bypass')).toEqual(['agent', '--always-approve', '--no-leader', 'stdio'])
+  // Grok's own modes, each only at the preset it sits at.
+  expect(acpLaunchArgv(grok, 'auto', 'acceptEdits')).toEqual([
+    '--permission-mode',
+    'acceptEdits',
+    'agent',
+    '--no-leader',
+    'stdio',
+  ])
+  expect(acpLaunchArgv(grok, 'manual', 'dontAsk')).toEqual([
+    '--permission-mode',
+    'dontAsk',
+    'agent',
+    '--no-leader',
+    'stdio',
+  ])
+  expect(acpLaunchArgv(grok, 'bypass', 'acceptEdits')).toEqual(['agent', '--always-approve', '--no-leader', 'stdio'])
+  expect(createAcpConversationProvider(grok).capabilities?.permissionModes).toEqual(['acceptEdits', 'dontAsk'])
+  expect(createAcpConversationProvider(cursor).capabilities?.permissionModes).toEqual([])
   // `opencode acp` takes no permission flag; every preset travels in its environment.
   for (const preset of ['none', 'manual', 'auto', 'bypass'] as const)
     expect(acpLaunchArgv(opencode, preset)).toEqual(['acp'])
@@ -712,6 +696,14 @@ test("Grok's own permission commands are refused under a stricter preset", async
   } finally {
     await f.cleanup()
   }
+  // `/auto` is the mode Auto already starts Grok in, so only Manual refuses it.
+  const manual = await presetFixture('grok-agent', 'manual')
+  try {
+    const events = await turn(manual as Awaited<ReturnType<typeof fixture>>, '/auto')
+    expect(events.find((event) => event.type === 'turn_failed')?.payload?.message).toContain('/auto would change Grok')
+  } finally {
+    await manual.cleanup()
+  }
 })
 test('ACP respawns the child with the new preset flags and reloads the same session', async () => {
   const f = await presetFixture('cursor-agent', 'none')
@@ -727,12 +719,12 @@ test('ACP respawns the child with the new preset flags and reloads the same sess
     await f.cleanup()
   }
 })
-test('ACP launches Grok bypass with --always-approve after the agent subcommand, and Auto as acceptEdits before it', async () => {
+test('ACP launches Grok bypass with --always-approve after the agent subcommand, and Auto as its own auto mode before it', async () => {
   const f = await presetFixture('grok-agent', 'bypass')
   try {
     expect((await launched(f)).argv).toEqual(['agent', '--always-approve', '--no-leader', 'stdio'])
     expect(await f.provider.setPermissionPreset?.({ ...f.input, permissionPreset: 'auto' })).toEqual({ ok: true })
-    expect((await launched(f)).argv).toEqual(['--permission-mode', 'acceptEdits', 'agent', '--no-leader', 'stdio'])
+    expect((await launched(f)).argv).toEqual(['--permission-mode', 'auto', 'agent', '--no-leader', 'stdio'])
     expect(await f.provider.setPermissionPreset?.({ ...f.input, permissionPreset: 'none' })).toEqual({ ok: true })
     expect((await launched(f)).argv).toEqual(['agent', '--no-leader', 'stdio'])
   } finally {

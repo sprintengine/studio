@@ -20,12 +20,20 @@ type PluginVariableDecl = {
   options?: string[]
 }
 
+// One of a CLI's permission modes, keyed in `permissionPresets` by its id. A
+// generic preset's name (`manual`, `auto`, `bypass`) keys the mode that stands
+// for that preset; any other key is a mode of the CLI's own and names the
+// preset it sits at in `level` (cli-permission-mode.ts). `none` may be keyed
+// for its label alone: it passes nothing.
 export type PluginPermissionPreset = {
   label: string
   args: string[]
   // Environment the launch adds under this preset, for a CLI told its
   // permissions through its configuration rather than a flag.
   env?: Record<string, string>
+  level?: import('./cli-permission-preset').CliPermissionPreset
+  summary?: string
+  description?: string
 }
 
 export type PluginArgvToken = string | { spread: string } | { spreadIf: string } | { valueIf: string; value: string }
@@ -677,6 +685,10 @@ export type PluginRegistryListEntry = {
   // launcher dims the rest for a terminal agent rather than launching one
   // with no flag and calling it that mode.
   permissionPresets?: import('./cli-permission-preset').CliPermissionPreset[]
+  // The CLI's permission modes under its own names, in the manifest's order,
+  // `none` last unless the manifest places it. What every permission menu for
+  // this CLI lists, a chat's included.
+  permissionModes?: import('./cli-permission-mode').CliPermissionModeSpec[]
 }
 
 export type ConversationProviderListEntry = {

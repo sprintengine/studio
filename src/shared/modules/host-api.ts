@@ -21,6 +21,7 @@ export {
 // shell has registered its chat opener (renderer-host.ts answers it live).
 const HOST_CAPABILITIES: ReadonlySet<HostCapability> = new Set<HostCapability>([
   'conversations',
+  'conversation-controls',
   'secrets',
   'github',
   'companion-agents',

@@ -187,6 +187,7 @@ test('streams text and command output, preserves nonzero exit as an ordinary too
   // `none` sends no override anywhere: Codex runs on its own configured default.
   for (const call of f.calls.filter((entry) => ['thread/start', 'turn/start'].includes(entry.method))) {
     expect(call.params).not.toHaveProperty('approvalPolicy')
+    expect(call.params).not.toHaveProperty('approvalsReviewer')
     expect(call.params).not.toHaveProperty('sandbox')
     expect(call.params).not.toHaveProperty('sandboxPolicy')
   }
@@ -431,38 +432,54 @@ test('unowned threads and unknown server requests never get an implicit approval
   expect(f.events.some((event) => event.type === 'approval_requested')).toBe(false)
 })
 
-test('bypass is YOLO, auto is the workspace sandbox asking past it, manual asks in a read-only sandbox, none sends nothing', () => {
+test('bypass is YOLO, auto is the workspace sandbox with auto-review past it, manual asks in a read-only sandbox, none sends nothing', () => {
   expect(codexPermissionPolicy('bypass')).toEqual({
     approvalPolicy: 'never',
+    approvalsReviewer: 'user',
     sandbox: 'danger-full-access',
     sandboxPolicy: { type: 'dangerFullAccess' },
   })
   expect(codexPermissionPolicy('auto')).toMatchObject({
     approvalPolicy: 'on-request',
+    approvalsReviewer: 'auto_review',
     sandbox: 'workspace-write',
     sandboxPolicy: { type: 'workspaceWrite', networkAccess: false },
   })
   expect(codexPermissionPolicy('manual')).toEqual({
     approvalPolicy: 'untrusted',
+    approvalsReviewer: 'user',
     sandbox: 'read-only',
     sandboxPolicy: { type: 'readOnly', networkAccess: false },
   })
   expect(codexPermissionPolicy('none')).toEqual({})
   expect(codexPermissionPolicy()).toEqual({})
+  // Codex's own Default, at Auto: the same sandbox, with the person asked
+  // before anything leaves it rather than the reviewer.
+  expect(codexPermissionPolicy('auto', 'workspace')).toMatchObject({
+    approvalPolicy: 'on-request',
+    approvalsReviewer: 'user',
+    sandboxPolicy: { type: 'workspaceWrite' },
+  })
+  expect(codexPermissionPolicy('manual', 'workspace')).toMatchObject({ approvalPolicy: 'untrusted' })
 })
 
 test('each preset rides thread start and every turn', async () => {
-  for (const [permissionPreset, approvalPolicy, sandbox, type] of [
-    ['auto', 'on-request', 'workspace-write', 'workspaceWrite'],
-    ['manual', 'untrusted', 'read-only', 'readOnly'],
+  for (const [permissionPreset, approvalPolicy, approvalsReviewer, sandbox, type] of [
+    ['auto', 'on-request', 'auto_review', 'workspace-write', 'workspaceWrite'],
+    ['manual', 'untrusted', 'user', 'read-only', 'readOnly'],
   ] as const) {
     const f = fixture()
     await f.adapter.startSession({ ...f.input, permissionPreset })
     const done = f.send()
     await f.started
-    expect(f.calls.find((call) => call.method === 'thread/start')?.params).toMatchObject({ approvalPolicy, sandbox })
+    expect(f.calls.find((call) => call.method === 'thread/start')?.params).toMatchObject({
+      approvalPolicy,
+      approvalsReviewer,
+      sandbox,
+    })
     expect(f.calls.find((call) => call.method === 'turn/start')?.params).toMatchObject({
       approvalPolicy,
+      approvalsReviewer,
       sandboxPolicy: { type },
     })
     await f.message({ method: 'turn/completed', params: { threadId: 'native-thread', turn: { status: 'completed' } } })
@@ -614,7 +631,31 @@ test('a preset change mid-turn is taken, and Codex runs it from the next turn', 
   expect(f.transports).toEqual({ created: 1, closed: 0 })
   expect(f.calls.find((call) => call.method === 'turn/start')?.params).toMatchObject({
     approvalPolicy: 'on-request',
+    approvalsReviewer: 'auto_review',
     sandboxPolicy: { type: 'workspaceWrite' },
+  })
+  await f.message({ method: 'turn/completed', params: { threadId: 'native-thread', turn: { status: 'completed' } } })
+  await second
+})
+
+test('leaving Auto hands the next turn back to the person, since the reviewer stays with the thread', async () => {
+  const f = fixture()
+  f.input.permissionPreset = 'auto'
+  await f.adapter.startSession(f.input)
+  const first = f.send()
+  await f.started
+  await f.message({ method: 'turn/completed', params: { threadId: 'native-thread', turn: { status: 'completed' } } })
+  await first
+  expect(await f.adapter.setPermissionPreset?.({ ...f.input, permissionPreset: 'manual' })).toEqual({ ok: true })
+  f.input.permissionPreset = 'manual'
+  f.calls.length = 0
+  f.nextTurn()
+  const second = f.send()
+  await f.started
+  expect(f.calls.find((call) => call.method === 'turn/start')?.params).toMatchObject({
+    approvalPolicy: 'untrusted',
+    approvalsReviewer: 'user',
+    sandboxPolicy: { type: 'readOnly' },
   })
   await f.message({ method: 'turn/completed', params: { threadId: 'native-thread', turn: { status: 'completed' } } })
   await second

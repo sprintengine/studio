@@ -335,9 +335,9 @@ test('a chat on a machine that runs only two presets dims the other two, and a p
     const rows = Array.from(chat.document.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]'))
     expect(rows).toHaveLength(4)
     // An older machine reads Manual and Auto as No flag, so neither is offered
-    // as if it would hold, and each says why.
-    expect(rows.map((row) => row.disabled)).toEqual([false, true, true, false])
-    expect(rows[1]!.textContent).toContain('mac-mini needs a newer Studio for this.')
+    // as if it would hold, and each says why. Strictest first, No flag last.
+    expect(rows.map((row) => row.disabled)).toEqual([true, true, false, false])
+    expect(rows[0]!.textContent).toContain('mac-mini needs a newer Studio for this.')
     await chat.act(async () => rows[3]!.click())
     expect(chat.api.meshConversationSetPermissionPreset).toHaveBeenCalledExactlyOnceWith({ key, preset: 'none' })
     expect(permissionsChip(chat.document)?.getAttribute('aria-label')).toBe('Permissions: No flag')

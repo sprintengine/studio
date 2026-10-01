@@ -277,7 +277,7 @@ export interface WorkspaceStore
   markDesignSystemSeen: (bundleId: string, at?: string) => void
   setLastAgentSpawnPermissionPreset: (preset: CliPermissionPreset) => void
   /** The preset spawns on one CLI launch with; `null` returns it to the app-wide default. */
-  setCliPermissionPreset: (cli: AgentCli, preset: CliPermissionPreset | null) => void
+  setCliPermissionPreset: (cli: AgentCli, preset: CliPermissionPreset | null, mode?: string | null) => void
   setLastSelectedAgentModel: (selection: AgentCliModelSelection | null) => void
   /** Drop retired model ids from every remembered launch default for `cli`. */
   forgetCliModels: (cli: AgentCli, modelIds: readonly string[]) => void

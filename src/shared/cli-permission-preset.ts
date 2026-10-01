@@ -32,7 +32,12 @@ export type CliPermissionPreset = 'none' | 'manual' | 'auto' | 'bypass'
  * records, third-party plugin manifests, external MCP callers, older paired
  * clients) and never emitted; this is the one place that maps them. Only the
  * absence of a value, or one no version ever wrote, takes the default, which
- * is `bypass`.
+ * is `auto` (owner request 2026-10-01; `bypass` before then).
+ *
+ * A CLI's own modes (Claude Code's Accept edits, Codex's Default) are not
+ * presets: each sits at one of these four, and travels beside it as a mode id
+ * (`cli-permission-mode.ts`). This vocabulary stays the four, so everything
+ * that reads a preset keeps reading one.
  */
 export function parseCliPermissionPreset(input: unknown): CliPermissionPreset | null {
   switch (input) {
@@ -52,9 +57,17 @@ export function parseCliPermissionPreset(input: unknown): CliPermissionPreset | 
   }
 }
 
+/**
+ * The preset nobody chose reads as: Auto, which never asks about everything
+ * and never skips every check (owner request 2026-10-01; Bypass before then).
+ * A value somebody chose is kept as chosen, Bypass included, so the change of
+ * default moves only the people who never chose.
+ */
+export const DEFAULT_CLI_PERMISSION_PRESET: CliPermissionPreset = 'auto'
+
 /** A preset from any stored or received value; see `parseCliPermissionPreset`. */
 export function normalizeCliPermissionPreset(input: unknown): CliPermissionPreset {
-  return parseCliPermissionPreset(input) ?? 'bypass'
+  return parseCliPermissionPreset(input) ?? DEFAULT_CLI_PERMISSION_PRESET
 }
 
 /**

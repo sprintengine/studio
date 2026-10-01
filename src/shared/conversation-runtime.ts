@@ -112,6 +112,10 @@ export type ConversationSessionSummary = {
   // as `none` does. Changing it mid-conversation goes through
   // `conversation:sessions:set-permission`.
   permissionPreset?: ConversationPermissionPreset
+  // The CLI's own mode at that preset (Claude Code's Accept edits), when one
+  // other than the preset's own is in force (cli-permission-mode.ts). Absent,
+  // the preset's own mode.
+  permissionMode?: string
 }
 
 // Loose mirror of the CLI runtime override map (`appSettings.cliRuntimes`)
@@ -163,6 +167,9 @@ export type ConversationStartSessionInput = {
   // override and lets the CLI's own configuration decide — which can still
   // ask, as approval cards.
   permissionPreset?: ConversationPermissionPreset
+  // The CLI's own mode at that preset, read only beside it; one the provider
+  // does not run (`capabilities.permissionModes`) starts the preset's own.
+  permissionMode?: string
   // Tools auto-allowed without an approval card. Lets unattended flows (the
   // long-running authoring sessions) run file writes without stalling while interactive tools
   // (AskUserQuestion) still surface as cards — unlike bypass, which would
@@ -410,6 +417,8 @@ export type ConversationSetPermissionInput = {
   commandId?: string
   sessionId: string
   permissionPreset: ConversationPermissionPreset
+  // The CLI's own mode at that preset; absent, the preset's own.
+  permissionMode?: string
 }
 
 // Switch a running conversation to another model of the same provider. The
@@ -493,6 +502,9 @@ export type ConversationToolDetailResult =
   | { ok: false; code: 'not_found' | 'invalid_input' | 'unavailable'; message: string }
 export type ConversationCapabilities = {
   permissionPresets?: ConversationPermissionPreset[]
+  // The CLI's own modes this chat can run beside the presets' own, by the ids
+  // its CLI's manifest keys them under (`conversationPermissionModes`).
+  permissionModes?: string[]
   tools: boolean
   approvals: boolean
   questions: boolean

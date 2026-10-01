@@ -36,6 +36,7 @@ known scopes.
 | `storage` | Save its own data in the workspace folder and app data | The module storage bags |
 | `conversation:read` | Read the chats it started, including everything the agent says in them | `getConversationService`: `subscribe`, `transcript`, `list`, `watch` |
 | `conversation:operate` | Start chats with agents, send them messages, and stop them | The whole conversation service, and `RendererHost.openChat`. Implies `conversation:read` |
+| `conversation:bypass` | Let the agents in its chats edit files and run commands without asking you first | Running the module's chats on `bypass`. Without it they run no looser than `auto` |
 | `secrets` | Store API keys and send them to the sites it names (the key is never shown back to the extension) | `getSecretsService` |
 | `github` | Use your GitHub sign-in to call the GitHub API (the token is never shown to the extension) | `getGitHubService` |
 | `mcp:tools` | Add tools that agents in your workspaces can call | `MainHost.registerMcpTools` |
@@ -82,6 +83,10 @@ behind `conversation:read` / `conversation:operate`.
     `RendererHost.openChat`. Both are scoped further, by owner: a module
     reaches only the chats it created, never another module's and never the
     user's own;
+  - `conversation:bypass` is read on every `create` and `setPermissionPreset`.
+    It does not refuse anything: it sets the loosest preset the module's chats
+    run on, `bypass` with it and `auto` without, and a looser request is
+    lowered to that;
   - `secrets` and `github` are checked on every call to their brokers. Neither
     hands the credential to module code: a secret leaves the host only inside a
     request to an https origin it was stored with, and the GitHub token only

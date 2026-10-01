@@ -68,7 +68,7 @@ import {
   worktreeIdFromPath,
 } from '../../utils/workspaceWorktree'
 import { ensureSkillForAgent, skillsSpawnAgentPatch } from '../../utils/skillInvocation'
-import { resolveCliPermissionPreset } from '../ui'
+import { cliPermissionModeLaunch, cliPermissionModePatch, resolveCliPermissionPreset } from '../ui'
 import { BACKLOG_SKILL_ID, backlogHandoffPrompt } from '../../utils/backlogHandoff'
 import { recordBacklogAgentHandoff } from '../../utils/backlogAgentHandoff'
 import { setBacklogHandoffHost, type BacklogHandoffRequest } from '../backlog/backlogHandoffHost'
@@ -1302,6 +1302,7 @@ export default function WorkspaceManager() {
             ...(cliModel ? { cliModel } : {}),
             ...(cliReasoning ? { cliReasoning } : {}),
             cliPermissionPreset: resolveCliPermissionPreset(templateAgentCli, agentSpawnPermissionPreset),
+            ...cliPermissionModePatch(templateAgentCli),
             ...(startupPrompt ? { cliStartupPrompt: startupPrompt } : {}),
             ...skillsSpawnAgentPatch(
               skills ?? [],
@@ -2436,6 +2437,7 @@ export default function WorkspaceManager() {
       // those agree, which is exactly why the drift would ship unnoticed.
       // `createNewChat` reads it the same way, for the same reason.
       cliPermissionPreset: resolveCliPermissionPreset(spawnCli, agentSpawnPermissionPreset),
+      ...cliPermissionModePatch(spawnCli),
       cliStartupPrompt: placement?.prompt || undefined,
       cliOnboardingPromptSent: false,
       cliHasLaunched: false,
@@ -2488,6 +2490,7 @@ export default function WorkspaceManager() {
       // field and lets the user change it mid-conversation.
       ...conversationLaunchEnginePatch({
         permissionPreset: resolveCliPermissionPreset(confirm.cli, agentSpawnPermissionPreset),
+        ...cliPermissionModeLaunch(confirm.cli),
         reasoning: confirm.reasoning,
       }),
       // The typed prompt is the chat's first message, sent as soon as the chat
@@ -2546,6 +2549,7 @@ export default function WorkspaceManager() {
     const seed = conversationNewChatSeed(confirm, {
       prompt: startupPrompt,
       permissionPreset: resolveCliPermissionPreset(confirm.cli, agentSpawnPermissionPreset),
+      ...cliPermissionModeLaunch(confirm.cli),
     })
     if (!seed) return
     createSoloChatWorkspace({
@@ -3088,6 +3092,7 @@ export default function WorkspaceManager() {
             useWorkspaceStore.getState().appSettings.lastAgentSpawnPermissionPreset ??
               DEFAULT_AGENT_SPAWN_PERMISSION_PRESET,
           ),
+        permissionModeFor: (cli) => cliPermissionModeLaunch(cli).permissionMode,
         newAgentId: (providerId) => `conversation-${providerId}-${nanoid(6)}`,
         pickName: pickRandomAgentName,
         writeAgent: (workspaceId, agentId, patch) =>

@@ -10,7 +10,9 @@
   "permissionPresets": {
     "manual": {
       "$comment": "OpenCode takes no flag for this, but its configuration takes a permission rule set from OPENCODE_PERMISSION, merged over the person's own, and the last matching rule wins: the wildcard comes first and every tool OpenCode names follows it. Reads, searches and listings run; edits, commands, the web and anything outside the project ask. The same rule set a chat gets.",
-      "label": "Manual — ask before every change",
+      "label": "Ask",
+      "summary": "Asks before edits and commands.",
+      "description": "OpenCode permission rules that ask before every edit, command and web request. Reading, searching and listing the project does not ask.",
       "args": [],
       "env": {
         "OPENCODE_PERMISSION": "{\"*\":\"ask\",\"read\":\"allow\",\"glob\":\"allow\",\"grep\":\"allow\",\"list\":\"allow\",\"lsp\":\"allow\",\"todoread\":\"allow\",\"todowrite\":\"allow\",\"edit\":\"ask\",\"bash\":\"ask\",\"task\":\"ask\",\"webfetch\":\"ask\",\"websearch\":\"ask\",\"codesearch\":\"ask\",\"external_directory\":\"ask\"}"
@@ -18,16 +20,26 @@
     },
     "auto": {
       "$comment": "The manual rule set with edits allowed.",
-      "label": "Auto — edits go through, commands ask",
+      "label": "Allow edits",
+      "summary": "Edits go through; commands ask.",
+      "description": "OpenCode permission rules that let file edits in the project through and ask before commands, web requests and anything outside the project.",
       "args": [],
       "env": {
         "OPENCODE_PERMISSION": "{\"*\":\"ask\",\"read\":\"allow\",\"glob\":\"allow\",\"grep\":\"allow\",\"list\":\"allow\",\"lsp\":\"allow\",\"todoread\":\"allow\",\"todowrite\":\"allow\",\"edit\":\"allow\",\"bash\":\"ask\",\"task\":\"ask\",\"webfetch\":\"ask\",\"websearch\":\"ask\",\"codesearch\":\"ask\",\"external_directory\":\"ask\"}"
       }
     },
     "bypass": {
-      "$comment": "OpenCode has exactly ONE permission flag. `opencode --help` documents `--auto` (\"auto-approve permissions that are not explicitly denied (dangerous!)\") and nothing else \u2014 there is no `--dangerously-skip-permissions`, which is what this preset used to send. OpenCode's parser is not strict, so the unknown flag was silently dropped: choosing Bypass did nothing and the session kept prompting, with no error anywhere.",
-      "label": "Bypass all approvals (dangerous)",
+      "$comment": "OpenCode has exactly ONE permission flag. `opencode --help` documents `--auto` (\"auto-approve permissions that are not explicitly denied (dangerous!)\") and nothing else — there is no `--dangerously-skip-permissions`, which is what this preset used to send. OpenCode's parser is not strict, so the unknown flag was silently dropped: choosing Bypass did nothing and the session kept prompting, with no error anywhere.",
+      "label": "Auto-approve",
+      "summary": "Approves everything not denied.",
+      "description": "OpenCode’s --auto: every permission your rules do not explicitly deny is approved. Use only in repositories you trust.",
       "args": ["--auto"]
+    },
+    "none": {
+      "label": "Your rules",
+      "summary": "Your OpenCode permission rules decide.",
+      "description": "Pass no permission rules, so your own OpenCode configuration decides what asks.",
+      "args": []
     }
   },
   "modelSelection": {

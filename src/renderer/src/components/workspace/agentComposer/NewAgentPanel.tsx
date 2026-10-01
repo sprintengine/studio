@@ -57,6 +57,7 @@ import {
   Textarea,
   StarGlyph,
   Tooltip,
+  useCliPermissionMode,
   useCliPermissionPreset,
   type InlineSkillPickerHandle,
 } from '../../ui'
@@ -97,11 +98,7 @@ import {
   type ScheduledAgentDraft,
   type ScheduledAgentView,
 } from '../../../../../shared/scheduled-agents'
-import {
-  CONVERSATION_DEFAULT_MODEL_ID,
-  conversationProviderForCli,
-  conversationRunsOnWsl,
-} from '../../../../../shared/conversation-harness'
+import { CONVERSATION_DEFAULT_MODEL_ID, conversationProviderForCli } from '../../../../../shared/conversation-harness'
 import {
   rowMatchesSelection,
   useAgentComposer,
@@ -993,6 +990,10 @@ export default function NewAgentPanel({
   // own default. Everything the surface says about permissions — the chip, the
   // command-line preview, what the launch carries — reads THIS, never the prop.
   const effectivePreset = useCliPermissionPreset(launchCli, permissionPreset)
+  // The CLI's own mode chosen beside it (Claude Code's Accept edits), which the
+  // preview renders. A scheduled agent and a launch on another machine carry
+  // the preset alone, and run its own mode.
+  const effectiveMode = useCliPermissionMode(launchCli)
 
   // ── The skill trigger ────────────────────────────────────────────────────
   // A chat carries skills as attachments rather than a typed invocation, so the
@@ -1079,13 +1080,14 @@ export default function NewAgentPanel({
       model,
       reasoning,
       permissionPreset: effectivePreset,
+      ...(effectiveMode ? { permissionMode: effectiveMode } : {}),
       runtime: commandCli
         ? isWslHostId(hostId)
           ? { command: hostSettings?.[hostId]?.cliCommands[commandCli] ?? '', hostId }
           : cliRuntimes?.[commandCli]
         : undefined,
     }),
-    [cliRuntimes, commandCli, effectivePreset, hostId, hostSettings, model, reasoning],
+    [cliRuntimes, commandCli, effectiveMode, effectivePreset, hostId, hostSettings, model, reasoning],
   )
   const previewKey = launchCommandLineKey(previewInput)
   React.useEffect(() => {
@@ -1177,12 +1179,11 @@ export default function NewAgentPanel({
       field.setSelectionRange(idea.prompt.length, idea.prompt.length)
     })
   }
-  // A Claude chat can run on a WSL machine; the other chat runtimes start
-  // their CLI on this machine only, so one of them there has nowhere to run.
-  const chatStrandedOnWsl = isChatLaunch && isWslHostId(hostId) && !conversationRunsOnWsl(launchCli)
+  // Every chat runtime runs on a WSL machine as well as on this one, so the
+  // machine never keeps a chat from starting (owner ruling 2026-10-01).
   const canLaunch =
     composer.visibleRows.some((row) => rowMatchesSelection(row, selection)) &&
-    (!isChatLaunch || (conversationWorkspaceSupported && pickerOptions.length > 0 && !chatStrandedOnWsl))
+    (!isChatLaunch || (conversationWorkspaceSupported && pickerOptions.length > 0))
 
   // ── Scheduling ────────────────────────────────────────────────────────────
   // What a scheduled agent is made of is exactly what this launch would start
@@ -1521,11 +1522,6 @@ export default function NewAgentPanel({
                   pickLocalHost(next)
                 }}
                 hostDisabledReason={(host) => {
-                  // A Claude chat runs its `claude` inside the distribution;
-                  // the other chat runtimes start their CLI on this machine.
-                  if (host.kind === 'wsl' && selection.kind === 'conversation' && !conversationRunsOnWsl(launchCli)) {
-                    return `${engineNames.cliLabel} chats run on This PC. Claude Code chats can run on WSL.`
-                  }
                   // A folder inside a distribution runs there: its files, its
                   // git and its CLIs' homes are that machine's.
                   const folderHost = hostIdForFolder(scopeFolder)
@@ -1993,12 +1989,6 @@ export default function NewAgentPanel({
         ) : extensionMode && extensionTargetState === 'extension' ? (
           <p role="status" className="mt-1.5 text-meta leading-5 text-[color:var(--text-muted)]">
             {extensionName} is already an extension in {projectLabel ?? 'this project'}: the chat opens it to carry on.
-          </p>
-        ) : null}
-        {chatStrandedOnWsl ? (
-          <p role="status" className="mt-1.5 text-meta leading-5 text-[color:var(--text-muted)]">
-            {engineNames.cliLabel} chats run on This PC only. Pick Claude Code to chat on{' '}
-            {hostId.replace(/^wsl:/u, 'WSL: ')}.
           </p>
         ) : null}
 

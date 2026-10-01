@@ -32,6 +32,8 @@ export type AgentLaunchPreviewInput = {
   cliModel?: string
   cliReasoning?: string
   cliPermissionPreset?: CliPermissionPreset
+  /** The CLI's own mode at that preset, when it is not the preset's own. */
+  cliPermissionMode?: string
   cliRuntime?: CliRuntimeSettings
 }
 

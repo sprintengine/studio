@@ -52,6 +52,10 @@ export type TerminalSpawnMetadata = {
   worktreeId?: string
   worktreePath?: string
   cliPermissionPreset?: CliPermissionPreset
+  // The CLI's own permission mode chosen at that preset (Claude Code's Accept
+  // edits), rendered in its place when the CLI's manifest has it. Absent, the
+  // preset's own mode.
+  cliPermissionMode?: string
   // Model id passed to the agent CLI when its plugin declares modelSelection;
   // undefined means the CLI's own default model.
   cliModel?: string

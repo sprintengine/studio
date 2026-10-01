@@ -56,9 +56,10 @@ import type {
 } from '../shared/agent-launch'
 import {
   effectiveAgentLaunchSettings,
-  resolveAgentSpawnPermissionPreset,
+  resolveAgentSpawnPermission,
   type AgentLaunchSettings,
 } from '../shared/launch-settings'
+import { parseCliPermissionModeId } from '../shared/cli-permission-mode'
 import { resolveConnectorLaunchFrom } from '../shared/connector-launch'
 import { pickRandomAgentName } from '../shared/agent-names'
 import {
@@ -203,7 +204,7 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
       }
     }
 
-    const declared = request.permissionPreset ? deps.permissionPresetsForCli?.(cli) : null
+    const declared = deps.permissionPresetsForCli?.(cli) ?? null
     if (request.permissionPreset && declared && !declared.includes(request.permissionPreset)) {
       return {
         ok: false,
@@ -251,6 +252,14 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
       }
     }
 
+    // The caller's preset when it names one: the agent.launch and backlog.work
+    // tools always do, and they floor an unnamed preset to their most
+    // restrictive one. A caller that names none gets what the spawn footer
+    // shows for this CLI: the preset (and the CLI's own mode) the person chose
+    // for it, else the app-wide spawn default, else Auto where the CLI has it.
+    const permission = resolveAgentSpawnPermission(settings, cli, request.permissionPreset, declared)
+    const permissionMode = request.permissionPreset ? parseCliPermissionModeId(request.permissionMode) : permission.mode
+
     const agentId = request.agentId?.trim() || `agent-${cli}-${newAgentSuffix()}`
     const name = request.name?.trim() || pickRandomAgentName(takenAgentNames(workspace, deps.terminal.list()))
     // The project's Knowledge Graph, resolved the same way the interactive
@@ -274,12 +283,8 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
       name,
       cli,
       ...(request.cliModel?.trim() ? { cliModel: request.cliModel.trim() } : {}),
-      // The caller's preset when it names one: the agent.launch and
-      // backlog.work tools always do, and they floor an unnamed preset to
-      // their most restrictive one. A caller that names none gets what the
-      // spawn footer shows for this CLI: the preset the person chose for it,
-      // else the app-wide spawn default.
-      cliPermissionPreset: resolveAgentSpawnPermissionPreset(settings, cli, request.permissionPreset),
+      cliPermissionPreset: permission.preset,
+      ...(permissionMode ? { cliPermissionMode: permissionMode } : {}),
       ...(connector?.ok ? { connectorMcpSettings: connector.resolved.mcpSettings } : {}),
       ...(request.spawnSkillId?.trim() ? { spawnSkillId: request.spawnSkillId.trim() } : {}),
       ...(worktreePath ? { worktreePath } : {}),
@@ -316,6 +321,7 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
       agentId,
       agentName: name,
       cliPermissionPreset: record.cliPermissionPreset,
+      ...(record.cliPermissionMode ? { cliPermissionMode: record.cliPermissionMode } : {}),
       ...(record.cliModel ? { cliModel: record.cliModel } : {}),
       ...(worktreePath ? { executionMode: 'worktree' as const, worktreePath } : {}),
       ...(knowledge.rootPath ? { memoryRootPath: knowledge.rootPath } : {}),

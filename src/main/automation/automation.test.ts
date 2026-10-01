@@ -1017,9 +1017,9 @@ test('automation', async () => {
       'an unnamed CLI is left to the launch service, which reads the same settings store',
     )
     // An unnamed preset is left to the launch service too, and the answer
-    // reports what it resolved: this machine's spawn default, `bypass`.
+    // reports what it resolved: this machine's spawn default, `auto`.
     assert.equal(inherited.requests[0].permissionPreset, undefined, 'an unnamed preset is not floored here')
-    assert.equal((ok.structuredContent as { permissionPreset: string }).permissionPreset, 'bypass')
+    assert.equal((ok.structuredContent as { permissionPreset: string }).permissionPreset, 'auto')
     // The CLI reported is the one the session actually spawned under.
     assert.equal((ok.structuredContent as { terminal: { cli: string } }).terminal.cli, 'codex')
 
@@ -2249,7 +2249,7 @@ test('automation', async () => {
       )
       assert.match(
         properties.permissionPreset?.description ?? '',
-        /Omitted, the launch takes the preset chosen for that CLI on this machine, else the app default "bypass"/,
+        /Omitted, the launch takes the preset chosen for that CLI on this machine, else the app default "auto"/,
         `${name} says what an omitted preset resolves to`,
       )
       // The one refusal it names is an agent of this app asking above its own
@@ -2348,13 +2348,23 @@ test('automation', async () => {
     }
     const bypassFlag = ['--permission-mode', 'bypassPermissions']
 
-    // A machine whose default is bypass: an omitted preset launches with the
-    // CLI's bypass flag, on every launching tool.
+    // A machine nobody chose on: an omitted preset launches with the CLI's own
+    // auto mode (owner request 2026-10-01), on every launching tool.
     for (const name of ['agent.launch', 'terminal.create']) {
       const { preset } = await launchWith(emptyAgentLaunchSettings(), name, {})
-      assert.equal(preset, 'bypass', `${name}: the app default reaches the spawn`)
-      assert.deepEqual(resolvePermissionArgs(claudeManifest, preset), bypassFlag, `${name}: with the bypass flag`)
+      assert.equal(preset, 'auto', `${name}: the app default reaches the spawn`)
+      assert.deepEqual(
+        resolvePermissionArgs(claudeManifest, preset),
+        ['--permission-mode', 'auto'],
+        `${name}: with Claude Code's auto mode`,
+      )
     }
+    // A person who chose Bypass for the CLI keeps it.
+    const chosenBypass = { ...emptyAgentLaunchSettings(), cliPermissionPresets: { 'claude-code': 'bypass' as const } }
+    assert.deepEqual(
+      resolvePermissionArgs(claudeManifest, (await launchWith(chosenBypass, 'agent.launch', {})).preset),
+      bypassFlag,
+    )
 
     // A person who chose `none` for this CLI: the same omitted preset passes no
     // flag, and terminal.create reports what was resolved.

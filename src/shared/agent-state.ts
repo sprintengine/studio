@@ -7,7 +7,7 @@
  * `ownerModuleId` — not by an enum member. Pure data shapes only — no DOM, React, or
  * flexlayout imports may be added here.
  */
-import type { CliPermissionPreset } from './cli-permission-preset'
+import { DEFAULT_CLI_PERMISSION_PRESET, type CliPermissionPreset } from './cli-permission-preset'
 
 /** An agent CLI runtime id (`claude`, `codex`, …). Open: plugins add their own. */
 export type AgentCli = string
@@ -158,6 +158,11 @@ export type AgentState = {
   // (resolveCliReasoning), so it is always a level this agent's CLI accepts.
   cliReasoning?: string
   cliPermissionPreset?: CliPermissionPreset
+  // The CLI's own permission mode at that preset (Claude Code's Accept edits,
+  // Codex's Default), when one other than the preset's own was chosen. The
+  // preset stays the level everything else reads; a CLI that does not have
+  // this mode runs the preset's own (cli-permission-mode.ts).
+  cliPermissionMode?: string
   // (A `debugMode` flag sat here until Debug Mode was removed on 2026-09-28.
   // Agents persisted before then may still carry it; nothing reads it.)
   cliStartupPrompt?: string
@@ -251,7 +256,7 @@ export function defaultAgent(id: AgentId, name = id): AgentState {
     cliResumeAvailable: false,
     cli: undefined,
     cliModel: undefined,
-    cliPermissionPreset: 'bypass',
+    cliPermissionPreset: DEFAULT_CLI_PERMISSION_PRESET,
     cliStartupPrompt: undefined,
     backlogItemRef: undefined,
   }

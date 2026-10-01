@@ -8,6 +8,9 @@
 // through the chat conversation API, so the published SDK carries no CLI plugin
 // contract. Pure (no Node or DOM APIs), safe in any runtime.
 
+import { parseCliPermissionModeId } from './cli-permission-mode'
+import { parseCliPermissionPreset } from './cli-permission-preset'
+
 // ── Manifest shape ───────────────────────────────────────────────────────────
 
 export type CliVariableType = 'string' | 'enum' | 'boolean' | 'number'
@@ -25,6 +28,10 @@ export type CliPermissionPreset = {
   label: string
   args: string[]
   env?: Record<string, string>
+  /** The generic preset a mode of the CLI's own sits at; required for any key that is not one. */
+  level?: 'manual' | 'auto' | 'bypass'
+  summary?: string
+  description?: string
 }
 
 /**
@@ -324,10 +331,13 @@ export type CliPluginManifest = {
   binary: string
   variables?: Record<string, CliVariableDecl>
   /**
-   * The launch args per permission preset. Only `bypass` is read: it holds the
-   * CLI's flag for skipping every approval prompt. The other preset, `none`,
-   * passes no permission flag and needs no entry, so a CLI without a bypass
-   * flag declares an empty object. Keys for retired presets are ignored.
+   * The CLI's permission modes, keyed by id. `manual`, `auto` and `bypass` key
+   * the mode that stands for that preset (the retired keys `default`,
+   * `auto_workspace` and `bypass_all` are still read for them); any other key
+   * is a mode of the CLI's own when it names the preset it sits at in
+   * `level`, and is ignored when it does not. `none` passes no permission
+   * flag: it may be keyed for its label alone (bundled manifests give it no
+   * args). A CLI with no permission setting declares an empty object.
    */
   permissionPresets: Record<string, CliPermissionPreset>
   launch: CliLaunchSpec
@@ -486,6 +496,28 @@ function validatePermissionPresets(value: unknown, issues: CliManifestIssue[]): 
       (!isObject(preset.env) || Object.values(preset.env).some((entry) => typeof entry !== 'string'))
     ) {
       issues.push({ path: `${path}.env`, message: 'env must be an object of strings.' })
+    }
+    for (const key of ['summary', 'description'] as const) {
+      if (preset[key] !== undefined && typeof preset[key] !== 'string')
+        issues.push({ path: `${path}.${key}`, message: `${key} must be a string.` })
+    }
+    // `none` passes nothing whatever its entry says, so only its label is read.
+    if (name === 'none') continue
+    const generic = parseCliPermissionPreset(name)
+    if (generic) {
+      if (preset.level !== undefined && preset.level !== generic)
+        issues.push({ path: `${path}.level`, message: `A ${name} key is the ${generic} level; omit level.` })
+    } else if (preset.level !== undefined) {
+      // A key with no level is no mode at all, and is ignored as keys for
+      // retired presets always were: a third-party manifest written before
+      // modes of a CLI's own existed still loads.
+      if (!parseCliPermissionModeId(name))
+        issues.push({ path, message: 'A mode id is a letter, then up to 39 letters, digits, - or _.' })
+      else if (preset.level !== 'manual' && preset.level !== 'auto' && preset.level !== 'bypass')
+        issues.push({
+          path: `${path}.level`,
+          message: "A mode of the CLI's own names the preset it sits at: manual, auto or bypass.",
+        })
     }
   }
 }

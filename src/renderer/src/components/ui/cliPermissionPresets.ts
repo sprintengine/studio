@@ -35,6 +35,28 @@ export function storedCliPermissionPreset(cli: AgentCli | null | undefined): Cli
 }
 
 /**
+ * The CLI's own mode stored with its preset (Claude Code's Accept edits), or
+ * undefined when the choice is the preset's own mode or was never made. A
+ * spawn launches with it beside `resolveCliPermissionPreset`'s preset, which
+ * is then that CLI's own choice too.
+ */
+export function storedCliPermissionMode(cli: AgentCli | null | undefined): string | undefined {
+  if (!cli) return undefined
+  const settings = useWorkspaceStore.getState().appSettings
+  return settings.cliPermissionPresets?.[cli] ? settings.cliPermissionModes?.[cli] : undefined
+}
+
+// The app-wide value a CLI nobody chose for reads, unless the CLI has no
+// setting for it in a terminal (Kimi Code has no Auto): then no flag, which is
+// what it would run on anyway, said as what it is.
+function fallbackFor(
+  declared: readonly CliPermissionPreset[] | undefined,
+  fallback: CliPermissionPreset,
+): CliPermissionPreset {
+  return declared && !declared.includes(fallback) ? 'none' : fallback
+}
+
+/**
  * What a spawn on this CLI actually launches with: the CLI's own preset, or the
  * app-wide default when it has never been set. Read at SPAWN time, for the CLI
  * being launched — never from a value captured when the picker opened.
@@ -43,12 +65,33 @@ export function resolveCliPermissionPreset(
   cli: AgentCli | null | undefined,
   fallback: CliPermissionPreset,
 ): CliPermissionPreset {
-  return storedCliPermissionPreset(cli) ?? fallback
+  const stored = storedCliPermissionPreset(cli)
+  if (stored || !cli) return stored ?? fallback
+  const declared = useWorkspaceStore
+    .getState()
+    .pluginCatalogEntries.find((entry) => entry.id === cli)?.permissionPresets
+  return fallbackFor(declared, fallback)
 }
 
-export function setCliPermissionPreset(cli: AgentCli | null | undefined, preset: CliPermissionPreset): void {
+/** The agent-record field for the CLI's own mode a spawn on `cli` launches with, if any. */
+export function cliPermissionModePatch(cli: AgentCli | null | undefined): { cliPermissionMode?: string } {
+  const mode = storedCliPermissionMode(cli)
+  return mode ? { cliPermissionMode: mode } : {}
+}
+
+/** The same, as the `permissionMode` a launch input takes. */
+export function cliPermissionModeLaunch(cli: AgentCli | null | undefined): { permissionMode?: string } {
+  const mode = storedCliPermissionMode(cli)
+  return mode ? { permissionMode: mode } : {}
+}
+
+export function setCliPermissionPreset(
+  cli: AgentCli | null | undefined,
+  preset: CliPermissionPreset,
+  mode?: string | null,
+): void {
   if (!cli) return
-  useWorkspaceStore.getState().setCliPermissionPreset(cli, preset)
+  useWorkspaceStore.getState().setCliPermissionPreset(cli, preset, mode ?? null)
 }
 
 /**
@@ -57,7 +100,7 @@ export function setCliPermissionPreset(cli: AgentCli | null | undefined, preset:
  */
 export function __resetCliPermissionPresetsForTest(): void {
   useWorkspaceStore.setState((state) => ({
-    appSettings: { ...state.appSettings, cliPermissionPresets: {} },
+    appSettings: { ...state.appSettings, cliPermissionPresets: {}, cliPermissionModes: {} },
   }))
 }
 
@@ -67,5 +110,15 @@ export function useCliPermissionPreset(
   fallback: CliPermissionPreset,
 ): CliPermissionPreset {
   const stored = useWorkspaceStore((state) => (cli ? state.appSettings.cliPermissionPresets?.[cli] : undefined))
-  return stored ?? fallback
+  const declared = useWorkspaceStore((state) =>
+    cli ? state.pluginCatalogEntries.find((entry) => entry.id === cli)?.permissionPresets : undefined,
+  )
+  return stored ?? fallbackFor(declared, fallback)
+}
+
+/** The live mode of the CLI's own chosen with its preset, or undefined for the preset's own. */
+export function useCliPermissionMode(cli: AgentCli | null | undefined): string | undefined {
+  return useWorkspaceStore((state) =>
+    cli && state.appSettings.cliPermissionPresets?.[cli] ? state.appSettings.cliPermissionModes?.[cli] : undefined,
+  )
 }

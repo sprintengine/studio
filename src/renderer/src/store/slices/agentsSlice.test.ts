@@ -91,7 +91,26 @@ test('agentsSlice', async () => {
       cliPermissionPreset: 'invalid' as never,
     }).cliPermissionPreset,
     // A value no version wrote reads as the spawn default.
-    'bypass',
+    'auto',
+  )
+  // The CLI's own mode stays beside its preset, and only a mode id does.
+  assert.equal(
+    normalizeAgentState({
+      ...defaultAgent('agent-normalize-mode'),
+      cliPermissionPreset: 'auto',
+      cliPermissionMode: 'acceptEdits',
+    }).cliPermissionMode,
+    'acceptEdits',
+  )
+  assert.equal(
+    'cliPermissionMode' in
+      normalizeAgentState({
+        ...defaultAgent('agent-normalize-bad-mode'),
+        cliPermissionPreset: 'auto',
+        cliPermissionMode: '../escape',
+      }),
+    false,
+    'a value that is not a mode id is dropped, and the preset’s own mode runs',
   )
   assert.equal(
     normalizeAgentState({ ...defaultAgent('agent-normalize-legacy'), cliPermissionPreset: 'default' as never })

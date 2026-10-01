@@ -171,7 +171,11 @@ test('every launch setter round-trips through main, and main answer is what the 
   assert.deepEqual(patches[11], {
     hosts: { 'wsl:Ubuntu': { enabled: true, cliCommands: { codex: '/home/dev/bin/codex' }, env: {} } },
   })
-  assert.deepEqual(patches[12], { cliPermissionPresets: { codex: 'none' } }, 'only the CLI that changed')
+  assert.deepEqual(
+    patches[12],
+    { cliPermissionPresets: { codex: 'none' }, cliPermissionModes: { codex: null } },
+    'only the CLI that changed, its own mode going with its preset',
+  )
 
   const settings = mainRecord().settings
   assert.equal(settings.cliRuntimes.codex?.command, '/Users/dev/.local/bin/codex')
@@ -231,6 +235,7 @@ test('client: nothing is adopted while an update is in flight, then the newest r
     lastSelectedCli: 'codex',
     lastAgentSpawnPermissionPreset: null,
     cliPermissionPresets: {},
+    cliPermissionModes: {},
   })
   const applied: Array<string | null> = []
   const client = createLaunchSettingsClient()
@@ -245,6 +250,7 @@ test('client: nothing is adopted while an update is in flight, then the newest r
       lastSelectedCli: 'ignored',
       lastAgentSpawnPermissionPreset: null,
       cliPermissionPresets: {},
+      cliPermissionModes: {},
     }),
     onLegacySettled: () => applied.push('settled'),
   })
@@ -285,6 +291,7 @@ test('client: a main that does not answer the boot read leaves the legacy values
     lastSelectedCli: 'codex',
     lastAgentSpawnPermissionPreset: null,
     cliPermissionPresets: {},
+    cliPermissionModes: {},
   }
   const warn = console.warn
   console.warn = () => undefined

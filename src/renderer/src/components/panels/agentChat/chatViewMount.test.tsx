@@ -287,9 +287,12 @@ test('the composer offers one engine chip — no plan toggle, no separate permis
     const buttons = () => Array.from(chat.dom.window.document.querySelectorAll('button'))
     const chips = buttons().filter((item) => item.getAttribute('aria-label')?.startsWith('Engine:'))
     expect(chips).toHaveLength(1)
+    // The permissions chip names the mode the chat is on (Auto, by default);
+    // nothing else is a control of its own for one.
+    const permissionChip = (item: Element) => item.getAttribute('aria-label')?.startsWith('Permissions:')
     for (const retired of ['Plan', 'Bypass permissions', 'CLI default', 'Auto']) {
       expect(
-        buttons().some((item) => item.textContent?.trim() === retired),
+        buttons().some((item) => !permissionChip(item) && item.textContent?.trim() === retired),
         `no standalone “${retired}” control`,
       ).toBe(false)
     }

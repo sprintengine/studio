@@ -32,6 +32,23 @@ const CONVERSATION_PERMISSION_PRESET_REFUSALS: Readonly<
   cursor: { manual: 'Cursor edits files without asking, so it cannot ask before every change.' },
 }
 
+// The CLI's own permission modes a chat runs beside each preset's own, by the
+// id the CLI's manifest keys the mode under, which is where its name, its line
+// and its level come from. A chat sets each through its runtime's own channel
+// (an SDK mode, an approval policy, a launch flag), so a mode is listed here
+// only where its provider maps it; the launcher and the chat box offer a chat
+// no other mode of the CLI's own.
+const CONVERSATION_PERMISSION_MODES: Readonly<Record<string, readonly string[]>> = {
+  'claude-code': ['acceptEdits', 'dontAsk'],
+  codex: ['workspace'],
+  grok: ['acceptEdits', 'dontAsk'],
+}
+
+/** The CLI's own modes its chat can run beside the presets' own. */
+export function conversationPermissionModes(cli: string | null | undefined): readonly string[] {
+  return (cli && CONVERSATION_PERMISSION_MODES[cli]) || []
+}
+
 /** The presets a CLI's chat cannot run, each with the reason; empty when it runs every one. */
 export function conversationPermissionPresetRefusals(
   cli: string | null | undefined,
@@ -53,14 +70,13 @@ export function conversationProviderForCli(cli: string | null | undefined): stri
   return null
 }
 
-// The CLIs whose chat can run on a WSL machine: its child is started inside
-// the distribution, with the login and settings under the Linux home. The
-// other chat runtimes still start their CLI on this machine only.
-const WSL_CHAT_CLIS: ReadonlySet<string> = new Set(['claude-code'])
-
-/** Whether a CLI's chat can run on a WSL machine rather than only on this one. */
-export function conversationRunsOnWsl(cli: string | null | undefined): boolean {
-  return Boolean(cli && WSL_CHAT_CLIS.has(cli))
+/**
+ * Every CLI that has a chat runtime. Each one's chat can run on a WSL machine
+ * as well as on this one: its child is started inside the distribution, with
+ * the login and settings under the Linux home (owner ruling 2026-10-01).
+ */
+export function conversationClis(): string[] {
+  return [...new Set(Object.values(CONVERSATION_PROVIDER_CLI))]
 }
 
 /**

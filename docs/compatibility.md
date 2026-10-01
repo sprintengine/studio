@@ -107,8 +107,9 @@ HOST_API_VERSION`. `checkHostApiCompatibility` is the one check; it is
 - **Capabilities.** `host.supports(name)` answers what the running host
   provides now, from the table in `src/shared/modules/host-api.ts`
   (`hostSupports`). The names are the SDK's `HostCapability` union:
-  `conversations`, `chat.open`, `companion-agents`, `scheduled-agents`, `secrets`,
-  `github`, `storage`, `mcp-tools`, `skills`, `module-assets`, `notifications`.
+  `conversations`, `conversation-controls`, `chat.open`, `companion-agents`,
+  `scheduled-agents`, `secrets`, `github`, `storage`, `mcp-tools`, `skills`,
+  `module-assets`, `notifications`.
   A capability joins the table in the same change that makes it real, and an
   unknown name answers `false`. As on the tailnet, an additive feature ships as
   a capability with no version bump.

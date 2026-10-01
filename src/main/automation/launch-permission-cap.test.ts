@@ -418,10 +418,10 @@ test('resolver: a live terminal main launched answers with its launch record', (
   assert.equal(resolve({ workspaceId: 'ws-1', agentId: 'agent-a' }), 'none')
 })
 
-test("resolver: a window's terminal agent answers with its record, and an old record with none is bypass", () => {
+test("resolver: a window's terminal agent answers with its record, and an old record with none is auto", () => {
   const resolve = resolverOver({ records: { 'ws-1/agent-a': 'none', 'ws-1/agent-b': undefined } })
   assert.equal(resolve({ workspaceId: 'ws-1', agentId: 'agent-a' }), 'none')
-  assert.equal(resolve({ workspaceId: 'ws-1', agentId: 'agent-b' }), 'bypass')
+  assert.equal(resolve({ workspaceId: 'ws-1', agentId: 'agent-b' }), 'auto')
 })
 
 test('resolver: the strictest of several sessions under one id wins', () => {

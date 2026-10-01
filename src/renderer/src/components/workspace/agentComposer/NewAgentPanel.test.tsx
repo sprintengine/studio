@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
+import { bundledPermissionModes } from '../../../../../../tests/permission-modes'
 import { test } from 'vitest'
 
 test('NewAgentPanel', async () => {
@@ -97,6 +98,11 @@ test('NewAgentPanel', async () => {
   // machine, which is every platform but a Windows with WSL turned on.
   let hostsAnswer: { hosts: Array<Record<string, unknown>>; wsl: unknown } = { hosts: [], wsl: null }
   const detectCalls: unknown[] = []
+  // The CLIs a WSL machine's detection finds there.
+  const claudeOnly = {
+    'claude-code': { cli: 'claude-code', installed: true, resolvedPath: '/usr/bin/claude', version: '1' },
+  }
+  let detectAnswer: Record<string, unknown> = claudeOnly
 
   ;(dom.window as unknown as { api: Record<string, unknown> }).api = {
     platform: 'darwin',
@@ -104,12 +110,7 @@ test('NewAgentPanel', async () => {
     onHostsChanged: () => () => {},
     pluginsDetectAvailability: async (input: unknown) => {
       detectCalls.push(input)
-      return {
-        ok: true,
-        availability: {
-          'claude-code': { cli: 'claude-code', installed: true, resolvedPath: '/usr/bin/claude', version: '1' },
-        },
-      }
+      return { ok: true, availability: detectAnswer }
     },
     getGitRepoRoot: async () => '/proj',
     meshListConnections: async () => meshConnections,
@@ -852,6 +853,7 @@ test('NewAgentPanel', async () => {
               installTargets: [],
               invocation: { explicitTemplate: '/{{skillId}}', nativeSlashCommand: true, mentionPrefix: '/' },
             },
+            permissionModes: bundledPermissionModes('claude-code'),
           },
           {
             id: 'codex',
@@ -861,6 +863,7 @@ test('NewAgentPanel', async () => {
             binary: 'codex',
             resumeSession: true,
             sessionIdFromCaller: true,
+            permissionModes: bundledPermissionModes('codex'),
             modelSelection: {
               options: [
                 { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
@@ -1586,6 +1589,73 @@ test('NewAgentPanel', async () => {
       }
     })
 
+    // Every chat runtime runs on a WSL machine (owner ruling 2026-10-01): a
+    // Codex chat there is neither stranded nor sent back to This PC.
+    await check('a Codex chat runs on the WSL machine it was started on, like any other chat', async () => {
+      seedStore({
+        plugins: [
+          {
+            id: 'codex',
+            displayName: 'Codex',
+            source: 'bundled',
+            version: 1,
+            binary: 'codex',
+            resumeSession: true,
+            sessionIdFromCaller: true,
+          },
+        ],
+      })
+      resetRememberedMachineForTests()
+      meshConnections = []
+      detectAnswer = {
+        codex: { cli: 'codex', installed: true, resolvedPath: '/home/dev/.local/bin/codex', version: '1' },
+      }
+      hostsAnswer = {
+        hosts: [
+          { id: 'local', kind: 'windows', label: 'This PC (Windows)', pathStyle: 'windows', state: 'ready' },
+          { id: 'wsl:Ubuntu', kind: 'wsl', label: 'WSL: Ubuntu', pathStyle: 'wsl', state: 'ready', enabled: true },
+        ],
+        wsl: { available: true },
+      }
+      try {
+        const view = await render({
+          initialSelection: { kind: 'conversation' },
+          folderPath: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo',
+          projectOptions: [],
+          onSelectProject: () => {},
+        })
+        await settle()
+        assert.equal(machineTrigger(view)?.textContent?.trim(), 'WSL: Ubuntu')
+        assert.doesNotMatch(view.text(), /This PC only|Pick Claude Code/u, 'nothing says the chat cannot run there')
+        const menu = await openMachineMenu(view)
+        const ubuntu = menu.querySelector<HTMLButtonElement>('[data-machine-host="wsl:Ubuntu"]')
+        assert.equal(ubuntu?.disabled, false, 'a Codex chat may pick the distribution')
+        assert.doesNotMatch(ubuntu?.textContent ?? '', /run on This PC/u)
+        await act(async () => {
+          dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+        })
+        const field = view.container.querySelector('textarea')!
+        await act(async () => {
+          Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!.call(field, 'hi')
+          field.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+        })
+        await act(async () => {
+          field.dispatchEvent(
+            new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+          )
+        })
+        const launch = view.launches.at(-1)
+        assert.equal(launch?.kind, 'conversation')
+        assert.equal(launch?.cli, 'codex')
+        assert.equal(launch?.hostId, 'wsl:Ubuntu', 'the Codex chat runs where its folder is')
+        view.unmount()
+      } finally {
+        detectAnswer = claudeOnly
+        hostsAnswer = { hosts: [], wsl: null }
+        resetRememberedMachineForTests()
+      }
+    })
+
     await check('unreachable, unauthorized and workspace-gap machines say their real reason', async () => {
       seedStore()
       resetRememberedMachineForTests()
@@ -1790,7 +1860,7 @@ test('NewAgentPanel', async () => {
           'every preset is open on a remote machine',
         )
         const checked = rows.find((row) => row.getAttribute('aria-checked') === 'true')!
-        assert.equal(checked, rows[0], 'Bypass is the checked row')
+        assert.equal(checked, rows[2], 'Bypass is the checked row')
         await act(async () => {
           dom.window.document.dispatchEvent(
             new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
@@ -2443,10 +2513,10 @@ test('NewAgentPanel', async () => {
       const view = await render({ permissionPreset: 'none' })
       const menu = await openPermissionsMenu(view, 'No flag')
       const rows = [...menu.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]')]
-      assert.equal(rows.length, 4, 'four presets: Bypass, Auto, Manual and No flag')
-      assert.ok(rows[0]?.textContent?.startsWith('Bypass permissions'), 'Bypass, the default, leads')
+      assert.equal(rows.length, 4, 'four presets: Manual, Auto, Bypass and No flag')
+      assert.ok(rows[0]?.textContent?.startsWith('Manual'), 'the strictest leads')
       assert.ok(rows[1]?.textContent?.startsWith('Auto'), 'Auto follows')
-      assert.ok(rows[2]?.textContent?.startsWith('Manual'), 'then Manual')
+      assert.ok(rows[2]?.textContent?.startsWith('Bypass permissions'), 'then Bypass')
       assert.ok(rows[3]?.textContent?.startsWith('No flag'), 'and the no-flag row closes the list')
       assert.equal(dom.window.document.activeElement, rows[3], 'focus opens on the checked row')
       const key = (el: Element, k: string) =>
@@ -2461,7 +2531,7 @@ test('NewAgentPanel', async () => {
       await key(rows[0]!, 'Enter')
       assert.equal(
         storedCliPermissionPreset('claude-code'),
-        'bypass',
+        'manual',
         'Enter selects the focused row, and the pick is remembered for the CLI it was made on',
       )
       view.unmount()

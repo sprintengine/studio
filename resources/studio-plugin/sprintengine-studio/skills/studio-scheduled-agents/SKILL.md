@@ -50,7 +50,7 @@ Read it before creating one, so you do not schedule the same thing twice.
   last on this computer when omitted.
 - `permissionPreset` (optional) — `bypass`, `auto`, `manual` or `none`, the
   same four a person picks in the app. Omitted, the run uses the preset chosen
-  for that CLI at run time.
+  for that CLI at run time, else `auto`.
 - `worktree` (optional) — `true` runs each time in a fresh git worktree rather
   than the project's checkout.
 - `skills` and `mcpServers` (optional) — ids attached to every run.

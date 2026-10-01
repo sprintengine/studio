@@ -26,6 +26,7 @@ function settings(overrides: Partial<AgentLaunchSettings> = {}): AgentLaunchSett
     // A migration offer from a profile written before the two-mode change.
     lastAgentSpawnPermissionPreset: 'auto' as never,
     cliPermissionPresets: {},
+    cliPermissionModes: {},
     ...overrides,
   }
 }

@@ -19,7 +19,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openConfinedExistingFile, readBoundedConversationFile } from '../conversation-file-access'
 import { asRecord } from '../../shared/records'
-import { CONVERSATION_DEFAULT_MODEL_ID } from '../../shared/conversation-harness'
+import { CONVERSATION_DEFAULT_MODEL_ID, conversationPermissionModes } from '../../shared/conversation-harness'
 import { isWslHostId, type ExecutionHostId } from '../../shared/execution-host'
 import { isWindowsPath, toWslPath } from '../../shared/host-paths'
 import { isLooserCliPermissionPreset } from '../../shared/cli-permission-preset'
@@ -186,6 +186,9 @@ type SessionState = {
   workspaceRoot: string
   cliRuntimes?: ConversationCliRuntimeOverrides
   permissionPreset: ConversationPermissionPreset
+  // Claude Code's own mode at that preset (Accept edits, Don't ask), when one
+  // other than the preset's own was chosen.
+  permissionMode?: string
   allowedTools?: string[]
   // The session's own MCP servers (a connector run's), on every child it spawns.
   mcpServers?: ConversationMcpServer[]
@@ -223,6 +226,9 @@ type SessionState = {
   // necessarily the CLI's own default that `none` means — so the next turn
   // respawns it (resumed) under the preset the session recorded.
   childPreset: ConversationPermissionPreset | null
+  // And the mode of Claude Code's own it runs at that preset, null for the
+  // preset's own.
+  childMode: string | null
   // Session-level events (resume cursor updates) that arrived while no turn
   // stream was open to carry them; flushed at the next turn start.
   pendingSessionEvents: ConversationEvent[]
@@ -540,6 +546,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     state.abort = null
     state.query = null
     state.childPreset = null
+    state.childMode = null
     state.childPid = null
     state.spawnedAt = null
     if (state.skillPluginDir) removeSkillPlugin(state.skillPluginDir)
@@ -566,7 +573,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
 
   // Whether the live child runs under the session's recorded preset.
   function childHonorsPreset(state: SessionState): boolean {
-    return state.childPreset === state.permissionPreset
+    return state.childPreset === state.permissionPreset && state.childMode === ownSdkMode(state)
   }
 
   // Whether the child can be replaced now without ending anything. A
@@ -840,6 +847,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     state.query = q
     state.queryCostUsd = 0
     state.childPreset = state.permissionPreset
+    state.childMode = ownSdkMode(state)
     state.inputQueue = inputQueue
     state.abort = abort
     void pump(state, q)
@@ -849,7 +857,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
   // The native permission mode a chat mode runs the child in. Ask is plan mode
   // with a hook that reads `state.mode` for every tool call.
   function nativePermissionMode(state: SessionState, mode: SessionState['mode']) {
-    return mode === 'plan' || mode === 'ask' ? 'plan' : SDK_PERMISSION_MODE_BY_PRESET[state.permissionPreset]
+    return mode === 'plan' || mode === 'ask' ? 'plan' : sdkPermissionMode(state)
   }
 
   // Whether Manual sends this call to a card even where the CLI would run it
@@ -860,7 +868,10 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
   // canUseTool anyway. Read from the session's preset, not the child's, so
   // choosing Manual mid-reply holds the very next call.
   function manualAsks(state: SessionState, toolName: string): boolean {
-    if (state.permissionPreset !== 'manual' || state.mode === 'plan' || state.mode === 'ask') return false
+    // Don't ask is at Manual's level and asks about nothing: what its rules do
+    // not allow is refused, not carded.
+    if (state.permissionPreset !== 'manual' || ownSdkMode(state) || state.mode === 'plan' || state.mode === 'ask')
+      return false
     if (toolName === 'AskUserQuestion' || toolName === 'ExitPlanMode') return false
     // A tool the session was started pre-approved for stays pre-approved.
     if (state.allowedTools?.includes(toolName)) return false
@@ -992,7 +1003,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     let planTransitionError: string | undefined
     if (decision.approved && plan !== null && state.mode === 'plan') {
       try {
-        await state.query?.setPermissionMode(SDK_PERMISSION_MODE_BY_PRESET[state.permissionPreset] ?? 'default')
+        await state.query?.setPermissionMode(sdkPermissionMode(state) ?? 'default')
         state.mode = 'default'
       } catch (error) {
         decision.approved = false
@@ -1033,6 +1044,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     displayName: 'Claude Code',
     executionHostCli: 'claude-code',
     capabilities: {
+      permissionModes: [...conversationPermissionModes('claude-code')],
       tools: true,
       approvals: true,
       questions: true,
@@ -1064,6 +1076,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         workspaceRoot: input.workspaceRoot ?? '',
         cliRuntimes: input.cliRuntimes,
         permissionPreset: input.permissionPreset ?? 'none',
+        ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
         allowedTools: input.allowedTools,
         ...(input.mcpServers?.length ? { mcpServers: input.mcpServers } : {}),
         skillPluginDir: null,
@@ -1081,6 +1094,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         turn: null,
         pendingPermissions: new Map(),
         childPreset: null,
+        childMode: null,
         pendingSessionEvents: [],
         onSessionEvent: input.onSessionEvent ?? null,
         continuationSequence: 0,
@@ -1290,12 +1304,15 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       const state = sessions.get(input.sessionId)
       if (!state) return { ok: false, message: 'Conversation session is not registered with the Claude provider.' }
       state.permissionPreset = input.permissionPreset
+      if (input.permissionMode) state.permissionMode = input.permissionMode
+      else delete state.permissionMode
       state.lastActivityAt = now()
       if (state.mode === 'ask' || state.mode === 'plan')
         return { ok: true, notice: 'The permission preset applies when you return to the default mode.' }
       if (!state.query || childHonorsPreset(state)) return { ok: true }
       const next = state.permissionPreset
-      const target = SDK_PERMISSION_MODE_BY_PRESET[next]
+      const nextMode = ownSdkMode(state)
+      const target = sdkPermissionMode(state)
       if (target === undefined && childIsIdle(state)) {
         disposeChild(state)
         return { ok: true }
@@ -1321,14 +1338,17 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         // the hook in `manualAsks`, which reads the session's preset. Only
         // another STRICTER mode waits — the child would run, unasked, what it
         // now should ask about — and only that is worth a sentence.
-        if (next === 'manual' || (before && isLooserCliPermissionPreset(next, before))) return { ok: true }
+        if ((next === 'manual' && !nextMode) || (before && isLooserCliPermissionPreset(next, before)))
+          return { ok: true }
         return { ok: true, notice: 'The stricter permissions apply from your next message.' }
       }
       if (state.query !== query) return { ok: true }
       // Moved again while the child answered: which mode it ended on is not
       // known here, so it is trusted with nothing more and the next turn
       // respawns it. `none` has no mode of its own either.
-      state.childPreset = target !== undefined && state.permissionPreset === next ? next : null
+      const settled = target !== undefined && state.permissionPreset === next && ownSdkMode(state) === nextMode
+      state.childPreset = settled ? next : null
+      state.childMode = settled ? nextMode : null
       if (state.childPreset !== 'bypass') return { ok: true }
       for (const [requestId, pending] of Array.from(state.pendingPermissions)) {
         if (!pending.bypassable) continue
@@ -1591,6 +1611,33 @@ const SDK_PERMISSION_MODE_BY_PRESET: Record<
   manual: 'default',
   auto: 'auto',
   bypass: 'bypassPermissions',
+}
+
+// Claude Code's other modes a chat runs, by the id its manifest keys them
+// under, each at the preset it sits at (conversationPermissionModes). Accept
+// edits is what Auto was before it became the classifier; Don't ask refuses
+// whatever the person's allow rules do not cover, and asks about nothing.
+const SDK_PERMISSION_MODE_BY_OWN_MODE: Readonly<
+  Record<string, { level: ConversationPermissionPreset; sdk: 'acceptEdits' | 'dontAsk' }>
+> = {
+  acceptEdits: { level: 'auto', sdk: 'acceptEdits' },
+  dontAsk: { level: 'manual', sdk: 'dontAsk' },
+}
+
+// The mode of Claude Code's own a session runs, or null for its preset's own:
+// one it does not have, or has at another preset, is not run in its place.
+function ownSdkMode(state: { permissionPreset: ConversationPermissionPreset; permissionMode?: string }) {
+  const own =
+    state.permissionMode && Object.hasOwn(SDK_PERMISSION_MODE_BY_OWN_MODE, state.permissionMode)
+      ? SDK_PERMISSION_MODE_BY_OWN_MODE[state.permissionMode]
+      : undefined
+  return own && own.level === state.permissionPreset ? state.permissionMode! : null
+}
+
+// The SDK permission mode a session's child runs under, outside plan and ask.
+function sdkPermissionMode(state: { permissionPreset: ConversationPermissionPreset; permissionMode?: string }) {
+  const own = ownSdkMode(state)
+  return own ? SDK_PERMISSION_MODE_BY_OWN_MODE[own]!.sdk : SDK_PERMISSION_MODE_BY_PRESET[state.permissionPreset]
 }
 
 // Sanitize the CLI tool's AskUserQuestion input into the provider-neutral

@@ -2401,9 +2401,13 @@ function reader(stream: AsyncIterable<ConversationEvent>) {
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 10))
-/** Wait for the child to have read `count` prompts: spawning it is several awaits deep. */
+/**
+ * Wait for the child to have read `count` prompts: spawning it is several
+ * awaits deep. A spawn takes about a quarter of a second alone; the budget is
+ * for a full parallel suite, where two seconds was sometimes not enough.
+ */
 async function promptsRead(prompts: unknown[], count: number): Promise<void> {
-  for (let attempt = 0; prompts.length < count && attempt < 200; attempt++) await settle()
+  for (let attempt = 0; prompts.length < count && attempt < 500; attempt++) await settle()
   assert.equal(prompts.length, count)
 }
 const textDelta = (text: string) => ({
@@ -3138,6 +3142,51 @@ test('a Claude chat spawns Manual as default and Auto as the CLI’s own auto mo
     } finally {
       await h.adapter.disposeAll()
     }
+  }
+})
+
+test('a Claude chat runs Accept edits and Don’t ask at their own presets, and the preset’s own mode elsewhere', async () => {
+  for (const [permissionPreset, permissionMode, mode] of [
+    ['auto', 'acceptEdits', 'acceptEdits'],
+    ['manual', 'dontAsk', 'dontAsk'],
+    // A mode at another preset than its own, or one Claude does not have,
+    // runs the preset's own mode rather than a guess.
+    ['bypass', 'acceptEdits', 'bypassPermissions'],
+    ['auto', 'workspace', 'auto'],
+  ] as const) {
+    const h = scriptedHarness()
+    try {
+      await h.adapter.startSession({ ...h.turn('turn_1'), permissionPreset, permissionMode })
+      const first = reader((await h.adapter.sendTurn(h.turn('turn_1'))) as AsyncIterable<ConversationEvent>)
+      await promptsRead(h.prompts, 1)
+      assert.equal(h.spawned[0].permissionMode, mode, `${permissionPreset}/${permissionMode}`)
+      h.emit(success({ user_message_uuids: [h.uuidOf(0)] }))
+      await first.done
+    } finally {
+      await h.adapter.disposeAll()
+    }
+  }
+})
+
+test('Don’t ask adds no card of its own, and a live switch to Accept edits reaches the child', async () => {
+  const h = scriptedHarness()
+  try {
+    await h.adapter.startSession({ ...h.turn('turn_1'), permissionPreset: 'manual', permissionMode: 'dontAsk' })
+    const first = reader((await h.adapter.sendTurn(h.turn('turn_1'))) as AsyncIterable<ConversationEvent>)
+    await promptsRead(h.prompts, 1)
+    const hook = preToolUse(h.spawned[0])
+    // What Don't ask refuses is refused by the CLI, not sent to a card.
+    assert.deepEqual(await hook(hookCall('Bash')), {})
+    await h.adapter.setPermissionPreset({
+      ...h.turn('turn_1'),
+      permissionPreset: 'auto',
+      permissionMode: 'acceptEdits',
+    })
+    assert.deepEqual(h.modes, ['acceptEdits'])
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)] }))
+    await first.done
+  } finally {
+    await h.adapter.disposeAll()
   }
 })
 

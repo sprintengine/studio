@@ -66,6 +66,7 @@ import { getSharedCredentialStore } from './secret-store'
 import { getErrorMessage } from './error-message'
 import { getTerminalErrorMessage } from './terminal-error'
 import { getPluginById } from './plugin-registry-instance'
+import { permissionRenderKey } from './plugin-render'
 import { cliCredentialLaunchBlock, pluginIdForCli } from './agent-launch-render'
 import {
   agentCliLaunchFailureResult,
@@ -2986,6 +2987,7 @@ async function spawnTerminalFromIpc(
     worktreeId,
     worktreePath,
     cliPermissionPreset = 'none',
+    cliPermissionMode,
     cliModel,
     cliReasoning,
     memoryRootPath,
@@ -3317,7 +3319,7 @@ async function spawnTerminalFromIpc(
           agentCli,
           initialPrompt,
           launchCliRuntimes,
-          cliPermissionPreset,
+          permissionRenderKey(getPluginById(agentCli)?.manifest, cliPermissionPreset, cliPermissionMode),
           cliModel,
           memoryRootPath,
           memoryRelativeRoot,

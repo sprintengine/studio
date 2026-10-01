@@ -117,6 +117,7 @@ test('moduleConversationSeam', async () => {
           yield event(input, 'turn_completed', { turnId: input.turnId })
         },
         resolveApproval: () => [],
+        setPermissionPreset: async () => ({ ok: true }),
         interrupt: () => [],
         stopSession: (input) => [event(input, 'session_closed')],
       },
@@ -158,7 +159,8 @@ test('moduleConversationSeam', async () => {
     dependsOn: ['agent-runtime'],
     permissions,
   })
-  const acmeManifest = thirdParty('acme-chat', ['conversation:operate', 'mcp:tools'])
+  // acme may run its chats on bypass; the other module goes no looser than auto.
+  const acmeManifest = thirdParty('acme-chat', ['conversation:operate', 'conversation:bypass', 'mcp:tools'])
   const otherManifest = thirdParty('other-chat', ['conversation:operate'])
   const modules: Record<string, ModuleConversationService> = {}
   const manifests = new Map([acmeManifest, otherManifest].map((manifest) => [manifest.id, manifest]))
@@ -273,6 +275,16 @@ test('moduleConversationSeam', async () => {
     assert.equal(heard.length, before)
     assert.ok(!heard.some((received) => received.payload?.text === 're: private'))
     unsubscribe()
+
+    // A module without conversation:bypass asking for it gets auto, on the live
+    // session and on the record the bus carries, and cannot switch a chat it
+    // does not own.
+    assert.deepEqual(await other.setPermissionPreset(otherChat, 'bypass'), { ok: true, permissionPreset: 'auto' })
+    assert.equal(agentRecord(otherChat.workspaceId, otherChat.agentId)?.cliPermissionPreset, 'auto')
+    const otherSessions = runtime.listSessions({ agentId: otherChat.agentId })
+    assert.equal(otherSessions.ok && otherSessions.sessions[0]?.permissionPreset, 'auto')
+    const foreignSwitch = await other.setPermissionPreset(mine, 'manual')
+    assert.equal(!foreignSwitch.ok && foreignSwitch.code, 'not_owned')
 
     // A third-party host reaches the chat launch only through the module service.
     assert.throws(

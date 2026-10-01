@@ -1986,6 +1986,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     agentLaunchService,
     conversationTerminalHandoff,
     conversationLaunchService,
+    conversationModelCatalog,
     tourService,
     setTourAttention: tours.setAttention,
     builtinSkillManager,

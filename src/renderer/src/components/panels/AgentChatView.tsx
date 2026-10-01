@@ -80,12 +80,13 @@ import {
   isLooserCliPermissionPreset,
   parseCliPermissionPreset,
 } from '../../../../shared/cli-permission-preset'
+import { parseCliPermissionModeId } from '../../../../shared/cli-permission-mode'
 import { pickRandomAgentName } from '../../../../shared/agent-names'
 import { lockedChatEngineOption, isModelDerivedChatName } from './agentChat/chatEngine'
 import { EnginePickerChip } from '../workspace/agentComposer/enginePicker'
 import type { CliRuntimeOption } from '../ui/CliModelPicker'
-import { PermissionFooter } from '../workspace/agentComposer/spawnFooter'
-import { agentPermissionOptions } from '../workspace/agentComposer/agentSpawnShared'
+import { PermissionFooter, usePermissionModeOptions } from '../workspace/agentComposer/spawnFooter'
+import { PRESET_CHIP_LABEL, selectedPermissionOption } from '../workspace/agentComposer/agentSpawnShared'
 import { useAgentCliCatalogOptions } from '../workspace/agentComposer/useAgentComposer'
 import { conversationCliRuntimesFor } from '../workspace/newWorkspace/cliRuntimeOptions'
 import {
@@ -391,11 +392,25 @@ export function chatPermissionRefusals(input: {
 // preset); then the persisted per-agent field every CLI spawn stamps from the
 // picker, which is also what the next session starts on; then the app's spawn
 // default for an agent record predating the field.
+// No mode of the CLI's own: what a chat whose runtime names none offers.
+const NO_MODES: readonly string[] = []
+
 export function resolvePermissionPreset(
   session: Pick<ConversationSessionSummary, 'permissionPreset'> | null,
   agentPreset: CliPermissionPreset | undefined,
 ): CliPermissionPreset {
   return session?.permissionPreset ?? agentPreset ?? DEFAULT_AGENT_SPAWN_PERMISSION_PRESET
+}
+
+// The CLI's own mode beside that preset, from the same source the preset came
+// from: a live session's own report wins whole, so a session that fell back
+// to No flag never shows the record's mode beside it.
+export function resolvePermissionMode(
+  session: Pick<ConversationSessionSummary, 'permissionPreset' | 'permissionMode'> | null,
+  agent: { cliPermissionPreset?: CliPermissionPreset; cliPermissionMode?: string } | undefined,
+): string | undefined {
+  if (session?.permissionPreset) return session.permissionMode
+  return agent?.cliPermissionPreset ? agent.cliPermissionMode : undefined
 }
 
 // Which mounted chat view answers a whole-window model-picker shortcut (see
@@ -557,6 +572,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const providerEntry = providers.find((entry) => entry.id === conversation?.providerId)
   const capabilities = session?.capabilities ?? providerEntry?.capabilities
   const permissionPreset = resolvePermissionPreset(session, agent?.cliPermissionPreset)
+  const permissionMode = resolvePermissionMode(session, agent)
   const supportsSkills =
     transport.capabilities.composerContext && capabilities?.skills !== undefined && capabilities.skills !== 'none'
   // The chat has no plan toggle: a turn goes out in the mode the agent is on,
@@ -836,7 +852,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     replay: number
     through: number
     found: { id: string; modelId: string } | null
-    preset: { id: string; sessionId: string; permissionPreset: CliPermissionPreset } | null
+    preset: { id: string; sessionId: string; permissionPreset: CliPermissionPreset; permissionMode?: string } | null
   }
   const modelScanRef = useRef<LiveSessionScan>({ replay: -1, through: 0, found: null, preset: null })
   const liveSessionScan = useMemo(() => {
@@ -857,7 +873,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       const modelId = event.payload?.modelId
       if (!found && typeof modelId === 'string' && modelId) found = { id: event.id, modelId }
       const permissionPreset = parseCliPermissionPreset(event.payload?.permissionPreset)
-      if (!preset && permissionPreset) preset = { id: event.id, sessionId: event.sessionId, permissionPreset }
+      const permissionMode = parseCliPermissionModeId(event.payload?.permissionMode) ?? undefined
+      if (!preset && permissionPreset)
+        preset = { id: event.id, sessionId: event.sessionId, permissionPreset, permissionMode }
     }
     modelScanRef.current = {
       ...modelScanRef.current,
@@ -875,7 +893,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     appliedPresetEventRef.current = livePresetEvent.id
     setSession((current) =>
       current && current.sessionId === livePresetEvent.sessionId
-        ? { ...current, permissionPreset: livePresetEvent.permissionPreset }
+        ? {
+            ...current,
+            permissionPreset: livePresetEvent.permissionPreset,
+            permissionMode: livePresetEvent.permissionMode,
+          }
         : current,
     )
   }, [livePresetEvent])
@@ -1145,6 +1167,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         // editable from the composer's permission pill until the first turn. No
         // hardcoded 'default' here: an agent spawned as Bypass starts as Bypass.
         permissionPreset,
+        ...(permissionMode ? { permissionMode } : {}),
       })
       if (!result.ok) {
         setActionError(result.message)
@@ -1156,7 +1179,17 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       setActionError(error instanceof Error ? error.message : 'Could not start the conversation.')
       return null
     }
-  }, [agentId, cliRuntimes, conversation, permissionPreset, sessionId, workspaceId, workspaceRoot, transport])
+  }, [
+    agentId,
+    cliRuntimes,
+    conversation,
+    permissionMode,
+    permissionPreset,
+    sessionId,
+    workspaceId,
+    workspaceRoot,
+    transport,
+  ])
 
   // Change the tool-permission preset. The agent record is the durable seed (it
   // starts the next session and survives a remount), so it is written first; a
@@ -1170,42 +1203,61 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // applying (1808).
   const [permissionChanging, setPermissionChanging] = useState(false)
   const [permissionNotice, setPermissionNotice] = useState<string | null>(null)
+  // A mode of the CLI's own rides beside its preset (Claude Code's Accept edits
+  // at Auto); the record keeps both, and a preset's own mode clears the mode.
   const changePermissionPreset = useCallback(
-    async (next: CliPermissionPreset) => {
-      if (next === permissionPreset || permissionChanging) return
+    async (next: CliPermissionPreset, nextMode?: string) => {
+      if ((next === permissionPreset && nextMode === permissionMode) || permissionChanging) return
       setActionError(null)
       setPermissionNotice(null)
-      const previous = agent?.cliPermissionPreset
-      updateBinding({ cliPermissionPreset: next })
+      const previous = { cliPermissionPreset: agent?.cliPermissionPreset, cliPermissionMode: agent?.cliPermissionMode }
+      updateBinding({ cliPermissionPreset: next, cliPermissionMode: nextMode })
       if (!sessionId) return
       if (transport.kind === 'local' && typeof window.api.conversationSessionSetPermission !== 'function') {
-        updateBinding({ cliPermissionPreset: previous })
+        updateBinding(previous)
         setActionError('Changing tool permissions mid-conversation needs an app restart.')
         return
       }
       setPermissionChanging(true)
       try {
-        const answered = await transport.setPermissionPreset({ sessionId, permissionPreset: next })
+        const answered = await transport.setPermissionPreset({
+          sessionId,
+          permissionPreset: next,
+          ...(nextMode ? { permissionMode: nextMode } : {}),
+        })
         // A remote command answers without a session: the preset it accepted
         // is the one now in force over there, on the session this pane holds.
         const result = answered.ok
-          ? { ...answered, session: answered.session ?? { ...session!, permissionPreset: next } }
+          ? {
+              ...answered,
+              session: answered.session ?? { ...session!, permissionPreset: next, permissionMode: nextMode },
+            }
           : answered
         if (result.ok) {
           setSession(result.session)
           setPermissionNotice(result.notice ?? null)
         } else {
-          updateBinding({ cliPermissionPreset: previous })
+          updateBinding(previous)
           setActionError(result.message)
         }
       } catch (err) {
-        updateBinding({ cliPermissionPreset: previous })
+        updateBinding(previous)
         setActionError(err instanceof Error ? err.message : 'Could not change tool permissions.')
       } finally {
         setPermissionChanging(false)
       }
     },
-    [agent?.cliPermissionPreset, permissionChanging, permissionPreset, session, sessionId, updateBinding, transport],
+    [
+      agent?.cliPermissionMode,
+      agent?.cliPermissionPreset,
+      permissionChanging,
+      permissionMode,
+      permissionPreset,
+      session,
+      sessionId,
+      updateBinding,
+      transport,
+    ],
   )
 
   // Send one turn. A turn needs text or at least one image — the runtime accepts
@@ -2263,23 +2315,38 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     operate &&
     (transport.capabilities.reportsPreset || session?.permissionPreset !== undefined) &&
     Boolean(capabilities?.approvals || capabilities?.permissionPresets?.length)
-  const permissionDisabledReasons = chatPermissionRefusals({
+  const presetRefusals = chatPermissionRefusals({
     cli: chatCli,
     allowed: capabilities?.permissionPresets,
     permissionModes: transport.capabilities.permissionModes,
     machineName: transport.machineName,
   })
+  // The CLI's modes under its own names. A mode of its own is offered where
+  // this chat's runtime maps it, and only a local chat says which it maps; a
+  // remote one is told presets, so it lists each preset's own mode.
+  const permissionOptions = usePermissionModeOptions(chatCli, 'chat', capabilities?.permissionModes ?? NO_MODES)
+  // A mode of the CLI's own at a preset this chat cannot run is dimmed with
+  // that preset's reason.
+  const permissionDisabledReasons = presetRefusals
+    ? {
+        ...presetRefusals,
+        ...Object.fromEntries(
+          permissionOptions
+            .filter((option) => option.mode && presetRefusals[option.value])
+            .map((option) => [option.id, presetRefusals[option.value]]),
+        ),
+      }
+    : undefined
   // The looser modes a permission card offers to allow into: Auto and Bypass,
-  // where they would ask less than the chat does now and the chat can run them.
+  // under the CLI's names for them, where they would ask less than the chat
+  // does now and the chat can run them.
   const approvalModeSwitches: ApprovalModeSwitch[] =
     permissionsEditable && chatCli
       ? (['auto', 'bypass'] as const)
-          .filter(
-            (preset) => isLooserCliPermissionPreset(preset, permissionPreset) && !permissionDisabledReasons?.[preset],
-          )
+          .filter((preset) => isLooserCliPermissionPreset(preset, permissionPreset) && !presetRefusals?.[preset])
           .map((preset) => ({
             preset,
-            label: `Allow and switch to ${agentPermissionOptions(chatCli).find((option) => option.value === preset)?.label ?? preset}`,
+            label: `Allow and switch to ${selectedPermissionOption(permissionOptions, preset)?.label ?? PRESET_CHIP_LABEL[preset]}`,
           }))
       : []
   // Type dropped paths at the caret, spaced off the words around them. The
@@ -2391,18 +2458,19 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const composerPermissionControl =
     chatCli && permissionsEditable ? (
       <PermissionFooter
-        cli={chatCli}
+        options={permissionOptions}
         preset={permissionPreset}
+        mode={permissionMode}
         placement="top-start"
         disabled={permissionChanging}
         disabledReasons={permissionDisabledReasons}
-        onSelect={(next) => void changePermissionPreset(next)}
+        onSelect={(next) => void changePermissionPreset(next.value, next.mode)}
       />
     ) : null
   // Folding must not hide a standing warning: the chevron wears the warn tint
   // the permissions chip would have.
   const composerPermissionWarn = Boolean(
-    composerPermissionControl && (permissionPreset === 'bypass' || permissionDisabledReasons?.[permissionPreset]),
+    composerPermissionControl && (permissionPreset === 'bypass' || presetRefusals?.[permissionPreset]),
   )
   return (
     <ConversationLinkProvider

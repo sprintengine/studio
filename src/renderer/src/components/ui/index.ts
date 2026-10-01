@@ -93,7 +93,15 @@ export { KebabGlyph } from './KebabGlyph'
 export { MicroChip } from './DefaultChip'
 export { ConfirmDialogProvider, useConfirmDialog } from './ConfirmDialog'
 export { CliModelPickerButton, CliModelPopoverSurface } from './CliModelPicker'
-export { resolveCliPermissionPreset, setCliPermissionPreset, useCliPermissionPreset } from './cliPermissionPresets'
+export {
+  cliPermissionModeLaunch,
+  cliPermissionModePatch,
+  resolveCliPermissionPreset,
+  setCliPermissionPreset,
+  storedCliPermissionMode,
+  useCliPermissionMode,
+  useCliPermissionPreset,
+} from './cliPermissionPresets'
 export { Popover } from './Popover'
 export { FilterMenu } from './FilterMenu'
 export type { FilterMenuGroup } from './FilterMenu'

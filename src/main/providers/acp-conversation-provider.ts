@@ -7,7 +7,18 @@ import {
   readBoundedConversationFile,
   resolveConversationPath,
 } from '../conversation-file-access'
-import { cliSpawnTarget, terminateCliChild } from './cli-child-process'
+import { terminateCliChild } from './cli-child-process'
+import {
+  cliHostSpawn,
+  hostMachineName,
+  mcpServersOnWsl,
+  prepareWslCliTarget,
+  wslTargetForHost,
+  type WslCliChild,
+  type WslCliTarget,
+} from './cli-host-child'
+import { isWslHostId, type ExecutionHostId } from '../../shared/execution-host'
+import { toWslPath, wslPathInRootSpelling } from '../../shared/host-paths'
 import { publishConversationCommands } from '../conversation-commands/registry'
 import { acpConversationCommands } from '../conversation-commands/acp'
 import { leadingCommandFor } from '../conversation-commands/leading-command'
@@ -55,6 +66,10 @@ export type AcpProfile = {
   // one the CLI cannot be held to; `unsupported` says why, and it is refused
   // rather than run as something else.
   presets?: Partial<Record<EnforcedPreset, AcpPresetLaunch>>
+  // The CLI's other modes, by the id its manifest keys them under, each at the
+  // preset it sits at (conversationPermissionModes). Told the same way, and
+  // run only at that preset.
+  ownModes?: Record<string, AcpPresetLaunch & { level: EnforcedPreset }>
   unsupported?: Partial<Record<EnforcedPreset, string>>
   // Commands the CLI accepts in the prompt that switch its own permission mode,
   // with the least permissive preset that already allows what they switch to.
@@ -140,17 +155,22 @@ export const ACP_PROFILES: AcpProfile[] = [
     // config enables its shared leader, so the flags below govern this session
     // alone. --permission-mode is a top-level option (before `agent`) and
     // overrides the configured mode for this process: Grok has the same modes
-    // Claude Code does, so Manual is `default` and Auto `acceptEdits`.
+    // Claude Code does, so Manual is `default` and Auto its own classifier
+    // mode, `auto`, as Claude's is (owner ruling 2026-10-01).
     // --always-approve is an agent option (after `agent`, before the transport).
     argv: ['agent', '--no-leader', 'stdio'],
     presets: {
       manual: { argv: ['--permission-mode', 'default', 'agent', '--no-leader', 'stdio'] },
-      auto: { argv: ['--permission-mode', 'acceptEdits', 'agent', '--no-leader', 'stdio'] },
+      auto: { argv: ['--permission-mode', 'auto', 'agent', '--no-leader', 'stdio'] },
       bypass: { argv: ['agent', '--always-approve', '--no-leader', 'stdio'] },
     },
-    // Grok's `/auto` hands its approvals to a classifier, which answers for the
-    // person the way bypass does rather than asking; `/always-approve` is bypass.
-    permissionCommands: { '/always-approve': 'bypass', '/auto': 'bypass' },
+    ownModes: {
+      acceptEdits: { level: 'auto', argv: ['--permission-mode', 'acceptEdits', 'agent', '--no-leader', 'stdio'] },
+      dontAsk: { level: 'manual', argv: ['--permission-mode', 'dontAsk', 'agent', '--no-leader', 'stdio'] },
+    },
+    // Grok's `/auto` hands its approvals to the classifier Auto already starts
+    // it in, so only a stricter mode refuses it; `/always-approve` is bypass.
+    permissionCommands: { '/always-approve': 'bypass', '/auto': 'auto' },
     authHint: 'Run grok login in a terminal.',
     images: false,
     planMode: false,
@@ -162,17 +182,34 @@ const supportedPresets = (profile: AcpProfile): ConversationPermissionPreset[] =
   ...(Object.keys(profile.presets ?? {}) as EnforcedPreset[]),
 ]
 
-/** The argv a conversation's child is launched with under a permission preset. */
-export function acpLaunchArgv(profile: AcpProfile, preset: ConversationPermissionPreset = 'none'): string[] {
-  return (preset !== 'none' && profile.presets?.[preset]?.argv) || profile.argv
+// How the CLI is told a preset, or the mode of its own chosen at it: the mode
+// when the profile has it at that preset, else the preset's own.
+function presetLaunch(
+  profile: AcpProfile,
+  preset: ConversationPermissionPreset,
+  mode: string | undefined,
+): AcpPresetLaunch | undefined {
+  if (preset === 'none') return undefined
+  const own = mode && profile.ownModes && Object.hasOwn(profile.ownModes, mode) ? profile.ownModes[mode] : undefined
+  return own && own.level === preset ? own : profile.presets?.[preset]
+}
+
+/** The argv a conversation's child is launched with under a permission preset (and the CLI's own mode at it). */
+export function acpLaunchArgv(
+  profile: AcpProfile,
+  preset: ConversationPermissionPreset = 'none',
+  mode?: string,
+): string[] {
+  return presetLaunch(profile, preset, mode)?.argv || profile.argv
 }
 
 /** What a conversation's child gets on top of its environment under a permission preset. */
 export function acpLaunchEnv(
   profile: AcpProfile,
   preset: ConversationPermissionPreset = 'none',
+  mode?: string,
 ): Record<string, string> {
-  return (preset !== 'none' && profile.presets?.[preset]?.env) || {}
+  return presetLaunch(profile, preset, mode)?.env || {}
 }
 
 /** Why a CLI cannot run a preset, or null when it can. */
@@ -197,6 +234,7 @@ function permissionCommandRefusal(
 
 const baseCapabilities = (profile: AcpProfile): ConversationCapabilities => ({
   permissionPresets: supportedPresets(profile),
+  permissionModes: Object.keys(profile.ownModes ?? {}),
   tools: true,
   approvals: true,
   questions: false,
@@ -323,6 +361,10 @@ type Options = {
   buildEnv?: (input: MockAdapterSessionInput) => Promise<NodeJS.ProcessEnv>
   startupTimeoutMs?: number
   cancelGraceMs?: number
+  // Readies a WSL machine for a chat whose CLI runs there; tests stand in.
+  prepareWslTarget?: (hostId: ExecutionHostId) => Promise<WslCliTarget>
+  // Starts the child; tests stand in to see what a WSL chat would run.
+  spawnChild?: typeof spawn
 }
 
 /** Text helpers refuse symlinks in every path component, not only the leaf.
@@ -351,10 +393,40 @@ export async function confinedAcpPath(cwd: string, requested: string, writing = 
 
 async function detectAcpCommand(profile: AcpProfile, cliRuntimes?: ConversationCliRuntimeOverrides): Promise<string> {
   const { resolveCliExecutable } = await import('../cli-runtime-install')
-  const { path } = await resolveCliExecutable(profile.cli, cliRuntimes?.[profile.cli])
-  if (!path)
+  const runtime = cliRuntimes?.[profile.cli]
+  const found = await resolveCliExecutable(profile.cli, runtime)
+  if (!found.path) {
+    if (isWslHostId(runtime?.hostId))
+      throw new Error(
+        `${profile.displayName} CLI was not found on ${hostMachineName(runtime.hostId)}. Install it in that distribution (or set its command for that machine in Settings) to chat there.` +
+          (found.error ? ` ${found.error}` : ''),
+      )
     throw new Error(`${profile.displayName} CLI was not found. Install it or configure its command in Settings.`)
-  return path
+  }
+  return found.path
+}
+
+/**
+ * What an agent in WSL is started with of the chat's environment: the
+ * variables its permission preset sets, and nothing else of this PC's. Its
+ * login, PATH and configuration are the distribution's own.
+ */
+export function acpWslChild(
+  target: WslCliTarget,
+  profile: AcpProfile,
+  preset: ConversationPermissionPreset = 'none',
+  mode?: string,
+): WslCliChild {
+  return { ...target, forwardEnv: Object.keys(acpLaunchEnv(profile, preset, mode)) }
+}
+
+/**
+ * A path an agent sent the client, as this machine opens it. An agent in WSL
+ * names files the Linux way (`/home/dev/repo/a.ts`, `/mnt/c/…`); the
+ * workspace is opened through its Windows spelling, which keeps its share name.
+ */
+export function acpClientPath(path: string, root: string, wsl: WslCliTarget | null): string {
+  return wsl ? wslPathInRootSpelling(path, root, wsl.distro) : path
 }
 
 // The CLI could not be started from where it was found: look it up again on
@@ -382,21 +454,30 @@ async function acpEnvironment(): Promise<NodeJS.ProcessEnv> {
 export async function probeAcpConversationCommands(
   profile: AcpProfile,
   input: { cwd: string; cliRuntimes?: ConversationCliRuntimeOverrides },
-  options: { detect?: () => Promise<string>; buildEnv?: () => Promise<NodeJS.ProcessEnv>; timeoutMs?: number } = {},
+  options: {
+    detect?: () => Promise<string>
+    buildEnv?: () => Promise<NodeJS.ProcessEnv>
+    timeoutMs?: number
+    prepareWslTarget?: (hostId: ExecutionHostId) => Promise<WslCliTarget>
+    spawnChild?: typeof spawn
+  } = {},
 ): Promise<ConversationCommand[] | null> {
-  const hostId = input.cliRuntimes?.[profile.cli]?.hostId
-  if (hostId && hostId !== 'local') return null
+  // On a WSL machine the handshake is the distribution's CLI's, asked there.
+  const wsl = await wslTargetForHost(
+    input.cliRuntimes?.[profile.cli]?.hostId,
+    options.prepareWslTarget ?? prepareWslCliTarget,
+  )
   const command = await (options.detect ?? (() => detectAcpCommand(profile, input.cliRuntimes)))()
   const env = await (options.buildEnv ?? acpEnvironment)()
   const sdk = await import('@agentclientprotocol/sdk')
-  const target = cliSpawnTarget(command, profile.argv, { env })
-  const child = spawn(target.file, target.args, {
+  const target = cliHostSpawn({
+    command,
+    args: profile.argv,
     cwd: input.cwd,
     env,
-    stdio: ['pipe', 'pipe', 'pipe'],
-    windowsHide: true,
-    ...(target.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+    wsl: wsl ? acpWslChild(wsl, profile) : null,
   })
+  const child = (options.spawnChild ?? spawn)(target.file, target.args, target.options)
   child.stderr.on('data', () => undefined)
   child.stdin.on('error', () => undefined)
   const failed = new Promise<never>((_, reject) => {
@@ -609,25 +690,27 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
     if (state.connection) return
     if (state.starting) return state.starting
     state.starting = (async () => {
-      // The agent would run on this machine against a workspace that lives on
-      // the other host; refuse rather than edit the wrong tree.
-      const hostId = state.input.cliRuntimes?.[profile.cli]?.hostId
-      if (hostId && hostId !== 'local')
-        throw new Error(`${profile.displayName} conversation requires a local CLI runtime.`)
+      // A chat on a WSL machine runs that machine's CLI, with the login and
+      // configuration under its Linux home; everything below is the same.
+      const wsl = await wslTargetForHost(
+        state.input.cliRuntimes?.[profile.cli]?.hostId,
+        options.prepareWslTarget ?? prepareWslCliTarget,
+      )
+      if (state.closed) throw new Error('Conversation was stopped during startup.')
       const command = await (options.detect ?? ((input) => detectAcpCommand(profile, input.cliRuntimes)))(state.input)
       const env = await environment(state.input)
-      Object.assign(env, acpLaunchEnv(profile, state.input.permissionPreset))
+      Object.assign(env, acpLaunchEnv(profile, state.input.permissionPreset, state.input.permissionMode))
       if (state.closed) throw new Error('Conversation was stopped during startup.')
       const sdk = await import('@agentclientprotocol/sdk')
       if (state.closed) throw new Error('Conversation was stopped during startup.')
-      const target = cliSpawnTarget(command, acpLaunchArgv(profile, state.input.permissionPreset), { env })
-      const child = spawn(target.file, target.args, {
-        cwd: state.input.workspaceRoot,
+      const target = cliHostSpawn({
+        command,
+        args: acpLaunchArgv(profile, state.input.permissionPreset, state.input.permissionMode),
+        cwd: state.input.workspaceRoot ?? '',
         env,
-        stdio: ['pipe', 'pipe', 'pipe'],
-        windowsHide: true,
-        ...(target.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+        wsl: wsl ? acpWslChild(wsl, profile, state.input.permissionPreset, state.input.permissionMode) : null,
       })
+      const child = (options.spawnChild ?? spawn)(target.file, target.args, target.options)
       state.child = child
       state.spawnedAt = Date.now()
       child.stderr.on('data', () => undefined)
@@ -685,7 +768,10 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
           },
           readTextFile: async (params) => {
             if (!state.turn || params.sessionId !== state.nativeId) throw new Error('No active conversation turn.')
-            const path = await confinedAcpPath(state.input.workspaceRoot!, params.path)
+            const path = await confinedAcpPath(
+              state.input.workspaceRoot!,
+              acpClientPath(params.path, state.input.workspaceRoot!, wsl),
+            )
             const file = await openConfinedExistingFile(state.input.workspaceRoot!, path)
             try {
               if ((await file.stat()).size > 2 * 1024 * 1024)
@@ -710,7 +796,8 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
               throw new Error('This conversation mode is read-only.')
             if (Buffer.byteLength(params.content) > 2 * 1024 * 1024)
               throw new Error('File exceeds the conversation write limit.')
-            const path = await confinedAcpPath(state.input.workspaceRoot!, params.path, true)
+            const requested = acpClientPath(params.path, state.input.workspaceRoot!, wsl)
+            const path = await confinedAcpPath(state.input.workspaceRoot!, requested, true)
             // Creating through an unanchored parent path can escape after a
             // directory swap, even with O_NOFOLLOW. Native CLI tools may create
             // files under their own policy; this callback edits existing files.
@@ -751,7 +838,7 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
             })
             if (decision.outcome.outcome !== 'selected') throw new Error('File write was not approved.')
             await state.input.onBeforeTool?.('Write')
-            await confinedAcpPath(state.input.workspaceRoot!, params.path, true)
+            await confinedAcpPath(state.input.workspaceRoot!, requested, true)
             const file = await openExisting('write')
             try {
               await file.truncate(0)
@@ -799,16 +886,19 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
         const resumeId = state.nativeId ?? state.input.resumeSessionId
         state.replayHistory = Boolean(resumeId && !state.loadSupported)
         // The session's own servers, on a new session and a reopened one alike.
-        const mcpServers = acpMcpServers(state.input.mcpServers ?? [], state.mcpCapabilities, profile.displayName)
-        const fresh = () => connection.newSession({ cwd: state.input.workspaceRoot!, mcpServers })
+        const servers = state.input.mcpServers ?? []
+        const mcpServers = acpMcpServers(
+          wsl ? mcpServersOnWsl(servers) : servers,
+          state.mcpCapabilities,
+          profile.displayName,
+        )
+        // The folder as the agent names it: the Linux spelling in WSL.
+        const cwd = wsl ? toWslPath(state.input.workspaceRoot!) : state.input.workspaceRoot!
+        const fresh = () => connection.newSession({ cwd, mcpServers })
         let session: Awaited<ReturnType<typeof fresh>> | Awaited<ReturnType<ClientSideConnection['loadSession']>>
         if (resumeId && state.loadSupported) {
           try {
-            session = await connection.loadSession({
-              sessionId: resumeId,
-              cwd: state.input.workspaceRoot!,
-              mcpServers,
-            })
+            session = await connection.loadSession({ sessionId: resumeId, cwd, mcpServers })
           } catch (error) {
             // The agent answered that it cannot load this session (it was
             // deleted, or the cursor came from another machine). Asking again
@@ -1092,6 +1182,8 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
       const refused = presetRefusal(profile, input.permissionPreset)
       if (refused) return { ok: false, message: refused }
       state.input.permissionPreset = input.permissionPreset
+      if (input.permissionMode) state.input.permissionMode = input.permissionMode
+      else delete state.input.permissionMode
       if (state.turn && (state.child || state.starting)) {
         state.relaunch = true
         return { ok: true, notice: `${profile.displayName} takes the new permissions from your next message.` }

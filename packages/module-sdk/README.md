@@ -156,6 +156,7 @@ checked on every call, and a module without them gets `permission_missing`:
 | --- | --- |
 | `conversation:read` | `getConversationService`: `subscribe`, `transcript`, `list`, `watch` |
 | `conversation:operate` | Everything in the conversation service, and `RendererHost.openChat`. Implies read. |
+| `conversation:bypass` | Running the module's chats on `bypass`; without it they go no looser than `auto` |
 | `secrets` | `getSecretsService` |
 | `github` | `getGitHubService` |
 | `mcp:tools` | `MainHost.registerMcpTools` |
@@ -199,12 +200,28 @@ reads its chats) and `dependsOn: ["agent-runtime"]`.
 - **`create(input)`** starts a chat in a workspace: `cli` and `model` default
   to the person's last choice, `prompt` is the opening turn, `skills` are
   installed and invoked, `attachments` are images, `name` is optional.
-  `permissionPreset` is `'none'` or `'bypass'`; absent takes the person's
-  default.
+  `permissionPreset` is `'manual'`, `'none'`, `'auto'` or `'bypass'`; absent
+  takes the person's default.
 - **`send(ref, { message, skills?, attachments?, steer? })`** adds a turn;
-  `steer: true` lands it inside the turn already running. `interrupt`,
-  `stop` and `respondToApproval(ref, { requestId, approved, answers? })` do
-  what they say.
+  `steer: true` lands it inside the turn already running. `interrupt` and
+  `stop` do what they say.
+- **`respondToApproval(ref, { requestId, decision, answers? })`** answers an
+  `approval_requested` event: `decision` is `'once'`, `'conversation'` (allow
+  requests of that kind for the rest of the chat) or `'deny'`. The older
+  `approved: boolean` still works, as `'once'` or `'deny'`. A rule that
+  outlives the chat is the person's to make, so no answer makes one.
+- **`setPermissionPreset(ref, preset)`** and **`setModel(ref, modelId)`**
+  switch a running chat's preset (from its next tool call) or its model (from
+  its next turn; an id `listChatRuntimes()` lists for the chat's runtime, or
+  `'default'`). Each answers with what is now in force, plus the runtime's
+  `notice` when the change applies later than at once. A runtime that binds a
+  chat to its model refuses `setModel`.
+- **The preset ceiling.** A module's chats run no looser than `'auto'` unless
+  its manifest declares `conversation:bypass`. A looser preset is lowered to
+  the ceiling, not refused, and `create` and `setPermissionPreset` name the
+  preset in force. Check `host.supports('conversation-controls')` before
+  `setPermissionPreset`, `setModel`, a `decision`, or a preset other than
+  `'none'` and `'bypass'`.
 - **`subscribe(ref, cb)`** streams `ModuleConversationEvent`s from now on;
   **`transcript(ref)`** replays everything recorded. **`list(filter?)`** and
   **`watch(filter, cb)`** give `ModuleConversationSummary` rows.

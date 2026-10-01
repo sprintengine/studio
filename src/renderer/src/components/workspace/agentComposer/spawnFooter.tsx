@@ -1,6 +1,14 @@
 import React, { type JSX } from 'react'
 
-import { ChipButton, Popover, Tooltip, roveMenuFocus, setCliPermissionPreset, useCliPermissionPreset } from '../../ui'
+import {
+  ChipButton,
+  Popover,
+  Tooltip,
+  roveMenuFocus,
+  setCliPermissionPreset,
+  useCliPermissionMode,
+  useCliPermissionPreset,
+} from '../../ui'
 import { ChevronDownIcon } from '../../AppIcons'
 import { MENU_GROUP_LABEL_CLASS, MENU_LIST_CLASS } from '../../ui/menuClasses'
 import {
@@ -9,10 +17,14 @@ import {
   focusActivePresetRow,
   PermissionPresetMenuRows,
   PresetGlyph,
+  type PermissionModeOption,
 } from './agentSpawnShared'
 import type { AgentCli, CliPermissionPreset } from '../../../types/workspace'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
-import { conversationPermissionPresetRefusals } from '../../../../../shared/conversation-harness'
+import {
+  conversationPermissionModes,
+  conversationPermissionPresetRefusals,
+} from '../../../../../shared/conversation-harness'
 
 // The model picker's footer controls — the row of trailing settings a spawn
 // surface hands `CliModelPopoverSurface` through its `footer` slot.
@@ -118,20 +130,37 @@ export function FooterMenu({
   )
 }
 
-// The chip names the preset, not the sentence behind it — the surface carries
-// no explanatory copy (owner, 2026-08-04). It reads the exhaustive chip labels
-// the preset rows use, so a preset it cannot tell apart from its neighbour is a
-// preset the person cannot see they are on.
-function permissionLabel(preset: CliPermissionPreset, cli: AgentCli): string {
-  return agentPermissionChipLabel(preset, cli)
+// The accessible name carries the mode's full name: "Permissions: Bypass
+// permissions" says which safeguard is off.
+function permissionAccessibleName(
+  options: readonly PermissionModeOption[],
+  preset: CliPermissionPreset,
+  mode: string | null | undefined,
+): string {
+  return `Permissions: ${agentPermissionChipLabel(options, preset, mode)}`
 }
 
-// The accessible name carries the full option label, not the chip's short one:
-// "Permissions: Bypass permissions" says which safeguard is off, where the chip
-// only has room for a word.
-function permissionAccessibleName(preset: CliPermissionPreset, cli: AgentCli): string {
-  const option = agentPermissionOptions(cli).find((entry) => entry.value === preset)
-  return `Permissions: ${option?.label ?? preset}`
+/**
+ * The rows a permission menu for `cli` lists: the CLI's modes under its own
+ * names, from its manifest. A chat lists only the CLI's own modes its runtime
+ * maps (`modes`, a running chat's capability, else what the CLI's chat
+ * runtime declares); a preset's own mode is always listed, and a preset the
+ * chat cannot run is dimmed by the caller with its reason.
+ */
+export function usePermissionModeOptions(
+  cli: AgentCli | null | undefined,
+  launch?: 'chat' | 'terminal',
+  chatModes?: readonly string[],
+): PermissionModeOption[] {
+  const specs = useWorkspaceStore((state) =>
+    cli ? state.pluginCatalogEntries.find((entry) => entry.id === cli)?.permissionModes : undefined,
+  )
+  return React.useMemo(() => {
+    const options = agentPermissionOptions(specs)
+    if (launch !== 'chat') return options
+    const own = chatModes ?? conversationPermissionModes(cli)
+    return options.filter((option) => !option.mode || own.includes(option.mode))
+  }, [chatModes, cli, launch, specs])
 }
 
 /**
@@ -170,13 +199,16 @@ export function SpawnPermissionFooter({
   launch?: 'chat' | 'terminal'
 }): JSX.Element {
   const preset = useCliPermissionPreset(cli, fallback)
+  const mode = useCliPermissionMode(cli)
+  const options = usePermissionModeOptions(cli, launch)
   const disabledReasons = useLaunchPermissionRefusals(cli, launch)
   return (
     <PermissionFooter
-      cli={cli}
+      options={options}
       preset={preset}
+      mode={mode}
       disabledReasons={disabledReasons}
-      onSelect={(next) => setCliPermissionPreset(cli, next)}
+      onSelect={(next) => setCliPermissionPreset(cli, next.value, next.mode)}
     />
   )
 }
@@ -201,9 +233,9 @@ export function useLaunchPermissionRefusals(
     if (launch !== 'terminal' || !entry?.permissionPresets) return undefined
     const declared = entry.permissionPresets
     return Object.fromEntries(
-      agentPermissionOptions(cli)
-        .filter((option) => !declared.includes(option.value))
-        .map((option) => [option.value, `${entry.displayName} has no setting for this in a terminal.`]),
+      (['none', 'manual', 'auto', 'bypass'] as const)
+        .filter((preset) => !declared.includes(preset))
+        .map((preset) => [preset, `${entry.displayName} has no setting for this in a terminal.`]),
     )
   }, [cli, entry, launch])
 }
@@ -216,31 +248,37 @@ export function useLaunchPermissionRefusals(
  * chip and same rows either way.
  */
 export function PermissionFooter({
-  cli,
+  options,
   preset,
+  mode,
   onSelect,
   disabled = false,
   disabledReasons,
   placement = 'top-end',
 }: {
-  cli: AgentCli
+  /** The CLI's modes, from `usePermissionModeOptions`. */
+  options: readonly PermissionModeOption[]
   preset: CliPermissionPreset
-  onSelect: (next: CliPermissionPreset) => void
+  /** The CLI's own mode at `preset`, when it is not the preset's own. */
+  mode?: string | null
+  onSelect: (next: PermissionModeOption) => void
   /** Locks the rows while a live change is in flight. */
   disabled?: boolean
-  /** Presets this agent cannot run, each with the one-line reason its row shows. */
-  disabledReasons?: Partial<Record<CliPermissionPreset, string>>
+  /** Rows this agent cannot run, by row id (a preset's own mode is keyed by the preset), each with its reason. */
+  disabledReasons?: Partial<Record<string, string>>
   /** Which side the menu opens on: the end of a trailing row, the start of a leading one. */
   placement?: 'top-start' | 'top-end'
 }): JSX.Element {
   return (
     <FooterMenu
-      ariaLabel={permissionAccessibleName(preset, cli)}
+      ariaLabel={permissionAccessibleName(options, preset, mode)}
       heading="Permissions"
       label={
         <>
           <PresetGlyph preset={preset} />
-          {permissionLabel(preset, cli)}
+          {/* The chip names the mode, not the sentence behind it — the surface
+              carries no explanatory copy (owner, 2026-08-04). */}
+          {agentPermissionChipLabel(options, preset, mode)}
         </>
       }
       // Bypass is WARN, not danger: `danger` is the error tone, and the preset
@@ -259,8 +297,9 @@ export function PermissionFooter({
     >
       {(close) => (
         <PermissionPresetMenuRows
-          cli={cli}
+          options={options}
           value={preset}
+          mode={mode}
           disabled={disabled}
           disabledReasons={disabledReasons}
           onSelect={(next) => {

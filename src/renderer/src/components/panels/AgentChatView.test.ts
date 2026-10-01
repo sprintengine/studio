@@ -6,6 +6,7 @@ import { act, createElement, type ReactElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { detectComposerTrigger } from '../../../../shared/conversation/composerTrigger'
+import { bundledPermissionModes } from '../../../../../tests/permission-modes'
 
 import type {
   ConversationEvent,
@@ -1174,13 +1175,21 @@ test('AgentChatView', async () => {
   )
   assert.equal(
     resolvePermissionPreset(null, undefined),
-    'bypass',
+    'auto',
     'an agent record predating the field starts on the app’s spawn default',
   )
 
   const { PermissionFooter } = await import('../workspace/agentComposer/spawnFooter')
-  const footerMarkup = (preset: 'none' | 'bypass', cli = 'claude-code'): string =>
-    renderToStaticMarkup(createElement(PermissionFooter, { preset, cli, onSelect: () => {} }))
+  const { agentPermissionOptions } = await import('../workspace/agentComposer/agentSpawnShared')
+  const footerMarkup = (preset: 'none' | 'bypass' | 'auto', cli = 'claude-code', mode?: string): string =>
+    renderToStaticMarkup(
+      createElement(PermissionFooter, {
+        options: agentPermissionOptions(bundledPermissionModes(cli)),
+        preset,
+        ...(mode ? { mode } : {}),
+        onSelect: () => {},
+      }),
+    )
 
   const defaultFooter = footerMarkup('none')
   assert.ok(defaultFooter.includes('No flag'), 'the footer names the preset in force at rest')
@@ -1194,6 +1203,15 @@ test('AgentChatView', async () => {
     'a chat running without permission checks says so in the warn tone',
   )
   assert.ok(footerMarkup('bypass', 'codex').includes('YOLO'), 'a Codex chat names bypass the way Codex does')
+  assert.ok(footerMarkup('auto', 'codex').includes('Auto-review'), 'and Auto, as Codex’s auto-review')
+  assert.ok(
+    footerMarkup('auto', 'claude-code', 'acceptEdits').includes('Accept edits'),
+    'a mode of the CLI’s own at a preset is named for itself, not for the preset',
+  )
+  assert.ok(
+    footerMarkup('auto', 'claude-code', 'workspace').includes('>Auto<'),
+    'a mode the CLI does not have reads as the preset’s own',
+  )
 
   // The pill's rows (remote-sessions-ux / selector-menus-premium): roving
   // tabIndex, one-line summaries, and the four glyphs drawn from AppIcons —
@@ -1205,10 +1223,10 @@ test('AgentChatView', async () => {
   assert.equal((rowsMarkup.match(/role="menuitemradio"/g) ?? []).length, 4, 'four preset rows')
   assert.equal((rowsMarkup.match(/tabindex="0"/g) ?? []).length, 1, 'exactly one tab stop: the checked row')
   assert.ok(
-    rowsMarkup.indexOf('Bypass permissions') < rowsMarkup.indexOf('>Auto<') &&
-      rowsMarkup.indexOf('>Auto<') < rowsMarkup.indexOf('>Manual<') &&
-      rowsMarkup.indexOf('>Manual<') < rowsMarkup.indexOf('No flag'),
-    'Bypass, the default, leads; Auto, Manual and No flag follow',
+    rowsMarkup.indexOf('>Manual<') < rowsMarkup.indexOf('>Auto<') &&
+      rowsMarkup.indexOf('>Auto<') < rowsMarkup.indexOf('Bypass permissions') &&
+      rowsMarkup.indexOf('Bypass permissions') < rowsMarkup.indexOf('No flag'),
+    'strictest first, No flag last',
   )
   assert.ok(
     rowsMarkup.includes('The CLI’s default — no permission flag is passed.'),
@@ -1589,8 +1607,13 @@ test('AgentChatView', async () => {
   // A refused change must never leave the pill claiming a preset the session is
   // not on: every failure branch of changePermissionPreset (bridge missing,
   // provider said no, threw) writes the old value back.
+  assert.match(
+    chatViewSource,
+    /const previous = \{ cliPermissionPreset: agent\?\.cliPermissionPreset, cliPermissionMode: agent\?\.cliPermissionMode \}/,
+    'the rollback holds the preset and the CLI’s own mode the record had',
+  )
   assert.equal(
-    (chatViewSource.match(/cliPermissionPreset: previous/g) ?? []).length,
+    (chatViewSource.match(/updateBinding\(previous\)/g) ?? []).length,
     3,
     'all three failure branches roll the optimistic write back',
   )

@@ -35,6 +35,11 @@ export type AgentLaunchRequest = {
   cliModel?: string
   /** Absent takes the app-level agent-spawn default. */
   permissionPreset?: CliPermissionPreset
+  /**
+   * The CLI's own mode at `permissionPreset`, read only beside it. A mode this
+   * CLI does not have at that preset launches the preset's own.
+   */
+  permissionMode?: string
   /** Git worktree to run in, instead of the workspace checkout. */
   worktreePath?: string
   /** Connector id from the installed connectors; resolves to an isolated single-server MCP. */
@@ -98,6 +103,8 @@ export type AgentLaunchRecord = {
   cli: AgentCli
   cliModel?: string
   cliPermissionPreset: CliPermissionPreset
+  /** The CLI's own mode at that preset, when one other than the preset's own was chosen. */
+  cliPermissionMode?: string
   connectorMcpSettings?: McpSettings
   spawnSkillId?: string
   /**
