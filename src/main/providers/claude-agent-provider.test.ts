@@ -2401,9 +2401,13 @@ function reader(stream: AsyncIterable<ConversationEvent>) {
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 10))
-/** Wait for the child to have read `count` prompts: spawning it is several awaits deep. */
+/**
+ * Wait for the child to have read `count` prompts: spawning it is several
+ * awaits deep. A spawn takes about a quarter of a second alone; the budget is
+ * for a full parallel suite, where two seconds was sometimes not enough.
+ */
 async function promptsRead(prompts: unknown[], count: number): Promise<void> {
-  for (let attempt = 0; prompts.length < count && attempt < 200; attempt++) await settle()
+  for (let attempt = 0; prompts.length < count && attempt < 500; attempt++) await settle()
   assert.equal(prompts.length, count)
 }
 const textDelta = (text: string) => ({
