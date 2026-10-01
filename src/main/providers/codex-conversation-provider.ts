@@ -39,6 +39,7 @@ import {
   type WslCliChild,
   type WslCliTarget,
 } from './cli-host-child'
+import { studioPlatform } from '../../server/platform/platform'
 
 export const CODEX_CONVERSATION_PROVIDER_ID = 'codex-agent'
 type RecordValue = Record<string, unknown>
@@ -1341,10 +1342,9 @@ function summarize(prompt: string): string {
 
 /** Writes a picture Codex generated but did not save, beside the app's other conversation data. */
 async function saveGeneratedImage(input: { sessionId: string; itemId: string; base64: string }): Promise<string> {
-  const { app } = await import('electron')
   const safe = (value: string) => value.replace(/[^\w.-]/g, '_')
   const bytes = Buffer.from(input.base64, 'base64')
-  const dir = join(app.getPath('userData'), 'conversation-images', safe(input.sessionId))
+  const dir = join(studioPlatform().paths.dataDir(), 'conversation-images', safe(input.sessionId))
   await mkdir(dir, { recursive: true })
   const file = join(dir, `${safe(input.itemId)}.${imageExtension(bytes)}`)
   await writeFile(file, bytes)

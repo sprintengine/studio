@@ -1,6 +1,5 @@
-import { app, safeStorage } from 'electron'
-
 import type { AppServices } from '../app-services'
+import type { StudioPlatform } from '../../server/platform/platform'
 import type { ConversationCliRuntimeOverrides } from '../../shared/conversation-runtime'
 import { effectiveAgentLaunchSettings } from '../../shared/launch-settings'
 import type { CapabilityManifest } from '../../shared/modules/manifest'
@@ -68,8 +67,13 @@ export const AGENT_RUNTIME_MANIFEST: CapabilityManifest = {
 
 export function createAgentRuntimeModule(
   services: AppServices,
-  options: { getModulePermissions: ModulePermissionsResolver },
+  options: {
+    getModulePermissions: ModulePermissionsResolver
+    /** Where module storage and module secrets live, and what the secrets are sealed with. */
+    platform: Pick<StudioPlatform, 'paths' | 'secrets'>
+  },
 ): CapabilityModule {
+  const { paths, secrets: cipher } = options.platform
   return {
     manifest: AGENT_RUNTIME_MANIFEST,
     registerMain(host) {
@@ -96,9 +100,7 @@ export function createAgentRuntimeModule(
       )
       // Per-module, per-workspace JSON storage (SDK getModuleStorage): the
       // host owns file placement so modules stop inventing locations.
-      host.provideService(ModuleStorageToken, () =>
-        createModuleStorageRegistry({ userDataDir: () => app.getPath('userData') }),
-      )
+      host.provideService(ModuleStorageToken, () => createModuleStorageRegistry({ userDataDir: () => paths.dataDir() }))
       // Companion agents: workspace-bound background agents driven through the
       // shared conversation runtime. The core service is app-internal
       // (first-party consumers require it directly); the moduleId-scoped
@@ -149,8 +151,8 @@ export function createAgentRuntimeModule(
       // the signed-in person's GitHub, without ever holding the value itself.
       // Each checks its permission (`secrets`, `github`) on every call.
       const secrets = createModuleSecretsRegistry({
-        userDataDir: app.getPath('userData'),
-        safeStorage,
+        userDataDir: paths.dataDir(),
+        cipher,
         getModulePermissions: options.getModulePermissions,
       })
       host.provideService(ModuleSecretsServiceToken, () => secrets.registry)

@@ -1,5 +1,3 @@
-import { BrowserWindow, app } from 'electron'
-
 import { createGitWorktree, getGitRepoRoot } from '../git'
 import { withGitHost } from '../git-run'
 import { hostRegistry } from '../hosts/host-registry'
@@ -28,6 +26,7 @@ import {
   type ScheduledAgentView,
 } from '../../shared/scheduled-agents'
 import { isRecord } from '../../shared/records'
+import type { StudioPlatform } from '../../server/platform/platform'
 
 // The machine whose git answers for a folder: a WSL distribution's own git for
 // a folder in it, so the run's worktree names a gitdir that machine can follow.
@@ -35,18 +34,10 @@ function gitHostFor(hostId: ExecutionHostId | null) {
   return hostId && isWslHostId(hostId) ? hostRegistry().get(hostId) : null
 }
 
-function broadcastScheduledAgents(agents: ScheduledAgentView[]): void {
-  for (const window of BrowserWindow.getAllWindows()) {
-    if (window.isDestroyed() || window.webContents.isDestroyed()) continue
-    try {
-      window.webContents.send(SCHEDULED_AGENTS_CHANGED_CHANNEL, agents)
-    } catch {
-      // Best-effort per window.
-    }
-  }
-}
-
-export function createScheduledAgentsModule(): CapabilityModule {
+/** `paths` places the schedule file; `clients` hears every change to the list. */
+export function createScheduledAgentsModule(platform: Pick<StudioPlatform, 'paths' | 'clients'>): CapabilityModule {
+  const broadcastScheduledAgents = (agents: ScheduledAgentView[]): void =>
+    platform.clients.publish(SCHEDULED_AGENTS_CHANGED_CHANNEL, agents)
   return {
     manifest: {
       id: 'scheduled-agents',
@@ -62,7 +53,7 @@ export function createScheduledAgentsModule(): CapabilityModule {
       const conversationLaunchService = host.requireService(ConversationLaunchServiceToken)
       const conversationRuntime = host.requireService(ConversationRuntimeToken)
       const store = createScheduledAgentsStore({
-        filePath: scheduledAgentsFilePath(app.getPath('userData')),
+        filePath: scheduledAgentsFilePath(platform.paths.dataDir()),
         warn: (message) => console.warn(`[scheduled-agents] ${message}`),
       })
       // Late-bound: the scheduler reports a finished run to the service, which

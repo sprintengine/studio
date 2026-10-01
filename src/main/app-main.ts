@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, protocol, session } from 'electron'
+import { app, ipcMain, protocol, session } from 'electron'
 import { buildStamp as mainBuildStamp } from 'virtual:sprintengine-build-stamp'
 import { MODULE_EVENTS_CHANNEL } from '../shared/modules/events'
 import { parseAuthCallbackFromArgv } from './auth-service'
@@ -33,11 +33,12 @@ import { writeDiagnosticLog } from './diagnostics-service'
 import { removeRetiredEntitlementCache } from './retired-entitlement-cache'
 import { removeRetiredRelayState } from './retired-relay-state'
 import { applyHostApiGate } from './modules/host-api-gate'
+import { studioPlatform } from '../server/platform/platform'
 
 // The app proper, loaded by the entry (index.ts) only in the process that holds
 // the single-instance lock. By the time this runs the startup timeline is
-// attached, the userData override is applied and the module-asset scheme is
-// registered.
+// attached, the userData override is applied, the Electron platform is
+// installed and the module-asset scheme is registered.
 
 // Build-identity check. Registered next to the startup marks and for
 // the same reason: a window reports the moment it starts, and the listener has
@@ -90,7 +91,7 @@ applyHostApiGate(thirdPartyMainLoad.ineligible, thirdPartyMainLoad.modules)
 // predicate can close over it; the set is filled in once the manifest list exists.
 const enabledMainModuleIds = new Set<string>()
 const activeMainModules = activeForChannel(
-  createBundledMainModules(),
+  createBundledMainModules(studioPlatform()),
   (module) => module.manifest.id,
   includeDevModules,
 )
@@ -108,7 +109,7 @@ const getModulePermissions = (moduleId: string): readonly string[] | undefined =
 // Extracted as a const (rather than inlined) so `mainModuleManifests` below can
 // reference its manifest for the enablement gate; constructed after
 // `getModulePermissions` so the companion-attach permission check is wired in.
-const agentRuntimeModule = createAgentRuntimeModule(services, { getModulePermissions })
+const agentRuntimeModule = createAgentRuntimeModule(services, { getModulePermissions, platform: studioPlatform() })
 const moduleLoad = loadMainModules({
   ipcMain,
   modules: [agentRuntimeModule, ...activeMainModules, ...thirdPartyMainLoad.modules],
@@ -121,12 +122,7 @@ const moduleLoad = loadMainModules({
   // Module events fan out to every open window on the one host-owned channel;
   // the renderer kernel routes each envelope to its own module's subscribers.
   // Nothing is buffered for windows opened later — see shared/modules/events.ts.
-  deliverModuleEvent: (event) => {
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (window.isDestroyed() || window.webContents.isDestroyed()) continue
-      window.webContents.send(MODULE_EVENTS_CHANNEL, event)
-    }
-  },
+  deliverModuleEvent: (event) => studioPlatform().clients.publish(MODULE_EVENTS_CHANNEL, event),
 })
 // The manifest universe the enablement gate resolves against — every main module
 // present on this channel, so a module and its dependencies (scheduled agents,

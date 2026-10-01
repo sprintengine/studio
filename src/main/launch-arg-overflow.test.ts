@@ -23,8 +23,11 @@ import {
 import { createPluginRegistry } from './plugin-registry'
 import { __resetPluginRegistryForTest, __setPluginRegistryForTest } from './plugin-registry-instance'
 import { buildCodexLegacyNativeAgentLaunchPowerShellScript, getShellLaunchConfig } from './terminal-launch'
+import { installElectronPlatformOver } from '../../tests/electron-platform'
 
 vi.mock('electron', () => import('../../tests/stubs/electron'))
+// What terminal-launch writes beside the app's data goes under the stub's userData.
+installElectronPlatformOver()
 
 // A first message or a host-context document too long for the platform's
 // command line must never reach the exec: Linux and WSL refuse any argument

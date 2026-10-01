@@ -17,8 +17,8 @@
 // and the boot pass runs before any renderer has sent its copy.
 import { mkdir, readFile, rename, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
-import { app } from 'electron'
 
+import { studioPlatform } from '../../server/platform/platform'
 import type { AgentCliAvailabilityMap, CliRuntimeSettings } from '../../shared/electron-api'
 import type { ExecutionHostId } from '../../shared/execution-host'
 import type { DiscoveredCliModel, DiscoveredCliModelCatalog } from '../../shared/cli-model-catalog'
@@ -121,7 +121,7 @@ export function createFileModelDiscoveryCache(resolvePath: () => string): ModelD
 let defaultCache: ModelDiscoveryCache | null = null
 
 function defaultModelDiscoveryCache(): ModelDiscoveryCache {
-  defaultCache ??= createFileModelDiscoveryCache(() => join(app.getPath('userData'), CACHE_FILE_NAME))
+  defaultCache ??= createFileModelDiscoveryCache(() => join(studioPlatform().paths.dataDir(), CACHE_FILE_NAME))
   return defaultCache
 }
 

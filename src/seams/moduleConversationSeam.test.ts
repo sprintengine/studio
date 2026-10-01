@@ -23,21 +23,10 @@ import { createAgentRuntimeModule } from '../main/modules/agent-runtime-module'
 import { createWorkspaceRegistryService } from '../main/workspace-registry-service'
 import { createInMemoryWorkspaceRegistryStore } from '../main/workspace-registry-store'
 import { createWorkspaceSyncService } from '../main/workspace-sync-service'
+import { createNodeStudioPaths } from '../server/platform/studio-paths'
+import { createSecretCipherStandIn } from '../../tests/stubs/secret-cipher'
 
-// The app's electron stub, plus the one member agent-runtime-module reads that
-// it lacks: a safeStorage that, honestly, cannot encrypt here.
-vi.mock('electron', async () => ({
-  ...(await import('../../tests/stubs/electron')),
-  safeStorage: {
-    isEncryptionAvailable: () => false,
-    encryptString: () => {
-      throw new Error('No encryption in the seam.')
-    },
-    decryptString: () => {
-      throw new Error('No encryption in the seam.')
-    },
-  },
-}))
+vi.mock('electron', () => import('../../tests/stubs/electron'))
 
 // ── Seam: a third-party module and the chats it reaches ─────────────────────
 //
@@ -166,6 +155,12 @@ test('moduleConversationSeam', async () => {
   const manifests = new Map([acmeManifest, otherManifest].map((manifest) => [manifest.id, manifest]))
   const agentRuntime = createAgentRuntimeModule(services as never, {
     getModulePermissions: (id) => manifests.get(id)?.permissions,
+    // Module storage in the suite's own directory, and a cipher that, honestly,
+    // cannot encrypt here.
+    platform: {
+      paths: createNodeStudioPaths({ dataDir: join(root, 'user-data'), packaged: false }),
+      secrets: createSecretCipherStandIn({ value: false }),
+    },
   })
   const load = loadMainModules({
     ipcMain: createFakeIpcMain().ipcMain,

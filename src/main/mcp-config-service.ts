@@ -5,11 +5,7 @@ import { dirname, join } from 'path'
 import { withConfigFileLock, writeFileAtomically } from './config-file-write'
 import { isLauncherMcpServer } from './integrations/launcher'
 import { hostIdForPath, recordIntegrationWrite } from './integrations/ledger'
-
-// Lazy electron so the module is importable from node-only test bundles.
-function loadElectron(): typeof import('electron') {
-  return require('electron')
-}
+import { installedStudioPlatform } from '../server/platform/platform'
 import type {
   McpClientTarget,
   McpScope,
@@ -173,13 +169,9 @@ async function syncMcpConfig(input: McpSyncInput, context: SyncContext): Promise
 }
 
 function defaultUserDataDir(homeDir: () => string): string {
-  try {
-    const electron = loadElectron()
-    const userData = electron.app?.getPath?.('userData')
-    if (userData) return userData
-  } catch {
-    // Node-only tests do not provide Electron's app object.
-  }
+  // Node-only tests install no platform.
+  const userData = installedStudioPlatform()?.paths.dataDir()
+  if (userData) return userData
   return join(homeDir(), '.sprintengine')
 }
 

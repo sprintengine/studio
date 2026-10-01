@@ -10,8 +10,11 @@ import { LAUNCH_ARG_BUDGETS } from './launch-arg-budget'
 import { createPluginRegistry } from './plugin-registry'
 import { __resetPluginRegistryForTest, __setPluginRegistryForTest } from './plugin-registry-instance'
 import { buildNativeAgentLaunchPowerShellScript, getShellLaunchConfig } from './terminal-launch'
+import { installElectronPlatformOver } from '../../tests/electron-platform'
 
 vi.mock('electron', () => import('../../tests/stubs/electron'))
+// What terminal-launch writes beside the app's data goes under the stub's userData.
+installElectronPlatformOver()
 
 // How each bundled CLI takes its first message, and what a launch does for the
 // ones that take it only typed in (`send-after-ready`): the message is owed to

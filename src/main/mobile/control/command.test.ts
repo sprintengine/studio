@@ -555,7 +555,8 @@ test('command', async () => {
 
     try {
       // The app proper, which is what registers the IPC handlers; the entry
-      // (index.ts) only takes the single-instance lock and loads it.
+      // (index.ts) only installs the Electron platform (as `standIn` does over
+      // the stand-in), takes the single-instance lock and loads it.
       await import('../../app-main')
     } finally {
       restoreModules()

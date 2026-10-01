@@ -433,6 +433,21 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
     if (!validated.ok) {
       throw new Error(`Module "${sourceModuleId}" ${validated.message}`)
     }
+    // A payload no client could receive is the module's mistake, and it hears
+    // about it here, from its own `emit`, as it did when the send to a window
+    // threw. Checked once, whether or not any client is attached, because the
+    // delivery that follows is best effort per client and swallows a failed send.
+    if (payload !== undefined) {
+      try {
+        structuredClone(payload)
+      } catch (error) {
+        throw new Error(
+          `Module "${sourceModuleId}" emitted a "${validated.topic}" payload that cannot be sent to a client: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        )
+      }
+    }
     // Deliberately unbuffered and unbounded: a dropped event makes a
     // subscriber wrong, where a dropped notification only costs a message.
     options.deliverModuleEvent?.({
