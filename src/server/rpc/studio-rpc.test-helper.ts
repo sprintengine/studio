@@ -15,6 +15,7 @@ import {
   type StudioParsedServerFrame,
 } from '../../../packages/studio-protocol/src/public'
 import type { ConversationEvent, ConversationKey, ConversationSessionFrame } from '../../shared/conversation-runtime'
+import { redactConversationValue } from '../../main/conversation-tool-details'
 import { createStudioRpcServer, type StudioRpcServer } from './studio-rpc-server'
 import type {
   StudioAuditEntry,
@@ -119,7 +120,10 @@ export function createFakeBackend(agentIds: string[] = ['agent-1']): FakeBackend
     },
     async toolDetail(_key, toolUseId) {
       return toolUseId === 'big'
-        ? { ok: true, detail: { toolUseId, output: 'é'.repeat(300_000) } as never }
+        ? {
+            ok: true,
+            detail: { toolUseId, output: 'é'.repeat(300_000), input: { authorization: 'Bearer abc' } } as never,
+          }
         : { ok: false, code: 'not_found', message: 'No such tool call.' }
     },
     async turnDiff() {
@@ -158,10 +162,8 @@ export function createFakeBackend(agentIds: string[] = ['agent-1']): FakeBackend
       created.set(launchCommandId, conversation)
       return { ok: true, conversation }
     },
-    redactEvent: (event) =>
-      event.payload && 'apiKey' in event.payload
-        ? { ...event, payload: { ...event.payload, apiKey: '[redacted]' } }
-        : event,
+    // The real backend's rule, so a test reads what a client is shown.
+    redact: (value) => redactConversationValue(value),
   }
   return backend
 }

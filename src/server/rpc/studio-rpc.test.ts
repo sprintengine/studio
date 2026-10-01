@@ -388,6 +388,10 @@ test('an answer over the frame cap arrives chunked and whole', async () => {
   const c = await open(path, pairFakeClient(auth, 'reader', ['conversation:read']))
   const detail = await request(c, 'd1', 'conversation.toolDetail', { key, toolUseId: 'big' })
   assert.equal(detail.ok && (detail.result as { detail: { output: string } }).detail.output.length, 300_000)
+  // Redacted as the tailnet lane redacts it.
+  assert.deepEqual(detail.ok && (detail.result as { detail: { input: unknown } }).detail.input, {
+    authorization: '[redacted]',
+  })
   const missing = await request(c, 'd2', 'conversation.toolDetail', { key, toolUseId: 'nope' })
   assert.equal(!missing.ok && missing.error.code, 'not_found')
   const elsewhere = await request(c, 'd3', 'conversation.loadEarlier', {

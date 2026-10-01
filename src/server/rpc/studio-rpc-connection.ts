@@ -366,7 +366,7 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
   // ── Streams ───────────────────────────────────────────────────────────────
 
   function redactedSnapshotPart(part: ConversationSnapshotFrame): ConversationSnapshotFrame {
-    return { ...part, page: { ...part.page, events: part.page.events.map(backend.redactEvent) } }
+    return { ...part, page: { ...part.page, events: part.page.events.map((event) => backend.redact(event)) } }
   }
 
   /** Everything a join produced, queued as one paced unit ahead of the live events that follow it. */
@@ -391,9 +391,7 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
         producers.push(() => parts.frames(wire, current))
       } else {
         const json = JSON.stringify(
-          source.type === 'event'
-            ? { ...source, event: backend.redactEvent(source.event as ConversationEvent) }
-            : source,
+          source.type === 'event' ? { ...source, event: backend.redact(source.event as ConversationEvent) } : source,
         )
         bytes += Buffer.byteLength(json)
         producers.push(() => wire(json))
@@ -466,7 +464,7 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
       return
     }
     if (frame.type === 'event') {
-      const event = backend.redactEvent(frame.event as ConversationEvent)
+      const event = backend.redact(frame.event as ConversationEvent)
       // A copy the queue may extend in place without touching the runtime's own.
       const owned =
         event === frame.event ? { ...event, ...(event.payload ? { payload: { ...event.payload } } : {}) } : event

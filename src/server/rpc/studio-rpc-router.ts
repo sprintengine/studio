@@ -222,7 +222,10 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
         if (!key) return notFound(wire)
         const read = await backend.loadEarlier(key, beforeCursor, turnLimit)
         return read.ok
-          ? { ok: true, result: { page: { ...read.page, events: read.page.events.map(backend.redactEvent) } } }
+          ? {
+              ok: true,
+              result: { page: { ...read.page, events: read.page.events.map((event) => backend.redact(event)) } },
+            }
           : refuse('unavailable', read.message)
       }
       case 'conversation.toolDetail': {
@@ -230,7 +233,8 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
         const key = resolve(wire)
         if (!key) return notFound(wire)
         const read = await backend.toolDetail(key, toolUseId)
-        if (read.ok) return { ok: true, result: { detail: read.detail as unknown as Record<string, unknown> } }
+        if (read.ok)
+          return { ok: true, result: { detail: backend.redact(read.detail) as unknown as Record<string, unknown> } }
         return refuse(
           read.code === 'not_found' ? 'not_found' : read.code === 'invalid_input' ? 'invalid_params' : 'unavailable',
           read.message,
@@ -243,7 +247,7 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
         const read = await backend.turnDiff(key, turnSeq, path)
         if (!read.ok) return refuse('unavailable', read.message)
         const { ok: _ok, ...diff } = read
-        return { ok: true, result: diff }
+        return { ok: true, result: backend.redact(diff) }
       }
       default: {
         const { key, commandId, ...members } = params as {

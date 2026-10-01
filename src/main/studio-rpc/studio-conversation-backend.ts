@@ -13,7 +13,7 @@ import type {
 import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET } from '../../shared/launch-settings'
 import type { StudioConversationBackend } from '../../server/rpc/studio-rpc-types'
 import type { ConversationGatewayHost } from '../automation/tailnet/tailnet-conversation-host'
-import { redactEvent } from '../companion-agent-service'
+import { redactConversationValue } from '../conversation-tool-details'
 import type { ConversationLaunchRequest, ConversationLaunchResult } from '../conversation-launch-service'
 
 // The conversations the Studio RPC serves, in main: the conversation host the
@@ -110,9 +110,10 @@ export function createStudioConversationBackend(deps: StudioConversationBackendD
         },
       }
     },
-    // What a chat view is shown: secret-shaped payload members redacted. Paths
-    // stay as they are, because a client on this machine reads this machine's
-    // files; the tailnet lane rewrites them for a reader elsewhere.
-    redactEvent,
+    // The tailnet lane's redaction of secret-shaped members, for events, pages,
+    // tool details and diffs alike. Paths stay as they are, because a client on
+    // this machine reads this machine's files; the tailnet lane rewrites them
+    // for a reader elsewhere.
+    redact: (value) => redactConversationValue(value),
   }
 }
