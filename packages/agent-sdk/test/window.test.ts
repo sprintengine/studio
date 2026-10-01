@@ -257,9 +257,20 @@ test('a stream’s cursor is what its consumer has read, never what is still wai
   for (let next = await stream.next(); next.value?.type !== 'synchronized'; next = await stream.next());
   const fenced = stream.cursor
   assert.ok(fenced)
+  // A second follower on the same connection says when both events have
+  // reached this client, so the stream has them waiting, unread.
+  const arrived: string[] = []
+  let watchingLive = false
+  const watching = client.conversations.follow({ workspaceId: 'ws-1', agentId: 'agent-1' }, undefined, (frame) => {
+    if (frame.type === 'synchronized') watchingLive = true
+    if (frame.type === 'event') arrived.push(String(frame.event.payload?.text))
+  })
+  await until(() => watchingLive)
   target.backend.emit('agent-1', 'user_message', { text: 'one' })
   target.backend.emit('agent-1', 'user_message', { text: 'two' })
-  await new Promise((resolve) => setTimeout(resolve, 20))
+  await until(() => arrived.length === 2)
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(arrived, ['one', 'two'])
   // Received, not yet read: the cursor has not moved.
   assert.deepEqual(stream.cursor, fenced)
   const first = await stream.next()
@@ -268,4 +279,5 @@ test('a stream’s cursor is what its consumer has read, never what is still wai
   const second = await stream.next()
   assert.equal(stream.cursor?.afterSeq, (second.value?.type === 'event' && second.value.event.seq) || -1)
   stream.close()
+  watching()
 })

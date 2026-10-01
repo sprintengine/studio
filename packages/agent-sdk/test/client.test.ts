@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, test } from 'vitest'
+import { afterEach, test, vi } from 'vitest'
 
 import { createStudioRpcServer, type StudioRpcServer } from '../../../src/server/rpc/studio-rpc-server'
 import {
@@ -314,15 +314,27 @@ test('revoking an app mid-stream ends its streams and parks the client until it 
 })
 
 test('a quiet connection is pinged, and one that stays silent is made again', async () => {
+  // The heartbeat's clock is faked, so how long a ping takes to come back on a
+  // busy machine cannot make a healthy line look dead. The socket is real: its
+  // frames still need the event loop's turns, which `io` hands it.
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] })
+  cleanups.push(() => void vi.useRealTimers())
+  const io = async (done: () => boolean, what: string) => {
+    for (let turns = 0; !done() && turns < 5_000; turns++) await new Promise((resolve) => setImmediate(resolve))
+    assert.ok(done(), `waited for ${what}`)
+  }
   const target = await studio()
   let silent = false
   const sent: string[] = []
-  const connected = await connect({
+  const heard: string[] = []
+  const connecting = connect({
     transport: async () => {
       const transport = await socketTransport({ dataDir: target.dataDir })()
       const listeners: Array<(frame: string) => void> = []
       transport.onMessage((frame) => {
-        if (!silent) listeners.forEach((listener) => listener(frame))
+        if (silent) return
+        heard.push(frame)
+        listeners.forEach((listener) => listener(frame))
       })
       return {
         ...transport,
@@ -335,19 +347,44 @@ test('a quiet connection is pinged, and one that stays silent is made again', as
     },
     client: { name: 'sdk-test' },
     auth: { token: pairFakeClient(target.auth, 'quiet', ['conversation:read']) },
-    heartbeat: { intervalMs: 30, timeoutMs: 30 },
-    reconnect: { initialDelayMs: 5, maxDelayMs: 10 },
+    heartbeat: { intervalMs: 30_000, timeoutMs: 10_000 },
+    reconnect: { initialDelayMs: 100, maxDelayMs: 100 },
   })
-  cleanups.push(() => connected.close())
+  let connected: Awaited<typeof connecting> | null = null
+  void connecting.then((value) => (connected = value))
+  await io(() => connected !== null, 'the welcome')
+  const app = connected!
+  cleanups.push(() => app.close())
   const pings = () => sent.filter((frame) => frame.includes('"server.ping"')).length
-  for (let tries = 0; pings() < 2 && tries < 100; tries++) await new Promise((resolve) => setTimeout(resolve, 5))
-  assert.ok(pings() >= 2, 'a quiet but healthy connection is pinged, and stays')
-  assert.equal(connected.state, 'open')
+  const pongs = () => heard.filter((frame) => frame.includes('"id":"ping')).length
   const hellos = () => sent.filter((frame) => frame.includes('"t":"hello"')).length
-  assert.equal(hellos(), 1)
+  // Quiet for a spell: one ping, answered, and the line stays.
+  vi.advanceTimersByTime(29_999)
+  assert.equal(pings(), 0, 'nothing is asked before the spell is up')
+  vi.advanceTimersByTime(1)
+  assert.equal(pings(), 1)
+  await io(() => pongs() === 1, 'the answer to the ping')
+  // The answer came at 30s, so the line is quiet again from then: the next ping is due at 60s.
+  vi.advanceTimersByTime(10_000)
+  assert.equal(app.state, 'open')
+  vi.advanceTimersByTime(19_999)
+  assert.equal(pings(), 1)
+  vi.advanceTimersByTime(1)
+  assert.equal(pings(), 2, 'and again after the next quiet spell')
+  await io(() => pongs() === 2, 'the second answer')
+  vi.advanceTimersByTime(10_000)
+  assert.equal(app.state, 'open')
+  assert.equal(hellos(), 1, 'a healthy line is never made again')
   // A line that stops answering (a socket left half-open) is given up and made again.
   silent = true
-  for (let tries = 0; hellos() < 2 && tries < 200; tries++) await new Promise((resolve) => setTimeout(resolve, 5))
+  vi.advanceTimersByTime(20_000)
+  assert.equal(pings(), 3)
+  vi.advanceTimersByTime(9_999)
+  assert.equal(hellos(), 1, 'not before its ping has had its time')
+  vi.advanceTimersByTime(1)
+  await io(() => app.state === 'reconnecting', 'the line given up')
+  vi.advanceTimersByTime(100)
+  await io(() => hellos() === 2, 'a new hello')
   assert.equal(hellos(), 2)
 })
 

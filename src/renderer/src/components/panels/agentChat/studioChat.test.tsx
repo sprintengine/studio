@@ -227,3 +227,39 @@ test('a send that cannot go gives back the pictures it staged, so the window can
     restore()
   }
 })
+
+test('a send resent after the connection dropped mid-send is carried out once, and answered', async () => {
+  let release!: () => void
+  const sends: Array<Record<string, unknown>> = []
+  const { loopback, restore } = await setup({
+    conversationSessionSendTurn: async (input: Record<string, unknown>) => {
+      sends.push(input)
+      await new Promise<void>((resolve) => (release = resolve))
+      return { ok: true, session: { sessionId: 'session', workspaceId: 'workspace', agentId: 'agent' } }
+    },
+  })
+  try {
+    const { useConversationTransport } = await import('./conversationTransport')
+    const { createElement } = await import('react')
+    const { renderToString } = await import('react-dom/server')
+    let transport!: ReturnType<typeof useConversationTransport>
+    renderToString(
+      createElement(() => {
+        transport = useConversationTransport()
+        return null
+      }),
+    )
+    const sent = transport.send({ sessionId: 'session', message: 'once' })
+    await until(() => sends.length === 1, 'the send to reach the runtime')
+    // Studio restarts under the window while the send runs; the client sends it
+    // again under the same command id, and the receipt answers it.
+    loopback.drop()
+    await until(() => loopback.connections() >= 2, 'the reconnect')
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    release()
+    expect((await sent).ok).toBe(true)
+    expect(sends).toHaveLength(1)
+  } finally {
+    restore()
+  }
+})

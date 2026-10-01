@@ -181,12 +181,15 @@ export function installStudioLoopback(
 ): StudioLoopback | null {
   if (!chatOverStudioUnderTest()) return null
   const api = (win.api ??= {})
+  // One chat surface for the window's life, as main provides one: its receipts
+  // outlive a dropped connection. Its members still read the stubs when called.
+  const chat = chatOver(api)
   const server = createStudioRpcServer({
     dataDir: '/nonexistent/studio-loopback',
     version: 'test',
     environmentId: options.environmentId ?? 'studio-loopback',
     backend: conversationsOver(api),
-    chat: () => chatOver(api),
+    chat: () => chat,
     // The socket is never started; windows say hello with their tickets.
     authenticator: createTicketAuthenticator(mintStudioTicket()),
   })

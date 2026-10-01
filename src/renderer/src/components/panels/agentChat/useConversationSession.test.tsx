@@ -28,152 +28,178 @@ test('live appends use the sequence index without rescanning or sorting hydrated
   }
 })
 
-// It counts the IPC subscriptions a StrictMode double mount opens and closes;
-// over the protocol the first is closed before it ever reaches Studio.
-test.skipIf(chatOverStudioUnderTest())(
-  'scoped catch-up hydrates at the fence and pages without losing live events or hiding errors',
-  async () => {
-    const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost' })
-    const previous = Object.getOwnPropertyDescriptors(globalThis)
-    Object.assign(globalThis, {
-      window: dom.window,
-      document: dom.window.document,
-      navigator: dom.window.navigator,
-      IS_REACT_ACT_ENVIRONMENT: true,
-    })
-    const subscriptions: {
-      input: ConversationSubscribeInput
-      receive: (frame: ConversationSessionFrame) => void
-      dispose: ReturnType<typeof vi.fn>
-    }[] = []
-    let finishPage!: (result: ConversationPageResult) => void
-    const earlier = vi.fn(
-      () =>
-        new Promise<ConversationPageResult>((resolve) => {
-          finishPage = resolve
-        }),
-    )
-    Object.assign(dom.window, {
-      api: {
-        onConversationSession: (
-          input: ConversationSubscribeInput,
-          receive: (frame: ConversationSessionFrame) => void,
-        ) => {
-          const dispose = vi.fn()
-          subscriptions.push({ input, receive, dispose })
-          return dispose
-        },
-        conversationLoadEarlier: earlier,
+// Run both ways. A StrictMode double mount opens and closes a subscription
+// first; over IPC the stub sees both, over the protocol the first is closed
+// before it reaches Studio, so the test follows whichever is live. Frames and
+// pages over the protocol arrive a turn later, so it waits for each.
+test('scoped catch-up hydrates at the fence and pages without losing live events or hiding errors', async () => {
+  const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost' })
+  const previous = Object.getOwnPropertyDescriptors(globalThis)
+  Object.assign(globalThis, {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  })
+  const subscriptions: {
+    input: ConversationSubscribeInput
+    receive: (frame: ConversationSessionFrame) => void
+    dispose: ReturnType<typeof vi.fn>
+  }[] = []
+  let finishPage!: (result: ConversationPageResult) => void
+  const earlier = vi.fn(
+    () =>
+      new Promise<ConversationPageResult>((resolve) => {
+        finishPage = resolve
+      }),
+  )
+  Object.assign(dom.window, {
+    api: {
+      onConversationSession: (
+        input: ConversationSubscribeInput,
+        receive: (frame: ConversationSessionFrame) => void,
+      ) => {
+        const dispose = vi.fn()
+        subscriptions.push({ input, receive, dispose })
+        return dispose
       },
-    })
-    installStudioLoopback(dom.window as unknown as { api: Record<string, unknown> })
-    const { act, createElement, StrictMode } = await import('react')
-    const { createRoot } = await import('react-dom/client')
-    const { useConversationSession } = await import('./useConversationSession')
-    const event = (seq: number): ConversationEvent => ({
-      seq,
-      id: `event-${seq}`,
-      workspaceId: 'workspace',
-      agentId: 'agent',
-      sessionId: 'session',
-      providerId: 'mock',
-      modelId: 'mock',
-      createdAt: seq,
-      type: 'user_message',
-      payload: { text: `message ${seq}` },
-    })
-    let hook!: ReturnType<typeof useConversationSession>
-    function Harness({ agentId }: { agentId: string }) {
-      hook = useConversationSession('/Users/dev/project', 'workspace', agentId)
-      return null
-    }
-    const root = createRoot(document.createElement('div'))
-    try {
-      await act(async () => root.render(createElement(StrictMode, null, createElement(Harness, { agentId: 'agent' }))))
+      conversationLoadEarlier: earlier,
+    },
+  })
+  installStudioLoopback(dom.window as unknown as { api: Record<string, unknown> })
+  const { act, createElement, StrictMode } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const { useConversationSession } = await import('./useConversationSession')
+  const event = (seq: number): ConversationEvent => ({
+    seq,
+    id: `event-${seq}`,
+    workspaceId: 'workspace',
+    agentId: 'agent',
+    sessionId: 'session',
+    providerId: 'mock',
+    modelId: 'mock',
+    createdAt: seq,
+    type: 'user_message',
+    payload: { text: `message ${seq}` },
+  })
+  let hook!: ReturnType<typeof useConversationSession>
+  function Harness({ agentId }: { agentId: string }) {
+    hook = useConversationSession('/Users/dev/project', 'workspace', agentId)
+    return null
+  }
+  const root = createRoot(document.createElement('div'))
+  const overStudio = chatOverStudioUnderTest()
+  // Each look is its own `act`, so what arrived is drawn before the next.
+  const until = async (check: () => boolean, what: string) => {
+    for (let tries = 0; !check() && tries < 400; tries++)
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 2)))
+    if (!check()) throw new Error(`Timed out waiting for ${what}`)
+  }
+  const settle = async () => {
+    for (let turn = 0; turn < 10; turn++) await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+  }
+  try {
+    await act(async () => root.render(createElement(StrictMode, null, createElement(Harness, { agentId: 'agent' }))))
+    await until(() => subscriptions.length >= (overStudio ? 1 : 2), 'the subscription')
+    await settle()
+    if (overStudio) expect(subscriptions).toHaveLength(1)
+    else {
       expect(subscriptions).toHaveLength(2)
       expect(subscriptions[0].dispose).toHaveBeenCalledOnce()
-      expect(subscriptions[1].input).toEqual({
-        key: { workspaceRoot: '/Users/dev/project', workspaceId: 'workspace', agentId: 'agent' },
-        turnLimit: 10,
-      })
-      const receive = subscriptions[1].receive
-      const stableLoadEarlier = hook.loadEarlier
-      await act(async () => {
-        subscriptions[0].receive({ type: 'event', event: event(999) })
-        receive({
-          type: 'snapshot',
-          page: { events: [event(12), event(11), event(11)], hasMore: true, beforeCursor: 11 },
-        })
-        receive({ type: 'event', event: event(13) })
-      })
-      expect(hook.hydrated).toBe(false)
-      expect(hook.announcement).toBe('')
-      expect(hook.events).toEqual([])
-      await act(async () => receive({ type: 'synchronized', seq: 13 }))
-      expect(hook.hydrated).toBe(true)
-      expect(hook.events.map((entry) => entry.seq)).toEqual([11, 12, 13])
-      const originalTail = hook.events[2]
-      let pending!: Promise<void>
-      await act(async () => {
-        pending = hook.loadEarlier()
-        expect(hook.loadEarlier()).toBe(pending)
-      })
-      expect(hook.loadingEarlier).toBe(true)
-      expect(earlier).toHaveBeenCalledExactlyOnceWith({
-        key: subscriptions[1].input.key,
-        beforeCursor: 11,
-        turnLimit: 10,
-      })
-      await act(async () => {
-        receive({ type: 'event', event: event(14) })
-        receive({ type: 'event', event: event(13) })
-        finishPage({ ok: true, page: { events: [event(1), event(10), event(11)], hasMore: true, beforeCursor: 1 } })
-        await pending
-      })
-      expect(hook.events.map((entry) => entry.seq)).toEqual([1, 10, 11, 12, 13, 14])
-      expect(hook.events[4]).toBe(originalTail)
-      expect(hook.loadingEarlier).toBe(false)
-      expect(hook.loadEarlier).toBe(stableLoadEarlier)
-      await act(async () => {
-        pending = hook.loadEarlier()
-      })
-      await act(async () => {
-        finishPage({ ok: false, message: 'Page unavailable' })
-        await expect(pending).rejects.toThrow('Page unavailable')
-      })
-      expect(hook.error).toBe('Page unavailable')
-      expect(hook.loadingEarlier).toBe(false)
-      expect(hook.hasMore).toBe(true)
-      await act(async () => {
-        pending = hook.loadEarlier()
-      })
-      await act(async () => root.render(createElement(StrictMode, null, createElement(Harness, { agentId: 'other' }))))
-      expect(subscriptions[1].dispose).toHaveBeenCalledOnce()
-      await act(async () => {
-        finishPage({ ok: true, page: { events: [event(1000)], hasMore: false, beforeCursor: null } })
-        receive({ type: 'event', event: event(1001) })
-        await pending
-      })
-      expect(hook.events).toEqual([])
-      expect(hook.hydrated).toBe(false)
-      expect(hook.loadEarlier).toBe(stableLoadEarlier)
-      await act(async () => {
-        subscriptions[2].receive({ type: 'snapshot', page: { events: [], hasMore: false, beforeCursor: null } })
-        subscriptions[2].receive({ type: 'synchronized', seq: 0 })
-        await hook.loadEarlier()
-      })
-      expect(hook.hydrated).toBe(true)
-      expect(earlier).toHaveBeenCalledTimes(3)
-    } finally {
-      await act(async () => root.unmount())
-      dom.window.close()
-      for (const key of ['window', 'document', 'navigator', 'IS_REACT_ACT_ENVIRONMENT']) {
-        if (previous[key]) Object.defineProperty(globalThis, key, previous[key])
-        else Reflect.deleteProperty(globalThis, key)
-      }
     }
-  },
-)
+    const live = subscriptions[subscriptions.length - 1]
+    expect(live.input).toEqual({
+      key: { workspaceRoot: '/Users/dev/project', workspaceId: 'workspace', agentId: 'agent' },
+      turnLimit: 10,
+    })
+    const receive = live.receive
+    const stableLoadEarlier = hook.loadEarlier
+    await act(async () => {
+      if (!overStudio) subscriptions[0].receive({ type: 'event', event: event(999) })
+      receive({
+        type: 'snapshot',
+        page: { events: [event(12), event(11), event(11)], hasMore: true, beforeCursor: 11 },
+      })
+      receive({ type: 'event', event: event(13) })
+    })
+    await settle()
+    expect(hook.hydrated).toBe(false)
+    expect(hook.announcement).toBe('')
+    expect(hook.events).toEqual([])
+    await act(async () => receive({ type: 'synchronized', seq: 13 }))
+    await until(() => hook.hydrated, 'hydration at the fence')
+    expect(hook.events.map((entry) => entry.seq)).toEqual([11, 12, 13])
+    const originalTail = hook.events[2]
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = hook.loadEarlier()
+      expect(hook.loadEarlier()).toBe(pending)
+    })
+    expect(hook.loadingEarlier).toBe(true)
+    await until(() => earlier.mock.calls.length === 1, 'the first page asked for')
+    expect(earlier).toHaveBeenCalledExactlyOnceWith({
+      key: live.input.key,
+      beforeCursor: 11,
+      turnLimit: 10,
+    })
+    await act(async () => {
+      receive({ type: 'event', event: event(14) })
+      receive({ type: 'event', event: event(13) })
+      finishPage({ ok: true, page: { events: [event(1), event(10), event(11)], hasMore: true, beforeCursor: 1 } })
+      await pending
+    })
+    await until(() => hook.events.length === 6, 'the page and the live events')
+    expect(hook.events.map((entry) => entry.seq)).toEqual([1, 10, 11, 12, 13, 14])
+    expect(hook.events[4]).toBe(originalTail)
+    expect(hook.loadingEarlier).toBe(false)
+    expect(hook.loadEarlier).toBe(stableLoadEarlier)
+    await act(async () => {
+      pending = hook.loadEarlier()
+    })
+    await until(() => earlier.mock.calls.length === 2, 'the second page asked for')
+    await act(async () => {
+      finishPage({ ok: false, message: 'Page unavailable' })
+      await expect(pending).rejects.toThrow('Page unavailable')
+    })
+    expect(hook.error).toBe('Page unavailable')
+    expect(hook.loadingEarlier).toBe(false)
+    expect(hook.hasMore).toBe(true)
+    await act(async () => {
+      pending = hook.loadEarlier()
+    })
+    await until(() => earlier.mock.calls.length === 3, 'the third page asked for')
+    const before = subscriptions.length
+    await act(async () => root.render(createElement(StrictMode, null, createElement(Harness, { agentId: 'other' }))))
+    await until(() => live.dispose.mock.calls.length === 1, 'the first chat’s subscription closed')
+    await until(() => subscriptions.length === before + 1, 'the next chat’s subscription')
+    await act(async () => {
+      finishPage({ ok: true, page: { events: [event(1000)], hasMore: false, beforeCursor: null } })
+      receive({ type: 'event', event: event(1001) })
+      await pending.catch(() => undefined)
+    })
+    await settle()
+    expect(live.dispose).toHaveBeenCalledOnce()
+    expect(hook.events).toEqual([])
+    expect(hook.hydrated).toBe(false)
+    expect(hook.loadEarlier).toBe(stableLoadEarlier)
+    const next = subscriptions[subscriptions.length - 1]
+    await act(async () => {
+      next.receive({ type: 'snapshot', page: { events: [], hasMore: false, beforeCursor: null } })
+      next.receive({ type: 'synchronized', seq: 0 })
+    })
+    await until(() => hook.hydrated, 'the next chat hydrated')
+    await act(async () => hook.loadEarlier())
+    expect(hook.hydrated).toBe(true)
+    expect(earlier).toHaveBeenCalledTimes(3)
+  } finally {
+    await act(async () => root.unmount())
+    dom.window.close()
+    for (const key of ['window', 'document', 'navigator', 'IS_REACT_ACT_ENVIRONMENT']) {
+      if (previous[key]) Object.defineProperty(globalThis, key, previous[key])
+      else Reflect.deleteProperty(globalThis, key)
+    }
+  }
+})
 
 test('a failed subscription resubscribes with backoff and catches up from its cursor without a reset', async () => {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost' })
