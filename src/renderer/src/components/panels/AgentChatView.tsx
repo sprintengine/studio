@@ -141,6 +141,7 @@ import {
 import { ConversationPendingDock, type ApprovalModeSwitch } from './agentChat/pendingDock'
 import { QueuedTurnRow, queuedTurnSendNow } from './agentChat/queuedTurnBubble'
 import { ComposerTray, ComposerTrayRow } from './agentChat/composerTray'
+import { StudioConnectionNotice } from './agentChat/studioConnectionNotice'
 import { CompactGlyph } from './agentChat/toolRows/ToolKindGlyph'
 import { ConversationTodoStrip } from './agentChat/todoProgressStrip'
 import { TimelineRow, type TimelineChrome } from './agentChat/timelineRows'
@@ -2637,6 +2638,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
              * changed, stay beside it.
              */}
             <ComposerTray>
+              {/* A window on the Studio protocol whose connection is down
+                says so, in words, while the transcript stays as it was. */}
+              <StudioConnectionNotice />
               {/* Loading is not a warning — it is the state the screen is in,
                 so it reads as the quiet line it is; anything else here is a
                 degraded session. */}

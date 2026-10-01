@@ -58,6 +58,34 @@ export function windowPortTransport(api: PortApi): StudioTransportFactory {
   }
 }
 
+/**
+ * Where a window's connection to its Studio stands: what a chat on the
+ * protocol says while it is not `open`.
+ */
+export type WindowStudioState = 'connecting' | 'open' | 'reconnecting' | 'parked' | 'unavailable'
+
+const states = new WeakMap<object, WindowStudioState>()
+const watchers = new WeakMap<object, Set<() => void>>()
+
+function setWindowState(api: object, state: WindowStudioState): void {
+  if (states.get(api) === state) return
+  states.set(api, state)
+  for (const watcher of watchers.get(api) ?? []) watcher()
+}
+
+/** The window's connection as it stands; `connecting` before its first client has said anything. */
+export function windowStudioState(api: object = window.api): WindowStudioState {
+  return states.get(api) ?? 'connecting'
+}
+
+/** Hear the window's connection change. Returns the unsubscriber. */
+export function watchWindowStudio(api: object, listener: () => void): () => void {
+  let set = watchers.get(api)
+  if (!set) watchers.set(api, (set = new Set()))
+  set.add(listener)
+  return () => set.delete(listener)
+}
+
 const clients = new WeakMap<object, Promise<StudioClient>>()
 // The client each window's promise settled to, so one that has closed is
 // known at once rather than a turn later.
@@ -83,6 +111,7 @@ export function windowStudioClient(api: PortApi = window.api): Promise<StudioCli
   }
   settled.delete(api)
   const bound = environments.get(api)
+  if (states.get(api) !== 'reconnecting') setWindowState(api, 'connecting')
   const connecting = connect({
     transport: windowPortTransport(api),
     client: { name: 'Studio window' },
@@ -90,10 +119,16 @@ export function windowStudioClient(api: PortApi = window.api): Promise<StudioCli
     // ceiling brings a window back quickly after a restart of the server.
     reconnect: { initialDelayMs: 100, maxDelayMs: 5_000 },
     ...(bound === undefined ? {} : { environmentId: bound }),
+    onStateChange: (state) => {
+      if (clients.get(api) !== connecting) return
+      setWindowState(api, state === 'closed' ? 'unavailable' : state)
+    },
   })
   clients.set(api, connecting)
   const forget = () => {
-    if (clients.get(api) === connecting) clients.delete(api)
+    if (clients.get(api) !== connecting) return
+    clients.delete(api)
+    setWindowState(api, 'unavailable')
   }
   void connecting.then((connected) => {
     if (clients.get(api) === connecting) settled.set(api, connected)
