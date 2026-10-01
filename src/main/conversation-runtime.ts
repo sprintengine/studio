@@ -310,6 +310,14 @@ const IDLE_SWEEP_INTERVAL_MS = 3 * 60 * 1000
 // every checkpoint ref of the repository.
 const CHECKPOINT_EXPIRY_INTERVAL_MS = 24 * 60 * 60 * 1000
 
+// How a refusal names a request of each kind, when an answer meant for one
+// reaches another.
+const REQUEST_KIND_NAMES: Record<string, string> = {
+  tool: 'a tool permission',
+  question: 'a question',
+  plan: 'a plan',
+}
+
 export class ConversationRuntime {
   private readonly adapters = new Map<string, ConversationProviderAdapter>()
   private readonly secretStore: Pick<ProviderSecretStore, 'getStatus'> &
@@ -1193,6 +1201,14 @@ export class ConversationRuntime {
     }
     if (session.answeredApprovals.has(input.requestId))
       return { ok: false, message: 'This request has already been answered.' }
+    if (input.requestKind) {
+      const asked = session.approvalRequests.get(input.requestId)?.requestKind ?? 'tool'
+      if (asked !== input.requestKind)
+        return {
+          ok: false,
+          message: `This request is ${REQUEST_KIND_NAMES[asked] ?? 'another kind of request'}, not ${REQUEST_KIND_NAMES[input.requestKind]}.`,
+        }
+    }
     const adapter = this.getAdapterForProviderId(session.providerId)
     if (!adapter) return { ok: false, message: 'Conversation provider is unavailable.' }
 

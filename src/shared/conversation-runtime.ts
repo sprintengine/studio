@@ -4,6 +4,7 @@
 // re-exported here under the names app code has always imported; what stays
 // below is the runtime's own: session inputs, results and summaries.
 import type {
+  ConversationApprovalKind,
   ConversationEvent,
   ConversationJsonValue,
   ConversationPage,
@@ -260,6 +261,11 @@ export type ConversationRespondToRequestInput = {
   // text → chosen answer (multi-select answers comma-separated, free-text
   // "other" answers verbatim). Ignored for plain tool approvals.
   answers?: Record<string, string>
+  // The kind of request the caller believes it is answering. Given, an answer
+  // to a request of another kind is refused rather than read as that kind's:
+  // a plan approved by a client that meant to answer a tool permission is not
+  // the same decision. Absent, any kind is answered, as before.
+  requestKind?: ConversationApprovalKind
 }
 
 // Change how tool permissions behave on a session that is already running. The

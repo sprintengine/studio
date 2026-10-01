@@ -280,3 +280,38 @@ test('a request answered once cannot be answered again while its resolution is o
   chat.provider.adapter.resolveApproval = resolveApproval
   await chat.done()
 })
+
+test('an answer that names the kind it answers is refused for a request of another kind', async () => {
+  const chat = await setup('none')
+  await chat.ask('plan', { action: 'ExitPlanMode', kind: 'plan', plan: 'Rename the module.' })
+  await chat.ask('bash', bash)
+  const answer = (requestId: string, approved: boolean, requestKind?: 'tool' | 'question' | 'plan') =>
+    chat.runtime.respondToRequest({
+      sessionId: chat.sessionId,
+      requestId,
+      approved,
+      ...(requestKind ? { requestKind } : {}),
+    })
+  // A tool permission's answer, or a question's, does not approve a plan.
+  assert.deepEqual(await answer('plan', true, 'tool'), {
+    ok: false,
+    message: 'This request is a plan, not a tool permission.',
+  })
+  assert.deepEqual(await answer('plan', true, 'question'), {
+    ok: false,
+    message: 'This request is a plan, not a question.',
+  })
+  assert.deepEqual(await answer('bash', true, 'plan'), {
+    ok: false,
+    message: 'This request is a tool permission, not a plan.',
+  })
+  assert.deepEqual(chat.provider.answers, [], 'a refused answer reaches no provider')
+  // The right kind is answered, and an answer that names none still answers any.
+  assert.ok((await answer('plan', true, 'plan')).ok)
+  assert.ok((await answer('bash', false)).ok)
+  assert.deepEqual(chat.provider.answers, [
+    { requestId: 'plan', approved: true },
+    { requestId: 'bash', approved: false },
+  ])
+  await chat.done()
+})
