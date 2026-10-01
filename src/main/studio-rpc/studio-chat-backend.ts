@@ -162,19 +162,37 @@ export function createStudioChatBackend(deps: StudioChatBackendDeps): StudioChat
         return false
       }
     },
+    // Each of these answers its own `ok`, so a throw below is that answer
+    // failing, not the request: a client reads every outcome in one place.
     async revert(input) {
-      return (await handlers.revertToTurn?.(input)) ?? { ok: false, message: 'Checkpoints are unavailable.' }
+      try {
+        return (await handlers.revertToTurn?.(input)) ?? { ok: false, message: 'Checkpoints are unavailable.' }
+      } catch (error) {
+        return failed(error)
+      }
     },
     async rewind(input) {
-      return (
-        (await handlers.rewindToTurn?.(input)) ?? { ok: false, message: 'Editing an earlier message is unavailable.' }
-      )
+      try {
+        return (
+          (await handlers.rewindToTurn?.(input)) ?? { ok: false, message: 'Editing an earlier message is unavailable.' }
+        )
+      } catch (error) {
+        return failed(error)
+      }
     },
     async fork(input) {
-      return (await handlers.forkAtTurn?.(input)) ?? { ok: false, message: 'Forking a conversation is unavailable.' }
+      try {
+        return (await handlers.forkAtTurn?.(input)) ?? { ok: false, message: 'Forking a conversation is unavailable.' }
+      } catch (error) {
+        return failed(error)
+      }
     },
     async attachment(ref) {
-      return (await handlers.readAttachment?.(ref)) ?? { ok: false, message: 'Attachments are unavailable.' }
+      try {
+        return (await handlers.readAttachment?.(ref)) ?? { ok: false, message: 'Attachments are unavailable.' }
+      } catch (error) {
+        return failed(error)
+      }
     },
     async planDocument(input) {
       try {

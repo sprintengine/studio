@@ -99,6 +99,21 @@ test('a throw below answers as the IPC answers it, and a handler that is not the
   assert.deepEqual(await chat.secretStatus({ providerId: 'mock' }), { ok: false, message: 'No secret.' })
 })
 
+test('a revert, rewind, fork or picture read that throws is answered as that one failing, not as an error', async () => {
+  const thrown = async () => {
+    throw new Error('checkpoint store offline')
+  }
+  const chat = createStudioChatBackend(
+    deps({ revertToTurn: thrown, rewindToTurn: thrown, forkAtTurn: thrown, readAttachment: thrown }).value,
+  )
+  const key = { workspaceRoot: '/Users/dev/app', workspaceId: 'ws-1', agentId: 'agent-1' }
+  const failure = { ok: false, message: 'checkpoint store offline' }
+  assert.deepEqual(await chat.revert({ key, turnSeq: 1 }), failure)
+  assert.deepEqual(await chat.rewind({ key, turnSeq: 1 }), failure)
+  assert.deepEqual(await chat.fork({ key, side: 'user', turnSeq: 1, newAgentId: 'agent-2' }), failure)
+  assert.deepEqual(await chat.attachment('a/b.png'), failure)
+})
+
 test('a command list is asked for with a chat CLI and an absolute folder, as over IPC', async () => {
   const chat = createStudioChatBackend(deps().value)
   await assert.rejects(chat.commands({ cli: 'not-a-cli', cwd: '/Users/dev/app' }), /chat CLI and an absolute folder/)
