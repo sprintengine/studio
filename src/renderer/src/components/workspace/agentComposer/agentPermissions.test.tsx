@@ -24,16 +24,17 @@ test('Codex and Claude use their own permission vocabulary without changing stor
   }
 })
 
-test('Codex help names YOLO and its sandbox for what they are, and the no-flag row inherits configuration', () => {
+test('Codex help names YOLO and its auto-review for what they are, and the no-flag row inherits configuration', () => {
   const byValue = (cli: string) => new Map(agentPermissionOptions(cli).map((option) => [option.value, option]))
   const codex = byValue('codex')
   assert.match(codex.get('bypass')!.title, /without approval prompts or sandbox restrictions/)
-  assert.match(codex.get('auto')!.title, /inside the workspace sandbox without asking/)
+  assert.match(codex.get('auto')!.title, /Codex’s own auto-review/)
   assert.match(codex.get('none')!.title, /configured permissions/)
   const claude = byValue('claude-code')
   assert.equal(claude.get('none')!.label, 'No flag')
   assert.match(claude.get('auto')!.title, /Claude Code’s own auto mode/)
-  assert.match(byValue('grok').get('auto')!.title, /edit files in the workspace without asking/)
+  assert.match(byValue('grok').get('auto')!.title, /Grok’s own auto mode/)
+  assert.match(byValue('opencode').get('auto')!.title, /edit files in the workspace without asking/)
   assert.match(claude.get('manual')!.title, /Ask before every action that changes something/)
   assert.match(byValue('cursor').get('auto')!.summary, /Cursor runs what it judges safe/)
   assert.equal(agentPermissionChipLabel('none', 'codex'), 'No flag')

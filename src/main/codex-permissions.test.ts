@@ -20,8 +20,8 @@ afterAll(() => __resetPluginRegistryForTest())
 
 const permissionArgs: Record<CliPermissionPreset, string[]> = {
   none: [],
-  manual: ['--ask-for-approval', 'untrusted', '--sandbox', 'read-only'],
-  auto: ['--ask-for-approval', 'on-request', '--sandbox', 'workspace-write'],
+  manual: ['--ask-for-approval', 'on-request', '--sandbox', 'read-only'],
+  auto: ['--approve-for-me'],
   bypass: ['--dangerously-bypass-approvals-and-sandbox'],
 }
 

@@ -140,17 +140,18 @@ export const ACP_PROFILES: AcpProfile[] = [
     // config enables its shared leader, so the flags below govern this session
     // alone. --permission-mode is a top-level option (before `agent`) and
     // overrides the configured mode for this process: Grok has the same modes
-    // Claude Code does, so Manual is `default` and Auto `acceptEdits`.
+    // Claude Code does, so Manual is `default` and Auto its own classifier
+    // mode, `auto`, as Claude's is (owner ruling 2026-10-01).
     // --always-approve is an agent option (after `agent`, before the transport).
     argv: ['agent', '--no-leader', 'stdio'],
     presets: {
       manual: { argv: ['--permission-mode', 'default', 'agent', '--no-leader', 'stdio'] },
-      auto: { argv: ['--permission-mode', 'acceptEdits', 'agent', '--no-leader', 'stdio'] },
+      auto: { argv: ['--permission-mode', 'auto', 'agent', '--no-leader', 'stdio'] },
       bypass: { argv: ['agent', '--always-approve', '--no-leader', 'stdio'] },
     },
-    // Grok's `/auto` hands its approvals to a classifier, which answers for the
-    // person the way bypass does rather than asking; `/always-approve` is bypass.
-    permissionCommands: { '/always-approve': 'bypass', '/auto': 'bypass' },
+    // Grok's `/auto` hands its approvals to the classifier Auto already starts
+    // it in, so only a stricter mode refuses it; `/always-approve` is bypass.
+    permissionCommands: { '/always-approve': 'bypass', '/auto': 'auto' },
     authHint: 'Run grok login in a terminal.',
     images: false,
     planMode: false,

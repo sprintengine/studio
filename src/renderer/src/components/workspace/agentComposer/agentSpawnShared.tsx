@@ -78,9 +78,17 @@ export function agentPermissionOptions(cli?: string | null): typeof AGENT_SPAWN_
     if (cli === 'codex' && option.value === 'auto') {
       return {
         ...option,
-        summary: 'Workspace sandbox; asks to go past it.',
+        summary: 'Workspace sandbox; auto-review judges the rest.',
         title:
-          'Codex edits and runs commands inside the workspace sandbox without asking, and asks before it writes outside the workspace or uses the network.',
+          'Codex’s own auto-review: it edits and runs commands inside the workspace sandbox without asking, and a reviewer judges each request to write outside the workspace or use the network instead of asking you.',
+      }
+    }
+    if (cli === 'grok' && option.value === 'auto') {
+      return {
+        ...option,
+        summary: 'Grok runs what it judges safe; blocks the rest.',
+        title:
+          'Grok’s own auto mode: a classifier runs the tool calls it judges safe and turns the risky ones back to Grok.',
       }
     }
     if (cli === 'claude-code' && option.value === 'auto') {

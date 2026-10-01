@@ -581,14 +581,14 @@ test('agent-launch-render', async () => {
       'kimi-claude': claudeEndpointModes,
       zai: claudeEndpointModes,
       codex: {
-        manual: ['--ask-for-approval', 'untrusted', '--sandbox', 'read-only'],
-        auto: ['--ask-for-approval', 'on-request', '--sandbox', 'workspace-write'],
+        manual: ['--ask-for-approval', 'on-request', '--sandbox', 'read-only'],
+        auto: ['--approve-for-me'],
         bypass: ['--dangerously-bypass-approvals-and-sandbox'],
       },
       cursor: { auto: ['--auto-review'], bypass: ['--force'] },
       grok: {
         manual: ['--permission-mode', 'default'],
-        auto: ['--permission-mode', 'acceptEdits'],
+        auto: ['--permission-mode', 'auto'],
         bypass: ['--always-approve', '--trust'],
       },
       // OpenCode is told Manual and Auto through its environment.

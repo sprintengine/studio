@@ -350,7 +350,7 @@ test('plugin-registry', async () => {
     // without trust: trust would run the hooks committed in the repository,
     // which nobody is asked about.
     const launchedAuto = renderPluginLaunch(plugin!.manifest, { sessionId: 'sid_demo', permissionPreset: 'auto' })
-    assert.deepEqual(launchedAuto.argv, ['grok', '--permission-mode', 'acceptEdits', '--session-id', 'sid_demo'])
+    assert.deepEqual(launchedAuto.argv, ['grok', '--permission-mode', 'auto', '--session-id', 'sid_demo'])
     const launchedManual = renderPluginLaunch(plugin!.manifest, { sessionId: 'sid_demo', permissionPreset: 'manual' })
     assert.deepEqual(launchedManual.argv, ['grok', '--permission-mode', 'default', '--session-id', 'sid_demo'])
     const launchedNone = renderPluginLaunch(plugin!.manifest, {
