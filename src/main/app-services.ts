@@ -28,7 +28,6 @@ import {
 } from './terminal-launch'
 import { createAutomationService } from './automation/automation-service'
 import { REMOTE_OPEN_REQUESTED_CHANNEL, TAILNET_EVENT_CHANNEL } from '../shared/tailnet'
-import { STUDIO_LOCAL_APPS_CHANGED_CHANNEL } from '../shared/studio-local-apps'
 import { MESH_EVENT_CHANNEL } from '../shared/tailnet-mesh'
 import { CANVAS_MODULE_DEFAULT_ENABLED } from '../shared/modules/manifest'
 import { createTailnetNotifier } from './tailnet-notifications'
@@ -1781,9 +1780,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // the same conversation host the tailnet lane does, starts chats through the
   // same launch service, and audits into the gateway's one log. Nothing in the
   // app uses it yet; paired apps are listed and revoked in Settings.
+  // Its paths, version and the push to Settings are the platform's.
   const studioRpcService = createStudioRpcService({
-    resolveUserDataDir: () => app.getPath('userData'),
-    appVersion: app.getVersion(),
     backend: () =>
       createStudioConversationBackend({
         host: createAppConversationHost(),
@@ -1794,12 +1792,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         getWorkspaceAgents: () => workspaceSyncService.getSnapshot().state.workspaces,
       }),
     audit: () => automationService.gatewayAudit(),
-    onChanged: (status) => {
-      for (const window of BrowserWindow.getAllWindows()) {
-        if (window.isDestroyed() || window.webContents.isDestroyed()) continue
-        window.webContents.send(STUDIO_LOCAL_APPS_CHANGED_CHANNEL, status)
-      }
-    },
     log: (message) => {
       void writeDiagnosticLog({ level: 'warning', source: 'workspace', title: 'Local app socket', message })
     },

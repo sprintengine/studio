@@ -94,6 +94,9 @@ const SERVER_BOUND: readonly string[] = [
   'src/main/ripgrep-binary.ts',
   'src/main/marketplace/resources.ts',
   'src/main/marketplace/trusted-publishers.ts',
+  // The Studio RPC's app half: the backend over the conversation host, the
+  // paired local apps, and the service around the owner socket.
+  'src/main/studio-rpc/**',
   // File search for @-mentions.
   'src/main/conversation-mentions.ts',
   'src/main/filesystem-search.ts',

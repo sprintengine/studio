@@ -1,7 +1,8 @@
 # Studio server — design and phased plan
 
-Status: proposed, 2026-10-01. Phases 1 (the Electron seams) and 2 (the Studio
-RPC) have landed (section 13, "As landed"); nothing after them is. This file replaces
+Status: proposed, 2026-10-01. Phase 1 (the Electron seams) and phase 2 (the
+Studio RPC; section 13, "As landed") are implemented; nothing after them is.
+This file replaces
 the remaining steps of the agent SDK plan on `feat/studio-agent-sdk` (the work
 after the protocol package and the tailnet lane and module service that speak
 it) with the phases in section 13. When code and this file disagree, fix one of
@@ -1089,8 +1090,8 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
   means making `seal`/`open` async through the four stores, or unsealing a
   data key from the keychain once at start and keeping the cipher synchronous.
 - **As landed.** `packages/studio-protocol` (not `conversation-protocol/src/studio`,
-  see 5.4); `src/server/rpc/` (listener, connection, router, an import-graph
-  guard against Electron); `src/main/studio-rpc/` (the backend over the
+  see 5.4); `src/server/rpc/` (listener, connection, router), held by phase 1's
+  boundary guard, which also covers `src/main/studio-rpc/`; `src/main/studio-rpc/` (the backend over the
   tailnet lane's conversation host and the launch service, the paired-app
   store, the service started and stopped with the gateway); Settings → Agents →
   Local apps; `packages/agent-sdk` with `./node`, an in-process adapter over
@@ -1099,7 +1100,13 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
   `<userData>/run/studio.sock` in a 0700 directory (a private temp directory
   when the path is too long; a pipe with a random name on Windows), found
   through `<userData>/run/server.json`. Audit records go into the gateway's one
-  log under the `studio-client` connection kind.
+  log under the `studio-client` connection kind. The service takes its data
+  directory and version from the platform's `StudioPaths` and `AppIdentity`,
+  and tells Settings about pairings on the `ClientBus` (topic
+  `studio-local-apps:changed`, a preload channel name that no protocol stream
+  exposes). It seals nothing, so the synchronous `SecretCipher` does not bind
+  it: a paired app's token is kept only as a hash, and the owner token only in
+  memory. It raises no notification, so no `onActivate` has to cross a socket.
 
 ### Phase 3 — An Electron-free core and the `studio-server` entry (L)
 
