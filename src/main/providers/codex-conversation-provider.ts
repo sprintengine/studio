@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { CONVERSATION_DEFAULT_MODEL_ID } from '../../shared/conversation-harness'
+import { isWslHostId, type ExecutionHostId } from '../../shared/execution-host'
+import { toWslPath, wslToWindowsPath } from '../../shared/host-paths'
 import type {
   ConversationCliRuntimeOverrides,
   ConversationEvent,
@@ -28,6 +30,15 @@ import { CODEX_COMPACT_COMMAND, codexCompactRequest, codexConversationCommands }
 import type { ConversationCommand } from '../../shared/conversation/commands'
 import { codexPlanInput, codexTool, codexToolResult } from './codex-items'
 import type { ThreadItem, TurnPlanUpdatedNotification } from './codex-protocol'
+import {
+  CONVERSATION_IDENTITY_ENV_KEYS,
+  hostMachineName,
+  mcpServersOnWsl,
+  prepareWslCliTarget,
+  wslTargetForHost,
+  type WslCliChild,
+  type WslCliTarget,
+} from './cli-host-child'
 
 export const CODEX_CONVERSATION_PROVIDER_ID = 'codex-agent'
 type RecordValue = Record<string, unknown>
@@ -130,6 +141,9 @@ type Session = {
   // app-server is restarted before the next turn so the thread resumes
   // without it. Set while a turn was running, when it could not be then.
   resetPolicy?: boolean
+  // The distribution the app-server runs in, for a chat on a WSL machine;
+  // null on this one. Known once the app-server has been started.
+  wsl: WslCliTarget | null
 }
 export type CodexConversationProviderOptions = {
   resolveExecutable?: (input: MockAdapterSessionInput) => Promise<string>
@@ -137,6 +151,8 @@ export type CodexConversationProviderOptions = {
   createTransport?: (options: CodexRpcOptions) => CodexRpcTransport
   // Where a picture Codex generated without saving it is written; returns its path.
   saveGeneratedImage?: (input: { sessionId: string; itemId: string; base64: string }) => Promise<string>
+  // Readies a WSL machine for a chat whose `codex` runs there; tests stand in.
+  prepareWslTarget?: (hostId: ExecutionHostId) => Promise<WslCliTarget>
 }
 
 /**
@@ -516,7 +532,10 @@ export function createCodexConversationProvider(
   // Where a generated picture is on disk: where Codex saved it, or where this
   // adapter wrote the bytes Codex sent, so it outlives the process that made it.
   async function generatedImagePath(state: Session, item: RecordValue): Promise<string | null> {
-    if (typeof item.savedPath === 'string' && item.savedPath) return item.savedPath
+    // Codex in WSL names where it saved a picture the Linux way; the chat
+    // opens it from this machine.
+    if (typeof item.savedPath === 'string' && item.savedPath)
+      return state.wsl ? wslToWindowsPath(item.savedPath, { distro: state.wsl.distro }) : item.savedPath
     const base64 = text(item.result).replace(/^data:[^;]+;base64,/, '')
     if (!base64) return null
     try {
@@ -690,9 +709,15 @@ export function createCodexConversationProvider(
     const transport = state.transport
     const cwd = state.input.workspaceRoot ?? ''
     if (!transport || !cwd) return
+    // Codex is asked about the folder as it names it; the menu is keyed by the
+    // folder as this machine does.
+    const codexCwd = hostCwd(cwd, state.wsl)
     try {
-      const listed = await transport.request('skills/list', { cwds: [cwd], ...(forceReload ? { forceReload } : {}) })
-      publishConversationCommands({ cli: 'codex', cwd, commands: codexConversationCommands(listed, cwd) })
+      const listed = await transport.request('skills/list', {
+        cwds: [codexCwd],
+        ...(forceReload ? { forceReload } : {}),
+      })
+      publishConversationCommands({ cli: 'codex', cwd, commands: codexConversationCommands(listed, codexCwd) })
     } catch (error) {
       if (state.transport !== transport) return
       publishConversationCommands({
@@ -707,18 +732,28 @@ export function createCodexConversationProvider(
     if (state.transport) return
     if (state.starting) return state.starting
     state.starting = (async () => {
+      // A chat on a WSL machine runs that machine's `codex`, with the login
+      // and `config.toml` under its Linux home; everything below is the same.
+      const wsl = await wslTargetForHost(
+        state.input.cliRuntimes?.codex?.hostId,
+        options.prepareWslTarget ?? prepareWslCliTarget,
+      )
+      if (state.closed) throw new Error('Codex conversation was closed.')
       const command = await (options.resolveExecutable ?? resolveExecutable)(state.input)
       const env = await (options.buildEnv ?? buildEnv)(state.input)
       if (state.closed) throw new Error('Codex conversation was closed.')
+      state.wsl = wsl
+      const mcpServers = state.input.mcpServers ?? []
       const transport = (options.createTransport ?? createCodexRpcTransport)({
         command,
         cwd: state.input.workspaceRoot ?? '',
         env,
+        wsl: wsl ? codexWslChild(wsl) : null,
         args: [
           ...codexAppServerArgs(env.SPRINTENGINE_CODEX_APP_SERVER_ARGS),
           // The session's own MCP servers, as config overrides on top of the
           // person's own `config.toml`, for this process only.
-          ...codexMcpServerArgs(state.input.mcpServers ?? []),
+          ...codexMcpServerArgs(wsl ? mcpServersOnWsl(mcpServers) : mcpServers),
         ],
         onMessage: (message) => onMessage(state, message),
         onToolFailure: (reason) => toolFailure(state, reason),
@@ -740,7 +775,7 @@ export function createCodexConversationProvider(
           throw new Error('Codex is not logged in. Run codex login in a terminal, then retry.')
         const policy = codexPermissionPolicy(state.input.permissionPreset)
         const threadParams = {
-          cwd: state.input.workspaceRoot,
+          cwd: state.input.workspaceRoot === undefined ? undefined : hostCwd(state.input.workspaceRoot, wsl),
           ...(state.input.modelId !== CONVERSATION_DEFAULT_MODEL_ID ? { model: state.input.modelId } : {}),
           ...(policy.approvalPolicy ? { approvalPolicy: policy.approvalPolicy, sandbox: policy.sandbox } : {}),
         }
@@ -823,6 +858,7 @@ export function createCodexConversationProvider(
         spawnedAt: null,
         children: new Map(),
         failedServers: new Set(),
+        wsl: null,
       }
       sessions.set(input.sessionId, state)
       // The app-server starts with the first turn, and its skills follow. Until
@@ -1085,12 +1121,42 @@ function forgetExecutable(cli: 'codex') {
   void import('../cli-runtime-install').then(({ invalidateCliExecutable }) => invalidateCliExecutable(cli))
 }
 async function resolveExecutable(input: Pick<MockAdapterSessionInput, 'cliRuntimes'>): Promise<string> {
-  if (input.cliRuntimes?.codex?.hostId && input.cliRuntimes.codex.hostId !== 'local')
-    throw new Error('Codex conversation requires a local CLI runtime.')
   const { resolveCliExecutable } = await import('../cli-runtime-install')
-  const { path } = await resolveCliExecutable('codex', input.cliRuntimes?.codex)
-  if (!path) throw new Error('Codex CLI is not installed. Install it or configure its command in Settings.')
-  return path
+  const runtime = input.cliRuntimes?.codex
+  const found = await resolveCliExecutable('codex', runtime)
+  if (!found.path) {
+    if (isWslHostId(runtime?.hostId))
+      throw new Error(
+        `Codex CLI was not found on ${hostMachineName(runtime.hostId)}. Install it in that distribution (or set its command for that machine in Settings) to chat there.` +
+          (found.error ? ` ${found.error}` : ''),
+      )
+    throw new Error('Codex CLI is not installed. Install it or configure its command in Settings.')
+  }
+  return found.path
+}
+
+// The workspace folder as Codex names it: the Linux spelling for an
+// app-server in WSL (`/home/…`, `/mnt/c/…`), this machine's otherwise.
+function hostCwd(cwd: string, wsl: WslCliTarget | null): string {
+  return wsl ? toWslPath(cwd) : cwd
+}
+
+// Auth that would take a chat's Codex off the person's login.
+const CODEX_STRIPPED_AUTH_ENV_KEYS = [
+  'OPENAI_API_KEY',
+  'CODEX_API_KEY',
+  'OPENAI_BASE_URL',
+  'OPENAI_ORG_ID',
+  'OPENAI_PROJECT_ID',
+] as const
+
+/**
+ * What an app-server in WSL is started with of the chat's environment: its
+ * identity, and none of the API auth the profile there may export, for the
+ * reason `codexChildEnv` strips it here.
+ */
+export function codexWslChild(target: WslCliTarget): WslCliChild {
+  return { ...target, forwardEnv: CONVERSATION_IDENTITY_ENV_KEYS, unsetEnv: CODEX_STRIPPED_AUTH_ENV_KEYS }
 }
 async function buildEnv(input: MockAdapterSessionInput): Promise<NodeJS.ProcessEnv> {
   const { getTerminalEnv, applyAgentIdentityEnv } = await import('../terminal-launch')
@@ -1106,15 +1172,7 @@ async function buildEnv(input: MockAdapterSessionInput): Promise<NodeJS.ProcessE
  * of the person's Codex login, and headless chat has no CLI chrome to say so. */
 export function codexChildEnv(env: NodeJS.ProcessEnv, input: Pick<MockAdapterSessionInput, 'sessionId'>) {
   const next = { ...env }
-  for (const key of [
-    'OPENAI_API_KEY',
-    'CODEX_API_KEY',
-    'OPENAI_BASE_URL',
-    'OPENAI_ORG_ID',
-    'OPENAI_PROJECT_ID',
-    'ELECTRON_RUN_AS_NODE',
-  ])
-    delete next[key]
+  for (const key of [...CODEX_STRIPPED_AUTH_ENV_KEYS, 'ELECTRON_RUN_AS_NODE']) delete next[key]
   next.SPRINTENGINE_CONVERSATION_SESSION_ID = input.sessionId
   return next
 }
@@ -1131,8 +1189,10 @@ export async function probeCodexConversationCommands(
     resolveExecutable?: (input: Pick<MockAdapterSessionInput, 'cliRuntimes'>) => Promise<string>
     buildEnv?: () => Promise<NodeJS.ProcessEnv>
     createTransport?: (options: CodexRpcOptions) => CodexRpcTransport
+    prepareWslTarget?: (hostId: ExecutionHostId) => Promise<WslCliTarget>
   } = {},
 ): Promise<ConversationCommand[]> {
+  const wsl = await wslTargetForHost(input.cliRuntimes?.codex?.hostId, options.prepareWslTarget ?? prepareWslCliTarget)
   const command = await (options.resolveExecutable ?? resolveExecutable)(input)
   const env =
     (await options.buildEnv?.()) ??
@@ -1146,15 +1206,17 @@ export async function probeCodexConversationCommands(
     command,
     cwd: input.cwd,
     env,
+    wsl: wsl ? codexWslChild(wsl) : null,
     args: codexAppServerArgs(env.SPRINTENGINE_CODEX_APP_SERVER_ARGS),
     onMessage: () => undefined,
     onClose: () => undefined,
     timeoutMs: 15_000,
   })
+  const codexCwd = hostCwd(input.cwd, wsl)
   try {
     await transport.request('initialize', CODEX_INITIALIZE)
     transport.notify('initialized', {})
-    const commands = codexConversationCommands(await transport.request('skills/list', { cwds: [input.cwd] }), input.cwd)
+    const commands = codexConversationCommands(await transport.request('skills/list', { cwds: [codexCwd] }), codexCwd)
     publishConversationCommands({ cli: 'codex', cwd: input.cwd, commands })
     return commands
   } finally {

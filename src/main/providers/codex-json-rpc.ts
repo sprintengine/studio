@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { StringDecoder } from 'node:string_decoder'
-import { cliSpawnTarget, terminateCliChild } from './cli-child-process'
+import { terminateCliChild } from './cli-child-process'
+import { cliHostSpawn, type WslCliChild } from './cli-host-child'
 
 export type RpcMessage = {
   id?: string | number
@@ -30,6 +31,9 @@ export type CodexRpcOptions = {
   timeoutMs?: number
   spawnChild?: typeof spawn
   platform?: NodeJS.Platform
+  // Set when the app-server runs inside a WSL distribution: `command` is its
+  // Linux path there and `cwd` the folder as this machine names it.
+  wsl?: WslCliChild | null
 }
 
 /** Codex answered the request with an error, as opposed to the request never
@@ -86,17 +90,21 @@ export function codexAppServerArgs(value: string | undefined): string[] {
 
 /** JSONL framing is confined here; protocol events never share stderr or shell parsing. */
 export function createCodexRpcTransport(options: CodexRpcOptions): CodexRpcTransport {
-  const target = cliSpawnTarget(options.command, ['app-server', '--listen', 'stdio://', ...(options.args ?? [])], {
-    platform: options.platform,
-    env: options.env,
-  })
-  const child = (options.spawnChild ?? spawn)(target.file, target.args, {
-    cwd: options.cwd,
-    env: options.env,
-    stdio: ['pipe', 'pipe', 'pipe'],
-    windowsHide: true,
-    ...(target.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
-  }) as ChildProcessWithoutNullStreams
+  const target = cliHostSpawn(
+    {
+      command: options.command,
+      args: ['app-server', '--listen', 'stdio://', ...(options.args ?? [])],
+      cwd: options.cwd,
+      env: options.env,
+      wsl: options.wsl,
+    },
+    { platform: options.platform },
+  )
+  const child = (options.spawnChild ?? spawn)(
+    target.file,
+    target.args,
+    target.options,
+  ) as ChildProcessWithoutNullStreams
   const pending = new Map<
     number,
     { resolve(value: unknown): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }
