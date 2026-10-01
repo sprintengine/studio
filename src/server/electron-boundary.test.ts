@@ -19,10 +19,16 @@ import { test } from 'vitest'
 // lookups, and file search for mentions. The list grows each phase; a file
 // moved into src/server/ is covered by its glob.
 //
+// The core's composition root and the standalone server's entry live under
+// src/server/ (core/studio-core.ts, main.ts), so the glob below covers
+// everything the server bundle loads; scripts/build-server.mjs refuses the
+// same imports when it bundles.
+//
 // What stays Electron-bound on purpose is the shell (windows, menus, dialogs,
 // the browser pane, terminals, auto-update), the IPC registration in
-// src/main/ipc/, the composition root (app-services.ts, until it is split) and
-// the entry, which installs the Electron platform the code below reads.
+// src/main/ipc/, the shell's composition root (app-services.ts, which calls the
+// core's) and the entry, which installs the Electron platform the code below
+// reads.
 
 const ROOT = join(__dirname, '..', '..')
 
@@ -43,6 +49,10 @@ const SERVER_BOUND: readonly string[] = [
   'src/main/conversation-skills.ts',
   'src/main/conversation-sign-in.ts',
   'src/main/conversation-commands/**',
+  'src/main/conversation-terminal-handoff.ts',
+  'src/main/conversation-peek/service.ts',
+  'src/main/companion-agent-service.ts',
+  'src/main/agent-control-plane.ts',
   // Providers and the agent CLIs they run.
   'src/main/providers/**',
   'src/main/model-discovery/service.ts',
@@ -51,6 +61,8 @@ const SERVER_BOUND: readonly string[] = [
   'src/main/agent-launch-service.ts',
   'src/main/terminal-launch.ts',
   'src/main/managed-runtime.ts',
+  'src/main/cli-resume-capabilities.ts',
+  'src/main/power-activity.ts',
   // Checkpoints, the thread index, git for chat.
   'src/main/conversation-checkpoints.ts',
   'src/main/checkpoint-sweep.ts',
@@ -65,6 +77,7 @@ const SERVER_BOUND: readonly string[] = [
   'src/main/automation/gateway-audit.ts',
   'src/main/automation/conversation-tools.ts',
   'src/main/automation/canvas-tools.ts',
+  'src/main/automation/launch-permission-cap.ts',
   'src/main/automation/tailnet/**',
   'src/main/mcp-config-service.ts',
   // The canvas board store and service.
@@ -82,6 +95,10 @@ const SERVER_BOUND: readonly string[] = [
   // Settings and credentials.
   'src/main/launch-settings-store.ts',
   'src/main/workspace-registry-store.ts',
+  'src/main/workspace-registry-service.ts',
+  'src/main/workspace-sync-service.ts',
+  // The machines a launch runs on.
+  'src/main/hosts/host-registry.ts',
   'src/main/secret-store.ts',
   'src/main/github-token-store.ts',
   'src/main/diagnostics-service.ts',
@@ -180,8 +197,8 @@ test('no server-bound file reaches electron, directly or through what it imports
 })
 
 test('the walk does find electron where it is', async () => {
-  // So the guard above cannot pass because the walk saw nothing: the
-  // composition root is still Electron's, by a static import.
+  // So the guard above cannot pass because the walk saw nothing: the shell's
+  // composition root is Electron's, by a static import.
   const inputs = await importGraph(['src/main/app-services.ts'])
   assert.deepEqual(pathToElectron(inputs, 'src/main/app-services.ts')?.at(-1), 'electron (import-statement)')
 })
