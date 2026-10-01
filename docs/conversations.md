@@ -382,7 +382,8 @@ declares:
   made additive for, naming both numbers.
 - **Create requests.** `ConversationCreateRequest`, with `allowedTools` beside
   the preset. This socket does not create conversations through it; the
-  module SDK does, and so will the local socket.
+  module SDK does, and so does the Studio RPC on the owner socket
+  (`@sprintengine/studio-protocol`, `conversation.create`).
 
 The package entry is `public.ts`. The phone carries `index.ts` and the four
 files it re-exports byte for byte under a shared SHA-256 pin

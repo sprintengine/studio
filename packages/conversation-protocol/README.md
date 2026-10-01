@@ -116,6 +116,9 @@ and adds, each behind its capability:
 `ConversationCreateRequest` is what starting a conversation takes, with
 `allowedTools` — tools the chat may use without asking — beside the preset.
 Validate one with `parseConversationCreateRequest`. The tailnet lane does not
-create conversations; the module SDK does, and the desktop's local socket will.
+create conversations; the module SDK does, and so does the Studio RPC on the
+desktop's owner socket, whose protocol (`@sprintengine/studio-protocol`)
+carries this contract and re-exports it. `@sprintengine/agent-sdk` is the
+client for it.
 
 Transcript frames travel directly over the tailnet between paired machines.

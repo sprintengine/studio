@@ -95,6 +95,7 @@ export type {
   CapabilityDiagnostic,
 } from './skills'
 import type { AutomationServerStatus } from './automation'
+import type { StudioLocalAppOfferInput, StudioLocalAppOfferView, StudioLocalAppsStatus } from './studio-local-apps'
 import type {
   TailnetApprovePairRequestView,
   TailnetLiveState,
@@ -660,6 +661,18 @@ export type ElectronApi = {
   workspaceRegistryHydrate: (payload: unknown) => Promise<WorkspaceRegistryHydrateResult>
   onWorkspaceSyncEvent: (cb: (event: WorkspaceSyncEvent) => void) => () => void
   automationGetStatus: () => Promise<AutomationServerStatus>
+  /**
+   * The applications on this machine paired with Studio's owner socket. Like
+   * the tailnet's pairing, reachable from a window only: no socket method can
+   * pair an app or widen one.
+   */
+  studioLocalAppsStatus: () => Promise<StudioLocalAppsStatus>
+  /** Mint a one-time pairing code for an app. The code comes back once and is never re-readable. */
+  studioLocalAppsOffer: (input: StudioLocalAppOfferInput) => Promise<StudioLocalAppOfferView>
+  studioLocalAppsCancelOffer: (id: string) => Promise<StudioLocalAppsStatus>
+  /** Revoke an app: its token stops working and its open connections are closed at once. */
+  studioLocalAppsRevoke: (id: string) => Promise<StudioLocalAppsStatus>
+  onStudioLocalAppsChanged: (cb: (status: StudioLocalAppsStatus) => void) => () => void
   // Tailnet remote control: the opt-in listener that serves the same
   // gateway surface to paired devices on the Tailscale network. Configuration
   // only — it never carries a tool call, and no MCP tool can reach it, so an

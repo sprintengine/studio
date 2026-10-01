@@ -274,6 +274,7 @@ registerAppLifecycle({
   terminalRuntime: services.terminalRuntime,
   conversationRuntime: services.conversationRuntime,
   automationService: services.automationService,
+  studioRpcService: services.studioRpcService,
   agentStateService: services.agentStateService,
   workspaceSyncService: services.workspaceSyncService,
   removeSessionIntegrations: services.removeSessionIntegrations,

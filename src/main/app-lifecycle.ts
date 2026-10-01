@@ -52,6 +52,14 @@ type RegisterAppLifecycleOptions = {
     initialize(): Promise<unknown>
     shutdown(): Promise<void>
   }
+  /**
+   * The Studio RPC's owner socket, for applications paired with this app.
+   * Started beside the gateway and stopped with it; nothing waits on it.
+   */
+  studioRpcService?: {
+    start(): Promise<void>
+    stop(): Promise<void>
+  }
   // Always-on (no setting gate): the reporter socket must be listening before
   // any agent launches so the first lifecycle frame is captured.
   agentStateService?: {
@@ -144,6 +152,7 @@ export function registerAppLifecycle({
   terminalRuntime,
   conversationRuntime,
   automationService,
+  studioRpcService,
   agentStateService,
   workspaceSyncService,
   removeSessionIntegrations,
@@ -272,6 +281,10 @@ export function registerAppLifecycle({
         message: error instanceof Error ? error.message : String(error),
       }).catch(() => undefined)
     })
+    // The owner socket for paired local apps, beside it and not awaited
+    // either. Nothing in the app depends on it; a socket that cannot start
+    // says so in Settings.
+    void studioRpcService?.start().catch(() => undefined)
 
     // The plate goes up BEFORE the main window is created: from here until the
     // reveal there is always something on screen. A nightly build opens on its
@@ -540,6 +553,9 @@ export function registerAppLifecycle({
           hostedFeedPoller?.stop()
         },
       ],
+      // Before the gateway, whose audit it writes to: its clients are told to
+      // come back later, and resume from their cursors.
+      ['local app socket', () => studioRpcService?.stop()],
       ['automations', () => automationService?.shutdown()],
       ['agent state', () => agentStateService?.shutdown()],
       ['workspace registry', () => workspaceSyncService?.flush()],
