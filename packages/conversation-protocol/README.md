@@ -1,5 +1,16 @@
 # Conversation protocol
 
+The conversation contract Studio speaks to everything that follows or drives
+its chats: the tailnet lane below, the module SDK, and the desktop's own chat
+view. Events, commands, frames, capabilities and their validators are declared
+once, here.
+
+Events come in two layers. Each provider adapter reads its CLI's own stream
+and writes `ConversationEvent`s in a vocabulary no provider owns
+(`CONVERSATION_EVENT_TYPES`); the provider's shapes never leave the adapter.
+Everything this package describes is the second, public layer. A client skips
+an event type or payload member it does not know.
+
 The additive `conversations` lane on Studio's tailnet gateway. A socket is
 scoped to one conversation and receives a bounded snapshot before `synchronized`, followed
 by live events. Every mutation has a stable `commandId`; reads have a
@@ -79,5 +90,32 @@ Grants are read live. A device whose grant loses `conversation:operate` keeps
 its socket and has further commands refused with `conversation_operate_required`;
 one that loses `conversation:read` is sent that error and closed with
 `CONVERSATION_SCOPE_CLOSE_CODE`, and a revoked device is closed with 4401.
+
+A desktop that advertises `conversation-hello` (`CONVERSATION_HELLO_CAPABILITY`)
+answers a `hello` frame — `{ type: 'hello', requestId, protocolVersion? }` —
+with a `result` whose `data` is its `protocolVersion`, `minProtocolVersion` and
+conversation `capabilities` (`parseConversationHelloAnswer`). One without it
+answers `invalid_frame` under the same `requestId`: read that as protocol 1 with
+the capabilities the transport's own handshake listed. Ask capabilities, not
+the version, whether a feature is there; `checkConversationProtocolVersion`
+refuses a peer outside the window and names both numbers.
+
+The full contract reads frames with `parseConversationClientMessage`, which
+takes every first-version frame exactly as `parseConversationClientFrame` does
+and adds, each behind its capability:
+
+- `conversation-plans`: `resolvePlan` with `decision: 'approve' | 'reject'`
+  answers a `plan` request, and only a plan request. A desktop without it took
+  a plan as a `resolveApproval` (`once` or `deny`), and still does.
+- `conversation-cli-permission-modes`: `setPermissionPreset` takes the CLI's own
+  `permissionMode` at that preset (Claude Code's Accept edits), and a listed
+  thread names its `permissionMode` and the modes its provider runs
+  (`capabilities.permissionModes`). A desktop without it drops the member and
+  runs the preset's own mode, which is the fallback the field is shaped for.
+
+`ConversationCreateRequest` is what starting a conversation takes, with
+`allowedTools` — tools the chat may use without asking — beside the preset.
+Validate one with `parseConversationCreateRequest`. The tailnet lane does not
+create conversations; the module SDK and the desktop's local socket do.
 
 Transcript frames travel directly over the tailnet between paired machines.

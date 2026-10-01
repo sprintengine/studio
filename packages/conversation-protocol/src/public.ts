@@ -9,3 +9,6 @@
 export * from './index.js'
 export * from './serverFrames.js'
 export * from './events.js'
+export * from './commands.js'
+export * from './handshake.js'
+export * from './clientFrames.js'

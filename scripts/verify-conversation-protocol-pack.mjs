@@ -66,14 +66,31 @@ try {
       loaded.parseConversationServerFrame({ type: 'synchronized', seq: 4, generation: 'log-1' }).generation,
       'log-1',
     )
+    // The full contract's commands and handshake.
+    assert.equal(loaded.CONVERSATION_PROTOCOL_VERSION, 1)
+    assert.equal(loaded.parseConversationClientMessage({ type: 'hello', requestId: 'h-1' }).type, 'hello')
+    assert.equal(
+      loaded.parseConversationClientMessage({
+        type: 'command',
+        commandId: 'c-2',
+        command: { kind: 'resolvePlan', requestId: 'r-1', decision: 'approve' },
+      }).command.decision,
+      'approve',
+    )
+    assert.deepEqual(loaded.parseConversationCreateRequest({ workspaceId: 'w', allowedTools: ['Write'] }).request, {
+      workspaceId: 'w',
+      allowedTools: ['Write'],
+    })
   }
-  const consumer = `import { presentToolItem, parseConversationClientFrame, parseConversationWireModels, isConversationEventType, type ConversationClientFrame, type ConversationEvent, type ConversationStreamFrame, type ConversationToolKind, type ConversationWireModels } from '@sprintengine/conversation-protocol'
+  const consumer = `import { presentToolItem, parseConversationClientFrame, parseConversationWireModels, isConversationEventType, parseConversationClientMessage, type ConversationClientFrame, type ConversationClientMessage, type ConversationCreateRequest, type ConversationEvent, type ConversationStreamFrame, type ConversationToolKind, type ConversationWireModels } from '@sprintengine/conversation-protocol'
 const kind: ConversationToolKind = 'file_read'
 const frame: ConversationClientFrame | null = parseConversationClientFrame({ type: 'list', requestId: 'list-1' })
 const models: ConversationWireModels | null = parseConversationWireModels(null)
 const event: ConversationEvent = { id: 'e', seq: 1, sessionId: 's', workspaceId: 'w', agentId: 'a', providerId: 'p', modelId: 'm', type: 'turn_started', createdAt: 0 }
 const streamed: ConversationStreamFrame = { type: 'event', event }
-console.log(presentToolItem({ name: 'Read', kind }), frame, models, streamed, isConversationEventType(event.type))
+const message: ConversationClientMessage | null = parseConversationClientMessage({ type: 'hello', requestId: 'h-1' })
+const create: ConversationCreateRequest = { workspaceId: 'w', allowedTools: ['Write'] }
+console.log(presentToolItem({ name: 'Read', kind }), frame, models, streamed, isConversationEventType(event.type), message, create)
 `
   for (const extension of ['cts', 'mts']) writeFileSync(join(fixture, `consumer.${extension}`), consumer)
   writeFileSync(
