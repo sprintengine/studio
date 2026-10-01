@@ -484,9 +484,7 @@ export function registerAppLifecycle({
       setBadgeCount: (count) => app.setBadgeCount(count),
     })
     terminalRuntime.registerAgentPhaseListener?.((event) => agentAttention.onAgentPhase(event))
-    const disposeConversationAttention = conversations?.onEvent?.(
-      createConversationAttentionListener(agentAttention),
-    )
+    const disposeConversationAttention = conversations?.onEvent?.(createConversationAttentionListener(agentAttention))
     if (disposeConversationAttention) app.once('will-quit', disposeConversationAttention)
     onAgentAttentionReady?.(agentAttention)
     app.on('browser-window-focus', (_event, win) => {
