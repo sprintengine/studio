@@ -593,6 +593,24 @@ test("ACP launches each preset through the CLI's own switch, and Cursor offers n
   expect(acpLaunchArgv(grok, 'manual')).toEqual(['--permission-mode', 'default', 'agent', '--no-leader', 'stdio'])
   expect(acpLaunchArgv(grok, 'auto')).toEqual(['--permission-mode', 'auto', 'agent', '--no-leader', 'stdio'])
   expect(acpLaunchArgv(grok, 'bypass')).toEqual(['agent', '--always-approve', '--no-leader', 'stdio'])
+  // Grok's own modes, each only at the preset it sits at.
+  expect(acpLaunchArgv(grok, 'auto', 'acceptEdits')).toEqual([
+    '--permission-mode',
+    'acceptEdits',
+    'agent',
+    '--no-leader',
+    'stdio',
+  ])
+  expect(acpLaunchArgv(grok, 'manual', 'dontAsk')).toEqual([
+    '--permission-mode',
+    'dontAsk',
+    'agent',
+    '--no-leader',
+    'stdio',
+  ])
+  expect(acpLaunchArgv(grok, 'bypass', 'acceptEdits')).toEqual(['agent', '--always-approve', '--no-leader', 'stdio'])
+  expect(createAcpConversationProvider(grok).capabilities?.permissionModes).toEqual(['acceptEdits', 'dontAsk'])
+  expect(createAcpConversationProvider(cursor).capabilities?.permissionModes).toEqual([])
   // `opencode acp` takes no permission flag; every preset travels in its environment.
   for (const preset of ['none', 'manual', 'auto', 'bypass'] as const)
     expect(acpLaunchArgv(opencode, preset)).toEqual(['acp'])

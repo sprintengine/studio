@@ -126,6 +126,7 @@ export type ConversationTerminalHandoffTarget = {
   /** The CLI's own session id: Claude's session, Codex's thread. */
   providerSessionId: string
   permissionPreset?: ConversationPermissionPreset
+  permissionMode?: string
   cliRuntimes?: ConversationCliRuntimeOverrides
 }
 
@@ -481,8 +482,14 @@ export class ConversationRuntime {
           ? await this.setModel({ sessionId: existing.sessionId, modelId })
           : { ok: true }
       const preset =
-        model.ok && input.permissionPreset !== undefined && input.permissionPreset !== existing.permissionPreset
-          ? await this.setPermission({ sessionId: existing.sessionId, permissionPreset: input.permissionPreset })
+        model.ok &&
+        input.permissionPreset !== undefined &&
+        (input.permissionPreset !== existing.permissionPreset || input.permissionMode !== existing.permissionMode)
+          ? await this.setPermission({
+              sessionId: existing.sessionId,
+              permissionPreset: input.permissionPreset,
+              ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
+            })
           : model
       if (preset.ok && existing.status !== 'stopped') return { ok: true, session: this.toSummary(existing) }
     }
@@ -569,6 +576,7 @@ export class ConversationRuntime {
       unpublishedApprovals: new Set(),
       cliRuntimes: input.cliRuntimes,
       permissionPreset: input.permissionPreset,
+      ...(input.permissionPreset && input.permissionMode ? { permissionMode: input.permissionMode } : {}),
       allowedTools: input.allowedTools,
       ...(input.mcpServers?.length ? { mcpServers: input.mcpServers } : {}),
       toolDetailPaths: new Set(),
@@ -625,13 +633,16 @@ export class ConversationRuntime {
         await start()
       } catch (error) {
         const preset = session.permissionPreset
+        const mode = session.permissionMode
         if (!preset || preset === 'none' || this.sessions.get(sessionId) !== session) throw error
         validation.adapter.disposeChildProcess?.(sessionId)
         session.permissionPreset = 'none'
+        delete session.permissionMode
         try {
           await start()
         } catch {
           session.permissionPreset = preset
+          if (mode) session.permissionMode = mode
           throw error
         }
         fellBack = permissionFallbackNotice(
@@ -901,6 +912,7 @@ export class ConversationRuntime {
     input: MockAdapterTurnInput,
   ): AsyncIterable<ConversationEvent> {
     const preset = session.permissionPreset
+    const mode = session.permissionMode
     const first = eventIterator(await adapter.sendTurn(input))
     if (!preset || preset === 'none' || !adapter.setPermissionPreset) {
       for (let next = await first.next(); !next.done; next = await first.next()) yield next.value
@@ -921,13 +933,14 @@ export class ConversationRuntime {
     if (!failure) return
     await first.return?.()
     const noFlag = await adapter
-      .setPermissionPreset({ ...session, permissionPreset: 'none' })
+      .setPermissionPreset({ ...session, permissionPreset: 'none', permissionMode: undefined })
       .catch((): { ok: false } => ({ ok: false }))
     if (!noFlag.ok) {
       yield failure
       return
     }
     session.permissionPreset = 'none'
+    delete session.permissionMode
     const notice = () =>
       this.eventForSession(session, 'session_updated', {
         permissionPreset: 'none',
@@ -939,8 +952,11 @@ export class ConversationRuntime {
       const event = next.value
       if (!retried && event.type === 'turn_failed') {
         await retry.return?.()
-        await adapter.setPermissionPreset({ ...session, permissionPreset: preset }).catch(() => undefined)
+        await adapter
+          .setPermissionPreset({ ...session, permissionPreset: preset, permissionMode: mode })
+          .catch(() => undefined)
         session.permissionPreset = preset
+        if (mode) session.permissionMode = mode
         yield failure
         return
       }
@@ -1276,9 +1292,15 @@ export class ConversationRuntime {
     if (!adapter.setPermissionPreset) {
       return { ok: false, message: 'This conversation provider cannot change tool permissions mid-conversation.' }
     }
-    const applied = await adapter.setPermissionPreset({ ...session, permissionPreset: input.permissionPreset })
+    const applied = await adapter.setPermissionPreset({
+      ...session,
+      permissionPreset: input.permissionPreset,
+      permissionMode: input.permissionMode,
+    })
     if (!applied.ok) return { ok: false, message: applied.message }
     session.permissionPreset = input.permissionPreset
+    if (input.permissionMode) session.permissionMode = input.permissionMode
+    else delete session.permissionMode
     session.updatedAt = this.now()
     this.answerWaitingApprovalsByMode(session)
     return { ok: true, session: this.toSummary(session), ...(applied.notice ? { notice: applied.notice } : {}) }
@@ -1525,6 +1547,7 @@ export class ConversationRuntime {
         workspaceRoot: session.workspaceRoot,
         providerSessionId: cursor.sessionId,
         ...(session.permissionPreset ? { permissionPreset: session.permissionPreset } : {}),
+        ...(session.permissionPreset && session.permissionMode ? { permissionMode: session.permissionMode } : {}),
         ...(session.cliRuntimes ? { cliRuntimes: session.cliRuntimes } : {}),
       },
     }
@@ -3328,6 +3351,7 @@ export class ConversationRuntime {
       // Only when the session carries one, so a session that never chose a
       // preset reports absence rather than an invented 'default'.
       ...(permissionPreset ? { permissionPreset } : {}),
+      ...(permissionPreset && session.permissionMode ? { permissionMode: session.permissionMode } : {}),
     }
   }
 }

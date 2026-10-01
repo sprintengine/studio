@@ -13,7 +13,7 @@ import {
   resolveCliRuntimeSettings,
 } from './agent-launch-render'
 import { createPluginRegistry } from './plugin-registry'
-import { declaredPermissionPresets, resolvePermissionArgs } from './plugin-render'
+import { declaredPermissionPresets, permissionRenderKey, resolvePermissionArgs } from './plugin-render'
 import { buildCodexLegacyNativeAgentLaunchPowerShellScript } from './terminal-launch'
 import { __resetPluginRegistryForTest, __setPluginRegistryForTest, getPluginById } from './plugin-registry-instance'
 import { test } from 'vitest'
@@ -618,6 +618,29 @@ test('agent-launch-render', async () => {
       cliPermissionPreset: 'none',
     })
     assert.deepEqual(none.argv, ['claude', '--session-id', 'sid_n', 'go'])
+
+    // Each CLI's other modes render their own flags at the preset they sit at.
+    // A mode at another preset, or one the CLI does not have, renders the
+    // preset's own: never nothing, never a flag the CLI lacks.
+    const ownModes: Array<[string, CliPermissionPreset, string, string[]]> = [
+      ['claude-code', 'auto', 'acceptEdits', ['--permission-mode', 'acceptEdits']],
+      ['claude-code', 'manual', 'dontAsk', ['--permission-mode', 'dontAsk']],
+      ['claude-code', 'bypass', 'acceptEdits', ['--permission-mode', 'bypassPermissions']],
+      ['claude-code', 'auto', 'workspace', ['--permission-mode', 'auto']],
+      ['codex', 'auto', 'workspace', ['--ask-for-approval', 'on-request', '--sandbox', 'workspace-write']],
+      ['grok', 'auto', 'acceptEdits', ['--permission-mode', 'acceptEdits']],
+      ['grok', 'manual', 'dontAsk', ['--permission-mode', 'dontAsk']],
+      ['zai', 'manual', 'dontAsk', ['--permission-mode', 'dontAsk']],
+      ['cursor', 'auto', 'acceptEdits', ['--auto-review']],
+    ]
+    for (const [cli, preset, mode, args] of ownModes) {
+      const manifest = getPluginById(cli)!.manifest
+      assert.deepEqual(
+        resolvePermissionArgs(manifest, permissionRenderKey(manifest, preset, mode)),
+        args,
+        `${cli}: ${mode} at ${preset}`,
+      )
+    }
   }
 
   function testCodexRenderResume(): void {

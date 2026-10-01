@@ -36,7 +36,11 @@ import { randomUUID } from 'crypto'
 
 import { pickRandomAgentName } from '../shared/agent-names'
 import { defaultAgent, type AgentState } from '../shared/agent-state'
-import { CONVERSATION_DEFAULT_MODEL_ID, conversationProviderForCli } from '../shared/conversation-harness'
+import {
+  CONVERSATION_DEFAULT_MODEL_ID,
+  conversationPermissionModes,
+  conversationProviderForCli,
+} from '../shared/conversation-harness'
 import type {
   ConversationCliRuntimeOverrides,
   ConversationImageAttachment,
@@ -48,6 +52,7 @@ import type {
 } from '../shared/conversation-runtime'
 import type { EnsureSkillInstalledResult } from '../shared/modules/skills'
 import type { CliPermissionPreset } from '../shared/cli-permission-preset'
+import { parseCliPermissionModeId } from '../shared/cli-permission-mode'
 import type { ExecutionHostId } from '../shared/execution-host'
 import { resolveConnectorLaunchFrom } from '../shared/connector-launch'
 import { conversationCliRuntimesForHost } from '../shared/conversation-cli-runtimes'
@@ -58,7 +63,7 @@ import type { WorkspaceWorktree } from '../renderer/src/types/workspace'
 import type { WorkspaceCreateRequest } from './workspace-registry-service'
 import {
   effectiveAgentLaunchSettings,
-  resolveAgentSpawnPermissionPreset,
+  resolveAgentSpawnPermission,
   type AgentLaunchSettings,
 } from '../shared/launch-settings'
 
@@ -98,6 +103,8 @@ export type ConversationLaunchRequest = {
   cliModel?: string
   /** Absent, the preset chosen for that CLI here, else the app default — as the launcher would. */
   permissionPreset?: CliPermissionPreset
+  /** The CLI's own mode at `permissionPreset`, read only beside it. */
+  permissionMode?: string
   /** The chat's first message. */
   prompt?: string
   name?: string
@@ -260,7 +267,12 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
       mcpServers.push(...Object.values(connector.resolved.mcpSettings.servers).map(conversationMcpServer))
     }
     const modelId = request.cliModel?.trim() || CONVERSATION_DEFAULT_MODEL_ID
-    const permissionPreset = resolveAgentSpawnPermissionPreset(settings, cli, request.permissionPreset)
+    const permission = resolveAgentSpawnPermission(settings, cli, request.permissionPreset)
+    const permissionPreset = permission.preset
+    // A mode of the CLI's own only where its chat runs it; elsewhere the
+    // preset's own mode.
+    const ownMode = request.permissionPreset ? parseCliPermissionModeId(request.permissionMode) : permission.mode
+    const permissionMode = ownMode && conversationPermissionModes(cli).includes(ownMode) ? ownMode : undefined
     // The run worktree when there is one: the session starts there, so the
     // agent's edits, its transcript and the skills below all stay inside it.
     const worktreePath = request.worktreePath?.trim() || undefined
@@ -310,6 +322,7 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
       runtimeKind: 'conversation',
       conversation: { providerId, modelId },
       cliPermissionPreset: permissionPreset,
+      ...(permissionMode ? { cliPermissionMode: permissionMode } : {}),
       // Where a window's chat view finds the session: a worktree chat is keyed
       // by the worktree, not the workspace folder (`conversationWorkingRoot`).
       ...(worktreePath ? { execution: { mode: 'worktree' as const, worktreeId: null, cwd: worktreePath } } : {}),
@@ -373,6 +386,7 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
           ? { cliRuntimes: cliRuntimes as ConversationCliRuntimeOverrides }
           : {}),
         permissionPreset,
+        ...(permissionMode ? { permissionMode } : {}),
         ...(mcpServers.length > 0 ? { mcpServers } : {}),
       })
       .catch((error: unknown): ConversationStartSessionResult => ({

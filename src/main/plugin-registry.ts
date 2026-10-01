@@ -18,7 +18,7 @@ import type {
 
 import { classifySignedManifestTrust, type ModuleTrustContext } from './modules/module-signature'
 import { validateManifestStructure } from './plugin-manifest-validate'
-import { declaredPermissionPresets } from './plugin-render'
+import { declaredPermissionModes, declaredPermissionPresets } from './plugin-render'
 
 export type PluginRegistryOptions = {
   bundledRoot: string
@@ -548,6 +548,7 @@ function manifestToListEntry(plugin: LoadedPlugin): PluginRegistryListEntry {
     // every picker gates on the manifest without reaching the main process.
     agentStateCapable: Boolean(plugin.manifest.agentStateSpec),
     permissionPresets: declaredPermissionPresets(plugin.manifest),
+    permissionModes: declaredPermissionModes(plugin.manifest),
     // Only the label crosses to the renderer; the secret value never does.
     ...(auth ? { auth: { label: auth.label } } : {}),
     ...(hostedVia ? { hostedVia } : {}),

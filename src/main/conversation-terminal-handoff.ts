@@ -113,6 +113,9 @@ export function terminalLaunchRequest(
     ...(chatName?.trim() ? { name: `${chatName.trim()} (terminal)` } : {}),
     ...(host ? { host } : {}),
     ...(preset ? { permissionPreset: preset } : {}),
+    // The CLI's own mode goes with its preset; the terminal runs the preset's
+    // own where its manifest does not have it.
+    ...(preset && target.permissionMode ? { permissionMode: target.permissionMode } : {}),
     ...(model ? { cliModel: model } : {}),
   }
 }

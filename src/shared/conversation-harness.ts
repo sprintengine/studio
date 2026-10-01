@@ -32,6 +32,23 @@ const CONVERSATION_PERMISSION_PRESET_REFUSALS: Readonly<
   cursor: { manual: 'Cursor edits files without asking, so it cannot ask before every change.' },
 }
 
+// The CLI's own permission modes a chat runs beside each preset's own, by the
+// id the CLI's manifest keys the mode under, which is where its name, its line
+// and its level come from. A chat sets each through its runtime's own channel
+// (an SDK mode, an approval policy, a launch flag), so a mode is listed here
+// only where its provider maps it; the launcher and the chat box offer a chat
+// no other mode of the CLI's own.
+const CONVERSATION_PERMISSION_MODES: Readonly<Record<string, readonly string[]>> = {
+  'claude-code': ['acceptEdits', 'dontAsk'],
+  codex: ['workspace'],
+  grok: ['acceptEdits', 'dontAsk'],
+}
+
+/** The CLI's own modes its chat can run beside the presets' own. */
+export function conversationPermissionModes(cli: string | null | undefined): readonly string[] {
+  return (cli && CONVERSATION_PERMISSION_MODES[cli]) || []
+}
+
 /** The presets a CLI's chat cannot run, each with the reason; empty when it runs every one. */
 export function conversationPermissionPresetRefusals(
   cli: string | null | undefined,

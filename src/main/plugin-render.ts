@@ -4,6 +4,11 @@ import {
   parseCliPermissionPreset,
   type CliPermissionPreset,
 } from '../shared/cli-permission-preset'
+import {
+  parseCliPermissionModeId,
+  type CliPermissionModeSpec,
+  type CliPermissionSetting,
+} from '../shared/cli-permission-mode'
 import type {
   PluginArgvToken,
   PluginManifest,
@@ -133,25 +138,56 @@ function contextEnvSpec(manifest: PluginManifest, context: PluginRenderContext):
 }
 
 // `none` passes no permission flag and lets the CLI's own configuration
-// decide, which every CLI can express, so no manifest declares it. Every other
-// preset is what the manifest names for it, under its own key or the one it
-// had before the rename (`default`, `auto_workspace`, `bypass_all`). One the
-// manifest does not name renders no flag: passing a flag the CLI does not know
-// is fatal to it, and inventing one is worse. The launcher offers a terminal
-// agent only the presets its manifest names (`declaredPermissionPresets`).
+// decide, which every CLI can express, so a manifest keys it, if at all, only
+// for its label. Every other preset is what the manifest names for it, under
+// its own key or the one it had before the rename (`default`,
+// `auto_workspace`, `bypass_all`). One the manifest does not name renders no
+// flag: passing a flag the CLI does not know is fatal to it, and inventing one
+// is worse. The launcher offers a terminal agent only the presets its manifest
+// names (`declaredPermissionPresets`).
 const LEGACY_PRESET_KEYS: Record<Exclude<CliPermissionPreset, 'none'>, string> = {
   manual: 'default',
   auto: 'auto_workspace',
   bypass: 'bypass_all',
 }
 
+// What a launch renders for `requested`, which is a preset or one of the CLI's
+// own mode ids (`permissionRenderKey`). A mode the manifest does not hold, or
+// holds without a level, falls back to nothing rather than to a guess: the
+// caller resolves a mode id beside its preset, and passes the preset when the
+// mode is not one this CLI has.
 function resolvePermissionPreset(
   manifest: PluginManifest,
   requested: string | undefined,
 ): PluginPermissionPreset | undefined {
+  const own = parseCliPermissionModeId(requested)
+  if (own) {
+    const entry = Object.hasOwn(manifest.permissionPresets, own) ? manifest.permissionPresets[own] : undefined
+    return entry && ownModeLevel(entry) ? entry : undefined
+  }
   const preset = parseCliPermissionPreset(requested)
   if (!preset || preset === 'none') return undefined
   return manifest.permissionPresets[preset] ?? manifest.permissionPresets[LEGACY_PRESET_KEYS[preset]]
+}
+
+function ownModeLevel(entry: PluginPermissionPreset): CliPermissionPreset | null {
+  return entry.level === 'manual' || entry.level === 'auto' || entry.level === 'bypass' ? entry.level : null
+}
+
+/**
+ * What a launch at `preset` renders from when the CLI's own `mode` was chosen
+ * beside it: the mode, when this manifest holds it at that level, else the
+ * preset's own mode. A mode another CLI has, or one this CLI no longer
+ * declares, never renders as nothing.
+ */
+export function permissionRenderKey(
+  manifest: PluginManifest | undefined,
+  preset: CliPermissionPreset,
+  mode: string | undefined,
+): CliPermissionSetting {
+  const own = parseCliPermissionModeId(mode)
+  if (!own || !manifest || !Object.hasOwn(manifest.permissionPresets, own)) return preset
+  return ownModeLevel(manifest.permissionPresets[own]!) === preset ? own : preset
 }
 
 /** The presets a launch of this CLI is told in its own words: `none`, and each one the manifest names. */
@@ -159,6 +195,39 @@ export function declaredPermissionPresets(manifest: PluginManifest): CliPermissi
   return CLI_PERMISSION_PRESETS.filter(
     (preset) => preset === 'none' || resolvePermissionPreset(manifest, preset) !== undefined,
   )
+}
+
+/**
+ * The CLI's permission modes under its own names, in the manifest's order: the
+ * mode each named preset stands for, keyed by that preset, and each mode of
+ * its own at the level it names. `none` is where the manifest keys it, else
+ * last, labelled as passing no flag.
+ */
+export function declaredPermissionModes(manifest: PluginManifest): CliPermissionModeSpec[] {
+  const modes: CliPermissionModeSpec[] = []
+  const describe = (entry: PluginPermissionPreset | undefined) => ({
+    ...(entry?.summary ? { summary: entry.summary } : {}),
+    ...(entry?.description ? { description: entry.description } : {}),
+  })
+  for (const [key, entry] of Object.entries(manifest.permissionPresets)) {
+    if (key === 'none') {
+      modes.push({ id: 'none', label: entry.label, level: 'none', ...describe(entry) })
+      continue
+    }
+    const preset = parseCliPermissionPreset(key)
+    if (preset) {
+      // The entry a launch renders for the preset, so a manifest keying both a
+      // preset and its retired spelling lists the one it runs.
+      const effective = resolvePermissionPreset(manifest, preset)
+      if (effective && !modes.some((mode) => mode.id === preset))
+        modes.push({ id: preset, label: effective.label, level: preset, ...describe(effective) })
+      continue
+    }
+    const level = ownModeLevel(entry)
+    if (level && parseCliPermissionModeId(key)) modes.push({ id: key, label: entry.label, level, ...describe(entry) })
+  }
+  if (!modes.some((mode) => mode.id === 'none')) modes.push({ id: 'none', label: 'No flag', level: 'none' })
+  return modes
 }
 
 /**

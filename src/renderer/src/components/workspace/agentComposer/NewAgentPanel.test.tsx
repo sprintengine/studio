@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
+import { bundledPermissionModes } from '../../../../../../tests/permission-modes'
 import { test } from 'vitest'
 
 test('NewAgentPanel', async () => {
@@ -852,6 +853,7 @@ test('NewAgentPanel', async () => {
               installTargets: [],
               invocation: { explicitTemplate: '/{{skillId}}', nativeSlashCommand: true, mentionPrefix: '/' },
             },
+            permissionModes: bundledPermissionModes('claude-code'),
           },
           {
             id: 'codex',
@@ -861,6 +863,7 @@ test('NewAgentPanel', async () => {
             binary: 'codex',
             resumeSession: true,
             sessionIdFromCaller: true,
+            permissionModes: bundledPermissionModes('codex'),
             modelSelection: {
               options: [
                 { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
@@ -1857,7 +1860,7 @@ test('NewAgentPanel', async () => {
           'every preset is open on a remote machine',
         )
         const checked = rows.find((row) => row.getAttribute('aria-checked') === 'true')!
-        assert.equal(checked, rows[0], 'Bypass is the checked row')
+        assert.equal(checked, rows[2], 'Bypass is the checked row')
         await act(async () => {
           dom.window.document.dispatchEvent(
             new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
@@ -2510,10 +2513,10 @@ test('NewAgentPanel', async () => {
       const view = await render({ permissionPreset: 'none' })
       const menu = await openPermissionsMenu(view, 'No flag')
       const rows = [...menu.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]')]
-      assert.equal(rows.length, 4, 'four presets: Bypass, Auto, Manual and No flag')
-      assert.ok(rows[0]?.textContent?.startsWith('Bypass permissions'), 'Bypass, the default, leads')
+      assert.equal(rows.length, 4, 'four presets: Manual, Auto, Bypass and No flag')
+      assert.ok(rows[0]?.textContent?.startsWith('Manual'), 'the strictest leads')
       assert.ok(rows[1]?.textContent?.startsWith('Auto'), 'Auto follows')
-      assert.ok(rows[2]?.textContent?.startsWith('Manual'), 'then Manual')
+      assert.ok(rows[2]?.textContent?.startsWith('Bypass permissions'), 'then Bypass')
       assert.ok(rows[3]?.textContent?.startsWith('No flag'), 'and the no-flag row closes the list')
       assert.equal(dom.window.document.activeElement, rows[3], 'focus opens on the checked row')
       const key = (el: Element, k: string) =>
@@ -2528,7 +2531,7 @@ test('NewAgentPanel', async () => {
       await key(rows[0]!, 'Enter')
       assert.equal(
         storedCliPermissionPreset('claude-code'),
-        'bypass',
+        'manual',
         'Enter selects the focused row, and the pick is remembered for the CLI it was made on',
       )
       view.unmount()

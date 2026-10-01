@@ -64,7 +64,7 @@ export function launchPermissionCeiling(
  * would not have been what it asked for. An omitted preset is left to the
  * launch service, as before, when nothing could exceed the ceiling; otherwise
  * it is pinned to the ceiling, since the service's own default (the person's
- * choice for the CLI, else `bypass`) could be looser than the caller.
+ * choice for the CLI, else `auto`) could be looser than the caller.
  */
 export function capLaunchPermissionPreset(
   requested: CliPermissionPreset | undefined,
@@ -130,8 +130,8 @@ function escalation(requested: CliPermissionPreset, ceiling: CliPermissionPreset
  * live terminal that main launched, whose launch record is the preset rendered
  * into its command line. Last the agent's record in the workspace, which is
  * what a window spawned its terminal agent with — read as the window reads it,
- * so an old record with no preset is the `bypass` it was launched on. When one
- * id matches more than one session, the strictest wins.
+ * so an old record with no preset is `auto`, the default it would start on
+ * now. When one id matches more than one session, the strictest wins.
  */
 export function createAgentPermissionResolver(deps: {
   listConversationSessions(agentId: string): ReadonlyArray<{

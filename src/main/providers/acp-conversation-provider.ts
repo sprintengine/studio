@@ -66,6 +66,10 @@ export type AcpProfile = {
   // one the CLI cannot be held to; `unsupported` says why, and it is refused
   // rather than run as something else.
   presets?: Partial<Record<EnforcedPreset, AcpPresetLaunch>>
+  // The CLI's other modes, by the id its manifest keys them under, each at the
+  // preset it sits at (conversationPermissionModes). Told the same way, and
+  // run only at that preset.
+  ownModes?: Record<string, AcpPresetLaunch & { level: EnforcedPreset }>
   unsupported?: Partial<Record<EnforcedPreset, string>>
   // Commands the CLI accepts in the prompt that switch its own permission mode,
   // with the least permissive preset that already allows what they switch to.
@@ -160,6 +164,10 @@ export const ACP_PROFILES: AcpProfile[] = [
       auto: { argv: ['--permission-mode', 'auto', 'agent', '--no-leader', 'stdio'] },
       bypass: { argv: ['agent', '--always-approve', '--no-leader', 'stdio'] },
     },
+    ownModes: {
+      acceptEdits: { level: 'auto', argv: ['--permission-mode', 'acceptEdits', 'agent', '--no-leader', 'stdio'] },
+      dontAsk: { level: 'manual', argv: ['--permission-mode', 'dontAsk', 'agent', '--no-leader', 'stdio'] },
+    },
     // Grok's `/auto` hands its approvals to the classifier Auto already starts
     // it in, so only a stricter mode refuses it; `/always-approve` is bypass.
     permissionCommands: { '/always-approve': 'bypass', '/auto': 'auto' },
@@ -174,17 +182,34 @@ const supportedPresets = (profile: AcpProfile): ConversationPermissionPreset[] =
   ...(Object.keys(profile.presets ?? {}) as EnforcedPreset[]),
 ]
 
-/** The argv a conversation's child is launched with under a permission preset. */
-export function acpLaunchArgv(profile: AcpProfile, preset: ConversationPermissionPreset = 'none'): string[] {
-  return (preset !== 'none' && profile.presets?.[preset]?.argv) || profile.argv
+// How the CLI is told a preset, or the mode of its own chosen at it: the mode
+// when the profile has it at that preset, else the preset's own.
+function presetLaunch(
+  profile: AcpProfile,
+  preset: ConversationPermissionPreset,
+  mode: string | undefined,
+): AcpPresetLaunch | undefined {
+  if (preset === 'none') return undefined
+  const own = mode && profile.ownModes && Object.hasOwn(profile.ownModes, mode) ? profile.ownModes[mode] : undefined
+  return own && own.level === preset ? own : profile.presets?.[preset]
+}
+
+/** The argv a conversation's child is launched with under a permission preset (and the CLI's own mode at it). */
+export function acpLaunchArgv(
+  profile: AcpProfile,
+  preset: ConversationPermissionPreset = 'none',
+  mode?: string,
+): string[] {
+  return presetLaunch(profile, preset, mode)?.argv || profile.argv
 }
 
 /** What a conversation's child gets on top of its environment under a permission preset. */
 export function acpLaunchEnv(
   profile: AcpProfile,
   preset: ConversationPermissionPreset = 'none',
+  mode?: string,
 ): Record<string, string> {
-  return (preset !== 'none' && profile.presets?.[preset]?.env) || {}
+  return presetLaunch(profile, preset, mode)?.env || {}
 }
 
 /** Why a CLI cannot run a preset, or null when it can. */
@@ -209,6 +234,7 @@ function permissionCommandRefusal(
 
 const baseCapabilities = (profile: AcpProfile): ConversationCapabilities => ({
   permissionPresets: supportedPresets(profile),
+  permissionModes: Object.keys(profile.ownModes ?? {}),
   tools: true,
   approvals: true,
   questions: false,
@@ -389,8 +415,9 @@ export function acpWslChild(
   target: WslCliTarget,
   profile: AcpProfile,
   preset: ConversationPermissionPreset = 'none',
+  mode?: string,
 ): WslCliChild {
-  return { ...target, forwardEnv: Object.keys(acpLaunchEnv(profile, preset)) }
+  return { ...target, forwardEnv: Object.keys(acpLaunchEnv(profile, preset, mode)) }
 }
 
 /**
@@ -672,16 +699,16 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
       if (state.closed) throw new Error('Conversation was stopped during startup.')
       const command = await (options.detect ?? ((input) => detectAcpCommand(profile, input.cliRuntimes)))(state.input)
       const env = await environment(state.input)
-      Object.assign(env, acpLaunchEnv(profile, state.input.permissionPreset))
+      Object.assign(env, acpLaunchEnv(profile, state.input.permissionPreset, state.input.permissionMode))
       if (state.closed) throw new Error('Conversation was stopped during startup.')
       const sdk = await import('@agentclientprotocol/sdk')
       if (state.closed) throw new Error('Conversation was stopped during startup.')
       const target = cliHostSpawn({
         command,
-        args: acpLaunchArgv(profile, state.input.permissionPreset),
+        args: acpLaunchArgv(profile, state.input.permissionPreset, state.input.permissionMode),
         cwd: state.input.workspaceRoot ?? '',
         env,
-        wsl: wsl ? acpWslChild(wsl, profile, state.input.permissionPreset) : null,
+        wsl: wsl ? acpWslChild(wsl, profile, state.input.permissionPreset, state.input.permissionMode) : null,
       })
       const child = (options.spawnChild ?? spawn)(target.file, target.args, target.options)
       state.child = child
@@ -1155,6 +1182,8 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
       const refused = presetRefusal(profile, input.permissionPreset)
       if (refused) return { ok: false, message: refused }
       state.input.permissionPreset = input.permissionPreset
+      if (input.permissionMode) state.input.permissionMode = input.permissionMode
+      else delete state.input.permissionMode
       if (state.turn && (state.child || state.starting)) {
         state.relaunch = true
         return { ok: true, notice: `${profile.displayName} takes the new permissions from your next message.` }

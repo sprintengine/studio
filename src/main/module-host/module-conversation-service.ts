@@ -277,6 +277,9 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
         modelId: conversation.modelId,
         ...(cliRuntimes && Object.keys(cliRuntimes).length > 0 ? { cliRuntimes } : {}),
         ...(owned.agent.cliPermissionPreset ? { permissionPreset: owned.agent.cliPermissionPreset } : {}),
+        ...(owned.agent.cliPermissionPreset && owned.agent.cliPermissionMode
+          ? { permissionMode: owned.agent.cliPermissionMode }
+          : {}),
       })
       .catch((error: unknown): ConversationStartSessionResult => ({
         ok: false,

@@ -3141,6 +3141,51 @@ test('a Claude chat spawns Manual as default and Auto as the CLI’s own auto mo
   }
 })
 
+test('a Claude chat runs Accept edits and Don’t ask at their own presets, and the preset’s own mode elsewhere', async () => {
+  for (const [permissionPreset, permissionMode, mode] of [
+    ['auto', 'acceptEdits', 'acceptEdits'],
+    ['manual', 'dontAsk', 'dontAsk'],
+    // A mode at another preset than its own, or one Claude does not have,
+    // runs the preset's own mode rather than a guess.
+    ['bypass', 'acceptEdits', 'bypassPermissions'],
+    ['auto', 'workspace', 'auto'],
+  ] as const) {
+    const h = scriptedHarness()
+    try {
+      await h.adapter.startSession({ ...h.turn('turn_1'), permissionPreset, permissionMode })
+      const first = reader((await h.adapter.sendTurn(h.turn('turn_1'))) as AsyncIterable<ConversationEvent>)
+      await promptsRead(h.prompts, 1)
+      assert.equal(h.spawned[0].permissionMode, mode, `${permissionPreset}/${permissionMode}`)
+      h.emit(success({ user_message_uuids: [h.uuidOf(0)] }))
+      await first.done
+    } finally {
+      await h.adapter.disposeAll()
+    }
+  }
+})
+
+test('Don’t ask adds no card of its own, and a live switch to Accept edits reaches the child', async () => {
+  const h = scriptedHarness()
+  try {
+    await h.adapter.startSession({ ...h.turn('turn_1'), permissionPreset: 'manual', permissionMode: 'dontAsk' })
+    const first = reader((await h.adapter.sendTurn(h.turn('turn_1'))) as AsyncIterable<ConversationEvent>)
+    await promptsRead(h.prompts, 1)
+    const hook = preToolUse(h.spawned[0])
+    // What Don't ask refuses is refused by the CLI, not sent to a card.
+    assert.deepEqual(await hook(hookCall('Bash')), {})
+    await h.adapter.setPermissionPreset({
+      ...h.turn('turn_1'),
+      permissionPreset: 'auto',
+      permissionMode: 'acceptEdits',
+    })
+    assert.deepEqual(h.modes, ['acceptEdits'])
+    h.emit(success({ user_message_uuids: [h.uuidOf(0)] }))
+    await first.done
+  } finally {
+    await h.adapter.disposeAll()
+  }
+})
+
 test('Manual sends every action that changes something to a card, and lets lookups run', async () => {
   const h = scriptedHarness()
   try {

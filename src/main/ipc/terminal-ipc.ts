@@ -41,6 +41,7 @@ export type TerminalSpawnPayload = {
   worktreeId?: string
   worktreePath?: string
   cliPermissionPreset?: CliPermissionPreset
+  cliPermissionMode?: string
   cliModel?: string
   // Reasoning-effort level for CLIs declaring reasoningSelection; travels with
   // cliModel. Unset means the CLI's own default effort, with no flag passed.

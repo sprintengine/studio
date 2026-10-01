@@ -327,7 +327,7 @@ test('conversationSeam', async () => {
       // what the next session will start on, so it is what the pill shows.
       assert.equal(resolvePermissionPreset(null, 'none'), 'none')
       // Neither: a record predating the field reads as the app's spawn default.
-      assert.equal(resolvePermissionPreset(null, undefined), 'bypass')
+      assert.equal(resolvePermissionPreset(null, undefined), 'auto')
 
       await runtime.stopSession({ sessionId: started.session.sessionId })
       console.log('ok - the permission pill reports the live session, then the record, then default')

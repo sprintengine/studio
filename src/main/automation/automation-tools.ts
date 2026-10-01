@@ -4,7 +4,7 @@ import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type { CliPermissionPreset, TerminalSessionSnapshot } from '../../shared/electron-api'
 import { projectColorKey, projectHue } from '../../shared/project-hue'
 import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
-import { declaredPermissionPresets } from '../plugin-render'
+import { declaredPermissionModes, declaredPermissionPresets } from '../plugin-render'
 import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
 import { mobileSnapshotCollections, retiredMobileSnapshotCollections } from '../mobile/control/protocol'
 import type { Workspace } from '../../renderer/src/types/workspace'
@@ -80,8 +80,9 @@ import { normalizeExecutionHostId, type ExecutionHostId } from '../../shared/exe
 const LAUNCH_CONFIRM_TIMEOUT_MS = 20_000
 const CONFIRM_POLL_INTERVAL_MS = 150
 
-// All agents spawn with bypass permissions unless someone chooses another
-// preset, and that holds on this surface too (owner ruling 2026-09-27): an
+// All agents spawn on Auto unless someone chooses another preset (owner
+// request 2026-10-01; Bypass before then), and that holds on this surface too
+// (owner ruling 2026-09-27): an
 // external caller, a paired machine and an automation may name any preset,
 // exactly as a person at the launcher can. An omitted preset is not floored here; the
 // launch service resolves it the way the desktop launcher does, so an agent
@@ -831,13 +832,14 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           type: 'string',
           enum: [...LAUNCH_PERMISSION_PRESETS],
           description:
-            'CLI permission preset: "bypass" launches the CLI with its own skip-every-prompt flag; "auto" lets ' +
-            'edits in the workspace through and asks before commands and anything outside it; "manual" asks ' +
-            'before every edit, command and outside call; "none" passes no permission flag, so the CLI\'s own ' +
-            'configuration decides. A terminal agent takes only the presets its CLI has a setting for ' +
-            '(cli.runtime.list names them). Omitted, the launch takes the preset chosen for that CLI on this ' +
-            'machine, else the app default "bypass", exactly as the desktop launcher would. The older ' +
-            '"bypass_all" is read as "bypass". ' +
+            'CLI permission preset: "bypass" launches the CLI with its own skip-every-prompt flag; "auto" runs ' +
+            "the CLI's own auto mode (a classifier or reviewer that runs what it judges safe, where the CLI has " +
+            'one, else edits in the workspace go through and commands ask); "manual" asks before every edit, ' +
+            'command and outside call; "none" passes no permission flag, so the CLI\'s own configuration ' +
+            'decides. A terminal agent takes only the presets its CLI has a setting for (cli.runtime.list names ' +
+            'them, with the name each mode has in that CLI). Omitted, the launch takes the preset chosen for ' +
+            'that CLI on this machine, else the app default "auto" ("none" for a CLI with no auto mode), ' +
+            'exactly as the desktop launcher would. The older "bypass_all" is read as "bypass". ' +
             CALLER_PRESET_CAP_SENTENCE,
         },
         connectorId: {
@@ -1183,13 +1185,14 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           type: 'string',
           enum: [...LAUNCH_PERMISSION_PRESETS],
           description:
-            'CLI permission preset: "bypass" launches the CLI with its own skip-every-prompt flag; "auto" lets ' +
-            'edits in the workspace through and asks before commands and anything outside it; "manual" asks ' +
-            'before every edit, command and outside call; "none" passes no permission flag, so the CLI\'s own ' +
-            'configuration decides. A terminal agent takes only the presets its CLI has a setting for ' +
-            '(cli.runtime.list names them). Omitted, the launch takes the preset chosen for that CLI on this ' +
-            'machine, else the app default "bypass", exactly as the desktop launcher would. The older ' +
-            '"bypass_all" is read as "bypass". ' +
+            'CLI permission preset: "bypass" launches the CLI with its own skip-every-prompt flag; "auto" runs ' +
+            "the CLI's own auto mode (a classifier or reviewer that runs what it judges safe, where the CLI has " +
+            'one, else edits in the workspace go through and commands ask); "manual" asks before every edit, ' +
+            'command and outside call; "none" passes no permission flag, so the CLI\'s own configuration ' +
+            'decides. A terminal agent takes only the presets its CLI has a setting for (cli.runtime.list names ' +
+            'them, with the name each mode has in that CLI). Omitted, the launch takes the preset chosen for ' +
+            'that CLI on this machine, else the app default "auto" ("none" for a CLI with no auto mode), ' +
+            'exactly as the desktop launcher would. The older "bypass_all" is read as "bypass". ' +
             CALLER_PRESET_CAP_SENTENCE,
         },
       },
@@ -1215,7 +1218,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
 
       // An omitted preset is left to the launch service, which resolves it the
       // way the desktop launcher does (owner ruling 2026-09-27): the person's
-      // choice for this CLI, else the app default, `bypass` — unless the caller
+      // choice for this CLI, else the app default, `auto` — unless the caller
       // is an agent whose own preset is stricter, which it then launches on.
       const launched = await launchConfiguredAgent({
         workspaceId: resolved.workspace.id,
@@ -1747,13 +1750,14 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           type: 'string',
           enum: [...LAUNCH_PERMISSION_PRESETS],
           description:
-            'CLI permission preset: "bypass" launches the CLI with its own skip-every-prompt flag; "auto" lets ' +
-            'edits in the workspace through and asks before commands and anything outside it; "manual" asks ' +
-            'before every edit, command and outside call; "none" passes no permission flag, so the CLI\'s own ' +
-            'configuration decides. A terminal agent takes only the presets its CLI has a setting for ' +
-            '(cli.runtime.list names them). Omitted, the launch takes the preset chosen for that CLI on this ' +
-            'machine, else the app default "bypass", exactly as the desktop launcher would. The older ' +
-            '"bypass_all" is read as "bypass". ' +
+            'CLI permission preset: "bypass" launches the CLI with its own skip-every-prompt flag; "auto" runs ' +
+            "the CLI's own auto mode (a classifier or reviewer that runs what it judges safe, where the CLI has " +
+            'one, else edits in the workspace go through and commands ask); "manual" asks before every edit, ' +
+            'command and outside call; "none" passes no permission flag, so the CLI\'s own configuration ' +
+            'decides. A terminal agent takes only the presets its CLI has a setting for (cli.runtime.list names ' +
+            'them, with the name each mode has in that CLI). Omitted, the launch takes the preset chosen for ' +
+            'that CLI on this machine, else the app default "auto" ("none" for a CLI with no auto mode), ' +
+            'exactly as the desktop launcher would. The older "bypass_all" is read as "bypass". ' +
             CALLER_PRESET_CAP_SENTENCE,
         },
         worktree: {
@@ -1932,8 +1936,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           type: 'string',
           enum: [...LAUNCH_PERMISSION_PRESETS],
           description:
-            'Each run\'s CLI permission preset: "bypass" skips every prompt; "auto" lets edits in the ' +
-            'workspace through and asks before commands and anything outside it; "manual" asks before every ' +
+            'Each run\'s CLI permission preset: "bypass" skips every prompt; "auto" runs the CLI\'s own auto ' +
+            'mode, or lets edits in the workspace through and asks before commands where it has none; "manual" asks before every ' +
             'edit, command and outside call; "none" passes no flag. Nobody watches a run, so one that asks ' +
             'waits on its approval card. Omitted, each run takes the preset chosen for its CLI at run time.',
         },
@@ -2215,6 +2219,14 @@ function cliRuntimeProjection(plugin: LoadedPlugin): Record<string, unknown> {
     // The presets a launch on this CLI can honour: `none` always (it passes no
     // flag), each other one only where the manifest names its setting.
     permissionPresets: declaredPermissionPresets(manifest),
+    // The CLI's modes under its own names, each with the preset a caller names
+    // to get it. A mode that is not a preset's own is chosen in the app; a
+    // caller's preset runs that preset's own mode.
+    permissionModes: declaredPermissionModes(manifest).map((mode) => ({
+      id: mode.id,
+      label: mode.label,
+      preset: mode.level,
+    })),
   }
 }
 

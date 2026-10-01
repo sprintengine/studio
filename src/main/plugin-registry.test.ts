@@ -424,14 +424,31 @@ test('plugin-registry', async () => {
   }
 
   // A bundled manifest declares presets under the names the app offers, never
-  // a pre-rename spelling, and the list the renderer reads says which ones.
+  // a pre-rename spelling, and the list the renderer reads says which ones. A
+  // mode of the CLI's own names the preset it sits at, and `none` is keyed only
+  // for its label.
   async function testBundledManifestsDeclareOnlyCurrentPresets(): Promise<void> {
     const registry = await bundledRegistry()
     for (const entry of registry.list()) {
       const manifest = registry.get(entry.id)?.manifest
       assert.ok(manifest, `${entry.id}: registry.get must resolve a listed plugin`)
-      for (const name of Object.keys(manifest.permissionPresets ?? {})) {
-        assert.ok(['manual', 'auto', 'bypass'].includes(name), `${manifest.id}: declares a "${name}" preset`)
+      for (const [name, preset] of Object.entries(manifest.permissionPresets ?? {})) {
+        if (name === 'none') {
+          assert.deepEqual(preset.args, [], `${manifest.id}: none passes nothing`)
+          continue
+        }
+        assert.ok(
+          ['manual', 'auto', 'bypass'].includes(name) ||
+            (!['default', 'auto_workspace', 'bypass_all'].includes(name) &&
+              ['manual', 'auto', 'bypass'].includes(preset.level ?? '')),
+          `${manifest.id}: declares a "${name}" preset`,
+        )
+      }
+      // Every mode the menus list has a name and a line of its own.
+      for (const mode of entry.permissionModes ?? []) {
+        assert.ok(mode.label.trim(), `${manifest.id}: ${mode.id} is named`)
+        if (mode.id !== 'none' || 'none' in manifest.permissionPresets)
+          assert.ok(mode.summary?.trim(), `${manifest.id}: ${mode.id} has a summary`)
       }
       assert.deepEqual(
         entry.permissionPresets,

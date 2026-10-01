@@ -1,6 +1,10 @@
 import { isFolderOpenTargetId } from '../../../../shared/folder-open-targets'
 import type { ExecutionHostId, ExecutionHostSettings } from '../../../../shared/execution-host'
-import { normalizeAgentLaunchHosts, normalizeCliPermissionPresets } from '../../../../shared/launch-settings'
+import {
+  normalizeAgentLaunchHosts,
+  normalizeCliPermissionModes,
+  normalizeCliPermissionPresets,
+} from '../../../../shared/launch-settings'
 import type { TextGenerationSettings } from '../../../../shared/text-generation/contract'
 import { normalizeMcpSourceRef } from '../../../../shared/mcp/normalize-server'
 import type { FolderOpenTargetId } from '../../../../shared/folder-open-targets'
@@ -388,6 +392,7 @@ export function normalizeProjectColors(value: unknown): Record<string, ProjectCo
 // Relocated to shared so main can normalize the preset when it composes
 // a launch); re-exported so every existing renderer import site is unchanged.
 import { normalizeCliPermissionPreset } from '../../../../shared/cli-permission-preset'
+import { parseCliPermissionModeId } from '../../../../shared/cli-permission-mode'
 
 export { normalizeCliPermissionPreset }
 
@@ -704,6 +709,7 @@ export const defaultAppSettings = (): AppSettings => ({
   lastAgentSpawnPermissionPreset: DEFAULT_AGENT_SPAWN_PERMISSION_PRESET,
   // No CLI chosen for yet: every one reads the app-wide default above.
   cliPermissionPresets: {},
+  cliPermissionModes: {},
   lastSelectedAgentModel: null,
   projectKnowledgeRoots: {},
   // Nothing seen yet. Every project in the map got there by being shown once,
@@ -764,6 +770,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     lastFolderOpenTarget: isFolderOpenTargetId(settings?.lastFolderOpenTarget) ? settings.lastFolderOpenTarget : null,
     lastAgentSpawnPermissionPreset: normalizeCliPermissionPreset(settings?.lastAgentSpawnPermissionPreset),
     cliPermissionPresets: normalizeCliPermissionPresets(settings?.cliPermissionPresets),
+    cliPermissionModes: normalizeCliPermissionModes(settings?.cliPermissionModes),
     // Every field here is built explicitly and `settings` is never spread, so a
     // key an older build persisted drops on every hydration — the same
     // merge-not-only-migrate enforcement as the opt-in reset below.
@@ -1018,7 +1025,7 @@ export interface SettingsSliceActions {
   markDesignSystemSeen: (bundleId: string, at?: string) => void
   setLastAgentSpawnPermissionPreset: (preset: CliPermissionPreset) => void
   /** The preset spawns on one CLI launch with; `null` returns it to the app-wide default. */
-  setCliPermissionPreset: (cli: AgentCli, preset: CliPermissionPreset | null) => void
+  setCliPermissionPreset: (cli: AgentCli, preset: CliPermissionPreset | null, mode?: string | null) => void
   /**
    * Write (or clear with `null`) the model an agent spawn is remembered on. A
    * stored reasoning-effort level survives a model change within the same CLI
@@ -1489,15 +1496,25 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     // One CLI's preset (the spawn footer's picker). Only that CLI's key goes to
     // main, so two windows setting two CLIs cannot overwrite each other, and
     // main's broadcast carries the result to every window.
-    setCliPermissionPreset: (cli, preset) => {
+    // The CLI's own mode goes with it, and is cleared with it: a choice that is
+    // a preset's own mode stores no mode.
+    setCliPermissionPreset: (cli, preset, mode) => {
       const normalized = preset === null ? null : normalizeCliPermissionPreset(preset)
+      const ownMode = normalized ? parseCliPermissionModeId(mode) : null
       set((state) => {
         const presets = { ...state.appSettings.cliPermissionPresets }
+        const modes = { ...state.appSettings.cliPermissionModes }
         if (normalized) presets[cli] = normalized
         else delete presets[cli]
+        if (ownMode) modes[cli] = ownMode
+        else delete modes[cli]
         state.appSettings.cliPermissionPresets = presets
+        state.appSettings.cliPermissionModes = modes
       })
-      launchSettingsClient.update({ cliPermissionPresets: { [cli]: normalized } })
+      launchSettingsClient.update({
+        cliPermissionPresets: { [cli]: normalized },
+        cliPermissionModes: { [cli]: ownMode },
+      })
     },
 
     setLastSelectedAgentModel: (selection) =>

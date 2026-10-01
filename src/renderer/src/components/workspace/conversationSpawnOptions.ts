@@ -41,10 +41,13 @@ export function conversationLaunchDraftPatch(
  */
 export function conversationLaunchEnginePatch(launch: {
   permissionPreset: CliPermissionPreset
+  /** The CLI's own mode at that preset, when it is not the preset's own. */
+  permissionMode?: string
   reasoning?: string | null
 }): Partial<AgentState> {
   return {
     cliPermissionPreset: launch.permissionPreset,
+    ...(launch.permissionMode ? { cliPermissionMode: launch.permissionMode } : {}),
     ...(launch.reasoning ? { conversationReasoningEffort: launch.reasoning } : {}),
   }
 }
@@ -61,7 +64,7 @@ export function conversationNewChatSeed(
     skills?: readonly Pick<WorkspaceSkill, 'id'>[]
     reasoning?: string | null
   },
-  launch: { prompt?: string; permissionPreset: CliPermissionPreset },
+  launch: { prompt?: string; permissionPreset: CliPermissionPreset; permissionMode?: string },
 ): { runtime: AgentConversationRuntime; agentPatch: Partial<AgentState> } | null {
   const target = confirm.provider
   if (!target) return null
@@ -69,7 +72,11 @@ export function conversationNewChatSeed(
     runtime: { providerId: target.providerId, modelId: target.modelId },
     agentPatch: {
       ...conversationAgentRuntimePatch(target.providerId, target.modelId),
-      ...conversationLaunchEnginePatch({ permissionPreset: launch.permissionPreset, reasoning: confirm.reasoning }),
+      ...conversationLaunchEnginePatch({
+        permissionPreset: launch.permissionPreset,
+        ...(launch.permissionMode ? { permissionMode: launch.permissionMode } : {}),
+        reasoning: confirm.reasoning,
+      }),
       ...conversationLaunchDraftPatch(confirm.skills, launch.prompt),
     },
   }

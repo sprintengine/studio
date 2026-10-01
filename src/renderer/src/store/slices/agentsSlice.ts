@@ -24,6 +24,7 @@ import {
   type LaunchedAgentProjection,
 } from '../../utils/launchedAgentProjection'
 import { normalizeCliPermissionPreset } from './settingsSlice'
+import { parseCliPermissionModeId } from '../../../../shared/cli-permission-mode'
 import {
   workspaceSyncClient,
   type AgentTerminalLaunchStateApply,
@@ -102,12 +103,17 @@ export function normalizeAgentRuntime(agent: Partial<AgentState>): {
 
 export function normalizeAgentState(agent: AgentState, fallbackCli?: AgentCli): AgentState {
   const runtime = normalizeAgentRuntime(agent)
+  // The CLI's own mode is kept only beside the preset it was chosen at; a
+  // value that is not a mode id is dropped, and the preset's own mode runs.
+  const { cliPermissionMode: storedMode, ...rest } = agent
+  const cliPermissionMode = agent.cliPermissionPreset ? parseCliPermissionModeId(storedMode) : null
   return {
-    ...agent,
+    ...rest,
     cli: normalizeAgentCli(agent, fallbackCli),
     cliModel: normalizeAgentCliModel(agent.cliModel),
     execution: normalizeAgentExecution(agent.execution),
     cliPermissionPreset: normalizeCliPermissionPreset(agent.cliPermissionPreset),
+    ...(cliPermissionMode ? { cliPermissionMode } : {}),
     runtimeKind: runtime.runtimeKind,
     conversation: runtime.conversation,
   }

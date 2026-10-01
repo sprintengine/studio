@@ -9,7 +9,8 @@ import type {
 } from '../../shared/electron-api'
 import { renderAgentLaunchPreview } from '../agent-launch-render'
 import { detectAgentCliAvailability } from '../cli-availability'
-import { listPluginRegistryEntries } from '../plugin-registry-instance'
+import { getPluginManifest, listPluginRegistryEntries } from '../plugin-registry-instance'
+import { permissionRenderKey } from '../plugin-render'
 
 export type PluginIpcHandlers = {
   list(): PluginRegistryListResult
@@ -40,7 +41,17 @@ function createPluginIpcHandlers(): PluginIpcHandlers {
     launchPreview(input: AgentLaunchPreviewInput | undefined): AgentLaunchPreviewResult {
       if (!input?.cli) return { ok: false, message: 'No agent CLI selected.' }
       try {
-        return { ok: true, preview: renderAgentLaunchPreview(input) }
+        const { cliPermissionMode, ...rest } = input
+        const preset = rest.cliPermissionPreset
+        return {
+          ok: true,
+          preview: renderAgentLaunchPreview({
+            ...rest,
+            ...(preset
+              ? { cliPermissionPreset: permissionRenderKey(getPluginManifest(input.cli), preset, cliPermissionMode) }
+              : {}),
+          }),
+        }
       } catch (err) {
         return { ok: false, message: formatError(err) }
       }

@@ -30,6 +30,8 @@ export type WorkspaceChatOpenerDeps = {
   lastSelectedCli: () => string | null | undefined
   /** The permission preset the person's launches of this CLI run on. */
   permissionPresetFor: (cli: string) => CliPermissionPreset
+  /** The CLI's own mode chosen with that preset, when it is not the preset's own. */
+  permissionModeFor?: (cli: string) => string | undefined
   newAgentId: (providerId: string) => string
   pickName: (taken: string[]) => string
   writeAgent: (workspaceId: string, agentId: string, patch: Partial<AgentState>) => void
@@ -76,7 +78,11 @@ export function createWorkspaceChatOpener(deps: WorkspaceChatOpenerDeps): Worksp
 
     const seed = conversationNewChatSeed(
       { provider: { providerId, modelId, modelLabel: modelId }, skills: skillIds.map((id) => ({ id })) },
-      { ...(send && prompt ? { prompt } : {}), permissionPreset: deps.permissionPresetFor(cli) },
+      {
+        ...(send && prompt ? { prompt } : {}),
+        permissionPreset: deps.permissionPresetFor(cli),
+        ...(deps.permissionModeFor?.(cli) ? { permissionMode: deps.permissionModeFor(cli) } : {}),
+      },
     )
     if (!seed) return refuse('cli_not_conversational', `"${cli}" cannot run as a chat agent here.`)
 

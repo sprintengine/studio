@@ -333,6 +333,12 @@ export type AppSettings = {
    */
   cliPermissionPresets?: Partial<Record<AgentCli, CliPermissionPreset>>
   /**
+   * The CLI's own mode chosen with that preset, keyed by CLI id, for a choice
+   * that is not the preset's own mode (Claude Code's Accept edits). Read only
+   * beside the CLI's `cliPermissionPresets` entry. A read model of main's.
+   */
+  cliPermissionModes?: Partial<Record<AgentCli, string>>
+  /**
    * The model (and reasoning-effort level) an agent spawn last ran on, stored
    * with the CLI it was picked for so a later CLI switch cannot leak a stale
    * model across CLIs. Honored only when the spawn's effective CLI matches;

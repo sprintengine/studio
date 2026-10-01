@@ -17,6 +17,7 @@ export type ChatAgentFields = Pick<
   AgentState,
   | 'name'
   | 'cliPermissionPreset'
+  | 'cliPermissionMode'
   | 'conversationMode'
   | 'conversationReasoningEffort'
   | 'conversationSkills'

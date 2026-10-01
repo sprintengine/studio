@@ -21,15 +21,44 @@ and revoked. Remote clients cannot choose a permanent rule.
 
 ### Permission modes
 
-Every chat runs on one of four permission modes, the same four a terminal agent
-takes where its CLI has a setting for them (owner request 2026-09-30):
+Each agent's permission menu lists its CLI's own modes under the CLI's own names
+(owner request 2026-10-01): Claude Code's Manual, Accept edits, Auto, Don't ask
+and Bypass permissions; Codex's Read only, Default, Auto-review and YOLO;
+Cursor's Default, Auto-review and Run Everything; Grok's Default, Accept edits,
+Auto, Don't ask and Always approve; OpenCode's Ask, Allow edits and
+Auto-approve. Only modes the CLI really has are listed, from its plugin manifest
+(`permissionPresets`, where each mode carries its label, a one-line summary and
+a tooltip). A **No flag** row (Cursor calls it Default, OpenCode Your rules)
+passes no permission setting at all.
 
-| Mode                                     | What it means                                                                                                                                                                                                                                                                                                            |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Bypass permissions** (Codex: **YOLO**) | The default. Never asks: the CLI's own skip-every-prompt setting.                                                                                                                                                                                                                                                        |
-| **Auto**                                 | Reads and edits files inside the workspace, and calls MCP tools, without asking — except the gateway tools that start another agent or workspace. Commands the runtime does not already treat as safe, web access, subagents and anything outside the workspace ask. Claude Code runs its own auto mode instead (below). |
-| **Manual**                               | Asks before every action that changes something or reaches out: each edit, command, web request and MCP tool. Reading, searching and listing inside the workspace do not ask, since a card for every file read would stop a chat from getting anywhere.                                                                  |
-| **No flag**                              | Passes no permission setting at all, so the CLI runs on its own configured default. That can mean asking, or not.                                                                                                                                                                                                        |
+Under the names, every mode sits at one of four levels, and the app reasons
+only in levels: the launch cap on agents an agent starts, the stricter and
+looser notices, what the app answers without a card, and what a caller that
+names a level gets (an MCP tool, an automation, a paired machine, a third-party
+manifest). A level a caller names runs the CLI's own mode for it.
+
+| Level                                    | What it means                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Auto**                                 | The default. The CLI's own auto mode where it has one: a classifier (Claude Code, Grok) or a reviewer (Codex, Cursor) runs what it judges safe. Elsewhere it reads and edits files inside the workspace without asking, and asks before commands, web access and anything outside it. In a chat it also calls MCP tools unasked, bar the gateway tools that start another agent or workspace. Accept edits and Codex's Default sit here too. |
+| **Manual**                               | Asks before every action that changes something or reaches out: each edit, command, web request and MCP tool. Reading, searching and listing inside the workspace do not ask, since a card for every file read would stop a chat from getting anywhere. Don't ask sits here: it never asks, and refuses what the person's own rules do not allow.                                                                                            |
+| **Bypass permissions** (Codex: **YOLO**) | Never asks: the CLI's own skip-every-prompt setting.                                                                                                                                                                                                                                                                                                                                                                                         |
+| **No flag**                              | Passes no permission setting at all, so the CLI runs on its own configured default. That can mean asking, or not.                                                                                                                                                                                                                                                                                                                            |
+
+Auto is what an agent starts on when nobody chose (owner request 2026-10-01;
+Bypass before then): it neither asks about everything nor skips every check. A
+CLI with no auto mode (Kimi Code, whose only flag runs it fully autonomous)
+passes no flag instead, never something looser. Only a choice nobody made
+moves: a person who chose Bypass, for one CLI or for all of them, keeps it, and
+so does every agent record, scheduled agent and automation that names one.
+
+A choice is stored as its level and, for a mode that is not the level's own
+(Accept edits, Don't ask, Codex's Default), the CLI's id for it beside it: per
+CLI in the launch settings, and on the agent record. A peer or a window that
+knows only levels reads the level and runs its own mode, so nothing written
+before keeps meaning anything else. A chat runs a CLI's other modes where its
+runtime maps them (Claude Code's and Grok's Accept edits and Don't ask, Codex's
+Default); a chat on a paired machine is told levels, so its menu lists each
+level's own mode.
 
 Plan mode is a separate toggle, not a mode. Questions and plans are answers, not
 permissions, so every mode shows them; so does a request the runtime marks as
@@ -38,8 +67,9 @@ person's own "always ask" rule).
 
 The mode is chosen in the launcher and changed at any time from the chat box's
 permission chip, mid-reply included. A permission card offers, beside Allow
-once and Deny, **Allow and switch to Auto** and **Allow and switch to Bypass
-permissions** (whichever would ask less than the chat does now): the request is
+once and Deny, to allow and switch to the CLI's Auto and Bypass modes, under
+their names (**Allow and switch to Auto-review**, **Allow and switch to YOLO**
+for Codex), whichever would ask less than the chat does now: the request is
 allowed once, and then the chat moves to that mode. The mode is stored on the
 chat's agent record, so a resumed chat starts on it.
 
@@ -70,11 +100,12 @@ Every surface that starts an agent takes all four modes (owner ruling
 the MCP tools (`agent.launch`, `backlog.work`, `schedule.create`,
 `conversation.create`), and scheduled agents themselves. A
 launch that names no mode resolves the way the launcher does: the mode chosen
-for that CLI on the machine that runs it, else Bypass. The launcher names its
+for that CLI on the machine that runs it, else Auto. The launcher names its
 mode when it starts an agent on a paired machine, so the agent there runs on
-the choice the launcher showed. A terminal agent takes only the modes its CLI's
-manifest names a setting for (`cli.runtime.list` says which); the launcher dims
-the rest, and a launch that asks for one is refused.
+the choice the launcher showed. A terminal agent takes only the levels its CLI's
+manifest names a setting for (`cli.runtime.list` says which, and names each
+mode); the launcher lists only those, and a launch that asks for another is
+refused.
 
 Completed turns may expose changed files and a checkpoint diff. Reverting asks
 for confirmation and refuses when the working tree no longer matches the
@@ -97,6 +128,12 @@ Each mode reaches each chat runtime its own way. No flag sends none of these.
 | Cursor      | `--force`                                 | `--auto-review` (its classifier)                                                                                         | Not offered: Cursor edits files without asking                      | Launch flag: the child is replaced at the end of the running turn                                                  |
 | Grok        | `--always-approve`                        | `--permission-mode auto` (its classifier)                                                                                | `--permission-mode default`                                         | Launch flag, as Cursor; its own `/always-approve` and `/auto` commands are refused under a stricter mode           |
 | OpenCode    | `OPENCODE_PERMISSION` allowing everything | A rule set asking for everything but reads, listings and edits                                                           | The same rule set asking for edits too                              | Launch environment, as Cursor                                                                                      |
+
+A CLI's other modes reach a chat the same ways: Claude Code's Accept edits and
+Don't ask as SDK `acceptEdits` and `dontAsk` (Don't ask adds no card of its
+own), Grok's as `--permission-mode acceptEdits` and `dontAsk`, and Codex's
+Default as `on-request` in the `workspaceWrite` sandbox with the person, not the
+reviewer, answering what leaves it.
 
 Claude's Auto is its own classifier mode, `auto`, as Grok's is, Cursor's its
 auto-review and Codex's its auto-review (owner ruling 2026-10-01): someone who

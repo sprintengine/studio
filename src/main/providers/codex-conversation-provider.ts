@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { CONVERSATION_DEFAULT_MODEL_ID } from '../../shared/conversation-harness'
+import { CONVERSATION_DEFAULT_MODEL_ID, conversationPermissionModes } from '../../shared/conversation-harness'
 import { isWslHostId, type ExecutionHostId } from '../../shared/execution-host'
 import { toWslPath, wslToWindowsPath } from '../../shared/host-paths'
 import type {
@@ -170,12 +170,18 @@ export type CodexConversationProviderOptions = {
  *   safe read (`untrusted`), in a read-only sandbox, so every edit asks too.
  *   The app-server still takes `untrusted`; the command line no longer does.
  * - `none` sends no override at all, so Codex runs on its own configured default.
+ * - Codex's own Default (`workspace`, at Auto) is what Auto was before
+ *   auto-review: the workspace sandbox, with the person asked before anything
+ *   leaves it.
  *
  * Every preset but `none` names its reviewer, `user` included: a turn's
  * reviewer stays with the thread like its policy does, so a chat moved off
  * Auto would otherwise keep sending its requests to the reviewer.
  */
-export function codexPermissionPolicy(preset: ConversationPermissionPreset = 'none'): {
+export function codexPermissionPolicy(
+  preset: ConversationPermissionPreset = 'none',
+  mode?: string,
+): {
   approvalPolicy?: 'never' | 'on-request' | 'untrusted'
   approvalsReviewer?: 'user' | 'auto_review'
   sandbox?: 'danger-full-access' | 'workspace-write' | 'read-only'
@@ -191,7 +197,7 @@ export function codexPermissionPolicy(preset: ConversationPermissionPreset = 'no
   if (preset === 'auto')
     return {
       approvalPolicy: 'on-request',
-      approvalsReviewer: 'auto_review',
+      approvalsReviewer: mode === 'workspace' ? 'user' : 'auto_review',
       sandbox: 'workspace-write',
       sandboxPolicy: {
         type: 'workspaceWrite',
@@ -788,7 +794,7 @@ export function createCodexConversationProvider(
         const account = record(await transport.request('account/read', { refreshToken: false }))
         if (account.requiresOpenaiAuth === true && !account.account)
           throw new Error('Codex is not logged in. Run codex login in a terminal, then retry.')
-        const policy = codexPermissionPolicy(state.input.permissionPreset)
+        const policy = codexPermissionPolicy(state.input.permissionPreset, state.input.permissionMode)
         const threadParams = {
           cwd: state.input.workspaceRoot === undefined ? undefined : hostCwd(state.input.workspaceRoot, wsl),
           ...(state.input.modelId !== CONVERSATION_DEFAULT_MODEL_ID ? { model: state.input.modelId } : {}),
@@ -851,6 +857,7 @@ export function createCodexConversationProvider(
     acceptsMcpServers: true,
     listModels: () => [...models],
     capabilities: {
+      permissionModes: [...conversationPermissionModes('codex')],
       tools: true,
       approvals: true,
       questions: true,
@@ -969,7 +976,7 @@ export function createCodexConversationProvider(
           const policy: ReturnType<typeof codexPermissionPolicy> =
             input.mode === 'ask'
               ? { approvalPolicy: 'never', sandboxPolicy: { type: 'readOnly', networkAccess: false } }
-              : codexPermissionPolicy(state.input.permissionPreset)
+              : codexPermissionPolicy(state.input.permissionPreset, state.input.permissionMode)
           const result = record(
             await state.transport!.request('turn/start', {
               threadId: state.threadId,
@@ -1065,7 +1072,7 @@ export function createCodexConversationProvider(
       const state = sessions.get(input.sessionId)
       if (!state) return { ok: false, message: 'Codex conversation is not active.' }
       const previous = state.input.permissionPreset ?? 'none'
-      state.input = { ...state.input, permissionPreset: input.permissionPreset }
+      state.input = { ...state.input, permissionPreset: input.permissionPreset, permissionMode: input.permissionMode }
       if (input.permissionPreset === 'none' && previous !== 'none') state.resetPolicy = true
       else if (input.permissionPreset !== 'none') state.resetPolicy = false
       if (state.turn) return { ok: true, notice: 'Codex takes the new permissions from your next message.' }

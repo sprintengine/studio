@@ -63,6 +63,7 @@ import type {
 } from '../../shared/conversation-runtime'
 import { CONVERSATION_PERMISSION_PRESETS } from '../../shared/conversation-runtime'
 import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
+import { parseCliPermissionModeId } from '../../shared/cli-permission-mode'
 import {
   ATTACHABLE_IMAGE_TYPES,
   MAX_ATTACHMENTS_PER_TURN,
@@ -842,6 +843,9 @@ function parseStartSessionInput(
   }
   const preset = permissionPreset === undefined ? undefined : parseCliPermissionPreset(permissionPreset)
   if (preset === null) return { ok: false, message: PERMISSION_PRESET_ERROR }
+  // A mode of the CLI's own rides only beside a preset; one that is not a mode
+  // id is dropped, and the preset's own mode runs.
+  const mode = preset ? parseCliPermissionModeId(input.permissionMode) : null
   if (
     allowedTools !== undefined &&
     (!Array.isArray(allowedTools) || allowedTools.some((tool) => typeof tool !== 'string'))
@@ -858,6 +862,7 @@ function parseStartSessionInput(
       modelId,
       ...(isRecord(cliRuntimes) ? { cliRuntimes: cliRuntimes as ConversationCliRuntimeOverrides } : {}),
       ...(preset ? { permissionPreset: preset } : {}),
+      ...(mode ? { permissionMode: mode } : {}),
       ...(Array.isArray(allowedTools) ? { allowedTools: allowedTools as string[] } : {}),
     },
   }
@@ -1019,7 +1024,8 @@ function parseSetPermissionInput(
   if (!session.ok) return session
   const permissionPreset = parseCliPermissionPreset(isRecord(input) ? input.permissionPreset : undefined)
   if (!permissionPreset) return { ok: false, message: PERMISSION_PRESET_ERROR }
-  return { ok: true, input: { ...session.input, permissionPreset } }
+  const permissionMode = parseCliPermissionModeId(isRecord(input) ? input.permissionMode : undefined)
+  return { ok: true, input: { ...session.input, permissionPreset, ...(permissionMode ? { permissionMode } : {}) } }
 }
 
 function parseSetModelInput(

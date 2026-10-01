@@ -453,6 +453,14 @@ test('bypass is YOLO, auto is the workspace sandbox with auto-review past it, ma
   })
   expect(codexPermissionPolicy('none')).toEqual({})
   expect(codexPermissionPolicy()).toEqual({})
+  // Codex's own Default, at Auto: the same sandbox, with the person asked
+  // before anything leaves it rather than the reviewer.
+  expect(codexPermissionPolicy('auto', 'workspace')).toMatchObject({
+    approvalPolicy: 'on-request',
+    approvalsReviewer: 'user',
+    sandboxPolicy: { type: 'workspaceWrite' },
+  })
+  expect(codexPermissionPolicy('manual', 'workspace')).toMatchObject({ approvalPolicy: 'untrusted' })
 })
 
 test('each preset rides thread start and every turn', async () => {

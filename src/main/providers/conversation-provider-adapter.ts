@@ -114,6 +114,9 @@ export type MockAdapterSessionInput = {
   fallbackHistory?: ConversationMessage[]
   cliRuntimes?: ConversationCliRuntimeOverrides
   permissionPreset?: ConversationPermissionPreset
+  // The CLI's own mode at that preset, when one other than its own is chosen.
+  // A provider that does not map it runs the preset's own.
+  permissionMode?: string
   allowedTools?: string[]
   // MCP servers the provider starts this session with (`acceptsMcpServers`).
   mcpServers?: ConversationMcpServer[]
@@ -177,9 +180,11 @@ export type MockAdapterSteerInput = MockAdapterSessionInput & {
 export type ConversationProviderSteerResult =
   { ok: true; providerCursor?: ConversationProviderCursor } | { ok: false; message: string }
 
-// The session context plus the preset to switch to, for `setPermissionPreset`.
+// The session context plus the preset to switch to, for `setPermissionPreset`,
+// and the CLI's own mode at it when one other than the preset's own is chosen.
 export type MockAdapterPermissionInput = MockAdapterSessionInput & {
   permissionPreset: ConversationPermissionPreset
+  permissionMode?: string
 }
 
 // The session context plus the model to switch to, for `setModel`. `modelId`

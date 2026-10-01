@@ -4,7 +4,8 @@ import { existsSync, mkdirSync, renameSync, statSync, unlinkSync, writeFileSync 
 import { rm, stat, unlink } from 'fs/promises'
 import { homedir } from 'os'
 import { dirname, join } from 'path'
-import type { AgentCli, CliRuntimeSettings, CliPermissionPreset, TerminalPathStyle } from '../shared/electron-api'
+import type { AgentCli, CliRuntimeSettings, TerminalPathStyle } from '../shared/electron-api'
+import type { CliPermissionSetting } from '../shared/cli-permission-mode'
 import type { PluginContextInjectionMode } from '../shared/plugin-manifest'
 import { DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME } from '../shared/design-system/bundle-scaffold'
 import {
@@ -1324,7 +1325,7 @@ function buildWslShellScript(
   cli: AgentCli = 'codex',
   initialPrompt?: string,
   cliRuntime?: CliRuntimeSettings,
-  cliPermissionPreset: CliPermissionPreset = 'none',
+  cliPermissionPreset: CliPermissionSetting = 'none',
   cliModel?: string,
   memoryRootPath?: string,
   managedMcpEnv?: Record<string, string>,
@@ -1429,7 +1430,7 @@ export function getShellLaunchConfig(
   cli: AgentCli = 'codex',
   initialPrompt?: string,
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,
-  cliPermissionPreset: CliPermissionPreset = 'none',
+  cliPermissionPreset: CliPermissionSetting = 'none',
   cliModel?: string,
   memoryRootPath?: string,
   memoryRelativeRoot?: string,
@@ -1734,7 +1735,7 @@ export function buildNativeAgentLaunchPowerShellScript(
   cwd: string,
   initialPrompt: string | undefined,
   cliRuntime: CliRuntimeSettings,
-  cliPermissionPreset: CliPermissionPreset = 'none',
+  cliPermissionPreset: CliPermissionSetting = 'none',
   cliModel?: string,
   cliReasoning?: string,
   hostContext: HostContextRenderInputs = {},
@@ -1822,7 +1823,7 @@ export function buildCodexLegacyNativeAgentLaunchPowerShellScript(
   cwd: string,
   initialPrompt: string | undefined,
   cliRuntime: CliRuntimeSettings,
-  cliPermissionPreset: CliPermissionPreset = 'none',
+  cliPermissionPreset: CliPermissionSetting = 'none',
   cliModel?: string,
   cliReasoning?: string,
   hostContext: HostContextRenderInputs = {},
@@ -1894,7 +1895,7 @@ function buildAgentLaunchCommand(
   resume = false,
   initialPrompt?: string,
   cliRuntime?: CliRuntimeSettings,
-  cliPermissionPreset: CliPermissionPreset = 'none',
+  cliPermissionPreset: CliPermissionSetting = 'none',
   cliModel?: string,
   cliReasoning?: string,
   resolvedBinaryPath?: string,

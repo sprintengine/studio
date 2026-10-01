@@ -1238,6 +1238,10 @@ export default function TerminalView({
             worktreeId: executionRoot.worktreeId,
             worktreePath: executionRoot.worktreePath,
             cliPermissionPreset: finalContext.cliPermissionPreset,
+            // The CLI's own mode rides beside the preset it was chosen at.
+            ...(finalContext.cliPermissionPreset && finalAgent.cliPermissionMode
+              ? { cliPermissionMode: finalAgent.cliPermissionMode }
+              : {}),
             cliModel: finalAgent.cliModel,
             cliReasoning: finalAgent.cliReasoning,
             memoryRootPath: memoryContext.rootPath,
@@ -1312,6 +1316,10 @@ export default function TerminalView({
             worktreeId: executionRoot.worktreeId,
             worktreePath: executionRoot.worktreePath,
             cliPermissionPreset: finalContext.cliPermissionPreset,
+            // The CLI's own mode rides beside the preset it was chosen at.
+            ...(finalContext.cliPermissionPreset && finalAgent.cliPermissionMode
+              ? { cliPermissionMode: finalAgent.cliPermissionMode }
+              : {}),
             cliModel: finalAgent.cliModel,
             cliReasoning: finalAgent.cliReasoning,
             memoryRootPath: memoryContext.rootPath,

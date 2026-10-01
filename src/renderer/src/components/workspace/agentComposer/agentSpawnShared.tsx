@@ -4,39 +4,39 @@ import type React from 'react'
 import { MenuOption } from '../../ui/MenuOption'
 import { LockGlyph, PresetDialGlyph, SparkGlyph, UnlockedGlyph } from '../../AppIcons'
 import type { CliPermissionPreset } from '../../../types/workspace'
+import type { CliPermissionModeSpec } from '../../../../../shared/cli-permission-mode'
 
 // Shared, presentation-only pieces of the agent spawn surfaces (the compact
 // SpawnPicker and the New Chat panel). Kept in one hookless module so every
 // surface can import them without pulling in the composer's store hook.
 
-// Permission preset chips shown in the picker footer. Exported because the top
-// bar's split-button trigger tooltip names the active preset. Bypass leads: it
-// is what every agent spawns with unless the person, or their organization,
-// chooses otherwise (owner ruling 2026-09-27); the rest follow from least to
-// most asking, and No flag, which asks whatever the CLI is configured to, last
-// (owner request 2026-09-30 for all four in a chat).
-export const AGENT_SPAWN_PERMISSION_OPTIONS: Array<{
+/**
+ * One row of a permission menu: one of the CLI's modes, under its own name
+ * (owner request 2026-10-01). `value` is the preset it sits at, which is what
+ * every launch and every check reads; `mode` is the CLI's own id for a mode
+ * that is not a preset's own (Claude Code's Accept edits), which rides beside
+ * it.
+ */
+export type PermissionModeOption = {
+  /** The row's key: the mode's id, which for a preset's own mode is the preset. */
+  id: string
   value: CliPermissionPreset
+  mode?: string
   label: string
   /** One line for a menu row's meta — the row has 280px, not a paragraph. */
   summary: string
   /** The full explanation, for a tooltip. */
   title: string
-}> = [
+}
+
+// The four presets in the app's own words, for a CLI whose manifest the
+// catalog has not listed (and the summary or tooltip a manifest leaves out).
+// Strictest first and No flag, which asks whatever the CLI is configured to,
+// last; Auto is what a launch nobody chose for runs (owner request
+// 2026-10-01).
+export const AGENT_SPAWN_PERMISSION_OPTIONS: PermissionModeOption[] = [
   {
-    value: 'bypass',
-    label: 'Bypass permissions',
-    summary: 'Skip every prompt. Trusted repos only.',
-    title: 'Skip CLI permission prompts. Use only in repos and environments you trust.',
-  },
-  {
-    value: 'auto',
-    label: 'Auto',
-    summary: 'Edits go through; commands and the rest ask.',
-    title:
-      'Read and edit files in the workspace without asking, and in a chat use your connected MCP tools too. Commands, web access and anything outside the workspace ask first.',
-  },
-  {
+    id: 'manual',
     value: 'manual',
     label: 'Manual',
     summary: 'Asks before every edit and command.',
@@ -44,6 +44,22 @@ export const AGENT_SPAWN_PERMISSION_OPTIONS: Array<{
       'Ask before every action that changes something or reaches out: each edit, command, web request and MCP tool. Reading and searching the workspace does not ask.',
   },
   {
+    id: 'auto',
+    value: 'auto',
+    label: 'Auto',
+    summary: 'Edits go through; commands and the rest ask.',
+    title:
+      'Read and edit files in the workspace without asking, and in a chat use your connected MCP tools too. Commands, web access and anything outside the workspace ask first.',
+  },
+  {
+    id: 'bypass',
+    value: 'bypass',
+    label: 'Bypass permissions',
+    summary: 'Skip every prompt. Trusted repos only.',
+    title: 'Skip CLI permission prompts. Use only in repos and environments you trust.',
+  },
+  {
+    id: 'none',
     value: 'none',
     label: 'No flag',
     summary: 'The CLI’s default — no permission flag is passed.',
@@ -52,9 +68,9 @@ export const AGENT_SPAWN_PERMISSION_OPTIONS: Array<{
   },
 ]
 
-// Chip-width labels for the preset row. Exhaustive over the union so a preset
-// added later fails the build here rather than rendering a blank chip. Exported
-// because the model picker's permission footer wears the same short label.
+// Chip-width labels for a preset the CLI's own list does not name. Exhaustive
+// over the union so a preset added later fails the build here rather than
+// rendering a blank chip.
 export const PRESET_CHIP_LABEL: Record<CliPermissionPreset, string> = {
   none: 'No flag',
   manual: 'Manual',
@@ -62,58 +78,53 @@ export const PRESET_CHIP_LABEL: Record<CliPermissionPreset, string> = {
   bypass: 'Bypass',
 }
 
-// Keep stored preset ids stable; only the vocabulary depends on the runtime,
-// and only where the runtime means something different by it. A GPT model
-// alone does not imply Codex: callers pass the selected agent id.
-export function agentPermissionOptions(cli?: string | null): typeof AGENT_SPAWN_PERMISSION_OPTIONS {
-  return AGENT_SPAWN_PERMISSION_OPTIONS.map((option) => {
-    if (cli === 'codex' && option.value === 'bypass') {
-      return {
-        ...option,
-        label: 'YOLO',
-        summary: 'No approvals or sandbox.',
-        title: 'Run Codex without approval prompts or sandbox restrictions.',
-      }
-    }
-    if (cli === 'codex' && option.value === 'auto') {
-      return {
-        ...option,
-        summary: 'Workspace sandbox; auto-review judges the rest.',
-        title:
-          'Codex’s own auto-review: it edits and runs commands inside the workspace sandbox without asking, and a reviewer judges each request to write outside the workspace or use the network instead of asking you.',
-      }
-    }
-    if (cli === 'grok' && option.value === 'auto') {
-      return {
-        ...option,
-        summary: 'Grok runs what it judges safe; blocks the rest.',
-        title:
-          'Grok’s own auto mode: a classifier runs the tool calls it judges safe and turns the risky ones back to Grok.',
-      }
-    }
-    if (cli === 'claude-code' && option.value === 'auto') {
-      return {
-        ...option,
-        summary: 'Claude runs what it judges safe; blocks the rest.',
-        title:
-          'Claude Code’s own auto mode: a classifier runs the tool calls it judges safe and turns the risky ones back to Claude. Where your plan or model does not offer it, Claude asks instead.',
-      }
-    }
-    if (cli === 'cursor' && option.value === 'auto') {
-      return {
-        ...option,
-        summary: 'Cursor runs what it judges safe; asks for the rest.',
-        title: 'Cursor’s own auto-review: a classifier runs the tool calls it judges safe and asks for the rest.',
-      }
-    }
-    return option
-  })
+const GENERIC_OPTION = Object.fromEntries(
+  AGENT_SPAWN_PERMISSION_OPTIONS.map((option) => [option.value, option]),
+) as Record<CliPermissionPreset, PermissionModeOption>
+
+/**
+ * The rows a permission menu lists for a CLI: its modes as its manifest names
+ * them (`PluginRegistryListEntry.permissionModes`), in the manifest's order,
+ * or the four presets in the app's words when there is no list. Stored values
+ * stay the preset, plus the CLI's own id for a mode that is not a preset's own.
+ */
+export function agentPermissionOptions(modes?: readonly CliPermissionModeSpec[] | null): PermissionModeOption[] {
+  if (!modes?.length) return AGENT_SPAWN_PERMISSION_OPTIONS
+  return modes.map((spec) => ({
+    id: spec.id,
+    value: spec.level,
+    ...(spec.id !== spec.level ? { mode: spec.id } : {}),
+    label: spec.label,
+    summary: spec.summary ?? GENERIC_OPTION[spec.level].summary,
+    title: spec.description ?? GENERIC_OPTION[spec.level].title,
+  }))
 }
 
-export function agentPermissionChipLabel(preset: CliPermissionPreset, cli?: string | null): string {
-  return cli === 'codex' && preset === 'bypass' ? 'YOLO' : PRESET_CHIP_LABEL[preset]
+/**
+ * The row a preset, and the CLI's own mode beside it, select: that mode when
+ * the list has it at that preset, else the preset's own mode, else null (a
+ * preset this CLI has no mode for).
+ */
+export function selectedPermissionOption(
+  options: readonly PermissionModeOption[],
+  preset: CliPermissionPreset,
+  mode?: string | null,
+): PermissionModeOption | null {
+  return (
+    (mode ? options.find((option) => option.mode === mode && option.value === preset) : undefined) ??
+    options.find((option) => option.id === preset && !option.mode) ??
+    null
+  )
 }
 
+/** The chip's word for a preset and mode: the mode's own name, else the preset's. */
+export function agentPermissionChipLabel(
+  options: readonly PermissionModeOption[],
+  preset: CliPermissionPreset,
+  mode?: string | null,
+): string {
+  return selectedPermissionOption(options, preset, mode)?.label ?? PRESET_CHIP_LABEL[preset]
+}
 // One glyph per preset, a vocabulary that reads at a glance, drawn once in
 // AppIcons: an open lock for Bypass, a spark for Auto, a closed lock for
 // Manual, a quiet dial for the CLI's own default. All-or-nothing per the menu
@@ -213,26 +224,31 @@ export function menuRadioRowKeyDown(
 // above). A row in `disabledReasons` stays listed and dimmed with its reason
 // as the meta line — a control that vanishes when unavailable teaches nothing.
 export function PermissionPresetMenuRows({
-  cli,
+  options = AGENT_SPAWN_PERMISSION_OPTIONS,
   value,
+  mode,
   disabled = false,
   disabledReasons,
   onSelect,
 }: {
-  cli?: string | null
+  /** The CLI's modes (`agentPermissionOptions`); the four presets when absent. */
+  options?: readonly PermissionModeOption[]
   value: CliPermissionPreset
+  /** The CLI's own mode chosen at `value`, when it is not the preset's own. */
+  mode?: string | null
   /** Locks the rows while a live change is in flight. */
   disabled?: boolean
-  /** Rows a target cannot take, each with the one-line reason it shows. */
-  disabledReasons?: Partial<Record<CliPermissionPreset, string>>
-  onSelect: (preset: CliPermissionPreset) => void
+  /** Rows a target cannot take, by row id, each with the one-line reason it shows. */
+  disabledReasons?: Partial<Record<string, string>>
+  onSelect: (option: PermissionModeOption) => void
 }) {
+  const selected = selectedPermissionOption(options, value, mode)
   return (
     <>
-      {agentPermissionOptions(cli).map((option) => {
-        const active = option.value === value
+      {options.map((option) => {
+        const active = option === selected
         const isBypass = option.value === 'bypass'
-        const reason = disabledReasons?.[option.value] ?? null
+        const reason = disabledReasons?.[option.id] ?? null
         const rowDisabled = disabled || reason !== null
         return (
           // The kit's value row in its stacked shape. Bypass's warn ink moves
@@ -240,15 +256,15 @@ export function PermissionPresetMenuRows({
           // a caller className it met the primitive's resting and selected inks
           // at equal specificity, and which one painted was stylesheet order.
           <MenuOption
-            key={option.value}
+            key={option.id}
             role="menuitemradio"
             selected={active}
             stacked
             data-preset-option="true"
             tabIndex={active ? 0 : -1}
             disabled={rowDisabled}
-            onKeyDown={(event) => menuRadioRowKeyDown(event, PRESET_ROW_SELECTOR, () => onSelect(option.value))}
-            onClick={() => onSelect(option.value)}
+            onKeyDown={(event) => menuRadioRowKeyDown(event, PRESET_ROW_SELECTOR, () => onSelect(option))}
+            onClick={() => onSelect(option)}
             icon={
               <span className="mt-0.5 inline-flex shrink-0">
                 <PresetGlyph preset={option.value} />

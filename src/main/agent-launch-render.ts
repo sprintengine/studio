@@ -1,4 +1,5 @@
-import type { AgentCli, CliRuntimeSettings, ColorScheme, CliPermissionPreset } from '../shared/electron-api'
+import type { AgentCli, CliRuntimeSettings, ColorScheme } from '../shared/electron-api'
+import type { CliPermissionSetting } from '../shared/cli-permission-mode'
 import type { LoadedPlugin, PluginRenderContext } from '../shared/plugin-manifest'
 
 import { getPluginById } from './plugin-registry-instance'
@@ -51,7 +52,9 @@ export type AgentLaunchRenderInput = {
   resume?: boolean
   initialPrompt?: string
   cliRuntime?: CliRuntimeSettings
-  cliPermissionPreset?: CliPermissionPreset
+  // The preset, or the CLI's own mode id when one was chosen beside it
+  // (`permissionRenderKey`): the manifest entry the launch renders.
+  cliPermissionPreset?: CliPermissionSetting
   cliModel?: string
   // Selected reasoning-effort level. Consumed only by manifests declaring
   // reasoningSelection (today: Codex and Claude Code); rendered as

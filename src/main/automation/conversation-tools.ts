@@ -51,10 +51,10 @@ export function createConversationTools(deps: ConversationToolsDeps): McpToolReg
             type: 'string',
             enum: ['bypass', 'auto', 'manual', 'none'],
             description:
-              'Tool permissions: "bypass" skips the CLI\'s prompts; "auto" lets edits in the workspace through ' +
-              'and asks before commands and anything outside it; "manual" asks before every edit, command and ' +
-              'outside call; "none" lets the CLI\'s configuration decide. Prompts surface as approvals. ' +
-              'Omitted, the preset chosen for that CLI on this machine. ' +
+              'Tool permissions: "bypass" skips the CLI\'s prompts; "auto" runs the CLI\'s own auto mode, which ' +
+              'runs what it judges safe; "manual" asks before every edit, command and outside call; "none" lets ' +
+              "the CLI's configuration decide. Prompts surface as approvals. Omitted, the preset chosen for that " +
+              'CLI on this machine, else "auto". ' +
               "Called by an agent of this app, the chat runs no looser than that agent's own preset: a looser " +
               'one is refused with "permission_escalation", and an omitted one takes the stricter of the two.',
           },

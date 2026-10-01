@@ -1,7 +1,7 @@
 /**
  * The seam between the store's `appSettings` and main's agent-launch settings.
  *
- * Seven `appSettings` fields are a read model of main's record rather than
+ * Eight `appSettings` fields are a read model of main's record rather than
  * settings this window owns: they are filled from main, never persisted to
  * localStorage, and ignored when a persisted envelope is read back (except
  * once, as the migration offer — see `launchSettingsClient`). Everything that
@@ -10,6 +10,7 @@
  */
 import {
   effectiveAgentLaunchSettings,
+  normalizeCliPermissionModes,
   normalizeCliPermissionPresets,
   type AgentLaunchSettings,
 } from '../../../shared/launch-settings'
@@ -24,6 +25,7 @@ export const LAUNCH_SETTINGS_KEYS = [
   'lastSelectedCli',
   'lastAgentSpawnPermissionPreset',
   'cliPermissionPresets',
+  'cliPermissionModes',
 ] as const
 
 type LaunchSettingsKey = (typeof LAUNCH_SETTINGS_KEYS)[number]
@@ -45,6 +47,7 @@ export function pickLaunchSettings(appSettings: AppSettings): LaunchSettingsFiel
     lastSelectedCli: appSettings.lastSelectedCli,
     lastAgentSpawnPermissionPreset: appSettings.lastAgentSpawnPermissionPreset,
     cliPermissionPresets: appSettings.cliPermissionPresets,
+    cliPermissionModes: appSettings.cliPermissionModes,
   }
 }
 
@@ -68,6 +71,7 @@ export function launchSettingsFromAppSettings(appSettings: AppSettings): AgentLa
     lastSelectedCli: appSettings.lastSelectedCli ?? null,
     lastAgentSpawnPermissionPreset: appSettings.lastAgentSpawnPermissionPreset ?? null,
     cliPermissionPresets: normalizeCliPermissionPresets(appSettings.cliPermissionPresets),
+    cliPermissionModes: normalizeCliPermissionModes(appSettings.cliPermissionModes),
   }
 }
 
@@ -94,6 +98,7 @@ export function withLaunchSettings(
       lastSelectedCli: effective.lastSelectedCli,
       lastAgentSpawnPermissionPreset: effective.lastAgentSpawnPermissionPreset,
       cliPermissionPresets: effective.cliPermissionPresets,
+      cliPermissionModes: effective.cliPermissionModes,
     },
     workspaces,
   )

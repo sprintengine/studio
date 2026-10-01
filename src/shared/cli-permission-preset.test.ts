@@ -42,6 +42,10 @@ test('retired spellings read as the mode that kept their promise', () => {
 test('a value no version wrote is not a preset, and only normalizing gives it the default', () => {
   assert.equal(parseCliPermissionPreset('yolo'), null)
   assert.equal(parseCliPermissionPreset(undefined), null)
-  assert.equal(normalizeCliPermissionPreset('yolo'), 'bypass')
+  // Auto since 2026-10-01: nobody who never chose is held to every prompt, or
+  // runs with none of them.
+  assert.equal(normalizeCliPermissionPreset('yolo'), 'auto')
+  assert.equal(normalizeCliPermissionPreset(undefined), 'auto')
   assert.equal(normalizeCliPermissionPreset('manual'), 'manual')
+  assert.equal(normalizeCliPermissionPreset('bypass'), 'bypass', 'a person who chose Bypass keeps it')
 })

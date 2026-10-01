@@ -54,6 +54,6 @@ test('a stored preset that asks never escalates to the default', () => {
   }
   const corrupt = normalizeAgentLaunchSettings({ lastAgentSpawnPermissionPreset: 'root' })
   assert.equal(corrupt.lastAgentSpawnPermissionPreset, null)
-  assert.equal(effectiveAgentLaunchSettings(corrupt).lastAgentSpawnPermissionPreset, 'bypass')
+  assert.equal(effectiveAgentLaunchSettings(corrupt).lastAgentSpawnPermissionPreset, 'auto')
   assert.equal(normalizeAgentLaunchSettings({}).lastAgentSpawnPermissionPreset, null)
 })

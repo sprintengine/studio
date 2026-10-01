@@ -57,6 +57,7 @@ import {
   Textarea,
   StarGlyph,
   Tooltip,
+  useCliPermissionMode,
   useCliPermissionPreset,
   type InlineSkillPickerHandle,
 } from '../../ui'
@@ -989,6 +990,10 @@ export default function NewAgentPanel({
   // own default. Everything the surface says about permissions — the chip, the
   // command-line preview, what the launch carries — reads THIS, never the prop.
   const effectivePreset = useCliPermissionPreset(launchCli, permissionPreset)
+  // The CLI's own mode chosen beside it (Claude Code's Accept edits), which the
+  // preview renders. A scheduled agent and a launch on another machine carry
+  // the preset alone, and run its own mode.
+  const effectiveMode = useCliPermissionMode(launchCli)
 
   // ── The skill trigger ────────────────────────────────────────────────────
   // A chat carries skills as attachments rather than a typed invocation, so the
@@ -1075,13 +1080,14 @@ export default function NewAgentPanel({
       model,
       reasoning,
       permissionPreset: effectivePreset,
+      ...(effectiveMode ? { permissionMode: effectiveMode } : {}),
       runtime: commandCli
         ? isWslHostId(hostId)
           ? { command: hostSettings?.[hostId]?.cliCommands[commandCli] ?? '', hostId }
           : cliRuntimes?.[commandCli]
         : undefined,
     }),
-    [cliRuntimes, commandCli, effectivePreset, hostId, hostSettings, model, reasoning],
+    [cliRuntimes, commandCli, effectiveMode, effectivePreset, hostId, hostSettings, model, reasoning],
   )
   const previewKey = launchCommandLineKey(previewInput)
   React.useEffect(() => {

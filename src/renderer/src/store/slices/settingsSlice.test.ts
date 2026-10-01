@@ -90,7 +90,7 @@ test('settingsSlice', async () => {
   assert.deepEqual(Object.keys(normalized.mcp.servers), ['valid-server'])
   assert.deepEqual(normalized.mcp.servers['valid-server'].args, ['package'])
   assert.deepEqual(normalized.mcp.servers['valid-server'].clients, ['codex', 'opencode', 'bad-cli'])
-  assert.equal(normalized.lastAgentSpawnPermissionPreset, 'bypass', 'a value no version wrote takes the default')
+  assert.equal(normalized.lastAgentSpawnPermissionPreset, 'auto', 'a value no version wrote takes the default')
   assert.deepEqual(normalized.projectKnowledgeRoots, {
     '/Users/example/project': 'docs/knowledge',
   })
@@ -166,10 +166,10 @@ test('settingsSlice', async () => {
     ['default', 'manual'],
     ['auto_workspace', 'auto'],
     ['bypass_all', 'bypass'],
-    [undefined, 'bypass'],
-    [null, 'bypass'],
-    ['nonsense', 'bypass'],
-    [42, 'bypass'],
+    [undefined, 'auto'],
+    [null, 'auto'],
+    ['nonsense', 'auto'],
+    [42, 'auto'],
   ]
   for (const [stored, expected] of migration) {
     assert.equal(normalizeCliPermissionPreset(stored), expected, `${String(stored)} reads as ${expected}`)
