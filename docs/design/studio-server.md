@@ -2,7 +2,8 @@
 
 Status: proposed, 2026-10-01. Phases 1 (the Electron seams), 2 (the Studio
 RPC), 3 (the Electron-free core and the `studio-server` entry) and 4 (the chat
-view over the protocol, behind a setting) have landed (section 13, "As
+view over the protocol, behind the `SPRINTENGINE_CHAT_TRANSPORT=studio`
+environment variable) have landed (section 13, "As
 landed"); nothing after them is. This file replaces
 the remaining steps of the agent SDK plan on `feat/studio-agent-sdk` (the work
 after the protocol package and the tailnet lane and module service that speak
@@ -974,13 +975,13 @@ environments instead of paired desktops only.
 - `npm run build:server` builds `out/server/server.mjs`, a single Node ESM
   bundle of `src/server/` and its dependencies, with the pure-JS dependencies
   inlined (`@anthropic-ai/claude-agent-sdk`, `@agentclientprotocol/sdk`,
-  `diff`, `ignore`, `nanoid`, the protocol packages). *As of phase 3 it builds
+  `diff`, `ignore`, `nanoid`, the protocol packages). _As of phase 3 it builds
   `out/server/server.cjs` instead: CommonJS, as the main bundle the same source
   goes into is, with every dependency left in `node_modules`. That is what a
   desktop-spawned server (phase 6, inside the app archive) needs; inlining for
   hosts with no `node_modules` (WSL, SSH) is phases 7 and 8's packaging, and
   is where the ESM question is decided, against how the agent SDK finds its
-  own files once inlined.*
+  own files once inlined._
 - Beside it: `resources/` (plugins, hooks, the studio plugin, built-in skills,
   `automation/mcp-stdio-bridge.mjs`), the ripgrep binary for the target
   os/arch, the canvas worker page and its fonts, and the web client (section
@@ -1047,7 +1048,8 @@ but every intermediate state is a shippable app:
    the standalone server and drives a chat through the SDK.
 4. **The chat view over the protocol** (phase 4), still against the in-process
    core: the renderer's adapter routes the v1 members to the SDK client,
-   behind a setting until it is at parity, then by default. IPC stays for
+   behind the `SPRINTENGINE_CHAT_TRANSPORT` environment variable until it is at
+   parity, then by default. IPC stays for
    everything else.
 5. **Rendering without a window** (phase 5) so canvas and browser tools do not
    depend on main's windows.
@@ -1157,7 +1159,7 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
   whose notifier has no click to deliver until the router exists. Its
   `packaged` flag is required and must come from the bundle, never default.
 - **As landed.**
-  - *One wiring.* `createStudioCore(platform, { role })`
+  - _One wiring._ `createStudioCore(platform, { role })`
     (`src/server/core/studio-core.ts`) installs the platform it is given, takes
     the data directory's run lock, settles whose cipher seals the directory,
     then builds launch settings and the host registry, the workspace registry
@@ -1169,8 +1171,8 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
     among the core's own; `createStudioRpc(core, gateway)` composes phase 2's
     RPC. `createAppServices` calls all three with the Electron platform, the
     standalone server with the Node one.
-  - *A `ConversationBackend` seam* (`src/server/core/conversation-backend.ts`,
-    asked for by the phase 7 scoping): the chat calls, picked off the runtime
+  - _A `ConversationBackend` seam_ (`src/server/core/conversation-backend.ts`,
+    so a later phase can route a chat to another server): the chat calls, picked off the runtime
     by name. The session API, the tailnet host, the IPC handlers, the module
     conversation and companion services, scheduled agents (through the runtime
     token), the launch service, the control plane and the peek take it; only
@@ -1178,28 +1180,28 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
     still reach the runtime. A test fails on a new file that names the runtime
     class. The runtime is its only implementation; phases 7 and 8 add the
     remote and routed ones.
-  - *The entry.* `src/server/main.ts` (`serve`, `--version`, `--help`):
+  - _The entry._ `src/server/main.ts` (`serve`, `--version`, `--help`):
     `--data-dir` (XDG by default, or `SPRINTENGINE_USER_DATA_DIR`),
     `--logs-dir` (inside a given data directory by default), `--app-root`,
     `--resources-dir` with `--packaged`, `--share-desktop-data-dir`, `--stdio`.
     One JSON line on stdout, `{"ready":{pid, version, dataDir, gatewaySocket,
-    rpcSocket, secrets}}` or `{"fatal":{code, message}}`; everything for a
+rpcSocket, secrets}}` or `{"fatal":{code, message}}`; everything for a
     person on stderr. `--stdio` stops on `{"t":"shutdown"}` or when stdin
-    closes, which is the parent-watch of 10.1. Exit codes follow the phase 6
-    scoping: 64 usage, 65 data directory unusable, 66 held, 70 failed. It also
+    closes, which is the parent-watch of 10.1. Exit codes:
+    64 usage, 65 data directory unusable, 66 held, 70 failed. It also
     exports `startStudioServer` for a process that embeds the server.
-  - *No terminals* (ruling a), no module host, no canvas worker and no browser
+  - _No terminals_ (ruling a), no module host, no canvas worker and no browser
     tools on the standalone server yet: the module host's bundled modules
     still take the shell's terminal runtime and account bridge (phase 6 moves
     the agent-runtime module, phase 10 splits the rest), and rendering is the
     render host's (phase 5). Its gateway serves `conversation.create` and
     module-free tools only.
-  - *Not done:* the bootstrap envelope on stdin (phase 6 decides between it
-    and `utilityProcess` with `postMessage`, its D1), and the `studio-run`
+  - _Not done:_ the bootstrap envelope on stdin (phase 6 decides between it
+    and `utilityProcess` with `postMessage`), and the `studio-run`
     pointer. The pointer stays the shell's: it is shared with terminals, and
-    the phase 6 and 7 scopings both give it one writer. A server writing it
+    phases 6 and 7 both keep it to one writer. A server writing it
     from a shell would repoint the desktop's hooks at itself.
-  - *Tests.* `src/server/studio-server.smoke.test.ts` builds the bundle and
+  - _Tests._ `src/server/studio-server.smoke.test.ts` builds the bundle and
     runs it with the `node` running the suite: the ready line, the run lock,
     the discovery file, a second server refused with 66, MCP `initialize`,
     `tools/list` and `conversation.create` through the gateway, a clean stop
@@ -1209,38 +1211,38 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
     its checkpoint and a revert, then an approval. The import-graph guard
     lists the newly composed `src/main/` files.
 - **Edge cases, and what was done about each.**
-  - *Import-time side effects.* None of the core's graph reads the platform,
+  - _Import-time side effects._ None of the core's graph reads the platform,
     starts a timer or touches the disk while it is imported (the bundle boots
     with nothing installed until `startStudioServer` builds the platform).
     The idle sweep, the gateway and the RPC start only when composed.
-  - *`__dirname` and resources.* The bundle is CommonJS, so `__dirname` is
+  - _`__dirname` and resources._ The bundle is CommonJS, so `__dirname` is
     real; resources are found through `StudioPaths` (`appRoot` from
     `--app-root`, else the checkout two levels above the bundle; `resourcesDir`
     with `--packaged`). One lookup still reads the working directory: a
     source checkout's vendored npm (`resources/runtime`, for installing a CLI
     through the managed Node), so a dev server started outside the checkout
     falls back to the person's own npm.
-  - *Dynamic imports of providers.* Relative dynamic imports (the Codex
+  - _Dynamic imports of providers._ Relative dynamic imports (the Codex
     picture store) are bundled; package imports stay `require`s of
     `node_modules`, ESM-only ones through Node's `require(esm)` (22.12+, and
     Electron's 24.21.0).
-  - *The gateway and the module host.* The gateway is composed (its socket,
+  - _The gateway and the module host._ The gateway is composed (its socket,
     discovery files, audit, tailnet lane); the module host is not (above).
-  - *Worker threads.* The core starts none.
-  - *Electron-only packages.* `scripts/build-server.mjs` refuses `electron`,
+  - _Worker threads._ The core starts none.
+  - _Electron-only packages._ `scripts/build-server.mjs` refuses `electron`,
     `electron-updater` and `node-pty` anywhere in the graph, naming the
     importer.
-  - *PATH and CLIs.* The login-shell PATH resolver runs unchanged; a server
+  - _PATH and CLIs._ The login-shell PATH resolver runs unchanged; a server
     started from a terminal already has the person's PATH. The managed `node`
     and `npm` shims set `ELECTRON_RUN_AS_NODE` only when the binary is
     Electron, and a chat's MCP bridge entry runs on the server's own Node.
-  - *Windows.* The named-pipe gateway, the lock (`process.kill(pid, 0)`) and
+  - _Windows._ The named-pipe gateway, the lock (`process.kill(pid, 0)`) and
     the key file (phase 1's ACL) work there. A WSL host is not this server's
     to reach: its helper is a shell concern, so a launch into a distribution
     fails with "the WSL helper is not available in this process", and a chat's
     gateway entry is null for a WSL host. The server for a distribution runs
     inside it (phase 7).
-  - *Two cores on one data directory.* Every core takes
+  - _Two cores on one data directory._ Every core takes
     `<dataDir>/run/studio.lock` (pid, host, a token; written whole under
     another name and linked into place, so a full disk leaves no half lock)
     before any store is built, the desktop included, and lets it go as the
@@ -1248,7 +1250,7 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
     or is itself (a container restarting its one process), never one naming
     another machine, and refuses a directory whose Electron `SingletonLock`
     names a running app; refused, it exits 66.
-  - *The desktop always starts, and wins.* `takeDataDir`
+  - _The desktop always starts, and wins._ `takeDataDir`
     (`src/server/core/take-data-dir.ts`) reports any error from the lock or
     the record (EACCES, ENOSPC, EBUSY from an antivirus) as a diagnostic and
     the app runs without them. It holds Electron's single-instance lock for
@@ -1258,7 +1260,7 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
     second, stops and exits 66, and the desktop's gateway and RPC bind only
     once its process has gone (closing a listener removes the socket file at
     the shared path).
-  - *Secrets sealed by the desktop.* `<dataDir>/studio-data-dir.json` records
+  - _Secrets sealed by the desktop._ `<dataDir>/studio-data-dir.json` records
     which cipher seals the directory (`desktop-keychain` or `server-key`);
     an unrecorded directory is a desktop's when Chromium's `Local State` is in
     it or any sealed file is not a data key's. A server refuses such a
@@ -1268,7 +1270,7 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
     on a clear. The core also
     refuses to start a server whose cipher could seal into a desktop's
     directory, so the guard holds for an embedder that skips the entry.
-  - *Startup and shutdown order.* Platform, then the core (lock, record,
+  - _Startup and shutdown order._ Platform, then the core (lock, record,
     stores), then the gateway's socket and discovery, then the RPC socket,
     then ready. Stop is the reverse: the RPC (it audits into the gateway's
     log), the gateway, the registry flushed around the chats' end, the hosts'
@@ -1277,7 +1279,7 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
     seconds leaves anyway and leaves the lock to be found abandoned; a second
     signal does not wait. The entry's handlers are installed before startup,
     so a stop asked for then runs once the server is up.
-  - *A bundle away from its dependencies.* The two packages only a chat
+  - _A bundle away from its dependencies._ The two packages only a chat
     loads (the Claude agent SDK, the ACP SDK) are resolved at start, and a
     bundle that cannot find them exits 70 naming them.
 - **Risks left.** A lock whose process id came round to an unrelated process
@@ -1307,14 +1309,14 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
   gains a server implementation; the ~75 v1 members route through it; the
   preload's `studioConnection.current()` with per-connection tickets;
   `files.*`, `providers.*`, `workspaces.*`, `settings.launch.*`, `skills.*`
-  namespaces server-side. Behind a setting, then the default.
+  namespaces server-side. Behind the `SPRINTENGINE_CHAT_TRANSPORT` environment variable, then the default.
 - **Tests.** The existing chat view tests run against both transports; the
   conversation seam suite runs over the socket; a reconnect test (kill the
   socket mid-turn, resume from the cursor, no duplicated text).
 - **Risks.** Latency on the composer's mention search and on large snapshots;
   measured against IPC before the default flips.
 - **As landed.**
-  - *The way in.* A window does not open a WebSocket with a ticket (5.5): main
+  - _The way in._ A window does not open a WebSocket with a ticket (5.5): main
     makes a message channel per connection, serves one end in process
     (`StudioRpcService.connectWindow`, `framePortStream`) and transfers the
     other to the window's preload (`studio:connect`, `studio:port`), which
@@ -1326,14 +1328,14 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
     which is all the page ever holds. This is phase 6's port-per-window
     decision taken a phase early, so phase 6 hands main's end to the server
     process and changes nothing in the window.
-  - *Studio's own window.* A connection attached this way (`ownWindow`) is the
+  - _Studio's own window._ A connection attached this way (`ownWindow`) is the
     app's chat view: its events and replies are not redacted, a refusal from
     below is told in its own words, its mutations are not audited, and its
     request bounds are sized for a view (512 in flight, 512 streams) rather
     than a paired app's 8 and 32, because the IPC it replaces refused none of
     these. Frames a stream takes at once go out at once, so deltas merge only
     behind a reader that is actually slow.
-  - *The protocol.* `chat.ts` adds `session.*` (start and drive a live session
+  - _The protocol._ `chat.ts` adds `session.*` (start and drive a live session
     with everything the composer sends), `uploads.*` (a picture in pieces of
     512 KiB ahead of the send that names it; 5 MB each, 16 a send, a budget
     per connection, given back with `uploads.discard` and expired on a
@@ -1352,14 +1354,14 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
     (`key.workspaceRoot`, `conversation-folders`): a chat started in a run
     worktree is kept there, not in its workspace's folder. `server.ping`
     answers any authenticated client at once.
-  - *Main's half.* The chat surface is the conversation IPC's own handler
+  - _Main's half._ The chat surface is the conversation IPC's own handler
     object, file search and reads, command list service and repository-root
     lookup (`createStudioChatBackend`), behind the IPC's own input checks,
     now shared (`conversation-ipc-inputs.ts`). It is provided by the core IPC
     registration that builds those handlers, so the standalone server does
     not serve it yet. Sessions are driven through the handlers over the
     core's `ConversationBackend`, never the runtime.
-  - *The renderer.* `ConversationTransport` gains `startSession` and `revert`,
+  - _The renderer._ `ConversationTransport` gains `startSession` and `revert`,
     and a sibling seam on every transport, `services`, carries what a chat
     asks of its window's Studio whichever machine it runs on: providers,
     files, a plan as a document and the command lists. The chat files call
@@ -1370,14 +1372,14 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
     client is the SDK's (`windowStudioClient`), bound to the environment it
     first reached. A chat on the protocol says "Reconnecting to Studio" in
     the composer tray when its connection has been down for a moment.
-  - *The boundary.* `ChatViewErrorBoundary` wraps the local chat (AgentPanel)
+  - _The boundary._ `ChatViewErrorBoundary` wraps the local chat (AgentPanel)
     and a followed one (RemoteConversationPanel): a chat that throws stops in
     its pane with Reload chat, and the window stays drawn. A chat whose code
     failed to load is loaded again by Reload chat (`reloadableLazy`) and is
     also offered Reload window. It is on for everyone, whichever transport:
     a stopped pane is better than a blank window. It is the one intentional
-    visible change in phases 1 to 4 (orchestrator decision 2026-10-02).
-  - *Hardening carried with it.* Command fingerprints: a reused command id
+    visible change in phases 1 to 4 (2026-10-02).
+  - _Hardening carried with it._ Command fingerprints: a reused command id
     for a different command is refused `command_id_conflict`, by the router
     while it runs and by the runtime's receipts across a restart. Every
     refusal told in stable words carries an `errorId` the log keeps beside
@@ -1387,7 +1389,7 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
     its stream `cursor` moves only as the consumer reads. Catch-up already
     chose a snapshot past 8 MiB as well as past 2,000 events; that now has a
     test.
-  - *Parity and latency.* The chat view's suites that script its IPC run a
+  - _Parity and latency._ The chat view's suites that script its IPC run a
     second time in a `chat-over-studio` Vitest project over a real RPC
     (`tests/studio-chat-loopback.ts`), with the same assertions and the
     runtime's receipts kept as it keeps them; one IPC-shaped test (a preload
@@ -1397,19 +1399,19 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
     invoke-shaped round trip 4.1 µs mean, `files.stat` over the protocol
     9.7 µs (p99 28 µs), `session.send` 10.2 µs, one streamed event backend to
     client 5.3 µs. The protocol adds about 6 µs a call, against 25–36 µs for
-    a call over Electron's own IPC or ports (phase 6, E4). A session command
+    a call over Electron's own IPC or ports (measured while planning phase 6). A session command
     over the protocol carries a command id, so the runtime keeps a receipt
     for it, which the IPC never did: two writes of the conversation's
     receipts file per command, the first (the intent) awaited before the
     command runs, the second (its result) after.
-  - *Still on IPC, and why.* The shell's own members (clipboard, `platform`,
+  - _Still on IPC, and why._ The shell's own members (clipboard, `platform`,
     open externally, reveal, open in an editor, the picture viewer), the
     terminals behind a code block's Run, CLI sign-in and Resume in terminal
     (ruling a), the composer's skill reader (it opens the Extensions
     surface's reader, which reads through the skills domain, a phase 10
     domain), the remote chat's Mesh transport, and the session list and
     history palette outside the chat view.
-  - *Why the IPC stays the default.* The suites prove the renderer's side and
+  - _Why the IPC stays the default._ The suites prove the renderer's side and
     the RPC's; nothing yet runs the real Electron ports end to end in a
     packaged app. Before the default flips: a packaged smoke run drives a
     chat over them, and the receipt writes are measured where they cost
@@ -1419,24 +1421,24 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
     move off the command's path (written alongside, or batched) first. Keep
     the IPC behind the setting for one release after.
 - **Follow-ups.**
-  - *Assets beside the socket (phase 9).* Phase 4 serves nothing over HTTP:
+  - _Assets beside the socket (phase 9)._ Phase 4 serves nothing over HTTP:
     pictures go over the connection in pieces and come back as data. When the
     web client serves them beside the socket, its routes need signed URLs
     bound to the file and their expiry, `X-Content-Type-Options: nosniff`, a
     sandboxing CSP (or `application/octet-stream`) for HTML and SVG, and
     `Cache-Control: no-store` on anything that carries a credential.
-  - *Durable answers (phase 6).* The router keeps a start's, revert's,
+  - _Durable answers (phase 6)._ The router keeps a start's, revert's,
     rewind's and fork's first answer, and every command's fingerprint, in
     memory. Once a server can restart under a window that resends, those need
     receipts that outlive it, as a session's commands already have.
-  - *Flow control on a port (phase 6).* A message port does not push back, so
+  - _Flow control on a port (phase 6)._ A message port does not push back, so
     a window's connection never queues and never resyncs; the renderer holds
     what it is sent, as it does over IPC. A server in its own process should
     pace a window by acknowledgement rather than by its socket's drain.
-  - *The chat surface on a standalone server (phase 6).* Build the handler
+  - _The chat surface on a standalone server (phase 6)._ Build the handler
     objects in the core rather than in the IPC registration, so a server with
     no Electron serves the chat surface too.
-  - *Paired apps and worktree chats (phase 10).* A key without a folder is
+  - _Paired apps and worktree chats (phase 10)._ A key without a folder is
     resolved by its workspace's folder, as on the tailnet, so a paired app or
     the phone reaches a chat started in a run worktree only through an owner
     that names the folder.

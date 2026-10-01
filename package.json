@@ -79,7 +79,8 @@
     "artifactName": "SprintEngine-Studio-${version}-${os}-${arch}.${ext}",
     "files": [
       "out/**/*",
-      "!out/**/*.map"
+      "!out/**/*.map",
+      "!out/server/**"
     ],
     "asarUnpack": [
       "node_modules/@vscode/ripgrep-*/bin/**"
