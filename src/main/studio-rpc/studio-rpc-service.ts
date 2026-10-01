@@ -29,6 +29,8 @@ import { createStudioLocalAppStore, type StudioLocalAppStore } from './studio-lo
 // is reported in Settings and changes nothing else the app does.
 
 export const STUDIO_ENVIRONMENT_FILENAME = 'studio-environment.json'
+const REFUSAL_WINDOW_MS = 60_000
+const REFUSALS_PER_WINDOW = 5
 
 export type StudioRpcService = {
   start(): Promise<void>
@@ -64,6 +66,7 @@ export type StudioRpcServiceOptions = {
   log?: (message: string) => void
   /** A socket path or pipe name of the caller's choosing (tests). */
   socketPath?: string
+  now?: () => number
 }
 
 /**
@@ -89,6 +92,7 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
   const dataDir = () => (options.paths ?? studioPlatform().paths).dataDir()
   const version = () => (options.identity ?? studioPlatform().identity).version()
   const clients = () => options.clients ?? studioPlatform().clients
+  const now = options.now ?? Date.now
   let store: StudioLocalAppStore | null = null
   let server: StudioRpcServer | null = null
   let lastError: string | null = null
@@ -152,7 +156,33 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
   // One record per mutation and per refusal at the door, into the gateway's
   // own audit: the app is the connection, the conversation and command id the
   // targets. A message's text never reaches it.
-  function audit(entry: StudioAuditEntry): void {
+  // Refused credentials are kept, but not without bound: a process looping on a
+  // bad token would otherwise rotate the 2 MB log and push out the records it
+  // exists for. A few per minute are written; the rest are counted, and the
+  // count rides on the next one written.
+  const refusals = { windowStart: Number.NEGATIVE_INFINITY, written: 0, suppressed: 0 }
+  function admitRefusal(): number | null {
+    const at = now()
+    if (at - refusals.windowStart >= REFUSAL_WINDOW_MS) {
+      refusals.windowStart = at
+      refusals.written = 0
+    }
+    if (refusals.written >= REFUSALS_PER_WINDOW) {
+      refusals.suppressed++
+      return null
+    }
+    refusals.written++
+    const suppressed = refusals.suppressed
+    refusals.suppressed = 0
+    return suppressed
+  }
+
+  function audit(entry: StudioAuditEntry & { suppressed?: number }): void {
+    if (entry.tool === 'studio.auth_refused') {
+      const suppressed = admitRefusal()
+      if (suppressed === null) return
+      if (suppressed > 0) entry = { ...entry, suppressed }
+    }
     options.audit().record({
       connection: {
         kind: 'studio-client',
@@ -165,6 +195,7 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
         ...(entry.workspaceId ? { workspaceId: entry.workspaceId } : {}),
         ...(entry.agentId ? { agentId: entry.agentId } : {}),
         ...(entry.commandId ? { id: entry.commandId } : {}),
+        ...(entry.suppressed ? { suppressed: entry.suppressed } : {}),
       },
       result: entry.ok
         ? toolSuccess({ ok: true })
@@ -213,8 +244,10 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
       await current?.stop()
     },
     getStatus: status,
+    // Pairing and revoking are recorded too: they decide who may connect.
     offer(input) {
       const { offer, code } = appStore().offer(input)
+      audit({ clientId: null, clientName: offer.name, tool: 'studio.settings.pairing_code', ok: true, durationMs: 0 })
       return { offer, code, status: status() }
     },
     cancelOffer(id) {
@@ -222,7 +255,26 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
       return status()
     },
     revoke(id) {
-      if (typeof id === 'string') appStore().revoke(id)
+      if (typeof id !== 'string') return status()
+      const clientName =
+        appStore()
+          .list()
+          .find((app) => app.id === id)?.name ?? id
+      let revoked = false
+      try {
+        revoked = appStore().revoke(id)
+      } catch (error) {
+        audit({
+          clientId: id,
+          clientName,
+          tool: 'studio.settings.revoke',
+          ok: false,
+          code: 'write_failed',
+          durationMs: 0,
+        })
+        throw error
+      }
+      if (revoked) audit({ clientId: id, clientName, tool: 'studio.settings.revoke', ok: true, durationMs: 0 })
       return status()
     },
     ownerToken: () => appStore().ownerToken(),
