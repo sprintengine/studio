@@ -16,7 +16,7 @@ import {
   studioWireFrames,
   type ConversationServerFrame,
   type StudioByeCode,
-  type StudioError,
+  type StudioErrorBody,
   type StudioGrant,
   type StudioRequestFrame,
   type StudioServerFrame,
@@ -345,7 +345,7 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
     enqueueBulk(studioWireFrames(json, nextFrameId())[Symbol.iterator](), bytes)
   }
 
-  function refuseRequest(id: string, error: StudioError): void {
+  function refuseRequest(id: string, error: StudioErrorBody): void {
     enqueueLive({ t: 'res', id, ok: false, error })
   }
 

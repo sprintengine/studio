@@ -4,7 +4,7 @@ import {
   studioScopesGrant,
   type ConversationCommand,
   type StudioCreatedConversation,
-  type StudioError,
+  type StudioErrorBody,
   type StudioGrant,
   type StudioMethod,
   type StudioMethodParams,
@@ -38,7 +38,7 @@ import type { StudioAuditEntry, StudioConversationBackend } from './studio-rpc-t
 //   collide with nor be answered from another's receipts.
 
 export type StudioRpcAnswer<M extends StudioMethod = StudioMethod> =
-  { ok: true; result: StudioMethodResult<M> } | { ok: false; error: StudioError }
+  { ok: true; result: StudioMethodResult<M> } | { ok: false; error: StudioErrorBody }
 
 export type StudioRpcRouter = {
   handle(grant: StudioGrant, method: StudioMethod, params: unknown): Promise<StudioRpcAnswer>
@@ -57,7 +57,7 @@ export function studioRuntimeCommandId(grant: StudioGrant, commandId: string): s
   return grant.owner ? `owner:${commandId}` : `client:${grant.clientId}:${commandId}`
 }
 
-const refuse = (code: string, message: string): { ok: false; error: StudioError } => ({
+const refuse = (code: string, message: string): { ok: false; error: StudioErrorBody } => ({
   ok: false,
   error: { code, message },
 })

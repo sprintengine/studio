@@ -125,10 +125,11 @@ export type StudioWelcomeFrame = {
   pairing?: { token: string }
 }
 
-export type StudioError = { code: string; message: string; retryAfterMs?: number }
+/** Why a request was refused, as a `res` carries it. */
+export type StudioErrorBody = { code: string; message: string; retryAfterMs?: number }
 
 export type StudioResponseFrame =
-  { t: 'res'; id: string; ok: true; result: unknown } | { t: 'res'; id: string; ok: false; error: StudioError }
+  { t: 'res'; id: string; ok: true; result: unknown } | { t: 'res'; id: string; ok: false; error: StudioErrorBody }
 
 /** One frame of a stream: a conversation server frame (`snapshot`, `event`, `synchronized`). */
 export type StudioStreamFrame = { t: 'frame'; sub: string; frame: ConversationServerFrame }
