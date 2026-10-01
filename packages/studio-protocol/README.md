@@ -73,8 +73,11 @@ The `welcome`'s `grant` is what the connection may do:
   chat it starts, or switches, with a looser preset is lowered to the ceiling,
   and one it starts without a preset is pinned to it. A chat that already runs
   looser than the ceiling can be read, interrupted and stopped, and its
-  requests denied, but not sent to or approved. Naming `allowedTools` needs a
-  `bypass` ceiling, since a tool allowed unasked is as loose as bypass for it.
+  requests denied, but not sent to or approved; a chat whose session runs
+  tools unasked counts as `bypass` for that. Naming `allowedTools` needs a
+  `bypass` ceiling, since a tool allowed unasked is as loose as bypass for it,
+  and answering a request `conversation` (an allow rule for its kind) needs a
+  ceiling of at least `auto`.
 - `owner` — the connection is Studio's own, with every scope and no ceiling.
 
 ## Methods
