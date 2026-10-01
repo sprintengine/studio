@@ -29,7 +29,7 @@ import {
   conversationDeltaKey,
   conversationSnapshotParts,
   type ConversationSnapshotFrame,
-} from '../../shared/conversation-stream-shaping'
+} from '../conversation-stream-shaping'
 import type { StudioRpcAnswer, StudioRpcRouter } from './studio-rpc-router'
 import type { StudioAuditEntry, StudioAuthenticator, StudioConversationBackend } from './studio-rpc-types'
 

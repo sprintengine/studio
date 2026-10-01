@@ -2,12 +2,13 @@ import {
   CONVERSATION_MAX_FRAME_BYTES,
   type ConversationServerFrame,
 } from '../../packages/conversation-protocol/src/public'
-import type { ConversationEvent, ConversationPage } from './conversation-runtime'
+import type { ConversationEvent, ConversationPage } from '../shared/conversation-runtime'
 
 // How a conversation's frames are cut to size for a socket, shared by every
 // transport that streams one: the tailnet lane's WebSocket and the Studio
 // RPC's owner socket. Pure, so the two cannot disagree about where a snapshot
-// splits or which deltas are one message.
+// splits or which deltas are one message. Server code, not shared code: it
+// measures with Node's Buffer, and no renderer streams a conversation out.
 
 // A snapshot keeps its newest events within this; older ones stay reachable
 // through `loadEarlier`, so a huge page pages instead of looping on a resync.

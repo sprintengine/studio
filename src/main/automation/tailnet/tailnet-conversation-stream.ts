@@ -26,7 +26,7 @@ import {
   conversationDeltaKey,
   conversationSnapshotParts,
   type ConversationSnapshotFrame,
-} from '../../../shared/conversation-stream-shaping'
+} from '../../../server/conversation-stream-shaping'
 import type { ConversationGatewayHost } from './tailnet-conversation-host'
 import { redactConversationValue } from '../../conversation-tool-details'
 import {
