@@ -1023,3 +1023,25 @@ test('an ACP fork the agent could not branch hands its first message the convers
     await f.cleanup()
   }
 })
+
+test('an ACP session still owed its conversation is never branched: the fork is seeded instead', async () => {
+  const f = await fixture(false, undefined, { FORK: '1' })
+  try {
+    // A fork of this chat that has not been sent anything yet: its agent's
+    // session is new and empty until the first message carries the seed.
+    const seeded = {
+      ...f.input,
+      sessionId: 'seeded-fork',
+      seedFromHistory: true,
+      fallbackHistory: [{ role: 'user' as const, content: 'persisted question' }],
+    }
+    await f.provider.startSession(seeded)
+    expect(await f.provider.fork!({ ...seeded, cursor: null, exact: false, latest: true })).toEqual({
+      ok: true,
+      cursor: null,
+    })
+    await expect(readFile(join(f.root, 'forked.json'), 'utf8')).rejects.toThrow()
+  } finally {
+    await f.cleanup()
+  }
+})

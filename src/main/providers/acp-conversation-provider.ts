@@ -249,6 +249,7 @@ const baseCapabilities = (profile: AcpProfile): ConversationCapabilities => ({
   contextMeter: false,
   liveModelSwitch: true,
   fork: true,
+  forkFromLiveSession: true,
 })
 // What a permission request is read as. ACP agents name the files a call
 // touches in `locations`, beside an input that may use its own key for them or
@@ -1105,6 +1106,7 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
               text: prior ? `Previous conversation:\n${prior}\n\nUser: ${input.message}` : input.message,
             },
           ]
+          const seeding = Boolean(prior)
           if (!command) {
             state.replayHistory = false
             state.seedPending = false
@@ -1114,6 +1116,9 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
           for (const attachment of input.attachments ?? [])
             prompt.push({ type: 'image', data: attachment.dataBase64, mimeType: attachment.mediaType })
           const result = await state.connection!.prompt({ sessionId: state.nativeId!, prompt })
+          // The agent has the conversation now; until here a fork that was
+          // owed it is owed it still, after a restart too.
+          if (seeding) emit(state, 'session_updated', { historySeeded: true })
           if (result.usage)
             emit(state, 'usage_updated', {
               inputTokens: result.usage.inputTokens,
@@ -1192,7 +1197,12 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
         state.turn ||
         state.closed ||
         !state.forkSupported ||
-        !state.loadSupported
+        !state.loadSupported ||
+        // A session still owed the conversation (a seeded fork not yet sent a
+        // message, a reload that fell back to a new session) holds none of it:
+        // a branch of it would be just as empty.
+        state.replayHistory ||
+        state.seedPending
       )
         return { ok: true, cursor: null }
       try {

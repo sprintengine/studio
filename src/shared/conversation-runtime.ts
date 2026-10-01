@@ -533,6 +533,9 @@ export type ConversationCapabilities = {
   // carry on from there on its own ("Fork from here"). Without it the action
   // is not offered.
   fork?: boolean
+  // A fork at the newest reply branches the session the chat is running
+  // (an ACP agent's `session/fork`), so the chat's session is started first.
+  forkFromLiveSession?: boolean
 }
 export type ConversationCheckpointFile = {
   path: string
