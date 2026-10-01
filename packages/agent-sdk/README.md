@@ -73,7 +73,8 @@ The client keeps its connection:
   `unsupported_protocol_version`); `client.closed` rejects with it.
 - It **resumes** every open stream from its cursor, so a consumer sees no gap
   and no repeat. A cursor Studio cannot vouch for comes back as a snapshot with
-  `reset: true`.
+  `reset: true`, and so does any snapshot after a stream's first: replace what
+  you held.
 - It **sends again** every request unanswered when a connection dropped.
   Every mutation carries a command id — yours, or one minted per call — and
   Studio answers a repeat from its receipt rather than carrying it out twice,

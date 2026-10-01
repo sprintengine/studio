@@ -136,6 +136,8 @@ type Stream = {
   /** Snapshot parts received so far. */
   parts: ConversationWireEvent[] | null
   queue: ReturnType<typeof createFrameQueue>
+  /** Whether a snapshot has been delivered: any later one replaces it, and says so. */
+  snapshotted: boolean
   depth: number
   retry: ReturnType<typeof setTimeout> | null
 }
@@ -216,9 +218,10 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
       const delivered: ConversationFollowFrame = {
         type: 'snapshot',
         page: { ...frame.page, events },
-        ...(frame.reset ? { reset: true as const } : {}),
+        ...(frame.reset || stream.snapshotted ? { reset: true as const } : {}),
         ...(frame.generation === undefined ? {} : { generation: frame.generation }),
       }
+      stream.snapshotted = true
       // A snapshot replaces what came before: the cursor is the fence's now.
       stream.cursor = null
       stream.queue.push(delivered)
@@ -250,6 +253,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
       ...(streamOptions.turnLimit === undefined ? {} : { turnLimit: streamOptions.turnLimit }),
       cursor: streamOptions.cursor ?? null,
       parts: null,
+      snapshotted: false,
       depth: 0,
       retry: null,
       queue: createFrameQueue({

@@ -118,8 +118,9 @@ export type EventStreamOptions = {
  * One conversation's frames, in order: a `snapshot` (or, resuming from a
  * cursor the log can vouch for, only the events after it), a `synchronized`
  * fence, then live `event`s. Across a reconnect it resumes from `cursor` by
- * itself: no event is skipped and none repeats. A snapshot with `reset` means
- * the cursor could not be vouched for; replace what you held.
+ * itself: no event is skipped and none repeats. A snapshot with `reset` — one
+ * whose cursor could not be vouched for, or any after the stream's first —
+ * replaces what you held.
  */
 export type ConversationEventStream = AsyncIterableIterator<ConversationFollowFrame> & {
   /** The last sequence received and its log's generation; null until the first fence. Persist it to resume later. */
