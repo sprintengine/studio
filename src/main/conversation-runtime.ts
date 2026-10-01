@@ -1772,14 +1772,14 @@ export class ConversationRuntime {
 
   async shutdown(): Promise<void> {
     this.stopIdleSweep()
-    for (const session of Array.from(this.sessions.values())) {
-      if (session.status === 'stopped') continue
-      try {
-        await this.stopSession({ sessionId: session.sessionId })
-      } catch {
-        // Best-effort: adapter disposeAll below is the backstop.
-      }
-    }
+    // All at once: each stop waits on its own child to go, and one after
+    // another, a quit with many chats open outran any budget its caller has.
+    // Best-effort each: adapter disposeAll below is the backstop.
+    await Promise.allSettled(
+      Array.from(this.sessions.values())
+        .filter((session) => session.status !== 'stopped')
+        .map((session) => this.stopSession({ sessionId: session.sessionId })),
+    )
     await Promise.allSettled(Array.from(this.adapters.values(), async (adapter) => adapter.disposeAll?.()))
     this.dropToolPreviews()
     // Housekeeping can queue more of itself as it settles (a lost sequence
