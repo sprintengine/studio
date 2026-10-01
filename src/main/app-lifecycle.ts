@@ -553,9 +553,10 @@ export function registerAppLifecycle({
           hostedFeedPoller?.stop()
         },
       ],
-      ['automations', () => automationService?.shutdown()],
-      // Its clients are told to come back later, and resume from their cursors.
+      // Before the gateway, whose audit it writes to: its clients are told to
+      // come back later, and resume from their cursors.
       ['local app socket', () => studioRpcService?.stop()],
+      ['automations', () => automationService?.shutdown()],
       ['agent state', () => agentStateService?.shutdown()],
       ['workspace registry', () => workspaceSyncService?.flush()],
       ['chat transcripts', () => conversationRuntime?.flushTranscripts?.()],

@@ -90,6 +90,7 @@ export type StudioRpcConnectionOptions = {
   audit?: (entry: StudioAuditEntry) => void
   onClosed(connection: StudioRpcConnection): void
   helloTimeoutMs?: number
+  log?: (message: string) => void
 }
 
 type LiveEntry = {
@@ -701,7 +702,15 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
         const line = Buffer.concat(parts).toString('utf8')
         parts = []
         size = 0
-        handleLine(line)
+        // A fault handling one frame must not reach the event loop of the app
+        // this runs inside: the client is told, and resumes on a new connection.
+        try {
+          handleLine(line)
+        } catch (error) {
+          options.log?.(`Studio RPC frame failed: ${error instanceof Error ? error.message : String(error)}`)
+          bye('internal_error', 'Studio could not handle that frame. Reconnect and resume.', 1_000)
+          return
+        }
       }
       start = newline + 1
     }

@@ -217,6 +217,8 @@ export const STUDIO_BYE_CODES = [
   'shutting_down',
   'too_many_connections',
   'invalid_frame',
+  // Studio failed handling a frame; reconnect after `retryAfterMs` and resume.
+  'internal_error',
 ] as const
 
 export type StudioByeCode = (typeof STUDIO_BYE_CODES)[number]

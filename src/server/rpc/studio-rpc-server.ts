@@ -78,6 +78,7 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
         audit: options.audit,
         resyncRetryAfterMs: options.resyncRetryAfterMs,
         helloTimeoutMs: options.helloTimeoutMs,
+        log: options.log,
         onClosed,
       }),
   })
