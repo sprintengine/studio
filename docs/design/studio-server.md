@@ -1240,29 +1240,45 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
     gateway entry is null for a WSL host. The server for a distribution runs
     inside it (phase 7).
   - *Two cores on one data directory.* Every core takes
-    `<dataDir>/run/studio.lock` (O_EXCL; pid, host, a token) before any
-    store is built, the desktop included, and lets it go as the last leg of
-    its quit. A lock whose process is gone, or is this process (a container
-    restarting its one process), is taken over; one naming another machine
-    never is. A server also refuses a directory whose Electron `SingletonLock`
-    names a running app (an app older than the lock holds only that). A
-    desktop that finds the lock held reports it and carries on, as builds
-    before the lock did; a server exits 66.
+    `<dataDir>/run/studio.lock` (pid, host, a token; written whole under
+    another name and linked into place, so a full disk leaves no half lock)
+    before any store is built, the desktop included, and lets it go as the
+    last leg of its quit. A server takes over a lock whose process is gone,
+    or is itself (a container restarting its one process), never one naming
+    another machine, and refuses a directory whose Electron `SingletonLock`
+    names a running app; refused, it exits 66.
+  - *The desktop always starts, and wins.* `takeDataDir`
+    (`src/server/core/take-data-dir.ts`) reports any error from the lock or
+    the record (EACCES, ENOSPC, EBUSY from an antivirus) as a diagnostic and
+    the app runs without them. It holds Electron's single-instance lock for
+    its profile, so it takes over any lock naming a desktop whatever its pid
+    or host name (a Mac's changes with the network), and any lock naming a
+    server: that server sees the lock is no longer its own within half a
+    second, stops and exits 66, and the desktop's gateway and RPC bind only
+    once its process has gone (closing a listener removes the socket file at
+    the shared path).
   - *Secrets sealed by the desktop.* `<dataDir>/studio-data-dir.json` records
     which cipher seals the directory (`desktop-keychain` or `server-key`);
     an unrecorded directory is a desktop's when Chromium's `Local State` is in
     it or any sealed file is not a data key's. A server refuses such a
     directory (65), or with `--share-desktop-data-dir` runs with a cipher that
     is unavailable by design: every store treats a secret as session-only,
-    never opens what is on disk and never seals over it. The core also
+    never opens what is on disk, never seals over it and never deletes it
+    on a clear. The core also
     refuses to start a server whose cipher could seal into a desktop's
     directory, so the guard holds for an embedder that skips the entry.
   - *Startup and shutdown order.* Platform, then the core (lock, record,
     stores), then the gateway's socket and discovery, then the RPC socket,
     then ready. Stop is the reverse: the RPC (it audits into the gateway's
     log), the gateway, the registry flushed around the chats' end, the hosts'
-    helpers, the lock. A stop that takes over ten seconds leaves anyway,
-    letting go of the lock; a second signal does not wait.
+    helpers, the lock, released only after every transcript is closed. The
+    chats stop together, not one after another. A stop that takes over ten
+    seconds leaves anyway and leaves the lock to be found abandoned; a second
+    signal does not wait. The entry's handlers are installed before startup,
+    so a stop asked for then runs once the server is up.
+  - *A bundle away from its dependencies.* The two packages only a chat
+    loads (the Claude agent SDK, the ACP SDK) are resolved at start, and a
+    bundle that cannot find them exits 70 naming them.
 - **Risks left.** A lock whose process id came round to an unrelated process
   reads as held until that process ends; the message names the file to
   remove. Taking over a stale lock has a narrow race between two starters on
