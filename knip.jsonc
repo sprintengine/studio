@@ -41,6 +41,9 @@
     // The Windows registry tool; the updater reads where an all-users
     // installation is recorded with it. Not an npm binary.
     "reg.exe",
+    // The Windows ACL tool; the server's secret key file is made the current
+    // user's only with it. Not an npm binary.
+    "icacls",
   ],
   "ignoreDependencies": [
     // Imported from CSS (`@import "tailwindcss"`), which knip does not read.
