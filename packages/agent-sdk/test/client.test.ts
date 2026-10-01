@@ -289,15 +289,87 @@ test('the ref-level service answers as the module SDK does, and the handle throw
   )
 })
 
-test('revoking an app mid-stream ends its streams and the client, for good', async () => {
+test('revoking an app mid-stream ends its streams and parks the client until it is woken', async () => {
   const target = await studio()
-  const app = await client(target, pairFakeClient(target.auth, 'doomed', ['conversation:read']))
+  const states: StudioClientState[] = []
+  const app = await client(target, pairFakeClient(target.auth, 'doomed', ['conversation:read']), states)
   const stream = app.conversation(ref).events()
   await read(stream, (frame) => frame.type === 'synchronized')
+  states.length = 0
   target.auth.revoke('doomed')
   await assert.rejects(stream.next(), (error: StudioError) => error.code === 'revoked')
-  await assert.rejects(app.closed, (error: StudioError) => error.code === 'revoked')
-  assert.equal(app.state, 'closed')
+  for (let tries = 0; app.state !== 'parked' && tries < 100; tries++)
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  // Parked, not retrying: another try would only be refused again.
+  assert.equal(app.state, 'parked')
+  await assert.rejects(app.request('server.info', {}), (error: StudioError) => error.code === 'revoked')
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  assert.deepEqual(states, ['parked'])
+  // A wake tries once more, and is refused once more.
+  app.wake()
+  for (let tries = 0; states.length < 3 && tries < 100; tries++) await new Promise((resolve) => setTimeout(resolve, 5))
+  assert.deepEqual(states, ['parked', 'reconnecting', 'parked'])
+  app.close()
+  await app.closed
+})
+
+test('a quiet connection is pinged, and one that stays silent is made again', async () => {
+  const target = await studio()
+  let silent = false
+  const sent: string[] = []
+  const connected = await connect({
+    transport: async () => {
+      const transport = await socketTransport({ dataDir: target.dataDir })()
+      const listeners: Array<(frame: string) => void> = []
+      transport.onMessage((frame) => {
+        if (!silent) listeners.forEach((listener) => listener(frame))
+      })
+      return {
+        ...transport,
+        send: (frame: string) => {
+          sent.push(frame)
+          transport.send(frame)
+        },
+        onMessage: (listener: (frame: string) => void) => void listeners.push(listener),
+      }
+    },
+    client: { name: 'sdk-test' },
+    auth: { token: pairFakeClient(target.auth, 'quiet', ['conversation:read']) },
+    heartbeat: { intervalMs: 30, timeoutMs: 30 },
+    reconnect: { initialDelayMs: 5, maxDelayMs: 10 },
+  })
+  cleanups.push(() => connected.close())
+  const pings = () => sent.filter((frame) => frame.includes('"server.ping"')).length
+  for (let tries = 0; pings() < 2 && tries < 100; tries++) await new Promise((resolve) => setTimeout(resolve, 5))
+  assert.ok(pings() >= 2, 'a quiet but healthy connection is pinged, and stays')
+  assert.equal(connected.state, 'open')
+  const hellos = () => sent.filter((frame) => frame.includes('"t":"hello"')).length
+  assert.equal(hellos(), 1)
+  // A line that stops answering (a socket left half-open) is given up and made again.
+  silent = true
+  for (let tries = 0; hellos() < 2 && tries < 200; tries++) await new Promise((resolve) => setTimeout(resolve, 5))
+  assert.equal(hellos(), 2)
+})
+
+test('a read unanswered in its time is refused, and a mutation waits for its answer', async () => {
+  const target = await studio()
+  const token = pairFakeClient(target.auth, 'patient', ['conversation:read', 'conversation:operate'])
+  const app = await connect({
+    transport: socketTransport({ dataDir: target.dataDir }),
+    client: { name: 'sdk-test' },
+    auth: { token },
+    readTimeoutMs: 40,
+    reconnect: { initialDelayMs: 5, maxDelayMs: 10 },
+  })
+  cleanups.push(() => app.close())
+  const slow = target.backend.loadEarlier
+  target.backend.loadEarlier = () => new Promise((resolve) => setTimeout(() => resolve(slow(null as never, 1)), 200))
+  await assert.rejects(
+    app.request('conversation.loadEarlier', { key: ref, beforeCursor: 3 }),
+    (error: StudioError) => error.code === 'timeout',
+  )
+  const sent = await app.request('conversation.send', { key: ref, commandId: 'slow-send', message: 'hi' })
+  assert.deepEqual(sent, {})
 })
 
 test('a create is retried under one command id and makes one chat', async () => {

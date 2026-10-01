@@ -380,6 +380,8 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
     switch (method) {
       case 'server.info':
         return { ok: true, result: { ...options.info(), grant } }
+      case 'server.ping':
+        return { ok: true, result: { at: now() } }
       case 'conversation.list':
         return { ok: true, result: { conversations: await backend.list() } }
       case 'conversation.create':

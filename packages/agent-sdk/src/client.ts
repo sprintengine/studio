@@ -11,6 +11,7 @@ import {
 } from './conversations.js'
 import { StudioError, TERMINAL_CODES } from './errors.js'
 import {
+  STUDIO_METHODS,
   STUDIO_PROTOCOL_MIN_SUPPORTED,
   STUDIO_PROTOCOL_VERSION,
   checkStudioProtocolVersion,
@@ -59,7 +60,13 @@ import type { StudioTransport, StudioTransportFactory } from './transport.js'
 // Nothing here imports Node: the client runs in a browser as well, given a
 // transport.
 
-export type StudioClientState = 'open' | 'reconnecting' | 'closed'
+/**
+ * `parked`: not connected, and not trying, until woken. A credential Studio
+ * refused (`unauthorized`, `revoked`) parks the client, since another try
+ * would only be refused again, and so does being offline. A wake is `wake()`,
+ * or in a browser the page coming back online or to the foreground.
+ */
+export type StudioClientState = 'open' | 'reconnecting' | 'parked' | 'closed'
 
 export type ConnectOptions = {
   transport: StudioTransportFactory
@@ -89,6 +96,24 @@ export type ConnectOptions = {
    * resend against it.
    */
   environmentId?: string
+  /**
+   * After `intervalMs` with nothing heard from Studio, ask it for a ping; if
+   * nothing is heard within `timeoutMs` more, the connection is dropped and
+   * made again. A socket a sleeping machine left half-open never closes by
+   * itself; this is how it is found. `false` turns it off.
+   */
+  heartbeat?: false | { intervalMs?: number; timeoutMs?: number }
+  /**
+   * How long a read may go unanswered before it is refused `timeout`, waiting
+   * through a reconnect included. A mutation waits for its answer however long
+   * it takes: a send is answered when its turn ends.
+   */
+  readTimeoutMs?: number
+  /**
+   * Wake a parked client, or cut a reconnect's wait short, when the page comes
+   * back online or to the foreground. Default on wherever those events exist.
+   */
+  wakeups?: boolean
 }
 
 /** The ref-level conversation service, plus the reads only a Studio serves. */
@@ -134,12 +159,20 @@ export type StudioClient = AgentConversations & {
    * ask for the current state after subscribing. Returns the unsubscriber.
    */
   subscribe(topic: StudioTopic, params: unknown, listener: StudioPushListener): () => void
+  /** Connect now: after being parked, or to cut a reconnect's wait short. Nothing while open or closed. */
+  wake(): void
   close(): void
   /** Settles when the client has closed for good; rejects with why, if it was not asked to. */
   readonly closed: Promise<void>
 }
 
 const DEFAULT_HELLO_TIMEOUT_MS = 15_000
+const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000
+const DEFAULT_HEARTBEAT_TIMEOUT_MS = 10_000
+const DEFAULT_READ_TIMEOUT_MS = 60_000
+// Refusals of the credential: trying again would be refused again, so the
+// client waits to be woken instead of backing off for ever.
+const PARKING_CODES: ReadonlySet<string> = new Set(['unauthorized', 'revoked'])
 const BUSY_RETRIES = 5
 // A stream whose consumer has this many frames waiting stops the connection
 // reading until it is down to the lower mark.
@@ -153,6 +186,13 @@ type Pending = {
   busyRetries: number
   resolve: (result: unknown) => void
   reject: (error: StudioError) => void
+  timeout: ReturnType<typeof setTimeout> | null
+}
+
+/** A timer that does not keep a Node process alive by itself. */
+function quietly<T extends ReturnType<typeof setTimeout>>(timer: T): T {
+  ;(timer as { unref?: () => void }).unref?.()
+  return timer
 }
 
 type Push = {
@@ -192,6 +232,14 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
   const initialDelayMs = reconnect?.initialDelayMs ?? 250
   const maxDelayMs = reconnect?.maxDelayMs ?? 30_000
   const maxAttempts = reconnect?.maxAttempts ?? Number.POSITIVE_INFINITY
+  const heartbeat =
+    options.heartbeat === false
+      ? null
+      : {
+          intervalMs: options.heartbeat?.intervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS,
+          timeoutMs: options.heartbeat?.timeoutMs ?? DEFAULT_HEARTBEAT_TIMEOUT_MS,
+        }
+  const readTimeoutMs = options.readTimeoutMs ?? DEFAULT_READ_TIMEOUT_MS
 
   let auth: StudioAuth | undefined = options.auth
   // The Studio this client is bound to; its streams' cursors and its command
@@ -205,6 +253,10 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let lastBye: { code: string; message: string; retryAfterMs?: number } | null = null
   let paused = false
+  // When anything was last heard on the open connection, and the timer that
+  // asks for a ping after a quiet spell.
+  let lastHeard = 0
+  let heartbeatTimer: ReturnType<typeof setTimeout> | null = null
   const requests = new Map<string, Pending>()
   const streams = new Map<string, Stream>()
   const pushes = new Map<string, Push>()
@@ -341,19 +393,39 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
 
   function request<M extends StudioMethod>(method: M, params: StudioMethodParams<M>): Promise<StudioMethodResult<M>> {
     if (state === 'closed') return Promise.reject(new StudioError('closed', 'The client is closed.'))
+    // Parked by a refused credential, a request would only be refused too;
+    // parked offline, it waits to go out once the network is back.
+    if (state === 'parked' && parkedBy && parkedBy.code !== 'offline')
+      return Promise.reject(new StudioError(parkedBy.code, parkedBy.message, undefined, parkedBy.errorId))
     return new Promise((resolve, reject) => {
       const id = `r${++sequence}`
-      requests.set(id, {
+      const pending: Pending = {
         id,
         method,
         params,
         busyRetries: 0,
         resolve: resolve as (result: unknown) => void,
         reject,
-      })
+        timeout: null,
+      }
+      // A read is answered or refused in bounded time, a reconnect included.
+      if (readTimeoutMs > 0 && STUDIO_METHODS[method]?.mutation === false)
+        pending.timeout = quietly(
+          setTimeout(() => {
+            if (requests.get(id) !== pending) return
+            requests.delete(id)
+            reject(new StudioError('timeout', 'Studio did not answer in time.'))
+          }, readTimeoutMs),
+        )
+      requests.set(id, pending)
       // Unsent while reconnecting: every pending request goes out on the next connection.
       if (state === 'open') send({ t: 'req', id, method, params })
     })
+  }
+
+  function settle(pending: Pending): void {
+    if (pending.timeout) clearTimeout(pending.timeout)
+    requests.delete(pending.id)
   }
 
   function answer(frame: Extract<StudioParsedServerFrame, { t: 'res' }>): void {
@@ -367,7 +439,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
       }, frame.error.retryAfterMs ?? 250)
       return
     }
-    requests.delete(frame.id)
+    settle(pending)
     if (frame.ok) pending.resolve(frame.result)
     else
       pending.reject(
@@ -377,11 +449,140 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
 
   // ── The connection ────────────────────────────────────────────────────────
 
+  // ── Liveness ──────────────────────────────────────────────────────────────
+
+  function stopHeartbeat(): void {
+    if (heartbeatTimer) clearTimeout(heartbeatTimer)
+    heartbeatTimer = null
+  }
+
+  /** After a quiet spell, a ping; after more quiet, the connection is given up and made again. */
+  function startHeartbeat(): void {
+    stopHeartbeat()
+    if (!heartbeat) return
+    const watched = transport
+    const check = () => {
+      heartbeatTimer = null
+      if (state !== 'open' || transport !== watched) return
+      const quiet = Date.now() - lastHeard
+      if (quiet < heartbeat.intervalMs) {
+        heartbeatTimer = quietly(setTimeout(check, heartbeat.intervalMs - quiet))
+        return
+      }
+      const asked = Date.now()
+      // Any frame is an answer: an older Studio refusing the method proves the line too.
+      send({ t: 'req', id: `ping${++sequence}`, method: 'server.ping', params: {} })
+      heartbeatTimer = quietly(
+        setTimeout(() => {
+          heartbeatTimer = null
+          if (state !== 'open' || transport !== watched) return
+          if (lastHeard >= asked) check()
+          else watched?.close()
+        }, heartbeat.timeoutMs),
+      )
+    }
+    heartbeatTimer = quietly(setTimeout(check, heartbeat.intervalMs))
+  }
+
+  // ── Parking ───────────────────────────────────────────────────────────────
+
+  let parkedBy: StudioError | null = null
+
+  /**
+   * Stop trying until woken. A refused credential also ends what was waiting
+   * on it: requests and streams are told why, since a wake may never come.
+   * Offline keeps them, to go out once the network is back.
+   */
+  function park(error: StudioError): void {
+    if (state === 'closed') return
+    if (reconnectTimer) clearTimeout(reconnectTimer)
+    reconnectTimer = null
+    stopHeartbeat()
+    parkedBy = error
+    if (error.code !== 'offline') {
+      for (const pending of requests.values()) {
+        if (pending.timeout) clearTimeout(pending.timeout)
+        pending.reject(error)
+      }
+      requests.clear()
+      for (const stream of streams.values()) {
+        if (stream.retry) clearTimeout(stream.retry)
+        stream.queue.fail(error)
+      }
+      streams.clear()
+      for (const push of [...pushes.values()]) endPush(push, error)
+    }
+    setState('parked', error)
+  }
+
+  const offline = () => (globalThis as { navigator?: { onLine?: boolean } }).navigator?.onLine === false
+
+  function attempt(): void {
+    reconnectTimer = null
+    establish().catch((error: unknown) => {
+      const failure =
+        error instanceof StudioError
+          ? error
+          : new StudioError('disconnected', error instanceof Error ? error.message : String(error))
+      if (PARKING_CODES.has(failure.code)) park(failure)
+      else if (TERMINAL_CODES.has(failure.code)) fail(failure)
+      else schedule(failure.retryAfterMs)
+    })
+  }
+
+  function wake(): void {
+    if (state === 'parked') {
+      parkedBy = null
+      attempts = 0
+      setState('reconnecting')
+      attempt()
+      return
+    }
+    // A wait out of a backoff, not out of a delay Studio asked for.
+    if (state === 'reconnecting' && reconnectTimer && !lastBye?.retryAfterMs) {
+      clearTimeout(reconnectTimer)
+      attempt()
+    }
+  }
+
+  const wakeups: Array<() => void> = []
+  if (options.wakeups !== false) {
+    const scope = globalThis as {
+      addEventListener?: (type: string, listener: () => void) => void
+      removeEventListener?: (type: string, listener: () => void) => void
+      document?: {
+        visibilityState?: string
+        addEventListener?: (type: string, listener: () => void) => void
+        removeEventListener?: (type: string, listener: () => void) => void
+      }
+    }
+    const online = () => wake()
+    const visible = () => {
+      if (scope.document?.visibilityState === 'visible') wake()
+    }
+    if (typeof scope.addEventListener === 'function') {
+      scope.addEventListener('online', online)
+      wakeups.push(() => scope.removeEventListener?.('online', online))
+    }
+    if (typeof scope.document?.addEventListener === 'function') {
+      scope.document.addEventListener('visibilitychange', visible)
+      wakeups.push(() => scope.document?.removeEventListener?.('visibilitychange', visible))
+    }
+  }
+  const unwatch = () => {
+    for (const stop of wakeups.splice(0)) stop()
+  }
+
   function fail(error: StudioError): void {
     if (state === 'closed') return
     setState('closed', error)
+    unwatch()
+    stopHeartbeat()
     if (reconnectTimer) clearTimeout(reconnectTimer)
-    for (const pending of requests.values()) pending.reject(error)
+    for (const pending of requests.values()) {
+      if (pending.timeout) clearTimeout(pending.timeout)
+      pending.reject(error)
+    }
     requests.clear()
     for (const stream of streams.values()) {
       if (stream.retry) clearTimeout(stream.retry)
@@ -487,6 +688,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
         next.close()
         return
       }
+      lastHeard = Date.now()
       const frame = parseStudioServerFrame(value)
       // A frame type this client does not know is a newer Studio's, and skipped;
       // a known one it cannot read would leave a cursor wrong, so the
@@ -565,7 +767,10 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
       auth = { token: frame.pairing.token }
     }
     attempts = 0
+    parkedBy = null
+    lastHeard = Date.now()
     setState('open')
+    startHeartbeat()
     for (const stream of streams.values()) {
       stream.parts = null
       subscribe(stream)
@@ -579,8 +784,13 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
 
   function dropped(): void {
     transport = null
+    stopHeartbeat()
     if (state === 'closed') return
     const bye = lastBye
+    if (bye && PARKING_CODES.has(bye.code) && reconnect) {
+      park(new StudioError(bye.code, bye.message))
+      return
+    }
     if (bye && TERMINAL_CODES.has(bye.code)) {
       fail(new StudioError(bye.code, bye.message))
       return
@@ -595,6 +805,11 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
 
   function schedule(retryAfterMs?: number): void {
     if (state === 'closed') return
+    // Offline, trying again only fails again: wait for the network to come back.
+    if (offline()) {
+      park(new StudioError('offline', 'This device is offline; Studio is reached again once it is back.'))
+      return
+    }
     attempts++
     if (attempts > maxAttempts) {
       fail(new StudioError('disconnected', `Studio could not be reached after ${maxAttempts} attempts.`))
@@ -604,17 +819,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
     // come back in step.
     const backoff = Math.min(maxDelayMs, initialDelayMs * 2 ** (attempts - 1))
     const delay = Math.max(retryAfterMs ?? 0, Math.round(Math.random() * backoff))
-    reconnectTimer = setTimeout(() => {
-      reconnectTimer = null
-      establish().catch((error: unknown) => {
-        const failure =
-          error instanceof StudioError
-            ? error
-            : new StudioError('disconnected', error instanceof Error ? error.message : String(error))
-        if (TERMINAL_CODES.has(failure.code)) fail(failure)
-        else schedule(failure.retryAfterMs)
-      })
-    }, delay)
+    reconnectTimer = setTimeout(attempt, delay)
   }
 
   await establish().catch((error: unknown) => {
@@ -733,6 +938,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
     },
     supports: (capability) => studioPeerSupports(welcome?.capabilities, capability),
     request,
+    wake,
     subscribe(topic, params, listener) {
       const push: Push = { id: `p${++sequence}`, topic, params, listener, retry: null }
       if (state === 'closed') {
@@ -749,9 +955,14 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
     close() {
       if (state === 'closed') return
       setState('closed')
+      unwatch()
+      stopHeartbeat()
       if (reconnectTimer) clearTimeout(reconnectTimer)
       const error = new StudioError('closed', 'The client is closed.')
-      for (const pending of requests.values()) pending.reject(error)
+      for (const pending of requests.values()) {
+        if (pending.timeout) clearTimeout(pending.timeout)
+        pending.reject(error)
+      }
       requests.clear()
       for (const stream of streams.values()) {
         if (stream.retry) clearTimeout(stream.retry)

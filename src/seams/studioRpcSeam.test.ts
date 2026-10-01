@@ -290,13 +290,18 @@ test('revoking the app in Settings ends its stream and its client', async () => 
     (pushed?.payload as StudioLocalAppsStatus | undefined)?.apps.some((entry) => entry.id === client.grant.clientId),
     false,
   )
-  await assert.rejects(client.closed, (error: StudioError) => error.code === 'revoked')
+  // Parked, not retrying: another try would only be refused again.
+  for (let tries = 0; client.state !== 'parked' && tries < 100; tries++)
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  assert.equal(client.state, 'parked')
+  await assert.rejects(client.request('server.info', {}), (error: StudioError) => error.code === 'revoked')
 })
 
 test('every method the server serves has its call in the SDK, under the same scope', async () => {
   // The SDK's ref-level service, call by call, to the method each one sends.
   const sdkCalls: Record<StudioMethod, string> = {
     'server.info': 'request',
+    'server.ping': 'request',
     'conversation.list': 'conversations.list',
     'conversation.create': 'conversations.create',
     'conversation.send': 'conversations.send',

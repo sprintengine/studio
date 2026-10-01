@@ -12,7 +12,7 @@ afterEach(() => vi.unstubAllEnvs())
 
 type Connect = () => Promise<{ connectionId: string; ticket: string }>
 
-test('a window keeps one client, and starts a new one only after the old has closed for good', async () => {
+test('a window keeps one client; one parked by a refused ticket tries again when it is next asked for', async () => {
   const win: { api: Record<string, unknown> } = { api: {} }
   const loopback = installStudioLoopback(win) as StudioLoopback
   const api = win.api as never
@@ -21,13 +21,24 @@ test('a window keeps one client, and starts a new one only after the old has clo
   expect(first.grant.owner).toBe(true)
   expect(loopback.connections()).toBe(1)
 
-  // A reconnect Studio refuses closes the client for good.
+  // A reconnect Studio refuses parks the client: trying again would be refused again.
   const connect = win.api.studioConnect as Connect
   win.api.studioConnect = async () => ({ ...(await connect()), ticket: 'seport_not_the_ticket_000000' })
   loopback.drop()
-  await expect(first.closed).rejects.toMatchObject({ code: 'unauthorized' })
+  for (let tries = 0; first.state !== 'parked' && tries < 100; tries++)
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  expect(first.state).toBe('parked')
 
+  // Asked for again, once a ticket would be good, it connects again.
   win.api.studioConnect = connect
+  const again = await windowStudioClient(api)
+  expect(again).toBe(first)
+  for (let tries = 0; again.state !== 'open' && tries < 100; tries++)
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  expect(again.state).toBe('open')
+
+  // A client that closed for good is forgotten, and the next use starts a new one.
+  again.close()
   const second = await windowStudioClient(api)
   expect(second).not.toBe(first)
   expect(second.state).toBe('open')

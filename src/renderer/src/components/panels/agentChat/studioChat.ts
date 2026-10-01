@@ -53,6 +53,8 @@ function commandId(): string {
 // socket's own words, which mean nothing to someone using a chat.
 const CONNECTION_CODES = new Set([
   'environment_changed',
+  'offline',
+  'timeout',
   'disconnected',
   'closed',
   'hello_timeout',

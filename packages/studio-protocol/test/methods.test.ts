@@ -22,7 +22,7 @@ test('every method and topic names its scope and a capability this package defin
   const methods = Object.keys(STUDIO_METHODS) as StudioMethod[]
   for (const method of methods) {
     const spec = STUDIO_METHODS[method]
-    if (method === 'server.info') assert.equal(spec.scope, null, method)
+    if (method === 'server.info' || method === 'server.ping') assert.equal(spec.scope, null, method)
     else assert.ok(spec.scope && (STUDIO_SCOPES as readonly string[]).includes(spec.scope), method)
     if (spec.capability) assert.ok((STUDIO_CAPABILITIES as readonly string[]).includes(spec.capability), method)
     assert.equal(isStudioMethod(method), true)

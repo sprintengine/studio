@@ -86,6 +86,12 @@ export type StudioMethodMap = StudioConversationMethodMap & StudioChatMethodMap
 /** The `server` and `conversation` methods phase 2 shipped; the chat surface's are in `chat.ts`. */
 type StudioConversationMethodMap = {
   'server.info': { params: Record<string, never>; result: StudioServerInfo }
+  /**
+   * Answered at once, by any authenticated client: proof the connection is
+   * alive end to end. A client asks after a quiet spell, since a socket left
+   * half-open by a machine that slept never closes by itself.
+   */
+  'server.ping': { params: Record<string, never>; result: { at: number } }
   'conversation.list': { params: Record<string, never>; result: { conversations: ConversationThread[] } }
   'conversation.create': {
     params: ConversationCreateRequest & { commandId: string }
@@ -143,6 +149,7 @@ const operate: StudioMethodSpec = {
 
 export const STUDIO_METHODS: { readonly [M in StudioMethod]: StudioMethodSpec } = {
   'server.info': read(null),
+  'server.ping': read(null),
   'conversation.list': read(),
   'conversation.create': {
     scope: 'conversation:create',
@@ -273,6 +280,7 @@ export function parseStudioMethodParams<M extends StudioMethod>(method: M, param
   const ok = (parsed: unknown) => ({ ok: true as const, params: parsed as StudioMethodParams<M> })
   switch (method) {
     case 'server.info':
+    case 'server.ping':
     case 'conversation.list':
       return ok({})
     case 'conversation.create': {

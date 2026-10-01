@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { afterEach, test } from 'vitest'
+import { afterEach, test, vi } from 'vitest'
 
 import { createTicketAuthenticator, framePortStream, mintStudioTicket } from '../../../src/server/rpc/studio-frame-port'
 import { createStudioRpcServer, type StudioRpcServer } from '../../../src/server/rpc/studio-rpc-server'
@@ -214,4 +214,37 @@ test('a reconnect that reaches a different Studio is refused: no cursor resumed,
     connect({ transport: target.transport, client: { name: 'w' }, environmentId: 'env-test', reconnect: false }),
     (error: { code?: string }) => error.code === 'environment_changed',
   )
+})
+
+test('offline, a client parks with what it was asked kept, and the network coming back wakes it', async () => {
+  const events = new EventTarget()
+  const navigator = { onLine: true }
+  vi.stubGlobal('navigator', navigator)
+  vi.stubGlobal('addEventListener', events.addEventListener.bind(events))
+  vi.stubGlobal('removeEventListener', events.removeEventListener.bind(events))
+  try {
+    const target = window()
+    const client = await connected(target)
+    navigator.onLine = false
+    target.drop()
+    for (let tries = 0; client.state !== 'parked' && tries < 100; tries++)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    assert.equal(client.state, 'parked')
+    assert.equal(target.tickets.length, 1, 'and it does not try while offline')
+    // Kept, not refused: it goes out once the network is back.
+    const asked = client.request('workspaces.list', {} as never).then(
+      () => 'answered',
+      (error: { code?: string }) => error.code,
+    )
+    navigator.onLine = true
+    events.dispatchEvent(new Event('online'))
+    for (let tries = 0; client.state !== 'open' && tries < 100; tries++)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    assert.equal(client.state, 'open')
+    assert.equal(target.tickets.length, 2)
+    // This test's chat surface has no workspaces: refused, but by Studio, so it went out.
+    assert.notEqual(await asked, 'offline')
+  } finally {
+    vi.unstubAllGlobals()
+  }
 })

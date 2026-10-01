@@ -59,6 +59,9 @@ export function windowPortTransport(api: PortApi): StudioTransportFactory {
 }
 
 const clients = new WeakMap<object, Promise<StudioClient>>()
+// The client each window's promise settled to, so one that has closed is
+// known at once rather than a turn later.
+const settled = new WeakMap<object, StudioClient>()
 // The Studio each window belongs to, by its environment id: a window's later
 // clients refuse any other, so nothing the window holds (a stream's cursor, a
 // command's id) is ever offered to a different Studio.
@@ -67,11 +70,18 @@ const environments = new WeakMap<object, string>()
 /**
  * The window's client, connected on first use and kept. A first connection
  * that fails is forgotten, so the next use tries again; once connected, the
- * client reconnects by itself.
+ * client reconnects by itself. Asking for it again is a retry: a client parked
+ * by a refused ticket or by being offline tries to connect now, and one that
+ * closed for good (a version outside the window, another Studio) is replaced.
  */
 export function windowStudioClient(api: PortApi = window.api): Promise<StudioClient> {
   const known = clients.get(api)
-  if (known) return known
+  const client = settled.get(api)
+  if (known && client?.state !== 'closed') {
+    if (client?.state === 'parked') client.wake()
+    return known
+  }
+  settled.delete(api)
   const bound = environments.get(api)
   const connecting = connect({
     transport: windowPortTransport(api),
@@ -81,18 +91,14 @@ export function windowStudioClient(api: PortApi = window.api): Promise<StudioCli
     reconnect: { initialDelayMs: 100, maxDelayMs: 5_000 },
     ...(bound === undefined ? {} : { environmentId: bound }),
   })
-  void connecting.then(
-    (client) => {
-      if (!environments.has(api)) environments.set(api, client.welcome.environment.id)
-    },
-    () => undefined,
-  )
   clients.set(api, connecting)
   const forget = () => {
     if (clients.get(api) === connecting) clients.delete(api)
   }
-  // A client that closed for good (a refused ticket, a version outside the
-  // window) is forgotten too, so the next use starts a new one.
-  connecting.then((client) => client.closed.then(forget, forget), forget)
+  void connecting.then((connected) => {
+    if (clients.get(api) === connecting) settled.set(api, connected)
+    if (!environments.has(api)) environments.set(api, connected.welcome.environment.id)
+    connected.closed.then(forget, forget)
+  }, forget)
   return connecting
 }
