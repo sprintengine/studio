@@ -50,7 +50,8 @@ const USAGE = `Usage: studio-server [serve] [options]
 
   --data-dir <dir>           Where the server keeps its data (default: the XDG data directory,
                              or SPRINTENGINE_USER_DATA_DIR)
-  --logs-dir <dir>           Where it writes diagnostics (default: the XDG state directory)
+  --logs-dir <dir>           Where it writes diagnostics (default: logs/ in a data directory given
+                             by flag or SPRINTENGINE_USER_DATA_DIR, else the XDG state directory)
   --app-root <dir>           The checkout or install the server runs from (default: beside the bundle)
   --resources-dir <dir>      An installed build's resources directory
   --packaged                 This is an installed build, not a source checkout
@@ -109,12 +110,16 @@ export function parseServerArgs(argv: string[], env = process.env): Command {
   const defaults = defaultServerLocations({ env })
   const profile = readStudioEnv('SPRINTENGINE_USER_DATA_DIR', env)?.trim()
   const appRoot = values['app-root'] ? resolve(values['app-root']) : defaultAppRoot()
+  const chosenDataDir = values['data-dir'] ?? (profile || null)
+  // A server pointed at a directory keeps everything in it; one on the default
+  // locations logs where XDG puts state.
+  const dataDir = resolve(chosenDataDir ?? defaults.dataDir)
   return {
     kind: 'serve',
     stdio: values.stdio === true,
     options: {
-      dataDir: resolve(values['data-dir'] ?? (profile || defaults.dataDir)),
-      logsDir: resolve(values['logs-dir'] ?? defaults.logsDir),
+      dataDir,
+      logsDir: resolve(values['logs-dir'] ?? (chosenDataDir ? join(dataDir, 'logs') : defaults.logsDir)),
       version: versionFrom(appRoot),
       packaged: values.packaged === true,
       resourcesDir: values['resources-dir'] ? resolve(values['resources-dir']) : null,

@@ -4,6 +4,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import type { RegisteredSettingsSection } from '../../modules/renderer-host'
 import { AutomationServerSettings } from './AutomationServerSettings'
+import { LocalAppsSettings } from './LocalAppsSettings'
 import { ModuleSettingsSectionHost } from './ModuleSettingsSection'
 import AppThemePicker from './AppThemePicker'
 import { ChatAppearanceRows } from './ChatAppearanceRows'
@@ -1513,6 +1514,9 @@ export default function SettingsPanel({
               things to install. There is no Automations settings tab to put it
               in; if one is ever added, this is the section that moves. */}
           <AutomationServerSettings />
+          {/* The applications paired with Studio's owner socket sit beside
+              the gateway: both are doors onto this machine's agents. */}
+          <LocalAppsSettings />
         </div>
       ) : null}
 

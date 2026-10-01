@@ -27,7 +27,12 @@ test('reading the platform before one is installed is a wiring bug, said out lou
 test('the node platform seals with a key file in the data directory and fans out to local listeners', () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'studio-platform-'))
   directories.push(dataDir)
-  const platform = createNodeStudioPlatform({ dataDir, logsDir: join(dataDir, 'logs'), version: '1.2.3' })
+  const platform = createNodeStudioPlatform({
+    dataDir,
+    logsDir: join(dataDir, 'logs'),
+    packaged: false,
+    version: '1.2.3',
+  })
   installStudioPlatform(platform)
   assert.equal(studioPlatform(), platform)
   assert.equal(installedStudioPlatform(), platform)
@@ -36,7 +41,9 @@ test('the node platform seals with a key file in the data directory and fans out
   assert.equal(platform.identity.version(), '1.2.3')
   assert.equal(platform.secrets.open(platform.secrets.seal('value')), 'value')
   assert.equal(
-    createNodeStudioPlatform({ dataDir, version: '1.2.3' }).secrets.open(platform.secrets.seal('again')),
+    createNodeStudioPlatform({ dataDir, packaged: false, version: '1.2.3' }).secrets.open(
+      platform.secrets.seal('again'),
+    ),
     'again',
     'a second server on the same data directory opens what the first sealed',
   )

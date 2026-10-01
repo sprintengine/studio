@@ -7,6 +7,10 @@
     "packages/module-sdk/src/**/*.ts",
     "packages/conversation-protocol/src/**/*.ts",
     "packages/conversation-protocol/test/**/*.ts",
+    "packages/studio-protocol/src/**/*.ts",
+    "packages/studio-protocol/test/**/*.ts",
+    "packages/agent-sdk/src/**/*.ts",
+    "packages/agent-sdk/test/**/*.ts",
     "tests/**/*.ts",
     "vitest.config.ts"
   ],

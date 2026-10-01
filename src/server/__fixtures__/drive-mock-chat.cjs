@@ -40,6 +40,7 @@ async function main() {
     dataDir,
     logsDir: join(dataDir, 'logs'),
     version: 'smoke',
+    packaged: false,
     appRoot,
   })
   const report = { electron: Boolean(process.versions.electron), ready: server.ready }
@@ -78,7 +79,12 @@ async function main() {
     const turnSeq = Number(toolsTurn.payload.checkpointTurnSeq)
     const preview = ok(await conversations.revertToTurn({ key, turnSeq }), 'revert preview')
     ok(
-      await conversations.revertToTurn({ key, turnSeq, confirmed: true, files: preview.files.map((file) => file.path) }),
+      await conversations.revertToTurn({
+        key,
+        turnSeq,
+        confirmed: true,
+        files: preview.files.map((file) => file.path),
+      }),
       'revert',
     )
     report.revertedFiles = preview.files.map((file) => file.path)
@@ -90,7 +96,11 @@ async function main() {
     const requested = await approval
     const answeredDone = waitFor(conversations, sessionId, 'turn_completed')
     ok(
-      await conversations.respondToRequest({ sessionId, requestId: String(requested.payload.requestId), approved: true }),
+      await conversations.respondToRequest({
+        sessionId,
+        requestId: String(requested.payload.requestId),
+        approved: true,
+      }),
       'respond',
     )
     await answeredDone

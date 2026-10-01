@@ -113,6 +113,11 @@ export type ConversationGatewayHost = {
     bytes: number
     dispose?: () => void
   }): string
+  /**
+   * The preset the conversation runs under now, or would resume under: the
+   * same answer its listed thread gives as `permissionPreset`.
+   */
+  permissionOf?(key: Pick<ConversationKey, 'workspaceId' | 'agentId'>): ConversationPermissionPreset
   command(
     key: ConversationKey,
     deviceId: string,
@@ -350,6 +355,10 @@ export function createConversationGatewayHost(
         })
       }
       return [...byId.values()].sort((a, b) => b.updatedAt - a.updatedAt)
+    },
+    permissionOf(key) {
+      const listed = api.listSessions({ workspaceId: key.workspaceId, agentId: key.agentId })
+      return permissionFor(key, listed.ok ? listed.sessions : []).permissionPreset
     },
     resolveKey: (workspaceId, agentId) => {
       const workspaceRoot = resolveWorkspaceRoot(workspaceId)

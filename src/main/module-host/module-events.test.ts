@@ -140,8 +140,21 @@ test('module-events', async () => {
     })
   }
 
+  function testUnsendablePayloadThrowsToTheModule(): void {
+    // The delivery is best effort per client, so a payload that cannot cross
+    // to a client is refused at `emit`, back to the module that sent it.
+    const delivered: ModuleEventEnvelope[] = []
+    const { ipcMain } = createFakeIpcMain()
+    const host = createMainKernel(ipcMain, { deliverModuleEvent: (event) => delivered.push(event) }).hostFor('widgets')
+    assert.throws(() => host.emit('run-status', { onDone: () => undefined }), /widgets.*run-status.*cannot be sent/)
+    assert.equal(delivered.length, 0, 'nothing half-sent')
+    host.emit('run-status', { at: new Date(0), tags: new Set(['a']) })
+    assert.equal(delivered.length, 1, 'what structured clone carries is delivered')
+  }
+
   testEmitStampsScopedIdentityAndTime()
   testEmitValidatesTheTopic()
+  testUnsendablePayloadThrowsToTheModule()
   testTopicIsTrimmedNotRewritten()
   testNothingIsBufferedForLateWindows()
   testEmitIsNotFloodBounded()

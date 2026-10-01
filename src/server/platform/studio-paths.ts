@@ -1,5 +1,5 @@
 import { homedir } from 'node:os'
-import { posix, win32 } from 'node:path'
+import { join, posix, win32 } from 'node:path'
 
 // Where the server keeps what it owns, and where it finds what it ships.
 //
@@ -38,21 +38,29 @@ export type StudioPaths = {
 
 export type NodeStudioPathsOptions = {
   dataDir: string
-  /** Defaults to the XDG state directory beside the default data directory. */
+  /**
+   * Defaults to `logs` inside the data directory, so a server pointed at a
+   * directory keeps everything in it. A server on the default locations passes
+   * `defaultServerLocations().logsDir`.
+   */
   logsDir?: string
-  /** Defaults to false: a server is a source checkout unless its launcher says otherwise. */
-  packaged?: boolean
+  /**
+   * Required, with no default: an installed build trusts only what it shipped
+   * (a source checkout also reads a contributor's dev trust keys), so guessing
+   * "source checkout" would fail open.
+   */
+  packaged: boolean
   resourcesDir?: string | null
   appRoot?: string | null
 }
 
 /** Paths for a server outside Electron, fixed when it starts (from `--data-dir` or the bootstrap envelope). */
 export function createNodeStudioPaths(options: NodeStudioPathsOptions): StudioPaths {
-  const logsDir = options.logsDir ?? defaultServerLocations().logsDir
+  const logsDir = options.logsDir ?? join(options.dataDir, 'logs')
   return {
     dataDir: () => options.dataDir,
     logsDir: () => logsDir,
-    isPackaged: () => options.packaged ?? false,
+    isPackaged: () => options.packaged,
     resourcesDir: () => options.resourcesDir ?? null,
     appRoot: () => options.appRoot ?? null,
   }

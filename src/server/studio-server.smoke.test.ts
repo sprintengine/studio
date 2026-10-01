@@ -109,6 +109,8 @@ test('the bundle carries nothing of Electron and serves the gateway under plain 
   assert.equal(ready.dataDir, dataDir)
   assert.equal(ready.secrets, true)
   assert.equal(typeof ready.gatewaySocket, 'string')
+  // The Studio RPC's owner socket, beside the gateway, as in the desktop.
+  assert.equal(typeof ready.rpcSocket, 'string', served.stderr())
   assert.ok(existsSync(join(dataDir, 'run', 'studio.lock')))
   assert.equal(JSON.parse(readFileSync(join(dataDir, 'studio-data-dir.json'), 'utf8')).secrets, 'server-key')
   // Discovery for agents the server starts, and for the MCP bridge.

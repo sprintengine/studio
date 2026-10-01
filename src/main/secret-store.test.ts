@@ -230,7 +230,10 @@ test('a store built with no options reads the installed platform when it is used
   })
   const dataDir = await mkdtemp(join(tmpdir(), 'secret-store-platform-'))
   const cipher = createSecretCipherStandIn()
-  installStudioPlatform({ ...createNodeStudioPlatform({ dataDir, version: '0.0.0' }), secrets: cipher })
+  installStudioPlatform({
+    ...createNodeStudioPlatform({ dataDir, packaged: false, version: '0.0.0' }),
+    secrets: cipher,
+  })
   try {
     const set = await store.setSecret('openai-compatible', 'sk-test-value')
     assert.equal(set.ok, true)

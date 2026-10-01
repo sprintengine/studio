@@ -1,13 +1,10 @@
-import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
 import type { McpToolRegistration } from '../../shared/modules/mcp-tools'
 import type { ConversationEventType } from '../../shared/conversation-runtime'
 import { createAutomationService } from '../../main/automation/automation-service'
 import { createConversationTools } from '../../main/automation/conversation-tools'
 import { launchPermissionCeiling } from '../../main/automation/launch-permission-cap'
 import { createStudioGatewayTools } from '../../main/automation/studio-gateway-tools'
-import { createConversationGatewayHost } from '../../main/automation/tailnet/tailnet-conversation-host'
 import { writeDiagnosticLog } from '../../main/diagnostics-service'
-import type { McpToolContribution } from '../../main/module-host/main-host'
 import { studioBridgeScriptPath, type StudioCore } from './studio-core'
 
 // The Studio MCP gateway over a core: the always-on socket agents reach the
@@ -29,6 +26,10 @@ const CONVERSATION_LIST_EVENTS = new Set<ConversationEventType>([
   'approval_resolved',
 ])
 
+// The module host's contribution type, read off the tool set rather than
+// imported from the host, whose file also names Electron's IPC types.
+type GatewayToolsOptions = Parameters<typeof createStudioGatewayTools>[0]
+
 export type StudioGatewayOptions = Pick<
   Parameters<typeof createAutomationService>[0],
   'onTailnetEvent' | 'onMeshEvent' | 'hasWindow'
@@ -40,7 +41,7 @@ export type StudioGatewayOptions = Pick<
    */
   appTools?: (coreTools: McpToolRegistration[]) => McpToolRegistration[]
   /** Module-contributed tools, from the host kernel; empty until modules load. */
-  resolveModuleTools?: () => ReadonlyArray<McpToolContribution>
+  resolveModuleTools?: GatewayToolsOptions['resolveModuleTools']
   /** Live enablement of a contributing module; resolved per call, never captured. */
   isModuleEnabled?: (moduleId: string) => boolean
 }
@@ -48,7 +49,7 @@ export type StudioGatewayOptions = Pick<
 export type StudioGateway = ReturnType<typeof createStudioGateway>
 
 export function createStudioGateway(core: StudioCore, options: StudioGatewayOptions = {}) {
-  const { platform, workspaceRegistry, workspaceSyncService, conversations } = core
+  const { platform, workspaceSyncService, conversations } = core
   const coreTools = createConversationTools({
     launch: (request) => core.conversationLaunchService.launch(request),
     resolveAgentPermissionPreset: core.resolveAgentPermissionPreset,
@@ -61,33 +62,7 @@ export function createStudioGateway(core: StudioCore, options: StudioGatewayOpti
     ...(options.onTailnetEvent ? { onTailnetEvent: options.onTailnetEvent } : {}),
     ...(options.onMeshEvent ? { onMeshEvent: options.onMeshEvent } : {}),
     ...(options.hasWindow ? { hasWindow: options.hasWindow } : {}),
-    resolveConversationHost: () =>
-      createConversationGatewayHost(
-        conversations,
-        (workspaceId) => workspaceRegistry.getRecord(workspaceId)?.folderPath ?? null,
-        () =>
-          workspaceRegistry
-            .getRecords()
-            .filter((record) => Boolean(record.folderPath))
-            .map((record) => ({
-              workspaceId: record.id,
-              workspaceRoot: record.folderPath!,
-            })),
-        // A chat's own agent record carries the preset the person last chose
-        // for it; a chat without one starts on the app-wide spawn default, as a
-        // new chat in a window does.
-        (key) =>
-          parseCliPermissionPreset(
-            workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]?.cliPermissionPreset,
-          ) ?? core.defaultSpawnPermissionPreset(),
-        // The agent record's name — the same record, and the same field, this
-        // desktop's tab and sidebar read — so a remote lists the chat by the
-        // name it has here rather than by its first message.
-        (key) => workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]?.name,
-        // The chat's CLI catalog as this machine's own picker lists it, so a
-        // paired device offers the same models and can switch to no other.
-        core.conversationModelCatalog,
-      ),
+    resolveConversationHost: core.createConversationHost,
     // The gateway's tool set: core app tools + canonical run tools merged once,
     // module-contributed tools read from the host kernel per request
     // and gated on their owner's live enablement.

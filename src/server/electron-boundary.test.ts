@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { build, type Metafile } from 'esbuild'
 import { test } from 'vitest'
@@ -9,7 +9,9 @@ import { test } from 'vitest'
 // `await import('electron')`, and not through a module it imports. This walks
 // the real import graph, the way the app's bundler sees it (imports used only
 // as types are erased, as they are in the build), from every server-bound file
-// and fails with the path that reaches Electron.
+// and fails with the path that reaches Electron or a package built on it. A
+// load the walk cannot follow, because its target is computed, fails too
+// unless it is listed with the reason it cannot reach Electron.
 //
 // "Server-bound" is what the Studio server design (docs/design/studio-server.md,
 // sections 3.1 and 13) says the server owns: the conversation runtime and its
@@ -92,6 +94,7 @@ const SERVER_BOUND: readonly string[] = [
   'src/main/module-host/enablement-store.ts',
   'src/main/modules/agent-runtime-module.ts',
   'src/main/modules/scheduled-agents-module.ts',
+  'src/main/modules/third-party-main-loader.ts',
   // Settings and credentials.
   'src/main/launch-settings-store.ts',
   'src/main/workspace-registry-store.ts',
@@ -113,8 +116,24 @@ const SERVER_BOUND: readonly string[] = [
   'src/main/filesystem-search.ts',
 ]
 
+// Electron itself and the packages built on it: `electron/main`, `@electron/*`,
+// `electron-updater` and the other `electron-*` helpers.
 const ELECTRON = (specifier: string): boolean =>
-  specifier === 'electron' || specifier.startsWith('electron/') || specifier === 'electron-updater'
+  specifier === 'electron' ||
+  specifier.startsWith('electron/') ||
+  specifier.startsWith('electron-') ||
+  specifier.startsWith('@electron/')
+
+// A load whose target is computed (`require(name)`, `import(path)`, a
+// `createRequire` loader) is invisible to the walk, so each one in server-bound
+// code is either refused or listed here with why it cannot reach Electron.
+const COMPUTED_LOADS_ALLOWED: Readonly<Record<string, string>> = {
+  // Loads a third-party module's `entry.main` from its install folder, after
+  // the containment and signature checks. What that module imports is decided
+  // at load time by a host capability (owner default 2026-10-01: a server skips
+  // the main half of a module that needs Electron), not by this walk.
+  'src/main/modules/third-party-main-loader.ts': 'a third-party entry.main, loaded by path',
+}
 
 function sourceFilesUnder(directory: string): string[] {
   const files: string[] = []
@@ -160,6 +179,36 @@ async function importGraph(entryPoints: string[]): Promise<Metafile['inputs']> {
   return result.metafile.inputs
 }
 
+// `require(`, `import(` or `createRequire(` followed by anything but a quote:
+// the target is computed (a template literal counts, interpolated or not). A
+// `createRequire` loader is matched by its maker, since it can be called anything.
+const COMPUTED_LOAD = /\b(?:require|import)\s*\(\s*(?!['"])|\bcreateRequire\s*\(/
+
+/** Source text with comments blanked, so prose that says "require()" is not a load. */
+function withoutComments(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, (block) => block.replace(/[^\n]/g, ' '))
+    .replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
+}
+
+/**
+ * Every load in the walked files whose target is not a string the walk can
+ * follow. The bundler leaves these alone without a word when it targets Node,
+ * so the walked sources are read for them.
+ */
+function computedLoads(inputs: Metafile['inputs']): string[] {
+  const found: string[] = []
+  for (const file of Object.keys(inputs)) {
+    if (!/\.tsx?$/.test(file) || Object.hasOwn(COMPUTED_LOADS_ALLOWED, file)) continue
+    withoutComments(readFileSync(join(ROOT, file), 'utf8'))
+      .split('\n')
+      .forEach((line, index) => {
+        if (COMPUTED_LOAD.test(line)) found.push(`${file}:${index + 1}: ${line.trim()}`)
+      })
+  }
+  return found
+}
+
 /** The import chain from `entry` to Electron, or null when there is none. */
 function pathToElectron(inputs: Metafile['inputs'], entry: string): string[] | null {
   const via = new Map<string, string | null>([[entry, null]])
@@ -201,4 +250,17 @@ test('the walk does find electron where it is', async () => {
   // composition root is Electron's, by a static import.
   const inputs = await importGraph(['src/main/app-services.ts'])
   assert.deepEqual(pathToElectron(inputs, 'src/main/app-services.ts')?.at(-1), 'electron (import-statement)')
+})
+
+test('no server-bound file loads something the walk cannot follow, unless it is listed with a reason', async () => {
+  const inputs = await importGraph(expand(SERVER_BOUND))
+  assert.deepEqual(
+    computedLoads(inputs),
+    [],
+    'A require() or import() with a computed argument, or a createRequire loader, could reach electron without ' +
+      'the walk seeing it. Load by a string literal, or list the file in COMPUTED_LOADS_ALLOWED with why it cannot.',
+  )
+  for (const file of Object.keys(COMPUTED_LOADS_ALLOWED)) {
+    assert.ok(inputs[file], `${file} is allowed a computed load but is not server-bound any more`)
+  }
 })

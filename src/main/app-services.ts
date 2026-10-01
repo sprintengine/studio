@@ -27,6 +27,7 @@ import {
   setLaunchStatusLineScriptResolver,
 } from './terminal-launch'
 import { REMOTE_OPEN_REQUESTED_CHANNEL, TAILNET_EVENT_CHANNEL } from '../shared/tailnet'
+import { STUDIO_LOCAL_APPS_CHANGED_CHANNEL } from '../shared/studio-local-apps'
 import { MESH_EVENT_CHANNEL } from '../shared/tailnet-mesh'
 import { CANVAS_MODULE_DEFAULT_ENABLED } from '../shared/modules/manifest'
 import { createTailnetNotifier } from './tailnet-notifications'
@@ -176,6 +177,7 @@ import { entriesRunLauncher, removeIntegrations, SESSION_INTEGRATION_KINDS } fro
 import { studioPlatform } from '../server/platform/platform'
 import { createStudioCore, studioBridgeScriptPath } from '../server/core/studio-core'
 import { createStudioGateway } from '../server/core/studio-gateway'
+import { createStudioRpc } from '../server/core/studio-rpc'
 
 // How long the quit gives the session integrations' removal. What it does not
 // reach stays listed, and the next quit takes it out.
@@ -1574,6 +1576,18 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     ],
   })
   tailnetToolsFrontDoor = automationService
+  // The Studio RPC: the protocol applications on this machine follow, drive
+  // and start chats with, on an owner-only socket in userData/run, composed
+  // over the core and its gateway as a standalone server composes it. Nothing
+  // in the app uses it yet; paired apps are listed and revoked in Settings.
+  const studioRpcService = createStudioRpc(core, automationService, {
+    onChanged: (status) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (window.isDestroyed() || window.webContents.isDestroyed()) continue
+        window.webContents.send(STUDIO_LOCAL_APPS_CHANGED_CHANNEL, status)
+      }
+    },
+  })
   // The conversation peek (hover a chat row or an agent tab): the prompts this
   // app captured for the session the card is anchored to. Built here rather
   // than inside the runtime so its assembly rules stay Electron-free and
@@ -1756,6 +1770,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     canvasService,
     canvasSubscribers,
     automationService,
+    studioRpcService,
     backgroundModeStore,
     telemetryConsentStore,
     analytics,

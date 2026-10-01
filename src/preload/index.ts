@@ -7,6 +7,7 @@ import { appMenuApi } from './api/app-menu'
 import { appearanceApi } from './api/appearance'
 import { authApi } from './api/auth'
 import { automationApi } from './api/automation'
+import { studioLocalAppsApi } from './api/studio-local-apps'
 import { meshApi } from './api/mesh'
 import { scheduledAgentsApi } from './api/scheduled-agents'
 import { backlogApi } from './api/backlog'
@@ -70,6 +71,7 @@ const api = {
   ...appearanceApi,
   ...authApi,
   ...automationApi,
+  ...studioLocalAppsApi,
   ...meshApi,
   ...scheduledAgentsApi,
   ...backlogApi,

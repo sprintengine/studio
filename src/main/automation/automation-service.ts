@@ -296,6 +296,8 @@ export function createAutomationService(options: AutomationServiceOptions) {
   return {
     initialize,
     whenGatewayReady,
+    /** The one mutation audit, shared with every other listener (the Studio RPC's owner socket). */
+    gatewayAudit: (): GatewayAuditStore => auditStore(),
     getStatus,
     setEnabled,
     shutdown,

@@ -2,6 +2,7 @@
   "extends": "@electron-toolkit/tsconfig/tsconfig.web.json",
   "include": [
     "packages/conversation-protocol/src/**/*.ts",
+    "packages/studio-protocol/src/**/*.ts",
     "src/renderer/src/**/*",
     "src/shared/**/*",
     "packages/module-sdk/src/index.ts",

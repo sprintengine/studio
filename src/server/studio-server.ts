@@ -5,6 +5,8 @@ import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../shared/product-
 import { resolveSocketPath } from '../main/automation/automation-service'
 import { createStudioCore, StudioDataDirBusyError, studioBridgeScriptPath, type StudioCore } from './core/studio-core'
 import { createStudioGateway, type StudioGateway } from './core/studio-gateway'
+import { createStudioRpc } from './core/studio-rpc'
+import type { StudioRpcService } from '../main/studio-rpc/studio-rpc-service'
 import { readDataDirSecrets } from './core/data-dir'
 import { createNodeStudioPlatform, type NodeStudioPlatform } from './platform/platform'
 import { createUnavailableSecretCipher } from './platform/secret-cipher'
@@ -16,14 +18,19 @@ import { createUnavailableSecretCipher } from './platform/secret-cipher'
 // Startup is: the data directory exists → whose cipher seals it is settled →
 // the platform is built and installed → the core takes the run lock and builds
 // its stores → the gateway binds its socket and writes its discovery files →
-// ready. Shutdown is the reverse, gateway first so no tool call starts on a
-// core that is closing.
+// the Studio RPC binds the owner socket → ready. Shutdown is the reverse: the
+// RPC first (it audits into the gateway's log), then the gateway, so no call
+// starts on a core that is closing, then the core.
 
 export type StudioServerOptions = {
   dataDir: string
   logsDir: string
   version: string
-  packaged?: boolean
+  /**
+   * Whether this is an installed build. Required: an installed build trusts
+   * only what it shipped, so a guess of "source checkout" would fail open.
+   */
+  packaged: boolean
   resourcesDir?: string | null
   appRoot?: string | null
   /**
@@ -41,6 +48,8 @@ export type StudioServerReady = {
   dataDir: string
   /** The gateway's socket (a named pipe on Windows), or null when it could not start. */
   gatewaySocket: string | null
+  /** The Studio RPC's owner socket, or null when it could not start (its status says why). */
+  rpcSocket: string | null
   /** False when the data directory's secrets cannot be opened here (a shared desktop directory). */
   secrets: boolean
 }
@@ -48,9 +57,10 @@ export type StudioServerReady = {
 export type StudioServer = {
   core: StudioCore
   gateway: StudioGateway
+  rpc: StudioRpcService
   platform: NodeStudioPlatform
   ready: StudioServerReady
-  /** Stop the gateway, then the core. Safe to call more than once; later calls wait on the first. */
+  /** Stop the RPC, the gateway, then the core. Safe to call more than once; later calls wait on the first. */
   stop(): Promise<void>
 }
 
@@ -94,7 +104,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     dataDir: options.dataDir,
     logsDir: options.logsDir,
     version: options.version,
-    packaged: options.packaged ?? false,
+    packaged: options.packaged,
     resourcesDir: options.resourcesDir ?? null,
     appRoot: options.appRoot ?? null,
     ...(desktopSealed
@@ -139,10 +149,15 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
 
   const started = createStudioGateway(core)
   gateway = started
+  const rpc = createStudioRpc(core, started)
   let status: Awaited<ReturnType<StudioGateway['initialize']>>
   try {
     status = await started.initialize()
+    // Not fatal when it cannot bind, as in the desktop: its status says why,
+    // and the gateway and chats do not depend on it.
+    await rpc.start().catch(() => undefined)
   } catch (error) {
+    await rpc.stop().catch(() => undefined)
     await started.shutdown().catch(() => undefined)
     await core.shutdown()
     throw error
@@ -151,6 +166,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   let stopping: Promise<void> | null = null
   const stop = (): Promise<void> => {
     stopping ??= (async () => {
+      await rpc.stop().catch(() => undefined)
       await started.shutdown().catch(() => undefined)
       await core.shutdown()
     })()
@@ -160,12 +176,14 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   return {
     core,
     gateway: started,
+    rpc,
     platform,
     ready: {
       pid: process.pid,
       version: options.version,
       dataDir: options.dataDir,
       gatewaySocket: status.running ? (status.socketPath ?? resolveSocketPath(options.dataDir)) : null,
+      rpcSocket: rpc.getStatus().running ? rpc.getStatus().socketPath : null,
       secrets: platform.secrets.available(),
     },
     stop,

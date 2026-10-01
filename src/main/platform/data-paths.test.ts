@@ -23,7 +23,9 @@ afterEach(async () => {
 test('a launch names the agent-state socket in the platform data directory, and none without a platform', () => {
   assert.equal(agentIdentityEnv({ agentId: 'agent-1' }).SPRINTENGINE_AGENT_STATE_SOCKET, undefined)
 
-  installStudioPlatform(createNodeStudioPlatform({ dataDir: '/Users/dev/studio-data', version: '0.0.0' }))
+  installStudioPlatform(
+    createNodeStudioPlatform({ dataDir: '/Users/dev/studio-data', packaged: false, version: '0.0.0' }),
+  )
   assert.equal(
     agentIdentityEnv({ agentId: 'agent-1' }).SPRINTENGINE_AGENT_STATE_SOCKET,
     resolveAgentStateSocketPath('/Users/dev/studio-data'),
@@ -34,7 +36,9 @@ test('diagnostics are appended in the platform logs directory', async () => {
   const root = await mkdtemp(join(tmpdir(), 'studio-data-paths-'))
   directories.push(root)
   const logsDir = join(root, 'logs')
-  installStudioPlatform(createNodeStudioPlatform({ dataDir: join(root, 'data'), logsDir, version: '0.0.0' }))
+  installStudioPlatform(
+    createNodeStudioPlatform({ dataDir: join(root, 'data'), logsDir, packaged: false, version: '0.0.0' }),
+  )
 
   const entry = await writeDiagnosticLog({ level: 'info', source: 'agents', title: 'Probe', message: 'written' })
   const logPath = entry.logPath ?? ''

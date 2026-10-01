@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
 import { effectiveAgentLaunchSettings } from '../../shared/launch-settings'
 import { isWslHostId } from '../../shared/execution-host'
 import { comparablePath } from '../../shared/host-paths'
@@ -10,6 +11,7 @@ import {
   createAgentPermissionResolver,
   type AgentPermissionResolver,
 } from '../../main/automation/launch-permission-cap'
+import { createConversationGatewayHost } from '../../main/automation/tailnet/tailnet-conversation-host'
 import { ConversationApprovalRuleStore } from '../../main/conversation-approval-rules'
 import { ConversationAttachmentStore } from '../../main/conversation-attachment-store'
 import { createConversationLaunchService } from '../../main/conversation-launch-service'
@@ -237,11 +239,37 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
   })
 
   /**
-   * The preset a chat starts on when no caller chose one: its agent record's,
-   * else the app-wide spawn default, as a new chat in a window does.
+   * The conversation host every remote door wraps: the tailnet lane a paired
+   * device follows chats through, and the Studio RPC a local app does. One
+   * factory, so a chat lists, resumes and switches the same by either.
    */
-  const defaultSpawnPermissionPreset = () =>
-    effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastAgentSpawnPermissionPreset
+  const createConversationHost = () =>
+    createConversationGatewayHost(
+      conversations,
+      (workspaceId) => workspaceRegistry.getRecord(workspaceId)?.folderPath ?? null,
+      () =>
+        workspaceRegistry
+          .getRecords()
+          .filter((record) => Boolean(record.folderPath))
+          .map((record) => ({
+            workspaceId: record.id,
+            workspaceRoot: record.folderPath!,
+          })),
+      // A chat's own agent record carries the preset the person last chose
+      // for it; a chat without one starts on the app-wide spawn default, as a
+      // new chat in a window does.
+      (key) =>
+        parseCliPermissionPreset(
+          workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]?.cliPermissionPreset,
+        ) ?? effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastAgentSpawnPermissionPreset,
+      // The agent record's name — the same record, and the same field, this
+      // desktop's tab and sidebar read — so a remote lists the chat by the
+      // name it has here rather than by its first message.
+      (key) => workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]?.name,
+      // The chat's CLI catalog as this machine's own picker lists it, so a
+      // paired device offers the same models and can switch to no other.
+      conversationModelCatalog,
+    )
 
   /**
    * The core's own end, for a process that owns nothing else: the registry
@@ -281,7 +309,7 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     conversationModelCatalog,
     conversationLaunchService,
     resolveAgentPermissionPreset,
-    defaultSpawnPermissionPreset,
+    createConversationHost,
     shutdown,
   }
 }

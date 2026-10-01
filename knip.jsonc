@@ -17,8 +17,12 @@
     "packages/module-sdk/drift/*.ts",
     // The standalone Studio server, bundled by scripts/build-server.mjs.
     "src/server/main.ts",
-    // The protocol package's published entry; app code imports its files directly.
+    // The protocol packages' published entries; app code imports their files directly.
     "packages/conversation-protocol/src/public.ts",
+    "packages/studio-protocol/src/public.ts",
+    // The agent SDK's published entries, the client and its Node half.
+    "packages/agent-sdk/src/index.ts",
+    "packages/agent-sdk/src/node.ts",
   ],
   "project": [
     "src/**/*.{ts,tsx}",
@@ -43,6 +47,9 @@
     // The Windows registry tool; the updater reads where an all-users
     // installation is recorded with it. Not an npm binary.
     "reg.exe",
+    // The Windows ACL tool; the server's secret key file is made the current
+    // user's only with it. Not an npm binary.
+    "icacls",
   ],
   "ignoreDependencies": [
     // Imported from CSS (`@import "tailwindcss"`), which knip does not read.
