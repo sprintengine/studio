@@ -112,6 +112,26 @@ own end. Tool streams, checkpoints and idle attention are settled once, at
 that real end. "Edit from here" on a steered message without a cursor goes
 back before the turn it joined, taking that turn's message out of view too.
 
+"Fork from here" rides the cursor as well, into a new transcript.
+`forkAtTurn` reads the parent's visible events (turns a rewind hid stay
+behind), cuts them after a reply's turn end or before a user message, and walks
+back from the cut as a rewind does to the newest `providerCursor`. It hands the
+adapter's optional `fork` the parent's session context, that cursor, whether
+the cut lines up with it (`exact`: false when a steer joined the reply, or the
+transcript has no record), and whether the provider has seen anything after
+the cut (`latest`). The adapter answers the fork's own cursor: the parent's
+session at the point (Claude: the turn's last entry, branched with
+`resumeSessionAt` and `forkSession` on the fork's first spawn; Codex: the
+thread and turn, branched with `thread/fork` and `lastTurnId`), a session it
+branched already (an ACP agent's `session/fork`, only at the newest reply), or
+null. The copy, renumbered under the new agent id, ends with a
+`session_updated` carrying `forkedFrom` and that cursor; `readResumeCursor`
+treats it like a rewind's marker. Null with history to carry also writes
+`seedFromHistory`, and until the fork's first `user_message` every start passes
+`seedFromHistory: true` with `fallbackHistory`, which the Codex and ACP
+adapters send ahead of that first message. An adapter without `fork` is seeded
+when stateful and needs nothing when stateless.
+
 ### Provider identity & listing
 
 - Adapter id: `claude-agent`. Registered as a **bundled adapter** in the
