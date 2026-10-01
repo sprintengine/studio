@@ -137,6 +137,12 @@ test('a picture is staged in pieces no larger than a frame holds, of a size and 
   assert.equal(over.ok ? null : over.code, 'too_large')
   const notBase64 = parseStudioChatParams('uploads.append', { uploadId: 'u', offset: 0, dataBase64: 'not base64!' })
   assert.equal(notBase64.ok, false)
+  assert.deepEqual(parseStudioChatParams('uploads.discard', { uploadIds: ['u1', 'u2'] }), {
+    ok: true,
+    params: { uploadIds: ['u1', 'u2'] },
+  })
+  assert.equal(parseStudioChatParams('uploads.discard', { uploadIds: 'u1' }).ok, false)
+  assert.equal(parseStudioChatParams('uploads.discard', { uploadIds: Array.from({ length: 33 }, () => 'u') }).ok, false)
 })
 
 test('revert, rewind and fork take a conversation and a turn; a fork is from a reply or before a message', () => {

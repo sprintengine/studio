@@ -187,3 +187,43 @@ test('a picture goes up in pieces and reaches the runtime whole; the socket’s 
     restore()
   }
 })
+
+test('a send that cannot go gives back the pictures it staged, so the window can keep sending', async () => {
+  const sends: Array<Record<string, unknown>> = []
+  const { restore } = await setup({
+    conversationSessionSendTurn: async (input: Record<string, unknown>) => {
+      sends.push(input)
+      return { ok: true, session: { sessionId: 'session', workspaceId: 'workspace', agentId: 'agent' } }
+    },
+  })
+  try {
+    const { useConversationTransport } = await import('./conversationTransport')
+    const { createElement } = await import('react')
+    const { renderToString } = await import('react-dom/server')
+    let transport!: ReturnType<typeof useConversationTransport>
+    renderToString(
+      createElement(() => {
+        transport = useConversationTransport()
+        return null
+      }),
+    )
+    const picture = { id: 'one', mediaType: 'image/png' as const, dataBase64: 'iVBORw0KGgo=', byteLength: 8 }
+    // Studio takes the first picture and refuses the second: the send never goes.
+    // More of these than a window may hold staged at once.
+    for (let attempt = 0; attempt < 40; attempt++) {
+      await expect(
+        transport.send({
+          sessionId: 'session',
+          message: 'look',
+          attachments: [picture, { ...picture, id: 'two', mediaType: 'image/svg+xml' as never }],
+        }),
+      ).resolves.toEqual({ ok: false, message: 'A picture is PNG, JPEG, WebP or GIF.' })
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+    const sent = await transport.send({ sessionId: 'session', message: 'look', attachments: [picture] })
+    expect(sent.ok).toBe(true)
+    expect(sends).toHaveLength(1)
+  } finally {
+    restore()
+  }
+})

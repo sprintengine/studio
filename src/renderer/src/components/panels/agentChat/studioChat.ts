@@ -245,19 +245,39 @@ type StudioTransportParts = Omit<ConversationTransport, 'kind' | 'capabilities' 
 export function createStudioConversationParts(client: ClientSource): StudioTransportParts {
   const send = async (input: ConversationSendTurnInput) => {
     const { attachments, commandId: given, ...rest } = input
-    const staged = attachments?.length
-      ? await eachLimited(attachments, UPLOADS_AT_ONCE, async (attachment) => ({
-          id: attachment.id,
-          uploadId: await upload(client, attachment),
-          ...(attachment.name === undefined ? {} : { name: attachment.name }),
-        }))
-      : undefined
-    return ask(client, 'session.send', {
-      ...rest,
-      ...(rest.mentions ? { mentions: rest.mentions as unknown as Record<string, unknown>[] } : {}),
-      ...(staged ? { attachments: staged } : {}),
-      commandId: given ?? commandId(),
-    })
+    // What this send staged, given back if the send cannot go: Studio would
+    // otherwise hold it against this window's budget until it expires. One
+    // that finishes staging after the send has failed is given back as it does.
+    const stagedIds: string[] = []
+    let abandoned = false
+    const giveBack = (uploadIds: string[]) => {
+      if (uploadIds.length) void ask(client, 'uploads.discard', { uploadIds }).catch(() => undefined)
+    }
+    try {
+      const staged = attachments?.length
+        ? await eachLimited(attachments, UPLOADS_AT_ONCE, async (attachment) => {
+            const uploadId = await upload(client, attachment)
+            if (abandoned) giveBack([uploadId])
+            else stagedIds.push(uploadId)
+            return {
+              id: attachment.id,
+              uploadId,
+              ...(attachment.name === undefined ? {} : { name: attachment.name }),
+            }
+          })
+        : undefined
+      return await ask(client, 'session.send', {
+        ...rest,
+        ...(rest.mentions ? { mentions: rest.mentions as unknown as Record<string, unknown>[] } : {}),
+        ...(staged ? { attachments: staged } : {}),
+        commandId: given ?? commandId(),
+      })
+    } catch (error) {
+      // A picture the send already carried is passed over by Studio.
+      abandoned = true
+      giveBack(stagedIds.splice(0))
+      throw error
+    }
   }
   return {
     subscribe(input, cb) {

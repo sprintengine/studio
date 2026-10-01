@@ -307,7 +307,10 @@ test('a command id named for a different command is refused, while the first run
       code: 'command_id_conflict',
       message: 'That command id was already used for a different command. Send this one under a new id.',
     }
-    const [first, racing] = await Promise.all([send('/tools', 'fp-tools'), send('/help', 'fp-help')])
+    assert.equal(await f.runtime.hasCommandReceipt(f.sessionId, commandId), false, 'nothing is held before it runs')
+    const running = send('/tools', 'fp-tools')
+    assert.equal(await f.runtime.hasCommandReceipt(f.sessionId, commandId), true, 'held while it runs')
+    const [first, racing] = await Promise.all([running, send('/help', 'fp-help')])
     assert.equal(first.ok, true)
     assert.deepEqual(racing, conflict, 'while the first is still running')
     assert.deepEqual(await send('/tools', 'fp-tools'), first, 'the same command again is answered from its receipt')
@@ -329,6 +332,11 @@ test('a command id named for a different command is refused, while the first run
           commandId,
           ...(commandFingerprint ? { commandFingerprint } : {}),
         })
+      assert.equal(
+        await restarted.hasCommandReceipt(session.session.sessionId, commandId),
+        true,
+        'a receipt on disk is held',
+      )
       assert.deepEqual(await again('/help', 'fp-help'), conflict, 'the receipt on disk keeps what the command was')
       assert.deepEqual(await again('/tools', 'fp-tools'), first)
       // A caller that names no fingerprint (the IPC never does) is answered as before.

@@ -174,6 +174,8 @@ export type StudioChatMethodMap = {
     result: { uploadId: string; chunkBytes: number }
   }
   'uploads.append': { params: { uploadId: string; offset: number; dataBase64: string }; result: { received: number } }
+  /** Give back staged pictures that will not be sent; one already sent, or not this client's, is passed over. */
+  'uploads.discard': { params: { uploadIds: string[] }; result: { discarded: number } }
   'conversation.revert': {
     params: {
       commandId: string
@@ -259,6 +261,8 @@ export const STUDIO_CHAT_METHODS: { readonly [M in StudioChatMethod]: StudioMeth
   // append is idempotent by its offset, so neither carries a command id.
   'uploads.begin': owned('conversation:operate', STUDIO_SESSIONS_CAPABILITY, false),
   'uploads.append': owned('conversation:operate', STUDIO_SESSIONS_CAPABILITY, false),
+  // Discarding unsent bytes is as safe to repeat as staging them.
+  'uploads.discard': owned('conversation:operate', STUDIO_SESSIONS_CAPABILITY, false),
   'conversation.revert': owned('conversation:operate', STUDIO_CHECKPOINTS_CAPABILITY, true),
   'conversation.rewind': owned('conversation:operate', STUDIO_CHECKPOINTS_CAPABILITY, true),
   'conversation.fork': owned('conversation:create', STUDIO_CHECKPOINTS_CAPABILITY, true),
@@ -517,6 +521,12 @@ export function parseStudioChatParams<M extends StudioChatMethod>(method: M, par
       if (value.dataBase64.length > Math.ceil(STUDIO_UPLOAD_CHUNK_BYTES / 3) * 4)
         return refuse(`One append carries at most ${STUDIO_UPLOAD_CHUNK_BYTES} bytes.`, 'too_large')
       return ok({ uploadId: value.uploadId, offset: value.offset, dataBase64: value.dataBase64 })
+    }
+    case 'uploads.discard': {
+      const ids = value.uploadIds
+      if (!(Array.isArray(ids) && ids.length <= STUDIO_MAX_UPLOADS_PER_SEND * 2 && ids.every(id)))
+        return refuse(`"uploadIds" lists at most ${STUDIO_MAX_UPLOADS_PER_SEND * 2} uploads.`)
+      return ok({ uploadIds: [...ids] })
     }
     case 'conversation.revert': {
       if (!id(value.commandId)) return refuse(COMMAND_ID)

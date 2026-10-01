@@ -2203,6 +2203,31 @@ export class ConversationRuntime {
     }
   }
 
+  /**
+   * Whether a session's command id has a receipt, or is being carried out
+   * now: a repeat of it is answered from that receipt rather than run. A
+   * caller that would otherwise need what the first attempt carried (a
+   * picture it staged and has since let go of) asks this first.
+   */
+  async hasCommandReceipt(sessionId: string, commandId: string): Promise<boolean> {
+    const session = this.sessions.get(sessionId)
+    if (!session) return false
+    const path = this.receiptsPath(session)
+    if (this.pendingCommands.has(`${path}:${commandId}`)) return true
+    try {
+      return (await this.loadReceipts(session.workspaceRoot, path)).has(commandId)
+    } catch {
+      return false
+    }
+  }
+
+  private receiptsPath(session: { workspaceRoot: string; workspaceId: string; agentId: string }): string {
+    return this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId).replace(
+      /\.jsonl$/,
+      '.receipts.json',
+    )
+  }
+
   private runCommand(
     sessionId: string,
     commandId: string,
@@ -2211,10 +2236,7 @@ export class ConversationRuntime {
   ): Promise<ConversationSessionActionResult> {
     const session = this.sessions.get(sessionId)
     if (!session) return Promise.resolve({ ok: false, message: 'Conversation session is invalid.' })
-    const path = this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId).replace(
-      /\.jsonl$/,
-      '.receipts.json',
-    )
+    const path = this.receiptsPath(session)
     const key = `${path}:${commandId}`
     // A command id is the client's promise that it names one command. The
     // same id for a different command (by its fingerprint, where the caller

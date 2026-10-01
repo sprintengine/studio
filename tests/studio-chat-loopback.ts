@@ -54,26 +54,54 @@ function conversationsOver(api: Api): StudioConversationBackend {
   }
 }
 
-// The runtime behind a window's IPC never sees a command id or its
-// fingerprint; the protocol's carry both for its receipts, which these stubs,
-// standing in for the IPC, are not asked to keep.
-const withoutId = <T extends { commandId?: string; commandFingerprint?: string }>({
-  commandId: _id,
-  commandFingerprint: _fingerprint,
-  ...rest
-}: T) => rest
+type Commanded = { sessionId: string; commandId?: string; commandFingerprint?: string }
+
+/**
+ * The runtime's command receipts, as it keeps them: a session command's id is
+ * answered with its first result for every repeat (a request resent after a
+ * dropped connection), and the same id for a different command is refused.
+ * The stubs stand in for the IPC, whose runtime never sees an id, so they are
+ * called once per command and without its id or fingerprint, as over IPC.
+ */
+function receiptsKeeper() {
+  const kept = new Map<string, { fingerprint: string | undefined; result: Promise<never> }>()
+  const keyOf = (sessionId: string, commandId: string) => `${sessionId}:${commandId}`
+  return {
+    run<T extends Commanded>(input: T, carry: (input: Omit<T, 'commandId' | 'commandFingerprint'>) => Promise<never>) {
+      const { commandId, commandFingerprint, ...rest } = input
+      if (commandId === undefined) return carry(rest)
+      const key = keyOf(input.sessionId, commandId)
+      const known = kept.get(key)
+      if (known) {
+        if (commandFingerprint && known.fingerprint && known.fingerprint !== commandFingerprint)
+          return Promise.resolve({
+            ok: false,
+            code: 'command_id_conflict',
+            message: 'That command id was already used for a different command.',
+          } as never)
+        return known.result
+      }
+      const result = carry(rest)
+      kept.set(key, { fingerprint: commandFingerprint, result })
+      return result
+    },
+    has: async (sessionId: string, commandId: string) => kept.has(keyOf(sessionId, commandId)),
+  }
+}
 
 function chatOver(api: Api) {
+  const receipts = receiptsKeeper()
   return createStudioChatBackend({
     conversation: {
       startSession: (input) => call(api, 'conversationSessionStart', input),
-      sendTurn: (input) => call(api, 'conversationSessionSendTurn', withoutId(input)),
-      interrupt: (input) => call(api, 'conversationSessionInterrupt', withoutId(input)),
-      respondToRequest: (input) => call(api, 'conversationSessionRespondToRequest', withoutId(input)),
-      setPermission: (input) => call(api, 'conversationSessionSetPermission', withoutId(input)),
+      sendTurn: (input) => receipts.run(input, (rest) => call(api, 'conversationSessionSendTurn', rest)),
+      interrupt: (input) => receipts.run(input, (rest) => call(api, 'conversationSessionInterrupt', rest)),
+      respondToRequest: (input) =>
+        receipts.run(input, (rest) => call(api, 'conversationSessionRespondToRequest', rest)),
+      setPermission: (input) => receipts.run(input, (rest) => call(api, 'conversationSessionSetPermission', rest)),
       get setModel() {
         return has(api, 'conversationSessionSetModel')
-          ? (input: { commandId?: string }) => call(api, 'conversationSessionSetModel', withoutId(input))
+          ? (input: Commanded) => receipts.run(input, (rest) => call(api, 'conversationSessionSetModel', rest))
           : undefined
       },
       get revertToTurn() {
@@ -122,6 +150,7 @@ function chatOver(api: Api) {
     },
     repoRoot: (folderPath, hostId) =>
       hostId === undefined ? call(api, 'getGitRepoRoot', folderPath) : call(api, 'getGitRepoRoot', folderPath, hostId),
+    hasReceipt: receipts.has,
     commands: (input) => call(api, 'conversationCommands', input),
     onCommandsChanged: (listener) => {
       const subscribe = api.onConversationCommandsChanged as ((cb: typeof listener) => () => void) | undefined

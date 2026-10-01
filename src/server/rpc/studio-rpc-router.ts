@@ -79,6 +79,10 @@ export type StudioRpcRouter = {
     params: unknown,
     context?: StudioRequestContext,
   ): Promise<StudioRpcAnswer>
+  /** A connection closed: what it staged and did not send waits a little for its reconnect. */
+  connectionClosed(connectionId: string): void
+  /** The RPC is stopping: timers stop and staged uploads go. */
+  close(): void
 }
 
 export type StudioRpcRouterOptions = {
@@ -495,6 +499,8 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
     const outcome = (result: unknown): StudioRpcAnswer => ({ ok: true, result: voice.redact(result) as never })
     const runtimeId = (id: string) => studioRuntimeCommandId(grant, id)
     const keptId = (id: string) => `${method}:${runtimeId(id)}`
+    // An upload is the client's; its budget is this connection's.
+    const holder = { client: grant.clientId, connection: context.connectionId }
     switch (method) {
       case 'session.start': {
         const { commandId, cliRuntimes, ...input } = params as StudioMethodParams<'session.start'>
@@ -511,7 +517,14 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
       case 'session.send': {
         const { commandId, attachments, mentions, ...input } = params as StudioMethodParams<'session.send'>
         let pictures: ConversationImageAttachment[] | undefined
-        if (attachments?.length) {
+        // A repeat of a send the runtime holds a receipt for is answered from
+        // it, so it needs none of the pictures the first attempt carried,
+        // which may be long gone: it must not be refused for them, or the
+        // client sends the message again under a new id.
+        const answered =
+          attachments?.length &&
+          (await chat.hasReceipt({ sessionId: input.sessionId, commandId: runtimeId(commandId) }))
+        if (attachments?.length && !answered) {
           const spent = uploads.spend(
             grant.clientId,
             attachments.map((attachment) => attachment.uploadId),
@@ -530,16 +543,25 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
             }
           })
         }
-        return outcome(
-          await chat.sendTurn({
+        const sent = await chat
+          .sendTurn({
             ...input,
             // What each mention names is checked by the backend, by the rules its IPC applies.
             ...(mentions ? { mentions: mentions as never } : {}),
             ...(pictures ? { attachments: pictures } : {}),
             commandId: runtimeId(commandId),
             ...stamp,
-          }),
-        )
+          })
+          .finally(async () => {
+            // Recorded, its receipt answers every repeat and the bytes can go;
+            // not recorded, nothing ran, and a retry may carry them again.
+            if (!pictures) return
+            const recorded = await chat
+              .hasReceipt({ sessionId: input.sessionId, commandId: runtimeId(commandId) })
+              .catch(() => false)
+            uploads.settle(grant.clientId, runtimeId(commandId), recorded)
+          })
+        return outcome(sent)
       }
       case 'session.interrupt': {
         const { commandId, ...input } = params as StudioMethodParams<'session.interrupt'>
@@ -565,17 +587,22 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
         return outcome(await chat.setModel({ ...input, commandId: runtimeId(commandId), ...stamp }))
       }
       case 'uploads.begin': {
-        const begun = uploads.begin(grant.clientId, params as StudioMethodParams<'uploads.begin'>)
+        const begun = uploads.begin(holder, params as StudioMethodParams<'uploads.begin'>)
         return begun.ok
           ? { ok: true, result: { uploadId: begun.uploadId, chunkBytes: begun.chunkBytes } }
           : refuse(begun.code, begun.message)
       }
       case 'uploads.append': {
-        const appended = uploads.append(grant.clientId, params as StudioMethodParams<'uploads.append'>)
+        const appended = uploads.append(holder, params as StudioMethodParams<'uploads.append'>)
         return appended.ok
           ? { ok: true, result: { received: appended.received } }
           : refuse(appended.code, appended.message)
       }
+      case 'uploads.discard':
+        return {
+          ok: true,
+          result: uploads.discard(grant.clientId, (params as StudioMethodParams<'uploads.discard'>).uploadIds),
+        }
       case 'conversation.revert': {
         const { commandId, key: wire, ...input } = params as StudioMethodParams<'conversation.revert'>
         const key = resolve(wire, grant)
@@ -635,6 +662,8 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
   }
 
   return {
+    connectionClosed: (connectionId) => uploads.release(connectionId),
+    close: () => uploads.close(),
     async handle(grant, method, params, context = NO_CONTEXT) {
       const spec = STUDIO_METHODS[method]
       const voice = context.ownWindow ? windowVoice : clientVoice

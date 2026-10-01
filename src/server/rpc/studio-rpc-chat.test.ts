@@ -9,10 +9,19 @@ import {
 } from '../../../packages/studio-protocol/src/public'
 import type { ConversationCommandCatalog } from '../../shared/conversation/commands'
 import type { ConversationSendTurnInput } from '../../shared/conversation-runtime'
-import { createTicketAuthenticator, framePortStream, mintStudioTicket, type StudioFramePort } from './studio-frame-port'
+import {
+  createTicketAuthenticator,
+  framePortStream,
+  mintStudioTicket,
+  studioWindowGrant,
+  type StudioFramePort,
+} from './studio-frame-port'
+import { createStudioRpcRouter } from './studio-rpc-router'
+import { createStudioUploads } from './studio-uploads'
 import {
   OWNER_TOKEN,
   connectLineClient,
+  createFakeBackend,
   hello,
   pairFakeClient,
   startTestServer,
@@ -56,6 +65,8 @@ function fakeChat(): StudioChatBackend & { calls: ChatCalls } {
       calls.sends.push(input)
       return { ok: true, session }
     },
+    // A send the runtime has carried out holds a receipt under its id.
+    hasReceipt: async ({ commandId }) => calls.sends.some((send) => send.commandId === commandId),
     interrupt: async () => ({ ok: true, session }),
     respond: async () => ({ ok: true, session }),
     setPermission: async () => ({ ok: true, session }),
@@ -348,6 +359,40 @@ test('a picture arrives in pieces and reaches the runtime whole, spent by the on
   })
   assert.equal(!stolen.ok && stolen.error.code, 'invalid_params')
   window.close()
+})
+
+test('a send resent long after its pictures went is answered from its receipt, never refused for them', async () => {
+  let clock = 1_000_000
+  const chat = fakeChat()
+  const uploads = createStudioUploads({ now: () => clock })
+  disposers.push(async () => uploads.close())
+  const router = createStudioRpcRouter({
+    backend: createFakeBackend(),
+    chat: () => chat,
+    info: () => ({}) as never,
+    uploads,
+    now: () => clock,
+  })
+  const grant = studioWindowGrant()
+  const context = { connectionId: 'w1', slot: 1, ownWindow: true }
+  const call = (method: string, params: unknown) => router.handle(grant, method as never, params, context)
+  const begun = await call('uploads.begin', { mediaType: 'image/png', byteLength: 3 })
+  assert.ok(begun.ok)
+  const { uploadId } = begun.result as { uploadId: string }
+  assert.ok((await call('uploads.append', { uploadId, offset: 0, dataBase64: 'AAAA' })).ok)
+  const send = { commandId: 'c1', sessionId: 's1', message: 'look', attachments: [{ id: 'img', uploadId }] }
+  assert.ok((await call('session.send', send)).ok)
+  assert.equal(chat.calls.sends[0].attachments?.length, 1)
+  // Its receipt answers for it now, so the bytes are let go of at once.
+  assert.equal(uploads.spend(grant.clientId, [uploadId], 'owner:c1').ok, false)
+  // An hour later, after a long sleep, the window resends what it never heard answered.
+  clock += 60 * 60_000
+  const late = await call('session.send', send)
+  assert.ok(late.ok, 'answered, not "That upload is not here"')
+  assert.equal(chat.calls.sends.length, 2)
+  assert.equal(chat.calls.sends[1].commandId, 'owner:c1', 'the runtime answers it from the same receipt')
+  assert.equal(chat.calls.sends[1].attachments, undefined)
+  router.close()
 })
 
 test('a revert, rewind or fork is carried out once per command id, and its answer given to every retry', async () => {

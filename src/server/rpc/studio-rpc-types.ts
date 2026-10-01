@@ -116,6 +116,8 @@ export type StudioConversationBackend = {
 export type StudioChatBackend = {
   startSession(input: ConversationStartSessionInput): Promise<ConversationStartSessionResult>
   sendTurn(input: ConversationSendTurnInput): Promise<ConversationSessionActionResult>
+  /** Whether a session command's id has a receipt (or is being carried out): a repeat is answered from it. */
+  hasReceipt(input: { sessionId: string; commandId: string }): Promise<boolean>
   interrupt(input: ConversationInterruptInput): Promise<ConversationSessionActionResult>
   respond(input: ConversationRespondToRequestInput): Promise<ConversationSessionActionResult>
   setPermission(input: ConversationSetPermissionInput): Promise<ConversationSessionActionResult>

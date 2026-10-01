@@ -133,6 +133,7 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
       for (const connection of [...attached]) connection.bye('shutting_down', 'Studio is closing.', retryAfterMs)
       attached.clear()
       await listener.stop(retryAfterMs)
+      router.close()
     },
     attach(stream, attachOptions) {
       const connection = createStudioRpcConnection({

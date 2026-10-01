@@ -197,6 +197,7 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
     } catch {
       // Nothing of this connection's is left to end.
     }
+    options.router.connectionClosed(options.connectionId)
     options.onClosed(connection)
   }
 

@@ -237,6 +237,7 @@ export function registerCoreIpc(
       conversation: conversationHandlers,
       files: { ...filesystemSearchHandlers, ...filesystemReadHandlers },
       repoRoot: gitRepoRootFor,
+      hasReceipt: (sessionId, commandId) => services.conversations.hasCommandReceipt(sessionId, commandId),
       commands: (input) => conversationCommands.list(input),
       workspaces: () =>
         services.workspaceRegistry.getRecords().map((record) => ({

@@ -24,6 +24,7 @@ export type ConversationBackendMember =
   | 'getNativeProviderModels'
   | 'startSession'
   | 'sendTurn'
+  | 'hasCommandReceipt'
   | 'respondToRequest'
   | 'setPermission'
   | 'setModel'

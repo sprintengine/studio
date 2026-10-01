@@ -56,6 +56,8 @@ export type StudioChatBackendDeps = {
     readImageDataUrl(path: string): Promise<string>
   }
   repoRoot(folderPath: string, hostId?: string): Promise<string | null>
+  /** Whether the runtime holds a receipt for a session's command id. */
+  hasReceipt(sessionId: string, commandId: string): Promise<boolean>
   /** The (CLI, folder) list main holds, probing when it is missing or old. */
   commands(input: ConversationCommandsRequest): Promise<ConversationCommandCatalog>
   onCommandsChanged?: (listener: (catalog: ConversationCommandCatalog) => void) => () => void
@@ -151,6 +153,13 @@ export function createStudioChatBackend(deps: StudioChatBackendDeps): StudioChat
         return await handlers.setModel(parsed.input)
       } catch (error) {
         return failed(error)
+      }
+    },
+    async hasReceipt(input) {
+      try {
+        return await deps.hasReceipt(input.sessionId, input.commandId)
+      } catch {
+        return false
       }
     },
     async revert(input) {

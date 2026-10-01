@@ -48,6 +48,7 @@ function deps(overrides: Partial<StudioChatBackendDeps['conversation']> = {}) {
       readImageDataUrl: async () => 'data:',
     },
     repoRoot: async () => null,
+    hasReceipt: async () => false,
     commands: async (input) => ({ cli: input.cli, cwd: input.cwd, commands: [], fetchedAt: 0 }),
     onCommandsChanged: () => () => undefined,
     workspaces: () => [],
