@@ -112,9 +112,7 @@ export function currentRuntimeEnv(overrides: Partial<RuntimeEnv> = {}): RuntimeE
     isPackaged: paths?.isPackaged() ?? false,
     execPath: process.execPath,
     execPathIsElectron: Boolean(process.versions.electron),
-    // A server's working directory is wherever it was started from; its app
-    // root is the checkout it runs from. In the desktop the two are the same.
-    cwd: paths?.appRoot() ?? process.cwd(),
+    cwd: process.cwd(),
     exists: existsSync,
     ...overrides,
   }
