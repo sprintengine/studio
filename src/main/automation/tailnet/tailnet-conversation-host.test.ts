@@ -305,6 +305,53 @@ test('the list names the live preset of each conversation, and a remote switch m
   }
 })
 
+test('a remote switch carries the CLI’s own mode, the list names it, and a preset name posing as a mode is dropped', async () => {
+  const f = await fixture({ preset: 'bypass' })
+  try {
+    const started = await f.start()
+    assert.ok(started.ok)
+    const setPermission = vi.spyOn(f.runtime, 'setPermission')
+    const switched = await f.host.command(f.key, 'phone', 'to-accept-edits', {
+      kind: 'setPermissionPreset',
+      preset: 'auto',
+      permissionMode: 'acceptEdits',
+    })
+    assert.equal(switched.ok, true, switched.message ?? '')
+    const listed = (await f.host.list())[0]
+    assert.equal(listed.permissionPreset, 'auto')
+    assert.equal(listed.permissionMode, 'acceptEdits')
+    await f.host.command(f.key, 'phone', 'to-manual', {
+      kind: 'setPermissionPreset',
+      preset: 'manual',
+      permissionMode: 'none',
+    })
+    assert.equal(setPermission.mock.calls.at(-1)?.[0].permissionMode, undefined)
+    assert.equal((await f.host.list())[0].permissionMode, undefined)
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('a remote plan answer reaches the runtime as a plan answer, approve or reject', async () => {
+  const f = await fixture({ preset: 'none' })
+  try {
+    const started = await f.start()
+    assert.ok(started.ok)
+    const respond = vi.spyOn(f.runtime, 'respondToRequest').mockResolvedValue({ ok: true, session: started.session })
+    for (const decision of ['approve', 'reject'] as const)
+      await f.host.command(f.key, 'phone', `plan-${decision}`, { kind: 'resolvePlan', requestId: 'req-1', decision })
+    assert.deepEqual(
+      respond.mock.calls.map(([input]) => [input.commandId, input.requestId, input.approved, input.requestKind]),
+      [
+        ['plan-approve', 'req-1', true, 'plan'],
+        ['plan-reject', 'req-1', false, 'plan'],
+      ],
+    )
+  } finally {
+    await f.cleanup()
+  }
+})
+
 test('a remote preset switch on a conversation with no live session resumes it on the new preset', async () => {
   const f = await fixture({ preset: 'bypass' })
   try {

@@ -18,6 +18,8 @@ import {
   parseConversationClientFrame,
   parseConversationWireModels,
 } from '../../../../packages/conversation-protocol/src'
+import { CONVERSATION_CAPABILITIES } from '../../../../packages/conversation-protocol/src/handshake'
+import { TAILNET_CAPABILITIES } from './tailnet-routes'
 import {
   isKnownConversationServerFrameType,
   parseConversationServerFrame,
@@ -383,4 +385,13 @@ test("a listed chat's catalog reaches a client whole or not at all, and a notice
     commandId: 'c',
     ok: true,
   })
+})
+
+test('every conversation capability this machine advertises is one the protocol package names', () => {
+  // A capability string is wire vocabulary: one minted here and not in the
+  // package is one no client built from the package can ask for.
+  const advertised = TAILNET_CAPABILITIES.filter((name) => name === 'conversations' || name.startsWith('conversation-'))
+  for (const name of advertised) assert.ok((CONVERSATION_CAPABILITIES as readonly string[]).includes(name), name)
+  for (const name of CONVERSATION_CAPABILITIES)
+    assert.ok((TAILNET_CAPABILITIES as readonly string[]).includes(name), `${name} is named but not served`)
 })

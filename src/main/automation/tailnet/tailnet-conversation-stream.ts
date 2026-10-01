@@ -2,19 +2,23 @@ import type { Duplex } from 'stream'
 import { homedir } from 'node:os'
 
 import {
+  CONVERSATION_CAPABILITIES,
   CONVERSATION_MAX_CLIENT_FRAME_BYTES,
   CONVERSATION_MAX_FRAME_BYTES,
+  CONVERSATION_PROTOCOL_MIN_SUPPORTED,
+  CONVERSATION_PROTOCOL_VERSION,
   CONVERSATION_RESYNC_CLOSE_CODE,
   CONVERSATION_SCOPE_CLOSE_CODE,
   conversationCloseReason,
-  explainRejectedConversationFrame,
-  parseConversationClientFrame,
+  explainRejectedConversationMessage,
+  parseConversationClientMessage,
+  type ConversationClientMessage,
+  type ConversationCommandKind,
   type ConversationFrameRejection,
-  type ConversationClientFrame,
+  type ConversationHelloAnswer,
   type ConversationServerFrame,
-  type ConversationWireCommand,
   type ConversationWireErrorCode,
-} from '../../../../packages/conversation-protocol/src'
+} from '../../../../packages/conversation-protocol/src/public'
 import { tailnetScopeGrantsAccess, type TailnetScope } from '../../../shared/tailnet'
 import type { ConversationEvent, ConversationKey, ConversationPage } from '../../../shared/conversation-runtime'
 import type { ConversationGatewayHost } from './tailnet-conversation-host'
@@ -66,11 +70,12 @@ const SUBSCRIBE_RETRY_MS = 2_000
 const PING_MS = 25_000
 const PONG_TIMEOUT_MS = 60_000
 
-const COMMAND_KINDS: Record<ConversationWireCommand['kind'], true> = {
+const COMMAND_KINDS: Record<ConversationCommandKind, true> = {
   send: true,
   interrupt: true,
   resolveApproval: true,
   answerQuestion: true,
+  resolvePlan: true,
   setPermissionPreset: true,
   setModel: true,
 }
@@ -115,6 +120,11 @@ export type TailnetConversationStreamOptions = {
   host: ConversationGatewayHost
   onClosed(): void
   audit(entry: ConversationCommandAudit): void
+  /**
+   * What this machine advertises. A `hello` is answered with the conversation
+   * capabilities among them; absent, with none.
+   */
+  capabilities?: readonly string[]
   /** How long a client should wait before reconnecting after this socket falls too far behind. */
   resyncRetryAfterMs?: () => number
   now?: () => number
@@ -491,7 +501,7 @@ export function createTailnetConversationStream(options: TailnetConversationStre
   }
   /** A subscription that did not start, correlated by its key, and whether trying again can help. */
   const subscribeFailed = (
-    key: Extract<ConversationClientFrame, { type: 'subscribe' }>['key'],
+    key: Extract<ConversationClientMessage, { type: 'subscribe' }>['key'],
     code: ConversationWireErrorCode,
     message: string,
     retryAfterMs?: number,
@@ -504,7 +514,7 @@ export function createTailnetConversationStream(options: TailnetConversationStre
       retryable: retryAfterMs !== undefined,
       ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
     })
-  const subscribe = async (frame: Extract<ConversationClientFrame, { type: 'subscribe' }>): Promise<void> => {
+  const subscribe = async (frame: Extract<ConversationClientMessage, { type: 'subscribe' }>): Promise<void> => {
     const key = host.resolveKey(frame.key.workspaceId, frame.key.agentId)
     if (!key) {
       subscribeFailed(frame.key, 'not_found', 'Conversation is unavailable.')
@@ -558,9 +568,20 @@ export function createTailnetConversationStream(options: TailnetConversationStre
     subscription = joined
     await joined.ready
   }
-  const handle = async (frame: ConversationClientFrame): Promise<void> => {
+  const handle = async (frame: ConversationClientMessage): Promise<void> => {
     if (!mayRead) {
       error('conversation_scope_required', 'This device has no conversation read grant.')
+      return
+    }
+    if (frame.type === 'hello') {
+      const answer: ConversationHelloAnswer = {
+        protocolVersion: CONVERSATION_PROTOCOL_VERSION,
+        minProtocolVersion: CONVERSATION_PROTOCOL_MIN_SUPPORTED,
+        capabilities: (options.capabilities ?? []).filter((name) =>
+          (CONVERSATION_CAPABILITIES as readonly string[]).includes(name),
+        ),
+      }
+      await respond({ type: 'result', requestId: frame.requestId, ok: true, data: answer })
       return
     }
     if (frame.type === 'list') {
@@ -617,7 +638,7 @@ export function createTailnetConversationStream(options: TailnetConversationStre
   // Reads and commands are bounded per socket: one device cannot queue up
   // unbounded transcript reads or turns. Over the bound the request is
   // answered as busy, with a delay, and the socket stays open.
-  const admit = (frame: ConversationClientFrame): boolean => {
+  const admit = (frame: ConversationClientMessage): boolean => {
     const busy = { ok: false as const, code: 'busy' as const, retryAfterMs: BUSY_RETRY_MS }
     if (frame.type === 'command') {
       if (commandsInFlight < MAX_IN_FLIGHT_COMMANDS) return true
@@ -630,7 +651,7 @@ export function createTailnetConversationStream(options: TailnetConversationStre
     return false
   }
   /** A handler that threw still settles what the client sent, under its own id. */
-  const failed = (frame: ConversationClientFrame): void => {
+  const failed = (frame: ConversationClientMessage): void => {
     const message = 'Conversation operation failed.'
     if (frame.type === 'command')
       sendLive({ type: 'commandResult', commandId: frame.commandId, ok: false, code: 'unavailable', message })
@@ -741,9 +762,9 @@ export function createTailnetConversationStream(options: TailnetConversationStre
         error('invalid_frame', 'Frame must be JSON.')
         continue
       }
-      const clientFrame = parseConversationClientFrame(parsed)
+      const clientFrame = parseConversationClientMessage(parsed)
       if (!clientFrame) {
-        refuse(explainRejectedConversationFrame(parsed))
+        refuse(explainRejectedConversationMessage(parsed))
         continue
       }
       if (!applyScopes()) return

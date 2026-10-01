@@ -116,6 +116,18 @@ export const TAILNET_MIN_SUPPORTED_TRANSPORT_VERSION = 1
  * `setPermissionPreset` takes all four. A machine without it reads `manual`
  * and `auto` as `none`, so a client offers only the two it knows there. The
  * string is the protocol package's `CONVERSATION_PERMISSION_MODES_CAPABILITY`.
+ *
+ * The conversation lane's contract became one package every client speaks
+ * (owner ruling 2026-10-01), and three of its additions are named here, each
+ * a string from the protocol package:
+ * - `conversation-hello`: the socket answers `hello` with the conversation
+ *   protocol version and the conversation capabilities in this list.
+ * - `conversation-plans`: `resolvePlan` answers a plan request, and only one.
+ *   A plan answered as `resolveApproval`, as before, is still taken.
+ * - `conversation-cli-permission-modes`: the list names the CLI's own mode a
+ *   chat runs at its preset and the modes its provider runs, and
+ *   `setPermissionPreset` takes a `permissionMode`. A machine without it drops
+ *   the member and runs the preset's own mode.
  */
 export const TAILNET_CAPABILITIES = [
   'events',
@@ -124,6 +136,9 @@ export const TAILNET_CAPABILITIES = [
   'conversation-models',
   'conversation-images',
   'conversation-permission-modes',
+  'conversation-hello',
+  'conversation-plans',
+  'conversation-cli-permission-modes',
 ] as const
 
 export type TailnetCapability = (typeof TAILNET_CAPABILITIES)[number]
