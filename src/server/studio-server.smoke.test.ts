@@ -7,6 +7,8 @@ import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { afterAll, beforeAll, test } from 'vitest'
 
+import { acquireDataDirLock } from './core/data-dir'
+
 // The Studio core under plain Node, end to end: the server is built into its
 // bundle the way `npm run build:server` builds it, and that bundle is run by
 // the `node` running this suite, with no Electron, no stand-ins and none of the
@@ -150,6 +152,21 @@ test('a server stops when the parent that drives it goes away', async () => {
   assert.ok((await firstLine(served)).ready, served.stderr())
   served.child.stdin.end()
   assert.equal(await served.exited, 0, served.stderr())
+})
+
+test('a server stops when the desktop app takes its data directory, and leaves the app its files', async () => {
+  const dataDir = join(scratch, 'displaced', 'data')
+  const served = serve(['--data-dir', dataDir], isolatedEnv('displaced'))
+  const { ready } = await firstLine(served)
+  assert.ok(ready, served.stderr())
+  // What the desktop does as it starts on this directory: it takes the lock over.
+  const desktop = acquireDataDirLock(dataDir, 'desktop', { takeOver: () => true })
+  assert.ok(desktop.ok && desktop.displaced?.pid === ready.pid)
+  assert.equal(await served.exited, 66, served.stderr())
+  assert.match(served.stderr(), /SprintEngine Studio opened this data directory/)
+  assert.equal(desktop.lock.isHeld(), true, "the server's stop leaves the desktop's lock alone")
+  assert.equal(existsSync(join(dataDir, 'sprintengine-studio-mcp-info.json')), false)
+  desktop.lock.release()
 })
 
 test("a desktop's data directory is refused, or shared with the server's secrets off", async () => {

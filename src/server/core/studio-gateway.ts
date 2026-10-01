@@ -100,5 +100,19 @@ export function createStudioGateway(core: StudioCore, options: StudioGatewayOpti
     if (CONVERSATION_LIST_EVENTS.has(event.type)) automationService.notifyConversationsChanged()
   })
 
-  return automationService
+  // A desktop that displaced a Studio server from its data directory opens
+  // the socket only once that server has exited: closing its listener
+  // removes the socket file at the shared path, which would take the
+  // desktop's new one with it. Agent launches wait on the same.
+  return {
+    ...automationService,
+    initialize: async () => {
+      await core.whenDataDirFree
+      return automationService.initialize()
+    },
+    whenGatewayReady: async () => {
+      await core.whenDataDirFree
+      return automationService.whenGatewayReady()
+    },
+  }
 }

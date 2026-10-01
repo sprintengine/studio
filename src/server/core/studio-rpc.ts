@@ -13,7 +13,7 @@ import type { StudioGateway } from './studio-gateway'
 // paths, version and the push to Settings are the core's platform's.
 
 export function createStudioRpc(core: StudioCore, gateway: StudioGateway): StudioRpcService {
-  return createStudioRpcService({
+  const service = createStudioRpcService({
     paths: core.platform.paths,
     identity: core.platform.identity,
     clients: core.platform.clients,
@@ -31,4 +31,14 @@ export function createStudioRpc(core: StudioCore, gateway: StudioGateway): Studi
       void writeDiagnosticLog({ level: 'warning', source: 'workspace', title: 'Local app socket', message })
     },
   })
+  // Like the gateway, it binds only once a Studio server this desktop
+  // displaced has gone: that server's listener still answers until then, and
+  // this one would refuse to start beside it.
+  return {
+    ...service,
+    start: async () => {
+      await core.whenDataDirFree
+      return service.start()
+    },
+  }
 }

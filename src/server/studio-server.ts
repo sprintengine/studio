@@ -40,6 +40,13 @@ export type StudioServerOptions = {
    * directory is refused.
    */
   shareDesktopDataDir?: boolean
+  /**
+   * The data directory's lock was taken from this server: the desktop app
+   * opened the directory, and wins it. The server stops itself; this says so.
+   */
+  onDataDirLost?: () => void
+  /** Where a warning that does not stop the server goes (the entry: stderr). */
+  log?: (message: string) => void
 }
 
 export type StudioServerReady = {
@@ -79,6 +86,11 @@ export const EXIT_USAGE = 64
 export const EXIT_DATA_DIR_UNUSABLE = 65
 export const EXIT_DATA_DIR_BUSY = 66
 export const EXIT_FAILED = 70
+
+// How often a server checks that the data directory's lock is still its own.
+// The desktop that took it waits for this server to exit, so this is most of
+// how long the app's gateway waits at its start.
+const LOCK_WATCH_MS = 500
 
 export async function startStudioServer(options: StudioServerOptions): Promise<StudioServer> {
   try {
@@ -165,6 +177,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
 
   let stopping: Promise<void> | null = null
   const stop = (): Promise<void> => {
+    clearInterval(lockWatch)
     stopping ??= (async () => {
       await rpc.stop().catch(() => undefined)
       await started.shutdown().catch(() => undefined)
@@ -172,6 +185,17 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     })()
     return stopping
   }
+  // The desktop wins a data directory it opens: it takes the lock over, then
+  // waits for this process to exit before opening its own sockets. So a lock
+  // this server no longer holds means stop now, and not linger as a second
+  // writer of every store.
+  const lockWatch = setInterval(() => {
+    if (core.dataDirLock?.isHeld() !== false) return
+    clearInterval(lockWatch)
+    options.onDataDirLost?.()
+    void stop()
+  }, LOCK_WATCH_MS)
+  lockWatch.unref()
 
   return {
     core,

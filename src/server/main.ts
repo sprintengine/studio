@@ -7,6 +7,7 @@ import { readStudioEnv } from '../shared/studio-env'
 import { writeDiagnosticLog } from '../main/diagnostics-service'
 import { defaultServerLocations } from './platform/studio-paths'
 import {
+  EXIT_DATA_DIR_BUSY,
   EXIT_FAILED,
   EXIT_USAGE,
   startStudioServer,
@@ -155,9 +156,84 @@ async function main(argv: string[]): Promise<number> {
     return 0
   }
 
-  let server: StudioServer
+  // Installed before the server starts, so a signal or a closed stdin during
+  // startup is not lost: the stop waits for the start to finish, then runs.
+  let server: StudioServer | null = null
+  let stopping = false
+  let settle: (code: number) => void = () => undefined
+  const exited = new Promise<number>((resolve) => {
+    settle = resolve
+  })
+  let pending: { reason: string; code: number } | null = null
+  const stop = (reason: string, code = 0): void => {
+    if (!server) {
+      pending ??= { reason, code }
+      return
+    }
+    if (stopping) return
+    stopping = true
+    say(`stopping (${reason})`)
+    const budget = setTimeout(() => {
+      // The lock stays: the chats' transcripts may still be closing, and the
+      // next process to start finds the lock abandoned once this one is gone.
+      say(`stop took longer than ${SHUTDOWN_BUDGET_MS / 1000}s; leaving anyway`)
+      settle(code)
+    }, SHUTDOWN_BUDGET_MS)
+    budget.unref()
+    void server.stop().then(
+      () => {
+        clearTimeout(budget)
+        settle(code)
+      },
+      (error: unknown) => {
+        clearTimeout(budget)
+        say(`stop failed: ${error instanceof Error ? error.message : String(error)}`)
+        settle(EXIT_FAILED)
+      },
+    )
+  }
+
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.on(signal, () => {
+      // A second signal: the person does not want to wait. The lock is left
+      // for the next start to find abandoned rather than let go mid-write.
+      if (stopping) process.exit(EXIT_FAILED)
+      stop(signal)
+    })
+  }
+  process.on('uncaughtException', (error) => {
+    say(`uncaught: ${error.stack ?? error.message}`)
+    void writeDiagnosticLog({ level: 'error', source: 'workspace', title: 'Studio server', message: error.message })
+    stop('uncaught exception', EXIT_FAILED)
+  })
+  process.on('unhandledRejection', (reason) => {
+    // Logged, not fatal: the desktop runs the same code, where an unhandled
+    // rejection has never ended the process.
+    say(`unhandled rejection: ${reason instanceof Error ? (reason.stack ?? reason.message) : String(reason)}`)
+  })
+  if (command.stdio) {
+    const lines = createInterface({ input: process.stdin })
+    lines.on('line', (line) => {
+      let message: { t?: unknown }
+      try {
+        message = JSON.parse(line) as { t?: unknown }
+      } catch {
+        say('ignored a stdin line that is not JSON')
+        return
+      }
+      if (message.t === 'shutdown') stop('asked to')
+    })
+    lines.on('close', () => stop('stdin closed'))
+  }
+
   try {
-    server = await startStudioServer(command.options)
+    server = await startStudioServer({
+      ...command.options,
+      // The desktop app opened this data directory and took its lock: it is the
+      // one writer there now, and waits for this process to go.
+      onDataDirLost: () => stop('SprintEngine Studio opened this data directory', EXIT_DATA_DIR_BUSY),
+      log: say,
+    })
   } catch (error) {
     const code = error instanceof StudioServerStartError ? error.exitCode : EXIT_FAILED
     const message = error instanceof Error ? error.message : String(error)
@@ -171,68 +247,9 @@ async function main(argv: string[]): Promise<number> {
     `ready: ${ready.dataDir}, gateway ${ready.gatewaySocket ?? 'not running'}` +
       (ready.secrets ? '' : ', saved keys off (desktop data directory)'),
   )
-
-  return new Promise<number>((settle) => {
-    let stopping = false
-    const stop = (reason: string, code = 0): void => {
-      if (stopping) return
-      stopping = true
-      say(`stopping (${reason})`)
-      const budget = setTimeout(() => {
-        say(`stop took longer than ${SHUTDOWN_BUDGET_MS / 1000}s; leaving anyway`)
-        server.core.dataDirLock?.release()
-        settle(code)
-      }, SHUTDOWN_BUDGET_MS)
-      budget.unref()
-      void server.stop().then(
-        () => {
-          clearTimeout(budget)
-          settle(code)
-        },
-        (error: unknown) => {
-          clearTimeout(budget)
-          say(`stop failed: ${error instanceof Error ? error.message : String(error)}`)
-          settle(EXIT_FAILED)
-        },
-      )
-    }
-
-    for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-      process.on(signal, () => {
-        if (stopping) {
-          // A second signal: the person does not want to wait.
-          server.core.dataDirLock?.release()
-          process.exit(EXIT_FAILED)
-        }
-        stop(signal)
-      })
-    }
-    process.on('uncaughtException', (error) => {
-      say(`uncaught: ${error.stack ?? error.message}`)
-      void writeDiagnosticLog({ level: 'error', source: 'workspace', title: 'Studio server', message: error.message })
-      stop('uncaught exception', EXIT_FAILED)
-    })
-    process.on('unhandledRejection', (reason) => {
-      // Logged, not fatal: the desktop runs the same code, where an unhandled
-      // rejection has never ended the process.
-      say(`unhandled rejection: ${reason instanceof Error ? (reason.stack ?? reason.message) : String(reason)}`)
-    })
-
-    if (command.stdio) {
-      const lines = createInterface({ input: process.stdin })
-      lines.on('line', (line) => {
-        let message: { t?: unknown }
-        try {
-          message = JSON.parse(line) as { t?: unknown }
-        } catch {
-          say('ignored a stdin line that is not JSON')
-          return
-        }
-        if (message.t === 'shutdown') stop('asked to')
-      })
-      lines.on('close', () => stop('stdin closed'))
-    }
-  })
+  const asked = pending as { reason: string; code: number } | null
+  if (asked) stop(asked.reason, asked.code)
+  return exited
 }
 
 if (require.main === module) {
