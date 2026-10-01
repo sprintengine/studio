@@ -765,7 +765,10 @@ sources:
   are opened once by the shell and re-sealed with the data key during the
   migration (phase 6), so nobody re-enters a key.
 - **Headless server** (WSL, SSH, started from a shell): a key file in
-  `<dataDir>/run/` (0600). Secrets are therefore protected by the OS user
+  `<dataDir>/run/` (0600; on Windows, an ACL with one entry for the current
+  user). It is written whole and linked into place, so a crash or a second
+  server never leaves a short key, and a damaged one is reported, never
+  replaced. Secrets are therefore protected by the OS user
   boundary on those hosts, the same protection the CLIs' own login files have
   there. Whether to use `libsecret` where a desktop session exists is an open
   question.
@@ -1046,6 +1049,17 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
   checks.
 - **Risks.** Freezing names that later namespaces regret; mitigated by shipping
   only `server` and `conversation` and the envelope.
+- **Carried from phase 1.** Three shapes the platform has today that the
+  protocol must not freeze by accident. `ClientBus` topics are the preload's IPC
+  channel names (`scheduled-agents:changed`, the module events channel); the
+  router maps each to a stream name of its own rather than exposing them.
+  `StudioNotice.onActivate` is a closure, which cannot cross a socket: a click
+  in a remote client comes back as an activation of the notice's `key`, so the
+  server keeps a registry of pending activations keyed by it. And
+  `SecretCipher` is synchronous, as `safeStorage` is, which rules out an async
+  OS keychain (`libsecret` over D-Bus, owner default 6) behind it; adopting one
+  means making `seal`/`open` async through the four stores, or unsealing a
+  data key from the keychain once at start and keeping the cipher synchronous.
 
 ### Phase 3 — An Electron-free core and the `studio-server` entry (L)
 
@@ -1061,6 +1075,11 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
   suites keep passing against the in-process core.
 - **Risks.** `app-services.ts` is large and order-sensitive (late-bound
   resolvers); split it in mechanical commits before moving anything.
+- **Carried from phase 1.** The synchronous `SecretCipher` and the
+  closure-carrying `onActivate` above apply here too: the standalone server's
+  platform is `createNodeStudioPlatform`, whose cipher is the key file and
+  whose notifier has no click to deliver until the router exists. Its
+  `packaged` flag is required and must come from the bundle, never default.
 
 ### Phase 4 — The chat view over the protocol (M)
 
