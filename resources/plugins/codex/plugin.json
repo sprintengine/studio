@@ -9,14 +9,14 @@
   "binary": "codex",
   "permissionPresets": {
     "manual": {
-      "$comment": "`untrusted` asks before every command Codex does not already know to be a safe read, and the read-only sandbox makes every edit ask as well.",
+      "$comment": "Codex's own Read only: commands run in a read-only sandbox with no network, so every edit, and every command that writes or reaches out, has to ask to leave it. Not `--ask-for-approval untrusted`: Codex 0.157 refuses that value on the command line (`invalid value 'untrusted'`) and in config (`no longer supported`), so a terminal launched with it never started.",
       "label": "Manual — ask before every change",
-      "args": ["--ask-for-approval", "untrusted", "--sandbox", "read-only"]
+      "args": ["--ask-for-approval", "on-request", "--sandbox", "read-only"]
     },
     "auto": {
-      "$comment": "Codex's own Auto (what `--full-auto` sets): it edits and runs commands inside the workspace sandbox without asking, and asks before it goes past it — a write outside the workspace, the network.",
-      "label": "Auto — the workspace sandbox, asks past it",
-      "args": ["--ask-for-approval", "on-request", "--sandbox", "workspace-write"]
+      "$comment": "Codex's own auto-review (`codex --help`: `--approve-for-me  Route approval requests through automatic review using the workspace-write sandbox`): it edits and runs commands inside the workspace sandbox without asking, and a request to go past it is judged by Codex's reviewer rather than put to the person, as Claude Code's and Cursor's Auto are their classifiers. The flag sets the sandbox and approval policy itself, and Codex refuses it beside `--ask-for-approval` or `--sandbox`.",
+      "label": "Auto — Codex's auto-review judges what leaves the sandbox",
+      "args": ["--approve-for-me"]
     },
     "bypass": {
       "label": "YOLO — no approvals or sandbox",

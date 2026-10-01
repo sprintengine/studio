@@ -161,23 +161,37 @@ export type CodexConversationProviderOptions = {
  * turn without restarting anything.
  *
  * - `bypass` is Codex's YOLO: never ask, full access.
- * - `auto` is Codex's own Auto: it reads, edits and runs commands inside the
- *   workspace sandbox without asking, and asks before it goes past it (a write
- *   outside the workspace, the network).
+ * - `auto` is Codex's own auto-review, what a terminal's `--approve-for-me`
+ *   sets: it reads, edits and runs commands inside the workspace sandbox
+ *   without asking, and a request to go past it (a write outside the
+ *   workspace, the network) is judged by Codex's reviewer instead of the
+ *   person, as Claude's and Cursor's Auto are their classifiers.
  * - `manual` asks before every command Codex does not already know to be a
  *   safe read (`untrusted`), in a read-only sandbox, so every edit asks too.
+ *   The app-server still takes `untrusted`; the command line no longer does.
  * - `none` sends no override at all, so Codex runs on its own configured default.
+ *
+ * Every preset but `none` names its reviewer, `user` included: a turn's
+ * reviewer stays with the thread like its policy does, so a chat moved off
+ * Auto would otherwise keep sending its requests to the reviewer.
  */
 export function codexPermissionPolicy(preset: ConversationPermissionPreset = 'none'): {
   approvalPolicy?: 'never' | 'on-request' | 'untrusted'
+  approvalsReviewer?: 'user' | 'auto_review'
   sandbox?: 'danger-full-access' | 'workspace-write' | 'read-only'
   sandboxPolicy?: Record<string, unknown>
 } {
   if (preset === 'bypass')
-    return { approvalPolicy: 'never', sandbox: 'danger-full-access', sandboxPolicy: { type: 'dangerFullAccess' } }
+    return {
+      approvalPolicy: 'never',
+      approvalsReviewer: 'user',
+      sandbox: 'danger-full-access',
+      sandboxPolicy: { type: 'dangerFullAccess' },
+    }
   if (preset === 'auto')
     return {
       approvalPolicy: 'on-request',
+      approvalsReviewer: 'auto_review',
       sandbox: 'workspace-write',
       sandboxPolicy: {
         type: 'workspaceWrite',
@@ -190,6 +204,7 @@ export function codexPermissionPolicy(preset: ConversationPermissionPreset = 'no
   if (preset === 'manual')
     return {
       approvalPolicy: 'untrusted',
+      approvalsReviewer: 'user',
       sandbox: 'read-only',
       sandboxPolicy: { type: 'readOnly', networkAccess: false },
     }
@@ -777,7 +792,13 @@ export function createCodexConversationProvider(
         const threadParams = {
           cwd: state.input.workspaceRoot === undefined ? undefined : hostCwd(state.input.workspaceRoot, wsl),
           ...(state.input.modelId !== CONVERSATION_DEFAULT_MODEL_ID ? { model: state.input.modelId } : {}),
-          ...(policy.approvalPolicy ? { approvalPolicy: policy.approvalPolicy, sandbox: policy.sandbox } : {}),
+          ...(policy.approvalPolicy
+            ? {
+                approvalPolicy: policy.approvalPolicy,
+                approvalsReviewer: policy.approvalsReviewer,
+                sandbox: policy.sandbox,
+              }
+            : {}),
         }
         let resumeLost = false
         let result: RecordValue
@@ -945,7 +966,7 @@ export function createCodexConversationProvider(
           }
           // Ask can inspect, never escalate an attempted write through approval.
           // This turn-only sandbox also overrides a remembered bypass preset.
-          const policy =
+          const policy: ReturnType<typeof codexPermissionPolicy> =
             input.mode === 'ask'
               ? { approvalPolicy: 'never', sandboxPolicy: { type: 'readOnly', networkAccess: false } }
               : codexPermissionPolicy(state.input.permissionPreset)
@@ -962,7 +983,11 @@ export function createCodexConversationProvider(
                 })),
               ],
               ...(policy.approvalPolicy
-                ? { approvalPolicy: policy.approvalPolicy, sandboxPolicy: policy.sandboxPolicy }
+                ? {
+                    approvalPolicy: policy.approvalPolicy,
+                    approvalsReviewer: policy.approvalsReviewer,
+                    sandboxPolicy: policy.sandboxPolicy,
+                  }
                 : {}),
             }),
           )

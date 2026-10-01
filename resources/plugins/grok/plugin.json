@@ -14,9 +14,9 @@
       "args": ["--permission-mode", "default"]
     },
     "auto": {
-      "$comment": "acceptEdits, as for Claude Code: edits go through, commands ask. No --trust, for the reason given on manual; like a launch with no flag, a Grok agent that does not trust the project's hooks sends no agent-state frames, until trust is granted in the TUI with /hooks-trust.",
-      "label": "Auto — edits go through, commands ask",
-      "args": ["--permission-mode", "acceptEdits"]
+      "$comment": "Grok's own `auto` mode, as Claude Code's Auto is (owner ruling 2026-10-01): a person who picks Auto expects the CLI's auto mode, and acceptEdits asked before every command. No --trust, for the reason given on manual; like a launch with no flag, a Grok agent that does not trust the project's hooks sends no agent-state frames, until trust is granted in the TUI with /hooks-trust.",
+      "label": "Auto — Grok runs what it judges safe",
+      "args": ["--permission-mode", "auto"]
     },
     "bypass": {
       "$comment": "--trust rides this preset, never the default launch argv: it does not just enable the studio's own .grok/hooks agent-state reporter — it trusts EVERY project-level .grok config, including hooks committed in the repo itself, so a freshly cloned untrusted repo must not get it when the person chose to pass no permission flag. Without trust Grok skips project hooks, so no frames arrive and the session converts to the stalled phase via the runtime watchdog (there is no output-timing fallback any more); the user can grant trust in the TUI via /hooks-trust. Kept as `--always-approve` rather than switched to `--permission-mode bypassPermissions`: both exist in `grok --help`, and this one is what shipped and is covered by tests.",

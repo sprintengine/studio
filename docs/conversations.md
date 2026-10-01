@@ -90,22 +90,30 @@ executables or copy credentials to a remote client.
 
 Each mode reaches each chat runtime its own way. No flag sends none of these.
 
-| Runtime     | Bypass                                    | Auto                                                           | Manual                                                              | Mid-conversation change                                                                                            |
-| ----------- | ----------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Claude Code | SDK `bypassPermissions`                   | SDK `auto` (its classifier)                                    | SDK `default`, plus a hook that sends every non-read tool to a card | Live over the SDK's `setPermissionMode`, mid-reply included; No flag respawns the child (resumed) at the next turn |
-| Codex       | `approvalPolicy: never`, full access      | `on-request` in the `workspaceWrite` sandbox, no network       | `untrusted` in a read-only sandbox                                  | Rides the next `turn/start`; No flag restarts the app-server before the next turn                                  |
-| Cursor      | `--force`                                 | `--auto-review` (its classifier)                               | Not offered: Cursor edits files without asking                      | Launch flag: the child is replaced at the end of the running turn                                                  |
-| Grok        | `--always-approve`                        | `--permission-mode acceptEdits`                                | `--permission-mode default`                                         | Launch flag, as Cursor; its own `/always-approve` and `/auto` commands are refused under a stricter mode           |
-| OpenCode    | `OPENCODE_PERMISSION` allowing everything | A rule set asking for everything but reads, listings and edits | The same rule set asking for edits too                              | Launch environment, as Cursor                                                                                      |
+| Runtime     | Bypass                                    | Auto                                                                                                                     | Manual                                                              | Mid-conversation change                                                                                            |
+| ----------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Claude Code | SDK `bypassPermissions`                   | SDK `auto` (its classifier)                                                                                              | SDK `default`, plus a hook that sends every non-read tool to a card | Live over the SDK's `setPermissionMode`, mid-reply included; No flag respawns the child (resumed) at the next turn |
+| Codex       | `approvalPolicy: never`, full access      | `on-request` in the `workspaceWrite` sandbox, no network, reviewed by its auto-review (`approvalsReviewer: auto_review`) | `untrusted` in a read-only sandbox                                  | Rides the next `turn/start`; No flag restarts the app-server before the next turn                                  |
+| Cursor      | `--force`                                 | `--auto-review` (its classifier)                                                                                         | Not offered: Cursor edits files without asking                      | Launch flag: the child is replaced at the end of the running turn                                                  |
+| Grok        | `--always-approve`                        | `--permission-mode auto` (its classifier)                                                                                | `--permission-mode default`                                         | Launch flag, as Cursor; its own `/always-approve` and `/auto` commands are refused under a stricter mode           |
+| OpenCode    | `OPENCODE_PERMISSION` allowing everything | A rule set asking for everything but reads, listings and edits                                                           | The same rule set asking for edits too                              | Launch environment, as Cursor                                                                                      |
 
-Claude's Auto is its own classifier mode, `auto`, as Cursor's is its
-auto-review (owner ruling 2026-10-01): someone who picks Auto for Claude expects
-Claude's auto mode. The classifier runs what it judges safe and turns the rest
-back to Claude rather than asking. Where an account or model is not offered
-it, Claude Code starts in its asking mode; in a chat the requests Auto covers
+Claude's Auto is its own classifier mode, `auto`, as Grok's is, Cursor's its
+auto-review and Codex's its auto-review (owner ruling 2026-10-01): someone who
+picks Auto expects the CLI's own auto mode. The classifier runs what it judges
+safe and turns the rest back to the agent rather than asking. Where an account
+or model is not offered it, Claude Code starts in its asking mode; in a chat the requests Auto covers
 are still answered without a card. Claude Code pointed at another model endpoint
 (Kimi, Z.ai) keeps `acceptEdits` for Auto, since the classifier is not offered
 there.
+
+A Codex terminal agent is told the same modes on its command line: Bypass as
+`--dangerously-bypass-approvals-and-sandbox`, Auto as `--approve-for-me` (the
+workspace sandbox with its auto-review), and Manual as `--ask-for-approval
+on-request --sandbox read-only`, where every write and every request for the
+network has to ask to leave the sandbox. Codex's command line no longer takes
+`untrusted`, which its app-server still does.
+
 Chats on an API-key provider run no tools and have no permission control. Do
 not interpret a hidden approval control as a promise that a provider will ask
 for permission.

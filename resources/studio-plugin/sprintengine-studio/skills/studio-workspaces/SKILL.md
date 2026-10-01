@@ -47,7 +47,7 @@ There is no tool here that opens a bare shell. Name the workspace by
 `workspaceId` or by `workspaceName`. The CLI and the permission preset default
 to this machine's own launch settings unless you name them: the preset chosen
 for that CLI, else `bypass`, exactly as the app's launcher would. Name `auto`
-(edits go through, commands ask; Claude Code's own auto mode for Claude), `manual` (every edit and command asks) or
+(the CLI's own auto mode where it has one — Claude Code's and Grok's classifier, Codex's and Cursor's auto-review — else edits go through and commands ask), `manual` (every edit and command asks) or
 `none` (no permission flag, so the CLI's own configuration decides) when the
 person asks for it; a terminal agent takes only the presets its CLI has a
 setting for, which `cli_runtime_list` names. The answer reports the preset the
