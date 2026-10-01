@@ -2,6 +2,7 @@ import { JSDOM } from 'jsdom'
 import { afterEach, expect, test, vi } from 'vitest'
 import type { ConversationCommand, ConversationCommandCatalog } from '../../../../../shared/conversation/commands'
 import { mergeConversationCommands, studioAppCommands } from './useConversationCommands'
+import { chatOverStudioUnderTest, installStudioLoopback } from '../../../../../../tests/studio-chat-loopback'
 
 const CWD = '/Users/dev/project'
 const catalog = (commands: ConversationCommand[], extra: Partial<ConversationCommandCatalog> = {}) => ({
@@ -52,6 +53,7 @@ async function mountHook(api: Record<string, unknown>) {
   const globals = { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true }
   Object.assign(globalThis, globals)
   Object.assign(dom.window, { api })
+  installStudioLoopback(dom.window as unknown as { api: Record<string, unknown> })
   const { act, createElement } = await import('react')
   const { createRoot } = await import('react-dom/client')
   const hook = await import('./useConversationCommands')
@@ -191,7 +193,8 @@ test('a chat that must not discover never asks, and shows a list only once one r
   expect(hook.state().catalog?.commands).toHaveLength(1)
 })
 
-test('a preload without the command list leaves Studio’s own commands', async () => {
+// A window on the Studio protocol always has the list: its own Studio serves it.
+test.skipIf(chatOverStudioUnderTest())('a preload without the command list leaves Studio’s own commands', async () => {
   const hook = await mountHook({})
   await hook.render()
   await hook.act(async () => hook.state().refreshIfStale())

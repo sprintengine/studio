@@ -28,6 +28,19 @@ const SERIAL = [
   'src/seams/skillSourcesSeam.test.tsx',
 ]
 
+// The chat view's suites that script its conversation IPC, run a second time
+// with the window on the Studio protocol (tests/studio-chat-loopback.ts): the
+// same assertions, through the protocol path.
+const CHAT_OVER_STUDIO = [
+  'chatViewMount.test.tsx',
+  'changedFilesCard.test.tsx',
+  'composerContextPicker.test.tsx',
+  'editFromHere.test.tsx',
+  'useConversationSession.test.tsx',
+  'useConversationCommands.test.ts',
+  'streamingTurnRenders.test.tsx',
+].map((file) => `src/renderer/src/components/panels/agentChat/${file}`)
+
 export default defineConfig({
   // The renderer's tsx is compiled the way the app's own build compiles it.
   oxc: { jsx: { runtime: 'automatic' } },
@@ -67,6 +80,14 @@ export default defineConfig({
           name: 'unit',
           include: ['src/**/*.test.{ts,tsx}', 'packages/*/test/**/*.test.ts', 'resources/marketplace/**/*.test.ts'],
           exclude: ['**/node_modules/**', '**/dist/**', ...SERIAL],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'chat-over-studio',
+          include: CHAT_OVER_STUDIO,
+          env: { STUDIO_CHAT_TRANSPORT_UNDER_TEST: 'studio' },
         },
       },
       {

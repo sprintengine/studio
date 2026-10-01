@@ -3,6 +3,7 @@ import { expect, test, vi } from 'vitest'
 import type { FileSearchEntry, FileSearchResult } from '../../../../../shared/ipc/filesystem'
 import { fileMentionCandidates } from './composerContextPicker'
 import { rememberFileVisit } from '../../../utils/recentFileVisits'
+import { installStudioLoopback } from '../../../../../../tests/studio-chat-loopback'
 
 const file = (path: string): FileSearchEntry => ({
   path,
@@ -71,6 +72,7 @@ test('file search debounces, cancels obsolete work and rejects stale results', a
   const searchFiles = vi.fn(() => new Promise<FileSearchResult>((resolve) => pending.push(resolve)))
   const cancelFileSearch = vi.fn(async () => undefined)
   Object.assign(dom.window, { api: { searchFiles, cancelFileSearch } })
+  installStudioLoopback(dom.window as unknown as { api: Record<string, unknown> })
   const { act, createElement } = await import('react')
   const { createRoot } = await import('react-dom/client')
   const { useFileMentionSearch, useComposerContextPicker } = await import('./composerContextPicker')
@@ -222,6 +224,7 @@ async function mountCommandPicker() {
   }
   Object.assign(globalThis, globals)
   Object.assign(dom.window, { api: { workspaceSkillsList: async () => ({ ok: true, skills: [] }) } })
+  installStudioLoopback(dom.window as unknown as { api: Record<string, unknown> })
   const { act, createElement } = await import('react')
   const { createRoot } = await import('react-dom/client')
   const { useComposerContextPicker } = await import('./composerContextPicker')
