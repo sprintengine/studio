@@ -14,8 +14,11 @@ import {
   getShellLaunchConfig,
   getTerminalEnv,
 } from './terminal-launch'
+import { installElectronPlatformOver } from '../../tests/electron-platform'
 
 vi.mock('electron', () => import('../../tests/stubs/electron'))
+// What terminal-launch writes beside the app's data goes under the stub's userData.
+installElectronPlatformOver()
 
 let temp = ''
 beforeAll(() => {

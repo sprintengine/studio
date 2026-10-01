@@ -1,6 +1,8 @@
 import Module from 'node:module'
 import { vi } from 'vitest'
 
+import { installElectronPlatformOver } from './electron-platform'
+
 type ModuleLoader = typeof Module & {
   _load(request: string, parent: NodeModule | null, isMain: boolean): unknown
 }
@@ -19,7 +21,14 @@ type ModuleLoader = typeof Module & {
 // Each stub is exposed through live getters rather than copied, so a suite
 // that reassigns a member of its fake after the import still reaches the code
 // under test.
+//
+// An `electron` stand-in also gets the Electron platform installed over it, as
+// the app's entry installs it over the real one, because server-bound code
+// reads its paths and cipher from the platform rather than from `electron`.
+// It stays installed after the returned function runs: like the modules
+// already imported against the stand-in, what was built on it keeps reading it.
 export function standIn(stubs: Record<string, object>): () => void {
+  if (stubs.electron) installElectronPlatformOver(stubs.electron)
   for (const [name, stub] of Object.entries(stubs)) {
     vi.doMock(name, () => {
       const namespace: Record<string, unknown> = {}

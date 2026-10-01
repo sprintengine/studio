@@ -24,8 +24,11 @@ import {
   setLaunchPluginDirsResolver,
   setLaunchSkillPluginDirsResolver,
 } from './terminal-launch'
+import { installElectronPlatformOver } from '../../tests/electron-platform'
 
 vi.mock('electron', () => import('../../tests/stubs/electron'))
+// What terminal-launch writes beside the app's data goes under the stub's userData.
+installElectronPlatformOver()
 
 const PLUGIN_DIRS = ['C:\\Users\\dev\\AppData\\Roaming\\sprintengine-studio\\agent-integration\\1\\plugin']
 
