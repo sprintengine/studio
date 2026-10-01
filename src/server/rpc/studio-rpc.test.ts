@@ -79,8 +79,16 @@ test('a client outside the version window is refused with both numbers named', a
 
 test('no credential, a wrong one, or a late or missing hello never reaches a request', async () => {
   const { path, audit, backend } = await serve({ helloTimeoutMs: 150 })
+  // Every attempt carries mutations, sent at once behind its hello (or with
+  // none), so a request that slipped through would show in the backend.
+  const mutations = [
+    { t: 'req', id: 'm1', method: 'conversation.send', params: { key, commandId: 'c1', message: 'hi' } },
+    { t: 'req', id: 'm2', method: 'conversation.create', params: { workspaceId: 'ws-1', commandId: 'c2' } },
+    { t: 'req', id: 'm3', method: 'conversation.stop', params: { key, commandId: 'c3' } },
+  ]
   const wrong = await client(path)
   wrong.send(hello({ token: 'sest_not_a_real_token_000' }))
+  for (const frame of mutations) wrong.send(frame)
   const refused = await wrong.next(isT('bye'))
   assert.equal(refused.t === 'bye' && refused.code, 'unauthorized')
   await wrong.closed
@@ -90,13 +98,27 @@ test('no credential, a wrong one, or a late or missing hello never reaches a req
   )
 
   const skipped = await client(path)
-  skipped.send({ t: 'req', id: 'r1', method: 'conversation.list' })
+  for (const frame of mutations) skipped.send(frame)
   assert.equal(((await skipped.next(isT('bye'))) as { code: string }).code, 'hello_required')
+  await skipped.closed
 
   const silent = await client(path)
   assert.equal(((await silent.next(isT('bye'))) as { code: string }).code, 'hello_required')
   await silent.closed
-  assert.equal(backend.commands.length, 0)
+  // A hello after the deadline, with mutations behind it, reaches nothing either.
+  for (const frame of [hello({ token: OWNER_TOKEN }), ...mutations]) silent.send(frame)
+
+  assert.equal(
+    wrong.frames.some((frame) => frame.t === 'res'),
+    false,
+  )
+  assert.equal(
+    skipped.frames.some((frame) => frame.t === 'res'),
+    false,
+  )
+  assert.deepEqual(backend.commands, [])
+  assert.deepEqual(backend.creates, [])
+  assert.deepEqual(backend.stops, [])
 })
 
 test('a pairing code is exchanged once for a token, and the token is what works afterwards', async () => {
