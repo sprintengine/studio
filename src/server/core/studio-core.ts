@@ -321,7 +321,7 @@ function takeDataDir(platform: StudioPlatform, role: StudioRole): DataDirLock | 
     }
   } else if (sealedBy === 'desktop-keychain') {
     if (platform.secrets.available()) {
-      taken.ok && taken.lock.release()
+      if (taken.ok) taken.lock.release()
       throw new Error(
         `${dataDir} holds secrets the desktop's keychain sealed; a server there must run with its secrets off.`,
       )
