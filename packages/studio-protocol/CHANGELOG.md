@@ -4,7 +4,8 @@
 
 ### Added
 
-- **The chat surface** (`chat.ts`): `session.*`, `uploads.*`, the
+- **The chat surface** (`chat.ts`): `session.*`, `uploads.*` (with
+  `uploads.discard`), the
   conversation's `revert`, `rewind`, `fork`, `attachment`, `planDocument` and
   `commands` with its `conversation.commands` stream, `providers.*`, `files.*`
   and `workspaces.list`; their param validators (`parseStudioChatParams`) and

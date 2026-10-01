@@ -134,7 +134,7 @@ an owner's only for now; each still names the scope it would need.
 | ----------------------------------------------------------------------- | ---------------------- | --------------------------------------------------------------------------------------- |
 | `session.start`                                                         | operate                | start a provider session for a chat                                                     |
 | `session.send`, `.interrupt`, `.respond`, `.setPermission`, `.setModel` | operate                | drive a live session by its id, with all a composer sends; answered with its outcome    |
-| `uploads.begin`, `uploads.append`                                       | operate                | stage a picture in pieces of `STUDIO_UPLOAD_CHUNK_BYTES`; a send names it by `uploadId` |
+| `uploads.begin`, `.append`, `.discard`                                  | operate                | stage a picture in pieces of `STUDIO_UPLOAD_CHUNK_BYTES`; a send names it by `uploadId` |
 | `conversation.revert`, `.rewind`, `.fork`                               | operate (fork: create) | a turn's files from its checkpoint; back to an earlier message; a new chat from one     |
 | `conversation.attachment`, `.planDocument`, `.commands`                 | read                   | a sent picture; a proposed plan as a file; the `/` command list a CLI reports           |
 | `providers.list`, `.models`, `.secretStatus`                            | `providers:read`       | the providers a chat can run, their models, whether each has its key                    |
@@ -146,6 +146,13 @@ runtime included: `{ ok: true, session, notice? } | { ok: false, message,
 event? }`, inside a successful response. The response's error is for the
 request itself. The same holds for the other methods whose outcome has an `ok`
 of its own.
+
+Staged pictures are the client's, counted against the connection that staged
+them, and expire unsent after ten minutes (a minute once that connection has
+closed and no other has taken them up); `uploads.discard` gives back what will
+not be sent. `files.stat` and `files.readImage` read only inside a workspace's
+folder or Studio's own stores of sent pictures and plans, and refuse a path
+that is not the plain spelling of where it really is.
 
 `{ t: 'sub', id, topic: 'conversation.commands' }` hears every command list a
 CLI reports from then on, one `push` frame each, nothing replayed.

@@ -1335,12 +1335,17 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
     behind a reader that is actually slow.
   - *The protocol.* `chat.ts` adds `session.*` (start and drive a live session
     with everything the composer sends), `uploads.*` (a picture in pieces of
-    512 KiB ahead of the send that names it; 5 MB each, 16 a send), the
+    512 KiB ahead of the send that names it; 5 MB each, 16 a send, a budget
+    per connection, given back with `uploads.discard` and expired on a
+    timer; a resent send the runtime holds a receipt for is answered from it
+    without its pictures), the
     conversation's `revert`, `rewind`, `fork`, `attachment`, `planDocument`
     and `commands` (and a `conversation.commands` push stream: a new
     `{ t: 'push', sub, payload }` frame for a stream with no cursor),
     `providers.*`, `files.*` (mention search, stat, a picture, a repository
-    root) and `workspaces.list`. Three read scopes join
+    root; a stat or a picture only inside a workspace's folder or the app's
+    stores of sent pictures and plans, by its real path and plain spelling)
+    and `workspaces.list`. Three read scopes join
     (`providers:read`, `files:read`, `workspaces:read`), with eight
     capabilities. Every chat method is held to an owner's connection
     (`owner_required`), and so is naming a conversation by its folder
@@ -1367,7 +1372,11 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
     the composer tray when its connection has been down for a moment.
   - *The boundary.* `ChatViewErrorBoundary` wraps the local chat (AgentPanel)
     and a followed one (RemoteConversationPanel): a chat that throws stops in
-    its pane with Reload chat, and the window stays drawn.
+    its pane with Reload chat, and the window stays drawn. A chat whose code
+    failed to load is loaded again by Reload chat (`reloadableLazy`) and is
+    also offered Reload window. It is on for everyone, whichever transport:
+    a stopped pane is better than a blank window. It is the one intentional
+    visible change in phases 1 to 4 (orchestrator decision 2026-10-02).
   - *Hardening carried with it.* Command fingerprints: a reused command id
     for a different command is refused `command_id_conflict`, by the router
     while it runs and by the runtime's receipts across a restart. Every
@@ -1380,17 +1389,19 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
     test.
   - *Parity and latency.* The chat view's suites that script its IPC run a
     second time in a `chat-over-studio` Vitest project over a real RPC
-    (`tests/studio-chat-loopback.ts`), with the same assertions; two
-    IPC-shaped tests sit out with their reasons. A reconnect test drops the
+    (`tests/studio-chat-loopback.ts`), with the same assertions and the
+    runtime's receipts kept as it keeps them; one IPC-shaped test (a preload
+    without the command list) sits out with its reason. A reconnect test drops the
     port mid-reply and checks the text resumes with nothing repeated or lost.
     Measured in process over a Node message channel (5,000 calls): an
     invoke-shaped round trip 4.1 µs mean, `files.stat` over the protocol
     9.7 µs (p99 28 µs), `session.send` 10.2 µs, one streamed event backend to
     client 5.3 µs. The protocol adds about 6 µs a call, against 25–36 µs for
-    a call over Electron's own IPC or ports (phase 6, E4). A `session.send`
-    over the protocol carries a command id, so the runtime writes its receipt
-    before the turn starts, which the IPC send never did: a small file write
-    per command.
+    a call over Electron's own IPC or ports (phase 6, E4). A session command
+    over the protocol carries a command id, so the runtime keeps a receipt
+    for it, which the IPC never did: two writes of the conversation's
+    receipts file per command, the first (the intent) awaited before the
+    command runs, the second (its result) after.
   - *Still on IPC, and why.* The shell's own members (clipboard, `platform`,
     open externally, reveal, open in an editor, the picture viewer), the
     terminals behind a code block's Run, CLI sign-in and Resume in terminal
@@ -1400,8 +1411,13 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
     history palette outside the chat view.
   - *Why the IPC stays the default.* The suites prove the renderer's side and
     the RPC's; nothing yet runs the real Electron ports end to end in a
-    packaged app. Flip the default once a packaged smoke run has driven a
-    chat over them, and keep the IPC behind the setting for one release.
+    packaged app. Before the default flips: a packaged smoke run drives a
+    chat over them, and the receipt writes are measured where they cost
+    most, a conversation kept on a WSL path from Windows, where each write
+    crosses into the distribution and the first delays every send, stop and
+    answer to an approval. If that wait is felt, the intent write needs to
+    move off the command's path (written alongside, or batched) first. Keep
+    the IPC behind the setting for one release after.
 - **Follow-ups.**
   - *Assets beside the socket (phase 9).* Phase 4 serves nothing over HTTP:
     pictures go over the connection in pieces and come back as data. When the
