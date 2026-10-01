@@ -678,17 +678,10 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       setReadiness({ kind: 'no-workspace-folder' })
       return
     }
-    if (typeof window.api.conversationProvidersList !== 'function') {
-      setReadiness({
-        kind: 'error',
-        message: 'Conversation providers need an app restart before this agent is available.',
-      })
-      return
-    }
     setReadiness({ kind: 'loading' })
     void (async () => {
       try {
-        const list = await window.api.conversationProvidersList({
+        const list = await transport.services.providers.list({
           cliRuntimes: cliRuntimes as ConversationCliRuntimeOverrides,
         })
         if (cancelled) return
@@ -725,7 +718,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           })
           return
         }
-        const status = await window.api.conversationSecretStatus({ providerId: conversation.providerId })
+        const status = await transport.services.providers.secretStatus({ providerId: conversation.providerId })
         if (cancelled) return
         // A provider that declares no secret returns ok:false with that reason;
         // treat anything other than an explicit unconfigured key as ready.
@@ -742,32 +735,31 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     return () => {
       cancelled = true
     }
-  }, [conversation, workspaceRoot, cliRuntimes, hostReadiness])
+  }, [conversation, workspaceRoot, cliRuntimes, hostReadiness, transport])
 
   // Fetch one provider's live catalog and key status on demand, caching both.
   // Called for the active provider on mount and for whichever provider the user
   // filters to in the picker — never a blanket fan-out over every provider.
   // Failures are silent: the picker falls back to the manifest seed (unknown key
   // state) or its explicit empty state (known key state), never a stale list.
-  const fetchProviderCatalog = useCallback((providerId: string) => {
-    if (!providerId) return
-    if (typeof window.api.conversationProviderModels === 'function') {
-      void window.api
-        .conversationProviderModels({ providerId })
+  const fetchProviderCatalog = useCallback(
+    (providerId: string) => {
+      if (!providerId) return
+      void transport.services.providers
+        .models({ providerId })
         .then((result) => {
           if (result.ok) setCatalogByProvider((current) => ({ ...current, [providerId]: result.models }))
         })
         .catch(() => undefined)
-    }
-    if (typeof window.api.conversationSecretStatus === 'function') {
-      void window.api
-        .conversationSecretStatus({ providerId })
+      void transport.services.providers
+        .secretStatus({ providerId })
         .then((result) => {
           if (result.ok) setKeyByProvider((current) => ({ ...current, [providerId]: result.status.configured }))
         })
         .catch(() => undefined)
-    }
-  }, [])
+    },
+    [transport],
+  )
 
   // Fetch the active provider up front so the current model's display label,
   // context length, and readiness resolve before the picker is ever opened.
@@ -1155,9 +1147,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
 
   const ensureSession = useCallback(async (): Promise<string | null> => {
     if (sessionId) return sessionId
-    if (!conversation || !workspaceRoot || !transport.capabilities.startSession) return null
+    if (!conversation || !workspaceRoot || !transport.capabilities.startSession || !transport.startSession) return null
     try {
-      const result = await window.api.conversationSessionStart({
+      const result = await transport.startSession({
         workspaceRoot,
         workspaceId,
         agentId,
@@ -1214,11 +1206,6 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       const previous = { cliPermissionPreset: agent?.cliPermissionPreset, cliPermissionMode: agent?.cliPermissionMode }
       updateBinding({ cliPermissionPreset: next, cliPermissionMode: nextMode })
       if (!sessionId) return
-      if (transport.kind === 'local' && typeof window.api.conversationSessionSetPermission !== 'function') {
-        updateBinding(previous)
-        setActionError('Changing tool permissions mid-conversation needs an app restart.')
-        return
-      }
       setPermissionChanging(true)
       try {
         const answered = await transport.setPermissionPreset({

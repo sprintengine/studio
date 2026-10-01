@@ -14,6 +14,7 @@ import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { showToast } from '../../../store/toastStore'
 import { Badge, CopyGlyphButton, GhostButton } from '../../ui'
 import { ConversationMarkdown, useConversationLinkContext } from './conversationLinks'
+import type { ChatServices } from './chatServices'
 import { useConversationTransport } from './conversationTransport'
 
 const HEADING = /^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/u
@@ -45,12 +46,12 @@ export function planIsLong(plan: string): boolean {
 
 type PlanDocumentTarget = { workspaceId: string; workspaceRoot: string; agentId: string; planFilePath?: string }
 
-async function openPlanInPane(target: PlanDocumentTarget, plan: string): Promise<void> {
+async function openPlanInPane(services: ChatServices, target: PlanDocumentTarget, plan: string): Promise<void> {
   const title = planTitle(plan) ?? 'Proposed plan'
   const failed = (description: string) =>
     void showToast({ tone: 'error', title: 'Couldn’t open the plan', description })
   try {
-    const result = await window.api.conversationPlanDocument({ ...target, plan, title })
+    const result = await services.planDocument({ ...target, plan, title })
     if (!result.ok) return failed(result.message)
     useWorkspaceStore.getState().openPaneTab(target.workspaceId, {
       kind: 'document',
@@ -75,6 +76,7 @@ export function usePlanOpener(): ((plan: string, planFilePath?: string) => void)
   const local = transport.kind === 'local'
   return (plan, planFilePath) =>
     void openPlanInPane(
+      transport.services,
       { workspaceId, workspaceRoot, agentId, ...(local && planFilePath ? { planFilePath } : {}) },
       plan,
     )

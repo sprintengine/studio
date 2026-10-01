@@ -4,6 +4,8 @@ import {
   type ConversationCommand,
   type ConversationCommandCatalog,
 } from '../../../../../shared/conversation/commands'
+import type { ChatCommandSource } from './chatServices'
+import { windowChatServices } from './conversationTransport'
 
 // The command list a chat's `/` menu offers: what its CLI reported for the
 // chat's folder, with the few commands Studio answers itself put first.
@@ -15,19 +17,12 @@ import {
 // for every key, not just the one on screen, so a background chat's list is
 // already current when it is opened.
 
-type CommandsRequest = { cli: string; cwd: string; refresh?: boolean; probe?: false }
-
 /**
- * The preload surface this reads, typed narrowly and read at call time: a
- * build whose preload does not expose it yet leaves the menu with Studio's own
- * commands rather than throwing.
+ * The window's command lists, read at call time: over its IPC or the Studio
+ * protocol, whichever the window chose. A build whose preload does not list a
+ * CLI's commands leaves the menu with Studio's own rather than throwing.
  */
-type ConversationCommandsApi = {
-  conversationCommands?: (input: CommandsRequest) => Promise<ConversationCommandCatalog>
-  onConversationCommandsChanged?: (listener: (catalog: ConversationCommandCatalog) => void) => () => void
-}
-const commandsApi = (): ConversationCommandsApi =>
-  (typeof window === 'undefined' ? {} : (window.api as unknown as ConversationCommandsApi | undefined)) ?? {}
+const commandsApi = (): ChatCommandSource => (typeof window === 'undefined' ? {} : windowChatServices().commands)
 
 /**
  * How old a list may be before opening the menu asks the CLI again. A CLI's
@@ -67,7 +62,7 @@ function remember(catalog: ConversationCommandCatalog): void {
 // a list, so a push reaches the cache once however many chats are open.
 let unsubscribeMain: (() => void) | null = null
 function retainMainSubscription(): () => void {
-  if (!unsubscribeMain) unsubscribeMain = commandsApi().onConversationCommandsChanged?.(remember) ?? (() => undefined)
+  if (!unsubscribeMain) unsubscribeMain = commandsApi().onChanged?.(remember) ?? (() => undefined)
   let released = false
   return () => {
     if (released) return
@@ -84,7 +79,7 @@ function request(cli: string, cwd: string, refresh: boolean): Promise<void> {
   const key = keyOf(cli, cwd)
   const pending = inFlight.get(key)
   if (pending) return pending
-  const call = commandsApi().conversationCommands
+  const call = commandsApi().list
   if (!call) return Promise.resolve()
   requestedAt.set(key, Date.now())
   const promise = call({ cli, cwd, ...(refresh ? { refresh: true } : {}) })
@@ -114,7 +109,7 @@ function request(cli: string, cwd: string, refresh: boolean): Promise<void> {
 // ask comes when the menu opens.
 function peek(cli: string, cwd: string): void {
   const key = keyOf(cli, cwd)
-  const call = commandsApi().conversationCommands
+  const call = commandsApi().list
   if (!call || peeking.has(key) || inFlight.has(key)) return
   const promise = call({ cli, cwd, probe: false })
     .then((catalog) => {
