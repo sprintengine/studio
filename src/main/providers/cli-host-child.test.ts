@@ -197,6 +197,10 @@ describe('a secret for a WSL child', () => {
       const result = runInsideBash(plan.args, home, {}, `${plan.stdin}{"jsonrpc":"2.0"}\n`)
       expect(result.status).toBe(0)
       expect(result.stdout).toBe(`token=${TOKEN}\n{"jsonrpc":"2.0"}\n`)
+      // A relay that turned the line ending into CRLF does not change the value.
+      const crlf = runInsideBash(plan.args, home, {}, `${TOKEN}\r\n{"jsonrpc":"2.0"}\n`)
+      expect(crlf.status).toBe(0)
+      expect(crlf.stdout).toBe(`token=${TOKEN}\n{"jsonrpc":"2.0"}\n`)
     },
   )
 })
@@ -284,6 +288,39 @@ describe('spawnCliHostChild', () => {
     expect(() => spawnCliHostChild(input, { spawn: throwing })).toThrow('EACCES')
     expect(tokens.revoked).toEqual(tokens.issued)
     expect(tokens.issued).toHaveLength(2)
+  })
+
+  it('takes the token back when the start is refused before anything is spawned', () => {
+    const tokens = issuer()
+    const calls: Call[] = []
+    const { spawn } = fakeSpawn(calls)
+    const wsl = {
+      distro: 'Ubuntu',
+      agentStateSocketPath: null,
+      forwardEnv: [],
+      issueChannelToken: tokens.issueChannelToken,
+    }
+    // A secret named by something that is not a variable name.
+    expect(() =>
+      spawnCliHostChild(
+        { command: 'codex', args: [], cwd: '', env: { 'A;B': 'x' }, wsl: { ...wsl, stdinEnv: ['A;B'] } },
+        { spawn },
+      ),
+    ).toThrow(/not a variable name/u)
+    // A token that cannot travel as one line.
+    const multiline = {
+      ...wsl,
+      issueChannelToken: () => {
+        const channel = tokens.issueChannelToken()
+        return { ...channel, token: `${channel.token}\nmore` }
+      },
+    }
+    expect(() =>
+      spawnCliHostChild({ command: 'codex', args: [], cwd: '', env: {}, wsl: multiline }, { spawn }),
+    ).toThrow(/more than one line/u)
+    expect(calls).toHaveLength(0)
+    expect(tokens.issued).toHaveLength(2)
+    expect(tokens.revoked).toEqual(tokens.issued)
   })
 
   it('issues nothing to a child on this machine, or to one whose machine has no token to give', () => {

@@ -112,7 +112,9 @@ export function wslCliLaunchArgs(input: {
 }): string[] {
   const reads = (input.stdinEnv ?? []).map((key) => {
     if (!ENV_NAME.test(key)) throw new Error(`"${key}" is not a variable name.`)
-    return `read -r ${key} || exit 1\nexport ${key}`
+    // A carriage return the stdin relay may add before the newline is not
+    // part of the value.
+    return `read -r ${key} || exit 1\n${key}=\${${key}%$'\\r'}\nexport ${key}`
   })
   const assignments: string[] = []
   for (const key of input.forwardEnv) {
@@ -247,24 +249,27 @@ export function spawnCliHostChild(
   deps: Parameters<typeof cliHostSpawn>[1] & { spawn?: typeof spawn; signal?: AbortSignal } = {},
 ): ChildProcessWithoutNullStreams {
   const channel = input.wsl?.issueChannelToken?.() ?? null
-  const plan = cliHostSpawn(
-    channel && input.wsl
-      ? {
-          ...input,
-          env: { ...input.env, [MCP_CHANNEL_TOKEN_ENV]: channel.token },
-          wsl: { ...input.wsl, stdinEnv: [...(input.wsl.stdinEnv ?? []), MCP_CHANNEL_TOKEN_ENV] },
-        }
-      : input,
-    deps,
-  )
   let revoked = false
   const revoke = () => {
     if (revoked || !channel) return
     revoked = true
     channel.revoke()
   }
+  // Everything that can refuse the start is inside: a token issued to a child
+  // that never ran is taken back at once, not left valid until the helper restarts.
+  let plan: CliHostSpawn
   let child: ChildProcessWithoutNullStreams
   try {
+    plan = cliHostSpawn(
+      channel && input.wsl
+        ? {
+            ...input,
+            env: { ...input.env, [MCP_CHANNEL_TOKEN_ENV]: channel.token },
+            wsl: { ...input.wsl, stdinEnv: [...(input.wsl.stdinEnv ?? []), MCP_CHANNEL_TOKEN_ENV] },
+          }
+        : input,
+      deps,
+    )
     child = (deps.spawn ?? spawn)(plan.file, plan.args, {
       ...plan.options,
       ...(deps.signal ? { signal: deps.signal } : {}),
