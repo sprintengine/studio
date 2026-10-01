@@ -1,0 +1,173 @@
+import { mkdirSync } from 'node:fs'
+
+import { isWslHostId } from '../shared/execution-host'
+import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../shared/product-identity'
+import { resolveSocketPath } from '../main/automation/automation-service'
+import { createStudioCore, StudioDataDirBusyError, studioBridgeScriptPath, type StudioCore } from './core/studio-core'
+import { createStudioGateway, type StudioGateway } from './core/studio-gateway'
+import { readDataDirSecrets } from './core/data-dir'
+import { createNodeStudioPlatform, type NodeStudioPlatform } from './platform/platform'
+import { createUnavailableSecretCipher } from './platform/secret-cipher'
+
+// A Studio server under plain Node: the core and its gateway, with nothing of
+// Electron. The `studio-server` entry (main.ts) runs it from a shell; a later
+// phase's desktop spawns it with the same options handed over on stdin.
+//
+// Startup is: the data directory exists → whose cipher seals it is settled →
+// the platform is built and installed → the core takes the run lock and builds
+// its stores → the gateway binds its socket and writes its discovery files →
+// ready. Shutdown is the reverse, gateway first so no tool call starts on a
+// core that is closing.
+
+export type StudioServerOptions = {
+  dataDir: string
+  logsDir: string
+  version: string
+  packaged?: boolean
+  resourcesDir?: string | null
+  appRoot?: string | null
+  /**
+   * Run against a data directory the desktop's keychain sealed, with the
+   * server's own secrets off: provider keys and tokens saved there read as not
+   * set, and a key set here lasts until the server stops. Without it such a
+   * directory is refused.
+   */
+  shareDesktopDataDir?: boolean
+}
+
+export type StudioServerReady = {
+  pid: number
+  version: string
+  dataDir: string
+  /** The gateway's socket (a named pipe on Windows), or null when it could not start. */
+  gatewaySocket: string | null
+  /** False when the data directory's secrets cannot be opened here (a shared desktop directory). */
+  secrets: boolean
+}
+
+export type StudioServer = {
+  core: StudioCore
+  gateway: StudioGateway
+  platform: NodeStudioPlatform
+  ready: StudioServerReady
+  /** Stop the gateway, then the core. Safe to call more than once; later calls wait on the first. */
+  stop(): Promise<void>
+}
+
+/** Why a server could not start, and the process exit code that says so (sysexits, as the supervisor reads them). */
+export class StudioServerStartError extends Error {
+  constructor(
+    message: string,
+    readonly exitCode: number,
+  ) {
+    super(message)
+    this.name = 'StudioServerStartError'
+  }
+}
+
+export const EXIT_USAGE = 64
+export const EXIT_DATA_DIR_UNUSABLE = 65
+export const EXIT_DATA_DIR_BUSY = 66
+export const EXIT_FAILED = 70
+
+export async function startStudioServer(options: StudioServerOptions): Promise<StudioServer> {
+  try {
+    mkdirSync(options.dataDir, { recursive: true, mode: 0o700 })
+    mkdirSync(options.logsDir, { recursive: true, mode: 0o700 })
+  } catch (error) {
+    throw new StudioServerStartError(
+      `The data directory ${options.dataDir} cannot be used: ${error instanceof Error ? error.message : String(error)}`,
+      EXIT_DATA_DIR_UNUSABLE,
+    )
+  }
+
+  const desktopSealed = readDataDirSecrets(options.dataDir) === 'desktop-keychain'
+  if (desktopSealed && !options.shareDesktopDataDir) {
+    throw new StudioServerStartError(
+      `${options.dataDir} is the desktop app's data directory, whose secrets its keychain sealed and a server cannot open. ` +
+        'Give the server a directory of its own, or pass --share-desktop-data-dir to run here with saved keys switched off.',
+      EXIT_DATA_DIR_UNUSABLE,
+    )
+  }
+
+  const platform = createNodeStudioPlatform({
+    dataDir: options.dataDir,
+    logsDir: options.logsDir,
+    version: options.version,
+    packaged: options.packaged ?? false,
+    resourcesDir: options.resourcesDir ?? null,
+    appRoot: options.appRoot ?? null,
+    ...(desktopSealed
+      ? {
+          secrets: createUnavailableSecretCipher(
+            "This data directory's secrets are sealed by the desktop app's keychain, which a server cannot open.",
+          ),
+        }
+      : {}),
+  })
+
+  let gateway: StudioGateway | null = null
+  let core: StudioCore
+  try {
+    core = createStudioCore(platform, {
+      role: 'server',
+      // A Claude chat's child is handed this server's gateway: the stdio bridge,
+      // run by the Node this server runs on. A WSL machine is not this server's
+      // to reach; a server runs inside the distribution instead (phase 7).
+      resolveStudioMcpServer: async ({ hostId }) => {
+        if (isWslHostId(hostId)) return null
+        await gateway?.whenGatewayReady()
+        return {
+          id: STUDIO_MCP_SERVER_ID,
+          name: STUDIO_MCP_SERVER_NAME,
+          transport: 'stdio',
+          command: process.execPath,
+          args: [studioBridgeScriptPath(platform.paths)],
+          env: {
+            SPRINTENGINE_USER_DATA_DIR: platform.paths.dataDir(),
+            ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
+          },
+        }
+      },
+    })
+  } catch (error) {
+    if (error instanceof StudioDataDirBusyError) {
+      throw new StudioServerStartError(error.message, EXIT_DATA_DIR_BUSY)
+    }
+    throw error
+  }
+
+  const started = createStudioGateway(core)
+  gateway = started
+  let status: Awaited<ReturnType<StudioGateway['initialize']>>
+  try {
+    status = await started.initialize()
+  } catch (error) {
+    await started.shutdown().catch(() => undefined)
+    await core.shutdown()
+    throw error
+  }
+
+  let stopping: Promise<void> | null = null
+  const stop = (): Promise<void> => {
+    stopping ??= (async () => {
+      await started.shutdown().catch(() => undefined)
+      await core.shutdown()
+    })()
+    return stopping
+  }
+
+  return {
+    core,
+    gateway: started,
+    platform,
+    ready: {
+      pid: process.pid,
+      version: options.version,
+      dataDir: options.dataDir,
+      gatewaySocket: status.running ? (status.socketPath ?? resolveSocketPath(options.dataDir)) : null,
+      secrets: platform.secrets.available(),
+    },
+    stop,
+  }
+}

@@ -21,6 +21,7 @@
     "start": "node scripts/dev.js",
     "dev": "node scripts/dev.js",
     "build": "electron-vite build",
+    "build:server": "node scripts/build-server.mjs",
     "build:sdk": "tsc -p packages/module-sdk/tsconfig.json",
     "build:conversation-protocol": "node packages/conversation-protocol/build.mjs",
     "dist": "npm run runtimes:fetch && npm run build && electron-builder",
