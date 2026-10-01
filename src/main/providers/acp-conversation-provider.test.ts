@@ -33,7 +33,7 @@ const request=(method,params)=>new Promise(resolve=>{const id=++serial;pending.s
 createInterface({input:process.stdin}).on('line',async line=>{
  const m=JSON.parse(line),p=m.params||{};
  if(!m.method){pending.get(m.id)?.(m.result||{error:m.error});pending.delete(m.id);return}
- if(m.method==='initialize')return result(m.id,{protocolVersion:1,agentCapabilities:{loadSession:!process.env.NO_LOAD,promptCapabilities:{image:true},mcpCapabilities:{http:!!process.env.MCP_HTTP}},authMethods:[],_meta:{availableCommands:[{name:'handshake',description:'Listed before any session'}]}});
+ if(m.method==='initialize')return result(m.id,{protocolVersion:1,agentCapabilities:{loadSession:!process.env.NO_LOAD,promptCapabilities:{image:true},mcpCapabilities:{http:!!process.env.MCP_HTTP},sessionCapabilities:process.env.FORK?{fork:{}}:{}},authMethods:[],_meta:{availableCommands:[{name:'handshake',description:'Listed before any session'}]}});
  if(m.method==='session/load'&&p.sessionId==='gone')return send({id:m.id,error:{code:-32002,message:'Resource not found'}});
  if(m.method==='session/load'&&require('node:fs').existsSync('busy-session'))return send({id:m.id,error:{code:-32603,message:'Internal error',data:{details:'rate limit reached'}}});
  if((m.method==='session/new'||m.method==='session/load')&&require('node:fs').existsSync('fail-session'))return send({id:m.id,error:{code:-32603,message:'session store unavailable'}});
@@ -47,6 +47,7 @@ createInterface({input:process.stdin}).on('line',async line=>{
    if(m.method==='session/new'){if(process.env.STRAY)update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:'STRAY OUTSIDE A TURN'}});update({sessionUpdate:'available_commands_update',availableCommands:[{name:'review',description:'Review changes',input:{hint:'[commit|branch]'}},{name:'triage',description:'Sort the open issues. (builtin skill)'},{name:'changelog',description:'Draft a changelog entry. (global)'},{name:'always-approve',description:'Toggle approvals',input:{hint:'on|off'}},{name:'exit',description:'Leave'}]})}
    return;
  }
+ if(m.method==='session/fork'){require('node:fs').writeFileSync('forked.json',JSON.stringify(p));return result(m.id,{sessionId:'branch-of-'+p.sessionId})}
  if(m.method==='session/set_mode')return result(m.id,{});
  if(m.method==='session/set_config_option'){if(p.configId==='model')model=p.value;return result(m.id,{configOptions:[]})}
  if(m.method==='session/cancel'){if(process.env.IGNORE_CANCEL)return;if(prompt)result(prompt,{stopReason:'cancelled'});prompt=null;return}
@@ -964,5 +965,61 @@ test("ACP opens the session with the chat's own MCP servers, and refuses one the
     ])
   } finally {
     delete process.env.ACP_MCP_TEST_TOKEN
+  }
+})
+
+test('ACP branches its running session for a fork at the newest reply, and leaves any other fork to be seeded', async () => {
+  const f = await fixture(false, undefined, { FORK: '1' })
+  try {
+    await turn(f, 'pid')
+    const fork = (latest: boolean) => f.provider.fork!({ ...f.input, cursor: null, exact: false, latest })
+    expect(await fork(true)).toEqual({ ok: true, cursor: { sessionId: 'branch-of-native', at: null } })
+    expect(JSON.parse(await readFile(join(f.root, 'forked.json'), 'utf8'))).toMatchObject({
+      sessionId: 'native',
+      cwd: f.root,
+    })
+    // `session/fork` names no point inside the session, so an earlier one is
+    // never asked of it.
+    expect(await fork(false)).toEqual({ ok: true, cursor: null })
+  } finally {
+    await f.cleanup()
+  }
+  const unable = await fixture()
+  try {
+    expect(await unable.provider.fork!({ ...unable.input, cursor: null, exact: false, latest: true })).toEqual({
+      ok: true,
+      cursor: null,
+    })
+  } finally {
+    await unable.cleanup()
+  }
+})
+
+test('an ACP fork the agent could not branch hands its first message the conversation, once', async () => {
+  const f = await fixture()
+  try {
+    const fork = {
+      ...f.input,
+      sessionId: 'fork-session',
+      agentId: 'fork',
+      seedFromHistory: true,
+      fallbackHistory: [
+        { role: 'user' as const, content: 'persisted question' },
+        { role: 'assistant' as const, content: 'persisted answer' },
+      ],
+    }
+    await f.provider.startSession(fork)
+    const said = async (message: string) => {
+      const events: ConversationEvent[] = []
+      for await (const event of await f.provider.sendTurn({ ...fork, turnId: message, requestId: 'r', message }))
+        events.push(event)
+      return events.find((event) => event.type === 'content_delta')?.payload?.text
+    }
+    const first = await said('inspect history')
+    expect(first).toContain('persisted answer')
+    expect(first).toContain('inspect history')
+    expect(await said('inspect history again')).not.toContain('persisted answer')
+  } finally {
+    await f.cleanup()
   }
 })

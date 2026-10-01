@@ -46,6 +46,9 @@ export function createOpenAiCompatibleProvider(options: OpenAiCompatibleProvider
       cost: false,
       contextMeter: false,
       liveModelSwitch: false,
+      // The runtime replays a chat's transcript every turn, so a fork is its
+      // copy of the transcript and nothing more.
+      fork: true,
     },
     listModels: () => [],
     startSession(input) {

@@ -248,6 +248,7 @@ const baseCapabilities = (profile: AcpProfile): ConversationCapabilities => ({
   cost: false,
   contextMeter: false,
   liveModelSwitch: true,
+  fork: true,
 })
 // What a permission request is read as. ACP agents name the files a call
 // touches in `locations`, beside an input that may use its own key for them or
@@ -314,6 +315,11 @@ type State = {
   closed: boolean
   loading: boolean
   loadSupported: boolean
+  // The agent branches a session on `session/fork` (`sessionCapabilities.fork`).
+  forkSupported: boolean
+  // Where the session was opened, and with which servers, in the agent's own
+  // terms: a branch of it opens in the same.
+  opened?: { cwd: string; mcpServers: ReturnType<typeof acpMcpServers> }
   queue?: Queue
   turn?: MockAdapterTurnInput
   // Settles when the running turn has ended, however it ended.
@@ -338,6 +344,9 @@ type State = {
   appliedModelId?: string
   history: Array<{ user: string; assistant: string }>
   replayHistory: boolean
+  // A fork the agent could not branch: its first message carries the
+  // conversation, whichever session it lands in.
+  seedPending: boolean
   // Set when a stored session could not be reopened; reported once, with the
   // replacement session's identity, so the person knows context was replayed.
   resumeNotice?: string
@@ -861,6 +870,7 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
         const advertised = hello._meta?.availableCommands
         if (Array.isArray(advertised)) publishCommands(state, advertised)
         state.loadSupported = hello.agentCapabilities?.loadSession === true
+        state.forkSupported = Boolean(hello.agentCapabilities?.sessionCapabilities?.fork)
         state.mcpCapabilities = hello.agentCapabilities?.mcpCapabilities ?? undefined
         state.capabilities = {
           ...baseCapabilities(profile),
@@ -884,7 +894,7 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
       }
       const openSession = async (connection: ClientSideConnection) => {
         const resumeId = state.nativeId ?? state.input.resumeSessionId
-        state.replayHistory = Boolean(resumeId && !state.loadSupported)
+        state.replayHistory = Boolean(resumeId && !state.loadSupported) || state.seedPending
         // The session's own servers, on a new session and a reopened one alike.
         const servers = state.input.mcpServers ?? []
         const mcpServers = acpMcpServers(
@@ -894,6 +904,7 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
         )
         // The folder as the agent names it: the Linux spelling in WSL.
         const cwd = wsl ? toWslPath(state.input.workspaceRoot!) : state.input.workspaceRoot!
+        state.opened = { cwd, mcpServers }
         const fresh = () => connection.newSession({ cwd, mcpServers })
         let session: Awaited<ReturnType<typeof fresh>> | Awaited<ReturnType<ClientSideConnection['loadSession']>>
         if (resumeId && state.loadSupported) {
@@ -990,6 +1001,7 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
         closed: false,
         loading: false,
         loadSupported: false,
+        forkSupported: false,
         cancelled: false,
         pending: new Map(),
         toolCalls: new Map(),
@@ -999,6 +1011,7 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
         modes: [],
         history: [],
         replayHistory: false,
+        seedPending: input.seedFromHistory === true,
         assistantText: '',
       }
       sessions.set(input.sessionId, state)
@@ -1092,7 +1105,10 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
               text: prior ? `Previous conversation:\n${prior}\n\nUser: ${input.message}` : input.message,
             },
           ]
-          if (!command) state.replayHistory = false
+          if (!command) {
+            state.replayHistory = false
+            state.seedPending = false
+          }
           if (input.attachments?.length && !state.capabilities.images)
             throw new Error('This ACP agent does not support images.')
           for (const attachment of input.attachments ?? [])
@@ -1156,6 +1172,35 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
           approved: input.approved && Boolean(selected),
         }),
       ]
+    },
+    // ACP's `session/fork` branches a session as it stands now and names no
+    // point inside it, so it is used only for a fork made at the newest reply,
+    // and only on the chat's own running agent: the branch is made now, while
+    // the parent's session still ends there, and the fork's child opens it
+    // with `session/load` (an agent that cannot load could not reopen it).
+    // Anything else, or a branch the agent refuses, starts the fork in a new
+    // session handed the conversation as text.
+    async fork(input) {
+      const state = sessions.get(input.sessionId)
+      const connection = state?.connection
+      if (
+        !input.latest ||
+        !state ||
+        !connection ||
+        !state.nativeId ||
+        !state.opened ||
+        state.turn ||
+        state.closed ||
+        !state.forkSupported ||
+        !state.loadSupported
+      )
+        return { ok: true, cursor: null }
+      try {
+        const branched = await connection.unstable_forkSession({ sessionId: state.nativeId, ...state.opened })
+        return { ok: true, cursor: { sessionId: String(branched.sessionId), at: null } }
+      } catch {
+        return { ok: true, cursor: null }
+      }
     },
     // The model is the agent's session config option. It is recorded here and
     // applied at the start of the next turn (sendTurn), so a turn already
