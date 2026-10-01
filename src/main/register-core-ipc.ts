@@ -76,7 +76,8 @@ import type { AppServices } from './app-services'
 import { createFilesystemMutationHandlers } from './filesystem-mutation-handlers'
 import { createFilesystemReadHandlers } from './filesystem-read'
 import { createFilesystemWatchSearchHandlers } from './filesystem-watch-search-handlers'
-import { openDiagnosticsLogsFolder, writeDiagnosticLog } from './diagnostics-service'
+import { openDiagnosticsLogsFolder } from './diagnostics-folder'
+import { writeDiagnosticLog } from './diagnostics-service'
 
 export type CoreIpcOptions = {
   includeDevModules?: boolean

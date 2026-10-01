@@ -1,4 +1,3 @@
-import { app } from 'electron'
 import { createHash, randomUUID } from 'crypto'
 import { existsSync, mkdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'fs'
 import { rm, stat, unlink } from 'fs/promises'
@@ -32,6 +31,7 @@ import { launchArgBudgetFor, quoteWindowsCommandLineArg } from './launch-arg-bud
 import { CLI_EXITED_OSC } from './deferred-prompt-delivery'
 import { buildLaunchStatusLineSetting } from './agent-state'
 import { resolveAgentStateSocketPath } from './agent-state-service'
+import { installedStudioPlatform, studioPlatform } from '../server/platform/platform'
 import { getPluginManifest } from './plugin-registry-instance'
 import { getColorScheme } from './color-scheme-store'
 import { ensureManagedRuntimeShims, withManagedRuntimePath } from './managed-runtime'
@@ -156,14 +156,20 @@ export function agentIdentityEnv(input: {
 
 // Same resolution the agent-state service uses (deterministic from the profile
 // dir), so the launch env and the live listener always agree. Lazy + guarded:
-// outside a real Electron app (unit tests bundling this module) `app.getPath`
-// is unavailable — identity env then simply omits the socket address.
+// with no platform installed (unit tests bundling this module) there is no
+// profile dir — identity env then simply omits the socket address.
 function agentStateSocketPathForLaunch(): string | null {
   try {
-    return resolveAgentStateSocketPath(app.getPath('userData'))
+    const dataDir = installedStudioPlatform()?.paths.dataDir()
+    return dataDir ? resolveAgentStateSocketPath(dataDir) : null
   } catch {
     return null
   }
+}
+
+// The app's data directory, for the files a launch writes beside it.
+function userDataDir(): string {
+  return studioPlatform().paths.dataDir()
 }
 
 // The app-owned plugin directories a launch hands a CLI that declares
@@ -848,7 +854,7 @@ export function buildShellIntegrationZshShim(fileName: '.zshenv' | '.zprofile' |
  */
 function ensureShellIntegrationZshZdotdir(): string | null {
   try {
-    const directory = join(app.getPath('userData'), 'shell-integration', 'zsh')
+    const directory = join(userDataDir(), 'shell-integration', 'zsh')
     mkdirSync(directory, { recursive: true })
     for (const fileName of ['.zshenv', '.zprofile', '.zshrc', '.zlogin'] as const) {
       replaceFileAtomically(join(directory, fileName), buildShellIntegrationZshShim(fileName))
@@ -974,7 +980,7 @@ function buildInteractiveShellExec(shellPath: string, shellName: string | undefi
 // launch's script is written inside the distribution instead; see
 // `wslStartupScript`.
 function createTerminalStartupScript(sessionId: string, extension: 'sh' | 'ps1', content: string): string {
-  const scriptDirectory = join(app.getPath('userData'), 'terminal-startup')
+  const scriptDirectory = join(userDataDir(), 'terminal-startup')
   const safeSessionId = sessionId.replace(/[^A-Za-z0-9._-]/g, '_')
   const scriptPath = join(scriptDirectory, `${safeSessionId}-${Date.now()}.${extension}`)
   mkdirSync(scriptDirectory, { recursive: true })
@@ -1184,7 +1190,7 @@ function hostContextSessionKey(sessionId: string, cwd: string): string {
  */
 function writeHostContextFile(sessionId: string, cwd: string, document: string): string | null {
   try {
-    const directory = join(app.getPath('userData'), HOST_CONTEXT_DIRECTORY)
+    const directory = join(userDataDir(), HOST_CONTEXT_DIRECTORY)
     const filePath = join(directory, `${hostContextSessionKey(sessionId, cwd)}.md`)
     mkdirSync(directory, { recursive: true })
     writeFileSync(filePath, `${document}\n`, { encoding: 'utf8', mode: 0o600 })
@@ -1202,7 +1208,7 @@ function writeHostContextFile(sessionId: string, cwd: string, document: string):
  */
 function writeHostContextCursorPlugin(sessionId: string, cwd: string, document: string): string | null {
   try {
-    const pluginRoot = join(app.getPath('userData'), HOST_CONTEXT_DIRECTORY, hostContextSessionKey(sessionId, cwd))
+    const pluginRoot = join(userDataDir(), HOST_CONTEXT_DIRECTORY, hostContextSessionKey(sessionId, cwd))
     const manifestPath = join(pluginRoot, CURSOR_HOST_CONTEXT_PLUGIN_MANIFEST_REL)
     const rulePath = join(pluginRoot, CURSOR_HOST_CONTEXT_PLUGIN_RULE_REL)
     mkdirSync(dirname(manifestPath), { recursive: true })
@@ -1226,7 +1232,7 @@ const LAUNCH_PROMPT_DIRECTORY = 'launch-prompts'
 
 function writeLaunchPromptFile(sessionId: string, cwd: string, text: string): string | null {
   try {
-    const directory = join(app.getPath('userData'), LAUNCH_PROMPT_DIRECTORY)
+    const directory = join(userDataDir(), LAUNCH_PROMPT_DIRECTORY)
     // Named per launch, not per session: a relaunch under the same session id
     // must not have its file reaped by the previous pty's exit.
     const filePath = join(directory, `${hostContextSessionKey(sessionId, cwd)}-${randomUUID()}.md`)
