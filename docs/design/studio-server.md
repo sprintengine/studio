@@ -1090,8 +1090,8 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
   means making `seal`/`open` async through the four stores, or unsealing a
   data key from the keychain once at start and keeping the cipher synchronous.
 - **As landed.** `packages/studio-protocol` (not `conversation-protocol/src/studio`,
-  see 5.4); `src/server/rpc/` (listener, connection, router, an import-graph
-  guard against Electron); `src/main/studio-rpc/` (the backend over the
+  see 5.4); `src/server/rpc/` (listener, connection, router), held by phase 1's
+  boundary guard, which also covers `src/main/studio-rpc/`; `src/main/studio-rpc/` (the backend over the
   tailnet lane's conversation host and the launch service, the paired-app
   store, the service started and stopped with the gateway); Settings → Agents →
   Local apps; `packages/agent-sdk` with `./node`, an in-process adapter over
@@ -1100,7 +1100,13 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
   `<userData>/run/studio.sock` in a 0700 directory (a private temp directory
   when the path is too long; a pipe with a random name on Windows), found
   through `<userData>/run/server.json`. Audit records go into the gateway's one
-  log under the `studio-client` connection kind.
+  log under the `studio-client` connection kind. The service takes its data
+  directory and version from the platform's `StudioPaths` and `AppIdentity`,
+  and tells Settings about pairings on the `ClientBus` (topic
+  `studio-local-apps:changed`, a preload channel name that no protocol stream
+  exposes). It seals nothing, so the synchronous `SecretCipher` does not bind
+  it: a paired app's token is kept only as a hash, and the owner token only in
+  memory. It raises no notification, so no `onActivate` has to cross a socket.
 
 ### Phase 3 — An Electron-free core and the `studio-server` entry (L)
 
