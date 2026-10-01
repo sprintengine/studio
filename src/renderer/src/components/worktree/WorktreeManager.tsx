@@ -5,6 +5,8 @@ import type { WorktreeEntry as StoredWorktreeEntry } from '../../types/workspace
 import { focusOrAddTerminalTab } from '../../utils/modelRegistry'
 import { pathJoin, samePath, trimPath } from '../../utils/paths'
 import { slugifyWorktreeName, worktreeContainerPath, worktreeIdFromPath } from '../../utils/workspaceWorktree'
+import { agentWorktreeCleanupPlan, entriesRemovedBy } from '../../utils/agentWorktreeCleanup'
+import type { AgentWorktreeCleanupEntry, AgentWorktreeCleanupReport } from '../../../../shared/electron-api'
 import {
   Checkbox,
   EmptyState,
@@ -84,15 +86,46 @@ function worktreeGlyph(row: WorktreeRow): { state: LifecycleState; label: string
 // One muted supporting line of facts that aren't already in the name. Built only
 // from signal that earns its place; a clean non-main worktree contributes none,
 // so its row is just the branch name.
-function worktreeMeta(row: WorktreeRow, ownerName: string): string {
+function worktreeMeta(row: WorktreeRow, ownerName: string, cleanup: CleanupFacts | null): string {
   const parts: string[] = []
   if (row.isMain) parts.push('default checkout')
   if (row.missing) parts.push('missing')
   else if (row.prunable) parts.push('prunable')
   else if (row.locked) parts.push('locked')
   if (row.dirtyCount && row.dirtyCount > 0) parts.push(`${row.dirtyCount} uncommitted`)
+  const cleanupNote = cleanupMeta(cleanup)
+  if (cleanupNote) parts.push(cleanupNote)
   if (ownerName !== '-') parts.push(ownerName)
   return parts.join(' · ')
+}
+
+type CleanupFacts = { entry: AgentWorktreeCleanupEntry; defaultRef: string | null }
+
+// What the automatic cleanup made of an agent worktree, when it is something
+// the person should know: why it was kept, or that it is due to go. A dirty
+// worktree already says "N uncommitted" above, and an in-use one is simply in
+// use, so neither adds words here.
+function cleanupMeta(cleanup: CleanupFacts | null): string | null {
+  if (!cleanup) return null
+  const { entry, defaultRef } = cleanup
+  switch (entry.verdict) {
+    case 'unmerged':
+      return `kept: ${entry.uniqueCommits ?? 'some'} commit${entry.uniqueCommits === 1 ? '' : 's'} not on ${defaultRef ?? 'the default branch'}`
+    case 'removed':
+      return 'merged, will be cleaned up'
+    case 'no-default-branch':
+      return 'kept: no default branch to compare with'
+    case 'ignored-files':
+      return `kept: ignored files that may be work (${entry.detail ?? 'unlisted'})`
+    case 'hidden-edits':
+      return `kept: edits hidden from git status (${entry.detail ?? 'unlisted'})`
+    case 'recent':
+      return 'kept: used within the last hour'
+    case 'error':
+      return 'kept: could not be checked'
+    default:
+      return null
+  }
 }
 
 function messageFromResult<T>(result: GitWorktreeOperationResult<T>, success: string): WorktreeMessage {
@@ -123,6 +156,7 @@ export default function WorktreeManager({
   const dialog = useConfirmDialog()
   const [open, setOpen] = useState(true)
   const [rows, setRows] = useState<WorktreeRow[]>([])
+  const [cleanupReport, setCleanupReport] = useState<AgentWorktreeCleanupReport | null>(null)
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [message, setMessage] = useState<WorktreeMessage | null>(null)
@@ -187,8 +221,17 @@ export default function WorktreeManager({
             head: worktree.head,
             isMain: samePath(worktree.path, repoRoot),
             missing: !exists,
-            locked: worktree.locked,
-            lockedReason: worktree.lockedReason,
+            // This profile's own agent in-use lock is the app's bookkeeping, not
+            // a lock the person placed: it is not shown, and removing the
+            // worktree here releases it (main's removeGitWorktree). Another
+            // profile's is shown for what it is.
+            locked: worktree.locked && worktree.agentLock !== 'this-profile',
+            lockedReason:
+              worktree.agentLock === 'other-profile'
+                ? 'In use by an agent in another SprintEngine Studio profile'
+                : worktree.agentLock === 'this-profile'
+                  ? null
+                  : worktree.lockedReason,
             prunable: worktree.prunable,
             prunableReason: worktree.prunableReason,
             dirtyCount,
@@ -236,6 +279,17 @@ export default function WorktreeManager({
           (a, b) => Number(b.isMain) - Number(a.isMain) || branchLabel(a).localeCompare(branchLabel(b)),
         ),
       )
+
+      // What the automatic cleanup would do, without doing it: the kept
+      // worktrees (unmerged work, uncommitted changes) are shown here, which
+      // is the only place anyone will see why they are still on disk.
+      if (typeof window.api.cleanupAgentWorktrees === 'function') {
+        const plan = agentWorktreeCleanupPlan(useWorkspaceStore.getState().workspaces)
+        const report = await window.api
+          .cleanupAgentWorktrees({ repoRoot, protectedPaths: plan.protectedPaths, dryRun: true })
+          .catch(() => null)
+        setCleanupReport(report)
+      }
     } finally {
       setLoading(false)
     }
@@ -393,6 +447,57 @@ export default function WorktreeManager({
     })
   }
 
+  // Another profile's agent lock is lifted only here, on a person's word: that
+  // profile may be running an agent in it right now, or may be long gone.
+  const handleUnlockAgentLock = async (row: WorktreeRow) => {
+    const confirmed = await dialog.confirm({
+      title: 'Release the agent lock?',
+      body: (
+        <>
+          Worktree <span className="font-mono">{branchLabel(row)}</span> is locked by an agent in another SprintEngine
+          Studio profile. Release it only if that profile no longer uses it: once released, this profile may remove it.
+        </>
+      ),
+      confirmLabel: 'Release lock',
+      tone: 'danger',
+    })
+    if (!confirmed) return
+    await runWorktreeAction('Releasing agent lock', async () => {
+      const result = await window.api.unlockAgentGitWorktree(repoRoot, row.path)
+      setMessage(messageFromResult(result, 'Released the agent lock.'))
+      if (!result.ok) return
+      await refreshWorktrees()
+    })
+  }
+
+  // The same sweep the app runs unattended (useAgentWorktreeCleanup), run now.
+  const handleCleanup = async () => {
+    await runWorktreeAction('Cleaning up merged agent worktrees', async () => {
+      const store = useWorkspaceStore.getState()
+      const plan = agentWorktreeCleanupPlan(store.workspaces)
+      const report = await window.api.cleanupAgentWorktrees({ repoRoot, protectedPaths: plan.protectedPaths })
+      for (const [ownerWorkspaceId, entryId] of entriesRemovedBy(useWorkspaceStore.getState().workspaces, report)) {
+        removeWorktreeEntry(ownerWorkspaceId, entryId)
+      }
+      const removed = report.entries.filter((entry) => entry.verdict === 'removed').length
+      const kept = report.entries.filter(
+        (entry) =>
+          entry.verdict === 'dirty' ||
+          entry.verdict === 'unmerged' ||
+          entry.verdict === 'ignored-files' ||
+          entry.verdict === 'hidden-edits',
+      ).length
+      setMessage({
+        tone: 'neutral',
+        text:
+          `${removed === 0 ? 'No agent worktree was ready to remove' : `Removed ${removed} merged agent worktree${removed === 1 ? '' : 's'}`}` +
+          (kept > 0 ? `; kept ${kept} holding work that is not on the default branch.` : '.'),
+      })
+      await refreshWorktrees()
+      await onChanged()
+    })
+  }
+
   const formDisabled = Boolean(busy) || loading
   const contentOpen = mode === 'tab' || open
   const sectionClassName = mode === 'tab' ? 'min-h-0' : 'mb-5 border-b border-[color:var(--border-subtle)] pb-4'
@@ -456,6 +561,12 @@ export default function WorktreeManager({
                   label: 'Prune stale metadata',
                   onSelect: () => void handlePrune(),
                   disabled: formDisabled,
+                },
+                {
+                  id: 'cleanup',
+                  label: 'Clean up merged agent worktrees',
+                  onSelect: () => void handleCleanup(),
+                  disabled: formDisabled || typeof window.api.cleanupAgentWorktrees !== 'function',
                 },
               ]}
             />
@@ -535,7 +646,12 @@ export default function WorktreeManager({
                 const canUsePath = !row.missing && Boolean(row.listedEntry)
                 const canRemove = !row.isMain && Boolean(row.listedEntry) && !row.locked
                 const glyph = worktreeGlyph(row)
-                const meta = worktreeMeta(row, ownerName)
+                const cleanupEntry = cleanupReport?.entries.find((entry) => samePath(entry.path, row.path)) ?? null
+                const meta = worktreeMeta(
+                  row,
+                  ownerName,
+                  cleanupEntry ? { entry: cleanupEntry, defaultRef: cleanupReport?.defaultRef ?? null } : null,
+                )
                 const reason = row.lockedReason ?? row.prunableReason ?? undefined
                 return (
                   <li
@@ -588,6 +704,16 @@ export default function WorktreeManager({
                             disabled: formDisabled || !canUsePath,
                           },
                           { kind: 'separator', id: 'sep' },
+                          ...(row.listedEntry?.agentLock === 'other-profile'
+                            ? [
+                                {
+                                  id: 'unlock',
+                                  label: 'Release agent lock…',
+                                  onSelect: () => void handleUnlockAgentLock(row),
+                                  disabled: formDisabled,
+                                },
+                              ]
+                            : []),
                           {
                             id: 'remove',
                             label: 'Remove worktree',

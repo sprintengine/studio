@@ -1,18 +1,223 @@
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
 import { mkdtemp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
+  AGENT_INTEGRATION_LAYOUT,
   agentIntegrationRoot,
   ensureAgentIntegrationHome,
   launchPluginDirs,
   LAUNCH_REPORTER_REL,
   LAUNCH_STATUS_LINE_REL,
+  launchSkillPluginDir,
   pruneAgentIntegrationHomes,
 } from './agent-integration-home'
-import { hasUnsubstitutedTokens } from './skills/studio-plugin'
+import { hasUnsubstitutedTokens, TEMPLATE_COMMENT_KEY } from './skills/studio-plugin'
 import { test } from 'vitest'
+
+// Shared by the per-case tests below the legacy suite.
+const TEMPLATE_ROOT = join(process.cwd(), 'resources', 'studio-plugin')
+const REPORTER_SOURCE = join(process.cwd(), 'resources', 'hooks', 'sprintengine-agent-state.mjs')
+const TOKENS = {
+  nodeCommand: '/Applications/SprintEngine Studio.app/Contents/MacOS/Studio',
+  bridgeScriptPath: '/Applications/SprintEngine Studio.app/Contents/Resources/bridge.mjs',
+  userDataDir: '/Users/dev/Library/Application Support/sprintengine-studio',
+  agentStateSocketPath: '/Users/dev/Library/Application Support/sprintengine-studio/agent-state.sock',
+}
+
+/** Every `$comment` key in every JSON file under `root`, as `file: key.path`. */
+async function commentKeysUnder(root: string): Promise<string[]> {
+  const found: string[] = []
+  const walk = (value: unknown, path: string, file: string): void => {
+    if (Array.isArray(value)) value.forEach((child, index) => walk(child, `${path}[${index}]`, file))
+    else if (typeof value === 'object' && value !== null) {
+      for (const [key, child] of Object.entries(value)) {
+        if (key === TEMPLATE_COMMENT_KEY) found.push(`${file}: ${path || '<root>'}`)
+        walk(child, path === '' ? key : `${path}.${key}`, file)
+      }
+    }
+  }
+  const entries = await readdir(root, { recursive: true, withFileTypes: true })
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.json')) continue
+    const file = join(entry.parentPath, entry.name)
+    walk(JSON.parse(await readFile(file, 'utf8')), '', file.slice(root.length + 1))
+  }
+  return found
+}
+
+test('the copy a launch hands Claude Code carries no $comment key in any JSON file', async () => {
+  // The template still explains itself — the strip is at materialisation, not
+  // in the source — so this check is only meaningful while that stays true.
+  assert.notDeepEqual(await commentKeysUnder(TEMPLATE_ROOT), [], 'the template keeps its explanatory comments')
+
+  const dir = await mkdtemp(join(tmpdir(), 'sprintengine-agent-integration-'))
+  const result = await ensureAgentIntegrationHome({
+    templateRoot: TEMPLATE_ROOT,
+    reporterSourcePath: REPORTER_SOURCE,
+    userDataDir: dir,
+    tokens: TOKENS,
+    enabledSkillDirs: [],
+  })
+  assert.ok(result.ok, result.ok ? '' : result.message)
+  // Claude Code prints `hooks.json: unknown key "$comment" ignored` for every
+  // load of a plugin whose hook file carries one.
+  assert.deepEqual(await commentKeysUnder(result.home.root), [])
+  const hooks = JSON.parse(
+    await readFile(join(result.home.root, 'sprintengine-studio', 'hooks', 'hooks.json'), 'utf8'),
+  ) as { hooks: Record<string, unknown> }
+  assert.ok(Object.keys(hooks.hooks).length >= 8, 'stripping the comment keeps the declaration')
+})
+
+test('a copy materialised before the comment strip is rebuilt, not trusted', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'sprintengine-agent-integration-'))
+  const first = await ensureAgentIntegrationHome({
+    templateRoot: TEMPLATE_ROOT,
+    reporterSourcePath: REPORTER_SOURCE,
+    userDataDir: dir,
+    tokens: TOKENS,
+    enabledSkillDirs: [],
+  })
+  assert.ok(first.ok, first.ok ? '' : first.message)
+  const marker = join(first.home.root, '.installed.json')
+  assert.equal((JSON.parse(await readFile(marker, 'utf8')) as { layout?: number }).layout, AGENT_INTEGRATION_LAYOUT)
+
+  // The marker an earlier build wrote: the same plugin version, no layout.
+  await writeFile(marker, JSON.stringify({ plugin: 'sprintengine-studio', version: first.home.version }), 'utf8')
+  const sentinel = join(first.home.root, 'sentinel.txt')
+  await writeFile(sentinel, 'should not survive', 'utf8')
+
+  const second = await ensureAgentIntegrationHome({
+    templateRoot: TEMPLATE_ROOT,
+    reporterSourcePath: REPORTER_SOURCE,
+    userDataDir: dir,
+    tokens: TOKENS,
+    enabledSkillDirs: [],
+  })
+  assert.equal(second.ok, true)
+  await assert.rejects(readFile(sentinel, 'utf8'), 'an old-layout copy is replaced')
+})
+
+test('each bundled skill is a plugin of its own, for the one launch that invokes it', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'sprintengine-agent-integration-'))
+  const LAUNCH_SKILLS_SOURCE = join(process.cwd(), 'resources', 'builtin-skills')
+  const result = await ensureAgentIntegrationHome({
+    templateRoot: TEMPLATE_ROOT,
+    reporterSourcePath: REPORTER_SOURCE,
+    userDataDir: dir,
+    tokens: TOKENS,
+    enabledSkillDirs: [],
+    launchSkillsSourceRoot: LAUNCH_SKILLS_SOURCE,
+  })
+  assert.ok(result.ok, result.ok ? '' : result.message)
+  const { home } = result
+  assert.deepEqual(Object.keys(home.skillPluginDirs), ['backlog'])
+  for (const [skillId, pluginDir] of Object.entries(home.skillPluginDirs)) {
+    assert.equal(pluginDir, launchSkillPluginDir(home.root, skillId))
+    assert.equal(home.pluginDirs.includes(pluginDir), false, 'never passed to every launch')
+    const manifest = JSON.parse(await readFile(join(pluginDir, '.claude-plugin', 'plugin.json'), 'utf8')) as {
+      name: string
+    }
+    // Not the skill's own name, so `/backlog` stays the skill's, and unique
+    // beside the studio plugin.
+    assert.equal(manifest.name, `sprintengine-${skillId}`)
+    assert.deepEqual(await readdir(join(pluginDir, 'skills')), [skillId], 'one skill, and only that one')
+    assert.equal(
+      await readFile(join(pluginDir, 'skills', skillId, 'SKILL.md'), 'utf8'),
+      await readFile(join(LAUNCH_SKILLS_SOURCE, skillId, 'SKILL.md'), 'utf8'),
+    )
+  }
+
+  // A settled copy reports the same plugins without writing them again.
+  const again = await ensureAgentIntegrationHome({
+    templateRoot: TEMPLATE_ROOT,
+    reporterSourcePath: REPORTER_SOURCE,
+    userDataDir: dir,
+    tokens: TOKENS,
+    enabledSkillDirs: [],
+    launchSkillsSourceRoot: LAUNCH_SKILLS_SOURCE,
+  })
+  assert.ok(again.ok)
+  assert.deepEqual(again.home.skillPluginDirs, home.skillPluginDirs)
+})
+
+test('a copy from before the bundle was retired is rebuilt without it', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'sprintengine-agent-integration-'))
+  const options = {
+    templateRoot: TEMPLATE_ROOT,
+    reporterSourcePath: REPORTER_SOURCE,
+    userDataDir: dir,
+    tokens: TOKENS,
+    enabledSkillDirs: [] as string[],
+  }
+  const first = await ensureAgentIntegrationHome(options)
+  assert.ok(first.ok)
+  // What a layout-2 build left: the bundle beside the plugin, under its marker.
+  await mkdir(join(first.home.root, 'studio-skills', 'skills', 'frontend-design'), { recursive: true })
+  await writeFile(
+    join(first.home.root, '.installed.json'),
+    JSON.stringify({ plugin: 'sprintengine-studio', version: first.home.version, layout: 2 }),
+    'utf8',
+  )
+  const second = await ensureAgentIntegrationHome(options)
+  assert.ok(second.ok)
+  assert.equal(existsSync(join(second.home.root, 'studio-skills')), false)
+
+  // What a layout-3 build left: Debug Mode's one-skill plugin, retired with it.
+  const withLaunchSkills = { ...options, launchSkillsSourceRoot: join(process.cwd(), 'resources', 'builtin-skills') }
+  await mkdir(join(second.home.root, 'launch-skills', 'debug', 'skills', 'debug'), { recursive: true })
+  await writeFile(join(second.home.root, 'launch-skills', 'debug', 'skills', 'debug', 'SKILL.md'), '# debug\n', 'utf8')
+  await writeFile(
+    join(second.home.root, '.installed.json'),
+    JSON.stringify({ plugin: 'sprintengine-studio', version: second.home.version, layout: 3 }),
+    'utf8',
+  )
+  const third = await ensureAgentIntegrationHome(withLaunchSkills)
+  assert.ok(third.ok)
+  assert.equal(existsSync(join(third.home.root, 'launch-skills', 'debug')), false)
+  assert.deepEqual(Object.keys(third.home.skillPluginDirs), ['backlog'])
+})
+
+test('the copy carries only the Studio skills chosen, and follows a new choice without being rebuilt', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'sprintengine-agent-integration-'))
+  const ensure = (enabledSkillDirs: string[]) =>
+    ensureAgentIntegrationHome({
+      templateRoot: TEMPLATE_ROOT,
+      reporterSourcePath: REPORTER_SOURCE,
+      userDataDir: dir,
+      tokens: TOKENS,
+      enabledSkillDirs,
+    })
+  const skillsIn = async (root: string) =>
+    (await readdir(join(root, 'sprintengine-studio', 'skills'), { withFileTypes: true }).catch(() => []))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort()
+
+  const first = await ensure([])
+  assert.ok(first.ok, first.ok ? '' : first.message)
+  assert.deepEqual(await skillsIn(first.home.root), [], 'nothing chosen: a launch sees no Studio skill')
+  // What decides whether the copy is rewritten wholesale — which would swap it
+  // under every running agent — is the marker, and a choice is not a version.
+  const sentinel = join(first.home.root, 'sentinel.txt')
+  await writeFile(sentinel, 'still here', 'utf8')
+
+  const opted = await ensure(['studio-backlog', 'studio-canvas'])
+  assert.ok(opted.ok, opted.ok ? '' : opted.message)
+  assert.deepEqual(await skillsIn(opted.home.root), ['studio-backlog', 'studio-canvas'])
+  assert.equal(
+    await readFile(join(opted.home.root, 'sprintengine-studio', 'skills', 'studio-canvas', 'SKILL.md'), 'utf8'),
+    await readFile(join(TEMPLATE_ROOT, 'sprintengine-studio', 'skills', 'studio-canvas', 'SKILL.md'), 'utf8'),
+    'an added skill is the template’s bytes',
+  )
+
+  const narrowed = await ensure(['studio-canvas'])
+  assert.ok(narrowed.ok)
+  assert.deepEqual(await skillsIn(first.home.root), ['studio-canvas'], 'a skill switched off leaves the copy')
+  assert.equal(await readFile(sentinel, 'utf8'), 'still here', 'the rest of the copy is not rewritten')
+})
 
 test('agent-integration-home', async () => {
   // The REAL bundled template and the REAL reporter, for the same reason
@@ -43,16 +248,24 @@ test('agent-integration-home', async () => {
       statusLineSourcePath: STATUS_LINE_SOURCE,
       userDataDir: dir,
       tokens: TOKENS,
+      enabledSkillDirs: [],
     })
     assert.equal(result.ok, true, 'the bundled template must materialise')
     if (!result.ok) return
 
     assert.equal(result.home.root, agentIntegrationRoot(dir, result.home.version))
     assert.deepEqual(result.home.pluginDirs, launchPluginDirs(result.home.root))
-    // One flag per plugin directory — a marketplace root loads nothing. Only the
-    // studio plugin is passed: `studio-skills` would duplicate the skills
-    // `builtin-skills.ts` still writes into the workspace.
+    // One flag per plugin directory — a marketplace root loads nothing. Every
+    // launch gets the studio plugin (hooks, MCP bridge, opted-in Studio skills)
+    // and nothing else; the retired `studio-skills` bundle is gone.
     assert.deepEqual(result.home.pluginDirs, [join(result.home.root, 'sprintengine-studio')])
+    assert.equal(existsSync(join(result.home.root, 'studio-skills')), false)
+    // No launch skill plugins without a source to write them from.
+    assert.deepEqual(result.home.skillPluginDirs, {})
+    for (const dir of result.home.pluginDirs) {
+      const manifest = await readFile(join(dir, '.claude-plugin', 'plugin.json'), 'utf8')
+      assert.ok(JSON.parse(manifest).name, `${dir} must carry a plugin manifest`)
+    }
 
     // The reporter the hook command names has to BE there. A registered hook whose
     // script is missing is the MODULE_NOT_FOUND every session reports forever.
@@ -90,6 +303,7 @@ test('agent-integration-home', async () => {
       reporterSourcePath: REPORTER_SOURCE,
       userDataDir: dir,
       tokens: TOKENS,
+      enabledSkillDirs: [],
     })
     assert.equal(first.ok, true)
     if (!first.ok) return
@@ -104,6 +318,7 @@ test('agent-integration-home', async () => {
       reporterSourcePath: REPORTER_SOURCE,
       userDataDir: dir,
       tokens: TOKENS,
+      enabledSkillDirs: [],
     })
     assert.equal(second.ok, true)
     assert.equal(await readFile(sentinel, 'utf8'), 'still here', 'a settled copy is not rewritten')
@@ -116,6 +331,7 @@ test('agent-integration-home', async () => {
       reporterSourcePath: REPORTER_SOURCE,
       userDataDir: dir,
       tokens: TOKENS,
+      enabledSkillDirs: [],
     })
     assert.equal(first.ok, true)
     if (!first.ok) return
@@ -132,6 +348,7 @@ test('agent-integration-home', async () => {
       reporterSourcePath: REPORTER_SOURCE,
       userDataDir: dir,
       tokens: TOKENS,
+      enabledSkillDirs: [],
     })
     assert.equal(second.ok, true)
     await assert.rejects(readFile(sentinel, 'utf8'), 'a copy whose marker does not match is replaced')
@@ -146,6 +363,7 @@ test('agent-integration-home', async () => {
       reporterSourcePath: REPORTER_SOURCE,
       userDataDir: dir,
       tokens: TOKENS,
+      enabledSkillDirs: [],
     })
     assert.equal(noTemplate.ok, false)
 
@@ -154,6 +372,7 @@ test('agent-integration-home', async () => {
       reporterSourcePath: join(dir, 'nothing-here.mjs'),
       userDataDir: dir,
       tokens: TOKENS,
+      enabledSkillDirs: [],
     })
     assert.equal(noReporter.ok, false, 'a plugin whose reporter is missing must not be handed to a launch')
 
@@ -171,6 +390,7 @@ test('agent-integration-home', async () => {
       reporterSourcePath: REPORTER_SOURCE,
       userDataDir: dir,
       tokens: TOKENS,
+      enabledSkillDirs: [],
     })
     assert.equal(result.ok, true)
     if (!result.ok) return

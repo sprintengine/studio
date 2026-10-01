@@ -5,6 +5,8 @@
 
 import { spawn } from 'node:child_process'
 
+import { killProcessTree } from '../process-tree-kill'
+
 export type CommandRunInput = {
   file: string
   args: string[]
@@ -45,7 +47,7 @@ export const runCommand: RunCommand = (input) =>
     })
     const timer = setTimeout(() => {
       timedOut = true
-      child.kill('SIGKILL')
+      killProcessTree(child)
     }, input.timeoutMs)
     child.stdout?.on('data', (chunk) => {
       stdout += chunk.toString()
@@ -58,6 +60,11 @@ export const runCommand: RunCommand = (input) =>
     })
     child.on('close', (code) => {
       settle({ code, stdout, stderr, timedOut, spawnError: null })
+    })
+    // A killed CLI is done even if a process it started still holds its pipes
+    // open, which would otherwise keep `close` from ever arriving.
+    child.on('exit', (code) => {
+      if (timedOut) settle({ code, stdout, stderr, timedOut, spawnError: null })
     })
     // A closed stdin is what tells `claude -p` and `codex exec -` the prompt
     // is complete; without `end()` both wait forever.

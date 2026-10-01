@@ -9,6 +9,7 @@ import { join } from 'node:path'
 
 import { createGatewayAuditStore, STUDIO_GATEWAY_AUDIT_FILENAME, type GatewayAuditRecord } from './gateway-audit'
 import { createTailnetDeviceStore, TAILNET_DEVICES_FILENAME, type TailnetDeviceStore } from './tailnet/tailnet-devices'
+import { hashSecret } from './tailnet/secret-hash'
 import {
   createTailnetGatewayServer,
   TAILNET_CAPABILITIES,
@@ -17,16 +18,19 @@ import {
   TAILNET_MCP_PATH,
   TAILNET_PAIR_PATH,
   TAILNET_STREAM_PATH,
-  TAILNET_TERMINAL_PATH,
   TAILNET_TRANSPORT_VERSION,
   TAILNET_WS_TICKET_PATH,
   type TailnetGatewayServer,
 } from './tailnet/tailnet-gateway-server'
 import { TAILNET_EVENTS_PATH, TAILNET_UPLOAD_PATH } from './tailnet/tailnet-routes'
-import { resolveUploadDestination, sanitizeUploadName, uniqueName } from './tailnet/tailnet-uploads'
 import { isAllowedTailnetBindAddress, isTailnetAddress, resolveTailnetInterface } from './tailnet/tailnet-interface'
-import { createTailnetPeerResolver, normalizeAddress, peerNameFromWhois } from './tailnet/tailnet-peer-identity'
-import { isLocalOnlyGatewayTool, requiredScopeForTool } from './tailnet/tailnet-scopes'
+import {
+  createTailnetPeerResolver,
+  normalizeAddress,
+  peerNameFromWhois,
+  type TailnetPeerIdentity,
+} from './tailnet/tailnet-peer-identity'
+import { localOnlyGatewayToolReason, requiredScopeForTool } from './tailnet/tailnet-scopes'
 import { isStudioGatewayMutation } from './studio-gateway-tools'
 import { createTailnetTools, type TailnetToolsFrontDoor } from './tailnet/tailnet-tools'
 import { createTailnetRemoteService, formatEndpoint, pairingUrl } from './tailnet/tailnet-service'
@@ -39,27 +43,21 @@ import {
 } from './tailnet/websocket-frames'
 import { SUPPORTED_MCP_PROTOCOL_VERSIONS } from '../../shared/mcp/protocol'
 import { STUDIO_MCP_SERVER_NAME } from '../../shared/product-identity'
-import {
-  tailnetScopeGrantsAccess,
-  TAILNET_SCOPES,
-  TAILNET_STRUCTURED_SCOPES,
-  type TailnetRemoteStatus,
-  type TailnetScope,
-} from '../../shared/tailnet'
-import type { TerminalSessionSnapshot } from '../../shared/electron-api'
-import type { TerminalAttachTransport, TerminalRemoteHost } from '../terminal-remote-attach'
+import { TAILNET_SCOPES, type TailnetRemoteStatus, type TailnetScope } from '../../shared/tailnet'
+import type { ConversationGatewayHost } from './tailnet/tailnet-conversation-host'
+import { TAILNET_CONVERSATION_PATH } from './tailnet/tailnet-routes'
 import { toolSuccess, type McpToolRegistration, type McpToolResult } from '../../shared/modules/mcp-tools'
-import type { AgentLaunchRequest } from '../../shared/agent-launch'
-import type { CliPermissionPreset } from '../../shared/electron-api'
-import { createAutomationTools } from './automation-tools'
-import { test } from 'vitest'
+import { test, vi } from 'vitest'
 
 test('tailnet', async () => {
   // The tailnet listener. Every test here drives the REAL server over a
   // real TCP socket on loopback — the transport, the auth, and the audit are the
   // thing under test, so a fake would prove nothing about any of them.
 
-  const MUTATIONS = new Set(['backlog.update', 'terminal.create', 'agent.launch', 'tailnet.offer_pairing'])
+  // The production classification, never a set of the test's own: the audit
+  // decision is part of what these tests cover, and a private list is how a
+  // family of remote commands once went unaudited while every test passed.
+  const isMutation = (name: string): boolean => isStudioGatewayMutation(name)
 
   function testTools(calls: string[] = []): McpToolRegistration[] {
     const tool = (name: string): McpToolRegistration => ({
@@ -71,15 +69,7 @@ test('tailnet', async () => {
         return toolSuccess({ ok: true, tool: name, workspaceId: args.workspaceId ?? null })
       },
     })
-    return [
-      'backlog.list',
-      'backlog.update',
-      'workspace.list',
-      'workspace.checkout',
-      'terminal.list',
-      'terminal.create',
-      'agent.launch',
-    ].map(tool)
+    return ['backlog.list', 'backlog.update', 'workspace.list', 'workspace.checkout', 'agent.launch'].map(tool)
   }
 
   type Harness = {
@@ -88,43 +78,49 @@ test('tailnet', async () => {
     port: number
     userDataDir: string
     calls: string[]
-    terminals: StubTerminalHost
-    auditRecords(): GatewayAuditRecord[]
+    auditRecords(): Promise<GatewayAuditRecord[]>
     close(): Promise<void>
+  }
+
+  function testPeerIdentity(name: string | null): TailnetPeerIdentity | null {
+    return name ? { name, stableNodeId: `n-${name}`, loginName: 'dev@example.com' } : null
   }
 
   async function startHarness(
     options: {
       peerNode?: string | null
-      terminals?: TerminalRemoteHost | null
       /** Serve a real tool set instead of the named stubs (the whole-flow case). */
       tools?: McpToolRegistration[]
       /** The change feed's push floor; the feed test shortens it. */
       changePushIntervalMs?: number
-      /** The working directory the stub's sessions report — where an upload lands. */
-      terminalCwd?: string
+      conversations?: ConversationGatewayHost
+      resolvePeer?: () => Promise<string | null>
     } = {},
   ): Promise<Harness> {
     const userDataDir = mkdtempSync(join(tmpdir(), 'sprintengine-tailnet-'))
     const calls: string[] = []
     const devices = createTailnetDeviceStore({ resolveUserDataDir: () => userDataDir })
     const audit = createGatewayAuditStore({ resolveUserDataDir: () => userDataDir })
-    const terminals = createStubTerminalHost(options.terminalCwd)
     const server = createTailnetGatewayServer({
       bindAddress: '127.0.0.1',
       port: 0,
       serverName: 'sprintengine-studio',
       serverVersion: '9.9.9',
       resolveTools: () => options.tools ?? testTools(calls),
-      isMutation: (name) => MUTATIONS.has(name),
+      isMutation,
       devices,
-      // `null` stands for a build with terminal streaming unwired, so the route's
-      // own refusal is testable; every other harness gets the stub host.
-      terminals: options.terminals === null ? undefined : (options.terminals ?? terminals),
+      conversations: options.conversations,
       // whois is injected: the tests must not depend on a Tailscale install.
-      peers: createTailnetPeerResolver({ runWhois: async () => options.peerNode ?? null }),
+      // A named peer is one node, so the device paired here is bound to it and
+      // every later call comes from the same place.
+      peers: options.resolvePeer
+        ? {
+            resolve: options.resolvePeer,
+            identify: async () => testPeerIdentity(await options.resolvePeer!()),
+          }
+        : createTailnetPeerResolver({ runWhois: async () => testPeerIdentity(options.peerNode ?? null) }),
       onToolCall: ({ context, tool, args, durationMs, result, error }) => {
-        if (!MUTATIONS.has(tool)) return
+        if (!isMutation(tool)) return
         audit.record({ connection: context.metadata, tool, args, durationMs, result, error })
       },
       ...(options.changePushIntervalMs !== undefined ? { changePushIntervalMs: options.changePushIntervalMs } : {}),
@@ -138,8 +134,8 @@ test('tailnet', async () => {
       port: address.port,
       userDataDir,
       calls,
-      terminals,
-      auditRecords: () => {
+      auditRecords: async () => {
+        await audit.flush()
         const path = join(userDataDir, STUDIO_GATEWAY_AUDIT_FILENAME)
         if (!existsSync(path)) return []
         return readFileSync(path, 'utf8')
@@ -274,7 +270,7 @@ test('tailnet', async () => {
     harness: Harness,
     options: { scopes?: TailnetScope[]; name?: string } = {},
   ): Promise<{ deviceId: string; deviceToken: string }> {
-    const offer = harness.devices.offerPairing({ scopes: options.scopes ?? [...TAILNET_STRUCTURED_SCOPES] })
+    const offer = harness.devices.offerPairing({ scopes: options.scopes ?? [...TAILNET_SCOPES] })
     const answer = await call(harness.port, 'POST', TAILNET_PAIR_PATH, {
       body: { pairingToken: offer.token, deviceName: options.name ?? 'laptop' },
     })
@@ -285,106 +281,6 @@ test('tailnet', async () => {
 
   function rpc(id: number, method: string, params?: Record<string, unknown>): Record<string, unknown> {
     return { jsonrpc: '2.0', id, method, ...(params ? { params } : {}) }
-  }
-
-  // ── A stand-in terminal runtime for the TRANSPORT tests ──────────────────────
-  //
-  // The runtime's own half — multi-sender fan-out, per-viewer gates, replay-then-
-  // live, drop-and-resync — is driven against the real terminal runtime and a
-  // real pty mock in terminal-runtime.test.ts. What is under test HERE is the
-  // socket: auth, scope enforcement at the frame, revocation. So this implements
-  // the same port with an in-memory session, and records what the transport asked
-  // it to do.
-
-  type StubTerminalHost = TerminalRemoteHost & {
-    /** Register a session, as a spawn does. Attachable from the moment it exists. */
-    create(sessionId: string): void
-    /** Push output to every attached viewer, as a pty's onData would. */
-    emit(sessionId: string, data: string): void
-    writes: Array<{ sessionId: string; data: string }>
-    resizes: Array<{ sessionId: string; cols: number; rows: number }>
-    attachedCount(): number
-  }
-
-  function createStubTerminalHost(cwd = '/tmp/project'): StubTerminalHost {
-    const replay = new Map<string, string>([['session_one', 'scrollback so far\r\n']])
-    const attached = new Map<string, { sessionId: string; transport: TerminalAttachTransport }>()
-    const writes: Array<{ sessionId: string; data: string }> = []
-    const resizes: Array<{ sessionId: string; cols: number; rows: number }> = []
-
-    const snapshotFor = (sessionId: string): TerminalSessionSnapshot =>
-      ({
-        sessionId,
-        processAlive: true,
-        kind: 'agent',
-        agentName: 'Scout',
-        cli: 'claude-code',
-        cwd,
-        visible: true,
-        suspended: false,
-        reapExempt: false,
-        startedAt: 0,
-        lastOutputAt: 0,
-        lastInputAt: null,
-        lastVisibleAt: null,
-        activity: { kind: 'working', since: 0 },
-        exitedAt: null,
-        outputBufferLength: 0,
-        retainedOutputBytes: 0,
-        historyTier: 'standard',
-        replayLimitBytes: 1024,
-      }) as unknown as TerminalSessionSnapshot
-
-    return {
-      writes,
-      resizes,
-      attachedCount: () => attached.size,
-      create(sessionId) {
-        replay.set(sessionId, '')
-      },
-      emit(sessionId, data) {
-        replay.set(sessionId, `${replay.get(sessionId) ?? ''}${data}`)
-        for (const viewer of attached.values()) {
-          if (viewer.sessionId === sessionId && viewer.transport.isOpen()) {
-            viewer.transport.send({ type: 'output', data })
-          }
-        }
-      },
-      listSessions: () => [...replay.keys()].map(snapshotFor),
-      attach({ sessionId, scope, transport }) {
-        if (!replay.has(sessionId)) {
-          return { ok: false, code: 'unknown_terminal', message: `No terminal session "${sessionId}".` }
-        }
-        attached.set(transport.viewerId, { sessionId, transport })
-        transport.send({ type: 'replay', data: replay.get(sessionId) ?? '', reason: 'attach' })
-        const refuse = (verb: string) => ({
-          ok: false as const,
-          code: 'terminal_control_required',
-          message: `Watch-only: cannot ${verb}.`,
-        })
-        return {
-          ok: true,
-          attachment: {
-            sessionId,
-            scope,
-            session: snapshotFor(sessionId),
-            write: (data) => {
-              if (scope !== 'control') return refuse('type')
-              writes.push({ sessionId, data })
-              return { ok: true }
-            },
-            resize: (cols, rows) => {
-              if (scope !== 'control') return refuse('resize')
-              resizes.push({ sessionId, cols, rows })
-              return { ok: true }
-            },
-            detach: () => {
-              attached.delete(transport.viewerId)
-            },
-          },
-        }
-      },
-    }
   }
 
   // ── A minimal client-side WebSocket, enough to prove the server's half ────────
@@ -454,7 +350,7 @@ test('tailnet', async () => {
       resolveClosed = resolve
     })
 
-    // Declared BEFORE the handshake await: a terminal attach sends its replay
+    // Declared BEFORE the handshake await: the change feed sends its hello
     // frame immediately after the 101, so `consume` can run from inside the
     // handshake handler — with the declaration below the await that is a
     // temporal-dead-zone crash rather than a decoded frame.
@@ -529,10 +425,14 @@ test('tailnet', async () => {
     }
   }
 
-  async function waitFor(predicate: () => boolean, description: string, timeoutMs = 2000): Promise<void> {
+  async function waitFor(
+    predicate: () => boolean | Promise<boolean>,
+    description: string,
+    timeoutMs = 2000,
+  ): Promise<void> {
     const deadline = Date.now() + timeoutMs
     while (Date.now() < deadline) {
-      if (predicate()) return
+      if (await predicate()) return
       await new Promise((resolve) => setTimeout(resolve, 10))
     }
     throw new Error(`Timed out waiting for ${description}`)
@@ -615,7 +515,7 @@ test('tailnet', async () => {
         serverName: 'sprintengine-studio',
         serverVersion: '9.9.9',
         resolveTools: () => testTools(),
-        isMutation: (name) => MUTATIONS.has(name),
+        isMutation,
         resolveBindAddress: () => '127.0.0.1',
       })
       const initial = await service.initialize()
@@ -811,77 +711,6 @@ test('tailnet', async () => {
     }
   }
 
-  // ── Uploads from a paired device (backlog id 88) ─────────────────────────────
-
-  async function testUploadDestinationsCannotEscapeTheThreadsFolder(): Promise<void> {
-    const cwd = '/Users/someone/repo'
-    // The ordinary case: inside the thread's own folder, under a per-session dir.
-    const ok = resolveUploadDestination({ cwd, sessionId: 'sess_1', name: 'shot.png' })
-    assert.equal(ok.ok, true)
-    if (ok.ok) {
-      assert.equal(ok.path, '/Users/someone/repo/.sprintengine/uploads/sess_1/shot.png')
-      assert.ok(ok.path.startsWith(cwd + '/'), 'the file lands under the working directory')
-    }
-
-    // Traversal, in every shape a phone could send it. None of these may produce
-    // a path outside the folder; each becomes a leaf name instead.
-    for (const name of [
-      '../../../../etc/passwd',
-      '..\\..\\Windows\\System32\\drivers\\etc\\hosts',
-      '/etc/passwd',
-      'C:\\Windows\\win.ini',
-      '....//....//escape.txt',
-      '.',
-      '..',
-    ]) {
-      const attempt = resolveUploadDestination({ cwd, sessionId: 'sess_1', name })
-      assert.equal(attempt.ok, true, `${name} should be sanitised, not refused`)
-      if (attempt.ok) {
-        assert.ok(
-          attempt.path.startsWith('/Users/someone/repo/.sprintengine/uploads/sess_1/'),
-          `${name} escaped to ${attempt.path}`,
-        )
-        assert.doesNotMatch(attempt.path.split('/uploads/sess_1/')[1] ?? '', /[\\/]/u, `${name} kept a separator`)
-      }
-    }
-
-    // A session id is a path segment too, and it is not more trusted than a name.
-    const forgedSession = resolveUploadDestination({ cwd, sessionId: '../../..', name: 'shot.png' })
-    assert.equal(forgedSession.ok, true)
-    if (forgedSession.ok) {
-      assert.ok(
-        forgedSession.path.startsWith('/Users/someone/repo/.sprintengine/uploads/'),
-        'a forged session id escaped',
-      )
-    }
-
-    // No working directory is a refusal, not a fallback to somewhere convenient:
-    // an agent confined to its project cannot read a file outside it, so the
-    // upload would "succeed" and be useless.
-    for (const cwdless of [null, undefined, '', '   ', 'relative/path']) {
-      const refused = resolveUploadDestination({ cwd: cwdless, sessionId: 'sess_1', name: 'shot.png' })
-      assert.equal(refused.ok, false, `${String(cwdless)} should be refused`)
-      if (!refused.ok) assert.equal(refused.code, 'invalid_session')
-    }
-  }
-
-  async function testUploadNamesAreLeavesAndNeverOverwrite(): Promise<void> {
-    assert.equal(sanitizeUploadName('holiday photo.png'), 'holiday photo.png')
-    assert.equal(sanitizeUploadName('  ../../secret.env  '), 'secret.env')
-    assert.equal(sanitizeUploadName('..'), 'upload', 'a name that sanitises to nothing still gets one')
-    assert.equal(sanitizeUploadName(''), 'upload')
-    assert.equal(sanitizeUploadName('a\u0000b\u001fc.txt'), 'abc.txt', 'control characters are removed')
-    assert.equal(sanitizeUploadName('what:is*this?.png'), 'what_is_this_.png')
-    assert.ok(sanitizeUploadName('x'.repeat(400)).length <= 120, 'a name cannot be unbounded')
-
-    // Two photos from a camera roll carry the same name far more often than not,
-    // and silently replacing the first is a loss nobody can see from a phone.
-    const taken = new Set(['shot.png', 'shot (2).png'])
-    assert.equal(uniqueName('shot.png', taken), 'shot (3).png')
-    assert.equal(uniqueName('notes', new Set(['notes'])), 'notes (2)')
-    assert.equal(uniqueName('fresh.png', taken), 'fresh.png')
-  }
-
   // ── Pairing and authentication ───────────────────────────────────────────────
 
   async function testUnpairedClientsGet401AndPairedClientsDriveTheGateway(): Promise<void> {
@@ -910,8 +739,9 @@ test('tailnet', async () => {
       })
       assert.equal(listed.status, 200)
       const tools = (listed.body as { result: { tools: Array<{ name: string }>; ttlMs: number } }).result
+      // `agent.launch` is registered but starts an agent in a terminal, so it
+      // stays on the local socket whatever the device's scopes.
       assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), [
-        'agent.launch',
         'backlog.list',
         'backlog.update',
         'workspace.checkout',
@@ -938,7 +768,14 @@ test('tailnet', async () => {
       // long ago and is asking again on a Studio that may since have moved on.
       const identityBody = identity.body as Record<string, unknown>
       assert.equal(identityBody.transportVersion, TAILNET_TRANSPORT_VERSION)
-      assert.deepEqual(identityBody.capabilities, ['events', 'sliced-frames', 'upload'])
+      assert.deepEqual(identityBody.capabilities, [
+        'events',
+        'upload',
+        'conversations',
+        'conversation-models',
+        'conversation-images',
+        'conversation-permission-modes',
+      ])
 
       // The pairing code is one-time: replaying it does not mint a second device.
       const replayed = await call(harness.port, 'POST', TAILNET_PAIR_PATH, {
@@ -1017,7 +854,14 @@ test('tailnet', async () => {
       // it outright, so a phone need not probe for the change feed.
       assert.equal(body.transportVersion, 2)
       assert.equal(TAILNET_TRANSPORT_VERSION, 2)
-      assert.deepEqual(body.capabilities, ['events', 'sliced-frames', 'upload'])
+      assert.deepEqual(body.capabilities, [
+        'events',
+        'upload',
+        'conversations',
+        'conversation-models',
+        'conversation-images',
+        'conversation-permission-modes',
+      ])
       assert.deepEqual([...TAILNET_CAPABILITIES], body.capabilities)
       // Nothing about this machine, its user, its workspaces, or its devices.
       assert.equal(JSON.stringify(body).includes('a-device-nobody-should-learn-about'), false)
@@ -1031,25 +875,21 @@ test('tailnet', async () => {
   async function testScopesNarrowWhatADeviceSeesAndMayCall(): Promise<void> {
     assert.equal(requiredScopeForTool('backlog.update', true), 'backlog:operate')
     assert.equal(requiredScopeForTool('backlog.list', false), 'backlog:read')
-    assert.equal(requiredScopeForTool('terminal.create', true), 'terminal:control')
-    assert.equal(requiredScopeForTool('terminal.list', false), 'terminal:observe')
     // The catch-all family, including a tool this mapping has never seen.
     assert.equal(requiredScopeForTool('review_submit_brief', true), 'workspace:operate')
     assert.equal(requiredScopeForTool('some.future.tool', true), 'workspace:operate')
-    // The mobile companion lane (tailnet-mobile-transport): the snapshot is a
-    // plain read; the command envelope is classified a mutation, so a paired
-    // phone needs workspace:operate to drive it and every dispatch is audited.
+    // The mobile companion lane: the snapshot is a plain read; the command
+    // envelope is classified a mutation, so a paired phone needs
+    // workspace:operate to drive it and every dispatch is audited.
     assert.equal(
       requiredScopeForTool('workspace.snapshot', isStudioGatewayMutation('workspace.snapshot')),
       'workspace:read',
     )
-    // checkout-and-branch-on-remote-create: the checkout facts are a plain
-    // read; minting the worktree stays agent.launch's, on workspace:operate.
+    // checkout-and-branch-on-remote-create: the checkout facts are a plain read.
     assert.equal(
       requiredScopeForTool('workspace.checkout', isStudioGatewayMutation('workspace.checkout')),
       'workspace:read',
     )
-    assert.equal(requiredScopeForTool('agent.launch', isStudioGatewayMutation('agent.launch')), 'workspace:operate')
     assert.equal(
       requiredScopeForTool('workspace.mobile_command', isStudioGatewayMutation('workspace.mobile_command')),
       'workspace:operate',
@@ -1080,46 +920,23 @@ test('tailnet', async () => {
       assert.deepEqual(harness.calls, [], 'the refused handler never ran')
 
       // A refused MUTATION is still audited: an attempt is a security event.
-      const audited = harness.auditRecords()
+      const audited = await harness.auditRecords()
       assert.equal(audited.length, 1)
       assert.equal(audited[0].tool, 'backlog.update')
       assert.equal(audited[0].outcome, 'failure')
       assert.equal(audited[0].errorCode, 'tailnet_scope_required')
 
-      // checkout-and-branch-on-remote-create: a worktree minted for a remote
-      // chat rides agent.launch, a mutation — so it lands in the audit with the
-      // device that asked, granted or refused. The read beside it does not.
-      const worktreeMaker = await pairDevice(harness, {
-        scopes: ['workspace:operate', 'terminal:control'],
-        name: 'air',
-      })
-      const minted = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
-        token: worktreeMaker.deviceToken,
-        body: rpc(3, 'tools/call', {
-          name: 'agent.launch',
-          arguments: { workspaceId: 'w1', worktree: { baseRef: 'main' } },
-        }),
-      })
-      assert.equal(minted.status, 200)
-      await call(harness.port, 'POST', TAILNET_MCP_PATH, {
-        token: worktreeMaker.deviceToken,
+      // checkout-and-branch-on-remote-create: the checkout facts a remote chat
+      // reads before it starts are served on a read grant, and not audited.
+      const checkoutReader = await pairDevice(harness, { scopes: ['workspace:read'], name: 'air' })
+      const checkout = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
+        token: checkoutReader.deviceToken,
         body: rpc(4, 'tools/call', { name: 'workspace.checkout', arguments: { workspaceId: 'w1' } }),
       })
-      const terminalsOnly = await pairDevice(harness, { scopes: ['terminal:control'], name: 'kiosk' })
-      await call(harness.port, 'POST', TAILNET_MCP_PATH, {
-        token: terminalsOnly.deviceToken,
-        body: rpc(5, 'tools/call', { name: 'agent.launch', arguments: { workspaceId: 'w1', worktree: {} } }),
-      })
-      const worktreeAudit = harness.auditRecords().filter((record) => record.tool === 'agent.launch')
-      assert.equal(worktreeAudit.length, 2, 'the granted and the refused worktree create are both audited')
-      assert.equal(worktreeAudit[0].outcome, 'success')
-      assert.equal(worktreeAudit[0].connection.deviceId, worktreeMaker.deviceId, 'with the device that asked')
-      assert.equal(worktreeAudit[0].connection.deviceName, 'air')
-      assert.equal(worktreeAudit[1].outcome, 'failure')
-      assert.equal(worktreeAudit[1].errorCode, 'tailnet_scope_required')
-      assert.equal(worktreeAudit[1].connection.deviceId, terminalsOnly.deviceId)
+      assert.equal((checkout.body as { result: { isError?: boolean } }).result.isError, undefined)
+      assert.deepEqual(harness.calls, ['workspace.checkout'])
       assert.ok(
-        !harness.auditRecords().some((record) => record.tool === 'workspace.checkout'),
+        !(await harness.auditRecords()).some((record) => record.tool === 'workspace.checkout'),
         'the checkout read is not a mutation and is not audited',
       )
 
@@ -1148,13 +965,24 @@ test('tailnet', async () => {
     const names = createTailnetTools({ resolveTailnet: () => null }).map((tool) => tool.name)
     assert.ok(names.length > 0)
     assert.deepEqual(
-      names.filter((name) => !isLocalOnlyGatewayTool(name)),
+      names.filter((name) => localOnlyGatewayToolReason(name) === null),
       [],
     )
-    assert.equal(isLocalOnlyGatewayTool('backlog.list'), false)
+    // The tools that start an agent in a terminal stay local too: a paired
+    // device could not see the terminal it started. What it starts is a chat.
+    const launchers = ['agent.launch', 'backlog.work']
+    for (const name of [...launchers, 'tailnet.status']) {
+      assert.notEqual(localOnlyGatewayToolReason(name), null, `${name} is local-only`)
+    }
+    // A scheduled agent's run is a chat, which a paired device can follow.
+    for (const name of ['conversation.create', 'schedule.run', 'workspace.list', 'backlog.list']) {
+      assert.equal(localOnlyGatewayToolReason(name), null, `${name} may be served over the tailnet`)
+    }
+    assert.match(localOnlyGatewayToolReason('agent.launch') ?? '', /conversation\.create/u)
 
     const calls: string[] = []
-    const stubs: McpToolRegistration[] = names.map((name) => ({
+    // `agent.launch` is already one of the named stubs.
+    const stubs: McpToolRegistration[] = [...names, 'backlog.work'].map((name) => ({
       name,
       description: `Test tool ${name}`,
       inputSchema: { type: 'object', properties: {} },
@@ -1165,8 +993,8 @@ test('tailnet', async () => {
     }))
     const harness = await startHarness({ tools: [...testTools(calls), ...stubs] })
     try {
-      // Every scope the vocabulary has, including the terminal tier — this is the
-      // most-trusted device that can exist, and it still may not see the family.
+      // Every scope the vocabulary has — this is the most-trusted device that
+      // can exist, and it still may not see the family.
       const device = await pairDevice(harness, { scopes: [...TAILNET_SCOPES] })
       const listed = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
         token: device.deviceToken,
@@ -1179,6 +1007,11 @@ test('tailnet', async () => {
         served.filter((name) => name.startsWith('tailnet.')),
         [],
         'the family is invisible to a paired device',
+      )
+      assert.deepEqual(
+        served.filter((name) => launchers.includes(name)),
+        [],
+        'and so are the terminal launchers',
       )
       assert.ok(served.includes('backlog.update'), 'everything else a full grant covers is still served')
 
@@ -1195,11 +1028,96 @@ test('tailnet', async () => {
 
       // A device manufacturing another grant is the attempt this rule exists to
       // stop; it is audited with the device that made it, like any mutation.
-      const audited = harness.auditRecords()
+      const audited = await harness.auditRecords()
       assert.equal(audited.length, 1)
       assert.equal(audited[0].tool, 'tailnet.offer_pairing')
       assert.equal(audited[0].outcome, 'failure')
       assert.equal(audited[0].errorCode, 'tailnet_local_only')
+
+      // A launcher is refused the same way, and the attempt is audited.
+      const launch = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
+        token: device.deviceToken,
+        body: rpc(3, 'tools/call', { name: 'agent.launch', arguments: { workspaceId: 'w1' } }),
+      })
+      const launchResult = (
+        launch.body as { result: { isError: boolean; structuredContent: { error: { code: string } } } }
+      ).result
+      assert.equal(launchResult.isError, true)
+      assert.equal(launchResult.structuredContent.error.code, 'tailnet_local_only')
+      assert.deepEqual(calls, [], 'the refused launcher never ran')
+      const launchAudit = (await harness.auditRecords()).filter((record) => record.tool === 'agent.launch')
+      assert.equal(launchAudit.length, 1)
+      assert.equal(launchAudit[0].outcome, 'failure')
+      assert.equal(launchAudit[0].errorCode, 'tailnet_local_only')
+      assert.equal(launchAudit[0].connection.deviceId, device.deviceId)
+    } finally {
+      await harness.close()
+    }
+  }
+
+  // terminal.list and terminal.create serve agents on this machine. A paired
+  // device, however wide its grant, neither sees them nor may call them, and
+  // a call it makes anyway is refused as local-only; the create, a mutation
+  // like agent.launch, lands in the audit with the device that asked. A list
+  // is a read, and reads stay unaudited.
+  async function testTerminalToolsAreNeverServedOverTheTailnet(): Promise<void> {
+    const terminalTools = ['terminal.list', 'terminal.create']
+    for (const name of terminalTools) {
+      assert.notEqual(localOnlyGatewayToolReason(name), null, `${name} is local-only`)
+    }
+    assert.match(localOnlyGatewayToolReason('terminal.create') ?? '', /conversation\.create/u)
+    assert.notEqual(localOnlyGatewayToolReason('terminal.anything_later'), null, 'the family is local by its prefix')
+    assert.equal(isMutation('terminal.create'), true, 'creating a terminal is audited like agent.launch')
+    assert.equal(isMutation('terminal.list'), false)
+
+    const calls: string[] = []
+    const stubs: McpToolRegistration[] = terminalTools.map((name) => ({
+      name,
+      description: `Test tool ${name}`,
+      inputSchema: { type: 'object', properties: {} },
+      handler: async () => {
+        calls.push(name)
+        return toolSuccess({ ok: true })
+      },
+    }))
+    const harness = await startHarness({ tools: [...testTools(calls), ...stubs] })
+    try {
+      const device = await pairDevice(harness, { scopes: [...TAILNET_SCOPES] })
+      const listed = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
+        token: device.deviceToken,
+        body: rpc(1, 'tools/list'),
+      })
+      const served = (listed.body as { result: { tools: Array<{ name: string }> } }).result.tools.map(
+        (tool) => tool.name,
+      )
+      assert.deepEqual(
+        served.filter((name) => name.startsWith('terminal.')),
+        [],
+        'a paired device is not shown the terminal tools',
+      )
+      assert.ok(served.includes('workspace.list'), 'the rest of a full grant is still served')
+
+      for (const [index, name] of terminalTools.entries()) {
+        const answer = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
+          token: device.deviceToken,
+          body: rpc(2 + index, 'tools/call', { name, arguments: { workspaceId: 'w1' } }),
+        })
+        assert.equal(answer.status, 200, 'a local-only refusal is a tool result, not a transport failure')
+        const result = (answer.body as { result: { isError: boolean; structuredContent: { error: { code: string } } } })
+          .result
+        assert.equal(result.isError, true, `${name} is refused`)
+        assert.equal(result.structuredContent.error.code, 'tailnet_local_only')
+      }
+      assert.deepEqual(calls, [], 'neither handler ran')
+
+      const audited = await harness.auditRecords()
+      assert.deepEqual(
+        audited.map((record) => record.tool),
+        ['terminal.create'],
+      )
+      assert.equal(audited[0].outcome, 'failure')
+      assert.equal(audited[0].errorCode, 'tailnet_local_only')
+      assert.equal(audited[0].connection.deviceId, device.deviceId)
     } finally {
       await harness.close()
     }
@@ -1235,7 +1153,7 @@ test('tailnet', async () => {
         minted.push(input ?? {})
         return {
           token: 'mcpair_test',
-          scopes: [...TAILNET_STRUCTURED_SCOPES],
+          scopes: [...TAILNET_SCOPES],
           expiresAt: '2026-09-09T00:00:00.000Z',
           pairingUrl: 'sprintengine-tailnet://pair?endpoint=100.64.0.1%3A8787&token=mcpair_test',
         }
@@ -1297,10 +1215,14 @@ test('tailnet', async () => {
 
     // A misspelled scope is refused with the vocabulary rather than silently
     // falling back to the default grant, which is what normalization would do.
-    const badScopes = await run('tailnet.offer_pairing', { scopes: ['backlog:read', 'terminal:full'] })
+    const badScopes = await run('tailnet.offer_pairing', { scopes: ['backlog:read', 'backlog:full'] })
     assert.equal(errorCode(badScopes), 'invalid_scopes')
-    assert.match(firstText(badScopes), /terminal:full/)
-    assert.match(firstText(badScopes), /terminal:control/)
+    assert.match(firstText(badScopes), /backlog:full/)
+    assert.match(firstText(badScopes), /backlog:operate/)
+    // A retired scope is outside the vocabulary like any misspelling.
+    const retired = await run('tailnet.offer_pairing', { scopes: ['terminal:control'] })
+    assert.equal(errorCode(retired), 'invalid_scopes')
+    assert.doesNotMatch(firstText(retired).split('Valid scopes are:')[1] ?? '', /terminal:/u)
     assert.deepEqual(minted, [])
 
     const ok = await run('tailnet.offer_pairing', { scopes: ['backlog:read'] })
@@ -1336,13 +1258,13 @@ test('tailnet', async () => {
         token: device.deviceToken,
         body: rpc(1, 'tools/call', { name: 'workspace.list', arguments: { workspaceId: 'w1' } }),
       })
-      assert.deepEqual(harness.auditRecords(), [], 'reads stay unaudited (existing gateway policy)')
+      assert.deepEqual(await harness.auditRecords(), [], 'reads stay unaudited (existing gateway policy)')
 
       await call(harness.port, 'POST', TAILNET_MCP_PATH, {
         token: device.deviceToken,
         body: rpc(2, 'tools/call', { name: 'backlog.update', arguments: { workspaceId: 'w1', status: 'completed' } }),
       })
-      const records = harness.auditRecords()
+      const records = await harness.auditRecords()
       assert.equal(records.length, 1)
       assert.equal(records[0].tool, 'backlog.update')
       assert.equal(records[0].outcome, 'success')
@@ -1384,25 +1306,75 @@ test('tailnet', async () => {
       )
       const hello = await feed.nextMessage()
       assert.equal(hello.type, 'hello')
-      assert.deepEqual(hello.revisions, { terminals: 0, workspaces: 0 })
+      assert.deepEqual(hello.revisions, { workspaces: 0, conversations: 0 })
       assert.equal(harness.server.eventStreamCount(), 1)
       assert.equal(harness.server.streamCount(), 0, 'a watcher is not an RPC connection')
 
-      harness.server.notifyTerminalsChanged()
-      assert.deepEqual(await feed.nextMessage(), { type: 'changed', what: 'terminals', revision: 1 })
+      harness.server.notifyWorkspacesChanged()
+      assert.deepEqual(await feed.nextMessage(), { type: 'changed', what: 'workspaces', revision: 1 })
 
       // A burst inside the floor is one push per kind, carrying the last revision.
-      harness.server.notifyTerminalsChanged()
-      harness.server.notifyTerminalsChanged()
       harness.server.notifyWorkspacesChanged()
+      harness.server.notifyWorkspacesChanged()
+      // A conversation starting, finishing or waiting on a person is its own kind.
+      harness.server.notifyConversationsChanged()
       const pushed = [await feed.nextMessage(), await feed.nextMessage()]
-      assert.deepEqual(pushed.map((frame) => `${frame.what}:${frame.revision}`).sort(), ['terminals:3', 'workspaces:1'])
+      assert.deepEqual(pushed.map((frame) => `${frame.what}:${frame.revision}`).sort(), [
+        'conversations:1',
+        'workspaces:3',
+      ])
 
       assert.equal(harness.devices.revokeDevice(device.deviceId), true)
       assert.equal(await feed.closed, 4401, 'a revocation closes the feed with the revoked code')
       assert.equal(harness.server.eventStreamCount(), 0)
     } finally {
       await harness.close()
+    }
+  }
+
+  // A machine nobody watches bumps the revision a later `hello` reports and
+  // arms nothing: every turn of every chat used to set a timer for a push
+  // with no one to receive it. And stopping clears every kind's pending
+  // push, the conversation one included.
+  async function testTheChangeFeedArmsNothingUnwatchedAndStopClearsEveryPush(): Promise<void> {
+    const harness = await startHarness({ changePushIntervalMs: 60_000 })
+    let stopped = false
+    try {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      try {
+        harness.server.notifyConversationsChanged()
+        harness.server.notifyConversationsChanged()
+        harness.server.notifyWorkspacesChanged()
+        assert.equal(vi.getTimerCount(), 0, 'no watcher, no timer')
+      } finally {
+        vi.useRealTimers()
+      }
+      const device = await pairDevice(harness, { name: 'watcher', scopes: ['workspace:read'] })
+      const ticket = (await call(harness.port, 'POST', TAILNET_WS_TICKET_PATH, { token: device.deviceToken })).body as {
+        ticket: string
+      }
+      const feed = await openWebSocket(harness.port, ticket.ticket, { path: TAILNET_EVENTS_PATH })
+      const hello = await feed.nextMessage()
+      assert.deepEqual(
+        hello.revisions,
+        { workspaces: 1, conversations: 2 },
+        'the revisions still moved, so a watcher that arrives later sees it',
+      )
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      try {
+        harness.server.notifyConversationsChanged()
+        assert.deepEqual(await feed.nextMessage(), { type: 'changed', what: 'conversations', revision: 3 })
+        harness.server.notifyConversationsChanged()
+        assert.equal(vi.getTimerCount(), 1, 'a push inside the floor waits on a timer')
+        await harness.server.stop()
+        stopped = true
+        assert.equal(vi.getTimerCount(), 0, 'stopping clears the conversation push too')
+      } finally {
+        vi.useRealTimers()
+      }
+    } finally {
+      if (!stopped) await harness.server.stop()
+      rmSync(harness.userDataDir, { recursive: true, force: true })
     }
   }
 
@@ -1429,7 +1401,7 @@ test('tailnet', async () => {
       stream.send(rpc(2, 'tools/call', { name: 'backlog.update', arguments: { workspaceId: 'w9' } }))
       assert.equal((await stream.nextMessage()).id, 2)
 
-      const record = harness.auditRecords().at(-1)
+      const record = (await harness.auditRecords()).at(-1)
       assert.ok(record)
       // The advisory fields it declared are honoured…
       assert.equal(record.connection.workspaceId, 'w9')
@@ -1473,7 +1445,7 @@ test('tailnet', async () => {
         token: device.deviceToken,
         body: rpc(1, 'tools/call', { name: 'backlog.update', arguments: { workspaceId: 'w1' } }),
       })
-      const record = harness.auditRecords()[0]
+      const record = (await harness.auditRecords())[0]
       assert.equal(record.connection.deviceId, device.deviceId)
       assert.equal(record.connection.peerNode, undefined, 'an unresolved peer is absent, never a placeholder name')
     } finally {
@@ -1509,6 +1481,10 @@ test('tailnet', async () => {
       const replay = await openWebSocket(harness.port, ticket)
       assert.equal(await replay.closed, null)
       await waitFor(() => harness.server.streamCount() === 1, 'the replayed upgrade to be rejected')
+
+      // A route this listener does not serve is not found, whatever the ticket.
+      const retiredRoute = await openWebSocket(harness.port, ticket, { path: '/tailnet/v1/terminal' })
+      assert.ok(retiredRoute.handshake.startsWith('HTTP/1.1 404'), retiredRoute.handshake)
 
       stream.socket.destroy()
     } finally {
@@ -1604,366 +1580,6 @@ test('tailnet', async () => {
     assert.ok(encodeTextFrame('a').equals(Buffer.from([0x81, 0x01, 0x61])), 'server frames are unmasked')
   }
 
-  // ── Terminal attach ────────────────────────────────────────────────
-
-  /** Request a ticket and open a terminal socket for one session. */
-  async function attachTerminal(harness: Harness, deviceToken: string, sessionId: string): Promise<TestWebSocket> {
-    const ticket = await call(harness.port, 'POST', TAILNET_WS_TICKET_PATH, { token: deviceToken })
-    assert.equal(ticket.status, 200)
-    return openWebSocket(harness.port, (ticket.body as { ticket: string }).ticket, {
-      path: TAILNET_TERMINAL_PATH,
-      query: { sessionId },
-    })
-  }
-
-  async function testTerminalAttachReplaysThenStreamsToEveryAttachedViewer(): Promise<void> {
-    const harness = await startHarness()
-    try {
-      const device = await pairDevice(harness, { scopes: ['terminal:control'], name: 'laptop' })
-      const first = await attachTerminal(harness, device.deviceToken, 'session_one')
-
-      // Replay first, so the viewer paints the screen before any live byte.
-      const replay = await first.nextMessage()
-      assert.equal(replay.type, 'replay')
-      assert.equal(replay.reason, 'attach')
-      assert.equal(replay.data, 'scrollback so far\r\n')
-
-      const header = await first.nextMessage()
-      assert.equal(header.type, 'attached')
-      assert.equal(header.sessionId, 'session_one')
-      assert.equal(header.scope, 'control')
-
-      // A second concurrent viewer sees the same stream.
-      const observer = await pairDevice(harness, { scopes: ['terminal:observe'], name: 'phone' })
-      const second = await attachTerminal(harness, observer.deviceToken, 'session_one')
-      assert.equal((await second.nextMessage()).type, 'replay')
-      assert.equal((await second.nextMessage()).scope, 'observe')
-      await waitFor(() => harness.server.terminalStreamCount() === 2, 'both terminal streams to register')
-
-      harness.terminals.emit('session_one', 'live output\r\n')
-      assert.deepEqual(await first.nextMessage(), { type: 'output', data: 'live output\r\n' })
-      assert.deepEqual(await second.nextMessage(), { type: 'output', data: 'live output\r\n' })
-
-      // Control scope types and resizes; both reach the runtime port.
-      first.send({ type: 'input', data: 'echo hi\n' })
-      await waitFor(() => harness.terminals.writes.length === 1, 'the input frame to reach the terminal')
-      assert.deepEqual(harness.terminals.writes[0], { sessionId: 'session_one', data: 'echo hi\n' })
-      first.send({ type: 'resize', cols: 200, rows: 60 })
-      await waitFor(() => harness.terminals.resizes.length === 1, 'the resize frame to reach the terminal')
-      assert.deepEqual(harness.terminals.resizes[0], { sessionId: 'session_one', cols: 200, rows: 60 })
-
-      // A malformed frame is named, not silently dropped.
-      first.send({ type: 'nonsense' })
-      assert.equal((await first.nextMessage()).code, 'unknown_frame')
-
-      first.socket.destroy()
-      second.socket.destroy()
-      await waitFor(() => harness.server.terminalStreamCount() === 0, 'closed sockets to be forgotten')
-    } finally {
-      await harness.close()
-    }
-  }
-
-  async function testObserveScopedAttachCannotInjectInput(): Promise<void> {
-    const harness = await startHarness()
-    try {
-      const device = await pairDevice(harness, { scopes: ['terminal:observe'], name: 'phone' })
-      const stream = await attachTerminal(harness, device.deviceToken, 'session_one')
-      assert.equal((await stream.nextMessage()).type, 'replay')
-      assert.equal((await stream.nextMessage()).scope, 'observe')
-
-      // Refused at the FRAME: the runtime is never asked, and the client is told
-      // why rather than watching its keystrokes vanish.
-      stream.send({ type: 'input', data: 'rm -rf /\n' })
-      const refusedInput = await stream.nextMessage()
-      assert.equal(refusedInput.type, 'error')
-      assert.equal(refusedInput.code, 'terminal_control_required')
-      stream.send({ type: 'resize', cols: 10, rows: 10 })
-      assert.equal((await stream.nextMessage()).code, 'terminal_control_required')
-
-      assert.deepEqual(harness.terminals.writes, [], 'no observe-scoped byte reaches the terminal')
-      assert.deepEqual(harness.terminals.resizes, [])
-
-      // Watching still works — the refusal is about input only.
-      harness.terminals.emit('session_one', 'still watching\r\n')
-      assert.deepEqual(await stream.nextMessage(), { type: 'output', data: 'still watching\r\n' })
-      stream.socket.destroy()
-    } finally {
-      await harness.close()
-    }
-  }
-
-  async function testTerminalStreamsAreRefusedWithoutAGrantASessionOrARuntime(): Promise<void> {
-    const harness = await startHarness()
-    try {
-      // The structured-command set never carries the terminal tier, so the
-      // upgrade is refused BEFORE the 101 — no socket to send input on.
-      const structured = await pairDevice(harness, { scopes: [...TAILNET_STRUCTURED_SCOPES], name: 'ops' })
-      const refused = await attachTerminal(harness, structured.deviceToken, 'session_one')
-      assert.ok(refused.handshake.startsWith('HTTP/1.1 403'), refused.handshake)
-      assert.ok(refused.handshake.includes('terminal_scope_required'), refused.handshake)
-      assert.equal(harness.server.terminalStreamCount(), 0)
-
-      // No session id is a client error, not a stream that attaches to nothing.
-      const watcher = await pairDevice(harness, { scopes: ['terminal:observe'], name: 'phone' })
-      const ticket = await call(harness.port, 'POST', TAILNET_WS_TICKET_PATH, { token: watcher.deviceToken })
-      const noSession = await openWebSocket(harness.port, (ticket.body as { ticket: string }).ticket, {
-        path: TAILNET_TERMINAL_PATH,
-      })
-      assert.ok(noSession.handshake.startsWith('HTTP/1.1 400'), noSession.handshake)
-      assert.ok(noSession.handshake.includes('session_id_required'), noSession.handshake)
-
-      // An unknown session is refused on the open socket, with the code named.
-      const ghost = await attachTerminal(harness, watcher.deviceToken, 'session_that_never_existed')
-      const answer = await ghost.nextMessage()
-      assert.equal(answer.type, 'error')
-      assert.equal(answer.code, 'unknown_terminal')
-      assert.equal(await ghost.closed, 1000)
-      assert.equal(harness.server.terminalStreamCount(), 0)
-    } finally {
-      await harness.close()
-    }
-
-    // A build with terminal streaming unwired says so rather than pretending.
-    const unwired = await startHarness({ terminals: null })
-    try {
-      const device = await pairDevice(unwired, { scopes: ['terminal:control'], name: 'laptop' })
-      const stream = await attachTerminal(unwired, device.deviceToken, 'session_one')
-      assert.ok(stream.handshake.startsWith('HTTP/1.1 503'), stream.handshake)
-      assert.ok(stream.handshake.includes('terminal_streaming_unavailable'), stream.handshake)
-    } finally {
-      await unwired.close()
-    }
-  }
-
-  async function testRevocationClosesAnAttachedTerminalImmediately(): Promise<void> {
-    const harness = await startHarness()
-    try {
-      const device = await pairDevice(harness, { scopes: ['terminal:control'], name: 'laptop' })
-      const stream = await attachTerminal(harness, device.deviceToken, 'session_one')
-      assert.equal((await stream.nextMessage()).type, 'replay')
-      assert.equal((await stream.nextMessage()).type, 'attached')
-      await waitFor(() => harness.server.terminalStreamCount() === 1, 'the terminal stream to register')
-
-      // Revocation must reach live output — and, for a control-scoped device, a
-      // live shell — without waiting for the device's next message.
-      harness.devices.revokeDevice(device.deviceId)
-      assert.equal(await stream.closed, WEBSOCKET_CLOSE_REVOKED)
-      await waitFor(() => harness.server.terminalStreamCount() === 0, 'the revoked stream to be forgotten')
-      assert.equal(harness.terminals.attachedCount(), 0, 'revocation detaches the viewer from the runtime')
-    } finally {
-      await harness.close()
-    }
-  }
-
-  async function testTerminalToolsSitBehindTheTerminalScope(): Promise<void> {
-    assert.equal(requiredScopeForTool('terminal.list', false), 'terminal:observe')
-    assert.equal(requiredScopeForTool('terminal.write', true), 'terminal:control')
-    // Creating a terminal is a mutation, so the same mapping puts it in the
-    // typing half of the tier rather than the watching half.
-    assert.equal(requiredScopeForTool('terminal.create', true), 'terminal:control')
-    // Control implies observe, and the implication never leaves the tier.
-    assert.equal(tailnetScopeGrantsAccess(new Set(['terminal:control']), 'terminal:observe'), true)
-    assert.equal(tailnetScopeGrantsAccess(new Set(['terminal:observe']), 'terminal:control'), false)
-    assert.equal(tailnetScopeGrantsAccess(new Set(['workspace:operate']), 'terminal:observe'), false)
-    assert.equal(tailnetScopeGrantsAccess(new Set(['terminal:control']), 'workspace:read'), false)
-
-    const harness = await startHarness()
-    try {
-      // The structured-command set is the pairing default, and it does NOT show
-      // a device the terminals on this machine.
-      const structured = await pairDevice(harness, { scopes: [...TAILNET_STRUCTURED_SCOPES], name: 'ops' })
-      const structuredTools = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
-        token: structured.deviceToken,
-        body: rpc(1, 'tools/list'),
-      })
-      const structuredNames = (structuredTools.body as { result: { tools: Array<{ name: string }> } }).result.tools.map(
-        (tool) => tool.name,
-      )
-      assert.equal(structuredNames.includes('terminal.list'), false)
-      // Nor the tool that OPENS one: control is never implied by the structured
-      // scopes, however much of the app they otherwise reach (epic decision 4).
-      assert.equal(structuredNames.includes('terminal.create'), false)
-      assert.equal(tailnetScopeGrantsAccess(new Set(['workspace:operate']), 'terminal:control'), false)
-
-      const refused = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
-        token: structured.deviceToken,
-        body: rpc(2, 'tools/call', { name: 'terminal.list', arguments: {} }),
-      })
-      const result = (refused.body as { result: { isError: boolean; structuredContent: { error: { code: string } } } })
-        .result
-      assert.equal(result.isError, true)
-      assert.equal(result.structuredContent.error.code, 'tailnet_scope_required')
-      assert.equal(harness.calls.length, 0, 'the refused handler never ran')
-
-      const watcher = await pairDevice(harness, { scopes: ['terminal:observe'], name: 'phone' })
-      const watcherTools = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
-        token: watcher.deviceToken,
-        body: rpc(3, 'tools/list'),
-      })
-      // A watch-only device is not even shown the tool that opens a terminal.
-      assert.deepEqual(
-        (watcherTools.body as { result: { tools: Array<{ name: string }> } }).result.tools.map((tool) => tool.name),
-        ['terminal.list'],
-      )
-
-      // …and calling it anyway is refused, with the attempt audited: a device
-      // reaching for a shell it was not granted is a security event, not a typo.
-      const auditedBefore = harness.auditRecords().length
-      const denied = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
-        token: watcher.deviceToken,
-        body: rpc(4, 'tools/call', { name: 'terminal.create', arguments: { workspaceId: 'ws-1' } }),
-      })
-      const deniedResult = (
-        denied.body as {
-          result: { isError: boolean; structuredContent: { error: { code: string } } }
-        }
-      ).result
-      assert.equal(deniedResult.isError, true)
-      assert.equal(deniedResult.structuredContent.error.code, 'tailnet_scope_required')
-      assert.equal(harness.calls.includes('terminal.create'), false, 'the refused handler never ran')
-      const deniedRecords = harness.auditRecords().slice(auditedBefore)
-      assert.equal(deniedRecords.length, 1)
-      assert.equal(deniedRecords[0].tool, 'terminal.create')
-      assert.equal(deniedRecords[0].errorCode, 'tailnet_scope_required')
-      assert.equal(deniedRecords[0].connection.deviceName, 'phone', 'the audit names the device that reached for it')
-
-      // Control is the grant that opens one, and the success is audited with the
-      // same device identity — creation is a mutation like any other.
-      const driver = await pairDevice(harness, { scopes: ['terminal:control'], name: 'laptop' })
-      const created = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
-        token: driver.deviceToken,
-        body: rpc(5, 'tools/call', { name: 'terminal.create', arguments: { workspaceId: 'ws-1' } }),
-      })
-      assert.equal((created.body as { result: { isError?: boolean } }).result.isError, undefined)
-      assert.equal(harness.calls.includes('terminal.create'), true)
-      const createdRecord = harness.auditRecords().at(-1)
-      assert.equal(createdRecord?.tool, 'terminal.create')
-      assert.equal(createdRecord?.outcome, 'success')
-      assert.equal(createdRecord?.connection.deviceName, 'laptop')
-    } finally {
-      await harness.close()
-    }
-  }
-
-  // ── Remote terminal create ─────────────────────────────────────────
-  //
-  // The item's acceptance in one test: from a client that has only a device
-  // token, open a terminal on THIS machine, attach to it, type, and see output.
-  // The tool under test is the REAL `terminal.create` from the gateway's own tool
-  // set — not a stub named after it — so what this proves is the actual round
-  // trip a remote client makes. Only the pty is stood in for: `launchAgent`
-  // registers a session in the same terminal host the attach route serves, which
-  // is exactly the relationship the real runtime has (main mints the session id,
-  // then the attach socket resolves that id against the runtime).
-
-  /** The gateway tool set, over a terminal host a launch can register sessions in. */
-  function realTerminalTools(input: {
-    terminals: StubTerminalHost
-    launches: AgentLaunchRequest[]
-    /** This machine's agent-spawn preset; a terminal.create with none named takes it. */
-    spawnPermissionDefault?: CliPermissionPreset | null
-  }): McpToolRegistration[] {
-    const workspace = {
-      id: 'ws-mini',
-      name: 'Mac Mini',
-      mode: 'standard',
-      folderPath: '/tmp/project',
-      agents: {},
-    }
-    let spawned = 0
-    // Only the backends the terminal tools actually reach are supplied. The rest
-    // belong to tools this test never calls; a stub for each would be noise, and
-    // an unsupplied one throws rather than answering wrongly if that ever changes.
-    const backends = {
-      getWorkspaceSyncSnapshot: () => ({
-        sequence: 1,
-        state: {
-          workspaces: [workspace],
-          activeWorkspaceId: workspace.id,
-          primaryWorkspaceWindowId: null,
-          workspaceWindows: [],
-        },
-      }),
-      listTerminalSessions: () => input.terminals.listSessions(),
-      getAgentSpawnPermissionDefault: () => input.spawnPermissionDefault ?? 'auto',
-      launchAgent: async (request: AgentLaunchRequest) => {
-        input.launches.push(request)
-        const sessionId = `spawned-${++spawned}`
-        input.terminals.create(sessionId)
-        return { ok: true as const, workspaceId: request.workspaceId, agentId: `agent-${spawned}`, sessionId }
-      },
-    }
-    return createAutomationTools(backends as unknown as Parameters<typeof createAutomationTools>[0])
-  }
-
-  async function testARemoteClientOpensATerminalHereAttachesAndDrivesIt(): Promise<void> {
-    const terminals = createStubTerminalHost()
-    const launches: AgentLaunchRequest[] = []
-    const harness = await startHarness({ terminals, tools: realTerminalTools({ terminals, launches }) })
-    try {
-      const laptop = await pairDevice(harness, { scopes: ['terminal:control'], name: 'laptop' })
-
-      // The workspace is named, not identified: a device holding only the
-      // terminal scopes cannot call workspace.list, so this is the path it has.
-      const created = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
-        token: laptop.deviceToken,
-        body: rpc(1, 'tools/call', { name: 'terminal.create', arguments: { workspaceName: 'Mac Mini' } }),
-      })
-      const payload = (
-        created.body as {
-          result: { isError?: boolean; structuredContent: { sessionId: string; permissionPreset: string } }
-        }
-      ).result
-      assert.equal(payload.isError, undefined, JSON.stringify(payload.structuredContent))
-      const sessionId = payload.structuredContent.sessionId
-      assert.equal(sessionId, 'spawned-1')
-      // This machine's own spawn default, not a preset the remote caller chose.
-      assert.equal(payload.structuredContent.permissionPreset, 'auto')
-      assert.equal(launches[0].workspaceId, 'ws-mini')
-
-      // …and the id it handed back is attachable, on the same connection's token.
-      const stream = await attachTerminal(harness, laptop.deviceToken, sessionId)
-      assert.equal((await stream.nextMessage()).type, 'replay', 'a fresh session replays its empty screen first')
-      const header = await stream.nextMessage()
-      assert.equal(header.type, 'attached')
-      assert.equal(header.sessionId, sessionId)
-      assert.equal(header.scope, 'control')
-
-      // Type a command, see the output — the round trip the item asks for.
-      stream.send({ type: 'input', data: 'echo remote\n' })
-      await waitFor(() => terminals.writes.length === 1, 'the typed command to reach the new session')
-      assert.deepEqual(terminals.writes[0], { sessionId, data: 'echo remote\n' })
-      terminals.emit(sessionId, 'remote\r\n')
-      assert.deepEqual(await stream.nextMessage(), { type: 'output', data: 'remote\r\n' })
-
-      // The creation is on the audit trail with the device that made it.
-      const record = harness.auditRecords().at(-1)
-      assert.equal(record?.tool, 'terminal.create')
-      assert.equal(record?.outcome, 'success')
-      assert.equal(record?.connection.deviceName, 'laptop')
-      assert.equal(record?.connection.kind, 'remote-tailnet')
-
-      // The new session is also in the list every terminal-scoped device reads,
-      // so a second client finds it without having been told the id.
-      const listed = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
-        token: laptop.deviceToken,
-        body: rpc(2, 'tools/call', { name: 'terminal.list', arguments: {} }),
-      })
-      const terminalsListed = (
-        listed.body as {
-          result: { structuredContent: { terminals: Array<{ sessionId: string }> } }
-        }
-      ).result.structuredContent.terminals
-      assert.equal(
-        terminalsListed.some((entry) => entry.sessionId === sessionId),
-        true,
-      )
-    } finally {
-      await harness.close()
-    }
-  }
-
   async function testEndpointAndPairingUrlFormatting(): Promise<void> {
     assert.equal(formatEndpoint('100.101.102.103', 8471), '100.101.102.103:8471')
     assert.equal(formatEndpoint('fd7a:115c:a1e0::1', 8471), '[fd7a:115c:a1e0::1]:8471')
@@ -2049,7 +1665,7 @@ test('tailnet', async () => {
     harness: Harness,
     tokenFilePath: string,
   ): Promise<{ run: BridgeRun; deviceToken: string }> {
-    const offer = harness.devices.offerPairing({ scopes: [...TAILNET_STRUCTURED_SCOPES] })
+    const offer = harness.devices.offerPairing({ scopes: [...TAILNET_SCOPES] })
     const run = await runBridge([
       'pair',
       '--pairing-url',
@@ -2078,7 +1694,7 @@ test('tailnet', async () => {
       assert.equal(devices[0].name, 'test-laptop')
       const stored = JSON.parse(readFileSync(tokenFilePath, 'utf8')) as { endpoint: string; scopes: string[] }
       assert.equal(stored.endpoint, `127.0.0.1:${harness.port}`)
-      assert.deepEqual(stored.scopes, [...TAILNET_STRUCTURED_SCOPES])
+      assert.deepEqual(stored.scopes, [...TAILNET_SCOPES])
       assert.ok(!run.stdout.includes(deviceToken), 'the pair flow never prints the device token it stored')
       if (process.platform !== 'win32') {
         assert.equal(statSync(tokenFilePath).mode & 0o777, 0o600, 'the stored device token is owner-only')
@@ -2099,8 +1715,8 @@ test('tailnet', async () => {
         const listed = byId.get(2) as { result: { tools: Array<{ name: string }> } }
         assert.deepEqual(
           listed.result.tools.map((tool) => tool.name).sort(),
-          ['agent.launch', 'backlog.list', 'backlog.update', 'workspace.checkout', 'workspace.list'],
-          'the remote client sees the same tool surface a local one does',
+          ['backlog.list', 'backlog.update', 'workspace.checkout', 'workspace.list'],
+          'the remote client sees every tool a local one does, less the local-only ones',
         )
         const read = byId.get(3) as { result: { structuredContent: { tool: string } } }
         assert.equal(read.result.structuredContent.tool, 'backlog.list')
@@ -2108,8 +1724,8 @@ test('tailnet', async () => {
         assert.equal(mutation.result.structuredContent.tool, 'backlog.update')
 
         // The mutation is audited with the transport-proven device identity.
-        await waitFor(() => harness.auditRecords().length >= 1, 'the remote mutation to be audited')
-        const audited = harness.auditRecords()
+        await waitFor(async () => (await harness.auditRecords()).length >= 1, 'the remote mutation to be audited')
+        const audited = await harness.auditRecords()
         assert.equal(audited.length, 1, 'the read is not audited; the mutation is')
         assert.equal(audited[0].tool, 'backlog.update')
         const connection = audited[0].connection as Record<string, unknown>
@@ -2211,179 +1827,207 @@ test('tailnet', async () => {
   }
 
   // ── The upload route ─────────────────────────────────────────────────────────
-  //
-  // The pure guard has its own tests above. These drive the ROUTE, which until
-  // 2026-09-07 had none — which is how `taken: new Set()` survived: the collision
-  // helper was correct and tested, and its only caller could never reach it.
-
-  async function testAPairedDeviceUploadsIntoTheThreadsFolderAndGetsThePathBack(): Promise<void> {
-    const projectDir = mkdtempSync(join(tmpdir(), 'sprintengine-upload-'))
-    const harness = await startHarness({ terminalCwd: projectDir })
-    try {
-      const device = await pairDevice(harness, { scopes: ['terminal:control'], name: 'phone' })
-      const bytes = Buffer.from('a screenshot, near enough', 'utf8')
-      const answer = await callRaw(harness.port, uploadPath('session_one', 'shot.png'), {
-        token: device.deviceToken,
-        body: bytes,
-      })
-
-      assert.equal(answer.status, 200)
-      const body = answer.body as { path: string; bytes: number }
-      assert.equal(body.bytes, bytes.length)
-      assert.equal(body.path, join(projectDir, '.sprintengine', 'uploads', 'session_one', 'shot.png'))
-      assert.deepEqual(readFileSync(body.path), bytes, 'the bytes on disk are the bytes that were sent')
-
-      // The folder ignores itself, so a phone never adds untracked files to
-      // someone's `git status`.
-      const ignore = join(projectDir, '.sprintengine', 'uploads', 'session_one', '.gitignore')
-      assert.equal(readFileSync(ignore, 'utf8'), '*\n')
-    } finally {
-      await harness.close()
-      rmSync(projectDir, { recursive: true, force: true })
+  async function testConversationRouteScopesRevocationAndOpaqueImages(): Promise<void> {
+    const projectDir = mkdtempSync(join(tmpdir(), 'conversation-route-'))
+    let registered: Parameters<NonNullable<ConversationGatewayHost['registerUpload']>>[0] | undefined
+    let disposed = 0
+    const conversations: ConversationGatewayHost = {
+      list: async () => [
+        {
+          workspaceId: 'workspace',
+          agentId: 'agent',
+          sessionId: 'conversation',
+          title: 'Example',
+          phase: 'idle',
+          createdAt: 1,
+          updatedAt: 1,
+          providerId: 'mock',
+          modelId: 'mock',
+          turnCount: 0,
+          lastSeq: 0,
+          capabilities: {
+            images: true,
+            approvals: true,
+            questions: true,
+            planMode: true,
+            interrupt: true,
+            checkpoints: false,
+          },
+        },
+      ],
+      resolveKey: (workspaceId, agentId) => ({ workspaceRoot: projectDir, workspaceId, agentId }),
+      subscribe: (_key, _cursor, receive) => {
+        receive({ type: 'synchronized', seq: 0 })
+        return {
+          ready: Promise.resolve(),
+          dispose: () => {
+            disposed++
+          },
+        }
+      },
+      loadEarlier: async () => ({ ok: false, message: 'Unavailable.' }),
+      getToolDetail: async () => ({ ok: false, code: 'not_found', message: 'Unavailable.' }),
+      getTurnDiff: async () => ({ ok: false, message: 'Unavailable.' }),
+      command: async () => ({ ok: true }),
+      registerUpload: (input) => {
+        registered = input
+        return 'opaque-upload'
+      },
     }
-  }
-
-  async function testASecondFileOfTheSameNameIsSuffixedRatherThanRefused(): Promise<void> {
-    const projectDir = mkdtempSync(join(tmpdir(), 'sprintengine-upload-'))
-    const harness = await startHarness({ terminalCwd: projectDir })
+    let pauseLookup = false
+    let releaseLookup!: () => void
+    let enteredLookup!: () => void
+    const lookupGate = new Promise<void>((resolve) => {
+      releaseLookup = resolve
+    })
+    const lookupStarted = new Promise<void>((resolve) => {
+      enteredLookup = resolve
+    })
+    const harness = await startHarness({
+      conversations,
+      resolvePeer: async () => {
+        if (pauseLookup) {
+          enteredLookup()
+          await lookupGate
+        }
+        return null
+      },
+    })
     try {
-      const device = await pairDevice(harness, { scopes: ['terminal:control'], name: 'phone' })
-      const send = (payload: string) =>
-        callRaw(harness.port, uploadPath('session_one', 'shot.png'), {
-          token: device.deviceToken,
-          body: Buffer.from(payload, 'utf8'),
-        })
-
-      const first = await send('one')
-      assert.equal(first.status, 200)
-      // Two photos from a camera roll carry the same name far more often than
-      // not. Before the fix this met the sink's exclusive create and came back
-      // as an unexplained 500.
-      const second = await send('two')
-      assert.equal(second.status, 200, JSON.stringify(second.body))
-      const secondPath = (second.body as { path: string }).path
-      assert.equal(secondPath, join(projectDir, '.sprintengine', 'uploads', 'session_one', 'shot (2).png'))
-      assert.equal(readFileSync((first.body as { path: string }).path, 'utf8'), 'one', 'the first upload survives')
-      assert.equal(readFileSync(secondPath, 'utf8'), 'two')
-
-      const third = await send('three')
-      assert.equal((third.body as { path: string }).path.endsWith('shot (3).png'), true)
-    } finally {
-      await harness.close()
-      rmSync(projectDir, { recursive: true, force: true })
-    }
-  }
-
-  async function testAnUploadedNameCannotEscapeTheThreadsFolderOverTheWire(): Promise<void> {
-    const projectDir = mkdtempSync(join(tmpdir(), 'sprintengine-upload-'))
-    const harness = await startHarness({ terminalCwd: projectDir })
-    try {
-      const device = await pairDevice(harness, { scopes: ['terminal:control'], name: 'phone' })
-      for (const name of ['../../escaped.txt', '..\\..\\escaped.txt', '/etc/passwd', '..']) {
-        const answer = await callRaw(harness.port, uploadPath('session_one', name), {
-          token: device.deviceToken,
-          body: Buffer.from('nope', 'utf8'),
-        })
-        assert.equal(answer.status, 200, `${name} was not handled`)
-        const written = (answer.body as { path: string }).path
-        const inside = join(projectDir, '.sprintengine', 'uploads', 'session_one')
-        assert.ok(written.startsWith(`${inside}/`), `${name} landed at ${written}`)
-      }
-      assert.equal(existsSync(join(projectDir, 'escaped.txt')), false)
-
-      // A forged session id is a path segment like any other, and is sanitised
-      // the same way rather than trusted because it came from an authenticated
-      // device.
-      const forged = await callRaw(harness.port, uploadPath('../../..', 'shot.png'), {
-        token: device.deviceToken,
-        body: Buffer.from('nope', 'utf8'),
-      })
-      assert.equal(forged.status, 404, 'no session has that id, so there is nowhere to put it')
-    } finally {
-      await harness.close()
-      rmSync(projectDir, { recursive: true, force: true })
-    }
-  }
-
-  async function testUploadsSitBehindTheControlScopeAndAKnownSession(): Promise<void> {
-    const projectDir = mkdtempSync(join(tmpdir(), 'sprintengine-upload-'))
-    const harness = await startHarness({ terminalCwd: projectDir })
-    try {
-      const watcher = await pairDevice(harness, { scopes: ['terminal:observe'], name: 'watcher' })
-      const refused = await callRaw(harness.port, uploadPath('session_one', 'shot.png'), {
-        token: watcher.deviceToken,
-        body: Buffer.from('nope', 'utf8'),
-      })
+      const operator = await pairDevice(harness, { scopes: ['conversation:operate'], name: 'phone' })
+      const reader = await pairDevice(harness, { scopes: ['conversation:read'], name: 'tablet' })
+      const route = `${uploadPath('conversation', '../../image.png')}&kind=conversation`
+      const payload = { body: Buffer.from('image'), headers: { 'Content-Type': 'image/png' } }
+      const refused = await callRaw(harness.port, route, { ...payload, token: reader.deviceToken })
       assert.equal(refused.status, 403)
-      assert.equal((refused.body as { error: { code: string } }).error.code, 'tailnet_scope_required')
-
-      const stranger = await callRaw(harness.port, uploadPath('session_one', 'shot.png'), {
-        body: Buffer.from('nope', 'utf8'),
+      const badMedia = await callRaw(harness.port, route, { body: Buffer.from('image'), token: operator.deviceToken })
+      assert.equal(badMedia.status, 415)
+      const tooLarge = await callRaw(harness.port, route, {
+        ...payload,
+        body: Buffer.alloc(5 * 1024 * 1024 + 1),
+        token: operator.deviceToken,
       })
-      assert.equal(stranger.status, 401, 'an unpaired client never reaches the route')
-
-      const device = await pairDevice(harness, { scopes: ['terminal:control'], name: 'phone' })
-      const unknown = await callRaw(harness.port, uploadPath('session_missing', 'shot.png'), {
-        token: device.deviceToken,
-        body: Buffer.from('nope', 'utf8'),
+      assert.equal(tooLarge.status, 413)
+      const tooLargeError = (tooLarge.body as { error: { code: string; message: string } }).error
+      assert.equal(tooLargeError.code, 'too_large')
+      assert.match(tooLargeError.message, /5MB/u, 'the phone can only say the real reason if the server names it')
+      const unknown = await callRaw(harness.port, uploadPath('conversation_missing', 'image.png'), {
+        ...payload,
+        token: operator.deviceToken,
       })
       assert.equal(unknown.status, 404)
-      assert.equal((unknown.body as { error: { code: string } }).error.code, 'unknown_terminal')
-
-      const nameless = await callRaw(harness.port, `${TAILNET_UPLOAD_PATH}?sessionId=session_one`, {
-        token: device.deviceToken,
-        body: Buffer.from('nope', 'utf8'),
+      assert.equal((unknown.body as { error: { code: string } }).error.code, 'unknown_conversation')
+      // A staging directory that could not be created is tried again on the next upload.
+      const savedTmpdir = process.env.TMPDIR
+      process.env.TMPDIR = join(projectDir, 'missing', 'tmp')
+      try {
+        const unstaged = await callRaw(harness.port, route, { ...payload, token: operator.deviceToken })
+        assert.equal(unstaged.status, 500)
+      } finally {
+        if (savedTmpdir === undefined) delete process.env.TMPDIR
+        else process.env.TMPDIR = savedTmpdir
+      }
+      const uploaded = await callRaw(harness.port, route, { ...payload, token: operator.deviceToken })
+      assert.equal(uploaded.status, 200)
+      assert.deepEqual(uploaded.body, { uploadId: 'opaque-upload', bytes: 5 })
+      // `kind` is what older phones send; a conversation image is the only kind there is.
+      const withoutKind = await callRaw(harness.port, uploadPath('conversation', 'image.png'), {
+        ...payload,
+        token: operator.deviceToken,
       })
-      assert.equal(nameless.status, 400)
-      assert.equal((nameless.body as { error: { code: string } }).error.code, 'invalid_arguments')
-
-      // A browser must not be able to reach this from a page on a tailnet machine.
-      const fromBrowser = await callRaw(harness.port, uploadPath('session_one', 'shot.png'), {
-        token: device.deviceToken,
-        body: Buffer.from('nope', 'utf8'),
-        headers: { Origin: 'http://evil.example' },
-      })
-      assert.equal(fromBrowser.status, 403)
-      assert.equal((fromBrowser.body as { error: { code: string } }).error.code, 'origin_not_allowed')
-    } finally {
-      await harness.close()
-      rmSync(projectDir, { recursive: true, force: true })
-    }
-  }
-
-  async function testAnOversizedUploadIsCutOffAndLeavesNothingBehind(): Promise<void> {
-    const projectDir = mkdtempSync(join(tmpdir(), 'sprintengine-upload-'))
-    const harness = await startHarness({ terminalCwd: projectDir })
-    try {
-      const device = await pairDevice(harness, { scopes: ['terminal:control'], name: 'phone' })
-
-      // Declared over the cap: refused before a byte is read.
-      const declared = await callRaw(harness.port, uploadPath('session_one', 'big.bin'), {
-        token: device.deviceToken,
-        body: Buffer.alloc(26 * 1024 * 1024),
-      })
-      assert.equal(declared.status, 413)
-      const declaredError = (declared.body as { error: { code: string; message: string } }).error
-      assert.equal(declaredError.code, 'too_large')
-      assert.match(declaredError.message, /25MB/u, 'the phone can only say the real reason if the server names it')
-
-      // Chunked, so `content-length` says nothing: the ceiling is counted as the
-      // bytes arrive, and the part-written file is removed — a truncated
-      // screenshot in a folder an agent reads is worse than no screenshot.
-      const counted = await callRaw(harness.port, uploadPath('session_one', 'sneaky.bin'), {
-        token: device.deviceToken,
-        body: Buffer.alloc(26 * 1024 * 1024),
-        chunked: true,
-      })
-      assert.equal(counted.status, 413)
-      assert.equal((counted.body as { error: { code: string } }).error.code, 'too_large')
+      assert.deepEqual(withoutKind.body, { uploadId: 'opaque-upload', bytes: 5 })
+      assert.ok(registered)
+      assert.equal(registered.deviceId, operator.deviceId)
+      assert.equal(registered.sessionId, 'conversation')
+      assert.equal(readFileSync(registered.path, 'utf8'), 'image')
       assert.equal(
-        existsSync(join(projectDir, '.sprintengine', 'uploads', 'session_one', 'sneaky.bin')),
+        registered.path.startsWith(projectDir),
         false,
-        'nothing partial is left where an agent would read it',
+        'opaque image staging does not trust workspace parents',
+      )
+      assert.equal(existsSync(join(projectDir, '.sprintengine')), false)
+      const ticket = await call(harness.port, 'POST', TAILNET_WS_TICKET_PATH, { token: reader.deviceToken })
+      const socket = await openWebSocket(harness.port, (ticket.body as { ticket: string }).ticket, {
+        path: TAILNET_CONVERSATION_PATH,
+      })
+      assert.ok(socket.handshake.startsWith('HTTP/1.1 101'))
+      socket.send({ type: 'subscribe', key: { workspaceId: 'workspace', agentId: 'agent' } })
+      assert.deepEqual(await socket.nextMessage(), {
+        type: 'synchronized',
+        seq: 0,
+        key: { workspaceId: 'workspace', agentId: 'agent' },
+      })
+      socket.send({ type: 'command', commandId: 'deny-read-mutation', command: { kind: 'interrupt' } })
+      assert.equal((await socket.nextMessage()).code, 'conversation_operate_required')
+      const operatorTicket = await call(harness.port, 'POST', TAILNET_WS_TICKET_PATH, { token: operator.deviceToken })
+      const operatorSocket = await openWebSocket(harness.port, (operatorTicket.body as { ticket: string }).ticket, {
+        path: TAILNET_CONVERSATION_PATH,
+      })
+      operatorSocket.send({ type: 'subscribe', key: { workspaceId: 'workspace', agentId: 'agent' } })
+      assert.deepEqual(await operatorSocket.nextMessage(), {
+        type: 'synchronized',
+        seq: 0,
+        key: { workspaceId: 'workspace', agentId: 'agent' },
+      })
+      operatorSocket.send({
+        type: 'command',
+        commandId: 'remote-send',
+        command: { kind: 'send', message: 'words only the conversation may keep' },
+      })
+      assert.deepEqual(await operatorSocket.nextMessage(), {
+        type: 'commandResult',
+        commandId: 'remote-send',
+        ok: true,
+      })
+      // Every remote command is audited with the device, the conversation and
+      // its kind — the refused one too — and never with what was typed.
+      const audited = (await harness.auditRecords()).filter((record) => record.tool.startsWith('conversation.'))
+      assert.deepEqual(
+        audited.map((record) => [record.tool, record.connection.deviceId, record.outcome, record.errorCode ?? null]),
+        [
+          ['conversation.interrupt', reader.deviceId, 'failure', 'conversation_operate_required'],
+          ['conversation.send', operator.deviceId, 'success', null],
+        ],
+      )
+      assert.deepEqual(audited[1].targets, { workspaceId: 'workspace', agentId: 'agent', id: 'remote-send' })
+      assert.equal(JSON.stringify(audited).includes('words only'), false)
+      // A grant narrowed in Settings reaches the socket that is already open.
+      harness.devices.updateDeviceScopes(operator.deviceId, ['conversation:read'])
+      operatorSocket.send({ type: 'command', commandId: 'after-narrowing', command: { kind: 'interrupt' } })
+      assert.deepEqual(await operatorSocket.nextMessage(), {
+        type: 'commandResult',
+        commandId: 'after-narrowing',
+        ok: false,
+        code: 'conversation_operate_required',
+      })
+      harness.devices.updateDeviceScopes(operator.deviceId, ['workspace:read'])
+      assert.equal((await operatorSocket.nextMessage()).code, 'conversation_scope_required')
+      assert.equal(await operatorSocket.closed, 4403)
+      harness.devices.revokeDevice(reader.deviceId)
+      assert.equal(await socket.closed, WEBSOCKET_CLOSE_REVOKED)
+      assert.equal(disposed, 2, 'the narrowed socket and the revoked one each ended their subscription')
+      operatorSocket.socket.destroy()
+      const revokedDuringLookup = await pairDevice(harness, { scopes: ['conversation:read'], name: 'tablet' })
+      const staleTicket = await call(harness.port, 'POST', TAILNET_WS_TICKET_PATH, {
+        token: revokedDuringLookup.deviceToken,
+      })
+      pauseLookup = true
+      const joining = openWebSocket(harness.port, (staleTicket.body as { ticket: string }).ticket, {
+        path: TAILNET_CONVERSATION_PATH,
+      })
+      await lookupStarted
+      harness.devices.revokeDevice(revokedDuringLookup.deviceId)
+      releaseLookup()
+      const refusedJoin = await joining
+      assert.ok(
+        refusedJoin.handshake.startsWith('HTTP/1.1 401'),
+        'revocation during discovery refuses the late upgrade',
       )
     } finally {
+      releaseLookup()
       await harness.close()
+      if (registered)
+        assert.equal(existsSync(registered.path), false, 'server shutdown removes only its private staging directory')
       rmSync(projectDir, { recursive: true, force: true })
     }
   }
@@ -2392,8 +2036,8 @@ test('tailnet', async () => {
    * Widening a pairing from this keyboard (remote-settings-rebuild).
    *
    * The one direction the store never had: scopes could be granted at pairing and
-   * refreshed from the far end, but never widened here, so a device paired before
-   * the terminal tier existed could only be revoked and paired again. The widen
+   * refreshed from the far end, but never widened here, so a device paired with a
+   * narrow grant could only be revoked and paired again. The widen
    * must reach disk — a grant that does not survive a restart silently narrows
    * itself — and an id the store does not hold must be an error rather than a
    * quiet no-op, because a surface acting on a row that is gone has to know.
@@ -2404,15 +2048,14 @@ test('tailnet', async () => {
       const store = createTailnetDeviceStore({ resolveUserDataDir: () => dir })
       const minted = store.mintDevice({
         name: 'mac-mini',
-        scopes: [...TAILNET_STRUCTURED_SCOPES],
+        scopes: ['workspace:read', 'backlog:read'],
         origin: { kind: 'code', by: null },
       })
-      assert.deepEqual(minted.device.scopes, [...TAILNET_STRUCTURED_SCOPES])
-      assert.equal(minted.device.scopes.includes('terminal:control'), false)
+      assert.deepEqual(minted.device.scopes, ['workspace:read', 'backlog:read'])
 
       const widened = store.updateDeviceScopes(minted.device.id, [...TAILNET_SCOPES])
       assert.deepEqual(widened.scopes, [...TAILNET_SCOPES])
-      assert.equal(widened.scopes.length, 6)
+      assert.equal(widened.scopes.length, TAILNET_SCOPES.length)
       assert.deepEqual(store.listDevices()[0]?.scopes, [...TAILNET_SCOPES])
 
       // A second store over the same directory is what the next launch sees.
@@ -2440,12 +2083,53 @@ test('tailnet', async () => {
     }
   }
 
+  /**
+   * A device record written while the terminal scopes existed. It must still
+   * load — revoking every phone paired before the retirement would be a worse
+   * outcome than the grant it loses — keeping every scope that still means
+   * something and nothing else.
+   */
+  async function testAStoredDeviceLoadsWithoutItsRetiredTerminalScopes(): Promise<void> {
+    const dir = mkdtempSync(join(tmpdir(), 'sprintengine-tailnet-retired-'))
+    try {
+      const deviceToken = 'mctn_retired-scopes-fixture'
+      writeFileSync(
+        join(dir, TAILNET_DEVICES_FILENAME),
+        `${JSON.stringify(
+          {
+            version: 1,
+            devices: [
+              {
+                id: 'tnd_dev_macbook_air',
+                name: 'dev-macbook-air',
+                scopes: ['workspace:read', 'terminal:observe', 'conversation:operate', 'terminal:control'],
+                createdAt: '2026-09-01T00:00:00.000Z',
+                lastSeenAt: null,
+                lastPeerNode: 'dev-macbook-air.tail1234.ts.net',
+                origin: { kind: 'code', by: null },
+                tokenHash: hashSecret(deviceToken),
+              },
+            ],
+          },
+          null,
+          2,
+        )}\n`,
+      )
+      const store = createTailnetDeviceStore({ resolveUserDataDir: () => dir })
+      const [loaded] = store.listDevices()
+      assert.ok(loaded, 'the record loads rather than being dropped as malformed')
+      assert.equal(loaded.id, 'tnd_dev_macbook_air')
+      assert.deepEqual(loaded.scopes, ['workspace:read', 'conversation:operate'])
+      assert.deepEqual(store.authenticate(deviceToken)?.scopes, ['workspace:read', 'conversation:operate'])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+
   const tests = [
     testBindAddressAllowsOnlyTailnetOrLoopback,
     testDisabledMeansNoListeningTcpSocket,
     testEnabledWithoutATailnetRefusesInsteadOfBindingAnythingElse,
-    testUploadDestinationsCannotEscapeTheThreadsFolder,
-    testUploadNamesAreLeavesAndNeverOverwrite,
     testTheListenerBindsWhenTailscaleComesUpAfterTheApp,
     testTheListenerStandsDownWhenTailscaleGoesAway,
     testTheInterfaceWatchStopsWhenTheListenerIsTurnedOff,
@@ -2455,27 +2139,20 @@ test('tailnet', async () => {
     testHealthEndpointLeaksNothingBeyondProductAndProtocol,
     testScopesNarrowWhatADeviceSeesAndMayCall,
     testTailnetConfigurationToolsAreNeverServedOverTheTailnet,
+    testTerminalToolsAreNeverServedOverTheTailnet,
     testTailnetToolsRefuseRatherThanMintACodeThatPointsAtNothing,
     testRemoteMutationsAreAuditedWithDeviceAndPeerIdentity,
     testADeclaredIdentityCannotOverwriteTheProvenDeviceIdentity,
     testTheChangeFeedPushesOncePerBurstAndFollowsRevocation,
+    testTheChangeFeedArmsNothingUnwatchedAndStopClearsEveryPush,
     testPeerIdentityIsNullRatherThanInventedWhenWhoisIsUnavailable,
     testWebSocketTicketsAreSingleUseAndTokensNeverRideTheUrl,
     testRevocationLandsOnTheNextRequestAndKillsLiveStreams,
     testWebSocketCodecRefusesWhatItDoesNotImplement,
-    testTerminalAttachReplaysThenStreamsToEveryAttachedViewer,
-    testObserveScopedAttachCannotInjectInput,
-    testTerminalStreamsAreRefusedWithoutAGrantASessionOrARuntime,
-    testRevocationClosesAnAttachedTerminalImmediately,
-    testTerminalToolsSitBehindTheTerminalScope,
-    testAPairedDeviceUploadsIntoTheThreadsFolderAndGetsThePathBack,
-    testASecondFileOfTheSameNameIsSuffixedRatherThanRefused,
-    testAnUploadedNameCannotEscapeTheThreadsFolderOverTheWire,
-    testUploadsSitBehindTheControlScopeAndAKnownSession,
-    testAnOversizedUploadIsCutOffAndLeavesNothingBehind,
-    testARemoteClientOpensATerminalHereAttachesAndDrivesIt,
+    testConversationRouteScopesRevocationAndOpaqueImages,
     testEndpointAndPairingUrlFormatting,
     testWideningADevicesScopesPersistsAndAnUnknownIdThrows,
+    testAStoredDeviceLoadsWithoutItsRetiredTerminalScopes,
     testTheBridgePairsThenDrivesTheGatewayFromAnotherMachine,
     testTheBridgeFailsCleanlyWhenTheDeviceIsRevoked,
     testTheBridgeRefusesIncompleteOrConflictingRemoteInvocations,

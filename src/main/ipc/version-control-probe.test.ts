@@ -111,3 +111,40 @@ test('version-control-probe', async () => {
 
   await suiteRun
 })
+
+test('each WSL machine gets its own git row, after this machine and the forge', async () => {
+  const probes = await probeVersionControlProviders({
+    probeVersion: async (binary) =>
+      binary === 'git'
+        ? { outcome: 'resolved', version: 'git version 0.0.0-win', resolvedPath: 'C:/Program Files/Git/cmd/git.exe' }
+        : { outcome: 'not_installed' },
+    readGhLogin: async () => null,
+    listGitMachines: async () => [
+      {
+        hostId: 'wsl:Ubuntu',
+        label: 'WSL: Ubuntu',
+        probeGit: async () => ({ outcome: 'resolved', version: 'git version 0.0.0-linux', resolvedPath: null }),
+      },
+      { hostId: 'wsl:Debian', label: 'WSL: Debian', probeGit: async () => ({ outcome: 'not_installed' }) },
+      {
+        hostId: 'wsl:Broken',
+        label: 'WSL: Broken',
+        probeGit: async () => {
+          throw new Error('wsl.exe exited')
+        },
+      },
+    ],
+  })
+  assert.deepEqual(probes, [
+    { id: 'git', resolved: true, version: 'git version 0.0.0-win' },
+    { id: 'gh', resolved: false, reason: 'not_installed' },
+    {
+      id: 'git',
+      resolved: true,
+      version: 'git version 0.0.0-linux',
+      machine: { hostId: 'wsl:Ubuntu', label: 'WSL: Ubuntu' },
+    },
+    { id: 'git', resolved: false, reason: 'not_installed', machine: { hostId: 'wsl:Debian', label: 'WSL: Debian' } },
+    { id: 'git', resolved: false, reason: 'probe_failed', machine: { hostId: 'wsl:Broken', label: 'WSL: Broken' } },
+  ])
+})

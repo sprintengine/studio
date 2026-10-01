@@ -1,51 +1,14 @@
-// Part of the IPC contract: the hosted model, sources and card feeds.
+// Part of the IPC contract: the hosted sources and card feeds.
 // ../electron-api.ts re-exports everything here.
 
 import type { HostedCardFeed } from '../hosted-card-feed'
-import type { HostedModelFeed } from '../hosted-model-feed'
 import type { HostedSourcesFeed } from '../hosted-sources-feed'
 
-// The hosted model feed (src/shared/hosted-model-feed.ts) as the main-process
-// client serves it. `ok: true` always carries a feed to render: live from
-// GitHub, the disk cache, or the bundled seed. `degraded` means the last fetch
-// failed or was rejected and the copy shown is the last good one; `message`
-// says why in plain words for the Settings line.
-export type HostedModelFeedReadInput = {
-  forceRefresh?: boolean
-  // Serve whatever is on disk (cache, else seed) without touching the network.
-  // Store boot uses it so the pickers never wait on a fetch.
-  cachedOnly?: boolean
-}
-
-export type HostedModelFeedReadResult =
-  | {
-      ok: true
-      state: 'ok' | 'degraded'
-      feedUrl: string
-      source: 'network' | 'cache' | 'seed'
-      fetchedAt: string
-      etag?: string
-      notModified?: boolean
-      // True when this read wrote a different copy to the disk cache (the first
-      // live copy after install counts, even if it equals the bundled seed).
-      // Fires `hostedModelFeed:changed`; the renderer decides whether it is news.
-      changed: boolean
-      feed: HostedModelFeed
-      message?: string
-    }
-  | {
-      ok: false
-      state: 'offline' | 'fetch-error' | 'invalid-schema'
-      feedUrl: string
-      statusCode?: number
-      message: string
-    }
-
 // The hosted sources feed (src/shared/hosted-sources-feed.ts) as the
-// main-process client serves it. Deliberately the model feed's shape and
-// deliberately not the model feed's type, for the reason the card feed's own
-// comment gives below: the three schemas ship on their own clocks and a shared
-// alias would make one feed's change the others' problem. A failure carries no
+// main-process client serves it. Deliberately the card feed's shape and
+// deliberately not the card feed's type, for the reason the card feed's own
+// comment gives below: the schemas ship on their own clocks and a shared
+// alias would make one feed's change the other's problem. A failure carries no
 // list, and the surface then shows no recommendations — which is exactly what
 // it showed before this feed existed, so there is nothing to apologise for.
 export type HostedSourcesFeedReadInput = {
@@ -76,8 +39,8 @@ export type HostedSourcesFeedReadResult =
     }
 
 // The hosted card feed (src/shared/hosted-card-feed.ts) as the main-process
-// client serves it. Deliberately the model feed's shape and deliberately not
-// the model feed's type: the two schemas ship on their own clocks and a shared
+// client serves it. Deliberately the sources feed's shape and deliberately not
+// the sources feed's type: the two schemas ship on their own clocks and a shared
 // alias would make one feed's change the other feed's problem. `ok: true`
 // always carries a feed to draw — live from GitHub, the disk cache, or the
 // bundled seed — because the home page never apologises for its own network

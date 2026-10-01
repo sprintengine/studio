@@ -3,11 +3,12 @@ import assert from 'node:assert/strict'
 import type { CanvasBoardSummary } from '../../../../../../shared/canvas/types'
 import {
   CANVAS_PICKER_PAGE_SIZE,
+  CANVAS_STORE_LOCATION_LABEL,
   canvasBoardFolder,
-  canvasBoardNameIsTaken,
   canvasBoardRowLabel,
   canvasPickerPage,
   clampCanvasPage,
+  collidingCanvasBoardPath,
   describeCanvasChangedAt,
   duplicateCanvasBoardNames,
   formatCanvasChangedAt,
@@ -114,7 +115,12 @@ test('canvasPickerModel', async () => {
   run('a board says which folder it is in, and a bare path says the default one', () => {
     assert.equal(canvasBoardFolder('diagrams/arch.excalidraw'), 'diagrams')
     assert.equal(canvasBoardFolder('docs/legacy/arch.excalidraw'), 'docs/legacy')
-    assert.equal(canvasBoardFolder('arch.excalidraw'), 'diagrams')
+    assert.equal(canvasBoardFolder('arch.excalidraw'), CANVAS_STORE_LOCATION_LABEL)
+  })
+
+  run('a board in the app store is said to be in app storage, and a project board names its folder', () => {
+    assert.equal(canvasBoardFolder('Arch.EXCALIDRAW'), CANVAS_STORE_LOCATION_LABEL)
+    assert.equal(canvasBoardFolder('.sprintengine/other/arch.excalidraw'), '.sprintengine/other')
   })
 
   run('a unique name is the base until the base is taken', () => {
@@ -133,14 +139,29 @@ test('canvasPickerModel', async () => {
 
   run('a name already on disk is recognised as taken, folding case where the disk does', () => {
     const taken = ['diagrams/arch.excalidraw']
-    assert.equal(canvasBoardNameIsTaken('diagrams/arch.excalidraw', taken, false), true)
-    assert.equal(canvasBoardNameIsTaken('diagrams/Arch.excalidraw', taken, true), true)
+    assert.equal(collidingCanvasBoardPath('diagrams/arch.excalidraw', taken, false), 'diagrams/arch.excalidraw')
+    assert.equal(collidingCanvasBoardPath('diagrams/Arch.excalidraw', taken, true), 'diagrams/arch.excalidraw')
     assert.equal(
-      canvasBoardNameIsTaken('diagrams/Arch.excalidraw', taken, false),
-      false,
+      collidingCanvasBoardPath('diagrams/Arch.excalidraw', taken, false),
+      null,
       'on a case-sensitive filesystem those really are two boards',
     )
-    assert.equal(canvasBoardNameIsTaken('diagrams/other.excalidraw', taken, true), false)
+    assert.equal(collidingCanvasBoardPath('diagrams/other.excalidraw', taken, true), null)
+  })
+
+  run('a new board in the store collides with a legacy board of the same name', () => {
+    const taken = ['diagrams/arch.excalidraw', 'docs/flow.excalidraw']
+    assert.equal(
+      collidingCanvasBoardPath('arch.excalidraw', taken, false),
+      'diagrams/arch.excalidraw',
+      'a bare name would find the legacy board, so a second one would take its name',
+    )
+    assert.equal(
+      collidingCanvasBoardPath('flow.excalidraw', taken, false),
+      null,
+      'only the legacy folder is one a bare name reaches',
+    )
+    assert.equal(collidingCanvasBoardPath('docs/arch.excalidraw', taken, false), null)
   })
 
   run('the changed column is short, and never says "ago"', () => {

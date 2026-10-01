@@ -6,7 +6,7 @@ import { moduleAssetUrl } from '../../shared/modules/assets'
 import { createModuleAssetHandler, isAllowedModuleAssetRequest } from './module-assets'
 import { discoverUserModules } from './user-module-registry'
 import { createModuleAssetOriginResolver } from './module-asset-origins'
-import { manifestFingerprint } from './module-signature'
+import { computeModuleFileDigestsSync, manifestFingerprint } from './module-signature'
 import { test } from 'vitest'
 
 test('module-assets', async () => {
@@ -34,6 +34,17 @@ test('module-assets', async () => {
       )
       await writeFile(join(directory, 'runtime', 'index.html'), '<script src="engine.js"></script>')
       await writeFile(join(directory, 'runtime', 'engine.wasm'), new Uint8Array([0, 97, 115, 109]))
+      // The manifest lists its files' digests, as `sprintengine-module sign` writes them.
+      await writeFile(
+        join(directory, 'manifest.json'),
+        JSON.stringify({
+          id: 'doom',
+          displayName: 'Doom',
+          version: 1,
+          defaultEnabled: true,
+          files: computeModuleFileDigestsSync(directory).files,
+        }),
+      )
       const initial = await discoverUserModules(root, { trustedModules: new Map() })
       const trustedModules = new Map([['doom', manifestFingerprint(initial.modules[0]!.manifest)]])
       let enabled = true
@@ -72,10 +83,19 @@ test('module-assets', async () => {
       enabled = false
       assert.equal((await handler(new Request(url))).status, 403)
       enabled = true
+      assert.equal((await handler(new Request(`${url}/%2e%2e%2f%2e%2e%2fsecret`))).status, 400)
+      // Served bytes are the verified bytes: a file changed after the grant is
+      // refused, and so is one the module was never verified with.
+      await writeFile(join(directory, 'runtime', 'engine.wasm'), new Uint8Array([1, 2, 3, 4]))
+      assert.equal((await handler(new Request(new URL('engine.wasm', url)))).status, 403)
+      await writeFile(join(directory, 'runtime', 'engine.wasm'), new Uint8Array([0, 97, 115, 109]))
+      assert.equal((await handler(new Request(new URL('engine.wasm', url)))).status, 200)
       await writeFile(join(root, 'secret'), 'secret')
       await symlink(join(root, 'secret'), join(directory, 'runtime', 'escape'))
       assert.equal((await handler(new Request(asset('doom', 'runtime/escape')))).status, 403)
-      assert.equal((await handler(new Request(`${url}/%2e%2e%2f%2e%2e%2fsecret`))).status, 400)
+      // A symlink in the folder is a file the module cannot vouch for, so the
+      // whole module stops being trusted, not only that path.
+      assert.equal((await handler(new Request(url))).status, 403)
       trustedModules.clear()
       assert.equal((await handler(new Request(url))).status, 403)
     } finally {

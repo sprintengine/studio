@@ -9,7 +9,10 @@ By taking part you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 ## Getting set up
 
 You need **Node 22** (22.12 or later) and npm. The repository carries a
-`.nvmrc`, so `nvm use` picks the right version; CI reads the same file.
+`.nvmrc`, so `nvm use` picks the right version; CI reads the same file. Node 24
+works too. Odd-numbered releases (23, 25) are short-lived and are left out of
+`engines` on purpose: `npm ci` on one of them prints `EBADENGINE` warnings, and
+the fix is to switch to 22 or 24 rather than to widen the range.
 
 ```
 git clone https://github.com/sprintengine/studio.git
@@ -34,7 +37,7 @@ Python on your machine, and the app neither ships nor resolves one.
 To produce a build:
 
 ```
-npm run build         # compile main, preload and renderer, then check the bundle budget
+npm run build         # compile main, preload and renderer
 npm run dist:mac      # or dist:win / dist:linux — packages an installer
 ```
 
@@ -48,7 +51,7 @@ npm test                                    # the unit and contract suite (Vites
 npx vitest <file or name fragment>          # one file, re-run on save
 npm run test:coverage                       # the suite with a coverage report
 npm run typecheck:all                       # app and test projects
-npm run lint                                # oxlint, then the design-system and composition lints
+npm run lint                                # oxlint, the NUL-byte guard, then the design-system and composition lints
 npm run format                              # format with Prettier (format:check only checks)
 npm run knip                                # unused files and undeclared or unused dependencies
 npm run verify:app                          # everything CI runs, in one command
@@ -182,22 +185,48 @@ so the cost of getting it wrong is a round trip.
 
 ## Commit messages
 
-Commit subjects in this repository are plain English sentences that say what
-is now true, in the present tense. They describe the change and its point, not
-the mechanics. No type prefixes, no ticket numbers, no trailing full stop.
-
-Real examples from the log:
+Commit subjects and pull request titles must use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/):
 
 ```
-The file tree says what each file IS
-An image attachment opens in the system viewer
-OpenCode's config env takes the context path as a JSON literal
-The peek stopped closing itself a frame after it opened
-The test projects typecheck again
+feat: add workspace search
+fix(updates): retry interrupted downloads
+feat!: remove the legacy workspace format
 ```
 
-Write the body, if you need one, the same way: prose explaining why the change
-was made and anything a reviewer would otherwise have to reconstruct.
+The format is `type(scope)!: description`; scope and `!` are optional. Use a
+plain description of what changed, without private ticket numbers or a trailing
+full stop. Accepted types are `feat`, `fix`, `perf`, `refactor`, `docs`,
+`style`, `test`, `build`, `ci`, `chore` and `revert`.
+
+A merge to `main` publishes nothing by itself. Main feeds a nightly train, cut
+every six hours at most and only when main has moved, and a stable release is a
+maintainer promoting the commit the latest nightly shipped. The commit type
+still decides the version, and the next nightly carries it at once:
+
+| Commit | Version bump |
+|---|---|
+| Any type with `!` or a `BREAKING CHANGE: description` footer | Major from 1.x; minor while the version is 0.x |
+| `feat` without a breaking change | Minor |
+| Every other accepted type | Patch |
+
+While the app is at 0.x nothing is promised, so no commit can derive 1.0.0:
+that version is published only when a maintainer types it into the stable
+promotion's `version` input.
+
+Merge pull requests with a merge commit or a squash, never a rebase. Either way
+GitHub uses the PR title as the commit subject and its body as the commit body,
+so the required **Conventional PR title** check validates the message used for
+versioning; a rebase would put a branch commit at the tip instead. Mark breaking changes in that title
+or body even if a branch commit already describes them. Write the body as prose
+explaining why the change was made and what a reviewer needs to know.
+
+Do not manually bump the app version. The workflow derives it from the
+preceding stable tag and the strongest change since that tag, stamps the build
+before compilation, and publishes installers and updater manifests together.
+Package versions for the independently published SDKs are managed separately.
+See [the release checklist](docs/release-checklist.md) for how a nightly is cut,
+how stable is promoted, the hotfix tag route, how an installed app chooses its
+update channel, and repository enforcement settings.
 
 ## Pull requests
 
@@ -212,7 +241,7 @@ was made and anything a reviewer would otherwise have to reconstruct.
 ## Licence and contribution terms
 
 The repository is licensed under the MIT License. See [LICENSE](LICENSE).
-`packages/module-sdk` and `packages/mobile-control-protocol` each carry their
+`packages/module-sdk` and `packages/conversation-protocol` each carry their
 own MIT licence file as well.
 
 When you contribute, you licence your contribution under MIT. You keep the

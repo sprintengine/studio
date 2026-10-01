@@ -22,6 +22,13 @@ import type { IDisposable, ITerminalAddon } from '@xterm/xterm'
  *    whose own disposal hook calls `renderService.setRenderer(core
  *    ._createRenderer())` — i.e. puts the DOM renderer back and resizes it.
  *    Disposal IS the fallback. Not disposing is what leaves a blank pane.
+ *    Falling back is only the first half: this handle then reports
+ *    `context-lost`, and `terminalWebglBudget.ts` attaches a fresh addon once
+ *    the GPU has had a moment, so a reset does not leave the pane on the slow
+ *    renderer for the rest of its life.
+ *
+ * One handle is one attach. The budget attaches and disposes as the pane comes
+ * and goes from the screen, each time with a new handle.
  *
  * Everything is injected so the fallback path is testable without a GPU:
  * `terminalWebglRenderer.test.ts` drives a fake addon that throws on
@@ -48,13 +55,18 @@ export type WebglRendererTarget = {
  */
 export type WebglRendererState =
   | 'webgl'
-  /** `attachWebglRenderer` was never called for this terminal. */
+  /**
+   * No context yet: the pane has not been on screen since it mounted, so the
+   * window's WebGL budget (terminalWebglBudget.ts) has not granted it one.
+   */
   | 'not-loaded'
+  /** The budget took the context back — the pane's layer went cold, or an on-screen pane needed it. */
+  | 'released'
   /** `loadWebglRenderer()` was called before `term.open()`; a pane-ordering bug. */
   | 'not-opened'
   /** No WebGL2 context, or the addon refused to activate. */
   | 'unavailable'
-  /** Had a context, lost it, fell back. */
+  /** Had a context, lost it, fell back. The budget re-acquires one after a short back-off. */
   | 'context-lost'
   /** The pane tore the terminal down. */
   | 'disposed'

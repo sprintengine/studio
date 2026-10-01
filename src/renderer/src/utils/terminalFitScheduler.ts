@@ -12,16 +12,24 @@
 // 2. An interactive window resize emits a size change per animation frame,
 //    so every visible terminal re-fits ~60× per second, re-wrapping up to
 //    25k scrollback lines and SIGWINCH-ing its CLI on each frame.
-// 3. The sidebar collapse/expand glide resizes the main column on every
-//    frame of its 150 ms width transition (see sidebarTransition.ts).
+// 3. A layout transition (the sidebar's width glide, the paused-agent
+//    footer's row ease) resizes the terminal on every frame it runs, and a
+//    column drag does the same for every pointer frame. Each pty resize makes
+//    the agent CLI redraw its whole screen, which is what made the view jump.
 //
 // This scheduler resolves each case without changing what the user sees:
 // fits for terminals that are not rendered are parked until their workspace
-// layer is revealed; fits during a window resize are throttled to
-// RESIZE_FIT_THROTTLE_MS with one trailing fit when the resize settles; fits
-// during the sidebar glide keep the existing run-once-on-landing behavior.
+// layer is revealed; fits during a layout transition that can reach this
+// terminal are parked until it lands and then run once (layoutTransition.ts);
+// fits during a window resize or a column drag are throttled to
+// RESIZE_FIT_THROTTLE_MS with one trailing fit when it settles.
 
-import { isSidebarAnimating, onSidebarAnimating } from './sidebarTransition'
+import {
+  installLayoutTransitionTracking,
+  isInteractiveLayoutResize,
+  isLayoutTransitionAffecting,
+  onLayoutSettled,
+} from './layoutTransition'
 
 // Dispatched (as a plain window event) when a hidden workspace layer becomes
 // the active, visible one. WorkspaceManager owns the dispatch; parked
@@ -74,10 +82,10 @@ function isContainerRendered(container: HTMLElement): boolean {
  *
  * Call `requestFit` from the terminal's ResizeObserver. The fit is parked
  * while the container is not rendered (hidden workspace layer or hidden
- * FlexLayout tab), while the sidebar glide is animating, or — beyond the
- * throttle budget — while the window is being interactively resized. Each
- * parked fit runs exactly once when its gate lifts: layer reveal, glide
- * landing, or resize settle. A fit parked behind a hidden FlexLayout tab is
+ * FlexLayout tab), while a layout transition that can resize it is running,
+ * or — beyond the throttle budget — while the window or a column is being
+ * interactively resized. Each parked fit runs exactly once when its gate
+ * lifts: layer reveal, transition landing, or resize settle. A fit parked behind a hidden FlexLayout tab is
  * released by the ResizeObserver itself when the tab's display flips.
  *
  * `dispose` must run on teardown to drop the subscriptions.
@@ -87,10 +95,11 @@ export function createTerminalFitScheduler(
   container: HTMLElement,
 ): { requestFit: () => void; dispose: () => void } {
   ensureWindowResizeListener()
+  installLayoutTransitionTracking()
 
   let disposed = false
   let pendingReveal = false
-  let pendingSidebarLanding = false
+  let pendingTransitionLanding = false
   let pendingResizeSettle = false
   let lastResizeFitAt = 0
 
@@ -101,11 +110,12 @@ export function createTerminalFitScheduler(
       return
     }
     pendingReveal = false
-    if (isSidebarAnimating()) {
-      pendingSidebarLanding = true
+    if (isLayoutTransitionAffecting(container)) {
+      pendingTransitionLanding = true
       return
     }
-    if (windowResizing) {
+    pendingTransitionLanding = false
+    if (windowResizing || isInteractiveLayoutResize()) {
       const now = performance.now()
       if (now - lastResizeFitAt < RESIZE_FIT_THROTTLE_MS) {
         pendingResizeSettle = true
@@ -119,10 +129,17 @@ export function createTerminalFitScheduler(
     })
   }
 
-  const unsubscribeSidebar = onSidebarAnimating((animating) => {
-    if (animating || !pendingSidebarLanding) return
-    pendingSidebarLanding = false
-    schedule()
+  // A transition landed or a column drag ended: a fit parked behind either
+  // runs now, once, at the size the layout settled on.
+  const unsubscribeLayout = onLayoutSettled(() => {
+    if (pendingTransitionLanding) {
+      schedule()
+      return
+    }
+    if (pendingResizeSettle && !windowResizing && !isInteractiveLayoutResize()) {
+      pendingResizeSettle = false
+      schedule()
+    }
   })
 
   const onResizeSettle: ResizeSettleListener = () => {
@@ -142,7 +159,7 @@ export function createTerminalFitScheduler(
     requestFit: schedule,
     dispose: () => {
       disposed = true
-      unsubscribeSidebar()
+      unsubscribeLayout()
       resizeSettleListeners.delete(onResizeSettle)
       window.removeEventListener(WORKSPACE_LAYER_REVEAL_EVENT, onReveal)
     },

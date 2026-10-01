@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
-import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { chmod, cp, mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -69,17 +69,11 @@ test('workspace-skills-service', async () => {
     const backlogDir = await writeSkillDir(workspaceRoot, '.agents', 'backlog')
     const backlogBuiltin = BUILTIN_SKILLS.find((skill) => skill.id === 'backlog')
     assert.ok(backlogBuiltin)
+    // Installed builtin with a stale manifest version → update-available.
+    // (`backlog` is the only built-in now; `debug` was one until Debug Mode went.)
     await writeFile(
       join(backlogDir, '.sprintengine-skill.json'),
-      JSON.stringify({ id: 'backlog', source: 'sprintengine-builtin', version: backlogBuiltin.version }),
-      'utf-8',
-    )
-
-    // Installed builtin with a stale manifest version → update-available.
-    const debugDir = await writeSkillDir(workspaceRoot, '.claude', 'debug')
-    await writeFile(
-      join(debugDir, '.sprintengine-skill.json'),
-      JSON.stringify({ id: 'debug', source: 'sprintengine-builtin', version: '0.0.1' }),
+      JSON.stringify({ id: 'backlog', source: 'sprintengine-builtin', version: '0.0.1' }),
       'utf-8',
     )
 
@@ -110,19 +104,15 @@ test('workspace-skills-service', async () => {
     const backlog = byId.get('backlog')
     assert.ok(backlog)
     assert.equal(backlog.source, 'builtin')
-    assert.equal(backlog.installState, 'installed')
+    assert.equal(backlog.installState, 'update-available')
     // No SKILL.md written → BUILTIN_SKILLS metadata fallback.
     assert.equal(backlog.name, backlogBuiltin.name)
-
-    const debug = byId.get('debug')
-    assert.ok(debug)
-    assert.equal(debug.installState, 'update-available')
 
     // Every builtin appears exactly once; uninstalled ones are 'available'.
     for (const builtin of BUILTIN_SKILLS) {
       const entries = skills.filter((skill) => skill.id === builtin.id)
       assert.equal(entries.length, 1, `builtin ${builtin.id} listed once`)
-      if (builtin.id !== 'backlog' && builtin.id !== 'debug') {
+      if (builtin.id !== 'backlog') {
         assert.equal(entries[0].installState, 'available')
       }
     }
@@ -398,7 +388,7 @@ test('workspace-skills-service', async () => {
   }
 
   // The acceptance test for the whole backend, run rather than reasoned about:
-  // a thirteenth CLI nobody has heard of, dropped into the user plugin root as a
+  // a thirteenth CLI nobody has heard of, shipped beside the app's own as a
   // plugin.json and nothing else, must resolve its skills and its servers — and
   // receive an attach — with no edit to any production file. Every path here is
   // invented (`.hypertron/agent-skills`, `hyper-mcp.json`) precisely so that a
@@ -444,21 +434,24 @@ test('workspace-skills-service', async () => {
 
   async function testThirteenthCli(): Promise<void> {
     const temp = await mkdtemp(join(tmpdir(), 'sprintengine-thirteenth-cli-'))
-    const userPluginRoot = join(temp, 'user-plugins')
-    await mkdir(join(userPluginRoot, 'hypertron'), { recursive: true })
+    // Agent CLIs ship with the app — the user plugin root holds conversation
+    // providers only — so the fixture joins a copy of the bundled root.
+    const bundledPluginRoot = join(temp, 'bundled-plugins')
+    await cp(join(process.cwd(), 'resources', 'plugins'), bundledPluginRoot, { recursive: true })
+    await mkdir(join(bundledPluginRoot, 'hypertron'), { recursive: true })
     await writeFile(
-      join(userPluginRoot, 'hypertron', 'plugin.json'),
+      join(bundledPluginRoot, 'hypertron', 'plugin.json'),
       JSON.stringify(THIRTEENTH_MANIFEST, null, 2),
       'utf-8',
     )
 
     // Loaded through the real registry, so the manifest is validated exactly as a
-    // dropped-in plugin would be rather than hand-built into the shape the map wants.
+    // shipped plugin would be rather than hand-built into the shape the map wants.
     const registry = createPluginRegistry(
       createAppPluginRegistryOptions(
         join(process.cwd(), 'node_modules', '.cache', 'sprintengine'),
-        join(process.cwd(), 'resources', 'plugins'),
-        userPluginRoot,
+        bundledPluginRoot,
+        join(temp, 'user-plugins'),
       ),
     )
     const report = registry.loadSync()

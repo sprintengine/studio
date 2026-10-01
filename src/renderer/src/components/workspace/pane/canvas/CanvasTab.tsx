@@ -9,7 +9,10 @@ import type { WorkspacePaneTab } from '../../../../types/workspace'
 import { EmptyState, PrimaryButton } from '../../../ui'
 import { SuspenseFallback } from '../../../ui/SuspenseFallback'
 import { CanvasBoardPicker } from './CanvasBoardPicker'
+import { CanvasExportDialog } from './CanvasExportDialog'
+import { canvasExportedToast, type CanvasBoardExporter, type CanvasExportFormats } from './canvasExport'
 import { canvasPushMatchesBoard, shouldApplyCanvasPush } from './canvasSync'
+import { StudioSkillSuggestion } from '../../../studioSkills/StudioSkillSuggestion'
 
 // The Canvas tab: the board's lifecycle, the board actions, and the picker a
 // tab with no board yet shows.
@@ -34,21 +37,6 @@ type CanvasTabProps = {
 }
 
 type BoardState = { kind: 'loading' } | { kind: 'ready'; board: CanvasBoardState } | { kind: 'error'; message: string }
-
-/**
- * The board's absolute path, for the one thing that needs one: revealing it in
- * the system file manager. Everything else — the tools, main, the tab record —
- * speaks the project-relative path.
- *
- * Joined by hand because the renderer has no `path` module. Windows' shell API
- * is the reason for the second line: it selects nothing when handed a path with
- * forward slashes in it.
- */
-function absoluteBoardPath(root: string, boardPath: string): string {
-  const base = root.replace(/[\\/]+$/, '')
-  const joined = `${base}/${boardPath}`
-  return window.api.platform === 'win32' ? joined.replace(/\//g, '\\') : joined
-}
 
 export function CanvasTab({ workspaceId, tab, active }: CanvasTabProps) {
   const path = tab.canvas?.path ?? null
@@ -181,24 +169,81 @@ export function CanvasTab({ workspaceId, tab, active }: CanvasTabProps) {
     updatePaneTab(workspaceId, tab.id, { canvas: undefined })
   }, [tab.id, updatePaneTab, workspaceId])
 
-  // The three board actions, handed to the editor to put in its own menu. They
+  // The board actions, handed to the editor to put in its own menu. They
   // are defined here, where the tab record and the workspace root live, and the
   // editor only calls them — which is what keeps `CanvasTab` free of the
   // package. `revealFile` is null rather than disabled when the workspace has
   // no folder: an item that cannot do anything is better left out than shown
   // greyed with no explanation.
+  //
+  // Main finds the file: a board in the app's store lives in the app's data
+  // folder, outside the project, where no join against the workspace root
+  // would find it.
   const revealFile = useCallback(() => {
     if (!workspaceRoot || !path) return
-    void window.api.showItemInFolder(absoluteBoardPath(workspaceRoot, path))
-  }, [path, workspaceRoot])
+    void window.api.canvasRevealBoard({ workspaceId, path }).catch(() => {})
+  }, [path, workspaceId, workspaceRoot])
 
   const copyPath = useCallback(() => {
     if (!path) return
-    // The project-relative path: the spelling the canvas tools take, and the
-    // one that means the same thing on another machine.
+    // The board's own path — a bare file name for a store board, a
+    // project-relative one otherwise: the spelling the canvas tools take, and
+    // the one that means the same thing on another machine.
     void window.api.clipboardWriteText(path)
     showToast({ tone: 'good', title: 'Board path copied', description: path })
   }, [path])
+
+  // Export: the editor hands up its half (flush, then render the pictures), the
+  // dialog asks which files, and main shows the folder picker and writes them.
+  // The editor's half is kept in a ref rather than state: it is a function the
+  // dialog calls once, not something this tab renders from.
+  const exporterRef = useRef<CanvasBoardExporter | null>(null)
+  const [exportOpen, setExportOpen] = useState(false)
+  const [exportPending, setExportPending] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
+
+  const openExport = useCallback((exporter: CanvasBoardExporter) => {
+    exporterRef.current = exporter
+    setExportError(null)
+    setExportOpen(true)
+  }, [])
+
+  const cancelExport = useCallback(() => {
+    setExportOpen(false)
+    setExportError(null)
+  }, [])
+
+  const runExport = useCallback(
+    async (formats: CanvasExportFormats) => {
+      const exporter = exporterRef.current
+      if (!path || !exporter) return
+      setExportPending(true)
+      setExportError(null)
+      try {
+        const images = await exporter(formats)
+        const result = await window.api.canvasExportBoard({
+          workspaceId,
+          path,
+          ...(workspaceRoot ? { defaultDirectory: workspaceRoot } : {}),
+          images,
+        })
+        if (!result.ok) {
+          setExportError(result.error.message)
+          return
+        }
+        // Dismissing the folder picker is a change of mind, not a failure: the
+        // dialog stays open on the same choice so a second press tries again.
+        if (result.value.cancelled) return
+        setExportOpen(false)
+        showToast({ tone: 'good', ...canvasExportedToast(result.value) })
+      } catch (error) {
+        setExportError(error instanceof Error ? error.message : 'The board could not be exported.')
+      } finally {
+        setExportPending(false)
+      }
+    },
+    [path, workspaceId, workspaceRoot],
+  )
 
   if (!path) {
     return <CanvasBoardPicker workspaceId={workspaceId} onPick={pickBoard} openPaths={openPaths} />
@@ -210,42 +255,61 @@ export function CanvasTab({ workspaceId, tab, active }: CanvasTabProps) {
   // the board's name, and a second copy of it under a hairline was a strip of
   // the drawing surface spent saying nothing new — so the editor starts
   // directly under the strip and fills the tab. What the band held moved into
-  // the space the editor already spends: the three board actions are items at
+  // the space the editor already spends: the board actions are items at
   // the top of its own menu, and an agent's presence is a badge in its
   // top-right corner.
+  //
+  // The one line allowed above it is the Canvas skill's offer, shown until the
+  // person answers it once (StudioSkillSuggestion); the host is measured, so the
+  // editor takes the height back when it goes.
   return (
-    <div ref={hostRef} className="relative h-full w-full bg-[color:var(--bg-app)]">
-      {state.kind === 'error' ? (
-        <EmptyState
-          title="This board could not be opened"
-          body={state.message}
-          action={<PrimaryButton onClick={() => setAttempt((n) => n + 1)}>Try again</PrimaryButton>}
+    <div className="flex h-full w-full flex-col">
+      <StudioSkillSuggestion
+        skillId="studio-canvas"
+        className="shrink-0 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2"
+      />
+      <div ref={hostRef} className="relative min-h-0 w-full flex-1 bg-[color:var(--bg-app)]">
+        {state.kind === 'error' ? (
+          <EmptyState
+            title="This board could not be opened"
+            body={state.message}
+            action={<PrimaryButton onClick={() => setAttempt((n) => n + 1)}>Try again</PrimaryButton>}
+          />
+        ) : state.kind === 'loading' || !sized ? (
+          <SuspenseFallback label="Opening the board" />
+        ) : (
+          // `se-canvas` is the wrapper canvasTheme.css maps the editor's own
+          // variables onto our tokens under. Keyed on the board so switching to
+          // another one builds a new editor rather than re-pointing this one:
+          // the scene, the undo stack and the viewport all belong to a board.
+          <div className="se-canvas absolute inset-0">
+            <React.Suspense fallback={<SuspenseFallback label="Loading the canvas" />}>
+              <CanvasEditor
+                key={path}
+                workspaceId={workspaceId}
+                path={path}
+                initial={state.board}
+                name={name}
+                theme={theme}
+                active={active}
+                presence={presence}
+                onSwitchBoard={switchBoard}
+                onRevealFile={workspaceRoot ? revealFile : null}
+                onCopyPath={copyPath}
+                onExport={openExport}
+              />
+            </React.Suspense>
+          </div>
+        )}
+        <CanvasExportDialog
+          open={exportOpen}
+          boardName={name}
+          pending={exportPending}
+          error={exportError}
+          onCancel={cancelExport}
+          onExport={(formats) => void runExport(formats)}
         />
-      ) : state.kind === 'loading' || !sized ? (
-        <SuspenseFallback label="Opening the board" />
-      ) : (
-        // `se-canvas` is the wrapper canvasTheme.css maps the editor's own
-        // variables onto our tokens under. Keyed on the board so switching to
-        // another one builds a new editor rather than re-pointing this one:
-        // the scene, the undo stack and the viewport all belong to a board.
-        <div className="se-canvas absolute inset-0">
-          <React.Suspense fallback={<SuspenseFallback label="Loading the canvas" />}>
-            <CanvasEditor
-              key={path}
-              workspaceId={workspaceId}
-              path={path}
-              initial={state.board}
-              name={name}
-              theme={theme}
-              active={active}
-              presence={presence}
-              onSwitchBoard={switchBoard}
-              onRevealFile={workspaceRoot ? revealFile : null}
-              onCopyPath={copyPath}
-            />
-          </React.Suspense>
-        </div>
-      )}
+      </div>
     </div>
   )
 }

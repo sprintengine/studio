@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { COMMAND_REGISTRY, getCommandDefinition } from './commandRegistry'
+import { findKeybindingConflicts, hasBlockingKeybindingConflict } from './conflicts'
 import { normalizeKeybinding } from './keybindings'
 import { test } from 'vitest'
 
@@ -78,4 +79,32 @@ test('commandRegistry', async () => {
     palette?.handlerPath,
     'both commands raise the same overlay — they differ only in what a user can rebind',
   )
+
+  // Layout tabs use the physical Control key even on macOS, where Primary is
+  // Command and Command+Tab is reserved for switching applications. These
+  // commands also have to cross the editable-target guard because agent tabs
+  // are normally focused inside xterm, Monaco, or a composer.
+  const nextLayoutTab = getCommandDefinition('layout.tab.next')
+  const previousLayoutTab = getCommandDefinition('layout.tab.previous')
+  assert.deepEqual(nextLayoutTab?.defaultKeybindings, ['ctrl+tab', 'shift+meta+]'])
+  assert.deepEqual(previousLayoutTab?.defaultKeybindings, ['ctrl+shift+tab', 'shift+meta+['])
+  assert.equal(nextLayoutTab?.allowInEditableTarget, true)
+  assert.equal(previousLayoutTab?.allowInEditableTarget, true)
+  assert.deepEqual(nextLayoutTab?.scopes, ['global'])
+  assert.deepEqual(previousLayoutTab?.scopes, ['global'])
+  assert.equal(nextLayoutTab?.availability, undefined)
+  assert.equal(previousLayoutTab?.availability, undefined)
+})
+
+test('the chat turn chords share the terminal prompt chords without a blocking conflict', () => {
+  const previous = getCommandDefinition('chat.turn.previous')
+  const next = getCommandDefinition('chat.turn.next')
+  assert.deepEqual(previous?.defaultKeybindings, ['primary+shift+arrowup'])
+  assert.deepEqual(next?.defaultKeybindings, ['primary+shift+arrowdown'])
+  // Outside editable targets only: in the composer the chord is the text
+  // field's select-to-start/end.
+  assert.equal(previous?.allowInEditableTarget, undefined)
+  for (const command of [previous!, next!]) {
+    assert.equal(hasBlockingKeybindingConflict(findKeybindingConflicts(command, COMMAND_REGISTRY)), false)
+  }
 })

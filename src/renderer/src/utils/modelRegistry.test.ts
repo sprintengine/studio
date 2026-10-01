@@ -77,6 +77,7 @@ test('modelRegistry', async () => {
     id?: string
     component?: string
     enableTabStrip?: boolean
+    selected?: number
     minWidth?: number
     children?: TabsetJson[]
   }
@@ -332,6 +333,23 @@ test('modelRegistry', async () => {
     const fileTab = allTabs(model).find((tab) => tab.component === 'file-editor')
     assert.ok(fileTab)
     assert.equal(fileTab.enableClose, true)
+    unregisterModel(WS)
+  }
+
+  // An agent's reveal while the person is typing (`select: false`): the file
+  // tab is added behind the one they are on, and an open one is not brought
+  // forward.
+  {
+    const model = freshModel()
+    registerModel(WS, model)
+    assert.equal(focusOrAddFileTab(WS, '/tmp/app.ts', 'app.ts'), true)
+    const editorSet = () => tabsets(model).find((set) => componentsOf(set).includes('file-editor'))
+    const selectedBefore = editorSet()?.selected ?? 0
+    assert.equal(focusOrAddFileTab(WS, '/tmp/other.ts', 'other.ts', { select: false }), true)
+    const after = editorSet()
+    assert.ok(after)
+    assert.equal(componentsOf(after).length, 2)
+    assert.equal(after.selected ?? 0, selectedBefore)
     unregisterModel(WS)
   }
 

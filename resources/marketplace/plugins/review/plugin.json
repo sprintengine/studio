@@ -1,14 +1,14 @@
 {
   "id": "review",
   "displayName": "Reviews",
-  "version": 1,
+  "version": 2,
   "defaultEnabled": true,
   "source": "third-party",
   "permissions": [
     "ipc:invoke",
-    "ipc:agents",
     "ipc:workspace-read",
-    "agents:session",
+    "conversation:operate",
+    "mcp:tools",
     "filesystem:read-workspace",
     "filesystem:write-workspace",
     "process:spawn",
@@ -21,25 +21,28 @@
   "dependsOn": [
     "agent-runtime"
   ],
+  "engines": {
+    "hostApi": 1
+  },
   "components": {
     "module": {
       "path": "module",
       "files": [
         {
           "path": "module/dist/main.cjs",
-          "sha256": "0d2f3f4e793d9c3a97ee65f0711bc01d106dc3dd159128e5b922bca0772779bb"
+          "sha256": "f0c3a1da848c428ced750adf009e314e0659967cedde28a99405c7adba801f07"
         },
         {
           "path": "module/dist/renderer.mjs",
-          "sha256": "c7b2d6b5ae81f4b969e927dc376e70aa27585e8cb3e2dfc0522d384c3437e205"
+          "sha256": "0df16b4064830293e9b7d8b3650abde938a2d9d75fff99caecafcef2d5daa8f0"
         },
         {
           "path": "module/manifest.json",
-          "sha256": "02a7a4fb7d976603c543d0db38b836fedec6441e116eb5b07165da11f10bf4eb"
+          "sha256": "e9dc48a21fdd93199a9385cca38d761b64faaed04b1755aa21a4cbd0f31909ec"
         },
         {
           "path": "module/README.md",
-          "sha256": "5e7ad7332803c040cf26df8dbb93b4cf7b41ba8b347f7dfc7895ccb0c3c4f858"
+          "sha256": "2388c4a2938b887306ff11bc4f327a6f8208412f6e49d0d4e918743845cda0e2"
         },
         {
           "path": "module/skills/review-guide/agents/openai.yaml",
@@ -47,11 +50,11 @@
         },
         {
           "path": "module/skills/review-guide/SKILL.md",
-          "sha256": "8eb1ad891ea3a4139e8474e3515897b5154f669c75fa63aaacec012a4e3cc807"
+          "sha256": "f310690389e45efcae9fca7f3a7d8b968c0226683b9fb86340ac9ce4093d39a8"
         },
         {
           "path": "module/skills/studio-review/SKILL.md",
-          "sha256": "4cf7cee7644ddf96e4c6ab073c6d52b3b9c709586ccd4f17e08e77342f481edb"
+          "sha256": "ce9205ebcb75fd717cdde3c01926731128fdc3f7ee1aa9c121f243bd954e9e79"
         }
       ]
     }
@@ -59,6 +62,6 @@
   "signature": {
     "algorithm": "ed25519",
     "publicKey": "MCowBQYDK2VwAyEAptxscrkw0So+0D3Pm2FupKpxqOyaNmpUR909RrGSuX0=",
-    "signature": "1QMOt/EcQM7BuY7T3djoixeTz72Xfza0mE3nymQEj7Vta3dbt9XZsiGIy9DXm+w+fZKAvtY0ef70AcOJ6iDJCQ=="
+    "signature": "ljBGRcu6X4vbNgR01EnVH2dRZbyx50z4SMYoAcOse4JviLvgI7mVic9XR77W6FmsVwZyQv6C0tN0+jSpoR5rCA=="
   }
 }

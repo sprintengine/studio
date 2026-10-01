@@ -27,7 +27,7 @@ test('module-bridge', async () => {
       source: 'third-party',
       permissions: ['network'],
     }),
-    automations: manifest({ id: 'automations', source: 'bundled' }),
+    'scheduled-agents': manifest({ id: 'scheduled-agents', source: 'bundled' }),
     git: manifest({
       id: 'git',
       source: 'bundled',
@@ -46,7 +46,7 @@ test('module-bridge', async () => {
     }))
     kernel.hostFor('weather-deck').registerIpc('forecast:global', () => 'unprefixed')
     kernel.hostFor('quiet-deck').registerIpc('quiet-deck:ping', () => 'pong')
-    kernel.hostFor('automations').registerIpc('automations:list', () => [])
+    kernel.hostFor('scheduled-agents').registerIpc('scheduled-agents:list', () => [])
     kernel.hostFor('git').registerIpc('git:status:read', () => ({ ok: true, data: null }))
     return fake
   }
@@ -92,7 +92,7 @@ test('module-bridge', async () => {
 
   async function testDispatcherRefusesBundledModuleWithoutInvokePermission(): Promise<void> {
     const fake = createBridgeFixture()
-    const outcome = await bridgeInvoke(fake, { channel: 'automations:list' })
+    const outcome = await bridgeInvoke(fake, { channel: 'scheduled-agents:list' })
     assert.equal(outcome.ok, false)
     assert.equal(!outcome.ok && outcome.code, 'permission_missing')
   }

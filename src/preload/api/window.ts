@@ -60,6 +60,12 @@ export const windowApi = {
     ipcRenderer.on(ch, handler)
     return () => ipcRenderer.removeListener(ch, handler)
   },
+  onWindowHiddenChanged: (cb: (hidden: boolean) => void): (() => void) => {
+    const ch = 'window:hidden-changed'
+    const handler = (_: IpcRendererEvent, hidden: boolean) => cb(hidden)
+    ipcRenderer.on(ch, handler)
+    return () => ipcRenderer.removeListener(ch, handler)
+  },
   onWindowPlacementChanged: (cb: (placement: WindowPlacement) => void): (() => void) => {
     const ch = 'window:placement-changed'
     const handler = (_: IpcRendererEvent, placement: WindowPlacement) => cb(placement)
@@ -90,6 +96,7 @@ export const windowApi = {
   | 'confirmWindowClose'
   | 'openExternal'
   | 'onWindowStateChanged'
+  | 'onWindowHiddenChanged'
   | 'onWindowPlacementChanged'
   | 'onWindowCloseRequested'
 >

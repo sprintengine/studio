@@ -20,9 +20,9 @@
   "scripts": {
     "start": "node scripts/dev.js",
     "dev": "node scripts/dev.js",
-    "build": "electron-vite build && node scripts/check-bundle-budget.mjs",
+    "build": "electron-vite build",
     "build:sdk": "tsc -p packages/module-sdk/tsconfig.json",
-    "build:mobile-protocol": "node packages/mobile-control-protocol/build.mjs",
+    "build:conversation-protocol": "node packages/conversation-protocol/build.mjs",
     "dist": "npm run runtimes:fetch && npm run build && electron-builder",
     "dist:win": "npm run runtimes:fetch -- --platform win32 && npm run build && electron-builder --win",
     "dist:mac": "npm run runtimes:fetch -- --platform darwin && npm run build && electron-builder --mac",
@@ -34,23 +34,24 @@
     "test:coverage": "vitest run --coverage",
     "test:sdk:drift": "tsc -p packages/module-sdk/tsconfig.json && tsc -p packages/module-sdk/tsconfig.drift.json && esbuild packages/module-sdk/drift/sdk-drift-guard.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/sprintengine/sdk-drift-guard.cjs && node node_modules/.cache/sprintengine/sdk-drift-guard.cjs",
     "test:sdk:pack": "node scripts/verify-module-sdk-pack.mjs",
-    "test:mobile-protocol:pack": "node scripts/verify-mobile-protocol-pack.mjs",
-    "test:model-feed": "node scripts/check-model-feed-seed.mjs",
+    "test:conversation-protocol:pack": "node scripts/verify-conversation-protocol-pack.mjs",
     "test:card-feed": "node scripts/check-card-feed-seed.mjs",
     "test:sources": "node scripts/check-sources-seed.mjs",
-    "test:release": "node --test scripts/release/release-lib.test.mjs",
+    "test:release": "node --test scripts/release/*.test.mjs",
+    "codex:protocol": "node scripts/generate-codex-protocol.mjs",
     "typecheck": "npm run typecheck:app",
     "typecheck:app": "tsc -b --noEmit --verbose",
     "typecheck:tests": "tsc -b tsconfig.tests.json --noEmit --verbose",
     "typecheck:all": "npm run typecheck:app && npm run typecheck:tests",
-    "verify:app": "npm run typecheck:all && npm run lint && npm run format:check && npm run knip && npm run test && npm run test:sdk:drift && npm run test:sdk:pack && npm run test:mobile-protocol:pack && npm run test:model-feed && npm run test:card-feed && npm run test:sources && npm run test:release",
+    "verify:app": "npm run typecheck:all && npm run lint && npm run format:check && npm run knip && npm run test && npm run test:sdk:drift && npm run test:sdk:pack && npm run test:conversation-protocol:pack && npm run test:card-feed && npm run test:sources && npm run test:release",
     "verify:marketplace-registry": "esbuild resources/marketplace/verify-marketplace.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/sprintengine/marketplace-registry-verify.cjs && node node_modules/.cache/sprintengine/marketplace-registry-verify.cjs",
-    "lint": "oxlint && node scripts/lint-design-tokens.mjs && node scripts/lint-panel-composition.mjs && node scripts/lint-primitive-duplication.mjs && node scripts/lint-door-surfaces.mjs && node scripts/lint-design-system-conformance.mjs && node scripts/testing/design-system-guard-probes.mjs",
+    "lint": "oxlint && node scripts/lint-nul-bytes.mjs && node scripts/lint-design-tokens.mjs && node scripts/lint-panel-composition.mjs && node scripts/lint-primitive-duplication.mjs && node scripts/lint-door-surfaces.mjs && node scripts/lint-design-system-conformance.mjs && node scripts/testing/design-system-guard-probes.mjs",
     "lint:code": "oxlint",
     "format": "prettier --write \"*.ts\" \"src/**/*.{ts,tsx}\" \"tests/**/*.ts\" \"packages/*/{src,test,drift}/**/*.ts\" \"scripts/**/*.{js,mjs,cjs}\" \"design-system/scripts/**/*.mjs\"",
     "format:check": "prettier --check \"*.ts\" \"src/**/*.{ts,tsx}\" \"tests/**/*.ts\" \"packages/*/{src,test,drift}/**/*.ts\" \"scripts/**/*.{js,mjs,cjs}\" \"design-system/scripts/**/*.mjs\"",
     "knip": "knip --include files,dependencies,unlisted,binaries --no-config-hints",
     "knip:exports": "knip --include exports,types,duplicates",
+    "lint:nul-bytes": "node scripts/lint-nul-bytes.mjs",
     "lint:design-tokens": "node scripts/lint-design-tokens.mjs",
     "lint:design-tokens:report": "node scripts/lint-design-tokens.mjs --report",
     "lint:panel-composition": "node scripts/lint-panel-composition.mjs",
@@ -61,7 +62,6 @@
     "lint:design-system-conformance": "node scripts/lint-design-system-conformance.mjs",
     "lint:guard-probes": "node scripts/testing/design-system-guard-probes.mjs",
     "catalogue:cli-entries": "esbuild resources/marketplace/generate-cli-entries.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/sprintengine/marketplace-cli-entries-generate.cjs && node node_modules/.cache/sprintengine/marketplace-cli-entries-generate.cjs",
-    "sync:model-feed": "node scripts/sync-model-feed.mjs",
     "measure:startup": "node scripts/measure-startup.mjs",
     "report:source-size": "node scripts/report-source-size.mjs",
     "postinstall": "node scripts/fix-node-pty-permissions.js && node node_modules/electron/install.js"
@@ -76,6 +76,9 @@
     "files": [
       "out/**/*",
       "!out/**/*.map"
+    ],
+    "asarUnpack": [
+      "node_modules/@vscode/ripgrep-*/bin/**"
     ],
     "extraResources": [
       {
@@ -100,12 +103,29 @@
         ]
       },
       {
-        "from": "resources/icon.png",
-        "to": "icon.png"
+        "from": "resources/builtin-skills",
+        "to": "builtin-skills",
+        "filter": [
+          "**/*"
+        ]
       },
       {
-        "from": "resources/model-feed.json",
-        "to": "model-feed.json"
+        "from": "packages/module-sdk/templates",
+        "to": "sdk-templates",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "packages/module-sdk/skills",
+        "to": "sdk-skills",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "resources/icon.png",
+        "to": "icon.png"
       },
       {
         "from": "resources/cards-feed.json",
@@ -114,6 +134,13 @@
       {
         "from": "resources/sources.json",
         "to": "sources.json"
+      },
+      {
+        "from": "resources/wsl-helper",
+        "to": "wsl-helper",
+        "filter": [
+          "**/*.mjs"
+        ]
       },
       {
         "from": "resources/hooks",
@@ -184,9 +211,11 @@
       "category": "Development"
     },
     "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "include": "build/installer.nsh",
+      "installerHeaderIcon": "resources/icon.ico"
     },
     "publish": {
       "provider": "github",
@@ -205,9 +234,11 @@
     ]
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "0.3.273",
+    "@agentclientprotocol/sdk": "1.5.0",
+    "@anthropic-ai/claude-agent-sdk": "0.3.283",
     "@excalidraw/excalidraw": "0.18.1",
     "@excalidraw/mermaid-to-excalidraw": "2.2.2",
+    "@legendapp/list": "3.4.0",
     "@monaco-editor/react": "^4.7.0",
     "@vscode/ripgrep": "^1.18.0",
     "@xterm/addon-clipboard": "0.3.0-beta.302",
@@ -219,43 +250,57 @@
     "@xterm/addon-webgl": "0.20.0-beta.299",
     "@xterm/headless": "6.1.0-beta.303",
     "@xterm/xterm": "6.1.0-beta.303",
+    "diff": "9.0.0",
     "electron-updater": "^6.8.9",
     "flexlayout-react": "^0.11.0",
+    "ignore": "7.0.10",
     "immer": "^11.1.18",
-    "monaco-editor": "^0.56.0",
+    "monaco-editor": "^0.57.0",
     "nanoid": "^6.0.1",
     "node-pty": "^1.1.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
+    "shiki": "4.4.3",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@electron-toolkit/tsconfig": "^2.0.0",
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/hast": "3.0.5",
     "@types/jsdom": "^30.0.0",
-    "@types/node": "^26.6.1",
+    "@types/node": "^26.6.3",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
-    "@vitest/coverage-v8": "5.0.1",
-    "electron": "^44.4.1",
+    "@vitest/coverage-v8": "5.0.2",
+    "electron": "^44.4.5",
     "electron-builder": "^26.15.3",
     "electron-vite": "6.0.0-beta.1",
     "esbuild": "^0.28.2",
-    "jsdom": "^30.0.1",
-    "knip": "6.37.0",
-    "oxlint": "1.83.0",
-    "prettier": "3.9.8",
+    "jsdom": "^30.1.1",
+    "knip": "6.38.0",
+    "oxlint": "1.85.0",
+    "prettier": "3.9.9",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "tailwindcss": "^4.0.6",
     "typescript": "^7.0.2",
-    "vite": "^8.3.0",
-    "vitest": "5.0.1"
+    "vite": "^8.3.1",
+    "vitest": "5.0.2"
   },
   "overrides": {
-    "@xmldom/xmldom": "0.8.13",
+    "@excalidraw/excalidraw": {
+      "@radix-ui/react-tabs": "^1.1.21",
+      "nanoid": "^3.3.19"
+    },
+    "@excalidraw/mermaid-to-excalidraw": {
+      "@mermaid-js/parser": "^1.2.1",
+      "nanoid": "^5.1.16"
+    },
+    "@xmldom/xmldom": "^0.8.15",
+    "lodash-es": "^4.18.1",
     "mermaid": "~11.13.0"
   }
 }

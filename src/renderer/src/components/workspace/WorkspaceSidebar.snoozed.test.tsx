@@ -57,6 +57,9 @@ test('WorkspaceSidebar.snoozed', async () => {
   const killed: string[] = []
   const suspended: string[] = []
   const resumed: string[] = []
+  // Alpha also holds a chat agent, whose process main owns: snoozing ends it
+  // too, keeping the session so the next message resumes it.
+  const chatsSuspended: string[] = []
   // Alpha holds a live agent pty, so there is something for the snooze to pause.
   domWindow.api = {
     platform: 'darwin',
@@ -71,7 +74,7 @@ test('WorkspaceSidebar.snoozed', async () => {
         activity: { kind: 'idle', since: 1 },
       },
     ],
-    onTerminalSessionsChanged: () => () => {},
+    onTerminalSessionsDelta: () => () => {},
     getWorkspaceChangeSummary: async () => null,
     terminalKill: async (sessionId: string) => {
       killed.push(sessionId)
@@ -82,6 +85,14 @@ test('WorkspaceSidebar.snoozed', async () => {
     terminalResume: async (sessionId: string) => {
       resumed.push(sessionId)
     },
+    conversationSessionsList: async () => ({
+      ok: true,
+      sessions: [{ sessionId: 'alpha-chat', workspaceId: 'w1', agentId: 'agent-chat', status: 'ready' }],
+    }),
+    conversationSessionSuspend: async ({ sessionId }: { sessionId: string }) => {
+      chatsSuspended.push(sessionId)
+      return { ok: true }
+    },
   }
 
   async function main(): Promise<void> {
@@ -89,6 +100,9 @@ test('WorkspaceSidebar.snoozed', async () => {
     const { act } = React
     const { createRoot } = await import('react-dom/client')
     const { default: WorkspaceSidebar } = await import('./WorkspaceSidebar')
+    const { useWorkspaceStore } = await import('../../store/workspaceStore')
+    // This suite walks the per-project tree, which is not the rail's default shape.
+    useWorkspaceStore.setState({ chatListView: 'projects' })
     type SidebarProps = Parameters<typeof WorkspaceSidebar>[0]
     type Workspace = SidebarProps['workspaces'][number]
 
@@ -229,6 +243,22 @@ test('WorkspaceSidebar.snoozed', async () => {
       assert.ok(shelfBody, 'the shelf row controls a real node')
       assert.equal(shelfBody.hidden, true, 'and that node is hidden while closed')
       assert.equal(foldRow('Settled'), null, 'a folder with nothing at rest grows no Settled shelf')
+      // The shelf sits in the background (owner, 2026-09-28): its word is a
+      // quiet row's `text.subtle`, never the kit row's `text.default`, and its
+      // count a step under that — lifting to readable ink when reached for.
+      const [shelfLabel, shelfCount] = [...shelf.querySelectorAll('span')]
+      assert.match(shelfLabel.className, /(^|\s)text-\[color:var\(--text-subtle\)\]/, 'the word rests at text.subtle')
+      assert.match(
+        shelfLabel.className,
+        /group-hover\/shelf:text-\[color:var\(--text-default\)\]/,
+        'and lifts on hover',
+      )
+      assert.match(
+        shelfLabel.className,
+        /group-focus-visible\/shelf:text-\[color:var\(--text-default\)\]/,
+        'and on keyboard focus',
+      )
+      assert.match(shelfCount.className, /(^|\s)text-\[color:var\(--text-disabled\)\]/, 'the count a step further down')
 
       act(() => {
         shelf.click()
@@ -325,6 +355,7 @@ test('WorkspaceSidebar.snoozed', async () => {
       assert.deepEqual(suspended, ['alpha-pty'], "snoozing pauses the chat's agent pty")
       assert.deepEqual(killed, [], 'and never kills it — the session has to survive to be resumed')
       assert.deepEqual(resumed, [], 'nothing is resumed by the snooze itself')
+      assert.deepEqual(chatsSuspended, ['alpha-chat'], "snoozing ends the chat agent's process as well")
 
       // --- a raised hand outranks the snooze --------------------------------
       // Bravo's agent starts asking. Nothing happens to the row: the clock is the

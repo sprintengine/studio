@@ -1,8 +1,15 @@
 import { isFolderOpenTargetId } from '../../../../shared/folder-open-targets'
+import type { ExecutionHostId, ExecutionHostSettings } from '../../../../shared/execution-host'
+import {
+  normalizeAgentLaunchHosts,
+  normalizeCliPermissionModes,
+  normalizeCliPermissionPresets,
+} from '../../../../shared/launch-settings'
 import type { TextGenerationSettings } from '../../../../shared/text-generation/contract'
 import { normalizeMcpSourceRef } from '../../../../shared/mcp/normalize-server'
 import type { FolderOpenTargetId } from '../../../../shared/folder-open-targets'
 import { normalizeProjectKnowledgeRoots } from './memorySlice'
+import { launchSettingsClient } from '../launchSettingsClient'
 import { isProjectColorSetting, type ProjectColorSetting } from '../../utils/projectColor'
 import { isConnectorsFoldedSettingsTab, SKILLS_SETTINGS_TAB } from '../../components/settings/extensionsRoute'
 import {
@@ -33,10 +40,15 @@ import { SIDEBAR_DEFAULT_WIDTH, clampSidebarWidth } from '../../components/works
 import { isSelectableAgentCli } from '../../components/workspace/newWorkspace/cliRuntimeOptions'
 import { WORKSPACE_ASIDE_DEFAULT_WIDTH, clampWorkspaceAsideWidth } from '../../components/workspace/workspaceAsideWidth'
 import {
+  DEFAULT_CHAT_CONTRAST,
+  DEFAULT_CHAT_WIDTH,
   isAppTheme,
+  isChatWidth,
   isWindowMaterial,
+  normalizeChatContrast,
   type AppearanceSettings,
   type AppTheme,
+  type ChatWidth,
   type WindowMaterial,
 } from '../../types/appTheme'
 import { normalizeModuleOverrides } from '../../../../shared/modules/manifest'
@@ -53,10 +65,36 @@ export const MAX_RECENT_WORKSPACE_FOLDERS = 50
 export type SettingsOverlayState = {
   initialTab: string | null
   checkForUpdatesRequestId: number | null
+  /**
+   * The machine Settings ▸ Agents should show, when the opener knows which one
+   * its news is about — a CLI update is this machine's, so its toast, its bell
+   * row and a card that names the retired Agent CLIs view all land on This PC
+   * rather than on whichever machine the tab last showed. `requestId` makes a
+   * second open for the same machine a new request, so an Agents tab already
+   * showing another machine still moves. Absent for a plain open.
+   */
+  agentsMachineRequest?: { hostId: ExecutionHostId; requestId: number }
 }
 
+/** Options for `openSettingsOverlay`. */
+export type SettingsOverlayOptions = {
+  initialTab?: string | null
+  checkForUpdates?: boolean
+  /** Select this machine on the Agents tab (see `agentsMachineRequest`). */
+  agentsMachine?: ExecutionHostId
+}
+
+// A monotonic request id: two opens in the same millisecond are still two.
+let lastAgentsMachineRequestId = 0
+
 export function defaultAppearanceSettings(): AppearanceSettings {
-  return { theme: 'system', windowMaterial: 'solid' }
+  return {
+    theme: 'system',
+    windowMaterial: 'glass',
+    chatContrast: DEFAULT_CHAT_CONTRAST,
+    chatWidth: DEFAULT_CHAT_WIDTH,
+    agentCharacters: true,
+  }
 }
 
 export function normalizeAppearanceSettings(value: unknown): AppearanceSettings {
@@ -66,6 +104,13 @@ export function normalizeAppearanceSettings(value: unknown): AppearanceSettings 
   return {
     theme: isAppTheme(candidate.theme) ? candidate.theme : defaults.theme,
     windowMaterial: isWindowMaterial(candidate.windowMaterial) ? candidate.windowMaterial : defaults.windowMaterial,
+    // Both chat fields arrived after the envelope's other appearance fields, so
+    // a stored appearance without them is an older profile, not a corrupt one:
+    // it takes the defaults, which are the chat as it looked before.
+    chatContrast: normalizeChatContrast(candidate.chatContrast),
+    chatWidth: isChatWidth(candidate.chatWidth) ? candidate.chatWidth : defaults.chatWidth,
+    agentCharacters:
+      typeof candidate.agentCharacters === 'boolean' ? candidate.agentCharacters : defaults.agentCharacters,
   }
 }
 
@@ -347,38 +392,17 @@ export function normalizeProjectColors(value: unknown): Record<string, ProjectCo
 // Relocated to shared so main can normalize the preset when it composes
 // a launch); re-exported so every existing renderer import site is unchanged.
 import { normalizeCliPermissionPreset } from '../../../../shared/cli-permission-preset'
+import { parseCliPermissionModeId } from '../../../../shared/cli-permission-mode'
 
 export { normalizeCliPermissionPreset }
 
-// The app-level default preset for NEW agent spawns (owner ruling 2026-07-26:
-// "we should be setting bypass permission mode as the default generally
-// everywhere"). A user who wants gated permissions picks one deliberately —
-// the setting is right there in Settings ▸ Agents.
-//
-// NOT the same as `normalizeCliPermissionPreset`'s floor: there, `manual` is a
-// real preset (ask before every action) AND the "no local override" sentinel for
-// a run. Here, ABSENT means "this user has never chosen", which is the only case
-// that may adopt the app default. Kept separate so flipping the app default can
-// never rewrite someone's deliberate choice.
-export const DEFAULT_AGENT_SPAWN_PERMISSION_PRESET: CliPermissionPreset = 'bypass'
+// The app defaults for a never-chosen CLI and spawn preset live in shared, so
+// main launches on exactly what this window shows (see
+// effectiveAgentLaunchSettings); re-exported so the renderer import sites are
+// unchanged.
+import { DEFAULT_AGENT_LAUNCH_CLI, DEFAULT_AGENT_SPAWN_PERMISSION_PRESET } from '../../../../shared/launch-settings'
 
-// ONLY an absent value adopts the app default. A present-but-unrecognised value
-// is corruption, and corruption must never ESCALATE permissions — it falls to
-// the conservative floor, which the preset rename moved from `default` to `manual`. That
-// move is the point: `default` used to mean "no permission flag", which was the
-// safe answer until Claude Code started reading no-flag as auto mode. `manual`
-// is the value that still means what `default` meant.
-//
-// A recognised LEGACY spelling is not corruption and does not floor: `default`
-// -> `manual`, `auto_workspace` -> `auto`, `bypass_all` -> `bypass`. See
-// normalizeCliPermissionPreset for why `default` lands on `manual` rather than
-// on the argv-identical `none`.
-export function normalizeAgentSpawnPermissionPreset(
-  input: CliPermissionPreset | null | undefined,
-): CliPermissionPreset {
-  if (input === undefined || input === null) return DEFAULT_AGENT_SPAWN_PERMISSION_PRESET
-  return normalizeCliPermissionPreset(input)
-}
+export { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET }
 
 // A remembered model + reasoning-effort pick. Kept only when it names a CLI and
 // carries at least one choice for it; a partial blob drops back to "no
@@ -398,8 +422,11 @@ export function normalizeCliModelSelection(
   return { cli, model, ...(reasoning ? { reasoning } : {}) }
 }
 
-export function normalizeSelectedCli(input: AgentCli | null | undefined, fallback: AgentCli = 'claude-code'): AgentCli {
-  const safeFallback = isSelectableAgentCli(fallback) ? fallback : 'claude-code'
+export function normalizeSelectedCli(
+  input: AgentCli | null | undefined,
+  fallback: AgentCli = DEFAULT_AGENT_LAUNCH_CLI,
+): AgentCli {
+  const safeFallback = isSelectableAgentCli(fallback) ? fallback : DEFAULT_AGENT_LAUNCH_CLI
   if (typeof input === 'string' && input.trim()) {
     const trimmed = input.trim()
     // A persisted selection naming a CLI that is not agent-selectable (muse,
@@ -432,12 +459,12 @@ function normalizeCliRuntimes(
   const result: AppSettings['cliRuntimes'] = {}
   for (const [id, runtime] of Object.entries(merged)) {
     const models = normalizeUserModelList(runtime.models)
-    if (models) {
-      result[id] = { ...runtime, models }
-    } else {
-      const { models: _dropped, ...rest } = runtime
-      result[id] = rest
-    }
+    const { models: _dropped, ...rest } = runtime
+    // The per-CLI "run through WSL" switch is gone (a WSL distribution is a
+    // machine of its own now); a copy persisted before that must not ride
+    // back to main on the next write.
+    delete (rest as Record<string, unknown>).useWsl
+    result[id] = models ? { ...rest, models } : rest
   }
   return result
 }
@@ -490,6 +517,10 @@ function normalizeDiscoveredModel(input: unknown): DiscoveredCliModel | null {
   const defaultEffort = text(candidate.defaultEffort)
   if (defaultEffort) model.defaultEffort = defaultEffort
   if (typeof candidate.supportsFastMode === 'boolean') model.supportsFastMode = candidate.supportsFastMode
+  // Kept only as a parseable ISO timestamp: the "New" chip does date arithmetic
+  // on it, and a garbled value would either light a row up forever or never.
+  const firstSeenAt = text(candidate.firstSeenAt)
+  if (firstSeenAt && Number.isFinite(Date.parse(firstSeenAt))) model.firstSeenAt = firstSeenAt
   return model
 }
 
@@ -562,15 +593,20 @@ export function normalizeConversationModel(
   return { providerId, modelId }
 }
 
+// What "New chat in project" opens before the person has ever picked: a plain
+// Terminal, the one choice that needs no provider or CLI set up (owner ruling
+// 2026-09-26). After the first pick the launcher remembers the last one.
+const FIRST_RUN_NEW_CHAT_AGENT: NewChatAgentChoice = { kind: 'terminal' }
+
 // Persisted "New chat in project" agent choice. Anything that is not one of the
 // three spawn kinds — a malformed blob, a shape from an older build — falls
-// back to the General agent here.
+// back to the first-run choice. A remembered explicit choice still wins.
 export function normalizeNewChatAgentChoice(input: unknown): NewChatAgentChoice {
-  if (!input || typeof input !== 'object') return { kind: 'general' }
+  if (!input || typeof input !== 'object') return { ...FIRST_RUN_NEW_CHAT_AGENT }
   const choice = input as Partial<NewChatAgentChoice>
-  if (choice.kind === 'terminal') return { kind: 'terminal' }
-  if (choice.kind === 'conversation') return { kind: 'conversation' }
-  return { kind: 'general' }
+  if (choice.kind === 'terminal' || choice.kind === 'general' || choice.kind === 'conversation')
+    return { kind: choice.kind }
+  return { ...FIRST_RUN_NEW_CHAT_AGENT }
 }
 
 // Module-contributed settings sections persist their values in a `module:<id>`
@@ -655,22 +691,25 @@ export function normalizeTerminalKeepRecentAlive(value: unknown): number {
 
 export const defaultAppSettings = (): AppSettings => ({
   cliRuntimes: {
-    codex: { command: 'codex', useWsl: false },
+    codex: { command: 'codex' },
     'claude-code': {
       command: 'claude',
-      useWsl: false,
     },
   },
+  hosts: {},
   keybindings: defaultKeybindingSettings(),
   mcp: defaultMcpSettings(),
-  lastSelectedCli: 'claude-code',
+  lastSelectedCli: DEFAULT_AGENT_LAUNCH_CLI,
   lastSelectedConversationModel: null,
   textGeneration: { enabled: true, engine: null },
-  lastNewChatAgent: { kind: 'general' },
+  lastNewChatAgent: { ...FIRST_RUN_NEW_CHAT_AGENT },
   // No default editor: the control resolves the first target the machine
   // actually has. Naming one here would claim an install we have not probed.
   lastFolderOpenTarget: null,
   lastAgentSpawnPermissionPreset: DEFAULT_AGENT_SPAWN_PERMISSION_PRESET,
+  // No CLI chosen for yet: every one reads the app-wide default above.
+  cliPermissionPresets: {},
+  cliPermissionModes: {},
   lastSelectedAgentModel: null,
   projectKnowledgeRoots: {},
   // Nothing seen yet. Every project in the map got there by being shown once,
@@ -720,6 +759,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
   return {
     ...defaults,
     cliRuntimes: normalizeCliRuntimes(settings?.cliRuntimes, defaults),
+    hosts: normalizeAgentLaunchHosts(settings?.hosts),
     cliModelCatalog: normalizeCliModelCatalogs(settings?.cliModelCatalog),
     keybindings: normalizeKeybindingSettings(settings?.keybindings),
     mcp: normalizeMcpSettings(settings?.mcp),
@@ -728,7 +768,9 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     textGeneration: normalizeTextGenerationSettings(settings?.textGeneration),
     lastNewChatAgent: normalizeNewChatAgentChoice(settings?.lastNewChatAgent),
     lastFolderOpenTarget: isFolderOpenTargetId(settings?.lastFolderOpenTarget) ? settings.lastFolderOpenTarget : null,
-    lastAgentSpawnPermissionPreset: normalizeAgentSpawnPermissionPreset(settings?.lastAgentSpawnPermissionPreset),
+    lastAgentSpawnPermissionPreset: normalizeCliPermissionPreset(settings?.lastAgentSpawnPermissionPreset),
+    cliPermissionPresets: normalizeCliPermissionPresets(settings?.cliPermissionPresets),
+    cliPermissionModes: normalizeCliPermissionModes(settings?.cliPermissionModes),
     // Every field here is built explicitly and `settings` is never spread, so a
     // key an older build persisted drops on every hydration — the same
     // merge-not-only-migrate enforcement as the opt-in reset below.
@@ -780,9 +822,11 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
   }
 }
 
-// First-run surface for opening files. Defaults to the external pop-up window;
-// it is sticky thereafter (docking a file back flips it to workspace tabs).
-// Flip this one constant to make tabs the out-of-the-box default instead.
+// Where files open: the editor window, beside its own file tree (owner ruling
+// 2026-09-25: the in-app editor tab is too much going on around the file). The
+// in-app editor stays a choice in Settings → Appearance, and Settings is the
+// only thing that moves this value — docking one file back, or dragging one
+// tab out, moves that file and leaves the preference alone.
 export const DEFAULT_OPEN_FILES_IN_EXTERNAL_WINDOW = true
 // Where a Git diff opens (git-commit-window T3). A separate OS window is
 // the default; the
@@ -832,8 +876,8 @@ export interface SettingsSliceState {
   activeModalSurfaceWorkspaceId: string | null
   // Which of the app rail's sections the sidebar column is showing (the
   // app shell, 2026-09-05): `home` is the workspaces tree, `extensions`
-  // the Extensions drawer — Design, Plugins, Skills, Agent CLIs
-  // (2026-09-05 ruling); Automations is what the product does rather than
+  // the Extensions drawer — Design, Plugins, Skills (2026-09-05 ruling;
+  // Agent CLIs moved to Settings ▸ Agents 2026-09-25); Automations is what the product does rather than
   // something added to it, so it stands on the rail and is not in the drawer.
   // Beside it the rail's Extensions glyph opens the Extensions home. Per window
   // and transient like activeGlobalSurface — a restart lands on Home.
@@ -846,7 +890,8 @@ export interface SettingsSliceState {
   // How the chat rail lists conversations (all-chats-view, 2026-09-07):
   // `projects` is the folder tree — a header per project over its chats;
   // `all` is one stream of every chat, newest activity first, with each row
-  // naming the project it belongs to. Persisted in the settings envelope, so
+  // naming the project it belongs to. The stream is what a fresh profile opens
+  // on. Persisted in the settings envelope, so
   // the rail reopens in the shape the person left it in. App-wide rather than
   // per window: it is how this person reads their work, not a property of one
   // window.
@@ -902,7 +947,7 @@ export interface SettingsSliceActions {
   setDiffOpensInWindow: (enabled: boolean) => void
   setDiffView: (view: DiffViewMode) => void
   setCheckCliVersions: (enabled: boolean) => void
-  openSettingsOverlay: (opts?: { initialTab?: string | null; checkForUpdates?: boolean }) => void
+  openSettingsOverlay: (opts?: SettingsOverlayOptions) => void
   closeSettingsOverlay: () => void
   // Opens the Plugins modal on the requested view: every legacy caller — the
   // command palette, Settings → Modules, the agent "Manage skills" footers —
@@ -928,6 +973,7 @@ export interface SettingsSliceActions {
   openModalSurface: (surfaceId: string, options?: { workspaceId?: string }) => void
   closeModalSurface: () => void
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
+  setHostSettings: (hostId: ExecutionHostId, settings: ExecutionHostSettings | null) => void
   // Record (or clear) what one CLI reported about its own models. Replaces that
   // CLI's entry wholesale — a model the CLI no longer lists is gone from the
   // discovered layer — and never touches `cliRuntimes[cli].models`.
@@ -978,6 +1024,8 @@ export interface SettingsSliceActions {
    */
   markDesignSystemSeen: (bundleId: string, at?: string) => void
   setLastAgentSpawnPermissionPreset: (preset: CliPermissionPreset) => void
+  /** The preset spawns on one CLI launch with; `null` returns it to the app-wide default. */
+  setCliPermissionPreset: (cli: AgentCli, preset: CliPermissionPreset | null, mode?: string | null) => void
   /**
    * Write (or clear with `null`) the model an agent spawn is remembered on. A
    * stored reasoning-effort level survives a model change within the same CLI
@@ -991,12 +1039,12 @@ export interface SettingsSliceActions {
    * whose default named one of them falls back to the CLI's own default model
    * (no `--model` flag) rather than launching an id nothing offers.
    *
-   * Called when the user RETIRES an id from `cliRuntimes[cli].models` and no
-   * other catalog layer still supplies it. Deliberately not driven by the
-   * catalog going quiet: discovery under-reports (see mergeModelCatalog), and a
-   * persisted model the discovered layer merely stopped listing keeps launching
-   * — that is the "Not listed" row in CliModelPicker. An explicit removal is a
-   * different fact from an under-reporting probe, and only it forgets.
+   * Called when the user RETIRES an id from `cliRuntimes[cli].models` and the
+   * CLI's own list does not supply it either. Deliberately not driven by the
+   * catalog going quiet: a CLI may accept an id it does not advertise, so a
+   * persisted model the CLI merely stopped listing keeps launching — that is
+   * the "Not listed" row in CliModelPicker. An explicit removal is a different
+   * fact from a probe that no longer lists an id, and only it forgets.
    *
    * A reasoning-effort level survives, per the per-CLI effort ruling: the level
    * was chosen for the CLI, not for the model that just went away.
@@ -1017,6 +1065,12 @@ export interface SettingsSliceActions {
   resetCommandKeybindings: (commandId: string) => void
   resetAllKeybindings: () => void
   setModuleEnabled: (moduleId: string, enabled: boolean) => void
+  /**
+   * Forget uninstalled modules: their enablement override and their settings
+   * namespace. A later module that takes the same id starts from its own
+   * manifest default, not from the choices made for the one before it.
+   */
+  forgetModules: (moduleIds: readonly string[]) => void
   /**
    * Write one value in a module's settings namespace (`module:<moduleId>`).
    * `undefined` deletes the key. Module enablement never touches this state,
@@ -1040,6 +1094,9 @@ export interface SettingsSliceActions {
   setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
   setAppearanceTheme: (theme: AppTheme) => void
   setAppearanceWindowMaterial: (material: WindowMaterial) => void
+  setAppearanceChatContrast: (contrast: number) => void
+  setAppearanceChatWidth: (width: ChatWidth) => void
+  setAppearanceAgentCharacters: (enabled: boolean) => void
 }
 
 export type SettingsSlice = SettingsSliceState & SettingsSliceActions
@@ -1053,6 +1110,7 @@ type SettingsSliceSet = (mutator: (state: SettingsSliceCarrier) => void) => void
 function clearSettingsRequest(state: SettingsSliceCarrier): void {
   state.settingsOverlay.initialTab = null
   state.settingsOverlay.checkForUpdatesRequestId = null
+  delete state.settingsOverlay.agentsMachineRequest
 }
 
 export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
@@ -1085,7 +1143,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     activeModalSurface: null,
     activeModalSurfaceWorkspaceId: null,
     sidebarSection: 'home',
-    chatListView: 'projects',
+    chatListView: 'all',
     sidebarCollapsed: false,
     sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
     workspacePaneWidth: WORKSPACE_ASIDE_DEFAULT_WIDTH,
@@ -1174,6 +1232,15 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.activeModalSurfaceWorkspaceId = null
         state.settingsOverlay.initialTab = opts?.initialTab ?? null
         state.settingsOverlay.checkForUpdatesRequestId = opts?.checkForUpdates ? Date.now() : null
+        if (opts?.agentsMachine) {
+          lastAgentsMachineRequestId = Math.max(lastAgentsMachineRequestId + 1, Date.now())
+          state.settingsOverlay.agentsMachineRequest = {
+            hostId: opts.agentsMachine,
+            requestId: lastAgentsMachineRequestId,
+          }
+        } else {
+          delete state.settingsOverlay.agentsMachineRequest
+        }
       })
     },
 
@@ -1230,20 +1297,43 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         clearSettingsRequest(state)
       }),
 
-    setCliRuntime: (cli, update) =>
+    // The five launch settings below (CLI runtimes, MCP, the last-selected CLI,
+    // the spawn permission preset; knowledge roots live in memorySlice) are
+    // main's. Each setter applies its change here at once, then sends main the
+    // part it changed; main's answer replaces this window's copy
+    // (launchSettingsClient).
+    setCliRuntime: (cli, update) => {
+      let runtime: CliRuntimeSettings | null = null
       set((state) => {
         const defaults = defaultAppSettings()
         state.appSettings.cliRuntimes ??= defaults.cliRuntimes
         // Unknown plugin ids default to a blank command so a row the user only
-        // toggles WSL on does not pin the command to the plugin id; a blank
+        // adds a model to does not pin the command to the plugin id; a blank
         // command resolves to the plugin manifest binary at launch.
-        const fallback = defaults.cliRuntimes[cli] ?? { command: '', useWsl: false }
-        state.appSettings.cliRuntimes[cli] = {
+        const fallback = defaults.cliRuntimes[cli] ?? { command: '' }
+        const next = {
           ...fallback,
           ...state.appSettings.cliRuntimes[cli],
           ...update,
         }
-      }),
+        state.appSettings.cliRuntimes[cli] = next
+        // A plain copy for main: `next.models` can still be the draft's array.
+        runtime = { ...next, ...(next.models ? { models: [...next.models] } : {}) }
+      })
+      if (runtime) launchSettingsClient.update({ cliRuntimes: { [cli]: runtime } })
+    },
+
+    // One machine's settings (Settings ▸ Machines), replaced whole; `null`
+    // forgets them. Main's answer replaces this copy, like every setter here.
+    setHostSettings: (hostId, settings) => {
+      set((state) => {
+        const hosts = { ...state.appSettings.hosts }
+        if (settings) hosts[hostId] = settings
+        else delete hosts[hostId]
+        state.appSettings.hosts = hosts
+      })
+      launchSettingsClient.update({ hosts: { [hostId]: settings } })
+    },
 
     setCliModelCatalog: (cli, catalog) =>
       set((state) => {
@@ -1262,18 +1352,20 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.appSettings.cliModelCatalog = Object.keys(next).length > 0 ? next : undefined
       }),
 
-    setMcpSyncEnabled: (enabled) =>
+    setMcpSyncEnabled: (enabled) => {
       set((state) => {
         state.appSettings.mcp = normalizeMcpSettings({
           ...state.appSettings.mcp,
           syncEnabled: enabled,
         })
-      }),
+      })
+      launchSettingsClient.update({ mcp: { syncEnabled: enabled } })
+    },
 
-    upsertMcpServer: (server) =>
+    upsertMcpServer: (server) => {
+      const normalized = normalizeMcpServer(server)
+      if (!normalized) return
       set((state) => {
-        const normalized = normalizeMcpServer(server)
-        if (!normalized) return
         const current = normalizeMcpSettings(state.appSettings.mcp)
         state.appSettings.mcp = {
           ...current,
@@ -1283,30 +1375,39 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
             [normalized.id]: normalized,
           },
         }
-      }),
+      })
+      launchSettingsClient.update({ mcp: { syncEnabled: true, servers: { [normalized.id]: normalized } } })
+    },
 
-    refreshMcpServersFromSource: (servers) =>
+    refreshMcpServersFromSource: (servers) => {
+      const refreshed: Record<string, McpServerConfig> = {}
+      for (const server of servers) {
+        const normalized = normalizeMcpServer(server)
+        if (normalized) refreshed[normalized.id] = normalized
+      }
       set((state) => {
         const current = normalizeMcpSettings(state.appSettings.mcp)
-        const next = { ...current.servers }
-        for (const server of servers) {
-          const normalized = normalizeMcpServer(server)
-          if (normalized) next[normalized.id] = normalized
-        }
-        state.appSettings.mcp = { ...current, servers: next }
-      }),
+        state.appSettings.mcp = { ...current, servers: { ...current.servers, ...refreshed } }
+      })
+      if (Object.keys(refreshed).length > 0) launchSettingsClient.update({ mcp: { servers: refreshed } })
+    },
 
-    removeMcpServer: (serverId) =>
+    removeMcpServer: (serverId) => {
+      const id = normalizeMcpId(serverId)
       set((state) => {
         const current = normalizeMcpSettings(state.appSettings.mcp)
-        delete current.servers[normalizeMcpId(serverId)]
+        delete current.servers[id]
         state.appSettings.mcp = { ...current, syncEnabled: true }
-      }),
+      })
+      launchSettingsClient.update({ mcp: { syncEnabled: true, ...(id ? { servers: { [id]: null } } : {}) } })
+    },
 
-    setLastSelectedCli: (cli) =>
+    setLastSelectedCli: (cli) => {
       set((state) => {
         state.appSettings.lastSelectedCli = cli
-      }),
+      })
+      launchSettingsClient.update({ lastSelectedCli: cli })
+    },
 
     setLastSelectedConversationModel: (selection) =>
       set((state) => {
@@ -1384,12 +1485,37 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         })
       }),
 
-    setLastAgentSpawnPermissionPreset: (preset) =>
+    setLastAgentSpawnPermissionPreset: (preset) => {
+      const normalized = normalizeCliPermissionPreset(preset)
       set((state) => {
-        // An explicit user pick, so the plain normalizer: choosing 'default'
-        // must stay 'default' and not snap back to the app-wide bypass default.
-        state.appSettings.lastAgentSpawnPermissionPreset = normalizeCliPermissionPreset(preset)
-      }),
+        state.appSettings.lastAgentSpawnPermissionPreset = normalized
+      })
+      launchSettingsClient.update({ lastAgentSpawnPermissionPreset: normalized })
+    },
+
+    // One CLI's preset (the spawn footer's picker). Only that CLI's key goes to
+    // main, so two windows setting two CLIs cannot overwrite each other, and
+    // main's broadcast carries the result to every window.
+    // The CLI's own mode goes with it, and is cleared with it: a choice that is
+    // a preset's own mode stores no mode.
+    setCliPermissionPreset: (cli, preset, mode) => {
+      const normalized = preset === null ? null : normalizeCliPermissionPreset(preset)
+      const ownMode = normalized ? parseCliPermissionModeId(mode) : null
+      set((state) => {
+        const presets = { ...state.appSettings.cliPermissionPresets }
+        const modes = { ...state.appSettings.cliPermissionModes }
+        if (normalized) presets[cli] = normalized
+        else delete presets[cli]
+        if (ownMode) modes[cli] = ownMode
+        else delete modes[cli]
+        state.appSettings.cliPermissionPresets = presets
+        state.appSettings.cliPermissionModes = modes
+      })
+      launchSettingsClient.update({
+        cliPermissionPresets: { [cli]: normalized },
+        cliPermissionModes: { [cli]: ownMode },
+      })
+    },
 
     setLastSelectedAgentModel: (selection) =>
       set((state) => {
@@ -1519,6 +1645,20 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         }
       }),
 
+    forgetModules: (moduleIds) =>
+      set((state) => {
+        const modules = { ...normalizeModuleOverrides(state.appSettings.modules) }
+        const moduleSettings = { ...normalizeModuleSettings(state.appSettings.moduleSettings) }
+        for (const moduleId of moduleIds) {
+          const id = moduleId.trim()
+          if (!id) continue
+          delete modules[id]
+          delete moduleSettings[moduleSettingsNamespace(id)]
+        }
+        state.appSettings.modules = modules
+        state.appSettings.moduleSettings = moduleSettings
+      }),
+
     setModuleSettingValue: (moduleId, key, value) =>
       set((state) => {
         const id = moduleId.trim()
@@ -1591,6 +1731,30 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.appSettings.appearance = normalizeAppearanceSettings({
           ...state.appSettings.appearance,
           windowMaterial: material,
+        })
+      }),
+
+    setAppearanceChatContrast: (contrast) =>
+      set((state) => {
+        state.appSettings.appearance = normalizeAppearanceSettings({
+          ...state.appSettings.appearance,
+          chatContrast: contrast,
+        })
+      }),
+
+    setAppearanceChatWidth: (width) =>
+      set((state) => {
+        state.appSettings.appearance = normalizeAppearanceSettings({
+          ...state.appSettings.appearance,
+          chatWidth: width,
+        })
+      }),
+
+    setAppearanceAgentCharacters: (enabled) =>
+      set((state) => {
+        state.appSettings.appearance = normalizeAppearanceSettings({
+          ...state.appSettings.appearance,
+          agentCharacters: enabled,
         })
       }),
   }

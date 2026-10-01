@@ -1,14 +1,15 @@
 import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
+import { bundledPermissionModes } from '../../../../../../tests/permission-modes'
 import { test } from 'vitest'
 
 test('NewAgentPanel', async () => {
   // The launch surface behind the tab strip's "+". Rendered for real,
   // because the acceptance is about what a person sees and presses:
   //
-  //   1. the row shows what a launch usually changes — engine and access — while
-  //      role, worktree, reasoning and debug stay behind the ⋯ menu until set;
+  //   1. the row shows what a launch usually changes — engine, worktree and
+  //      access — while the launch kind stays behind the ⋯ menu;
   //   2. the invocation main renders rides Start's hover, not a line of chrome;
   //   3. Start hands the host a confirm plus the typed prompt — and creates
   //      nothing itself;
@@ -60,27 +61,25 @@ test('NewAgentPanel', async () => {
   // own argv renderer; here it stands in so the test can assert the surface SHOWS
   // what main said, verbatim, rather than composing a line of its own.
   const previewCalls: Array<Record<string, unknown>> = []
-  const PREVIEW_DISPLAY = 'claude --permission-mode auto --model claude-opus-5'
+  const PREVIEW_DISPLAY = 'claude --model claude-opus-5'
 
-  // The fleet the remote-machine tests drive (remote-sessions-ux /
+  // The mesh the remote-machine tests drive (remote-sessions-ux /
   // new-chat-on-a-remote-machine). Reassigned per check.
-  let fleetConnections: Array<Record<string, unknown>> = []
-  let fleetBrowseAnswer: (connectionId: string) => Record<string, unknown> = () => ({
+  let meshConnections: Array<Record<string, unknown>> = []
+  let meshBrowseAnswer: (connectionId: string) => Record<string, unknown> = () => ({
     connectionId: 'c',
     reachable: true,
     unreachableReason: null,
     unauthorized: false,
     scopes: [],
-    terminalAccess: 'full',
     workspaces: [],
-    terminals: [],
     gaps: [],
   })
 
   // Which repository a local folder is (one-project-across-machines); null = no remote.
   let localIdentityAnswer: (folderPath: string) => Record<string, unknown> | null = () => null
   // The picked remote project's checkout facts (checkout-and-branch-on-remote-create).
-  let fleetCheckoutAnswer: (connectionId: string, workspaceId: string) => Record<string, unknown> = (
+  let meshCheckoutAnswer: (connectionId: string, workspaceId: string) => Record<string, unknown> = (
     _c,
     workspaceId,
   ) => ({
@@ -95,15 +94,31 @@ test('NewAgentPanel', async () => {
     },
   })
 
+  // This computer's machines (Settings ▸ Machines). Empty reads as one
+  // machine, which is every platform but a Windows with WSL turned on.
+  let hostsAnswer: { hosts: Array<Record<string, unknown>>; wsl: unknown } = { hosts: [], wsl: null }
+  const detectCalls: unknown[] = []
+  // The CLIs a WSL machine's detection finds there.
+  const claudeOnly = {
+    'claude-code': { cli: 'claude-code', installed: true, resolvedPath: '/usr/bin/claude', version: '1' },
+  }
+  let detectAnswer: Record<string, unknown> = claudeOnly
+
   ;(dom.window as unknown as { api: Record<string, unknown> }).api = {
     platform: 'darwin',
+    hostsList: async () => hostsAnswer,
+    onHostsChanged: () => () => {},
+    pluginsDetectAvailability: async (input: unknown) => {
+      detectCalls.push(input)
+      return { ok: true, availability: detectAnswer }
+    },
     getGitRepoRoot: async () => '/proj',
-    fleetListConnections: async () => fleetConnections,
-    fleetBrowse: async (connectionId: string) => fleetBrowseAnswer(connectionId),
-    fleetWorkspaceCheckout: async (connectionId: string, workspaceId: string) =>
-      fleetCheckoutAnswer(connectionId, workspaceId),
+    meshListConnections: async () => meshConnections,
+    meshBrowse: async (connectionId: string) => meshBrowseAnswer(connectionId),
+    meshWorkspaceCheckout: async (connectionId: string, workspaceId: string) =>
+      meshCheckoutAnswer(connectionId, workspaceId),
     getGitRepositoryIdentity: async (folderPath: string) => localIdentityAnswer(folderPath),
-    onFleetEvent: () => () => {},
+    onMeshEvent: () => () => {},
     defaultWorkspaceParentDir: async () => '/w',
     getPathForFile: () => '/tmp/shot.png',
     saveDroppedImage: async () => '/tmp/shot.png',
@@ -189,8 +204,8 @@ test('NewAgentPanel', async () => {
     const { useWorkspaceStore } = await import('../../../store/workspaceStore')
     const { projectHue } = await import('../../../utils/projectColor')
     const { useToastStore } = await import('../../../store/toastStore')
-    const { __resetModelPermissionPresetsForTest, storedModelPermissionPreset } =
-      await import('../../ui/modelPermissionPresets')
+    const { __resetCliPermissionPresetsForTest, storedCliPermissionPreset, resolveCliPermissionPreset } =
+      await import('../../ui/cliPermissionPresets')
 
     let failures = 0
     // Every mounted harness, so a check that throws before its own unmount
@@ -211,9 +226,9 @@ test('NewAgentPanel', async () => {
     }
 
     const seedStore = (options: { plugins?: unknown[] } = {}): void => {
-      // Permissions are remembered against a MODEL ROW now, in a module-level
-      // store that would otherwise carry a preset from one check into the next.
-      __resetModelPermissionPresetsForTest()
+      // Permissions are remembered per CLI, in the store's launch-settings read
+      // model, which would otherwise carry a preset from one check into the next.
+      __resetCliPermissionPresetsForTest()
       const plugins = options.plugins ?? [
         {
           id: 'claude-code',
@@ -277,11 +292,8 @@ test('NewAgentPanel', async () => {
         root.render(
           React.createElement(NewAgentPanel, {
             workspaceId: 'ws-1',
-            conversationAvailable: false,
             initialSelection: { kind: 'general' },
-            permissionPreset: 'auto',
-            debugMode: false,
-            onChangeDebugMode: () => {},
+            permissionPreset: 'none',
             onLaunch: (launch: Record<string, unknown>) => launches.push(launch),
             onClose: () => {
               closes += 1
@@ -326,9 +338,9 @@ test('NewAgentPanel', async () => {
       assert.ok(!text.includes('sprintengine'), 'and not the workspace’s own name')
       // Permissions used to stand beside the engine as their own chip. They are a
       // property of the runtime the row names, so they moved INSIDE the model
-      // picker (owner, 2026-09-05) and are remembered against that row — the row
-      // itself no longer carries the value.
-      assert.ok(!text.includes('Auto'), 'access is not a second chip on the row')
+      // picker (owner, 2026-09-05) and are remembered per CLI — the row itself
+      // no longer carries the value.
+      assert.ok(!text.includes('No flag'), 'access is not a second chip on the row')
       assert.ok(
         [...view.container.querySelectorAll('button')].some((button) =>
           (button.getAttribute('aria-label') ?? '').startsWith('Engine: '),
@@ -338,9 +350,11 @@ test('NewAgentPanel', async () => {
       assert.ok(text.includes('Skills & MCPs'), 'the one picker for skills and MCP servers is offered')
       assert.ok(text.includes('⋯'), 'the overflow is there')
 
-      assert.ok(!text.includes('+ Worktree'), 'worktree is not on the row until it is set')
+      // Worktree sits beside the engine, off until turned on or named.
+      const worktreeChip = view.container.querySelector('[data-worktree-chip]')
+      assert.equal(worktreeChip?.getAttribute('data-worktree-chip'), 'off', 'worktree is on the row, and off')
       assert.ok(!text.includes('+ Skill') && !text.includes('+ Connector'), 'the two old chips are gone')
-      assert.ok(!/debug/i.test(text), 'nor is debug')
+      assert.ok(!/debug/i.test(text), 'and Debug Mode is gone entirely')
 
       // The command line is not printed under the box any more.
       assert.ok(!text.includes(PREVIEW_DISPLAY), 'the invocation is not a line of chrome')
@@ -367,10 +381,9 @@ test('NewAgentPanel', async () => {
       assert.equal(previewCalls[0]?.cli, 'claude-code', 'it asked about the selected agent’s CLI')
       assert.equal(
         previewCalls[0]?.cliPermissionPreset,
-        'auto',
+        'none',
         'and forwarded the approval preset, so the line moves when the chip does',
       )
-      assert.ok(!('debugMode' in (previewCalls[0] ?? {})), 'debug is a prompt concern and stays out of the receipt')
 
       view.unmount()
 
@@ -427,7 +440,7 @@ test('NewAgentPanel', async () => {
     //     things. The Role control left with the identity picker it belonged to;
     //     reasoning effort moved into the model's own picker, where it is a
     //     property of the model.
-    await check('the ⋯ menu holds worktree and debug, and nothing else', async () => {
+    await check('the ⋯ menu holds the launch kind, and nothing else', async () => {
       seedStore()
       const view = await render()
       const more = [...view.container.querySelectorAll('button')].find(
@@ -439,39 +452,59 @@ test('NewAgentPanel', async () => {
       })
       const menu = dom.window.document.querySelector('[aria-label="More launch options"][role="menu"]')
       const menuText = menu?.textContent ?? ''
-      assert.ok(menuText.includes('Worktree'), 'worktree is a row')
-      assert.ok(menuText.includes('Off'), 'showing its current value')
-      assert.ok(menuText.includes('Debug mode'), 'and debug')
-      // The kind of thing being launched lives here too — the only surface that
+      assert.ok(!menuText.includes('Worktree'), 'worktree left the menu for the row')
+      assert.ok(!/debug/i.test(menuText), 'Debug Mode is gone from the menu')
+      // The kind of thing being launched lives here — the only surface that
       // starts a plain shell or a conversation agent.
       assert.ok(menuText.includes('Agent'), 'an agent is the default kind')
       assert.ok(menuText.includes('Terminal'), 'a plain shell is reachable')
       assert.ok(!menuText.includes('Role'), 'the Role control is gone from this surface entirely')
       assert.ok(!menuText.includes('Reasoning'), 'and reasoning lives in the model picker now')
-      // Debug is about the user's software, not the agent.
-      assert.ok(/instruments your code/i.test(menuText), `debug says what it actually does; got: ${menuText}`)
-
-      // Worktree expands in place to type its branch — the click that turns it on
-      // is the click that starts typing.
-      const worktreeRow = [...(menu?.querySelectorAll('button') ?? [])].find((button) =>
-        (button.textContent ?? '').startsWith('Worktree'),
-      )
-      assert.ok(worktreeRow, 'the worktree row is pressable')
-      await act(async () => {
-        worktreeRow!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
-      })
-      const branchInput = dom.window.document.querySelector('[aria-label="Worktree branch name"]')
-      assert.ok(branchInput, 'and reveals the branch field')
-      assert.notEqual(branchInput?.getAttribute('aria-hidden'), 'true', 'which is reachable once open')
       view.unmount()
     })
 
-    // 2b. Picking Terminal or Conversation drops every CLI-shaped control: neither
-    //     launches one, so neither may show a model, a permission flag, or a
-    //     command line.
-    await check('a terminal or conversation launch shows no CLI chrome', async () => {
+    // 1c. Worktree is a switch that can be named: the glyph turns it on with a
+    //     name made up at start, and typing a name turns it on with that name.
+    await check('worktree turns on from its glyph, or by typing a name', async () => {
       seedStore()
-      const view = await render({ conversationAvailable: true })
+      const view = await render()
+      const chip = () => view.container.querySelector('[data-worktree-chip]')
+      const glyph = () =>
+        [...view.container.querySelectorAll('button')].find(
+          (button) => button.getAttribute('aria-label') === 'Run in a worktree',
+        )
+      assert.equal(chip()?.getAttribute('data-worktree-chip'), 'off')
+      await act(async () => {
+        glyph()!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+      assert.equal(chip()?.getAttribute('data-worktree-chip'), 'on', 'the glyph turns it on')
+      const name = chip()!.querySelector('input')!
+      assert.equal(name.getAttribute('placeholder'), 'auto-named', 'with a name made up at start')
+      const off = [...view.container.querySelectorAll('button')].find(
+        (button) => button.getAttribute('aria-label') === 'Turn worktree off',
+      )
+      await act(async () => {
+        off!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+      assert.equal(chip()?.getAttribute('data-worktree-chip'), 'off', '× turns it off')
+      const nameField = chip()!.querySelector('input')!
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')!.set!.call(
+          nameField,
+          'fix-login',
+        )
+        nameField.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+      })
+      assert.equal(chip()?.getAttribute('data-worktree-chip'), 'on', 'typing a name turns it on')
+      view.unmount()
+    })
+
+    // 2b. Picking a plain Terminal drops every CLI-shaped control: a shell
+    //     launches no CLI, so it shows no model, no permission flag and no
+    //     command line.
+    await check('a plain terminal launch shows no CLI chrome', async () => {
+      seedStore()
+      const view = await render()
       const openMore = async () => {
         const more = [...view.container.querySelectorAll('button')].find(
           (button) => button.getAttribute('aria-label') === 'More launch options',
@@ -483,13 +516,6 @@ test('NewAgentPanel', async () => {
       }
 
       const menu = await openMore()
-      // Listed whether or not a provider is configured — an option that vanishes
-      // reads as unimplemented rather than unconfigured.
-      assert.ok((menu?.textContent ?? '').includes('Chat'), 'the chat launch is listed')
-      assert.ok(
-        (menu?.textContent ?? '').includes('An agent in a chat window'),
-        'and says what it is, where a provider can serve one',
-      )
       const terminalRow = [...(menu?.querySelectorAll('button') ?? [])].find((button) =>
         (button.textContent ?? '').startsWith('Terminal'),
       )
@@ -561,50 +587,168 @@ test('NewAgentPanel', async () => {
       view.unmount()
     })
 
-    // 2b-ii. A surface that offers a conversation agent must ASK for the provider
-    //        catalog — the row is gated on availability, and while the catalog was
-    //        loaded by the top bar's menu alone this option could never appear here.
-    // 2b-iii. Unavailable is not invisible: with no provider the row stays, says
-    //         what is missing, and routes to Settings instead of disappearing.
-    await check('the chat launch is listed even with no provider configured', async () => {
-      seedStore()
-      const view = await render({ conversationAvailable: false })
+    // 2b-ii. The kind of launch is chosen in ⋯ and nowhere else (owner ruling
+    //        2026-09-27): no Chat | Terminal switch above the greeting, no
+    //        sentence under it, and the three kinds in one list.
+    const openMoreMenu = async (view: Harness): Promise<Element | null> => {
       const more = [...view.container.querySelectorAll('button')].find(
         (button) => button.getAttribute('aria-label') === 'More launch options',
       )
       await act(async () => {
         more!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
       })
-      const menu = dom.window.document.querySelector('[aria-label="More launch options"][role="menu"]')
-      const chatRow = [...(menu?.querySelectorAll('button') ?? [])].find((button) =>
-        (button.textContent ?? '').startsWith('Chat'),
+      return dom.window.document.querySelector('[aria-label="More launch options"][role="menu"]')
+    }
+    const pickKind = async (view: Harness, label: string): Promise<void> => {
+      const menu = await openMoreMenu(view)
+      const row = [...(menu?.querySelectorAll<HTMLElement>('[role="menuitemradio"]') ?? [])].find((item) =>
+        (item.textContent ?? '').startsWith(label),
       )
-      assert.ok(chatRow, 'the row is there')
-      assert.equal(chatRow?.getAttribute('aria-disabled'), 'true', 'marked unavailable')
-      assert.ok(
-        (chatRow?.textContent ?? '').includes('Needs a model provider'),
-        'and says what is missing rather than vanishing',
+      assert.ok(row, `⋯ offers ${label}`)
+      await act(async () => {
+        row!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+    }
+    const chatEngineChip = (view: Harness): HTMLElement | undefined =>
+      [...view.container.querySelectorAll<HTMLElement>('button')].find((button) =>
+        (button.getAttribute('aria-label') ?? '').startsWith('Engine: '),
       )
-      // The whole sentence, not "connect one in S…": these hints wrap, because a
-      // tooltip to recover text the surface had room for is a worse answer.
-      assert.ok(
-        (chatRow?.textContent ?? '').includes('connect one in Settings'),
-        'the reason is readable in full, not truncated',
+
+    await check('the kind of launch lives in ⋯ alone: Agent, Chat agent, Terminal', async () => {
+      seedStore()
+      const view = await render()
+      assert.equal(
+        view.container.querySelector('[role="radiogroup"]'),
+        null,
+        'no segmented Chat | Terminal switch above the greeting',
       )
-      assert.ok(!chatRow?.querySelector('.truncate'), 'no truncation inside a row whose text IS the explanation')
+      assert.ok(!view.text().includes('Structured chat'), 'and no sentence describing it')
+      assert.ok(!view.text().includes("The CLI's own interface"), 'in either position')
+      const menu = await openMoreMenu(view)
+      const kinds = [...(menu?.querySelectorAll<HTMLElement>('[role="menuitemradio"]') ?? [])]
+        .map((row) => ['Chat agent', 'Agent', 'Terminal'].find((kind) => (row.textContent ?? '').startsWith(kind)))
+        .filter(Boolean)
+      assert.deepEqual(kinds, ['Agent', 'Chat agent', 'Terminal'], 'three kinds, in that order')
+      const menuText = menu?.textContent ?? ''
+      assert.ok(menuText.includes('A CLI agent, in a terminal'))
+      assert.ok(menuText.includes('The same CLI agent, as a chat'))
+      assert.ok(menuText.includes('A plain shell — no agent'))
       view.unmount()
     })
 
-    await check('the surface asks the host for the conversation catalog', async () => {
+    await check(
+      'Chat agent is the same launcher: the shared picker, narrowed to CLIs with a chat runtime',
+      async () => {
+        seedStore({
+          plugins: [
+            {
+              id: 'claude-code',
+              displayName: 'Claude Code',
+              source: 'bundled',
+              version: 1,
+              binary: 'claude',
+              modelSelection: {
+                args: ['--model', '{{model}}'],
+                options: [{ id: 'opus[1m]', label: 'Opus (latest, 1M context)' }],
+              },
+              reasoningSelection: { levels: [{ id: 'low' }, { id: 'high' }] },
+            },
+            { id: 'kimi-code', displayName: 'Kimi Code', source: 'bundled', version: 1, binary: 'kimi' },
+          ],
+        })
+        useWorkspaceStore.setState({
+          appSettings: {
+            ...useWorkspaceStore.getState().appSettings,
+            lastSelectedCli: 'claude-code',
+            lastSelectedAgentModel: { cli: 'claude-code', model: 'opus[1m]' },
+          },
+        } as never)
+        const view = await render()
+        await pickKind(view, 'Chat agent')
+        assert.equal(view.container.querySelector('[aria-label="Chat models"]'), null, 'no model roster list')
+        const chip = chatEngineChip(view)
+        assert.ok(chip, 'the same engine chip the terminal agent wears')
+        assert.equal(chip!.getAttribute('aria-label'), 'Engine: Opus (latest, 1M context)')
+        await act(async () => {
+          chip!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+        })
+        const rail = dom.window.document.querySelector('[role="radiogroup"][aria-label="Provider"]')
+        const railLabels = [...(rail?.querySelectorAll('[role="radio"]') ?? [])].map((radio) =>
+          radio.getAttribute('aria-label'),
+        )
+        assert.deepEqual(railLabels, ['Claude Code'], 'a CLI with no chat runtime is not on the rail')
+        assert.ok(
+          dom.window.document.querySelector('[aria-label^="Permissions:"]'),
+          'the permission control sits in the picker, as for a terminal agent',
+        )
+        view.unmount()
+
+        // With the terminal Agent chosen, every installed CLI is on the rail.
+        const agentView = await render()
+        await act(async () => {
+          chatEngineChip(agentView)!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+        })
+        const agentRail = dom.window.document.querySelector('[role="radiogroup"][aria-label="Provider"]')
+        assert.equal(agentRail?.querySelectorAll('[role="radio"]').length, 2)
+        agentView.unmount()
+      },
+    )
+
+    await check('Enter in the Chat agent launcher starts the chat on what was typed', async () => {
       seedStore()
-      let requests = 0
-      const view = await render({
-        onRequestConversationCatalog: () => {
-          requests += 1
-        },
+      const view = await render({ initialSelection: { kind: 'conversation' } })
+      const field = view.container.querySelector('textarea')!
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!.call(field, 'hi')
+        field.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
       })
-      assert.equal(requests, 1, 'asked once on open, so a provider added since last time shows up')
+      await act(async () => {
+        field.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      })
+      assert.equal(view.launches.length, 1, 'one Enter, one launch')
+      const launch = view.launches[0]!
+      assert.equal(launch.kind, 'conversation')
+      assert.equal(launch.prompt, 'hi', 'the typed text rides the launch as the first message')
+      assert.equal(launch.cli, 'claude-code')
+      assert.deepEqual(
+        launch.provider,
+        { providerId: 'claude-agent', modelId: 'default', modelLabel: 'Claude Code' },
+        'the picked CLI maps onto its conversation provider; its own default model asks for none',
+      )
       view.unmount()
+    })
+
+    await check('a chat prompt has no terminal caret; a CLI launch keeps it', async () => {
+      const caret = (view: Awaited<ReturnType<typeof render>>) =>
+        view.container.querySelector('textarea')!.parentElement!.querySelector(':scope > svg')
+      seedStore()
+      const chatView = await render({ initialSelection: { kind: 'conversation' } })
+      assert.equal(caret(chatView), null, 'a chat is not a terminal')
+      chatView.unmount()
+      seedStore()
+      const cliView = await render({ initialSelection: { kind: 'general' } })
+      assert.ok(caret(cliView), 'a CLI launch still reads as a prompt')
+      cliView.unmount()
+    })
+
+    await check('with no CLI that can run as a chat, Chat agent offers the install route', async () => {
+      seedStore({
+        plugins: [{ id: 'kimi-code', displayName: 'Kimi Code', source: 'bundled', version: 1, binary: 'kimi' }],
+      })
+      const view = await render({ initialSelection: { kind: 'conversation' } })
+      assert.ok(view.text().includes('No agent CLI on this machine can run as a chat.'))
+      assert.ok(view.container.querySelector('textarea')?.closest('.hidden'), 'and hides the prompt that cannot run')
+      view.unmount()
+    })
+
+    await check('the feature flag and a workspace that cannot host a chat both drop the Chat agent row', async () => {
+      for (const props of [{ conversationModeEnabled: false }, { conversationWorkspaceSupported: false }]) {
+        seedStore()
+        const view = await render(props)
+        const menu = await openMoreMenu(view)
+        assert.ok(!(menu?.textContent ?? '').includes('Chat agent'), JSON.stringify(props))
+        view.unmount()
+      }
     })
 
     // 2c. There is always a way out. The tab host has its tab's ×; the door host
@@ -709,6 +853,7 @@ test('NewAgentPanel', async () => {
               installTargets: [],
               invocation: { explicitTemplate: '/{{skillId}}', nativeSlashCommand: true, mentionPrefix: '/' },
             },
+            permissionModes: bundledPermissionModes('claude-code'),
           },
           {
             id: 'codex',
@@ -718,6 +863,7 @@ test('NewAgentPanel', async () => {
             binary: 'codex',
             resumeSession: true,
             sessionIdFromCaller: true,
+            permissionModes: bundledPermissionModes('codex'),
             modelSelection: {
               options: [
                 { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
@@ -735,7 +881,7 @@ test('NewAgentPanel', async () => {
           },
         ],
       })
-      const view = await render()
+      const view = await render({ permissionPreset: 'bypass' })
       const engine = [...view.container.querySelectorAll('button')].find((button) =>
         (button.getAttribute('aria-label') ?? '').startsWith('Engine: '),
       )
@@ -746,13 +892,37 @@ test('NewAgentPanel', async () => {
         (button) => button.getAttribute('role') === 'radio' && button.getAttribute('aria-label') === 'Codex',
       )
       assert.ok(codexTab, 'Codex is on the runtime rail')
+      assert.ok(
+        dom.window.document.querySelector('[aria-label="Permissions: Bypass permissions"]'),
+        'Claude names its bypass preset',
+      )
       await act(async () => {
         codexTab!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
       })
+      assert.ok(
+        dom.window.document.querySelector('[aria-label="Permissions: YOLO"]'),
+        'switching to Codex updates the permission chip',
+      )
+      assert.equal(
+        dom.window.document.querySelector('[aria-label="Permissions: Bypass permissions"]'),
+        null,
+        'the previous runtime label is gone',
+      )
       const sol = [...dom.window.document.querySelectorAll('[data-model-row="true"]')].find((row) =>
         (row.textContent ?? '').includes('GPT-5.6 Sol'),
       )
       assert.ok(sol, 'the Sol row is in the picker')
+      await act(async () => {
+        sol!.dispatchEvent(new dom.window.MouseEvent('pointerover', { bubbles: true }))
+      })
+      const permissions = dom.window.document.querySelector<HTMLButtonElement>('[aria-label="Permissions: YOLO"]')!
+      await act(async () => permissions.click())
+      const noFlag = [...dom.window.document.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]')].find(
+        (row) => row.textContent?.startsWith('No flag'),
+      )!
+      await act(async () => noFlag.click())
+      assert.equal(storedCliPermissionPreset('codex'), 'none', 'the highlighted model’s CLI owns the choice')
+      assert.equal(storedCliPermissionPreset('claude-code'), undefined, 'the previous runtime is untouched')
       await act(async () => {
         sol!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
       })
@@ -765,6 +935,11 @@ test('NewAgentPanel', async () => {
       assert.equal(view.launches.length, 1, 'exactly one launch')
       assert.equal(view.launches[0]?.cli, 'codex', 'on the runtime that owned the row')
       assert.equal(view.launches[0]?.model, 'gpt-5.6-sol', 'carrying the id the chip named, not the CLI’s own default')
+      assert.equal(
+        resolveCliPermissionPreset(String(view.launches[0]?.cli), 'bypass'),
+        'none',
+        'the launch host resolves the launched CLI’s permission choice',
+      )
       assert.equal('reasoning' in (view.launches[0] ?? {}), true, 'and the effort rides the same confirm')
       view.unmount()
     })
@@ -1070,10 +1245,10 @@ test('NewAgentPanel', async () => {
     // 7. Nothing installed: the install route, not live-looking controls.
     await check('with no agent CLI the surface offers the install route', async () => {
       seedStore({ plugins: [] })
-      const view = await render()
+      const view = await render({ initialSelection: { kind: 'general' } })
       const text = view.text()
       assert.ok(text.includes('No agent CLI is installed'), 'it says so plainly')
-      assert.equal(view.container.querySelector('textarea'), null, 'and offers no prompt that could not run')
+      assert.ok(view.container.querySelector('textarea')?.closest('.hidden'), 'and hides the prompt that cannot run')
       view.unmount()
     })
 
@@ -1194,9 +1369,9 @@ test('NewAgentPanel', async () => {
       async () => {
         seedStore()
         resetRememberedMachineForTests()
-        fleetConnections = [machine('m2', 'Studio'), machine('m1', 'Air'), machine('m3', 'mini')]
+        meshConnections = [machine('m2', 'Studio'), machine('m1', 'Air'), machine('m3', 'mini')]
         assert.deepEqual(
-          sortMachines(fleetConnections as never).map((m) => m.machineName),
+          sortMachines(meshConnections as never).map((m) => m.machineName),
           ['Air', 'mini', 'Studio'],
         )
         const view = await remoteRender()
@@ -1229,16 +1404,14 @@ test('NewAgentPanel', async () => {
       async () => {
         seedStore()
         resetRememberedMachineForTests()
-        fleetConnections = [machine('m1', 'Air'), machine('m2', 'Mini')]
-        fleetBrowseAnswer = (id) => ({
+        meshConnections = [machine('m1', 'Air'), machine('m2', 'Mini')]
+        meshBrowseAnswer = (id) => ({
           connectionId: id,
           reachable: true,
           unreachableReason: null,
           unauthorized: false,
           scopes: [],
-          terminalAccess: 'full',
           workspaces: id === 'm1' ? [workspace('w1', 'alpha'), workspace('w2', 'beta')] : [workspace('w9', 'solo')],
-          terminals: [],
           gaps: [],
         })
         const view = await remoteRender()
@@ -1276,19 +1449,224 @@ test('NewAgentPanel', async () => {
       },
     )
 
+    await check(
+      "on Windows this computer's machines lead the dropdown, a pick rides the launch, and a WSL folder picks its distribution",
+      async () => {
+        seedStore()
+        resetRememberedMachineForTests()
+        meshConnections = []
+        hostsAnswer = {
+          hosts: [
+            { id: 'local', kind: 'windows', label: 'This PC (Windows)', pathStyle: 'windows', state: 'ready' },
+            {
+              id: 'wsl:Ubuntu',
+              kind: 'wsl',
+              label: 'WSL: Ubuntu',
+              pathStyle: 'wsl',
+              state: 'ready',
+              isDefaultDistro: true,
+              enabled: true,
+            },
+            { id: 'wsl:Debian', kind: 'wsl', label: 'WSL: Debian', pathStyle: 'wsl', state: 'stopped', enabled: true },
+          ],
+          wsl: { available: true },
+        }
+        try {
+          const view = await render({
+            folderPath: 'C:\\Users\\dev\\repo',
+            projectOptions: [{ path: 'C:\\Users\\dev\\repo', label: 'repo' }],
+            onSelectProject: () => {},
+          })
+          await settle()
+          assert.equal(
+            machineTrigger(view)?.textContent?.trim(),
+            'This PC (Windows)',
+            'a Windows folder starts on This PC, with no remote paired at all',
+          )
+          const menu = await openMachineMenu(view)
+          const rows = [...menu.querySelectorAll('[role="menuitemradio"]')].map((row) =>
+            (row.querySelector('span.min-w-0')?.textContent ?? '').trim(),
+          )
+          assert.deepEqual(rows.slice(0, 3), ['This PC (Windows)', 'WSL: Ubuntu', 'WSL: Debian'])
+          assert.match(
+            menu.querySelector('[data-machine-host="wsl:Ubuntu"]')?.textContent ?? '',
+            /default$/u,
+            'the default distribution is marked',
+          )
+          await click(buttonWithText(menu, 'WSL: Debian'))
+          await settle()
+          assert.equal(machineTrigger(view)?.textContent?.trim(), 'WSL: Debian')
+          assert.ok(detectCalls.some((call) => JSON.stringify(call).includes('"hostId":"wsl:Debian"')))
+          const start = [...view.container.querySelectorAll('button')].find(
+            (button) => button.getAttribute('aria-label') === 'Start agent',
+          )
+          await act(async () => {
+            start!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+          })
+          assert.equal(view.launches.at(-1)?.hostId, 'wsl:Debian', 'the machine rides the launch')
+          view.unmount()
+
+          // Debian is then turned off: the remembered pick no longer counts.
+          const offered = hostsAnswer.hosts
+          hostsAnswer = { ...hostsAnswer, hosts: offered.filter((host) => host.id !== 'wsl:Debian') }
+          const afterOff = await render({
+            folderPath: 'C:\\Users\\dev\\repo',
+            projectOptions: [],
+            onSelectProject: () => {},
+          })
+          await settle()
+          assert.equal(
+            machineTrigger(afterOff)?.textContent?.trim(),
+            'This PC (Windows)',
+            'a machine no longer offered',
+          )
+          afterOff.unmount()
+          hostsAnswer = { ...hostsAnswer, hosts: offered }
+
+          const inDistro = await render({
+            folderPath: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo',
+            projectOptions: [],
+            onSelectProject: () => {},
+          })
+          await settle()
+          assert.equal(machineTrigger(inDistro)?.textContent?.trim(), 'WSL: Ubuntu', 'the folder names its machine')
+          const distroMenu = await openMachineMenu(inDistro)
+          const debian = [...distroMenu.querySelectorAll<HTMLButtonElement>('[data-machine-host="wsl:Debian"]')][0]
+          assert.equal(debian?.disabled, true, 'another distribution cannot take a folder inside this one')
+          assert.match(debian?.textContent ?? '', /inside WSL: Ubuntu/u)
+          inDistro.unmount()
+        } finally {
+          hostsAnswer = { hosts: [], wsl: null }
+          resetRememberedMachineForTests()
+        }
+      },
+    )
+
+    await check('a Claude Code chat runs on the WSL machine it was started on', async () => {
+      seedStore()
+      resetRememberedMachineForTests()
+      meshConnections = []
+      hostsAnswer = {
+        hosts: [
+          { id: 'local', kind: 'windows', label: 'This PC (Windows)', pathStyle: 'windows', state: 'ready' },
+          { id: 'wsl:Ubuntu', kind: 'wsl', label: 'WSL: Ubuntu', pathStyle: 'wsl', state: 'ready', enabled: true },
+        ],
+        wsl: { available: true },
+      }
+      try {
+        const view = await render({
+          initialSelection: { kind: 'conversation' },
+          folderPath: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo',
+          projectOptions: [],
+          onSelectProject: () => {},
+        })
+        await settle()
+        assert.equal(machineTrigger(view)?.textContent?.trim(), 'WSL: Ubuntu')
+        const menu = await openMachineMenu(view)
+        const ubuntu = menu.querySelector<HTMLButtonElement>('[data-machine-host="wsl:Ubuntu"]')
+        assert.equal(ubuntu?.disabled, false, 'a chat may pick the distribution')
+        assert.doesNotMatch(ubuntu?.textContent ?? '', /run on This PC/u)
+        await act(async () => {
+          dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+        })
+        const field = view.container.querySelector('textarea')!
+        await act(async () => {
+          Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!.call(field, 'hi')
+          field.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+        })
+        await act(async () => {
+          field.dispatchEvent(
+            new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+          )
+        })
+        const launch = view.launches.at(-1)
+        assert.equal(launch?.kind, 'conversation')
+        assert.equal(launch?.hostId, 'wsl:Ubuntu', 'the chat runs where its folder is, not on This PC')
+        view.unmount()
+      } finally {
+        hostsAnswer = { hosts: [], wsl: null }
+        resetRememberedMachineForTests()
+      }
+    })
+
+    // Every chat runtime runs on a WSL machine (owner ruling 2026-10-01): a
+    // Codex chat there is neither stranded nor sent back to This PC.
+    await check('a Codex chat runs on the WSL machine it was started on, like any other chat', async () => {
+      seedStore({
+        plugins: [
+          {
+            id: 'codex',
+            displayName: 'Codex',
+            source: 'bundled',
+            version: 1,
+            binary: 'codex',
+            resumeSession: true,
+            sessionIdFromCaller: true,
+          },
+        ],
+      })
+      resetRememberedMachineForTests()
+      meshConnections = []
+      detectAnswer = {
+        codex: { cli: 'codex', installed: true, resolvedPath: '/home/dev/.local/bin/codex', version: '1' },
+      }
+      hostsAnswer = {
+        hosts: [
+          { id: 'local', kind: 'windows', label: 'This PC (Windows)', pathStyle: 'windows', state: 'ready' },
+          { id: 'wsl:Ubuntu', kind: 'wsl', label: 'WSL: Ubuntu', pathStyle: 'wsl', state: 'ready', enabled: true },
+        ],
+        wsl: { available: true },
+      }
+      try {
+        const view = await render({
+          initialSelection: { kind: 'conversation' },
+          folderPath: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo',
+          projectOptions: [],
+          onSelectProject: () => {},
+        })
+        await settle()
+        assert.equal(machineTrigger(view)?.textContent?.trim(), 'WSL: Ubuntu')
+        assert.doesNotMatch(view.text(), /This PC only|Pick Claude Code/u, 'nothing says the chat cannot run there')
+        const menu = await openMachineMenu(view)
+        const ubuntu = menu.querySelector<HTMLButtonElement>('[data-machine-host="wsl:Ubuntu"]')
+        assert.equal(ubuntu?.disabled, false, 'a Codex chat may pick the distribution')
+        assert.doesNotMatch(ubuntu?.textContent ?? '', /run on This PC/u)
+        await act(async () => {
+          dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+        })
+        const field = view.container.querySelector('textarea')!
+        await act(async () => {
+          Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!.call(field, 'hi')
+          field.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+        })
+        await act(async () => {
+          field.dispatchEvent(
+            new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+          )
+        })
+        const launch = view.launches.at(-1)
+        assert.equal(launch?.kind, 'conversation')
+        assert.equal(launch?.cli, 'codex')
+        assert.equal(launch?.hostId, 'wsl:Ubuntu', 'the Codex chat runs where its folder is')
+        view.unmount()
+      } finally {
+        detectAnswer = claudeOnly
+        hostsAnswer = { hosts: [], wsl: null }
+        resetRememberedMachineForTests()
+      }
+    })
+
     await check('unreachable, unauthorized and workspace-gap machines say their real reason', async () => {
       seedStore()
       resetRememberedMachineForTests()
-      fleetConnections = [machine('down', 'Down'), machine('revoked', 'Revoked'), machine('gap', 'Gap')]
-      fleetBrowseAnswer = (id) => ({
+      meshConnections = [machine('down', 'Down'), machine('revoked', 'Revoked'), machine('gap', 'Gap')]
+      meshBrowseAnswer = (id) => ({
         connectionId: id,
         reachable: id !== 'down',
         unreachableReason: id === 'down' ? 'Down is asleep.' : null,
         unauthorized: id === 'revoked',
         scopes: [],
-        terminalAccess: 'full',
         workspaces: [],
-        terminals: [],
         gaps:
           id === 'gap' ? [{ part: 'workspaces', code: 'scope', message: 'This pairing may not list workspaces.' }] : [],
       })
@@ -1318,16 +1696,14 @@ test('NewAgentPanel', async () => {
       async () => {
         seedStore()
         resetRememberedMachineForTests()
-        fleetConnections = [machine('m1', 'Air')]
-        fleetBrowseAnswer = (id) => ({
+        meshConnections = [machine('m1', 'Air')]
+        meshBrowseAnswer = (id) => ({
           connectionId: id,
           reachable: true,
           unreachableReason: null,
           unauthorized: false,
           scopes: [],
-          terminalAccess: 'full',
           workspaces: [workspace('w1', 'alpha', '/srv/alpha')],
-          terminals: [],
           gaps: [],
         })
         const remoteLaunches: Array<Record<string, unknown>> = []
@@ -1370,7 +1746,7 @@ test('NewAgentPanel', async () => {
           })
         await enter()
         assert.equal(remoteLaunches.length, 0, 'nothing launched with an image attached')
-        const refusal = useToastStore.getState().toasts.find((toast) => toast.title === 'That launch cannot travel yet')
+        const refusal = useToastStore.getState().toasts.find((toast) => toast.title === 'That chat cannot travel yet')
         assert.ok(refusal, 'the stranded refusal is announced')
         assert.ok(
           refusal?.description?.includes('the attached images'),
@@ -1402,109 +1778,193 @@ test('NewAgentPanel', async () => {
       },
     )
 
+    await check('a chat agent can run on a paired machine, and launches there as a chat', async () => {
+      seedStore()
+      resetRememberedMachineForTests()
+      meshConnections = [machine('m1', 'Air')]
+      meshBrowseAnswer = (id) => ({
+        connectionId: id,
+        reachable: true,
+        unreachableReason: null,
+        unauthorized: false,
+        scopes: [],
+        workspaces: [workspace('w1', 'alpha', '/srv/alpha')],
+        gaps: [],
+      })
+      const remoteLaunches: Array<Record<string, unknown>> = []
+      const view = await remoteRender({
+        initialSelection: { kind: 'conversation' },
+        onLaunchRemote: async (launch: Record<string, unknown>) => {
+          remoteLaunches.push(launch)
+        },
+      })
+      await settle()
+      assert.ok(machineTrigger(view), 'the machine dropdown is offered for a chat agent')
+      await pickMachine(view, 'Air')
+      assert.ok(machineTrigger(view)?.textContent?.includes('Air'), 'and a paired machine can be picked')
+      const textarea = view.container.querySelector('textarea')!
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!
+        setter.call(textarea, 'fix the build')
+        textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+      })
+      await act(async () => {
+        textarea.dispatchEvent(
+          new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+        )
+      })
+      await settle()
+      assert.equal(view.launches.length, 0, 'nothing starts on this machine')
+      assert.equal(remoteLaunches.length, 1, 'the chat travels')
+      const launch = remoteLaunches[0]!
+      assert.equal(launch.cli, 'claude-code')
+      assert.equal(launch.prompt, 'fix the build')
+      assert.equal(launch.remoteWorkspaceId, 'w1')
+      view.unmount()
+    })
+
     await check(
-      'a remote target disables the presets its gateway refuses and moves the choice with a note',
+      'a remote target offers every preset and launches on the one the launcher shows, bypass included',
       async () => {
         seedStore()
         resetRememberedMachineForTests()
-        fleetConnections = [machine('m1', 'Air')]
-        fleetBrowseAnswer = (id) => ({
+        meshConnections = [machine('m1', 'Air')]
+        meshBrowseAnswer = (id) => ({
           connectionId: id,
           reachable: true,
           unreachableReason: null,
           unauthorized: false,
           scopes: [],
-          terminalAccess: 'full',
           workspaces: [workspace('w1', 'alpha')],
-          terminals: [],
           gaps: [],
         })
-        const view = await remoteRender({ permissionPreset: 'bypass' })
+        const remoteLaunches: Array<Record<string, unknown>> = []
+        const view = await remoteRender({
+          permissionPreset: 'bypass',
+          onLaunchRemote: async (launch: Record<string, unknown>) => {
+            remoteLaunches.push(launch)
+          },
+        })
         await settle()
         await pickMachine(view, 'Air')
-        // The move is written against the ROW the machine refused it for, not into
-        // an app-wide value, so a local model picked afterwards is untouched by it.
-        assert.equal(
-          storedModelPermissionPreset('claude-code', null),
-          'auto',
-          'Bypass moves to the nearest supported preset, Auto, on the row it was refused for',
-        )
-        assert.ok(/Switched permissions from Bypass permissions to Auto/.test(view.text()), 'and says so under the box')
-        view.unmount()
-
-        const local = await remoteRender({ permissionPreset: 'auto' })
-        await settle()
-        await pickMachine(local, 'Air')
-        const menu = await openPermissionsMenu(local, 'Auto')
-        assert.equal(menu.querySelectorAll('[role="menu"]').length, 0, 'one menu role')
+        // Picking a machine moves nothing: the chip still reads Bypass, and no
+        // row is dimmed for the remote.
+        assert.ok(!/Switched permissions/.test(view.text()), 'no narrowing note')
+        const menu = await openPermissionsMenu(view, 'Bypass permissions')
+        assert.ok(!/Not available/.test(menu.textContent ?? ''), 'no row carries a remote refusal')
         const rows = [...menu.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]')]
+        assert.equal(rows.length, 4, 'the switcher lists the four presets')
         assert.deepEqual(
           rows.map((row) => row.disabled),
-          [true, false, false, true],
-          'None and Bypass are disabled for a remote',
+          [false, false, false, false],
+          'every preset is open on a remote machine',
         )
-        assert.equal(
-          (menu.textContent ?? '').match(/Not available on a remote machine/g)?.length,
-          2,
-          'each with the one-line reason',
-        )
-        // Roving skips the disabled rows and wraps.
         const checked = rows.find((row) => row.getAttribute('aria-checked') === 'true')!
-        assert.equal(dom.window.document.activeElement, checked, 'focus lands on the checked row on open')
-        assert.equal(checked.tabIndex, 0, 'which is the one tab stop')
-        const key = (el: Element, k: string) =>
-          act(async () => {
-            el.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }))
-          })
-        await key(checked, 'ArrowDown')
+        assert.equal(checked, rows[2], 'Bypass is the checked row')
+        await act(async () => {
+          dom.window.document.dispatchEvent(
+            new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+          )
+        })
+        await settle()
+
+        const textarea = view.container.querySelector('textarea')!
+        await act(async () => {
+          const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!
+          setter.call(textarea, 'fix the build')
+          textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+        })
+        await act(async () => {
+          textarea.dispatchEvent(
+            new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+          )
+        })
+        await settle()
+        assert.equal(remoteLaunches.length, 1, 'the launch travels')
         assert.equal(
-          dom.window.document.activeElement,
-          rows[1],
-          'ArrowDown from Auto wraps past Bypass and None to Manual',
+          remoteLaunches[0]?.permissionPreset,
+          'bypass',
+          'named explicitly, so the far end runs on what this launcher showed',
         )
-        await key(rows[1]!, 'End')
-        assert.equal(dom.window.document.activeElement, rows[2], 'End lands on the last enabled row')
-        await key(rows[2]!, 'Home')
-        assert.equal(dom.window.document.activeElement, rows[1], 'Home on the first enabled row')
-        local.unmount()
+        view.unmount()
       },
     )
 
-    // The worktree question lives in ONE place now (owner, 2026-09-11): the ⋯
-    // row, for a local target and a remote one alike. The scope line used to
-    // grow a "Current checkout" chip and a branch segment the moment a remote
-    // project was picked, which asked the same question twice on one surface.
-    const openMore = async (view: { container: Element }) => {
-      const more = [...view.container.querySelectorAll('button')].find(
-        (button) => button.getAttribute('aria-label') === 'More launch options',
-      )
-      await click(more)
-      return dom.window.document.querySelector('[aria-label="More launch options"][role="menu"]')!
-    }
-    const worktreeRowOf = (menu: Element) =>
-      [...menu.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
-        (button.textContent ?? '').startsWith('Worktree'),
-      )
-
     await check(
-      'the scope line carries no checkout control, and the ⋯ worktree row is what sends a remote launch to a fresh worktree',
+      'picking a paired machine makes the launch a chat, and choosing Agent or Terminal after it returns to This device',
       async () => {
         seedStore()
         resetRememberedMachineForTests()
-        fleetConnections = [machine('m1', 'Air')]
-        fleetBrowseAnswer = (id) => ({
+        meshConnections = [machine('m1', 'Air')]
+        meshBrowseAnswer = (id) => ({
           connectionId: id,
           reachable: true,
           unreachableReason: null,
           unauthorized: false,
-          scopes: ['workspace:operate', 'terminal:control'],
-          terminalAccess: 'control',
+          scopes: [],
+          workspaces: [workspace('w1', 'alpha')],
+          gaps: [],
+        })
+        const checkedKind = async (view: Harness): Promise<string | undefined> => {
+          const menu = await openMoreMenu(view)
+          const checked = [...(menu?.querySelectorAll<HTMLElement>('[role="menuitemradio"]') ?? [])].find(
+            (row) => row.getAttribute('aria-checked') === 'true',
+          )
+          const kind = ['Chat agent', 'Agent', 'Terminal'].find((label) =>
+            (checked?.textContent ?? '').startsWith(label),
+          )
+          await act(async () => {
+            dom.window.document.dispatchEvent(
+              new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+            )
+          })
+          return kind
+        }
+        const view = await remoteRender()
+        await settle()
+        assert.equal(await checkedKind(view), 'Agent', 'the door opens on Agent, on This device')
+        await pickMachine(view, 'Air')
+        assert.ok(machineTrigger(view)?.textContent?.includes('Air'), 'the machine is picked')
+        assert.equal(await checkedKind(view), 'Chat agent', 'and the launch becomes a chat, the one kind that travels')
+
+        await pickKind(view, 'Agent')
+        await settle()
+        assert.equal(machineTrigger(view)?.textContent?.trim(), 'This device', 'Agent runs here, so the target returns')
+
+        await pickMachine(view, 'Air')
+        assert.equal(await checkedKind(view), 'Chat agent')
+        await pickKind(view, 'Terminal')
+        await settle()
+        // A bare terminal offers no machine at all; back on Chat agent, the
+        // target it left behind is This device, not the machine picked before.
+        assert.ok(
+          [undefined, 'This device'].includes(machineTrigger(view)?.textContent?.trim()),
+          'no remote target survives a Terminal pick',
+        )
+        await pickKind(view, 'Chat agent')
+        await settle()
+        assert.equal(machineTrigger(view)?.textContent?.trim(), 'This device', 'and so does Terminal')
+        view.unmount()
+      },
+    )
+
+    await check(
+      'a remote chat carries no checkout control: no worktree chip, and the branch the panel read rides the launch',
+      async () => {
+        seedStore()
+        resetRememberedMachineForTests()
+        meshConnections = [machine('m1', 'Air')]
+        meshBrowseAnswer = (id) => ({
+          connectionId: id,
+          reachable: true,
+          unreachableReason: null,
+          unauthorized: false,
+          scopes: ['workspace:operate', 'conversation:operate'],
           workspaces: [workspace('w1', 'alpha', '/srv/alpha')],
-          terminals: [],
           gaps: [],
         })
         const checkoutReads: string[] = []
-        fleetCheckoutAnswer = (_c, workspaceId) => {
+        meshCheckoutAnswer = (_c, workspaceId) => {
           checkoutReads.push(workspaceId)
           return {
             ok: true,
@@ -1513,10 +1973,7 @@ test('NewAgentPanel', async () => {
               git: true,
               branch: 'main',
               defaultBranch: 'main',
-              branches: [
-                { name: 'feat/x', current: false },
-                { name: 'main', current: true },
-              ],
+              branches: [{ name: 'main', current: true }],
               worktrees: [{ path: '/srv/alpha', branch: 'main', isMain: true }],
             },
           }
@@ -1530,8 +1987,6 @@ test('NewAgentPanel', async () => {
         await settle()
         await pickMachine(view, 'Air')
         await settle()
-        // The checkout is still READ on the pick — the ⋯ row's gate is built from
-        // it — but nothing on the scope line reports it.
         assert.deepEqual(checkoutReads, ['w1'], 'the lone project is picked, and its checkout read once')
         assert.equal(
           view.container.querySelector('[data-checkout-trigger="true"]'),
@@ -1539,122 +1994,17 @@ test('NewAgentPanel', async () => {
           'no checkout chip on the scope line',
         )
         assert.equal(view.container.querySelector('[data-branch-trigger="true"]'), null, 'and no branch picker')
-        assert.equal(view.container.querySelector('[data-branch-fact="true"]'), null, 'and no branch fact')
 
-        const textarea = view.container.querySelector('textarea')!
-        const type = (value: string) =>
-          act(async () => {
-            const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!
-            setter.call(textarea, value)
-            textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
-          })
-        const enter = () =>
-          act(async () => {
-            textarea.dispatchEvent(
-              new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
-            )
-          })
-        await type('fix the build')
-        await enter()
-        await settle()
-        assert.deepEqual(
-          remoteLaunches[0]?.checkout,
-          { mode: 'current' },
-          'with no worktree asked for, the current checkout travels',
+        assert.equal(
+          view.container.querySelector('[data-worktree-chip]'),
+          null,
+          'a chat on another machine has no checkout here to fork, so no worktree chip',
         )
-        assert.equal(remoteLaunches[0]?.branch, 'main', 'with the branch the panel read, for the row')
 
-        // Turn the ⋯ row on and the same launch forks a worktree over there,
-        // based on the remote checkout's own branch.
-        const menu = await openMore(view)
-        const row = worktreeRowOf(menu)
-        assert.ok(row, 'the worktree row is offered once a remote project is picked')
-        assert.equal(row!.disabled, false, 'and a workspace:operate pairing may take it')
-        await click(row)
-        await settle()
-        const branchInput = dom.window.document.querySelector<HTMLInputElement>('[aria-label="Worktree branch name"]')
-        assert.ok(branchInput, 'and reveals the branch field')
-        await act(async () => {
-          const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')!.set!
-          setter.call(branchInput!, 'fix/build')
-          branchInput!.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
-        })
-        await settle()
-        await type('fix the build again')
-        await enter()
-        await settle()
-        assert.deepEqual(
-          remoteLaunches[1]?.checkout,
-          { mode: 'worktree', baseRef: 'main', name: 'fix/build' },
-          'the worktree request carries the typed branch name and forks the remote’s own branch',
-        )
-        assert.equal(remoteLaunches[1]?.branch, null, 'the worktree’s branch is minted there, so none is claimed here')
-        view.unmount()
-      },
-    )
-
-    await check(
-      'the ⋯ worktree row stays closed while the checkout is being read, and a detached remote forks its trunk',
-      async () => {
-        seedStore()
-        resetRememberedMachineForTests()
-        fleetConnections = [machine('m1', 'Air')]
-        fleetBrowseAnswer = (id) => ({
-          connectionId: id,
-          reachable: true,
-          unreachableReason: null,
-          unauthorized: false,
-          scopes: ['workspace:operate', 'terminal:control'],
-          terminalAccess: 'control',
-          workspaces: [workspace('w1', 'alpha')],
-          terminals: [],
-          gaps: [],
-        })
-        let release: (value: Record<string, unknown>) => void = () => {}
-        fleetCheckoutAnswer = () =>
-          new Promise<Record<string, unknown>>((resolve) => {
-            release = resolve
-          }) as never
-        const remoteLaunches: Array<Record<string, unknown>> = []
-        const view = await remoteRender({
-          onLaunchRemote: async (launch: Record<string, unknown>) => {
-            remoteLaunches.push(launch)
-          },
-        })
-        await settle()
-        await pickMachine(view, 'Air')
-        await settle()
-        let menu = await openMore(view)
-        let row = worktreeRowOf(menu)!
-        assert.equal(row.disabled, true, 'while the checkout is unread the worktree row is closed')
-        assert.ok(row.textContent?.includes('Reading the checkout'), 'and says it is reading')
-        await act(async () => {
-          dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-        })
-        // The read lands on a detached checkout: no branch, a trunk to fork.
-        await act(async () => {
-          release({
-            ok: true,
-            checkout: {
-              workspaceId: 'w1',
-              git: true,
-              branch: null,
-              defaultBranch: 'main',
-              branches: [{ name: 'main', current: false }],
-              worktrees: [],
-            },
-          })
-        })
-        await settle()
-        menu = await openMore(view)
-        row = worktreeRowOf(menu)!
-        assert.equal(row.disabled, false, 'once read, a repo with a trunk can fork')
-        await click(row)
-        await settle()
         const textarea = view.container.querySelector('textarea')!
         await act(async () => {
           const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!
-          setter.call(textarea, 'go')
+          setter.call(textarea, 'fix the build')
           textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
         })
         await act(async () => {
@@ -1663,97 +2013,10 @@ test('NewAgentPanel', async () => {
           )
         })
         await settle()
-        assert.deepEqual(
-          remoteLaunches[0]?.checkout,
-          { mode: 'worktree', baseRef: 'main' },
-          'the trunk is the base when there is no branch, and an unnamed worktree sends no name',
-        )
+        assert.equal(remoteLaunches.length, 1, 'the chat travels')
+        assert.equal(remoteLaunches[0]?.branch, 'main', 'with the branch the panel read, for the row')
+        assert.equal('checkout' in (remoteLaunches[0] ?? {}), false, 'and no checkout request')
         view.unmount()
-        fleetCheckoutAnswer = (_c, workspaceId) => ({
-          ok: true,
-          checkout: {
-            workspaceId,
-            git: true,
-            branch: 'main',
-            defaultBranch: 'main',
-            branches: [{ name: 'main', current: true }],
-            worktrees: [],
-          },
-        })
-      },
-    )
-
-    await check(
-      'a pairing without workspace:operate, an unreadable checkout, and a non-repo each dim the ⋯ worktree row with the real reason',
-      async () => {
-        seedStore()
-        resetRememberedMachineForTests()
-        fleetConnections = [machine('m1', 'Air')]
-        let scopes: string[] = ['terminal:control']
-        fleetBrowseAnswer = (id) => ({
-          connectionId: id,
-          reachable: true,
-          unreachableReason: null,
-          unauthorized: false,
-          scopes,
-          terminalAccess: 'control',
-          workspaces: [workspace('w1', 'alpha')],
-          terminals: [],
-          gaps: [],
-        })
-        const reasonFor = async () => {
-          const view = await remoteRender()
-          await settle()
-          await pickMachine(view, 'Air')
-          await settle()
-          const menu = await openMore(view)
-          const row = worktreeRowOf(menu)!
-          const hint = row.textContent ?? ''
-          const disabled = row.disabled ? 'true' : null
-          await click(row)
-          await settle()
-          const opened = dom.window.document
-            .querySelector('[aria-label="Worktree branch name"]')
-            ?.getAttribute('aria-hidden')
-          view.unmount()
-          return { hint, disabled, opened }
-        }
-        const scopeless = await reasonFor()
-        assert.equal(scopeless.disabled, 'true', 'no workspace:operate ⇒ the row is dimmed, not removed')
-        assert.ok(scopeless.hint.includes('workspace:operate'), `the reason names the scope; got: ${scopeless.hint}`)
-        assert.equal(scopeless.opened, 'true', 'and clicking it opens nothing')
-
-        scopes = ['workspace:operate', 'terminal:control']
-        fleetCheckoutAnswer = () => ({
-          ok: false,
-          code: 'tailnet_scope_required',
-          message: 'This device is not granted "workspace:read".',
-        })
-        const unreadable = await reasonFor()
-        assert.equal(unreadable.disabled, 'true')
-        assert.ok(
-          unreadable.hint.includes('not granted "workspace:read"'),
-          'an unreadable checkout carries the gateway’s words',
-        )
-
-        fleetCheckoutAnswer = (_c, workspaceId) => ({
-          ok: true,
-          checkout: { workspaceId, git: false, branch: null, defaultBranch: null, branches: [], worktrees: [] },
-        })
-        const plain = await reasonFor()
-        assert.equal(plain.disabled, 'true')
-        assert.ok(plain.hint.includes('not a git repository'), 'a non-repo says so')
-        fleetCheckoutAnswer = (_c, workspaceId) => ({
-          ok: true,
-          checkout: {
-            workspaceId,
-            git: true,
-            branch: 'main',
-            defaultBranch: 'main',
-            branches: [{ name: 'main', current: true }],
-            worktrees: [],
-          },
-        })
       },
     )
 
@@ -1768,17 +2031,16 @@ test('NewAgentPanel', async () => {
           name: 'sprintengine',
         }
         localIdentityAnswer = (folderPath) => (folderPath === '/proj' ? sprintengine : null)
-        fleetConnections = [machine('m1', 'Air'), machine('m2', 'Mini'), machine('m3', 'Down')]
+        meshConnections = [machine('m1', 'Air'), machine('m2', 'Mini'), machine('m3', 'Down')]
         const browsed: string[] = []
-        fleetBrowseAnswer = (id) => {
+        meshBrowseAnswer = (id) => {
           browsed.push(id)
           return {
             connectionId: id,
             reachable: id !== 'm3',
             unreachableReason: id === 'm3' ? 'Down is asleep.' : null,
             unauthorized: false,
-            scopes: ['workspace:operate', 'terminal:control'],
-            terminalAccess: 'control',
+            scopes: ['workspace:operate'],
             workspaces:
               id === 'm1'
                 ? [
@@ -1789,7 +2051,6 @@ test('NewAgentPanel', async () => {
                     { ...workspace('w2', 'sprintengine-air', '/srv/sprintengine'), repository: sprintengine },
                   ]
                 : [{ ...workspace('w9', 'scratch', '/srv/scratch'), repository: null }],
-            terminals: [],
             gaps: [],
           }
         }
@@ -1890,7 +2151,7 @@ test('NewAgentPanel', async () => {
     await check('the lifted project chip still opens New chat’s own sources', async () => {
       seedStore()
       resetRememberedMachineForTests()
-      fleetConnections = []
+      meshConnections = []
       const view = await render({
         folderPath: '/proj',
         projectOptions: [
@@ -1945,7 +2206,7 @@ test('NewAgentPanel', async () => {
         seedStore()
         seedColours()
         resetRememberedMachineForTests()
-        fleetConnections = []
+        meshConnections = []
         const sprintengine = {
           canonicalKey: 'github.com/acme/sprintengine',
           remoteUrl: 'git@github.com:acme/sprintengine.git',
@@ -2030,14 +2291,13 @@ test('NewAgentPanel', async () => {
         name: 'sprintengine',
       }
       localIdentityAnswer = (folderPath) => (folderPath === '/proj' ? sprintengine : null)
-      fleetConnections = [machine('m1', 'Air')]
-      fleetBrowseAnswer = (id) => ({
+      meshConnections = [machine('m1', 'Air')]
+      meshBrowseAnswer = (id) => ({
         connectionId: id,
         reachable: true,
         unreachableReason: null,
         unauthorized: false,
         scopes: ['workspace:operate'],
-        terminalAccess: 'control',
         workspaces: [
           {
             ...workspace('w1', 'other', '/srv/other'),
@@ -2045,7 +2305,6 @@ test('NewAgentPanel', async () => {
           },
           { ...workspace('w2', 'sprintengine-air', '/srv/sprintengine'), repository: sprintengine },
         ],
-        terminals: [],
         gaps: [],
       })
       const view = await remoteRender()
@@ -2091,7 +2350,7 @@ test('NewAgentPanel', async () => {
       )
       view.unmount()
       localIdentityAnswer = () => null
-      fleetConnections = []
+      meshConnections = []
     })
 
     await check(
@@ -2100,7 +2359,7 @@ test('NewAgentPanel', async () => {
         seedStore()
         seedColours()
         resetRememberedMachineForTests()
-        fleetConnections = []
+        meshConnections = []
         const sprintengine = {
           canonicalKey: 'github.com/acme/sprintengine',
           remoteUrl: 'git@github.com:acme/sprintengine.git',
@@ -2206,18 +2465,16 @@ test('NewAgentPanel', async () => {
       // filter by and the Air is pickable; the point of the check is what happens
       // to the REMOTE key, not to the local one.
       localIdentityAnswer = () => null
-      fleetConnections = [machine('m1', 'Air')]
+      meshConnections = [machine('m1', 'Air')]
       // One workspace, so it is picked without a click — and its machine reported
       // no repository, which is what an older peer and a non-repo folder both do.
-      fleetBrowseAnswer = (id) => ({
+      meshBrowseAnswer = (id) => ({
         connectionId: id,
         reachable: true,
         unreachableReason: null,
         unauthorized: false,
         scopes: ['workspace:operate'],
-        terminalAccess: 'control',
         workspaces: [{ ...workspace('w1', 'mystery', '/srv/mystery'), repository: null }],
-        terminals: [],
         gaps: [],
       })
       const view = await remoteRender()
@@ -2246,37 +2503,142 @@ test('NewAgentPanel', async () => {
       )
       view.unmount()
       localIdentityAnswer = () => null
-      fleetConnections = []
+      meshConnections = []
     })
 
     await check('the local access menu walks with the arrows and selects on Enter', async () => {
       seedStore()
       resetRememberedMachineForTests()
-      fleetConnections = []
-      const view = await render({ permissionPreset: 'manual' })
-      const menu = await openPermissionsMenu(view, 'Manual')
+      meshConnections = []
+      const view = await render({ permissionPreset: 'none' })
+      const menu = await openPermissionsMenu(view, 'No flag')
       const rows = [...menu.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]')]
-      assert.equal(rows.length, 4)
-      assert.ok(rows[0]?.textContent?.includes('None'), 'the no-flag row says None, not "CLI default"')
-      assert.ok(menu.textContent?.includes('Default'), 'and still wears the Default chip')
-      assert.ok(menu.querySelector('.rounded-xs'), 'on the token chip radius')
-      assert.equal(dom.window.document.activeElement, rows[1], 'focus opens on the checked row')
+      assert.equal(rows.length, 4, 'four presets: Manual, Auto, Bypass and No flag')
+      assert.ok(rows[0]?.textContent?.startsWith('Manual'), 'the strictest leads')
+      assert.ok(rows[1]?.textContent?.startsWith('Auto'), 'Auto follows')
+      assert.ok(rows[2]?.textContent?.startsWith('Bypass permissions'), 'then Bypass')
+      assert.ok(rows[3]?.textContent?.startsWith('No flag'), 'and the no-flag row closes the list')
+      assert.equal(dom.window.document.activeElement, rows[3], 'focus opens on the checked row')
       const key = (el: Element, k: string) =>
         act(async () => {
           el.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }))
         })
-      await key(rows[1]!, 'ArrowUp')
-      assert.equal(dom.window.document.activeElement, rows[0])
+      await key(rows[3]!, 'ArrowDown')
+      assert.equal(dom.window.document.activeElement, rows[0], 'ArrowDown wraps to the start')
       await key(rows[0]!, 'ArrowUp')
       assert.equal(dom.window.document.activeElement, rows[3], 'ArrowUp wraps to the end')
-      await key(rows[3]!, 'Enter')
+      await key(rows[3]!, 'Home')
+      await key(rows[0]!, 'Enter')
       assert.equal(
-        storedModelPermissionPreset('claude-code', null),
-        'bypass',
-        'Enter selects the focused row, and the pick is remembered against the model row it was made on',
+        storedCliPermissionPreset('claude-code'),
+        'manual',
+        'Enter selects the focused row, and the pick is remembered for the CLI it was made on',
       )
       view.unmount()
     })
+
+    // One permission mode per CLI, not per model (owner ruling 2026-09-24):
+    // choosing Bypass while one Claude model is highlighted is choosing it for
+    // every Claude model, it outlives the app, and Codex keeps its own.
+    await check(
+      'a permission pick on one model applies to every model of that CLI, is read back by a fresh panel, and leaves Codex alone',
+      async () => {
+        const claude = {
+          id: 'claude-code',
+          displayName: 'Claude Code',
+          source: 'bundled',
+          version: 1,
+          binary: 'claude',
+          resumeSession: true,
+          sessionIdFromCaller: true,
+          modelSelection: {
+            options: [
+              { id: 'claude-opus-5', label: 'Opus 5' },
+              { id: 'claude-sonnet-5', label: 'Sonnet 5' },
+            ],
+            allowCustomId: true,
+          },
+          reasoningSelection: { levels: [{ id: 'low' }, { id: 'medium' }, { id: 'high' }] },
+        }
+        const codex = {
+          id: 'codex',
+          displayName: 'Codex',
+          source: 'bundled',
+          version: 1,
+          binary: 'codex',
+          resumeSession: true,
+          sessionIdFromCaller: true,
+          modelSelection: {
+            options: [
+              { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
+              { id: 'gpt-6-astra', label: 'GPT-6-Astra' },
+            ],
+            allowCustomId: true,
+          },
+          reasoningSelection: { levels: [{ id: 'low' }, { id: 'medium' }, { id: 'high' }], default: 'medium' },
+        }
+        seedStore({ plugins: [claude, codex] })
+        const modelRow = (label: string) =>
+          [...dom.window.document.querySelectorAll('[data-model-row="true"]')].find((row) =>
+            (row.textContent ?? '').includes(label),
+          )
+        const hover = async (label: string) => {
+          const row = modelRow(label)
+          assert.ok(row, `the ${label} row is in the picker`)
+          await act(async () => {
+            row!.dispatchEvent(new dom.window.MouseEvent('pointerover', { bubbles: true }))
+          })
+        }
+        const chip = (label: string) => dom.window.document.querySelector(`[aria-label="Permissions: ${label}"]`)
+        const tab = (name: string) =>
+          [...dom.window.document.querySelectorAll('button')].find(
+            (button) => button.getAttribute('role') === 'radio' && button.getAttribute('aria-label') === name,
+          )
+
+        const view = await render({ permissionPreset: 'none' })
+        await click(engineChip(view))
+        await hover('Opus 5')
+        await click(chip('No flag') as HTMLElement)
+        const bypass = [...dom.window.document.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]')].find(
+          (row) => row.textContent?.startsWith('Bypass'),
+        )
+        await click(bypass)
+        assert.equal(storedCliPermissionPreset('claude-code'), 'bypass', 'the pick is stored for Claude Code')
+
+        await hover('Sonnet 5')
+        assert.ok(chip('Bypass permissions'), 'Sonnet shows the Bypass that was chosen on Opus')
+        await click(tab('Codex'))
+        await hover('GPT-5.6 Sol')
+        assert.ok(chip('No flag'), 'Codex keeps its own value, the app-wide default it never moved from')
+        assert.equal(chip('YOLO'), null, 'and does not inherit Claude’s bypass')
+        assert.equal(storedCliPermissionPreset('codex'), undefined)
+        view.unmount()
+
+        // A fresh panel reads the choice back from the launch-settings read
+        // model, which is what main's record fills on every window's boot.
+        const again = await render({ permissionPreset: 'none' })
+        await click(engineChip(again))
+        await click(tab('Claude Code'))
+        await hover('Sonnet 5')
+        assert.ok(chip('Bypass permissions'), 'the Claude Code choice survives the reload')
+        const sonnet = modelRow('Sonnet 5')
+        await act(async () => {
+          sonnet!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+        })
+        const start = [...again.container.querySelectorAll('button')].find(
+          (button) => button.getAttribute('aria-label') === 'Start agent',
+        )
+        await click(start)
+        assert.equal(again.launches[0]?.cli, 'claude-code')
+        assert.equal(again.launches[0]?.model, 'claude-sonnet-5')
+        assert.equal(
+          resolveCliPermissionPreset('claude-code', 'none'),
+          'bypass',
+          'and the launch host resolves Bypass for a model it was never chosen on',
+        )
+        again.unmount()
+      },
+    )
 
     // ── The parked draft (new-chat-survives-back-and-forward) ─────────────────
     // The door's surface seeds from the draft parked under its key and writes
@@ -2373,6 +2735,416 @@ test('NewAgentPanel', async () => {
       })
       assert.equal(readNewChatDraft('win-1'), null, 'the tab-strip host has no draft')
       view.unmount()
+    })
+
+    // ── Pasting an image's path ───────────────────────────────────────────────
+    // A screenshot tool puts the file's path on the clipboard, and that file is
+    // a temporary copy cleared minutes later: the paste reads the bytes then,
+    // and only an unreadable one is left as the text it was.
+    await check('an outside image path attaches; a project one or an unreadable one stays text', async () => {
+      const api = (dom.window as unknown as { api: Record<string, unknown> }).api
+      const readPaths: string[] = []
+      api.readImageDataUrl = async (path: string) => {
+        readPaths.push(path)
+        if (path.includes('gone')) throw new Error('ENOENT: no such file or directory')
+        return 'data:image/png;base64,iVBORw0K'
+      }
+      const view = await render()
+      const textarea = view.container.querySelector('textarea')!
+      const paste = async (text: string) => {
+        const event = new dom.window.Event('paste', { bubbles: true, cancelable: true })
+        Object.defineProperty(event, 'clipboardData', {
+          value: { items: [], files: [], types: ['text/plain'], getData: () => text },
+        })
+        await act(async () => {
+          textarea.dispatchEvent(event)
+        })
+        await act(async () => new Promise((resolve) => setTimeout(resolve, 10)))
+        return event
+      }
+      const attached = await paste("'/var/folders/x1/T/TemporaryItems/Screenshot 2026-09-27 at 22.41.31.png'")
+      assert.equal(attached.defaultPrevented, true)
+      assert.deepEqual(readPaths, ['/var/folders/x1/T/TemporaryItems/Screenshot 2026-09-27 at 22.41.31.png'])
+      assert.ok(view.container.querySelector('img[src^="data:image/png"]'), 'the image is on the box, not its path')
+      assert.equal(textarea.value, '')
+
+      await paste('/Users/dev/gone.png')
+      assert.equal(textarea.value, '/Users/dev/gone.png', 'an unreadable path is typed after all')
+      assert.match(view.container.textContent ?? '', /Could not attach gone\.png: the file no longer exists\./)
+
+      // An image of the project itself is a file the agent can open: the path
+      // is what the prompt is about, so it is typed like any other text.
+      readPaths.length = 0
+      const inProject = await paste('/proj/public/logo.png')
+      assert.equal(inProject.defaultPrevented, false, 'a project path is left to the default paste')
+      assert.deepEqual(readPaths, [])
+      delete api.readImageDataUrl
+      view.unmount()
+    })
+
+    // ── Scheduled agents ────────────────────────────────────────────────────
+    // The door's switch makes the launch a scheduled agent: the same launch,
+    // saved with the schedule in the tray, rather than started.
+
+    const scheduleDoor = async (extra: Record<string, unknown> = {}) => {
+      const api = (dom.window as unknown as { api: Record<string, unknown> }).api
+      const drafts: Array<Record<string, unknown>> = []
+      api.createScheduledAgent = async (draft: Record<string, unknown>) => {
+        drafts.push(draft)
+        return { ok: true, agent: { ...draft, id: 'sa-1', nextRunAt: null } }
+      }
+      const scheduled: unknown[] = []
+      const view = await render({
+        initialSelection: { kind: 'conversation' },
+        folderPath: '/proj',
+        projectOptions: [],
+        onSelectProject: () => {},
+        onBrowseProject: () => {},
+        onScheduled: (agent: unknown) => scheduled.push(agent),
+        ...extra,
+      })
+      const type = async (text: string) => {
+        const field = view.container.querySelector('textarea')!
+        await act(async () => {
+          Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!.call(field, text)
+          field.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+        })
+        return field
+      }
+      const enter = async (field: HTMLTextAreaElement) => {
+        await act(async () => {
+          field.dispatchEvent(
+            new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+          )
+        })
+        await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+      }
+      return { view, drafts, scheduled, type, enter }
+    }
+
+    await check('Scheduled agent saves the launch on screen, on the tray’s schedule, and starts nothing', async () => {
+      seedStore()
+      const door = await scheduleDoor()
+      const toggle = [...door.view.container.querySelectorAll('[role="radio"]')].find(
+        (el) => el.textContent === 'Scheduled agent',
+      )
+      assert.ok(toggle, 'the door offers Scheduled agent beside Chat')
+      await act(async () => {
+        toggle!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+      assert.ok(door.view.text().includes('Weekdays at 9:00 AM'), 'a new one starts on weekdays at 9 AM, in the tray')
+      const field = await door.type('Triage the new issues.')
+      await door.enter(field)
+      assert.equal(door.view.launches.length, 0, 'nothing is started')
+      assert.equal(door.drafts.length, 1, 'one scheduled agent is made')
+      const draft = door.drafts[0]!
+      assert.equal(draft.prompt, 'Triage the new issues.')
+      assert.deepEqual((draft.schedule as { cron: string }).cron, '0 9 * * 1-5')
+      assert.equal(draft.folderPath, '/proj')
+      assert.equal(draft.hostId, null)
+      assert.equal(draft.cli, 'claude-code')
+      assert.equal(draft.worktree, null)
+      assert.equal(door.scheduled.length, 1, 'and the host hears of it')
+      door.view.unmount()
+    })
+
+    await check('/schedule at the cursor picks the schedule and switches the door to it', async () => {
+      seedStore()
+      const door = await scheduleDoor()
+      const field = await door.type('Sweep for dead code. /schedule sundays 9pm')
+      const picker = dom.window.document.querySelector('[aria-label="Schedule this agent"]')
+      assert.ok(picker?.textContent?.includes('Every Sunday at 9:00 PM'), 'the words are read as they are typed')
+      await door.enter(field)
+      assert.equal(field.value, 'Sweep for dead code.', 'the /schedule words leave the prompt')
+      assert.equal(door.drafts.length, 0, 'picking a schedule schedules nothing yet')
+      const toggle = [...door.view.container.querySelectorAll('[role="radio"]')].find(
+        (el) => el.textContent === 'Scheduled agent',
+      )
+      assert.equal(toggle?.getAttribute('aria-checked'), 'true', 'the door is on Scheduled agent')
+      assert.ok(door.view.text().includes('Every Sunday at 9:00 PM'), 'on that schedule')
+      door.view.unmount()
+    })
+
+    await check('a scheduled agent opened from its card saves rather than creates', async () => {
+      seedStore()
+      const api = (dom.window as unknown as { api: Record<string, unknown> }).api
+      const updates: Array<{ id: string; draft: Record<string, unknown> }> = []
+      api.updateScheduledAgent = async (id: string, draft: Record<string, unknown>) => {
+        updates.push({ id, draft })
+        return { ok: true, agent: { ...draft, id, nextRunAt: null } }
+      }
+      api.markScheduledAgentFailureSeen = async () => ({ ok: true })
+      const door = await scheduleDoor({
+        editingScheduledAgent: {
+          id: 'sa-9',
+          prompt: 'Refresh the forecast.',
+          schedule: { cron: '0 21 * * 0', timezone: 'UTC' },
+          folderPath: '/proj',
+          hostId: null,
+          cli: 'claude-code',
+          cliModel: null,
+          permissionPreset: null,
+          skills: [],
+          mcpServers: [],
+          worktree: { name: '' },
+          ownerModuleId: null,
+          createdAt: 0,
+          updatedAt: 0,
+          lastRun: { at: 5, ok: false, message: 'gh: authentication required' },
+          lastFailureSeenAt: null,
+          nextRunAt: null,
+        },
+      })
+      const text = door.view.text()
+      assert.ok(!text.includes('Chat'), 'no switch: a scheduled agent stays one')
+      assert.ok(text.includes('Every Sunday at 9:00 PM'), 'it opens on its schedule')
+      assert.ok(text.includes('gh: authentication required'), 'and on why its last run did not start')
+      assert.equal(
+        door.view.container.querySelector('[data-worktree-chip]')?.getAttribute('data-worktree-chip'),
+        'on',
+        'with its worktree on',
+      )
+      const field = door.view.container.querySelector('textarea')!
+      assert.equal(field.value, 'Refresh the forecast.')
+      await door.enter(field)
+      assert.equal(updates.length, 1)
+      assert.equal(updates[0]?.id, 'sa-9')
+      assert.deepEqual(updates[0]?.draft.worktree, { name: '' })
+      door.view.unmount()
+    })
+
+    await check(
+      'a scheduled agent’s editor lists its runs, each opening its chat, and Run now points there',
+      async () => {
+        seedStore()
+        const api = (dom.window as unknown as { api: Record<string, unknown> }).api
+        api.markScheduledAgentFailureSeen = async () => ({ ok: true })
+        api.runScheduledAgentNow = async () => ({ ok: true, run: { at: 5, ok: true, workspaceId: 'w-run-3' } })
+        const opened: string[] = []
+        const now = Date.now()
+        const door = await scheduleDoor({
+          editingScheduledAgent: {
+            id: 'sa-9',
+            prompt: 'Refresh the forecast.',
+            schedule: { cron: '0 21 * * 0', timezone: 'UTC' },
+            folderPath: '/proj',
+            hostId: null,
+            cli: 'claude-code',
+            cliModel: null,
+            permissionPreset: null,
+            skills: [],
+            mcpServers: [],
+            worktree: null,
+            ownerModuleId: null,
+            createdAt: 0,
+            updatedAt: 0,
+            lastRun: { at: 5, ok: true, workspaceId: 'w-run-2' },
+            lastFailureSeenAt: null,
+            nextRunAt: null,
+          },
+          scheduledRuns: [
+            { workspaceId: 'w-run-2', title: 'Forecast for Sunday', startedAt: now - 5 * 60_000, activity: 'working' },
+            {
+              workspaceId: 'w-run-1',
+              title: 'Forecast for last week',
+              startedAt: now - 3 * 3_600_000,
+              activity: 'idle',
+            },
+          ],
+          onOpenScheduledRun: (workspaceId: string) => opened.push(workspaceId),
+        })
+        const rows = [...door.view.container.querySelectorAll<HTMLElement>('[data-scheduled-run-row]')]
+        assert.deepEqual(
+          rows.map((row) => row.dataset.scheduledRunRow),
+          ['w-run-2', 'w-run-1'],
+          'its runs, newest first',
+        )
+        assert.ok(door.view.text().includes('Recent runs'))
+        assert.ok(rows[0]!.querySelector('[aria-label="Working"]'), 'the working run is marked as working')
+        assert.equal(rows[1]!.querySelector('[aria-label="Working"]'), null)
+        assert.match(rows[1]!.textContent ?? '', /3h ago/u)
+        await act(async () => {
+          rows[1]!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+        })
+        assert.deepEqual(opened, ['w-run-1'], 'a run opens its chat')
+
+        useToastStore.setState({ toasts: [] })
+        const runNow = door.view.find((el) => el.tagName === 'BUTTON' && el.textContent === 'Run now')
+        assert.ok(runNow)
+        await act(async () => {
+          runNow!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+        })
+        await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+        const started = useToastStore.getState().toasts.find((toast) => toast.title === 'Started')
+        assert.match(String(started?.description ?? ''), /Recent runs/u, 'the toast points at the run')
+        door.view.unmount()
+      },
+    )
+
+    await check('Run now says so when the last run is still working', async () => {
+      seedStore()
+      const api = (dom.window as unknown as { api: Record<string, unknown> }).api
+      api.markScheduledAgentFailureSeen = async () => ({ ok: true })
+      api.runScheduledAgentNow = async () => ({ ok: false, message: 'Its last run is still working.' })
+      const door = await scheduleDoor({
+        editingScheduledAgent: {
+          id: 'sa-9',
+          prompt: 'Refresh the forecast.',
+          schedule: { cron: '0 21 * * 0', timezone: 'UTC' },
+          folderPath: '/proj',
+          hostId: null,
+          cli: 'claude-code',
+          cliModel: null,
+          permissionPreset: null,
+          skills: [],
+          mcpServers: [],
+          worktree: null,
+          ownerModuleId: null,
+          createdAt: 0,
+          updatedAt: 0,
+          lastRun: null,
+          lastFailureSeenAt: null,
+          nextRunAt: null,
+        },
+        onOpenScheduledRun: () => {},
+      })
+      assert.equal(door.view.container.querySelector('[data-scheduled-run-row]'), null, 'no runs, no list')
+      useToastStore.setState({ toasts: [] })
+      const runNow = door.view.find((el) => el.tagName === 'BUTTON' && el.textContent === 'Run now')
+      await act(async () => {
+        runNow!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+      const refused = useToastStore.getState().toasts.find((toast) => toast.title === 'Did not run')
+      assert.equal(refused?.description, 'Its last run is still working.')
+      door.view.unmount()
+    })
+
+    // ── Extension mode ──────────────────────────────────────────────────────
+    // "Build your own extension" is this door with the builder skill attached,
+    // a required name chip where the worktree chip sits, and ideas that fill
+    // the box rather than start anything.
+
+    const extensionDoor = async (targets: Record<string, string> = {}) => {
+      const api = (dom.window as unknown as { api: Record<string, unknown> }).api
+      const asked: Array<Record<string, unknown>> = []
+      api.extensionScaffoldTarget = async (input: { parentDir: string; id: string }) => {
+        asked.push(input)
+        return { state: targets[input.id] ?? 'free', folder: `${input.parentDir}/${input.id}` }
+      }
+      const view = await render({
+        initialSelection: { kind: 'conversation' },
+        initialMode: 'extension',
+        folderPath: '/proj',
+        projectOptions: [],
+        onSelectProject: () => {},
+        onBrowseProject: () => {},
+      })
+      const setValue = async (field: HTMLInputElement | HTMLTextAreaElement, text: string) => {
+        const proto =
+          field.tagName === 'TEXTAREA'
+            ? dom.window.HTMLTextAreaElement.prototype
+            : dom.window.HTMLInputElement.prototype
+        await act(async () => {
+          Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(field, text)
+          field.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+        })
+      }
+      const nameField = () => view.container.querySelector('[aria-label="Extension name"]') as HTMLInputElement | null
+      const settle = async () => {
+        await act(async () => new Promise((resolve) => dom.window.setTimeout(resolve, 200)))
+      }
+      const enter = async () => {
+        const field = view.container.querySelector('textarea')!
+        await act(async () => {
+          field.dispatchEvent(
+            new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+          )
+        })
+        await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+      }
+      return { view, asked, setValue, nameField, settle, enter }
+    }
+
+    await check('extension mode: the builder skill, a name chip, and ideas that fill the box', async () => {
+      seedStore()
+      const door = await extensionDoor()
+      const text = door.view.text()
+      assert.ok(text.includes('What should your extension do?'))
+      assert.ok(text.includes('extension-builder'), 'the builder skill is attached')
+      assert.ok(!text.includes('Scheduled agent'), 'no Chat / Scheduled switch')
+      assert.equal(
+        door.view.container.querySelector('[data-extension-name-chip]')?.getAttribute('data-extension-name-chip'),
+        'empty',
+      )
+      assert.equal(door.view.container.querySelector('[data-worktree-chip]'), null, 'no worktree chip')
+      assert.ok(text.includes('Show all 10'))
+
+      const idea = door.view.find((el) => el.tagName === 'BUTTON' && (el.textContent ?? '').includes('PR review badge'))
+      assert.ok(idea, 'the first idea is offered')
+      await act(async () => {
+        idea!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+      const field = door.view.container.querySelector('textarea')!
+      assert.match(field.value, /^A top-bar badge counting the pull requests/, 'the idea is now the prompt')
+      assert.equal(door.view.launches.length, 0, 'an idea starts nothing')
+
+      await door.enter()
+      assert.equal(door.view.launches.length, 0, 'nor does ⏎ without a name')
+
+      await door.setValue(door.nameField()!, 'PR Radar')
+      assert.equal(door.nameField()!.value, 'pr-radar', 'the name is kept to the id rule as it is typed')
+      await door.settle()
+      assert.deepEqual(door.asked.at(-1), { parentDir: '/proj', id: 'pr-radar' })
+      await door.enter()
+      assert.equal(door.view.launches.length, 1)
+      const launch = door.view.launches[0]!
+      assert.deepEqual(launch.extension, { id: 'pr-radar' })
+      assert.equal(launch.kind, 'conversation')
+      assert.match(String(launch.prompt), /^A top-bar badge counting the pull requests/)
+      assert.deepEqual(
+        (launch.skills as Array<{ id: string }>).map((skill) => skill.id),
+        ['sprintengine-extension-builder'],
+      )
+      door.view.unmount()
+    })
+
+    await check('extension mode: a name taken by something else is said, and holds ⏎', async () => {
+      seedStore()
+      const door = await extensionDoor({ notes: 'taken', 'focus-timer': 'extension' })
+      await door.setValue(door.view.container.querySelector('textarea')!, 'A notes panel.')
+      await door.setValue(door.nameField()!, 'notes')
+      await door.settle()
+      assert.ok(door.view.text().includes('already has a notes folder'))
+      assert.equal(
+        door.view.container.querySelector('[data-extension-name-chip]')?.getAttribute('data-extension-name-chip'),
+        'invalid',
+      )
+      await door.enter()
+      assert.equal(door.view.launches.length, 0)
+
+      // An extension already there is carried on: no error, and ⏎ starts.
+      await door.setValue(door.nameField()!, 'focus-timer')
+      await door.settle()
+      assert.ok(!door.view.text().includes('already has'))
+      assert.ok(door.view.text().includes('focus-timer is already an extension'), 'carrying on is said')
+      await door.enter()
+      assert.deepEqual(door.view.launches[0]?.extension, { id: 'focus-timer' })
+      door.view.unmount()
+    })
+
+    await check('removing the builder chip leaves extension mode for a plain New chat', async () => {
+      seedStore()
+      const door = await extensionDoor()
+      const remove = door.view.container.querySelector('[aria-label="Remove skill extension-builder"]')
+      assert.ok(remove, 'the builder chip can be removed')
+      await act(async () => {
+        remove!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+      const text = door.view.text()
+      assert.ok(!text.includes('What should your extension do?'))
+      assert.equal(door.view.container.querySelector('[data-extension-name-chip]'), null)
+      door.view.unmount()
     })
 
     if (failures > 0) {

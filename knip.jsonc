@@ -11,6 +11,8 @@
     "design-system/scripts/*.mjs",
     "resources/marketplace/*.ts",
     "resources/hooks/*.mjs",
+    // The WSL helper runs inside Linux on its own Node; main installs it there.
+    "resources/wsl-helper/**/*.mjs",
     "packages/module-sdk/src/cli.ts",
     "packages/module-sdk/drift/*.ts",
   ],
@@ -21,10 +23,30 @@
     "resources/marketplace/*.ts",
     "tests/**/*.ts",
   ],
+  "ignore": [
+    // Scaffold sources: copied into an author's own project, whose package.json
+    // depends on @sprintengine/module-sdk. They are not part of this one.
+    "packages/module-sdk/templates/**",
+    "packages/module-sdk/skills/**",
+    "resources/studio-plugin/sprintengine-studio/skills/sprintengine-extension-builder/**",
+  ],
+  "ignoreBinaries": [
+    // The Windows system launcher for a WSL distribution: it lists the
+    // distributions and starts each one's helper. Not an npm binary.
+    "wsl.exe",
+    // The POSIX tool clone-tree.test.ts makes a FIFO with; Node has no API for it.
+    "mkfifo",
+    // The Windows registry tool; the updater reads where an all-users
+    // installation is recorded with it. Not an npm binary.
+    "reg.exe",
+  ],
   "ignoreDependencies": [
     // Imported from CSS (`@import "tailwindcss"`), which knip does not read.
     "tailwindcss",
+    // The bundled UI and mono faces, imported from index.css for the same reason.
+    "@fontsource/inter",
+    "@fontsource/jetbrains-mono",
     // The pack check installs the freshly packed tarball and imports it by name.
-    "@sprintengine/mobile-control-protocol",
+    "@sprintengine/conversation-protocol",
   ],
 }

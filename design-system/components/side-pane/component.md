@@ -27,6 +27,7 @@ rests (`patterns/selection`).
 | Header | `.ds-side-pane-header` | no — title, optional count, close; simpler asides only |
 | Title | `.ds-side-pane-title` | with the header — `font.size.body` at `emphasis`, matching the panel-header rhythm so board and aside read as one family |
 | Count | `.ds-side-pane-count` | no — display-only, `tabular-nums`; never hosts a control |
+| Resize handle | `.ds-side-pane-resize-handle` | `--resizable` only — a `role="separator"` straddling the inner edge; its guideline is `.ds-side-pane-resize-line` |
 | Body | — | caller-owned scroll container: keyboard handlers and list semantics vary per surface, so the system does not pre-empt them |
 
 ## Variants
@@ -46,6 +47,13 @@ rests (`patterns/selection`).
 - `.ds-side-pane--expanded` — the pane takes the whole row (the caller hides
   the neighbour). The hairline is dropped: there is nothing left to separate
   from.
+- `.ds-side-pane--resizable` — the person sets the width by dragging the inner
+  edge. The pane then carries a pixel width the host owns, clamped to rails
+  the host declares (the editor window's file tree: 180–480px, 260px by
+  default), instead of a percent preset. It is for a column the person keeps
+  open while working beside it — the workspace pane, the editor window's file
+  tree — where the right width depends on the names in it. A detail aside
+  that opens and closes with its selection keeps a preset.
 
 ## States
 
@@ -53,9 +61,12 @@ rests (`patterns/selection`).
 |---|---|
 | Rest | Hairline, inherited surface; nothing else |
 | Expanded | Full row, no hairline |
+| Handle hover (`--resizable`) | The guideline over the hairline fades in at 60% |
+| Resizing (`--resizable`) | `.ds-side-pane-resize-handle--active`: the guideline at full strength for the length of the drag |
 
-The width is the preset's alone: the pane has no resize handle, so nothing
-overrides the percent and its pixel rails.
+A preset pane's width is the preset's alone: it has no handle, so nothing
+overrides the percent and its pixel rails. A `--resizable` pane's width is
+the person's, within the host's rails.
 
 ## Usage
 
@@ -72,9 +83,18 @@ under it is the second band the composition rules exist to prevent.
 the main flow; `<section>` (with an accessible name) when the column *is* the
 main flow — an inbox column is not an aside to its own detail.
 
+**The resize drag is captured.** Panes routinely host iframes (and in the
+app, `<webview>` guests) that would otherwise swallow pointermove mid-drag, so
+the handle takes pointer capture on press and a transparent shield covers the
+window for the length of the drag. The live width is written straight to the
+element on each animation frame and committed once, on release — never a store
+write per frame. In the app this is `startColumnResizeDrag`
+(`components/workspace/columnResizeDrag.ts`), shared by every resizable column.
+
 **Rebuilding it in a framework:** what must survive is the flow-not-overlay
 nature (no portal, no trap — Tab passes through), the inner-edge hairline,
-and the clamped width contract.
+and the clamped width contract — for `--resizable`, also the captured drag and
+the keyboard steps below.
 
 ## Accessibility
 
@@ -87,3 +107,7 @@ and the clamped width contract.
   not "Close" — because several side panes can be open in one view.
 - The count is display-only. A count that should be clickable is a filter,
   and belongs in the body, not the header.
+- The resize handle is a focusable `role="separator"` with
+  `aria-orientation="vertical"`, an `aria-label` naming the pane ("Resize
+  files"), and `aria-valuenow`/`-valuemin`/`-valuemax` in pixels. ←/→ step the
+  width by 16px, Home restores the default, and a double-click does the same.

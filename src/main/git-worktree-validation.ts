@@ -1,10 +1,11 @@
 import { isAbsolute, resolve } from 'path'
+import { isWslDriveMountPath } from '../shared/host-paths'
 import type { GitCommandResult, GitWorktreeOperationResult } from './git'
 import { normalizeComparablePath, runGit, runGitCommand, toFilesystemPath, toPosixPath } from './git-utils'
 
 export async function resolveRepoRoot(repoRoot: string): Promise<GitWorktreeOperationResult<string>> {
   const normalizedRoot = toPosixPath(repoRoot)
-  const resolvedRoot = /^\/mnt\/[A-Za-z](?:\/|$)/.test(normalizedRoot)
+  const resolvedRoot = isWslDriveMountPath(normalizedRoot)
     ? toFilesystemPath(normalizedRoot)
     : toFilesystemPath(resolve(repoRoot))
   const actualRoot = await getGitRepoRoot(resolvedRoot)

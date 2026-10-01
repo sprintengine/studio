@@ -1,0 +1,178 @@
+/* ── Diff tours ──────────────────────────────────────────────────────────────
+ * design-system/components/tour-strip and tour-callout. A tour is layered onto
+ * the diff editor that is already mounted (useDiffTour.ts): these are the
+ * classes Monaco hangs on its own nodes — the step's lines, the gutter
+ * hairline, the dimmed text — plus the callout that lives in a view zone.
+ * Imported by index.css, and consumes only its aliases and the --sem-* tokens.
+ *
+ * `--tour-dim` is a REGISTERED property so it can be transitioned: the host
+ * eases it from 1 to `sem.opacity.dimmed`, and every dimmed span reads it, so
+ * the whole file steps back as one motion rather than a thousand. */
+@property --tour-dim {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 1;
+}
+
+.tour-host {
+  --tour-dim: 1;
+}
+.tour-host.tour-dimmed-host {
+  --tour-dim: var(--sem-opacity-dimmed);
+}
+
+/* Lines outside the step. Inline, so it reaches the text Monaco draws and
+ * leaves the diff's own line tints alone underneath. */
+.tour-dim {
+  opacity: var(--tour-dim);
+}
+
+/* The step: a neutral selection wash, not the accent and not a diff hue. */
+.tour-step-line {
+  background: var(--bg-selected);
+}
+
+/* A deleted file, played as its old text: the diff's own removed hue, as a wash. */
+.tour-deleted-line {
+  background: color-mix(in srgb, var(--diff-removed) 14%, transparent);
+}
+
+/* The accent, spent as a hairline in the line-decorations lane and nowhere else. */
+.tour-step-rail {
+  position: relative;
+}
+.tour-step-rail::before {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  left: var(--sem-space-2xs);
+  /* The hairline's drawn width (tour-callout spec), not spacing. */
+  width: 2px;
+  background: var(--border-focus);
+}
+
+.tour-leaving .tour-step-line,
+.tour-leaving .tour-step-rail::before {
+  opacity: 0;
+}
+
+/* The view zone. Monaco sizes it; the frame inside is what it is sized to. */
+.tour-zone {
+  /* Monaco paints its text layer over the zones layer, and that layer would
+   * take every click meant for the field. Lifted one in-flow step so the
+   * callout is the thing under the pointer; the zone covers no text, so
+   * nothing of the editor's is hidden by it. */
+  z-index: var(--sem-z-sticky);
+  user-select: text;
+  cursor: auto;
+}
+
+.tour-callout-frame {
+  box-sizing: border-box;
+  /* The visible text column, set by useDiffTour; a zone itself spans the
+   * whole scrollable width. */
+  max-width: var(--tour-zone-width, 100%);
+  padding: var(--sem-space-sm) var(--sem-space-2xl) var(--sem-space-md) var(--sem-space-md);
+}
+.tour-callout-frame[data-visible='false'] {
+  opacity: 0;
+}
+
+.tour-callout {
+  max-width: 76ch;
+  padding: var(--sem-space-md) var(--sem-space-lg);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-raised);
+  color: var(--text-default);
+  font-family: var(--sem-font-family-ui);
+  line-height: var(--sem-font-line-relaxed);
+  white-space: normal;
+}
+
+.tour-excerpt {
+  margin: 0;
+  padding: var(--sem-space-xs) var(--sem-space-sm);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+}
+.tour-excerpt-line[data-sign='add'] {
+  color: var(--diff-added);
+}
+.tour-excerpt-line[data-sign='del'] {
+  color: var(--diff-removed);
+}
+
+/* The band's bottom edge, drawn as the tour. */
+.tour-progress {
+  height: 2px;
+}
+.tour-progress-segment {
+  flex: 1;
+  background: var(--border-subtle);
+}
+.tour-progress-segment[data-mark='visited'],
+.tour-progress-segment[data-mark='moved'],
+.tour-progress-segment[data-mark='gone'] {
+  background: var(--text-subtle);
+}
+.tour-progress-segment[data-mark='current'] {
+  background: var(--text-strong);
+}
+
+/* A file-level step over a file with no text to point into: the callout stands alone. */
+.tour-callout-frame[data-variant='card'] {
+  width: 100%;
+  max-width: 34rem;
+  padding: 0;
+}
+
+/* Before Start: the card stands where the diff will play. */
+.tour-ready-scrim {
+  z-index: var(--z-float);
+  background: var(--bg-app);
+}
+.tour-ready-card {
+  padding: var(--sem-space-2xl);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface-raised);
+}
+
+/* A step in another file: the editor fades out, its models are swapped under
+ * it, and it fades back in once the new diff is drawn. */
+.tour-host[data-swapping='true'] .monaco-diff-editor {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .tour-host {
+    transition: --tour-dim var(--motion-normal) var(--motion-ease);
+  }
+  /* Once per arrival, never on a re-place of the same step. */
+  .tour-arriving .tour-step-line,
+  .tour-arriving .tour-step-rail::before {
+    animation: tour-step-in var(--motion-normal) var(--motion-ease) both;
+  }
+  .tour-leaving .tour-step-line,
+  .tour-leaving .tour-step-rail::before {
+    transition: opacity var(--motion-fast) var(--motion-ease);
+  }
+  .tour-callout-frame {
+    transition: opacity var(--motion-normal) var(--motion-ease);
+  }
+  .tour-callout-frame[data-visible='false'] {
+    transition-duration: var(--motion-fast);
+  }
+  .tour-host .monaco-diff-editor {
+    transition: opacity var(--motion-fast) var(--motion-ease);
+  }
+}
+
+@keyframes tour-step-in {
+  from {
+    opacity: 0;
+  }
+}

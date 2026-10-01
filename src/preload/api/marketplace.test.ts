@@ -78,8 +78,8 @@ test('marketplace', async () => {
         if (channel === 'marketplace:registry:read') return registryResponse
         if (channel === 'marketplace:plugins:verify') return verifyResponse
         if (channel === 'marketplace:plugins:install-entry') {
-          const entryInput = args[0] as { entry?: { mcp?: unknown } }
-          return entryInput.entry?.mcp ? inlineInstallResponse : registryInstallResponse
+          const entryInput = args[0] as { id?: string }
+          return entryInput.id === 'inline-mcp-plugin' ? inlineInstallResponse : registryInstallResponse
         }
         if (channel === 'marketplace:plugins:update-entry') return { ...registryInstallResponse, updated: true }
         if (channel === 'marketplace:plugins:uninstall') return uninstallResponse
@@ -132,12 +132,24 @@ test('marketplace', async () => {
         },
       },
       workspaceRoot: '/tmp/workspace',
-      trustGranted: true,
     }
-    const verified = await api.verifyMarketplacePlugin(entryInput.entry)
-    const registryInstalled = await api.installMarketplacePluginFromRegistry(entryInput)
-    const inlineInstalled = await api.installMarketplacePluginFromRegistry(inlineEntryInput)
-    const registryUpdated = await api.updateMarketplacePluginFromRegistry({ ...entryInput, trustGranted: true })
+    // By id: main resolves the entry, and the only approval is the token its
+    // verify issued.
+    const verified = await api.verifyMarketplacePlugin({ id: entryInput.entry.id })
+    const registryInstalled = await api.installMarketplacePluginFromRegistry({
+      id: entryInput.entry.id,
+      workspaceRoot: entryInput.workspaceRoot,
+    })
+    const inlineInstalled = await api.installMarketplacePluginFromRegistry({
+      id: inlineEntryInput.entry.id,
+      workspaceRoot: inlineEntryInput.workspaceRoot,
+      trustToken: 'token-from-verify',
+    })
+    const registryUpdated = await api.updateMarketplacePluginFromRegistry({
+      id: entryInput.entry.id,
+      workspaceRoot: entryInput.workspaceRoot,
+      trustToken: 'token-from-verify',
+    })
     // G3: uninstall speaks the same envelope install does — an MCP component's
     // removal writes the CLI configs, which needs the workspace and settings.
     const uninstallInput = { pluginId: 'bundle-plugin', workspaceRoot: '/tmp/workspace' }
@@ -153,10 +165,19 @@ test('marketplace', async () => {
     assert.deepEqual(updateStates, updateStatesResponse)
     assert.deepEqual(calls, [
       { channel: 'marketplace:registry:read', args: [{ forceRefresh: true }] },
-      { channel: 'marketplace:plugins:verify', args: [entryInput.entry] },
-      { channel: 'marketplace:plugins:install-entry', args: [entryInput] },
-      { channel: 'marketplace:plugins:install-entry', args: [inlineEntryInput] },
-      { channel: 'marketplace:plugins:update-entry', args: [{ ...entryInput, trustGranted: true }] },
+      { channel: 'marketplace:plugins:verify', args: [{ id: 'bundle-plugin' }] },
+      {
+        channel: 'marketplace:plugins:install-entry',
+        args: [{ id: 'bundle-plugin', workspaceRoot: '/tmp/workspace' }],
+      },
+      {
+        channel: 'marketplace:plugins:install-entry',
+        args: [{ id: 'inline-mcp-plugin', workspaceRoot: '/tmp/workspace', trustToken: 'token-from-verify' }],
+      },
+      {
+        channel: 'marketplace:plugins:update-entry',
+        args: [{ id: 'bundle-plugin', workspaceRoot: '/tmp/workspace', trustToken: 'token-from-verify' }],
+      },
       { channel: 'marketplace:plugins:uninstall', args: [uninstallInput] },
       { channel: 'marketplace:plugins:update-states', args: [{ forceRefresh: true }] },
     ])

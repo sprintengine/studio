@@ -14,7 +14,7 @@
 // pipeline be tested without a window, a real disk or a real second.
 
 import { createHash, randomInt, randomUUID } from 'node:crypto'
-import { dirname, join, relative, resolve as resolvePath } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 
 import type {
   CanvasActionEntry,
@@ -26,6 +26,7 @@ import type {
   CanvasEditResult,
   CanvasElement,
   CanvasError,
+  CanvasExportImages,
   CanvasImage,
   CanvasImportRequest,
   CanvasLayoutRequest,
@@ -36,6 +37,7 @@ import type {
 import { canvasFail, canvasOk } from '../../shared/canvas/types'
 import {
   CANVAS_LIST_MAX_BOARDS,
+  canvasBoardIsInStore,
   canvasBoardKeyPath,
   canvasBoardName,
   canvasPathIsCaseInsensitive,
@@ -77,6 +79,10 @@ const ACTION_LOG_LIMIT = 50
 const READ_SNAPSHOT_LIMIT = 16
 /** A temp file older than this was left by a crash, not by a write in flight. */
 const STALE_TEMP_MS = 5 * 60 * 1000
+
+/** An exported picture past these is not something the tab rendered from a board. */
+const EXPORT_MAX_PNG_BASE64 = 64 * 1024 * 1024
+const EXPORT_MAX_SVG_CHARS = 64 * 1024 * 1024
 
 /** `listBoards` walks the project, so it is bounded on every axis. */
 const LIST_MAX_DEPTH = 6
@@ -128,6 +134,8 @@ export type CanvasDirEntry = {
 export type CanvasFs = {
   readFile(path: string): Promise<string>
   writeFile(path: string, contents: string): Promise<void>
+  /** Bytes, for the one binary file this service writes: an exported PNG. */
+  writeBytes?(path: string, contents: Uint8Array): Promise<void>
   rename(from: string, to: string): Promise<void>
   /** Recursive; a no-op when the directory is already there. */
   mkdir(path: string): Promise<void>
@@ -146,6 +154,13 @@ export type CanvasServiceDeps = {
   now: () => number
   /** A workspace's project folder from main's registry; null when it has none. */
   resolveWorkspaceRoot: (workspaceId: string) => string | null
+  /**
+   * The folder holding a project's store boards — the ones named without a
+   * folder — outside the project's working tree. Main keys it by project, in
+   * the app's data folder; absent, a store board cannot be located and every
+   * call about one says so.
+   */
+  resolveBoardStore?: (workspaceId: string, workspaceRoot: string) => string | null
   /** Push to every window that could host the workspace (`canvas:open-request`). */
   broadcast: (channel: string, payload: unknown) => void
   /** Push to one subscriber, by the id the IPC layer minted for it. */
@@ -183,6 +198,18 @@ export type CanvasServiceInternal = CanvasService & {
     subscriberId: number,
   ): Promise<CanvasResult<{ revision: number; elements: CanvasElement[] | null }>>
   noteHumanInput(ref: CanvasBoardRef, subscriberId?: number): void
+  /**
+   * Write a copy of the board — and any images the tab rendered — into a folder
+   * the person picked. The board in the store is left exactly where it is: an
+   * export is how a drawing gets into the repository, not a move.
+   */
+  exportBoard(
+    ref: CanvasBoardRef,
+    directory: string,
+    images?: CanvasExportImages,
+  ): Promise<CanvasResult<{ directory: string; files: string[] }>>
+  /** The board file's absolute path. Main-side only: it never reaches an agent. */
+  boardLocation(ref: CanvasBoardRef): CanvasResult<string>
   /** A window went away: it stops counting as a subscriber of every board it held. */
   dropSubscriber(subscriberId: number): void
 }
@@ -341,9 +368,21 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
         `Workspace ${workspaceId} is not open, or has no project folder to keep boards in.`,
       )
     }
-    const absolutePath = resolvePath(root, normalized.value)
-    if (!isPathStrictlyInside(root, absolutePath)) {
-      return canvasFail('forbidden', `A board must live inside the project: ${ref.path}`)
+    // A board with no folder is one of the store's, which lives outside the
+    // project; one with a folder is that file in the project.
+    const inStore = canvasBoardIsInStore(normalized.value)
+    const base = inStore ? deps.resolveBoardStore?.(workspaceId, root) : root
+    if (!base) {
+      return canvasFail('unknown_workspace', `Workspace ${workspaceId} has no board store to keep ${ref.path} in.`)
+    }
+    const absolutePath = resolvePath(base, normalized.value)
+    if (!isPathStrictlyInside(base, absolutePath)) {
+      return canvasFail(
+        'forbidden',
+        inStore
+          ? `A board must live inside the board store: ${ref.path}`
+          : `A board must live inside the project: ${ref.path}`,
+      )
     }
     return canvasOk({
       workspaceId,
@@ -1113,6 +1152,11 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
       return canvasFail('unknown_workspace', `Workspace ${id} is not open, or has no project folder to keep boards in.`)
     }
     const found: FoundBoard[] = []
+    // The store first: it is where every board made since the move lives. It
+    // is flat, so its boards are listed by file name alone — the same spelling
+    // that names them everywhere else.
+    const store = deps.resolveBoardStore?.(id, root)
+    if (store) await listStore(store, found)
     await walk(root, root, 0, found)
     // Newest first, and only THEN capped: the walk's own order is the
     // filesystem's, and capping on that would hide the board somebody edited a
@@ -1134,6 +1178,27 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
   /** A candidate from the walk: everything but the element count, which costs a parse. */
   type FoundBoard = { path: string; absolutePath: string; modifiedAt: number; size: number }
 
+  async function listStore(store: string, found: FoundBoard[]): Promise<void> {
+    let entries: CanvasDirEntry[]
+    try {
+      entries = await deps.fs.readdir(store)
+    } catch {
+      // No store yet: nobody has drawn in this project since boards moved.
+      return
+    }
+    for (const entry of entries) {
+      if (found.length >= LIST_MAX_SCANNED) return
+      if (!entry.isFile || !entry.name.endsWith(CANVAS_FILE_EXTENSION)) continue
+      const absolute = join(store, entry.name)
+      try {
+        const stat = await deps.fs.stat(absolute)
+        found.push({ path: entry.name, absolutePath: absolute, modifiedAt: stat.mtimeMs, size: stat.size })
+      } catch {
+        continue
+      }
+    }
+  }
+
   async function walk(root: string, directory: string, depth: number, found: FoundBoard[]): Promise<void> {
     if (depth > LIST_MAX_DEPTH || found.length >= LIST_MAX_SCANNED) return
     let entries: CanvasDirEntry[]
@@ -1148,14 +1213,19 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
     for (const entry of entries) {
       if (found.length >= LIST_MAX_SCANNED) return
       if (entry.isDirectory) {
-        // Dot-folders wholesale: `.git`, `.sprintengine` and
-        // every other tool's store are not where a person keeps a drawing.
+        // Dot-folders wholesale: `.git`, `.sprintengine` and every other
+        // tool's store are not where a person keeps a drawing.
         if (entry.name.startsWith('.')) continue
         if (LIST_SKIP_FOLDERS.has(entry.name)) continue
         folders.push(entry.name)
         continue
       }
       if (!entry.isFile || !entry.name.endsWith(CANVAS_FILE_EXTENSION)) continue
+      // A board at the project root has no folder in its path, and a path with
+      // no folder names a store board — so listing it would offer a row that
+      // opens a different board. It was never reachable by its listed path
+      // (a folderless path used to mean the default folder), and is left out.
+      if (depth === 0) continue
       const absolute = join(directory, entry.name)
       const projectPath = relative(root, absolute).split('\\').join('/')
       let stat: CanvasFileStat
@@ -1192,6 +1262,27 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
     const board = await ensureBoard(ref, opts)
     if (!board.ok) return board
     return canvasOk(stateOf(board.value))
+  }
+
+  /** Where a board's file is, for the one caller that needs it: revealing it in the file manager. */
+  function boardLocation(ref: CanvasBoardRef): CanvasResult<string> {
+    const located = locate(ref)
+    if (!located.ok) return located
+    const held = boards.get(located.value.key)
+    return canvasOk(held?.loaded ? held.absolutePath : located.value.absolutePath)
+  }
+
+  async function boardExists(ref: CanvasBoardRef): Promise<CanvasResult<boolean>> {
+    const located = locate(ref)
+    if (!located.ok) return located
+    if (boards.get(located.value.key)?.loaded) return canvasOk(true)
+    try {
+      const stat = await deps.fs.stat(located.value.absolutePath)
+      return canvasOk(stat.isFile)
+    } catch (error) {
+      if (isMissing(error)) return canvasOk(false)
+      return fsFailure(`${located.value.path} could not be checked`, error)
+    }
   }
 
   async function edit(
@@ -1561,6 +1652,86 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
     claim(board, { controller: 'human' }, subscriberId)
   }
 
+  /**
+   * A copy of the board, and the pictures the tab rendered of it, in a folder
+   * the person picked.
+   *
+   * The board file is serialized from what this service holds, after anything
+   * pending on disk has been merged in, so the copy is the board everyone is
+   * looking at. Each file is written through a temp and a rename, like the
+   * board itself: a re-export over a copy already committed must never leave a
+   * half-written file in the person's repository. An existing file of the same
+   * name is replaced — exporting again after an edit is the whole point.
+   */
+  async function exportBoard(
+    ref: CanvasBoardRef,
+    directory: string,
+    images: CanvasExportImages = {},
+  ): Promise<CanvasResult<{ directory: string; files: string[] }>> {
+    if (typeof directory !== 'string' || !isAbsolute(directory)) {
+      return canvasFail('invalid_path', 'An export needs an absolute folder to write into.')
+    }
+    if (images.png !== undefined && (typeof images.png !== 'string' || images.png.length > EXPORT_MAX_PNG_BASE64)) {
+      return canvasFail('too_large', 'The PNG image is not one this board could have produced.')
+    }
+    if (
+      images.svg !== undefined &&
+      (typeof images.svg !== 'string' || images.svg.length > EXPORT_MAX_SVG_CHARS || !/<svg[\s>]/i.test(images.svg))
+    ) {
+      return canvasFail('invalid_scene', 'The SVG image is not an SVG document.')
+    }
+    const board = await ensureBoard(ref)
+    if (!board.ok) return board
+    const entry = board.value
+    return enqueue(entry, async (): Promise<CanvasResult<{ directory: string; files: string[] }>> => {
+      const settled = await settleDisk(entry)
+      if (!settled.ok) return settled
+      const name = canvasBoardName(entry.path)
+      const text = serializeSceneFile({
+        ...emptyScene(),
+        elements: entry.elements,
+        appState: entry.appState,
+        files: referencedFiles(entry),
+      })
+      const outputs: Array<{ file: string; contents: string | Uint8Array }> = [
+        { file: join(directory, `${name}${CANVAS_FILE_EXTENSION}`), contents: text },
+      ]
+      if (images.png) {
+        outputs.push({ file: join(directory, `${name}.png`), contents: Buffer.from(images.png, 'base64') })
+      }
+      if (images.svg) outputs.push({ file: join(directory, `${name}.svg`), contents: images.svg })
+      try {
+        await deps.fs.mkdir(directory)
+      } catch (error) {
+        return fsFailure(`The folder ${directory} could not be created`, error)
+      }
+      const written: string[] = []
+      for (const output of outputs) {
+        // A legacy board exported into its own folder: the file already is
+        // this board, and rewriting it would only wake the watcher.
+        if (
+          canvasBoardKeyPath(resolvePath(output.file), platform) === canvasBoardKeyPath(entry.absolutePath, platform)
+        ) {
+          written.push(output.file)
+          continue
+        }
+        const temp = `${output.file}.${randomUUID()}.tmp`
+        try {
+          if (typeof output.contents === 'string') await deps.fs.writeFile(temp, output.contents)
+          else if (deps.fs.writeBytes) await deps.fs.writeBytes(temp, output.contents)
+          else throw new Error('this filesystem cannot write binary files')
+          await deps.fs.rename(temp, output.file)
+        } catch (error) {
+          await deps.fs.unlink(temp).catch(() => {})
+          return fsFailure(`${output.file} could not be written`, error)
+        }
+        written.push(output.file)
+      }
+      touch(entry)
+      return canvasOk({ directory, files: written })
+    })
+  }
+
   async function dispose(): Promise<void> {
     if (disposed) return
     disposed = true
@@ -1577,6 +1748,7 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
   return {
     listBoards,
     readBoard,
+    boardExists,
     edit,
     layout,
     importContent,
@@ -1590,6 +1762,8 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
     commitScene,
     noteHumanInput,
     dropSubscriber,
+    exportBoard,
+    boardLocation,
   }
 }
 

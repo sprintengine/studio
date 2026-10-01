@@ -33,3 +33,25 @@ export function withoutStudioEnv(env: Record<string, string>, names: readonly st
   for (const name of names) delete next[name]
   return next
 }
+
+// The identity vars an agent launch owns (see `applyAgentIdentityEnv` in
+// terminal-launch.ts). Cleared from a base env before the session's own
+// identity is applied, so a stale `SPRINTENGINE_AGENT_ID` inherited by the app's
+// own process (e.g. the app launched from inside an agent shell) never leaks
+// into a plain terminal or the wrong agent. Shared because a launch in WSL
+// exports exactly these from its startup script, the one way they reach a Linux
+// agent whatever the person's `WSLENV` says.
+export const AGENT_IDENTITY_ENV_KEYS = [
+  'SPRINTENGINE_WORKSPACE_ID',
+  'SPRINTENGINE_AGENT_ID',
+  'SPRINTENGINE_AGENT_NAME',
+  'SPRINTENGINE_AGENT_STATE_SOCKET',
+  'SPRINTENGINE_AGENT_CLI',
+] as const
+
+// A WSL agent launch's proof, to the helper's MCP socket, that its bridge was
+// started by that launch (see `resources/wsl-helper/lib/relay.mjs`). The
+// startup script exports it; the CLI's MCP bridge inherits it and opens its
+// channel with it. Codex hands an MCP server only the variables its entry
+// names, so the gateway entry names this one (`env_vars`).
+export const MCP_CHANNEL_TOKEN_ENV = 'SPRINTENGINE_MCP_CHANNEL_TOKEN'

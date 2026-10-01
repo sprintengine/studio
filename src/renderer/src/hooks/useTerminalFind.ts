@@ -33,8 +33,8 @@ export type TerminalFind = {
 }
 
 export type UseTerminalFindInput = {
-  /** Null for a pane that belongs to no workspace — see `MountedTerminalFind`. */
-  workspaceId: string | null
+  /** The workspace the pane belongs to — see `MountedTerminalFind`. */
+  workspaceId: string
   /** The pane's outer element, used to decide whether this pane holds the keyboard. */
   containerRef: React.RefObject<HTMLElement | null>
   /** The pane's live terminal, or null before it exists / after teardown. */

@@ -107,12 +107,7 @@ export default function FirstRunCliCard({ onDismiss }: { onDismiss: () => void }
                       rowInstalling ? (
                         `Installing${install?.progress?.methodLabel ? ` via ${install.progress.methodLabel}` : ''}…`
                       ) : (
-                        <CliProviderStateLine
-                          state={state}
-                          binary={plugin.binary}
-                          useWsl={override.useWsl}
-                          probeError={cliAvailabilityError}
-                        />
+                        <CliProviderStateLine state={state} binary={plugin.binary} probeError={cliAvailabilityError} />
                       )
                     }
                     // Only a CLI that still needs installing gets a disclosure —
@@ -174,7 +169,6 @@ export default function FirstRunCliCard({ onDismiss }: { onDismiss: () => void }
                       displayName={plugin.displayName}
                       binary={plugin.binary}
                       command={override.command}
-                      useWsl={override.useWsl}
                       showName={false}
                       showStatus={false}
                       hostDriven
@@ -182,13 +176,14 @@ export default function FirstRunCliCard({ onDismiss }: { onDismiss: () => void }
                       onInstallStateChange={(progress) => noteInstallProgress(plugin.id, progress)}
                       onInstalled={(result) => {
                         if (result.resolvedPath && !override.command) {
-                          setCliRuntime(plugin.id, { command: result.resolvedPath, useWsl: override.useWsl })
+                          setCliRuntime(plugin.id, { command: result.resolvedPath })
                         }
                         void refreshPluginCatalog()
-                        // Forced: the install just changed the answer, and the
-                        // card's own visibility is derived from it — a
-                        // successful install is what makes this card go away.
-                        void refreshCliAvailability({ force: true, cliRuntimes })
+                        // The card's own visibility is derived from this answer
+                        // — a successful install is what makes it go away. Main
+                        // recorded what the install found for this CLI, so the
+                        // read has it without probing every other CLI again.
+                        void refreshCliAvailability({ cliRuntimes })
                       }}
                     />
                   </ProviderRow>

@@ -1,851 +1,627 @@
 # @sprintengine/module-sdk
 
-Published contract types for building **SprintEngine Studio capability
-modules** — the manifest and permission shapes, the main-process `MainHost`
-registration contract, the renderer `RendererHost` contribution types (panels,
-workspace types, Backlog item actions, Backlog link providers, commands,
-settings sections, sidebar nav entries), Automations provider registration, and
-the module notification payloads.
+The contract, templates and authoring CLI for building **SprintEngine Studio
+extensions** (capability modules): the manifest and its host API version, the
+`MainHost` / `RendererHost` registration contracts, chat conversations with the
+app's agents, brokered secrets and GitHub access, scheduled agents, module
+storage, notifications, and signing.
 
-The package is types-first: it ships type declarations plus a handful of small
-mirrored values (`BUNDLED_MODULE_IDS`, `KNOWN_CAPABILITY_PERMISSIONS`,
-`createServiceToken`). It has no runtime dependency on Electron or on the
-application's own code, so an external project can compile a module against the
-tarball alone.
+Studio is a home for agent runtimes — Claude Code, Codex and the ACP agents —
+and an extension reaches those agents one way: **as chats**. A module starts,
+drives and reads chat conversations it owns, opens a chat for the person with a
+drafted prompt, or runs a background companion agent. It never launches,
+types into, or watches an agent terminal; that surface is not part of the SDK.
 
-## Versioning
+The package is types-first. Beyond the declarations it ships a few small pure
+values (`BUNDLED_MODULE_IDS`, `KNOWN_CAPABILITY_PERMISSIONS`,
+`HOST_API_VERSION`, `createServiceToken`, the `get*Service` helpers), the
+manifest validators, the `sprintengine-module` CLI, the starter templates and
+the `sprintengine-extension-builder` agent skill. It has no runtime dependency
+on Electron or on the app's code, so a project compiles against the tarball
+alone. Node 22.15 or newer.
 
-Semver, starting at `0.1.0`. See `CHANGELOG.md`. Inside the studio
-repository a drift guard (`drift/sdk-drift-guard.ts`, run in the verify
-pipeline) fails the build whenever these declarations diverge from the in-app
-contracts, so a published version always matches the app version it ships with.
+## Quick start
 
-## Support surface (v0.4)
-
-- **Manifest** (`CapabilityManifest`): id, displayName, integer version,
-  publisher, category, summary, `defaultEnabled`, `dependsOn`/`conflictsWith`,
-  `source: 'third-party'`, `permissions`, `entry`, `signature`.
-- **Entries**: `entry.main` (CommonJS, `export registerMain(host)`) runs in the
-  main process for **trusted** modules; `entry.renderer` (single-file ESM
-  bundle, `export registerRenderer(host)`) loads in the renderer for trusted
-  modules. **`entry.preload` is reserved and NOT loaded** — the manifest
-  field exists for forward compatibility only.
-- **Trust**: only `trusted` modules execute code. Signing is detached ed25519
-  over the canonical manifest; trust binds to manifest content (changing the
-  manifest voids trust).
-- **Permissions are install-time disclosure, not runtime enforcement.** The
-  consent UI shows what your module declares; it does not sandbox it. Prefer
-  the tiered `ipc:*` scopes when they cover what you touch; `ipc:invoke` is
-  the broad scope (flagged as broad to the user) and is also the declared
-  gate for `RendererHost.invoke` — the one surface where the host actually
-  checks the declaration. Declare it if and only if your module uses the
-  bridge or genuinely needs the broad legacy surface.
-- **Main host**: `registerIpc` (channel ownership enforced), service tokens,
-  startup/shutdown hooks, `registerSidecar` (a declaration; the host does
-  not spawn it), `registerLaunchContribution` (per-spawn env, PATH shims, shell functions,
-  managed-MCP entries, host-context sections and a session lifetime tag — see
-  "Launch contributions"), `notify(severity, title, body?)` (identity stamped
-  by the host, per-module flood-bounded), and `registerMcpTools(tools)` —
-  agent-facing MCP tools on the always-on Studio gateway, owned by your
-  module's id with duplicate-name rejection. Tool availability follows your
-  module's enablement live: a disabled module's tools stay listed and answer
-  an actionable enable error instead of running. Declare `ipc:agents`. Skills
-  your module ships ride the same
-  ownership discipline through `registerSkills(skills)`, and
-  `ensureSkillInstalled(workspaceRoot, skillId)` puts one in a workspace on
-  demand — see "Skills a module ships".
-- **Renderer host**: `registerPanel`, `registerWorkspaceType` (workspace
-  types may now ship `supervisors` — render-nothing background components
-  the shell mounts while your module is enabled, inside a crash boundary and
-  a display:none host — `deriveRunGlyph`, the sidebar status slot:
-  `{ state, live, label }` from the stable `WorkspaceRunGlyphState` subset —
-  and `creationStep`, one module-owned config page in the workspace-creation
-  hub: `{ id, heading, description?, Component, isReady?, blockedHint? }`,
-  where `Component` receives `{ value, setValue }`, `isReady(value)` gates
-  the Create button with `blockedHint` as the footer hint, and the collected
-  value arrives in `createTemplate(context?: { stepValue?: unknown })`; the
-  shell holds the value for the pane's lifetime only and persists nothing —
-  a throwing step component degrades to your type's zero-config create with
-  an inline notice, never a blocked hub, and `createWorkspace(request, host)`,
-  the async create hook for a type whose creation is orchestration rather than
-  a layout choice: resolve to mean "created, close the hub", reject to leave it
-  open; `host.createWorkspace()` mints the row and `host.removeWorkspace(id)`
-  takes it back, so a create that fails after minting leaves nothing behind,
-  and `request.setStepValue` is where the failure goes — your step owns that
-  page's body. Absent ⇒ the hub creates from `createTemplate` directly;
-  `createLabel` names the create control (picker, hub) and defaults to
-  `label`; `RowMark` is the glyph beside a sidebar row of this type;
-  `rowActions` are extra context-menu items on those rows (`{ id, label,
-  variant?, isVisible, confirm, run }`), gone with the module, never a
-  disabled core row; `hiddenFromRail` withholds workspaces
-  of this type from the Projects list, keyboard switch targets, and
-  command-palette results — hidden from discovery, still in the store and
-  explicitly activatable, the rail analog of `hiddenFromPicker`),
-  `registerBacklogItemAction`, `registerBacklogLinkProvider`,
-  `registerFileAction` (a Files-tree context-menu action — sibling of
-  `registerBacklogItemAction` — `{ id, label, order?, getLabel?,
-  isVisible(context), getState(context), run(context) }` where `context` is
-  `{ workspaceId, workspaceRoot, entries }` and each entry is `{ name, path,
-  isDir, gitDeleted? }`; the explorer renders visible contributions from
-  enabled modules under a heading named for the module, gone with it, never
-  a disabled core row; duplicate ids are a registration error),
-  `registerNotificationActionProvider` (Open actions for bell rows of
-  `provider.source`; one provider per source; `resolveActions` receives
-  `{ notification: { workspaceId?, navigationTarget? }, revealWorkspace }`
-  and returning none leaves the shell's generic workspace-reveal fallback),
-  `registerCommand` (registered id is namespaced `<moduleId>.<id>`; scope
-  `panel:<moduleId>` activates while a workspace of your module's mode is
-  active, and `availability` accepts a predicate over the published
-  `ModuleCommandContext` view or a list of shell `CommandAvailability`
-  strings (`activeWorkspace`, `activeFile`, `terminalActive`, … — unknown
-  strings fail closed, so a condition a newer shell added never breaks a
-  module compiled against an older one);
-  panel-targeted dispatch is a
-  `sprintengine:panel-command` CustomEvent from your `run()`),
-  `registerSettingsSection` (values persist in the module's own
-  `module:<id>` settings namespace),   `registerSidebarNavEntry` (an
-  instance-level door in the workspace sidebar's top-nav cluster — a
-  `SidebarNavEntryDefinition` of `{ id, order, Component }`; the door shows
-  only while your module is enabled and sits at its `order`, so the module
-  toggle adds/removes it without a reload, and the row acts on the local
-  window's store), `registerDoorBadge` (the waiting-count a drawer / nav-entry
-  row wears — `{ rowId, getWaitingCount, subscribe, notificationSource? }`;
-  the shell merges it with that row's unread news; duplicate `rowId` is a
-  registration error; gone with the module), `registerGlobalSurface` (the full-page surface behind
-  that door — a `GlobalSurfaceDefinition` of `{ id, Component }` whose `id`
-  matches the one the nav entry opens; a global surface is a first-class,
-  instance-global extension point needing no workspace type, panel, or
-  project scope, and its zero-prop `Component` may be eager or
-  `React.lazy()`; while your module is uninstalled or disabled the shell
-  shows an explicit "not installed" door in its place and keeps the user's
-  spot, and an id already claimed by another module is reported as a module
-  load error), `registerModalSurface` (a body the shell mounts in its modal
-  shell, floated over whatever the window is showing — for a pick-and-close
-  task over work that stays put. The shell draws no trigger for it unless you
-  declare `launcher: { label, letter, Glyph }`, which puts your row in the
-  workspace pane's kind list beside Browser, Terminal and Diff; `letter` must
-  be exactly one character and the shell's own kinds win a collision, in which
-  case your row keeps its label and glyph and has no shortcut. Your body is
-  handed `{ workspaceId }` — the workspace its opener acted from, which for a
-  pane row is the workspace it was picked in), `registerTopBarItem` (a control in the app's top-bar
-  title-strip cluster — a `TopBarItemDefinition` of `{ id, order, Component }`;
-  the zero-prop `Component` owns its full behavior and may be eager or
-  `React.lazy()`, the bar shows it only while your module is enabled and
-  orders contributed items by `order`, and the top bar is dense: contribute
-  one compact control, not a cluster), `invoke` (call your own
-  `entry.main`'s `registerIpc` channels; see below), and the Backlog read
-  API — `listBacklogItems(workspaceId)` / `watchBacklogItems(workspaceId, cb)`
-  return `BacklogItemView`s from the same scan the Backlog panel uses (watch
-  fires with the current snapshot, then on change; declare `backlog.read`;
-  both fail with a named cause when the backlog module is disabled), and
-  `getWorkspace(workspaceId)` — the workspace's read-only
-  `ModuleWorkspaceView` (`{ id, name, folderPath, mode }`; unknown ids
-  resolve `null`, never a throw; declare `ipc:workspace-read`; the
-  `entry.main` twin is `WorkspaceContextToken`) with
-  `listWorkspaces()` / `watchWorkspaces(cb)` beside it for a surface that is
-  not mounted inside one workspace (same view shape, same permission; the
-  watch fires once with the current list, then on change), and
-  `watchColorScheme(cb)` — the app's resolved `'light' | 'dark'`, immediately
-  and on every change, for a themed runtime you host (Monaco, a chart
-  library); ordinary UI reads `THEME_TOKENS` instead — and the live runtime
-  surfaces — `getWorkingRoot` (the *effective working root*: the worktree a
-  worktree-backed workspace does live work under, else the primary checkout;
-  the methods below resolve workspace-relative paths against it; declare
-  `ipc:workspace-read`), `watchAgentSessions` (read-only session views,
-  snapshot + deduped changes; a workspace id watches that workspace,
-  `undefined` watches every workspace narrowed to the agent-id namespaces
-  you claimed — claim none and it reports nothing), `spawnAgent` (through the
-  app's shared session runtime, structured failures), `focusTab` (agent or
-  workspace-relative file tab), `listAgentRuntimes` (`{ id, label, available,
-  models, isDefault }` from the availability-filtered catalog the shell's own
-  pickers read), and `watchWorkspaceFile` (debounced
-  content watch; declare `ipc:agents` / `filesystem:read-workspace`
-  respectively — each fails with a named cause when the Agent Runtime
-  module is disabled), and per-module workspace state —
-  `getWorkspaceModuleState<T>(workspaceId)` /
-  `setWorkspaceModuleState(workspaceId, state)`, your module's own durable
-  entry on the workspace (persisted with the workspace, synced across
-  windows, scoped to your module by the host; keep entries
-  JSON-serializable; read resolves `undefined` and write reports `false`
-  when the workspace is unknown or the shell hasn't wired workspace state
-  yet — retry later, never treat either as a deletion signal; declare
-  `storage`), and app-level module state —
-  `getModuleAppState<T>(key)` / `setModuleAppState(key, value)` /
-  `watchModuleAppState(cb)`, the scope above the per-workspace bag, for what
-  belongs to your module rather than to a single workspace (remembered
-  defaults, the last thing the user opened). Renderer-side and synchronous on
-  purpose: these are read inside render, and routing them through the
-  `entry.main` storage service would change render timing. Persists with app
-  settings, survives a disable/enable cycle, shares a keyspace with your
-  Settings section's values, and pairs with `useSyncExternalStore` for a
-  reactive read; declare `storage`. Plus `subscribe(topic, cb)` — the receiving
-  end of `MainHost.emit`, scoped to your module, with no replay (see below) —
-  and `registerAgentIdNamespace({ prefix, label })`, which claims every agent id
-  starting with `prefix` for your module and names what the shell calls those
-  sessions where no workspace claims them; a prefix overlapping another
-  module's is a registration error, and resolution is gated on your module's
-  live enablement (declare `ipc:agents`).
-- **Module events (main → renderer)**: `MainHost.emit(topic, payload?)` pushes
-  to your own `RendererHost.subscribe(topic, cb)` — the subscribe verb
-  `invoke` does not have. Identity is stamped from the emitting host's scope,
-  so only your module's subscribers receive it. One emit reaches every open
-  window, ordering is FIFO per module, and **nothing is replayed**: an event
-  emitted with no window open is dropped and a window opened later sees nothing
-  earlier, so keep the durable answer readable through an IPC channel and let
-  the event say "read it again". Unlike `notify`, emission is not flood-bounded
-  — dropping an event would make a subscriber wrong. Delivery pauses while your
-  module is disabled and resumes on re-enable; call the returned unsubscriber
-  on unmount. Payloads cross IPC and must be structured-cloneable.
-- **Automations providers**: `registerAutomationTrigger` and
-  `registerAutomationAction` register trusted module providers with the
-  Automations registry using the current `host.moduleId`. Declare
-  `dependsOn: ['automations']` so the registry service exists before your
-  `entry.main` runs.
-- **Module storage**: `getModuleStorage(host)` → scoped
-  `get`/`set`/`delete`/`list`, keyed per module and (optionally) per
-  workspace. The host owns file placement — workspace-scoped keys under the
-  workspace's `.sprintengine/modules/<moduleId>/`, global keys under per-user
-  app data — so modules stop hand-rolling home-dir files or raw
-  localStorage. JSON values (1 MB cap), locked-down keys, atomic writes.
-  Declare the `storage` permission and `dependsOn: ['agent-runtime']` (or a
-  chain reaching it) so your `entry.main` registers after the provider;
-  renderer panels reach storage through the module's own `host.invoke`
-  channels.
-- **React**: panels, icons, and settings sections are React components. The
-  app provides React at runtime; compile against `@types/react` 18 (declared
-  as an optional peer dependency) and bundle your renderer entry as ESM with
-  React marked external.
-
-## Intentional narrowings
-
-These app capabilities exist but are not in the published surface; the drift
-guard verifies the narrowings stay *sound* (an SDK-typed module is always
-valid for the app):
-
-- `WorkspacePanelProps` exposes `workspaceId` only (the app may pass extra
-  shell-internal props such as future-plan hooks).
-- `WorkspaceTypeDefinition.deriveRunGlyph` receives a minimal
-  `{ mode }` view (the app passes a richer internal shape) and returns states
-  from the published `WorkspaceRunGlyphState` subset (the shell's own
-  vocabulary is wider and keeps growing). A type's provider is asked only
-  about workspaces of its own mode.
-- Workspace layout JSON (`WorkspaceLayoutJson`) is a conservative subset of
-  the app's FlexLayout model (rows, tabsets, tabs); the app accepts more.
-- `BacklogItemView` widens enumerated app internals (item kind, triage axes)
-  to `string` so new app values never break compiled modules, and omits
-  shell-only fields.
-- `MainHost.ipcMain` is typed `unknown` to keep the SDK Electron-free.
-- `BacklogItemActionContext` omits the shell-internal `startSourcePlan` hook.
-- `FileActionContext` omits the same shell-internal `startSourcePlan` hook
-  (the explorer passes it in-app so a built-in consumer can hand a plan
-  document straight to a workspace-creating flow; an extracted module opens
-  its own flow through `registerModalSurface` / `createWorkspace` instead).
-- `NotificationActionContext.notification` is the published
-  `{ workspaceId?, navigationTarget? }` view; the shell passes a richer
-  in-app notification.
-
-## Building a module
-
-```ts
-import type { CapabilityManifest, RegisterMain, RegisterRenderer } from '@sprintengine/module-sdk'
+```sh
+npx -p @sprintengine/module-sdk sprintengine-module init my-extension --template panel
+cd my-extension
+npm install
+npm run check        # typecheck, build, smoke test, validate
+npm run dev:install  # side-load into Studio on this machine
 ```
 
-Author `manifest.json` matching `CapabilityManifest`, bundle `entry.main` as
-CJS and `entry.renderer` as a single-file ESM bundle, sign the manifest, and
-install the module folder under `~/.sprintengine/modules/<id>/`. See
-`test-fixtures/external-project/` in the repository for a complete minimal
-module compiled against this package.
+`init <dir> --template <id> [--id <module-id>] [--name <display name>]`
+scaffolds a project that already builds, passes its own smoke test and installs.
+`--sdk-tarball <file>` depends on a local SDK build instead of the npm release
+(for working on the SDK itself). Templates:
+
+| Template | What it starts you with |
+| --- | --- |
+| `blank` | A palette command and nothing else: the smallest extension that runs |
+| `panel` | A notes panel in a workspace of its own, saved in module app state |
+| `global-surface` | A full-page surface behind its own row, drawn with the host's door shell |
+| `top-bar-item` | A compact control in the app's top bar |
+| `settings-section` | A section in Settings, and a command that reads what it saved |
+| `workspace-type` | A workspace type with a creation step |
+| `backlog-action` | A Backlog item action that opens a planning chat for the item |
+| `file-action` | A Files-tree context-menu action |
+| `mcp-tools` | Tools any agent in a workspace calls through the Studio MCP gateway |
+| `chat-companion` | Starts and follows chats of its own, and opens chat drafts with `openChat` |
+
+Studio can do the same from the Extensions door: **Build your own extension**
+opens New chat in extension mode. You name the extension, pick the project it
+goes in and describe it (or start from one of the ideas, one per template);
+Studio scaffolds `<project>/<name>` from the `blank` template and opens a chat
+on it with the agent you pick and the extension-builder skill, which adds the
+surfaces your description needs.
+
+### The extension-builder skill
+
+Every scaffolded project carries the `sprintengine-extension-builder` skill in
+`.claude/skills/` and `.agents/skills/` (the package ships it under `skills/`).
+It is the working method for an agent building an extension — the project
+layout, which host API to reach for, choosing permissions, the check /
+side-load loop, signing, publishing, and what "not trusted", "tampered" and
+"incompatible" mean — with references for the main and renderer APIs,
+conversations, brokers, the UI kit and troubleshooting. Point your agent at it:
+"Use the sprintengine-extension-builder skill."
+
+### Project layout
+
+```
+src/renderer.tsx      registerRenderer(host) — UI contributions
+src/main.ts           registerMain(host) — Node side (templates that need one)
+module/manifest.json  the module manifest; module/ is the only folder that installs
+module/dist/          build output (renderer.mjs, main.cjs)
+plugin.json           the bundle manifest a GitHub or marketplace install reads;
+                      its "module" component points at module/
+IDEA.md               the brief
+```
+
+## What an extension is
+
+A folder with a `manifest.json` (`CapabilityManifest`) and built JavaScript:
+
+- **`entry.renderer`** — a single-file ESM bundle exporting
+  `registerRenderer(host)`. Adds UI.
+- **`entry.main`** — a CommonJS bundle exporting `registerMain(host)`. Runs in
+  Studio's main process with Node.
+- **`entry.preload`** is reserved and never loaded.
+
+Both registration functions may be `async`: the host waits for the returned
+promise (bounded at 10 seconds) before it counts the module as loaded, and a
+rejection or a timeout fails that module alone.
+
+The manifest fields that matter most:
+
+| Field | Notes |
+| --- | --- |
+| `id` | `^[a-z0-9][a-z0-9-]{0,62}$`, equal to the install folder name, not one of `BUNDLED_MODULE_IDS`. |
+| `version` | Positive integer. |
+| `source` | `"third-party"`. |
+| `engines` | `{ "hostApi": 1 }` — **required**. See "Host API version". |
+| `permissions` | What the module touches; shown before anyone trusts it. |
+| `dependsOn` | Module ids that load first, e.g. `scheduled-agents`, `agent-runtime`. |
+| `entry` | `{ "renderer": "dist/renderer.mjs", "main": "dist/main.cjs" }`. |
+| `files` | Written by `sign` / `dev:install`: every file's sha256. **Required** to load. |
+| `signature` | Written by `sign`. |
+
+**Trust.** Only a module the person trusts runs code. A valid signature from a
+publisher key shows who vouches for it; the person still grants trust. A grant
+binds to the manifest's fingerprint, which covers `files`, so it holds only
+while the installed folder matches them byte for byte. Studio checks the files
+when it lists modules, again immediately before it runs `entry.main`, and on
+every `entry.renderer` and asset it serves.
+
+## Host API version
+
+`HOST_API_VERSION` names the host contract this SDK describes, as one integer;
+this release has `HOST_API_VERSION = 1` and `HOST_API_MIN_SUPPORTED = 1`. A third-party manifest must declare the version it was built
+against:
+
+```json
+"engines": { "hostApi": 1 }
+```
+
+Studio loads a module when that number is within
+`[HOST_API_MIN_SUPPORTED, HOST_API_VERSION]` of the app, and otherwise refuses
+it with a message saying which side to update (`host_api_missing`,
+`host_api_too_new`, `host_api_too_old`). `checkHostApiCompatibility(manifest)`
+is the same check, exported; `sprintengine-module sign`, `verify` and `pack`
+run it too.
+
+The version says which contract a module was built for. What the running host
+provides *today* is a separate question, and every host answers it:
+
+```ts
+if (host.supports('conversations')) registerChatFeatures(host)
+```
+
+`host.hostApiVersion` is the app's `HOST_API_VERSION`; `host.supports(name)`
+is true for a capability the host provides now — a service can be missing
+because the module that provides it is turned off. Names: `conversations`,
+`chat.open`, `companion-agents`, `scheduled-agents`, `secrets`, `github`,
+`storage`, `mcp-tools`, `skills`, `module-assets`, `notifications`. An unknown
+name answers `false`, so a module may probe for capabilities newer than its
+SDK.
+
+## Permissions
+
+Declare what the module touches in `permissions`. They are install-time
+disclosure: the consent prompt lists them before the person trusts the module.
+Most are not a sandbox — trusted code runs in the app's process — but these are
+checked on every call, and a module without them gets `permission_missing`:
+
+| Permission | Checked on |
+| --- | --- |
+| `conversation:read` | `getConversationService`: `subscribe`, `transcript`, `list`, `watch` |
+| `conversation:operate` | Everything in the conversation service, and `RendererHost.openChat`. Implies read. |
+| `conversation:bypass` | Running the module's chats on `bypass`; without it they go no looser than `auto` |
+| `secrets` | `getSecretsService` |
+| `github` | `getGitHubService` |
+| `mcp:tools` | `MainHost.registerMcpTools` |
+| `agents:companion` | Attaching a companion agent |
+| `ipc:invoke` | The renderer → `entry.main` bridge (`RendererHost.invoke`) |
+
+The full vocabulary and its consent copy is in
+[`docs/module-authors/permissions.md`](../../docs/module-authors/permissions.md)
+in the app repository, and `KNOWN_CAPABILITY_PERMISSIONS` exports it.
+
+## Chats with the app's agents
+
+### From `entry.main`: the conversation service
+
+```ts
+import { getConversationService, type RegisterMain } from '@sprintengine/module-sdk'
+
+export const registerMain: RegisterMain = (host) => {
+  if (!host.supports('conversations')) return
+  const chats = getConversationService(host)
+
+  host.registerIpc('my-module:ask', async (_event, workspaceId: string) => {
+    const created = await chats.create({
+      workspaceId,
+      prompt: 'Summarise what changed on this branch.',
+      skills: ['my-review-guide'], // installed before the first turn and invoked in it
+    })
+    if (!created.ok) return created // { ok: false, code, message }
+    const { conversation } = created
+    const off = chats.subscribe(conversation, (event) => {
+      if (event.type === 'turn_completed') off()
+    })
+    return { ok: true, agentId: conversation.agentId }
+  })
+}
+```
+
+Declare `conversation:operate` (or `conversation:read` for a module that only
+reads its chats) and `dependsOn: ["agent-runtime"]`.
+
+- **`create(input)`** starts a chat in a workspace: `cli` and `model` default
+  to the person's last choice, `prompt` is the opening turn, `skills` are
+  installed and invoked, `attachments` are images, `name` is optional.
+  `permissionPreset` is `'manual'`, `'none'`, `'auto'` or `'bypass'`; absent
+  takes the person's default.
+- **`send(ref, { message, skills?, attachments?, steer? })`** adds a turn;
+  `steer: true` lands it inside the turn already running. `interrupt` and
+  `stop` do what they say.
+- **`respondToApproval(ref, { requestId, decision, answers? })`** answers an
+  `approval_requested` event: `decision` is `'once'`, `'conversation'` (allow
+  requests of that kind for the rest of the chat) or `'deny'`. The older
+  `approved: boolean` still works, as `'once'` or `'deny'`. A rule that
+  outlives the chat is the person's to make, so no answer makes one.
+- **`setPermissionPreset(ref, preset)`** and **`setModel(ref, modelId)`**
+  switch a running chat's preset (from its next tool call) or its model (from
+  its next turn; an id `listChatRuntimes()` lists for the chat's runtime, or
+  `'default'`). Each answers with what is now in force, plus the runtime's
+  `notice` when the change applies later than at once. A runtime that binds a
+  chat to its model refuses `setModel`.
+- **The preset ceiling.** A module's chats run no looser than `'auto'` unless
+  its manifest declares `conversation:bypass`. A looser preset is lowered to
+  the ceiling, not refused, and `create` and `setPermissionPreset` name the
+  preset in force. Check `host.supports('conversation-controls')` before
+  `setPermissionPreset`, `setModel`, a `decision`, or a preset other than
+  `'none'` and `'bypass'`.
+- **`subscribe(ref, cb)`** streams `ModuleConversationEvent`s from now on;
+  **`transcript(ref)`** replays everything recorded. **`list(filter?)`** and
+  **`watch(filter, cb)`** give `ModuleConversationSummary` rows.
+- A module reaches **only the chats it created** — never the person's own and
+  never another module's (`not_owned`). Its chats are otherwise ordinary: they
+  appear in the sidebar and on paired devices like any other.
+- Failures come back as `{ ok: false, code, message }` with a
+  `ModuleConversationErrorCode`, never a throw.
+
+### From the renderer: open a chat for the person
+
+```ts
+const runtimes = host.listChatRuntimes() // [{ id, label, available, models, lastSelected }]
+const opened = await host.openChat({
+  workspaceId,
+  prompt: 'Review the open pull request against our style guide.',
+  skills: ['my-review-guide'],
+})
+if (opened.ok) host.focusTab({ workspaceId, kind: 'chat', id: opened.agentId })
+```
+
+`openChat` adds a chat to the workspace and focuses it. By default the prompt
+lands in the composer as a **draft** the person reads and sends; `send: true`
+sends it as the first turn. Declare `conversation:operate`; check
+`host.supports('chat.open')` first (`unavailable` means this window cannot
+open chats). `listChatRuntimes()` is the catalog the shell's own chat picker
+reads, with the person's last choice marked — use it for a picker, and pass the
+chosen `id` / model as `cli` / `model`.
+
+`focusTab({ workspaceId, kind, id })` focuses a chat by its agent id
+(`kind: 'chat'`) or a file tab by workspace-relative path (`kind: 'file'`).
+It returns `false` for an id that is not a chat in that workspace.
+
+### Companion agents
+
+`getCompanionAgentsService(host)` attaches a workspace-bound background agent
+your module drives with structured runs (`runStructured`) and messages, without
+a chat tab. `attach` never starts anything; the first run does. Declare
+`agents:companion`.
+
+## Brokered credentials
+
+### Secrets
+
+```ts
+import { getSecretsService } from '@sprintengine/module-sdk'
+
+const secrets = getSecretsService(host)
+await secrets.set('weather-api', apiKey, { allowedOrigins: ['https://api.weather.example'] })
+const res = await secrets.fetchWithSecret('weather-api', 'https://api.weather.example/v1/today', {
+  placement: { header: 'Authorization', scheme: 'Bearer' },
+})
+if (res.ok) render(JSON.parse(res.body))
+```
+
+A stored value never comes back to module code — not from `has`, not in a
+response, not in an error. It leaves the host only inside a `fetchWithSecret`
+request to one of the https origins it was stored with (exact origin, bound at
+`set`; change the list by setting the value again). Requests refuse redirects
+and cap the response at 1 MiB. Values are encrypted with the operating
+system's keychain; where it has none, `set` answers `storage_unavailable`.
+Declare `secrets`; check `host.supports('secrets')`.
+
+### GitHub
+
+```ts
+import { getGitHubService } from '@sprintengine/module-sdk'
+
+const github = getGitHubService(host)
+const { signedIn } = await github.status()
+const pulls = await github.request({
+  route: '/repos/{owner}/{repo}/pulls',
+  params: { owner: 'acme', repo: 'app', state: 'open' },
+})
+```
+
+The request goes to the GitHub API with the person's own sign-in; the module
+never sees the token. `route` is a `/`-prefixed template: `{name}` placeholders
+are filled from `params` (encoded, so a value cannot add a segment, a query or
+a host) and the rest of `params` becomes the query string. Anything that could
+move the request elsewhere is `invalid_route`. Declare `github`; check
+`host.supports('github')`.
+
+## The main host
+
+`MainHost` (handed to `registerMain`):
+
+- `moduleId`, `hostApiVersion`, `supports(capability)`.
+- `registerIpc(channel, handler)` — a channel your renderer calls through
+  `invoke`; it must start with `<moduleId>:`.
+- `provideService` / `getService` / `requireService(token)` — the service bridge. A
+  third-party module resolves only the services the SDK publishes (its
+  exported tokens and the ones behind the `get*Service` helpers).
+- `onStartup`, `onShutdownBegin` and `onShutdown` hooks.
+- `registerSidecar(spec)` — a declaration the host lists; it does not spawn it.
+  Spawn your own process if you need one (declare `process:spawn`).
+- `notify({ severity, title, body? })` — a bell notification, stamped with your
+  module's identity and flood-bounded.
+- `emit(topic, payload?)` — a module event to your own renderer (below).
+- `registerMcpTools(tools)` — tools agents call through the always-on Studio
+  MCP gateway, owned by your module id. Declare `mcp:tools`. A tool counts as
+  changing state unless it declares `mutates: false`; declare that only on a
+  tool that genuinely reads. A disabled module's tools stay listed and answer
+  an enable error instead of running.
+- `registerSkills(skills)` / `ensureSkillInstalled(workspaceRoot, skillId)` —
+  see "Skills a module ships".
+
+## The renderer host
+
+`RendererHost` (handed to `registerRenderer`). Every contribution is gated on
+your module's enablement, so turning it off removes it without a reload; an id
+another module already holds is a registration error that fails your module's
+load.
+
+- **Where you appear:** `registerPanel`, `registerWorkspaceType`,
+  `registerSidebarNavEntry`, `registerGlobalSurface`, `registerModalSurface`,
+  `registerTopBarItem`, `registerSettingsSection`, `registerCommand`,
+  `registerBacklogItemAction`, `registerBacklogLinkProvider`,
+  `registerFileAction`, `registerNotificationActionProvider`,
+  `registerDoorBadge`.
+- **Opening your own surfaces:** `openGlobalSurface(id)` and
+  `openModalSurface(id)` open a surface **your module registered** — the page
+  behind your door, or your modal over the window — from a command, a panel
+  button or a notification action. Both return `false` for an id that is not
+  yours, not registered, or while your module is off. The shell draws no
+  trigger for a modal surface unless you declare a `launcher` (a row in the
+  workspace pane's kind list), so these are how you open one.
+- **Workspaces:** `getWorkspace`, `listWorkspaces`, `watchWorkspaces`,
+  `getWorkingRoot`, `watchWorkspaceFile`, `openWorkspace(typeId)`
+  (declare `ipc:workspace-read`; `filesystem:read-workspace` for file watches).
+- **Chats:** `openChat`, `listChatRuntimes`, `focusTab` (above).
+- **State:** `getWorkspaceModuleState` / `setWorkspaceModuleState` (your entry
+  on a workspace, synced across windows) and `getModuleAppState` /
+  `setModuleAppState` / `watchModuleAppState` (app-level, shared with your
+  Settings section's values). Declare `storage`.
+- **Backlog:** `listBacklogItems`, `watchBacklogItems` (declare `backlog.read`).
+- **Theme:** `watchColorScheme(cb)` for a runtime you host (Monaco, a chart
+  library); ordinary UI reads `THEME_TOKENS`.
+- **Bridge and events:** `invoke(channel, payload)` and `subscribe(topic, cb)`.
+- **Assets:** `getAssetUrl(relativePath)`.
+
+The TSDoc on each member in `dist/index.d.ts` is the reference for its exact
+behaviour.
 
 ## Calling your entry.main from the renderer
-
-`MainHost.registerIpc` and `RendererHost.invoke` pair up: your `entry.main`
-registers a channel (with Node access), and your renderer code — a panel, a
-command handler, a Backlog action — calls it:
 
 ```ts
 // entry.main
 export const registerMain: RegisterMain = (host) => {
   host.registerIpc('my-module:save-events', async (_event, payload) => {
-    // Node APIs available here (fs, etc.)
+    // Node APIs available here
     return { saved: true }
   })
 }
 
-// entry.renderer (panel or command code)
+// entry.renderer
 const result = await host.invoke('my-module:save-events', { events })
 ```
 
-The channel must start with `<moduleId>:` — your own module id. The host
-routes an invoke only when the channel is registered via `registerIpc`, is
-prefixed with its owning module's id, and the owner's manifest declares the
-`ipc:invoke` permission. A refused invoke
-rejects with an Error whose `code` property is a `ModuleBridgeRefusalCode`
-(`unknown_channel` | `not_bridgeable` | `permission_missing`), so your code
-can branch on the refusal kind instead of parsing the message.
+The channel must start with your own module id. The host routes an invoke only
+to a channel registered through `registerIpc` whose owner declares
+`ipc:invoke`. A refused invoke rejects with an Error whose `code` is a
+`ModuleBridgeRefusalCode` (`unknown_channel` | `not_bridgeable` |
+`permission_missing`).
 
 **This bridge is a contract, not a security boundary.** All renderer code runs
-in one shared world; the bridge does not isolate modules from each other or
-from the app. Trust gating — only `trusted` modules execute at all — remains
-the actual boundary.
+in one world; trust gating is the boundary.
 
-## Accepting drags from the Backlog and Files panels
+## Module events (main → renderer)
 
-Backlog rows and Files-tree entries put a published payload on their drags
-under `SPRINTENGINE_FILE_DROP_MIME`. `readFileDropPayload` is the safe reader:
-it returns `null` — never throws — for a missing entry, unparseable JSON, an
-invalid shape, or an unknown `version` (only `version: 1` exists today;
-future versions parse to `null`, so always handle it). A Backlog-item drag
-carries the item's markdown file path in `files[0].path`. `setFileDropData`
-originates a drag the app's own drop targets (agent terminals) accept, and
-`hasFileDropData` is the `dragover`-safe presence check (the DnD protected
-mode blanks `getData` until the drop, so gate `preventDefault` on it).
+`MainHost.emit(topic, payload?)` pushes to your own
+`RendererHost.subscribe(topic, cb)`. Only your module's subscribers receive
+it; one emit reaches every open window, in order per module. **Nothing is
+replayed**: keep the durable answer readable through an IPC channel and let
+the event say "read it again". Payloads must be structured-cloneable; delivery
+pauses while your module is off.
+
+## Module storage
+
+`getModuleStorage(host)` → `get` / `set` / `delete` / `list`, keyed per module
+and optionally per workspace. Workspace keys live under the workspace's
+`.sprintengine/modules/<moduleId>/`, global keys under the app's data; JSON
+values up to 1 MB, atomic writes. Declare `storage` and
+`dependsOn: ["agent-runtime"]`.
+
+## Workspaces from entry.main
 
 ```ts
-import { readFileDropPayload, setFileDropData } from '@sprintengine/module-sdk'
+import { WorkspaceContextToken, WorkspaceServiceToken } from '@sprintengine/module-sdk'
 
-onDrop={(event) => {
-  const payload = readFileDropPayload(event.dataTransfer)
-  if (payload) schedule(payload.files[0].path, payload.rootPath)
-}}
+const created = await host.requireService(WorkspaceServiceToken).create({ name: 'Scratch', folderPath: '/abs/path' })
+const view = await host.requireService(WorkspaceContextToken).get(workspaceId) // { id, name, folderPath, mode } | null
 ```
 
-The contract is drift-guarded: the repo gate fails if the app's MIME, payload
-shape, or parse semantics ever diverge from this package.
+`create` resolves once the workspace is confirmed, so a returned id is real.
+The context service (declare `ipc:workspace-read`) also has `list()`.
 
-## Skills a module ships
+## Scheduled agents
 
-A skill is a directory with a `SKILL.md` (plus any harness sidecars, e.g.
-`agents/openai.yaml`). Ship yours inside your module and hand them to the host:
+A scheduled agent is a prompt and a cron schedule: each time the schedule
+comes round, a new chat starts in the project with that prompt as its first
+message, on the CLI, model, permissions, skills, MCP servers and worktree
+setting it was made with. Nothing carries from one run to the next. A module
+creates its own with `getScheduledAgentsService(host)` (declare
+`scheduled-agents.manage` and `dependsOn: ["scheduled-agents"]`). Every method
+is scoped to your module: `list` returns only yours, and `update`, `remove`
+and `runNow` refuse an id you did not create. They appear in the person's
+sidebar like the ones they make themselves, and they can close them.
 
 ```ts
-export function registerMain(host: MainHost): void {
-  host.registerSkills([
-    {
-      id: 'review-guide',
-      sourceDir: 'skills/review-guide',
-      targetPolicy: 'all-native',
-      description: 'Walk a human reviewer through a code change.',
-    },
-  ])
+import { getScheduledAgentsService, type RegisterMain } from '@sprintengine/module-sdk'
+
+export const registerMain: RegisterMain = (host) => {
+  host.registerIpc('weather-deck:schedule-refresh', async (_event, folderPath: string) => {
+    const created = await getScheduledAgentsService(host).create({
+      prompt: 'Refresh the forecast notes for the watched city.',
+      schedule: { cron: '0 9 * * 1-5', timezone: 'Europe/Dublin' },
+      folderPath,
+      hostId: null,
+      cli: 'claude-code',
+      cliModel: null,
+      permissionPreset: null,
+      skills: [],
+      mcpServers: [],
+      worktree: null,
+    })
+    return created.ok ? created.agent.id : null
+  })
 }
 ```
 
-`sourceDir` is relative to your module root and must stay inside it — the host
-resolves it and rejects a path that escapes. Registration is owned exactly as
-IPC channels and MCP tools are: an `id` a built-in skill or another module
-already holds throws, the whole batch is validated before one skill of it
-lands, and unloading your module takes its skills with it.
-
-`targetPolicy` decides where the skill is copied in a workspace:
-
-| policy | lands in |
-| --- | --- |
-| `'agents'` | `.agents/skills/<id>` — the harness-neutral directory |
-| `'all-native'` | that, plus every installed CLI's own skill directory (`.claude/skills`, `.codex/skills`, …) |
-
-Pick `'all-native'` whenever a prompt invokes the skill by name: a CLI resolves
-an invocation only against its own directory.
-
-A registered skill is a skill. The host installs it check-first — an
-already-installed workspace is not rewritten, a stale copy is refreshed, and a
-copy the user edited by hand is left alone — and stamps it with the same
-managed manifest the app's own skills carry.
-
-To put a skill in a workspace before an agent needs it:
+## Skills a module ships
 
 ```ts
-const result = await host.ensureSkillInstalled(projectRoot, 'studio-review')
-if (!result.ok) console.warn(`skill not installed: ${result.status}`)
+host.registerSkills([
+  { id: 'my-review-guide', sourceDir: 'skills/my-review-guide', targetPolicy: 'all-native', description: 'Walk a reviewer through a change.' },
+])
 ```
 
-It never throws. `ok: false` with `status: 'unknown-skill'` means nothing
-answers to that id — usually a rename, or a module that failed to load;
-`'local'` and `'modified'` mean a hand-made copy is in the way and was left
-alone (both still report `ok: true`, because the skill IS present).
+`sourceDir` is relative to your module root and must stay inside it. An id a
+built-in skill or another module holds is a registration error, and unloading
+your module takes its skills with it. `'agents'` installs into
+`.agents/skills/<id>`; `'all-native'` also into every installed agent's own
+skill directory — pick it whenever a prompt invokes the skill by name. A skill
+you pass to `create` / `openChat` is installed before the turn;
+`ensureSkillInstalled(workspaceRoot, id)` installs one ahead of time and never
+throws.
+
+## Accepting drags from the Backlog and Files panels
+
+`readFileDropPayload(dataTransfer)` reads the published payload under
+`SPRINTENGINE_FILE_DROP_MIME` and returns `null` — never throws — for anything
+it does not recognise. `hasFileDropData` is the `dragover`-safe presence check;
+`setFileDropData` originates a drag the app's own drop targets accept.
 
 ## Theme tokens
 
-`THEME_TOKENS` (with the `ThemeToken` string-literal union) lists the theme
-CSS custom properties guaranteed present in every app theme — a repo gate
-verifies each one per theme. Consume them as CSS variables, via Tailwind
-arbitrary values (`bg-[var(--bg-surface)]`) or plain `var()`. Only the names
-are contract: values differ per theme and are retuned freely, so never read
-or cache resolved values in JS, and never hard-code a hex.
+`THEME_TOKENS` lists the CSS custom properties present in every app theme.
+Use them as CSS variables (`var(--bg-surface)`); only the names are contract.
 
-| Family | Tokens | Use for |
-|---|---|---|
-| Chrome | `--bg-app`, `--bg-surface`, `--bg-surface-raised`, `--bg-hover`, `--bg-selected` | Window, panels/cards, raised controls, hover and selection fills |
-| Border | `--border-subtle`, `--border-default`, `--border-strong` | Hairlines, control outlines, emphasized edges |
-| Text | `--text-strong`, `--text-default`, `--text-muted`, `--text-subtle`, `--text-disabled`, `--text-on-accent` | Headings → body → secondary → hints → disabled; text on accent fills |
-| Accent | `--accent-primary`, `--accent-primary-soft`, `--focus-ring` | Primary actions/selection, soft accent fills; `--focus-ring` is a full box-shadow value |
-| Tone | `--tone-neutral`, `--tone-accent`, `--tone-warn`, `--tone-good`, `--tone-error`, `--tone-merged` | Semantic status: idle/neutral, active/info, caution, success, failure, merged/PR-purple |
-| Motion | `--motion-normal`, `--motion-ease` | The app's standard transition duration and easing — use them as a pair (`transition: opacity var(--motion-normal) var(--motion-ease)`) so module UI moves at the app's pace |
+| Family | Tokens |
+|---|---|
+| Chrome | `--bg-app`, `--bg-surface`, `--bg-surface-raised`, `--bg-hover`, `--bg-selected` |
+| Border | `--border-subtle`, `--border-default`, `--border-strong` |
+| Text | `--text-strong`, `--text-default`, `--text-muted`, `--text-subtle`, `--text-disabled`, `--text-on-accent` |
+| Accent | `--accent-primary`, `--accent-primary-soft`, `--focus-ring` |
+| Tone | `--tone-neutral`, `--tone-accent`, `--tone-warn`, `--tone-good`, `--tone-error`, `--tone-merged` |
+| Motion | `--motion-normal`, `--motion-ease` (use as a pair) |
 
 ## UI kit, surface shell and Monaco
-
-Three of the app's own runtime pieces are bridged to modules, so a module-owned
-door looks and behaves like a bundled one instead of re-implementing chrome a
-shade off:
 
 | Specifier | What it is |
 |---|---|
 | `@sprintengine/module-sdk/ui` | A curated slice of the app's component kit |
 | `@sprintengine/module-sdk/surface` | The door shell and its rail/canvas substrate |
-| `@monaco-editor/react` | The Monaco React wrapper the app already ships |
+| `@monaco-editor/react` | The Monaco wrapper the app ships |
 
-**They are host-provided.** This package ships only their TYPES; the `.js`
-behind `./ui` and `./surface` is a stub that throws
-`"@sprintengine/module-sdk/ui is provided by the host at runtime; mark it external
-in your bundler"` the moment it is evaluated. The app installs an import map
-before it evaluates your `entry.renderer` bundle and answers all three
-specifiers (plus `react`, `react-dom`, `react-dom/client`,
-`react/jsx-runtime`) with its own live instances — which is also why there is
-exactly one React, one Monaco and one copy of the kit in the process.
-
-So every one of them must be marked external:
+These are **host-provided**: this package ships their types, and the `.js`
+behind `./ui` and `./surface` throws if evaluated. The app answers them (and
+`react`, `react-dom`, `react-dom/client`, `react/jsx-runtime`) from an import
+map, so mark every one external:
 
 ```
-esbuild src/renderer.tsx --bundle --format=esm --outfile=dist/renderer.mjs \
+esbuild src/renderer.tsx --bundle --format=esm --outfile=module/dist/renderer.mjs \
   --external:react --external:react-dom --external:react-dom/client \
-  --external:react/jsx-runtime \
-  --external:@monaco-editor/react \
-  --external:@sprintengine/module-sdk/ui \
-  --external:@sprintengine/module-sdk/surface
+  --external:react/jsx-runtime --external:@monaco-editor/react \
+  --external:@sprintengine/module-sdk/ui --external:@sprintengine/module-sdk/surface
 ```
 
-Keep `moduleResolution: "bundler"` (or `node16`) in your tsconfig so the
-subpath `exports` are honoured. Bundling one of these in by mistake fails
-loudly at load with the message above, never silently with a second React.
+`/ui`: `GhostButton`, `OutlineButton`, `PrimaryButton`, `Banner`,
+`PanelHeader`, `Drawer`, `EmptyState`, `Field`, `Input`, `Textarea`,
+`InlineNotice`, `KbdChord`, `LifecycleGlyph`, `LinkButton`, `RowButton`,
+`Section`, `SegmentedControl`, `Select`, `Spinner`, `StatusDot`,
+`TruncatedText`, `CliModelPickerButton`, `FOCUS_RING_CLASS`, and their props.
+`/surface`: `GlobalSurfaceShell`, `useSurfaceBackNav`, `SurfaceRail`,
+`SurfaceCanvasState`, and their props.
 
-### `@sprintengine/module-sdk/ui`
+**Tailwind classes you write produce no CSS** — the app's build scans app
+source only. Write plain CSS against the theme tokens, or build a
+stylesheet of your own and inject it once when your renderer registers (the
+`panel` template's `src/styles.ts` does this).
 
-`GhostButton`, `OutlineButton`, `PrimaryButton`, `Banner`, `PanelHeader`, `Drawer`,
-`EmptyState`, `Field`, `Input`, `Textarea`, `InlineNotice`, `KbdChord`,
-`LifecycleGlyph`, `LinkButton`, `RowButton`, `Section`, `SegmentedControl`,
-`Select`, `Spinner`, `StatusDot`, `TruncatedText`, `CliModelPickerButton`, and
-the `FOCUS_RING_CLASS` string for any focusable you draw yourself. Props are
-published for each, alongside the shared vocabulary they are written in:
-`Tone`, `StatusTone`, `LifecycleState`, `SelectItem`, `SegmentedControlItem`,
-`FilterMenuGroup`, `CliRuntimeOption`.
-
-The list is deliberately short and deliberately frozen: it is a versioned
-contract, pinned against the app's own components by a drift guard in both
-directions. A component you want that is not here is cheaper copied into your
-module than frozen here forever.
-
-### `@sprintengine/module-sdk/surface`
-
-`GlobalSurfaceShell` — the door frame: title bar, actions slot, back
-affordance, rail gutter, attention strip. `useSurfaceBackNav()` wires its back
-control to the host's surface history. `SurfaceRail` is the list column every
-bundled door uses (rows, groups, search, filter, scope, a new-affordance), and
-`SurfaceCanvasState` is the one loading / empty / error canvas. Types:
-`GlobalSurfaceBar`, `GlobalSurfaceShellProps`, `SurfaceCanvasStateProps`,
-`SurfaceRailRow`, `SurfaceRailGroup`, `SurfaceRailSearch`,
-`SurfaceRailFilter`, `SurfaceRailScope`, `SurfaceRailNewAffordance`,
-`SurfaceRailProps`.
-
-### `@monaco-editor/react`
-
-Import `Editor` / `DiffEditor` as usual and declare `@monaco-editor/react` a
-dependency for types; the host answers the specifier at runtime, so your bundle
-carries no editor. Drive its theme from `host.watchColorScheme(scheme => …)`
-rather than reading the app's CSS — the tokens are contract, the theme name
-Monaco wants is not.
-
-### Tailwind classes produce no CSS unless you ship it
-
-The bridged components arrive fully styled — they were compiled by the app's
-own Tailwind build, and the design tokens they reference
-(`var(--bg-surface)`, …) come from the host stylesheet.
-
-**Utility classes YOU write do not.** The app's Tailwind build scans app
-source only, so a `flex gap-2 text-meta` first used inside your module compiles
-to nothing at all and renders as unstyled markup. Either write plain CSS /
-inline styles against the theme tokens above, or ship your own utilities-only
-stylesheet and inject it. The second is a few lines:
-
-```css
-/* tailwind.css */
-@import "tailwindcss/utilities" layer(utilities);
-@source "./src";
-/* plus a copy of the @theme block for any custom scale you use */
-```
-
-```
-npx @tailwindcss/cli -i tailwind.css -o src/styles/utilities.css --minify
-```
-
-Then inject the built CSS text through a single `<style>` element when your
-renderer entry registers. Utilities-only keeps it small and keeps it from
-fighting the host's preflight, which has already run.
-
-## Programmatic workspace creation
-
-A module's `entry.main` can create a workspace through the always-on app core,
-the same operation the UI performs:
-
-```ts
-import { WorkspaceServiceToken, type RegisterMain } from '@sprintengine/module-sdk'
-
-export const registerMain: RegisterMain = (host) => {
-  host.registerIpc('my-module:new-scratch', async () => {
-    const workspaces = host.requireService(WorkspaceServiceToken)
-    const result = await workspaces.create({ name: 'Scratch', folderPath: '/abs/path' })
-    return result // { ok: true, workspaceId } | { ok: false, code, message }
-  })
-}
-```
-
-`create` resolves only after the new workspace is observed on the workspace-sync
-bus, so the returned id is always a real, confirmed workspace (or an explicit
-failure). The service is provided by the always-on `agent-runtime` core, so
-`requireService` never throws for it.
-
-To resolve an existing workspace id to its folder root, name, and mode —
-per-workspace persistence paths, scoped Automations `workspaceRoot`s — use the
-read-only workspace context (also always-on; declare `ipc:workspace-read`):
-
-```ts
-import { WorkspaceContextToken } from '@sprintengine/module-sdk'
-
-const workspaces = host.requireService(WorkspaceContextToken)
-const view = await workspaces.get(workspaceId)
-// { id, name, folderPath, mode } | null — unknown ids are null, never a throw
-```
-
-Renderer panels get the same view from `host.getWorkspace(workspaceId)` (a
-snapshot read, not a subscription — live state is a separate surface).
-
-`list()` on the same service enumerates every open workspace — the main-side
-twin of `RendererHost.listWorkspaces`, and how an MCP tool your module
-contributes answers "which project roots are open" with no window in sight.
-
-## Launch contributions
-
-Every agent spawn (and every plain-shell pane) asks registered modules what to
-put on that launch. Declare `ipc:agents` and register a function of the launch
-request; the host calls every contribution in module registration order, merges
-the results, and never lets a throw fail the spawn — a failing contribution is
-recorded as a module diagnostic and skipped.
-
-```ts
-import type { RegisterMain } from '@sprintengine/module-sdk'
-
-export const registerMain: RegisterMain = (host) => {
-  host.registerLaunchContribution((launch) => ({
-    env: { MY_MODULE_ROOT: launch.workspaceRoot },
-    pathEntries: ['/Users/dev/my-module/bin'],
-    shellFunctions: [
-      'mymodule() { command my-module "$@"; }',
-      'export -f mymodule >/dev/null 2>&1 || true',
-    ],
-    hostContext: [{ heading: 'My module', body: 'Standing instruction for this agent.' }],
-    session: { managed: false },
-    identityKeys: ['MY_MODULE_AGENT_ID'],
-  }))
-}
-```
-
-- **`env`** is merged after the host's own session env and before the CLI
-  manifest's `launch.env`. Protected identity keys (`TERM`, the agent-identity
-  vars, `FORCE_HYPERLINK`) cannot be overwritten. `identityKeys` are stripped
-  from inherited env first, so a stale value from the process that launched
-  Studio cannot leak into a spawn that did not set its own.
-- **`pathEntries`** are directories you own (typically under module storage)
-  prepended to `PATH`. Write your own shims there; the host does not write them.
-- **`shellFunctions`** are POSIX function definitions appended to the login
-  shell bootstrap. They are unused on a native Windows PTY.
-- **`mcpServers`** are managed MCP config entries in the shape the host already
-  syncs into a workspace CLI config.
-- **`hostContext`** sections are appended to the host-context document after the
-  design-system and Knowledge Graph sections, and ride whatever channel the CLI
-  manifest declares (`contextInjection`), so a standing instruction survives
-  resume like the rest of the document.
-- **`session.managed`** tags the terminal as module-owned for the idle reaper
-  (excluded from the recency floor that protects the user's own agents).
-  `session.reapExempt` holds it out of the reaper entirely.
-
-A module that is disabled or not installed contributes nothing, so a plain
-launch is byte-identical to a launch in a build with no modules.
-
-## Agent sessions (main)
-
-A module can own an agent TERMINAL: an ordinary agent tab, in the workspace your
-surface was opened from, under the CLI and permission preset the user chose,
-with a skill attached at spawn. Declare `agents:session` (checked on every call)
-and `dependsOn: ['agent-runtime']`.
-
-```ts
-import { getAgentSessionService, type RegisterMain } from '@sprintengine/module-sdk'
-
-export const registerMain: RegisterMain = (host) => {
-  const agents = getAgentSessionService(host)
-
-  host.registerIpc('my-module:start-guide', async ({ workspaceId, projectRoot, docId }) => {
-    const started = await agents.spawn({
-      workspaceId,               // required: where the agent lives
-      cwd: projectRoot,          // absolute
-      prompt: 'Walk me through this change.',
-      skill: { id: 'my-guide' }, // installed before the CLI starts
-      agentIdPrefix: 'my-guide-', // a namespace you registered
-      agentIdKey: docId,
-      label: 'My guide',
-      role: 'my-guide',
-    })
-    if (!started.ok) return started // unknown_workspace | missing_cwd | unknown_skill | …
-    // Lead the prompt with the CLI's own invocation when it has one:
-    // started.skillInvocation === '/my-guide' on Claude, undefined elsewhere.
-    return started
-  })
-}
-```
-
-- **One agent per key.** `spawn` matches on `${agentIdPrefix}${agentIdKey}`: a
-  live session under that id takes the prompt and comes back `reused: true`
-  (pass `reuseLive: false` to insist on a fresh one), and a dead or suspended
-  one is disposed before the replacement starts. The terminal session id is
-  minted per spawn and is never the agent id.
-- **Follow-ups and endings.** `send(sessionId, text)` delivers one submitted
-  turn through the app's serialized control plane. `kill(sessionId)` ends it.
-  `setReapExempt(sessionId, true)` holds a working agent out of the idle
-  reaper — the host clears the exemption when that session exits, so an
-  unbalanced call cannot strand a process. `onExit(cb)` reports the exits of
-  agents you own; `list()` returns them.
-- **Scope.** Everything here is filtered by the agent-id namespaces your module
-  registered. You cannot see, prompt, or stop another module's agents, or the
-  user's own. (Today main holds no mirror of the renderer's namespace registry;
-  see the CHANGELOG for what that limits.)
-
-## Creating automations from a module
-
-Beyond registering trigger/action *kinds* (below), a module's `entry.main` can
-create and manage real automation *records* — its own only — through the
-scoped Automations service. Declare the `automations.manage` permission
-(install-time disclosure) and `dependsOn: ['automations']`:
-
-```ts
-import { getAutomationsService, type RegisterMain } from '@sprintengine/module-sdk'
-
-export const registerMain: RegisterMain = (host) => {
-  host.registerIpc('my-module:schedule-digest', async (_event, workspaceRoot: unknown) => {
-    const automations = getAutomationsService(host)
-    const created = await automations.create({
-      workspaceRoot: workspaceRoot as string,
-      draft: {
-        name: 'Daily digest',
-        status: 'enabled',
-        // Cadences: interval, daily, weekly, or the one-shot
-        // { type: 'at', datetime: '2026-07-09T09:30' } — local wall-clock in
-        // `timezone`, fires once, then the automation shows no upcoming run.
-        trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '09:00' }, timezone: 'UTC' } },
-        action: { kind: 'my-module.build-digest', config: {} },
-      },
-    })
-    return created // { ok: true, automation } | { ok: false, code, message }
-  })
-  const off = getAutomationsService(host).onRunEvent((event) => {
-    // Only events for automations this module owns.
-  })
-  host.onShutdown(() => off())
-}
-```
-
-Every method is pre-scoped to your module: `create` stamps `ownerModuleId`
-(the Automations panel shows a "via <module>" attribution), `list` returns
-only your records, and `update`/`delete`/`listRuns` refuse records you do not
-own — including the user's (`not_owner`). The user outranks your module: they
-can edit or delete module-created automations from the panel.
-
-## Automations provider registration
-
-A trusted module's `entry.main` can contribute an Automations trigger or action
-provider. Provider ids are namespaced by the registering module id inside
-the studio, while `providers:list` still exposes the provider's declared `kind`
-to the editor form.
-
-Declare `label`, `glyph` and `summary` so the Automations panel can name the
-kind without the host hard-coding your copy. `glyph` is one of
-`AUTOMATION_PROVIDER_GLYPHS` (`agent`, `loop`, `board`, `clock`); omitted
-falls back to the clock. A trigger that must not ping-pong with a companion
-action declares `pairsWith: { actionKind, defaultDisableAfterRun: true }` —
-the write path applies that default when the pair is written together and
-`disableAfterRun` is left unspecified.
-
-```ts
-import {
-  registerAutomationAction,
-  type AutomationActionProvider,
-  type CapabilityManifest,
-  type RegisterMain,
-} from '@sprintengine/module-sdk'
-
-export const manifest: CapabilityManifest = {
-  id: 'weather-deck',
-  displayName: 'Weather Deck',
-  version: 1,
-  defaultEnabled: true,
-  source: 'third-party',
-  dependsOn: ['automations'],
-  entry: { main: 'dist/main.cjs' },
-}
-
-const refreshForecast: AutomationActionProvider = {
-  kind: 'weather-deck.refresh-forecast',
-  configSchema: { type: 'object' },
-  label: 'Refresh forecast',
-  glyph: 'clock',
-  summary: 'Pull the latest forecast for the watched city',
-  run: async (_config, context) => {
-    context.reportProgress({ summary: 'Refreshing forecast.' })
-    return { status: 'completed', summary: 'Forecast refreshed.' }
-  },
-}
-
-export const registerMain: RegisterMain = (host) => {
-  registerAutomationAction(host, refreshForecast)
-}
-```
-
-Automations provider code only runs from trusted modules, under the same
-third-party module trust gate as other `entry.main` code. `run-command` remains
-unavailable in the app-active executor until the studio ships that capability.
-The lower-level registry service token is intentionally not exported; use the
-helper functions so provider ownership is always stamped from the host.
-
-## BYO-CLI plugins (adding an agent CLI)
-
-A **CLI plugin** is a different artifact from a capability module: a folder
-containing a `plugin.json` that teaches the studio how to launch, resume, drive,
-and detect completion for a new agent CLI (claude-code, codex, opencode, and
-your own). Drop it into `~/.sprintengine/plugins/<id>/`, or install it from
-**Settings → Agents → "Install CLI from folder"**. The plugin id must equal the
-folder name; a user plugin with a bundled CLI's id overrides the bundled one.
-
-Author and pre-flight validate against the published contract:
-
-```ts
-import { validateCliPluginManifest, type CliPluginManifest } from '@sprintengine/module-sdk'
-
-const result = validateCliPluginManifest(JSON.parse(pluginJson))
-if (!result.ok) console.error(result.issues) // [{ path, message }, …]
-```
-
-`validateCliPluginManifest` is pure (no Node/DOM) and is **the same validator the
-studio runs** when it loads a `plugin.json` (the app imports it from this
-package), so a manifest it accepts is loadable by the studio — the authoring
-contract and the loader cannot drift. The bundled manifests under
-`resources/plugins/` in the app repository are worked `plugin.json` examples.
-
-## Signing and packaging: the `sprintengine-module` CLI
-
-The package ships a `sprintengine-module` binary (run it with
-`npx sprintengine-module` from a project that depends on this package). It uses
-the same canonicalization and ed25519 code the app's verifier imports, so the
-CLI and the app can never disagree about what a valid signature is.
-
-The happy path from module directory to installable, signed module:
+## Signing and packaging
 
 ```sh
-# 1. One-time: generate your ed25519 signing keypair.
-#    Writes a PKCS#8 PEM private key; keep it OUT of the module directory
-#    and out of version control. The public key is derived from it at sign time.
-npx sprintengine-module keygen --out ~/keys/module-signing.key
-
-# 2. Sign the module. Validates manifest.json, writes the normalized manifest
-#    (sorted, unknown keys stripped) back including the detached signature —
-#    the bytes on disk are exactly what the app verifies.
-npx sprintengine-module sign path/to/my-module --key ~/keys/module-signing.key
-
-# 3. Check the module the way the studio will.
-#    Exit 0 + signer fingerprint when valid; exit 1 when unsigned or tampered.
-npx sprintengine-module verify path/to/my-module
-
-# 4. Assemble the installable copy. Validates the manifest (bad ids, reserved
-#    bundled ids, malformed permissions all fail with explicit errors) and
-#    copies the module to --out (default packed/<id>), excluding node_modules,
-#    .git, and any *.key / *.pem files.
-npx sprintengine-module pack path/to/my-module --out dist/my-module
+npx sprintengine-module keygen --out ~/.sprintengine/keys/my-extension.key   # once; keep it out of the project
+npx sprintengine-module sign module --key ~/.sprintengine/keys/my-extension.key
+npx sprintengine-module verify module
+npx sprintengine-module pack module --out dist/my-extension
 ```
 
-Re-running `sign` replaces the previous signature. Any edit to the manifest
-after signing invalidates the signature (`verify` and the app both report it
-as invalid); re-sign after every manifest change.
+`sign` validates the manifest, records the sha256 of every file the module
+ships in `files`, and signs the normalized manifest. `verify` checks the
+signature and every file against `files`. `pack` copies an installable module,
+leaving out `node_modules`, `.git` and key files. Sign again after every build.
 
-In the app, a valid signature shows the module as **signed** with the signer's
-key fingerprint — the user still grants trust explicitly before any code runs.
+**`files`** maps each file's POSIX path (relative to the module root) to its
+lowercase sha256, for every file except `manifest.json`; a changed, missing or
+extra file is a mismatch. It is part of the signed payload, so a signature
+covers the code. A module whose manifest has no `files` does not load at all —
+signed or not — and `npm run dev:install` writes it for an unsigned local
+build. The checks are exported for tooling: `validateModuleFileDigests`,
+`compareModuleFileDigests` (root, pure); `computeModuleFileDigestsSync`,
+`moduleFileDigestIssuesSync` (`@sprintengine/module-sdk/signing`, Node).
 
-## License
+For a bundle, `sprintengine-module plugin sign <dir> --key …` writes each
+component's digests into `plugin.json` and signs it; sign the module first,
+since signing rewrites its manifest. `plugin scaffold`, `plugin verify` and
+`plugin pack` round it out. Bundle components are `mcp`, `skills` and
+`module`.
 
-MIT — see [`LICENSE`](./LICENSE). You are free to build modules against this
-SDK and to distribute or sell those modules, including closed-source. The
-SprintEngine Studio application is MIT as well; marketplace distribution is
-still covered by separate marketplace terms.
+## Installing
 
-### Packaged web runtimes and WebAssembly
+- **On your machine:** `npm run dev:install` builds, writes `files`, signs when
+  a key is at `~/.sprintengine/keys/<id>.key`, and copies `module/` into
+  `~/.sprintengine/modules/<id>/`. Studio asks you to trust it (again after each
+  rebuild, since trust binds to exact contents). **Settings → Modules → Install
+  a module from a folder** does the same for a packed folder.
+- **From GitHub:** anyone can install from the repository URL (the Extensions
+  door's **Install extension from GitHub…**). Studio resolves the default branch
+  to a commit, reads **`plugin.json` at the repository root**, shows its name,
+  publisher, permissions and whether it is signed, and installs the `module/`
+  folder it names. Commit `module/dist/` and the `module/manifest.json` its build
+  produced (with `files`). An **unsigned** module is allowed: Studio warns that
+  nobody vouches for the code and requires an explicit "I trust this code"
+  choice. An update re-checks the commit and asks again when the permissions
+  or the signing change. A repository with `.claude-plugin/` is a skill source,
+  added from the Skills path instead.
+- **From the marketplace:** a signed bundle listed in the registry; see
+  [`docs/plugin-authors/README.md`](../../docs/plugin-authors/README.md) in the
+  app repository.
+
+## Packaged web runtimes and WebAssembly
 
 `host.getAssetUrl('runtime/index.html')` returns a stable `studio-module:` URL
-for a file in the installed module. Use it as an iframe's `src`. Inside that
-frame, fetch `.wasm`/data files normally. HTML's relative script, worker and data
-URLs resolve inside the package. Each module has a private, stable origin derived
-from an installation secret, allowing IndexedDB save data to survive app restarts. The protocol is registered as a standard,
-secure scheme with fetch support; it does not bypass content security policy.
-
-The host checks current trust and enablement on every request, rejects paths
-and symlinks outside the module root, and serves WebAssembly with
-`application/wasm`. Files are limited to 128 MiB by the runtime (distribution
-importers may apply smaller limits). The URL helper accepts plain relative paths;
-add a fragment or query to its returned URL if needed. This API is available
-only in Studio versions that ship module asset support; feature-detect
-`typeof host.getAssetUrl === 'function'` for a useful upgrade notice on older hosts.
-
-For a game, mount an iframe with `sandbox="allow-scripts allow-same-origin
-allow-pointer-lock"`, grant fullscreen explicitly if needed, and pause/stop its
-runtime when the panel unmounts. The iframe's module origin differs from Studio's
-renderer origin. Audio and pointer lock still require the user's browser gesture.
-
-Module package directories contain web assets: never store secrets inside an
-installed module directory or publish/log the private URLs returned by the host.
-Studio gates module requests using the requesting browser frame; unrelated
-web frames are blocked. Unguessable origin capabilities also cover worker requests,
-which bypass Electron’s frame interception. Load HTML under its module origin to
-fetch its packaged resources. This is not a sandbox for hostile module code.
+for a file in the installed module — use it as an iframe `src`. Relative
+scripts, workers, WebAssembly (`application/wasm`) and IndexedDB work inside
+it, under a private per-installation origin. The host checks trust and
+enablement on every request and serves only files the module was verified
+with, up to 128 MiB. Never store secrets in the module folder or log these
+URLs; use the secrets broker. This is not a sandbox for hostile code.
 
 ## Opening a zero-config workspace
 
-Games, dashboards and other folderless workspaces can set
-`openOnFirstLoad: true` on their `registerWorkspaceType` definition. Once the
-module is trusted and enabled, the primary Studio window creates a workspace
-from `createTemplate()`, names it with the type's `label`, and opens it. If a
-workspace of that type already exists, Studio opens that workspace instead.
-Studio waits for the saved workspace registry before checking for an existing
-row. A persisted per-type marker prevents reopening or stealing focus on later
-launches, including after the user closes the workspace.
+A folderless workspace type can set `openOnFirstLoad: true`: once the module is
+trusted and enabled, the primary window creates a workspace from
+`createTemplate()` (or opens the existing one) the first time, and never again
+on its own. `host.openWorkspace(typeId)` reopens it from a command; it accepts
+only your own types without a `creationStep` or `createWorkspace` hook.
 
-Contribute an explicit command so people can reopen it:
+A new renderer-only module loads as soon as it is trusted. A module with
+`entry.main`, or an update to code already loaded, takes a restart.
 
-```ts
-host.registerCommand({
-  id: 'open',
-  title: 'Open my workspace',
-  category: 'My module',
-  scopes: ['global'],
-  async run() {
-    await host.openWorkspace('my-workspace-type')
-  },
-})
-```
+## Intentional narrowings
 
-`openWorkspace(typeId): Promise<string>` returns the opened workspace id. It
-only accepts a type owned by the calling module, rechecks enablement after
-startup, and brings an existing workspace into the calling window. These two
-entry points support types without `creationStep` or `createWorkspace`; they
-never bypass a type's setup or custom creation hook. They create no directory.
+The drift guard keeps these narrowings sound — an SDK-typed module is always
+valid for the app:
 
-New renderer-only modules load immediately after installation and trust, so
-their first-load workspace opens in the same session. Studio never evaluates
-the same module id twice in one renderer: updating loaded code, retrying a
-failed evaluation, or loading a module with `entry.main`/`entry.preload` requires
-a restart. Trust still precedes execution. Closing a workspace keeps its
-first-load marker; use the explicit command to reopen it. On older Studio
-versions, feature-detect `typeof host.openWorkspace === 'function'`.
+- `WorkspacePanelProps` exposes `workspaceId` only.
+- `deriveRunGlyph` receives `{ mode }` and returns the published
+  `WorkspaceRunGlyphState` subset.
+- `WorkspaceLayoutJson` is a conservative subset of the app's layout model.
+- `BacklogItemView` widens enumerated app internals to `string`.
+- `BacklogItemActionContext` and `FileActionContext` omit shell-internal hooks.
+- `NotificationActionContext.notification` is `{ workspaceId?, navigationTarget? }`.
+- `CompanionAgentEvent.type` is widened to `string`.
+
+## Versioning
+
+Semver; `1.0.0-beta.0` is the first release of this contract (see
+`CHANGELOG.md`). The package version and the host API version move
+separately: a new SDK release that only adds optional types keeps
+`HOST_API_VERSION`, and a module declares the host API, not the package
+version. In the app repository a drift guard (`drift/sdk-drift-guard.ts`,
+`npm run test:sdk:drift`) fails the build whenever these declarations diverge
+from the app's own contracts, and `npm run test:sdk:pack` imports every
+published name from the packed tarball.
+
+## License
+
+MIT — see [`LICENSE`](./LICENSE). You may build extensions against this SDK and
+distribute or sell them, including closed-source. Marketplace distribution is
+covered by separate marketplace terms.

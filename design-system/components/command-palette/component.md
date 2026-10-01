@@ -27,7 +27,7 @@ see Material.
 | Query row | `.ds-command-palette-query` | yes — `space.lg`/`space.xl` insets, no hairline of its own |
 | Leading hint | `.ds-command-palette-hint` | yes — the kit's search glyph in `text.disabled`; it is decoration and says so |
 | Input | `.ds-command-palette-input` | yes — `role="combobox"`, transparent, `font.size.heading` |
-| Working note | `.ds-command-palette-status` | no — `role="status"`, a line in the list: the word and the liveness working dots, for a search in flight or an install round trip |
+| Working note | `.ds-command-palette-status` | no — `role="status"`, a line in the list: the word and the liveness working mark, for a search in flight or an install round trip |
 | Results | `.ds-command-palette-results` | yes — `role="listbox"` with a required label, height-capped and scrolling |
 | Group | `.ds-command-palette-group` | no — `role="group"` with the group's name as its label |
 | Group heading | `.ds-command-palette-group-heading` | with a group — the name alone, `font.size.meta` in `text.muted`; no rule, no count; `aria-hidden` |
@@ -82,9 +82,16 @@ wonder which tab a thing is under, and nothing is found twice.
 
 - **All (default)** — every group is searched at once. ⌘K and Shift Shift
   open here.
-- **Skills** — every skill and plugin in every configured source, installed
-  or not. The terminal's star opens here, and this tab lifts the per-group
-  row cap: the tab *is* the person saying they want the whole list.
+- **Skills** — installed skills, Project first and then Global, listed before
+  typing (owner ruling 2026-09-21). The terminal's star opens here. The tab
+  keeps the same band as every other tab — the strip and the one field — and
+  the field filters the inventory; there is no second field and no CLI select
+  (owner, 2026-09-22). Whose skills they are is decided, not asked: the agent
+  the palette was opened for, else the focused agent, else the agent most
+  recently spoken to whose CLI reads skills, else the only such CLI installed.
+  A quiet meta line at the top of the list names it ("Claude Code skills")
+  and trails two ghost buttons, Refresh and Browse skills; Browse opens the
+  catalogue, which remains searchable from All.
 - **Conversations** — the chats and workspaces the sidebar lists, by title
   and folder.
 - **Files** — file names. The Go to file action opens here.
@@ -102,8 +109,13 @@ left — "am I looking for a skill, a chat, or a file, and where did that land"
 — is exactly what a strip answers at a glance (owner, 2026-09-10).
 
 - **Groups** are a fixed, ordered set, and the order on screen is the order the
-  arrow keys traverse. A group with no matches is not rendered — an empty
-  heading groups nothing.
+  arrow keys traverse. Search groups with no matches are not rendered. Skills
+  retains its two scope headings with an empty-state explanation, since those
+  headings also establish which installation locations were inspected. Each
+  Skills group shows ten rows; when it holds more, a **Show more** row closes
+  the group and reveals ten more of that group only. It is an option like any
+  other — the arrows reach it and Enter presses it, leaving the cursor on the
+  first row it revealed — and a new query folds every group back to ten.
 - **The Text group draws hits the way a search tool does** (owner ruling
   2026-09-11): one heading per file — kind glyph, name, folder,
   and how many lines matched — then the lines under it, each with its number
@@ -113,12 +125,28 @@ left — "am I looking for a skill, a chat, or a file, and where did that land"
 
 ## States
 
+The Skills inventory retains the palette shell, its one field and the grouped
+keyboard list; the field keeps `aria-activedescendant` on the inventory's rows.
+Its only controls off the rows are the meta line's two ghost buttons. Selecting a
+row opens installation details and actions inside the same shell; Escape
+returns to the list and puts the caret back in the field. Removal has a second,
+explicit confirmation naming the scope and path. Managed installations state
+why removal is unavailable. A refresh failure remains visible, and a loading
+state never reports an empty inventory. Project and Global headings stay
+visible when empty so an absent scope cannot be mistaken for a hidden one.
+
+The product-specific inventory lives in `InstalledSkillsPanel`; its directory
+discovery and removal semantics are not design-system primitives. The generic
+controls, focus behavior, type, spacing and row states follow this system.
+
 | State | Treatment |
 |---|---|
 | Resting (no query, All) | The resting page: **Actions** — New chat in *project*, Go to file, Search project contents, Open settings, Open remote connections, each with its glyph and chord — then **Recent conversations**, the chats with a living process, most recently spoken in first, a screen's worth. Not a preview of every group (owner rulings 2026-09-10/11) |
-| Resting (no query, a narrowing) | The tab's groups show a capped preview rather than their full contents |
+| Resting (no query, a narrowing) | The tab's groups show a capped preview, except Skills, which lists installations under Project then Global, ten per group, each group closing with a Show more row while it holds more |
+| Skills, no agent to decide by | The meta line reads "No agent in focus" and the list says to focus an agent; Browse skills stays reachable |
+| Skills, a group of more than ten | A Show more row, in `text.muted`, with how many are still hidden in `text.disabled`; pressing it reveals ten more of that group only. Typing resets every group to ten |
 | Typing | The in-memory groups filter on the keystroke; disk-backed groups debounce and appear beneath the rest |
-| Working | The `role="status"` line in the list — "Searching" or "Working" beside the [liveness](../liveness/component.md) working dots. Never beside the query (a note on the field's own line read as part of what was typed), and never a static ellipsis pretending to move |
+| Working | The `role="status"` line in the list — "Searching" or "Working" beside the [liveness](../liveness/component.md) working mark. Never beside the query (a note on the field's own line read as part of what was typed), and never a static ellipsis pretending to move |
 | Rest (row) | `text.default` — the sidebar's row ink. The heading above it is the quieter one, not the row |
 | Active option | `bg.selected` with `text.primary` ink — a cursor, moved by the arrows and by the pointer entering a row, never DOM focus |
 | Hover (inactive row) | `bg.hover` and `text.primary`, at `motion.duration.fast` |

@@ -24,7 +24,6 @@ import {
 import type { AgentCli } from '../../types/workspace'
 
 export type { CliRuntimeOption } from './cliRuntimeCatalog'
-import { isRecentRelease } from '../../../../shared/hosted-model-feed'
 
 // The model popover: a provider rail down the left, search over a flat list of
 // models on the right. It replaces a grouped listbox whose every CLI header and
@@ -68,7 +67,7 @@ type ModelRow = {
   /** The catalog id this row selects; null selects the CLI's own default model. */
   model: string | null
   family?: CliModelFamily
-  /** The hosted feed released this model within HOSTED_MODEL_NEW_FOR_DAYS. */
+  /** A probe on this machine first listed this model within NEW_FOR_DAYS. */
   isNew?: boolean
 }
 
@@ -111,7 +110,7 @@ export function buildModelRows(
         monoId: meaningfulModelId(family.defaultId, family.label),
         model: family.defaultId,
         family,
-        ...(isRecentRelease(family.releasedAt, new Date()) ? { isNew: true } : {}),
+        ...(family.isNew ? { isNew: true } : {}),
       })
     }
     // A persisted model no longer in the catalog still launches with that id;
@@ -193,9 +192,10 @@ export function CliModelPopoverSurface({
    * The permission control, seated at the TRAILING end immediately right of the
    * effort control: the two dropdowns belong side by side in that order, and
    * where they sit is this row's business, not each host's. Hosts that do not
-   * configure permissions pass none.
+   * configure permissions pass none. The highlighted row supplies the runtime
+   * and model so browsing another agent cannot edit the previous row's preset.
    */
-  permissions?: React.ReactNode
+  permissions?: (cli: AgentCli, model: string | null) => React.ReactNode
 }): JSX.Element {
   const favourites = useModelFavourites()
   const favouriteSet = React.useMemo(() => new Set(favourites), [favourites])
@@ -294,6 +294,10 @@ export function CliModelPopoverSurface({
     return visible.length > 0 ? 0 : -1
   })()
   const optionId = (index: number): string => `${listId}-option-${index}`
+  const permissionRow = visible[activeIndex]?.row
+  const permissionControl = permissionRow
+    ? permissions?.(permissionRow.cli, isSelected(permissionRow) ? (effectiveModel ?? null) : permissionRow.model)
+    : null
 
   // `scrollIntoView` is optional-called: jsdom does not implement it, and the
   // node tests drive this surface for real rather than through a shim.
@@ -545,7 +549,7 @@ export function CliModelPopoverSurface({
             they carry, and a runtime with a long level name plus a permission
             word can outgrow a narrow surface. A second line beats a clipped
             one. */}
-        {permissions || (showReasoning && hasReasoningAxes(reasoningAxes)) ? (
+        {permissionControl || (showReasoning && hasReasoningAxes(reasoningAxes)) ? (
           <div className="flex flex-wrap items-center gap-1 border-t border-[color:var(--border-subtle)] px-1.5 py-1">
             <span className="flex-1" />
             {/* Two controls, not one composed trigger: context window and effort
@@ -583,7 +587,7 @@ export function CliModelPopoverSurface({
                 onSelectModel={(model) => onSelectModel(currentCli, model)}
               />
             ) : null}
-            {permissions}
+            {permissionControl}
           </div>
         ) : null}
       </div>
@@ -697,8 +701,8 @@ function ModelRowView({
           <span className={`truncate text-body ${row.mono ? 'font-mono text-meta' : ''}`} title={row.name}>
             {row.name}
           </span>
-          {/* "New": the hosted feed released this model in the last 30 days —
-              the same rule the website uses. A chip, not a hoist: the row stays
+          {/* "New": a probe on this machine first listed this model within
+              NEW_FOR_DAYS (the merge sets the mark). A chip, not a hoist: the row stays
               where the catalog put it so a muscle-memory pick still lands. The
               drawing is the kit's, shared with the Design door's "arrived since
               you last looked" marker, so one word cannot have two looks. */}

@@ -37,6 +37,46 @@ const LIGHT_TERMINAL_ANSI: ITheme = {
   selectionBackground: 'rgba(56, 92, 252, 0.20)',
 }
 
+// These are the terminal renderer's dark default colors. Keeping the complete
+// palette here lets transcript output use the same colors as a terminal pane.
+const DARK_TERMINAL_ANSI: ITheme = {
+  black: '#2e3436',
+  red: '#cc0000',
+  green: '#4e9a06',
+  yellow: '#c4a000',
+  blue: '#3465a4',
+  magenta: '#75507b',
+  cyan: '#06989a',
+  white: '#d3d7cf',
+  brightBlack: '#555753',
+  brightRed: '#ef2929',
+  brightGreen: '#8ae234',
+  brightYellow: '#fce94f',
+  brightBlue: '#729fcf',
+  brightMagenta: '#ad7fa8',
+  brightCyan: '#34e2e2',
+  brightWhite: '#eeeeec',
+}
+
+const ANSI_COLOR_KEYS = [
+  'black',
+  'red',
+  'green',
+  'yellow',
+  'blue',
+  'magenta',
+  'cyan',
+  'white',
+  'brightBlack',
+  'brightRed',
+  'brightGreen',
+  'brightYellow',
+  'brightBlue',
+  'brightMagenta',
+  'brightCyan',
+  'brightWhite',
+] as const
+
 // xterm nudges any glyph whose fg/bg contrast falls below this ratio toward
 // legibility, per cell. It is the only lever that also covers 256-color and
 // truecolor output — syntax highlighting and dimmed tool-call / diff text the
@@ -88,7 +128,12 @@ export function getTerminalTheme(): ITheme {
   }
   // A light terminal surface needs the light ANSI palette or colored/bold agent
   // output washes out; dark surfaces keep xterm's default palette untouched.
-  return isLightBackground(background) ? { ...base, ...LIGHT_TERMINAL_ANSI } : base
+  return { ...base, ...(isLightBackground(background) ? LIGHT_TERMINAL_ANSI : DARK_TERMINAL_ANSI) }
+}
+
+export function getTerminalAnsiPalette(): string[] {
+  const theme = getTerminalTheme()
+  return ANSI_COLOR_KEYS.map((key) => theme[key] ?? '')
 }
 
 // Companion to getTerminalTheme: the contrast floor for the current surface.
@@ -102,11 +147,13 @@ function getTerminalMinimumContrastRatio(): number {
 type Subscriber = () => void
 const subscribers = new Set<Subscriber>()
 let observer: MutationObserver | null = null
+let themeEpoch = 0
 
 function ensureObserver(): void {
   if (observer || typeof window === 'undefined') return
   observer = new MutationObserver((mutations) => {
     if (!mutations.some((m) => m.attributeName === 'data-theme')) return
+    themeEpoch++
     for (const fn of subscribers) {
       try {
         fn()
@@ -116,6 +163,18 @@ function ensureObserver(): void {
     }
   })
   observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+}
+
+export function subscribeTerminalTheme(onChange: () => void): () => void {
+  ensureObserver()
+  subscribers.add(onChange)
+  return () => {
+    subscribers.delete(onChange)
+  }
+}
+
+export function getTerminalThemeEpoch(): number {
+  return themeEpoch
 }
 
 // Apply the current theme to `term`, then subscribe so the terminal re-tints

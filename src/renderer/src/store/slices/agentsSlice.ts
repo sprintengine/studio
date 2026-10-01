@@ -1,3 +1,4 @@
+import { current, isDraft } from 'immer'
 import { detectLanguage } from '../../utils/files'
 import {
   deleteEditorBuffer,
@@ -23,7 +24,12 @@ import {
   type LaunchedAgentProjection,
 } from '../../utils/launchedAgentProjection'
 import { normalizeCliPermissionPreset } from './settingsSlice'
-import type { AgentTerminalLaunchStateApply, AgentTerminalSessionApply } from '../workspaceSyncClient'
+import { parseCliPermissionModeId } from '../../../../shared/cli-permission-mode'
+import {
+  workspaceSyncClient,
+  type AgentTerminalLaunchStateApply,
+  type AgentTerminalSessionApply,
+} from '../workspaceSyncClient'
 import type {
   AgentCli,
   AgentConversationRuntime,
@@ -97,19 +103,24 @@ export function normalizeAgentRuntime(agent: Partial<AgentState>): {
 
 export function normalizeAgentState(agent: AgentState, fallbackCli?: AgentCli): AgentState {
   const runtime = normalizeAgentRuntime(agent)
+  // The CLI's own mode is kept only beside the preset it was chosen at; a
+  // value that is not a mode id is dropped, and the preset's own mode runs.
+  const { cliPermissionMode: storedMode, ...rest } = agent
+  const cliPermissionMode = agent.cliPermissionPreset ? parseCliPermissionModeId(storedMode) : null
   return {
-    ...agent,
+    ...rest,
     cli: normalizeAgentCli(agent, fallbackCli),
     cliModel: normalizeAgentCliModel(agent.cliModel),
     execution: normalizeAgentExecution(agent.execution),
     cliPermissionPreset: normalizeCliPermissionPreset(agent.cliPermissionPreset),
+    ...(cliPermissionMode ? { cliPermissionMode } : {}),
     runtimeKind: runtime.runtimeKind,
     conversation: runtime.conversation,
   }
 }
 
 export function pickWorkspaceAgentName(agents: Workspace['agents']): string {
-  return pickRandomAgentName(Object.values(agents).map((agent) => agent.name))
+  return pickRandomAgentName(Object.values(agents).map((agent) => agent.name ?? ''))
 }
 
 interface AgentsSliceState {}
@@ -145,14 +156,24 @@ type AgentsSliceSet = (mutator: (state: AgentsSliceCarrier) => void) => void
 
 export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
   return {
-    updateAgent: (workspaceId, agentId, update) =>
+    updateAgent: (workspaceId, agentId, update) => {
+      let patch: Partial<AgentState> | undefined
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === workspaceId)
         if (!ws) return
-        if (!ws.agents[agentId]) ws.agents[agentId] = defaultAgent(agentId)
+        const creating = !ws.agents[agentId]
+        if (creating) ws.agents[agentId] = defaultAgent(agentId, pickWorkspaceAgentName(ws.agents))
         Object.assign(ws.agents[agentId], update)
         ws.agents[agentId].execution = normalizeAgentExecution(ws.agents[agentId].execution)
-      }),
+        // Main owns persistence. Publish the complete seed on creation, and
+        // only the edited fields afterwards so stale windows cannot overwrite
+        // another window's name with an unrelated launch-state update.
+        const agent = ws.agents[agentId]
+        patch = creating ? { ...(isDraft(agent) ? current(agent) : agent) } : { ...update }
+        if (creating || update.execution !== undefined) patch.execution = { ...ws.agents[agentId].execution }
+      })
+      if (patch) void workspaceSyncClient.dispatchUpdateWorkspaceAgent(workspaceId, agentId, patch)
+    },
 
     applyAgentTerminalSessionEvent: ({
       workspaceId,
@@ -273,6 +294,13 @@ export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
           ws.agents[projection.agentId] = projection.agent
         }
       })
+      for (const projection of created) {
+        void workspaceSyncClient.dispatchUpdateWorkspaceAgent(
+          projection.workspaceId,
+          projection.agentId,
+          projection.agent,
+        )
+      }
       return created
     },
 
@@ -296,6 +324,13 @@ export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
               // harness id learned from the hook. Don't clobber a known id with
               // an undefined snapshot (the hook may not have reported yet).
               if (matchingLive.cliSessionId) agent.harnessSessionId = matchingLive.cliSessionId
+              // And the machine it runs on, so a relaunch with nothing painted
+              // to resume from goes back to the home its transcript is in.
+              // `local` is the unmarked default, so a macOS or Linux record is
+              // left as it always was.
+              if (matchingLive.hostId && (matchingLive.hostId !== 'local' || agent.hostId)) {
+                agent.hostId = matchingLive.hostId
+              }
               agent.cliResumeAvailable = true
               if (matchingLive.cli) agent.cli = matchingLive.cli
               continue
@@ -308,8 +343,7 @@ export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
             // persist normalizers stopped doing it, sending a cold-loaded tab
             // back down the mint-a-fresh-uuid → spawn path. Nothing auto-resumes
             // off the id alone — `shouldResume` (TerminalView) reads the flags
-            // cleared below. This is the same contract as
-            // `clearAutomationsHostAgentLaunchState`.
+            // cleared below.
             // Post-launch: rely on the resume flag already stamped from the
             // manifest capability at session assign, not a re-derivation from cli.
             if (agent.cliHasLaunched && agent.cliResumeAvailable) {

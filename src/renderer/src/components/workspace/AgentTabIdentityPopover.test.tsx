@@ -56,12 +56,11 @@ test('AgentTabIdentityPopover', async () => {
 
   const PEEK: ConversationPeek = {
     sessionId: SELF.sessionId,
-    source: 'transcript',
+    source: 'live',
     first: {
       id: 'm1',
       text: 'Freeze the title after the first prompt and put the rest on the hover.',
       at: NOW - 3 * 3_600_000,
-      attachments: [],
       truncatedChars: 0,
     },
     since: [
@@ -69,11 +68,9 @@ test('AgentTabIdentityPopover', async () => {
         id: 'm2',
         text: 'Drop the role row from the tab card while you are in there',
         at: NOW - 32 * 60_000,
-        attachments: [],
         truncatedChars: 0,
       },
     ],
-    images: [],
   }
 
   function tabCard(identity: AgentTabIdentity = TAB, peek: ConversationPeek | null = PEEK): string {
@@ -85,7 +82,6 @@ test('AgentTabIdentityPopover', async () => {
         now={NOW}
         copied={false}
         onCopySession={() => {}}
-        onOpenAttachment={() => {}}
       />,
     )
   }
@@ -131,6 +127,27 @@ test('AgentTabIdentityPopover', async () => {
     assert.match(markup, /a21ac8e7…6f89/, 'shows the session id, elided in the middle')
     assert.match(markup, /aria-label="Copy session id"/, 'and the session keeps its copy button')
     assert.match(markup, /Working/, 'shows the status label')
+  })
+
+  run('a paused or idle tab card reads its age on its own clock, not the tab’s draw time', () => {
+    // The card formats `aged` against the clock it reads as it renders, so a
+    // tab drawn once and hovered much later still says how long it has been.
+    const paused = tabCard({
+      ...TAB,
+      status: { kind: 'attention', label: 'Paused', aged: { label: 'Paused', since: Date.now() - 2 * 60_000 } },
+    })
+    assert.match(paused, /Paused · 2m/)
+    const typed = tabCard({
+      ...TAB,
+      status: { kind: 'idle', label: 'Idle', aged: { label: 'Last typed', since: Date.now() - 12 * 60_000 } },
+    })
+    assert.match(typed, /Last typed · 12m/)
+    const fresh = tabCard({
+      ...TAB,
+      status: { kind: 'idle', label: 'Idle', aged: { label: 'Last typed', since: Date.now() - 5_000 } },
+    })
+    assert.match(fresh, /Idle/, 'under a minute the plain label stands')
+    assert.equal(fresh.includes('Last typed'), false)
   })
 
   run('Role, Runtime and Checkout are gone, and so is the label column that held them up', () => {

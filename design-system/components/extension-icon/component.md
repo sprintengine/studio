@@ -74,7 +74,7 @@ opacity for a disabled row. A tint is invisible on the opposite theme, and the
 mark is the one thing on the row whose colour is not the system's to spend.
 
 **It never carries status.** Availability, enablement and errors belong to the
-row's status idiom — a dot, a lifecycle glyph, an [inline
+row's status idiom — a status mark, a lifecycle glyph, an [inline
 notice](../inline-notice/component.md). Dimming the mark to say "disabled"
 spends the identity channel on a state.
 

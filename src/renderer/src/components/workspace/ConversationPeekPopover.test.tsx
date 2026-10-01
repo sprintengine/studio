@@ -35,10 +35,9 @@ test('ConversationPeekPopover', async () => {
   ;(dom.window as unknown as { api: unknown }).api = {
     readConversationPeek: async (sessionId: string) => ({
       sessionId,
-      source: 'transcript' as const,
-      first: { id: 'm1', text: 'Fix the retry budget', at: Date.now() - 3_600_000, attachments: [], truncatedChars: 0 },
+      source: 'live' as const,
+      first: { id: 'm1', text: 'Fix the retry budget', at: Date.now() - 3_600_000, truncatedChars: 0 },
       since: [],
-      images: [],
     }),
   }
 

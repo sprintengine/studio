@@ -6,8 +6,10 @@ import {
   parseGitConflictBlocks,
   replaceGitConflictBlock,
 } from '../../utils/gitConflictMarkers'
-import { MONO_FONT_STACK } from '../../utils/fonts'
+import { MONO_FONT_STACK, remeasureMonacoFontsOnLoad } from '../../utils/fonts'
 import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
+import { detectLanguage } from '../../utils/files'
+import { configureMonacoLanguages } from '../../utils/patchLanguage'
 import { EmptyState, GhostButton, InlineNotice, PanelHeader, PrimaryButton, Section, Spinner } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 
@@ -21,37 +23,9 @@ type Props = {
   filePath: string
 }
 
-function filename(path: string): string {
-  return path.split(/[\\/]/).filter(Boolean).pop() ?? path
-}
-
-function languageForPath(path: string): string | undefined {
-  const extension = filename(path).split('.').pop()?.toLowerCase()
-  switch (extension) {
-    case 'ts':
-    case 'tsx':
-      return 'typescript'
-    case 'js':
-    case 'jsx':
-      return 'javascript'
-    case 'json':
-      return 'json'
-    case 'md':
-      return 'markdown'
-    case 'py':
-      return 'python'
-    case 'css':
-      return 'css'
-    case 'html':
-      return 'html'
-    default:
-      return undefined
-  }
-}
-
 export default function GitConflictResolverPanel({ repoRoot, filePath }: Props) {
   const [state, setState] = useState<ResolverState>({ status: 'loading' })
-  const language = languageForPath(filePath)
+  const language = detectLanguage(filePath)
   const monacoTheme = useMonacoBaseTheme()
   const dialog = useConfirmDialog()
   const blocks = useMemo(() => (state.status === 'ready' ? parseGitConflictBlocks(state.content) : []), [state])
@@ -235,6 +209,10 @@ export default function GitConflictResolverPanel({ repoRoot, filePath }: Props) 
           <section className="min-h-0 bg-[color:var(--bg-app)]">
             <MonacoEditor
               height="100%"
+              beforeMount={configureMonacoLanguages}
+              // See `remeasureWhenMonoFontLoads`: a fallback face measured at mount
+              // puts the caret off the text once the mono face swaps in.
+              onMount={remeasureMonacoFontsOnLoad}
               language={language}
               value={state.content}
               theme={monacoTheme}
@@ -275,6 +253,8 @@ function ConflictReadOnlyPane({
       {content ? (
         <MonacoEditor
           height="100%"
+          beforeMount={configureMonacoLanguages}
+          onMount={remeasureMonacoFontsOnLoad}
           language={language}
           value={content}
           theme={monacoTheme}

@@ -192,7 +192,7 @@
       </div>
       </div>
       <div class="ds-command-palette-results" id="demo-palette-scoped" role="listbox" aria-label="Search results">
-        <p class="ds-command-palette-status" role="status">Searching <span class="ds-working-dots" role="img" aria-label="Searching"><span class="ds-working-dot"></span><span class="ds-working-dot"></span><span class="ds-working-dot"></span></span></p>
+        <p class="ds-command-palette-status" role="status">Searching <span class="ds-working-mark ds-working-mark--think" role="img" aria-label="Searching">  <i class="ds-working-mark-cell" style="--ds-cell-delay: 200ms" aria-hidden="true"></i>  <i class="ds-working-mark-cell" style="--ds-cell-delay: 1000ms" aria-hidden="true"></i>  <i class="ds-working-mark-cell" style="--ds-cell-delay: 600ms" aria-hidden="true"></i>  <i class="ds-working-mark-cell" style="--ds-cell-delay: 1400ms" aria-hidden="true"></i>  <i class="ds-working-mark-cell" style="--ds-cell-delay: 0ms" aria-hidden="true"></i>  <i class="ds-working-mark-cell" style="--ds-cell-delay: 1600ms" aria-hidden="true"></i>  <i class="ds-working-mark-cell" style="--ds-cell-delay: 800ms" aria-hidden="true"></i>  <i class="ds-working-mark-cell" style="--ds-cell-delay: 1200ms" aria-hidden="true"></i>  <i class="ds-working-mark-cell" style="--ds-cell-delay: 400ms" aria-hidden="true"></i></span></p>
       </div>
     </div>
   </div>
@@ -358,6 +358,51 @@
             <span class="ds-command-palette-line-number">58</span>
             <span class="ds-command-palette-option-label">style={overlayWidthStyle(size)}</span>
           </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — installed Skills under the palette's own field, Project before Global; the same name remains visible in both scopes, and a group of more than ten closes with Show more.</p>
+  <div class="demo-scrim">
+    <div class="ds-command-palette" role="dialog" aria-label="Installed skills, light">
+      <div class="ds-command-palette-band">
+        <div class="ds-command-palette-query">
+          <input class="ds-command-palette-input" role="combobox" aria-label="Filter installed skills for this agent CLI" aria-expanded="true" aria-controls="demo-installed-light" placeholder="Filter installed skills…" />
+        </div>
+      </div>
+      <div class="ds-command-palette-results" id="demo-installed-light" role="listbox" aria-label="Installed skills by scope">
+        <div class="ds-command-palette-group" role="group" aria-label="Project">
+          <div class="ds-command-palette-group-heading" aria-hidden="true">Project</div>
+          <div class="ds-command-palette-option" role="option" aria-selected="true"><span class="ds-command-palette-option-text"><span class="ds-command-palette-option-label">Review</span><span class="ds-command-palette-option-detail">.codex/skills/review</span></span></div>
+          <div class="ds-command-palette-option" role="option" aria-selected="false"><span class="ds-command-palette-option-text"><span class="ds-command-palette-option-label">Show more</span><span class="ds-command-palette-option-detail">4 more</span></span></div>
+        </div>
+        <div class="ds-command-palette-group" role="group" aria-label="Global">
+          <div class="ds-command-palette-group-heading" aria-hidden="true">Global</div>
+          <div class="ds-command-palette-option" role="option" aria-selected="false"><span class="ds-command-palette-option-text"><span class="ds-command-palette-option-label">Review</span><span class="ds-command-palette-option-detail">~/.codex/skills/review</span></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — installed Skills, grouped by scope; selection opens installation details and actions.</p>
+  <div class="demo-scrim">
+    <div class="ds-command-palette" role="dialog" aria-label="Installed skills, dark">
+      <div class="ds-command-palette-band">
+        <div class="ds-command-palette-query">
+          <input class="ds-command-palette-input" role="combobox" aria-label="Filter installed skills for this agent CLI" aria-expanded="true" aria-controls="demo-installed-dark" placeholder="Filter installed skills…" />
+        </div>
+      </div>
+      <div class="ds-command-palette-results" id="demo-installed-dark" role="listbox" aria-label="Installed skills by scope">
+        <div class="ds-command-palette-group" role="group" aria-label="Project">
+          <div class="ds-command-palette-group-heading" aria-hidden="true">Project</div>
+          <div class="ds-command-palette-option" role="option" aria-selected="true"><span class="ds-command-palette-option-text"><span class="ds-command-palette-option-label">Review</span><span class="ds-command-palette-option-detail">.codex/skills/review</span></span></div>
+        </div>
+        <div class="ds-command-palette-group" role="group" aria-label="Global">
+          <div class="ds-command-palette-group-heading" aria-hidden="true">Global</div>
+          <div class="ds-command-palette-option" role="option" aria-selected="false"><span class="ds-command-palette-option-text"><span class="ds-command-palette-option-label">Review</span><span class="ds-command-palette-option-detail">~/.codex/skills/review</span></span></div>
         </div>
       </div>
     </div>

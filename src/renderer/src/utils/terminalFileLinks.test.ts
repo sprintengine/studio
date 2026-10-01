@@ -66,8 +66,7 @@ test('terminalFileLinks', async () => {
     end: { x: wrappedSecondSegment.length, y: 11 },
   })
 
-  // Producer hard-wrap stitching: an agent CLI word-wraps a long path token onto
-  // an indented continuation line, emitting separate non-wrapped buffer lines.
+  // A buffer of plain rows, for the soft-wrap reader and the provider.
   type MockLine = { text: string; isWrapped: boolean }
 
   function makeTerminal(cols: number, lines: MockLine[]): Terminal {
@@ -109,6 +108,11 @@ test('terminalFileLinks', async () => {
     return { cols, buffer } as unknown as Terminal
   }
 
+  // The logical line is xterm's soft wrap and nothing more. A path a program
+  // broke onto an indented row itself is joined by the provider, which checks
+  // the joined path exists first (`terminalWrappedFileLinks.test.ts`); the
+  // reader must not guess at it, because its text is also what a single row's
+  // own matches are read from.
   const hangingPathHead = '    future-plans/2026-06-07-targeted-review-gate-'
   const hangingTerminal = makeTerminal(hangingPathHead.length, [
     { text: hangingPathHead, isWrapped: false },
@@ -116,40 +120,8 @@ test('terminalFileLinks', async () => {
   ])
   const hangingLogical = readWrappedLogicalLine(hangingTerminal, 1)
   assert.ok(hangingLogical)
-  assert.equal(hangingLogical.text, '    future-plans/2026-06-07-targeted-review-gate-rechecks.md')
-  const hangingRefs = findTerminalFileReferences(hangingLogical.text, roots)
-  assert.equal(hangingRefs.length, 1)
-  assert.equal(hangingRefs[0]?.text, 'future-plans/2026-06-07-targeted-review-gate-rechecks.md')
-  assert.equal(
-    hangingRefs[0]?.resolvedPath,
-    '/repo/packages/app/future-plans/2026-06-07-targeted-review-gate-rechecks.md',
-  )
-  const hangingRange = rangeForTerminalFileReference(hangingRefs[0]!, hangingLogical.segments)
-  assert.deepEqual(hangingRange, { start: { x: 5, y: 1 }, end: { x: 15, y: 2 } })
-
-  // Wrapped prose must not be stitched: the bottom line fills the width but its
-  // trailing token has no path separator.
-  const proseHead = 'The plan covers the gate reset path and the proposed'
-  const proseTerminal = makeTerminal(proseHead.length, [
-    { text: proseHead, isWrapped: false },
-    { text: '    publish-id/gate-retention model', isWrapped: false },
-  ])
-  const proseLogical = readWrappedLogicalLine(proseTerminal, 1)
-  assert.ok(proseLogical)
-  assert.equal(proseLogical.segments.length, 1)
-  assert.equal(proseLogical.text, proseHead)
-
-  // A path that ends before the right edge is complete; an unrelated indented
-  // line below it must not be merged in.
-  const completeHead = 'See src/a/b.json'
-  const completeTerminal = makeTerminal(40, [
-    { text: completeHead, isWrapped: false },
-    { text: '    src/c/d.json also', isWrapped: false },
-  ])
-  const completeLogical = readWrappedLogicalLine(completeTerminal, 1)
-  assert.ok(completeLogical)
-  assert.equal(completeLogical.segments.length, 1)
-  assert.equal(completeLogical.text, completeHead)
+  assert.equal(hangingLogical.text, hangingPathHead)
+  assert.equal(hangingLogical.segments.length, 1)
 
   // ---------------------------------------------------------------------------
   // The reported drop (item `terminal-relative-links-dropped`, 2026-09-08): a

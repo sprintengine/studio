@@ -61,7 +61,7 @@ export function InboxRow({
       {leading ? (
         <span className="mt-0.5 shrink-0">{leading}</span>
       ) : hideDot ? null : (
-        <StatusDot tone={tone} className="mt-1" />
+        <StatusDot tone={tone} className="mt-0.5" />
       )}
       <div className="min-w-0 flex-1">
         {/* The ink lift is the selection's second channel, so an unselected

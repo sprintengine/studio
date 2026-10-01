@@ -21,6 +21,22 @@ const MACOS_CLI_PATHS = [
   '/opt/homebrew/bin/tailscale',
 ]
 
+/**
+ * The environment every run gets.
+ *
+ * The macOS app's binary is the GUI and the CLI in one file, and it decides
+ * which to be from its environment. Started from a terminal it sees `TERM` and
+ * acts as the CLI; started by an app launched from the Dock or Finder it sees
+ * neither, tries to start the GUI, and prints "The Tailscale GUI failed to
+ * start" to stdout with exit code 0. Every read then failed to parse — the scan
+ * listed no machines and whois named nobody — while looking like a working run.
+ * `TAILSCALE_BE_CLI` is the switch the binary reads for exactly this; the
+ * standalone Linux and Windows CLIs ignore it.
+ */
+function tailscaleEnv(): NodeJS.ProcessEnv {
+  return { ...process.env, TAILSCALE_BE_CLI: '1' }
+}
+
 function resolveTailscaleBinary(): string {
   for (const candidate of MACOS_CLI_PATHS) {
     if (existsSync(candidate)) return candidate
@@ -36,7 +52,7 @@ export function runTailscale(args: readonly string[], timeoutMs: number, maxBuff
     execFile(
       resolveTailscaleBinary(),
       [...args],
-      { timeout: timeoutMs, windowsHide: true, ...(maxBuffer ? { maxBuffer } : {}) },
+      { timeout: timeoutMs, windowsHide: true, env: tailscaleEnv(), ...(maxBuffer ? { maxBuffer } : {}) },
       (error, stdout) => resolve(error ? null : stdout),
     )
   })
@@ -68,7 +84,7 @@ export function runTailscaleResult(
     execFile(
       resolveTailscaleBinary(),
       [...args],
-      { timeout: timeoutMs, windowsHide: true, ...(maxBuffer ? { maxBuffer } : {}) },
+      { timeout: timeoutMs, windowsHide: true, env: tailscaleEnv(), ...(maxBuffer ? { maxBuffer } : {}) },
       (error, stdout, stderr) => {
         if (!error) {
           resolve({ ok: true, stdout })

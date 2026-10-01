@@ -208,7 +208,14 @@ export function createMcpSocketServer(options: McpSocketServerOptions): McpSocke
         return
       }
       if (result.kind === 'error') {
+        // A refused identity re-declaration is a notification with nobody to
+        // answer, so it is logged rather than dropped without a trace. Other
+        // notifications this server does not implement stay quiet: clients send
+        // them routinely.
         if (!isNotification) respond(socket, jsonRpcErrorResponse(id, result.code, result.errorMessage))
+        else if (parsed.method === 'sprintengine.studio/connect') {
+          options.log?.(`automation socket refused ${parsed.method}: ${result.errorMessage}`)
+        }
         return
       }
       if (!isNotification) respond(socket, { jsonrpc: '2.0', id, result: result.value })

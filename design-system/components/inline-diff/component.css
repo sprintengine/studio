@@ -1,0 +1,6 @@
+.ds-inline-diff { font-family: var(--sem-font-family-mono); font-size: var(--sem-font-size-body); line-height: var(--sem-font-line-relaxed); overflow-x: auto; }
+.ds-inline-diff__line { white-space: pre; padding-inline: var(--sem-space-sm); }
+.ds-inline-diff__line--added { color: var(--sem-color-diff-added); background: var(--sem-color-status-good-faint); }
+.ds-inline-diff__line--removed { color: var(--sem-color-diff-removed); background: var(--sem-color-status-danger-soft); }
+.ds-inline-diff__header { color: var(--sem-color-text-muted); padding: var(--sem-space-xs) var(--sem-space-sm); }
+.ds-inline-diff mark { color: inherit; background: var(--sem-color-diff-changed-strong); }

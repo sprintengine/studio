@@ -13,8 +13,8 @@ test('DiffViewerRemount', async () => {
   // React remounts a child when the ELEMENT's `type` or `key` changes, and for
   // nothing else — new props on the same type are an update. `DiffBody` holds no
   // hooks precisely so this suite can call it as a plain function and read the
-  // element it returns, rather than driving a real Monaco (which needs a loader,
-  // a canvas and a network fetch, none of which exist in a unit test). The
+  // element it returns, rather than driving a real Monaco (which needs a DOM, a
+  // canvas and web workers, none of which exist in a unit test). The
   // companion assertion lives in `diffToolbarModel.test.ts`: every preference is
   // in the live option set, so a change to one is always an `updateOptions` call.
 

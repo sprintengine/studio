@@ -5,18 +5,15 @@ import { isTerminalChromeTarget } from './keyboard'
 type TerminalClipboardHandlersOptions = {
   container: HTMLElement
   term: Terminal
-  sessionId: string
   focusTerminal: () => void
   recordKeydown?: (event: KeyboardEvent) => void
   /**
-   * Where pasted text goes. Defaults to this machine's terminal runtime.
-   *
-   * A REMOTE pane passes its own writer, because its session id names
-   * a session on another machine: pasting through the local path would either
-   * land nowhere or, worse, in a local session that happens to share the id.
-   * Copy needs no override — the selection is in this xterm either way.
+   * Where pasted text goes. Defaults to `term.paste`, which brackets it for
+   * the program in the pane (see `pasteText`). A pane whose program is not
+   * running yet — a paused agent being resumed — passes its own, so the text
+   * can wait for the program that will read it and be bracketed by ITS mode.
    */
-  write?: (text: string) => void
+  paste?: (text: string) => void
   /**
    * The bytes that ask the CLI in this pane to attach the clipboard image, or
    * null when it has no such key. Read at paste time, since a pane's CLI is
@@ -41,10 +38,10 @@ const CLAUDE_CODE_BINARY_CLIS = new Set(['claude-code', 'zai', 'kimi-claude'])
  */
 export function claudeImagePasteKey(
   cli: string | undefined,
-  useWsl: boolean | undefined,
+  inWsl: boolean | undefined,
   platform: string = window.api.platform,
 ): string | null {
-  if (platform !== 'win32' || useWsl || !cli || !CLAUDE_CODE_BINARY_CLIS.has(cli)) return null
+  if (platform !== 'win32' || inWsl || !cli || !CLAUDE_CODE_BINARY_CLIS.has(cli)) return null
   return 'v'
 }
 
@@ -86,10 +83,9 @@ export async function writeTerminalClipboardText(text: string): Promise<boolean>
 export function bindTerminalClipboardHandlers({
   container,
   term,
-  sessionId,
   focusTerminal,
   recordKeydown,
-  write,
+  paste,
   imagePasteKey,
 }: TerminalClipboardHandlersOptions): () => void {
   let lastKnownSelection = term.getSelection()
@@ -123,11 +119,21 @@ export function bindTerminalClipboardHandlers({
 
   const getCopySelection = () => secondaryClickSelection || term.getSelection() || lastKnownSelection
 
+  // Text is pasted through xterm, not written to the pty. `term.paste` turns
+  // newlines into carriage returns as this used to by hand, and, when the
+  // program in the pane has asked for bracketed paste (DECSET 2004, which every
+  // agent CLI does), wraps the text in `ESC[200~` … `ESC[201~`. Without the
+  // markers the CLI reads the paste as typed keystrokes: each newline is a
+  // submit, and a large paste is fed through its key handling one character
+  // at a time.
+  //
+  // The bytes then leave through the pane's own `onData` handler, the same
+  // path a keystroke takes, so a remote pane that may not type refuses it. A
+  // pane that has to hold the paste for a while (`paste`) decides when it goes.
   const pasteText = async (text: string) => {
     if (!text) return
-    const payload = text.replace(/\r?\n/g, '\r')
-    if (write) write(payload)
-    else await window.api.terminalWrite(sessionId, payload)
+    if (paste) paste(text)
+    else term.paste(text)
     focusTerminal()
   }
 
@@ -148,12 +154,18 @@ export function bindTerminalClipboardHandlers({
       const key = clipboardHasImage(event.clipboardData ?? null) ? imagePasteKey?.() : null
       if (!key) return
       event.preventDefault()
-      if (write) write(key)
-      else void window.api.terminalWrite(sessionId, key)
+      // As typed input, through xterm, so it takes the pane's own input path
+      // like a keystroke: a paused agent resumes on it, and a remote pane
+      // sends it to its own machine, if it may type at all.
+      term.input(key, true)
       focusTerminal()
       return
     }
+    // xterm pastes on its own from its textarea, and stops the event there.
+    // This listener runs first (capture phase) and takes the paste, so every
+    // paste reaches `pasteText` — including the pane's override, above.
     event.preventDefault()
+    event.stopPropagation()
     void pasteText(text)
   }
 
@@ -223,14 +235,14 @@ export function bindTerminalClipboardHandlers({
 
   container.addEventListener('mousedown', handleMouseDown, { capture: true })
   container.addEventListener('copy', handleCopy)
-  container.addEventListener('paste', handlePaste)
+  container.addEventListener('paste', handlePaste, { capture: true })
   container.addEventListener('keydown', handleKeyDown)
   container.addEventListener('contextmenu', handleContextMenu, { capture: true })
 
   return () => {
     container.removeEventListener('mousedown', handleMouseDown, { capture: true })
     container.removeEventListener('copy', handleCopy)
-    container.removeEventListener('paste', handlePaste)
+    container.removeEventListener('paste', handlePaste, { capture: true })
     container.removeEventListener('keydown', handleKeyDown)
     container.removeEventListener('contextmenu', handleContextMenu, { capture: true })
     selectionDisposable.dispose()

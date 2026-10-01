@@ -50,30 +50,29 @@ access each one requests and grant trust before its code runs. You can also
 install a module folder from there instead of copying it here by hand.
 `
 
-export const PLUGIN_FOLDER_README = `# SprintEngine CLI plugins (BYO CLI)
+export const PLUGIN_FOLDER_README = `# SprintEngine conversation providers
 
-Drop a CLI plugin here to add a new agent CLI to SprintEngine. Plugins are picked
-up on next launch (or after **Refresh** / **Install CLI from folder** under
-**Settings → Agents**).
+Drop a conversation provider here to add a model provider to SprintEngine's
+chat. Providers are picked up on next launch.
 
 ## Layout
 
 \`\`\`
 ~/.sprintengine/plugins/
-  <plugin-id>/
+  <provider-id>/
     plugin.json     # required — id must equal this folder name
 \`\`\`
 
-## What a plugin describes
+## What a provider describes
 
-A \`plugin.json\` tells SprintEngine how to launch and resume an agent CLI: its
-\`binary\`, the \`launch\` / \`resume\` argv templates, prompt injection, completion
-detection, MCP config format, model selection and capabilities. See the
-\`CliPluginManifest\` type and \`validateCliPluginManifest\` validator published by
-\`@sprintengine/module-sdk\` for the authoring contract.
+A \`plugin.json\` with \`"kind": "provider"\` names the provider, its models and
+how it signs in (\`providerType\`, \`models\`, \`auth\`, and an OpenAI-compatible
+endpoint or an adapter). An executable adapter must be signed by a publisher
+you trust before it runs.
 
-A plugin id must match its containing folder name. A user plugin with the same
-id as a bundled CLI overrides the bundled one.
+Only providers load from this folder. Agent CLIs ship with the app, and a
+provider cannot reuse the id of anything built in; a plugin here that tries
+is not loaded.
 `
 
 export type EnsureExtensionFoldersOptions = {

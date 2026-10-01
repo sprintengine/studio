@@ -24,6 +24,7 @@ export default function SettingsModalSurface(): JSX.Element {
       chrome="overlay"
       initialTab={request.initialTab}
       checkForUpdatesRequestId={request.checkForUpdatesRequestId ?? undefined}
+      agentsMachineRequest={request.agentsMachineRequest}
       onClose={closeSettingsOverlay}
     />
   )

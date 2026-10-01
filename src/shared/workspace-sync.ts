@@ -39,6 +39,13 @@ export type WorkspaceSyncCommand =
         workspace: Workspace
         windowId: WorkspaceWindowId
         insert: { kind: 'folder_head'; folderPath: string | null }
+        /**
+         * False when the workspace joins its window without being brought to
+         * the front: a chat nobody asked to look at right now, like a
+         * scheduled run. Absent, the new workspace becomes the active one, as
+         * every create did before this field existed.
+         */
+        activate?: false
       }
     }
   | {
@@ -311,6 +318,7 @@ function applyWorkspaceSyncEventInPlace(state: WorkspaceSyncState, event: Worksp
         event.payload.windowId,
         event.payload.insert.folderPath,
         event.createdAt,
+        event.payload.activate !== false,
       )
       break
     case 'agent_terminal.session_assigned':
@@ -580,6 +588,7 @@ function addCreatedWorkspace(
   windowId: WorkspaceWindowId,
   folderPath: string | null,
   timestamp: number,
+  activate: boolean,
 ): void {
   state.workspaces = state.workspaces.filter((candidate) => candidate.id !== workspace.id)
   // The block is the workspace's PROJECT, not its own folder: a worktree chat's
@@ -601,6 +610,12 @@ function addCreatedWorkspace(
   }
   const target = ensureWorkspaceWindow(state, windowId, undefined, timestamp)
   target.workspaceIds = [workspace.id, ...target.workspaceIds]
+  // A workspace created in the background joins the window's list and leaves
+  // what the person is looking at alone.
+  if (!activate) {
+    normalizeWorkspaceAssignments(state, timestamp)
+    return
+  }
   target.activeWorkspaceId = workspace.id
   target.lastFocusedAt = timestamp
   state.activeWorkspaceId = workspace.id

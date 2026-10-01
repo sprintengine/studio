@@ -8,7 +8,11 @@ import {
   clearCliAvailabilityCache,
   detectAgentCliAvailability,
   invalidateCliAvailability,
+  invalidateCliAvailabilityOnHost,
+  knownCliAvailability,
   preflightAgentCliLaunch,
+  recordCliDetection,
+  setMaxConcurrentCliProbes,
 } from './cli-availability'
 
 function entry(id: string, displayName = id): PluginRegistryListEntry {
@@ -31,7 +35,7 @@ function detected(cli: AgentCli, installed: boolean, error: string | null = null
     installed,
     version: installed ? '1.0.0' : null,
     resolvedPath: installed ? `/usr/bin/${cli}` : null,
-    useWsl: false,
+    hostId: 'local',
     error,
   }
 }
@@ -85,6 +89,118 @@ test('re-probes once the cache entry expires', async () => {
   assert.equal(probes, 2)
 })
 
+// Detection runs at startup and on Re-check, and at no other time: focus and
+// visibility refresh the pickers, and every one of those reads the answer
+// startup found rather than re-running each CLI's `--version`.
+test('the default cache holds an answer until something says it is stale', async () => {
+  clearCliAvailabilityCache()
+  let probes = 0
+  let clock = 1000
+  const deps = {
+    listEntries: () => [entry('codex')],
+    detect: async (cli: AgentCli) => {
+      probes += 1
+      return detected(cli, true)
+    },
+    now: () => clock,
+  }
+  await detectAgentCliAvailability(undefined, deps)
+  clock += 24 * 60 * 60_000
+  await detectAgentCliAvailability(undefined, deps)
+  assert.equal(probes, 1, 'still the startup answer a day later')
+  await detectAgentCliAvailability({ force: true }, deps)
+  assert.equal(probes, 2, 'Re-check (force) probes again')
+})
+
+// The version check compares what detection last found, and must keep it when
+// a WSL helper reports a PATH change there: that drops the probe cache so the
+// next read looks again, not the installed versions the badges are built on.
+test('knownCliAvailability reads the last answer without probing, and survives an invalidation', async () => {
+  clearCliAvailabilityCache()
+  let probes = 0
+  const wsl: Partial<CliRuntimeSettings> = { command: '', hostId: 'wsl:Ubuntu' }
+  const deps = {
+    listEntries: () => [entry('codex'), entry('grok')],
+    detect: async (cli: AgentCli, runtime?: Partial<CliRuntimeSettings>) => {
+      probes += 1
+      return { ...detected(cli, cli === 'codex'), hostId: runtime?.hostId ?? 'local' }
+    },
+    now: () => 1000,
+  }
+  assert.deepEqual(knownCliAvailability({ cliRuntimes: { codex: wsl, grok: wsl } }, deps), {}, 'nothing yet')
+  await detectAgentCliAvailability({ cliRuntimes: { codex: wsl, grok: wsl } }, deps)
+  assert.equal(probes, 2)
+
+  const known = knownCliAvailability({ cliRuntimes: { codex: wsl, grok: wsl } }, deps)
+  assert.equal(known.codex?.installed, true)
+  assert.equal(known.grok?.installed, false, 'a definitive absence is known too')
+  assert.deepEqual(knownCliAvailability({ cliRuntimes: {} }, deps), {}, 'this machine was never asked')
+
+  invalidateCliAvailabilityOnHost('wsl:Ubuntu')
+  assert.equal(
+    knownCliAvailability({ cliRuntimes: { codex: wsl, grok: wsl } }, deps).codex?.version,
+    '1.0.0',
+    'the installed version outlives the PATH change',
+  )
+  assert.equal(probes, 2, 'and reading it probed nothing')
+})
+
+// An install or update the app ran re-detects its one CLI; that answer replaces
+// the old one so the row and the badge move without a re-scan.
+test('recordCliDetection replaces one CLI’s answer on one machine', async () => {
+  clearCliAvailabilityCache()
+  let probes = 0
+  const deps = {
+    listEntries: () => [entry('codex'), entry('opencode')],
+    detect: async (cli: AgentCli) => {
+      probes += 1
+      return detected(cli, true)
+    },
+    now: () => 1000,
+  }
+  await detectAgentCliAvailability({ cliRuntimes: {} }, deps)
+  assert.equal(probes, 2)
+  recordCliDetection({ command: '' }, { ...detected('codex', true), version: '1.1.0' })
+  const after = await detectAgentCliAvailability({ cliRuntimes: {} }, deps)
+  assert.equal(after.codex?.version, '1.1.0', 'the recorded version is served')
+  assert.equal(after.opencode?.version, '1.0.0')
+  assert.equal(probes, 2, 'and nothing was probed again')
+  assert.equal(knownCliAvailability({ cliRuntimes: {} }, deps).codex?.version, '1.1.0')
+
+  recordCliDetection({ command: '' }, detected('codex', false, 'the helper did not answer'))
+  await detectAgentCliAvailability({ cliRuntimes: {} }, deps)
+  assert.equal(probes, 3, 'an undecided result drops the old answer so the next read looks again')
+
+  // Another machine's answer for the same CLI is its own.
+  const wsl = { codex: { command: '', hostId: 'wsl:Ubuntu' as const } }
+  await detectAgentCliAvailability({ cliRuntimes: wsl }, deps)
+  assert.equal(probes, 4, 'codex on the distribution; opencode is still this machine’s, held')
+  recordCliDetection({ command: '' }, { ...detected('codex', true), version: '1.2.0' })
+  await detectAgentCliAvailability({ cliRuntimes: wsl }, deps)
+  assert.equal(probes, 4, 'recording this machine’s codex leaves the distribution’s answer held')
+})
+
+// The cache holds "not installed" until Re-check, so a CLI installed from a
+// terminal since startup would be refused. A launch looks again first.
+test('pre-flight probes again before refusing a CLI the cache calls missing', async () => {
+  clearCliAvailabilityCache()
+  let installed = false
+  let probes = 0
+  const deps = {
+    listEntries: () => [entry('codex')],
+    detect: async (cli: AgentCli) => {
+      probes += 1
+      return { ...detected(cli, installed), resolvedPath: installed ? `/usr/local/bin/${cli}` : null }
+    },
+    now: () => 1000,
+  }
+  await detectAgentCliAvailability({ cliRuntimes: {} }, deps)
+  installed = true
+  const result = await preflightAgentCliLaunch({ cli: 'codex', ...POSIX_SETUP }, deps)
+  assert.deepEqual(result, { status: 'resolved', binaryPath: '/usr/local/bin/codex' })
+  assert.equal(probes, 2, 'one more probe, for this CLI')
+})
+
 test('force bypasses the cache', async () => {
   clearCliAvailabilityCache()
   let probes = 0
@@ -123,6 +239,106 @@ test('omits an errored probe from the map and does not cache it', async () => {
   // codex (clean) is cached; claude-code (errored) is not, so it re-probes.
   await detectAgentCliAvailability(undefined, deps)
   assert.equal(probes, 3, 'codex cached (1 probe), claude-code re-probed (2 probes)')
+})
+
+test('concurrent callers share one probe per CLI instead of each starting one', async () => {
+  clearCliAvailabilityCache()
+  let probes = 0
+  let release: () => void = () => {}
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const deps = {
+    listEntries: () => [entry('codex')],
+    detect: async (cli: AgentCli) => {
+      probes += 1
+      await gate
+      return detected(cli, true)
+    },
+    now: () => 5000,
+    ttlMs: 60_000,
+  }
+  // Focus and visibility arrive together, in more than one window.
+  const pending = [
+    detectAgentCliAvailability(undefined, deps),
+    detectAgentCliAvailability(undefined, deps),
+    detectAgentCliAvailability(undefined, deps),
+  ]
+  release()
+  const results = await Promise.all(pending)
+  assert.equal(probes, 1, 'one probe answered all three callers')
+  for (const result of results) assert.equal(result.codex.installed, true)
+})
+
+test('a forced refresh does not join a probe that started before it', async () => {
+  clearCliAvailabilityCache()
+  const answers: boolean[] = []
+  let release: () => void = () => {}
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let probes = 0
+  const deps = {
+    listEntries: () => [entry('codex')],
+    detect: async (cli: AgentCli) => {
+      probes += 1
+      // The first probe began before the install and answers "absent".
+      const installed = probes > 1
+      if (!installed) await gate
+      answers.push(installed)
+      return detected(cli, installed)
+    },
+    now: () => 5000,
+    ttlMs: 60_000,
+  }
+  const stale = detectAgentCliAvailability(undefined, deps)
+  const forced = await detectAgentCliAvailability({ force: true }, deps)
+  release()
+  await stale
+  assert.equal(probes, 2)
+  assert.equal(forced.codex.installed, true, 'the forced caller saw its own fresh probe')
+})
+
+test('an errored probe is shared while it runs but still not cached', async () => {
+  clearCliAvailabilityCache()
+  let probes = 0
+  const deps = {
+    listEntries: () => [entry('codex')],
+    detect: async (cli: AgentCli) => {
+      probes += 1
+      return detected(cli, false, 'shell spawn failed')
+    },
+    now: () => 5000,
+    ttlMs: 60_000,
+  }
+  await Promise.all([detectAgentCliAvailability(undefined, deps), detectAgentCliAvailability(undefined, deps)])
+  assert.equal(probes, 1)
+  await detectAgentCliAvailability(undefined, deps)
+  assert.equal(probes, 2, 'the next refresh after it settled re-probes')
+})
+
+test('probes run a bounded number at a time and every CLI still gets an answer', async () => {
+  clearCliAvailabilityCache()
+  setMaxConcurrentCliProbes(2)
+  let running = 0
+  let peak = 0
+  const clis = ['codex', 'claude-code', 'gemini', 'opencode', 'cursor']
+  const deps = {
+    listEntries: () => clis.map((id) => entry(id)),
+    detect: async (cli: AgentCli) => {
+      running += 1
+      peak = Math.max(peak, running)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      running -= 1
+      return detected(cli, true)
+    },
+    now: () => 5000,
+    ttlMs: 60_000,
+  }
+  const result = await detectAgentCliAvailability(undefined, deps)
+  clearCliAvailabilityCache()
+  assert.equal(peak, 2)
+  assert.deepEqual(Object.keys(result).sort(), [...clis].sort())
 })
 
 test('invalidateCliAvailability forces a re-probe for one CLI only', async () => {
@@ -187,7 +403,7 @@ test('a boot-style probe warms the cache for the renderer first refresh', async 
 
   // The renderer, moments later, with a settings object that carries no command
   // overrides — the shape a fresh profile has.
-  await detectAgentCliAvailability({ cliRuntimes: { codex: {}, 'claude-code': { useWsl: false } } }, deps)
+  await detectAgentCliAvailability({ cliRuntimes: { codex: {}, 'claude-code': {} } }, deps)
   assert.equal(probes, 2, 'the renderer refresh spawns nothing: every CLI hits the boot cache')
 })
 

@@ -1,4 +1,4 @@
-import { app } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import type { IpcMain } from 'electron'
 import { registerAgentConfigImportIpc } from './ipc/agent-config-import-ipc'
 import { registerAppearanceIpc } from './ipc/appearance-ipc'
@@ -10,17 +10,23 @@ import { registerAppMenuIpc } from './app-menu'
 import { registerBacklogIpc } from './ipc/backlog-ipc'
 import { registerBuiltinSkillsIpc } from './ipc/builtin-skills-ipc'
 import { registerStudioPluginIpc } from './ipc/studio-plugin-ipc'
+import { registerStudioAreaSkillsIpc } from './ipc/studio-area-skills-ipc'
 import { registerCliRuntimeIpc } from './ipc/cli-runtime-ipc'
+import { registerCliModelDiscoveryIpc } from './ipc/cli-model-discovery-ipc'
+import { registerConversationCommandsIpc } from './ipc/conversation-commands-ipc'
 import { registerTextGenerationIpc } from './ipc/text-generation-ipc'
 import { registerClipboardIpc } from './ipc/clipboard-ipc'
 import { createConversationIpcHandlers, registerConversationIpc } from './ipc/conversation-ipc'
 import { registerCredentialIpc } from './ipc/credential-ipc'
 import { registerConversationPeekIpc } from './ipc/conversation-peek-ipc'
+import { registerAgentCompactIpc } from './ipc/agent-compact-ipc'
 import { registerDiagnosticsIpc } from './ipc/diagnostics-ipc'
 import { registerFilesystemMutationIpc } from './ipc/filesystem-mutation-ipc'
 import { registerFilesystemReadIpc } from './ipc/filesystem-read-ipc'
 import { registerFilesystemWatchSearchIpc } from './ipc/filesystem-watch-search-ipc'
-import { registerFleetIpc } from './ipc/fleet-ipc'
+import { registerGitRepoWatchIpc } from './ipc/git-repo-watch-ipc'
+import { listLiveTerminalSessions } from './terminal-runtime'
+import { registerMeshIpc } from './ipc/mesh-ipc'
 import { createFolderOpenIpcDependencies, registerFolderOpenIpc } from './ipc/folder-open-ipc'
 import { registerGitHubTokenIpc } from './ipc/github-token-ipc'
 import { registerGitHubReposIpc } from './ipc/github-repos-ipc'
@@ -32,7 +38,7 @@ import { registerMemoryIpc } from './ipc/memory-ipc'
 import { registerMenuDialogIpc } from './ipc/menu-dialog-ipc'
 import { registerMarketplacePluginIpc } from './ipc/marketplace-plugin-ipc'
 import { registerMarketplaceRegistryIpc } from './ipc/marketplace-registry-ipc'
-import { registerHostedModelFeedIpc } from './ipc/hosted-feed-ipc'
+import { registerHostedSourcesFeedIpc } from './ipc/hosted-feed-ipc'
 import { registerHostedCardFeedIpc } from './ipc/card-feed-ipc'
 import { registerCardsIpc } from './ipc/cards-ipc'
 import { registerCliVersionIpc } from './ipc/cli-version-ipc'
@@ -44,6 +50,7 @@ import { registerSkillsIpc } from './ipc/skills-ipc'
 import { registerTerminalIpc } from './ipc/terminal-ipc'
 import { registerWorkspaceSkillsIpc } from './ipc/workspace-skills-ipc'
 import { registerLaunchSettingsIpc } from './ipc/launch-settings-ipc'
+import { registerHostsIpc } from './ipc/hosts-ipc'
 import { registerThirdPartyModuleIpc } from './ipc/third-party-module-ipc'
 import { registerUpdateIpc } from './ipc/update-ipc'
 import { registerVersionControlIpc } from './ipc/version-control-ipc'
@@ -51,12 +58,17 @@ import { registerVoiceIpc } from './ipc/voice-ipc'
 import { registerWindowIpc } from './ipc/window-ipc'
 import { registerBrowserIpc } from './ipc/browser-ipc'
 import { registerCanvasIpc } from './ipc/canvas-ipc'
+import { registerEditorRevealIpc } from './ipc/editor-reveal-ipc'
+import { registerToursIpc } from './ipc/tours-ipc'
+import { pickCanvasExportDirectory, revealCanvasBoardFile } from './ipc/canvas-export-dialog'
 import { registerWorkspaceSyncIpc } from './ipc/workspace-sync-ipc'
+import { registerExtensionScaffoldIpc } from './ipc/extension-scaffold-ipc'
 import {
   confirmWorkspaceWindowClose,
   createDiagnosticsWindow,
   createMainWindow,
   isAuxWindow,
+  isWorkspaceWindowWebContents,
   openAuxWindow,
 } from './window-factory'
 import { registerWorkspaceBackupIpc } from './ipc/workspace-backup-ipc'
@@ -71,12 +83,17 @@ export type CoreIpcOptions = {
   applyModuleEnablementLive?: ModuleEnablementLiveApplier
 }
 
+/** What registration hands back for the app's shutdown to finish. */
+export type CoreIpcHandles = {
+  conversationCommands: { dispose(): Promise<void> }
+}
+
 export function registerCoreIpc(
   ipcMain: IpcMain,
   services: AppServices,
   diagnosticsEnabled: boolean,
   options: CoreIpcOptions = {},
-): void {
+): CoreIpcHandles {
   registerWindowIpc(ipcMain, {
     createWorkspaceWindow: ({ windowId, bounds, isMaximized }) => {
       createMainWindow({ diagnosticsEnabled, windowId, bounds, isMaximized })
@@ -86,16 +103,33 @@ export function registerCoreIpc(
     isAuxWindow,
   })
   registerBrowserIpc(ipcMain, services.browserManager)
-  registerCanvasIpc(ipcMain, services.canvasService, services.canvasSubscribers)
+  registerCanvasIpc(ipcMain, services.canvasService, services.canvasSubscribers, {
+    pickExportDirectory: pickCanvasExportDirectory,
+    revealFile: revealCanvasBoardFile,
+  })
+  registerEditorRevealIpc(ipcMain, services.editorRevealBroker, {
+    // The answering window, never a name the message carries; only workspace
+    // windows show a workspace, so only they are heard.
+    senderId: (event) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      return win && isWorkspaceWindowWebContents(event.sender) ? win : null
+    },
+  })
+  registerToursIpc(ipcMain, services.tourService)
   registerWorkspaceSyncIpc(ipcMain, services.workspaceSyncService, {
     registry: services.workspaceRegistry,
   })
   registerAutomationIpc(ipcMain, services.automationService)
-  registerFleetIpc(ipcMain, services.automationService)
+  registerMeshIpc(ipcMain, services.automationService)
   registerAppMenuIpc(ipcMain)
   registerWorkspaceBackupIpc(ipcMain, services.workspaceBackupService)
   registerClipboardIpc(ipcMain)
   registerCliRuntimeIpc(ipcMain)
+  registerCliModelDiscoveryIpc(ipcMain)
+  const conversationCommands = registerConversationCommandsIpc(ipcMain, {
+    userDataDir: app.getPath('userData'),
+    cliRuntimes: () => services.agentLaunchSettings.get().cliRuntimes,
+  })
   registerTextGenerationIpc(ipcMain)
   // Voice dictation is a dev-only capability (the `voice-dictation` module). Its
   // main IPC is not yet a capability module, so gate it on the build channel
@@ -105,6 +139,7 @@ export function registerCoreIpc(
   registerAuthIpc(ipcMain, services.sprintengineAuth)
   registerBuiltinSkillsIpc(ipcMain, services.builtinSkillManager)
   registerStudioPluginIpc(ipcMain, services.studioPluginService)
+  registerStudioAreaSkillsIpc(ipcMain, services.studioAreaSkillStore)
   registerMcpIpc(ipcMain, services.mcpConfigService)
   registerAgentConfigImportIpc(ipcMain, services.agentConfigImportService)
   registerSkillsIpc(ipcMain, services.skillsService)
@@ -135,6 +170,7 @@ export function registerCoreIpc(
   })
   registerUpdateIpc(ipcMain, { updateService: services.updateService })
   registerLaunchSettingsIpc(ipcMain, { launchSettings: services.agentLaunchSettings })
+  registerHostsIpc(ipcMain, { hosts: services.hosts })
   registerFilesystemMutationIpc(ipcMain, createFilesystemMutationHandlers())
   registerBacklogIpc(ipcMain)
   registerGitIpc(
@@ -150,8 +186,15 @@ export function registerCoreIpc(
     {
       userDataDir: app.getPath('userData'),
       onChangelistsChanged: services.broadcastGitChangelistsChanged,
+      livePaths: () =>
+        listLiveTerminalSessions().flatMap((session) =>
+          [session.cwd, session.observedCheckout?.cwd, session.observedCheckout?.gitRoot].filter(
+            (path): path is string => typeof path === 'string' && path.length > 0,
+          ),
+        ),
     },
   )
+  registerGitRepoWatchIpc(ipcMain)
   registerVersionControlIpc(ipcMain)
   registerGitHubTokenIpc(ipcMain, services.githubTokenStore)
   registerGitHubReposIpc(ipcMain, services.githubTokenStore)
@@ -162,7 +205,7 @@ export function registerCoreIpc(
   registerBackgroundModeIpc(ipcMain, services.backgroundModeStore)
   registerTelemetryIpc(ipcMain, services.telemetryConsentStore)
   registerMarketplaceRegistryIpc(ipcMain)
-  registerHostedModelFeedIpc(ipcMain)
+  registerHostedSourcesFeedIpc(ipcMain)
   registerHostedCardFeedIpc(ipcMain)
   // Go, on a card on the Extensions home. Registered after the skills and MCP
   // services it composes, because it is those services said in one press.
@@ -170,18 +213,17 @@ export function registerCoreIpc(
     skillsService: services.skillsService,
     mcpConfigService: services.mcpConfigService,
     githubTokenStore: services.githubTokenStore,
-    // For a card's `install.module`: the same marketplace lifecycle the
-    // storefront installs through, which needs this for a bundle that also
-    // carries an automation.
-    getAutomationsAppFrontDoor: services.getAutomationsAppFrontDoor,
   })
   registerCliVersionIpc(ipcMain)
   registerMarketplacePluginIpc(ipcMain, services)
   registerPluginIpc(ipcMain)
-  registerConversationIpc(ipcMain, createConversationIpcHandlers(services.conversationRuntime))
+  registerConversationIpc(ipcMain, {
+    ...createConversationIpcHandlers(services.conversationRuntime),
+    terminalHandoff: (input) => services.conversationTerminalHandoff.handoff(input),
+  })
   registerCredentialIpc(ipcMain)
   registerDesignSystemIpc(ipcMain)
-  registerThirdPartyModuleIpc(ipcMain)
+  registerThirdPartyModuleIpc(ipcMain, services)
 
   // The terminal runtime (agent-runtime) is always on, so its IPC registers
   // with the core surfaces.
@@ -198,6 +240,18 @@ export function registerCoreIpc(
   // The conversation peek reads a terminal session, so it registers alongside
   // the runtime that owns one rather than with the core surfaces.
   registerConversationPeekIpc(ipcMain, services.conversationPeek)
+
+  // Compacting a terminal agent types at its prompt, so it registers beside
+  // the runtime that owns the session and goes through the control plane that
+  // owns typing at one.
+  registerAgentCompactIpc(ipcMain, {
+    findTerminal: (sessionId) =>
+      services.terminalRuntime.ipcHandlers.listTerminals().find((session) => session.sessionId === sessionId) ?? null,
+    sendPrompt: async (sessionId, text, precondition) => {
+      const result = await services.agentControlPlane.send({ sessionId }, text, { submit: true, precondition })
+      return result.ok ? { ok: true } : { ok: false, message: result.message }
+    },
+  })
 
   // Same reason: the pull request marks are read off a terminal session's
   // observed checkout, so their one refresh channel registers beside the
@@ -216,4 +270,8 @@ export function registerCoreIpc(
       return out
     },
   })
+  // ── extension-platform additions ──
+  // Build your own extension: the SDK's templates, the machine check, the project.
+  registerExtensionScaffoldIpc(ipcMain)
+  return { conversationCommands }
 }

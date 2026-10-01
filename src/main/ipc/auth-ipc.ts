@@ -6,8 +6,7 @@ type AuthBridge = {
   initialize(): Promise<SprintEngineAuthState>
   login(organizationId?: string | null): Promise<{ state: string; authorizationUrl: string }>
   logout(): Promise<{ loggedOut: true }>
-  refreshEntitlements(options?: { forceRefresh?: boolean }): Promise<SprintEngineAuthState>
-  openUpgrade(reason?: string): Promise<{ opened: true; url: string }>
+  refreshAccount(): Promise<SprintEngineAuthState>
 }
 
 export function registerAuthIpc(ipcMain: IpcMain, auth: AuthBridge): void {
@@ -17,7 +16,5 @@ export function registerAuthIpc(ipcMain: IpcMain, auth: AuthBridge): void {
 
   ipcMain.handle('auth:logout', () => auth.logout())
 
-  ipcMain.handle('auth:refresh-entitlements', () => auth.refreshEntitlements({ forceRefresh: true }))
-
-  ipcMain.handle('auth:open-upgrade', (_, reason?: string) => auth.openUpgrade(reason))
+  ipcMain.handle('auth:refresh-account', () => auth.refreshAccount())
 }

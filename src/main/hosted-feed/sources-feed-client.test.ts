@@ -1,6 +1,6 @@
 // The hosted sources feed's client and its schema gate.
 //
-// Same five rules as the model feed's client — remote > cache > seed with a
+// Same five rules as the card feed's client — remote > cache > seed with a
 // newer seed winning, one fetch per TTL, a retry gap after a failure, ETag/304,
 // and a rejected body that never reaches the cache — plus the two rules only
 // this feed has: what a recommendation de-duplicates against, and what the

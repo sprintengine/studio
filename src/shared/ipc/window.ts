@@ -55,6 +55,12 @@ export type OpenAuxWindowInput = {
   // window at a time); file uses the file path (one window per file).
   singletonKey: string
   bounds?: WindowBounds | null
+  /**
+   * False for an agent's reveal: the window is retargeted where it stands, or
+   * shown inactive when new, and never takes the keyboard or comes forward.
+   * Absent (the person's own click) brings it forward as always.
+   */
+  focus?: boolean
 }
 
 export type OpenAuxWindowResult = { ok: true; retargeted: boolean } | { ok: false; message: string }
@@ -98,10 +104,22 @@ export type DockDiffToWorkspaceResult = { accepted: boolean }
 
 export type OpenExternalResult = { ok: true } | { ok: false; message: string }
 
+/** `installing` runs from "Restart to update" until the app hands over to the installer. */
 export type AppUpdateStatus =
-  'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'not_available' | 'error'
+  'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'installing' | 'not_available' | 'error'
 
-export type AppUpdateChannel = 'dev' | 'preview' | 'stable'
+/** A release train an installed build can follow. */
+export type AppUpdateTrack = 'stable' | 'nightly'
+
+/** The channel the updater follows; `dev` is an unpackaged build, which follows none. */
+export type AppUpdateChannel = 'dev' | AppUpdateTrack
+
+/** The channel a packaged build would follow, and whether the person picked it
+ *  (`chosen`) or it came from the build's own version. */
+export type AppUpdateChannelSetting = {
+  channel: AppUpdateTrack
+  chosen: boolean
+}
 
 export type AppUpdateProgress = {
   percent: number
@@ -110,10 +128,32 @@ export type AppUpdateProgress = {
   bytesPerSecond: number
 }
 
+/**
+ * What became of the last update this install handed to an installer, read
+ * once at the start after it (main's update-install note). `updated` when the
+ * version running is the one it went to; `failed` when it is still the one it
+ * came from.
+ */
+export type AppUpdateInstallOutcome = {
+  kind: 'updated' | 'failed'
+  /** The version the update was going to. */
+  version: string
+  fromVersion: string
+  /** Why it failed, in a sentence; null when it did not. */
+  message: string | null
+}
+
 export type AppUpdateState = {
   status: AppUpdateStatus
   version: string
+  /** The channel the updater follows now: the saved choice, else the build's
+   *  own. `dev` for an unpackaged build. */
   channel: AppUpdateChannel
+  /** The channel this build was cut for, read from its version and fixed for
+   *  the life of the process. It differs from `channel` once a person switches
+   *  trains in Settings: a nightly build following stable is still a nightly
+   *  until the stable update installs over it. */
+  buildChannel: AppUpdateTrack
   packaged: boolean
   updateVersion: string | null
   releaseName: string | null
@@ -123,6 +163,16 @@ export type AppUpdateState = {
   progress: AppUpdateProgress | null
   errorMessage: string | null
   lastCheckedAt: string | null
+  /** Download an update as soon as a check finds one. Off unless the person turns it on. */
+  autoDownload: boolean
+  /**
+   * Installing needs an administrator: a Windows installation for all users,
+   * or in a folder the person cannot write. Windows asks for permission when
+   * Restart to update is pressed, and such an update does not install at quit.
+   */
+  installRequiresAdmin: boolean
+  /** The last update's result, until the renderer has shown it. */
+  installOutcome: AppUpdateInstallOutcome | null
 }
 
 export type AppUpdateCheckResult =

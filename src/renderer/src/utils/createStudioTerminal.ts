@@ -13,10 +13,12 @@ import { MONO_FONT_STACK } from './fonts'
 import { logPerfEvent } from './perfDiagnostics'
 import { attachTerminalOsc52Clipboard } from './terminalOsc52Clipboard'
 import { createTerminalSearchHandle, type TerminalSearchHandle } from './terminalSearch'
-import { createTerminalSurfaceOscLinkHandler, type TerminalSurfaceOscLinkCallbacks } from './terminalOscLinks'
+import { createTerminalOscLinkHandler, type TerminalOscLinkCallbacks } from './terminalOscLinks'
 import { terminalSurfaceLinkRoots, type TerminalLinkRoots, type TerminalSurface } from './terminalSurfaces'
 import { bindTerminalTheme, getTerminalTheme } from './terminalTheme'
 import { attachWebglRenderer, type WebglRendererHandle, type WebglRendererState } from './terminalWebglRenderer'
+import type { WebglBudgetLease } from './terminalWebglBudget'
+import { readTerminalWebglPresence, terminalWebglBudget, watchTerminalPresence } from './terminalWebglPresence'
 
 /**
  * One place constructs a terminal.
@@ -29,8 +31,8 @@ import { attachWebglRenderer, type WebglRendererHandle, type WebglRendererState 
  * What this owns: the option block, the Unicode width table, the theme (and
  * its live re-tint binding), the font, the scrollback, the fit addon, the
  * web-links addon, the write-only OSC 52 clipboard, the search addon, the WebGL
- * renderer and its context-loss fallback, the surface-derived `linkHandler`
- * every OSC 8 hyperlink goes through, and OSC handler registration.
+ * renderer and its context-loss fallback, the `linkHandler` every OSC 8
+ * hyperlink goes through, and OSC handler registration.
  *
  * What it deliberately does NOT own: `term.open()`, keyboard handlers, and the
  * file-link provider. Those are per-pane and, in the link provider's case,
@@ -39,12 +41,11 @@ import { attachWebglRenderer, type WebglRendererHandle, type WebglRendererState 
 
 /**
  * The surface type and its one rule live in `terminalSurfaces.ts` — a leaf
- * module with no xterm import, so the OSC link gate and its plain-Node tests
- * can read the same rule this factory does. Re-exported here because the panes
- * (and their tests) already import them from this module.
+ * module with no xterm import, so plain-Node tests can read the same rule this
+ * factory does. Re-exported here because the panes already import the types
+ * from this module.
  */
 export type { TerminalLinkRoots, TerminalSurface } from './terminalSurfaces'
-export { terminalSurfaceLinkRoots } from './terminalSurfaces'
 
 /** Handles a click on a URL the web-links addon matched. */
 export type TerminalWebLinkHandler = (event: MouseEvent, uri: string) => void
@@ -64,25 +65,18 @@ export type TerminalOscHandlers = Readonly<Record<number, (data: string) => bool
 export type CreateStudioTerminalInput = {
   surface: TerminalSurface
   /**
-   * Closed until the far end says this socket may type (FleetTerminalPanel).
-   * Named explicitly rather than exposed as a general option bag: a pane that
-   * needs to differ from the others should have to say which way, here.
-   */
-  disableStdin?: boolean
-  /**
    * What a click on an OSC 8 hyperlink DOES. Required, and only the callbacks:
-   * the gate itself is built here from `surface`, so no pane can construct a
-   * terminal without one and none can decide for itself whether it may resolve
-   * a local path.
+   * the gate itself is built here, so no pane can construct a terminal without
+   * one.
    *
-   * That is not hypothetical. `FleetTerminalPanel` passed no handler at all,
-   * and xterm's `OscLinkProvider` falls back to its OWN `defaultActivate` —
-   * a browser `confirm()` and a `window.open()`, which this app's
+   * That is not hypothetical. A pane once passed no handler at all, and
+   * xterm's `OscLinkProvider` falls back to its OWN `defaultActivate` — a
+   * browser `confirm()` and a `window.open()`, which this app's
    * `setWindowOpenHandler` turns into `shell.openExternal` — so an http(s)
-   * hyperlink printed by the REMOTE machine opened in the user's browser
-   * without ever passing `resolveTerminalOscLink`.
+   * hyperlink printed in that pane opened in the user's browser without ever
+   * passing `resolveTerminalOscLink`.
    */
-  oscLinks: TerminalSurfaceOscLinkCallbacks
+  oscLinks: TerminalOscLinkCallbacks
   oscHandlers?: TerminalOscHandlers
   /** When given, `loadWebLinks()` becomes live; otherwise it is a no-op. */
   onWebLink?: TerminalWebLinkHandler
@@ -92,7 +86,7 @@ export type StudioTerminal = {
   terminal: Terminal
   fitAddon: FitAddon
   /** `terminalSurfaceLinkRoots(surface)`, resolved once so panes agree with the factory. */
-  linkRoots: TerminalLinkRoots | null
+  linkRoots: TerminalLinkRoots
   /**
    * Loads the web-links addon, if an `onWebLink` handler was given.
    *
@@ -115,8 +109,10 @@ export type StudioTerminal = {
    */
   loadSearch: () => TerminalSearchHandle
   /**
-   * Loads the WebGL renderer, and arms the fallback that keeps a lost GPU
-   * context from blanking the pane.
+   * Enrols the pane in the window's WebGL budget, which loads the WebGL
+   * renderer while the pane is on screen, gives the context back when its
+   * layer goes cold, and re-acquires one after a context loss — with the
+   * fallback that keeps a lost context from blanking the pane in between.
    *
    * **Call it immediately after `term.open()`.** Split out for the same reason
    * the addon itself checks `terminal.element`: loaded against an unopened
@@ -136,14 +132,11 @@ export type StudioTerminal = {
 
 export function createStudioTerminal({
   surface,
-  disableStdin,
   oscLinks,
   oscHandlers,
   onWebLink,
 }: CreateStudioTerminalInput): StudioTerminal {
-  // Derived here, from the surface, once: `allowLocalPaths` is never a
-  // literal a pane chose.
-  const linkHandler: ILinkHandler = createTerminalSurfaceOscLinkHandler(surface, oscLinks)
+  const linkHandler: ILinkHandler = createTerminalOscLinkHandler(oscLinks)
   const terminal = new Terminal({
     ...TERMINAL_CELL_GEOMETRY_OPTIONS,
     theme: getTerminalTheme(),
@@ -153,7 +146,6 @@ export function createStudioTerminal({
     fontSize: 13,
     cursorBlink: true,
     scrollback: TERMINAL_RECENT_SCROLLBACK_LINES,
-    ...(disableStdin === undefined ? {} : { disableStdin }),
     linkHandler,
   })
 
@@ -179,10 +171,10 @@ export function createStudioTerminal({
 
   // OSC 52 — a program asking the terminal to touch the system clipboard.
   //
-  // Every surface gets it, agent and fleet included: copying is what the
+  // Every surface gets it, agent and mesh included: copying is what the
   // sequence is FOR, and a pane attached to another machine is the canonical
   // case (it is how `ssh` + tmux put a remote buffer on your local clipboard).
-  // The fleet rule the epic sets is about resolving local PATHS, which this
+  // The mesh rule the epic sets is about resolving local PATHS, which this
   // does not do.
   //
   // Registered LAST so its read guard sits in front of every other OSC 52
@@ -190,24 +182,71 @@ export function createStudioTerminal({
   // `terminalOsc52Clipboard.ts` for why read is refused and how, twice.
   oscDisposables.push(attachTerminalOsc52Clipboard({ terminal }))
 
+  // WebGL is not loaded at mount any more: the window's budget hands a context
+  // to this terminal while it is on screen, takes it back when its layer goes
+  // cold or another on-screen terminal needs it, and re-acquires after a
+  // context loss (terminalWebglBudget.ts). In between, xterm's DOM renderer
+  // paints — which, for a pane nobody can see, is painting nothing.
   let webglRenderer: WebglRendererHandle | null = null
-  const loadWebglRenderer = (): void => {
-    if (webglRenderer) return
-    webglRenderer = attachWebglRenderer({
+  let webglLease: WebglBudgetLease | null = null
+  let unwatchPresence: (() => void) | null = null
+  let webglState: WebglRendererState = 'not-loaded'
+  let releasingForBudget = false
+  // Which renderer a pane ended up on decides how to read every terminal
+  // timing number, so it is recorded rather than silently absorbed — a
+  // machine that always falls back is a machine whose profiles mean
+  // something different.
+  const recordRendererState = (state: WebglRendererState, error?: unknown): void => {
+    webglState = state
+    logPerfEvent('terminal', 'terminal-renderer', {
+      surface: surface.kind,
+      state,
+      ...(error === undefined ? {} : { error: String(error) }),
+    })
+  }
+  const attachWebgl = (): WebglRendererHandle =>
+    attachWebglRenderer({
       terminal,
       createAddon: () => new WebglAddon(),
-      // Which renderer a pane ended up on decides how to read every terminal
-      // timing number, so it is recorded rather than silently absorbed — a
-      // machine that always falls back is a machine whose profiles mean
-      // something different.
       onStateChange: (state, error) => {
-        logPerfEvent('terminal', 'terminal-renderer', {
-          surface: surface.kind,
-          state,
-          ...(error === undefined ? {} : { error: String(error) }),
-        })
+        if (state === 'disposed' && releasingForBudget) {
+          recordRendererState('released')
+          return
+        }
+        recordRendererState(state, error)
+        if (state === 'context-lost') webglLease?.contextLost()
       },
     })
+  const loadWebglRenderer = (): void => {
+    if (webglRenderer || webglLease) return
+    const element = terminal.element
+    if (!element) {
+      // Records the ordering bug exactly as before; see terminalWebglRenderer.ts.
+      webglRenderer = attachWebgl()
+      return
+    }
+    webglLease = terminalWebglBudget.join({
+      presence: () => readTerminalWebglPresence(terminal.element),
+      attach: () => {
+        webglRenderer = attachWebgl()
+        const state = webglRenderer.state()
+        if (state === 'webgl') return 'webgl'
+        // A driver can fire the loss while the addon is still registering; the
+        // loss handler has already scheduled the retry.
+        return state === 'context-lost' ? 'lost' : 'unavailable'
+      },
+      detach: () => {
+        releasingForBudget = true
+        try {
+          webglRenderer?.dispose()
+        } finally {
+          releasingForBudget = false
+          webglRenderer = null
+        }
+      },
+    })
+    unwatchPresence = watchTerminalPresence(element, () => webglLease?.update())
+    webglLease.update()
   }
 
   let searchAddon: SearchAddon | null = null
@@ -235,11 +274,17 @@ export function createStudioTerminal({
     loadWebLinks,
     loadSearch,
     loadWebglRenderer,
-    webglRendererState: () => webglRenderer?.state() ?? 'not-loaded',
+    webglRendererState: () => webglState,
     dispose: () => {
+      unwatchPresence?.()
+      unwatchPresence = null
       // Before the terminal: the addon's disposal reaches back into the
       // terminal's render service to put the DOM renderer back.
       webglRenderer?.dispose()
+      // Then out of the budget, which hands the context this pane just freed
+      // to an on-screen pane that was turned away.
+      webglLease?.dispose()
+      webglLease = null
       webLinksAddon?.dispose()
       searchAddon?.dispose()
       for (const disposable of oscDisposables) disposable.dispose()

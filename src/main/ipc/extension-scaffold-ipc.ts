@@ -1,0 +1,178 @@
+// "Build an extension" (the New chat door's extension mode): see whether a
+// name is free in the chosen project, and scaffold the project there.
+//
+// The project is written by the SDK's own scaffolder — the one
+// `sprintengine-module init` runs — from the templates and the
+// extension-builder skill the app ships beside itself (`sdk-templates`,
+// `sdk-skills` in package.json `build.extraResources`), so a project made here
+// and one made on the command line are the same project. The SDK version it
+// depends on is this checkout's, fixed at build time.
+//
+// Where it goes: always a NEW folder, `<project>/<id>`, inside a project folder
+// that exists. The id is held to the module-id rule (no separators, no dots),
+// so the folder cannot land anywhere but directly inside the project, and a
+// folder already there is never written into: an empty one is filled, one
+// holding an extension is handed back as it is, anything else is refused. So
+// nothing that exists is ever overwritten, which is why the door's own project
+// picker (open projects, recent folders, Browse…) is enough to choose it and
+// no dialog of this module's is needed.
+
+import { existsSync, readdirSync, statSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+
+import { app, type IpcMain } from 'electron'
+
+import {
+  scaffoldModuleProject,
+  type ScaffoldModuleOptions,
+  type ScaffoldModuleResult,
+} from '../../../packages/module-sdk/src/scaffold'
+import sdkPackage from '../../../packages/module-sdk/package.json'
+import {
+  EXTENSION_START_TEMPLATE_ID,
+  extensionDisplayName,
+  extensionIdProblem,
+  type ExtensionScaffoldCreateInput,
+  type ExtensionScaffoldCreateResult,
+  type ExtensionScaffoldTarget,
+  type ExtensionScaffoldTargetInput,
+  type ExtensionScaffoldTargetState,
+} from '../../shared/extension-scaffold'
+import { assertAppSender } from './ipc-sender'
+
+export const EXTENSION_SCAFFOLD_TARGET_CHANNEL = 'extensions:scaffold:target'
+export const EXTENSION_SCAFFOLD_CREATE_CHANNEL = 'extensions:scaffold:create'
+
+/** The SDK version a scaffolded project depends on: this build's own. */
+export const SCAFFOLD_SDK_VERSION: string = sdkPackage.version
+
+// An IDEA.md longer than this is not a brief.
+const MAX_IDEA_CHARS = 20_000
+
+/** Where the templates and the skill are: beside the app when packaged, the SDK package in a checkout. */
+export function resolveScaffoldRoots(
+  env: { isPackaged: boolean; resourcesPath: string; appPath: string } = {
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    appPath: app.getAppPath(),
+  },
+): { templatesRoot: string; skillsRoot: string } {
+  if (env.isPackaged) {
+    return {
+      templatesRoot: join(env.resourcesPath, 'sdk-templates'),
+      skillsRoot: join(env.resourcesPath, 'sdk-skills'),
+    }
+  }
+  const sdk = join(env.appPath, 'packages', 'module-sdk')
+  return { templatesRoot: join(sdk, 'templates'), skillsRoot: join(sdk, 'skills') }
+}
+
+export type ExtensionScaffoldDeps = {
+  roots: () => { templatesRoot: string; skillsRoot: string }
+  sdkVersion: string
+  scaffold: (options: ScaffoldModuleOptions) => Promise<ScaffoldModuleResult>
+}
+
+function defaultDeps(): ExtensionScaffoldDeps {
+  return {
+    roots: () => resolveScaffoldRoots(),
+    sdkVersion: SCAFFOLD_SDK_VERSION,
+    scaffold: scaffoldModuleProject,
+  }
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === 'string'
+}
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory()
+  } catch {
+    return false
+  }
+}
+
+/** What is at `folder` inside `parent`, read from the disk as it is now. */
+function targetState(parent: string, folder: string): ExtensionScaffoldTargetState {
+  if (!isDirectory(parent)) return 'no_parent'
+  if (!existsSync(folder)) return 'free'
+  if (!isDirectory(folder)) return 'taken'
+  if (existsSync(join(folder, 'module', 'manifest.json'))) return 'extension'
+  try {
+    return readdirSync(folder).length === 0 ? 'free' : 'taken'
+  } catch {
+    return 'taken'
+  }
+}
+
+export function createExtensionScaffoldHandlers(overrides: Partial<ExtensionScaffoldDeps> = {}) {
+  const deps: ExtensionScaffoldDeps = { ...defaultDeps(), ...overrides }
+
+  return {
+    target(input: ExtensionScaffoldTargetInput | undefined): ExtensionScaffoldTarget | null {
+      if (!input || !isString(input.parentDir) || !isString(input.id) || extensionIdProblem(input.id)) return null
+      const parent = resolve(input.parentDir)
+      const folder = join(parent, input.id)
+      return { state: targetState(parent, folder), folder }
+    },
+
+    async create(input: ExtensionScaffoldCreateInput | undefined): Promise<ExtensionScaffoldCreateResult> {
+      if (!input || typeof input !== 'object')
+        return { ok: false, code: 'invalid_input', message: 'Nothing to create.' }
+      const { id, parentDir, ideaMarkdown } = input
+      if (!isString(id)) return { ok: false, code: 'invalid_id', message: 'Name the extension.' }
+      const idProblem = extensionIdProblem(id)
+      if (idProblem) return { ok: false, code: 'invalid_id', message: idProblem }
+      if (!isString(parentDir) || parentDir.trim() === '') {
+        return { ok: false, code: 'no_parent', message: 'Choose the project the extension goes in.' }
+      }
+      if (ideaMarkdown !== undefined && (!isString(ideaMarkdown) || ideaMarkdown.length > MAX_IDEA_CHARS)) {
+        return { ok: false, code: 'invalid_input', message: `The brief is longer than ${MAX_IDEA_CHARS} characters.` }
+      }
+
+      const parent = resolve(parentDir)
+      const folder = join(parent, id)
+      const state = targetState(parent, folder)
+      if (state === 'no_parent') {
+        return { ok: false, code: 'no_parent', message: `${parent} is not a folder any more. Choose another project.` }
+      }
+      if (state === 'extension') return { ok: true, folder, existing: true }
+      if (state === 'taken') {
+        return {
+          ok: false,
+          code: 'dir_not_empty',
+          message: `${folder} already has files in it. Choose another name.`,
+        }
+      }
+
+      const { templatesRoot, skillsRoot } = deps.roots()
+      const result = await deps.scaffold({
+        dir: folder,
+        templateId: EXTENSION_START_TEMPLATE_ID,
+        id,
+        displayName: extensionDisplayName(id),
+        sdkVersion: deps.sdkVersion,
+        templatesRoot,
+        skillsRoot,
+        ...(ideaMarkdown !== undefined && ideaMarkdown.trim() !== '' ? { ideaMarkdown } : {}),
+      })
+      if (!result.ok) return result
+      return { ok: true, folder, existing: false }
+    },
+  }
+}
+
+export function registerExtensionScaffoldIpc(
+  ipcMain: IpcMain,
+  handlers: ReturnType<typeof createExtensionScaffoldHandlers> = createExtensionScaffoldHandlers(),
+): void {
+  ipcMain.handle(EXTENSION_SCAFFOLD_TARGET_CHANNEL, (_event, input: ExtensionScaffoldTargetInput | undefined) =>
+    handlers.target(input),
+  )
+  // Writing files answers only the app's own window.
+  ipcMain.handle(EXTENSION_SCAFFOLD_CREATE_CHANNEL, (event, input: ExtensionScaffoldCreateInput | undefined) => {
+    assertAppSender(event)
+    return handlers.create(input)
+  })
+}

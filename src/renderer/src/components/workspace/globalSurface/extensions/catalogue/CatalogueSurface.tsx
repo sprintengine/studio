@@ -1,8 +1,8 @@
-// The one shape the three Extensions catalogues share.
+// The one shape the Extensions catalogues share.
 //
-// Source-tabs ruling (2026-09-05): Plugins, Skills and Agent CLIs are the same
-// page three times — the view's name and a search field on the chrome row,
-// Installed and then one tab per source under it with a plus at the end, and
+// Source-tabs ruling (2026-09-05): Plugins and Skills are the same page twice
+// — the view's name and a search field on the chrome row, Installed and then
+// one tab per source under it with a plus at the end, and
 // inside the open tab the connector row idiom in two columns, kept in its
 // groups, walked by one pager. The nested Sources rail is gone: the drawer and
 // this row are the whole navigation, so the door brings no rail and the
@@ -15,7 +15,7 @@
 // different product from the Settings page one door over.
 //
 // This file owns that frame. What goes IN a tab is each catalogue's own
-// business — a registry category, a repository's folders, the CLI shelf — and
+// business — a registry category, a repository's folders — and
 // arrives as sections of items plus a way to draw one and a way to key it.
 
 import React, { useMemo, useState, type JSX } from 'react'
@@ -60,10 +60,15 @@ export type CatalogueSection<T> = {
  */
 export type CatalogueSearchScope = 'tab' | 'sources'
 
-/** The two ways a source gets added, from the plus after the last tab. */
+/**
+ * What the plus after the last tab adds: a source (a folder on this machine,
+ * or a repository of skills on GitHub) — and, where the door offers it, an
+ * extension installed straight from its own repository.
+ */
 export type CatalogueAddMenu = {
   onAddFromFile: () => void
   onAddFromGitHub: () => void
+  onInstallExtensionFromGitHub?: () => void
 }
 
 export function CatalogueSurface<T>({
@@ -82,7 +87,7 @@ export function CatalogueSurface<T>({
   noun,
   detail,
 }: {
-  /** The view's name: "Plugins", "Skills", "Agent CLIs". */
+  /** The view's name: "Plugins", "Skills". */
   title: string
   tabs: readonly CatalogueTab[]
   activeTabId: string
@@ -205,7 +210,13 @@ export function CatalogueSurface<T>({
     acrossSources && search.query.trim() !== '' ? `${title} across all sources` : `${title} in ${activeTabLabel}`
 
   return (
-    <GlobalSurfaceShell ariaLabel={title} bar={bar} onBack={back.onBack} canGoBack={back.canGoBack}>
+    <GlobalSurfaceShell
+      ariaLabel={title}
+      bar={bar}
+      onBack={back.onBack}
+      canGoBack={back.canGoBack}
+      controlTabContext="extensions"
+    >
       <div className="flex h-full min-h-0 flex-col">
         <div className="flex shrink-0 items-end gap-1 border-b border-[color:var(--border-default)] px-5">
           <Tabs
@@ -314,10 +325,13 @@ function UpdateMark(): JSX.Element {
 }
 
 /**
- * The plus after the last tab. Two ways in and no more: a folder on this
- * machine, or a repository on GitHub. It is the kit's overflow menu wearing a
- * plus rather than a kebab, so Enter opens it, the arrows rove and Escape
- * closes it without this file writing a menu of its own.
+ * The plus after the last tab: a folder on this machine or a repository of
+ * skills on GitHub, and — a different act, so it says so in its own words —
+ * an extension installed from its repository. The two GitHub items name what
+ * each repository is, because the same pasted URL means different things to
+ * each. It is the kit's overflow menu wearing a plus rather than a kebab, so
+ * Enter opens it, the arrows rove and Escape closes it without this file
+ * writing a menu of its own.
  */
 function AddSourceMenu({ add }: { add: CatalogueAddMenu }): JSX.Element {
   return (
@@ -326,7 +340,16 @@ function AddSourceMenu({ add }: { add: CatalogueAddMenu }): JSX.Element {
       align="end"
       items={[
         { id: 'file', label: ADD_LOCAL_SKILL_SOURCE_LABEL, onSelect: add.onAddFromFile },
-        { id: 'github', label: 'Add from GitHub…', onSelect: add.onAddFromGitHub },
+        { id: 'github', label: 'Add skill source from GitHub…', onSelect: add.onAddFromGitHub },
+        ...(add.onInstallExtensionFromGitHub
+          ? [
+              {
+                id: 'install-extension-github',
+                label: 'Install extension from GitHub…',
+                onSelect: add.onInstallExtensionFromGitHub,
+              },
+            ]
+          : []),
       ]}
       trigger={(open, opened) => (
         <Tooltip content="Add source" placement="bottom">

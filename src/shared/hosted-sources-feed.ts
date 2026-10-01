@@ -13,8 +13,8 @@
 // Node-free on purpose: `src/shared` cannot import `src/main` (TS6307). The
 // fetcher, cache and poller live in src/main/hosted-feed.
 //
-// Deliberately its own schema and its own client beside the model feed's and
-// the card feed's, not a shared abstraction over the three — the card feed
+// Deliberately its own schema and its own client beside the card feed's, not
+// a shared abstraction over the two — the card feed
 // states the reason and it holds here too: the schemas must be free to drift.
 //
 // The schema is a permanent contract: builds that are years old will keep

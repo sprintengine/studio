@@ -60,12 +60,16 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 }
 
 /* ── Leading ─────────────────────────────────────────────────────────────
- * A status-dot or a lifecycle glyph — one idiom per surface. The mark
- * belongs to the FIRST line: the offset centres a 6px dot on the title's
- * line box, so a two-line row does not float it between the lines. */
+ * A status mark (components/status-dot) or a lifecycle glyph — one idiom per
+ * surface; never a dot. The mark belongs to the FIRST line: the offset
+ * centres a 13px (icon.size.xs) glyph on the title's 18px line box
+ * (font.size.body × font.line.default), so a two-line row does not float it
+ * between the lines. Flex, so the slot is exactly the glyph's box rather than
+ * a line box the glyph sits on the baseline of. */
 .ds-inbox-row-leading {
+  display: flex;
   flex: none;
-  margin-top: var(--sem-space-xs);
+  margin-top: var(--sem-space-3xs);
 }
 
 .ds-inbox-row-text {

@@ -24,6 +24,24 @@ and `npm run dev`. No account is needed to run it.
 
 Prebuilt installers for macOS, Windows and Linux are not published yet.
 
+### Uninstalling
+
+There is nothing to do before you delete Studio. So the agent CLIs it launches
+can report to it, Studio writes hooks and an MCP server entry into the
+repositories you open, and a small launcher at `~/.sprintengine/bin` that they
+run. It writes them when an agent needs them and takes them back out every time
+it quits, leaving your own hooks, servers and settings around them as they
+were. If Studio does not get to quit cleanly (a crash, a force quit), the next
+quit takes them out, and until then the launcher makes any leftover a quiet
+no-op rather than an error in your CLI.
+
+A few things are kept across quits because they do their job while Studio is
+closed: locks on agent worktrees, `tailscale serve` mappings for ports you
+shared, the knowledge-activity hook in repositories where you turned it on, and
+Studio's runtime inside any WSL distribution it ran agents in. On Windows the
+uninstaller removes these as well, and asks whether to delete Studio's settings
+and logs.
+
 ## The agent CLIs it drives
 
 Each of these ships as a plugin manifest under `resources/plugins/`, which is
@@ -66,7 +84,7 @@ uses port 5173, or the next free port if that one is taken, in which case the
 second instance gets its own profile so you can run two side by side.
 
 ```
-npm run build          # compile main, preload and renderer, and check the bundle budget
+npm run build          # compile main, preload and renderer
 npm run dist:mac       # package an installer — also dist:win, dist:linux
 npm run verify:app     # the full gate: typecheck, lints, tests, SDK and feed checks
 ```
@@ -103,7 +121,7 @@ The app is meant to be built on rather than only used.
   and signed bundles.
 - **The studio's own agent-facing surface** — the `sprintengine-studio` plugin
   the app installs into every workspace it opens, the stdio bridge to the
-  running app, and the skills that teach an agent to drive it — is documented in
+  running app, and the opt-in skills that teach an agent to drive it — is documented in
   [resources/studio-plugin/README.md](resources/studio-plugin/README.md).
 
 Both kinds of extension are built against
@@ -115,7 +133,7 @@ The repository is licensed under the **MIT License**. You may use, modify and
 redistribute it, including in commercial products. The full text is in
 [LICENSE](LICENSE).
 
-`packages/module-sdk` and `packages/mobile-control-protocol` carry their own
+`packages/module-sdk` and `packages/conversation-protocol` carry their own
 MIT licence files as well, so an SDK consumer does not have to take the whole
 application tree.
 

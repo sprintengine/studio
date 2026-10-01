@@ -1,9 +1,10 @@
-import { app, BrowserWindow, ipcMain, Menu, net } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, net, powerMonitor } from 'electron'
 import { createAppMenu } from './app-menu'
 import { sweepRetiredCheckpoints } from './checkpoint-sweep'
 import { createBootReveal } from './boot-reveal'
 import { DEEP_LINK_SCHEMES } from './deep-link-scheme'
-import { runBootDiscovery } from './boot-discovery'
+import { BOOT_WORKSPACE_SYNC_BUDGET_MS, runBootDiscovery, settleWithin } from './boot-discovery'
+import { discoverAndBroadcastCliModels } from './ipc/cli-model-discovery-ipc'
 import { closeSplashWindow, createSplashWindow, sendSplashProgress } from './splash-window'
 import { createMainWindow, markAppQuitInProgressForWindowClose, revealMainWindow } from './window-factory'
 import { markStartup } from './startup-timeline'
@@ -11,23 +12,40 @@ import { createBackgroundPresence } from './background-presence'
 import { buildElectronBackgroundMenu, createElectronBackgroundTray } from './background-tray-electron'
 import { emptyBackgroundStatus, type BackgroundStatus } from '../shared/background-mode'
 import { writeDiagnosticLog } from './diagnostics-service'
+import { createMainThreadStallMonitor } from './main-thread-stall-monitor'
+import { bindPollerToActivity, gateStallMonitorOnActivity, powerActivity } from './power-activity'
+import { sendWindowHidden } from './ipc/window-ipc'
 import type { SprintEngineUpdateService } from './update-service'
+import type { ShutdownLegReport } from './update-install-progress'
+import type { AgentPhaseListener } from '../shared/agent-runtime'
+import { createAgentAttention, isScriptSecondLaunch } from './agent-attention'
+import { createConversationAttentionListener } from './conversation-attention'
+import type { ConversationEvent } from '../shared/conversation-runtime'
 import { createHostedFeedPoller, type HostedFeedPoller } from './hosted-feed/poller'
 import { isCanvasWorkerWindow } from './canvas/canvas-worker-window'
-import { readHostedModelFeed } from './hosted-feed/hosted-feed-service'
 import { readHostedCardFeed } from './hosted-feed/card-feed-service'
 import { readHostedSourcesFeed } from './hosted-feed/sources-feed-service'
-import { readCliVersionAdvisories } from './cli-version-advisory-service'
+import { detectCliMachines, readCliVersionAdvisories } from './cli-version-advisory-service'
+import { hostRegistry } from './hosts/host-registry'
+import { recordIntegrationWrite } from './integrations/ledger'
 
 type RegisterAppLifecycleOptions = {
   diagnosticsEnabled: boolean
   allowMultipleInstances?: boolean
   terminalRuntime: {
     shutdown(): Promise<void>
+    // Agent turn ends and questions, which ask for the person through the
+    // taskbar or dock (agent-attention.ts) and never by raising a window.
+    registerAgentPhaseListener?(listener: AgentPhaseListener): () => void
   }
+  /** Handed the one attention channel once it exists, for asks that are not a turn (a diff tour). */
+  onAgentAttentionReady?(attention: { notify(key: string): void }): void
   // Conversation-agent runtime: quit must dispose its headless child
   // processes too — they live outside the PTY reaper's sight.
   conversationRuntime?: {
+    onEvent?(listener: (event: ConversationEvent) => void): () => void
+    /** Buffered transcript text to disk, before the slower session stops. */
+    flushTranscripts?(): Promise<void>
     shutdown(): Promise<void>
   }
   automationService?: {
@@ -44,11 +62,22 @@ type RegisterAppLifecycleOptions = {
     /** Persist the debounced workspace registry write before the app exits. */
     flush(): Promise<void>
   }
+  /**
+   * Takes back out the hooks, MCP entries and launcher the app writes into
+   * repositories and CLI configuration, which it writes again when next needed:
+   * so deleting the app leaves none of them behind. Once no agent is running.
+   */
+  removeSessionIntegrations?: () => Promise<void>
   // The Canvas pane's service: it holds a board mid-write (temp file, then a
   // rename), a directory watcher per open board, and a hidden worker window.
   // Quitting between those two fs calls would leave a stray temp file in the
   // person's project, so its own dispose waits for the write to land.
   canvasService?: {
+    dispose(): Promise<void>
+  }
+  // The composer's command lists: the last good one per CLI and folder waits
+  // a moment before it is written, so quit writes what is still pending.
+  conversationCommands?: {
     dispose(): Promise<void>
   }
   // The conversation pull request record (epic `pull-request-marks`). It holds
@@ -76,6 +105,9 @@ type RegisterAppLifecycleOptions = {
     runShutdownBegin(): Promise<void>
     runShutdown(): Promise<void>
   }
+  // Settles once every asynchronous module registerMain has finished (or been
+  // dropped), so startup hooks a module declared after an await still run.
+  moduleLoadReady?: Promise<void>
   updateService: SprintEngineUpdateService
   handleAuthCallback(argv: string[]): void
   // Background mode. Absent means the setting can never read on, so
@@ -86,7 +118,25 @@ type RegisterAppLifecycleOptions = {
   }
   /** The plugin-source update check (skills service); rides the hourly feed leg. */
   checkPluginSourceUpdates?: () => Promise<unknown>
+  /**
+   * Opens the gate on the boot jobs nothing on screen needs (the git probe and
+   * the rest). Called once the main window reveals, so they never compete with
+   * the renderer's first load. It also starts the workspace sync, should
+   * `prepareWorkspacesAtBoot` not have.
+   */
+  startDeferredBootJobs?: () => void
+  /**
+   * The workspace sync: the launcher, the app's plugin home, and the pass over
+   * every known workspace (the Studio skills chosen, the retired ones taken
+   * out). Started as the loading screen goes up; the reveal waits for it for at
+   * most `BOOT_WORKSPACE_SYNC_BUDGET_MS`, and it carries on past that.
+   */
+  prepareWorkspacesAtBoot?: () => Promise<unknown>
 }
+
+// How long after boot CLI detection settles the first model discovery pass
+// runs; see the call site.
+const BOOT_MODEL_DISCOVERY_DELAY_MS = 10_000
 
 export function registerAppLifecycle({
   diagnosticsEnabled,
@@ -96,14 +146,20 @@ export function registerAppLifecycle({
   automationService,
   agentStateService,
   workspaceSyncService,
+  removeSessionIntegrations,
   canvasService,
+  conversationCommands,
   pullRequestRecord,
   analytics,
   moduleKernel,
+  moduleLoadReady,
   updateService,
   handleAuthCallback,
   backgroundMode,
   checkPluginSourceUpdates,
+  startDeferredBootJobs,
+  prepareWorkspacesAtBoot,
+  onAgentAttentionReady,
 }: RegisterAppLifecycleOptions): void {
   // Background mode: the last window closing stops being the end of
   // the process. Everything below the window layer — the scheduler, the Studio
@@ -141,14 +197,16 @@ export function registerAppLifecycle({
     backgroundPresence.onWindowOpened()
   }
 
+  // The single-instance lock itself is taken by the entry (index.ts), before any
+  // service is built, so a second launch exits without paying for the service
+  // graph. This process holds it, and hears every later launch here.
   if (!allowMultipleInstances) {
-    const singleInstanceLock = app.requestSingleInstanceLock()
-    if (!singleInstanceLock) {
-      app.quit()
-      return
-    }
-
     app.on('second-instance', (_, argv) => {
+      // A hook or bridge script that reached the binary without
+      // ELECTRON_RUN_AS_NODE is not a person asking for the app. Raising the
+      // window for it took focus from whatever they were doing, once per tool
+      // call.
+      if (isScriptSecondLaunch(argv)) return
       // Relaunching the app while it is backgrounded must produce a window:
       // without this the second launch silently did nothing, which on Windows
       // and Linux left the tray as the only way back in.
@@ -163,10 +221,37 @@ export function registerAppLifecycle({
   })
 
   let hostedFeedPoller: HostedFeedPoller | null = null
+  let bootModelDiscoveryTimer: ReturnType<typeof setTimeout> | null = null
+
+  // On whenever a window has focus, and cheap: a report of "the main thread
+  // stopped answering for N ms" is the one piece of evidence a frozen terminal
+  // leaves behind on a packaged build, where nobody has a console open.
+  let releaseStallMonitorGate: (() => void) | null = null
+  let releasePollerActivity: (() => void) | null = null
+  const stallMonitor = createMainThreadStallMonitor({
+    report: (report) => {
+      void writeDiagnosticLog({
+        level: 'warning',
+        source: 'terminal',
+        title: 'Main process stalled',
+        message:
+          `The main process did not answer for up to ${report.maxStallMs} ms ` +
+          `(${report.stalls} stall(s), ${report.totalStallMs} ms in total over ${Math.round(report.windowMs / 1000)} s). ` +
+          'Terminal input and clicks wait behind it.',
+        details: JSON.stringify({
+          ...report,
+          platform: process.platform,
+          rssBytes: process.memoryUsage().rss,
+        }),
+      }).catch(() => undefined)
+    },
+  })
 
   app.whenReady().then(async () => {
     markStartup('main.app-ready')
     app.setAppLogsPath()
+    bindElectronPowerActivity()
+    releaseStallMonitorGate = gateStallMonitorOnActivity(powerActivity, stallMonitor)
 
     if (process.platform === 'win32') {
       app.setAppUserModelId(process.env['ELECTRON_RENDERER_URL'] ? process.execPath : 'com.sprintengine.studio')
@@ -175,11 +260,24 @@ export function registerAppLifecycle({
 
     Menu.setApplicationMenu(createAppMenu())
     // Always-on: one local SprintEngine Studio MCP gateway per app instance.
-    await automationService?.initialize()
+    // Started here and NOT awaited: it runs alongside the renderer's load
+    // rather than in front of the plate. Every agent launch waits for it
+    // instead (`whenAgentLaunchReady` in app-services.ts), so no agent can start
+    // before the listener its MCP config points at exists.
+    void automationService?.initialize().catch((error: unknown) => {
+      void writeDiagnosticLog({
+        level: 'warning',
+        source: 'workspace',
+        title: 'Studio MCP gateway did not start',
+        message: error instanceof Error ? error.message : String(error),
+      }).catch(() => undefined)
+    })
 
     // The plate goes up BEFORE the main window is created: from here until the
-    // reveal there is always something on screen.
-    createSplashWindow()
+    // reveal there is always something on screen. A nightly build opens on its
+    // own plate; the update service read the build's channel from its version
+    // when it was constructed, before any window existed.
+    createSplashWindow({ buildChannel: updateService.getState().buildChannel })
     markStartup('main.splash-shown')
     const mainWindow = createMainWindow({ diagnosticsEnabled, deferShow: true })
     markStartup('main.window-created')
@@ -192,11 +290,34 @@ export function registerAppLifecycle({
         closeSplashWindow()
         revealMainWindow(mainWindow)
         markStartup('main.reveal')
+        startBootJobsAfterReveal()
       },
     })
+    // The workspace sync, while the plate is up. The reveal waits for whichever
+    // comes first of the sync finishing and its budget running out — never
+    // longer — and the sync keeps going in the background past the budget,
+    // exactly as it ran before it moved here. BootReveal's own hard timeout
+    // still stands over all of it.
+    const workspacesPrepared = prepareWorkspacesAtBoot
+      ? settleWithin(prepareWorkspacesAtBoot(), BOOT_WORKSPACE_SYNC_BUDGET_MS)
+      : Promise.resolve('settled' as const)
+    void workspacesPrepared.then((outcome) => {
+      markStartup('main.workspaces-prepared')
+      if (outcome === 'timed-out') {
+        void writeDiagnosticLog({
+          level: 'info',
+          source: 'workspace',
+          title: 'Workspace sync continued after startup',
+          message: `Preparing workspaces took longer than ${BOOT_WORKSPACE_SYNC_BUDGET_MS / 1000} s, so the app opened and it carried on in the background.`,
+        }).catch(() => undefined)
+      }
+    })
+
     // `once`: a renderer that reloads mid-boot (dev HMR) must not re-arm a
     // reveal that has already happened.
-    ipcMain.once('app:boot-complete', () => bootReveal.trigger())
+    ipcMain.once('app:boot-complete', () => {
+      void workspacesPrepared.then(() => bootReveal.trigger())
+    })
     // A renderer that dies before its first frame never sends the signal, and
     // the window it was going to reveal is hidden. The timeout inside
     // createBootReveal is the only thing between that and a Force Quit, so cover
@@ -208,6 +329,13 @@ export function registerAppLifecycle({
     // probe delays a warmed cache and never the app.
     void runBootDiscovery({
       onProgress: sendSplashProgress,
+      ...(prepareWorkspacesAtBoot ? { prepareWorkspaces: () => workspacesPrepared } : {}),
+      // The one detection of this machine's CLIs a launch makes (Re-check in
+      // Settings is the only other), with the commands the person set, so the
+      // renderer's first read is answered from it. What it finds schedules the
+      // version check's comparison (app-services), which waits for a window to
+      // say whether checks are on. WSL machines are detected after the reveal.
+      detectClis: () => detectCliMachines({ which: 'local' }),
       // Not awaited, so this mark can (and usually does) land after the reveal —
       // which is the point: it shows how much of the boot the user never waits
       // for, and how much of the CLI probe the splash actually covered.
@@ -218,21 +346,33 @@ export function registerAppLifecycle({
         if (!app.isPackaged) return
         await updateService.checkForUpdates(false)
       },
-    }).finally(() => markStartup('main.discovery-settled'))
+    }).finally(() => {
+      markStartup('main.discovery-settled')
+      // Model discovery follows CLI detection, whose held answer it reads, and
+      // waits a little longer so the probes do not compete with the renderer's
+      // first paint. Each CLI is re-probed only when its catalog is a day old or
+      // its version changed, so on most launches this spawns nothing.
+      bootModelDiscoveryTimer = setTimeout(() => {
+        bootModelDiscoveryTimer = null
+        void discoverAndBroadcastCliModels().catch(() => undefined)
+      }, BOOT_MODEL_DISCOVERY_DELAY_MS)
+    })
 
-    // What the studio pulls on its own after boot: the hosted model feed, the
-    // hosted card feed and the CLI version advisories 15 s after the window is
-    // up and then hourly, app updates every four minutes — often enough that a
-    // session left open all day still learns about a same-day release.
-    // The boot leg above keeps the one immediate update check; the poller's
-    // first update check waits a full interval so it is not repeated. Skipped
-    // while offline.
+    // What the studio pulls on its own after boot: the hosted card and sources
+    // feeds and the CLI version advisories 15 s after the window is up and then
+    // hourly, and app updates hourly plus on waking from sleep and on coming
+    // back to the app after half an hour — so a session left open all day still
+    // learns about a same-day release without a network wake every few minutes.
+    // Nothing runs while the machine sleeps, and every interval stretches on
+    // battery (see poller.ts). The boot leg above keeps the one immediate update
+    // check; the poller's first update check waits a full interval so it is not
+    // repeated. Skipped while offline.
     hostedFeedPoller = createHostedFeedPoller({
       checkUpdates: async () => {
         if (!app.isPackaged) return
         await updateService.checkForUpdates(false)
       },
-      // Four riders on one hour. The plugin-source update check rides the feed
+      // Three riders on one hour. The plugin-source update check rides the feed
       // leg for the cadence it wants and one fewer timer
       // (backlog/2026-09-05-plugin-sources.md), and the card feed rides it for
       // the same reason — this is the ONLY thing in the app that ever fetches
@@ -255,44 +395,79 @@ export function registerAppLifecycle({
       // poller still reports the leg as failed.
       refreshFeed: async () => {
         const failures: unknown[] = []
-        await readHostedModelFeed().catch((error) => void failures.push(error))
         await readHostedCardFeed().catch((error) => void failures.push(error))
         await readHostedSourcesFeed().catch((error) => void failures.push(error))
         await checkPluginSourceUpdates?.().catch(() => undefined)
         if (failures.length > 0) throw failures[0]
       },
+      // Compares the installed versions startup (or the last Re-check) found
+      // against the registry. No detection: nothing is spawned on any machine,
+      // no WSL distribution is started, and a CLI that is not installed is
+      // never asked about.
       refreshVersions: () => readCliVersionAdvisories(),
       isOnline: () => net.isOnline(),
     })
     hostedFeedPoller.start()
+    releasePollerActivity = bindPollerToActivity(powerActivity, hostedFeedPoller)
 
-    // One-shot cleanup of the retired checkpoint machinery
-    // (the-diff-an-agent-made / remove-checkpoint-machinery). Deliberately not
-    // awaited and deliberately after the window exists: it walks repos with
-    // `git update-ref -d`, and a cleanup that cannot finish must never be
-    // something a launch waits on. With no checkpoint index on disk it returns
-    // immediately, which is every machine that never ran those builds.
-    // MIGRATION — remove this call and src/main/checkpoint-sweep.ts one release
-    // after it ships (target: 2026-10).
-    void sweepRetiredCheckpoints(app.getPath('userData'))
-      .then((result) => {
-        if (result.refsDeleted > 0 || result.indexRemoved) {
-          void writeDiagnosticLog({
-            level: 'info',
-            source: 'workspace',
-            title: 'Retired checkpoint refs swept',
-            message: `Removed ${result.refsDeleted} ref(s) across ${result.reposVisited} repo(s)`,
-          }).catch(() => undefined)
-        }
-      })
-      .catch(() => {
-        // The index survives a failure, so the next launch tries again.
-      })
+    // Work that only has to happen at some point after launch, started once
+    // the window is on screen so none of it competes with the renderer's first
+    // load. The reveal fires once (a renderer that never signals is revealed by
+    // the boot-reveal timeout), so this runs once.
+    function startBootJobsAfterReveal(): void {
+      startDeferredBootJobs?.()
+      // Each WSL machine turned on is detected once at startup, like this one,
+      // so its CLI updates badge Settings without the person visiting its list.
+      // After the reveal: asking may start the distribution's helper, which is
+      // not something the first paint should wait behind.
+      void detectCliMachines({ which: 'wsl' }).catch(() => undefined)
+      // One-shot cleanup of the retired checkpoint machinery
+      // (the-diff-an-agent-made / remove-checkpoint-machinery). Deliberately not
+      // awaited and deliberately after the window exists: it walks repos with
+      // `git update-ref -d`, and a cleanup that cannot finish must never be
+      // something a launch waits on. With no checkpoint index on disk it returns
+      // immediately, which is every machine that never ran those builds.
+      // MIGRATION — remove this call and src/main/checkpoint-sweep.ts one release
+      // after it ships (target: 2026-10).
+      void sweepRetiredCheckpoints(app.getPath('userData'))
+        .then((result) => {
+          if (result.refsDeleted > 0 || result.indexRemoved) {
+            void writeDiagnosticLog({
+              level: 'info',
+              source: 'workspace',
+              title: 'Retired checkpoint refs swept',
+              message: `Removed ${result.refsDeleted} ref(s) across ${result.reposVisited} repo(s)`,
+            }).catch(() => undefined)
+          }
+        })
+        .catch(() => {
+          // The index survives a failure, so the next launch tries again.
+        })
+    }
 
     // Always-on: start the agent-state reporter socket so launches that follow
     // can install the hook against a live endpoint.
     void agentStateService?.initialize()
-    void moduleKernel?.runStartup()
+
+    // An agent that finished or is waiting flashes the taskbar button or
+    // bounces the dock; the window itself stays where the person left it.
+    const agentAttention = createAgentAttention({
+      platform: process.platform,
+      listWindows: () => BrowserWindow.getAllWindows().filter((win) => !isCanvasWorkerWindow(win)),
+      bounceDock: () => app.dock?.bounce('informational'),
+      setBadgeCount: (count) => app.setBadgeCount(count),
+    })
+    terminalRuntime.registerAgentPhaseListener?.((event) => agentAttention.onAgentPhase(event))
+    const disposeConversationAttention = conversationRuntime?.onEvent?.(
+      createConversationAttentionListener(agentAttention),
+    )
+    if (disposeConversationAttention) app.once('will-quit', disposeConversationAttention)
+    onAgentAttentionReady?.(agentAttention)
+    app.on('browser-window-focus', (_event, win) => {
+      if (!isCanvasWorkerWindow(win)) agentAttention.onWindowFocused()
+    })
+
+    void Promise.resolve(moduleLoadReady).then(() => moduleKernel?.runStartup())
     handleAuthCallback(process.argv)
 
     app.on('activate', () => {
@@ -309,47 +484,219 @@ export function registerAppLifecycle({
     if (backgroundPresence.onWindowAllClosed() === 'quit') app.quit()
   })
 
-  let isShuttingDown = false
-  app.on('before-quit', (event) => {
-    if (isShuttingDown) return
-    event.preventDefault()
-    isShuttingDown = true
+  // The app's ordered shutdown, run once whichever way the app is leaving: a
+  // quit (`before-quit`), or "Restart to update", which runs it BEFORE handing
+  // over to the installer. The Windows installer force-kills a running app a
+  // couple of seconds after it starts, so a shutdown that only began at the
+  // updater's own quit could be cut off before its later legs ran.
+  //
+  // The legs are ordered by what a cut-short quit would cost, cheapest-to-save
+  // and most-missed first, within what they depend on:
+  //  1. Stop new work: module begin hooks, timers, the automations engine (so a
+  //     dying agent cannot finalize a run: open a PR, remove its worktree) and
+  //     the agent-state socket.
+  //  2. Small writes the person would miss: the workspace registry (every
+  //     sidebar change), then every chat's buffered transcript.
+  //  3. Terminal snapshots: the most valuable and, with many terminals, the
+  //     slowest.
+  //  4. What the terminal legs fed: captured pull requests. Then the chat
+  //     sessions' own stop, the canvas's in-flight write, and the registry
+  //     once more for anything the legs above changed.
+  //  5. The integrations the app writes into repositories, now that no agent
+  //     it launched is left to run them (a cut-short removal resumes next quit).
+  //  6. What costs nothing if lost: the WSL helpers (they exit when this
+  //     process's end closes their stdin), telemetry's network send, and the
+  //     module kernel's own shutdown.
+  let shutdownRun: Promise<void> | null = null
+  let leavingForUpdate = false
+  // Who hears about each leg as it finishes: "Restart to update" passes one in,
+  // which drives the progress window and the diagnostics timings. Joined late
+  // (the shutdown already running), it still hears the legs that are left.
+  let shutdownObserver: ((leg: ShutdownLegReport) => void) | null = null
+  const runShutdown = (observer?: (leg: ShutdownLegReport) => void): Promise<void> => {
+    if (observer) shutdownObserver = observer
+    if (shutdownRun) return shutdownRun
     // Drop the tray before the shutdown legs run: quit from the tray is the
     // same graceful path as any other quit (sidecar snapshots, gateway
     // discovery file removed), and the icon must not outlive the decision.
     backgroundPresence.onBeforeQuit()
     markAppQuitInProgressForWindowClose()
-    const shutdown = async () => {
+    // Quit legitimately blocks (snapshot writes, waiting on ptys); that is not
+    // a stall anyone is reporting.
+    releaseStallMonitorGate?.()
+    releaseStallMonitorGate = null
+    stallMonitor.stop()
+    releasePollerActivity?.()
+    releasePollerActivity = null
+    const legs: Array<[name: string, task: () => unknown]> = [
       // Module begin hooks run first (registration order): they stop
       // self-scheduled loops and flip shutting-down flags so no new work is
       // dispatched while shared infrastructure tears down.
-      await moduleKernel?.runShutdownBegin()
-      hostedFeedPoller?.stop()
-      await automationService?.shutdown()
-      await agentStateService?.shutdown()
-      await terminalRuntime.shutdown()
-      // In the same leg as the terminal service, and after it: the last frames
-      // it ingests can still file a captured pull request, and this is what
-      // gets that write to disk and stops the watch timers.
-      await pullRequestRecord?.flush()
-      pullRequestRecord?.dispose()
-      await conversationRuntime?.shutdown()
-      await canvasService?.dispose()
-      await workspaceSyncService?.flush()
+      ['modules (begin)', () => moduleKernel?.runShutdownBegin()],
+      [
+        'timers',
+        () => {
+          if (bootModelDiscoveryTimer) clearTimeout(bootModelDiscoveryTimer)
+          hostedFeedPoller?.stop()
+        },
+      ],
+      ['automations', () => automationService?.shutdown()],
+      ['agent state', () => agentStateService?.shutdown()],
+      ['workspace registry', () => workspaceSyncService?.flush()],
+      ['chat transcripts', () => conversationRuntime?.flushTranscripts?.()],
+      ['terminals', () => terminalRuntime.shutdown()],
+      // After the terminal service: the last frames it ingests can still file
+      // a captured pull request, and this is what gets that write to disk and
+      // stops the watch timers.
+      ['pull requests (flush)', () => pullRequestRecord?.flush()],
+      ['pull requests (dispose)', () => pullRequestRecord?.dispose()],
+      ['chats', () => conversationRuntime?.shutdown()],
+      ['canvas', () => canvasService?.dispose()],
+      ['command lists', () => conversationCommands?.dispose()],
+      ['workspace registry (final)', () => workspaceSyncService?.flush()],
+      // Not when leaving for an update: the new build starts straight away and
+      // writes them back, and the installer's time limit is better spent on
+      // the legs after this one.
+      ['integrations', () => (leavingForUpdate ? undefined : removeSessionIntegrations?.())],
+      // Each WSL helper is told to shut down (it would also go on its own when
+      // this process's end closes its stdin).
+      ['WSL helpers', () => hostRegistry().dispose()],
       // Last of the app-owned legs: every service above has had its chance to
       // record, and a network round trip must not sit in front of anything
       // that still has state to persist.
-      await analytics?.shutdown()
+      ['telemetry', () => analytics?.shutdown()],
       // Module-owned shutdown runs here via each module's onShutdown hook —
       // draining in-flight work and stopping kernel-owned sidecars in reverse
       // registration order.
-      await moduleKernel?.runShutdown()
+      ['modules', () => moduleKernel?.runShutdown()],
+    ]
+    const shutdown = async () => {
+      for (const [index, [name, task]] of legs.entries()) {
+        const started = Date.now()
+        let failed = false
+        // One failing leg must not cost the ones after it: best-effort by
+        // design, the process is leaving either way.
+        try {
+          await task()
+        } catch {
+          failed = true
+        }
+        try {
+          shutdownObserver?.({ name, done: index + 1, total: legs.length, durationMs: Date.now() - started, failed })
+        } catch {
+          // A progress report must not stop the shutdown.
+        }
+        // Back to the event loop between legs, so the window messages queued
+        // behind a leg's synchronous stretch are pumped before the next one:
+        // Windows marks a window "not responding" when its thread goes five
+        // seconds without them, and the progress window has to keep painting.
+        await new Promise<void>((resolve) => setImmediate(resolve))
+      }
     }
+    shutdownRun = shutdown()
+    return shutdownRun
+  }
 
-    void shutdown().finally(() => {
+  let exitScheduled = false
+  let installFallback: NodeJS.Timeout | null = null
+  app.on('before-quit', (event) => {
+    // The updater did take over: its quit is the exit, so the fallback below
+    // must never relaunch the old build under a running installer.
+    if (installFallback) clearTimeout(installFallback)
+    installFallback = null
+    if (exitScheduled) return
+    event.preventDefault()
+    exitScheduled = true
+    // Joins a shutdown "Restart to update" already ran, so the updater's own
+    // quit exits at once instead of running the legs a second time.
+    void runShutdown().finally(() => {
       app.exit(0)
     })
   })
+
+  updateService.setPrepareForInstall(async (report) => {
+    if (!shutdownRun) leavingForUpdate = true
+    const run = runShutdown(report)
+    let bounded: NodeJS.Timeout | undefined
+    await Promise.race([
+      run,
+      new Promise<void>((resolve) => {
+        bounded = setTimeout(resolve, UPDATE_SHUTDOWN_BUDGET_MS)
+      }),
+    ])
+    clearTimeout(bounded)
+    // The services are down from here, so the app must not outlive a hand-over
+    // that goes wrong: on Windows and Linux the updater starts the installer
+    // and quits at once, so an installer that fails to start leaves nothing to
+    // quit the app. Any `before-quit` cancels this. Not on macOS, where the
+    // quit can legitimately wait on Squirrel still copying the update, and a
+    // relaunch there would race the bundle swap.
+    if (process.platform === 'darwin' || exitScheduled) return
+    installFallback = setTimeout(() => {
+      installFallback = null
+      if (exitScheduled) return
+      app.relaunch()
+      app.exit(0)
+    }, UPDATE_INSTALL_QUIT_FALLBACK_MS)
+    installFallback.unref()
+  })
+}
+
+/**
+ * How long "Restart to update" waits for the ordered shutdown before handing
+ * over to the installer anyway. The legs run in order of importance, so what
+ * this can cut short is the least missed; and the installer is still worth
+ * more than a leg that has hung.
+ */
+const UPDATE_SHUTDOWN_BUDGET_MS = 10_000
+
+/**
+ * After the shutdown, the updater quits the app to install. Should it not (the
+ * installer failed to start), relaunch the old build rather than leave a
+ * window over services that have already shut down. Windows and Linux only.
+ */
+const UPDATE_INSTALL_QUIT_FALLBACK_MS = 30_000
+
+/**
+ * Feed `powerActivity` from Electron. Needs the app ready (`powerMonitor` is
+ * unavailable before it), so it runs first thing in `whenReady`.
+ *
+ * Focus is "any app window is focused", recomputed on every focus and blur so
+ * moving between two app windows does not read as leaving the app. A locked
+ * screen counts as unfocused whatever the key window says: nobody is typing.
+ * The canvas worker window is a hidden headless renderer and never counts.
+ */
+function bindElectronPowerActivity(): void {
+  const syncFocus = (): void => {
+    const focused =
+      !powerActivity.isScreenLocked() &&
+      BrowserWindow.getAllWindows().some((win) => !win.isDestroyed() && !isCanvasWorkerWindow(win) && win.isFocused())
+    powerActivity.noteFocus(focused)
+  }
+  app.on('browser-window-focus', syncFocus)
+  app.on('browser-window-blur', syncFocus)
+  // A locked screen hides every window, which the pages cannot always see for
+  // themselves (see `sendWindowHidden`).
+  const syncLock = (locked: boolean): void => {
+    powerActivity.noteScreenLocked(locked)
+    syncFocus()
+    for (const win of BrowserWindow.getAllWindows()) sendWindowHidden(win)
+  }
+  powerMonitor.on('lock-screen', () => syncLock(true))
+  powerMonitor.on('unlock-screen', () => syncLock(false))
+  powerMonitor.on('suspend', () => powerActivity.noteSuspend())
+  powerMonitor.on('resume', () => {
+    powerActivity.noteResume()
+    syncFocus()
+  })
+  powerMonitor.on('on-battery', () => powerActivity.noteBattery(true))
+  powerMonitor.on('on-ac', () => powerActivity.noteBattery(false))
+  try {
+    powerActivity.noteBattery(powerMonitor.isOnBatteryPower())
+  } catch {
+    // A platform that cannot say is treated as on power: the plain cadence.
+  }
+  syncFocus()
 }
 
 // Both schemes, current and legacy — see `deep-link-scheme.ts` for why the old
@@ -363,6 +710,17 @@ function registerDeepLinkProtocols(): void {
       app.setAsDefaultProtocolClient(scheme, process.execPath, [app.getAppPath()])
     } else {
       app.setAsDefaultProtocolClient(scheme)
+    }
+    // On Windows the registration is a key under HKCU\Software\Classes and on
+    // Linux a desktop-entry association, and neither leaves with the app; on
+    // macOS it lives in the bundle's Info.plist and does.
+    if (process.platform !== 'darwin') {
+      recordIntegrationWrite({
+        kind: 'protocol-handler',
+        path: process.platform === 'win32' ? `HKCU\\Software\\Classes\\${scheme}` : `x-scheme-handler/${scheme}`,
+        marker: scheme,
+        hostId: 'local',
+      })
     }
   }
 }

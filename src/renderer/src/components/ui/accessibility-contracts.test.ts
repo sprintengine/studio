@@ -202,11 +202,10 @@ test('accessibility-contracts', async () => {
     false,
     'the launch panel opens the preset rows through that dropdown, never its own copy',
   )
-  expectIncludes(
-    chatView,
-    'onOpenAutoFocus={focusActivePresetRow}',
-    'the chat pill lands focus on the checked preset on open',
-  )
+  // A chat agent's preset lives on the same picker dropdown, so it inherits
+  // that open-focus contract instead of restating it.
+  expectIncludes(chatView, '<PermissionFooter', 'the chat opens the preset rows through the picker’s own dropdown')
+  assert.equal(chatView.includes('<PermissionPresetMenuRows'), false, 'and never renders a second copy of the rows')
   assert.equal(
     (launchPanel.match(/ role="menu"/g) ?? []).length,
     0,
@@ -388,8 +387,10 @@ test('accessibility-contracts', async () => {
   expectMatches(toast, /good:\s*'polite'/, 'Toast good uses aria-live="polite"')
   expectMatches(toast, /warn:\s*'assertive'/, 'Toast warn uses aria-live="assertive"')
   expectMatches(toast, /error:\s*'assertive'/, 'Toast error uses aria-live="assertive"')
-  expectMatches(toast, /warn:\s*false/, 'Toast disables auto-dismiss for warn tone')
-  expectMatches(toast, /error:\s*false/, 'Toast disables auto-dismiss for error tone')
+  expectMatches(toast, /warn:\s*\d{4,}/, 'Toast gives warn tone a longer finite duration (owner ruling 2026-09-28)')
+  expectMatches(toast, /error:\s*\d{4,}/, 'Toast gives error tone a longer finite duration (owner ruling 2026-09-28)')
+  expectMatches(toast, /onPointerEnter=\{/, 'Toast holds its dismiss clock while hovered')
+  expectMatches(toast, /onFocus=\{/, 'Toast holds its dismiss clock while focus is inside')
   expectMatches(toast, /neutral:\s*\d{3,}/, 'Toast auto-dismisses neutral tone after a finite duration')
   expectIncludes(toast, 'role={TOAST_ROLE[tone]}', 'Toast surface reads role from the tone map')
   expectIncludes(toast, 'aria-live={TOAST_LIVE[tone]}', 'Toast surface reads aria-live from the tone map')

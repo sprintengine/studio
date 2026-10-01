@@ -17,7 +17,6 @@ test('extensionContributionRows', async () => {
   const events: string[] = []
   const rows = extensionContributionRows({
     surfaces: [
-      surface('automations', 'Automations'),
       surface('design', 'Design'),
       { ...surface('acme.compass', 'Compass'), onOpen: () => events.push('prepare-compass') },
       {
@@ -42,7 +41,7 @@ test('extensionContributionRows', async () => {
       'contribution-view:acme.reports:recent',
       'contribution-view:acme.reports:saved',
     ],
-    'installed doors follow the fixed product rows, while rail, fixed, and nameless surfaces stay out',
+    'installed doors follow the fixed product rows, while fixed and nameless surfaces stay out',
   )
   assert.deepEqual(
     rows.map((row) => row.rowId),

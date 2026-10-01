@@ -24,6 +24,7 @@ test('providerSettings', async () => {
       providerType: 'model-provider',
       models: [{ id: 'openai/gpt-4o-mini', displayName: 'GPT-4o mini' }],
       supportsDynamicModels: true,
+      credentialSource: 'api-key',
       adapter: { kind: 'declarative', execution: 'declarative', trust: 'not_required' },
       ...overrides,
     }

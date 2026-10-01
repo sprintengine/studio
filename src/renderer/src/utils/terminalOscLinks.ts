@@ -1,7 +1,6 @@
 import type { IBufferRange, ILinkHandler } from '@xterm/xterm'
 
 import { normalizePath } from './terminalFileLinks'
-import { terminalSurfaceLinkRoots, type TerminalSurface } from './terminalSurfaces'
 
 /**
  * What a terminal is allowed to do with a URI a program printed at it.
@@ -25,19 +24,14 @@ import { terminalSurfaceLinkRoots, type TerminalSurface } from './terminalSurfac
  *    would be a different file wearing the same name. (`localhost` is the one
  *    exception, because the URL parser normalises it to no host at all, which
  *    is what "this machine" is spelled as.)
- * 3. **A `file:` URI on a surface with no local roots is refused entirely.**
- *    A fleet pane is attached to a terminal on another machine; the decision of
- *    record for the epic is that it never resolves a local path. That is passed
- *    in as `allowLocalPaths`, derived from `terminalSurfaceLinkRoots(surface)`
- *    being non-null so the two cannot drift apart.
- * 4. **The decoded path must be absolute, on THIS platform.** A relative
+ * 3. **The decoded path must be absolute, on THIS platform.** A relative
  *    `file:` URI is not a thing we can resolve without a base, and guessing one
  *    opens the wrong file. The Windows spellings — a drive letter
  *    (`file:///C:/x`) and a UNC share (`file:////server/share`) — are honoured
  *    only when this app is running on Windows, because `C:\Users\x` on macOS
  *    is a RELATIVE name containing backslashes, and `//server/share` on macOS
  *    is another machine's path wearing a local spelling.
- * 5. **The path is normalised before it leaves.** The URL parser collapses bare
+ * 4. **The path is normalised before it leaves.** The URL parser collapses bare
  *    `.`/`..` segments but not percent-encoded ones, so `%2e%2e%2f` survives
  *    parsing and `decodeURIComponent` puts the traversal back. That is not
  *    cosmetic: `projectRelativePath` is a PREFIX comparison, so an
@@ -60,7 +54,6 @@ const ALLOWED_URL_SCHEMES = new Set(['http:', 'https:'])
  * both platforms from one machine.
  */
 export type TerminalOscLinkOptions = {
-  allowLocalPaths: boolean
   windowsPaths?: boolean
 }
 
@@ -89,7 +82,10 @@ function hostUsesWindowsPaths(): boolean {
  * malformed sequence in the middle of a busy pane can never take the renderer
  * down.
  */
-export function resolveTerminalOscLink(uri: string, options: TerminalOscLinkOptions): TerminalOscLinkTarget | null {
+export function resolveTerminalOscLink(
+  uri: string,
+  options: TerminalOscLinkOptions = {},
+): TerminalOscLinkTarget | null {
   const trimmed = uri.trim()
   if (!trimmed) return null
 
@@ -107,12 +103,7 @@ export function resolveTerminalOscLink(uri: string, options: TerminalOscLinkOpti
   if (parsed.protocol !== 'file:') return null
 
   const path = localPathForFileUrl(parsed, options.windowsPaths ?? hostUsesWindowsPaths())
-  if (!path) return null
-  // Checked last on purpose: the parse and the host rule are facts about the
-  // URI, this is a fact about the pane, and keeping them apart is what lets the
-  // fleet rule be read as one line rather than inferred from a parser.
-  if (!options.allowLocalPaths) return null
-  return { kind: 'file', path }
+  return path ? { kind: 'file', path } : null
 }
 
 /**
@@ -139,7 +130,7 @@ function localPathForFileUrl(parsed: URL, windowsPaths: boolean): string | null 
 
   // `file:///C:/Users/x` decodes to `/C:/Users/x`; Windows wants `C:\Users\x`.
   // Only on Windows: elsewhere `C:\Users\x` is a RELATIVE path whose separators
-  // are ordinary filename characters, and rule 4 says the answer is absolute or
+  // are ordinary filename characters, and rule 3 says the answer is absolute or
   // there is no answer.
   const windowsDrive = /^\/([A-Za-z]:)(?=[\\/]|$)/u.exec(decoded)
   if (windowsDrive) {
@@ -189,12 +180,8 @@ function absoluteOrNull(path: string): string | null {
 /** What the clicked path turned out to be on disk; mirrors `terminalFileLinks`. */
 type TerminalOscLinkPathInfo = { exists: boolean; isDirectory: boolean }
 
-/**
- * Everything a pane decides about an OSC 8 click EXCEPT whether it may resolve
- * a local path — that is the surface's answer, not the pane's, and
- * `createTerminalSurfaceOscLinkHandler` is the only thing that supplies it.
- */
-export type TerminalSurfaceOscLinkCallbacks = {
+/** Everything a pane decides about an OSC 8 click that has passed the gate. */
+export type TerminalOscLinkCallbacks = {
   /** Stats the path so a dead link shows an error, not a menu of failures. */
   inspectPath: (path: string) => Promise<TerminalOscLinkPathInfo>
   /** Opens the chooser for a verified local path (`setLinkMenu`). */
@@ -207,34 +194,9 @@ export type TerminalSurfaceOscLinkCallbacks = {
   onOpenError?: (message: string, anchor: { x: number; y: number }) => void
 }
 
-export type TerminalOscLinkHandlerInput = TerminalSurfaceOscLinkCallbacks & {
-  /**
-   * Whether this pane may turn a `file:` URI into a local path at all. Derive
-   * it from `terminalSurfaceLinkRoots(surface) !== null` — never hardcode it,
-   * or the fleet rule stops being enforced by the type that carries it. Use
-   * `createTerminalSurfaceOscLinkHandler` and it is derived for you.
-   */
-  allowLocalPaths: boolean
+export type TerminalOscLinkHandlerInput = TerminalOscLinkCallbacks & {
   /** See `TerminalOscLinkOptions`; the host's own platform when omitted. */
   windowsPaths?: boolean
-}
-
-/**
- * The handler for a SURFACE — the only constructor a pane should reach for.
- *
- * `allowLocalPaths` is computed here, from the surface, so it cannot be a
- * literal a pane chose and cannot drift from `terminalSurfaceLinkRoots`. Used
- * by `createStudioTerminal`, which takes the callbacks and builds this itself,
- * so a pane cannot construct a terminal with no gate at all.
- */
-export function createTerminalSurfaceOscLinkHandler(
-  surface: TerminalSurface,
-  callbacks: TerminalSurfaceOscLinkCallbacks,
-): ILinkHandler {
-  return createTerminalOscLinkHandler({
-    allowLocalPaths: terminalSurfaceLinkRoots(surface) !== null,
-    ...callbacks,
-  })
 }
 
 /**
@@ -246,10 +208,10 @@ export function createTerminalSurfaceOscLinkHandler(
  * Claude Code emits an OSC 8 for. The option's own docs warn that enabling it
  * "without proper protection in `activate`" is an XSS risk; the protection is
  * `resolveTerminalOscLink` above, which is why nothing else in `activate`
- * touches the raw text.
+ * touches the raw text. `createStudioTerminal` builds it from the callbacks it
+ * is handed, so a pane cannot construct a terminal with no gate at all.
  */
 export function createTerminalOscLinkHandler({
-  allowLocalPaths,
   windowsPaths,
   inspectPath,
   onActivateFile,
@@ -260,7 +222,7 @@ export function createTerminalOscLinkHandler({
     allowNonHttpProtocols: true,
     activate(event: MouseEvent, text: string, _range: IBufferRange): void {
       const anchor = { x: event.clientX, y: event.clientY }
-      const target = resolveTerminalOscLink(text, { allowLocalPaths, windowsPaths })
+      const target = resolveTerminalOscLink(text, { windowsPaths })
       if (!target) return
 
       if (target.kind === 'url') {
@@ -296,7 +258,7 @@ export function createTerminalOscLinkHandler({
  * it was launched — so the same "another machine's path is not ours" rule that
  * governs OSC 8 has to hold here too.
  */
-export function parseTerminalOscCwd(data: string, options: TerminalOscLinkOptions): string | null {
+export function parseTerminalOscCwd(data: string, options: TerminalOscLinkOptions = {}): string | null {
   const target = resolveTerminalOscLink(data, options)
   return target?.kind === 'file' ? target.path : null
 }

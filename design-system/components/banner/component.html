@@ -6,6 +6,9 @@
 <title>Banner</title>
 <link rel="stylesheet" href="../../foundations/tokens.css" />
 <link rel="stylesheet" href="component.css" />
+<!-- The leading mark is the status-dot component's glyph, borrowed rather
+     than redrawn. -->
+<link rel="stylesheet" href="../status-dot/component.css" />
 <!-- The recovery action is the button entry's ghost variant, borrowed rather
      than restyled. -->
 <link rel="stylesheet" href="../button/component.css" />
@@ -50,7 +53,7 @@
   <div class="demo-panel">
     <div class="ds-banner ds-banner--danger" role="alert">
       <span class="ds-banner-body">
-        <span class="ds-banner-dot" aria-hidden="true"></span>
+        <span class="ds-status-dot ds-status-dot--danger" aria-hidden="true"></span>
         <span class="ds-banner-message">Sessions unavailable — the daemon is not responding.</span>
       </span>
       <span class="ds-banner-action">
@@ -62,7 +65,7 @@
   <div class="demo-panel">
     <div class="ds-banner ds-banner--warn" role="status">
       <span class="ds-banner-body">
-        <span class="ds-banner-dot" aria-hidden="true"></span>
+        <span class="ds-status-dot ds-status-dot--warn" aria-hidden="true"></span>
         <span class="ds-banner-message">Posting paused — the tracker token expires in 2 days.</span>
       </span>
     </div>
@@ -75,7 +78,7 @@
   <div class="demo-panel">
     <div class="ds-banner ds-banner--danger" role="alert">
       <span class="ds-banner-body">
-        <span class="ds-banner-dot" aria-hidden="true"></span>
+        <span class="ds-status-dot ds-status-dot--danger" aria-hidden="true"></span>
         <span class="ds-banner-message">Sessions unavailable — the daemon is not responding.</span>
       </span>
       <span class="ds-banner-action">
@@ -87,7 +90,7 @@
   <div class="demo-panel">
     <div class="ds-banner ds-banner--warn" role="status">
       <span class="ds-banner-body">
-        <span class="ds-banner-dot" aria-hidden="true"></span>
+        <span class="ds-status-dot ds-status-dot--warn" aria-hidden="true"></span>
         <span class="ds-banner-message">Posting paused — the tracker token expires in 2 days.</span>
       </span>
     </div>

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 
 import type { LocalServer } from '../../../../../../shared/browser'
 import { showToast } from '../../../../store/toastStore'
+import { useWindowActive } from '../../../../utils/windowActivity'
 import { EmptyState, IconButton, RowButton } from '../../../ui'
 import { useTailnetShares } from './useTailnetShares'
 
@@ -16,19 +17,18 @@ import { useTailnetShares } from './useTailnetShares'
 const LOCAL_SERVER_POLL_MS = 4_000
 
 // Polls while — and only while — the surface is the one on screen: the tab
-// active, the pane visible, the window not hidden. A retained background tab
-// costs nothing.
+// active, the pane visible, the window visible and in use. A retained
+// background tab costs nothing, and neither does a window left behind another
+// app: each tick is a `ps`, an `lsof` and a request per port in main, and the
+// list is re-read at once when the person comes back.
 function useLocalServers(workspaceId: string, active: boolean): LocalServer[] | null {
   const [servers, setServers] = useState<LocalServer[] | null>(null)
+  const windowActive = useWindowActive()
   useEffect(() => {
-    if (!active) return
+    if (!active || !windowActive) return
     let cancelled = false
     let timer: number | null = null
     const poll = async () => {
-      if (document.visibilityState === 'hidden') {
-        timer = window.setTimeout(() => void poll(), LOCAL_SERVER_POLL_MS)
-        return
-      }
       try {
         const next = await window.api.browserLocalServers(workspaceId)
         if (!cancelled) setServers(next)
@@ -42,7 +42,7 @@ function useLocalServers(workspaceId: string, active: boolean): LocalServer[] | 
       cancelled = true
       if (timer !== null) window.clearTimeout(timer)
     }
-  }, [active, workspaceId])
+  }, [active, windowActive, workspaceId])
   return servers
 }
 

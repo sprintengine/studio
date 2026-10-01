@@ -1,11 +1,16 @@
 import type { IpcMain } from 'electron'
+import { isWslHostId } from '../../shared/execution-host'
+import { withGitHost } from '../git-run'
+import { hostRegistry } from '../hosts/host-registry'
 import { writeFile } from 'fs/promises'
 import { isAbsolute, join } from 'path'
 import { diffBranchSelection, listBranchSteps, readFileAtRev } from '../branch-steps'
 import { getWorkspaceChangeSummary } from '../workspace-change-summary'
 import { readRepositoryIdentityRead } from '../repository-identity'
 import type { GitFileStage, GitRepoOperation, GitResetMode } from '../git'
-import type { BranchStepSelection } from '../../shared/electron-api'
+import type { AgentWorktreeCleanupInput, BranchStepSelection } from '../../shared/electron-api'
+import { cleanupAgentWorktreesOnce } from '../agent-worktree-cleanup'
+import { setAgentWorktreeLockProfile } from '../agent-worktree-lock'
 import { checkIgnoredPaths } from '../git-ignore'
 import { readFileHunks, stageGitHunk, unstageGitHunk } from '../git-hunks'
 import type { GitHunkRef, GitHunkScope } from '../../shared/git/hunks'
@@ -51,6 +56,7 @@ import {
   pullGitBranchWithStash,
   pruneGitWorktrees,
   removeGitWorktree,
+  unlockAgentGitWorktree,
   resolveGitConflict,
   pushGitBranch,
   revertGitPaths,
@@ -83,11 +89,23 @@ export type GitIpcPaths = {
    *  feed uses (`git:changelists-changed`), so the renderer has one subscription
    *  for both kinds of writer. */
   onChangelistsChanged?: (repoRoot: string) => void
+  /** Working directories of the live terminal sessions; the worktree cleanup never removes one of them. */
+  livePaths?: () => string[]
 }
 
 export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics, paths: GitIpcPaths): void {
-  ipcMain.handle('git:get-repo-root', async (_, folderPath: string) => {
-    return diagnostics.withIpcDiagnostics('GitIPC', 'get-repo-root', { folderPath }, () => getGitRepoRoot(folderPath))
+  // The profile an agent worktree's in-use lock names, so this profile can tell
+  // its own locks from another dev build's (agent-worktree-lock.ts).
+  setAgentWorktreeLockProfile(paths.userDataDir)
+  // `hostId` names the machine whose git answers, for a caller that knows it
+  // before any workspace does (a New chat on a WSL machine, see withGitHost).
+  const scopedHost = (hostId: unknown) =>
+    isWslHostId(typeof hostId === 'string' ? hostId : null) ? hostRegistry().get(hostId as string) : null
+
+  ipcMain.handle('git:get-repo-root', async (_, folderPath: string, hostId?: unknown) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'get-repo-root', { folderPath }, () =>
+      withGitHost(scopedHost(hostId), () => getGitRepoRoot(folderPath)),
+    )
   })
 
   ipcMain.handle('git:get-workspace-change-summary', async (_, checkoutPath: string) => {
@@ -371,7 +389,7 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics, pa
   })
 
   ipcMain.handle('git:worktree:create', async (_, input) => {
-    return createGitWorktree(input)
+    return withGitHost(scopedHost(input?.hostId), () => createGitWorktree(input))
   })
 
   ipcMain.handle('git:worktree:remove', async (_, input) => {
@@ -380,6 +398,39 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics, pa
 
   ipcMain.handle('git:worktree:prune', async (_, repoRoot: string) => {
     return pruneGitWorktrees(repoRoot)
+  })
+
+  ipcMain.handle('git:worktree:unlock-agent', async (_, repoRoot: string, worktreePath: string) => {
+    if (typeof repoRoot !== 'string' || typeof worktreePath !== 'string') {
+      return { ok: false, message: 'A repository and a worktree path are required.' }
+    }
+    return unlockAgentGitWorktree(repoRoot, worktreePath)
+  })
+
+  // Agent worktree cleanup (agent-worktree-cleanup.ts): the renderer names the
+  // paths its records still use; main adds every live terminal's directory.
+  ipcMain.handle('git:worktree:cleanup-agents', async (_, input: AgentWorktreeCleanupInput) => {
+    if (!input || typeof input.repoRoot !== 'string' || !isRepoRoot(input.repoRoot)) {
+      return { repoRoot: String(input?.repoRoot ?? ''), defaultRef: null, entries: [], dryRun: true }
+    }
+    const protectedPaths = Array.isArray(input.protectedPaths)
+      ? input.protectedPaths.filter((path): path is string => typeof path === 'string' && path.length > 0)
+      : []
+    return diagnostics.withIpcDiagnostics(
+      'GitIPC',
+      'worktree-cleanup-agents',
+      { repoRoot: input.repoRoot, dryRun: input.dryRun === true },
+      () =>
+        cleanupAgentWorktreesOnce(
+          {
+            repoRoot: input.repoRoot,
+            protectedPaths,
+            dryRun: input.dryRun === true,
+            ownedOnly: input.ownedOnly === true,
+          },
+          { livePaths: paths.livePaths },
+        ),
+    )
   })
 
   // --- Changelists and patches (git-commit-window T6) ------------------------

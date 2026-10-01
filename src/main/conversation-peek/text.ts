@@ -1,4 +1,4 @@
-import { basename, isAbsolute, resolve } from 'node:path'
+import { basename } from 'node:path'
 
 import { INJECTED_FRAGMENT_PATTERNS } from '../../shared/workspace-title'
 
@@ -13,35 +13,20 @@ import { INJECTED_FRAGMENT_PATTERNS } from '../../shared/workspace-title'
  * budget on a fenced block and truncate away the request itself, and the card
  * would then honestly report "+3,900 more" about text nobody typed.
  *
- * The path-shaped tokens are not merely deleted, they are PROMOTED: a dropped
- * file is a thing the person attached, so it leaves the quoted sentence and
- * arrives as a chip you can click. That is the whole difference between this
- * module and `stripInjectedFragments`, whose consumer (the derived title) has
- * nowhere to put them and so throws them away. Both read the same patterns
- * (`INJECTED_FRAGMENT_PATTERNS`) so the two routes cannot disagree about what
- * counts as a path.
+ * A path-shaped token is shortened to its basename rather than deleted: a
+ * dropped file is part of what the person asked, and "read USAGE.md" says so in
+ * less room than the full path. That is the difference between this module and
+ * `stripInjectedFragments`, whose consumer (the derived title) throws paths
+ * away. Both read the same patterns (`INJECTED_FRAGMENT_PATTERNS`) so the two
+ * routes cannot disagree about what counts as a path.
  *
  * Pure: no I/O, no Electron, no DOM. Every input is untrusted — the text comes
- * from a CLI's own transcript file, written by another process.
+ * from a CLI's hook report, written by another process.
  */
-
-/**
- * Where a collapsed path token came from, kept so the caller can resolve a
- * relative one against the cwd the transcript row recorded rather than against
- * whatever directory the app happens to be running in.
- */
-type PeekPathToken = {
-  /** Exactly as it appeared, minus a leading `@`. */
-  raw: string
-  /** Basename, which is what the chip shows. */
-  label: string
-}
 
 export type CollapsedPeekText = {
   /** The sentence, whitespace-normalised, uncapped. */
   text: string
-  /** Path-shaped tokens lifted out of it, in the order they appeared, deduped. */
-  paths: PeekPathToken[]
   /**
    * Characters dropped before collapsing even started, because the input was
    * past {@link MAX_COLLAPSE_INPUT_CHARS}. The caller adds these to the
@@ -54,18 +39,15 @@ export type CollapsedPeekText = {
 /**
  * Placeholders Claude Code substitutes for a pasted image inside the person's
  * own text (`[Image #26] What happened? You removed the backdrops.`) and the
- * companion line it writes for a dropped screenshot. Both name an image that
- * already arrives as its own content block, so leaving them in would make the
- * card quote its own attachment strip back at the reader.
+ * companion line it writes for a dropped screenshot. The card shows text only,
+ * so a placeholder naming an image it cannot show is noise in the quote.
  */
 const IMAGE_PLACEHOLDER_PATTERN = /\[Image(?:\s*#\d+|:[^\]\n]{0,200})\]/g
 
 /**
  * Wrappers the CLI puts around something that is not a person speaking:
- * a slash-command invocation, a background task report, the transcript-only
- * echo of a `!` bash line. A row whose text STARTS with one of these is not a
- * message (see `isTranscriptCommandInvocation`); one that merely contains it
- * has the fragment removed.
+ * a slash-command invocation, a background task report, the echo of a `!` bash
+ * line. The fragment is removed and the rest of the message kept.
  */
 const INJECTED_TAG_PATTERN =
   /<\/?(?:command-name|command-message|command-args|local-command-stdout|local-command-stderr|local-command-caveat|bash-input|bash-stdout|bash-stderr|task-notification|system-reminder|task-id|tool-use-id|output-file|status|summary)>/gi
@@ -81,12 +63,6 @@ const WHOLE_LINE_PATH_PATTERN = /^\s*(@?~?\.{0,2}\/?[\w.@+-]+(?:\/[\w.@+-]*)+)\s
 const MAX_PATH_TOKEN_LENGTH = 512
 
 /**
- * Path tokens lifted per message. Well above the attachment cap the card
- * renders, so the caller — not this module — decides where the "+2" starts.
- */
-const MAX_PATH_TOKENS = 32
-
-/**
  * Longest text collapsed in full. Two orders of magnitude above the longest
  * message anyone types, and there so a person who pasted five megabytes into a
  * prompt cannot make a hover run several regexes over all of it. Past this the
@@ -96,65 +72,39 @@ const MAX_PATH_TOKENS = 32
 export const MAX_COLLAPSE_INPUT_CHARS = 128 * 1024
 
 /**
- * True when this text is the CLI's own record of a command being invoked rather
- * than a person's message: `<command-name>/compact</command-name>`, or the bare
- * `/compact` older Claude Code wrote. A slash command WITH an argument is kept —
- * "/backlog work MC-2455" is a request, and the peek exists to show requests.
- */
-export function isTranscriptCommandInvocation(text: string): boolean {
-  const trimmed = text.trim()
-  if (!trimmed) return true
-  if (trimmed.startsWith('<')) {
-    // Anything opening with one of the CLI's own wrappers is machinery. An
-    // unrecognised tag is left alone: a person may well open a message with
-    // `<div>`, and guessing would silently eat it.
-    INJECTED_TAG_PATTERN.lastIndex = 0
-    return INJECTED_TAG_PATTERN.test(trimmed.slice(0, 64))
-  }
-  return /^\/[a-z0-9][a-z0-9._-]*$/i.test(trimmed)
-}
-
-/**
  * The sentence inside `input`, with fenced blocks, injected wrappers and image
- * placeholders removed and path-shaped tokens promoted out into `paths`.
+ * placeholders removed and path-shaped tokens shortened to their basenames.
  */
 export function collapsePeekText(input: string): CollapsedPeekText {
   const overflowChars = Math.max(0, input.length - MAX_COLLAPSE_INPUT_CHARS)
   const raw = overflowChars > 0 ? input.slice(0, MAX_COLLAPSE_INPUT_CHARS) : input
-  const paths: PeekPathToken[] = []
-  const seen = new Set<string>()
   /**
-   * Promote `token` to an attachment, or leave `fallback` in place when it is
+   * Shorten `token` to its basename, or leave `fallback` in place when it is
    * not actually a path. The decision is made on the CLEANED token, so
    * "src/main/app.ts," is recognised and its comma is not what disqualifies it.
    *
-   * A promoted token leaves its LABEL behind in the sentence, not a hole. This
-   * is the marquee element of the surface — the card quotes the first message in
+   * A path leaves its LABEL behind in the sentence, not a hole. This is the
+   * marquee element of the surface — the card quotes the first message in
    * full — and deleting the token mid-clause corrupts what the person wrote:
    * "attached at `design-system/`; read `USAGE.md` + `foundations/tokens.css`"
    * became "attached at ; read USAGE.md + +", which reads as though the app
-   * damaged the message. The basename says the same thing in less room, and the
-   * chip underneath still carries the action.
+   * damaged the message.
    *
    * `mode: 'drop'` is for a token that is a whole line on its own — a dropped
    * file, not a word in a sentence. There is no clause to keep readable there,
-   * and a stray basename on its own line is noise the chip already covers.
+   * and a stray basename on its own line is noise.
    */
   const take = (token: string, fallback: string, mode: 'label' | 'drop' = 'label'): string => {
     const cleaned = normalisePathToken(token)
     if (!cleaned || !looksLikePath(cleaned)) return fallback
     const label = basename(cleaned.replace(/\/+$/, '')) || cleaned
-    if (!seen.has(cleaned) && paths.length < MAX_PATH_TOKENS) {
-      seen.add(cleaned)
-      paths.push({ raw: cleaned, label })
-    }
     return mode === 'drop' ? ' ' : ` ${label} `
   }
 
   const patterns = INJECTED_FRAGMENT_PATTERNS
   const withoutBulk = raw
-    // Order matters: fences first, so a path INSIDE a pasted diff never becomes
-    // a chip the person never attached.
+    // Order matters: fences first, so a path INSIDE a pasted diff is dropped
+    // with the diff rather than surviving as a label.
     .replace(patterns.fencedBlock, ' ')
     .replace(INJECTED_TAG_PATTERN, ' ')
     .replace(IMAGE_PLACEHOLDER_PATTERN, ' ')
@@ -166,7 +116,7 @@ export function collapsePeekText(input: string): CollapsedPeekText {
       line
         // Inline code is where a dropped path most often lands ("read `USAGE.md`"),
         // so its contents are inspected rather than deleted wholesale: a path is
-        // promoted, and anything else keeps its place in the sentence unquoted.
+        // shortened, and anything else keeps its place in the sentence unquoted.
         .replace(patterns.inlineCode, (match) => {
           const inner = match.slice(1, -1).trim()
           return take(inner, ` ${inner} `)
@@ -190,7 +140,7 @@ export function collapsePeekText(input: string): CollapsedPeekText {
     .replace(/([([{]) +/g, '$1')
     .trim()
 
-  return { text, paths, overflowChars }
+  return { text, overflowChars }
 }
 
 /**
@@ -209,33 +159,10 @@ export function capPeekText(text: string, maxChars: number): { text: string; tru
 }
 
 /**
- * The absolute path a chip should open, or null when the token cannot be turned
- * into one. `cwd` is the working directory the transcript row recorded, so a
- * repo-relative drop resolves against the session that made it and not against
- * the app's own process directory.
- *
- * `~` is expanded only when `home` is known; the result is never checked for
- * existence here, because a peek must not stat a file per hover — the open
- * action finds out, and reports it there.
- */
-export function resolvePeekPath(token: string, cwd: string | null, home: string | null): string | null {
-  if (!token || token.includes('\0')) return null
-  let candidate = token.replace(/\/+$/, '')
-  if (!candidate) return null
-  if (candidate === '~' || candidate.startsWith('~/')) {
-    if (!home) return null
-    candidate = candidate === '~' ? home : resolve(home, candidate.slice(2))
-  }
-  if (isAbsolute(candidate)) return candidate
-  if (!cwd || !isAbsolute(cwd)) return null
-  return resolve(cwd, candidate)
-}
-
-/**
  * Whether a token pulled out of inline code or an @-mention is path-shaped
- * enough to become a chip. Stricter than the strip patterns on purpose: a
- * title that eats "and/or" loses two words, whereas a card that shows "or" as
- * a file the person attached is telling the reader something untrue.
+ * enough to shorten. Stricter than the strip patterns on purpose: a title that
+ * eats "and/or" loses two words, whereas a quote that turns "and/or" into "or"
+ * has changed what the person said.
  */
 function looksLikePath(token: string): boolean {
   if (!token || token.length > MAX_PATH_TOKEN_LENGTH || /\s/.test(token)) return false

@@ -44,7 +44,8 @@ test('notificationStore', async () => {
         notifications: [
           notification('keep-terminal', 'terminal'),
           notification('drop-sprint', 'sprintengine'),
-          notification('keep-automations', 'automations'),
+          notification('drop-automations', 'automations'),
+          notification('keep-marketplace', 'marketplace'),
         ],
         sectionSeenAt: { extensions: '2026-09-02T00:00:00.000Z' },
       },
@@ -52,16 +53,20 @@ test('notificationStore', async () => {
   )
 
   async function main(): Promise<void> {
-    const { useNotificationStore, dropRetiredNotifications, mergePersistedNotificationState } =
-      await import('./notificationStore')
+    const {
+      useNotificationStore,
+      dropRetiredNotifications,
+      dismissedUpdatesFromStorage,
+      mergePersistedNotificationState,
+    } = await import('./notificationStore')
 
     // --- the real rehydrate drops the retired source, keeps everything else ---
     await useNotificationStore.persist.rehydrate()
     const state = useNotificationStore.getState()
     assert.deepEqual(
       state.notifications.map((n) => n.id),
-      ['keep-terminal', 'keep-automations'],
-      'a persisted sprintengine notification is dropped on load',
+      ['keep-terminal', 'keep-marketplace'],
+      'a persisted sprintengine or automations notification is dropped on load',
     )
     assert.deepEqual(state.sectionSeenAt, { extensions: '2026-09-02T00:00:00.000Z' }, 'other persisted state survives')
     assert.equal(typeof state.addNotification, 'function', 'actions survive the merge')
@@ -73,8 +78,41 @@ test('notificationStore', async () => {
       [],
       'junk and retired rows go',
     )
-    const current = { notifications: [], sectionSeenAt: {} }
+    const current = { notifications: [], sectionSeenAt: {}, dismissedUpdates: [] as string[] }
     assert.equal(mergePersistedNotificationState(null, current), current, 'nothing stored keeps the initial state')
+    assert.deepEqual(
+      mergePersistedNotificationState({ dismissedUpdates: ['app@0.7.0', 3, null] }, current).dismissedUpdates,
+      ['app@0.7.0'],
+      'a stored dismissal survives, junk in the list does not',
+    )
+    assert.deepEqual(
+      mergePersistedNotificationState({ notifications: [] }, current).dismissedUpdates,
+      [],
+      'a profile from before dismissals existed starts with none',
+    )
+
+    // --- dismissing an update ---
+    useNotificationStore.setState({ dismissedUpdates: [] })
+    useNotificationStore.getState().dismissUpdate('cli:codex@0.154.0')
+    useNotificationStore.getState().dismissUpdate('cli:codex@0.154.0')
+    assert.deepEqual(
+      useNotificationStore.getState().dismissedUpdates,
+      ['cli:codex@0.154.0'],
+      'one version is dismissed once',
+    )
+    for (let index = 0; index < 60; index += 1) useNotificationStore.getState().dismissUpdate(`app@0.${index}.0`)
+    const kept = useNotificationStore.getState().dismissedUpdates
+    assert.equal(kept.length, 50, 'the list is bounded')
+    assert.equal(kept.at(-1), 'app@0.59.0', 'the newest dismissal is kept')
+    assert.equal(kept.includes('cli:codex@0.154.0'), false, 'and the oldest falls off')
+
+    // Another window's dismissals, read from its storage write.
+    assert.deepEqual(
+      dismissedUpdatesFromStorage(JSON.stringify({ state: { dismissedUpdates: ['app@0.7.0:ready', 4] } })),
+      ['app@0.7.0:ready'],
+    )
+    assert.equal(dismissedUpdatesFromStorage('not json'), null)
+    assert.equal(dismissedUpdatesFromStorage(null), null)
 
     console.log('notificationStore.test.ts: ok')
   }

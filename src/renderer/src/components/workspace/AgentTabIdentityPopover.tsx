@@ -5,8 +5,8 @@ import { useConversationPeek, useCopyValue } from './useConversationPeek'
 import { refreshPullRequestsForLine } from './PullRequestMark'
 
 // The peek card itself — the thread, the file list, the image strip — behind a
-// `React.lazy` boundary at this call site (bundle-
-// budget ratchet). It is only ever rendered inside an OPEN popover, so the
+// `React.lazy` boundary at this call site. It is only ever rendered inside an
+// OPEN popover, so the
 // hover that opens one fetches it; nothing on first paint reads it. The named
 // export stays where it was, so anything importing the card directly is
 // untouched. `fallback={null}` because the glass surface is already on screen
@@ -163,7 +163,7 @@ export function AgentTabIdentityPopover({
           surfaceClassName="conversation-peek-surface w-[340px]"
         >
           {/* Keep the card open while the pointer rests on it, so the session-id
-              copy button and the attachment chips are reachable across the gap
+              copy button and the file links are reachable across the gap
               from the tab. */}
           <div onMouseEnter={hover.keepOpen} onMouseLeave={closeSoon}>
             <React.Suspense fallback={null}>
@@ -174,7 +174,6 @@ export function AgentTabIdentityPopover({
                 now={now}
                 copied={copied}
                 onCopySession={copy}
-                onOpenAttachment={hover.openAttachment}
                 onOpenDiff={onOpenDiff}
               />
             </React.Suspense>

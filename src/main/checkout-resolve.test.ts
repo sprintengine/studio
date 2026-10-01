@@ -8,11 +8,23 @@ import { promisify } from 'node:util'
 import {
   MISSING_DIRECTORY,
   NOT_A_CHECKOUT,
+  branchFromHeadFile,
+  clearCheckoutResolveMemo,
   hostCwdForResolution,
   parseCommonGitDir,
   resolveCheckoutForCwd,
 } from './checkout-resolve'
+import { gitSpawnCounter } from './git-run'
 import { test } from 'vitest'
+
+test('the branch is read from the HEAD file, and anything unfamiliar goes back to git', () => {
+  assert.equal(branchFromHeadFile('ref: refs/heads/main\n'), 'main')
+  assert.equal(branchFromHeadFile('ref: refs/heads/agent/fix-x\n'), 'agent/fix-x')
+  assert.equal(branchFromHeadFile('0123456789abcdef0123456789abcdef01234567\n'), null, 'detached')
+  assert.equal(branchFromHeadFile('ref: refs/heads/.invalid\n'), undefined, 'a reftable placeholder asks git')
+  assert.equal(branchFromHeadFile('ref: refs/remotes/origin/main\n'), undefined)
+  assert.equal(branchFromHeadFile(null), undefined, 'an unreadable file asks git')
+})
 
 test('checkout-resolve', async () => {
   const execFileAsync = promisify(execFile)
@@ -129,6 +141,22 @@ test('checkout-resolve', async () => {
       await git(worktree, 'checkout', '-q', 'feature/x')
       assert.equal((await resolveCheckoutForCwd(worktree))?.branch, 'feature/x')
 
+      // A turn end with no branch move is answered from HEAD's stat alone:
+      // no git process at all.
+      const spawnsBefore = gitSpawnCounter.read + gitSpawnCounter.write + gitSpawnCounter.network
+      assert.equal((await resolveCheckoutForCwd(worktree))?.branch, 'feature/x')
+      assert.deepEqual(await resolveCheckoutForCwd(repo), primary)
+      assert.equal(
+        gitSpawnCounter.read + gitSpawnCounter.write + gitSpawnCounter.network,
+        spawnsBefore,
+        'an unchanged HEAD costs no git',
+      )
+      // ...and a switch made by someone else is still seen, because it moves HEAD.
+      await git(repo, 'switch', '-q', '-c', 'side')
+      assert.equal((await resolveCheckoutForCwd(repo))?.branch, 'side')
+      await git(repo, 'switch', '-q', 'main')
+      assert.equal((await resolveCheckoutForCwd(repo))?.branch, 'main')
+
       // --- not a checkout ---------------------------------------------------
       const plain = join(scratch, 'plain')
       await mkdir(plain, { recursive: true })
@@ -186,6 +214,9 @@ test('checkout-resolve', async () => {
       await mkdir(emptyBin, { recursive: true })
       const originalPath = process.env.PATH
       process.env.PATH = emptyBin
+      // The repo was answered above and its HEAD has not moved, so without
+      // this the memo would (correctly) answer without asking git at all.
+      clearCheckoutResolveMemo()
       try {
         assert.equal(await resolveCheckoutForCwd(repo), null, 'a missing git binary leaves the checkout unresolved')
       } finally {

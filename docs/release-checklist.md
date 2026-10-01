@@ -1,45 +1,97 @@
 # SprintEngine Studio Release Checklist
 
-Use this checklist for every preview or stable desktop release.
+A merge to main publishes nothing. Main feeds a nightly train, cut on a
+schedule when there is something new to ship, and a stable release is a manual
+promotion of the exact commit the latest nightly shipped. PRs merge by merge
+commit or squash, never rebase, with Conventional Commit titles; see
+[CONTRIBUTING.md](../CONTRIBUTING.md).
 
-## Before Tagging
+## Before merging
 
-- Confirm `npm run verify:app` passes. `release.yml`'s quality gate runs the
-  whole of `ci.yml` (verify:app and the marketplace registry) against the
-  release commit and the release will not publish without it, but it runs
-  beside the packaging legs -- finding out locally is faster. `npm run
-  typecheck:all` is worth running too; plain `typecheck` skips the test
-  projects, which is how 99 test typecheck errors sat on `main` unnoticed before
-  0.4.0. Delete any stale `tsconfig.*.tsbuildinfo` first, or an incremental
-  build can report clean.
-- Confirm `npm run build` passes, including the bundle-budget ratchet it
-  chains. The ceiling only speaks during a build, so a breach can sit on
-  `main` for weeks and first surface in the release's package job.
-- Update `package.json` version.
-- Run `npm run sync:model-feed`, and commit the result if it moved. This pulls
-  the live `model-feed.json` from `studio-releases` into
-  `resources/model-feed.json`, the seed a fresh install boots with. Do it
-  BEFORE tagging, never in CI: a workflow that rewrites a committed file makes
-  the shipped build differ from the tag it claims to be. A stale seed is not
-  fatal (the live feed wins by `updatedAt` within the hour) but a fresh install
-  shows an old list until its first fetch.
-- Draft release notes with user-visible changes, fixes, known issues, and rollback guidance.
-- Update the download site's release-notes data to the version being released.
-  The download page only renders What's New when its `version` equals the
-  version it is serving, so notes left on the previous version do not go stale
-  on screen -- they vanish from the page entirely.
-- Confirm signing credentials are configured for any stable release: the
-  `CSC_*` pair and `APPLE_*` trio for macOS, and for Windows either all seven
-  `AZURE_*` Trusted Signing secrets or none (none ships unsigned; a partial set
-  fails the Windows leg).
+- Pass the required PR-title, build and JS checks. The release also runs
+  `npm run verify:app` and the marketplace signature check against the exact
+  source commit before it publishes.
+- Select the intended version bump: `feat` means minor, `!` or a
+  `BREAKING CHANGE:` footer means major from 1.x and minor while the version
+  is 0.x (1.0.0 is only ever typed into a promotion's `version` input), and
+  every other accepted type means patch. Maintenance-only merges also move the
+  version.
+  The next nightly carries the bump straight away.
+- Describe user-visible changes and compatibility breaks in the PR body. The
+  merge or squash commit keeps both the title and body.
+- Do not manually edit the app version. Stable tags are the release version
+  ledger; the workflow stamps `package.json` before compilation and packaging.
+  The committed version remains a development baseline. SDK versions are separate.
+- Publish `@sprintengine/module-sdk` on its own: set its `package.json` version,
+  write that version's `CHANGELOG.md` entry on top, then push an
+  `sdk-v<version>` tag (`.github/workflows/sdk-publish.yml`; needs the
+  `NPM_TOKEN` secret). `scripts/release/sdk-release-check.mjs` refuses a tag,
+  CHANGELOG or quoted host API version that disagrees, and `npm run
+  test:release` runs the same check on every pull request.
+- Keep the download site's release-notes data in step with releases if using its
+  version-specific What's New section.
+- Keep macOS signing credentials configured: the `CSC_*` pair and `APPLE_*`
+  trio. Windows uses all seven `AZURE_*` Trusted Signing secrets, or none for
+  unsigned installers; a partial set fails packaging.
 
 ## Retirements To State In Release Notes
 
 Removals an installed profile cannot be migrated through. State each in the notes
 of the first release that ships it, then delete the line.
 
+- Automations, 2026-09-30 (owner ruling): replaced by scheduled agents — a
+  prompt and a cron schedule, set up from New chat, each run a new chat in the
+  project. Gone with them: the Automations door and its rail square, webhook and
+  module-provided triggers, the skill-loop action, "run once then pause",
+  paused automations, the approval review, run history and reports, the five
+  built-in starters and the marketplace's automation plugins, the plugin
+  bundle's `automation` component, and the agent tools `automation.list`,
+  `automation.runs`, `automation.create` and `automation.run` (now
+  `schedule.list`, `schedule.create`, `schedule.delete` and `schedule.run`).
+  Definitions on disk under a project's `.sprintengine/automations/` are left
+  untouched and no longer run; the hidden per-project Automations workspace
+  and its notifications are dropped on load. The area skill
+  `studio-automations` is now `studio-scheduled-agents`, and a person who had
+  switched it on is asked again.
+- Terminals over the tailnet, 2026-09-29 (owner ruling): a paired device no
+  longer lists, watches, types into or starts a terminal on this machine, and
+  this machine no longer does so on another. What crosses the tailnet is
+  conversations: the phone and a paired Studio follow and start chat agents
+  only. Gone with it: the terminal WebSocket, the Mesh terminal pane and its
+  New chat launch (a paired machine is offered for a Chat agent only), the
+  remote band's terminal rows, the "driving a terminal" marks in the Remote
+  popover and on tabs, and the lost/reconnected toasts that came from terminal
+  links. `terminal.list`,
+  `terminal.create`, `agent.launch`, `backlog.work` and `automation.run` stay on
+  the local socket, for agents and MCP clients on this machine, and are no
+  longer served to a paired device. The two scopes only terminals used,
+  `terminal:observe` and `terminal:control`, are retired: a paired device that
+  holds them keeps its pairing and loses just those two, silently, on first
+  load — the same way the Horizon scopes went. A Mesh tab left open on a remote
+  terminal reopens as an unavailable panel; close it. Local terminals are
+  unchanged.
+- Automations on the phone, 2026-09-29 (owner ruling): the desktop no longer
+  sends its automations to the phone, and the phone can no longer enable,
+  pause or run one. The snapshot's `automations` member, the `automations`
+  collection and the `automations.control` command are gone from the
+  mobile-control wire; the phone's own release drops its Automations screen.
+  An older phone that still asks for the collection gets a snapshot without
+  it, not an error. Automations themselves are unchanged on the desktop, and
+  an agent on this machine still lists and runs them through `automation.*`.
+- Hosted mobile relay, 2026-09-27 (owner ruling): the phone companion pairs
+  with and talks to the desktop over Tailscale only. The relay bridge, its
+  pairing links, its push notifications and Settings > Mobile are gone, and
+  nothing in the app connects or publishes to the relay. The relay module only
+  ever loaded in from-source builds, so no installed build loses a surface. On
+  first start a build deletes `mobile-bridge.json` from its user-data folder —
+  the relay's own pairings and push tokens — and records how many it held in
+  the diagnostics log; tailnet pairings are untouched. The
+  `@sprintengine/mobile-control-protocol` package is no longer built or
+  published from this repository: the snapshot and command shapes the tailnet
+  gateway still serves live in `src/main/mobile/control/protocol.ts`, on the
+  same wire version 4.
 - Automation review-only mode (item 2032): `autonomyDefault: 'review_only' |
-  'allow_changes'` is retired. An existing automation on disk still loads — the
+'allow_changes'` is retired. An existing automation on disk still loads — the
   key is dropped on read and never written back — and one whose author chose
   `review_only` keeps that intent: it is carried into the composed prompt as a
   write-up-only instruction, so nothing silently becomes a fixer. Two behaviour
@@ -49,7 +101,9 @@ of the first release that ships it, then delete the line.
   worktree, its own branch, and a pull request nothing merges automatically.
   And an automation with no explicit permission preset now launches its agent on
   `bypass_all` (item 2033) rather than stopping for an approval nobody is awake
-  to give. An agent still cannot grant itself bypass through the MCP tools.
+  to give. The MCP tools take bypass as well (owner ruling 2026-09-27): an
+  agent launched or an automation created through them may name it, and one
+  that names no preset runs on the machine's spawn default.
 - Automation autonomy field on the module SDK (item 2032): `autonomyDefault` is
   removed from `AutomationDefinition`, `AutomationDefinitionDraft` and the patch
   type in `@sprintengine/module-sdk`. This is a **breaking type change** for a
@@ -90,12 +144,12 @@ of the first release that ships it, then delete the line.
   workspace is removed outright. There is no replacement flow.
   A workspace saved in that mode is DROPPED from the Projects list on first load
   - everything it wrote is on disk and untouched (`product/`, `architecture/`,
-  `mockups/`, `design-system/`, `.guided-brief/`), so open the project as a normal
-  chat to keep working on those files. The Settings -> Agents toggle that ran the
-  design interview as chat sessions is gone and its saved value is dropped. The
-  Design door, design-system bundles, the library, attach and the bundle lint are
-  unaffected - they were never part of the wizard. Three Learn Center cards under
-  a "Design Wizard" category are gone with it.
+    `mockups/`, `design-system/`, `.guided-brief/`), so open the project as a normal
+    chat to keep working on those files. The Settings -> Agents toggle that ran the
+    design interview as chat sessions is gone and its saved value is dropped. The
+    Design door, design-system bundles, the library, attach and the bundle lint are
+    unaffected - they were never part of the wizard. Three Learn Center cards under
+    a "Design Wizard" category are gone with it.
 
 - Horizon and Multiloop, 2026-09-08: the two workspace modes are removed from
   the tree. A workspace saved in either mode is DROPPED from the Projects list
@@ -131,83 +185,168 @@ of the first release that ships it, then delete the line.
   "Check for updates" action on a source's overflow counts against the same
   window and says when the source was last asked.
 
-## Tag And Build
+## Channels
 
-`.github/workflows/release.yml` has three ways in. All of them package the four
-legs with `--publish never`, run the full CI gate beside them, and publish from
-one job: the two macOS updater manifests are merged, everything is uploaded to a
-draft, and the release becomes visible only once every file is there.
+There are two. **Nightly** is main as it stands, a few times a day: versions
+`X.Y.Z-nightly.YYYYMMDD.RUN`, published as GitHub prereleases that are never
+marked latest, with `nightly.yml`, `nightly-mac.yml` and `nightly-linux.yml` as
+their updater manifests. **Stable** is `X.Y.Z`, published as the latest release
+with the `latest*.yml` manifests, and is always a build of a commit some nightly
+already shipped (the hotfix tag below is the one exception).
 
-- **Stable from a tag.** Create a tag matching `package.json`, for example
-  `v0.4.0`, and push it. A prerelease tag must be shaped `vX.Y.Z-preview.N`:
-  installed preview builds only follow tags whose prerelease starts with
-  `preview`, so the workflow refuses any other (a `-beta.1` would reach nobody).
-- **Preview.** Actions -> Release -> Run workflow, channel `preview`. It builds
-  `main` as `X.Y.Z-preview.YYYYMMDD.RUN`, where `X.Y.Z` is `package.json`'s
-  version while that is unreleased, else the next patch after the latest
-  stable. The schedule does the same every six hours when `main` has moved, but
-  only once the repository variable `PREVIEW_SCHEDULE` is `enabled`.
-- **Stable by promotion.** Run workflow, channel `stable`. It rebuilds the exact
-  commit the latest preview shipped, as that preview's `X.Y.Z`, and tags that
-  commit `vX.Y.Z` in this repo. Stable then only ever ships a build preview
-  users already ran. The commit is read from the `<!-- source-sha: -->` marker
-  the workflow writes into every release body, so do not delete that line when
-  editing a body.
-- Set `publish` to false on a dispatch to build without releasing; the packages
-  stay on the run as workflow artifacts for 14 days.
-- Wait for the workflow. Its last step, `Verify the published release,
-  authenticated and not`, checks the release is on the PUBLIC
-  `sprintengine/studio`, the repo `build.publish` names (v0.3.0 shipped to a
-  private repo and reported success because nothing checked), that it carries both macOS DMGs,
-  the `.exe` and the `.AppImage`, and that each updater manifest (`latest*.yml`
-  or `preview*.yml`) names this version, lists only files that are on the
-  release, and -- for macOS -- lists a `.zip` for BOTH arches. Without the zip
-  MacUpdater fails with `ERR_UPDATER_ZIP_FILE_NOT_FOUND`; with only one arch the
-  other arch never updates.
-- It then asks the same questions again with NO credential, at the three URLs
-  electron-updater reads: `releases.atom` (which is where it finds a version at
-  all), `releases/latest` (which is how a stable build resolves the newest one,
-  and which must not resolve to a preview), and
-  `releases/download/<tag>/<channel>*.yml`. The authenticated half passes
-  against a repository no user can read, so it is this half that fails when the
-  releases repo is private, is named wrong in `build.publish`, or has the
-  release still in draft. The step polls for a short while first: the publish is
-  seconds old and GitHub's cache can lag it.
-- The release body is written by the workflow. While this repository is
-  private it says only the version: commit subjects would leak private
-  messages to the public releases repo. Once public it links the commit and
-  lists the changes since the previous release on the same channel. Edit the
-  user-facing notes in by hand afterwards if the release needs them.
+`X.Y.Z` in a nightly is the version the next stable would take: the strongest
+Conventional Commit since the last stable tag, applied to that tag. So a `feat`
+merged in the morning shows up as a minor bump in the afternoon's nightly, and
+promoting that nightly ships the same number without working it out again. A
+version a tag already holds is never reused.
 
-## Making The Repository Public
+## What a merge to main does
 
-Everything below is safe to leave until the day of the switch, and must be
-done that day.
+Nothing, until the next nightly. CI gates the pull request as before; the
+release workflow no longer listens for pushes to main.
 
-- Remove the self-hosted runner `studio-mac` (Settings -> Actions -> Runners).
-  On a public repository a fork's pull request can edit a workflow to run on
-  any self-hosted runner, and that Mac holds a login keychain. The release and
-  preview workflows already switch to GitHub-hosted Macs by themselves once
-  the repository is public (free there), so nothing else needs changing.
-- Settings -> Actions -> General: set fork pull request workflows to require
-  approval for all outside collaborators.
-- `ci.yml` starts running on every pull request and push to `main` by itself --
-  its jobs skip only while the repository is private. Make `Build` and
-  `JS tests` required checks on `main` in the branch protection rules.
-- Set the repository variable `PREVIEW_SCHEDULE` to `enabled` to turn on the
-  six-hourly preview builds.
-- The `preview:mac` label (`desktop-preview.yml`) builds a DMG for pull
-  requests from branches in this repository only; fork pull requests are
-  refused by design.
+## How a nightly is cut
+
+`.github/workflows/release.yml` wakes every 30 minutes (minutes 7 and 37). A
+scheduled run publishes only when both hold:
+
+- at least six hours have passed since the last published nightly, and
+- main has commits the last nightly did not ship (GitHub's compare of that
+  nightly's commit against main is "ahead").
+
+Otherwise the run ends in the resolve step within seconds. The one exception
+is a main whose history was rewritten under the last nightly (the compare says
+"behind" or "diverged"): that run fails, and keeps failing every tick, with a
+message naming the nightly and its commit, so the stall is seen. Dispatch a
+nightly from main to restart the train from its current head. The rule is
+`scripts/release/nightly-gate.mjs`, covered by `npm run test:release`. A run is
+also skipped when the latest stable already ships main's head, because a nightly
+of that commit would sort below the stable.
+
+To cut one now, dispatch the workflow from main with channel `nightly` (the
+default). A dispatch skips the six-hour and new-commits checks.
+
+Nightly runs share one concurrency group with `queue: max` and cancellation
+disabled, so two runs can never build the same commit or publish out of order.
+
+## How stable is promoted
+
+Dispatch the workflow from main with channel `stable`. It finds the newest
+published nightly, reads the commit that nightly shipped from its release body,
+refuses if that commit is not on main, and builds that commit, not main's head.
+Merges that land while you are checking the nightly never reach the stable.
+
+A promotion runs the workflow file as it is on `main` against source from the
+nightly's older commit. A step that calls a repository script must therefore
+tolerate a checkout from before that script existed (the channel-icon step
+guards on the file); otherwise the first promotion after the script lands
+fails in every package job.
+
+The stable's version is the nightly's with the train dropped:
+`0.5.0-nightly.20260923.41` ships as `0.5.0`. To ship another version, set the
+`version` input to any `X.Y.Z` above the latest published stable that no tag
+already holds, higher or lower than the derived one: the commit markers can
+overstate a change (a release-process change and an internal refactor marked
+`!` derive a minor at 0.x) as well as understate it. A version below the nightly's
+leaves installed nightlies ahead of the train until a later nightly passes
+them, since the next nightly derives from the new stable tag.
+The `vX.Y.Z` tag is created on the nightly's commit when the release publishes.
+
+Stable runs have their own concurrency group, so a queued nightly never holds up
+a promotion.
+
+## The hotfix route
+
+Push a tag `vX.Y.Z` to build and publish exactly that commit as stable. The
+version must be above the latest published stable and must not be one a
+release already holds; `package.json` is not consulted, since it stays at the
+development baseline and the build stamps the tag's version. The tag must be
+on main's first-parent history (tag the merge commit), because every later
+nightly works out its version from the latest stable tag on main and refuses
+to run while that tag sits somewhere else.
+
+## How an installed app picks its channel
+
+At startup the app reads its own version: a `-nightly.` build follows nightly,
+anything else follows stable. Settings -> General -> Update channel overrides
+that, and the choice is saved in `update-channel.json` under the app's user-data
+directory. Switching re-points the updater and checks the new channel at once.
+A nightly install that switches to stable is allowed to "downgrade", so it is
+offered the latest stable even while its own nightly version sorts higher.
+
+## The retired preview train
+
+Before nightlies there was a switched-off `preview` train, and one release,
+`v0.4.0-preview.20260919.2`, was published on it. Builds installed from it
+follow `preview*.yml` and nothing else, so no nightly or stable reaches them.
+Dispatching channel `preview` from main publishes one bridge release,
+`<latest stable>-preview.YYYYMMDD.RUN`, built from main's head. The app it
+installs reads no `-nightly.` in its version, follows stable, and is offered the
+latest stable at its next check. Run it once after this change merges. Once the
+download count of the bridge's `preview-mac.yml` stops climbing, the option and
+the `preview` spelling in `scripts/release/release-lib.mjs` can go.
+
+## Builds and publishing
+
+Every entry point builds macOS Intel and Apple Silicon DMGs and updater ZIPs, a
+Windows installer, and a Linux AppImage. All four jobs use `--publish never`.
+One publisher waits for packaging and the quality gate (`npm run verify:app`
+and the marketplace signature check against the exact commit), merges both Mac
+updater manifests, uploads every file to a draft, then publishes it. It verifies
+installers, manifests and the anonymous URLs installed apps use to discover
+updates, including that a nightly is the first nightly in the feed and never
+what `/releases/latest` resolves to.
+
+A tag left by an interrupted draft reserves its version. No version-bump commit
+is pushed to main, and the workflow's own token does not trigger a second
+release from the tag it creates.
+
+The release body records `<!-- source-sha: -->`. The nightly gate and stable
+promotion both read it back, so do not remove it. Public-source release notes
+list changes since the preceding release on that channel. Private-source
+subjects are omitted.
+
+Set dispatch `publish=false` to keep the packages as workflow artifacts for 14
+days without publishing anything. The `PREVIEW_SCHEDULE` repository variable is
+no longer read and can be deleted.
+
+## GitHub enforcement
+
+The versioned ruleset is [main-ruleset.json](../.github/main-ruleset.json).
+It requires a PR, a merge commit or a squash (no rebase), resolved
+conversations and these checks from GitHub Actions: **Conventional PR title**, **Build
+(ubuntu-latest)**, **Build (windows-latest)**, **Build (macos-latest)** and
+**JS tests (ubuntu-latest)**. It prohibits force pushes and branch deletion,
+requires checks against current main, and has no bypass actors. No additional
+human approval count is imposed.
+
+Repository settings must also set `allow_squash_merge=true`,
+`allow_merge_commit=true`, `allow_rebase_merge=false`,
+`squash_merge_commit_title=PR_TITLE`, `squash_merge_commit_message=PR_BODY`,
+`merge_commit_title=PR_TITLE` and `merge_commit_message=PR_BODY`, so a merge
+commit carries the same conventional message a squash does. Dependabot is configured to use
+`build:` and `ci:` titles so its updates pass the same check.
+
+For a new repository, create the PR containing the title-check workflow before
+activating this ruleset, so that its required check can run. Apply the JSON with
+`gh api --method POST repos/OWNER/REPO/rulesets --input .github/main-ruleset.json`;
+update an existing rule with PUT at its ruleset ID. Do not create duplicate rules.
+The JSON is a reproducible policy definition; editing it alone does not change
+GitHub settings.
 
 ## Smoke Test
 
-- Install on a clean Windows machine or VM.
+- Install on a clean Windows machine or VM. The installer is one-click and
+  per-user: it shows its small progress window with the app icon, no wizard
+  and no UAC prompt, installs under `%LOCALAPPDATA%\Programs`, and launches the
+  app when it finishes.
 - Install on macOS Intel and Apple Silicon where available.
 - Install on Linux using the AppImage.
 - Launch the installed app.
 - Confirm Help -> Check For Updates opens Settings and performs a visible update check.
 - Confirm Settings shows version, channel, packaged state, and update status.
+- Confirm Settings -> General -> Update channel shows Stable on a stable build
+  and Nightly on a nightly build.
 - Confirm terminal sessions launch.
 - Confirm Git panel reads status in a real repository.
 - Confirm the Backlog door lists items in a project that has a `backlog/`.
@@ -215,13 +354,124 @@ done that day.
 
 ## Update Validation
 
-- Install the previous release.
-- Publish or draft the next release.
-- Start the previous release and run Help -> Check For Updates.
-- Confirm the new version is detected.
-- Confirm download progress is visible.
-- Confirm Restart installs the update.
-- Relaunch and verify the new version is shown in Settings.
+Every update is asked for: a check that finds one offers it, and nothing
+downloads until Download is pressed, unless Settings -> General -> Download
+updates automatically is on (it is off by default). The diagnostics log
+(Open logs on a notification in the bell) has a line for each step below: the
+check, the download at 25/50/75%, "Update downloaded" (after the file's sha512
+and, on Windows, its signature were checked), "Restart to update", each
+shutdown leg with its time, the installer's full command line, and the
+hand-over. Read it first when an update misbehaves.
+
+What the person should see, in order:
+
+1. **Offered.** Help -> Check For Updates, or the hourly check: the toast
+   "SprintEngine Studio X is available" with Later and Download, a bell row,
+   and Settings -> General shows "X available" with a Download button. Nothing
+   downloads yet (no progress bar in Settings).
+2. **Downloading.** Press Download. The same toast becomes "Downloading
+   SprintEngine Studio X" and counts up ("42% downloaded"); the Settings row
+   shows a filling bar. Later on the offer instead leaves it offered; the next
+   hourly check does not offer the same version again in that window.
+3. **Ready.** The toast becomes "SprintEngine Studio X is ready" with Later and
+   Restart to update. On a Windows all-users installation its description says
+   Windows will ask for administrator permission.
+4. **Restart pressed.** At once, before anything else happens: the toast reads
+   "Installing update" and its button reads "Restarting…" with a spinner and
+   cannot be pressed again. The window stays responsive; Windows never labels
+   it "Not responding".
+5. **Progress window.** The workspace windows close and the small launch-plate
+   window appears in the centre of the screen: "Getting ready to update…", then
+   "Saving your work…" with the bar at its foot advancing as each part of the
+   app shuts down (terminals are the long step), then "Starting the
+   installer…", then "Installing SprintEngine Studio X…" (Windows) or
+   "Restarting into SprintEngine Studio X…" (macOS). It takes at most about
+   ten seconds, however many terminals are open.
+6. **Installer (Windows).** The small one-click installer window with the app
+   icon and a progress bar: no wizard, nothing to click. No UAC prompt for a
+   per-user installation. It closes itself when done.
+7. **Back.** The app starts again on its own with the normal launch plate, and
+   once it is up the toast "Updated to SprintEngine Studio X" appears (a bell
+   row too). Settings shows version X. If it came back on the old version, the
+   toast is "Update to X did not install" with the reason instead.
+
+Also confirm:
+
+- Later on the ready toast leaves the app running, and a per-user update
+  installs at the next quit (the next start then says "Updated to X"). An
+  all-users Windows installation does not install at quit; its toast said so.
+- Turning on Download updates automatically with an update offered starts the
+  download at once, and later checks download without asking.
+- On a nightly install, switch Update channel to Stable and confirm the check
+  that follows offers the latest stable even when its version is lower than the
+  nightly's. Switch back to Nightly and confirm the latest nightly is offered.
+- Switching channel is refused while an install is under way.
+
+### Windows: updating the installation that is running
+
+Owner ruling 2026-09-24: an update installs over the installation the person
+is running, wherever it is. Stable 0.4.0, 0.5.0, 0.5.1 and 0.6.0 shipped the
+assisted NSIS installer (`oneClick: false`), which let the person install for
+all users under Program Files (recorded in HKLM) or into a folder of their own;
+the one-click per-user installer on its own only finds a per-user installation
+(HKCU), and would have put a second copy under `%LOCALAPPDATA%\Programs`.
+
+How it works: this build's app passes its own folder to the installer as
+`/D=<folder>` (last, unquoted), and `build/installer.nsh` installs there, in
+all-users mode when HKLM records that folder. An all-users installation needs
+an administrator: this build's app asks Windows for permission when Restart to
+update is pressed, before it shuts anything down. An older build (0.6.0 and
+earlier) passes no folder; the installer then takes the folder of the app that
+started it, and relaunches itself elevated when that folder is an all-users
+installation.
+
+Run every row on a Windows 10 or 11 VM with a fresh snapshot per row. Install
+0.6.0 from its GitHub release, start it, let it offer the candidate, and update
+through Restart to update. Then check every column; "one entry" means Settings
+-> Apps -> Installed apps lists SprintEngine Studio exactly once.
+
+| Row | Install 0.6.0 as                                                          | UAC                                                                                               | Version launched afterwards                                         | `%LOCALAPPDATA%\Programs`                                                                                  | Apps & features                          | Shortcuts                                                                           |
+| --- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------- |
+| a   | Only for me, default folder                                               | None                                                                                              | The candidate, relaunched by the installer                          | Only the original `SprintEngine Studio` folder, now holding the candidate; no `sprintengine-studio` folder | One entry, candidate version             | Start menu and desktop start the candidate                                          |
+| b   | Only for me, a custom folder (for example `D:\Tools\SprintEngine Studio`) | None                                                                                              | The candidate, from the custom folder                               | No `SprintEngine Studio` or `sprintengine-studio` folder created                                           | One entry, candidate version             | Start menu and desktop start `D:\Tools\SprintEngine Studio\SprintEngine Studio.exe` |
+| c   | Anyone who uses this computer (Program Files)                             | One prompt, from the installer that 0.6.0 started, naming "SprintEngine Studio" and its publisher | The candidate, from `C:\Program Files\SprintEngine Studio`          | No `SprintEngine Studio` or `sprintengine-studio` folder created                                           | One entry (all users), candidate version | The all-users Start menu and Public Desktop shortcuts start the Program Files copy  |
+| d   | As (c), and answer No on the UAC prompt                                   | Declined                                                                                          | 0.6.0 again, restarted by the installer; it offers the update again | Nothing created                                                                                            | One entry, 0.6.0                         | Unchanged                                                                           |
+
+Then, from the candidate itself (the path this build's app takes), install
+the candidate on each kind of installation and update it to a later build
+(a nightly cut after it):
+
+| Row | Installation              | UAC                                                                                                          | Expected                                                                                                                                                                                                      |
+| --- | ------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| e   | Per-user default          | None                                                                                                         | As (a): installer window, relaunch, "Updated to X" toast                                                                                                                                                      |
+| f   | Custom folder             | None                                                                                                         | As (b)                                                                                                                                                                                                        |
+| g   | All users (Program Files) | One prompt, in front of the app window, as soon as Restart to update is pressed (before the progress window) | As (c); the installer window then shows progress; "Updated to X" toast                                                                                                                                        |
+| h   | All users, answer No      | Declined                                                                                                     | No progress window, nothing shut down: the app keeps running on its version, and the toast turns to "Update not installed" saying administrator permission was not given, with Restart to update to try again |
+
+For each of (a) to (h) also check:
+
+- `reg query HKLM\SOFTWARE\811b2173-7620-5d95-bc40-528684ed1d2d /v InstallLocation /reg:64`
+  and the same under HKCU: exactly one of them names the installation (HKLM for
+  c, d, g, h; HKCU otherwise), and it is the folder updated.
+- Uninstall from Apps & features removes the folder, the entry and every
+  shortcut (for an all-users installation Windows asks for permission once, and
+  the "are you sure" question is asked once).
+- Row (c) or (g) on a machine that also has a stray per-user copy under
+  `%LOCALAPPDATA%\Programs\sprintengine-studio` (left by a nightly from before
+  this change): the update removes that copy, its HKCU entry, and its per-user
+  shortcuts; the all-users shortcuts remain. Repeat it through 0.6.0's
+  install at quit (Later on its ready toast, then quit 0.6.0): the Program
+  Files copy is the one updated, after one UAC prompt.
+- An older build's install at quit cannot see which copy it came from, so the
+  installer picks by registry: the per-user installation, unless it sits in
+  the one-click default folder (`%LOCALAPPDATA%\Programs\sprintengine-studio`)
+  beside an all-users one, which is the stray case above. Known limit, stated
+  in the release notes: a person running a pre-fix nightly per-user on a
+  machine where another account installed 0.6.0 for all users is asked for
+  administrator permission at quit, and their copy is folded into the
+  all-users one if they give it. Restart to update is not affected.
+- Later, then quit, on (e) and (f): no window and no prompt; the next start is
+  the candidate's successor, in the same folder, with "Updated to X".
 
 ## Failure And Rollback
 

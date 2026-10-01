@@ -1,6 +1,6 @@
 import { BrowserWindow } from 'electron'
 import { join } from 'path'
-import type { SplashProgress } from '../shared/electron-api'
+import type { AppUpdateTrack, SplashProgress } from '../shared/electron-api'
 
 // The launch plate: a real second window that covers the gap between process
 // start and the main window's first frame. `createMainWindow` builds the main
@@ -23,10 +23,41 @@ const SPLASH_HEIGHT = 320
 const SPLASH_BACKGROUND_COLOR = '#08080c'
 
 let splashWindow: BrowserWindow | null = null
+// The last line pushed, re-sent once the document has loaded: a push made
+// while the page is still parsing has no listener yet and would be lost. The
+// launch plate never needed this (its static "Starting…" covers the gap), but
+// the update progress window opens and reports in the same breath.
+let lastProgress: SplashProgress | null = null
+
+/**
+ * The query the splash document is loaded with. A nightly build opens on its
+ * own plate (a night sky, the mark on a bezelled tile, a "Nightly" word), and
+ * the document has to know which plate to paint BEFORE its first paint: a
+ * value pushed over IPC, the way progress is, arrives after the page has
+ * already painted the stable plate once, and that flash is the one thing the
+ * variant must never do. A query string is read synchronously by the inline
+ * script at the top of splash.html, ahead of the body.
+ *
+ * Stable sends no query at all, so its URL — and everything it paints — is
+ * exactly what it was before nightlies had a plate of their own.
+ */
+export function splashQuery(buildChannel: AppUpdateTrack): Record<string, string> {
+  return buildChannel === 'nightly' ? { channel: 'nightly' } : {}
+}
+
+/** `splash.html` under the dev server, with the channel query applied. */
+export function splashDevUrl(rendererUrl: string, buildChannel: AppUpdateTrack): string {
+  const url = new URL('splash.html', rendererUrl)
+  for (const [key, value] of Object.entries(splashQuery(buildChannel))) url.searchParams.set(key, value)
+  return url.toString()
+}
 
 // Never null: `new BrowserWindow` throws rather than returning nothing, and a
 // nullable return would only buy a dead branch at the one call site.
-export function createSplashWindow(): BrowserWindow {
+//
+// `buildChannel` is the channel this build was cut for (the update service's
+// `buildChannel`), not the one it follows: the plate says what is launching.
+export function createSplashWindow({ buildChannel }: { buildChannel: AppUpdateTrack }): BrowserWindow {
   if (splashWindow && !splashWindow.isDestroyed()) return splashWindow
 
   const win = new BrowserWindow({
@@ -50,8 +81,11 @@ export function createSplashWindow(): BrowserWindow {
     show: true,
     backgroundColor: SPLASH_BACKGROUND_COLOR,
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
+      // Its own one-channel preload, not the app's: the plate reads a progress
+      // line and nothing else, and it starts at the same moment the main
+      // window's renderer does. Sandboxed, since it needs nothing but Electron.
+      preload: join(__dirname, '../preload/splash.js'),
+      sandbox: true,
     },
   })
   splashWindow = win
@@ -59,11 +93,15 @@ export function createSplashWindow(): BrowserWindow {
   win.on('closed', () => {
     if (splashWindow === win) splashWindow = null
   })
+  win.webContents.once('did-finish-load', () => {
+    if (splashWindow === win && lastProgress) win.webContents.send('splash:progress', lastProgress)
+  })
 
-  if (process.env['ELECTRON_RENDERER_URL']) {
-    win.loadURL(new URL('splash.html', process.env['ELECTRON_RENDERER_URL']).toString())
+  const rendererUrl = process.env['ELECTRON_RENDERER_URL']
+  if (rendererUrl) {
+    win.loadURL(splashDevUrl(rendererUrl, buildChannel))
   } else {
-    win.loadFile(join(__dirname, '../renderer/splash.html'))
+    win.loadFile(join(__dirname, '../renderer/splash.html'), { query: splashQuery(buildChannel) })
   }
 
   return win
@@ -75,7 +113,30 @@ export function createSplashWindow(): BrowserWindow {
 export function sendSplashProgress(update: SplashProgress): void {
   const win = splashWindow
   if (!win || win.isDestroyed()) return
+  lastProgress = update
   win.webContents.send('splash:progress', update)
+}
+
+/** The plate, when it is up. The update flow hides every other window and must not hide this one. */
+export function currentSplashWindow(): BrowserWindow | null {
+  return splashWindow && !splashWindow.isDestroyed() ? splashWindow : null
+}
+
+/**
+ * The update progress window (owner ruling 2026-09-24): the launch plate again,
+ * with the update's status line and bar, from "Restart to update" until the
+ * installer takes over. Reusing the plate means the person sees the same small
+ * box on the way out as on the way back in, and it paints without the app
+ * bundle, which is being shut down underneath it.
+ */
+export function showUpdateProgressWindow(buildChannel: AppUpdateTrack, progress: SplashProgress): void {
+  const existing = currentSplashWindow()
+  lastProgress = progress
+  if (existing) {
+    sendSplashProgress(progress)
+    return
+  }
+  createSplashWindow({ buildChannel })
 }
 
 // Idempotent: the reveal path and the timeout path both call it, and whichever
@@ -84,6 +145,7 @@ export function sendSplashProgress(update: SplashProgress): void {
 export function closeSplashWindow(): void {
   const win = splashWindow
   splashWindow = null
+  lastProgress = null
   if (!win || win.isDestroyed()) return
   win.destroy()
 }

@@ -28,13 +28,15 @@ the other.
 - `ds-provider-row__mark` — the brand mark's slot at `icon.size.lg`. The row
   sizes the slot and never picks the mark: a provider whose identity is a logo
   and one whose identity is a glyph must read at one weight.
-- `ds-provider-row__health` — 6px of status colour docked on the mark's TOP-LEFT
-  corner inside a 2px keyline in the fill behind it. The keyline is structural,
-  not decoration: without it the dot reads as a stain on the logo. **Optional
-  since 2026-09-10** — see "One status idiom" under Usage.
+- `ds-provider-row__health` — the tone's status mark (`status-dot`: a
+  shape-coded glyph, never a dot) at 10px, docked on the mark's TOP-LEFT corner
+  on a small disc of the fill behind it, inside a 2px keyline in the same fill.
+  The disc and keyline are structural, not decoration: without them the logo
+  shows through the glyph's ring and the mark reads as a stain on it.
+  **Optional since 2026-09-10** — see "One status idiom" under Usage.
 - `ds-provider-row__badge` — the `badge` component's corner count, docked on the
   mark's TOP-RIGHT: how many things on this row are waiting for the person. The
-  opposite corner from the dot, so a row that somehow draws both reads as two
+  opposite corner from the health mark, so a row that somehow draws both reads as two
   marks rather than one smudge.
 - `ds-provider-row__name` + `ds-provider-row__version` — a baseline pair, name at
   `font.size.body` / `font.weight.emphasis`, version mono at `font.size.micro`.
@@ -67,30 +69,37 @@ the other.
   number is what makes it a pip rather than one more status colour.
 - Recessed (`ds-provider-row--recessed`) — the provider is not present on this
   machine. The mark drops to 60% and the name drops from `text.primary` to
-  `text.default`; nothing else changes. **Not a disabled state** — every control
-  keeps working, and the Install button such a row carries is the reason it is
-  listed at all.
+  `text.muted`; nothing else changes. `text.muted` rather than the one step to
+  `text.default`, which sat too close to the present rows to read as receded
+  (owner ruling 2026-09-24), and rather than `text.subtle`, which falls under AA
+  on the dark card. A glyph mark drawn in the text ink takes `text.muted` with
+  it. **Not a disabled state** — every control keeps working, and the Install
+  button such a row carries is the reason it is listed at all. That button is
+  the `--outline` secondary, not the primary: an accent fill on every absent row
+  pulls the eye straight back to the rows the list recedes (owner ruling
+  2026-09-24). The accent stays for the action on a present row (Update).
 - In a card (`ds-provider-row--in-card`) — the row inside the list card
   ([setting-row](../setting-row/component.md) → *The list card*, ruled
   2026-09-15). The face drops its radius and takes the card's `space.xl` side
-  inset; the health dot's keyline and the corner count's ring follow the
+  inset; the health mark's disc and keyline and the corner count's ring follow the
   card's raised ground so neither halos. Everything else — the axes, the
   disclosure, the expansion's alignment to the name — is unchanged.
 - **No tone variants of the row itself, deliberately.** An unhealthy provider is
-  reported by its dot and its state line, not by tinting the row. A list where
+  reported by its health mark and its state line, not by tinting the row. A list where
   three of nine rows carry a wash has no resting state left.
 
 ## States
 
-- Hover: `bg.hover` on the face, and the dot's keyline switches to the same fill
-  so it does not halo. Rows separate by this fill — it is load-bearing, not
+- Hover: `bg.hover` on the face, and the health mark's disc and keyline switch
+  to the same fill so they do not halo. Rows separate by this fill — it is load-bearing, not
   feedback.
 - Selected: `bg.selected`, keyline follows again.
 - Expanded: the chevron rotates 180°; the face does not change fill. The row
   keeps its position, and the detail opens under it.
-- Health: `good` / `warn` / `danger` / `neutral` on the dot. `neutral` is the
-  honest tone where a host has no health probe (a marketplace listing) — it is
-  not a fourth severity.
+- Health: `good` / `warn` / `danger` / `neutral` on the mark — a check disc, a
+  ring with "!", a ring with "×", a ring with a bar — so the tones differ by
+  shape, not only by colour. `neutral` is the honest tone where a host has no
+  health probe (a marketplace listing) — it is not a fourth severity.
 - Unknown health is a real state and not the same as unhealthy. Where a probe
   failed rather than reported absence, say so on the state line and do not offer
   the action that assumes absence.
@@ -105,29 +114,35 @@ the other.
   Max subscription", "Not installed — no `grok` on PATH", "Unavailable — startup
   timed out after 15s". Never what the provider is or why you might want it —
   that is a caption, and it belongs to a marketplace detail panel if anywhere.
-- **The dot is never the only carrier of a state.** It is `aria-hidden` and the
+- **The health mark is never the only carrier of a state.** It is `aria-hidden` and the
   words are what a screen reader gets, which is also what makes the row survive
   greyscale and colour-blindness.
-- **One status idiom, and the list picks which one.** The dot and the corner
-  count are both optional and a list uses one or the other — never both, and
+- **One status idiom, and the list picks which one.** The health mark and the
+  corner count are both optional and a list uses one or the other — never both, and
   never either alongside a tinted pill saying the same thing.
 
   Which one is decided by what the list is FOR, and the deciding question is
-  what the rows differ by. The dot earns its place where health genuinely varies
+  what the rows differ by. The health mark earns its place where health genuinely varies
   down the column. Where it does not — an Agent CLIs list where nine of ten rows
   probe green — it is a status idiom spent on a fact nobody is scanning for, and
   it crowds out the mark that does have something to say. The owner arrived at
   exactly that list from an update notification and could not tell which CLI the
-  notification was about (2026-09-10): ten dots, all the same, and the one thing
-  they came for was not among them. The count replaced them.
+  notification was about (2026-09-10): ten health marks, all the same green,
+  and the one thing they came for was not among them. The count replaced them. Since 2026-09-25
+  (owner ruling) Settings ▸ Agents draws that count beside the row's Update
+  button, in the row's actions, rather than on the mark: it is still the row's
+  one status idiom, placed next to the control that clears it (the badge entry,
+  "In Settings").
 - **A count says which, not how many.** On a rail square it is a quantity; on a
   row it is a pointer. Give it the row's own name in its accessible label
   ("Codex — update available: 0.153.4") — a bare "1" docked on a logo is not a
   sentence.
 - **Recede absence, do not grey it out.** A provider the machine does not have
   belongs in the list — that is how it gets installed — but it should not hold
-  the same weight as one that is there. Drop it a contrast step and leave its
-  controls alone.
+  the same weight as one that is there. Recede it and leave its controls working.
+  A list that mixes the two puts the present ones first, in their usual order,
+  and the receded ones after them in the same order, so the list reads as what
+  is here and then what could be.
 - Do not render a switch a host cannot honour. A toggle wired to nothing is
   worse than no toggle: it reports a state the product does not have.
 - Do not render a disclosure over an empty panel. Where a provider has nothing
@@ -154,7 +169,7 @@ the other.
   `role="button"` wrapper around a real button.
 - The switch is the `switch` component's contract: `role="switch"`,
   `aria-checked`, Space toggles and Enter does not.
-- The health dot is `aria-hidden`; the state line is plain text in the reading
+- The health mark is `aria-hidden`; the state line is plain text in the reading
   order right after the name, so the row announces as name, version, state.
 - The corner count is the opposite: **always named, never decorative**, because
   nothing else on the row says what it counts. It is the badge component's
@@ -162,7 +177,12 @@ the other.
   reader is elsewhere is exactly what that is for.
 - Recessed is a contrast change and nothing else. It sets no `aria-disabled`,
   removes nothing from the tab order, and adds no state to the announcement —
-  the state line already carries the fact in words. Both inks clear AA.
+  the state line already carries the fact in words. The receded name's
+  `text.muted` clears AA on the row's ground and on its hover fill in the
+  system's light and dark modes (at worst 4.7:1, light, hovered) — the same
+  ink the state line has always worn there. It does not clear AA on
+  `bg.selected` (3.9:1, light), so a row that is both selected and recessed
+  keeps `text.primary` on its name; the mark still recedes.
 - Focus-visible is a 2px `border.focus` mark on the chevron and the switch
   independently — a ring on the chevron, an offset outline on the switch, whose
   checked fill is `border.focus`'s own colour. The row itself never takes focus,
@@ -173,5 +193,6 @@ the other.
   this system's promise that the thing under the cursor is actionable, and a
   row whose only live control is a trailing button cannot keep it.
 - Contrast: name, state line, and mono identifiers all clear AA in both modes.
-  The dot is exempt because it is decorative by contract — but the 2px keyline is
-  what keeps it perceptible at all against a brand mark, so it is not optional.
+  The health mark is exempt because it is decorative by contract — but its disc
+  and 2px keyline are what keep it perceptible at all against a brand mark, so
+  they are not optional.

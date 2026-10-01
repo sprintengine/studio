@@ -1,12 +1,12 @@
 import type { TailnetDevice, TailnetScope } from './tailnet'
-import type { FleetConnection } from './tailnet-fleet'
+import type { MeshConnection } from './tailnet-mesh'
 import type { TailnetPeer } from './tailnet-peers'
 
 // One machine, from three directions at once (remote-settings-rebuild).
 //
 // Settings → Remote used to show three lists that were really one: the devices
 // paired INTO this machine (`TailnetDevice`), the machines this one is paired
-// WITH (`FleetConnection`), and the nodes Tailscale says exist (`TailnetPeer`).
+// WITH (`MeshConnection`), and the nodes Tailscale says exist (`TailnetPeer`).
 // A person has one mental model — "my Mini" — and three rows for it was three
 // places to look for the same answer and three places to revoke it from.
 //
@@ -59,7 +59,7 @@ export type MergeMachinesInput = {
    */
   self?: { name: string; os?: string | null; dnsName?: string | null } | null
   devices: readonly TailnetDevice[]
-  connections: readonly FleetConnection[]
+  connections: readonly MeshConnection[]
   peers: readonly TailnetPeer[]
   /** Epoch ms or a Date. Only liveness reads it; ordering and identity do not. */
   now: number | Date
@@ -93,7 +93,7 @@ type Draft = {
   key: string
   peer: TailnetPeer | null
   device: TailnetDevice | null
-  connection: FleetConnection | null
+  connection: MeshConnection | null
   /** Only for the self row synthesised when the scan saw nothing. */
   fallbackSelf: { name: string; os: string | null } | null
 }
@@ -195,7 +195,7 @@ function toMachine(draft: Draft, nowMs: number): TailnetMachine {
   const inbound = device ? { deviceId: device.id, scopes: [...device.scopes] } : null
   const outbound = connection ? { connectionId: connection.id, scopes: [...connection.scopes] } : null
   // Precedence, not recency: what a device told us about itself beats what the
-  // fleet recorded, and both beat Tailscale's view of a node it merely knows.
+  // mesh recorded, and both beat Tailscale's view of a node it merely knows.
   const lastSeenAt = device?.lastSeenAt ?? connection?.lastConnectedAt ?? peer?.lastSeenAt ?? null
   const isSelf = peer?.isSelf === true || (fallbackSelf !== null && !peer)
   const online = peer?.online ?? isSelf

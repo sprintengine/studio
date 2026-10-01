@@ -19,7 +19,7 @@ export type NavHistoryEntry =
       readonly id: string
       /**
        * The VIEW of a multi-view door, when it has one — the Extensions door's
-       * Plugins / Skills / Agent CLIs. Without it a step into that door landed
+       * Plugins / Skills. Without it a step into that door landed
        * on whatever view its `onOpen` reset to, so Back out of Skills came
        * back to Plugins and Skills was unreachable by history at all. It is
        * part of the entry's identity, so moving between two views of one door

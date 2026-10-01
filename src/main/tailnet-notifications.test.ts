@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 
 import type { TailnetPushPayload, TailnetRemoteStatus } from '../shared/tailnet'
-import type { FleetEvent, FleetPairRequestView } from '../shared/tailnet-fleet'
-import { createTailnetNotifier, fleetNotice, tailnetNotice, type TailnetNotice } from './tailnet-notifications'
+import type { MeshEvent, MeshPairRequestView } from '../shared/tailnet-mesh'
+import { createTailnetNotifier, meshNotice, tailnetNotice, type TailnetNotice } from './tailnet-notifications'
 import { test } from 'vitest'
 
 test('tailnet-notifications', async () => {
@@ -22,7 +22,7 @@ test('tailnet-notifications', async () => {
     pairing: null,
     pairRequests: [],
   }
-  const request: FleetPairRequestView = {
+  const request: MeshPairRequestView = {
     requestId: 'tpr_1',
     endpoint: '100.1.1.2:8471',
     machineName: 'sam-macbook-air',
@@ -60,9 +60,9 @@ test('tailnet-notifications', async () => {
   }
 
   {
-    const approved = fleetNotice({ kind: 'pair-request', revision: 1, phase: 'approved', request })
+    const approved = meshNotice({ kind: 'pair-request', revision: 1, phase: 'approved', request })
     assert.equal(approved?.title, 'Paired with sam-macbook-air')
-    const both = fleetNotice({
+    const both = meshNotice({
       kind: 'pair-request',
       revision: 1,
       phase: 'approved',
@@ -70,25 +70,25 @@ test('tailnet-notifications', async () => {
     })
     assert.match(both?.body ?? '', /Both ways/u)
     assert.equal(
-      fleetNotice({ kind: 'pair-request', revision: 1, phase: 'denied', request })?.title,
+      meshNotice({ kind: 'pair-request', revision: 1, phase: 'denied', request })?.title,
       'sam-macbook-air declined',
     )
     assert.equal(
-      fleetNotice({ kind: 'pair-request', revision: 1, phase: 'expired', request })?.title,
+      meshNotice({ kind: 'pair-request', revision: 1, phase: 'expired', request })?.title,
       'sam-macbook-air did not answer in time',
     )
     assert.equal(
-      fleetNotice({ kind: 'pair-request', revision: 1, phase: 'waiting', request }),
+      meshNotice({ kind: 'pair-request', revision: 1, phase: 'waiting', request }),
       null,
       'waiting has the card',
     )
-    assert.equal(fleetNotice({ kind: 'pair-request', revision: 1, phase: 'cancelled', request }), null)
+    assert.equal(meshNotice({ kind: 'pair-request', revision: 1, phase: 'cancelled', request }), null)
     assert.equal(
-      fleetNotice({ kind: 'machine-paired', revision: 1, connection: {} as never }),
+      meshNotice({ kind: 'machine-paired', revision: 1, connection: {} as never }),
       null,
       'the pair-request approved banner covers it',
     )
-    const revoked = fleetNotice({
+    const revoked = meshNotice({
       kind: 'machine-reachability',
       revision: 1,
       connectionId: 'c1',
@@ -102,7 +102,7 @@ test('tailnet-notifications', async () => {
     })
     assert.equal(revoked?.title, 'Mini revoked this device')
     assert.equal(
-      fleetNotice({
+      meshNotice({
         kind: 'machine-reachability',
         revision: 1,
         connectionId: 'c1',
@@ -155,7 +155,7 @@ test('tailnet-notifications', async () => {
     assert.equal(shown.length, 1, 'the switch in Settings is honoured')
     enabled = true
 
-    const revokedEvent = (reachable: boolean, unauthorized: boolean): FleetEvent => ({
+    const revokedEvent = (reachable: boolean, unauthorized: boolean): MeshEvent => ({
       kind: 'machine-reachability',
       revision: 2,
       connectionId: 'c1',
@@ -167,16 +167,16 @@ test('tailnet-notifications', async () => {
       lastReachedAt: null,
       detail: null,
     })
-    notifier.onFleetEvent(revokedEvent(false, true))
-    notifier.onFleetEvent(revokedEvent(false, true))
-    notifier.onFleetEvent(revokedEvent(false, true))
+    notifier.onMeshEvent(revokedEvent(false, true))
+    notifier.onMeshEvent(revokedEvent(false, true))
+    notifier.onMeshEvent(revokedEvent(false, true))
     assert.equal(
       shown.filter((notice) => notice.key === 'revoked:c1').length,
       1,
       'a revocation is announced once, not per retry',
     )
-    notifier.onFleetEvent(revokedEvent(true, false))
-    notifier.onFleetEvent(revokedEvent(false, true))
+    notifier.onMeshEvent(revokedEvent(true, false))
+    notifier.onMeshEvent(revokedEvent(false, true))
     assert.equal(
       shown.filter((notice) => notice.key === 'revoked:c1').length,
       2,

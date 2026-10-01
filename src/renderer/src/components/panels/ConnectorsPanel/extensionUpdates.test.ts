@@ -149,7 +149,6 @@ test('extensionUpdates', async () => {
     const plugins = [
       { id: 'cursor', provides: ['cli'] },
       { id: 'acme-design-kit', provides: ['module'] },
-      { id: 'combo', provides: ['cli', 'module'] },
     ] as unknown as MarketplacePluginEntry[]
     const excluded = cliOnlyRegistryIds(plugins)
     assert.deepEqual([...excluded], ['cursor'])

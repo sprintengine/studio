@@ -1,15 +1,16 @@
 // The small pieces a sidebar row is built from: the shelf fold row, the
-// attention pulse, row tooltips, the project line, the branch chip and the
-// working timer.
+// attention pulse, row tooltips, the machine and schedule marks, the project
+// line, the branch chip and the working timer.
 
 import { RowButton, Tooltip, TruncatedText } from '../../ui'
 import { useChangePulse } from '../../../hooks/useChangePulse'
-import React, { createContext, useContext, useState, useEffect } from 'react'
+import React, { createContext, useContext, useState } from 'react'
 import { shortMachineName } from '../../remote/machineRowModel'
-import { RemoteMachineGlyph, FolderTypeIcon, GitBranchGlyph } from '../../AppIcons'
+import { RemoteMachineGlyph, FolderTypeIcon, GitBranchGlyph, ScheduleGlyph } from '../../AppIcons'
 import { type ProjectColor } from '../../../utils/projectColor'
 import { ProjectPullRequestMark } from '../PullRequestMark'
 import { formatElapsedMs } from '../../../utils/relativeTime'
+import { useRelativeNow } from '../../../hooks/useRelativeNow'
 
 // A shelf's fold row (settled-chats, 2026-09-07): the one line a folder shows
 // for a group of parked chats — its name, and how many — collapsed by default,
@@ -18,9 +19,21 @@ import { formatElapsedMs } from '../../../utils/relativeTime'
 // separating one group from another, so the row renders only when the folder
 // has rows to separate from its active ones.
 //
-// Two shelves use it — Settled (rest) and Snoozed (sleep, 2026-09-10). They are
-// the same line with a different word, and one component is what keeps them
-// reading as the same kind of thing.
+// Snoozed (sleep, 2026-09-10) is the shelf that uses it; Settled had one too
+// until settled chats moved to Settings ▸ Settled chats (owner, 2026-09-28).
+//
+// It sits in the background (owner, 2026-09-28): the rows it folds away are
+// ones the person has said "not now" about, so the line counting them is never
+// the kit row's `text.default`. The label rests at `text.subtle` — the quiet
+// row's title tier — at the smaller `text-meta` step, and the count and the
+// chevron go one step further down to `text.disabled`. Under the pointer or
+// keyboard focus the label lifts to `text.default`, the same lift a quiet row's
+// title takes, so reaching for it is never reading dim text.
+//
+// The ink is on the spans, not the button: RowButton's resting `text.default`
+// and a caller's `text-*` on one element are resolved by stylesheet order, not
+// class order. The group is named (`group/shelf`) so hovering the folder
+// section around it, which is a `group` of its own, does not lift it.
 export function ShelfFoldRow({
   label,
   count,
@@ -49,13 +62,13 @@ export function ShelfFoldRow({
         aria-expanded={expanded}
         aria-controls={controlsId}
         // design-tokens-allow: alignment — 30px = the workspace row's 4px rail + 26px inset, so the fold row's text lines up under the row title (see the layout note in this file); flush drops to 10px, which is the same sum for a flat-stream row
-        className={`min-w-0 flex-1 select-none ${flush ? 'pl-[10px]' : 'pl-[30px]'} pr-1.5 text-meta`}
+        className={`group/shelf min-w-0 flex-1 select-none ${flush ? 'pl-[10px]' : 'pl-[30px]'} pr-1.5 text-meta`}
       >
         <svg
           viewBox="0 0 16 16"
           fill="none"
           aria-hidden="true"
-          className={`icon-xs shrink-0 text-[color:var(--text-disabled)] transition-transform ${
+          className={`icon-xs shrink-0 text-[color:var(--text-disabled)] transition-transform group-hover/shelf:text-[color:var(--text-subtle)] group-focus-visible/shelf:text-[color:var(--text-subtle)] ${
             expanded ? '' : '-rotate-90'
           }`}
         >
@@ -67,8 +80,12 @@ export function ShelfFoldRow({
             strokeLinejoin="round"
           />
         </svg>
-        <span className="truncate">{label}</span>
-        <span className="tabular-nums text-[color:var(--text-subtle)]">{count}</span>
+        <span className="truncate text-[color:var(--text-subtle)] group-hover/shelf:text-[color:var(--text-default)] group-focus-visible/shelf:text-[color:var(--text-default)]">
+          {label}
+        </span>
+        <span className="tabular-nums text-[color:var(--text-disabled)] group-hover/shelf:text-[color:var(--text-subtle)] group-focus-visible/shelf:text-[color:var(--text-subtle)]">
+          {count}
+        </span>
       </RowButton>
     </div>
   )
@@ -113,7 +130,7 @@ export function AttentionPulse({
 }
 
 /**
- * How long the turn in flight has been running, beside the working dots (owner
+ * How long the turn in flight has been running, beside the working mark (owner
  * direction 2026-09-04): the dots say work
  * is ongoing, this says for how long. The word is dropped — the dots already
  * carry it and the aria-label spells it out — because a 276px rail has no room
@@ -192,6 +209,28 @@ export function RemoteRowGlyph({ machineName }: { machineName: string }) {
 }
 
 /**
+ * The mark on a chat a schedule started (owner ruling 2026-09-30): the
+ * schedule's own clock, in the accent the Scheduled section's rows draw it in,
+ * so a run's chat and the schedule behind it read as one thing seen from two
+ * places. It says where the chat came from and nothing else — the chat is an
+ * ordinary chat, and its working state is the row's own.
+ */
+export function ScheduledRunGlyph({ scheduledAgentId }: { scheduledAgentId: string }) {
+  return (
+    <Tooltip content="Started by a schedule" placement="bottom" wrapperClassName="flex shrink-0 items-center">
+      <span
+        role="img"
+        aria-label="Started by a schedule"
+        className="flex shrink-0 items-center"
+        data-scheduled-run={scheduledAgentId}
+      >
+        <ScheduleGlyph className="icon-xs shrink-0 text-[color:var(--accent-primary)]" />
+      </span>
+    </Tooltip>
+  )
+}
+
+/**
  * The project a row belongs to, as the flat stream says it: the folder glyph
  * in the project's hue, the project's name, its open pull requests, and — when
  * the row is running on a paired machine — the green machine glyph immediately
@@ -248,13 +287,14 @@ export function ProjectLine({
 }
 
 export function WorkingElapsed({ since }: { since: number }) {
-  const [now, setNow] = useState(() => Date.now())
-  const withinFirstMinute = now - since < 60_000
-  useEffect(() => {
-    setNow(Date.now())
-    const id = window.setInterval(() => setNow(Date.now()), withinFirstMinute ? 1_000 : 30_000)
-    return () => window.clearInterval(id)
-  }, [since, withinFirstMinute])
+  // Seconds for the turn's first minute, the sidebar's coarse scale after.
+  // Both beats are the window's shared clocks, so every working row ticks on
+  // one timer, and it stops while the window cannot be seen.
+  const [inFirstMinute, setInFirstMinute] = useState(true)
+  const now = useRelativeNow(inFirstMinute ? 1_000 : 30_000)
+  // A new turn (a later `since`) is young again, and moves back to seconds.
+  const young = now - since < 60_000
+  if (young !== inFirstMinute) setInFirstMinute(young)
   const text = formatElapsedMs(since, now)
   if (!text) return null
   return (

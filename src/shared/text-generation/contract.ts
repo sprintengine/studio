@@ -33,8 +33,15 @@ type TextGenerationFailureCode =
 export type TextGenerationResult =
   { ok: true; value: string; ms: number } | { ok: false; code: TextGenerationFailureCode; message: string }
 
-/** Per-CLI command/WSL override, the same shape the launch path forwards. */
-export type TextGenerationCliRuntimeOverrides = Record<string, { command?: string; useWsl?: boolean } | undefined>
+/**
+ * Per-CLI command override, the same shape the launch path forwards. `hostId`
+ * names the machine the command belongs to (a WSL distribution); absent is
+ * this machine.
+ */
+export type TextGenerationCliRuntimeOverrides = Record<
+  string,
+  { command?: string; hostId?: import('../execution-host').ExecutionHostId } | undefined
+>
 
 export type ChatTitleRequest = {
   /** The first prompt the person sent. Truncated by the prompt builder. */

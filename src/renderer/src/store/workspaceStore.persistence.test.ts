@@ -143,6 +143,7 @@ test('workspaceStore.persistence', async () => {
     useWorkspaceStore,
     __workspaceStoreBackupRecoveryPromise,
     __workspaceStoreRunBackupRecoveryForTests,
+    flushWorkspaceSettingsWrite,
   } = await import('./workspaceStore')
   const { normalizeWorkspaceForPartialize } = await import('./slices/normalizers')
 
@@ -192,7 +193,12 @@ test('workspaceStore.persistence', async () => {
   // satisfied by a persistence layer that had stopped working entirely.
   const settingsRawBefore = stored['sprintengine-app-settings']
   useWorkspaceStore.getState().setSidebarCollapsed(false)
-  await new Promise<void>((resolve) => setTimeout(resolve, 50))
+  assert.equal(
+    stored['sprintengine-app-settings'],
+    settingsRawBefore,
+    'the settings write is coalesced: nothing is serialized in the store write itself',
+  )
+  flushWorkspaceSettingsWrite()
   assert.notEqual(
     stored['sprintengine-app-settings'],
     settingsRawBefore,
@@ -303,26 +309,60 @@ test('workspaceStore.persistence', async () => {
   // asserted end-to-end in `src/main/workspace-registry-reconciliation.test.ts`.
 
   // ── CASE 3 ──────────────────────────────────────────────────────────────────
-  // Backup mirror fires for non-empty registry writes only.
-  await new Promise<void>((resolve) => setTimeout(resolve, 350))
+  // Backup mirror fires for non-empty registry writes only, coalesced on a
+  // one-second timer.
+  await new Promise<void>((resolve) => setTimeout(resolve, 1100))
   const nonEmptyBackupCalls = backupWriteCalls.length
   assert.ok(nonEmptyBackupCalls > 0, 'backup write IPC fires for non-empty registry writes')
   const lastBackup = backupWriteCalls[backupWriteCalls.length - 1]
   assert.equal(typeof lastBackup.data, 'object', 'backup payload uses split registry/settings envelopes')
-  const lastBackupPair = lastBackup.data as BackupPair
-  const lastBackupParsed = JSON.parse(lastBackupPair.registry) as RegistryRecord
-  const lastBackupSettings = JSON.parse(lastBackupPair.settings) as SettingsRecord
-  assert.equal(lastBackupParsed.state.workspaces[0]?.id, persistedWorkspace.id)
-  assert.equal(
-    (lastBackupParsed.state as unknown as { appSettings?: unknown }).appSettings,
-    undefined,
-    'backup registry envelope is registry-only (no appSettings)',
-  )
-  assert.ok(lastBackupSettings.state.appSettings, 'backup settings envelope carries appSettings separately')
+  // The window sends only the settings envelope it owns. Main fills the
+  // registry half in from its own registry when it writes the file
+  // (`src/main/workspace-backup.test.ts`), so no registry is serialized here.
+  const lastBackupData = lastBackup.data as { registry?: unknown; settings: string }
+  assert.equal('registry' in lastBackupData, false, 'the window does not serialize the registry into the backup')
+  const lastBackupSettings = JSON.parse(lastBackupData.settings) as SettingsRecord
+  assert.ok(lastBackupSettings.state.appSettings, 'backup settings envelope carries appSettings')
   assert.equal(
     (lastBackupSettings.state as unknown as { workspaces?: unknown }).workspaces,
     undefined,
     'backup settings envelope does not carry workspaces',
+  )
+
+  // A store write that leaves every persisted settings field alone writes
+  // nothing and schedules nothing: the reference check is the whole cost.
+  const settingsRawBeforeNoop = stored['sprintengine-app-settings']
+  const backupCallsBeforeNoop = backupWriteCalls.length
+  let settingsWrites = 0
+  const countingSetItem = localStorageMock.setItem
+  localStorageMock.setItem = (key: string, value: string) => {
+    if (key === 'sprintengine-app-settings') settingsWrites += 1
+    countingSetItem(key, value)
+  }
+  for (let i = 0; i < 5; i += 1) useWorkspaceStore.setState({})
+  flushWorkspaceSettingsWrite()
+  await new Promise<void>((resolve) => setTimeout(resolve, 1100))
+  localStorageMock.setItem = countingSetItem
+  assert.equal(settingsWrites, 0, 'a no-op store write does not touch the settings key')
+  assert.equal(stored['sprintengine-app-settings'], settingsRawBeforeNoop)
+  assert.equal(backupWriteCalls.length, backupCallsBeforeNoop, 'a no-op store write does not refresh the backup')
+
+  // Several settings changes in a burst reach localStorage as one write
+  // carrying the last value, and survive a reload through the same key.
+  useWorkspaceStore.getState().setSidebarCollapsed(true)
+  useWorkspaceStore.getState().setSidebarCollapsed(false)
+  useWorkspaceStore.getState().setSidebarCollapsed(true)
+  localStorageMock.setItem = (key: string, value: string) => {
+    if (key === 'sprintengine-app-settings') settingsWrites += 1
+    countingSetItem(key, value)
+  }
+  await new Promise<void>((resolve) => setTimeout(resolve, 350))
+  localStorageMock.setItem = countingSetItem
+  assert.equal(settingsWrites, 1, 'a burst of settings changes is one localStorage write')
+  assert.equal(
+    (JSON.parse(stored['sprintengine-app-settings']) as SettingsRecord).state.sidebarCollapsed,
+    true,
+    'and it carries the last value',
   )
 
   // ── CASE 4 ──────────────────────────────────────────────────────────────────
@@ -505,10 +545,13 @@ test('workspaceStore.persistence', async () => {
   assert.equal(recoveredState.workspaces[0]?.id, 'ws-from-backup')
   assert.equal(recoveredState.activeWorkspaceId, 'ws-from-backup')
   assert.equal(recoveredState.workspaceRegistryEmptyState, null, 'recovery clears any stale intent record')
-  assert.equal(
-    recoveredState.appSettings.projectKnowledgeRoots['/Users/example/recovered'],
-    'knowledge',
-    'split backup recovery restores projectKnowledgeRoots from the settings envelope',
+  // Knowledge roots are one of the launch settings main owns: a wiped
+  // localStorage never lost them, so recovery leaves the window's copy of
+  // main's record alone rather than adopting whatever an old backup carried.
+  assert.deepEqual(
+    recoveredState.appSettings.projectKnowledgeRoots,
+    {},
+    'split backup recovery does not restore the launch settings main owns',
   )
   assert.deepEqual(recoveredState.appSettings.recentWorkspaceFolders, ['/Users/example/recovered'])
   assert.equal(recoveredState.sidebarCollapsed, true, 'split backup recovery restores sidebarCollapsed')
@@ -593,13 +636,16 @@ test('workspaceStore.persistence', async () => {
   // Legacy T22-era backup salvage. Pre-T23 backups mirrored the full envelope
   // including appSettings (projectKnowledgeRoots, recentWorkspaceFolders,
   // learning, CLI/MCP, etc.). On a dangerous-empty cold-load that triggers
-  // recovery, the salvage path must carry those fields through to
-  // sprintengine-app-settings instead of letting the next persist write commit
-  // the current empty defaults over them.
+  // recovery, the salvage path must carry the fields this window owns through
+  // to sprintengine-app-settings instead of letting the next persist write
+  // commit the current empty defaults over them.
   //
   // Evidence shape mirrors the production incident: 4 projectKnowledgeRoots
   // keyed by absolute paths + non-empty recentWorkspaceFolders + a populated
-  // mcp record.
+  // mcp record. The roots and the MCP record are launch settings, which main
+  // owns now and keeps in its own file, so a wiped localStorage no longer
+  // loses them: the salvage leaves the window's copy of main's record alone
+  // and never writes the backup's copy back to localStorage.
   diagnosticLog.length = 0
   useWorkspaceStore.setState({
     workspaces: [],
@@ -661,30 +707,34 @@ test('workspaceStore.persistence', async () => {
   assert.equal(salvaged.workspaces.length, 1)
   assert.equal(salvaged.workspaces[0]?.id, 'ws-sprintengine')
 
-  // Salvaged appSettings carry the four project-knowledge roots through normalization.
-  const salvagedRoots = salvaged.appSettings.projectKnowledgeRoots
-  assert.equal(
-    Object.keys(salvagedRoots).length,
-    4,
-    'all four projectKnowledgeRoots survive recovery (the production regression: previously 4 → 0)',
+  // The launch settings are main's: the backup's copy does not replace the
+  // window's read model of main's record.
+  assert.deepEqual(
+    salvaged.appSettings.projectKnowledgeRoots,
+    {},
+    'recovery leaves the knowledge roots to main, whose file a localStorage wipe never touches',
   )
-  assert.equal(salvagedRoots['/Users/dev/workspace/sprintengine'], 'knowledge')
-  assert.equal(salvagedRoots['/Users/dev/workspace/sprintengine-mobile'], '../sprintengine/knowledge')
 
-  // Other non-workspace app-settings survive too.
+  // The non-workspace app-settings this window owns survive.
   assert.equal(salvaged.appSettings.recentWorkspaceFolders.length, 2)
-  assert.equal(salvaged.appSettings.mcp.syncEnabled, true)
   assert.equal(salvaged.sidebarCollapsed, false, 'salvaged sidebarCollapsed honored')
 
   // sprintengine-app-settings on disk was written immediately so the next persist
-  // write does not clobber the salvage with current empty defaults.
+  // write does not clobber the salvage with current empty defaults — and the
+  // backup's launch fields are not written back with it. (This window has no
+  // main to migrate to, so any pre-ownership values its own envelope held are
+  // still carried; the backup's are not among them.)
   const settingsAfterSalvage = JSON.parse(stored['sprintengine-app-settings']) as SettingsRecord
-  const persistedRoots = (settingsAfterSalvage.state.appSettings as { projectKnowledgeRoots: Record<string, string> })
-    .projectKnowledgeRoots
+  const salvagedEnvelope = settingsAfterSalvage.state.appSettings as Record<string, unknown>
+  assert.deepEqual(salvagedEnvelope.recentWorkspaceFolders, [
+    '/Users/dev/workspace/sprintengine',
+    '/Users/dev/workspace/sprintengine-mobile',
+  ])
+  const envelopeRoots = (salvagedEnvelope.projectKnowledgeRoots ?? {}) as Record<string, unknown>
   assert.equal(
-    Object.keys(persistedRoots).length,
-    4,
-    'sprintengine-app-settings on disk also carries the four projectKnowledgeRoots after salvage',
+    envelopeRoots['/Users/dev/workspace/sprintengine'],
+    undefined,
+    'the backup copy of a launch setting is not written to localStorage',
   )
 
   // The salvage lands in the settings key and in memory; it never writes the
@@ -813,14 +863,14 @@ test('workspaceStore.persistence', async () => {
     'a legacy marker derives its project from the container path',
   )
 
-  // ── Duplicate Automations hosts in a CURRENT-version envelope ───────────────
-  // The v63/v64 dedupe migrations only run on a version mismatch, but a dev-HMR
-  // module swap (or any writer holding un-migrated state) can stamp the current
-  // WORKSPACE_STORE_VERSION onto a registry that still carries one host per
-  // automation run — the migrate ladder then never looks at it again. merge()
-  // must therefore enforce the one-host-per-folder invariant on EVERY hydration:
-  // earliest host survives, gets the stable 'Automations' name, and a dangling
-  // active pointer falls back to a surviving workspace.
+  // ── Retired Automations hosts in a CURRENT-version envelope ─────────────────
+  // Automations was replaced by scheduled agents (2026-09-30) and its hidden
+  // per-project host mode retired. The migrate ladder only runs on a version
+  // mismatch, but a dev-HMR module swap (or any writer holding un-migrated
+  // state) can stamp the current WORKSPACE_STORE_VERSION onto a registry that
+  // still carries host rows — the ladder then never looks at it again. merge()
+  // must therefore drop them on EVERY hydration, and a dangling active pointer
+  // falls back to a surviving workspace.
   {
     const hostWorkspace = (id: string, name: string, createdAt: number): Workspace =>
       ({
@@ -840,8 +890,8 @@ test('workspaceStore.persistence', async () => {
       state: {
         workspaces: [
           { ...persistedWorkspace },
-          hostWorkspace('ws-host-early', 'Pillars of code reviewer', 100),
-          hostWorkspace('ws-host-late', 'fable5 calendar', 200),
+          hostWorkspace('ws-host-early', 'Automations', 100),
+          hostWorkspace('ws-host-late', 'Nightly reviewer', 200),
         ],
         activeWorkspaceId: 'ws-host-late',
         workspaceRegistryEmptyState: null,
@@ -850,14 +900,19 @@ test('workspaceStore.persistence', async () => {
     })
     await useWorkspaceStore.persist.rehydrate()
     const rehydrated = useWorkspaceStore.getState()
-    const hosts = rehydrated.workspaces.filter((ws) => ws.mode === 'automations-host')
-    assert.equal(hosts.length, 1, 'merge dedupes duplicate hosts even at the current store version')
-    assert.equal(hosts[0].id, 'ws-host-early', 'the earliest-created host survives')
-    assert.equal(hosts[0].name, 'Automations', 'the surviving host is re-branded with the stable name')
+    assert.deepEqual(
+      rehydrated.workspaces.filter((ws) => ws.mode === 'automations-host'),
+      [],
+      'merge drops retired host rows even at the current store version',
+    )
+    assert.ok(
+      rehydrated.workspaces.some((ws) => ws.id === persistedWorkspace.id),
+      'the ordinary workspace beside them survives',
+    )
     assert.notEqual(
       rehydrated.activeWorkspaceId,
       'ws-host-late',
-      'the active pointer does not dangle at a deduped host',
+      'the active pointer does not dangle at a dropped host',
     )
   }
 
@@ -908,9 +963,8 @@ test('workspaceStore.persistence', async () => {
   // Store v69 adds `cliModelCatalog`. Its shape rules cannot live only in the
   // migrate ladder: a dev-HMR module swap (or any writer holding un-migrated
   // state) stamps the current version onto a profile the ladder then never looks
-  // at again — exactly how the v63 dedupe was bypassed in the wild. The envelope
-  // below is stamped CURRENT, so the v69 rung never runs and merge() alone has to
-  // hold the line: an entry that does not carry the recorded shape is dropped
+  // at again. The envelope below is stamped CURRENT, so the v69 rung never runs
+  // and merge() alone has to hold the line: an entry that does not carry the recorded shape is dropped
   // rather than fed to the pickers, and the user's own model ids are untouched
   // either way.
   {
@@ -928,7 +982,7 @@ test('workspaceStore.persistence', async () => {
           ...settingsEnvelope.state,
           appSettings: {
             ...persistedAppSettings,
-            cliRuntimes: { codex: { command: 'codex', useWsl: false, models: ['o4-mini'] } },
+            cliRuntimes: { codex: { command: 'codex', models: ['o4-mini'] } },
             cliModelCatalog,
           },
         },

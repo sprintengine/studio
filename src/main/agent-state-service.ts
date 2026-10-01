@@ -4,8 +4,15 @@ import { createServer, type Server, type Socket } from 'net'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
+import type { TerminalPathStyle } from '../shared/electron-api'
 import type { AgentStateFrame } from './agent-state'
-import { installAgentStateReporter, parseAgentStateFrame } from './agent-state'
+import {
+  installAgentStateReporter,
+  parseAgentStateFrame,
+  removeAgentStateRegistrationAt,
+  removeWorkspaceAgentStateRegistration,
+} from './agent-state'
+import type { HostAgentIntegration } from './hosts/execution-host'
 
 // =============================================================================
 // Agent-state service — the Electron-bound half of authoritative agent state.
@@ -13,10 +20,12 @@ import { installAgentStateReporter, parseAgentStateFrame } from './agent-state'
 // Owns a dedicated local socket the per-workspace reporter hook writes
 // newline-delimited JSON frames to, validates each frame, and hands the valid
 // ones to `onFrame` (the terminal runtime, which resolves the session and
-// updates its phase). Also owns installing the reporter at launch — serialized
+// updates its phase). A WSL distribution's frames arrive through its helper
+// instead (`ingestLine`) and are held to exactly the same validation. Also owns installing the reporter at launch — serialized
 // per TARGET FILE (several CLIs can share one settings file) and run once per
-// CLI per scope root per app run, so concurrent agent launches never race a
-// config's read-modify-write.
+// CLI per scope root and execution style per app run, so concurrent agent
+// launches never race a config's read-modify-write and switching between native
+// Windows and WSL rewrites the command for the shell that will execute it.
 //
 // All Electron specifics (userData dir, bundled reporter path) are injected, so
 // this module stays free of `electron` and is unit-testable over a real socket.
@@ -30,6 +39,8 @@ const MAX_POSIX_SOCKET_PATH = 90
 // A reporter frame is tiny; a client that streams an unbounded line without a
 // newline is dropped rather than buffered without limit.
 const MAX_LINE_BYTES = 64 * 1024
+
+const USER_SCOPED_REMOVAL_TIMEOUT_MS = 3_000
 
 export type AgentStateServiceOptions = {
   resolveUserDataDir: () => string
@@ -59,9 +70,19 @@ export type AgentStateServiceOptions = {
   // for that session, a second registration would fire the reporter twice for
   // every event, and the person's repository keeps none of it. Absent ⇒ nothing
   // is launch-injected, which is the behaviour from before the flag existed.
-  resolveLaunchInjectsPlugins?: (cli: string) => boolean
+  // Asked with the launch's machine: a WSL launch carries the copy inside its
+  // distribution only once the helper has written it there. `integration` is
+  // what that machine said when the launch prepared it, so this answer and the
+  // launch's own flags come from one reading.
+  resolveLaunchInjectsPlugins?: (cli: string, hostId?: string, integration?: HostAgentIntegration | null) => boolean
+  // Every loaded CLI's agentStateSpec. Read only when a launch-injected CLI
+  // tidies the registration an earlier build wrote into the workspace: the
+  // shared reporter script there must survive while another CLI's registration
+  // (Codex's config.toml, Cursor's hooks.json) still runs it. Absent ⇒ no other
+  // registration is known, and the script is removed with the entry.
+  listAgentStateSpecs?: () => readonly PluginAgentStateSpec[]
   onFrame: (frame: AgentStateFrame) => void
-  logDiagnostic?: (diagnostic: { level: 'warning'; title: string; message: string; details?: string }) => void
+  logDiagnostic?: (diagnostic: { level: 'warning' | 'info'; title: string; message: string; details?: string }) => void
   now?: () => number
 }
 
@@ -76,6 +97,19 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
   // and a set so we install at most once per workspace per app run.
   const installChains = new Map<string, Promise<void>>()
   const installed = new Set<string>()
+  // Workspaces whose stale registration a launch-injected CLI already took out
+  // this run, keyed like the install chain (target file + workspace).
+  const tidied = new Set<string>()
+  // User-scoped registrations written this run (Kimi Code's user-global
+  // config), by file. They apply to every session of that CLI on the machine,
+  // including ones started outside the app, and the reporter they run only
+  // reports for sessions the app launched — every one of which ends with the
+  // app. So they are taken back out at quit, and written again by the next
+  // launch that needs them.
+  const userScopedWrites = new Map<
+    string,
+    { kind: PluginAgentStateSpec['registration']['kind']; createdFile: boolean }
+  >()
 
   function getSocketPath(): string {
     if (!socketPath) socketPath = resolveAgentStateSocketPath(options.resolveUserDataDir())
@@ -151,6 +185,7 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
     socket.on('error', () => sockets.delete(socket))
   }
 
+  // One frame line, from this machine's socket or relayed by a WSL helper.
   function handleLine(line: string): void {
     let raw: unknown
     try {
@@ -183,15 +218,47 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
         // Best-effort cleanup; a stale socket is unlinked on next start.
       }
     }
+    await removeUserScopedRegistrations()
+  }
+
+  // Bounded: quit must not wait on a distribution's file system.
+  async function removeUserScopedRegistrations(timeoutMs = USER_SCOPED_REMOVAL_TIMEOUT_MS): Promise<void> {
+    const writes = [...userScopedWrites]
+    userScopedWrites.clear()
+    if (writes.length === 0) return
+    const removal = Promise.all(
+      writes.map(([path, { kind, createdFile }]) =>
+        removeAgentStateRegistrationAt(path, kind, { deleteIfEmpty: createdFile }).catch((error) => {
+          warn('Agent-state hook not removed at quit', `${path}: ${message(error)}`)
+          return 'skipped' as const
+        }),
+      ),
+    )
+    let timer: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([
+      removal,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, timeoutMs)
+      }),
+    ])
+    if (timer) clearTimeout(timer)
   }
 
   // Install the reporter into a workspace before an agent launches, entirely
   // from the CLI's manifest-declared agentStateSpec (registration kind + path
   // + event set). A CLI without a spec installs nothing — it cannot report
-  // agent state. Serialized + run once per (cli, workspace) per app run, and
-  // strictly best-effort: a failure is logged and swallowed so it can never
-  // block or break the launch that awaits it.
-  async function installForWorkspace(workspaceRoot: string, cli: string): Promise<void> {
+  // agent state. Serialized + run once per (cli, workspace, execution style)
+  // per app run, and strictly best-effort: a failure is logged and swallowed
+  // so it can never block or break the launch that awaits it.
+  //
+  // A launch on another host (WSL) passes that host's `integration`: its hooks
+  // run the host's own Node on the host's paths and report to the helper's
+  // socket, and a user-scoped registration goes into the host's home.
+  async function installForWorkspace(
+    workspaceRoot: string,
+    cli: string,
+    execution: { pathStyle?: TerminalPathStyle; hostId?: string; integration?: HostAgentIntegration | null } = {},
+  ): Promise<void> {
     const root = workspaceRoot.trim()
     if (!root) return
     const spec = options.resolveAgentStateSpec(cli)
@@ -201,13 +268,39 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
     // per launch rather than once at wiring time, because it also answers false
     // when this build could not materialise its plugin, and that must fall back
     // to the workspace install rather than to no agent state at all.
-    if (options.resolveLaunchInjectsPlugins?.(cli)) return
+    //
+    // Not a bare return: a workspace an earlier build (or this run's startup
+    // window, before the copy landed) installed into still holds that
+    // registration, which would now fire beside the launch's own for every
+    // event and stay in the person's repository. It is taken out instead.
+    if (options.resolveLaunchInjectsPlugins?.(cli, execution.hostId, execution.integration)) {
+      await tidyWorkspaceRegistration(root, spec)
+      return
+    }
     // A user-scoped registration writes one profile-global file whose content
     // is workspace-independent (home-scoped reporter copy + profile socket),
     // so its install-once key is per CLI, not per workspace — the first launch
     // of any workspace heals a stale config, and later workspaces skip a write
     // that would be byte-identical anyway.
-    const key = spec.registration.scope === 'user' ? `${cli}::user` : `${cli}::${root}`
+    const pathStyle = execution.pathStyle ?? (process.platform === 'win32' ? 'windows' : 'posix')
+    const userScoped = spec.registration.scope === 'user'
+    const integration = pathStyle === 'wsl' ? execution.integration : null
+    if (pathStyle === 'wsl' && !integration) {
+      // The launch waits for the helper before it gets here; without it there
+      // is no socket in the distribution to point a hook at.
+      warn(
+        'Agent-state hook not installed',
+        `The WSL helper was not running when ${cli} launched, so its hook could not be written. It is tried again on the next launch.`,
+      )
+      return
+    }
+    // The CLI reads its user-global config, and Claude its user settings (for
+    // the status line it wraps), from the home of the machine it runs on.
+    const homeDir = integration ? integration.home.native : options.resolveHomeDir?.()
+    // A user-scoped key names the home it wrote to: a CLI run natively and the
+    // same CLI run through WSL keep separate user configurations.
+    const keyRoot = userScoped ? `user:${homeDir ?? ''}` : root
+    const key = `${cli}::${keyRoot}::${pathStyle}::${execution.hostId ?? ''}`
     if (installed.has(key)) return
 
     // Serialization is keyed by the TARGET FILE, not the CLI: claude-code, zai
@@ -215,8 +308,9 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
     // two of them launching concurrently in one workspace must not interleave
     // that file's read-modify-write. (Their specs are identical today, so the
     // race would be benign — until the day one diverges.)
-    const chainKey =
-      spec.registration.scope === 'user' ? `user:${spec.registration.path}` : `${spec.registration.path}::${root}`
+    const chainKey = userScoped
+      ? `user:${homeDir ?? ''}:${spec.registration.path}`
+      : `${spec.registration.path}::${root}`
     const prior = installChains.get(chainKey) ?? Promise.resolve()
     const next = prior.then(async () => {
       if (installed.has(key)) return
@@ -230,12 +324,23 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
       }
       const result = await installAgentStateReporter(workspaceRoot, spec, {
         sourceScriptPath,
-        socketPath: getSocketPath(),
+        socketPath: integration ? integration.agentStateSocketPath : getSocketPath(),
         statusLineScriptPath: options.resolveStatusLineScriptPath?.() ?? null,
-        ...(options.resolveHomeDir ? { homeDir: options.resolveHomeDir() } : {}),
+        ...(integration ? { commandRuntime: integration.commandRuntime } : {}),
+        ...(homeDir ? { homeDir } : {}),
+        cli,
+        hostId: execution.hostId ?? 'local',
       })
       if (result.ok) {
         installed.add(key)
+        if (userScoped) {
+          // A file this run created goes entirely if our block was all of it.
+          const previous = userScopedWrites.get(result.settingsPath)
+          userScopedWrites.set(result.settingsPath, {
+            kind: spec.registration.kind,
+            createdFile: previous?.createdFile === true || result.createdFile === true,
+          })
+        }
       } else {
         warn('Agent-state hook install failed', result.message)
       }
@@ -249,10 +354,42 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
     await next.catch((error) => warn('Agent-state hook install threw', message(error)))
   }
 
+  // Take a launch-injected CLI's workspace registration back out, once per
+  // (target file, workspace) per app run. Serialized on the SAME chain the
+  // installs use, because both read-modify-write one settings file.
+  async function tidyWorkspaceRegistration(root: string, spec: PluginAgentStateSpec): Promise<void> {
+    if (spec.registration.kind !== 'settings-json' || spec.registration.scope === 'user') return
+    const chainKey = `${spec.registration.path}::${root}`
+    if (tidied.has(chainKey)) return
+    const prior = installChains.get(chainKey) ?? Promise.resolve()
+    const next = prior.then(async () => {
+      if (tidied.has(chainKey)) return
+      const removed = await removeWorkspaceAgentStateRegistration(root, spec.registration, {
+        otherSpecs: options.listAgentStateSpecs?.() ?? [],
+      })
+      tidied.add(chainKey)
+      if (removed.length > 0) {
+        options.logDiagnostic?.({
+          level: 'info',
+          title: 'Workspace tidied',
+          message:
+            'This agent receives the agent-state hook with its launch, so the copy an earlier run wrote into the workspace was removed.',
+          details: `${root}: ${removed.join(', ')}`,
+        })
+      }
+    })
+    installChains.set(
+      chainKey,
+      next.catch(() => {}),
+    )
+    await next.catch((error) => warn('Agent-state workspace tidy threw', message(error)))
+  }
+
   return {
     initialize,
     shutdown,
     getSocketPath,
+    ingestLine: handleLine,
     installForWorkspace,
     isRunning: () => server !== null,
   }

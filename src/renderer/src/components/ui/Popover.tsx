@@ -223,6 +223,21 @@ export function popoverOpenWithin(host: Node | null): boolean {
   return openPopoversWithin(host).length > 0
 }
 
+/**
+ * Whether a popover's trigger is off screen: detached, inside an inert or
+ * aria-hidden subtree (a background workspace layer, a view under a door), or
+ * not rendered (display/visibility/content-visibility), where the engine can
+ * tell us.
+ */
+function anchorHidden(anchor: Element): boolean {
+  if (!anchor.isConnected) return true
+  if (anchor.closest('[inert], [aria-hidden="true"], [hidden]')) return true
+  const visible = (anchor as Element & { checkVisibility?: (options?: object) => boolean }).checkVisibility
+  return typeof visible === 'function'
+    ? !visible.call(anchor, { visibilityProperty: true, contentVisibilityAuto: true })
+    : false
+}
+
 export function Popover({
   open,
   onOpenChange,
@@ -332,6 +347,52 @@ export function Popover({
       document.removeEventListener('keydown', onKey)
     }
   }, [open, closePopover, onOpenChange, popoverId])
+
+  // Close when the trigger stops being on screen. The surface is portaled to
+  // <body>, so hiding the trigger's layer — switching workspace (its layer goes
+  // `invisible` and aria-hidden), switching tab, a door painting over it inert —
+  // hid the anchor and left the menu floating over whatever came next, still
+  // answering clicks for a view nobody could see. Watched only while open.
+  //
+  // Only the trigger and its ancestors are watched, each on its own
+  // attributes: whatever hides the trigger is an attribute on that chain.
+  // Watching the whole of <body> meant every class or style write anywhere
+  // (a streaming transcript, a terminal's helper textarea) forced a style and
+  // layout check on the next frame while any menu was open. An intersection
+  // observer on the trigger adds the cases no attribute on the chain names,
+  // such as a stylesheet taking it out of layout.
+  useEffect(() => {
+    if (!open) return
+    const anchor = triggerRef.current ?? containerRef.current
+    if (!anchor) return
+    let frame: number | null = null
+    const check = () => {
+      frame = null
+      if (anchorHidden(anchor)) onOpenChange(false)
+    }
+    const schedule = () => {
+      if (frame === null) frame = requestAnimationFrame(check)
+    }
+    const mutations = typeof MutationObserver === 'undefined' ? null : new MutationObserver(schedule)
+    for (let node: Element | null = anchor; node && mutations; node = node.parentElement) {
+      mutations.observe(node, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'hidden', 'inert', 'aria-hidden'],
+      })
+    }
+    const intersections =
+      typeof IntersectionObserver === 'undefined'
+        ? null
+        : new IntersectionObserver((entries) => {
+            if (entries.some((entry) => !entry.isIntersecting)) schedule()
+          })
+    intersections?.observe(anchor)
+    return () => {
+      mutations?.disconnect()
+      intersections?.disconnect()
+      if (frame !== null) cancelAnimationFrame(frame)
+    }
+  }, [open, onOpenChange])
 
   const Surface = surfaceAs
 

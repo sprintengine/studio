@@ -1,5 +1,8 @@
-import { appendFile, cp, mkdir, readFile, writeFile } from 'fs/promises'
+import { mkdir, readFile, writeFile } from 'fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'path'
+import { lockAgentWorktree, relockWorktree, unlockWorktree } from './agent-worktree-lock'
+import { excludeFromWorktree } from './integrations/worktree-exclude'
+import { cloneTree } from './clone-tree'
 import {
   getRelativeGitPath,
   isInsideRepo,
@@ -159,6 +162,12 @@ export type GitWorktreeEntry = {
   bare: boolean
   locked: boolean
   lockedReason: string | null
+  /**
+   * Set when the lock is the in-use mark the app places on an agent worktree
+   * (agent-worktree-lock.ts): this profile's, which it releases itself, or
+   * another Studio profile's, which it never touches.
+   */
+  agentLock?: 'this-profile' | 'other-profile'
   prunable: boolean
   prunableReason: string | null
 }
@@ -185,17 +194,20 @@ export type GitWorktreeCreateInput = {
   branchName: string
   baseRef: string
   copyIncludedFiles?: boolean
+  /**
+   * Lock the new worktree as in use by an agent (agent-worktree-lock.ts),
+   * naming this owner: the agent's id, or the branch when the agent does not
+   * exist yet. The agent worktree cleanup never removes a worktree another
+   * profile has locked, and this profile releases its own lock once its
+   * records no longer use the worktree.
+   */
+  agentLockOwner?: string
 }
 
 export type GitWorktreeRemoveInput = {
   repoRoot: string
   path: string
   force?: boolean
-}
-
-type GitWorktreeCopyIncludedInput = {
-  repoRoot: string
-  worktreePath: string
 }
 
 export type GitConflictFileContent = {
@@ -216,34 +228,38 @@ export async function getGitRepoRoot(folderPath: string): Promise<string | null>
   }
 }
 
-async function copyGitWorktreeIncludedFiles(
-  input: GitWorktreeCopyIncludedInput,
+/**
+ * The branch-already-exists refusal from `worktree add -b`, reworded to name
+ * where that branch is checked out, which is what the person has to act on.
+ * Null for any other failure, which keeps git's own words.
+ */
+async function explainBranchConflict(
+  repoRoot: string,
+  branch: string,
+  addResult: GitCommandResult,
+): Promise<string | null> {
+  if (
+    !/already exists|already checked out|already used by worktree/i.test(
+      `${addResult.stderr}\n${addResult.message ?? ''}`,
+    )
+  ) {
+    return null
+  }
+  const worktrees = await listGitWorktrees(repoRoot, { resolvedRoot: true })
+  const holder = worktrees.ok ? worktrees.data.worktrees.find((worktree) => worktree.branch === branch) : undefined
+  if (!holder) return null
+  return `Branch "${branch}" is already checked out at ${holder.path}. Choose a different branch name or remove that worktree first.`
+}
+
+/**
+ * Copy the repository's `.worktreeinclude` set into a worktree this module has
+ * just created. `repoRoot` is already git's resolved root.
+ */
+async function seedWorktreeIncludedFiles(
+  repoRoot: string,
+  worktreePath: string,
 ): Promise<GitWorktreeOperationResult<GitWorktreeCopyIncludedResult>> {
-  const root = await resolveRepoRoot(input.repoRoot)
-  if (!root.ok) return root
-
-  const worktreePath = input.worktreePath
-  const worktrees = await listGitWorktrees(root.data)
-  if (!worktrees.ok) return worktrees
-
-  const registeredWorktree = worktrees.data.worktrees.find(
-    (worktree) => normalizeComparablePath(worktree.path) === normalizeComparablePath(worktreePath),
-  )
-  if (!registeredWorktree) {
-    return {
-      ok: false,
-      message: `Worktree is not registered for this repository: ${worktreePath}`,
-    }
-  }
-
-  if (!(await pathExists(worktreePath))) {
-    return {
-      ok: false,
-      message: `Worktree path is missing: ${worktreePath}. Run worktree prune to clean up stale Git metadata.`,
-    }
-  }
-
-  const includeFilePath = join(toFilesystemPath(root.data), '.worktreeinclude')
+  const includeFilePath = join(toFilesystemPath(repoRoot), '.worktreeinclude')
   const result: GitWorktreeCopyIncludedResult = {
     copied: [],
     skipped: [],
@@ -287,11 +303,11 @@ async function copyGitWorktreeIncludedFiles(
       continue
     }
 
-    const sourcePath = join(root.data, ...entry.split(/[\\/]+/))
+    const sourcePath = join(repoRoot, ...entry.split(/[\\/]+/))
     const destinationPath = join(worktreePath, ...entry.split(/[\\/]+/))
 
     if (
-      !normalizeComparablePath(sourcePath).startsWith(`${normalizeComparablePath(root.data)}/`) ||
+      !normalizeComparablePath(sourcePath).startsWith(`${normalizeComparablePath(repoRoot)}/`) ||
       !normalizeComparablePath(destinationPath).startsWith(`${normalizeComparablePath(worktreePath)}/`)
     ) {
       result.skipped.push({ path: entry, reason: 'Include path must stay inside the repository and target worktree.' })
@@ -306,11 +322,7 @@ async function copyGitWorktreeIncludedFiles(
     try {
       const destinationFsPath = toFilesystemPath(destinationPath)
       await mkdir(dirname(destinationFsPath), { recursive: true })
-      await cp(toFilesystemPath(sourcePath), destinationFsPath, {
-        recursive: true,
-        force: true,
-        errorOnExist: false,
-      })
+      await cloneTree(toFilesystemPath(sourcePath), destinationFsPath)
       result.copied.push(entry)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -325,6 +337,20 @@ async function copyGitWorktreeIncludedFiles(
   }
 }
 
+/**
+ * Cut a new worktree on a new branch.
+ *
+ * Five git processes, in order, and no more: resolve the repository root once,
+ * check the branch name and the base ref, `worktree add`, and one `worktree
+ * list` to report the entry the way git spells it. An agent worktree adds a
+ * sixth, the `worktree lock` that marks it in use. Every one is a process start
+ * on the launch path of a worktree agent, and on Windows or a network mount
+ * each costs far more than the ~20 ms it costs here.
+ *
+ * There is no listing BEFORE the add to look for the branch being checked out
+ * elsewhere: `worktree add -b` refuses an existing branch by itself, and only
+ * that failure pays for a listing, to name the worktree that holds it.
+ */
 export async function createGitWorktree(
   input: GitWorktreeCreateInput,
 ): Promise<GitWorktreeOperationResult<GitWorktreeEntry>> {
@@ -347,17 +373,6 @@ export async function createGitWorktree(
     }
   }
 
-  const existingWorktrees = await listGitWorktrees(root.data)
-  if (!existingWorktrees.ok) return existingWorktrees
-
-  const matchingWorktree = existingWorktrees.data.worktrees.find((worktree) => worktree.branch === branch.data)
-  if (matchingWorktree) {
-    return {
-      ok: false,
-      message: `Branch "${branch.data}" is already checked out at ${matchingWorktree.path}. Choose a different branch name or remove that worktree first.`,
-    }
-  }
-
   await mkdir(toFilesystemPath(destination.data.containerPath), { recursive: true })
   const addResult = await runGitCommand(root.data, [
     'worktree',
@@ -371,21 +386,35 @@ export async function createGitWorktree(
   if (!addResult.ok) {
     return {
       ok: false,
-      message: addResult.message ?? 'Unable to create Git worktree.',
+      message:
+        (await explainBranchConflict(root.data, branch.data, addResult)) ??
+        addResult.message ??
+        'Unable to create Git worktree.',
       stdout: addResult.stdout,
       stderr: addResult.stderr,
     }
   }
 
+  if (input.agentLockOwner) {
+    // Straight after the add, before the seeding copies anything in: from here
+    // on no other Studio profile's cleanup will remove it. A lock that fails is
+    // logged, not fatal; the cleanup's age guard still covers a new worktree.
+    const locked = await lockAgentWorktree(root.data, destination.data.destinationPath, input.agentLockOwner)
+    if (!locked.ok) {
+      console.warn(
+        `[git] could not lock agent worktree ${destination.data.destinationPath}: ${locked.message ?? locked.stderr}`,
+      )
+    }
+  }
+
   if (input.copyIncludedFiles) {
-    const copyResult = await copyGitWorktreeIncludedFiles({
-      repoRoot: root.data,
-      worktreePath: destination.data.destinationPath,
-    })
+    // Just created by the add above, so it is registered and on disk: the
+    // seeding skips the checks it runs for a worktree someone else named.
+    const copyResult = await seedWorktreeIncludedFiles(root.data, destination.data.destinationPath)
     if (!copyResult.ok) return copyResult
   }
 
-  const nextWorktrees = await listGitWorktrees(root.data)
+  const nextWorktrees = await listGitWorktrees(root.data, { resolvedRoot: true })
   if (!nextWorktrees.ok) return nextWorktrees
 
   const createdWorktree = nextWorktrees.data.worktrees.find(
@@ -417,7 +446,7 @@ export async function removeGitWorktree(
   if (!root.ok) return root
 
   const worktreePath = input.path
-  const worktrees = await listGitWorktrees(root.data)
+  const worktrees = await listGitWorktrees(root.data, { resolvedRoot: true })
   if (!worktrees.ok) return worktrees
 
   const registeredWorktree = worktrees.data.worktrees.find(
@@ -458,12 +487,23 @@ export async function removeGitWorktree(
     }
   }
 
+  // The in-use lock this profile put on its own agent worktree is the app's
+  // mark, not the person's, and a person removing the worktree releases it.
+  // Any other lock (another profile's agent, or one placed by hand) makes git
+  // refuse below, which is the point of it.
+  const ownLock = registeredWorktree.locked && registeredWorktree.agentLock === 'this-profile'
+  if (ownLock) {
+    const unlocked = await unlockWorktree(root.data, worktreePath)
+    if (!unlocked.ok) return toWorktreeResult(unlocked, unlocked)
+  }
+
   const removeResult = await runGitCommand(root.data, [
     'worktree',
     'remove',
     ...(input.force ? ['--force'] : []),
     worktreePath,
   ])
+  if (!removeResult.ok && ownLock) await relockWorktree(root.data, worktreePath, registeredWorktree.lockedReason)
 
   return toWorktreeResult(removeResult, removeResult)
 }
@@ -472,7 +512,48 @@ export async function pruneGitWorktrees(repoRoot: string): Promise<GitWorktreeOp
   const root = await resolveRepoRoot(repoRoot)
   if (!root.ok) return root
 
+  // `prune` skips locked entries (git never even reports a locked one as
+  // prunable). One of this profile's own agent locks on a worktree whose folder
+  // is gone would otherwise keep its metadata for good, which is not what a
+  // person pressing Prune asked for.
+  const listed = await listGitWorktrees(root.data, { resolvedRoot: true })
+  if (listed.ok) {
+    for (const worktree of listed.data.worktrees) {
+      if (worktree.locked && worktree.agentLock === 'this-profile' && !(await pathExists(worktree.path))) {
+        await unlockWorktree(root.data, worktree.path)
+      }
+    }
+  }
+
   const result = await runGitCommand(root.data, ['worktree', 'prune'])
+  return toWorktreeResult(result, result)
+}
+
+/**
+ * Lift an agent in-use lock from a worktree, at a person's request. For a lock
+ * nothing will lift by itself: another profile's (one since deleted, or whose
+ * user-data folder moved), or one placed before a profile was named. A lock a
+ * person placed by hand is not the app's to lift, and is refused.
+ */
+export async function unlockAgentGitWorktree(
+  repoRoot: string,
+  worktreePath: string,
+): Promise<GitWorktreeOperationResult<GitCommandResult>> {
+  const root = await resolveRepoRoot(repoRoot)
+  if (!root.ok) return root
+  const listed = await listGitWorktrees(root.data, { resolvedRoot: true })
+  if (!listed.ok) return listed
+  const worktree = listed.data.worktrees.find(
+    (candidate) => normalizeComparablePath(candidate.path) === normalizeComparablePath(worktreePath),
+  )
+  if (!worktree?.locked) return { ok: false, message: `Worktree is not locked: ${worktreePath}` }
+  if (!worktree.agentLock) {
+    return {
+      ok: false,
+      message: 'This lock was not placed by SprintEngine Studio. Unlock it with git worktree unlock.',
+    }
+  }
+  const result = await unlockWorktree(root.data, worktree.path)
   return toWorktreeResult(result, result)
 }
 
@@ -601,43 +682,12 @@ export async function resolveGitConflict(
 export const MCP_CONFIG_WORKTREE_EXCLUDE_ENTRIES = ['.mcp.json', '.codex/config.toml'] as const
 
 /**
- * Append each of {@link entries} to a worktree's git exclude file so those paths
- * are never staged. The exclude path is resolved via
- * `git rev-parse --git-path info/exclude` — for a linked worktree git reads the
- * shared common-dir exclude, not a per-worktree one, so resolving it is the only
- * reliable way to land the entries where git will honor them. Idempotent per
- * entry: an already-present line is not duplicated. Throws if git or the write
- * fails.
- */
-async function appendWorktreeGitExcludes(worktreePath: string, entries: readonly string[]): Promise<void> {
-  const resolved = await runGitCommand(worktreePath, ['rev-parse', '--git-path', 'info/exclude'])
-  if (!resolved.ok) {
-    throw new Error(resolved.message ?? 'git rev-parse --git-path info/exclude failed.')
-  }
-  const rawPath = resolved.stdout.trim()
-  if (!rawPath) throw new Error('git returned an empty exclude path.')
-  const excludePath = isAbsolute(rawPath) ? rawPath : resolve(worktreePath, rawPath)
-
-  let existing = ''
-  try {
-    existing = await readFile(excludePath, 'utf8')
-  } catch {
-    // No exclude file yet; appendFile creates it below.
-  }
-  const present = new Set(existing.split('\n').map((line) => line.trim()))
-  const missing = entries.filter((entry) => !present.has(entry))
-  if (missing.length === 0) return
-
-  await mkdir(dirname(excludePath), { recursive: true })
-  const separator = existing.length > 0 && !existing.endsWith('\n') ? '\n' : ''
-  await appendFile(excludePath, `${separator}${missing.join('\n')}\n`, 'utf8')
-}
-
-/**
  * Keep the generated managed MCP config ({@link MCP_CONFIG_WORKTREE_EXCLUDE_ENTRIES})
- * out of a connector worktree's git. Best-effort at the call site: the caller
- * swallows failures so a launch is never blocked by an exclude write.
+ * out of a connector worktree's git — that worktree's only, never the
+ * repository's shared exclude file (see `integrations/worktree-exclude.ts`).
+ * Best-effort at the call site: the caller swallows failures so a launch is
+ * never blocked by an exclude write.
  */
 export async function excludeMcpConfigFromWorktree(worktreePath: string): Promise<void> {
-  await appendWorktreeGitExcludes(worktreePath, MCP_CONFIG_WORKTREE_EXCLUDE_ENTRIES)
+  await excludeFromWorktree(worktreePath, MCP_CONFIG_WORKTREE_EXCLUDE_ENTRIES)
 }

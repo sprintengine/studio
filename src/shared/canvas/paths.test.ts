@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
 
 import {
-  CANVAS_DEFAULT_FOLDER,
+  CANVAS_LEGACY_FOLDER,
   DEFAULT_CANVAS_BOARD_PATH,
+  canvasBoardIsInStore,
   canvasBoardKeyPath,
   canvasBoardName,
+  canvasLegacyPathFor,
   canvasPathIsCaseInsensitive,
   normalizeCanvasPath,
 } from './paths'
@@ -37,12 +39,12 @@ test('paths', async () => {
 
   run('normalizeCanvasPath accepts the four spellings a caller uses', () => {
     const table: Array<[string, string]> = [
-      ['arch', 'diagrams/arch.excalidraw'],
-      ['arch.excalidraw', 'diagrams/arch.excalidraw'],
+      ['arch', 'arch.excalidraw'],
+      ['arch.excalidraw', 'arch.excalidraw'],
       ['diagrams/arch.excalidraw', 'diagrams/arch.excalidraw'],
       ['docs/x/flow.excalidraw', 'docs/x/flow.excalidraw'],
       ['docs/x/flow', 'docs/x/flow.excalidraw'],
-      ['  arch  ', 'diagrams/arch.excalidraw'],
+      ['  arch  ', 'arch.excalidraw'],
       ['./diagrams/arch.excalidraw', 'diagrams/arch.excalidraw'],
       ['diagrams//arch.excalidraw', 'diagrams/arch.excalidraw'],
     ]
@@ -91,8 +93,8 @@ test('paths', async () => {
     assert.equal(canvasBoardName('arch'), 'arch')
   })
 
-  run('the default board sits in the default folder', () => {
-    assert.equal(DEFAULT_CANVAS_BOARD_PATH, `${CANVAS_DEFAULT_FOLDER}/canvas.excalidraw`)
+  run('the default board is the store board called canvas', () => {
+    assert.equal(DEFAULT_CANVAS_BOARD_PATH, 'canvas.excalidraw')
     assert.equal(accepted('canvas'), DEFAULT_CANVAS_BOARD_PATH)
   })
 
@@ -120,6 +122,30 @@ test('paths', async () => {
     assert.equal(canvasBoardKeyPath(upper, 'darwin'), canvasBoardKeyPath(lower, 'darwin'))
     assert.notEqual(canvasBoardKeyPath(upper, 'linux'), canvasBoardKeyPath(lower, 'linux'))
     assert.equal(canvasBoardKeyPath(upper, 'linux'), upper, 'the key is the path itself where case counts')
+  })
+
+  run('a bare name names a board in the app store, and a folder names the project', () => {
+    assert.equal(DEFAULT_CANVAS_BOARD_PATH, 'canvas.excalidraw')
+    assert.equal(canvasBoardIsInStore(accepted('arch')), true)
+    assert.equal(canvasBoardIsInStore(accepted('./arch.excalidraw')), true, 'a leading ./ is still a bare name')
+    assert.equal(canvasBoardIsInStore('diagrams/arch.excalidraw'), false)
+    assert.equal(canvasBoardIsInStore('.sprintengine/canvas/arch.excalidraw'), false, 'no project folder is the store')
+    assert.equal(canvasBoardIsInStore('docs\\arch.excalidraw'), false)
+  })
+
+  run('a board in the legacy folder is still an ordinary project path', () => {
+    // Boards made before the move are the person's files and keep their path.
+    assert.equal(accepted(`${CANVAS_LEGACY_FOLDER}/arch.excalidraw`), 'diagrams/arch.excalidraw')
+  })
+
+  run('only a bare name has a legacy spelling', () => {
+    assert.equal(canvasLegacyPathFor('arch'), 'diagrams/arch.excalidraw')
+    assert.equal(canvasLegacyPathFor('Arch.excalidraw'), 'diagrams/Arch.excalidraw')
+    assert.equal(canvasLegacyPathFor('  ./arch  '), 'diagrams/arch.excalidraw')
+    assert.equal(canvasLegacyPathFor('docs/arch'), null, 'a named folder means that folder')
+    assert.equal(canvasLegacyPathFor('diagrams/arch'), null)
+    assert.equal(canvasLegacyPathFor('arch.md'), null, 'not a board at all')
+    assert.equal(canvasLegacyPathFor(''), null)
   })
 
   console.log('canvas paths tests passed')

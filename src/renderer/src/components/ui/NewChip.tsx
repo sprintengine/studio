@@ -2,8 +2,8 @@ import type { ReactNode, JSX } from 'react'
 
 // The "New" mark: a soft-accent pill saying a thing arrived recently.
 //
-// It shipped first inside `CliModelPicker` — the chip on a model the hosted feed
-// released in the last thirty days — as an inline span, which is where the
+// It shipped first inside `CliModelPicker` — the chip on a model that arrived
+// in the last thirty days — as an inline span, which is where the
 // Design door found it when it needed to say the same thing about a component
 // that landed in a bundle since the person last opened it. Rather than draw a
 // second "New" one pixel away from the first, the one drawing moved here and

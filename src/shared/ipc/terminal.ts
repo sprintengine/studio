@@ -2,11 +2,13 @@
 // ../electron-api.ts re-exports everything here.
 
 import type { AgentLaunchRecord } from '../agent-launch'
+import type { ExecutionHostId } from '../execution-host'
 import type { BranchPullRequest } from '../git/pull-request'
 import type { ObservedCheckout } from '../observed-checkout'
 import type { AgentExecutionMode, CliPermissionPreset } from './agent-runtime'
 import type { AgentCli } from './conversations'
 import type { McpSettings } from './mcp'
+import type { PromptCacheReading } from '../prompt-cache'
 
 export type TerminalKind = 'agent' | 'terminal'
 export type TerminalPathStyle = 'posix' | 'windows' | 'wsl'
@@ -32,6 +34,11 @@ export type AgentSessionMetadata = Omit<AgentSessionIdentity, 'sessionId'> & {
 export type TerminalSpawnMetadata = {
   kind?: TerminalKind
   workspaceId?: string
+  // The machine this terminal runs on: the workspace's (`local`, or a WSL
+  // distribution on Windows). Absent resolves from the folder — a folder
+  // inside a distribution runs there — and otherwise this machine. A session
+  // already bound to a host keeps it on resume whatever this says.
+  hostId?: ExecutionHostId
   agentId?: string
   // The agent's session id within its CLI/harness, used as the resume token.
   // Distinct from the terminal-tracking `sessionId`; supplied on resume so the
@@ -45,11 +52,10 @@ export type TerminalSpawnMetadata = {
   worktreeId?: string
   worktreePath?: string
   cliPermissionPreset?: CliPermissionPreset
-  // Orthogonal Debug Mode toggle (the agent picker). Layers on top of the chosen
-  // permission preset without changing its flags; the launch boundary prepends
-  // the debug directive to the initial prompt when set. Transient per-spawn —
-  // not persisted like cliPermissionPreset.
-  debugMode?: boolean
+  // The CLI's own permission mode chosen at that preset (Claude Code's Accept
+  // edits), rendered in its place when the CLI's manifest has it. Absent, the
+  // preset's own mode.
+  cliPermissionMode?: string
   // Model id passed to the agent CLI when its plugin declares modelSelection;
   // undefined means the CLI's own default model.
   cliModel?: string
@@ -161,6 +167,9 @@ export type TerminalSessionSnapshot = {
   processAlive: boolean
   kind: TerminalKind
   pathStyle?: TerminalPathStyle
+  // The machine the session runs on. Absent on sessions from before hosts
+  // existed, which ran on this machine or, for a `wsl` path style, in WSL.
+  hostId?: ExecutionHostId
   workspaceId?: string
   agentId?: string
   // Display name from spawn metadata. The session-manager label for agent
@@ -206,6 +215,10 @@ export type TerminalSessionSnapshot = {
   startedAt: number
   lastOutputAt: number | null
   lastInputAt: number | null
+  // `lastInputAt` without the focus reports and query answers the terminal
+  // sends on its own: when something was last typed or pasted. Absent from a
+  // main that predates it.
+  lastKeyInputAt?: number | null
   lastVisibleAt: number | null
   // When the agent's last turn ended — the hook-reported Stop, epoch ms. Kept
   // apart from `activity`, which the reaper's suspend and the quit path
@@ -258,11 +271,54 @@ export type TerminalSessionSnapshot = {
   // for a moment afterwards, and "not known right now" is not "empty", so the
   // last known reading stands until a real one replaces it.
   contextUsage: SessionContextUsage | null
+  // The main conversation's prompt cache, from the same status line: when it
+  // goes cold and what a cold resume re-caches. Null (or absent, from a main
+  // that predates it) for a session whose CLI reports none; surfaces derive
+  // warm / expiring / cold from it and a clock (shared/prompt-cache.ts).
+  promptCache?: PromptCacheReading | null
   exitedAt: number | null
   outputBufferLength: number
   retainedOutputBytes: number
   historyTier?: 'standard' | 'recent'
   replayLimitBytes?: number
+}
+
+/**
+ * One changed session on `terminal:sessions-delta`: its snapshot, with the two
+ * lists present only when they moved since the session was last broadcast. An
+ * absent list means "unchanged — keep the one you have", never "empty".
+ */
+export type TerminalSessionDeltaEntry = Omit<TerminalSessionSnapshot, 'fileChanges' | 'pullRequests'> & {
+  fileChanges?: SessionFileChange[]
+  pullRequests?: BranchPullRequest[]
+}
+
+/**
+ * What changed among the sessions since the last broadcast: the sessions that
+ * changed, and the ids of those that are gone. The full list is
+ * `terminal:list`, which a window reads once when it subscribes and on its
+ * recovery poll.
+ */
+export type TerminalSessionsDelta = {
+  upserts: TerminalSessionDeltaEntry[]
+  removed: string[]
+}
+
+/**
+ * A first message main was to type into an agent CLI once it was ready, and did
+ * not (`src/main/deferred-prompt-delivery.ts`): the CLI exited first, the
+ * terminal stopped taking input, or the CLI never showed the screen its
+ * manifest says it is ready on. `text` is the message as the person wrote it,
+ * handed back so it is not lost.
+ */
+export type TerminalPromptUndelivered = {
+  sessionId: string
+  workspaceId?: string
+  agentId?: string
+  agentName?: string
+  cli?: string
+  text: string
+  reason: 'exited' | 'write-failed' | 'not-ready'
 }
 
 // One process row from Electron's app.getAppMetrics() plus throttled child
@@ -402,6 +458,15 @@ export type IpcChannelStat = {
 export type IpcStatsSnapshot = {
   sampledAt: number
   channels: IpcChannelStat[]
+}
+
+/**
+ * How a pane reports its visibility. `freshPane` says the xterm was just built
+ * and holds nothing, so main must paint it in full when it is shown rather
+ * than send only what an earlier pane in its place missed.
+ */
+export type TerminalVisibilityOptions = {
+  freshPane?: boolean
 }
 
 export type TerminalSpawnResult =

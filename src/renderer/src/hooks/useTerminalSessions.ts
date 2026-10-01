@@ -1,17 +1,22 @@
-import { useMemo, useSyncExternalStore } from 'react'
+import { useCallback, useMemo, useSyncExternalStore } from 'react'
 import {
   getLiveTerminalSessionsSnapshot,
   getTerminalSessionsSignature,
   getTerminalSessionsSnapshot,
+  getWorkspaceTerminalSessionsSnapshot,
+  reconcileTerminalSessions,
   refreshTerminalSessions,
   subscribeLiveTerminalSessions,
   subscribeLiveTerminalSessionSnapshots,
   subscribeTerminalSessions,
 } from './terminalSessionsStore'
 
+export type { TerminalSessionsChange } from './terminalSessionsStore'
+
 export {
   getLiveTerminalSessionsSnapshot,
   getTerminalSessionsSignature,
+  reconcileTerminalSessions,
   refreshTerminalSessions,
   subscribeLiveTerminalSessionSnapshots,
 }
@@ -31,6 +36,17 @@ export function useTerminalSessions(options?: UseTerminalSessionsOptions): Termi
     live ? getLiveTerminalSessionsSnapshot : getTerminalSessionsSnapshot,
     live ? getLiveTerminalSessionsSnapshot : getTerminalSessionsSnapshot,
   )
+}
+
+/**
+ * The sessions one workspace's surfaces can be about — its own, and any that
+ * name no workspace — as an array that keeps its identity until one of THEM
+ * changes in a rendered way. A workspace layout keyed on the whole list rebuilt
+ * every tab whenever any agent in any workspace moved.
+ */
+export function useWorkspaceTerminalSessions(workspaceId: string): TerminalSessionSnapshot[] {
+  const getSnapshot = useCallback(() => getWorkspaceTerminalSessionsSnapshot(workspaceId), [workspaceId])
+  return useSyncExternalStore(subscribeTerminalSessions, getSnapshot, getSnapshot)
 }
 
 export function isLiveTerminal(session: TerminalSessionSnapshot | null | undefined): boolean {
@@ -119,7 +135,7 @@ export function deriveWorkspaceTerminalActivity(
     if (activity.kind === 'working') {
       // Live processes only (`isSessionWorking`). A chat whose last agent was
       // paused mid-turn would otherwise read as working for as long as the
-      // frozen session sits in the list: bold row, working dots, no idle
+      // frozen session sits in the list: bold row, working mark, no idle
       // clock — the sidebar claiming an agent that is not there.
       if (!isSessionWorking(session)) continue
       if (workingSince === null || activity.since < workingSince) workingSince = activity.since
@@ -303,7 +319,9 @@ export function deriveWorkspaceDisplayActivity(
   return 'idle'
 }
 
-export type TabRecencySource = 'idle' | 'input' | 'persisted' | 'exited'
+// `finished` is a chat's: when its last turn ended. It has no word — a chat
+// reads as the time alone ("3m"), on the tab, the card and the sidebar.
+export type TabRecencySource = 'idle' | 'input' | 'persisted' | 'exited' | 'finished'
 
 export type TabRecencyDisplay = {
   at: number
@@ -353,5 +371,6 @@ export function tabRecencyLabel(source: TabRecencySource): string {
   if (source === 'idle') return 'Idle'
   if (source === 'input') return 'Last typed'
   if (source === 'persisted') return 'Last activity'
+  if (source === 'finished') return ''
   return 'Exited'
 }

@@ -2,9 +2,9 @@ import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { isAbsolute, join, relative } from 'node:path'
 
+import { isPackExcludedPath } from './manifest-validate.js'
 import {
   MARKETPLACE_COMPONENT_KINDS,
-  marketplaceAutomationPayloadIssues,
   type MarketplaceComponentFileDigest,
   type MarketplaceComponentKind,
   type MarketplaceManifestIssue,
@@ -57,7 +57,7 @@ function computeMarketplaceComponentFileDigestsSync(
     }
 
     const relPath = pathForManifest(relative(bundleRoot, absoluteFilePath))
-    if (!isInsideOrEqualPath(bundleRoot, absoluteFilePath) || isPackExcludedComponentPath(relPath)) {
+    if (!isInsideOrEqualPath(bundleRoot, absoluteFilePath) || isPackExcludedPath(relPath)) {
       issues.push({
         path: `${issuePath}.files`,
         message:
@@ -151,44 +151,12 @@ export function marketplaceComponentDigestMismatchIssuesSync(
   return dedupeIssues(issues)
 }
 
-// Read the declared automation payload off disk and structurally validate it.
-// The bundle gates (pack/sign, download-stage, install preflight) all reach the
-// bytes through a bundle root, so the read lives here beside the digest walk
-// rather than in the node-free manifest module.
-export function marketplaceAutomationPayloadIssuesSync(
-  bundleRoot: string,
-  components: MarketplacePluginComponents,
-): MarketplaceManifestIssue[] {
-  const component = components.automation
-  if (!component) return []
-  let source: string
-  try {
-    source = readFileSync(join(bundleRoot, component.path), 'utf8')
-  } catch (error) {
-    return [
-      {
-        path: 'components.automation.path',
-        message: `automation payload "${component.path}" could not be read: ${error instanceof Error ? error.message : 'read error'}.`,
-      },
-    ]
-  }
-  return marketplaceAutomationPayloadIssues(source)
-}
-
 function componentKinds(manifest: Pick<MarketplacePluginManifest, 'components'>): MarketplaceComponentKind[] {
   return MARKETPLACE_COMPONENT_KINDS.filter((kind) => manifest.components[kind] !== undefined)
 }
 
 function pathForManifest(path: string): string {
   return path.split(/[\\/]+/).join('/')
-}
-
-function isPackExcludedComponentPath(path: string): boolean {
-  const segments = path.split('/')
-  const name = segments[segments.length - 1] ?? ''
-  return (
-    segments.includes('node_modules') || segments.includes('.git') || name.endsWith('.key') || name.endsWith('.pem')
-  )
 }
 
 function isInsideOrEqualPath(parent: string, candidate: string): boolean {

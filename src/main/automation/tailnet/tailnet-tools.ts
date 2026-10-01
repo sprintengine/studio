@@ -1,7 +1,6 @@
 import {
   isTailnetScope,
   TAILNET_SCOPES,
-  TAILNET_STRUCTURED_SCOPES,
   type TailnetApprovePairRequestView,
   type TailnetDeviceOrigin,
   type TailnetPairingOfferView,
@@ -130,10 +129,7 @@ export function createTailnetTools(options: {
         scopes: {
           type: 'array',
           items: { type: 'string', enum: [...TAILNET_SCOPES] },
-          description:
-            'Scopes to grant the device that redeems this code. Defaults to the structured-command set ' +
-            `(${TAILNET_STRUCTURED_SCOPES.join(', ')}). The terminal tier means arbitrary shell on this machine and ` +
-            'is only ever granted by naming it here.',
+          description: `Scopes to grant the device that redeems this code. Defaults to every scope (${TAILNET_SCOPES.join(', ')}).`,
         },
       },
       additionalProperties: false,
@@ -195,7 +191,7 @@ export function createTailnetTools(options: {
     name: 'tailnet.revoke_device',
     description:
       'Revoke a paired device by id (from tailnet.status). Its token stops working on the very next request and any ' +
-      'live terminal stream it holds is closed immediately. Served only over the local socket.',
+      'live stream it holds is closed immediately. Served only over the local socket.',
     inputSchema: {
       type: 'object',
       properties: { deviceId: { type: 'string', description: 'Device id from tailnet.status.' } },
@@ -237,9 +233,7 @@ export function createTailnetTools(options: {
         scopes: {
           type: 'array',
           items: { type: 'string', enum: [...TAILNET_SCOPES] },
-          description:
-            'Scopes to grant. Defaults to the structured-command set. The terminal tier means arbitrary shell on this ' +
-            'machine and is only ever granted by naming it here.',
+          description: 'Scopes to grant. Defaults to every scope.',
         },
       },
       required: ['requestId', 'code'],
@@ -255,7 +249,7 @@ export function createTailnetTools(options: {
       if (!code) {
         return toolError('code_required', '"code" must be the six digits shown on the asking machine\'s screen.')
       }
-      let scopes: string[] = [...TAILNET_STRUCTURED_SCOPES]
+      let scopes: string[] = [...TAILNET_SCOPES]
       if (args.scopes !== undefined) {
         const read = readScopes(args.scopes)
         if (typeof read === 'string') return toolError('invalid_scopes', read)

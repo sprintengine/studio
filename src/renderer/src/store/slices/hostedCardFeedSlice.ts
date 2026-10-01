@@ -1,9 +1,9 @@
 import type { HostedCardFeedReadResult } from '../../../../shared/electron-api'
 import type { HostedCard } from '../../../../shared/hosted-card-feed'
 
-// The hosted card feed as the renderer sees it, the model feed slice's sibling
-// and not a generalisation of it — the two feeds have different schemas and are
-// free to drift, and a shared slice would make one feed's change the other
+// The hosted card feed as the renderer sees it, its own slice and not a
+// generalisation over the hosted feeds — they have different schemas and are
+// free to drift, and a shared slice would make one feed's change another
 // feed's problem. Not persisted: the main process owns the cache on disk and
 // serves it at boot, so a stale renderer copy cannot outlive the file.
 //
@@ -34,10 +34,9 @@ interface HostedCardFeedSliceActions {
 
 // **There is deliberately no `refreshCards` here** (decided 2026-09-06,
 // backlog/2026-09-06-the-seams-that-lead-nowhere.md §1). This slice carried one
-// — `refreshCards({ force })`, the twin of the model feed's
-// `refreshHostedModelFeed` — and unlike that twin it had no caller anywhere in
-// the app. The model feed's action is pressed by Settings → "Check now"
-// (SettingsPanel.tsx); the card feed has no such button, so what shipped was a
+// — `refreshCards({ force })`, modelled on a Settings "Check now" action — and
+// unlike that action it had no caller anywhere in the app. The card feed has
+// no such button, so what shipped was a
 // store action that LOOKED like the way to refresh the home page and was wired
 // to nothing, which is worse than its absence: the next reader adds a second
 // fetch path beside it rather than asking why the first one never ran.

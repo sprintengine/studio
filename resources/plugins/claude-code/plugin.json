@@ -9,16 +9,39 @@
   "binary": "claude",
   "permissionPresets": {
     "manual": {
-      "label": "Manual — ask before every action",
+      "$comment": "Claude Code's default mode: it asks before edits and commands. A chat adds a hook that asks before the commands it would otherwise judge read-only too; a terminal agent gets the CLI's own default mode.",
+      "label": "Manual",
+      "summary": "Asks before edits and commands.",
+      "description": "Claude Code’s asking mode: it asks before every edit and every command it does not already know to be safe. In a chat, every action that changes something or reaches out asks; reading and searching the workspace does not.",
       "args": ["--permission-mode", "default"]
     },
+    "acceptEdits": {
+      "$comment": "Claude Code's own Accept edits mode, at the Auto level: what Auto meant for Claude until Auto became its classifier (owner ruling 2026-10-01), still there for a person who wants edits through and every command asked.",
+      "label": "Accept edits",
+      "summary": "Edits go through; commands ask.",
+      "description": "Claude Code’s Accept edits mode: file edits in the workspace go through without asking, and commands ask first.",
+      "level": "auto",
+      "args": ["--permission-mode", "acceptEdits"]
+    },
     "auto": {
-      "$comment": "Claude Code's auto mode: a second model (the classifier) reviews each action before it runs instead of the user. NOT workspace-scoped \u2014 the preset this replaced was labelled \"Auto-approve workspace edits\", which described Codex's sandbox rung and misdescribed this one. Reads and in-project edits skip the classifier; shell, network, out-of-project writes and subagent spawns are reviewed.",
-      "label": "Auto — the classifier reviews each action",
+      "$comment": "The CLI's own classifier mode (owner ruling 2026-10-01): a person who picks Auto for Claude expects Claude's auto mode, and acceptEdits asked before every command. Where the account or model is not offered the classifier, the CLI starts in its asking mode instead.",
+      "label": "Auto",
+      "summary": "Claude runs what it judges safe; blocks the rest.",
+      "description": "Claude Code’s own auto mode: a classifier runs the tool calls it judges safe and turns the risky ones back to Claude. Where your plan or model does not offer it, Claude asks instead.",
       "args": ["--permission-mode", "auto"]
     },
+    "dontAsk": {
+      "$comment": "Claude Code's own Don't ask mode: it never asks, and refuses whatever the person's allow rules do not already cover. At the Manual level, since nothing outside those rules runs.",
+      "label": "Don’t ask",
+      "summary": "Never asks; refuses what your rules don’t allow.",
+      "description": "Claude Code’s Don’t ask mode: it never stops to ask, and turns down every tool call your own allow rules do not already cover.",
+      "level": "manual",
+      "args": ["--permission-mode", "dontAsk"]
+    },
     "bypass": {
-      "label": "Bypass all approvals (dangerous)",
+      "label": "Bypass permissions",
+      "summary": "Skips every prompt. Trusted repos only.",
+      "description": "Claude Code’s Bypass permissions mode: no prompts at all. Use only in repositories and environments you trust.",
       "args": ["--permission-mode", "bypassPermissions"]
     }
   },
@@ -26,6 +49,8 @@
     "args": ["--model", "{{model}}"],
     "options": [
       { "id": "claude-fable-5-1", "label": "Fable 5.1" },
+      { "id": "claude-opus-5-5", "label": "Opus 5.5" },
+      { "id": "claude-opus-5-5[1m]", "label": "Opus 5.5 (1M context)" },
       { "id": "fable", "label": "Fable (latest)" },
       { "id": "claude-opus-5", "label": "Opus 5" },
       { "id": "claude-opus-5[1m]", "label": "Opus 5 (1M context)" },
@@ -86,7 +111,11 @@
     ]
   },
   "promptInjection": {
-    "mode": "positional-arg"
+    "mode": "positional-arg",
+    "overflow": {
+      "$comment": "A first message too long for the platform's command line (a pasted log; see src/main/launch-arg-budget.ts) is typed in instead: the launch drops it and the host pastes it, bracketed, then presses Enter once the TUI is reading. Verified 2026-09-24 against the installed CLI 2.1.282: --help documents no prompt-file option and no stdin prompt for an interactive session (--input-format and piped stdin apply only with --print), and a 300 KB bracketed paste followed by Enter, written once output had gone quiet after the TUI enabled bracketed paste, was submitted as one message and answered once.",
+      "mode": "input"
+    }
   },
   "contextInjection": {
     "$comment": "claude --append-system-prompt-file <path>, verified against the installed CLI 2.1.263: the options list documents --append-system-prompt, and --bare's own text names the file variant as --append-system-prompt[-file]. A FILE rather than the text because the host-context document is multi-line markdown, and argv is not where a document belongs. Spread into launch AND resume argv, so a resumed session is re-told what the host said.",
@@ -132,7 +161,10 @@
       {
         "event": "Notification",
         "phase": "awaiting_input",
-        "when": { "field": "notificationType", "oneOf": ["permission_prompt", "elicitation_dialog", "agent_needs_input"] }
+        "when": {
+          "field": "notificationType",
+          "oneOf": ["permission_prompt", "elicitation_dialog", "agent_needs_input"]
+        }
       },
       { "event": "Stop", "phase": "idle", "turnEnd": true },
       { "event": "SubagentStart", "phase": "tool_use", "background": "start" },
@@ -143,7 +175,7 @@
   "detect": {
     "versionArgs": ["--version"]
   },
-  "package": {"npm": "@anthropic-ai/claude-code", "brew": "claude-code"},
+  "package": { "npm": "@anthropic-ai/claude-code", "brew": "claude-code" },
   "update": {
     "args": ["update"]
   },

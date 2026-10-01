@@ -80,11 +80,11 @@ export function WorkspacePaneColumn({ activeWorkspaceId, renderedWorkspaceIds }:
   // shows it. One tab per board, so a board that is already open is focused
   // rather than opened twice (the slice's own rule; this just asks).
   //
-  // It deliberately does NOT maximise the pane. The editor drops to its compact
-  // layout in a docked pane, and that is the trade: an agent revealing what it
-  // is about to draw must not take the window away from what the person is
-  // doing. A person opening a Canvas tab themselves does get the width
-  // (WorkspacePane's launcher, and the toggle command).
+  // It does NOT maximise the pane. The editor drops to its compact layout in a
+  // docked pane, and that is the trade: an agent revealing what it is about to
+  // draw must not take the window away from what the person is doing. A Canvas
+  // tab the person opens is docked too (owner ruling 2026-09-22); only the
+  // strip's Maximise control widens the pane.
   useEffect(
     () =>
       window.api.onCanvasOpenRequest(({ workspaceId, path }) => {
@@ -94,6 +94,30 @@ export function WorkspacePaneColumn({ activeWorkspaceId, renderedWorkspaceIds }:
         // on nothing new would be a window change with no answer in it.
         if (store.openPaneTab(workspaceId, { kind: 'canvas', canvas: { path } }) === null) return
         store.setPaneOpen(workspaceId, true)
+      }),
+    [activeWorkspaceId],
+  )
+
+  // tour.create from an agent: dock the Diff tab with the tour offered on it,
+  // WITHOUT selecting it or opening the pane — an agent finishing its tour must
+  // not move the owner's view. The tab's "tour ready" mark and the one
+  // attention event main raises are the whole announcement; the answer tells
+  // the tool the tab is there (`revealed: true`). Only the window SHOWING the
+  // workspace answers, the same rule as the canvas and the browser.
+  useEffect(
+    () =>
+      window.api.onTourRevealRequest(({ requestId, workspaceId, tourId }) => {
+        if (workspaceId !== activeWorkspaceId) return
+        const store = useWorkspaceStore.getState()
+        const pane = store.workspaces.find((w) => w.id === workspaceId)?.paneState
+        const existing = pane?.tabs.find((tab) => tab.kind === 'diff')
+        const opened = store.openPaneTab(workspaceId, {
+          kind: 'diff',
+          diff: { ...(existing?.diff ?? { focusPath: null, focusKind: null }), tourOffer: tourId },
+          activate: false,
+        })
+        if (opened === null) return
+        window.api.tourAcknowledgeReveal(requestId)
       }),
     [activeWorkspaceId],
   )

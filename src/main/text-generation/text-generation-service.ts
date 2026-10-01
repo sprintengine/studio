@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 import type { CliDetectResult } from '../../shared/electron-api'
+import { LOCAL_HOST_ID, type ExecutionHostId } from '../../shared/execution-host'
 import {
   CHAT_TITLE_OUTPUT_SCHEMA,
   buildChatTitlePrompt,
@@ -44,7 +45,7 @@ import {
 import { runCommand, type RunCommand } from './run-command'
 
 export type TextGenerationServiceDeps = {
-  detect?: (cli: string, runtime?: { command?: string; useWsl?: boolean }) => Promise<CliDetectResult>
+  detect?: (cli: string, runtime?: { command?: string; hostId?: ExecutionHostId }) => Promise<CliDetectResult>
   run?: RunCommand
   env?: () => Record<string, string>
   /** Where scratch directories are made. Defaults to the OS temp dir. */
@@ -128,13 +129,16 @@ async function prepareBackend(
 // title never pays for a fresh login-shell probe when a spawn moments ago
 // already answered. Errored probes are absent from the map, which reads here
 // as "could not be probed" — never as "not installed".
-async function cachedDetect(cli: string, runtime?: { command?: string; useWsl?: boolean }): Promise<CliDetectResult> {
+async function cachedDetect(
+  cli: string,
+  runtime?: { command?: string; hostId?: ExecutionHostId },
+): Promise<CliDetectResult> {
   const base = {
     cli,
     binary: runtime?.command?.trim() || cli,
     version: null,
     resolvedPath: null,
-    useWsl: runtime?.useWsl ?? false,
+    hostId: runtime?.hostId ?? LOCAL_HOST_ID,
   }
   const entry = listPluginRegistryEntries().find((candidate) => candidate.id === cli)
   if (!entry) return { ...base, installed: false, error: `No plugin manifest found for "${cli}".` }
@@ -215,10 +219,38 @@ function runFailure(
     return {
       ok: false,
       code: 'transport',
-      message: detail ? `${cli} exited ${outcome.code}: ${lastLine(detail)}` : `${cli} exited ${outcome.code}.`,
+      message: detail ? `${cli} exited ${outcome.code}: ${failureReason(detail)}` : `${cli} exited ${outcome.code}.`,
     }
   }
   return null
+}
+
+// The one line of a failed run worth keeping. Usually the last line, but
+// `codex exec` prints a refused API request as `ERROR:` followed by the
+// response body pretty-printed over several lines — the last line of that is
+// a lone `}` — so the body's own message is read out instead. A refused model
+// or effort level then names itself in the diagnostics log.
+function failureReason(detail: string): string {
+  const marker = detail.lastIndexOf('ERROR:')
+  if (marker !== -1) {
+    const reason = apiErrorMessage(detail.slice(marker + 'ERROR:'.length).trim())
+    if (reason) return reason
+  }
+  return lastLine(detail)
+}
+
+function apiErrorMessage(body: string): string | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(body)
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object') return null
+  const { error, message } = parsed as { error?: unknown; message?: unknown }
+  const nested = error && typeof error === 'object' ? (error as { message?: unknown }).message : undefined
+  const reason = typeof nested === 'string' ? nested : typeof message === 'string' ? message : null
+  return reason?.trim() || null
 }
 
 function guard(raw: string | null, cli: string, ms: number): TextGenerationResult {

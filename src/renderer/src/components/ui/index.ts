@@ -9,9 +9,11 @@ export { Section } from './Section'
 export { DefinitionList } from './DefinitionList'
 export type { DefinitionItem } from './DefinitionList'
 export { StatusDot } from './StatusDot'
-export { AgentWorkingDots } from './AgentWorkingDots'
+export { WorkingMark, WORKING_MARK_VARIANTS, type WorkingMarkVariant } from './WorkingMark'
+export { AgentGlyph, type AgentGlyphState } from './AgentGlyph'
 export { ContextRing, CONTEXT_RING_WARN_PERCENTAGE } from './ContextRing'
 export { Spinner } from './Spinner'
+export { WorkingEdge } from './WorkingEdge'
 export { LifecycleGlyph, type LifecycleState } from './LifecycleGlyph'
 export { PullRequestGlyph } from './PullRequestGlyph'
 export {
@@ -24,6 +26,10 @@ export {
   PrimaryButton,
 } from './Buttons'
 export type { ButtonAlign, ButtonSize, ButtonTone, CaptionButtonTone, GhostTone, IconButtonSize } from './Buttons'
+// The one copy affordance (design-system/components/button → The copy glyph):
+// an IconButton that confirms in place instead of spelling "Copy".
+export { COPY_CONFIRM_MS, CopyGlyphButton } from './CopyGlyphButton'
+export type { CopyGlyphButtonProps } from './CopyGlyphButton'
 // The five shapes the button family was missing (the raw-primitive
 // sweep, 2026-09-08). Each is a species, not a restyle: a row, a value row, a
 // popover trigger, a tile and a text link answer questions the three sized
@@ -65,6 +71,18 @@ export {
 // The changelist quartet (git-commit-window T6): new, delete, edit, and the
 // patch a selection is written out as.
 export { CreatePatchGlyph, DeleteChangelistGlyph, EditChangelistGlyph, NewChangelistGlyph } from './GitActionGlyphs'
+// The diff tour's marks (design-system/components/tour-strip): the tour itself,
+// Play and Pause, and the step list's toggle.
+export { PauseGlyph, PlayGlyph, StepListGlyph, TourGlyph } from './TourGlyphs'
+export { ToolKindGlyph } from './ToolKindGlyph'
+// The diff tour's surfaces (design-system/components/tour-strip, tour-callout):
+// the band, the callout a step is said in, the step list and the Start card.
+export { TourProgress, TourStrip } from './TourStrip'
+export type { TourProgressMark, TourStripProps } from './TourStrip'
+export { TourCallout } from './TourCallout'
+export type { TourCalloutAskState, TourCalloutProps } from './TourCallout'
+export { TourReadyCard, TourStepList } from './TourStepList'
+export type { TourStepListItem } from './TourStepList'
 // The overflow mark, one drawing. Two surfaces drew it privately at two
 // pitches until 2026-09-09 — `OverflowMenu`'s own trigger and the Git panel's
 // group band — which is exactly the drift `design-system/glyphs/` exists to
@@ -76,10 +94,14 @@ export { MicroChip } from './DefaultChip'
 export { ConfirmDialogProvider, useConfirmDialog } from './ConfirmDialog'
 export { CliModelPickerButton, CliModelPopoverSurface } from './CliModelPicker'
 export {
-  resolveModelPermissionPreset,
-  setModelPermissionPreset,
-  useModelPermissionPreset,
-} from './modelPermissionPresets'
+  cliPermissionModeLaunch,
+  cliPermissionModePatch,
+  resolveCliPermissionPreset,
+  setCliPermissionPreset,
+  storedCliPermissionMode,
+  useCliPermissionMode,
+  useCliPermissionPreset,
+} from './cliPermissionPresets'
 export { Popover } from './Popover'
 export { FilterMenu } from './FilterMenu'
 export type { FilterMenuGroup } from './FilterMenu'

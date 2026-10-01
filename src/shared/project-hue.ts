@@ -1,11 +1,13 @@
 // The project hue, and nothing else.
 //
 // Extracted from renderer/src/utils/projectColor.ts (which now re-exports it)
-// because main has to derive the same hue: `terminal.list` carries a row's
-// project colour to a paired phone, and the phone must land on the SAME degree
-// the desktop's own sidebar is painting. Duplicating the hash in the mobile
-// repo would be two spellings of one wheel, drifting the first time either is
-// touched — the exact bug the "derived, not allocated" decision exists to stop.
+// when main had to derive the same hue for a row it sent a paired phone. That
+// row left with remote terminals (2026-09-29); the hash stays here because it
+// is pure and host-free, and anything that sends a colour over a wire again
+// must land on the SAME degree the desktop's own sidebar is painting.
+// Duplicating the hash in the mobile repo would be two spellings of one wheel,
+// drifting the first time either is touched — the exact bug the "derived, not
+// allocated" decision exists to stop.
 //
 // Pure: no React, no DOM, no settings. The override lookup and the CSS plumbing
 // stay in the renderer module, because both are a screen's business; the hash

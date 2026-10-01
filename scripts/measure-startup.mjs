@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 // Startup measurement harness. Launches the built app N times with the
 // boot timeline switched on, parses the read-out each launch prints, and reports
-// the median per phase — so the bundle-size ceiling in
-// `scripts/check-bundle-budget.mjs` can be argued from wall-clock numbers rather
-// than from a round number nobody measured.
+// the median per phase — so a change to what boot loads can be judged by what it
+// costs on the wall clock rather than by how many kilobytes it adds.
 //
 //   node scripts/measure-startup.mjs                     # 5 runs, fresh profile each
 //   node scripts/measure-startup.mjs --runs 3 --profile reuse
@@ -53,7 +52,6 @@ function fail(message) {
   process.exit(1)
 }
 
-// The eager entry chunk, the thing the ceiling is about: largest index-*.js.
 /**
  * The renderer's entry chunk, read out of `out/renderer/index.html` rather than
  * guessed from a filename.
@@ -62,12 +60,11 @@ function fail(message) {
  * was the only HTML entry. The canvas worker made it a third one, and with it
  * came LAZY chunks that are also called `index-*.js` — the Mermaid importer is
  * ~1 MB of one — so the old rule was one growth spurt away from reporting a
- * chunk the shell never loads. `scripts/check-bundle-budget.mjs` reads the same
- * document for the same reason; the note at the top of that file has the
- * details. `eagerTotalKb` is the whole boot graph (this chunk plus every
- * modulepreload beside it), which is what the ceiling there is measured
- * against; the compile timing below stays on the entry alone, because that is
- * the one file it makes sense to compile in isolation.
+ * chunk the shell never loads. `index.html` lists exactly what boot fetches:
+ * its one entry `<script type="module">` and every `<link rel="modulepreload">`
+ * Rollup emitted beside it. `eagerTotalKb` is that whole set, reported beside
+ * the timings for context; the compile timing below stays on the entry alone,
+ * because that is the one file it makes sense to compile in isolation.
  */
 function eagerChunk() {
   let html

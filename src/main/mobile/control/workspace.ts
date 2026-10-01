@@ -13,8 +13,8 @@ export async function validateMobileWorkspacePath(input: {
   // root still resolve.
   workspaceRootCandidates?: string[]
 }): Promise<string> {
-  // The phone receives a relay-safe workspace token in place of the absolute root
-  // (the relay forbids local paths in snapshots), so reverse it before
+  // The phone receives a workspace token in place of the absolute root (local
+  // paths never leave the desktop), so reverse it before
   // validating. A real absolute path is still accepted for backward compatibility.
   let requestedPath = input.workspacePath
   if (isWorkspaceIdToken(requestedPath)) {

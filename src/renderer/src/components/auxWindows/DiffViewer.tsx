@@ -15,7 +15,7 @@ import { joinFilePath } from '../../utils/paths'
 import { BranchStepStrip, BRANCH_STEP_PANEL_ID } from './BranchStepStrip'
 import { branchItemsFrom, scopeNote, stripEntriesFrom, type BranchDiffItem } from './branchSteps'
 import { useBranchSteps } from './useBranchSteps'
-import { MONO_FONT_STACK } from '../../utils/fonts'
+import { MONO_FONT_STACK, remeasureMonacoFontsOnLoad } from '../../utils/fonts'
 import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
 import { buildDiffFileList, findDiffFocusIndex, type DiffFileItem } from './diffFileList'
 import { navigateFile, nextDiffPosition, resolveEdgeHunkIndex, takesNavigationKey } from './diffNavigation'
@@ -26,6 +26,7 @@ import {
   FileTypeGlyph,
   GearGlyph,
   InlineNotice,
+  LinkButton,
   MenuItem,
   MicroChip,
   NextDifferenceGlyph,
@@ -48,9 +49,14 @@ import {
 import { MENU_LIST_CLASS } from '../ui/menuClasses'
 import { FOCUS_RING_INSET_CLASS } from '../ui/tokens'
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHT_INSET } from '../workspace/AppTitleBar'
+import { WindowCloseButton } from '../workspace/WindowControls'
 import { openDiffWindow } from './openDiffWindow'
 import { openExternalFileWindow } from './openFileWindow'
 import { openFileSurface } from '../../utils/openFileSurface'
+import { configureMonacoLanguages } from '../../utils/patchLanguage'
+import { revealEditorRange } from '../../utils/agentEditorReveal'
+import type { EditorRange } from '../../../../shared/editor-reveal'
+import type { BranchStepSelection } from '../../../../shared/electron-api'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { writeAuxWindowSetting } from './auxSettingsWrite'
 import { getGitEntry } from '../../hooks/useGitStatus'
@@ -59,6 +65,10 @@ import { hunkGutterLine } from '../../../../shared/git/hunks'
 import { HunkGutter, GLYPH_MARGIN_LANE_CENTER, type GlyphMarginHost } from './HunkGutter'
 import { hunkBoxes, hunkFileKey } from './hunkGutterModel'
 import { useFileHunks } from './useFileHunks'
+import { isTourItem } from './tours/tourModel'
+import { TourMenu } from './tours/TourMenu'
+import { useTourPlayer, useTourState, type TourHostState } from './tours/useTourMode'
+import { StudioSkillSuggestion } from '../studioSkills/StudioSkillSuggestion'
 import {
   DEFAULT_DIFF_EDITOR_PREFS,
   diffEditorOptions,
@@ -119,6 +129,31 @@ type Props = {
    * step through.
    */
   branchSteps?: boolean
+  /**
+   * An agent's reveal (editor.open_diff): show only these repo-relative paths,
+   * with a "Showing 3 of 40 changed files · Show all" line as the way back.
+   * Null shows every file, which is every diff a person opens.
+   */
+  pathsFilter?: readonly string[] | null
+  /** The lines of `focusPath` to land on and briefly highlight, on `focusSide`. */
+  focusRange?: EditorRange | null
+  focusSide?: 'modified' | 'original'
+  /** The branch step to open on (pane only); applied again whenever `revealKey` changes. */
+  focusStep?: BranchStepSelection | null
+  /** Changes with every agent reveal, so the same range or filter can be shown twice. */
+  revealKey?: string | null
+  /**
+   * The diff tours this viewer holds, as its host keeps them across a remount:
+   * the tour it had open (and whether it was playing), and a tour an agent has
+   * just written. Nothing plays until the owner presses Start.
+   */
+  tourHost?: TourHostState | null
+  /** The owner has seen the offered tour (started it or put it off); the host clears its "tour ready" mark. */
+  onTourOfferTaken?: () => void
+  /** The tour the viewer has open changed; the host keeps it for the next mount. */
+  onTourCurrentChange?: (current: TourHostState['current']) => void
+  /** Whether this viewer is on screen now — `tour.goto` moves only a viewer the owner can see. Defaults to true. */
+  visible?: boolean
 }
 
 type DiffContent =
@@ -244,13 +279,20 @@ async function loadDiffContent(repoRoot: string, item: DiffFileItem): Promise<Di
 
   if (item.kind === 'branch') {
     const branch = item as BranchDiffItem
+    // A tour's file reads from the tour's own repository (a worktree agent's
+    // may not be the pane's), its old side from the path before a rename, and
+    // a deleted file is played as its old text on both sides (tourModel).
+    const tour = isTourItem(item) ? item : null
+    const root = tour?.repoRoot ?? repoRoot
+    const originalPath = tour?.originalRelativePath ?? branch.relativePath
     const [original, modified] = await Promise.all([
-      readRevSide(repoRoot, branch.relativePath, branch.originalRev),
-      readRevSide(repoRoot, branch.relativePath, branch.modifiedRev),
+      readRevSide(root, originalPath, branch.originalRev),
+      tour?.mirrorOriginal ? null : readRevSide(root, branch.relativePath, branch.modifiedRev),
     ])
-    if (original.tooLarge || modified.tooLarge) return { state: 'too-large' }
-    if (original.binary || modified.binary) return { state: 'binary' }
-    return { state: 'ready', original: original.content, modified: modified.content, language }
+    const other = modified ?? original
+    if (original.tooLarge || other.tooLarge) return { state: 'too-large' }
+    if (original.binary || other.binary) return { state: 'binary' }
+    return { state: 'ready', original: original.content, modified: other.content, language }
   }
 
   if (item.kind === 'staged') {
@@ -457,6 +499,7 @@ export function DiffBody({
   return (
     <DiffEditor
       height="100%"
+      beforeMount={configureMonacoLanguages}
       theme={monacoTheme}
       original={content.original}
       modified={content.modified}
@@ -487,6 +530,15 @@ export function DiffViewer({
   variant = 'window',
   onItemCountChange,
   branchSteps = false,
+  pathsFilter = null,
+  focusRange = null,
+  focusSide = 'modified',
+  focusStep = null,
+  revealKey = null,
+  tourHost = null,
+  onTourOfferTaken,
+  onTourCurrentChange,
+  visible = true,
 }: Props) {
   const { status, repoState, repoRoot: gitRoot, refresh: refreshGitStatus } = useGitStatus(repoRoot)
   // Ticks once per completed status read of this repository — the cue that the
@@ -500,7 +552,12 @@ export function DiffViewer({
   // status snapshot is the revision token: a rebase or a commit changes it, and
   // a strip held across one would be confidently wrong about hashes that no
   // longer exist.
-  const steps = useBranchSteps(repoRoot, branchSteps, status)
+  const steps = useBranchSteps(
+    repoRoot,
+    branchSteps,
+    status,
+    focusStep && revealKey ? { selection: focusStep, key: revealKey } : null,
+  )
   const stripEntries = useMemo(() => stripEntriesFrom(steps.snapshot), [steps.snapshot])
   const stepNote = useMemo(() => scopeNote(steps.snapshot), [steps.snapshot])
   // ── The changelist filter ───────────────────────────────────────────────
@@ -578,7 +635,29 @@ export function DiffViewer({
   // Whether what the pane is showing is the working tree at all — the one step
   // the filter can empty honestly.
   const branchShowsWorktree = unfilteredBranchItems.some((item) => item.modifiedRev === 'worktree')
-  const items = branchSteps ? branchItems : workingItems
+  // ── Diff tours ──────────────────────────────────────────────────────────
+  // While a tour plays, the viewer steps through the tour's files instead of
+  // the working tree's or a commit step's: one list swapped for another under
+  // the same mounted editor (tours/useTourMode). An agent's `paths` narrowing
+  // below applies to the ordinary list only.
+  const tourState = useTourState({ workspaceId, host: tourHost, visible })
+  const unnarrowedItems = branchSteps ? branchItems : workingItems
+  // The agent's `paths` narrowing. The person owns it from the first click on
+  // "Show all"; a new reveal (a new key) narrows again.
+  const pathsKey = pathsFilter && pathsFilter.length > 0 ? `${revealKey ?? ''}\n${pathsFilter.join('\n')}` : null
+  const [pathsShownAll, setPathsShownAll] = useState<string | null>(null)
+  const narrowing = pathsKey !== null && pathsShownAll !== pathsKey
+  const narrowedItems = useMemo(() => {
+    if (!narrowing || !pathsFilter) return unnarrowedItems
+    const wanted = new Set(pathsFilter.map(normalizeChangelistPath))
+    return unnarrowedItems.filter((item) => wanted.has(normalizeChangelistPath(item.relativePath)))
+  }, [narrowing, pathsFilter, unnarrowedItems])
+  const narrowedCounts = useMemo(() => {
+    if (!narrowing) return null
+    const distinct = (list: DiffFileItem[]): number => new Set(list.map((item) => item.relativePath)).size
+    return { shown: distinct(narrowedItems), total: distinct(unnarrowedItems) }
+  }, [narrowing, narrowedItems, unnarrowedItems])
+  const items = tourState.items ?? narrowedItems
 
   useEffect(() => {
     onItemCountChange?.(items.length)
@@ -650,6 +729,21 @@ export function DiffViewer({
   // two things the per-hunk include boxes need (T7). State rather than a ref
   // because the boxes are React's to render and must appear when Monaco does.
   const [gutterHost, setGutterHost] = useState<{ editor: GlyphMarginHost; lane: number } | null>(null)
+  // The editor and Monaco itself, for the tour layer — state, like the gutter
+  // host, because the layer is React's to draw and must follow the mount.
+  const [mountedEditor, setMountedEditor] = useState<{
+    editor: Monaco.editor.IStandaloneDiffEditor
+    monaco: typeof Monaco
+  } | null>(null)
+  // The last diff Monaco drew and which item it was for: a tour step is placed
+  // on a file only once that file's diff is the one on screen.
+  const [diffState, setDiffState] = useState<{ version: number; key: string | null }>({ version: 0, key: null })
+  const tourActiveRef = useRef(false)
+  const tourPlayingKeyRef = useRef<Monaco.editor.IContextKey<boolean> | null>(null)
+  const tourKeyRef = useRef<(direction: 'next' | 'prev') => void>(() => {})
+  // The tour's `]` / `[` outside the editor (the strip, the step list), read
+  // through a ref by key handlers declared before the tour itself is.
+  const tourHandleKeyRef = useRef<(event: KeyboardEvent | React.KeyboardEvent) => boolean>(() => false)
   // Where the stepper stops, in order down the file. TWO sources, and which is
   // authoritative is finding 9: the counter reads git's `-U0` hunks while the
   // stepper read Monaco's `getLineChanges()`, and with `ignoreTrimWhitespace`
@@ -752,10 +846,14 @@ export function DiffViewer({
   // stays mounted, and the diff-update callback re-reveals the hunk the cursor
   // was on, so the position survives as well as it can.
   const appliedRevisionRef = useRef<number | null>(null)
+  // A playing tour may read another checkout (a worktree agent's): its tree
+  // ticks re-read the file on screen too, so the text and the tour's re-found
+  // lines are measured against the same files.
+  const liveRevision = treeRevision + tourState.tourTree
   useEffect(() => {
-    if (appliedRevisionRef.current === treeRevision) return
+    if (appliedRevisionRef.current === liveRevision) return
     const previous = appliedRevisionRef.current
-    appliedRevisionRef.current = treeRevision
+    appliedRevisionRef.current = liveRevision
     // Nothing to re-read until this viewer has seen a completed read: 0 is
     // "the hook has not answered yet", and the first real number is the read
     // the target effect above is already loading from.
@@ -774,7 +872,7 @@ export function DiffViewer({
       if (liveSeqRef.current !== liveToken) return
       setContent((previous) => (sameDiffContent(previous, next) ? previous : next))
     })
-  }, [treeRevision, repoRoot])
+  }, [liveRevision, repoRoot])
 
   // The steppers, reachable from the mount callback above the definitions they
   // point at. Monaco keybindings are registered ONCE, at mount, and a keybinding
@@ -802,9 +900,54 @@ export function DiffViewer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // An agent's range on the focus file, waiting for that file's diff to be on
+  // screen. Consumed once — after the viewer's own "land on the first hunk" —
+  // so the lines the agent means are what the person sees, highlighted for a
+  // beat, with the caret and the keyboard left alone.
+  const pendingRangeRef = useRef<{ path: string; range: EditorRange; side: 'modified' | 'original' } | null>(null)
+  const clearRangeHighlightRef = useRef<(() => void) | null>(null)
+  const landPendingRange = useCallback(() => {
+    const pending = pendingRangeRef.current
+    const editor = diffEditorRef.current
+    const item = currentItemRef.current
+    if (!pending || !editor || !item) return
+    if (item.path.replace(/\\/g, '/').toLowerCase() !== pending.path.replace(/\\/g, '/').toLowerCase()) return
+    pendingRangeRef.current = null
+    const side = pending.side === 'original' ? editor.getOriginalEditor() : editor.getModifiedEditor()
+    window.requestAnimationFrame(() => {
+      clearRangeHighlightRef.current?.()
+      clearRangeHighlightRef.current = revealEditorRange(side, pending.range, { highlight: true, moveCaret: false })
+    })
+  }, [])
+  // Keyed on the reveal alone: the range props are re-created by every host
+  // render, and a new object is not a new request.
+  const rangeRequestRef = useRef({ focusPath, focusRange, focusSide })
+  rangeRequestRef.current = { focusPath, focusRange, focusSide }
+  useEffect(() => {
+    const request = rangeRequestRef.current
+    if (!revealKey || !request.focusRange || !request.focusPath) return
+    pendingRangeRef.current = { path: request.focusPath, range: request.focusRange, side: request.focusSide }
+    // Already on screen (a retarget to the file that is showing): land now.
+    if (contentRef.current.state === 'ready') landPendingRange()
+  }, [revealKey, landPendingRange])
+  useEffect(() => () => clearRangeHighlightRef.current?.(), [])
+
   const handleDiffMount = useCallback<DiffOnMount>(
     (editor, monaco) => {
       diffEditorRef.current = editor
+      setMountedEditor({ editor, monaco })
+      // `]` / `[` step a tour while the diff has the keyboard — and only while
+      // one plays: the context key keeps both keys ordinary characters
+      // otherwise, and neither touches F7 or ⌘↑ / ⌘↓.
+      const tourPlaying = editor.createContextKey('sprintengineTourPlaying', tourActiveRef.current)
+      tourPlayingKeyRef.current = tourPlaying
+      editor.addCommand(monaco.KeyCode.BracketRight, () => tourKeyRef.current('next'), 'sprintengineTourPlaying')
+      editor.addCommand(monaco.KeyCode.BracketLeft, () => tourKeyRef.current('prev'), 'sprintengineTourPlaying')
+      // The diff editor's own commands reach the modified side; an old-side
+      // step plays in the original editor, so the keys are bound there too.
+      const original = editor.getOriginalEditor()
+      original.addCommand(monaco.KeyCode.BracketRight, () => tourKeyRef.current('next'), 'sprintengineTourPlaying')
+      original.addCommand(monaco.KeyCode.BracketLeft, () => tourKeyRef.current('prev'), 'sprintengineTourPlaying')
       // The one editor drawn in BOTH views: side-by-side shows it beside the
       // original, unified relays both sides into it. Every hunk box goes here,
       // so the gutter does not half-vanish with the layout toggle.
@@ -823,11 +966,15 @@ export function DiffViewer({
         // same time this fires, and clearing unconditionally would blank a
         // gutter that has already been handed its new home.
         setGutterHost((current) => (current && current.editor === modified ? null : current))
+        setMountedEditor((current) => (current && current.editor === editor ? null : current))
         window.setTimeout(() => {
           model?.original.dispose()
           model?.modified.dispose()
         }, 0)
       })
+      // An editor mounted before the mono face arrived measured a fallback;
+      // see `remeasureWhenMonoFontLoads` for why the caret drifts until it does.
+      remeasureMonacoFontsOnLoad(editor, monaco)
       // The steppers, registered ON THE EDITOR as well as on the window.
       //
       // Monaco has the keyboard whenever the diff is focused, and the window
@@ -847,6 +994,14 @@ export function DiffViewer({
         monacoStepsRef.current = changes.map(monacoStep)
         // The toolbar's counter reads this; the ref alone cannot re-render it.
         setDifferenceCount(changes.length)
+        const drawnFor = currentItemRef.current
+        setDiffState((current) => ({ version: current.version + 1, key: keyFor(drawnFor ?? undefined) }))
+        // A tour places its own step; revealing a hunk here would scroll
+        // under it.
+        if (tourActiveRef.current) {
+          pendingEdgeRef.current = null
+          return
+        }
         const pending = pendingEdgeRef.current
         if (pending) {
           pendingEdgeRef.current = null
@@ -854,9 +1009,10 @@ export function DiffViewer({
         } else {
           revealHunk(hunkIndexRef.current)
         }
+        landPendingRange()
       })
     },
-    [revealHunk],
+    [revealHunk, landPendingRange],
   )
 
   const navigate = useCallback(
@@ -961,6 +1117,7 @@ export function DiffViewer({
     if (variant !== 'window') return
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null
+      if (takesNavigationKey(target) && tourHandleKeyRef.current(event)) return
       if (takesNavigationKey(target) && handleNavigationKey(event)) return
       // Escape inside the gear menu closes the MENU (the popover's own handler);
       // it must not also take the window down with it.
@@ -1047,6 +1204,43 @@ export function DiffViewer({
   const editorPrefs = useMemo<DiffEditorPrefs>(() => ({ diffView, ...sessionPrefs }), [diffView, sessionPrefs])
   const editorOptions = useMemo(() => diffEditorOptions(editorPrefs, MONO_FONT_STACK), [editorPrefs])
 
+  // ── The tour, played ────────────────────────────────────────────────────
+  const [tourHostNode, setTourHostNode] = useState<HTMLElement | null>(null)
+  const selectItem = useCallback(
+    (index: number) => {
+      const item = items[index]
+      if (!item) return
+      pendingEdgeRef.current = null
+      hunkIndexRef.current = 0
+      currentPathKeyRef.current = keyFor(item)
+      currentPathRef.current = item.path
+      setCurrentIndex(index)
+    },
+    [items],
+  )
+  const tour = useTourPlayer({
+    state: tourState,
+    currentItem,
+    currentIndex,
+    selectItem,
+    contentState: content.state,
+    diffState,
+    editor: mountedEditor?.editor ?? null,
+    monaco: mountedEditor?.monaco ?? null,
+    host: tourHostNode,
+    visible,
+    hideUnchanged: sessionPrefs.hideUnchanged,
+    ...(onTourOfferTaken ? { onOfferTaken: onTourOfferTaken } : {}),
+    ...(onTourCurrentChange ? { onCurrentChange: onTourCurrentChange } : {}),
+  })
+  tourActiveRef.current = tour.active
+  tourHandleKeyRef.current = tour.handleKey
+  tourKeyRef.current = (direction) => tour.stepByKeyRef.current(direction)
+  useEffect(() => {
+    tourPlayingKeyRef.current?.set(tour.active)
+  }, [tour.active, mountedEditor])
+  const tourOptionsKey = JSON.stringify(tour.optionOverrides)
+
   useEffect(() => {
     // No editor yet is not a missed update: the construction options above
     // carry the same values, so a mount that happens later starts correct.
@@ -1054,12 +1248,16 @@ export function DiffViewer({
     // on, so toggling the view keeps the person's place.
     const editor = diffEditorRef.current
     if (!editor) return
-    editor.updateOptions(liveDiffEditorOptions(editorPrefs))
+    // A playing tour may pin the layout (an old-side step plays side by side)
+    // and turns smooth scrolling on; both go back when it stops.
+    editor.updateOptions({ ...liveDiffEditorOptions(editorPrefs), ...tour.optionOverrides })
+    if (tourActiveRef.current) return
     // Switching to unified relays both sides into one editor. Monaco keeps the
     // scroll offset, which is not the same thing as keeping the HUNK — so the
     // cursor is re-revealed rather than left to whatever the relayout produced.
     revealHunk(hunkIndexRef.current)
-  }, [editorPrefs, revealHunk])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editorPrefs, revealHunk, tourOptionsKey])
 
   const setDiffView = useCallback((next: DiffViewMode) => {
     // See auxSettingsWrite: an aux window may only write a setting after
@@ -1341,18 +1539,30 @@ export function DiffViewer({
         variant === 'pane'
           ? (event) => {
               if (!takesNavigationKey(event.target as HTMLElement | null)) return
+              if (tour.handleKey(event)) return
               handleNavigationKey(event)
             }
           : undefined
       }
     >
-      {branchSteps ? (
-        <BranchStepStrip entries={stripEntries} selection={steps.selection} onSelect={steps.select} note={stepNote} />
-      ) : null}
+      {/* A playing tour takes the step strip's slot: the region keeps one band
+          above its toolbar, not two. */}
+      {tour.strip ??
+        (branchSteps ? (
+          <BranchStepStrip entries={stripEntries} selection={steps.selection} onSelect={steps.select} note={stepNote} />
+        ) : null)}
 
       {variant === 'window' ? (
         <div className={titleBarClass}>
           <span className="truncate text-body font-semibold text-[color:var(--text-strong)]">{windowTitle}</span>
+          {/* Frameless on win/linux, so the window draws its own way out, pinned
+              to the corner so the name stays centred; macOS keeps its native
+              traffic lights. A read-only diff has nothing unsaved to ask about. */}
+          {isMac ? null : (
+            <div className="app-no-drag absolute inset-y-0 right-0 flex items-stretch">
+              <WindowCloseButton onClick={() => void window.api.windowClose()} />
+            </div>
+          )}
         </div>
       ) : null}
 
@@ -1363,6 +1573,9 @@ export function DiffViewer({
           the collapse toggle are four things about WHAT you are reading; the
           counter, the layout toggle and the gear are about HOW. */}
       <Toolbar ariaLabel="Diff">
+        {/* An agent's new tour, waiting: at the front of the band, where a narrow
+            pane cannot clip it off. */}
+        {tour.offerChip}
         <Tooltip content={`Previous change (${isMac ? '⇧F7' : 'Shift+F7'})`} placement="bottom">
           <ToolbarButton ariaLabel="Previous change" disabled={noFiles} onClick={() => navigate('prev')}>
             <PreviousDifferenceGlyph />
@@ -1458,10 +1671,28 @@ export function DiffViewer({
           onChange={(patch) => setSessionPrefs((prefs) => ({ ...prefs, ...patch }))}
         />
 
+        {workspaceId ? (
+          <TourMenu
+            workspaceId={workspaceId}
+            currentTourId={tourState.openTourId}
+            onOpen={(id) => {
+              tourState.setOpenTourId(id)
+              tourState.setStarted(false)
+            }}
+          />
+        ) : null}
+
         {/* The sticky preference's two writers, absorbed from T3's band. */}
         {variant === 'pane' ? <OpenInWindowButton onClick={openInWindow} /> : null}
         {variant === 'window' && workspaceId ? <ShowInAppButton onClick={showInApp} /> : null}
       </Toolbar>
+
+      {/* Below the toolbar, not above it: the region keeps one band above its
+          toolbar. Shown until the person answers it once. */}
+      <StudioSkillSuggestion
+        skillId="studio-diff-tours"
+        className="shrink-0 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2"
+      />
 
       {/* THE FIRST CONTENT ROW, not a second chrome band. It names the two
           things being compared and carries this file's include box; hide the
@@ -1528,6 +1759,11 @@ export function DiffViewer({
           <span className="truncate text-[color:var(--text-muted)]" title={relativePath ?? undefined}>
             {relativePath ?? 'Git Diff'}
           </span>
+          {tour.renamedFrom ? (
+            <span className="shrink-0 truncate text-micro text-[color:var(--text-subtle)]" title={tour.renamedFrom}>
+              renamed from {tour.renamedFrom}
+            </span>
+          ) : null}
           {currentItem ? (
             <span className="shrink-0 text-micro text-[color:var(--text-subtle)]">
               {STATUS_LABEL[currentItem.status]}
@@ -1585,50 +1821,77 @@ export function DiffViewer({
         </InlineNotice>
       ) : null}
 
-      <div
-        className="relative min-h-0 flex-1"
-        // The panel the step strip's tabs control. Only when a strip is there to
-        // control it: a tabpanel with no tablist is a lie to a screen reader.
-        id={branchSteps ? BRANCH_STEP_PANEL_ID : undefined}
-        role={branchSteps ? 'tabpanel' : undefined}
-      >
-        {filterPending ? (
-          // The lists are one IPC read behind the status snapshot. "No changed
-          // files" during that beat would be a claim about the repository made
-          // before anyone asked it anything.
-          <CenteredMessage>Loading changes\u2026</CenteredMessage>
-        ) : filteredEmpty ? (
-          <EmptyState
-            title={`${filterList?.name ?? 'This changelist'} has nothing changed here.`}
-            body="Everything it owned has been committed, moved to another list, or discarded."
-            action={
-              <OutlineButton size="sm" onClick={showAllChanges}>
-                Show all changes
-              </OutlineButton>
-            }
-          />
-        ) : (
-          <DiffBody
-            content={content}
-            repoState={repoState}
-            currentItem={currentItem}
-            onMount={handleDiffMount}
-            monacoTheme={monacoTheme}
-            options={editorOptions}
-            stepLoading={branchSteps && steps.loading}
-          />
-        )}
-        {/* Renders nothing of its own — only portals into the widget nodes it
+      {narrowedCounts && !tourState.active ? (
+        // The agent's narrowing, said once and undone in one click: the rest of
+        // the change is still here, one link away.
+        <div
+          role="status"
+          className="flex h-7 shrink-0 items-center gap-1.5 border-b border-[color:var(--border-subtle)] px-3 text-meta text-[color:var(--text-muted)]"
+        >
+          <span className="truncate">
+            Showing {narrowedCounts.shown} of {narrowedCounts.total} changed{' '}
+            {narrowedCounts.total === 1 ? 'file' : 'files'}
+          </span>
+          <span aria-hidden="true">·</span>
+          <LinkButton onClick={() => setPathsShownAll(pathsKey)}>Show all</LinkButton>
+        </div>
+      ) : null}
+
+      <div className="flex min-h-0 flex-1">
+        {tour.stepList}
+        <div
+          ref={setTourHostNode}
+          className="tour-host relative min-h-0 min-w-0 flex-1"
+          data-swapping={tour.swapping ? 'true' : undefined}
+          // The panel the step strip's tabs control. Only when a strip is there to
+          // control it: a tabpanel with no tablist is a lie to a screen reader.
+          id={branchSteps && !tour.active ? BRANCH_STEP_PANEL_ID : undefined}
+          role={branchSteps && !tour.active ? 'tabpanel' : undefined}
+        >
+          {!tour.active && filterPending ? (
+            // The lists are one IPC read behind the status snapshot. "No changed
+            // files" during that beat would be a claim about the repository made
+            // before anyone asked it anything.
+            <CenteredMessage>Loading changes\u2026</CenteredMessage>
+          ) : !tour.active && filteredEmpty ? (
+            <EmptyState
+              title={`${filterList?.name ?? 'This changelist'} has nothing changed here.`}
+              body="Everything it owned has been committed, moved to another list, or discarded."
+              action={
+                <OutlineButton size="sm" onClick={showAllChanges}>
+                  Show all changes
+                </OutlineButton>
+              }
+            />
+          ) : (
+            <DiffBody
+              content={content}
+              repoState={repoState}
+              currentItem={currentItem}
+              onMount={handleDiffMount}
+              monacoTheme={monacoTheme}
+              options={editorOptions}
+              stepLoading={branchSteps && steps.loading}
+            />
+          )}
+          {/* Renders nothing of its own — only portals into the widget nodes it
             hangs in Monaco's glyph margin — so where it sits in the tree is
             immaterial, and it sits beside the editor it draws on. */}
-        {content.state === 'ready' ? (
-          <HunkGutter
-            editor={gutterHost?.editor ?? null}
-            lane={gutterHost?.lane ?? GLYPH_MARGIN_LANE_CENTER}
-            boxes={gutterBoxes}
-            onToggle={fileHunks.toggle}
-          />
-        ) : null}
+          {content.state === 'ready' ? (
+            <HunkGutter
+              editor={gutterHost?.editor ?? null}
+              lane={gutterHost?.lane ?? GLYPH_MARGIN_LANE_CENTER}
+              boxes={gutterBoxes}
+              onToggle={fileHunks.toggle}
+            />
+          ) : null}
+          {/* The tour's callout portals into a view zone of the editor above; the
+            file card and the Start card stand over the body. None of them is
+            a new element in the editor's place — the editor stays mounted. */}
+          {tour.callout}
+          {tour.fileCard}
+          {tour.readyCard}
+        </div>
       </div>
     </div>
   )

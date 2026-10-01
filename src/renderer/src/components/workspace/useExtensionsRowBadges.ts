@@ -26,8 +26,7 @@ const NO_BADGES: ExtensionsRowBadges = Object.fromEntries(
 //                  was last shown, by the door's own rule, read from the
 //                  arrivals the main process resolves.
 //   Plugins,
-//   Skills,
-//   Agent CLIs   — their unread bell rows.
+//   Skills       — their unread bell rows.
 //   Module doors — waiting counts from the owning module's door-badge
 //                  contribution, plus unread bell rows.
 //

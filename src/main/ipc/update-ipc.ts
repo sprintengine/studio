@@ -1,5 +1,6 @@
 import type { IpcMain } from 'electron'
-import type { AppUpdateCheckResult, AppUpdateState } from '../../shared/electron-api'
+import type { AppUpdateChannelSetting, AppUpdateCheckResult, AppUpdateState } from '../../shared/electron-api'
+import { isUpdateTrack } from '../update-channel-store'
 import type { SprintEngineUpdateService } from '../update-service'
 
 type UpdateIpcDependencies = {
@@ -19,8 +20,26 @@ export function registerUpdateIpc(ipcMain: IpcMain, { updateService }: UpdateIpc
     return updateService.downloadUpdate()
   })
 
-  ipcMain.handle('update:quit-and-install', (): AppUpdateCheckResult => {
+  ipcMain.handle('update:quit-and-install', (): Promise<AppUpdateCheckResult> => {
     return updateService.quitAndInstall()
+  })
+
+  ipcMain.handle('update:get-channel', (): AppUpdateChannelSetting => {
+    return updateService.getChannel()
+  })
+
+  ipcMain.handle('update:set-channel', async (_event, channel: unknown): Promise<AppUpdateCheckResult> => {
+    if (!isUpdateTrack(channel)) throw new Error(`Unknown update channel: ${String(channel)}`)
+    return updateService.setChannel(channel)
+  })
+
+  ipcMain.handle('update:set-auto-download', (_event, enabled: unknown): AppUpdateState => {
+    if (typeof enabled !== 'boolean') throw new Error('Automatic download is on or off.')
+    return updateService.setAutoDownload(enabled)
+  })
+
+  ipcMain.handle('update:dismiss-install-outcome', (): AppUpdateState => {
+    return updateService.dismissInstallOutcome()
   })
 
   ipcMain.handle('update:open-release-notes', async (): Promise<{ opened: true; url: string }> => {

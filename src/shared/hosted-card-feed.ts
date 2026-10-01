@@ -1,8 +1,7 @@
 // The hosted card feed: `cards-feed.json` at the root of the public
 // sprintengine/studio-releases repo, built by CI from the one-directory-per-card
 // repository, fetched raw by every running studio and rendered as the Extensions
-// home page. It is how a card reaches every install without an app release —
-// the same mechanism the model feed already proved
+// home page. It is how a card reaches every install without an app release
 // (backlog/2026-09-06-the-card-feed-is-a-hosted-file.md, item 2465).
 //
 // A card travels as data and never as code. It carries copy, the *name* of an
@@ -40,14 +39,23 @@ export const HOSTED_CARD_FEED_URL =
 // What the card is, which is also the word on its stamp. Not a taxonomy to
 // filter by — the home page is marketing, not a catalogue — but the renderer
 // needs to know whether it is showing an MCP server or a showcase.
-export type HostedCardKind = 'mcp' | 'skill' | 'plugin' | 'automation' | 'showcase'
+//
+// `automation` was a kind until automations became scheduled agents
+// (2026-09-30): a card of that kind named something this build no longer has,
+// so it is dropped and counted like any other kind a build does not know.
+export type HostedCardKind = 'mcp' | 'skill' | 'plugin' | 'showcase'
 
-const CARD_KINDS: readonly HostedCardKind[] = ['mcp', 'skill', 'plugin', 'automation', 'showcase']
+const CARD_KINDS: readonly HostedCardKind[] = ['mcp', 'skill', 'plugin', 'showcase']
 
-// The doors a card may open. `plugins`, `skills` and `agent-clis` are VIEWS OF
-// THE EXTENSIONS DOOR — exactly `EXTENSIONS_DRAWER_VIEWS` in the renderer's
+// The doors a card may open. `plugins` and `skills` are VIEWS OF THE EXTENSIONS
+// DOOR — exactly `EXTENSIONS_DRAWER_VIEWS` in the renderer's
 // extensionsSurfaceTarget.ts — and `home` is the card feed's own page beside
 // them. The renderer latches the view and then opens the door.
+//
+// `agent-clis` named a third view until the owner moved agent CLIs to Settings ▸
+// Agents (2026-09-25). It stays in the union because the union is a permanent
+// contract and published cards still name it: the renderer now opens Settings ▸
+// Agents on this machine for it, which is where that view's list went.
 //
 // The rule is the wide one: **every door the app has, whether or not it lives
 // under Extensions**, may be named here. Adding one is additive and safe,
@@ -105,7 +113,7 @@ export type CardAction =
   // within it. `source` is a source id as src/shared/skills.ts mints them:
   // `github:owner/name` or `local:<absolute path>` — `builtin` is gone. For a
   // skill, `id` is a `ScannedSkill.id`, which is the skill directory's path
-  // relative to its source (`studio-skills/skills/debug`).
+  // relative to its source (`skills/engineering/prototype`).
   | { verb: 'install.skill'; source: string; id: string }
   // For a plugin, `id` is the plugin's name in its source's marketplace
   // manifest. The card carries nothing else: `installPlugin` also wants

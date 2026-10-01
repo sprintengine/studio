@@ -3,6 +3,7 @@ import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/pr
 import { dirname, join, resolve, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 
+import type { MarketplaceTrustPin } from '../../shared/electron-api'
 import type {
   MarketplaceComponentKind,
   MarketplaceManifestIssue,
@@ -18,21 +19,21 @@ import {
   parseMarketplaceExtraHosts,
   parseMarketplacePluginAuthoringManifest,
   resolveOptionallySignedManifest,
+  retiredMarketplaceComponentIssue,
 } from '../../shared/marketplace'
 import { isSafeManifestRelativePath } from '../../../packages/module-sdk/src/manifest-validate'
 import {
-  marketplaceAutomationPayloadIssuesSync,
   marketplaceComponentDigestMismatchIssuesSync,
   marketplaceComponentDigestPaths,
 } from '../../../packages/module-sdk/src/plugin-component-digests'
 import {
-  classifyModuleTrust,
   classifySignedManifestTrust,
   isLoadEligible,
   type ModuleTrust,
   type ModuleTrustContext,
 } from '../modules/module-signature'
 import { findMarketplaceResourcePath, type MarketplaceResourceResolver } from './resources'
+import { withObservedUnsignedDigests } from './unsigned-component-digests'
 import { verifyBundledSkillFolder } from './skill-content'
 import { readStudioEnv } from '../../shared/studio-env'
 
@@ -49,6 +50,20 @@ type MarketplacePluginTrustClassification = 'verified' | 'community' | 'unsigned
 export type MarketplacePluginDownloadOptions = {
   entry: MarketplacePluginEntry
   trustContext: ModuleTrustContext
+  /**
+   * Download a GitHub `tree/` source at exactly this commit, not wherever its
+   * ref points now. The install passes the commit the trust prompt's verify
+   * read, so a branch that moves between the prompt and the click installs
+   * nothing rather than something nobody reviewed.
+   */
+  commitSha?: string
+  /**
+   * Let an unsigned bundle carrying module code through the unsigned gate.
+   * Only ever derived in main from a trust grant for a GitHub-URL install the
+   * person explicitly trusted (trust-tokens.ts); the registry path never sets
+   * it, and a renderer cannot.
+   */
+  allowUnsignedCode?: boolean
   stagingRoot?: string
   fetcher?: MarketplacePluginDownloadFetch
   timeoutMs?: number
@@ -67,6 +82,8 @@ export type MarketplacePluginDownloadResult =
       manifest: MarketplacePluginAuthoringManifest
       trust: ModuleTrust
       loadEligible: boolean
+      /** What was staged, for a trust prompt to disclose and an install to re-check. */
+      pin: MarketplaceTrustPin
     }
   | {
       ok: false
@@ -90,6 +107,14 @@ type GithubTreeSource = {
   ref: string
   path: string
 }
+
+// A repository and ref as they may appear in a `tree/` URL. The ref is a
+// branch, tag or commit; it never starts with `-`, so it can never read as an
+// option to anything it is handed to.
+const GITHUB_OWNER_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/
+const GITHUB_REPO_PATTERN = /^[A-Za-z0-9._-]{1,100}$/
+const GITHUB_REF_PATTERN = /^(?!-)[A-Za-z0-9._-]{1,255}$/
+const COMMIT_SHA_PATTERN = /^[0-9a-f]{40}$|^[0-9a-f]{64}$/
 
 type GithubContentsEntry = {
   type?: string
@@ -139,16 +164,36 @@ export async function downloadMarketplacePluginBundle(
     maxTotalBytes: options.maxTotalBytes ?? DEFAULT_MARKETPLACE_PLUGIN_MAX_TOTAL_BYTES,
   }
 
+  const github = parseGithubTreeSource(parsedSource.url)
+  if (github === 'invalid') {
+    return { ok: false, sourceUrl, message: 'Marketplace plugin source is not a usable GitHub tree URL.' }
+  }
+
   let stage: string | null = null
   try {
     await mkdir(stagingRoot, { recursive: true })
     stage = await mkdtemp(join(stagingRoot, `${options.entry.id}-`))
-    const github = parseGithubTreeSource(parsedSource.url)
+    let commitSha: string | undefined
     if (github) {
       try {
-        await downloadGithubTree(github, stage, fetcher, options.timeoutMs, limits)
+        // Resolved once, up front: every listing and file below is read at
+        // this commit, so the bundle cannot change underneath the walk, and
+        // the commit is what a later install is pinned to.
+        commitSha = await resolveGithubCommit(github, options.commitSha, fetcher, options.timeoutMs)
+        // A repository-root bundle (an extension installed from its own
+        // repository) shares the tree with the extension's sources, tests and
+        // docs; only plugin.json and the component folders it names are the
+        // bundle, so only they are read. A registry folder is the bundle whole.
+        if (github.path === '') {
+          await downloadGithubRootBundle({ ...github, ref: commitSha }, stage, fetcher, options.timeoutMs, limits)
+        } else {
+          await downloadGithubTree({ ...github, ref: commitSha }, stage, fetcher, options.timeoutMs, limits)
+        }
       } catch (error) {
-        if (!isPackagedSeedFallbackEligible(error, github)) throw error
+        const eligible = isPackagedSeedFallbackEligible(error, github, commitSha)
+        // The seed is the app's own copy, read at no commit.
+        commitSha = undefined
+        if (!eligible) throw error
         await rm(stage, { recursive: true, force: true })
         stage = await mkdtemp(join(stagingRoot, `${options.entry.id}-`))
         const copiedSeedBundle = await copyPackagedMarketplacePluginBundle(
@@ -192,10 +237,12 @@ export async function downloadMarketplacePluginBundle(
       }
     }
     // Unsigned bundles are permitted only when they carry no code component: an
-    // unsigned module/cli must never become load-eligible, so gate on signature
+    // unsigned module must never become load-eligible, so gate on signature
     // presence (id-trust would otherwise promote an unsigned manifest to
-    // 'trusted' and slip a code component past the classification check).
-    if (!manifest.signature && hasCodeBearingComponent(manifest.components)) {
+    // 'trusted' and slip a code component past the classification check). The
+    // one exception is a GitHub-URL install the person explicitly trusted as
+    // code, which main alone can ask for.
+    if (!manifest.signature && hasCodeBearingComponent(manifest.components) && options.allowUnsignedCode !== true) {
       await rm(stage, { recursive: true, force: true })
       return {
         ok: false,
@@ -220,10 +267,14 @@ export async function downloadMarketplacePluginBundle(
       }
     }
 
-    const digestMismatch = marketplaceComponentDigestMismatchIssuesSync(stage, manifest, {
-      bytesLabel: 'downloaded bytes',
-      blockedFileMessage: (path) => `component file "${path}" cannot be installed from marketplace bundles.`,
-    })
+    const digestMismatch = marketplaceComponentDigestMismatchIssuesSync(
+      stage,
+      withObservedUnsignedDigests(stage, manifest),
+      {
+        bytesLabel: 'downloaded bytes',
+        blockedFileMessage: (path) => `component file "${path}" cannot be installed from marketplace bundles.`,
+      },
+    )
     if (digestMismatch.length > 0) {
       await rm(stage, { recursive: true, force: true })
       return {
@@ -236,22 +287,6 @@ export async function downloadMarketplacePluginBundle(
       }
     }
 
-    // An automation component ships a definition the app will schedule and run.
-    // Refuse a payload that is not one before the bundle is handed on, so the
-    // failure names the manifest rather than surfacing at install time.
-    const automationIssues = marketplaceAutomationPayloadIssuesSync(stage, manifest.components)
-    if (automationIssues.length > 0) {
-      await rm(stage, { recursive: true, force: true })
-      return {
-        ok: false,
-        sourceUrl,
-        classification: 'invalid',
-        trust,
-        message: 'Downloaded plugin bundle automation payload is not a valid automation definition.',
-        issues: automationIssues,
-      }
-    }
-
     return {
       ok: true,
       sourceUrl,
@@ -260,6 +295,7 @@ export async function downloadMarketplacePluginBundle(
       manifest,
       trust,
       loadEligible: isLoadEligible(trust.status),
+      pin: await stagedBundlePin(stage, commitSha),
     }
   } catch (error) {
     if (stage) await rm(stage, { recursive: true, force: true }).catch(() => undefined)
@@ -308,13 +344,17 @@ function packagedMarketplacePluginRelativePath(source: GithubTreeSource, entryId
   return source.path === expectedPath ? expectedPath : null
 }
 
-function isPackagedSeedFallbackEligible(error: unknown, source: GithubTreeSource): boolean {
-  const rootUrl = githubContentsUrl(source)
+// The first request of the walk — resolving the commit, or listing the root
+// when the ref already is one — is the one whose failure means "the source
+// is not reachable", which is when the packaged seed may stand in.
+function isPackagedSeedFallbackEligible(error: unknown, source: GithubTreeSource, commitSha?: string): boolean {
+  const firstUrls = new Set([githubCommitUrl(source), githubContentsUrl(source)])
+  if (commitSha) firstUrls.add(githubContentsUrl({ ...source, ref: commitSha }))
   if (error instanceof DownloadHttpError) {
-    return error.url === rootUrl && isSourceUnavailableStatus(error.statusCode)
+    return firstUrls.has(error.url) && isSourceUnavailableStatus(error.statusCode)
   }
   if (error instanceof DownloadNetworkError) {
-    return error.url === rootUrl
+    return firstUrls.has(error.url)
   }
   return false
 }
@@ -340,7 +380,17 @@ type ResolvedDownloadedManifest =
 function resolveDownloadedManifest(source: string, trustContext: ModuleTrustContext): ResolvedDownloadedManifest {
   const resolved = resolveOptionallySignedManifest(source)
   if (resolved.ok) {
-    return { ok: true, manifest: resolved.manifest, trust: classifyModuleTrust(resolved.manifest, trustContext) }
+    return {
+      ok: true,
+      manifest: resolved.manifest,
+      trust: classifySignedManifestTrust(resolved.manifest, trustContext),
+    }
+  }
+  // A bundle built for an older Studio is refused for that, whatever else is
+  // true of it — "unsigned" would send its author looking in the wrong place.
+  const retired = retiredMarketplaceComponentIssue(resolved.issues)
+  if (retired) {
+    return { ok: false, classification: 'invalid', message: retired.message, issues: resolved.issues }
   }
   const unsigned = classifyUnsignedManifest(source, trustContext)
   if (unsigned) {
@@ -467,6 +517,46 @@ async function downloadGithubContentsDirectory(
   }
 }
 
+// plugin.json first, then each component path it declares, all at the commit
+// already resolved. A path that is not in the tree fails the fetch here; a
+// plugin.json that does not parse stages alone, so the manifest checks after
+// the walk report what is wrong with it.
+async function downloadGithubRootBundle(
+  source: GithubTreeSource,
+  stage: string,
+  fetcher: MarketplacePluginDownloadFetch,
+  timeoutMs: number | undefined,
+  limits: DownloadLimits,
+): Promise<void> {
+  const state: DownloadState = { files: 0, bytes: 0, dirRequests: 0 }
+  await downloadGithubContentsDirectory(
+    githubContentsUrl({ ...source, path: 'plugin.json' }),
+    '',
+    'plugin.json',
+    stage,
+    fetcher,
+    timeoutMs,
+    limits,
+    state,
+  )
+  const manifest = parseMarketplacePluginAuthoringManifest(await readFile(join(stage, 'plugin.json'), 'utf8'))
+  if (!manifest.ok) return
+  for (const kind of MARKETPLACE_COMPONENT_KINDS) {
+    const componentPath = manifest.manifest.components[kind]?.path
+    if (!componentPath) continue
+    await downloadGithubContentsDirectory(
+      githubContentsUrl({ ...source, path: componentPath }),
+      '',
+      componentPath,
+      stage,
+      fetcher,
+      timeoutMs,
+      limits,
+      state,
+    )
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Claude Code plugin sources (bundled snapshot content)
 // ---------------------------------------------------------------------------
@@ -506,6 +596,8 @@ export type ClaudeCodePluginDownloadResult =
       claudeName: string
       /** The commit actually fetched (mutable refs resolve to a sha up front). */
       resolvedRef: string
+      /** The staged listing, for a trust prompt to disclose and an install to re-check. */
+      pin: MarketplaceTrustPin
       /**
        * Names of skills the entry lists but that shipped metadata-only (no
        * bundled content — a snapshot capture cap), so the install can tell the
@@ -654,6 +746,15 @@ export async function downloadClaudeCodePluginSource(
       metadataOnlySkills,
       claudeName: entry.name,
       resolvedRef,
+      pin: {
+        manifestSha256: sha256Hex(Buffer.from(resolvedRef, 'utf8')),
+        componentDigests: Object.fromEntries(
+          bundledSkills.map((skill) => [
+            `skills/${(skill.path as string).split('/').filter(Boolean).pop()}`,
+            skill.contentDigest as string,
+          ]),
+        ),
+      },
     }
     stage = null // ownership transfers to the caller, which removes it
     return result
@@ -752,7 +853,14 @@ async function fetchBytes(
   try {
     let response: Response
     try {
-      response = await fetcher(parsed.url.toString(), { method: 'GET', headers, signal: controller.signal })
+      // A redirect would leave the host allowlist unchecked for wherever it
+      // points; nothing this reads is expected to move.
+      response = await fetcher(parsed.url.toString(), {
+        method: 'GET',
+        headers,
+        signal: controller.signal,
+        redirect: 'error',
+      })
     } catch (error) {
       throw new DownloadNetworkError(`Marketplace plugin download failed. ${formatError(error)}`, parsed.url.toString())
     }
@@ -780,20 +888,82 @@ async function fetchBytes(
   }
 }
 
-function parseGithubTreeSource(url: URL): GithubTreeSource | null {
+function parseGithubTreeSource(url: URL): GithubTreeSource | 'invalid' | null {
   if (url.hostname !== 'github.com') return null
   const segments = url.pathname.split('/').filter(Boolean)
-  if (segments.length < 5 || segments[2] !== 'tree') return null
-  return {
-    owner: segments[0],
-    repo: segments[1],
-    ref: segments[3],
-    path: segments.slice(4).join('/'),
+  // `tree/<ref>` alone is the repository root: a bundle whose plugin.json
+  // sits at the top of its own repository.
+  if (segments.length < 4 || segments[2] !== 'tree') return null
+  const [owner, repo, , ref] = segments
+  if (!GITHUB_OWNER_PATTERN.test(owner) || !GITHUB_REPO_PATTERN.test(repo) || !GITHUB_REF_PATTERN.test(ref)) {
+    return 'invalid'
   }
+  return { owner, repo, ref, path: segments.slice(4).join('/') }
+}
+
+function githubCommitUrl(source: GithubTreeSource): string {
+  return `https://api.github.com/repos/${source.owner}/${source.repo}/commits/${encodeURIComponent(source.ref)}`
+}
+
+// The commit a source's ref names right now — or the pinned one, which is
+// used as given rather than asked about, because asking would only tell us
+// where the branch has moved to since.
+async function resolveGithubCommit(
+  source: GithubTreeSource,
+  pinned: string | undefined,
+  fetcher: MarketplacePluginDownloadFetch,
+  timeoutMs: number | undefined,
+): Promise<string> {
+  if (pinned !== undefined) {
+    if (!COMMIT_SHA_PATTERN.test(pinned)) throw new Error('The pinned commit is not a commit SHA.')
+    return pinned
+  }
+  if (COMMIT_SHA_PATTERN.test(source.ref)) return source.ref
+  const body = await fetchText(
+    githubCommitUrl(source),
+    fetcher,
+    timeoutMs,
+    { accept: 'application/vnd.github.sha' },
+    1024,
+  )
+  const sha = body.trim().toLowerCase()
+  if (!COMMIT_SHA_PATTERN.test(sha)) {
+    throw new Error(`GitHub did not resolve ${source.owner}/${source.repo}@${source.ref} to a commit.`)
+  }
+  return sha
+}
+
+// The pin a trust prompt discloses and an install re-checks: sha256 of the
+// staged plugin.json, and of every other staged file by its bundle path.
+async function stagedBundlePin(stage: string, commitSha: string | undefined): Promise<MarketplaceTrustPin> {
+  const componentDigests: Record<string, string> = {}
+  let manifestSha256 = ''
+  for (const relPath of await listStagedFiles(stage)) {
+    const digest = sha256Hex(await readFile(join(stage, relPath)))
+    if (relPath === 'plugin.json') manifestSha256 = digest
+    else componentDigests[relPath] = digest
+  }
+  return { ...(commitSha ? { commitSha } : {}), manifestSha256, componentDigests }
+}
+
+async function listStagedFiles(root: string, prefix = ''): Promise<string[]> {
+  const files: string[] = []
+  const entries = await readdir(join(root, prefix), { withFileTypes: true })
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    const relPath = prefix ? `${prefix}/${entry.name}` : entry.name
+    if (entry.isDirectory()) files.push(...(await listStagedFiles(root, relPath)))
+    else if (entry.isFile()) files.push(relPath)
+  }
+  return files
+}
+
+function sha256Hex(bytes: Buffer): string {
+  return createHash('sha256').update(bytes).digest('hex')
 }
 
 function githubContentsUrl(source: GithubTreeSource): string {
-  return `https://api.github.com/repos/${source.owner}/${source.repo}/contents/${source.path}?ref=${encodeURIComponent(source.ref)}`
+  const path = source.path ? `/${source.path}` : ''
+  return `https://api.github.com/repos/${source.owner}/${source.repo}/contents${path}?ref=${encodeURIComponent(source.ref)}`
 }
 
 function relativeGithubPath(basePath: string, path: string | undefined): string {

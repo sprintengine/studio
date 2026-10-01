@@ -20,6 +20,7 @@ import { DesignCanvas, type DesignCanvasTabId } from './DesignCanvas'
 import { NewDesignSystemScreen, type NewDesignSystemSource } from './NewDesignSystemScreen'
 import { DesignRail } from './DesignRail'
 import { ProjectScopePicker, type ProjectScopeOption } from '../../agentComposer/ProjectScopePicker'
+import { StudioSkillSuggestion } from '../../../studioSkills/StudioSkillSuggestion'
 import {
   designFailureLine,
   libraryRowId,
@@ -620,6 +621,7 @@ export default function DesignGlobalSurface(): JSX.Element {
     <GlobalSurfaceShell
       ariaLabel="Design"
       bar={bar}
+      controlTabContext="extensions"
       onBack={back.onBack}
       canGoBack={back.canGoBack}
       // DECLARED, not derived from what the door happens to hold: the rail is
@@ -628,35 +630,43 @@ export default function DesignGlobalSurface(): JSX.Element {
       // empty and error are the canvas's to say.
       rail={rail}
     >
-      {newSelected ? (
-        <NewDesignSystemScreen
-          sources={startSources}
-          mode={scheme === 'light' ? 'light' : 'dark'}
-          busy={creatingFrom}
-          error={pointError}
-          onPointAtFolder={() => void pointAtFolder()}
-          onSeedFrom={(source) => void seedFrom(source)}
+      <div className="flex h-full min-h-0 flex-col">
+        <StudioSkillSuggestion
+          skillId="studio-design-system"
+          className="shrink-0 border-b border-[color:var(--border-subtle)] px-4 py-2"
         />
-      ) : (
-        <DesignSurfaceBody
-          loadState={loadState}
-          loadError={loadError}
-          onRetry={() => void loadLibrary()}
-          hasEntries={entries.length > 0}
-          selectedEntry={selectedEntry}
-          selectedView={selectedView}
-          newEntries={newEntries}
-          mode={scheme === 'light' ? 'light' : 'dark'}
-          canvasTab={canvasTab}
-          onCanvasTab={setCanvasTab}
-          canvasPages={canvasPages}
-          onCanvasPage={(tab, page) => setCanvasPages((current) => ({ ...current, [tab]: page }))}
-          onRepoint={() => selectedEntry && void repointEntry(selectedEntry)}
-          onForget={() => selectedEntry && void forgetEntry(selectedEntry)}
-          pointError={pointError}
-          onPointAtFolder={() => void pointAtFolder()}
-        />
-      )}
+        <div className="min-h-0 flex-1">
+          {newSelected ? (
+            <NewDesignSystemScreen
+              sources={startSources}
+              mode={scheme === 'light' ? 'light' : 'dark'}
+              busy={creatingFrom}
+              error={pointError}
+              onPointAtFolder={() => void pointAtFolder()}
+              onSeedFrom={(source) => void seedFrom(source)}
+            />
+          ) : (
+            <DesignSurfaceBody
+              loadState={loadState}
+              loadError={loadError}
+              onRetry={() => void loadLibrary()}
+              hasEntries={entries.length > 0}
+              selectedEntry={selectedEntry}
+              selectedView={selectedView}
+              newEntries={newEntries}
+              mode={scheme === 'light' ? 'light' : 'dark'}
+              canvasTab={canvasTab}
+              onCanvasTab={setCanvasTab}
+              canvasPages={canvasPages}
+              onCanvasPage={(tab, page) => setCanvasPages((current) => ({ ...current, [tab]: page }))}
+              onRepoint={() => selectedEntry && void repointEntry(selectedEntry)}
+              onForget={() => selectedEntry && void forgetEntry(selectedEntry)}
+              pointError={pointError}
+              onPointAtFolder={() => void pointAtFolder()}
+            />
+          )}
+        </div>
+      </div>
     </GlobalSurfaceShell>
   )
 }

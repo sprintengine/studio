@@ -11,10 +11,10 @@ export interface CliAvailabilitySliceState {
   cliAvailabilityStatus: CliAvailabilityStatus
   cliAvailabilityError: string | null
   // When this map was last accepted, as epoch ms — the freshness the Agent CLIs
-  // section band reports ("Checked 2m ago"). It is when the RESULT landed here,
-  // and the main-process probe serves from a 60s cache unless forced, so the
-  // underlying detection can be up to that much older; the band's re-check
-  // button forces a real probe. Null until a probe has ever succeeded, so the
+  // section band reports ("Checked 2m ago"). It is when the RESULT landed here;
+  // main holds each detection until Re-check (or an install or update it ran),
+  // so the underlying detection can be as old as the session. The band's
+  // re-check button has main detect every CLI again. Null until a probe has ever succeeded, so the
   // band shows nothing rather than implying a check that never happened.
   cliAvailabilityCheckedAt: number | null
 }
@@ -23,8 +23,9 @@ interface RefreshCliAvailabilityOptions {
   // Background re-sync (window focus): don't flip to `loading` and don't wipe a
   // working map on a transient failure, mirroring refreshPluginCatalog.
   background?: boolean
-  // Bypass the main-process TTL cache. Used right after a CLI install so a newly
-  // installed agent appears immediately.
+  // Probe every CLI again instead of reading main's held answer. Settings'
+  // Re-check detects through the version service instead (every machine at
+  // once), and an install or update records its own CLI's answer in main.
   force?: boolean
   // Per-CLI command/WSL overrides forwarded into the probe so detection matches
   // the launch path. Callers read these from appSettings.cliRuntimes.

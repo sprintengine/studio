@@ -20,138 +20,35 @@
  * the corner edges stay clean instead of dark-fringed at 16px.
  *
  * Output: resources/icon.png (512px), resources/icon.ico (16…256px),
- *         resources/icon.icns (16…1024px).
+ *         resources/icon.icns (16…1024px), and the same three again as
+ *         resources/icon-nightly.* — the mark on a night sky, for the nightly
+ *         channel (see buildNightlyMaster).
  */
 
 'use strict'
 const fs = require('fs')
 const path = require('path')
-const zlib = require('zlib')
+const { decodePNG, encodePNG } = require('./brand/png')
+const { renderNightSky } = require('./brand/night-sky')
 
-// ── CRC32 ─────────────────────────────────────────────────────────────────────
-const CRC_TABLE = (() => {
-  const t = new Uint32Array(256)
-  for (let n = 0; n < 256; n++) {
-    let c = n
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
-    t[n] = c
-  }
-  return t
-})()
-
-function crc32(buf) {
-  let crc = 0xffffffff
-  for (let i = 0; i < buf.length; i++) crc = CRC_TABLE[(crc ^ buf[i]) & 0xff] ^ (crc >>> 8)
-  return (crc ^ 0xffffffff) >>> 0
-}
-
-// ── PNG builder ───────────────────────────────────────────────────────────────
-function pngChunk(type, data) {
-  const t = Buffer.from(type, 'ascii')
-  const lenBuf = Buffer.allocUnsafe(4)
-  lenBuf.writeUInt32BE(data.length, 0)
-  const crcBuf = Buffer.allocUnsafe(4)
-  crcBuf.writeUInt32BE(crc32(Buffer.concat([t, data])), 0)
-  return Buffer.concat([lenBuf, t, data, crcBuf])
-}
-
+// ── PNG ───────────────────────────────────────────────────────────────────────
+// Unfiltered rows at zlib level 6, which is what this script has always
+// written, so regenerating the stable ladder leaves its bytes alone. (Per-row
+// filtering was tried for the nightly ladder and came out larger: the area
+// averaging leaves no row-to-row regularity for a filter to find.)
 function buildPNG(size, getPixel) {
-  const rows = []
+  const rgba = Buffer.allocUnsafe(size * size * 4)
   for (let y = 0; y < size; y++) {
-    const row = Buffer.allocUnsafe(1 + size * 4)
-    row[0] = 0 // filter: None
     for (let x = 0; x < size; x++) {
+      const o = (y * size + x) * 4
       const [r, g, b, a] = getPixel(x, y, size)
-      const i = 1 + x * 4
-      row[i] = r
-      row[i + 1] = g
-      row[i + 2] = b
-      row[i + 3] = a
-    }
-    rows.push(row)
-  }
-  const rawData = Buffer.concat(rows)
-  const compressed = zlib.deflateSync(rawData, { level: 6 })
-
-  const ihdr = Buffer.allocUnsafe(13)
-  ihdr.writeUInt32BE(size, 0)
-  ihdr.writeUInt32BE(size, 4)
-  ihdr[8] = 8
-  ihdr[9] = 6
-  ihdr[10] = 0
-  ihdr[11] = 0
-  ihdr[12] = 0
-
-  return Buffer.concat([
-    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
-    pngChunk('IHDR', ihdr),
-    pngChunk('IDAT', compressed),
-    pngChunk('IEND', Buffer.alloc(0)),
-  ])
-}
-
-// ── PNG reader (8-bit, non-interlaced, RGB or RGBA) ───────────────────────────
-function paeth(a, b, c) {
-  const p = a + b - c
-  const pa = Math.abs(p - a),
-    pb = Math.abs(p - b),
-    pc = Math.abs(p - c)
-  return pa <= pb && pa <= pc ? a : pb <= pc ? b : c
-}
-
-function decodePNG(buf) {
-  if (buf.readUInt32BE(0) !== 0x89504e47) throw new Error('not a PNG')
-  let width = 0,
-    height = 0,
-    bitDepth = 0,
-    colorType = 0
-  const idat = []
-  let off = 8
-  while (off < buf.length) {
-    const len = buf.readUInt32BE(off)
-    const type = buf.toString('ascii', off + 4, off + 8)
-    const data = buf.subarray(off + 8, off + 8 + len)
-    if (type === 'IHDR') {
-      width = data.readUInt32BE(0)
-      height = data.readUInt32BE(4)
-      bitDepth = data[8]
-      colorType = data[9]
-      if (data[12] !== 0) throw new Error('interlaced PNG is not supported')
-    } else if (type === 'IDAT') idat.push(data)
-    else if (type === 'IEND') break
-    off += 12 + len
-  }
-  if (bitDepth !== 8) throw new Error(`bit depth ${bitDepth} is not supported`)
-  if (colorType !== 2 && colorType !== 6) throw new Error(`colour type ${colorType} is not supported`)
-
-  const bpp = colorType === 6 ? 4 : 3
-  const raw = zlib.inflateSync(Buffer.concat(idat))
-  const stride = width * bpp
-  const out = Buffer.alloc(height * stride)
-
-  for (let y = 0; y < height; y++) {
-    const filter = raw[y * (stride + 1)]
-    const line = raw.subarray(y * (stride + 1) + 1, y * (stride + 1) + 1 + stride)
-    const cur = out.subarray(y * stride, (y + 1) * stride)
-    const prev = y > 0 ? out.subarray((y - 1) * stride, y * stride) : null
-    for (let i = 0; i < stride; i++) {
-      const a = i >= bpp ? cur[i - bpp] : 0
-      const b = prev ? prev[i] : 0
-      const c = prev && i >= bpp ? prev[i - bpp] : 0
-      const v = line[i]
-      cur[i] =
-        (filter === 0
-          ? v
-          : filter === 1
-            ? v + a
-            : filter === 2
-              ? v + b
-              : filter === 3
-                ? v + ((a + b) >> 1)
-                : v + paeth(a, b, c)) & 0xff
+      rgba[o] = r
+      rgba[o + 1] = g
+      rgba[o + 2] = b
+      rgba[o + 3] = a
     }
   }
-  return { width, height, bpp, pixels: out }
+  return encodePNG(size, size, rgba, { channels: 4 })
 }
 
 // ── Geometry ──────────────────────────────────────────────────────────────────
@@ -299,51 +196,103 @@ function buildICNS(icons) {
   return Buffer.concat([magic, fileLen, body])
 }
 
+// ── Nightly: the same mark on a night sky ────────────────────────────────────
+// A nightly build updates itself several times a day and can sit on the same
+// machine as a stable one, so it is worth telling apart in the Dock or the
+// taskbar at a glance. The mark, the silhouette and the icon grid are the
+// stable icon's, untouched; only the card's ground changes, from the flat ink
+// card to the night sky the nightly splash opens on (scripts/brand/night-sky.js).
+//
+// The master is the mark's letters anti-aliased onto the flat card, so each
+// pixel is `card + a·(ink − card)` for one of the two inks. Recovering `a`
+// lets the card be swapped for the sky without re-rasterising the letters:
+// `out = pixel + (1 − a)·(sky − card)`, which leaves a letter's solid pixels
+// exactly as they were and moves an edge pixel by the share of card in it.
+const PAPER_INK = [0xec, 0xec, 0xec] // the `s`, paper-100
+const GREEN_INK = [0x3f, 0x94, 0x68] // the `e`, green-500
+
+function letterCoverage(r, g, b) {
+  const dr = r - CARD[0],
+    dg = g - CARD[1],
+    db = b - CARD[2]
+  if (dr <= 0 && dg <= 0 && db <= 0) return 0
+  // The green ink lifts green well past red; the paper ink lifts all three.
+  const green = dg > 4 && dg - dr > 0.35 * dg
+  const coverage = green
+    ? dg / (GREEN_INK[1] - CARD[1])
+    : (dr + dg + db) / (PAPER_INK[0] - CARD[0] + PAPER_INK[1] - CARD[1] + PAPER_INK[2] - CARD[2])
+  return Math.min(1, Math.max(0, coverage))
+}
+
+function buildNightlyMaster(master) {
+  const { size: n, rgba } = master
+  // Fewer, larger stars than the splash plate: at 1024 they are a sky, and the
+  // brightest still leave a point at the Dock's 128px.
+  const sky = renderNightSky({ width: n, height: n, quietCentre: false, starCount: 320, starScale: 4.5 })
+  const out = Buffer.from(rgba)
+  for (let i = 0; i < n * n; i++) {
+    const o = i * 4
+    if (out[o + 3] === 0) continue
+    const s = i * 3
+    const share = 1 - letterCoverage(out[o], out[o + 1], out[o + 2])
+    for (let c = 0; c < 3; c++) {
+      out[o + c] = Math.max(0, Math.min(255, Math.round(out[o + c] + share * (sky[s + c] - CARD[c]))))
+    }
+  }
+  return { size: n, rgba: out }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 const outDir = path.join(__dirname, '..', 'resources')
 const srcPng = path.join(outDir, 'brand', 'sprintengine-se-mark-1024.png')
 fs.mkdirSync(outDir, { recursive: true })
 
-process.stdout.write(`Generating icons from ${path.relative(path.join(__dirname, '..'), srcPng)}…\n`)
-const master = buildMaster(srcPng)
+// One ladder: `<name>.png` (512, Linux and the tray), `<name>.ico` (Windows,
+// PNG-compressed entries; 256 is the format ceiling) and `<name>.icns` (macOS,
+// the full modern ladder up to 1024 so Retina/Finder never upscales).
+function writeIconSet(master, name) {
+  const png = {}
+  for (const s of [16, 24, 32, 48, 64, 128, 256, 512, 1024]) {
+    png[s] = resample(master, s)
+  }
 
-const png = {}
-for (const s of [16, 24, 32, 48, 64, 128, 256, 512, 1024]) {
-  png[s] = resample(master, s)
+  fs.writeFileSync(path.join(outDir, `${name}.png`), png[512])
+  process.stdout.write(`  ✓ resources/${name}.png  (512×512)\n`)
+
+  fs.writeFileSync(
+    path.join(outDir, `${name}.ico`),
+    buildICO([
+      { size: 16, png: png[16] },
+      { size: 24, png: png[24] },
+      { size: 32, png: png[32] },
+      { size: 48, png: png[48] },
+      { size: 64, png: png[64] },
+      { size: 128, png: png[128] },
+      { size: 256, png: png[256] },
+    ]),
+  )
+  process.stdout.write(`  ✓ resources/${name}.ico  (16, 24, 32, 48, 64, 128, 256px)\n`)
+
+  fs.writeFileSync(
+    path.join(outDir, `${name}.icns`),
+    buildICNS([
+      { ostype: 'icp4', png: png[16] },
+      { ostype: 'icp5', png: png[32] },
+      { ostype: 'icp6', png: png[64] },
+      { ostype: 'ic07', png: png[128] },
+      { ostype: 'ic08', png: png[256] },
+      { ostype: 'ic09', png: png[512] },
+      { ostype: 'ic10', png: png[1024] },
+    ]),
+  )
+  process.stdout.write(`  ✓ resources/${name}.icns  (16, 32, 64, 128, 256, 512, 1024px)\n`)
 }
 
-// Linux / generic: a crisp 512px master (electron-builder upsamples from here).
-fs.writeFileSync(path.join(outDir, 'icon.png'), png[512])
-process.stdout.write('  ✓ resources/icon.png  (512×512)\n')
-
-// Windows .ico — PNG-compressed entries; 256 is the format ceiling.
-fs.writeFileSync(
-  path.join(outDir, 'icon.ico'),
-  buildICO([
-    { size: 16, png: png[16] },
-    { size: 24, png: png[24] },
-    { size: 32, png: png[32] },
-    { size: 48, png: png[48] },
-    { size: 64, png: png[64] },
-    { size: 128, png: png[128] },
-    { size: 256, png: png[256] },
-  ]),
-)
-process.stdout.write('  ✓ resources/icon.ico  (16, 24, 32, 48, 64, 128, 256px)\n')
-
-// macOS .icns — full modern ladder up to 1024 so Retina/Finder never upscales.
-fs.writeFileSync(
-  path.join(outDir, 'icon.icns'),
-  buildICNS([
-    { ostype: 'icp4', png: png[16] },
-    { ostype: 'icp5', png: png[32] },
-    { ostype: 'icp6', png: png[64] },
-    { ostype: 'ic07', png: png[128] },
-    { ostype: 'ic08', png: png[256] },
-    { ostype: 'ic09', png: png[512] },
-    { ostype: 'ic10', png: png[1024] },
-  ]),
-)
-process.stdout.write('  ✓ resources/icns ladder (16, 32, 64, 128, 256, 512, 1024px)\n')
+process.stdout.write(`Generating icons from ${path.relative(path.join(__dirname, '..'), srcPng)}…\n`)
+const master = buildMaster(srcPng)
+writeIconSet(master, 'icon')
+// The nightly channel's set. The release workflow puts it in place of the
+// stable set before it packages a nightly (scripts/release/use-channel-icons.mjs).
+writeIconSet(buildNightlyMaster(master), 'icon-nightly')
 
 process.stdout.write('Done.\n')

@@ -37,6 +37,8 @@ export function detectLanguage(filename: string): string {
     bash: 'shell',
     sql: 'sql',
     xml: 'xml',
+    patch: 'patch',
+    diff: 'patch',
   }
   return map[ext] ?? 'plaintext'
 }

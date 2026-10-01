@@ -10,13 +10,13 @@ import { SCOPE_ROWS, presetFor, scopesForPreset, toggleScope, type ScopePreset }
 // It is ONE component because two surfaces put the same question and used to
 // answer it differently — the Pair a device modal ("what may this machine do
 // here?") and the inbound pair-request card ("what may the machine asking do
-// here?"). The card offered four bundled family rows with the terminal tier
-// unticked; the modal offered no choice at all and minted the structured set.
+// here?"). The card offered four bundled family rows; the modal offered no
+// choice at all and minted a house set.
 // Whichever set of words a person met decided whether cross-machine chats
 // worked, which is not a decision copy should be making.
 //
 // Controlled, and deliberately state-free: the chosen set belongs to whoever
-// will send it (`tailnetOfferPairing`, `fleetRequestPairing`, the approval), so
+// will send it (`tailnetOfferPairing`, `meshRequestPairing`, the approval), so
 // there is no moment where the rows and the button disagree about what is
 // about to be granted.
 

@@ -12,7 +12,7 @@
 // of them needs a renderer to be proved right.
 
 import type { CanvasBoardSummary } from '../../../../../../shared/canvas/types'
-import { CANVAS_DEFAULT_FOLDER, canvasBoardName } from '../../../../../../shared/canvas/paths'
+import { CANVAS_LEGACY_FOLDER, canvasBoardIsInStore, canvasBoardName } from '../../../../../../shared/canvas/paths'
 
 /**
  * Boards per page.
@@ -78,11 +78,24 @@ export function canvasPickerPage(input: {
   }
 }
 
-/** The folder a board lives in, or the default folder for a bare path. */
+/**
+ * What a board in the app's store says instead of a folder. The store's real
+ * path is a dot-folder inside the sidecar, which means nothing to a person
+ * choosing between two boards of one name; where it is kept is what tells them
+ * apart from the one in their project.
+ */
+export const CANVAS_STORE_LOCATION_LABEL = 'app storage'
+
+/**
+ * Where a board lives, as a row says it: its project folder, or the store's
+ * label for a board in the app's store (and for a bare path, which lands
+ * there).
+ */
 export function canvasBoardFolder(path: string): string {
   const slashed = String(path).replace(/\\/g, '/')
   const cut = slashed.lastIndexOf('/')
-  return cut > 0 ? slashed.slice(0, cut) : CANVAS_DEFAULT_FOLDER
+  if (cut <= 0 || canvasBoardIsInStore(slashed)) return CANVAS_STORE_LOCATION_LABEL
+  return slashed.slice(0, cut)
 }
 
 /**
@@ -126,14 +139,26 @@ export function uniqueCanvasBoardName(base: string, taken: readonly string[]): s
   return `${base}-${Date.now()}`
 }
 
-/** Whether a name would land on a board the project already has. */
-export function canvasBoardNameIsTaken(
+/**
+ * The board a new name would collide with, or null.
+ *
+ * The path itself, and — for a board headed for the store — the same name in
+ * the legacy folder too: a bare name finds the legacy board when the store has
+ * none (that is what the canvas tools do with it), so a second board of that
+ * name in the store would quietly take the name away from the one the person
+ * already has.
+ */
+export function collidingCanvasBoardPath(
   candidatePath: string,
   taken: readonly string[],
   caseInsensitive: boolean,
-): boolean {
+): string | null {
   const fold = (path: string): string => (caseInsensitive ? path.toLowerCase() : path)
-  return taken.some((path) => fold(path) === fold(candidatePath))
+  const candidates = [fold(candidatePath)]
+  if (canvasBoardIsInStore(candidatePath)) {
+    candidates.push(fold(`${CANVAS_LEGACY_FOLDER}/${candidatePath.slice(candidatePath.lastIndexOf('/') + 1)}`))
+  }
+  return taken.find((path) => candidates.includes(fold(path))) ?? null
 }
 
 const MINUTE = 60_000

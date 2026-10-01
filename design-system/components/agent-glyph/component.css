@@ -1,0 +1,359 @@
+/* Agent glyph — a spawned agent drawn as a small character.
+ *
+ * The drawing is currentColor line work on the 16px glyph grid; the state
+ * picks the ink. While its agent works the character moves, each part on its
+ * own loop; done, failed and stopped characters stand still. The motion lives
+ * here with its reduced-motion guard, so a consumer cannot forget it. */
+
+.ds-agent-glyph {
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  flex: none;
+  overflow: visible;
+}
+
+.ds-agent-glyph--working {
+  color: var(--sem-color-accent-primary);
+}
+.ds-agent-glyph--done,
+.ds-agent-glyph--stopped,
+.ds-agent-glyph--unknown {
+  color: var(--sem-color-text-subtle);
+}
+.ds-agent-glyph--failed {
+  color: var(--sem-color-status-danger);
+}
+
+/* Parts turn and scale about their own box, so each keyframe names its pivot. */
+.ds-agent-glyph * {
+  transform-box: fill-box;
+}
+
+@keyframes ds-agent-glyph-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1.2px);
+  }
+}
+@keyframes ds-agent-glyph-blink {
+  0%,
+  90%,
+  100% {
+    transform: scaleY(1);
+  }
+  94% {
+    transform: scaleY(0.1);
+  }
+}
+@keyframes ds-agent-glyph-look {
+  0%,
+  20%,
+  100% {
+    transform: translateX(0);
+  }
+  30%,
+  55% {
+    transform: translateX(1px);
+  }
+  65%,
+  85% {
+    transform: translateX(-1px);
+  }
+}
+@keyframes ds-agent-glyph-scan {
+  0%,
+  100% {
+    transform: translateX(-0.9px);
+  }
+  50% {
+    transform: translateX(0.9px);
+  }
+}
+@keyframes ds-agent-glyph-nod {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  25% {
+    transform: rotate(-3deg);
+  }
+  75% {
+    transform: rotate(3deg);
+  }
+}
+@keyframes ds-agent-glyph-rock {
+  0%,
+  100% {
+    transform: rotate(-4deg);
+  }
+  50% {
+    transform: rotate(4deg);
+  }
+}
+@keyframes ds-agent-glyph-squish {
+  0%,
+  100% {
+    transform: scale(1, 1);
+  }
+  40% {
+    transform: scale(1.07, 0.92);
+  }
+  70% {
+    transform: scale(0.96, 1.05);
+  }
+}
+@keyframes ds-agent-glyph-antenna {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0.25;
+  }
+}
+@keyframes ds-agent-glyph-flicker {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  30% {
+    opacity: 0.55;
+  }
+  45% {
+    opacity: 0.9;
+  }
+  70% {
+    opacity: 0.65;
+  }
+}
+@keyframes ds-agent-glyph-flop {
+  0%,
+  100% {
+    transform: rotate(-4deg);
+  }
+  50% {
+    transform: rotate(5deg);
+  }
+}
+@keyframes ds-agent-glyph-hoho {
+  0%,
+  24%,
+  48%,
+  100% {
+    transform: translateY(0);
+  }
+  12%,
+  36% {
+    transform: translateY(-1.1px);
+  }
+}
+@keyframes ds-agent-glyph-wiggle {
+  0%,
+  100% {
+    transform: skewX(-6deg);
+  }
+  50% {
+    transform: skewX(6deg);
+  }
+}
+@keyframes ds-agent-glyph-twitch {
+  0%,
+  80%,
+  100% {
+    transform: rotate(0);
+  }
+  85% {
+    transform: rotate(-6deg);
+  }
+  90% {
+    transform: rotate(4deg);
+  }
+}
+@keyframes ds-agent-glyph-drift {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-2deg);
+  }
+  50% {
+    transform: translateY(-1.4px) rotate(2deg);
+  }
+}
+@keyframes ds-agent-glyph-doff {
+  0%,
+  70%,
+  100% {
+    transform: rotate(0) translateY(0);
+  }
+  78%,
+  88% {
+    transform: rotate(-14deg) translateY(-1.2px);
+  }
+}
+@keyframes ds-agent-glyph-hop {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+  }
+  70% {
+    transform: translateY(-1.6px);
+  }
+  80% {
+    transform: translateY(0);
+  }
+  86% {
+    transform: translateY(-0.6px);
+  }
+}
+
+.ds-agent-glyph--robot .ds-agent-glyph-whole {
+  transform-origin: center bottom;
+  animation: ds-agent-glyph-nod 1600ms ease-in-out infinite;
+}
+.ds-agent-glyph--robot .ds-agent-glyph-eyes {
+  animation: ds-agent-glyph-scan 1600ms ease-in-out infinite;
+}
+.ds-agent-glyph--robot .ds-agent-glyph-antenna {
+  animation: ds-agent-glyph-antenna 1000ms steps(1) infinite;
+}
+.ds-agent-glyph--blob .ds-agent-glyph-whole {
+  transform-origin: center bottom;
+  animation: ds-agent-glyph-squish 1100ms ease-in-out infinite;
+}
+.ds-agent-glyph--blob .ds-agent-glyph-eyes {
+  animation: ds-agent-glyph-look 2600ms ease-in-out infinite;
+}
+.ds-agent-glyph--balloon .ds-agent-glyph-whole {
+  transform-origin: center bottom;
+  animation: ds-agent-glyph-drift 2400ms ease-in-out infinite;
+}
+.ds-agent-glyph--balloon .ds-agent-glyph-string {
+  transform-origin: center top;
+  animation: ds-agent-glyph-wiggle 1200ms ease-in-out infinite;
+}
+.ds-agent-glyph--balloon .ds-agent-glyph-eyes {
+  transform-origin: center;
+  animation: ds-agent-glyph-blink 3000ms infinite;
+}
+.ds-agent-glyph--bear .ds-agent-glyph-whole {
+  transform-origin: center bottom;
+  animation: ds-agent-glyph-nod 1800ms ease-in-out infinite;
+}
+.ds-agent-glyph--bear .ds-agent-glyph-eyes {
+  transform-origin: center;
+  animation: ds-agent-glyph-blink 3200ms infinite;
+}
+.ds-agent-glyph--gent .ds-agent-glyph-hat {
+  transform-origin: left bottom;
+  animation: ds-agent-glyph-doff 2600ms ease-in-out infinite;
+}
+.ds-agent-glyph--gent .ds-agent-glyph-eyes {
+  animation: ds-agent-glyph-look 2600ms ease-in-out infinite;
+}
+.ds-agent-glyph--mushroom .ds-agent-glyph-whole {
+  transform-origin: center bottom;
+  animation: ds-agent-glyph-squish 1300ms ease-in-out infinite;
+}
+.ds-agent-glyph--mushroom .ds-agent-glyph-eyes {
+  transform-origin: center;
+  animation: ds-agent-glyph-blink 2800ms infinite;
+}
+.ds-agent-glyph--ghost .ds-agent-glyph-whole {
+  animation: ds-agent-glyph-float 1800ms ease-in-out infinite;
+}
+.ds-agent-glyph--ghost .ds-agent-glyph-eyes {
+  transform-origin: center;
+  animation: ds-agent-glyph-blink 3200ms infinite;
+}
+.ds-agent-glyph--pumpkin .ds-agent-glyph-whole {
+  transform-origin: center bottom;
+  animation: ds-agent-glyph-rock 1400ms ease-in-out infinite;
+}
+.ds-agent-glyph--pumpkin .ds-agent-glyph-eyes {
+  animation: ds-agent-glyph-flicker 900ms steps(1) infinite;
+}
+.ds-agent-glyph--cat .ds-agent-glyph-whole {
+  animation: ds-agent-glyph-float 2000ms ease-in-out infinite;
+}
+.ds-agent-glyph--cat .ds-agent-glyph-eyes {
+  animation: ds-agent-glyph-look 2800ms ease-in-out infinite;
+}
+.ds-agent-glyph--cat .ds-agent-glyph-whiskers {
+  transform-origin: center;
+  animation: ds-agent-glyph-twitch 2200ms ease-in-out infinite;
+}
+.ds-agent-glyph--elf .ds-agent-glyph-whole {
+  animation: ds-agent-glyph-float 1200ms ease-in-out infinite;
+}
+.ds-agent-glyph--elf .ds-agent-glyph-hat {
+  transform-origin: center bottom;
+  animation: ds-agent-glyph-flop 1200ms ease-in-out infinite;
+}
+.ds-agent-glyph--elf .ds-agent-glyph-eyes {
+  transform-origin: center;
+  animation: ds-agent-glyph-blink 2800ms infinite;
+}
+.ds-agent-glyph--santa .ds-agent-glyph-whole {
+  animation: ds-agent-glyph-hoho 1800ms ease-in-out infinite;
+}
+.ds-agent-glyph--santa .ds-agent-glyph-hat {
+  transform-origin: left bottom;
+  animation: ds-agent-glyph-flop 1800ms ease-in-out infinite;
+}
+.ds-agent-glyph--santa .ds-agent-glyph-eyes {
+  transform-origin: center;
+  animation: ds-agent-glyph-blink 3400ms infinite;
+}
+.ds-agent-glyph--witch .ds-agent-glyph-whole {
+  animation: ds-agent-glyph-float 1800ms ease-in-out infinite;
+}
+.ds-agent-glyph--witch .ds-agent-glyph-hat {
+  transform-origin: center bottom;
+  animation: ds-agent-glyph-flop 1800ms ease-in-out infinite;
+}
+.ds-agent-glyph--witch .ds-agent-glyph-eyes {
+  animation: ds-agent-glyph-look 2800ms ease-in-out infinite;
+}
+.ds-agent-glyph--skull .ds-agent-glyph-whole {
+  transform-origin: center bottom;
+  animation: ds-agent-glyph-rock 1400ms ease-in-out infinite;
+}
+.ds-agent-glyph--skull .ds-agent-glyph-eyes {
+  animation: ds-agent-glyph-flicker 900ms steps(1) infinite;
+}
+.ds-agent-glyph--reindeer .ds-agent-glyph-whole {
+  transform-origin: center bottom;
+  animation: ds-agent-glyph-nod 1600ms ease-in-out infinite;
+}
+.ds-agent-glyph--reindeer .ds-agent-glyph-nose {
+  animation: ds-agent-glyph-antenna 1000ms steps(1) infinite;
+}
+.ds-agent-glyph--reindeer .ds-agent-glyph-eyes {
+  transform-origin: center;
+  animation: ds-agent-glyph-blink 3000ms infinite;
+}
+.ds-agent-glyph--present .ds-agent-glyph-whole {
+  transform-origin: center bottom;
+  animation: ds-agent-glyph-hop 1600ms ease-in-out infinite;
+}
+.ds-agent-glyph--present .ds-agent-glyph-bow {
+  transform-origin: center bottom;
+  animation: ds-agent-glyph-flop 1600ms ease-in-out infinite;
+}
+.ds-agent-glyph--present .ds-agent-glyph-eyes {
+  transform-origin: center;
+  animation: ds-agent-glyph-blink 3000ms infinite;
+}
+
+/* As specific as the character rules above and after them, so it wins: a bare
+ * `.ds-agent-glyph *` is outranked by `.ds-agent-glyph--robot
+ * .ds-agent-glyph-eyes` and left every character moving. */
+@media (prefers-reduced-motion: reduce) {
+  .ds-agent-glyph--working [class^='ds-agent-glyph-'] {
+    animation: none;
+  }
+}

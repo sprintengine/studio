@@ -9,16 +9,31 @@
   "binary": "codex",
   "permissionPresets": {
     "manual": {
-      "label": "Manual — Codex prompts for approvals",
-      "args": []
+      "$comment": "Codex's own Read only: commands run in a read-only sandbox with no network, so every edit, and every command that writes or reaches out, has to ask to leave it. Not `--ask-for-approval untrusted`: Codex 0.157 refuses that value on the command line (`invalid value 'untrusted'`) and in config (`no longer supported`), so a terminal launched with it never started.",
+      "label": "Read only",
+      "summary": "Reads freely; asks to edit or go online.",
+      "description": "Codex’s Read Only: it reads the workspace and runs commands in a read-only sandbox, and asks before it edits a file or uses the network.",
+      "args": ["--ask-for-approval", "on-request", "--sandbox", "read-only"]
+    },
+    "workspace": {
+      "$comment": "Codex's own Default (what Auto was before it became auto-review): the workspace sandbox, and the person is asked before anything leaves it. Not keyed `default`, which is a retired spelling of the manual preset.",
+      "label": "Default",
+      "summary": "Workspace sandbox; asks you to go past it.",
+      "description": "Codex’s Default: it edits and runs commands inside the workspace sandbox without asking, and asks you before it writes outside the workspace or uses the network.",
+      "level": "auto",
+      "args": ["--ask-for-approval", "on-request", "--sandbox", "workspace-write"]
     },
     "auto": {
-      "$comment": "Codex's autonomy is enforced by a SANDBOX, not reviewed by a classifier \u2014 same rung as Claude Code's auto, different mechanism. `--ask-for-approval never` is deliberate over `on-request`: this is the rung the automation MCP surface forces callers onto (it refuses bypass outright), and a prompting preset does not escalate an unattended run, it hangs it until the idle reaper fails it.",
-      "label": "Auto — sandboxed to the workspace, never prompts",
-      "args": ["--ask-for-approval", "never", "--sandbox", "workspace-write"]
+      "$comment": "Codex's own auto-review (`codex --help`: `--approve-for-me  Route approval requests through automatic review using the workspace-write sandbox`): it edits and runs commands inside the workspace sandbox without asking, and a request to go past it is judged by Codex's reviewer rather than put to the person, as Claude Code's and Cursor's Auto are their classifiers. The flag sets the sandbox and approval policy itself, and Codex refuses it beside `--ask-for-approval` or `--sandbox`.",
+      "label": "Auto-review",
+      "summary": "Workspace sandbox; a reviewer judges the rest.",
+      "description": "Codex’s auto-review: it edits and runs commands inside the workspace sandbox without asking, and a reviewer judges each request to write outside the workspace or use the network instead of asking you.",
+      "args": ["--approve-for-me"]
     },
     "bypass": {
-      "label": "Bypass all approvals (dangerous)",
+      "label": "YOLO",
+      "summary": "No approvals and no sandbox.",
+      "description": "Run Codex without approval prompts or sandbox restrictions. Use only in repositories and environments you trust.",
       "args": ["--dangerously-bypass-approvals-and-sandbox"]
     }
   },
@@ -26,6 +41,8 @@
     "args": ["--model", "{{model}}"],
     "options": [
       { "id": "gpt-6-astra", "label": "GPT-6 Astra" },
+      { "id": "gpt-6-sol", "label": "GPT-6 Sol" },
+      { "id": "gpt-6-luna", "label": "GPT-6 Luna" },
       { "id": "gpt-5.6-sol", "label": "GPT-5.6 Sol" },
       { "id": "gpt-5.6-terra", "label": "GPT-5.6 Terra" },
       { "id": "gpt-5.6-luna", "label": "GPT-5.6 Luna" },
@@ -60,6 +77,7 @@
       { "spreadIf": "reasoningArgs" },
       { "spreadIf": "themeArgs" },
       { "spreadIf": "contextArgs" },
+      { "spreadIf": "promptOverflowArgs" },
       { "valueIf": "prompt", "value": "{{prompt}}" }
     ]
   },
@@ -74,10 +92,15 @@
     ]
   },
   "promptInjection": {
-    "mode": "positional-arg"
+    "mode": "positional-arg",
+    "overflow": {
+      "$comment": "codex 0.155.1 and 0.156.1 document no prompt-file option and no stdin prompt for the interactive TUI (`codex exec` is the non-interactive path), so a first message too long for the platform's command line is typed in: launched without it, then pasted (bracketed) and submitted once the TUI is reading. `check_for_update_on_startup=false` rides only that launch: Codex's startup update prompt turns on bracketed paste just as the composer does, and the typed Enter would accept its default, which installs the update (observed 2026-09-24 against 0.155.1). The key is a declared ConfigToml field of the installed binary; with it set, the paste and its Enter landed in the composer and were answered once.",
+      "mode": "input",
+      "args": ["-c", "check_for_update_on_startup=false"]
+    }
   },
   "contextInjection": {
-    "$comment": "codex -c <key=value> overrides a config.toml value, and `developer_instructions` is a declared key of codex's own ConfigToml (verified against the installed binary: --help documents -c, and the key is present in the compiled ConfigToml field set). The value is parsed as TOML, so {{contextToml}} renders the document as a quoted, escaped basic string — a raw multi-line value would be a parse error. Deliberately NOT on the resume argv: codex persists a session's own config, exactly as the reasoning-effort override does here.",
+    "$comment": "codex -c <key=value> overrides a config.toml value, and `developer_instructions` is a declared key of codex's own ConfigToml (verified against the installed binary: --help documents -c, and the key is present in the compiled ConfigToml field set). The value is parsed as TOML, so {{contextToml}} renders the document as a quoted, escaped basic string — a raw multi-line value would be a parse error. Deliberately NOT on the resume argv: codex persists a session's own config, exactly as the reasoning-effort override does here. No file-taking form exists for this channel (re-verified 2026-09-24 against 0.156.1): the compiled ConfigToml declares `model_instructions_file`, but `codex debug prompt-input -c model_instructions_file=<file>` rendered none of the file into the model-visible input while `-c developer_instructions=<text>` rendered it as the first developer message, which is consistent with the file key replacing Codex's built-in instructions rather than adding to them, so it is not used. A document too long for the platform's command line is cut instead, with a marker naming the file main wrote it to (planAgentLaunch in src/main/agent-launch-render.ts).",
     "mode": "argv",
     "args": ["-c", "developer_instructions={{contextToml}}"]
   },
@@ -125,7 +148,7 @@
   "detect": {
     "versionArgs": ["--version"]
   },
-  "package": {"npm": "@openai/codex", "brew": "codex"},
+  "package": { "npm": "@openai/codex", "brew": "codex" },
   "install": {
     "darwin": [
       {

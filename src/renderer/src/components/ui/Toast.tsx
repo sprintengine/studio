@@ -1,7 +1,9 @@
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import CliIcon from '../CliIcon'
 import { GhostButton, PrimaryButton } from './Buttons'
-import { TONE_COLOR_VAR, type Tone } from './tokens'
+import { Spinner } from './Spinner'
+import { StatusDot } from './StatusDot'
+import type { Tone } from './tokens'
 
 const TOAST_ROLE: Record<Tone, 'status' | 'alert'> = {
   neutral: 'status',
@@ -19,14 +21,18 @@ const TOAST_LIVE: Record<Tone, 'polite' | 'assertive'> = {
   error: 'assertive',
 }
 
-// Opinionated auto-dismiss policy. Warn and error stay until the user
-// dismisses them so the operator never misses a failed precondition.
+// Opinionated auto-dismiss policy. Every tone leaves on its own (owner
+// ruling 2026-09-28 — the notification bell and the surfaces behind each
+// report keep them; a corner of stale cards is furniture). Warn and error
+// linger twice as long as a success, and hovering or focusing the card holds
+// the clock, so nothing is raced while being read. A producer that needs a
+// toast to stay passes `autoDismissMs: false` (the app-update steps do).
 const TOAST_AUTO_DISMISS_MS: Record<Tone, number | false> = {
   neutral: 5000,
   good: 5000,
   accent: 5000,
-  warn: false,
-  error: false,
+  warn: 10000,
+  error: 10000,
 }
 
 type ToastProps = {
@@ -36,6 +42,11 @@ type ToastProps = {
   /** Programmatic dismiss. Also wired to the trailing dismiss button when
    *  supplied. Required for auto-dismiss to fire. */
   onDismiss?: () => void
+  /** Called when the PERSON presses the dismiss button, before `onDismiss`.
+   *  The timer never calls it: a toast that timed out was not dismissed by
+   *  anyone. The update toasts read it as "not now" and clear the update's
+   *  badges (owner ruling 2026-09-25); a report with nothing to clear omits it. */
+  onDismissPressed?: () => void
   /** Override the tone-default auto-dismiss policy. Pass `false` to keep the
    *  toast until the user dismisses it, or a number of ms to override the
    *  tone default. */
@@ -45,7 +56,7 @@ type ToastProps = {
   cli?: string
   /** The action row. The CLI-update toast is the ONE toast that carries one
    *  (owner ruling 2026-09-04); the toast spec's action-row variant. */
-  actions?: ReadonlyArray<{ id: string; label: string; primary?: boolean; run: () => void }>
+  actions?: ReadonlyArray<{ id: string; label: string; primary?: boolean; busy?: boolean; run: () => void }>
   /** The acting body, under the description: the pair-request toast's code
    *  field and its answers (owner ruling 2026-09-05, the toast spec's
    *  answer-in-place variant). One producer; see the store's `content`. */
@@ -57,6 +68,7 @@ export function Toast({
   title,
   description,
   onDismiss,
+  onDismissPressed,
   autoDismissMs,
   className,
   cli,
@@ -73,27 +85,40 @@ export function Toast({
   useEffect(() => {
     onDismissRef.current = onDismiss
   }, [onDismiss])
+  // Held while the pointer is over the card or focus is inside it; letting
+  // go restarts the full duration rather than leaving a sliver of it.
+  const [hovered, setHovered] = useState(false)
+  const [focused, setFocused] = useState(false)
+  const held = hovered || focused
   useEffect(() => {
-    if (resolved === false) return
+    if (resolved === false || held) return
     const id = window.setTimeout(() => onDismissRef.current?.(), resolved)
     return () => window.clearTimeout(id)
-  }, [resolved])
+  }, [resolved, held])
 
   return (
     <div
       role={TOAST_ROLE[tone]}
       aria-live={TOAST_LIVE[tone]}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false)
+      }}
       className={[
         // toast-enter is defined in src/renderer/src/assets/index.css and is
         // disabled inside the global `prefers-reduced-motion: reduce` rule.
         'toast-enter flex items-start gap-2 rounded-[7px] border px-3 py-2',
         // Glass (owner ruling 2026-09-04):
         // `surface-glass` is bg.surface-raised at glass.opacity over a blur of
-        // the page, with a hairline and shadow.popover to draw the card's
+        // the page, with a hairline and shadow.toast to draw the card's
         // edge over whatever shows through. The toast is the ONE surface
         // allowed to blur — its area is a corner, not a viewport — and the
-        // conformance lint pins the utility to this file.
-        'surface-glass shadow-[var(--shadow-popover)] border-[color:var(--border-default)]',
+        // conformance lint pins the utility to this file. shadow.toast is
+        // the button's lit top edge over a lifted drop (owner ruling
+        // 2026-09-28), so the card reads as sitting ON the page, not in it.
+        'surface-glass shadow-[var(--shadow-toast)] border-[color:var(--border-default)]',
         'text-meta text-[color:var(--text-default)]',
         className ?? '',
       ].join(' ')}
@@ -101,12 +126,8 @@ export function Toast({
       {cli ? (
         <CliIcon cli={cli} className="mt-px size-icon-sm shrink-0 text-[color:var(--text-default)]" />
       ) : (
-        <span
-          aria-hidden="true"
-          // design-tokens-allow: canonical tone bullet inside Toast; intentionally not delegated to StatusDot because Toast's bullet sits inline with text and uses the same TONE_COLOR_VAR lookup
-          className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full"
-          style={{ backgroundColor: TONE_COLOR_VAR[tone] }}
-        />
+        // The tone's status mark, by shape: the app draws no status dots.
+        <StatusDot tone={tone} className="mt-px" />
       )}
       <div className="min-w-0 flex-1">
         <div className="font-medium leading-tight text-[color:var(--text-strong)]">{title}</div>
@@ -118,11 +139,15 @@ export function Toast({
           <div className="mt-2 flex justify-end gap-1.5">
             {actions.map((action) =>
               action.primary ? (
-                <PrimaryButton key={action.id} size="xs" onClick={action.run}>
+                // `busy`: the press went through and the work it started is
+                // running (the app-update toast's Restart, owner ruling
+                // 2026-09-24). Disabled, with the spinner beside the label.
+                <PrimaryButton key={action.id} size="xs" onClick={action.run} busy={action.busy} disabled={action.busy}>
+                  {action.busy ? <Spinner className="icon-sm" /> : null}
                   {action.label}
                 </PrimaryButton>
               ) : (
-                <GhostButton key={action.id} size="xs" onClick={action.run}>
+                <GhostButton key={action.id} size="xs" onClick={action.run} disabled={action.busy}>
                   {action.label}
                 </GhostButton>
               ),
@@ -133,7 +158,10 @@ export function Toast({
       {onDismiss ? (
         <button
           type="button"
-          onClick={onDismiss}
+          onClick={() => {
+            onDismissPressed?.()
+            onDismiss()
+          }}
           aria-label="Dismiss"
           // The floor is the token, not a typed box: the target used to be
           // `h-5 w-5` — 20px, under `--sem-size-hit-target-min` (24px), which

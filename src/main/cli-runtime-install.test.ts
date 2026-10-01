@@ -6,7 +6,7 @@ import {
   buildInstallDescriptor,
   buildProbeDescriptor,
   buildUpdateDescriptor,
-  buildUserShellProbeDescriptor,
+  createCliExecutableResolver,
   parseProbeOutput,
   resolveInstallPlatform,
 } from './cli-runtime-install'
@@ -17,14 +17,15 @@ test('cli-runtime-install', async () => {
   const NOT_FOUND_CODE = 3
 
   function main(): void {
-    // resolveInstallPlatform: WSL only when on Windows with the override on.
-    assert.equal(resolveInstallPlatform('darwin', false), 'darwin')
-    assert.equal(resolveInstallPlatform('linux', false), 'linux')
-    assert.equal(resolveInstallPlatform('win32', false), 'win32')
-    assert.equal(resolveInstallPlatform('win32', true), 'wsl')
-    assert.equal(resolveInstallPlatform('darwin', true), 'darwin')
+    // resolveInstallPlatform: WSL only on Windows, for a WSL machine.
+    assert.equal(resolveInstallPlatform('darwin', 'local'), 'darwin')
+    assert.equal(resolveInstallPlatform('linux', undefined), 'linux')
+    assert.equal(resolveInstallPlatform('win32', 'local'), 'win32')
+    assert.equal(resolveInstallPlatform('win32', 'wsl:Ubuntu'), 'wsl')
+    assert.equal(resolveInstallPlatform('win32', 'wsl:not a distro'), 'win32')
+    assert.equal(resolveInstallPlatform('darwin', 'wsl:Ubuntu'), 'darwin')
     // Unknown POSIX-like platforms fall back to linux.
-    assert.equal(resolveInstallPlatform('freebsd' as NodeJS.Platform, false), 'linux')
+    assert.equal(resolveInstallPlatform('freebsd' as NodeJS.Platform, null), 'linux')
 
     // POSIX probe runs through a login bash and guards on `command -v`.
     const posixProbe = buildProbeDescriptor({ binary: 'claude', versionArgs: ['--version'], target: 'linux' })
@@ -34,10 +35,13 @@ test('cli-runtime-install', async () => {
     assert.match(posixProbe.args[1], /'claude' '--version' 2>&1 \|\| true/)
     assert.match(posixProbe.args[1], /exit 3/)
 
-    // WSL probe is routed through wsl.exe + bash.
+    // WSL probe is routed through wsl.exe, with the script on stdin for a
+    // login bash rather than on the command line wsl.exe re-quotes.
     const wslProbe = buildProbeDescriptor({ binary: 'claude', versionArgs: ['--version'], target: 'wsl' })
     assert.equal(wslProbe.file, 'wsl.exe')
-    assert.deepEqual(wslProbe.args.slice(0, 3), ['-e', 'bash', '-lc'])
+    assert.deepEqual(wslProbe.args.slice(-5), ['--cd', '~', '--exec', 'sh', '-s'])
+    assert.match(wslProbe.stdin ?? '', /^exec bash -l <</u)
+    assert.ok(wslProbe.stdin?.includes("command -v 'claude'"), wslProbe.stdin ?? '')
 
     // Windows probe is PowerShell + Get-Command.
     const winProbe = buildProbeDescriptor({ binary: 'claude', versionArgs: ['--version'], target: 'win32' })
@@ -82,54 +86,6 @@ test('cli-runtime-install', async () => {
     assert.equal(noVersion.resolvedPath, '/usr/local/bin/codex')
     assert.equal(noVersion.version, null)
 
-    // User-shell fallback probe: consults the user's own zsh/bash as an
-    // interactive login shell (terminal parity — PTYs source the same config),
-    // and only for POSIX-syntax shells on the host platform.
-    const zshFallback = buildUserShellProbeDescriptor({
-      binary: 'claude',
-      versionArgs: ['--version'],
-      target: 'darwin',
-      shell: '/bin/zsh',
-    })
-    assert.ok(zshFallback)
-    assert.equal(zshFallback.file, '/bin/zsh')
-    assert.equal(zshFallback.args[0], '-ilc')
-    assert.match(zshFallback.args[1], /command -v 'claude'/)
-    assert.match(zshFallback.args[1], /exit 3/)
-    // Interactive shells resolve aliases/functions too; only an absolute
-    // executable path may be reported (alias text cannot be spawned headlessly).
-    assert.match(zshFallback.args[1], /case "\$p" in \/\*\)/)
-    assert.match(zshFallback.args[1], /\[ -x "\$p" \]/)
-    const bashFallback = buildUserShellProbeDescriptor({
-      binary: 'claude',
-      versionArgs: [],
-      target: 'linux',
-      shell: '/usr/bin/bash',
-    })
-    assert.equal(bashFallback?.file, '/usr/bin/bash')
-    // fish would misparse the POSIX script; Windows/WSL have no user shell to
-    // consult; a missing $SHELL yields no fallback.
-    assert.equal(
-      buildUserShellProbeDescriptor({ binary: 'claude', versionArgs: [], target: 'darwin', shell: '/usr/bin/fish' }),
-      null,
-    )
-    assert.equal(
-      buildUserShellProbeDescriptor({ binary: 'claude', versionArgs: [], target: 'win32', shell: '/bin/zsh' }),
-      null,
-    )
-    assert.equal(
-      buildUserShellProbeDescriptor({ binary: 'claude', versionArgs: [], target: 'wsl', shell: '/bin/zsh' }),
-      null,
-    )
-    assert.equal(
-      buildUserShellProbeDescriptor({ binary: 'claude', versionArgs: [], target: 'darwin', shell: undefined }),
-      null,
-    )
-    assert.equal(
-      buildUserShellProbeDescriptor({ binary: 'claude', versionArgs: [], target: 'darwin', shell: '  ' }),
-      null,
-    )
-
     // Update descriptor: the CLI's own updater (manifest update.args) runs
     // against the resolved binary in the target shell, mirroring the probe.
     const posixUpdate = buildUpdateDescriptor({ binary: 'claude', args: ['update'], target: 'darwin' })
@@ -138,7 +94,8 @@ test('cli-runtime-install', async () => {
     assert.equal(posixUpdate.args[1], "'claude' 'update'")
     const wslUpdate = buildUpdateDescriptor({ binary: 'claude', args: ['update'], target: 'wsl' })
     assert.equal(wslUpdate.file, 'wsl.exe')
-    assert.deepEqual(wslUpdate.args.slice(0, 3), ['-e', 'bash', '-lc'])
+    assert.deepEqual(wslUpdate.args.slice(-5), ['--cd', '~', '--exec', 'sh', '-s'])
+    assert.ok(wslUpdate.stdin?.includes("'claude' 'update'"), wslUpdate.stdin ?? '')
     const winUpdate = buildUpdateDescriptor({ binary: 'claude', args: ['update'], target: 'win32' })
     assert.equal(winUpdate.file, 'powershell.exe')
     assert.equal(winUpdate.args.at(-1), "& 'claude' 'update'")
@@ -174,4 +131,76 @@ test('cli-runtime-install', async () => {
   }
 
   main()
+})
+
+test('a CLI is looked up once per machine and command, and again once its path is gone', async () => {
+  const lookups: string[] = []
+  const present = new Set(['/usr/local/bin/claude', '/opt/bin/codex', '/Users/dev/bin/claude'])
+  const resolver = createCliExecutableResolver({
+    lookup: async (cli, runtime) => {
+      lookups.push(`${cli}@${runtime?.hostId ?? 'local'}${runtime?.command ? `:${runtime.command}` : ''}`)
+      const path = runtime?.command
+        ? runtime.command
+        : cli === 'claude-code'
+          ? '/usr/local/bin/claude'
+          : cli === 'codex'
+            ? '/opt/bin/codex'
+            : null
+      return { path, error: path ? null : 'not on PATH' }
+    },
+    stillThere: async (path, runtime) => (runtime?.hostId?.startsWith('wsl:') ? null : present.has(path)),
+  })
+  // Concurrent starts share one lookup, and later starts run none.
+  const [first, second] = await Promise.all([resolver.resolve('claude-code'), resolver.resolve('claude-code')])
+  assert.equal(first.path, '/usr/local/bin/claude')
+  assert.equal(second.path, '/usr/local/bin/claude')
+  assert.equal((await resolver.resolve('claude-code', { hostId: 'local' })).path, '/usr/local/bin/claude')
+  assert.deepEqual(lookups, ['claude-code@local'])
+  // A command override is a lookup of its own.
+  assert.equal(
+    (await resolver.resolve('claude-code', { command: '/Users/dev/bin/claude' })).path,
+    '/Users/dev/bin/claude',
+  )
+  assert.equal(lookups.length, 2)
+  // A path that is no longer there is looked up again.
+  present.delete('/usr/local/bin/claude')
+  await resolver.resolve('claude-code')
+  assert.equal(lookups.length, 3)
+  // A CLI that is not found says why, and is not remembered as missing.
+  assert.deepEqual(await resolver.resolve('gemini'), { path: null, error: 'not on PATH' })
+  assert.equal((await resolver.resolve('gemini')).path, null)
+  assert.equal(lookups.filter((entry) => entry.startsWith('gemini')).length, 2)
+  // Forgetting one CLI keeps the others; forgetting all drops every path.
+  await resolver.resolve('codex')
+  present.add('/usr/local/bin/claude')
+  await resolver.resolve('claude-code')
+  const before = lookups.length
+  resolver.invalidate('codex')
+  await resolver.resolve('claude-code')
+  await resolver.resolve('codex')
+  assert.deepEqual(lookups.slice(before), ['codex@local'])
+  resolver.invalidate()
+  await resolver.resolve('claude-code')
+  assert.equal(lookups.at(-1), 'claude-code@local')
+  // A path this process cannot check (inside WSL) is trusted.
+  await resolver.resolve('codex', { hostId: 'wsl:Ubuntu' })
+  const wslLookups = lookups.length
+  await resolver.resolve('codex', { hostId: 'wsl:Ubuntu' })
+  assert.equal(lookups.length, wslLookups)
+})
+
+test('a failed lookup is not remembered', async () => {
+  let calls = 0
+  const resolver = createCliExecutableResolver({
+    lookup: async () => {
+      calls++
+      if (calls === 1) throw new Error('probe failed')
+      return { path: '/usr/bin/codex', error: null }
+    },
+    stillThere: async () => true,
+  })
+  await assert.rejects(resolver.resolve('codex'), /probe failed/)
+  assert.equal((await resolver.resolve('codex')).path, '/usr/bin/codex')
+  assert.equal((await resolver.resolve('codex')).path, '/usr/bin/codex')
+  assert.equal(calls, 2)
 })

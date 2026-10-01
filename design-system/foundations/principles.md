@@ -21,6 +21,11 @@ has, so it is spent on almost nothing:
 - `accent.primary` as **ink or a hairline** may mark focus (`focus.ring`) and a
   genuinely live process.
 - Everything else earns its weight from the neutral ink and surface ramps.
+- One carve-out that is not a signal at all: the **tinted window material**
+  lays a barely perceptible wash of `accent.primary` behind the accent half of
+  the brand wordmark, and nowhere else (owner rulings 2026-09-24). That is the
+  material the chrome is made of, following the colour of the letters it sits
+  behind, not the accent spent on anything — see "Window material" below.
 
 If a surface needs a second accent, it is missing hierarchy, not color. Status
 hues (`status.*`) are not accents: never a button background, section border,
@@ -131,7 +136,7 @@ exceeds one, model the domain again rather than adding chrome.
 | Ceiling | Limit |
 |---|---|
 | Product accents visible per view | 1 |
-| Status idioms | 1 — the 6px dot or a lifecycle glyph, never both |
+| Status idioms | 1 — the status mark or a lifecycle glyph, never both; never a dot |
 | Font families | 2 — `font.family.ui`, `font.family.mono` |
 | Font weights per view | 3 |
 | Font sizes per view | 3, repeating title / body / meta |
@@ -285,6 +290,14 @@ person with everything at once.
   `shadow.popover` for trigger-anchored surfaces, `shadow.drawer` for drawers
   and side panels, `shadow.modal` for centred dialogs. Nothing in the document
   flow — no card, row, or hover state — takes a shadow.
+- **Control elevation is the one in-flow exception** (2026-09-02, widened by
+  owner ruling 2026-10-01): a control that is pressed to act stands off the page
+  on `shadow.control-edge` / `shadow.control-raised` — a 1px lit top lip over a
+  shallow drop — with the matching `gradient.control-*` sheen across its face,
+  and sinks on `shadow.control-pressed`. Outline and filled buttons, raised
+  chips, launcher tiles and a segmented control's thumb take it; fields, rows,
+  cards and borderless controls do not. See
+  [button → Elevation](../components/button/component.md).
 - In light mode, `bg.surface-raised` is deliberately the same white as
   `bg.surface`: raised surfaces separate by shadow and `border.strong`, not by
   tone. In dark mode the tone step does the work.
@@ -454,7 +467,7 @@ for a second band means asking which band the new control belongs in, not where
 to put the new band.
 
 **The door surface** — a full-page surface that takes over the content region
-(Automations, Design, Plugins, Skills, Agent CLIs, the Extensions home) — has
+(Automations, Design, Plugins, Skills, the Extensions home) — has
 an anatomy too, and it has exactly one band of chrome:
 
 1. **The app's top strip is the door's title bar.** The door's name and its
@@ -475,8 +488,9 @@ an anatomy too, and it has exactly one band of chrome:
 **Surfaces, not modals** (ruled 2026-09-05, reversing the doors→modals ruling
 of 2026-09-01). A destination the shell's own chrome offers — anything an app
 rail square or a sidebar drawer row opens — is a DOOR: it takes the card region
-and owns the top row above it. Automations, Design, Plugins, Skills, Agent CLIs
-and the Extensions home are doors. They spent four days as modals, and the
+and owns the top row above it. Automations, Design, Plugins, Skills and the
+Extensions home are doors (Agent CLIs was one until 2026-09-25, when the owner
+moved the list to Settings ▸ Agents). They spent four days as modals, and the
 modal was wrong for them twice over: a scrim put a dialog between the person
 and the very column they had just navigated with, and a float over the card
 region means back, forward and the window's history all step to a destination
@@ -546,13 +560,14 @@ walks. Its anatomy:
    rail because it is what the product DOES, not something added to it; it is
    the module's own registered surface, gated on the module's enablement, so a
    turned-off module's glyph is simply absent. Plugins does not: it is one of
-   the four product things under Extensions, and a glyph of its own said it stood
+   the product things under Extensions, and a glyph of its own said it stood
    beside them.
 4. **Extensions opens its home, and the sidebar becomes the drawer.** The
-   drawer starts with four product rows in a fixed order — Design, Plugins,
-   Skills, Agent CLIs — and installed module doors follow in stable registry
-   order, all with the same `SidebarNavButton` chrome. Registry
-   `order` never moves the four product rows; an installed door contributes its
+   drawer starts with three product rows in a fixed order — Design, Plugins,
+   Skills — and installed module doors follow in stable registry order, all
+   with the same `SidebarNavButton` chrome. (Agent CLIs was a fourth until
+   2026-09-25: the owner moved agent CLIs to Settings ▸ Agents, which already
+   listed every CLI per machine.) Registry `order` never moves the product rows; an installed door contributes its
    name, glyph and behaviour, then takes the next available place. The drawer
    STAYS PUT while the card region swaps, which is what makes it the navigation
    rather than a menu:
@@ -610,12 +625,12 @@ walks. Its anatomy:
    moment the section opened, and the drawer that appeared said nothing about
    which row the news belonged to — a count that vanished on the click it
    asked for. Now the news goes on the row it came from: a source drift notice
-   on Plugins, a CLI update on Agent CLIs, a run waiting on an answer on the
+   on Plugins, a run waiting on an answer on the
    door that lists it, entries arrived since the bundle was last shown on
    Design. Installed module rows carry no inferred count: a module owns its
    status inside its door until it contributes a notification contract. A
    counted row draws the same corner counter — trailing when the column is
-   expanded, docked on the icon when collapsed — in place of any status dot it
+   expanded, docked on the icon when collapsed — in place of any status mark it
    would otherwise wear (one status idiom per surface), with the row's name in
    its accessible name. Opening a ROW reads its news; opening the section reads
    nothing, and the square keeps counting while the drawer is on screen, the
@@ -625,6 +640,14 @@ walks. Its anatomy:
    reads its own cards as it mounts, and marks the ones that were new with
    the New mark, so what the count pointed at is still on screen when the
    person arrives.
+10. **The Settings gear counts the updates waiting inside Settings** (owner
+   ruling 2026-09-25): an agent CLI behind its release, and a newer
+   SprintEngine Studio. The same corner counter, and the same count follows the
+   person in — onto General or Agents in the Settings nav, onto the machine's
+   segment on the Agents switcher, and beside the CLI row's Update button (the
+   badge entry, "In Settings"). Unlike news, opening Settings reads nothing: an
+   update is not seen by being looked at, it is answered — installed, or
+   dismissed from its toast for that version.
 
 **A dialog is header, content, actions — separated by space.** No rule under the
 title, none above the buttons. See *Hairlines carry the structure*.
@@ -633,8 +656,14 @@ title, none above the buttons. See *Hairlines carry the structure*.
 
 - Status reads by **shape first, color second** — every state survives
   grayscale. Healthy, done, and idle render no mark at all.
-- One status idiom per surface. A 6px dot or a lifecycle glyph — never a dot
-  and a tinted pill saying the same thing.
+- One status idiom per surface. A status mark or a lifecycle glyph — never a
+  mark and a tinted pill saying the same thing.
+- **No status dots, anywhere** (owner ruling 2026-09-28). A 6px disc has no
+  shape, so every tone was the same circle and "working" read like
+  "waiting". A state is a word, a timer or a shape-coded glyph in its tone's
+  ink (`status-dot`); something running right now is the working mark
+  (`liveness`), the one "working" mark every surface shares, or a spawned
+  agent's character (`agent-glyph`).
 - A status is never text-only with no glyph, nor glyph-only with no accessible
   name.
 - The accent green (forest) and the success green (bright emerald) are held
@@ -652,9 +681,12 @@ title, none above the buttons. See *Hairlines carry the structure*.
   is the tell that one was added by accident. An entrance a *pattern* owns (a
   rail swapping its contents) is not a fourth motion: it composes the same
   duration and easing pair rather than introducing a curve of its own.
-- At most one thing animates at a time, and it means one of exactly two things:
-  *alive right now* (a streaming or running pulse) or *just changed* (a
-  reorder, a just-moved flash). Ambient decoration is not motion, it is noise.
+- Motion means one of two things: *alive right now* (a working mark, a
+  running agent's character, a spinner) or *just changed* (a reorder, a
+  just-moved flash). It may carry a little personality while it says so
+  (ruling 2026-09-28): a working mark picks one of four patterns, and a spawned
+  agent is a small character that moves while it works. What never moves is
+  something at rest — ambient decoration on an idle surface is noise.
 - Motion is never the sole signal of a state change — the accessible name and
   the visible label carry it too.
 - Every animation honors `prefers-reduced-motion: reduce`, including the
@@ -696,6 +728,80 @@ A gate, not a preference. No design system supplies it for you.
 - Dark values keep the anti-dither discipline: solid channel values, no pure
   black surfaces.
 
+## Window material
+
+The window's chrome — the app rail, the sidebar's brand row, the 36px title
+band, the aside column — stands on one ground, and the person picks what that
+ground is made of. It is a second appearance axis beside the theme: every
+material works over every theme and both modes, because each is derived from
+the active theme's own `bg.app` and `accent.primary` rather than from colours
+of its own. Cards and panels never take part; they stay opaque on top of
+whichever ground is chosen, so a material is only ever seen in the chrome.
+
+- **Glass** — the default on macOS. The window is transparent over the OS's
+  own vibrancy, and the theme's `bg.app` is laid over the frost once, at half
+  strength. The OS composites the frost from what is behind the window, never
+  from our content, so it costs nothing per frame. It is not available where
+  the OS has no vibrancy.
+- **Tinted** — the default on Windows and Linux, and an option on macOS for
+  anyone who would rather not have glass (owner ruling 2026-09-24). An opaque
+  window with a hint of colour on its ground — read as a tint of the chrome,
+  never as a glow:
+  - *The ambient wash.* One very large, heavily feathered radial wash on the
+    window ground, centred on the top-left corner where the rail and the title
+    band meet: `text.primary` over `bg.app` at `tinted.wash` at its heart,
+    fading to plain `bg.app` across a large part of the window. Its colour is
+    the ink of what stands on it — the rail's glyphs and the chrome's text —
+    so on a dark theme it is a faint lift of the foreground, and on a light one
+    a faint shade of it.
+  - *The wordmark's wash.* The one thing in the chrome that is two colours
+    gets a wash in both: `text.primary` behind "sprint" at `tinted.brand-ink`
+    and `accent.primary` behind "engine" at `tinted.brand`, overlapping across
+    the join and feathered to nothing `tinted.brand-reach` past the mark
+    (four tenths of that above and below, so it stays inside the brand row).
+    The ink half carries the smaller share because the foreground is much
+    further from the ground than the accent: at one share for both, "sprint"
+    sat in a grey smudge and "engine" in almost nothing. This is the only
+    place the material spends the accent.
+- **Solid** — the plain opaque `bg.app` ground, with neither.
+
+The rules that keep Tinted honest:
+
+- **Ambient, never per control** (owner ruling 2026-09-24). No rail button,
+  and no other control, wears a glow, a halo or a tile of its own; each looks
+  exactly as it does on Solid, in its own box. A glow per rail button was
+  tried first and read as a square with a coloured halo round every one of
+  them. Selection stays the neutral `bg.selected` fill.
+- **The colour follows what it sits behind.** The foreground under the
+  foreground, the accent only under the accent. A wash of a colour that
+  nothing on it is drawn in reads as a light shining on the chrome.
+- **No edge anywhere.** Every wash falls off on a smooth curve (a raised
+  cosine, many stops) rather than a few linear stops, so there is no ring, rim
+  or band at any stop and nothing is clipped at a box's edge: each wash has
+  reached zero before its own box ends. The strengths are small enough that the
+  ground moves by about one 8-bit step per tens of pixels, which is also why it
+  does not band at 125% or 150% display scaling.
+- **Static.** No `backdrop-filter`, no animation, no per-frame blending. The
+  washes are rasterised once and repaint only when the window resizes, which is
+  why this is the material for machines with no vibrancy.
+- **The cards stay raised.** At its heart the ambient wash lifts `bg.app` by
+  less than the step between the ground and the cards, so on a dark theme a
+  card still reads as standing above the chrome rather than sunk into it.
+- **Contrast holds.** The ambient wash moves `bg.app` by one or two hundredths
+  of the foreground at its strongest, and the wordmark's wash by a few
+  hundredths of its own inks, both far below what would take the chrome's text
+  or the rail's glyphs out of AA on their ground in either mode.
+- **The chrome's fills tint, they do not cover.** On both glass and tinted the
+  canvas layers go see-through and the ground is painted once, so a hovered or
+  selected row in the rail is a translucent step over the ground rather than an
+  opaque slab laid on it — the same rule, for the same reason, on both.
+- **The window opens on its own ground.** An opaque material's window is
+  created with the theme's `bg.app` as its background colour, so the frames
+  before the renderer paints are already the right colour and a light theme
+  never flashes dark.
+- The strengths are the `sem.tinted.*` tokens, with their own light and dark
+  values; a consumer never writes a per-mode override for them.
+
 ## Tokens or nothing
 
 - Never hard-code a color, space, size, radius, duration, or z-index the system
@@ -717,11 +823,15 @@ surface rather than patching it.
   selection fill.
 - More than two radii or more than three font weights in one view.
 - A third font family, or a serif anywhere in the product.
-- A badge or tinted pill where a status dot carries the same meaning.
+- A badge or tinted pill where a status mark carries the same meaning.
+- A status dot — a tone-filled disc standing for a state — on any surface.
 - A card inside a card with no containment reason.
 - A hero composition — oversized headline, decorative blob, three-up stat
   row — inside an operational panel.
-- A primary button with a gradient fill, inset highlight, or blurred shadow.
+- A primary button with a two-hue gradient fill, a coloured glow, or a blurred
+  halo. The lit lip, the shallow drop and the same-hue sheen of the control
+  elevation tokens are the system's own and are not this; anything past them
+  is.
 - Decorative emoji as iconography, or celebration copy ("✅", "🎉", "Awesome!").
 - Placeholder content: "Lorem ipsum", "Card title", "Item 1 / 2 / 3".
 - Empty-state copy that explains an obvious interaction ("Click here to

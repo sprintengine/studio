@@ -37,14 +37,14 @@ test('dev-only-gate', async () => {
 
   // 2. The expected production survivors are present (sanity that we didn't drop
   //    too much — agent-runtime + the non-dev-only bundled modules).
-  for (const id of ['agent-runtime', 'backlog', 'dev-tools', 'git', 'memory-graph', 'automations']) {
+  for (const id of ['agent-runtime', 'backlog', 'dev-tools', 'git', 'memory-graph', 'scheduled-agents']) {
     assert.ok(activeIds.includes(id), `production build must keep "${id}"`)
   }
 
   // 3. selectModuleEnabled resolves a dev-only id as false in production, even
   //    with an override that explicitly tries to turn it on (an absent module is
   //    not in the universe, so it can never resolve enabled). This is what makes
-  //    the self-gating surfaces (top-bar mic, Voice/Mobile settings tabs) hide.
+  //    the self-gating surfaces (top-bar mic, the Voice settings section) hide.
   for (const id of DEV_ONLY_MODULE_IDS) {
     assert.equal(selectModuleEnabled({}, id), false, `${id} must be disabled with no overrides in production`)
     assert.equal(

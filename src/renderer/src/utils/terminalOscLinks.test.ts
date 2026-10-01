@@ -1,12 +1,6 @@
 import assert from 'node:assert/strict'
 import type { IBufferRange } from '@xterm/xterm'
-import {
-  createTerminalOscLinkHandler,
-  createTerminalSurfaceOscLinkHandler,
-  parseTerminalOscCwd,
-  resolveTerminalOscLink,
-} from './terminalOscLinks'
-import { terminalSurfaceLinkRoots, type TerminalSurface } from './terminalSurfaces'
+import { createTerminalOscLinkHandler, parseTerminalOscCwd, resolveTerminalOscLink } from './terminalOscLinks'
 import { test } from 'vitest'
 
 test('terminalOscLinks', async () => {
@@ -15,15 +9,8 @@ test('terminalOscLinks', async () => {
 
   // `windowsPaths` is stated rather than inherited from the host: the Windows
   // spellings have to be provable from a Mac and refusable from one.
-  const LOCAL = { allowLocalPaths: true, windowsPaths: false }
-  const FLEET = { allowLocalPaths: false, windowsPaths: false }
-  const WINDOWS = { allowLocalPaths: true, windowsPaths: true }
-
-  // The surfaces the panes actually construct. `allowLocalPaths` is derived from
-  // these and never written down anywhere else.
-  const AGENT_SURFACE: TerminalSurface = { kind: 'agent', workspaceRoot: '/w', executionRoot: null }
-  const SHELL_SURFACE: TerminalSurface = { kind: 'shell', workspaceRoot: '/w' }
-  const FLEET_SURFACE: TerminalSurface = { kind: 'fleet' }
+  const LOCAL = { windowsPaths: false }
+  const WINDOWS = { windowsPaths: true }
 
   // ---------- scheme allowlist ----------
 
@@ -85,20 +72,6 @@ test('terminalOscLinks', async () => {
   assert.deepEqual(resolveTerminalOscLink('file://localhost/Users/dev/notes.md', LOCAL), {
     kind: 'file',
     path: '/Users/dev/notes.md',
-  })
-
-  // ---------- a fleet pane never resolves a local path ----------
-
-  assert.equal(
-    resolveTerminalOscLink('file:///Users/dev/notes.md', FLEET),
-    null,
-    'a fleet pane is attached to another machine; a local path is never its answer',
-  )
-  assert.equal(resolveTerminalOscLink('file://localhost/etc/hosts', FLEET), null)
-  // A URL means the same thing from either machine, so it still resolves.
-  assert.deepEqual(resolveTerminalOscLink('https://example.com/a', FLEET), {
-    kind: 'url',
-    url: 'https://example.com/a',
   })
 
   // ---------- decoding ----------
@@ -206,18 +179,15 @@ test('terminalOscLinks', async () => {
 
   type Activation = { files: string[]; urls: string[]; errors: string[] }
 
-  /**
-   * A handler built the way a PANE builds one: from the surface, through the same
-   * function `createStudioTerminal` calls, so `allowLocalPaths` is derived here
-   * exactly as it is in production rather than written down a second time.
-   */
-  function handlerFor(
-    surface: TerminalSurface,
-    info: { exists: boolean; isDirectory: boolean } = { exists: true, isDirectory: false },
-  ): { activate: (text: string) => void; seen: Activation; settled: () => Promise<void> } {
+  /** A handler built the way a pane's is: through the function `createStudioTerminal` calls. */
+  function handlerFor(info: { exists: boolean; isDirectory: boolean } = { exists: true, isDirectory: false }): {
+    activate: (text: string) => void
+    seen: Activation
+    settled: () => Promise<void>
+  } {
     const seen: Activation = { files: [], urls: [], errors: [] }
     const pending: Array<Promise<unknown>> = []
-    const handler = createTerminalSurfaceOscLinkHandler(surface, {
+    const handler = createTerminalOscLinkHandler({
       inspectPath: (path) => {
         const result = Promise.resolve(info)
         pending.push(result)
@@ -246,59 +216,24 @@ test('terminalOscLinks', async () => {
     }
   }
 
-  async function testAnAgentPaneOpensOnlyWhatSurvivesTheGate(): Promise<void> {
-    const agent = handlerFor(AGENT_SURFACE)
+  async function testAPaneOpensOnlyWhatSurvivesTheGate(): Promise<void> {
+    const agent = handlerFor()
     agent.activate('file:///Users/dev/notes.md')
     agent.activate('https://example.com/a')
     agent.activate('javascript:alert(1)')
     agent.activate('file://other-machine/etc/hosts')
     await agent.settled()
     assert.deepEqual(agent.seen.files, ['/Users/dev/notes.md'])
-    assert.deepEqual(agent.seen.urls, ['https://example.com/a'])
-    assert.deepEqual(agent.seen.errors, [], 'a refusal is silent — no popover, no message')
-  }
-
-  // The regression this replaces: the old version of this test built a handler
-  // with `allowLocalPaths: false` by hand — a handler production never
-  // constructed, because `FleetTerminalPanel` passed NO link handler at all and
-  // xterm's own `defaultActivate` (a `confirm()` and a `window.open()`, which
-  // this app turns into `shell.openExternal`) answered every OSC 8 click in a
-  // fleet pane. It passed either way. This one starts from the surface literal
-  // the pane writes, and runs it through the same constructor
-  // `createStudioTerminal` uses.
-  async function testAFleetPaneNeverResolvesALocalPath(): Promise<void> {
-    assert.equal(
-      terminalSurfaceLinkRoots(FLEET_SURFACE),
-      null,
-      'the surface, not the pane, is what says a fleet terminal has no local roots',
-    )
-    const fleet = handlerFor(FLEET_SURFACE)
-    fleet.activate('file:///Users/dev/notes.md')
-    fleet.activate('file://localhost/etc/hosts')
-    fleet.activate('https://example.com/a')
-    fleet.activate('javascript:alert(1)')
-    await fleet.settled()
-    assert.deepEqual(fleet.seen.files, [], 'a fleet pane never opens a local path')
     assert.deepEqual(
-      fleet.seen.urls,
+      agent.seen.urls,
       ['https://example.com/a'],
       'http(s) rides the app chooser rather than xterm defaultActivate',
     )
-    assert.deepEqual(fleet.seen.errors, [])
-  }
-
-  // A shell pane derives the other answer from the same function, so the
-  // derivation is a rule about surfaces rather than a constant that happens to
-  // read false.
-  async function testAShellPaneStillResolvesALocalPath(): Promise<void> {
-    const shell = handlerFor(SHELL_SURFACE)
-    shell.activate('file:///Users/dev/notes.md')
-    await shell.settled()
-    assert.deepEqual(shell.seen.files, ['/Users/dev/notes.md'])
+    assert.deepEqual(agent.seen.errors, [], 'a refusal is silent — no popover, no message')
   }
 
   async function testADeadLinkShowsTheErrorRatherThanAMenu(): Promise<void> {
-    const missing = handlerFor(AGENT_SURFACE, { exists: false, isDirectory: false })
+    const missing = handlerFor({ exists: false, isDirectory: false })
     missing.activate('file:///Users/dev/gone.md')
     await missing.settled()
     assert.deepEqual(missing.seen.files, [])
@@ -310,7 +245,6 @@ test('terminalOscLinks', async () => {
   // protection the option's docs demand is `resolveTerminalOscLink`, asserted above.
   assert.equal(
     createTerminalOscLinkHandler({
-      allowLocalPaths: true,
       inspectPath: async () => ({ exists: true, isDirectory: false }),
       onActivateFile: () => {},
       onActivateUrl: () => {},
@@ -334,12 +268,9 @@ test('terminalOscLinks', async () => {
     'OSC 7 is defined as a file: URI; anything else is malformed, not a link',
   )
   assert.equal(parseTerminalOscCwd('/Users/dev/project', LOCAL), null, 'a bare path is not a URI')
-  assert.equal(parseTerminalOscCwd('file:///Users/dev/project', FLEET), null, 'a fleet pane has no local base to set')
 
   async function main(): Promise<void> {
-    await testAnAgentPaneOpensOnlyWhatSurvivesTheGate()
-    await testAFleetPaneNeverResolvesALocalPath()
-    await testAShellPaneStillResolvesALocalPath()
+    await testAPaneOpensOnlyWhatSurvivesTheGate()
     await testADeadLinkShowsTheErrorRatherThanAMenu()
     console.log('ok - terminalOscLinks')
   }

@@ -7,6 +7,7 @@ import {
   TabSetNode,
   type Action,
   type BorderNode,
+  type IJsonModel,
   type ITabRenderValues,
   type ITabSetRenderValues,
   type NodeMouseEvent,
@@ -20,11 +21,11 @@ import {
 // rule with hardcoded dark color variables that painted over our theme
 // tokens on every non-dark theme — the dark horizontal bars in light mode.
 import 'flexlayout-react/style/combined.css'
+import { AgentRevealStrip } from './AgentRevealStrip'
 import { FLEX_LAYOUT_ICONS } from './flexLayoutIcons'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { openExternalFileWindow } from '../auxWindows/openFileWindow'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
-import { isModeHiddenFromRail } from '../../../../shared/workspace-mode'
 import { samePath } from '../../utils/paths'
 import { EXTENSIONS_BROWSE_DEEPLINK, MODULES_SETTINGS_TAB } from '../settings/extensionsRoute'
 import { MissingModulePanelSurface, ModuleNotInstalledSurface, workspaceModuleAbsence } from './ModuleAbsenceSurfaces'
@@ -34,7 +35,7 @@ import {
   pickAgentTabRecency,
   pickTerminalTabRecency,
   tabRecencyLabel,
-  useTerminalSessions,
+  useWorkspaceTerminalSessions,
 } from '../../hooks/useTerminalSessions'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
@@ -52,13 +53,21 @@ import { TAB_DRAG_MIME, serializeTabDragPayload } from '../../utils/tabDragPaylo
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { getHighlightSwatch } from '../../utils/highlight'
 import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
-import { RemoteMachineGlyph } from '../AppIcons'
+import { ChatGlyph, RemoteMachineGlyph } from '../AppIcons'
+import type { ConversationSessionSummary } from '../../../../shared/conversation-runtime'
+import { conversationTabSignature } from './stableRowSlices'
+import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
+import { cliForConversationProvider } from '../../../../shared/conversation-harness'
+import { conversationFinishedAt } from './sidebar/conversationLines'
+import { PromptCacheMark } from './PromptCacheMark'
+import { terminalCompactBlocker } from '../../../../shared/prompt-cache'
 import CliIcon from '../CliIcon'
 import { AgentTabIdentityPopover, type AgentTabIdentity } from './AgentTabIdentityPopover'
 import { agentCheckoutOf, type AgentTabCheckout } from './agentCheckout'
-import { useRemoteAttachedSessions } from './topbar/useTailnetPresence'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import { TabPromptPeek } from './TabPromptPeek'
+import { chatResumesInTerminal, resumeChatInTerminalOrToast } from '../panels/agentChat/resumeInTerminal'
+import { ModuleContributionBoundary } from '../../modules/ModuleContributionBoundary'
 import { GitBranchGlyph } from './WorkspaceActions'
 import { changelistOwnerId } from '../../../../shared/git/changelists'
 import {
@@ -71,10 +80,19 @@ import {
   StatusDot,
   type Tone,
   Tooltip,
+  WorkingMark,
 } from '../ui'
+import {
+  canonicalMeshPaneComponent,
+  isMeshConversationPane,
+  MESH_CONVERSATION_COMPONENT,
+} from '../../../../shared/tailnet-mesh'
+
+const EMPTY_LAYOUT_MODEL: IJsonModel = { global: {}, borders: [], layout: { type: 'row', children: [] } }
 
 interface Props {
   workspaceId: string
+  conversationSessions?: readonly ConversationSessionSummary[]
   // The tab strip's "+": opens the tab an agent will run in, holding
   // the launch surface until something spawns. The strip's own tabset id is
   // passed so the tab lands in that panel rather than tiling a new one.
@@ -101,12 +119,13 @@ function countOpenTabs(model: Model | null): number {
 // Dev Tools panels. The canonical `editor` panel is
 // served through the renderer host (gated on the dev-tools module). The local
 // `EditorPanel` below backs `file-editor`, a per-file editor that takes the
-// `filePath` prop the host contract omits. It shares the editor chunk with the
-// host-served panel, so a disabled dev-tools module ships none of it.
+// `filePath` prop the host contract omits. It shares the editor panel's chunk
+// with the host-served panel, so a disabled dev-tools module loads none of it.
 // The agent tab's panel — the chat composer, its transcript and the terminal
-// under them. Lazy like every other panel in this factory (bundle-budget
-// ratchet): it is the largest thing the boot graph used to carry that no first
-// paint can show before a workspace layout has resolved its tabs, and the
+// under them. Lazy like every other panel in this factory, so the first paint
+// does not wait on code it cannot show: it is the largest thing boot used to
+// evaluate that no first paint can show before a workspace layout has resolved
+// its tabs, and the
 // terminal inside it is already fetched on demand, so a tab that opens goes
 // through one Suspense step it was going through anyway. It also kept the kit's
 // skill picker (and the skills catalogue behind it) eager for everyone.
@@ -114,7 +133,7 @@ const AgentPanel = React.lazy(() => import('../panels/AgentPanel'))
 const EditorPanel = React.lazy(() => import('../panels/EditorPanel'))
 const GitConflictResolverPanel = React.lazy(() => import('../panels/GitConflictResolverPanel'))
 const PlainTerminalPanel = React.lazy(() => import('../panels/PlainTerminalPanel'))
-const FleetTerminalPanel = React.lazy(() => import('../panels/FleetTerminalPanel'))
+const RemoteConversationPanel = React.lazy(() => import('../panels/agentChat/RemoteConversationPanel'))
 // Files, Git and the Skills aside are no longer FlexLayout components: Files
 // and Git are workspace-pane tabs (pane/WorkspacePaneBody.tsx) and the Skills
 // aside was retired (browser-pane epic). Store v73 strips their tabs from
@@ -144,6 +163,8 @@ type TabMenuState = {
   canCloseOtherTabs: boolean
   isTerminal: boolean
   currentColor: HighlightColor | null
+  /** The chat this tab shows, when its CLI can carry the conversation on in a terminal. */
+  resumableChatId: string | null
 }
 
 /**
@@ -165,7 +186,23 @@ const TAB_CHIP_CLASS = 'flex h-4 w-4 shrink-0 items-center justify-center rounde
 const TAB_CHIP_GLYPH_CLASS = 'h-3.5 w-3.5'
 const loadedPanelComponents = new Set<string>()
 const EMPTY_WORKSPACE_AGENTS: Workspace['agents'] = {}
+const NO_CONVERSATION_SESSIONS: readonly ConversationSessionSummary[] = []
 const EMPTY_OPEN_FILES: Workspace['editorState']['openFiles'] = []
+
+/**
+ * The chats as the tab strip reads them: the array last handed in, kept while
+ * nothing a tab draws has moved. `renderTab` depends on it, and FlexLayout
+ * re-renders every tab through a new `renderTab`, so a reply streaming into a
+ * chat must not rebuild the strip it sits in.
+ */
+function useConversationTabSessions(
+  sessions: readonly ConversationSessionSummary[],
+): readonly ConversationSessionSummary[] {
+  const held = useRef<{ signature: string; sessions: readonly ConversationSessionSummary[] } | null>(null)
+  const signature = conversationTabSignature(sessions)
+  if (held.current?.signature !== signature) held.current = { signature, sessions }
+  return held.current.sessions
+}
 
 type AgentTabActivityDot = {
   tone: Tone
@@ -233,28 +270,38 @@ function timedPanel(component: string, children: React.ReactNode) {
   )
 }
 
-function renderTerminalRecencyIndicator(session: TerminalSessionSnapshot | undefined, now: number): React.ReactNode {
+function renderTerminalRecencyIndicator(session: TerminalSessionSnapshot | undefined): React.ReactNode {
   if (!session) return null
-  // Active work gets the pulsing green dot. Idle sessions show elapsed idle
-  // time instead, beginning at 1m; sub-minute recency renders blank.
+  // Active work gets the working mark — the one "working" mark the sidebar and
+  // the tab's card already draw. Idle sessions show elapsed idle time instead,
+  // beginning at 1m; sub-minute recency renders blank.
   if (isSessionWorking(session)) {
-    return <StatusDot tone="good" pulse label="Working" className="ml-0.5" />
+    return <WorkingMark label="Working" seed={session.sessionId} />
   }
   if (isSessionFailed(session)) {
     return <StatusDot tone="error" label="Failed" className="ml-0.5" />
   }
   const recency = pickTerminalTabRecency(session)
   if (!recency) return null
-  const recencyText = formatRelativeMs(recency.at, now)
-  if (!recencyText) return null
-  const label = tabRecencyLabel(recency.source)
+  return <TabRecencyText at={recency.at} label={tabRecencyLabel(recency.source)} />
+}
+
+/**
+ * A tab's "how long ago", reading its own clock. The tab strip is rebuilt by
+ * `renderTab`, and a clock there made every tab of the workspace re-render on
+ * each tick; this leaf re-renders alone. Sub-minute recency renders nothing.
+ */
+function TabRecencyText({ at, label }: { at: number; label: string }): React.ReactElement | null {
+  const now = useRelativeNow()
+  const text = formatRelativeMs(at, now)
+  if (!text) return null
   return (
     <span
       className="ml-0.5 shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]"
-      title={`${label} ${formatRelativeMsAgo(recency.at, now)} (${new Date(recency.at).toLocaleString()})`}
-      aria-label={`${label} ${formatRelativeMsAgo(recency.at, now)}`}
+      title={`${label} ${formatRelativeMsAgo(at, now)} (${new Date(at).toLocaleString()})`.trim()}
+      aria-label={`${label} ${formatRelativeMsAgo(at, now)}`.trim()}
     >
-      {recencyText}
+      {text}
     </span>
   )
 }
@@ -282,7 +329,23 @@ function agentIdOfTab(node: TabNode, sessions: readonly { sessionId: string; age
   return null
 }
 
-function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Props) {
+// A workspace with no layout renders nothing. That is decided here, above the
+// body, rather than by an early return inside it: the body calls its hooks
+// unconditionally, and a return ahead of them would change how many ran
+// between one render and the next.
+function WorkspaceLayout(props: Props) {
+  const hasLayout = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === props.workspaceId)?.layoutModel != null)
+  if (!hasLayout) return null
+  return <WorkspaceLayoutBody {...props} />
+}
+
+function WorkspaceLayoutBody({
+  workspaceId,
+  onNewAgentTab,
+  renderNewAgentPanel,
+  conversationSessions: conversationSessionsProp = NO_CONVERSATION_SESSIONS,
+}: Props) {
+  const conversationSessions = useConversationTabSessions(conversationSessionsProp)
   const layoutModel = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.layoutModel)
   const workspaceMode = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.mode ?? 'standard')
   // A file the peek card lists opens in the workspace pane's Diff tab, the same
@@ -294,9 +357,6 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
   )
   const editorOpenFiles = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.editorState?.openFiles ?? EMPTY_OPEN_FILES,
-  )
-  const lastTerminalActivityAt = useWorkspaceStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.lastTerminalActivityAt ?? null,
   )
   // Worktree-backed workspace (a worktree opened as a workspace). The branch
   // glyph is workspace-level on the tabs below: every
@@ -341,10 +401,9 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
       window.removeEventListener('focus', check)
     }
   }, [worktreeGitRoot])
-  const terminalSessions = useTerminalSessions()
-  // Which terminals a paired phone is watching, for the tab's remote mark.
-  const remoteAttachedSessions = useRemoteAttachedSessions()
-  const now = useRelativeNow()
+  // This workspace's sessions only: an agent moving in another workspace
+  // must not rebuild every tab here.
+  const terminalSessions = useWorkspaceTerminalSessions(workspaceId)
   const updateLayout = useWorkspaceStore((s) => s.updateLayout)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const setActiveFile = useWorkspaceStore((s) => s.setActiveFile)
@@ -392,9 +451,11 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
   const [renameValue, setRenameValue] = useState('')
   const [tabMenu, setTabMenu] = useState<TabMenuState | null>(null)
 
-  if (!layoutModel) return null
   if (!modelRef.current) {
-    modelRef.current = Model.fromJson(layoutModel)
+    // Mounted only once the workspace has a layout (`WorkspaceLayout` above),
+    // and built once; the empty model covers the render in which the layout
+    // is removed, before the parent unmounts this body.
+    modelRef.current = Model.fromJson(layoutModel ?? EMPTY_LAYOUT_MODEL)
     // Applied to EVERY model, not just newly-built ones: a persisted layout
     // carries its own `global` block. The splitter's width and grab area are
     // CSS (`--fl-splitter-size` in index.css), not model attributes.
@@ -500,10 +561,16 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
   // bespoke props (file-editor, git-conflict) need an explicit gated
   // arm below; those read enablement from this single overrides object.
   const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
+  // Read through a ref: the factory is not rebuilt when the launch surface's
+  // renderer changes (it is absent while this layer is in the background, and
+  // present once it is active), and a tab drawn later must use the current one.
+  const renderNewAgentPanelRef = useRef(renderNewAgentPanel)
+  renderNewAgentPanelRef.current = renderNewAgentPanel
 
   const factory = useCallback(
     (node: TabNode) => {
-      const component = node.getComponent()
+      // A remote pane saved under its pre-rename name renders as the same pane.
+      const component = canonicalMeshPaneComponent(node.getComponent())
       const devToolsEnabled = selectModuleEnabled(moduleOverrides, 'dev-tools')
       const gitEnabled = selectModuleEnabled(moduleOverrides, 'git')
       const config = node.getConfig() as
@@ -520,9 +587,6 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
             role?: string
             title?: string
             sessionId?: string
-            connectionId?: string
-            machineName?: string
-            remoteSessionId?: string
           }
         | undefined
 
@@ -582,39 +646,41 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
         case NEW_AGENT_TAB_COMPONENT:
           // The tab already wears the name its agent will take; the surface
           // hands it back on launch so the spawn adopts it.
-          return renderNewAgentPanel
-            ? renderNewAgentPanel(node.getId(), (config as { agentName?: string } | undefined)?.agentName)
-            : null
-        // A remote terminal is core chrome, not a module: tailnet remote control
-        // is a built-in opt-in feature, and a pane that vanished with a module
-        // toggle would strand a person mid-session on another machine. (The
-        // Fleet panel that used to sit beside it was retired on 2026-09-05 —
-        // remote-sessions-in-the-sidebar; a persisted `fleet` tab now takes the
-        // default branch's unavailable surface.)
-        case 'fleet-terminal':
-          // A stale tab whose config lost its machine is refused rather than
-          // rendered as an empty terminal: there is no session to attach to, and
-          // a blank xterm would look like one that simply had no output.
-          return config?.connectionId && config.remoteSessionId
+          return (
+            renderNewAgentPanelRef.current?.(node.getId(), (config as { agentName?: string } | undefined)?.agentName) ??
+            null
+          )
+        // A conversation on another machine, in the regular chat view. Core
+        // chrome, not a module: tailnet remote control is a built-in opt-in
+        // feature, and a pane that vanished with a module toggle would strand a
+        // person mid-conversation on another machine. (The Fleet panel, retired
+        // on 2026-09-05, and the remote terminal pane, retired on 2026-09-29,
+        // left persisted tabs behind; both take the default branch's
+        // unavailable surface.)
+        case MESH_CONVERSATION_COMPONENT: {
+          const remote = config as
+            | {
+                connectionId?: string
+                machineName?: string
+                remoteWorkspaceId?: string
+                remoteAgentId?: string
+                title?: string
+              }
+            | undefined
+          return remote?.connectionId && remote.remoteWorkspaceId && remote.remoteAgentId
             ? timedPanel(
-                'FleetTerminalPanel',
-                <FleetTerminalPanel
-                  // Scoped by WORKSPACE, not just by the tab's session-derived id:
-                  // the tab id is deliberately deterministic per session (dedupe
-                  // within a workspace), so the same session opened in a second
-                  // workspace — a New-chat-door solo pane plus a sidebar row
-                  // opened elsewhere — used to collide on one attachId, where main's
-                  // same-pane replace rule silently stole the first pane's
-                  // stream. The remote terminal port is multi-viewer; two panes
-                  // are two healthy attachments (remote-sessions-ux review).
-                  attachId={`${workspaceId}:${node.getId()}`}
+                'RemoteConversationPanel',
+                <RemoteConversationPanel
                   workspaceId={workspaceId}
-                  connectionId={config.connectionId}
-                  machineName={config.machineName ?? 'Remote machine'}
-                  sessionId={config.remoteSessionId}
+                  connectionId={remote.connectionId}
+                  machineName={remote.machineName ?? 'Remote machine'}
+                  remoteWorkspaceId={remote.remoteWorkspaceId}
+                  remoteAgentId={remote.remoteAgentId}
+                  title={remote.title}
                 />,
               )
             : DISABLED_SURFACE
+        }
         default: {
           // Host-registered panels: render the registered component gated by its
           // owning module's enablement. A disabled module (or an unknown/stale
@@ -638,7 +704,18 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
           }
           const moduleId = host.getPanelModule(component!)
           if (moduleId && !selectModuleEnabled(moduleOverrides, moduleId)) return DISABLED_SURFACE
-          return timedPanel(component!, <Panel workspaceId={workspaceId} />)
+          // Outside the Suspense, so a chunk that fails to load is contained
+          // with a render throw: either stays in this tab.
+          return (
+            <ModuleContributionBoundary
+              moduleId={moduleId ?? component!}
+              surface={`panel "${component}"`}
+              variant="panel"
+              label={node.getName()}
+            >
+              {timedPanel(component!, <Panel workspaceId={workspaceId} />)}
+            </ModuleContributionBoundary>
+          )
         }
       }
     },
@@ -866,36 +943,45 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
   // Title-Cased checkbox rows of their NAMES — the same choice the workspace
   // sidebar has always made as a row of swatches. Availability is sampled at
   // open time; nothing here can change while the menu is up.
-  const openTabContextMenu = useCallback((event: React.MouseEvent, node: TabNode) => {
-    event.preventDefault()
-    event.stopPropagation()
+  const openTabContextMenu = useCallback(
+    (event: React.MouseEvent, node: TabNode) => {
+      event.preventDefault()
+      event.stopPropagation()
 
-    const parent = node.getParent()
-    const otherClosableTabs =
-      parent instanceof TabSetNode
-        ? parent
-            .getChildren()
-            .filter((child) => child instanceof TabNode && child.getId() !== node.getId() && child.isEnableClose())
-        : []
+      const parent = node.getParent()
+      const otherClosableTabs =
+        parent instanceof TabSetNode
+          ? parent
+              .getChildren()
+              .filter((child) => child instanceof TabNode && child.getId() !== node.getId() && child.isEnableClose())
+          : []
 
-    let agentTabCount = 0
-    modelRef.current?.visitNodes((candidate) => {
-      if (candidate instanceof TabNode && candidate.getComponent() === 'agent') agentTabCount += 1
-    })
+      let agentTabCount = 0
+      modelRef.current?.visitNodes((candidate) => {
+        if (candidate instanceof TabNode && candidate.getComponent() === 'agent') agentTabCount += 1
+      })
 
-    const config = node.getConfig() as { highlightColor?: HighlightColor } | undefined
+      const config = node.getConfig() as { highlightColor?: HighlightColor; agentId?: string } | undefined
+      const tabAgentId = node.getComponent() === 'agent' ? (config?.agentId ?? node.getId()) : null
+      const store = useWorkspaceStore.getState()
+      const tabAgent = tabAgentId
+        ? store.workspaces.find((workspace) => workspace.id === workspaceId)?.agents[tabAgentId]
+        : undefined
 
-    setTabMenu({
-      x: event.clientX,
-      y: event.clientY,
-      node,
-      canHideTab: node.getComponent() === 'agent',
-      canHideAllTabs: agentTabCount > 0,
-      canCloseOtherTabs: otherClosableTabs.length > 0,
-      isTerminal: node.getComponent() === 'terminal',
-      currentColor: config?.highlightColor ?? null,
-    })
-  }, [])
+      setTabMenu({
+        x: event.clientX,
+        y: event.clientY,
+        node,
+        canHideTab: node.getComponent() === 'agent',
+        canHideAllTabs: agentTabCount > 0,
+        canCloseOtherTabs: otherClosableTabs.length > 0,
+        isTerminal: node.getComponent() === 'terminal',
+        currentColor: config?.highlightColor ?? null,
+        resumableChatId: tabAgentId && chatResumesInTerminal(tabAgent, store.pluginCatalogEntries) ? tabAgentId : null,
+      })
+    },
+    [workspaceId],
+  )
 
   const setTabHighlightColor = useCallback((node: TabNode, nextColor: HighlightColor | undefined) => {
     const nextConfig = { ...node.getConfig(), highlightColor: nextColor }
@@ -1009,8 +1095,8 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
           }
         : undefined
       // Dragging a file-editor tab out of the app window pops the file into the
-      // external editor window and flips the sticky preference to pop-up mode.
-      // Drops inside the window fall through to FlexLayout's own tab handling.
+      // external editor window. Drops inside the window fall through to
+      // FlexLayout's own tab handling.
       const handleTabDragEnd =
         canDragOut && node.getComponent() === 'file-editor'
           ? (event: React.DragEvent<HTMLSpanElement>) => {
@@ -1025,8 +1111,8 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
               const config = node.getConfig() as { filePath?: string } | undefined
               const filePath = config?.filePath
               if (!filePath) return
+              // Moves this file; where files open next is Settings' call.
               void openExternalFileWindow({ workspaceId, path: filePath, name: node.getName() })
-              useWorkspaceStore.getState().setOpenFilesInExternalWindow(true)
               deleteTabPreservingRails(node.getModel(), node.getId())
             }
           : undefined
@@ -1046,7 +1132,16 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
         const sId = cfg?.sessionId ?? workspaceAgents[aId]?.cliSessionId
         liveTabSession = sId ? terminalSessions.find((s) => s.sessionId === sId) : undefined
       }
-      const isLiveTab = Boolean(liveTabSession?.processAlive)
+      const tabConversation =
+        tabComponentId === 'agent'
+          ? conversationSessions.find(
+              (session) =>
+                session.agentId === ((node.getConfig() as { agentId?: string } | undefined)?.agentId ?? node.getId()),
+            )
+          : undefined
+      const isLiveTab = Boolean(
+        liveTabSession?.processAlive || (tabConversation && tabConversation.status !== 'stopped'),
+      )
 
       const tabNameSpan = (
         <span
@@ -1120,7 +1215,7 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
           )
           const terminalId = config?.terminalId ?? node.getId()
           const session = terminalSessions.find((s) => s.sessionId === `terminal-${terminalId}`)
-          const indicator = renderTerminalRecencyIndicator(session, now)
+          const indicator = renderTerminalRecencyIndicator(session)
           if (indicator) {
             renderValues.content = (
               <span className="inline-flex min-w-0 items-center gap-1.5">
@@ -1130,10 +1225,10 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
             )
             return
           }
-        } else if (componentId === 'fleet-terminal') {
-          // A pane on another machine's terminal wears the shared remote glyph
-          // as its identity (remote-sessions-in-the-sidebar, epic decision 4):
-          // the same keystroke means different things on two machines, and the
+        } else if (isMeshConversationPane(componentId)) {
+          // A pane on another machine's conversation wears the shared remote
+          // glyph as its identity (remote-sessions-in-the-sidebar, epic decision
+          // 4): the same message means different things on two machines, and the
           // tab's name alone is one truncation away from not saying so.
           const config = node.getConfig() as { machineName?: string } | undefined
           const machineLabel = config?.machineName ? `On ${config.machineName}` : 'On a paired machine'
@@ -1154,12 +1249,51 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
       const config = node.getConfig() as { agentId?: string; sessionId?: string } | undefined
       const agentId = config?.agentId ?? node.getId()
       const agent = workspaceAgents[agentId]
-      const agentSessionId = config?.sessionId ?? agent?.cliSessionId
+      const conversation = conversationSessions.find((session) => session.agentId === agentId)
+      const conversationPhase = conversation ? conversationSummaryPhase(conversation) : null
+      const agentSessionId = conversation?.sessionId ?? config?.sessionId ?? agent?.cliSessionId
       const agentSession = agentSessionId ? terminalSessions.find((s) => s.sessionId === agentSessionId) : undefined
-      const isWorking = isSessionWorking(agentSession)
-      const activityDot: AgentTabActivityDot | null = agentTabStatusDot(agentSession)
+      const isWorking =
+        conversationPhase === 'running' || conversationPhase === 'starting' || isSessionWorking(agentSession)
+      const activityDot: AgentTabActivityDot | null =
+        conversationPhase === 'waiting_for_approval'
+          ? { tone: 'warn', pulse: false, label: 'Needs approval' }
+          : conversationPhase === 'waiting_for_input'
+            ? { tone: 'warn', pulse: false, label: 'Asked a question' }
+            : conversationPhase === 'failed'
+              ? { tone: 'error', pulse: false, label: 'Failed' }
+              : isWorking
+                ? { tone: 'good', pulse: true, label: 'Working' }
+                : agentTabStatusDot(agentSession)
 
-      if (agent?.cli) {
+      // A chat names the CLI it rides with the same brand mark a terminal
+      // agent's tab wears: which harness is the at-a-glance fact, and chat or
+      // terminal is what the pane itself already shows. The live session's
+      // provider wins over the agent record's, since a chat can switch models
+      // (and with them providers) after launch. A provider that is not a CLI
+      // keeps the chat glyph.
+      const conversationCli =
+        agent?.runtimeKind === 'conversation'
+          ? cliForConversationProvider(conversation?.providerId ?? agent.conversation?.providerId)
+          : null
+      if (agent?.runtimeKind === 'conversation' && conversationCli) {
+        const runtimeLabel = `${labelForCliRuntime(conversationCli)} chat`
+        renderValues.leading = (
+          <span
+            className={`${TAB_CHIP_CLASS} text-[color:var(--text-muted)]`}
+            title={runtimeLabel}
+            aria-label={runtimeLabel}
+          >
+            <CliIcon cli={conversationCli} className={TAB_CHIP_GLYPH_CLASS} />
+          </span>
+        )
+      } else if (agent?.runtimeKind === 'conversation') {
+        renderValues.leading = (
+          <span className={`${TAB_CHIP_CLASS} text-[color:var(--text-muted)]`} title="Chat" aria-label="Chat agent">
+            <ChatGlyph className={TAB_CHIP_GLYPH_CLASS} />
+          </span>
+        )
+      } else if (agent?.cli) {
         // The tab's otherwise-empty leading slot carries the runtime brand mark (Claude Code / Codex / OpenCode) — the
         // at-a-glance "which harness" signal. The exact model lives in the hover
         // popout, since models carry no icon.
@@ -1206,58 +1340,65 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
         (agentCheckout?.kind === 'worktree' &&
           worktreeMissing &&
           (!agentCheckout.observed || observedAtWorkspaceWorktree))
-      renderValues.leading = withWorktreeGlyph(
-        renderValues.leading,
-        agentWorktree,
-        agentWorktreeMissing,
-        agentCheckout?.kind === 'missing' ? `Directory removed — ${agentCheckout.cwd}` : undefined,
-      )
+      if (agent?.runtimeKind !== 'conversation') {
+        renderValues.leading = withWorktreeGlyph(
+          renderValues.leading,
+          agentWorktree,
+          agentWorktreeMissing,
+          agentCheckout?.kind === 'missing' ? `Directory removed — ${agentCheckout.cwd}` : undefined,
+        )
+      }
 
-      // Recency only when NOT working: an active agent shows the pulsing green
-      // dot instead.
+      // Recency only when NOT working: an active agent shows the working mark
+      // instead.
+      //
+      // The workspace's persisted keystroke clock is read off the store here
+      // rather than subscribed to: it moves on terminal input, and a
+      // subscription re-rendered the whole layout to redraw one tab's label.
+      // It is only the fallback for an agent with no live session, and a live
+      // session's broadcast is what re-runs this callback anyway.
+      const lastTerminalActivityAt =
+        useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.lastTerminalActivityAt ?? null
+      //
+      // A chat has no terminal session and never moves the keystroke clock, so
+      // it counts from when its last turn ended instead, as the time alone.
+      const conversationFinished = conversation ? conversationFinishedAt(conversation) : null
       const agentRecency = isWorking
         ? null
-        : pickAgentTabRecency(agentSession, lastTerminalActivityAt, agent?.cliLastExitedAt)
-      const agentRecencyText = agentRecency !== null ? formatRelativeMs(agentRecency.at, now) : ''
+        : conversation
+          ? conversationFinished !== null
+            ? { at: conversationFinished, source: 'finished' as const }
+            : null
+          : pickAgentTabRecency(agentSession, lastTerminalActivityAt, agent?.cliLastExitedAt)
+      // The chip on the tab and the card's status line each keep their own
+      // time (`TabRecencyText`, and the card's `aged` label), so neither
+      // freezes at the moment the tab was last drawn.
       const recencyIndicator =
-        agentRecency !== null && agentRecencyText ? (
-          <span
-            className="ml-0.5 shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]"
-            title={`${tabRecencyLabel(agentRecency.source)} ${formatRelativeMsAgo(agentRecency.at, now)} (${new Date(agentRecency.at).toLocaleString()})`}
-            aria-label={`${tabRecencyLabel(agentRecency.source)} ${formatRelativeMsAgo(agentRecency.at, now)}`}
-          >
-            {agentRecencyText}
-          </span>
+        agentRecency !== null ? (
+          <TabRecencyText at={agentRecency.at} label={tabRecencyLabel(agentRecency.source)} />
         ) : null
 
-      // Trailing status treatment: the activity dot, plus recency while idle.
-      // A phone is looking at this agent's terminal right now (owner,
-      // 2026-09-05: "if there is a mobile device actively looking at a
-      // terminal, show the little remote connection icon … beside the name …
-      // green and pulsing while the terminal is open on the mobile").
-      //
-      // It leads the trailing cluster rather than the leading slot, which
-      // already carries the identity the tab is named for — the runtime. This is
-      // a state, and states live with the dot.
-      const remoteViewing = agentSessionId ? remoteAttachedSessions.has(agentSessionId) : false
-      const remoteMark = remoteViewing ? (
-        <span
-          className="status-dot-pulse flex shrink-0 items-center text-[color:var(--tone-good)]"
-          role="img"
-          aria-label="A paired phone is watching this terminal"
-          title="A paired phone is watching this terminal"
-        >
-          <RemoteMachineGlyph className="icon-xs" />
-        </span>
-      ) : null
+      // The conversation's prompt cache: a chat's from its runtime, a
+      // terminal's from its own status line. The tab marks it once it is about
+      // to go cold or has, since an open tab is the chat most likely to be
+      // resumed; its card says what that costs and offers to compact.
+      const agentPromptCache = conversation?.promptCache ?? agentSession?.promptCache ?? null
 
-      const trailing = activityDot ? (
+      // Trailing status treatment: the activity dot, plus recency while idle.
+      // Working wears the working mark, the same mark the sidebar row and the
+      // tab's own card use, so "working" reads one way everywhere.
+      const trailing = (
         <>
-          <StatusDot tone={activityDot.tone} pulse={activityDot.pulse} label={activityDot.label} />
+          {activityDot ? (
+            activityDot.tone === 'good' && activityDot.pulse ? (
+              <WorkingMark label={activityDot.label} seed={agentSessionId ?? undefined} />
+            ) : (
+              <StatusDot tone={activityDot.tone} pulse={activityDot.pulse} label={activityDot.label} />
+            )
+          ) : null}
           {recencyIndicator}
+          <PromptCacheMark reading={agentPromptCache} working={isWorking} />
         </>
-      ) : (
-        recencyIndicator
       )
 
       // Everything needed to identify this agent, surfaced in the hover/focus
@@ -1267,17 +1408,19 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
       // Paused wins its own self-contained label (with elapsed time) so the
       // popout reads "Paused · 13m" without leaning on the tab's recency chip.
       // Otherwise mirror the tab dot, then the honest recency source
-      // (Idle / Last activity / Exited) — never a blanket "Idle".
+      // (Idle / Last activity / Exited, or a chat's bare time) — never a
+      // blanket "Idle".
       // The corner's state, in the card's own three kinds. `working` is the
-      // pulsing green dot the tab wears; `attention` is Failed and Paused, which
+      // working mark the tab wears; `attention` is Failed and Paused, which
       // are worth the same weight without claiming motion; every other answer
       // is a chat at rest. The card draws the sidebar's working
-      // dots for `working` and never a status dot — the row and the card have
+      // mark for `working` and never a status dot — the row and the card have
       // to say "working" the same way (mockup frame 2).
       const identityStatus: AgentTabIdentity['status'] = agentSession?.suspended
         ? {
             kind: 'attention',
-            label: agentRecencyText ? `Paused · ${agentRecencyText}` : 'Paused',
+            label: 'Paused',
+            ...(agentRecency !== null ? { aged: { label: 'Paused', since: agentRecency.at } } : {}),
           }
         : activityDot
           ? {
@@ -1286,10 +1429,11 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
               kind: activityDot.tone === 'good' && activityDot.pulse ? 'working' : 'attention',
               label: activityDot.label,
             }
-          : agentRecency !== null && agentRecencyText
+          : agentRecency !== null
             ? {
                 kind: 'idle',
-                label: `${tabRecencyLabel(agentRecency.source)} · ${agentRecencyText}`,
+                label: 'Idle',
+                aged: { label: tabRecencyLabel(agentRecency.source), since: agentRecency.at },
               }
             : { kind: 'idle', label: 'Idle' }
       // The tab's card is about the tab's OWN agent, so the session snapshot it
@@ -1312,7 +1456,7 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
           // Whose changelist the card's "open the diff" filters to.
           agentId,
           cli: agent?.cli ?? null,
-          model: agent?.cliModel ?? null,
+          model: conversation?.modelId ?? agent?.cliModel ?? null,
           fileChanges: agentSnapshot?.fileChanges ?? [],
           // The tab anchor shows the same head as the sidebar anchor because
           // both feed one card: the pull requests are this agent's session's,
@@ -1320,6 +1464,13 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
           pullRequests: agentSnapshot?.pullRequests ?? [],
           activeSubagents: agentSnapshot?.activeSubagents ?? 0,
           contextUsage: agentSnapshot?.contextUsage ?? null,
+          promptCache: agentPromptCache,
+          // Only a Claude Code terminal can be sent `/compact` from the card; a
+          // chat compacts from its own composer.
+          compact:
+            agentSnapshot && agent?.runtimeKind !== 'conversation' && agent?.cli === 'claude-code'
+              ? { blocker: terminalCompactBlocker(agentSnapshot) }
+              : null,
         },
       }
 
@@ -1352,7 +1503,6 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
           }
         >
           {tabNameSpan}
-          {remoteMark}
           {trailing}
         </AgentTabIdentityPopover>
       )
@@ -1361,15 +1511,13 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
       commitRename,
       editorOpenFiles,
       hideTab,
-      lastTerminalActivityAt,
       moduleOverrides,
-      now,
       renameValue,
       renamingTabId,
       openTabContextMenu,
       startRename,
-      remoteAttachedSessions,
       terminalSessions,
+      conversationSessions,
       workspaceAgents,
       worktreeBranch,
       worktreeGitRoot,
@@ -1458,7 +1606,6 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
   // rule itself — which modes can be absent, and which of the two states this
   // is — lives in `workspaceModuleAbsence`; this only paints the answer.
   const moduleAbsence = workspaceModuleAbsence(workspaceMode, {
-    isBundledHiddenMode: isModeHiddenFromRail,
     workspaceTypeModuleId: (mode) => getRendererHost().getWorkspaceType(mode)?.moduleId,
     isModuleEnabled: (moduleId) => selectModuleEnabled(moduleOverrides, moduleId),
   })
@@ -1481,21 +1628,28 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
   }
 
   return (
-    <div className="relative h-full" onMouseDownCapture={handleMouseDownCapture}>
-      <Layout
-        model={modelRef.current}
-        factory={factory}
-        icons={FLEX_LAYOUT_ICONS}
-        onAction={handleAction}
-        onAuxMouseClick={handleAuxMouseClick}
-        onContextMenu={handleContextMenu}
-        onRenderTab={renderTab}
-        onRenderTabSet={renderTabSet}
-        onModelChange={(model) => {
-          updateLayout(workspaceId, model.toJson())
-          followSelectedAgentTab(model)
-        }}
-      />
+    // A column so an agent's note (AgentRevealStrip) takes its own line above
+    // the layout rather than covering its tab strips. The layout's own box is
+    // always the same element, whether or not a note is showing, so a note
+    // arriving never remounts a terminal.
+    <div className="relative flex h-full flex-col" onMouseDownCapture={handleMouseDownCapture}>
+      <AgentRevealStrip workspaceId={workspaceId} />
+      <div className="relative min-h-0 flex-1">
+        <Layout
+          model={modelRef.current}
+          factory={factory}
+          icons={FLEX_LAYOUT_ICONS}
+          onAction={handleAction}
+          onAuxMouseClick={handleAuxMouseClick}
+          onContextMenu={handleContextMenu}
+          onRenderTab={renderTab}
+          onRenderTabSet={renderTabSet}
+          onModelChange={(model) => {
+            updateLayout(workspaceId, model.toJson())
+            followSelectedAgentTab(model)
+          }}
+        />
+      </div>
       {tabMenu ? (
         <ContextMenu
           x={tabMenu.x}
@@ -1533,6 +1687,20 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
           >
             Close other tabs
           </MenuItem>
+          {tabMenu.resumableChatId ? (
+            <>
+              <MenuDivider />
+              <MenuItem
+                onClick={() => {
+                  const agentId = tabMenu.resumableChatId!
+                  setTabMenu(null)
+                  void resumeChatInTerminalOrToast({ workspaceId, agentId })
+                }}
+              >
+                Continue in terminal
+              </MenuItem>
+            </>
+          ) : null}
           {tabMenu.isTerminal ? (
             <>
               <MenuDivider />

@@ -39,7 +39,6 @@ export const EXTENSIONS_HOME_TILE_SUMMARIES: Readonly<Record<string, string>> = 
   design: 'Design systems, rendered from disk',
   plugins: 'MCP servers your agents can call',
   skills: 'Reusable instructions agents pick up',
-  'agent-clis': 'Claude Code, Codex, OpenCode',
 }
 
 /**
@@ -78,21 +77,4 @@ export function skillsCountLine(input: { ready: boolean; sourceCount: number; sk
   if (input.sourceCount === 0) return 'No sources'
   if (input.skillCount === 0) return 'No skills'
   return `${input.skillCount} ${input.skillCount === 1 ? 'skill' : 'skills'}`
-}
-
-/**
- * Agent CLIs: how many are on this machine, and how many of those have a newer
- * release waiting.
- *
- * The update half is dropped rather than shown as zero when nothing is behind:
- * "· 0 updates" is a reassurance nobody asked for on a line that exists to
- * carry news. It is dropped for a different reason when version checking is
- * off — the app has not looked, so it must not report "none".
- */
-export function agentCliCountLine(input: { ready: boolean; installed: number; updates: number }): string | null {
-  if (!input.ready) return null
-  if (input.installed === 0) return 'None installed'
-  const installed = `${input.installed} installed`
-  if (input.updates === 0) return installed
-  return `${installed} · ${input.updates} update${input.updates === 1 ? '' : 's'}`
 }

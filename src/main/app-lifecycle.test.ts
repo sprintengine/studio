@@ -28,6 +28,8 @@ test('app-lifecycle', async () => {
     // is what this test is about.
     whenReady: () => new Promise<void>(() => {}),
     quit: () => undefined,
+    // The update path's fallback, should the installer never quit the app.
+    relaunch: () => undefined,
     exit: (code: number) => {
       exitCalls.push(code)
     },
@@ -61,6 +63,8 @@ test('app-lifecycle', async () => {
 
     const order: string[] = []
     let disposed = 0
+    type LegReport = { name: string; done: number; total: number; failed: boolean }
+    let prepareForInstall: ((report?: (leg: LegReport) => void) => Promise<void>) | null = null
     registerAppLifecycle({
       diagnosticsEnabled: false,
       allowMultipleInstances: true,
@@ -68,6 +72,31 @@ test('app-lifecycle', async () => {
         shutdown: async () => {
           order.push('terminal.shutdown')
         },
+      },
+      conversationRuntime: {
+        flushTranscripts: async () => {
+          order.push('conversation.flushTranscripts')
+        },
+        shutdown: async () => {
+          order.push('conversation.shutdown')
+        },
+      },
+      // A leg that fails must not cost the legs after it.
+      canvasService: {
+        dispose: async () => {
+          order.push('canvas.dispose')
+          throw new Error('canvas worker gone')
+        },
+      },
+      analytics: {
+        shutdown: async () => {
+          order.push('analytics.shutdown')
+        },
+      },
+      // A plain quit's, once no agent the app launched is left to run what it
+      // takes out; never an update's.
+      removeSessionIntegrations: async () => {
+        order.push('integrations.remove')
       },
       // REVIEW FIX (finding 8). The record was created with the app and never
       // flushed or disposed: a pull request captured in the last seconds before
@@ -89,12 +118,46 @@ test('app-lifecycle', async () => {
       },
       updateService: {
         checkForUpdates: async () => undefined,
+        setPrepareForInstall: (prepare: (report?: (leg: LegReport) => void) => Promise<void>) => {
+          prepareForInstall = prepare
+        },
       } as unknown as Parameters<typeof registerAppLifecycle>[0]['updateService'],
       handleAuthCallback: () => undefined,
     })
 
     const beforeQuit = appEvents.get('before-quit') ?? []
     assert.equal(beforeQuit.length, 1, 'quit is handled exactly once')
+
+    // "Restart to update": the whole ordered shutdown runs before the installer
+    // is started, and the app is not exited yet — the updater's quit does that.
+    assert.ok(prepareForInstall, 'the lifecycle hands the update service its shutdown')
+    const reports: LegReport[] = []
+    await (prepareForInstall as (report?: (leg: LegReport) => void) => Promise<void>)((leg) => reports.push(leg))
+    assert.deepEqual(exitCalls, [], 'the installer, not the shutdown, ends the process')
+    // Every leg reports as it finishes, in order, which is what moves the
+    // update progress window's bar; a leg that throws still reports, as failed.
+    assert.deepEqual(
+      reports.map((leg) => leg.done),
+      reports.map((_, index) => index + 1),
+    )
+    assert.ok(reports.every((leg) => leg.total === reports.length))
+    assert.deepEqual(
+      reports.filter((leg) => leg.failed).map((leg) => leg.name),
+      ['canvas'],
+    )
+    assert.ok(reports.some((leg) => leg.name === 'terminals'))
+    assert.deepEqual(order, [
+      'workspaceSync.flush',
+      'conversation.flushTranscripts',
+      'terminal.shutdown',
+      'pullRequests.flush',
+      'pullRequests.dispose',
+      'conversation.shutdown',
+      'canvas.dispose',
+      'workspaceSync.flush',
+      // Not the integrations' removal: the new build writes them straight back.
+      'analytics.shutdown',
+    ])
 
     let prevented = 0
     beforeQuit[0]({
@@ -109,6 +172,11 @@ test('app-lifecycle', async () => {
       await new Promise((resolve) => setImmediate(resolve))
 
     assert.deepEqual(exitCalls, [0], 'the app still exits once every leg has run')
+    assert.equal(
+      order.filter((entry) => entry === 'terminal.shutdown').length,
+      1,
+      'the updater’s quit joins the shutdown already run instead of running it again',
+    )
     assert.ok(order.includes('pullRequests.flush'), 'the record is flushed at quit')
     assert.ok(order.includes('pullRequests.dispose'), 'and disposed, so no watch timer outlives it')
     assert.equal(disposed, 1)

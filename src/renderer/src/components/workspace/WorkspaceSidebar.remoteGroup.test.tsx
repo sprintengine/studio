@@ -81,20 +81,30 @@ test('WorkspaceSidebar.remoteGroup', async () => {
     const { act } = React
     const { createRoot } = await import('react-dom/client')
     const { default: WorkspaceSidebar } = await import('./WorkspaceSidebar')
+    const { useWorkspaceStore } = await import('../../store/workspaceStore')
+    // This suite walks the per-project tree, which is not the rail's default shape.
+    useWorkspaceStore.setState({ chatListView: 'projects' })
 
     type SidebarProps = Parameters<typeof WorkspaceSidebar>[0]
     const workspace = (id: string, name: string, folderPath: string | null, extra?: Record<string, unknown>) =>
       ({ id, name, mode: 'standard', folderPath, ...extra }) as unknown
 
-    const fleetLayout = {
+    const meshLayout = {
       layout: {
         type: 'tabset',
         children: [
           {
             type: 'tab',
-            id: 'fleet-terminal:c1:s1',
-            component: 'fleet-terminal',
-            config: { connectionId: 'c1', machineName: 'MacBook Air', remoteSessionId: 's1' },
+            id: 'mesh-conversation:c1:rw1:agent-1',
+            component: 'mesh-conversation',
+            config: {
+              connectionId: 'c1',
+              machineName: 'MacBook Air',
+              remoteWorkspaceId: 'rw1',
+              remoteAgentId: 'agent-1',
+              remoteSessionId: 'conversation:rw1:agent-1',
+              title: 'Charlie',
+            },
           },
         ],
       },
@@ -133,7 +143,7 @@ test('WorkspaceSidebar.remoteGroup', async () => {
           ...remoteOrigin,
           checkout: { mode: 'worktree', branch: 'agent/fix', worktreePath: '/Users/me/wt/fix' },
         },
-        layoutModel: fleetLayout,
+        layoutModel: meshLayout,
       }),
       // Born on the Air; its pane has since closed — the mark must survive.
       workspace('w4', 'Delta', null, { remoteOrigin, layoutModel: { layout: { type: 'row', children: [] } } }),

@@ -8,6 +8,7 @@ import { join, sep } from 'node:path'
 
 import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
 import { studioEnvEntry } from '../shared/studio-env'
+import { ensureStudioLauncher, localLauncherRef } from './integrations/launcher'
 import {
   AGENT_STATE_HOOK_TAG,
   applyBackgroundWork,
@@ -17,6 +18,9 @@ import {
   deriveActivityFromPhase,
   evaluateAgentStall,
   holdTurnEndForBackgroundWork,
+  backgroundStartAlreadyClosed,
+  keepsTurnEnd,
+  TURN_END_STRAGGLER_WINDOW_MS,
   installAgentStateReporter,
   isAtRestAgentPhase,
   MAX_FILE_CHANGE_COUNT,
@@ -32,6 +36,7 @@ import {
   mergeTomlAgentStateHooks,
   mergeTomlArrayAgentStateHooks,
   parseAgentStateFrame,
+  removeAgentStateRegistrationAt,
   registeredAgentStateEvents,
   renderAgentStatePluginTemplate,
   renderOwnedJsonAgentStateHooksConfig,
@@ -668,6 +673,23 @@ test('agent-state', async () => {
     assert.equal(statusOf({ sessionName: 'two\nlines' }), undefined, 'an embedded newline is not a name')
     assert.equal(statusOf({ sessionName: 'nul\u0000' }), undefined, 'a NUL is not a name')
     assert.equal(statusOf({}), undefined, 'an empty reading is no reading')
+    // The prompt cache rides whole, nulls included, and a bad one drops alone.
+    assert.deepEqual(statusOf({ promptCache: { ttl: '1h', expiresAt: 1_738_429_200_000, recacheTokens: 45_000 } }), {
+      promptCache: { ttl: '1h', expiresAt: 1_738_429_200_000, recacheTokens: 45_000 },
+    })
+    assert.deepEqual(
+      statusOf({ usedPercentage: 4, promptCache: { ttl: '5m', expiresAt: null, recacheTokens: null } }),
+      {
+        usedPercentage: 4,
+        promptCache: { ttl: '5m', expiresAt: null, recacheTokens: null },
+      },
+    )
+    assert.deepEqual(
+      statusOf({ usedPercentage: 4, promptCache: { ttl: 'forever', expiresAt: 'soon' } }),
+      { usedPercentage: 4, promptCache: { ttl: null, expiresAt: null, recacheTokens: null } },
+      'a bad field is unknown, not a reason to keep the last reading',
+    )
+    assert.deepEqual(statusOf({ usedPercentage: 4, promptCache: 'warm' }), { usedPercentage: 4 }, 'not a reading')
     // Every `undefined` above is read off a frame, so each one would also pass if
     // the FRAME had been dropped. It is not: a bad field costs the field only.
     for (const bad of [{ sessionName: 'x'.repeat(9000) }, { usedPercentage: 900, model: 42 }]) {
@@ -1042,6 +1064,21 @@ test('agent-state', async () => {
       '\\\\.\\pipe\\sprintengine-agent-state-abc',
     )
     assert.ok(winCmd.includes('--socket "\\\\.\\pipe\\sprintengine-agent-state-abc"'), winCmd)
+    // Another host's runtime (a WSL distribution's pinned Node) runs in a POSIX
+    // shell there: every argument is single-quoted, and the script is named as
+    // that host names it.
+    const wslCmd = buildAgentStateReporterCommand(
+      'C:/work/app/.sprintengine/hooks/agent-state.mjs',
+      '/run/user/1000/sprintengine/abc123def456/agent.sock',
+      {
+        executable: '/home/dev/.local/share/sprintengine-studio/runtime/node-v24.21.0/bin/node',
+        toCommandPath: (nativePath) => nativePath.replace('C:/', '/mnt/c/'),
+      },
+    )
+    assert.equal(
+      wslCmd,
+      "env '/home/dev/.local/share/sprintengine-studio/runtime/node-v24.21.0/bin/node' '/mnt/c/work/app/.sprintengine/hooks/agent-state.mjs' --socket '/run/user/1000/sprintengine/abc123def456/agent.sock'",
+    )
 
     // --- settings-json install / uninstall round-trip (claude spec) ---------
     const root = await mkdtemp(join(tmpdir(), 'sprintengine-agent-state-'))
@@ -1090,9 +1127,11 @@ test('agent-state', async () => {
       'utf8',
     )
 
+    const installHome = join(root, 'home')
     const installed = await installAgentStateReporter(root, claudeSpec, {
       sourceScriptPath,
       socketPath: join(root, 'agent.sock'),
+      homeDir: installHome,
     })
     assert.equal(installed.ok, true)
 
@@ -1123,16 +1162,19 @@ test('agent-state', async () => {
     const starBlock = settings.hooks?.PostToolUse?.find((b) => b.matcher === '*')
     assert.equal(starBlock?.hooks?.length, 1, 'expected exactly one reporter entry in the * block')
 
-    // Our command references the reporter by ABSOLUTE path (the copied destination),
-    // not a workspace-relative path: hook cwd is not guaranteed, so a relative path
-    // would misresolve once the session cwd drifts off the root.
+    // Our command runs the Studio launcher in the home by its ABSOLUTE path — hook
+    // cwd is not guaranteed — and copies no reporter into the workspace: the
+    // launcher runs the one that ships with the app.
     const ourEntry = settings.hooks?.SessionStart?.[0]?.hooks?.find((h) => h._sprintengine === AGENT_STATE_HOOK_TAG)
-    const expectedScript = join(root, '.sprintengine', 'hooks', 'agent-state.mjs').split('\\').join('/')
-    assert.ok(ourEntry?.command.includes(`node "${expectedScript}"`), ourEntry?.command ?? 'no hook entry')
-    // Guard against regressing to the relative form `node ".sprintengine/...`: in the
-    // absolute form the opening quote is followed by the root (`/` or `C:/`), never
-    // by `.sprintengine`, so this substring can only appear if a relative path leaked.
-    assert.ok(!ourEntry?.command.includes('node ".sprintengine'), 'must not embed a relative script path')
+    const expectedLauncher = join(installHome, '.sprintengine', 'bin', 'studio-run').split('\\').join('/')
+    assert.ok(
+      process.platform === 'win32' ||
+        ourEntry?.command.startsWith(`/bin/sh '${expectedLauncher}' agent-state --socket `),
+      ourEntry?.command ?? 'no hook entry',
+    )
+    assert.ok(!ourEntry?.command.startsWith('node '), 'must not run a bare node')
+    assert.ok(!existsSync(join(root, '.sprintengine', 'hooks', 'agent-state.mjs')), 'no reporter copy in the workspace')
+    assert.equal(installed.ok && installed.hookScriptPath, localLauncherRef(installHome).path)
 
     // Idempotent: installing again does not duplicate entries.
     await mergeAgentStateHooks(
@@ -1200,14 +1242,16 @@ test('agent-state', async () => {
     const codexInstalled = await installAgentStateReporter(codexRoot, codexSpec, {
       sourceScriptPath: codexReporter,
       socketPath: join(codexRoot, 'agent-state.sock'),
+      homeDir: join(codexRoot, 'home'),
     })
     assert.equal(codexInstalled.ok, true)
     let codexConfig = await readFile(join(codexRoot, '.codex', 'config.toml'), 'utf8')
     assert.ok(codexConfig.includes('approval_policy = "on-request"'), 'prior codex config lost')
     assert.ok(codexConfig.includes('[[hooks.SessionStart]]'))
-    // command references the reporter by ABSOLUTE path (Codex hooks have no cwd
-    // guarantee) and the live socket.
-    assert.ok(codexConfig.includes(join(codexRoot, '.sprintengine', 'hooks', 'agent-state.mjs').split('\\').join('/')))
+    // command runs the launcher by ABSOLUTE path (Codex hooks have no cwd
+    // guarantee) with the live socket.
+    assert.ok(codexConfig.includes(`${localLauncherRef(join(codexRoot, 'home')).path}`), codexConfig)
+    assert.ok(codexConfig.includes(' agent-state --socket '), codexConfig)
 
     // --- plugin-file: socket baking renders a valid JS string literal --------
     const ocTemplate = "const BAKED_SOCKET = '__SPRINTENGINE_AGENT_STATE_SOCKET__'\n"
@@ -1301,18 +1345,19 @@ test('agent-state', async () => {
     const grokInstalled = await installAgentStateReporter(grokRoot, grokSpec, {
       sourceScriptPath: grokReporter,
       socketPath: grokSocket,
+      homeDir: join(grokRoot, 'home'),
     })
     assert.equal(grokInstalled.ok, true)
     const grokConfigPath = join(grokRoot, '.grok', 'hooks', 'sprintengine-agent-state.json')
     const grokOnDisk = JSON.parse(await readFile(grokConfigPath, 'utf8')) as Settings
     const grokEntry = grokOnDisk.hooks?.SessionStart?.[0]?.hooks?.[0]
     const grokScript = join(grokRoot, '.sprintengine', 'hooks', 'agent-state.mjs')
-    assert.ok(existsSync(grokScript), 'grok install must copy the shared reporter')
+    assert.ok(!existsSync(grokScript), 'grok install must not copy the reporter into the workspace')
     assert.ok(
-      grokEntry?.command.includes(`node "${grokScript.split('\\').join('/')}"`),
+      grokEntry?.command.includes(localLauncherRef(join(grokRoot, 'home')).path),
       grokEntry?.command ?? 'no hook entry',
     )
-    assert.ok(!grokEntry?.command.includes('node ".sprintengine'), 'must not embed a relative script path')
+    assert.ok(!grokEntry?.command.startsWith('node '), 'must not run a bare node')
 
     // Re-install is idempotent (whole-file overwrite, no accumulation).
     const grokReinstall = await installAgentStateReporter(grokRoot, grokSpec, {
@@ -1398,7 +1443,7 @@ test('agent-state', async () => {
     for (const { event } of cursorRegistered) {
       const entries = cursorFile.hooks?.[event] ?? []
       assert.equal(
-        entries.filter((e) => e.command?.includes('/.sprintengine/hooks/agent-state.mjs')).length,
+        entries.filter((e) => e.command?.includes(' agent-state --socket ')).length,
         1,
         `one reporter entry for ${event}`,
       )
@@ -1418,7 +1463,7 @@ test('agent-state', async () => {
     assert.equal(cursorReinstall.ok, true)
     cursorFile = JSON.parse(await readFile(cursorHooksPath, 'utf8')) as FlatFile
     assert.equal(
-      cursorFile.hooks?.stop?.filter((e) => e.command?.includes('/.sprintengine/hooks/agent-state.mjs')).length,
+      cursorFile.hooks?.stop?.filter((e) => e.command?.includes(' agent-state --socket ')).length,
       1,
       'reporter entry duplicated on re-install',
     )
@@ -1496,13 +1541,17 @@ test('agent-state', async () => {
     assert.ok(!existsSync(join(kimiWorkspace, '.kimi-code')), 'user-scoped registration must not touch the workspace')
     const kimiConfig = await readFile(kimiConfigPath, 'utf8')
     assert.ok(kimiConfig.includes('event = "Stop"'))
-    // The reporter copy lives under HOME for a user-scoped registration: a
+    // A user-scoped registration names the launcher in the same HOME: a
     // user-global config pointing into a workspace would dangle machine-wide
     // the moment that workspace (or a worktree it was launched into) is
-    // removed, firing MODULE_NOT_FOUND on every event of every kimi session.
-    const kimiHomeScript = join(kimiHome, '.sprintengine', 'hooks', 'agent-state.mjs')
-    assert.ok(existsSync(kimiHomeScript), 'user-scoped registration must copy the reporter under homeDir')
-    assert.ok(kimiConfig.includes(kimiHomeScript.split('\\').join('/')), kimiConfig)
+    // removed, firing an error on every event of every kimi session.
+    assert.ok(kimiConfig.includes(localLauncherRef(kimiHome).path), kimiConfig)
+    assert.ok(!existsSync(join(kimiHome, '.sprintengine', 'hooks', 'agent-state.mjs')), 'no reporter copy in the home')
+    // And it comes back out, leaving the rest of the file as it was.
+    await writeFile(kimiConfigPath, `default_model = "k2"\n\n${kimiConfig}`, 'utf8')
+    assert.equal(await removeAgentStateRegistrationAt(kimiConfigPath, 'toml-array-block'), 'removed')
+    assert.equal(await readFile(kimiConfigPath, 'utf8'), 'default_model = "k2"\n')
+    assert.equal(await removeAgentStateRegistrationAt(kimiConfigPath, 'toml-array-block'), 'absent')
     assert.ok(
       !kimiConfig.includes(kimiWorkspace),
       'a user-global config must not reference any workspace-lifetime path',
@@ -1575,14 +1624,16 @@ test('agent-state', async () => {
       assert.equal(settings.statusLine._sprintengineWrappedFrom, undefined)
       assert.ok(!('padding' in settings.statusLine), 'no padding to carry, so none is written')
       assert.ok(!settings.statusLine.command.includes('--wrap'), settings.statusLine.command)
-      // Absolute path to the copied script, forward-slashed, exactly like the
-      // reporter command — a relative one would misresolve off the session cwd.
-      const expectedScript = join(world.root, '.sprintengine', 'hooks', 'status-line.mjs').split('\\').join('/')
+      // The launcher's status-line target by absolute path, exactly like the
+      // reporter command — and no forwarder copied into the workspace.
       assert.ok(
-        settings.statusLine.command.startsWith(`node "${expectedScript}" --socket "${world.socket}"`),
+        process.platform === 'win32' ||
+          settings.statusLine.command.startsWith(
+            `/bin/sh '${localLauncherRef(world.home).path}' status-line --socket '${world.socket}'`,
+          ),
         settings.statusLine.command,
       )
-      assert.ok(existsSync(join(world.root, '.sprintengine', 'hooks', 'status-line.mjs')), 'forwarder not copied')
+      assert.ok(!existsSync(join(world.root, '.sprintengine', 'hooks', 'status-line.mjs')), 'forwarder copied')
 
       // Nothing was wrapped, so the unmerge deletes the key entirely.
       assert.equal((await unmergeClaudeSettings(world.settingsPath)).ok, true)
@@ -1879,12 +1930,17 @@ test('agent-state', async () => {
     }
 
     // 9. A status line that cannot be installed must never cost the workspace its
-    //    agent state: the hooks are the load-bearing half. A directory sitting
-    //    where the forwarder copy goes makes the copy throw.
+    //    agent state: the hooks are the load-bearing half. A build that shipped
+    //    without the forwarder has nothing for the launcher to run.
     {
       const world = await seedStatusLineWorld({})
-      await mkdir(join(world.root, '.sprintengine', 'hooks', 'status-line.mjs'), { recursive: true })
-      const result = await installStatusLine(world)
+      const result = await installAgentStateReporter(world.root, claudeSpec, {
+        sourceScriptPath,
+        socketPath: world.socket,
+        statusLineScriptPath: join(world.root, 'missing-forwarder.mjs'),
+        homeDir: world.home,
+        env: {},
+      })
       assert.equal(result.ok, true, `a status-line failure must not fail the install: ${JSON.stringify(result)}`)
       const settings = await readStatusLine(world)
       assert.ok(settings.hooks?.SessionStart, 'the hooks landed')
@@ -1917,6 +1973,18 @@ test('agent-state', async () => {
       }
       const world = await seedStatusLineWorld({ local: { statusLine: theirs } })
       assert.equal((await installStatusLine(world)).ok, true)
+      // The command runs the launcher in the (test) home, so put one there,
+      // pointed at the forwarder this checkout ships and the Node running us.
+      await ensureStudioLauncher({
+        nativeHome: world.home,
+        shell: 'posix',
+        pointer: {
+          node: process.execPath,
+          runAsNode: false,
+          payload: join(process.cwd(), 'resources'),
+          packaged: false,
+        },
+      })
       const written = (await readStatusLine(world)).statusLine.command as string
       const out = await new Promise<string>((res, rej) => {
         const child = spawn('/bin/sh', ['-c', written], {
@@ -2024,4 +2092,99 @@ test('agent-state', async () => {
   })
 
   await suiteRun
+})
+
+// The turn-end latch: once a turn has ended, a frame that is not new work must
+// not put the session back on a working phase.
+async function bundledSpecFor(pluginId: string): Promise<PluginAgentStateSpec> {
+  const manifestPath = join(process.cwd(), 'resources', 'plugins', pluginId, 'plugin.json')
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as { agentStateSpec?: PluginAgentStateSpec }
+  assert.ok(manifest.agentStateSpec, `${pluginId} manifest must declare agentStateSpec`)
+  return manifest.agentStateSpec
+}
+
+const TURN_ENDED_AT = 10_000
+
+function latches(spec: PluginAgentStateSpec, event: string, frameTs: number, outstandingBefore = 0): boolean {
+  const resolved = resolveAgentStateEvent(spec, { event })
+  assert.equal(resolved.action, 'apply', `${event} must resolve`)
+  if (resolved.action !== 'apply') return false
+  return keepsTurnEnd({
+    spec,
+    event,
+    resolution: resolved,
+    outstandingBefore,
+    current: { phase: 'idle', since: TURN_ENDED_AT },
+    lastTurnEndedAt: TURN_ENDED_AT,
+    frameTs,
+  })
+}
+
+test('a SubagentStop that closes nothing never moves the phase', async () => {
+  const claude = await bundledSpecFor('claude-code')
+  // Claude Code's own post-turn helper: no SubagentStart, a stop four and a half
+  // seconds after Stop — outside the straggler window, and still not work.
+  assert.equal(latches(claude, 'SubagentStop', TURN_ENDED_AT + 4_500), true)
+  assert.equal(latches(claude, 'SubagentStop', TURN_ENDED_AT + 60_000), true)
+  // A stop that closes a background agent the count holds is the parent resuming.
+  assert.equal(latches(claude, 'SubagentStop', TURN_ENDED_AT + 4_500, 1), false)
+})
+
+test('a late tool frame from the finished turn does not reopen it', async () => {
+  const claude = await bundledSpecFor('claude-code')
+  assert.equal(latches(claude, 'PostToolUse', TURN_ENDED_AT + 1), true, 'a straggler right after Stop is held back')
+  assert.equal(latches(claude, 'PostToolUse', TURN_ENDED_AT + TURN_END_STRAGGLER_WINDOW_MS - 1), true)
+  // Past the window it is a promptless turn (a background task finishing, a
+  // scheduled wakeup) and reads as working again.
+  assert.equal(latches(claude, 'PostToolUse', TURN_ENDED_AT + TURN_END_STRAGGLER_WINDOW_MS), false)
+})
+
+test('a new prompt, a session start or a background agent starting always reopens', async () => {
+  const claude = await bundledSpecFor('claude-code')
+  assert.equal(latches(claude, 'UserPromptSubmit', TURN_ENDED_AT + 1), false)
+  assert.equal(latches(claude, 'SubagentStart', TURN_ENDED_AT + 1), false)
+  assert.equal(latches(claude, 'SessionStart', TURN_ENDED_AT + 1), false, 'starting is not a working phase to hold')
+  const cursor = await bundledSpecFor('cursor')
+  assert.equal(latches(cursor, 'beforeSubmitPrompt', TURN_ENDED_AT + 1), false, "Cursor's prompt event opens a turn")
+  assert.equal(latches(cursor, 'postToolUse', TURN_ENDED_AT + 1), true)
+  const codex = await bundledSpecFor('codex')
+  assert.equal(latches(codex, 'UserPromptSubmit', TURN_ENDED_AT + 1), false)
+  assert.equal(latches(codex, 'PostToolUse', TURN_ENDED_AT + 1), true)
+})
+
+test('the straggler window leaves a CLI without a prompt event alone', async () => {
+  // OpenCode opens a turn with `message.updated`; with no opener to tell a new
+  // turn from a straggler, nothing is held.
+  const opencode = await bundledSpecFor('opencode')
+  assert.equal(latches(opencode, 'message.updated', TURN_ENDED_AT + 1), false)
+  assert.equal(latches(opencode, 'tool.execute.after', TURN_ENDED_AT + 1), false)
+})
+
+test('the latch only holds while the session rests on the turn end itself', async () => {
+  const claude = await bundledSpecFor('claude-code')
+  const resolved = resolveAgentStateEvent(claude, { event: 'PostToolUse' })
+  assert.equal(resolved.action, 'apply')
+  if (resolved.action !== 'apply') return
+  const base = { spec: claude, event: 'PostToolUse', resolution: resolved, outstandingBefore: 0, frameTs: 10_001 }
+  assert.equal(
+    keepsTurnEnd({ ...base, current: { phase: 'thinking', since: 9_000 }, lastTurnEndedAt: 5_000 }),
+    false,
+    'mid-turn there is nothing to hold',
+  )
+  assert.equal(
+    keepsTurnEnd({ ...base, current: { phase: 'idle', since: 9_000 }, lastTurnEndedAt: 5_000 }),
+    false,
+    'an idle that is not the last turn end holds nothing',
+  )
+  assert.equal(keepsTurnEnd({ ...base, current: null, lastTurnEndedAt: null }), false)
+})
+
+// A short subagent's stop can overtake its start in delivery; that start is
+// already closed. A start stamped well before an unrelated stop is real work
+// still running, and must still count.
+test('only a start its own stop could have overtaken is taken as closed', () => {
+  assert.equal(backgroundStartAlreadyClosed(1_500, undefined), false, 'no stop that closed nothing')
+  assert.equal(backgroundStartAlreadyClosed(1_500, 1_600), true, 'stamped just before the stop')
+  assert.equal(backgroundStartAlreadyClosed(1_700, 1_600), false, 'a later subagent')
+  assert.equal(backgroundStartAlreadyClosed(1_600 - 60_000, 1_600), false, 'long-running work behind an unrelated stop')
 })

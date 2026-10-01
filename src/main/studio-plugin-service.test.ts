@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 import type { SkillHarness } from '../shared/skills'
+import { STUDIO_AREA_SKILLS } from '../shared/studio-area-skills'
 import { createStudioPluginService, type StudioPluginServiceOptions } from './studio-plugin-service'
 import { test } from 'vitest'
 
@@ -48,6 +49,9 @@ test('studio-plugin-service', async () => {
       resolveAgentStateSocketPath: () => join(userData, 'agent-state.sock'),
       listHarnesses: async (): Promise<SkillHarness[]> => ['agents'],
       logDiagnostic: (diagnostic) => warnings.push(`${diagnostic.title}: ${diagnostic.message}`),
+      // Every Studio skill switched on, so the cases below that are about WHEN
+      // an install runs can assert on what it wrote.
+      resolveEnabledSkillDirs: () => STUDIO_AREA_SKILLS.map((skill) => skill.id),
       ...overrides,
     }
     return { workspace, userData, warnings, options }
@@ -75,7 +79,11 @@ test('studio-plugin-service', async () => {
     assert.equal(record?.skillDirNames.length, bundledSkills.length)
     assert.equal(existsSync(join(workspace, '.agents', 'skills', 'studio-backlog', 'SKILL.md')), true)
     assert.equal(existsSync(join(workspace, '.sprintengine', 'studio-plugin')), true)
-    assert.equal(existsSync(join(workspace, '.sprintengine', 'hooks', 'agent-state.mjs')), true)
+    assert.equal(
+      existsSync(join(workspace, '.sprintengine', 'hooks', 'agent-state.mjs')),
+      false,
+      'the launcher runs the shipped reporter',
+    )
     assert.equal(record?.hookSettingsPath, resolve(workspace, '.claude/settings.local.json'))
     assert.deepEqual(warnings, [], 'a clean open warns about nothing')
 
@@ -337,16 +345,23 @@ test('studio-plugin-service', async () => {
     await service.ensureInstalledForRoots([built.workspace])
     const before = service.installed(built.workspace)
     assert.ok(before?.hookSettingsPath, 'the early open registers the hook in the workspace')
-    assert.equal(existsSync(join(built.workspace, '.sprintengine', 'hooks', 'agent-state.mjs')), true)
+    assert.equal(existsSync(join(built.workspace, '.claude', 'settings.local.json')), true)
 
     active = true
     await service.ensureInstalledForRoots([built.workspace])
     const after = service.installed(built.workspace)
     assert.equal(after?.hookSettingsPath, '', 'the later open installs without the Claude half')
+    // The file the early open created held nothing but the app's own entries,
+    // so it goes entirely rather than being left behind as an empty object.
     assert.equal(
-      (await readFile(join(built.workspace, '.claude', 'settings.local.json'), 'utf8')).includes('agent-state.mjs'),
+      existsSync(join(built.workspace, '.claude', 'settings.local.json')),
       false,
-      'and takes the hook the earlier open wrote back out',
+      'and takes the hook the earlier open wrote back out, with the file it created',
+    )
+    assert.equal(
+      existsSync(join(built.workspace, '.sprintengine', 'studio-plugin')),
+      false,
+      'the workspace copy of the plugin is gone too: nothing reads it once the launch carries its own',
     )
     assert.equal(
       existsSync(join(built.workspace, '.sprintengine', 'hooks', 'agent-state.mjs')),
@@ -366,8 +381,51 @@ test('studio-plugin-service', async () => {
     await rm(built.workspace, { recursive: true, force: true })
   }
 
+  async function aSkillSwitchedOnOrOffReachesAnAlreadyInstalledWorkspace(): Promise<void> {
+    // The choice is machine-wide and made while workspaces are already open, so
+    // the memo cannot be keyed on version alone: a workspace installed a moment
+    // ago with nothing chosen must take the skill the person just said yes to.
+    let chosen: string[] = []
+    const { workspace, options } = await harness({ resolveEnabledSkillDirs: () => chosen })
+    const service = createStudioPluginService(options)
+    const skill = join(workspace, '.agents', 'skills', 'studio-backlog', 'SKILL.md')
+
+    await service.ensureInstalled(workspace)
+    assert.deepEqual(service.installed(workspace)?.skillDirNames, [])
+    assert.equal(existsSync(skill), false, 'nothing chosen, nothing installed')
+
+    chosen = ['studio-backlog']
+    await service.ensureInstalled(workspace)
+    assert.deepEqual(service.installed(workspace)?.skillDirNames, ['studio-backlog'])
+    assert.equal(existsSync(skill), true, 'a yes reaches the open workspace')
+
+    chosen = []
+    await service.ensureInstalled(workspace)
+    assert.equal(existsSync(skill), false, 'and switching it off takes it back out')
+  }
+
+  async function theSamePassTakesOutRetiredSkills(): Promise<void> {
+    const asked: string[] = []
+    const { workspace, warnings, options } = await harness({
+      pruneRetiredSkillCopies: async (root) => {
+        asked.push(root)
+        return [join(root, '.agents', 'skills', 'frontend-design')]
+      },
+      // Even when there is nothing else this build could install.
+      resolveAgentStateReporterPath: () => null,
+    })
+    await createStudioPluginService(options).ensureInstalled(workspace)
+    assert.deepEqual(asked, [workspace])
+    assert.ok(
+      warnings.some((line) => line.startsWith('Workspace tidied:')),
+      JSON.stringify(warnings),
+    )
+  }
+
   async function main(): Promise<void> {
     await openingAWorkspaceInstallsThePlugin()
+    await theSamePassTakesOutRetiredSkills()
+    await aSkillSwitchedOnOrOffReachesAnAlreadyInstalledWorkspace()
     await launchInjectionTidiesTheWorkspaceAndSkipsClaude()
     await aWorkspaceOpenedBeforeTheCopyLandedIsReinstalled()
     await aSecondOpenDoesNotReinstall()

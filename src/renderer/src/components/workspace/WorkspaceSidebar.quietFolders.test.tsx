@@ -54,7 +54,7 @@ test('WorkspaceSidebar.quietFolders', async () => {
     platform: 'darwin',
     detectProjectLogo: async () => null,
     terminalList: async () => [],
-    onTerminalSessionsChanged: () => () => {},
+    onTerminalSessionsDelta: () => () => {},
     getWorkspaceChangeSummary: async () => null,
     terminalKill: async () => {},
   }
@@ -64,6 +64,9 @@ test('WorkspaceSidebar.quietFolders', async () => {
     const { act } = React
     const { createRoot } = await import('react-dom/client')
     const { default: WorkspaceSidebar } = await import('./WorkspaceSidebar')
+    const { useWorkspaceStore } = await import('../../store/workspaceStore')
+    // This suite walks the per-project tree, which is not the rail's default shape.
+    useWorkspaceStore.setState({ chatListView: 'projects' })
     type SidebarProps = Parameters<typeof WorkspaceSidebar>[0]
     type Workspace = SidebarProps['workspaces'][number]
 
@@ -170,7 +173,9 @@ test('WorkspaceSidebar.quietFolders', async () => {
         ['Echo', 'Alpha'],
         'the starred chat is a Starred row, not a reason to keep its project header',
       )
-      assert.equal(shelfButtons().length, 1, 'only the live project shows a Settled shelf — for its own resting chat')
+      // Settled chats are off the rail (owner, 2026-09-28), so even the live
+      // project grows no shelf for its own resting chat.
+      assert.equal(shelfButtons().length, 0, 'no project shows a Settled shelf')
       assert.equal(
         dom.window.document.getElementById('ws-resting-body'),
         null,
@@ -181,7 +186,7 @@ test('WorkspaceSidebar.quietFolders', async () => {
       // in is never shelved, so the folder has an active row again.
       await render({ ...props, activeWorkspaceId: 'w3' } as unknown as SidebarProps)
       assert.deepEqual(folderNames(), ['projA', 'attic'], 'the selected chat puts its project back in the tree')
-      assert.deepEqual(rowNames(), ['Echo', 'Alpha', 'Charlie'], 'Delta stays in its folder’s shelf')
+      assert.deepEqual(rowNames(), ['Echo', 'Alpha', 'Charlie'], 'Delta stays off the rail')
 
       // Waking a chat by hand does the same.
       await render({
@@ -192,7 +197,7 @@ test('WorkspaceSidebar.quietFolders', async () => {
       assert.deepEqual(
         rowNames(),
         ['Echo', 'Alpha', 'Charlie'],
-        'as an active row, with its quiet neighbour still shelved',
+        'as an active row, with its quiet neighbour still off the rail',
       )
 
       // Every project quiet: the tree draws no folders at all.

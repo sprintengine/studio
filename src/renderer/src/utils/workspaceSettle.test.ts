@@ -108,11 +108,6 @@ test('workspaceSettle', async () => {
     false,
     "a row born on a paired machine is the Remote band's, not the sweep's",
   )
-  assert.equal(
-    shouldAutoSettleWorkspace(ws({ mode: 'automations-host' as Workspace['mode'] }), NOW),
-    false,
-    'automations host never settles',
-  )
 
   // A row whose MODULE reports a run still in flight never settles on its own,
   // however old it is; a run the module reports finished settles like any other
@@ -122,7 +117,7 @@ test('workspaceSettle', async () => {
   {
     const settleHost = getRendererHost()
     const registerSettleProbe = (id: string, state: string | null): void => {
-      settleHost.hostFor('automations').registerWorkspaceType({
+      settleHost.hostFor('scheduled-agents').registerWorkspaceType({
         id,
         label: id,
         description: 'Test-only workspace type.',

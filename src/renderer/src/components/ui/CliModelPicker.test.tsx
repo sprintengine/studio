@@ -251,6 +251,33 @@ test('CliModelPicker', async () => {
       assert.equal(stale!.mono, true, 'and reads as the raw id it is')
     })
 
+    await run('"New" follows the merged row, and a window variant lends it to its family', () => {
+      // The merge marks a row new from its per-machine `firstSeenAt`; the picker
+      // only reads the mark. Here the 1M variant is the new one, so the Opus 5
+      // row it folds into carries the chip, and nothing else does.
+      const merged = [
+        { id: 'claude-opus-5', label: 'Opus 5' },
+        { id: 'claude-opus-5[1m]', label: 'Opus 5 (1M context)', isNew: true },
+        { id: 'sonnet', label: 'Sonnet' },
+      ]
+      const options: SurfaceProps['options'] = [
+        {
+          value: 'claude-code' as SurfaceProps['currentCli'],
+          label: 'Claude Code',
+          modelSelection: { options: merged, allowCustomId: true },
+        },
+      ]
+      const rows = buildModelRows(options, 'claude-code' as SurfaceProps['currentCli'], () => undefined)
+      assert.deepEqual(
+        rows.map((row) => [row.name, row.isNew === true]),
+        [
+          ['Claude Code', false],
+          ['Opus 5', true],
+          ['Sonnet', false],
+        ],
+      )
+    })
+
     // ---- The model popover ---------------------------------------------------
 
     await run('the rail carries one entry per installed CLI and filters the list', async () => {
@@ -265,6 +292,25 @@ test('CliModelPicker', async () => {
       assert.equal(view.rows().length, 4, 'Claude Code’s own row plus its three models')
       await view.click(tabs[1])
       assert.equal(view.rows().length, 3, 'Codex’s own row plus its two models')
+      view.unmount()
+    })
+
+    await run('permissions follow the highlighted model across providers, keyboard navigation and search', async () => {
+      const view = mountSurface({
+        effectiveModelFor: (cli) => (cli === 'claude-code' ? 'claude-opus-5[1m]' : undefined),
+        permissions: (cli, model) =>
+          React.createElement('span', { 'data-permission-target': true }, `${cli}:${model ?? 'default'}`),
+      })
+      const target = () => view.container.querySelector('[data-permission-target]')?.textContent
+      assert.equal(target(), 'claude-code:claude-opus-5[1m]', 'the selected context-window variant is preserved')
+      await view.click(view.tabs()[1])
+      assert.equal(target(), 'codex:default', 'the new provider’s first row owns the control')
+      await view.key(view.search(), 'ArrowDown')
+      assert.equal(target(), 'codex:gpt-5.6-sol', 'keyboard highlight moves the permission target')
+      await view.type('fable')
+      assert.equal(target(), 'claude-code:claude-fable-5', 'search can move it back across providers')
+      await view.type('no-such-model')
+      assert.equal(target(), undefined, 'an empty result list exposes no stale model’s permissions')
       view.unmount()
     })
 

@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 
 import type { CanvasBoardSummary } from '../../../../../../shared/canvas/types'
 import {
-  CANVAS_DEFAULT_FOLDER,
   canvasBoardKeyPath,
   canvasPathIsCaseInsensitive,
   normalizeCanvasPath,
@@ -24,9 +23,9 @@ import { CanvasGlyph } from '../paneKinds'
 import {
   CANVAS_DEFAULT_NEW_BOARD_NAME,
   canvasBoardFolder,
-  canvasBoardNameIsTaken,
   canvasBoardRowLabel,
   canvasPickerPage,
+  collidingCanvasBoardPath,
   describeCanvasChangedAt,
   duplicateCanvasBoardNames,
   formatCanvasChangedAt,
@@ -187,10 +186,15 @@ export function CanvasBoardPicker({ workspaceId, onPick, openPaths }: CanvasBoar
       setNameError(normalized.error.message)
       return
     }
-    if (canvasBoardNameIsTaken(normalized.value, paths, canvasPathIsCaseInsensitive(window.api.platform))) {
+    const collision = collidingCanvasBoardPath(
+      normalized.value,
+      paths,
+      canvasPathIsCaseInsensitive(window.api.platform),
+    )
+    if (collision) {
       // Refused rather than silently opened: the person asked for a NEW board,
       // and handing them someone else's is how work gets drawn on top of.
-      setNameError(`This project already has a board at ${normalized.value}.`)
+      setNameError(`This project already has a board at ${collision}.`)
       return
     }
     creatingRef.current = true
@@ -404,7 +408,7 @@ export function CanvasBoardPicker({ workspaceId, onPick, openPaths }: CanvasBoar
           <EmptyState
             density="list"
             title="No boards yet."
-            body={`Boards are files in this project’s ${CANVAS_DEFAULT_FOLDER} folder — you and your agents can both draw on them.`}
+            body="Boards are kept by the app, outside your repository — you and your agents can both draw on them. Export one to a folder when it belongs in the project."
           />
         ) : (
           <SettingCard as="ul" ariaLabel="Boards">

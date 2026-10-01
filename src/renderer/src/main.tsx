@@ -8,16 +8,19 @@ import { ConfirmDialogProvider } from './components/ui'
 import AuxWindowApp from './components/auxWindows/AuxWindowApp'
 import WorkspaceManager from './components/workspace/WorkspaceManager'
 import { loadThirdPartyRendererModules } from './modules'
+import { launchSettingsReady } from './store/workspaceStore'
 import { reportBuildStamp } from './utils/buildStamp'
 import { bindElectronClipboardPasteBridge } from './utils/clipboardPasteBridge'
 import { logPerfEvent, perfDiagnosticsEnabled } from './utils/perfDiagnostics'
 import { markStartup, markStartupAt } from './utils/startupTimeline'
+import { monacoReady } from './utils/monacoRuntime'
 import { setTerminalRepaintPauseReporter } from './utils/terminalRepaintPause'
+import { bindWindowActivityAttribute } from './utils/windowActivity'
 
 // Boot measurement. `timeOrigin` is this document's navigation start,
 // so the pair below brackets everything that happens before a line of app code
-// runs: HTML parse, eager chunk fetch, compile and evaluate — the cost the
-// bundle-size ceiling stands in for.
+// runs: HTML parse, eager chunk fetch, compile and evaluate — Monaco's among
+// them, since it is loaded here rather than on the first editor.
 markStartupAt('renderer.navigation-start', performance.timeOrigin)
 markStartup('renderer.script-start')
 
@@ -39,6 +42,10 @@ bindElectronClipboardPasteBridge()
 // reporter here keeps that module dependency-free and keeps the perf events in
 // the one rollup the diagnostics panel reads.
 setTerminalRepaintPauseReporter(logPerfEvent)
+
+// `data-window-active` on the root: the ambient "something is working" motion
+// (index.css) pauses while this window is hidden or in the background.
+bindWindowActivityAttribute()
 
 window.addEventListener('error', (event) => {
   console.error('[RendererError]', {
@@ -89,6 +96,17 @@ try {
 // window hostage: on timeout we render without third-party contributions and
 // the gap shows up in Settings → Modules rather than as a blank window.
 const THIRD_PARTY_MODULE_BOOT_TIMEOUT_MS = 3000
+
+// Main owns the agent-launch settings, and the store's copy of them arrives
+// over IPC. The workspace window waits for it so no picker renders a CLI or a
+// permission preset the person never chose; bounded like the modules above, so
+// a main that never answers costs a moment of defaults rather than a window.
+function waitForLaunchSettings(): Promise<void> {
+  return Promise.race([
+    launchSettingsReady,
+    new Promise<void>((resolveTimeout) => setTimeout(resolveTimeout, THIRD_PARTY_MODULE_BOOT_TIMEOUT_MS)),
+  ])
+}
 
 async function bootThirdPartyRendererModules(): Promise<void> {
   try {
@@ -144,7 +162,9 @@ if (isDiagnosticsWindow) {
     </ConfirmDialogProvider>,
   )
 } else {
-  void bootThirdPartyRendererModules().then(() => {
+  // Monaco is part of boot (utils/monacoRuntime.ts): the window is not revealed
+  // until the editor runtime it may be asked to show is in hand.
+  void Promise.all([bootThirdPartyRendererModules(), waitForLaunchSettings(), monacoReady]).then(() => {
     markStartup('renderer.third-party-modules-settled')
     ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
       <ConfirmDialogProvider>

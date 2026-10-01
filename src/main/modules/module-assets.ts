@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
 import { open, realpath } from 'node:fs/promises'
 import { extname, isAbsolute, relative } from 'node:path'
@@ -56,6 +57,10 @@ export function createModuleAssetHandler(backends: ModuleAssetBackends) {
       const target = await realpath(resolveContainedPath(root, path, 'asset'))
       const within = relative(root, target)
       if (!within || within.startsWith('..') || isAbsolute(within)) return new Response(null, { status: 403 })
+      // Only a file the module was verified with is served, and only with the
+      // bytes it was verified with (checked below, on the bytes being sent).
+      const expectedSha256 = installed.trust.verifiedFiles?.[within.split(/[\\/]+/).join('/')]
+      if (expectedSha256 === undefined) return new Response(null, { status: 403 })
       file = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW)
       const info = await file.stat()
       if (!info.isFile()) return new Response(null, { status: 404 })
@@ -68,6 +73,9 @@ export function createModuleAssetHandler(backends: ModuleAssetBackends) {
         'Referrer-Policy': 'no-referrer',
       }
       const bytes = request.method === 'HEAD' ? null : new Uint8Array(await file.readFile())
+      if (bytes && createHash('sha256').update(bytes).digest('hex') !== expectedSha256) {
+        return new Response(null, { status: 409 })
+      }
       return new Response(bytes, { status: 200, headers })
     } catch {
       return new Response(null, { status: 404 })

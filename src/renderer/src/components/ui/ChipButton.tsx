@@ -19,8 +19,10 @@ import { FOCUS_RING_CLASS } from './tokens'
 // `text-micro` at rest, because a chip is a label about the thing beside it, and
 // it must not outweigh what it qualifies.
 //
-// It carries no elevation at any state. It is not a control standing off the
-// page; it is a mark ON one (`principles.md` → Hairlines carry the structure).
+// The three inline variants carry no elevation at any state: each is a mark ON
+// the page, not a control standing off it (`principles.md` → Hairlines carry
+// the structure). `raised` is the exception, and the one variant that is not
+// content-height — see its entry below.
 
 /**
  * - `ghost` (default) — no edge, no ground. A toggle in a chrome strip.
@@ -33,8 +35,16 @@ import { FOCUS_RING_CLASS } from './tokens'
  *   a small floating surface rather than as part of what is underneath. Still no
  *   shadow: the elevation ramp is for surfaces a person opened, not for chrome
  *   that was always there.
+ * - `raised` — a chip that is a CONTROL in a toolbar row rather than a label
+ *   inside a line (owner ruling 2026-10-01): the composer's model, skills,
+ *   permissions, worktree and ⋯ triggers. It takes the outline button's shell
+ *   exactly — `size.control.xs`, `radius.control`, the `border.default`
+ *   hairline and `.control-edge` (a lit top lip, a shallow drop and the sheen)
+ *   — so a chip and the "Jump to latest" button beside the same composer are
+ *   one family. It still keeps the chip's tones, tint and thrown states,
+ *   which are what a button has no vocabulary for.
  */
-export type ChipVariant = 'ghost' | 'outline' | 'overlay'
+export type ChipVariant = 'ghost' | 'outline' | 'overlay' | 'raised'
 
 /**
  * The chip's ink at rest, and the ONE reason `tone` is a prop rather than a
@@ -79,6 +89,9 @@ const EDGE: Record<ChipVariant, string> = {
   overlay:
     'border border-[color:var(--border-default)] hover:border-[color:var(--border-strong)] ' +
     'disabled:hover:border-[color:var(--border-default)]',
+  raised:
+    'control-edge border border-[color:var(--border-default)] hover:border-[color:var(--border-strong)] ' +
+    'disabled:hover:border-[color:var(--border-default)]',
 }
 
 // The ground it rests on while NOT thrown. Each branch declares `bg-` and
@@ -91,7 +104,33 @@ const RESTING_GROUND: Record<ChipVariant, string> = {
     'disabled:hover:bg-[color:var(--bg-surface-raised)]',
   overlay:
     'bg-[color:var(--bg-surface)] hover:bg-[color:var(--bg-hover)] ' + 'disabled:hover:bg-[color:var(--bg-surface)]',
+  raised:
+    'bg-[color:var(--bg-surface-raised)] hover:bg-[color:var(--bg-hover)] ' +
+    'disabled:hover:bg-[color:var(--bg-surface-raised)]',
 }
+
+/**
+ * The shape and type each variant spends. The three inline variants ride their
+ * row's line box; `raised` pins the control ramp's `xs` step and the outline
+ * button's `xs` inset and label, because it stands in a toolbar row of
+ * controls rather than inside a line.
+ *
+ * Exported for the one composite that has to wear the raised shell without
+ * being a single button — the worktree switch, a glyph button and a name field
+ * in one bordered box — so it cannot drift a pixel from the chips beside it.
+ */
+const SHAPE: Record<ChipVariant, string> = {
+  ghost: 'rounded-xs px-1.5 py-0.5 gap-1 text-micro',
+  outline: 'rounded-xs px-1.5 py-0.5 gap-1 text-micro',
+  overlay: 'rounded-md px-1.5 py-0.5 gap-1 text-micro',
+  raised: 'rounded-sm h-control-xs px-2 gap-1.5 text-meta',
+}
+
+/** The raised chip's box, edge and resting ground, for a composite that has to
+ *  wear it (see `SHAPE`). Ink and states stay the composite's own. */
+export const RAISED_CHIP_SHELL =
+  'inline-flex min-w-0 items-center rounded-sm h-control-xs border border-[color:var(--border-default)] ' +
+  'bg-[color:var(--bg-surface-raised)] control-edge text-meta'
 
 // The thrown fill, held under the pointer. Neutral for the two neutral tones,
 // because selection is neutral; the tone tints keep their own hue, because a
@@ -161,9 +200,8 @@ export const ChipButton = React.forwardRef<HTMLButtonElement, ChipButtonProps>(f
       className={[
         // Content height: the line box is the height, so the chip rides the row
         // it is in. `min-w-0` so a truncating label inside can actually shrink.
-        'interactive inline-flex min-w-0 items-center gap-1 text-micro font-medium transition-colors',
-        variant === 'overlay' ? 'rounded-md' : 'rounded-xs',
-        'px-1.5 py-0.5',
+        'interactive inline-flex min-w-0 items-center font-medium transition-colors',
+        SHAPE[variant],
         EDGE[variant],
         thrown ? THROWN[tone] : `${RESTING_GROUND[variant]} ${tint ? '' : RESTING_INK[tone]}`,
         'disabled:cursor-not-allowed disabled:opacity-45',

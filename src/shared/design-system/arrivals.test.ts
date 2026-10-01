@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { designSystemNewEntryCount, type DesignSystemBundleArrivals } from './arrivals'
-import { DESIGN_SYSTEM_NEW_FOR_DAYS } from './new-entries'
+import { NEW_FOR_DAYS } from '../new-for-days'
 import { test } from 'vitest'
 
 test('arrivals', async () => {
@@ -69,7 +69,7 @@ test('arrivals', async () => {
       bundles: [
         bundle('aaaa1111', {
           'components:ancient': daysAgo(900),
-          'components:older': daysAgo(DESIGN_SYSTEM_NEW_FOR_DAYS + 1),
+          'components:older': daysAgo(NEW_FOR_DAYS + 1),
           'components:fresh': daysAgo(2),
         }),
       ],

@@ -3,6 +3,7 @@ import { BrowserWindow, screen, shell, type IpcMain, type IpcMainEvent, type Ipc
 import { offerDockDiff, type DockDiffRequest } from './dock-diff'
 import { isCanvasWorkerWindow } from '../canvas/canvas-worker-window'
 import { safeExternalUrl } from './external-url'
+import { powerActivity } from '../power-activity'
 import type { AuxWindowKind, DockDiffToWorkspaceResult, OpenAuxWindowResult } from '../../shared/electron-api'
 
 const AUX_WINDOW_KINDS: readonly AuxWindowKind[] = ['diff', 'file']
@@ -46,6 +47,24 @@ export function sendWindowState(win: BrowserWindow): void {
   win.webContents.send('window:state-changed', getWindowState(win))
 }
 
+/**
+ * Tell a window whether the OS has it out of sight: minimized, hidden, or
+ * behind a locked screen.
+ *
+ * The page should know this from the Page Visibility API, and on some
+ * platforms it does. On macOS it cannot be relied on: with Electron 44 on
+ * macOS 26, a minimized, hidden or fully covered window still reports
+ * `visible` and keeps producing animation frames, even with background
+ * throttling on. Main is told about minimize, hide and lock reliably, so it
+ * says so, and the renderer treats the window as hidden when either source
+ * does (`windowActivity.ts`).
+ */
+export function sendWindowHidden(win: BrowserWindow): void {
+  if (win.isDestroyed() || win.webContents.isDestroyed()) return
+  const hidden = powerActivity.isScreenLocked() || win.isMinimized() || !win.isVisible()
+  win.webContents.send('window:hidden-changed', hidden)
+}
+
 export function sendWindowPlacement(win: BrowserWindow): void {
   if (win.isDestroyed()) return
   win.webContents.send('window:placement-changed', getWindowPlacement(win))
@@ -65,6 +84,7 @@ type RegisterWindowIpcOptions = {
     singletonKey: string
     params: Record<string, string>
     bounds?: WindowBounds | null
+    focus?: boolean
   }): { retargeted: boolean }
   /** Membership of the aux-window registry. Only an aux window hands a diff
    *  back to the app, and the registry already knows which windows those are. */
@@ -221,6 +241,7 @@ export function registerWindowIpc(ipcMain: IpcMain, options: RegisterWindowIpcOp
         singletonKey?: unknown
         params?: unknown
         bounds?: unknown
+        focus?: unknown
       },
     ): OpenAuxWindowResult => {
       const kind = AUX_WINDOW_KINDS.find((candidate) => candidate === input?.kind)
@@ -234,6 +255,9 @@ export function registerWindowIpc(ipcMain: IpcMain, options: RegisterWindowIpcOp
           singletonKey,
           params,
           bounds: normalizeWindowBounds(input?.bounds),
+          // Only an explicit false: a caller that says nothing is the person's
+          // own click, which brings the window forward as it always did.
+          ...(input?.focus === false ? { focus: false } : {}),
         })
         return { ok: true, retargeted }
       } catch (error) {

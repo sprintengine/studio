@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { hostIdForFolder, isWslHostId } from '../../../../shared/execution-host'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import type { AgentExecution, AgentExecutionMode } from '../../types/workspace'
@@ -15,20 +16,19 @@ import { recordReplayProfile } from '../../utils/diagnostics/replayProfileStore'
 import { createTerminalFitScheduler } from '../../utils/terminalFitScheduler'
 import { onTerminalFocusRequest } from '../../utils/terminalFocusRequest'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
-import {
-  createStudioTerminal,
-  terminalSurfaceLinkRoots,
-  type StudioTerminal,
-  type TerminalSurface,
-} from '../../utils/createStudioTerminal'
+import { createStudioTerminal, type StudioTerminal, type TerminalSurface } from '../../utils/createStudioTerminal'
 import { useTerminalFind } from '../../hooks/useTerminalFind'
 import { isTerminalChromeTarget, TERMINAL_SURFACE_ATTRIBUTE } from '../../utils/keyboard'
 import { TerminalFindBar } from '../terminal/TerminalFindBar'
-import { createTerminalFileLinkProvider } from '../../utils/terminalFileLinks'
+import { createTerminalFileLinkProvider, terminalWslDistro } from '../../utils/terminalFileLinks'
 import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xtermOutputQueue'
+import { createSessionAckReporter } from '../../utils/terminalOutputAck'
 import { registerTerminalInstance, unregisterTerminalInstance } from '../../utils/diagnostics/terminalInstanceRegistry'
 import { TerminalReplaySkeleton } from '../ui/TerminalReplaySkeleton'
+import { WorkingEdge } from '../ui/WorkingEdge'
 import { bindTerminalClipboardHandlers, claudeImagePasteKey } from '../../utils/terminalClipboard'
+import { windowActivity } from '../../utils/windowActivity'
+import { clearPaneAttachedHidden, notePaneAttachedHidden } from '../../utils/terminalPaneVisibility'
 import {
   hasCommitDropData,
   hasFileDropData,
@@ -83,6 +83,21 @@ type AgentExecutionRoot = {
 type MemoryLaunchContext = KnowledgeLaunchContext
 
 const EMPTY_MCP_SETTINGS: McpSettings = { syncEnabled: false, servers: {} }
+
+// Resolves after `count` animation frames: long enough for a layout change
+// committed in this tick to reach the DOM and for its resize to be observed.
+function nextAnimationFrames(count: number): Promise<void> {
+  return new Promise((resolve) => {
+    const step = (remaining: number) => {
+      if (remaining <= 0) {
+        resolve()
+        return
+      }
+      window.requestAnimationFrame(() => step(remaining - 1))
+    }
+    step(count)
+  })
+}
 
 function resolveAgentExecutionRoot(
   execution: AgentExecution | undefined,
@@ -140,6 +155,28 @@ async function resolveMemoryLaunchContext(
   return knowledgeLaunchContext(status)
 }
 
+// How long a paste held for a resuming agent waits for the relaunched CLI's
+// first frame before it goes anyway. Well past the resume hold's own limits
+// (a one-second first-frame deadline, two seconds to settle), which cover
+// every CLI that prints at all.
+const RESUME_INPUT_FALLBACK_MS = 5_000
+
+/** Input taken while a paused agent's CLI is not yet reading it. */
+type PendingResumeInput = { kind: 'keys'; data: string } | { kind: 'paste'; text: string }
+
+/**
+ * Whether this pane is being painted right now, as far as the pane can tell:
+ * its window is visible. A pane mounting in a minimized, hidden or locked
+ * window says so, instead of claiming to be on screen and being fed — and
+ * waited on for acknowledgements a throttled page gives slowly — until
+ * WorkspaceManager next corrects it. Whether its workspace is the active one
+ * is WorkspaceManager's to say; it re-sends the answer whenever main reports
+ * something else.
+ */
+function paneIsPainted(): boolean {
+  return windowActivity().get().visible
+}
+
 export default function TerminalView({
   workspaceId,
   agentId,
@@ -183,8 +220,22 @@ export default function TerminalView({
   )
   const suspendedRef = useRef(false)
   const resumeThunkRef = useRef<(() => Promise<TerminalSpawnResult>) | null>(null)
-  const pendingResumeInputRef = useRef<string[]>([])
+  // What the person typed or pasted into a paused pane, in order, for the
+  // relaunched CLI. Keystrokes go as soon as the relaunch is up (the pty holds
+  // them until the CLI reads); a paste waits until the CLI's first frame is on
+  // screen, because only then has xterm seen whether the CLI asked for
+  // bracketed paste — pasted with the frozen view's modes, a multi-line paste
+  // is read as typed lines and submitted at the first newline. Anything typed
+  // behind a waiting paste waits with it, so nothing overtakes it.
+  const pendingResumeInputRef = useRef<PendingResumeInput[]>([])
   const resumingRef = useRef(false)
+  // Whether the relaunch resumes a conversation the CLI renders again itself —
+  // in which case its render replaces the frozen view instead of following it.
+  // Set beside `resumeThunkRef`, from the same resume capabilities.
+  const resumeReplacesFrozenViewRef = useRef(false)
+  // From the resume gesture until the relaunched CLI's first frame is on
+  // screen: the working edge runs round the pane while the frozen view stays.
+  const [isResuming, setIsResuming] = useState(false)
   // Cold-loaded with nothing to paint and nobody asking for it (decision 'inert',
   // utils/terminalColdLoad.ts). The tab is deliberately dead: no pty, no replay.
   // A click or keystroke is the user asking for it, which is what starts it.
@@ -230,6 +281,14 @@ export default function TerminalView({
     return ws ? (resolveWorkspaceWorktree(ws)?.gitRoot ?? null) : null
   })
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  // The machine this agent runs on: its own once it has launched somewhere,
+  // else its workspace's. Main keeps a resumed session on the machine it ran
+  // on whatever this says; this is what a fresh launch asks for.
+  const hostId = useWorkspaceStore((s) => {
+    const workspace = s.workspaces.find((w) => w.id === workspaceId)
+    // A workspace from before hosts, inside a distribution, runs there too.
+    return agent?.hostId ?? workspace?.hostId ?? hostIdForFolder(workspace?.folderPath) ?? undefined
+  })
   const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp ?? EMPTY_MCP_SETTINGS)
   const cli = agent?.cli
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
@@ -248,6 +307,7 @@ export default function TerminalView({
     cli,
     cliPermissionPreset,
     cliRuntimes,
+    hostId,
     mcpSettings,
     memoryConfig,
     openFile,
@@ -263,6 +323,7 @@ export default function TerminalView({
       cli,
       cliPermissionPreset,
       cliRuntimes,
+      hostId,
       mcpSettings,
       memoryConfig,
       openFile,
@@ -276,6 +337,7 @@ export default function TerminalView({
     cli,
     cliPermissionPreset,
     cliRuntimes,
+    hostId,
     mcpSettings,
     memoryConfig,
     openFile,
@@ -377,12 +439,6 @@ export default function TerminalView({
       workspaceRoot: folderReadyPath ?? currentContext().savedFolderPath ?? null,
       executionRoot: linkExecutionRoot.cwd ?? null,
     }
-    // Read here rather than off `studioTerminal` below because the OSC 8 handler
-    // is a CONSTRUCTION option — xterm's own OscLinkProvider reads
-    // `options.linkHandler` — so the surface's permission to resolve a local
-    // path has to be known before the terminal exists. Same function the factory
-    // calls, so the two can never disagree.
-    const surfaceLinkRoots = terminalSurfaceLinkRoots(terminalSurface)
     // statPath rejects for a path that is gone or unreadable; that routes to the
     // error popover, so a dead link never opens a menu of actions that would all
     // fail. Shared by the OSC 8 handler and the heuristic provider below.
@@ -407,7 +463,7 @@ export default function TerminalView({
               kind: 'file',
               resolvedPath,
               isDirectory,
-              workspaceRoot: surfaceLinkRoots?.workspaceRoot ?? null,
+              workspaceRoot: terminalSurface.workspaceRoot,
             },
             x: anchor.x,
             y: anchor.y,
@@ -505,38 +561,43 @@ export default function TerminalView({
     const textarea = term.textarea
     textarea?.addEventListener('focus', reclaimPtySize)
 
-    // Non-null for every agent surface; the guard is what keeps a surface that
-    // must not resolve local paths (fleet) from ever registering this provider.
     const linkRoots = studioTerminal.linkRoots
-    const fileLinkDisposable = linkRoots
-      ? term.registerLinkProvider(
-          createTerminalFileLinkProvider({
-            terminal: term,
-            workspaceRoot: linkRoots.workspaceRoot,
-            // A thunk, so the correction the launch path makes below reaches the links
-            // already on screen without re-registering the provider.
-            executionRoot: () => launchExecutionRoot,
-            inspectPath,
-            // The click no longer decides anything — it opens the chooser.
-            onActivate: ({ resolvedPath, isDirectory, line, column }, anchor) => {
-              setLinkMenu({
-                target: { kind: 'file', resolvedPath, isDirectory, workspaceRoot: linkRoots.workspaceRoot },
-                x: anchor.x,
-                y: anchor.y,
-                line,
-                column,
-              })
-            },
-            onOpenError: (message, anchor) => setClickError({ message, x: anchor.x, y: anchor.y }),
-            // A matched path that never became a link leaves no trace on screen, so
-            // count it. Both roots are null for a workspace with no configured folder
-            // — the case this effect deliberately runs for — and every relative path
-            // in the pane is then dropped for `no-root`, which is the one shape of
-            // "the terminal linkifies nothing" a user can actually report.
-            onDrop: terminalDiagnostics.recordFileLinkDrop,
+    const fileLinkDisposable = term.registerLinkProvider(
+      createTerminalFileLinkProvider({
+        terminal: term,
+        workspaceRoot: linkRoots.workspaceRoot,
+        // A thunk, so the correction the launch path makes below reaches the links
+        // already on screen without re-registering the provider.
+        executionRoot: () => launchExecutionRoot,
+        // An agent under WSL prints Linux paths; the provider needs the
+        // distribution to hand Windows a path it can open. Read late, like
+        // the root.
+        wslDistro: () =>
+          terminalWslDistro({
+            platform: window.api.platform,
+            hostId: currentContext().hostId,
+            roots: [launchExecutionRoot, linkRoots.workspaceRoot],
           }),
-        )
-      : null
+        inspectPath,
+        // The click no longer decides anything — it opens the chooser.
+        onActivate: ({ resolvedPath, isDirectory, line, column }, anchor) => {
+          setLinkMenu({
+            target: { kind: 'file', resolvedPath, isDirectory, workspaceRoot: linkRoots.workspaceRoot },
+            x: anchor.x,
+            y: anchor.y,
+            line,
+            column,
+          })
+        },
+        onOpenError: (message, anchor) => setClickError({ message, x: anchor.x, y: anchor.y }),
+        // A matched path that never became a link leaves no trace on screen, so
+        // count it. Both roots are null for a workspace with no configured folder
+        // — the case this effect deliberately runs for — and every relative path
+        // in the pane is then dropped for `no-root`, which is the one shape of
+        // "the terminal linkifies nothing" a user can actually report.
+        onDrop: terminalDiagnostics.recordFileLinkDrop,
+      }),
+    )
 
     // Loaded AFTER the file-link provider on purpose: xterm resolves link
     // providers in registration order and the earlier one's links suppress the
@@ -556,11 +617,30 @@ export default function TerminalView({
       `CLI: ${initialContext.cli}${initialContext.agent?.cliModel ? ` · ${initialContext.agent.cliModel}` : ''}`,
       `Workspace path: ${folderReadyPath ?? initialContext.savedFolderPath ?? 'default app path'}`,
     ].join('\n')
+    // Flow control: tell main what this pane has parsed, so a burst the pane
+    // cannot keep up with pauses the pty instead of queueing ahead of the
+    // person's own keystroke echo.
+    const ackReporter = createSessionAckReporter(sessionId)
     const outputQueue = createXtermOutputQueue(term, {
       recordWrite: terminalDiagnostics.recordOutputWrite,
+      onConsumed: ackReporter.ack,
     })
     const replayGate = createXtermReplayGate(term, outputQueue, {
       recordWrite: terminalDiagnostics.recordOutputWrite,
+      onResumeRelease: (release) => {
+        if (disposed) return
+        setIsResuming(false)
+        resumeOutputLanded(release.reason === 'exit')
+        logPerfEvent('TerminalView', 'terminal-resume-revealed', {
+          sessionId,
+          workspaceId,
+          agentId,
+          kind: 'agent',
+          reason: release.reason,
+          replacedFrozenView: release.replaceFrozenView,
+          heldChars: release.data.length,
+        })
+      },
       onReplayProfile: (profile) => {
         logPerfEvent('TerminalView', 'terminal-replay-profile', {
           sessionId,
@@ -589,9 +669,10 @@ export default function TerminalView({
 
     const disposeExit = window.api.onTerminalExit(sessionId, (code) => {
       const latestContext = currentContext()
-      // If the process died mid-resume, reveal any withheld boot output first so
-      // a genuine startup error surfaces ahead of the exit banner.
-      replayGate.flushResumeSuppression()
+      // If the process died mid-resume, reveal any held start-up output first so
+      // a genuine startup error surfaces ahead of the exit banner — under the
+      // frozen view, which stays.
+      replayGate.releaseResumeHoldForExit()
       term.write(`\r\n\x1b[31m[Terminal exited with code ${code}]\x1b[0m\r\n`)
       const currentSessionId = useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.agents[
         agentId
@@ -642,45 +723,143 @@ export default function TerminalView({
       })
     })
 
+    // Input for a resuming agent (see `pendingResumeInputRef`). Held from the
+    // resume gesture until both the relaunch has succeeded and the relaunched
+    // CLI's first frame is on screen; keystrokes ahead of the first paste go
+    // as soon as the relaunch succeeds.
+    let resumeInputHeld = false
+    let resumeLaunched = false
+    let resumeFrameShown = false
+    let deliveringResumeInput = false
+    // Which resume a timer belongs to, so one from an earlier attempt cannot
+    // let a later attempt's input go early.
+    let resumeGeneration = 0
+
+    const deliverResumeInput = (upToFirstPaste: boolean): void => {
+      const queue = pendingResumeInputRef.current
+      deliveringResumeInput = true
+      try {
+        while (queue.length > 0) {
+          const next = queue[0] as PendingResumeInput
+          if (next.kind === 'paste' && upToFirstPaste) return
+          queue.shift()
+          if (next.kind === 'keys') window.api.terminalWriteFast(sessionId, next.data)
+          // Through xterm, now that it holds the live CLI's modes: bracketed
+          // if that CLI asked for it, and out through `onData` like any paste.
+          else term.paste(next.text)
+        }
+      } finally {
+        deliveringResumeInput = false
+      }
+    }
+
+    const deliverHeldResumeInput = (): void => {
+      if (!resumeInputHeld || !resumeLaunched || !resumeFrameShown) return
+      resumeInputHeld = false
+      deliverResumeInput(false)
+    }
+
+    // The resume hold let go (gate `onResumeRelease`).
+    const resumeOutputLanded = (exited: boolean): void => {
+      if (!resumeInputHeld) return
+      if (exited) {
+        resumeInputHeld = false
+        // A relaunch that failed keeps the input for the next attempt, as it
+        // always has; a CLI that came up and died has nobody left to read it.
+        if (resumeLaunched) pendingResumeInputRef.current = []
+        return
+      }
+      replayGate.whenOutputWritten(() => {
+        if (disposed) return
+        resumeFrameShown = true
+        deliverHeldResumeInput()
+      })
+    }
+
+    // A paste into this pane (the clipboard handlers' `paste`).
+    const pasteIntoPane = (text: string) => {
+      if (suspendedRef.current && !inertRef.current) {
+        pendingResumeInputRef.current.push({ kind: 'paste', text })
+        void resumeFromSuspend()
+        return
+      }
+      if (resumeInputHeld) {
+        pendingResumeInputRef.current.push({ kind: 'paste', text })
+        return
+      }
+      term.paste(text)
+    }
+
     // Freeze-the-view: relaunch a suspended agent on the first keystroke, under
     // the same session id with --resume, then flush the keys typed during the
     // boot. Reuses the launch payload captured in `resumeThunkRef`; the existing
     // replay/data handlers on this same term pick up the resumed pty's output, so
     // the painted view is never torn down.
+    //
+    // The frozen view stays on screen, untouched, until the relaunched CLI's
+    // first frame has arrived; the replay gate then swaps one for the other in a
+    // single synchronized write (utils/terminalResumeHold.ts). Until then the
+    // working edge says the click was heard.
     const resumeFromSuspend = async () => {
       if (resumingRef.current) return
       const resume = resumeThunkRef.current
       if (!resume) return
       resumingRef.current = true
-      // Tell the paused footer (AgentPanel) a resume is in flight: the relaunch
-      // takes seconds and boot output is suppressed below, so without this the
-      // click/keystroke reads as dead. Success needs no counterpart event — the
-      // session snapshot flips `suspended` off and the footer leaves. Failure
-      // rolls the footer back to "Paused".
+      setIsResuming(true)
+      resumeInputHeld = true
+      resumeLaunched = false
+      resumeFrameShown = false
+      const generation = ++resumeGeneration
+      // Tell the paused footer (AgentPanel) a resume is in flight. It gives its
+      // row back to the pane now, not when the session stops reading suspended:
+      // that happened after the relaunch, so the pane grew under a CLI that was
+      // already drawing, and the resize made it clear and repaint its screen.
+      // Success needs no counterpart event; failure rolls the footer back.
       window.dispatchEvent(
         new CustomEvent('sprintengine:terminal-resume-state', {
           detail: { sessionId, resuming: true },
         }),
       )
-      // Withhold the relaunched CLI's transitional boot output (focus-report
-      // echo, trust/permissions warning, shell fragments) until it repaints its
-      // alt-screen TUI, so the resume cuts cleanly from snapshot to live view.
-      replayGate.armResumeSuppression()
+      // Let the footer's row come back to the pane and fit to it, so the
+      // relaunch below is sized once, at the size it will keep.
+      await nextAnimationFrames(2)
+      if (disposed) return
+      fitTerminal()
+      replayGate.armResumeHold({ replaceFrozenView: resumeReplacesFrozenViewRef.current })
       const result = await resume().catch((): TerminalSpawnResult => ({
         ok: false,
         sessionId,
         message: 'Failed to resume terminal.',
         exitCode: 1,
       }))
+      if (disposed) return
       if (result.ok) {
         suspendedRef.current = false
         // Unfreeze eagerly — the store's suspended flag clears a broadcast
         // later, and the cursor should read live the moment the TUI repaints.
         setCursorFrozen(false)
-        const buffered = pendingResumeInputRef.current.join('')
-        pendingResumeInputRef.current = []
-        if (buffered) window.api.terminalWriteFast(sessionId, buffered)
+        if (resumeInputHeld) {
+          resumeLaunched = true
+          deliverResumeInput(true)
+          deliverHeldResumeInput()
+          // The hold starts timing only at the CLI's first byte. A CLI that
+          // prints nothing, or a pane hidden before it was sent anything, would
+          // otherwise keep a held paste — and every key typed behind it —
+          // waiting indefinitely. Past this, the paste goes with whatever modes
+          // xterm has.
+          window.setTimeout(() => {
+            if (disposed || generation !== resumeGeneration || !resumeInputHeld || !resumeLaunched) return
+            resumeFrameShown = true
+            deliverHeldResumeInput()
+          }, RESUME_INPUT_FALLBACK_MS)
+        } else {
+          // The hold already let go: the CLI exited before this answer came.
+          deliverResumeInput(false)
+        }
       } else {
+        // Nothing was launched, so nothing will arrive to end the hold.
+        replayGate.releaseResumeHoldForExit()
+        setIsResuming(false)
         window.dispatchEvent(
           new CustomEvent('sprintengine:terminal-resume-state', {
             detail: { sessionId, resuming: false },
@@ -732,8 +911,13 @@ export default function TerminalView({
       // Suspended: buffer the keystroke and kick a resume instead of writing to a
       // dead pty (main drops writes to a suspended session anyway).
       if (suspendedRef.current) {
-        pendingResumeInputRef.current.push(data)
+        pendingResumeInputRef.current.push({ kind: 'keys', data })
         void resumeFromSuspend()
+        return
+      }
+      // Behind a paste still waiting for the resumed CLI: wait with it.
+      if (resumeInputHeld && !deliveringResumeInput && pendingResumeInputRef.current.length > 0) {
+        pendingResumeInputRef.current.push({ kind: 'keys', data })
         return
       }
       window.api.terminalWriteFast(sessionId, data)
@@ -803,12 +987,12 @@ export default function TerminalView({
     const disposeClipboardHandlers = bindTerminalClipboardHandlers({
       container,
       term,
-      sessionId,
       focusTerminal,
       recordKeydown: terminalDiagnostics.recordContainerKeydown,
+      paste: pasteIntoPane,
       imagePasteKey: () => {
-        const { cli: paneCli, cliRuntimes: runtimes } = launchContextRef.current
-        return claudeImagePasteKey(paneCli, paneCli ? runtimes?.[paneCli]?.useWsl : undefined)
+        const { cli: paneCli, hostId: paneHostId } = launchContextRef.current
+        return claudeImagePasteKey(paneCli, isWslHostId(paneHostId))
       },
     })
 
@@ -854,8 +1038,8 @@ export default function TerminalView({
       //
       // 'inert' — a cold-loaded persisted agent with no pty, no painted screen,
       // and no live launch intent. It has nothing to show and nobody asked for it,
-      // so it must sit idle. This is the branch whose absence turned every cold
-      // load of an automations-host agent into a fresh CLI launch.
+      // so it must sit idle. Without this branch every cold load of such an
+      // agent became a fresh CLI launch.
       const coldLoadDecision = resolveAgentColdLoadDecision({
         attachedSessionId,
         processAlive: terminalStatus.processAlive,
@@ -867,8 +1051,8 @@ export default function TerminalView({
       const pauseInsteadOfLaunch = coldLoadDecision === 'paused'
       inertRef.current = coldLoadDecision === 'inert'
       if (coldLoadDecision === 'inert') {
-        // Return BEFORE the worktree resolution below. A finished automation
-        // agent's run worktree is routinely finalized away, and
+        // Return BEFORE the worktree resolution below. An idle agent's worktree
+        // may have been removed since it last ran, and
         // `resolveWorktreeSpawnFallback` would silently redirect the spawn into
         // the main checkout — the dead-cwd relaunch loop. Inert outranks that
         // fallback: there is nothing to spawn, so there is nothing to redirect.
@@ -1011,6 +1195,7 @@ export default function TerminalView({
       const finalCli = finalContext.cli
       if (!finalAgent || !finalCli) return
       const finalResumeCaps = resumeCapabilitiesForCli(finalCli, useWorkspaceStore.getState().pluginCatalogEntries)
+      resumeReplacesFrozenViewRef.current = agentCliSupportsConversationResume(finalResumeCaps)
       const agentSession: Omit<AgentSessionIdentity, 'sessionId'> | undefined = attachedSessionId
         ? undefined
         : {
@@ -1039,6 +1224,7 @@ export default function TerminalView({
           {
             kind: 'agent',
             workspaceId,
+            ...(finalContext.hostId ? { hostId: finalContext.hostId } : {}),
             agentId,
             agentName: finalAgent.name,
             // The agent's own CLI/harness session id, used as the resume token so
@@ -1052,7 +1238,10 @@ export default function TerminalView({
             worktreeId: executionRoot.worktreeId,
             worktreePath: executionRoot.worktreePath,
             cliPermissionPreset: finalContext.cliPermissionPreset,
-            debugMode: finalAgent.debugMode,
+            // The CLI's own mode rides beside the preset it was chosen at.
+            ...(finalContext.cliPermissionPreset && finalAgent.cliPermissionMode
+              ? { cliPermissionMode: finalAgent.cliPermissionMode }
+              : {}),
             cliModel: finalAgent.cliModel,
             cliReasoning: finalAgent.cliReasoning,
             memoryRootPath: memoryContext.rootPath,
@@ -1064,7 +1253,7 @@ export default function TerminalView({
             mcpSettings: finalAgent.connectorMcpSettings ?? finalContext.mcpSettings,
             connectorLaunch: finalAgent.connectorMcpSettings != null,
             spawnSkillId: finalAgent.spawnSkillId,
-            visible: true,
+            visible: paneIsPainted(),
             ...(agentSession ? { agentSession } : {}),
           } as TerminalSpawnMetadata & {
             executionMode: AgentExecutionMode
@@ -1081,7 +1270,11 @@ export default function TerminalView({
         // readable while the agent process stays suspended.
         suspendedRef.current = true
         setCursorFrozen(true)
-        await window.api.terminalSetVisible(sessionId, true).catch(() => {})
+        // A fresh xterm: main paints it in full, now or — in a window that is
+        // not being painted — when WorkspaceManager reveals it.
+        const painted = paneIsPainted()
+        await window.api.terminalSetVisible(sessionId, painted, { freshPane: true }).catch(() => {})
+        if (!painted && !disposed) notePaneAttachedHidden(sessionId)
         logPerfEvent('TerminalView', 'terminal-paused-on-open', {
           sessionId,
           workspaceId,
@@ -1094,6 +1287,7 @@ export default function TerminalView({
       }
 
       replayGate.beginReplayWait()
+      const spawnPainted = paneIsPainted()
       const spawnResult = await window.api
         .terminalSpawn(
           sessionId,
@@ -1108,6 +1302,7 @@ export default function TerminalView({
           {
             kind: 'agent',
             workspaceId,
+            ...(finalContext.hostId ? { hostId: finalContext.hostId } : {}),
             agentId,
             agentName: finalAgent.name,
             // The agent's own CLI/harness session id, used as the resume token so
@@ -1121,7 +1316,10 @@ export default function TerminalView({
             worktreeId: executionRoot.worktreeId,
             worktreePath: executionRoot.worktreePath,
             cliPermissionPreset: finalContext.cliPermissionPreset,
-            debugMode: finalAgent.debugMode,
+            // The CLI's own mode rides beside the preset it was chosen at.
+            ...(finalContext.cliPermissionPreset && finalAgent.cliPermissionMode
+              ? { cliPermissionMode: finalAgent.cliPermissionMode }
+              : {}),
             cliModel: finalAgent.cliModel,
             cliReasoning: finalAgent.cliReasoning,
             memoryRootPath: memoryContext.rootPath,
@@ -1133,7 +1331,7 @@ export default function TerminalView({
             mcpSettings: finalAgent.connectorMcpSettings ?? finalContext.mcpSettings,
             connectorLaunch: finalAgent.connectorMcpSettings != null,
             spawnSkillId: finalAgent.spawnSkillId,
-            visible: true,
+            visible: spawnPainted,
             ...(agentSession ? { agentSession } : {}),
           } as TerminalSpawnMetadata & {
             executionMode: AgentExecutionMode
@@ -1149,6 +1347,7 @@ export default function TerminalView({
         }))
       replayGate.finishReplayWait()
       if (disposed) return
+      if (spawnResult.ok && !spawnPainted) notePaneAttachedHidden(sessionId)
       if (!spawnResult.ok) {
         const failureContext = currentContext()
         const currentSessionId = useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.agents[
@@ -1188,6 +1387,12 @@ export default function TerminalView({
           })
         }
         return
+      }
+
+      // Bind the agent to the machine it launched on, so a relaunch after a
+      // restart (with no painted session to resume from) goes back there too.
+      if (finalContext.hostId && finalAgent.hostId !== finalContext.hostId) {
+        finalContext.updateAgent(workspaceId, agentId, { hostId: finalContext.hostId })
       }
 
       // The spawn succeeded — this agent is running again, so any stale
@@ -1274,16 +1479,20 @@ export default function TerminalView({
       disposeFocusRequest()
       onDataDisposable.dispose()
       onResizeDisposable.dispose()
-      fileLinkDisposable?.dispose()
+      fileLinkDisposable.dispose()
       terminalDiagnostics.dispose()
       replayGate.dispose()
       outputQueue.dispose()
+      ackReporter.dispose()
       unregisterTerminalInstance(sessionId)
+      clearPaneAttachedHidden(sessionId)
       studioTerminalRef.current = null
       // Last: it unbinds the theme, disposes the web-links addon and disposes
       // the terminal itself, so nothing above may still be reading `term`.
       studioTerminal.dispose()
       applyCursorFrozenRef.current = null
+      // A resume in flight dies with this terminal; its edge goes with it.
+      setIsResuming(false)
       focusTerminalRef.current = () => {
         containerRef.current?.focus()
       }
@@ -1424,6 +1633,9 @@ export default function TerminalView({
           skeleton there just reads as a flash. Keep it only for the genuine
           pre-launch folder-verification wait. */}
       {folderBlocked && checkingFolder ? <TerminalReplaySkeleton /> : null}
+      {/* A paused agent resuming: the frozen view stays readable and the edge
+          says the click was heard, until the CLI's first frame replaces it. */}
+      {isResuming ? <WorkingEdge label="Resuming agent" /> : null}
       {isFileDragOver ? (
         <div className="pointer-events-none absolute inset-2 z-10 rounded-md border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]" />
       ) : null}

@@ -15,7 +15,7 @@
 
 import type { McpServerConfig, McpServerListing } from '../../../../../shared/electron-api'
 import type { AgentComposerConnector } from '../../workspace/agentComposer/useAgentComposer'
-import type { MarketplaceComponentKind, MarketplacePluginEntry } from '../../../../../shared/marketplace/manifest'
+import type { MarketplacePluginEntry, MarketplaceProvidesKind } from '../../../../../shared/marketplace/manifest'
 import { componentKindLabels } from '../../settings/storefrontView'
 import { connectorCanLaunch } from '../../../../../shared/connector-launch'
 
@@ -144,22 +144,17 @@ export function connectorFacet(category: string): NamedFacet {
  * The install path is unchanged and needs no workspace for a module-only bundle
  * (`needsWorkspace`, BrowseStorefront.tsx): only mcp and skills components
  * write into a project.
- *
- * `cli` stays out: agent CLIs have their own canvas (`AgentClisCatalogue`) with
- * its own install/launch affordances, and listing them twice would be one thing
- * counted twice on two tabs.
  */
 export function buildConnectorEntries(plugins: MarketplacePluginEntry[]): ConnectorEntry[] {
   return registryEntriesForKinds(plugins, ['mcp', 'skills', 'module'])
 }
 
 // Registry plugins presented as normalized entries for a set of component
-// kinds. The Plugins catalogue uses mcp/skills/module; the door's Agent CLIs
-// canvas uses cli — same row shape, same detail/install flow, no parallel
-// presentation model.
+// kinds. The Plugins catalogue uses mcp/skills/module — one row shape, one
+// detail/install flow, no parallel presentation model.
 export function registryEntriesForKinds(
   plugins: MarketplacePluginEntry[],
-  kinds: readonly MarketplaceComponentKind[],
+  kinds: readonly MarketplaceProvidesKind[],
 ): ConnectorEntry[] {
   return plugins
     .filter((plugin) => plugin.provides.some((kind) => kinds.includes(kind)))

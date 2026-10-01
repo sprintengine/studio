@@ -5,18 +5,26 @@ import {
   Popover,
   Tooltip,
   roveMenuFocus,
-  setModelPermissionPreset,
-  useModelPermissionPreset,
+  setCliPermissionPreset,
+  useCliPermissionMode,
+  useCliPermissionPreset,
 } from '../../ui'
 import { ChevronDownIcon } from '../../AppIcons'
 import { MENU_GROUP_LABEL_CLASS, MENU_LIST_CLASS } from '../../ui/menuClasses'
 import {
-  AGENT_SPAWN_PERMISSION_OPTIONS,
+  agentPermissionOptions,
+  agentPermissionChipLabel,
   focusActivePresetRow,
   PermissionPresetMenuRows,
-  PRESET_CHIP_LABEL,
+  PresetGlyph,
+  type PermissionModeOption,
 } from './agentSpawnShared'
 import type { AgentCli, CliPermissionPreset } from '../../../types/workspace'
+import { useWorkspaceStore } from '../../../store/workspaceStore'
+import {
+  conversationPermissionModes,
+  conversationPermissionPresetRefusals,
+} from '../../../../../shared/conversation-harness'
 
 // The model picker's footer controls — the row of trailing settings a spawn
 // surface hands `CliModelPopoverSurface` through its `footer` slot.
@@ -86,6 +94,7 @@ export function FooterMenu({
           // tone and its `--bg-hover` lift.
           <ChipButton
             ref={ref}
+            variant="raised"
             tint={tone === 'warn' ? 'var(--tone-warn)' : tone === 'accent' ? 'var(--accent-primary)' : undefined}
             aria-label={ariaLabel}
             onClick={togglePopover}
@@ -121,24 +130,41 @@ export function FooterMenu({
   )
 }
 
-// The chip names the preset, not the sentence behind it — the surface carries
-// no explanatory copy (owner, 2026-08-04). It reads the exhaustive chip labels
-// the preset rows use, so a preset it cannot tell apart from its neighbour is a
-// preset the person cannot see they are on.
-function permissionLabel(preset: CliPermissionPreset): string {
-  return PRESET_CHIP_LABEL[preset]
-}
-
-// The accessible name carries the full option label, not the chip's short one:
-// "Permissions: Bypass permissions" says which safeguard is off, where the chip
-// only has room for a word.
-function permissionAccessibleName(preset: CliPermissionPreset): string {
-  const option = AGENT_SPAWN_PERMISSION_OPTIONS.find((entry) => entry.value === preset)
-  return `Permissions: ${option?.label ?? preset}`
+// The accessible name carries the mode's full name: "Permissions: Bypass
+// permissions" says which safeguard is off.
+function permissionAccessibleName(
+  options: readonly PermissionModeOption[],
+  preset: CliPermissionPreset,
+  mode: string | null | undefined,
+): string {
+  return `Permissions: ${agentPermissionChipLabel(options, preset, mode)}`
 }
 
 /**
- * Permissions for the row the picker is currently on — a dropdown at the
+ * The rows a permission menu for `cli` lists: the CLI's modes under its own
+ * names, from its manifest. A chat lists only the CLI's own modes its runtime
+ * maps (`modes`, a running chat's capability, else what the CLI's chat
+ * runtime declares); a preset's own mode is always listed, and a preset the
+ * chat cannot run is dimmed by the caller with its reason.
+ */
+export function usePermissionModeOptions(
+  cli: AgentCli | null | undefined,
+  launch?: 'chat' | 'terminal',
+  chatModes?: readonly string[],
+): PermissionModeOption[] {
+  const specs = useWorkspaceStore((state) =>
+    cli ? state.pluginCatalogEntries.find((entry) => entry.id === cli)?.permissionModes : undefined,
+  )
+  return React.useMemo(() => {
+    const options = agentPermissionOptions(specs)
+    if (launch !== 'chat') return options
+    const own = chatModes ?? conversationPermissionModes(cli)
+    return options.filter((option) => !option.mode || own.includes(option.mode))
+  }, [chatModes, cli, launch, specs])
+}
+
+/**
+ * Permissions for the CLI of the row the picker is currently on — a dropdown at the
  * trailing end of the picker's one row, sitting immediately right of the effort
  * dropdown (owner, 2026-09-05). Two controls of the same kind, on the same
  * line: effort on the left, permissions on the right.
@@ -150,38 +176,118 @@ function permissionAccessibleName(preset: CliPermissionPreset): string {
  * belong to radio rows"). The rows are the ones the live-agent pill opens, so
  * there is one rendering of the choice in the app, not two.
  *
- * The value is remembered AGAINST THE ROW (`modelPermissionPresets`), not once
- * for the app: the preset is a property of the runtime the row names, which is
- * why this control moved inside the picker rather than standing beside it. A
- * row nobody has set reads `fallback` — the app-wide default Settings still
- * owns — so nothing moves until someone chooses here.
+ * The value is remembered PER CLI (`cliPermissionPresets`), not once for the
+ * app and not per model: the preset is a property of the runtime the row
+ * names, which is why this control moved inside the picker rather than
+ * standing beside it, and choosing it on one Claude Code model chooses it for
+ * every Claude Code model. A CLI nobody has set reads `fallback` — the
+ * app-wide default Settings still owns — so nothing moves until someone
+ * chooses here.
  */
 export function SpawnPermissionFooter({
   cli,
-  model,
   fallback,
-  disabledReasons,
-  onSelect,
+  launch,
 }: {
   cli: AgentCli
-  /** The row's model id; null is the CLI's own default row. */
-  model: string | null
   fallback: CliPermissionPreset
-  /** Presets this target cannot take, each with the one line it dims with. */
-  disabledReasons?: Partial<Record<CliPermissionPreset, string>>
-  /** Notified after the row's preset is written (the remote note clears on it). */
-  onSelect?: (preset: CliPermissionPreset) => void
+  /**
+   * What the launch starts: a chat, or an agent in a terminal. Each can be held
+   * to a different set of presets, and the rows it cannot take are dimmed with
+   * the reason. Absent, every row is offered.
+   */
+  launch?: 'chat' | 'terminal'
 }): JSX.Element {
-  const preset = useModelPermissionPreset(cli, model, fallback)
+  const preset = useCliPermissionPreset(cli, fallback)
+  const mode = useCliPermissionMode(cli)
+  const options = usePermissionModeOptions(cli, launch)
+  const disabledReasons = useLaunchPermissionRefusals(cli, launch)
+  return (
+    <PermissionFooter
+      options={options}
+      preset={preset}
+      mode={mode}
+      disabledReasons={disabledReasons}
+      onSelect={(next) => setCliPermissionPreset(cli, next.value, next.mode)}
+    />
+  )
+}
+
+/**
+ * The presets a launch of `cli` cannot be held to, each with the one line its
+ * row shows. A chat's come from the runtime's own limits
+ * (`conversationPermissionPresetRefusals`); a terminal agent's from the presets
+ * its manifest names a setting for, which main lists with the plugin. A CLI
+ * the catalog has not listed yet dims nothing: the launch refuses a preset it
+ * cannot take and says why.
+ */
+export function useLaunchPermissionRefusals(
+  cli: AgentCli,
+  launch: 'chat' | 'terminal' | undefined,
+): Partial<Record<CliPermissionPreset, string>> | undefined {
+  const entry = useWorkspaceStore((state) =>
+    launch === 'terminal' ? state.pluginCatalogEntries.find((candidate) => candidate.id === cli) : undefined,
+  )
+  return React.useMemo(() => {
+    if (launch === 'chat') return conversationPermissionPresetRefusals(cli)
+    if (launch !== 'terminal' || !entry?.permissionPresets) return undefined
+    const declared = entry.permissionPresets
+    return Object.fromEntries(
+      (['none', 'manual', 'auto', 'bypass'] as const)
+        .filter((preset) => !declared.includes(preset))
+        .map((preset) => [preset, `${entry.displayName} has no setting for this in a terminal.`]),
+    )
+  }, [cli, entry, launch])
+}
+
+/**
+ * The permission dropdown itself, over a value the host owns. The launcher's
+ * `SpawnPermissionFooter` binds it to the per-CLI memory, on the picker's
+ * trailing row; a running chat binds it to that chat's own preset, which a
+ * live session changes in place, as a chip of its own in the chat box. Same
+ * chip and same rows either way.
+ */
+export function PermissionFooter({
+  options,
+  preset,
+  mode,
+  onSelect,
+  disabled = false,
+  disabledReasons,
+  placement = 'top-end',
+}: {
+  /** The CLI's modes, from `usePermissionModeOptions`. */
+  options: readonly PermissionModeOption[]
+  preset: CliPermissionPreset
+  /** The CLI's own mode at `preset`, when it is not the preset's own. */
+  mode?: string | null
+  onSelect: (next: PermissionModeOption) => void
+  /** Locks the rows while a live change is in flight. */
+  disabled?: boolean
+  /** Rows this agent cannot run, by row id (a preset's own mode is keyed by the preset), each with its reason. */
+  disabledReasons?: Partial<Record<string, string>>
+  /** Which side the menu opens on: the end of a trailing row, the start of a leading one. */
+  placement?: 'top-start' | 'top-end'
+}): JSX.Element {
   return (
     <FooterMenu
-      ariaLabel={permissionAccessibleName(preset)}
+      ariaLabel={permissionAccessibleName(options, preset, mode)}
       heading="Permissions"
-      label={permissionLabel(preset)}
+      label={
+        <>
+          <PresetGlyph preset={preset} />
+          {/* The chip names the mode, not the sentence behind it — the surface
+              carries no explanatory copy (owner, 2026-08-04). */}
+          {agentPermissionChipLabel(options, preset, mode)}
+        </>
+      }
       // Bypass is WARN, not danger: `danger` is the error tone, and the preset
-      // wears amber everywhere else in the app.
-      tone={preset === 'bypass' ? 'warn' : preset === 'auto' ? 'accent' : 'quiet'}
-      placement="top-end"
+      // wears amber everywhere else in the app. So is a preset this agent
+      // cannot run (an app-wide default a CLI has no setting for), which says
+      // why on hover rather than reading as if it would hold.
+      tone={preset === 'bypass' || disabledReasons?.[preset] ? 'warn' : 'quiet'}
+      {...(disabledReasons?.[preset] ? { tooltip: disabledReasons[preset] } : {})}
+      placement={placement}
       chevron
       // The rows need the width their summaries were written for, and they land
       // focus on the checked row.
@@ -191,11 +297,13 @@ export function SpawnPermissionFooter({
     >
       {(close) => (
         <PermissionPresetMenuRows
+          options={options}
           value={preset}
-          {...(disabledReasons ? { disabledReasons } : {})}
+          mode={mode}
+          disabled={disabled}
+          disabledReasons={disabledReasons}
           onSelect={(next) => {
-            setModelPermissionPreset(cli, model, next)
-            onSelect?.(next)
+            onSelect(next)
             close()
           }}
         />

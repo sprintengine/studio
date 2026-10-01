@@ -62,7 +62,7 @@ export function createDefaultMarketplaceRegistryClient(): MarketplaceRegistryCli
   return new MarketplaceRegistryClient({
     registryUrl: configuredMarketplaceRegistryUrl(),
     cachePath: defaultMarketplaceRegistryCachePath(app.getPath('userData')),
-    // Remote first, the model feed's rule (backlog/2026-09-05-plugin-sources.md,
+    // Remote first, the hosted feeds' rule (backlog/2026-09-05-plugin-sources.md,
     // "Hosting"): the index lives in the public releases repo and is edited
     // there by pull request, so a fetch with ETag is how an added or updated
     // plugin reaches every machine without an app release. The committed seed

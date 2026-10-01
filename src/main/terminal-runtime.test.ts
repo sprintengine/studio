@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import type { WebContents } from 'electron'
 import type { McpSettings, TerminalSpawnResult } from '../shared/electron-api'
 import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
-import { TERMINAL_REMOTE_FRAME_CHUNK_CHARS } from './terminal-remote-attach'
+import { createAgentPromptStore } from './agent-prompt-store'
 import { createAgentLaunchService } from './agent-launch-service'
 import { createPullRequestRecord } from './pull-request-record'
 import { readPullRequestState } from './github/branch-pull-request'
@@ -37,6 +37,8 @@ test('terminal-runtime', async () => {
 
   type MockPtyProcess = {
     pid: number
+    cols?: number
+    rows?: number
     write(data: string): void
     resize(cols: number, rows: number): void
     kill(): void
@@ -46,6 +48,10 @@ test('terminal-runtime', async () => {
     emitExit(event?: { exitCode: number; signal?: number }): void
     writes: string[]
     killed: boolean
+    pause(): void
+    resume(): void
+    pauses: number
+    resumes: number
   }
 
   type SpawnCall = {
@@ -74,6 +80,9 @@ test('terminal-runtime', async () => {
         }
       }
       const process = createMockPtyProcess()
+      // The size the pty was spawned at, as node-pty reports it.
+      if (typeof options.cols === 'number') process.cols = options.cols
+      if (typeof options.rows === 'number') process.rows = options.rows
       mockPty.spawnCalls.push({ command, args, options, process })
       return process
     },
@@ -135,20 +144,26 @@ test('terminal-runtime', async () => {
       await assertAgentSpawnExposesAgentIdentityEnv(runtimeModule)
       await assertIngestAgentStateFrameUpdatesSession(runtimeModule)
       await assertTurnEndIsHeldWhileBackgroundWorkIsOpen(runtimeModule)
+      await assertTurnEndSurvivesLateFrames(runtimeModule)
       await assertFileLedgerFollowsHookReportedEdits(runtimeModule)
       await assertAgentChangelistSeamsFire(runtimeModule)
       await assertContextUsageFollowsStatusLineFrames(runtimeModule)
       await assertCapturedPullRequestReachesTheRecord(runtimeModule)
       await assertTerminalReattachUsesReplayChannel(runtimeModule)
       await assertHiddenTerminalOutputSkipsLiveIpcAndReplaysOnAttach(runtimeModule)
-      await assertRemoteViewersStreamIndependentlyOfTheLocalPane(runtimeModule)
-      await assertRemoteFramesNeverExceedTheWireCap(runtimeModule)
       await assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule)
       await assertIdleSweepSuspendsRatherThanDisposes(runtimeModule)
       await assertSuspendSettlesAWorkingAgentToRest(runtimeModule)
       await assertSuspendSnapshotSidecarsSurviveRestart(runtimeModule)
+      await assertSuspendReleasesRawStreamButKeepsFrozenScreen(runtimeModule)
+      await assertSelfExitedAgentReleasesRawStreamButKeepsFinalScreen(runtimeModule)
+      await assertSessionsBroadcastCarriesOnlyWhatChanged(runtimeModule)
+      await assertRevealSendsOnlyWhatThePaneMissed(runtimeModule)
+      await assertSettledAgentKeepsItsHistoryAndIsNotRepaintedOnReveal(runtimeModule)
+      await assertRevealCatchUpCountsTowardFlowControl(runtimeModule)
+      await assertSubagentStartOvertakenByItsStopIsNotCounted(runtimeModule)
+      await assertFlowControlPausesThePtyWhileThePaneFallsBehind(runtimeModule)
       await assertSelfExitedAgentWritesSidecarButDisposeDoesNot(runtimeModule)
-      await assertDebugModeEnsureInstallsDebugSkill(runtimeModule)
       await assertSpawnSkillInstallIsOrthogonalToMcpIsolation(runtimeModule)
       await assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(runtimeModule)
       await assertResolveAgentExecutionIdMatchesLiveSession(runtimeModule)
@@ -161,6 +176,8 @@ test('terminal-runtime', async () => {
       await assertSpawnLaunchesProbedPathAndFailsHonestlyWhenAbsent(runtimeModule)
       await assertSpawnWithoutCliRefusesInsteadOfDefaultingToCodex(runtimeModule)
       await assertSpawnRefusesAgentCliWithoutAgentStateSpec(runtimeModule)
+      await assertSendAfterReadyTypesTheFirstMessageOnce(runtimeModule)
+      await assertUndeliveredFirstMessageIsHandedBack(runtimeModule)
     } finally {
       restoreModules()
     }
@@ -196,7 +213,7 @@ test('terminal-runtime', async () => {
           installed: detect.installed,
           version: detect.installed ? '2.0.0' : null,
           resolvedPath: detect.resolvedPath ?? null,
-          useWsl: false,
+          hostId: 'local',
           error: null,
         }),
         // Each case is its own question; never serve another case's cached verdict.
@@ -378,12 +395,12 @@ test('terminal-runtime', async () => {
       assert.equal(snapshot()?.observedCheckout?.cwd, worktreeRoot)
       assert.equal(snapshot()?.observedCheckout?.resolved, false)
       assert.ok(
-        !mockSender.sent.some((event) => event.channel === 'terminal:sessions-changed'),
+        !mockSender.sent.some((event) => event.channel === 'terminal:sessions-delta'),
         'the move itself does not broadcast (unresolved renders as launch intent — a flicker)',
       )
       await settle()
       assert.ok(
-        mockSender.sent.some((event) => event.channel === 'terminal:sessions-changed'),
+        mockSender.sent.some((event) => event.channel === 'terminal:sessions-delta'),
         'git answering broadcasts, even though thinking↔tool_use churn does not',
       )
       const wt = snapshot()?.observedCheckout
@@ -441,7 +458,7 @@ test('terminal-runtime', async () => {
       assert.equal(snapshot()?.observedCheckout?.cwd, '/unanswerable')
       assert.equal(snapshot()?.observedCheckout?.resolved, false, 'null from the resolver stays unresolved')
       assert.ok(
-        mockSender.sent.some((event) => event.channel === 'terminal:sessions-changed'),
+        mockSender.sent.some((event) => event.channel === 'terminal:sessions-delta'),
         'an unanswerable move still broadcasts the unresolved observation',
       )
 
@@ -541,7 +558,7 @@ test('terminal-runtime', async () => {
       // filter and the broadcast.
       // Let the previous session's teardown broadcast land before counting.
       await settle()
-      const broadcasts = () => mockSender.sent.filter((event) => event.channel === 'terminal:sessions-changed').length
+      const broadcasts = () => mockSender.sent.filter((event) => event.channel === 'terminal:sessions-delta').length
       const broadcastsBeforeRecord = broadcasts()
       const seen: string[] = []
       runtimeModule.notePullRequestRecordChanged((session) => {
@@ -680,9 +697,7 @@ test('terminal-runtime', async () => {
       )
 
       // What the conversation peek reads off the session, left there by these same
-      // frames: the transcript the turn end named, and every prompt seen since
-      // launch. The prompt list is the peek's LIVE fallback — the only source for
-      // a runtime that reports prompts but hands us no transcript.
+      // frames: every prompt the session was sent. It is the peek's only source.
       runtime.ingestAgentStateFrame(
         frame({
           phase: 'thinking',
@@ -700,20 +715,8 @@ test('terminal-runtime', async () => {
         }),
       )
       assert.deepEqual(
-        runtime.readConversationPeekSessionState('session-phase'),
+        await runtime.readConversationPeekSessionState('session-phase'),
         {
-          transcriptPath: '/tmp/transcript.jsonl',
-          // The id the CLI reports for itself — for a Claude session it is also
-          // the name of its transcript file, which is how a parked chat recovers
-          // a history no hook has named yet.
-          cliSessionId: 'session-phase',
-          // The LAUNCH directory, not wherever the agent has since cd'd to: the
-          // folder a Claude transcript lives in is fixed when the CLI starts.
-          launchCwd: workspaceRoot,
-          // claude-code's manifest declares harnessId 'claude', so this session
-          // may have a ~/.claude transcript derived for it. Codex and Grok are
-          // false here and must never get one.
-          claudeHarness: true,
           // Claude Code reports messages, so a chat of its that has said nothing
           // yet must never be reported as a runtime that cannot report.
           reportsMessages: true,
@@ -722,10 +725,10 @@ test('terminal-runtime', async () => {
             { text: 'Use the design system for this', at: scheduledAt + 3_000 },
           ],
         },
-        'the peek must see the turn end’s transcript, the launch cwd and every prompt since launch',
+        'the peek must see every prompt the session was sent',
       )
       assert.equal(
-        runtime.readConversationPeekSessionState('session-nonexistent'),
+        await runtime.readConversationPeekSessionState('session-nonexistent'),
         null,
         'a session that does not exist answers null, not an empty peek',
       )
@@ -905,7 +908,7 @@ test('terminal-runtime', async () => {
       getLaunchSettings: () => ({
         ...emptyAgentLaunchSettings(),
         lastSelectedCli: 'claude-code',
-        lastAgentSpawnPermissionPreset: 'auto',
+        lastAgentSpawnPermissionPreset: 'bypass',
         mcp: { syncEnabled: true, servers: {} },
       }),
       terminal: {
@@ -936,7 +939,7 @@ test('terminal-runtime', async () => {
       // handed to the config sync, and the caller's prompt carried verbatim.
       const startupScript = await readFile(String(mockPty.spawnCalls[0]!.args.at(-1)), 'utf8')
       assert.match(startupScript, /claude/, 'the last-selected CLI is what launched')
-      assert.match(startupScript, /--permission-mode auto/, 'the app-level spawn preset reached the argv')
+      assert.match(startupScript, /--permission-mode bypassPermissions/, 'the app-level spawn preset reached the argv')
       assert.match(startupScript, /Audit the auth flow\./, 'and carries the caller directive')
       assert.deepEqual(
         syncInputs.at(-1)?.settings,
@@ -949,7 +952,7 @@ test('terminal-runtime', async () => {
       const snapshot = runtime.ipcHandlers.listTerminals().find((entry) => entry.sessionId === launched.sessionId)
       assert.equal(snapshot?.agentRecord?.agentId, launched.agentId)
       assert.equal(snapshot?.agentRecord?.cli, 'claude-code')
-      assert.equal(snapshot?.agentRecord?.cliPermissionPreset, 'auto')
+      assert.equal(snapshot?.agentRecord?.cliPermissionPreset, 'bypass')
 
       // The run's correlation key. An agent-backed automation finalizes on its
       // agent's exit, and the runtime only reports that exit for a session with an
@@ -1357,9 +1360,11 @@ test('terminal-runtime', async () => {
   // Per-terminal user lock + idempotent suspended reveal:
   // 1. A locked (reapExempt) agent survives the idle sweep and the 24h stale
   //    backstop; unlocking makes it reapable again.
-  // 2. Revealing a suspended session resends the painted replay even when main
-  //    already has visible=true (a renderer reload/remount can miss the unmount
-  //    hide; edge-triggered reveal left the fresh xterm blank under "Paused").
+  // 2. Revealing a suspended session into a fresh pane resends the painted
+  //    replay even when main already has visible=true (a renderer
+  //    reload/remount can miss the unmount hide; edge-triggered reveal left the
+  //    fresh xterm blank under "Paused"). A repeat reveal of the pane that
+  //    already holds it sends nothing: the frozen screen can be megabytes.
   async function assertUserLockHoldsReaperAndSuspendedRevealIsIdempotent(runtimeModule: RuntimeModule): Promise<void> {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-lock-'))
     mockPty.spawnCalls = []
@@ -1414,15 +1419,20 @@ test('terminal-runtime', async () => {
         suspended: true,
       })
 
-      // Idempotent reveal: the first setVisible(true) is the hidden→visible edge;
-      // the second finds visible already true and must STILL resend the replay —
-      // a suspended pty is dead, so a fresh xterm that missed the edge can only
-      // be painted by this resend.
+      // The first setVisible(true) is the hidden→visible edge and paints the
+      // pane. A second one from the same pane finds it already holding the
+      // screen and sends nothing. A fresh pane (a remount that missed the edge)
+      // says so, and must STILL be sent the replay — a suspended pty is dead,
+      // so that resend is the only thing that can paint it.
       mockSender.sent = []
-      runtime.ipcHandlers.setTerminalVisible('session-lock-b', true, mockSender as unknown as WebContents)
-      runtime.ipcHandlers.setTerminalVisible('session-lock-b', true, mockSender as unknown as WebContents)
-      const replays = mockSender.sent.filter((event) => event.channel === 'terminal:replay:session-lock-b')
-      assert.equal(replays.length, 2, 'suspended reveal must resend the replay even when already visible')
+      const sender = mockSender as unknown as WebContents
+      runtime.ipcHandlers.setTerminalVisible('session-lock-b', true, sender)
+      runtime.ipcHandlers.setTerminalVisible('session-lock-b', true, sender)
+      const replaysOf = () => mockSender.sent.filter((event) => event.channel === 'terminal:replay:session-lock-b')
+      assert.equal(replaysOf().length, 1, 'a repeat reveal of a pane that holds the screen sends nothing')
+      runtime.ipcHandlers.setTerminalVisible('session-lock-b', true, sender, { freshPane: true })
+      const replays = replaysOf()
+      assert.equal(replays.length, 2, 'a fresh pane must be sent the replay even when already visible')
       assert.ok(
         replays.every((event) => typeof event.payload === 'string' && event.payload.length > 0),
         'suspended reveal replays must carry painted content',
@@ -1724,18 +1734,24 @@ test('terminal-runtime', async () => {
     mockPty.spawnCalls = []
     mockSender.sent = []
 
-    const waitFor = async (label: string, predicate: () => boolean, timeoutMs = 5_000): Promise<void> => {
+    const waitFor = async (
+      label: string,
+      predicate: () => boolean | Promise<boolean>,
+      timeoutMs = 5_000,
+    ): Promise<void> => {
       const start = Date.now()
-      while (!predicate()) {
+      while (!(await predicate())) {
         if (Date.now() - start > timeoutMs) throw new Error(`timed out waiting for ${label}`)
         await delay(20)
       }
     }
 
+    const agentPromptStore = createAgentPromptStore({ resolveUserDataDir: () => userDataDir })
     const runtimeOptions = {
       diagnosticsEnabled: false,
       logMainPerfEvent: () => undefined,
       snapshotSidecars: sidecarStore,
+      agentPrompts: agentPromptStore,
     }
 
     const spawnAgent = async (
@@ -1793,8 +1809,8 @@ test('terminal-runtime', async () => {
       runtime.ipcHandlers.suspendTerminal('session-frozen')
       frozenProcess.emitExit({ exitCode: 0 })
       // The suspend-time sidecar lands once the async headless render settles.
-      await waitFor('suspend-time sidecar write', () => sidecarStore.read('session-frozen') !== null)
-      const frozenSidecar = sidecarStore.read('session-frozen')
+      await waitFor('suspend-time sidecar write', async () => (await sidecarStore.read('session-frozen')) !== null)
+      const frozenSidecar = await sidecarStore.read('session-frozen')
       assert.ok(
         frozenSidecar?.snapshot?.includes('frozen painted output'),
         'suspend must persist a serialized snapshot carrying the painted content',
@@ -1804,7 +1820,7 @@ test('terminal-runtime', async () => {
     }
 
     // Quit dumped the still-live agent's raw retained stream.
-    const liveSidecar = sidecarStore.read('session-live')
+    const liveSidecar = await sidecarStore.read('session-live')
     assert.ok(
       liveSidecar?.rawReplay?.includes('live painted output'),
       "runtime shutdown must dump each live agent terminal's retained stream to its sidecar",
@@ -1815,30 +1831,23 @@ test('terminal-runtime', async () => {
     try {
       // The conversation peek answers for a PARKED chat, before anything has
       // rehydrated it — `terminals` is empty here, exactly as after a relaunch,
-      // and this is the case the card is most wanted for. The facts come from the
-      // sidecar: which CLI, its session id, and the directory it was launched in.
-      // Including the prompts. THE DEFECT: they used to be dropped at the app's
-      // door — held in memory and written nowhere — so a parked Codex chat came
-      // back claiming to have no messages, about a chat whose own title was its
-      // first prompt.
-      const parked = runtime2.readConversationPeekSessionState('session-frozen')
+      // and this is the case the card is most wanted for. The CLI comes from the
+      // sidecar and the prompts from the agent's prompt store.
+      const parked = await runtime2.readConversationPeekSessionState('session-frozen')
       assert.deepEqual(
         parked,
         {
-          cliSessionId: '01a09735-0f86-7441-99fa-1af8310d6733',
-          launchCwd: workspaceRoot,
-          claudeHarness: false,
           // codex's manifest declares UserPromptSubmit, so the card must not say
           // this runtime cannot report its messages.
           reportsMessages: true,
           prompts: [{ text: 'Port voice dictation to Studio', at: promptAt }],
         },
-        'a parked session must still answer from its snapshot sidecar',
+        'a parked session must still answer after a restart',
       )
       assert.equal(
-        runtime2.readConversationPeekSessionState('session-never-existed'),
+        await runtime2.readConversationPeekSessionState('session-never-existed'),
         null,
-        'a session with neither a live record nor a sidecar answers null',
+        'a session with no live record, no sidecar and no stored prompts answers null',
       )
 
       assert.deepEqual(
@@ -1886,7 +1895,7 @@ test('terminal-runtime', async () => {
       assert.equal(resumed.ok, true, JSON.stringify(resumed))
       assert.equal(mockPty.spawnCalls.length, 1, 'resume must re-spawn a fresh pty under the same session id')
       assert.equal(
-        sidecarStore.read('session-frozen'),
+        await sidecarStore.read('session-frozen'),
         null,
         'resume disposes the placeholder, which deletes the consumed sidecar',
       )
@@ -1894,12 +1903,663 @@ test('terminal-runtime', async () => {
       // Dispose is terminal: killing the rehydrated placeholder deletes its sidecar.
       runtime2.ipcHandlers.killTerminal('session-live')
       assert.equal(
-        sidecarStore.read('session-live'),
+        await sidecarStore.read('session-live'),
         null,
         'disposing a rehydrated placeholder must delete its sidecar (gone means gone)',
       )
     } finally {
       await runtime2.shutdown()
+    }
+
+    // The sidecar goes at 30 days while the agent stays in the sidebar. Its
+    // prompts do not go with it: the agent's store still names the session.
+    await rm(join(userDataDir, 'terminal-snapshots', 'session-frozen.json'), { force: true })
+    const sweptStore = createTerminalSnapshotSidecarStore({ resolveUserDataDir: () => userDataDir })
+    assert.equal(await sweptStore.read('session-frozen'), null, 'the sidecar is gone')
+    const runtime3 = runtimeModule.createTerminalRuntime({ ...runtimeOptions, snapshotSidecars: sweptStore })
+    try {
+      assert.deepEqual(
+        await runtime3.readConversationPeekSessionState('session-frozen'),
+        { reportsMessages: true, prompts: [{ text: 'Port voice dictation to Studio', at: promptAt }] },
+        'the stored prompts outlive the sidecar',
+      )
+    } finally {
+      await runtime3.shutdown()
+    }
+  }
+
+  // The owner's rule for a paused agent: its last painted screen and scrollback
+  // come back instantly when its workspace is opened — in this run and after a
+  // restart — without the CLI being started. What goes is the raw pty stream
+  // behind that screen (up to 2.5 MB per agent), once the screen has been
+  // rendered from it.
+  async function assertSuspendReleasesRawStreamButKeepsFrozenScreen(runtimeModule: RuntimeModule): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-release-ws-'))
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-release-data-'))
+    const sidecarStore = createTerminalSnapshotSidecarStore({ resolveUserDataDir: () => userDataDir })
+    const runtimeOptions = {
+      diagnosticsEnabled: false,
+      logMainPerfEvent: () => undefined,
+      snapshotSidecars: sidecarStore,
+    }
+    mockPty.spawnCalls = []
+    mockSender.sent = []
+    const sender = mockSender as unknown as WebContents
+    const listed = (runtime: TerminalRuntime) =>
+      runtime.ipcHandlers.listTerminals().find((session) => session.sessionId === 'session-release')
+
+    const runtime = runtimeModule.createTerminalRuntime(runtimeOptions)
+    try {
+      const result = await runtime.ipcHandlers.spawnTerminal(sender, {
+        sessionId: 'session-release',
+        cols: 120,
+        rows: 30,
+        cwd: workspaceRoot,
+        cli: 'codex',
+        kind: 'agent',
+        shellOnly: false,
+        workspaceId: 'ws-release',
+        agentId: 'session-release',
+        visible: false,
+        mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+      })
+      assert.equal(result.ok, true, JSON.stringify(result))
+      const pty = mockPty.spawnCalls[mockPty.spawnCalls.length - 1]?.process
+      assert.ok(pty)
+      for (let line = 0; line < 2_000; line += 1)
+        pty.emitData(`\x1b[38;2;120;120;200mscrollback line ${line} ─╮\x1b[0m\r\n`)
+      pty.emitData('the last thing the agent painted\r\n')
+      await delay(20)
+      assert.ok((listed(runtime)?.retainedOutputBytes ?? 0) > 100_000, 'a live agent retains its stream')
+
+      runtime.ipcHandlers.suspendTerminal('session-release')
+      pty.emitExit({ exitCode: 0 })
+      const start = Date.now()
+      while (!(await sidecarStore.read('session-release'))) {
+        if (Date.now() - start > 5_000) throw new Error('timed out waiting for the suspend sidecar')
+        await delay(20)
+      }
+
+      const paused = listed(runtime)
+      assert.equal(paused?.suspended, true)
+      assert.equal(paused?.retainedOutputBytes, 0, 'the raw stream is released once the screen is rendered')
+      assert.equal(paused?.outputBufferLength, 0)
+
+      // The frozen screen is still there, instantly, and nothing was spawned.
+      const spawnsBefore = mockPty.spawnCalls.length
+      mockSender.sent = []
+      runtime.ipcHandlers.setTerminalVisible('session-release', true, sender)
+      const replay = mockSender.sent.find((event) => event.channel === 'terminal:replay:session-release')
+      assert.ok(
+        typeof replay?.payload === 'string' && replay.payload.includes('the last thing the agent painted'),
+        'revealing the paused agent repaints its last screen',
+      )
+      assert.ok(
+        typeof replay?.payload === 'string' && replay.payload.includes('scrollback line 1990'),
+        'and the scrollback above it',
+      )
+      assert.equal(mockPty.spawnCalls.length, spawnsBefore, 'without starting the CLI')
+      assert.ok(
+        runtime.readTerminalOutput('session-release')?.includes('the last thing the agent painted'),
+        'the agent control plane still reads what the paused agent printed',
+      )
+    } finally {
+      await runtime.shutdown()
+    }
+
+    // After a restart: the placeholder paints from the sidecar and holds no raw stream.
+    const runtime2 = runtimeModule.createTerminalRuntime(runtimeOptions)
+    try {
+      assert.deepEqual(await runtime2.ipcHandlers.getTerminalStatus('session-release', sender), {
+        processAlive: false,
+        suspended: true,
+      })
+      assert.equal(listed(runtime2)?.retainedOutputBytes, 0, 'a restored paused agent holds only its frozen screen')
+      mockSender.sent = []
+      runtime2.ipcHandlers.setTerminalVisible('session-release', true, sender)
+      const replay = mockSender.sent.find((event) => event.channel === 'terminal:replay:session-release')
+      assert.ok(
+        typeof replay?.payload === 'string' && replay.payload.includes('the last thing the agent painted'),
+        'the frozen screen survives the restart',
+      )
+
+      // Settled: disposing releases the screen too, and the session is gone.
+      runtime2.ipcHandlers.killTerminal('session-release')
+      assert.equal(listed(runtime2), undefined)
+      assert.equal(runtime2.readTerminalOutput('session-release'), undefined)
+    } finally {
+      await runtime2.shutdown()
+    }
+  }
+
+  // A settled agent drops what it holds. An agent whose CLI exits on its own is
+  // settled, but its tab reopens on its last screen and the agent control plane
+  // reads what it printed synchronously — so the screen is rendered once and the
+  // raw stream behind it goes, exactly as on suspend. A plain shell keeps its
+  // stream: painted-pause is an agent promise.
+  async function assertSelfExitedAgentReleasesRawStreamButKeepsFinalScreen(
+    runtimeModule: RuntimeModule,
+  ): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-exit-release-'))
+    mockPty.spawnCalls = []
+    mockSender.sent = []
+    const sender = mockSender as unknown as WebContents
+    const runtime = runtimeModule.createTerminalRuntime({
+      diagnosticsEnabled: false,
+      logMainPerfEvent: () => undefined,
+    })
+    const listed = (sessionId: string) =>
+      runtime.ipcHandlers.listTerminals().find((session) => session.sessionId === sessionId)
+    const spawn = async (sessionId: string, kind: 'agent' | 'terminal'): Promise<MockPtyProcess> => {
+      const result = await runtime.ipcHandlers.spawnTerminal(sender, {
+        sessionId,
+        cols: 120,
+        rows: 30,
+        cwd: workspaceRoot,
+        cli: 'codex',
+        kind,
+        shellOnly: kind === 'terminal',
+        workspaceId: 'ws-exit-release',
+        agentId: sessionId,
+        visible: false,
+        mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+      })
+      assert.equal(result.ok, true, JSON.stringify(result))
+      const spawned = mockPty.spawnCalls[mockPty.spawnCalls.length - 1]?.process
+      assert.ok(spawned, `expected a pty for ${sessionId}`)
+      return spawned
+    }
+
+    try {
+      const pty = await spawn('session-exit-release', 'agent')
+      for (let line = 0; line < 2_000; line += 1)
+        pty.emitData(`\x1b[38;2;120;120;200mscrollback line ${line} ─╮\x1b[0m\r\n`)
+      await delay(20)
+      // A reader that has seen everything up to here, and nothing after.
+      const midCursor = runtime.readTerminalOutputSince('session-exit-release', 0)?.cursor ?? 0
+      assert.ok(midCursor > 0)
+      // Laid out by cursor position for the 120 columns it was spawned at, and
+      // never resized: the screen must be rendered at that width, not at 80.
+      pty.emitData('\x1b[30;1Hleft edge\x1b[30;100Hfar right\r\n')
+      pty.emitData('the final screen of the finished run\r\n')
+      await delay(20)
+      assert.ok((listed('session-exit-release')?.retainedOutputBytes ?? 0) > 100_000, 'a live agent retains its stream')
+
+      const shell = await spawn('session-exit-shell', 'terminal')
+      shell.emitData('$ echo still here\r\n')
+      await delay(20)
+
+      pty.emitExit({ exitCode: 0 })
+      shell.emitExit({ exitCode: 0 })
+      const start = Date.now()
+      while ((listed('session-exit-release')?.retainedOutputBytes ?? 0) > 0) {
+        if (Date.now() - start > 5_000) throw new Error('timed out waiting for the exited agent to release its stream')
+        await delay(20)
+      }
+      assert.equal(listed('session-exit-release')?.processAlive, false)
+      assert.equal(listed('session-exit-release')?.outputBufferLength, 0, 'the raw stream is released')
+
+      // The module-facing reads still answer, synchronously, from the screen.
+      assert.ok(
+        runtime.readTerminalOutput('session-exit-release')?.includes('the final screen of the finished run'),
+        'the agent control plane still reads what the exited agent printed',
+      )
+      assert.ok(
+        runtime
+          .readTerminalOutputSince('session-exit-release', 0)
+          ?.text.includes('the final screen of the finished run'),
+        'a read from the start is served from the rendered screen',
+      )
+      assert.ok(
+        runtime
+          .readTerminalOutputSince('session-exit-release', midCursor)
+          ?.text.includes('the final screen of the finished run'),
+        'a reader that had not reached the end is handed the screen rather than nothing',
+      )
+      const end = runtime.readTerminalOutputSince('session-exit-release', midCursor)?.cursor ?? 0
+      assert.equal(
+        runtime.readTerminalOutputSince('session-exit-release', end)?.text,
+        '',
+        'a reader that had seen the end gets nothing new',
+      )
+
+      // Reopening the tab paints the final screen and its scrollback, and spawns nothing.
+      const spawnsBefore = mockPty.spawnCalls.length
+      mockSender.sent = []
+      runtime.ipcHandlers.setTerminalVisible('session-exit-release', true, sender)
+      const replay = mockSender.sent.find((event) => event.channel === 'terminal:replay:session-exit-release')
+      assert.ok(
+        typeof replay?.payload === 'string' && replay.payload.includes('the final screen of the finished run'),
+        'revealing the exited agent repaints its final screen',
+      )
+      assert.ok(
+        typeof replay?.payload === 'string' && replay.payload.includes('scrollback line 1990'),
+        'and the scrollback above it',
+      )
+      assert.equal(mockPty.spawnCalls.length, spawnsBefore, 'without starting the CLI')
+      assert.ok(
+        typeof replay?.payload === 'string' && replay.payload.includes('left edge\x1b[90Cfar right'),
+        'rendered at the width the agent drew for, never a default 80 columns',
+      )
+
+      assert.ok((listed('session-exit-shell')?.retainedOutputBytes ?? 0) > 0, 'an exited plain shell keeps its stream')
+    } finally {
+      await runtime.shutdown()
+      await rm(workspaceRoot, { recursive: true, force: true })
+    }
+  }
+
+  // The sessions broadcast used to be a full snapshot of every session — file
+  // ledgers included — cloned into every window on every change to any one of
+  // them. It now carries the sessions that changed, their lists only when those
+  // moved, and the ids that went away.
+  async function assertSessionsBroadcastCarriesOnlyWhatChanged(runtimeModule: RuntimeModule): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-delta-'))
+    mockPty.spawnCalls = []
+    mockSender.sent = []
+    const sender = mockSender as unknown as WebContents
+    const runtime = runtimeModule.createTerminalRuntime({
+      diagnosticsEnabled: false,
+      logMainPerfEvent: () => undefined,
+    })
+    type Delta = import('../shared/ipc/terminal').TerminalSessionsDelta
+    const deltas = (): Delta[] =>
+      mockSender.sent
+        .filter((event) => event.channel === 'terminal:sessions-delta')
+        .map((event) => event.payload as Delta)
+    const spawn = async (sessionId: string): Promise<void> => {
+      const result = await runtime.ipcHandlers.spawnTerminal(sender, {
+        sessionId,
+        cols: 120,
+        rows: 30,
+        cwd: workspaceRoot,
+        cli: 'claude-code',
+        kind: 'agent',
+        shellOnly: false,
+        workspaceId: 'ws-delta',
+        agentId: sessionId,
+        visible: false,
+        mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+      })
+      assert.equal(result.ok, true, JSON.stringify(result))
+    }
+    try {
+      await spawn('delta-a')
+      await spawn('delta-b')
+      runtime.flushSessionsBroadcast()
+      const first = deltas().flatMap((delta) => delta.upserts)
+      assert.ok(
+        first.some((entry) => entry.sessionId === 'delta-a' && Array.isArray(entry.fileChanges)),
+        'a session is sent whole the first time',
+      )
+
+      const base = Date.now() + 10
+      mockSender.sent = []
+      runtime.ingestAgentStateFrame({
+        type: 'agent_state',
+        agentId: 'delta-a',
+        workspaceId: 'ws-delta',
+        sessionId: null,
+        event: 'PostToolUse',
+        ts: base,
+        fileChange: { path: '/Users/dev/app/src/a.ts', additions: 4, deletions: 1 },
+      })
+      runtime.flushSessionsBroadcast()
+      let sent = deltas()
+      assert.equal(sent.length, 1)
+      assert.deepEqual(
+        sent[0]?.upserts.map((entry) => entry.sessionId),
+        ['delta-a'],
+        'only the session that changed is sent',
+      )
+      assert.deepEqual(
+        sent[0]?.upserts[0]?.fileChanges?.map((change) => change.path),
+        ['/Users/dev/app/src/a.ts'],
+        'its ledger moved, so the ledger rides along',
+      )
+
+      mockSender.sent = []
+      runtime.ingestAgentStateFrame({
+        type: 'agent_state',
+        agentId: 'delta-a',
+        workspaceId: 'ws-delta',
+        sessionId: null,
+        event: 'Stop',
+        ts: base + 100,
+      })
+      runtime.flushSessionsBroadcast()
+      sent = deltas()
+      assert.deepEqual(
+        sent[0]?.upserts.map((entry) => entry.sessionId),
+        ['delta-a'],
+      )
+      assert.equal(sent[0]?.upserts[0]?.activity.kind, 'idle')
+      assert.equal('fileChanges' in (sent[0]?.upserts[0] ?? {}), false, 'an unchanged ledger is left out')
+      assert.equal('pullRequests' in (sent[0]?.upserts[0] ?? {}), false, 'so are unchanged pull requests')
+
+      mockSender.sent = []
+      runtime.ipcHandlers.killTerminal('delta-b')
+      runtime.flushSessionsBroadcast()
+      sent = deltas()
+      assert.deepEqual(sent, [{ upserts: [], removed: ['delta-b'] }], 'a disposed session is named, not re-listed')
+
+      mockSender.sent = []
+      runtime.flushSessionsBroadcast()
+      assert.deepEqual(deltas(), [], 'nothing changed: nothing is sent')
+
+      // The full list is still whole, for a window that is just subscribing.
+      const listedA = runtime.ipcHandlers.listTerminals().find((session) => session.sessionId === 'delta-a')
+      assert.equal(listedA?.fileChanges.length, 1)
+    } finally {
+      await runtime.shutdown()
+    }
+  }
+
+  // Revealing a hidden live pane sends what it missed, not the whole window.
+  async function assertRevealSendsOnlyWhatThePaneMissed(runtimeModule: RuntimeModule): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-reveal-'))
+    mockPty.spawnCalls = []
+    mockSender.sent = []
+    const sender = mockSender as unknown as WebContents
+    const runtime = runtimeModule.createTerminalRuntime({
+      diagnosticsEnabled: false,
+      logMainPerfEvent: () => undefined,
+    })
+    const channel = (name: string) => mockSender.sent.filter((event) => event.channel === name)
+    try {
+      const result = await runtime.ipcHandlers.spawnTerminal(sender, {
+        sessionId: 'session-reveal',
+        cols: 120,
+        rows: 30,
+        cwd: workspaceRoot,
+        kind: 'terminal',
+        shellOnly: true,
+        visible: true,
+      })
+      assert.equal(result.ok, true, JSON.stringify(result))
+      const pty = mockPty.spawnCalls[mockPty.spawnCalls.length - 1]?.process
+      assert.ok(pty)
+      pty.emitData('seen while visible\r\n')
+      await delay(30)
+      assert.equal(channel('terminal:data:session-reveal').length, 1)
+
+      runtime.ipcHandlers.setTerminalVisible('session-reveal', false, sender)
+      pty.emitData('missed ─ one\r\n')
+      pty.emitData('missed two\r\n')
+      await delay(30)
+      mockSender.sent = []
+      runtime.ipcHandlers.setTerminalVisible('session-reveal', true, sender)
+      assert.deepEqual(channel('terminal:replay:session-reveal'), [], 'no reset-and-replay of the whole window')
+      assert.deepEqual(
+        channel('terminal:data:session-reveal').map((event) => event.payload),
+        ['missed ─ one\r\nmissed two\r\n'],
+        'exactly the bytes the pane missed, once',
+      )
+
+      // Caught up: live output continues from there, with nothing repeated.
+      mockSender.sent = []
+      pty.emitData('after the reveal\r\n')
+      await delay(30)
+      assert.deepEqual(
+        channel('terminal:data:session-reveal').map((event) => event.payload),
+        ['after the reveal\r\n'],
+      )
+
+      // Hidden through more output than is retained: what it missed is gone
+      // from the head, so the pane is repainted from the whole window instead.
+      runtime.ipcHandlers.setTerminalVisible('session-reveal', false, sender)
+      const block = `${'z'.repeat(1_022)}\r\n`
+      for (let index = 0; index < 3_000; index += 1) pty.emitData(block)
+      await delay(30)
+      mockSender.sent = []
+      runtime.ipcHandlers.setTerminalVisible('session-reveal', true, sender)
+      assert.equal(channel('terminal:replay:session-reveal').length, 1, 'fell off the head: full repaint')
+      assert.equal(channel('terminal:data:session-reveal').length, 0)
+    } finally {
+      await runtime.shutdown()
+    }
+  }
+
+  // A finished agent's pane is its history. Once the agent has exited and its
+  // screen is rendered, the raw stream is released and the rendered screen is
+  // all that is left, so it must carry the scrollback a live pane keeps — not
+  // the last thousand rows. And switching away and back to a pane that was
+  // watching when the agent finished must not reset and repaint it.
+  async function assertSettledAgentKeepsItsHistoryAndIsNotRepaintedOnReveal(
+    runtimeModule: RuntimeModule,
+  ): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-settled-history-'))
+    mockPty.spawnCalls = []
+    mockSender.sent = []
+    const sender = mockSender as unknown as WebContents
+    const runtime = runtimeModule.createTerminalRuntime({
+      diagnosticsEnabled: false,
+      logMainPerfEvent: () => undefined,
+    })
+    const listed = () =>
+      runtime.ipcHandlers.listTerminals().find((session) => session.sessionId === 'session-settled-history')
+    const channel = (name: string) => mockSender.sent.filter((event) => event.channel === name)
+    try {
+      const result = await runtime.ipcHandlers.spawnTerminal(sender, {
+        sessionId: 'session-settled-history',
+        cols: 120,
+        rows: 30,
+        cwd: workspaceRoot,
+        cli: 'codex',
+        kind: 'agent',
+        shellOnly: false,
+        workspaceId: 'ws-settled-history',
+        agentId: 'session-settled-history',
+        visible: true,
+        mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+      })
+      assert.equal(result.ok, true, JSON.stringify(result))
+      const pty = mockPty.spawnCalls[mockPty.spawnCalls.length - 1]?.process
+      assert.ok(pty)
+      for (let line = 0; line < 3_000; line += 1) pty.emitData(`history line ${line}\r\n`)
+      await delay(40)
+      pty.emitExit({ exitCode: 0 })
+      const start = Date.now()
+      while ((listed()?.retainedOutputBytes ?? 0) > 0) {
+        if (Date.now() - start > 5_000) throw new Error('timed out waiting for the exited agent to release its stream')
+        await delay(20)
+      }
+
+      const read = runtime.readTerminalOutput('session-settled-history') ?? ''
+      assert.ok(read.includes('history line 5\r'), 'the history far above the last screen is still readable')
+      assert.ok(read.includes('history line 2999'))
+
+      // A workspace switch away and back: the pane already holds all of it.
+      runtime.ipcHandlers.setTerminalVisible('session-settled-history', false, sender)
+      mockSender.sent = []
+      runtime.ipcHandlers.setTerminalVisible('session-settled-history', true, sender)
+      assert.deepEqual(channel('terminal:replay:session-settled-history'), [], 'no reset-and-repaint')
+      assert.deepEqual(channel('terminal:data:session-settled-history'), [], 'and nothing to catch up')
+
+      // The dying CLI's last bytes, after the release: not part of what is read.
+      pty.emitData('a straggler after the screen was rendered\r\n')
+      await delay(30)
+      const after = runtime.readTerminalOutput('session-settled-history') ?? ''
+      assert.ok(after.includes('history line 5\r'), 'late bytes do not replace the rendered history')
+      assert.equal(after.includes('a straggler'), false)
+      assert.equal(listed()?.retainedOutputBytes, 0, 'and are not kept')
+
+      // A fresh pane (a remount) is painted in full, deep history included.
+      mockSender.sent = []
+      runtime.ipcHandlers.setTerminalVisible('session-settled-history', true, sender, { freshPane: true })
+      const replay = channel('terminal:replay:session-settled-history')[0]?.payload
+      assert.ok(typeof replay === 'string' && replay.includes('history line 5\r'), 'a fresh pane gets the history')
+    } finally {
+      await runtime.shutdown()
+      await rm(workspaceRoot, { recursive: true, force: true })
+    }
+  }
+
+  // A reveal's catch-up is live data the pane acknowledges like any other, so
+  // it is counted in flight like any other: otherwise the pane's acks for it
+  // cancel units main did count, and backpressure is off while the pane parses
+  // what can be megabytes.
+  async function assertRevealCatchUpCountsTowardFlowControl(runtimeModule: RuntimeModule): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-catch-up-flow-'))
+    mockPty.spawnCalls = []
+    mockSender.sent = []
+    const sender = mockSender as unknown as WebContents
+    const runtime = runtimeModule.createTerminalRuntime({
+      diagnosticsEnabled: false,
+      logMainPerfEvent: () => undefined,
+    })
+    try {
+      const result = await runtime.ipcHandlers.spawnTerminal(sender, {
+        sessionId: 'session-catch-up-flow',
+        cols: 120,
+        rows: 30,
+        cwd: workspaceRoot,
+        kind: 'terminal',
+        shellOnly: true,
+        visible: true,
+      })
+      assert.equal(result.ok, true, JSON.stringify(result))
+      const pty = mockPty.spawnCalls[mockPty.spawnCalls.length - 1]?.process
+      assert.ok(pty)
+      pty.emitData('x'.repeat(1_000))
+      await delay(30)
+
+      runtime.ipcHandlers.setTerminalVisible('session-catch-up-flow', false, sender)
+      pty.emitData('y'.repeat(150_000))
+      await delay(30)
+      mockSender.sent = []
+      runtime.ipcHandlers.setTerminalVisible('session-catch-up-flow', true, sender)
+      const caughtUp = mockSender.sent.filter((event) => event.channel === 'terminal:data:session-catch-up-flow')
+      assert.equal(caughtUp.length, 1, 'the pane is caught up as live data')
+      assert.equal(pty.pauses, 0, 'a pane that has not acked since the reveal is not waited on')
+
+      runtime.ipcHandlers.ackTerminalOutput('session-catch-up-flow', 1_000, sender)
+      assert.equal(pty.pauses, 1, 'the unparsed catch-up holds the pty back once the pane acks')
+      runtime.ipcHandlers.ackTerminalOutput('session-catch-up-flow', 148_000, sender)
+      assert.equal(pty.resumes, 1, 'and lets it go once the pane has parsed it')
+    } finally {
+      await runtime.shutdown()
+      await rm(workspaceRoot, { recursive: true, force: true })
+    }
+  }
+
+  // Every hook is its own reporter process, so a short subagent's stop can land
+  // before its start. The stop closes nothing; the start that follows, stamped
+  // earlier, must not open work nothing will close — or the next Stop is held
+  // as working until the stall watch gives up on it.
+  async function assertSubagentStartOvertakenByItsStopIsNotCounted(runtimeModule: RuntimeModule): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-overtaken-start-'))
+    mockPty.spawnCalls = []
+    mockSender.sent = []
+    const runtime = runtimeModule.createTerminalRuntime({
+      diagnosticsEnabled: false,
+      logMainPerfEvent: () => undefined,
+      syncMcpConfig: async (): Promise<SyncResult> => ({ ok: true }),
+    })
+    const snapshot = () => runtime.ipcHandlers.listTerminals().find((session) => session.sessionId === 'sess-overtaken')
+    try {
+      const spawn = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+        sessionId: 'sess-overtaken',
+        cols: 120,
+        rows: 30,
+        cwd: workspaceRoot,
+        cli: 'claude-code',
+        kind: 'agent',
+        shellOnly: false,
+        workspaceId: 'ws-overtaken',
+        agentId: 'agent-overtaken',
+        agentName: 'Overtaken',
+      })
+      assert.equal(spawn.ok, true, JSON.stringify(spawn))
+      const base = Date.now()
+      const ingest = async (event: string, ts: number, extra: Partial<AgentStateFrame> = {}): Promise<void> => {
+        runtime.ingestAgentStateFrame({
+          type: 'agent_state',
+          agentId: 'agent-overtaken',
+          workspaceId: 'ws-overtaken',
+          sessionId: null,
+          event,
+          ts: base + ts,
+          ...extra,
+        })
+        await delay(5)
+      }
+
+      await ingest('SessionStart', 0)
+      await ingest('UserPromptSubmit', 100)
+      await ingest('PostToolUse', 1_000, { toolUseId: 'toolu_one' })
+      await ingest('SubagentStop', 1_600)
+      await ingest('SubagentStart', 1_500)
+      assert.equal(snapshot()?.activeSubagents, 0, 'the start its stop overtook is already closed')
+      await ingest('Stop', 5_000)
+      assert.equal(snapshot()?.agentState?.phase, 'idle', 'so the turn end is not held')
+      assert.equal(snapshot()?.activity.kind, 'idle')
+
+      // A subagent that starts after that stop is real work, and holds the turn.
+      await ingest('UserPromptSubmit', 6_000)
+      await ingest('SubagentStart', 6_500)
+      assert.equal(snapshot()?.activeSubagents, 1)
+      await ingest('Stop', 7_000)
+      assert.equal(snapshot()?.agentState?.phase, 'tool_use', 'a turn end with a subagent open is held')
+      await ingest('SubagentStop', 8_000)
+      assert.equal(snapshot()?.activeSubagents, 0)
+    } finally {
+      runtime.ipcHandlers.killTerminal('sess-overtaken')
+      await runtime.shutdown()
+      await rm(workspaceRoot, { recursive: true, force: true })
+    }
+  }
+
+  // Heavy output can no longer queue ahead of keystroke echo, or be dropped at
+  // main's pending bound: the pty is paused while the pane has too much it has
+  // not yet parsed, and resumed as it catches up.
+  async function assertFlowControlPausesThePtyWhileThePaneFallsBehind(runtimeModule: RuntimeModule): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-flow-'))
+    mockPty.spawnCalls = []
+    mockSender.sent = []
+    const sender = mockSender as unknown as WebContents
+    const runtime = runtimeModule.createTerminalRuntime({
+      diagnosticsEnabled: false,
+      logMainPerfEvent: () => undefined,
+    })
+    try {
+      const result = await runtime.ipcHandlers.spawnTerminal(sender, {
+        sessionId: 'session-flow',
+        cols: 120,
+        rows: 30,
+        cwd: workspaceRoot,
+        kind: 'terminal',
+        shellOnly: true,
+        visible: true,
+      })
+      assert.equal(result.ok, true, JSON.stringify(result))
+      const pty = mockPty.spawnCalls[mockPty.spawnCalls.length - 1]?.process
+      assert.ok(pty)
+
+      pty.emitData('x'.repeat(1_000))
+      await delay(30)
+      // Until the pane acknowledges anything, it is not waited on.
+      pty.emitData('y'.repeat(150_000))
+      assert.equal(pty.pauses, 0, 'a pane that has never acked does not pause the pty')
+      await delay(30)
+
+      runtime.ipcHandlers.ackTerminalOutput('session-flow', 1_000, sender)
+      assert.equal(pty.pauses, 1, 'past the high watermark once the pane is known to ack')
+      // Another window's ack is about a pane that is not this session's.
+      runtime.ipcHandlers.ackTerminalOutput('session-flow', 150_000, {} as WebContents)
+      assert.equal(pty.resumes, 0)
+      runtime.ipcHandlers.ackTerminalOutput('session-flow', 140_000, sender)
+      assert.equal(pty.resumes, 0, 'still above the low watermark')
+      runtime.ipcHandlers.ackTerminalOutput('session-flow', 8_000, sender)
+      assert.equal(pty.resumes, 1, 'resumed once the pane caught up')
+
+      // Hiding the pane while paused lets the pty run: a hidden pane is sent nothing.
+      pty.emitData('z'.repeat(150_000))
+      assert.equal(pty.pauses, 2)
+      runtime.ipcHandlers.setTerminalVisible('session-flow', false, sender)
+      assert.equal(pty.resumes, 2)
+    } finally {
+      await runtime.shutdown()
     }
   }
 
@@ -1952,7 +2612,7 @@ test('terminal-runtime', async () => {
       finished.emitExit({ exitCode: 0 })
       await delay(20)
 
-      const sidecar = sidecarStore.read('session-selfexit')
+      const sidecar = await sidecarStore.read('session-selfexit')
       assert.ok(
         sidecar?.rawReplay?.includes('automation run MM-37 complete'),
         'an agent pty that exits on its own must persist its painted content, so the tab reopens paused instead of relaunching',
@@ -1967,7 +2627,7 @@ test('terminal-runtime', async () => {
       disposed.emitExit({ exitCode: 0 })
       await delay(20)
       assert.equal(
-        sidecarStore.read('session-disposed'),
+        await sidecarStore.read('session-disposed'),
         null,
         'a disposed terminal must not resurrect a sidecar on the exit that dispose itself triggered',
       )
@@ -1978,7 +2638,7 @@ test('terminal-runtime', async () => {
       await delay(20)
       shell.emitExit({ exitCode: 0 })
       await delay(20)
-      assert.equal(sidecarStore.read('session-shell'), null, 'a plain shell writes no sidecar on exit')
+      assert.equal(await sidecarStore.read('session-shell'), null, 'a plain shell writes no sidecar on exit')
     } finally {
       await runtime.shutdown()
     }
@@ -2091,272 +2751,6 @@ test('terminal-runtime', async () => {
     } finally {
       await runtime.shutdown()
     }
-  }
-
-  // A remote attach is an ADDITIONAL sender on the same pty, not a
-  // second copy of it. What the multi-sender split has to hold:
-  //   - replay-then-live, so a viewer joining mid-session sees the screen;
-  //   - a second concurrent viewer sees the same stream;
-  //   - the local pane's visibility gates only the LOCAL sender — a hidden tab
-  //     must not silence a remote watcher, and a remote watcher must not start
-  //     pushing bytes into a frozen xterm;
-  //   - observe scope cannot inject input, and control routes through the same
-  //     write path local input uses;
-  //   - a slow consumer is dropped and resynced from the replay rather than
-  //     stalling the pty or the local renderer.
-  async function assertRemoteViewersStreamIndependentlyOfTheLocalPane(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-remote-attach-'))
-    mockPty.spawnCalls = []
-    mockSender.sent = []
-
-    const runtime = runtimeModule.createTerminalRuntime({
-      diagnosticsEnabled: false,
-      logMainPerfEvent: () => undefined,
-    })
-
-    try {
-      const sessionId = 'session_remote_attach'
-      const spawned = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
-        sessionId,
-        cols: 120,
-        rows: 30,
-        cwd: workspaceRoot,
-        kind: 'terminal',
-        shellOnly: true,
-        visible: true,
-      })
-      assert.equal(spawned.ok, true, JSON.stringify(spawned))
-      const pty = mockPty.spawnCalls[0]?.process
-      assert.ok(pty, 'the session spawned a pty')
-
-      pty.emitData('before anyone attached\r\n')
-      await delay(30)
-
-      // terminal.list's source: the attachable sessions, with liveness.
-      const listed = runtime.remoteHost.listSessions()
-      assert.ok(
-        listed.some((session) => session.sessionId === sessionId && session.processAlive),
-        'the remote host lists the live session',
-      )
-
-      const watcher = createRecordingViewer('watcher')
-      const attached = runtime.remoteHost.attach({ sessionId, scope: 'control', transport: watcher.transport })
-      assert.equal(attached.ok, true, JSON.stringify(attached))
-      if (!attached.ok) return
-
-      // Replay first, and it carries what the session printed before the attach.
-      assert.deepEqual(watcher.frames, [{ type: 'replay', data: 'before anyone attached\r\n', reason: 'attach' }])
-
-      watcher.frames = []
-      pty.emitData('live line\r\n')
-      await delay(30)
-      assert.deepEqual(watcher.frames, [{ type: 'output', data: 'live line\r\n' }])
-
-      // A second concurrent viewer joins and sees the same stream.
-      const second = createRecordingViewer('second')
-      const secondAttach = runtime.remoteHost.attach({ sessionId, scope: 'observe', transport: second.transport })
-      assert.equal(secondAttach.ok, true, JSON.stringify(secondAttach))
-      if (!secondAttach.ok) return
-      assert.equal(second.frames[0]?.type, 'replay')
-      assert.ok(
-        String((second.frames[0] as { data?: unknown }).data ?? '').includes('live line'),
-        "the late viewer's replay includes everything printed so far",
-      )
-
-      watcher.frames = []
-      second.frames = []
-      mockSender.sent = []
-      pty.emitData('seen by both\r\n')
-      await delay(30)
-      assert.deepEqual(watcher.frames, [{ type: 'output', data: 'seen by both\r\n' }])
-      assert.deepEqual(second.frames, [{ type: 'output', data: 'seen by both\r\n' }])
-      assert.equal(
-        mockSender.sent.some(
-          (event) => event.channel === `terminal:data:${sessionId}` && event.payload === 'seen by both\r\n',
-        ),
-        true,
-        'local window rendering is unaffected by the attached viewers',
-      )
-
-      // Hiding the local pane must gate ONLY the local sender.
-      runtime.ipcHandlers.setTerminalVisible(sessionId, false, mockSender as unknown as WebContents)
-      watcher.frames = []
-      second.frames = []
-      mockSender.sent = []
-      pty.emitData('printed while the tab is hidden\r\n')
-      await delay(30)
-      assert.deepEqual(watcher.frames, [{ type: 'output', data: 'printed while the tab is hidden\r\n' }])
-      assert.deepEqual(second.frames, [{ type: 'output', data: 'printed while the tab is hidden\r\n' }])
-      assert.equal(
-        mockSender.sent.some((event) => event.channel === `terminal:data:${sessionId}`),
-        false,
-        'a hidden local pane still skips live terminal:data, exactly as before',
-      )
-      runtime.ipcHandlers.setTerminalVisible(sessionId, true, mockSender as unknown as WebContents)
-
-      // Scope enforcement: observe is stream-only, and says so rather than
-      // silently dropping the keystroke.
-      const beforeWrites = pty.writes.length
-      const refusedInput = secondAttach.attachment.write('rm -rf /\n')
-      assert.equal(refusedInput.ok, false)
-      assert.equal(refusedInput.ok === false && refusedInput.code, 'terminal_control_required')
-      const refusedResize = secondAttach.attachment.resize(200, 60)
-      assert.equal(refusedResize.ok, false)
-      assert.equal(pty.writes.length, beforeWrites, 'an observe-scoped viewer writes nothing to the pty')
-
-      // Control writes go through the same path local input uses.
-      const accepted = attached.attachment.write('echo hi\n')
-      assert.equal(accepted.ok, true, JSON.stringify(accepted))
-      assert.equal(pty.writes[pty.writes.length - 1], 'echo hi\n')
-
-      // Backpressure: a consumer that stops draining loses bytes and is repainted
-      // from the retained replay. The pty and the local renderer are untouched.
-      watcher.frames = []
-      mockSender.sent = []
-      watcher.queued = 4 * 1024 * 1024
-      pty.emitData('dropped by the slow consumer\r\n')
-      await delay(30)
-      assert.equal(watcher.frames.length, 0, 'a stalled transport is not written to')
-      assert.equal(
-        mockSender.sent.some((event) => event.channel === `terminal:data:${sessionId}`),
-        true,
-        'the local renderer keeps receiving while the remote viewer is behind',
-      )
-
-      watcher.queued = 0
-      pty.emitData('after the drain\r\n')
-      await delay(30)
-      assert.equal(watcher.frames.length, 1)
-      assert.equal(watcher.frames[0]?.type, 'replay')
-      assert.equal((watcher.frames[0] as { reason?: unknown }).reason, 'resync')
-      const resynced = String((watcher.frames[0] as { data?: unknown }).data ?? '')
-      assert.ok(
-        resynced.includes('dropped by the slow consumer') && resynced.includes('after the drain'),
-        'the resync replay carries both the dropped bytes and the batch that triggered it',
-      )
-
-      // Detaching stops delivery without touching the other viewer or the pane.
-      secondAttach.attachment.detach()
-      watcher.frames = []
-      second.frames = []
-      pty.emitData('after the second viewer left\r\n')
-      await delay(30)
-      assert.equal(second.frames.length, 0, 'a detached viewer receives nothing')
-      assert.deepEqual(watcher.frames, [{ type: 'output', data: 'after the second viewer left\r\n' }])
-
-      // A real pty exit is reported; closing the session ends the stream with a reason.
-      watcher.frames = []
-      pty.emitExit({ exitCode: 3 })
-      await delay(30)
-      assert.ok(
-        watcher.frames.some((frame) => frame.type === 'exit' && frame.exitCode === 3),
-        'the viewer is told the process exited, with its code',
-      )
-
-      watcher.frames = []
-      runtime.ipcHandlers.killTerminal(sessionId)
-      await delay(10)
-      assert.equal(watcher.frames.length, 1)
-      assert.equal(watcher.frames[0]?.type, 'ended')
-
-      const missing = runtime.remoteHost.attach({
-        sessionId: 'session_that_does_not_exist',
-        scope: 'observe',
-        transport: createRecordingViewer('ghost').transport,
-      })
-      assert.equal(missing.ok, false)
-      assert.equal(missing.ok === false && missing.code, 'unknown_terminal')
-    } finally {
-      await runtime.shutdown()
-    }
-  }
-
-  // A remote viewer joining a session with more retained output than one
-  // WebSocket frame may carry gets its replay in slices: a first `replay` frame
-  // (the clear-and-paint), then `output` frames, each under the chunk, adding up
-  // to exactly the retained bytes — never several `replay` frames, which would
-  // clear the screen between them. Sent whole, a 2.5 MB replay was refused by
-  // the client's 1 MB decoder and the attach looped.
-  async function assertRemoteFramesNeverExceedTheWireCap(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-remote-chunks-'))
-    mockPty.spawnCalls = []
-    mockSender.sent = []
-
-    const runtime = runtimeModule.createTerminalRuntime({
-      diagnosticsEnabled: false,
-      logMainPerfEvent: () => undefined,
-    })
-
-    try {
-      const sessionId = 'session_remote_chunks'
-      const spawned = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
-        sessionId,
-        cols: 120,
-        rows: 30,
-        cwd: workspaceRoot,
-        kind: 'terminal',
-        shellOnly: true,
-        visible: true,
-      })
-      assert.equal(spawned.ok, true, JSON.stringify(spawned))
-      const pty = mockPty.spawnCalls[0]?.process
-      assert.ok(pty, 'the session spawned a pty')
-
-      // Two and a half chunks of output, ending in an astral character so the
-      // boundary rule has a surrogate pair to keep whole.
-      const line = 'x'.repeat(1023) + '\n'
-      const printed = line.repeat(Math.ceil((TERMINAL_REMOTE_FRAME_CHUNK_CHARS * 2.5) / line.length)) + '😀'
-      pty.emitData(printed)
-      await delay(60)
-
-      const viewer = createRecordingViewer('chunked')
-      const attached = runtime.remoteHost.attach({ sessionId, scope: 'observe', transport: viewer.transport })
-      assert.equal(attached.ok, true, JSON.stringify(attached))
-      if (!attached.ok) return
-
-      assert.ok(viewer.frames.length >= 3, `the replay arrived in slices, got ${viewer.frames.length}`)
-      assert.equal(viewer.frames[0]?.type, 'replay', 'the first slice is the replay')
-      assert.equal(viewer.frames[0]?.reason, 'attach')
-      for (const frame of viewer.frames.slice(1)) {
-        assert.equal(frame.type, 'output', 'every later slice is plain output')
-      }
-      for (const frame of viewer.frames) {
-        assert.ok(String(frame.data).length <= TERMINAL_REMOTE_FRAME_CHUNK_CHARS, 'no slice exceeds the chunk')
-      }
-      assert.equal(
-        viewer.frames.map((frame) => String(frame.data)).join(''),
-        printed,
-        'the slices add up to exactly the retained output',
-      )
-    } finally {
-      await runtime.shutdown()
-      await rm(workspaceRoot, { recursive: true, force: true })
-    }
-  }
-
-  type RecordedFrame = Record<string, unknown> & { type: string; exitCode?: number }
-
-  /** A viewer transport whose queue depth the test controls, to drive backpressure. */
-  function createRecordingViewer(viewerId: string): {
-    transport: Parameters<TerminalRuntime['remoteHost']['attach']>[0]['transport']
-    frames: RecordedFrame[]
-    queued: number
-    open: boolean
-  } {
-    const viewer = {
-      frames: [] as RecordedFrame[],
-      queued: 0,
-      open: true,
-      transport: {
-        viewerId,
-        send: (frame: unknown) => {
-          viewer.frames.push(frame as RecordedFrame)
-        },
-        isOpen: () => viewer.open,
-        queuedBytes: () => viewer.queued,
-      },
-    }
-    return viewer
   }
 
   // Phase 2 of the Backlog item ↔ agent link: a launched agent terminal carries
@@ -2527,6 +2921,96 @@ test('terminal-runtime', async () => {
     }
   }
 
+  // A finished turn stays finished. Captured from a real Claude Code session:
+  // SessionStart, UserPromptSubmit, PostToolUse, Stop — then a SubagentStop with
+  // no SubagentStart four seconds later (the CLI's own post-turn helper), which
+  // used to put the row back on `thinking` and keep the sidebar clock running
+  // until the stall watch caught it. A straggler of the finished turn, and the
+  // same frame delivered twice by a doubled registration, must not reopen it
+  // either; a real new prompt must.
+  async function assertTurnEndSurvivesLateFrames(runtimeModule: RuntimeModule): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-turn-end-'))
+    mockPty.spawnCalls = []
+    mockSender.sent = []
+
+    const runtime = runtimeModule.createTerminalRuntime({
+      diagnosticsEnabled: false,
+      logMainPerfEvent: () => undefined,
+      syncMcpConfig: async (): Promise<SyncResult> => ({ ok: true }),
+    })
+    const snapshot = () => runtime.ipcHandlers.listTerminals().find((session) => session.sessionId === 'sess-turn-end')
+    const events: AgentPhaseEvent[] = []
+    const unregister = runtime.registerAgentPhaseListener((event) => {
+      events.push(event)
+    })
+
+    try {
+      const spawn = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+        sessionId: 'sess-turn-end',
+        cols: 120,
+        rows: 30,
+        cwd: workspaceRoot,
+        cli: 'claude-code',
+        kind: 'agent',
+        shellOnly: false,
+        workspaceId: 'ws-turn-end',
+        agentId: 'agent-turn-end',
+        agentName: 'Turn end',
+      })
+      assert.equal(spawn.ok, true, JSON.stringify(spawn))
+
+      const base = Date.now()
+      const ingest = async (event: string, ts: number, extra: Partial<AgentStateFrame> = {}): Promise<void> => {
+        runtime.ingestAgentStateFrame({
+          type: 'agent_state',
+          agentId: 'agent-turn-end',
+          workspaceId: 'ws-turn-end',
+          sessionId: null,
+          event,
+          ts: base + ts,
+          ...extra,
+        })
+        await delay(5)
+      }
+
+      await ingest('SessionStart', 0)
+      await ingest('UserPromptSubmit', 90)
+      await ingest('PostToolUse', 2_430, { toolUseId: 'toolu_read' })
+      await ingest('Stop', 3_750)
+      assert.equal(snapshot()?.agentState?.phase, 'idle')
+      assert.equal(snapshot()?.activity.kind, 'idle', 'the sidebar clock stops on Stop')
+      const phaseEventsAtStop = events.length
+
+      // The same PostToolUse again, as a second registration of the reporter
+      // would deliver it: older than the Stop, so it is dropped.
+      await ingest('PostToolUse', 2_430, { toolUseId: 'toolu_read' })
+      // A straggler stamped just after the Stop (its reporter started late).
+      await ingest('PostToolUse', 3_800, { toolUseId: 'toolu_read' })
+      // The CLI's post-turn helper agent, with no SubagentStart before it.
+      await ingest('SubagentStop', 8_450)
+      assert.equal(snapshot()?.agentState?.phase, 'idle', 'no late frame reopens a finished turn')
+      assert.equal(snapshot()?.activity.kind, 'idle', 'and the sidebar clock stays stopped')
+      assert.equal(snapshot()?.activeSubagents, 0)
+      assert.equal(events.length, phaseEventsAtStop, 'no phase event fires for a frame that changed nothing')
+
+      // The person sends the next prompt: that is a turn, and it reads as one.
+      await ingest('UserPromptSubmit', 20_000, { prompt: 'and now the next thing' })
+      assert.equal(snapshot()?.agentState?.phase, 'thinking')
+      assert.equal(snapshot()?.activity.kind, 'working')
+      await ingest('Stop', 22_000)
+      assert.equal(snapshot()?.activity.kind, 'idle')
+
+      // A promptless re-invocation well after the Stop (a background task
+      // finishing) still reads as working.
+      await ingest('PostToolUse', 40_000, { toolUseId: 'toolu_later' })
+      assert.equal(snapshot()?.agentState?.phase, 'thinking')
+    } finally {
+      unregister()
+      runtime.ipcHandlers.killTerminal('sess-turn-end')
+      await runtime.shutdown()
+    }
+  }
+
   // Context-window usage, from the session's own status line. The forwarder's
   // frames carry `event: 'StatusLine'`, which no manifest names — so the phase
   // resolution always DROPS them, and the reading has to be folded in before that
@@ -2559,7 +3043,7 @@ test('terminal-runtime', async () => {
     })
     const sentSessionsChanges = async (): Promise<number> => {
       await delay(runtimeModule.TERMINAL_SESSIONS_BROADCAST_COALESCE_MS + 10)
-      return mockSender.sent.filter((event) => event.channel === 'terminal:sessions-changed').length
+      return mockSender.sent.filter((event) => event.channel === 'terminal:sessions-delta').length
     }
 
     let contextPty: MockPtyProcess
@@ -2655,11 +3139,11 @@ test('terminal-runtime', async () => {
       runtime.ipcHandlers.suspendTerminal('sess-context')
       contextPty.emitExit({ exitCode: 0 })
       const start = Date.now()
-      while (!sidecarStore.read('sess-context')) {
+      while (!(await sidecarStore.read('sess-context'))) {
         if (Date.now() - start > 5_000) throw new Error('timed out waiting for the context sidecar')
         await delay(20)
       }
-      assert.deepEqual(sidecarStore.read('sess-context')?.contextUsage, { usedPercentage: 15, at: base + 700 })
+      assert.deepEqual((await sidecarStore.read('sess-context'))?.contextUsage, { usedPercentage: 15, at: base + 700 })
     } finally {
       await runtime.shutdown()
     }
@@ -2718,7 +3202,7 @@ test('terminal-runtime', async () => {
     // answerable after that window.
     const sentSessionsChanges = async (): Promise<number> => {
       await delay(runtimeModule.TERMINAL_SESSIONS_BROADCAST_COALESCE_MS + 10)
-      return mockSender.sent.filter((event) => event.channel === 'terminal:sessions-changed').length
+      return mockSender.sent.filter((event) => event.channel === 'terminal:sessions-delta').length
     }
 
     const spawnLedgerAgent = async (): Promise<MockPtyProcess> => {
@@ -2916,14 +3400,14 @@ test('terminal-runtime', async () => {
       ledgerPty.emitExit({ exitCode: 0 })
       const waitForSidecar = async (): Promise<void> => {
         const start = Date.now()
-        while (!sidecarStore.read('sess-ledger')) {
+        while (!(await sidecarStore.read('sess-ledger'))) {
           if (Date.now() - start > 5_000) throw new Error('timed out waiting for the ledger sidecar')
           await delay(20)
         }
       }
       await waitForSidecar()
       assert.deepEqual(
-        sidecarStore.read('sess-ledger')?.fileChanges?.map((change) => change.path),
+        (await sidecarStore.read('sess-ledger'))?.fileChanges?.map((change) => change.path),
         [
           '/repo/src/late.ts',
           '/repo/src/dropped-event.ts',
@@ -3341,7 +3825,7 @@ test('terminal-runtime', async () => {
       // and must preserve the working `since` so a "working for Xs" reading can
       // accumulate. The idle→working transition above already broadcast once;
       // these three churn frames must add zero broadcasts.
-      const broadcastsBefore = mockSender.sent.filter((e) => e.channel === 'terminal:sessions-changed').length
+      const broadcastsBefore = mockSender.sent.filter((e) => e.channel === 'terminal:sessions-delta').length
       runtime.ingestAgentStateFrame(frame('thinking', 2001))
       runtime.ingestAgentStateFrame(frame('tool_use', 2002))
       runtime.ingestAgentStateFrame(frame('thinking', 2003))
@@ -3353,7 +3837,7 @@ test('terminal-runtime', async () => {
         base + 2000,
         'working since must be preserved across thinking ↔ tool_use churn',
       )
-      const broadcastsAfter = mockSender.sent.filter((e) => e.channel === 'terminal:sessions-changed').length
+      const broadcastsAfter = mockSender.sent.filter((e) => e.channel === 'terminal:sessions-delta').length
       assert.equal(broadcastsAfter, broadcastsBefore, 'within-working churn must not re-broadcast')
 
       // Output arbitration: for a hook agent the output path must NOT override an
@@ -3573,6 +4057,14 @@ test('terminal-runtime', async () => {
       pid: nextMockPtyPid++,
       writes: [],
       killed: false,
+      pauses: 0,
+      resumes: 0,
+      pause(): void {
+        this.pauses += 1
+      },
+      resume(): void {
+        this.resumes += 1
+      },
       write(data: string): void {
         this.writes.push(data)
       },
@@ -3611,56 +4103,6 @@ test('terminal-runtime', async () => {
 
   function delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
-  }
-
-  // Debug Mode is a guaranteed mode, not a discretionary skill: the spawn path must
-  // ensure-install the `debug` skill into the session workspace before launch (so
-  // the injected /debug invocation resolves to a present skill), and must NOT touch
-  // skills when debug is off. Asserts both the gating and the (workspaceRoot,
-  // skillId) the runtime requests.
-  async function assertDebugModeEnsureInstallsDebugSkill(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-debug-install-'))
-    mockPty.spawnCalls = []
-    mockSender.sent = []
-    const ensureCalls: Array<{ workspaceRoot: string; skillId: string }> = []
-
-    const runtime = runtimeModule.createTerminalRuntime({
-      diagnosticsEnabled: false,
-      logMainPerfEvent: () => undefined,
-      ensureBuiltinSkillInstalled: async (root, skillId) => {
-        ensureCalls.push({ workspaceRoot: root, skillId })
-      },
-    })
-
-    const spawnAgent = async (sessionId: string, debugMode: boolean): Promise<void> => {
-      const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
-        sessionId,
-        cols: 120,
-        rows: 30,
-        cwd: workspaceRoot,
-        cli: 'codex',
-        kind: 'agent',
-        shellOnly: false,
-        workspaceId: 'ws-debug',
-        agentId: sessionId,
-        visible: false,
-        debugMode,
-        mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
-      })
-      assert.equal(result.ok, true, JSON.stringify(result))
-    }
-
-    // Debug off: the spawn must not ensure-install anything.
-    await spawnAgent('session-debug-off', false)
-    assert.deepEqual(ensureCalls, [], 'debug off must not ensure-install any skill')
-
-    // Debug on: ensure-install the debug skill into the session workspace root.
-    await spawnAgent('session-debug-on', true)
-    assert.deepEqual(
-      ensureCalls,
-      [{ workspaceRoot, skillId: 'debug' }],
-      'debug on ensure-installs the debug skill into the session workspace before launch',
-    )
   }
 
   // spawnSkillId gates the skill install and connectorLaunch gates MCP isolation
@@ -3800,10 +4242,13 @@ test('terminal-runtime', async () => {
         `the guard must test the probed path: ${startupScript}`,
       )
       assert.ok(
-        // The permission flag sits between the binary and --session-id since
-        // An unnamed preset resolves to `manual`, which for Claude Code
-        // is an explicit `--permission-mode default` rather than no flag at all.
-        startupScript.includes(`${probedPath} --permission-mode default --session-id session-preflight-resolved`),
+        // An unnamed preset passes no permission flag, so the binary is
+        // followed directly by the launch's own flags. An agent bound to a
+        // workspace also carries its host context (the editor tools section)
+        // as a file flag before the session id.
+        new RegExp(`${probedPath} (--append-system-prompt-file \\S+ )?--session-id session-preflight-resolved`).test(
+          startupScript,
+        ),
         `the launch must execute the probed path: ${startupScript}`,
       )
       assert.ok(
@@ -4075,6 +4520,170 @@ test('terminal-runtime', async () => {
         'the refusal names the reason, never silently substitutes',
       )
       assert.equal(mockPty.spawnCalls.length, 0, 'nothing is spawned for a refused CLI')
+    } finally {
+      await runtime.shutdown()
+      await rm(workspaceRoot, { recursive: true, force: true })
+    }
+  }
+
+  const PASTE_START = '\x1b[200~'
+  const settle = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
+  // Kimi Code takes no first message on its command line, so the launch types it
+  // in: once, and only once the composer is on screen. Its bracketed-paste mode
+  // turns on for the trust dialog first, whose selected choice is Trust, so that
+  // signal alone must type nothing.
+  async function assertSendAfterReadyTypesTheFirstMessageOnce(runtimeModule: RuntimeModule): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-send-after-ready-'))
+    mockPty.spawnCalls = []
+    mockSender.sent = []
+    const runtime = runtimeModule.createTerminalRuntime({
+      diagnosticsEnabled: false,
+      logMainPerfEvent: () => undefined,
+    })
+    try {
+      const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+        sessionId: 'session-kimi-first-message',
+        cols: 120,
+        rows: 30,
+        cwd: workspaceRoot,
+        cli: 'kimi-code',
+        initialPrompt: 'Summarise the README',
+        kind: 'agent',
+        shellOnly: false,
+        workspaceId: 'ws-kimi',
+        agentId: 'agent-kimi',
+        visible: true,
+        mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+      })
+      assert.equal(result.ok, true, JSON.stringify(result))
+      const pty = mockPty.spawnCalls[0]?.process
+      assert.ok(pty)
+      const script = await readFile(String(mockPty.spawnCalls[0]?.args.at(-1)), 'utf8')
+      assert.ok(!script.includes('Summarise the README'), 'the message is not on the command line')
+      assert.ok(script.includes("KIMI_CODE_NO_AUTO_UPDATE='1' kimi"), script.slice(-400))
+      assert.ok(script.includes('sprintengine-cli-exited'), 'the launch says when its CLI exits')
+
+      pty.emitData('\x1b[?2004h Trust this folder?')
+      await settle(800)
+      assert.equal(pty.writes.length, 0, 'bracketed paste on a dialog is not the composer')
+
+      pty.emitData('\x1b[38;2;224;224;224mcontext: 0%\x1b[39m')
+      await settle(1_000)
+      const pastes = pty.writes.filter((data) => data.startsWith(PASTE_START))
+      assert.deepEqual(pastes, [`${PASTE_START}Summarise the README\x1b[201~`])
+      assert.equal(pty.writes.filter((data) => data === '\r').length, 1, 'one Enter')
+
+      // Anything the CLI says afterwards, a hook frame included, types nothing more.
+      pty.emitData('context: 0%\x1b[?2004h')
+      runtime.ingestAgentStateFrame({
+        type: 'agent_state',
+        agentId: 'agent-kimi',
+        workspaceId: 'ws-kimi',
+        sessionId: null,
+        phase: 'thinking',
+        event: 'UserPromptSubmit',
+        ts: Date.now(),
+      })
+      await settle(800)
+      assert.equal(pty.writes.filter((data) => data.startsWith(PASTE_START)).length, 1, 'delivered exactly once')
+      assert.ok(!mockSender.sent.some((event) => event.channel === 'terminal:prompt-undelivered'))
+    } finally {
+      await runtime.shutdown()
+      await rm(workspaceRoot, { recursive: true, force: true })
+    }
+  }
+
+  // A first message that could not be typed is handed back to the window, not
+  // only logged: a CLI that exited first gets nothing typed after it (the shell
+  // it leaves behind would run the text), and a composer that never appeared
+  // gets nothing typed into whatever is there instead.
+  async function assertUndeliveredFirstMessageIsHandedBack(runtimeModule: RuntimeModule): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-undelivered-'))
+    mockPty.spawnCalls = []
+    mockSender.sent = []
+    const logged: string[] = []
+    const runtime = runtimeModule.createTerminalRuntime({
+      diagnosticsEnabled: false,
+      logMainPerfEvent: () => undefined,
+      logDiagnostic: (diagnostic) => logged.push(`${diagnostic.title}: ${diagnostic.message} ${diagnostic.details}`),
+    })
+    try {
+      const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+        sessionId: 'session-kimi-exits',
+        cols: 120,
+        rows: 30,
+        cwd: workspaceRoot,
+        cli: 'kimi-code',
+        initialPrompt: 'Refactor the parser',
+        kind: 'agent',
+        shellOnly: false,
+        workspaceId: 'ws-kimi',
+        agentId: 'agent-kimi-exits',
+        agentName: 'Iris',
+        visible: true,
+        mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+      })
+      assert.equal(result.ok, true, JSON.stringify(result))
+      const pty = mockPty.spawnCalls[0]?.process
+      assert.ok(pty)
+
+      // The person chose "Don't trust": Kimi exits and the startup script says
+      // so before the interactive shell draws its own prompt.
+      pty.emitData('\x1b[?2004h Trust this folder?')
+      pty.emitData('\x1b]6973;sprintengine-cli-exited\x07')
+      pty.emitData('\x1b[?2004h% ')
+      pty.emitData('context: 0%')
+      await settle(1_000)
+      assert.equal(pty.writes.length, 0, 'nothing is typed into the shell the CLI left behind')
+
+      const nudges = mockSender.sent.filter((event) => event.channel === 'terminal:prompt-undelivered')
+      assert.equal(nudges.length, 1, 'the window is told there is something to take')
+      assert.deepEqual(runtime.ipcHandlers.takeUndeliveredPrompts(), [
+        {
+          sessionId: 'session-kimi-exits',
+          workspaceId: 'ws-kimi',
+          agentId: 'agent-kimi-exits',
+          agentName: 'Iris',
+          cli: 'kimi-code',
+          text: 'Refactor the parser',
+          reason: 'exited',
+        },
+      ])
+      assert.deepEqual(runtime.ipcHandlers.takeUndeliveredPrompts(), [], 'taken once, by one window')
+      assert.equal(logged.length, 1)
+      assert.ok(!logged[0]?.includes('Refactor the parser'), 'the log records that it happened, not the text')
+
+      // With no window open (an automation, background mode) it waits in main
+      // for the next window, and what comes back is what the person wrote.
+      mockPty.spawnCalls = []
+      mockSender.sent = []
+      await withNoWindows(async () => {
+        const headless = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+          sessionId: 'session-kimi-headless',
+          cols: 120,
+          rows: 30,
+          cwd: workspaceRoot,
+          cli: 'kimi-code',
+          initialPrompt: 'Write the release notes',
+          kind: 'agent',
+          shellOnly: false,
+          workspaceId: 'ws-kimi',
+          agentId: 'agent-kimi-headless',
+          visible: false,
+          mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+        })
+        assert.equal(headless.ok, true, JSON.stringify(headless))
+        const headlessPty = mockPty.spawnCalls[0]?.process
+        assert.ok(headlessPty)
+        headlessPty.emitData('\x1b]6973;sprintengine-cli-exited\x07')
+      })
+      assert.equal(mockSender.sent.filter((event) => event.channel === 'terminal:prompt-undelivered').length, 0)
+      const queued = runtime.ipcHandlers.takeUndeliveredPrompts()
+      assert.deepEqual(
+        queued.map((event) => [event.sessionId, event.text, event.reason]),
+        [['session-kimi-headless', 'Write the release notes', 'exited']],
+      )
     } finally {
       await runtime.shutdown()
       await rm(workspaceRoot, { recursive: true, force: true })

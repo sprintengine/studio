@@ -10,6 +10,7 @@ import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
 import { studioEnvEntry } from '../shared/studio-env'
 import type { AgentStateFrame } from './agent-state'
 import { createAgentStateService, resolveAgentStateSocketPath } from './agent-state-service'
+import { localLauncherRef } from './integrations/launcher'
 import { test } from 'vitest'
 
 test('agent-state-service', async () => {
@@ -112,8 +113,10 @@ test('agent-state-service', async () => {
     let resolveCalls = 0
     let templateResolveCalls = 0
     let lastTemplateName: string | null = null
+    const testHome = join(workspaceRoot, 'home')
     const installSvc = createAgentStateService({
       resolveUserDataDir: () => userDataDir,
+      resolveHomeDir: () => testHome,
       resolveAgentStateSpec: resolveSpec,
       resolveReporterScriptPath: () => {
         resolveCalls += 1
@@ -155,6 +158,60 @@ test('agent-state-service', async () => {
     // so it runs once more and writes the TOML target, not the JSON one.
     await installSvc.installForWorkspace(workspaceRoot, 'codex')
     assert.equal(resolveCalls, 2)
+
+    // The same workspace can switch from a native Windows launch to WSL. The
+    // execution style is part of the install key, so the second launch heals
+    // the command instead of reusing a Windows-only invocation. In WSL the hook
+    // runs the distribution's own Studio launcher and reports to the helper's
+    // Unix socket. Nothing is a Windows program, so nothing needs interop or
+    // WSLENV.
+    const wslRoot = await mkdtemp(join(tmpdir(), 'se-agent-state-wsl-'))
+    const wslWarnings: string[] = []
+    const wslSvc = createAgentStateService({
+      resolveUserDataDir: () => userDataDir,
+      resolveHomeDir: () => join(wslRoot, 'native-home'),
+      resolveAgentStateSpec: resolveSpec,
+      resolveReporterScriptPath: () => reporterSrc,
+      resolveReporterTemplatePath: () => null,
+      onFrame: () => {},
+      logDiagnostic: (diagnostic) => wslWarnings.push(diagnostic.details ?? diagnostic.message),
+    })
+    await wslSvc.installForWorkspace(wslRoot, 'codex', { pathStyle: 'windows' })
+    let wslConfig = await readFile(join(wslRoot, '.codex', 'config.toml'), 'utf8')
+    const nativeLauncher = localLauncherRef(join(wslRoot, 'native-home')).path
+    assert.ok(wslConfig.includes(nativeLauncher), 'native launch runs this machine’s launcher')
+    await wslSvc.installForWorkspace(wslRoot, 'codex', { pathStyle: 'wsl', hostId: 'wsl:Ubuntu', integration: null })
+    assert.ok(
+      (await readFile(join(wslRoot, '.codex', 'config.toml'), 'utf8')).includes(nativeLauncher),
+      'without the helper nothing is written for WSL',
+    )
+    assert.ok(wslWarnings.some((line) => line.includes('WSL helper was not running')))
+    const node = '/home/dev/.local/share/sprintengine-studio/runtime/node-v24.21.0/bin/node'
+    await wslSvc.installForWorkspace(wslRoot, 'codex', {
+      pathStyle: 'wsl',
+      hostId: 'wsl:Ubuntu',
+      integration: {
+        agentStateSocketPath: '/run/user/1000/sprintengine/abc123def456/agent.sock',
+        commandRuntime: {
+          executable: node,
+          toCommandPath: (nativePath) => nativePath.replace(wslRoot, '/home/dev/repo').split('\\').join('/'),
+          launcher: { path: '/home/dev/.sprintengine/bin/studio-run', shell: 'posix' },
+        },
+        pluginDirs: [],
+        statusLineScriptPath: null,
+        studioMcpEntry: { command: node, args: [], env: {} },
+        home: { host: '/home/dev', native: wslRoot },
+      },
+    })
+    wslConfig = await readFile(join(wslRoot, '.codex', 'config.toml'), 'utf8')
+    assert.ok(
+      wslConfig.includes(
+        `/bin/sh '/home/dev/.sprintengine/bin/studio-run' agent-state --socket '/run/user/1000/sprintengine/abc123def456/agent.sock'`,
+      ),
+      `the WSL hook runs the distribution's launcher and reports to the helper: ${wslConfig}`,
+    )
+    assert.ok(!wslConfig.includes(node), 'no hook names the pinned Node, which a Node update moves')
+    assert.doesNotMatch(wslConfig, /WSLENV|ELECTRON_RUN_AS_NODE|\/mnt\//u, 'nothing crosses back into Windows')
     const codexConfig = await readFile(join(workspaceRoot, '.codex', 'config.toml'), 'utf8')
     assert.ok(codexConfig.includes('[[hooks.SessionStart]]'), 'codex reporter hook not installed')
     // …and is itself install-once.
@@ -232,10 +289,10 @@ test('agent-state-service', async () => {
     assert.ok(injectedCodexConfig?.includes('[[hooks.SessionStart]]'), 'codex still gets its workspace install')
 
     // --- user-scoped registration: per-CLI install-once, injected home -------
-    // Kimi's config is user-global, so the install key is `${cli}::user`: the
-    // first workspace's launch writes it, a second workspace's launch is a
-    // no-op (the content is workspace-independent), and nothing touches the
-    // real home because the test injects resolveHomeDir.
+    // Kimi's config is user-global, so the install key is independent of the
+    // workspace: the first workspace's launch writes it, a second workspace's
+    // launch is a no-op (the content is workspace-independent), and nothing
+    // touches the real home because the test injects resolveHomeDir.
     const userScopeHome = await mkdtemp(join(tmpdir(), 'se-agent-state-home-'))
     const wsA = await mkdtemp(join(tmpdir(), 'se-agent-state-wsA-'))
     const wsB = await mkdtemp(join(tmpdir(), 'se-agent-state-wsB-'))
@@ -257,6 +314,20 @@ test('agent-state-service', async () => {
     assert.ok(kimiConfigOnDisk.includes('event = "Stop"'), 'kimi hooks block not installed under injected home')
     await userScopeSvc.installForWorkspace(wsB, 'kimi-code')
     assert.equal(userScopeResolves, 1, 'user-scoped install must be once per CLI, not per workspace')
+    // It applies to every Kimi session on the machine, and only sessions the
+    // app launched report through it — all of which end with the app. So quit
+    // takes it back out, leaving the rest of the person's config as it was.
+    await writeFile(
+      join(userScopeHome, '.kimi-code', 'config.toml'),
+      `default_model = "k2"\n\n${kimiConfigOnDisk}`,
+      'utf8',
+    )
+    await userScopeSvc.shutdown()
+    assert.equal(
+      await readFile(join(userScopeHome, '.kimi-code', 'config.toml'), 'utf8'),
+      'default_model = "k2"\n',
+      'the user-level hook block is removed at quit',
+    )
 
     // --- missing reporter script: safe no-op, never throws -----------------
     const noScriptWs = await mkdtemp(join(tmpdir(), 'se-agent-state-noscript-'))
@@ -1556,6 +1627,18 @@ test('agent-state-service', async () => {
           current_usage: { input_tokens: 8500, output_tokens: 1200 },
         },
         rate_limits: { five_hour: { used_percentage: 23.5, resets_at: 1_738_425_600 } },
+        prompt_cache: {
+          warm: true,
+          caching_observed: true,
+          ttl: '1h',
+          expires_at: 1_738_429_200,
+          hit_ratio: 0.91,
+          misses: 2,
+          miss_recache_tokens: 310_200,
+          last_miss_at: 1_738_425_230,
+          last_miss_cause: { causes: ['ttl_expired_5m'] },
+          recache_tokens_if_cold: 45_000,
+        },
       }
 
       const runStatusLine = (options: {
@@ -1624,12 +1707,19 @@ test('agent-state-service', async () => {
           linesRemoved: 23,
           model: 'Opus',
           sessionName: 'hook ledger',
+          // The payload's epoch seconds arrive as milliseconds, like every
+          // other time on the socket.
+          promptCache: { ttl: '1h', expiresAt: 1_738_429_200_000, recacheTokens: 45_000 },
         },
         'only the reading rides the socket — never the transcript path, the cwd or the rate limits',
       )
       assert.ok(
-        !slFrames[0].includes('transcript') && !slFrames[0].includes('rate_limits') && !slFrames[0].includes('/repo'),
-        'the forwarder must not leak the rest of the payload',
+        !slFrames[0].includes('transcript') &&
+          !slFrames[0].includes('rate_limits') &&
+          !slFrames[0].includes('/repo') &&
+          !slFrames[0].includes('hit_ratio') &&
+          !slFrames[0].includes('ttl_expired_5m'),
+        'the forwarder must not leak the rest of the payload, the cache statistics included',
       )
 
       // A null used_percentage (before the first API call, and again right after a
@@ -1642,12 +1732,17 @@ test('agent-state-service', async () => {
         payload: {
           ...statusLinePayload,
           context_window: { ...statusLinePayload.context_window, used_percentage: null },
+          prompt_cache: { ...statusLinePayload.prompt_cache, warm: false, recache_tokens_if_cold: null },
         },
       })
       await waitFor(() => slFrames.length >= 2)
       const compacted = JSON.parse(slFrames[1]) as { statusLine?: Record<string, unknown> }
       assert.equal(compacted.statusLine?.usedPercentage, undefined, 'a null percentage is omitted, not zeroed')
       assert.equal(compacted.statusLine?.contextWindowSize, 200_000, 'the rest of the reading still rides')
+      // The cache rides WHOLE: a cache the CLI says is cold has no expiry, and
+      // an unknown re-cache size (right after a compaction) is sent as unknown
+      // rather than left to the previous reading.
+      assert.deepEqual(compacted.statusLine?.promptCache, { ttl: '1h', expiresAt: null, recacheTokens: null })
 
       // --wrap: the person's own command runs with the SAME stdin bytes, and its
       // stdout is what Claude paints.

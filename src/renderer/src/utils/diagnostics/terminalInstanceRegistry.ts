@@ -30,6 +30,11 @@ export function registerTerminalInstance(sessionId: string, term: Terminal): voi
   for (const listener of listeners) listener()
 }
 
+/** Whether a pane with a live xterm is mounted for this session in this window. */
+export function hasTerminalInstance(sessionId: string): boolean {
+  return instances.has(sessionId)
+}
+
 export function unregisterTerminalInstance(sessionId: string): void {
   if (instances.delete(sessionId)) {
     for (const listener of listeners) listener()

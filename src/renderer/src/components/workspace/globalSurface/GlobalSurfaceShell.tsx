@@ -140,6 +140,9 @@ export type GlobalSurfaceShellProps = {
    */
   onBack?: () => void
   canGoBack?: boolean
+  /** Contextual Control-Tab group this surface belongs to. The marker is also
+   *  copied onto a lifted bar so focus in portaled actions keeps that context. */
+  controlTabContext?: string
   /** The full-width canvas. */
   children: React.ReactNode
 }
@@ -151,6 +154,7 @@ export function GlobalSurfaceShell({
   rail,
   onBack,
   canGoBack,
+  controlTabContext,
   children,
 }: GlobalSurfaceShellProps): JSX.Element {
   // When a lift target is provided the bar rides the app's top strip instead of a
@@ -208,6 +212,7 @@ export function GlobalSurfaceShell({
       ref={regionRef}
       tabIndex={-1}
       aria-label={ariaLabel}
+      data-control-tab-context={controlTabContext}
       className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[color:var(--bg-surface)] outline-none"
     >
       {bar && modalChrome ? (
@@ -230,16 +235,23 @@ export function GlobalSurfaceShell({
             // own handlers/context. A leading back chevron appears when the door
             // has somewhere to go back to; the title truncates; the actions stay
             // pinned to the right edge of the slot.
-            <>
+            <div data-control-tab-context={controlTabContext} className="contents">
               {showBack && onBack ? <BarBackChevron onBack={onBack} inGutter /> : null}
               <h2 className="truncate text-body font-semibold text-[color:var(--text-strong)]">{bar.title}</h2>
               {bar.actions ? <div className="ml-auto flex shrink-0 items-center gap-1.5">{bar.actions}</div> : null}
-            </>,
+            </div>,
             barSlot.el,
           )
         : null}
       {attention ? <div className="shrink-0 border-b border-[color:var(--border-subtle)]">{attention}</div> : null}
-      {rail && liftRail && railSlot.el ? createPortal(rail, railSlot.el) : null}
+      {rail && liftRail && railSlot.el
+        ? createPortal(
+            <div data-control-tab-context={controlTabContext} className="contents">
+              {rail}
+            </div>,
+            railSlot.el,
+          )
+        : null}
       <div className="flex min-h-0 flex-1">
         {rail && !liftRail ? (
           <aside

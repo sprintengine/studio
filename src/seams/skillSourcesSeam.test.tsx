@@ -9,6 +9,7 @@ import type { WorkspaceSkill } from '../shared/electron-api'
 import type { SkillTreeEntry } from '../main/skills/scan'
 import { STUDIO_SKILL_SOURCE_ID, type ScanResult } from '../shared/skills'
 import { STUDIO_MARKETPLACE_RESOURCE_DIR } from '../main/skills/studio-plugin'
+import { installSkillDirectory } from '../main/skills/install'
 import { installJsdomEnvironment, withInertPreloadFallback } from './jsdomEnvironment'
 import { test, vi } from 'vitest'
 
@@ -575,16 +576,16 @@ test('skillSourcesSeam', async () => {
     const studio = await scanOf(STUDIO_SKILL_SOURCE_ID)
     assert.equal(studio.bundled, true, 'and it says which of the two copies this is')
     assert.equal(studio.commitSha, '', 'a seed is not a read, so it claims no commit')
-    // Every plugin, in the order the marketplace lists them: ours leads, the
-    // workflow skills are the plugin beside it, and the packaged MCP servers
-    // follow both.
+    // Every plugin, in the order the marketplace lists them: ours leads, and
+    // the packaged MCP servers follow it. (The `studio-skills` workflow bundle
+    // that sat beside it was retired on 2026-09-28.)
     assert.deepEqual(
       (studio.plugins ?? []).map((plugin) => plugin.id),
       SHIPPED_PLUGIN_IDS,
       'the offline listing is the marketplace, in its own order',
     )
     assert.equal(SHIPPED_PLUGIN_IDS[0], 'sprintengine-studio', 'and ours is what leads it')
-    assert.equal(SHIPPED_PLUGIN_IDS[1], 'studio-skills', 'with the workflow skills beside it')
+    assert.equal(SHIPPED_PLUGIN_IDS.includes('studio-skills'), false, 'and the retired bundle is not listed')
     assert.equal(studio.skills.length, SHIPPED_SKILL_COUNT)
     await openSource('SprintEngine Studio')
     assert.ok(
@@ -707,27 +708,21 @@ test('skillSourcesSeam', async () => {
       }),
       '/research',
     )
-    // FINDING T9-F1, re-checked after provenance landed and still open: a source
-    // skill whose directory name collides with one the studio ships is reported as
-    // `source: 'builtin'`, because the inventory keys provenance on the directory
-    // name alone. `prototype` is such a name, and the bytes on disk are
-    // mattpocock's. Install now writes a marker that says so — the disagreement
-    // below is the defect, pinned so that fixing the inventory to read the marker
-    // fails this line rather than passing silently.
+    // FINDING T9-F1 (still open, for the names the studio still ships): the
+    // inventory keys provenance on the directory name alone, so a source skill
+    // named like a built-in is reported as `source: 'builtin'`. `prototype` was
+    // such a name until the studio stopped shipping it (2026-09-28), as was
+    // `debug`; now only `backlog` collides, and this copy of mattpocock's reads
+    // as what it is. The marker agrees.
     const inventoryPrototype = inventory.skills.find((skill) => skill.id === 'prototype')
     assert.ok(inventoryPrototype)
-    assert.equal(inventoryPrototype.source, 'builtin', 'observed today: the collision is reported as builtin')
+    assert.equal(inventoryPrototype.source, 'custom', 'no built-in is named prototype any more')
     const { readSkillProvenance } = await import('../main/skills/install')
     const prototypeProvenance = await readSkillProvenance(installed('.claude', 'prototype'))
     assert.equal(
       prototypeProvenance?.sourceId,
       'github:mattpocock/skills',
       'the copy on disk records the source it actually came from',
-    )
-    assert.notEqual(
-      inventoryPrototype.source,
-      'custom',
-      'T9-F1 is open: the inventory still ignores the marker beside the bytes it is describing',
     )
 
     // ── Sync: the source moves, and the workspace moves with it ───────────────
@@ -842,18 +837,20 @@ test('skillSourcesSeam', async () => {
     }
 
     // ── 1. The workspace holds the studio's own `prototype` ───────────────────
-
-    const studioScan = await scanOf(STUDIO_SKILL_SOURCE_ID)
-    await install(STUDIO_SKILL_SOURCE_ID, idOfSkillNamed(studioScan, 'prototype'))
-
-    const shippedRoot = join(
-      process.cwd(),
-      'resources',
-      STUDIO_MARKETPLACE_RESOURCE_DIR,
-      'studio-skills',
-      'skills',
-      'prototype',
-    )
+    //
+    // The studio shipped a `prototype` until 2026-09-28, and a workspace that
+    // installed it from the studio's catalogue still holds that copy, marked as
+    // the studio's. It is planted here from those bytes (a fixture now) the
+    // way that install left it, because what this proves is about the copy, not
+    // about what the studio still ships: another source's sync must not claim it.
+    const shippedRoot = join(FIXTURES, 'studio-prototype')
+    await installSkillDirectory({
+      workspaceRoot,
+      sourceDir: shippedRoot,
+      dirName: 'prototype',
+      harnesses: ['claude', 'agents'],
+      provenance: { sourceId: STUDIO_SKILL_SOURCE_ID, skillId: 'studio-skills/skills/prototype', commitSha: '' },
+    })
     /**
      * Every file of the installed copy, against the directory the studio ships —
      * the marker aside, which install writes and the source never had. Compares

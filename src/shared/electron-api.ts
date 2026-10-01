@@ -1,15 +1,27 @@
+import type { EditorRevealAck, EditorRevealRequest, EditorStateQuery, EditorStateReply } from './editor-reveal'
+import type {
+  LiveTour,
+  TourAsk,
+  TourChangedEvent,
+  TourGotoAnswer,
+  TourGotoRequest,
+  TourPlayback,
+  TourResult,
+  TourRevealRequest,
+  TourSummary,
+} from './tours/tour-types'
 import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './voiceTranscription'
 import type { BranchPullRequest } from './git/pull-request'
 import type { ConversationPeek } from './conversation-peek'
 import type { ChatTitleRequest, TextGenerationResult } from './text-generation/contract'
-import type { AgentLaunchSettings, AgentLaunchSettingsWriteAck } from './launch-settings'
-export type {
-  ConversationPeek,
-  ConversationPeekAttachment,
-  ConversationPeekMessage,
-  ConversationPeekSource,
-} from './conversation-peek'
-export type { HostedModel, HostedModelFeed, HostedCliModelCatalogs } from './hosted-model-feed'
+import type {
+  AgentLaunchSettings,
+  AgentLaunchSettingsPatch,
+  AgentLaunchSettingsRecord,
+  AgentLaunchSettingsSnapshot,
+  AgentLaunchSettingsWriteAck,
+} from './launch-settings'
+export type { ConversationPeek, ConversationPeekMessage, ConversationPeekSource } from './conversation-peek'
 export type { HostedSource, HostedSourceKind, HostedSourcesFeed } from './hosted-sources-feed'
 export type {
   CardAction,
@@ -23,6 +35,12 @@ export type {
 // this IPC contract like the rest of the surface below.
 import type { BuildStamp } from './build-stamp'
 export type { BuildStamp } from './build-stamp'
+import type {
+  InstalledSkillsInput,
+  InstalledSkillsResult,
+  InstalledSkillRemoveInput,
+  InstalledSkillRemoveResult,
+} from './installed-skills'
 import type {
   BrowserCaptureInput,
   BrowserClearResult,
@@ -41,6 +59,8 @@ import type {
   CanvasBoardState,
   CanvasBoardSummary,
   CanvasElement,
+  CanvasExportImages,
+  CanvasExportResult,
   CanvasPresence,
   CanvasResult,
   CanvasScenePush,
@@ -87,41 +107,27 @@ import type { TailnetPeerScan } from './tailnet-peers'
 import type { TailnetShareResult, TailnetShareStatus } from './tailnet-share'
 import type { RepositoryIdentityRead } from './repository-identity'
 import type {
-  FleetAttachResult,
-  FleetBrowse,
-  FleetConnection,
-  FleetCreateTerminalResult,
-  FleetCheckoutRequest,
-  FleetWorkspaceCheckoutResult,
-  FleetEvent,
-  FleetLiveState,
-  FleetPairResult,
-  FleetTerminalEvent,
-  FleetRequestPairingResult,
+  MeshBrowse,
+  MeshConnection,
+  MeshCreateConversationResult,
+  MeshWorkspaceCheckoutResult,
+  MeshEvent,
+  MeshLiveState,
+  MeshPairResult,
+  MeshRequestPairingResult,
   TailnetForgetMachineResult,
-} from './tailnet-fleet'
+  MeshConversationCommandResult,
+  MeshConversationFrame,
+  MeshConversationKey,
+  MeshConversationImageResult,
+  MeshConversationListResult,
+} from './tailnet-mesh'
 import type {
-  AutomationsBuiltinInstallInput,
-  AutomationsBuiltinInstallResult,
-  AutomationsBuiltinListResult,
-  AutomationsCreateInput,
-  AutomationsDefinitionInput,
-  AutomationsDefinitionResult,
-  AutomationsDeleteResult,
-  AutomationsEngineStatusResult,
-  AutomationsInstanceListResult,
-  AutomationsListResult,
-  AutomationsProvidersResult,
-  AutomationsDefinitionsChangedEvent,
-  AutomationsRunEvent,
-  AutomationsRunFinalizeInput,
-  AutomationsRunFinalizeResult,
-  AutomationsRunNowResult,
-  AutomationsRunsListInput,
-  AutomationsRunsListResult,
-  AutomationsUpdateInput,
-  AutomationsWorkspaceInput,
-} from './automations/contracts'
+  ScheduledAgentDraft,
+  ScheduledAgentLastRun,
+  ScheduledAgentView,
+  ScheduledAgentWriteResult,
+} from './scheduled-agents'
 // Write-back config + IPC contracts: schema owned by T10, IPC surface
 // consumed by the T11 settings UI. Re-exported through the single electron-api
 // surface like the rest of the tracker seam.
@@ -135,7 +141,6 @@ import type {
   DesignSystemAttachSource,
   DesignSystemDetachResult,
 } from './design-system/attach'
-import type { MarketplacePluginEntry } from './marketplace/manifest'
 import type {
   ConversationEvent,
   ConversationInterruptInput,
@@ -144,15 +149,47 @@ import type {
   ConversationRespondToRequestInput,
   ConversationSendTurnInput,
   ConversationSessionActionResult,
+  ConversationSetModelInput,
   ConversationSetPermissionInput,
   ConversationProvidersListInput,
+  ConversationProviderSignInInput,
+  ConversationProviderSignInResult,
   ConversationStartSessionInput,
   ConversationStartSessionResult,
   ConversationStopSessionInput,
+  ConversationSuspendSessionInput,
+  ConversationTerminalHandoffInput,
+  ConversationTerminalHandoffResult,
   ConversationTranscriptInput,
   ConversationTranscriptResult,
+  ConversationToolDetailInput,
+  ConversationToolDetailResult,
+  ConversationAttachmentInput,
+  ConversationAttachmentResult,
+  ConversationPlanDocumentInput,
+  ConversationPlanDocumentResult,
+  ConversationSubscribeInput,
+  ConversationLoadEarlierInput,
+  ConversationSessionFrame,
+  ConversationPageResult,
+  ConversationTurnDiffInput,
+  ConversationTurnDiffResult,
+  ConversationRevertInput,
+  ConversationRevertResult,
+  ConversationRewindInput,
+  ConversationRewindResult,
+  ConversationApprovalRulesResult,
+  ConversationApprovalRuleRevokeResult,
 } from './conversation-runtime'
 import type { ModuleBridgeInvokeResult } from './modules/bridge'
+import type {
+  ConversationWorkspaceKey,
+  ConversationThreadsResult,
+  ConversationSearchInput,
+  ConversationSearchResult,
+  ConversationRenameInput,
+} from './conversation-index'
+import type { ConversationSearchHit } from './conversation-index'
 import type { ModuleEventEnvelope } from './modules/events'
 import type {
   ThirdPartyModuleInstallResult,
@@ -168,6 +205,7 @@ import type {
   WorkspaceSyncSnapshot,
 } from './workspace-sync'
 import type { VersionControlProviderProbe } from './version-control'
+import type { ExecutionHostId, HostHomeResult, HostsListResult } from './execution-host'
 // Re-exported because the probe shape is part of this IPC contract: the
 // version-control settings sections read it straight off the api surface.
 export type {
@@ -176,12 +214,14 @@ export type {
   VersionControlProviderProbe,
 } from './version-control'
 import type { SprintEngineAuthState } from './ipc/account'
+import type { CliModelDiscoveryInput, CliModelDiscoveryResult } from './ipc/cli-model-discovery'
+import type { ConversationCommandsRequest } from './ipc/conversation-commands'
+import type { ConversationCommandCatalog } from './conversation/commands'
 import type {
   AgentLaunchPreviewInput,
   AgentLaunchPreviewResult,
   PluginAvailabilityResult,
   PluginDetectAvailabilityInput,
-  PluginInstallResult,
 } from './ipc/agent-cli'
 import type {
   AgentConfigAdoptInput,
@@ -194,6 +234,7 @@ import type {
   CliInstallInput,
   CliInstallMethodInfo,
   CliInstallResult,
+  CliPermissionPreset,
   CliRuntimeSettings,
 } from './ipc/agent-runtime'
 import type {
@@ -283,20 +324,25 @@ import type {
   GitWorktreeRemoveInput,
   RevFileResult,
   WorkspaceChangeSummary,
+  GitCheckoutChange,
+  AgentWorktreeCleanupInput,
+  AgentWorktreeCleanupReport,
 } from './ipc/git'
+import type { HostedCardFeedReadInput, HostedCardFeedReadResult, HostedSourcesFeedReadResult } from './ipc/hosted-feeds'
 import type {
-  HostedCardFeedReadInput,
-  HostedCardFeedReadResult,
-  HostedModelFeedReadInput,
-  HostedModelFeedReadResult,
-  HostedSourcesFeedReadResult,
-} from './ipc/hosted-feeds'
-import type {
+  GithubExtensionCheckUpdateInput,
+  GithubExtensionCheckUpdateResult,
+  GithubExtensionInstallInput,
+  GithubExtensionResolveInput,
+  GithubExtensionResolveResult,
   MarketplacePluginRegistryInstallInput,
   MarketplacePluginRegistryInstallResult,
   MarketplacePluginUninstallInput,
   MarketplacePluginUninstallResult,
+  MarketplacePluginVerifyInput,
   MarketplacePluginVerifyResult,
+  ThirdPartyModuleUninstallInput,
+  ThirdPartyModuleUninstallResult,
 } from './ipc/marketplace'
 import type {
   MarketplaceRegistryReadInput,
@@ -315,15 +361,7 @@ import type {
   MemoryPreviewResult,
   MemoryRootStatus,
 } from './ipc/memory'
-import type {
-  MobileBridgeDiagnosticEntry,
-  MobileBridgePairingChallenge,
-  MobileBridgeSettingsUpdate,
-  MobileBridgeState,
-  MobileControlDevice,
-  WorkspaceBackupPayload,
-  WorkspaceBackupReadResult,
-} from './ipc/mobile'
+import type { WorkspaceBackupPayload, WorkspaceBackupReadResult } from './ipc/workspace-backup'
 import type {
   AgentSkillWriteInput,
   AgentSkillWriteResult,
@@ -364,17 +402,23 @@ import type {
   PluginRegistryListResult,
   StudioPluginStatus,
 } from './ipc/studio-plugin'
+import type { StudioAreaSkillChoices, StudioAreaSkillId } from './studio-area-skills'
 import type {
   IpcStatsSnapshot,
   ProcessMetricsSnapshot,
+  TerminalPromptUndelivered,
   TerminalSessionSnapshot,
+  TerminalSessionsDelta,
   TerminalSpawnMetadata,
   TerminalSpawnResult,
+  TerminalVisibilityOptions,
   WorkspaceRegistryHydrateResult,
 } from './ipc/terminal'
 import type {
+  AppUpdateChannelSetting,
   AppUpdateCheckResult,
   AppUpdateState,
+  AppUpdateTrack,
   AuxWindowRetargetPayload,
   CreateWorkspaceWindowInput,
   CreateWorkspaceWindowResult,
@@ -385,10 +429,15 @@ import type {
   OpenAuxWindowInput,
   OpenAuxWindowResult,
   OpenExternalResult,
-  SplashProgress,
   WindowPlacement,
   WindowState,
 } from './ipc/window'
+import type {
+  ExtensionScaffoldCreateInput,
+  ExtensionScaffoldCreateResult,
+  ExtensionScaffoldTarget,
+  ExtensionScaffoldTargetInput,
+} from './extension-scaffold'
 
 // The contract, one module per domain. Everything a caller imports from this
 // file is declared in one of them; this file adds the ElectronApi shape.
@@ -411,7 +460,7 @@ export type * from './ipc/git'
 export type * from './ipc/diagnostics'
 export type * from './ipc/window'
 export type * from './ipc/account'
-export type * from './ipc/mobile'
+export type * from './ipc/workspace-backup'
 export type * from './ipc/app'
 export type * from './ipc/backlog'
 
@@ -436,6 +485,8 @@ export type ElectronApi = {
   confirmWindowClose: () => Promise<void>
   openExternal: (url: string) => Promise<OpenExternalResult>
   onWindowStateChanged: (cb: (state: WindowState) => void) => () => void
+  /** Main's word on whether this window is minimized, hidden or behind a locked screen. */
+  onWindowHiddenChanged: (cb: (hidden: boolean) => void) => () => void
   onWindowPlacementChanged: (cb: (placement: WindowPlacement) => void) => () => void
   onWindowCloseRequested: (cb: () => void) => () => void
   // The embedded browser (browser-pane epic, src/shared/browser.ts). The
@@ -501,6 +552,21 @@ export type ElectronApi = {
     },
   ) => Promise<CanvasResult<{ revision: number; elements: CanvasElement[] | null }>>
   /**
+   * Export the board into a folder the person picks: main shows the picker
+   * (opening at `defaultDirectory` when given) and writes `<name>.excalidraw`
+   * there, plus `<name>.png` / `<name>.svg` for each image the tab rendered.
+   * The board itself stays where it is. `cancelled` when the picker was
+   * dismissed.
+   */
+  canvasExportBoard: (
+    input: CanvasBoardRef & { defaultDirectory?: string; images?: CanvasExportImages },
+  ) => Promise<CanvasResult<CanvasExportResult>>
+  /**
+   * Show the board's file in the system file manager. Main resolves where it
+   * is: a store board lives in the app's data folder, outside the project.
+   */
+  canvasRevealBoard: (input: CanvasBoardRef) => Promise<CanvasResult<void>>
+  /**
    * The person has started a gesture on this board. Presence ONLY: it moves the
    * badge every other window shows, so an agent stops looking like it holds the
    * pen. It cancels nothing — an agent action in flight keeps running, and what
@@ -513,6 +579,30 @@ export type ElectronApi = {
   onCanvasPresence: (cb: (presence: CanvasBoardRef & CanvasPresence) => void) => () => void
   /** An agent asked for a board in this workspace's pane (canvas.open); the tab opens docked. */
   onCanvasOpenRequest: (cb: (ref: CanvasBoardRef) => void) => () => void
+  // Diff tours (src/main/tours). The Diff viewer reads and plays them; the
+  // workspace window docks a tour's Diff tab when an agent writes one.
+  tourList: (workspaceId: string) => Promise<TourSummary[]>
+  tourRead: (workspaceId: string, tourId: string) => Promise<TourResult<LiveTour>>
+  tourReportPlayback: (workspaceId: string, tourId: string, playback: TourPlayback) => Promise<void>
+  tourAsk: (
+    workspaceId: string,
+    tourId: string,
+    stepId: string,
+    question: string,
+  ) => Promise<TourResult<TourAsk> & { authorGone?: boolean }>
+  tourCancelAsk: (workspaceId: string, tourId: string, askId: string) => Promise<void>
+  tourAskNewAgent: (
+    workspaceId: string,
+    tourId: string,
+    stepId: string,
+    question: string,
+  ) => Promise<TourResult<{ agentId: string }>>
+  /** This window docked the tour's tab: `tour.create` answers `revealed: true`. */
+  tourAcknowledgeReveal: (requestId: string) => void
+  tourAnswerGoto: (answer: TourGotoAnswer) => void
+  onTourChanged: (cb: (event: TourChangedEvent) => void) => () => void
+  onTourRevealRequest: (cb: (request: TourRevealRequest) => void) => () => void
+  onTourGotoRequest: (cb: (request: TourGotoRequest) => void) => () => void
   // The hidden canvas worker window's half of the same surface. Only that window
   // uses these three: it announces itself once its editor instance has mounted,
   // then answers requests until main disposes it.
@@ -525,12 +615,23 @@ export type ElectronApi = {
   canvasWorkerReady: (report: CanvasWorkerReport) => void
   onCanvasWorkerRequest: (cb: (request: CanvasWorkerRequest) => void) => () => void
   canvasWorkerRespond: (response: CanvasWorkerResponse) => void
-  // Splash boot handshake. `onSplashProgress` is consumed only by the standalone
-  // splash renderer; `notifyBootComplete` is sent once by the primary workspace
-  // window when its first frame is on screen, and is what closes the splash and
-  // reveals the main window (main also holds a hard timeout, so a renderer that
-  // never gets there cannot strand a hidden main window).
-  onSplashProgress: (cb: (update: SplashProgress) => void) => () => void
+  // The editor reveal (editor.* tools): main asks every workspace window to
+  // open a file or diff an agent means; the window showing that workspace
+  // does, and says how. `editorRevealClaim` takes the reveal that waited for a
+  // workspace no window was showing.
+  onEditorRevealRequest: (cb: (request: EditorRevealRequest) => void) => () => void
+  ackEditorReveal: (ack: EditorRevealAck) => void
+  onEditorRevealPending: (cb: (payload: { workspaceIds: string[] }) => void) => () => void
+  editorRevealClaim: (workspaceId: string) => Promise<EditorRevealRequest | null>
+  editorRevealListPending: () => Promise<string[]>
+  onEditorStateQuery: (cb: (query: EditorStateQuery) => void) => () => void
+  replyEditorState: (reply: EditorStateReply) => void
+  // Splash boot handshake. `notifyBootComplete` is sent once by the primary
+  // workspace window when its first frame is on screen, and is what closes the
+  // splash and reveals the main window (main also holds a hard timeout, so a
+  // renderer that never gets there cannot strand a hidden main window). The
+  // plate's own progress subscription is not here: the plate loads a preload of
+  // its own (`src/preload/splash.ts`).
   notifyBootComplete: () => void
   // Boot measurement, off unless asked for. The flag is resolved in
   // preload from the same environment main reads, so the renderer never reports
@@ -628,19 +729,19 @@ export type ElectronApi = {
   tailnetShareStatus: () => Promise<TailnetShareStatus>
   tailnetSharePort: (localPort: number) => Promise<TailnetShareResult>
   tailnetUnsharePort: (servePort: number) => Promise<TailnetShareResult>
-  // The Fleet: the machines this Studio is paired WITH, and the panes
-  // it mounts from them. Main owns the device tokens and every outbound socket —
+  // The Mesh: the machines this Studio is paired WITH, and the chats
+  // it follows on them. Main owns the device tokens and every outbound socket —
   // the listener refuses any request carrying an `Origin`, which a renderer
   // always sends, so this is the only route a window has.
-  fleetListConnections: () => Promise<FleetConnection[]>
+  meshListConnections: () => Promise<MeshConnection[]>
   /** Redeem a pairing link from another machine's Settings → Remote. */
-  fleetPair: (pairingUrl: string) => Promise<FleetPairResult>
+  meshPair: (pairingUrl: string) => Promise<MeshPairResult>
   /**
    * Ask a machine to pair, for someone there to approve, then poll it.
    * Main holds the collect secret, so a window can neither dial the peer nor
    * take the token the approval mints.
    */
-  fleetRequestPairing: (
+  meshRequestPairing: (
     endpoint: string,
     options?: {
       /** What to ask that machine to let THIS one do. The far end's default applies when omitted. */
@@ -648,108 +749,121 @@ export type ElectronApi = {
       /** What that machine may do HERE, granted in the same exchange. Omitted asks one way only. */
       reverseScopes?: TailnetScope[]
     },
-  ) => Promise<FleetRequestPairingResult>
-  fleetCancelPairing: (requestId: string) => Promise<void>
+  ) => Promise<MeshRequestPairingResult>
+  meshCancelPairing: (requestId: string) => Promise<void>
   /** Re-check whether one paired machine (or every one, with no id) answers right now (phase 4). */
-  fleetCheckReachability: (connectionId?: string) => Promise<FleetLiveState>
+  meshCheckReachability: (connectionId?: string) => Promise<MeshLiveState>
   /** Drop this machine's credential for a peer. Revoking the device THERE is the other half. */
-  fleetForget: (connectionId: string) => Promise<FleetConnection[]>
-  /** One machine's workspaces and terminals, with anything this pairing may not read named as a gap. */
-  fleetBrowse: (connectionId: string) => Promise<FleetBrowse>
-  /** Open a terminal on the remote machine and get the session id to attach to. */
-  fleetCreateTerminal: (input: {
+  meshForget: (connectionId: string) => Promise<MeshConnection[]>
+  /** One machine's workspaces, or the gap that says why this pairing may not read them. */
+  meshBrowse: (connectionId: string) => Promise<MeshBrowse>
+  /**
+   * Start a chat agent in a workspace on a paired machine (`conversation:operate`
+   * there), and get the ids a chat pane here follows it by.
+   */
+  meshCreateConversation: (input: {
     connectionId: string
-    workspaceId?: string
-    name?: string
-    /** Launch identity, forwarded verbatim; the remote gateway validates (and refuses bypass). */
+    workspaceId: string
     cli?: string
     prompt?: string
     cliModel?: string
     permissionPreset?: string
-    /**
-     * Where the chat runs there (checkout-and-branch-on-remote-create): the
-     * workspace's current checkout, or a fresh worktree branched from
-     * `baseRef`. The current checkout when absent.
-     */
-    checkout?: FleetCheckoutRequest
-  }) => Promise<FleetCreateTerminalResult>
+  }) => Promise<MeshCreateConversationResult>
   /** A remote workspace's checkout facts — branch, trunk, branches, worktrees — for the launch panel's checkout · branch segments. */
-  fleetWorkspaceCheckout: (connectionId: string, workspaceId: string) => Promise<FleetWorkspaceCheckoutResult>
+  meshWorkspaceCheckout: (connectionId: string, workspaceId: string) => Promise<MeshWorkspaceCheckoutResult>
   /**
-   * Attach a pane to a remote session. Subscribe with `onFleetTerminalEvent`
-   * on the same `attachId` FIRST — the replay is the first thing that arrives.
+   * The pairing requests still waiting and each machine's last reachability —
+   * the initial read behind `onMeshEvent`, carrying the same revision the
+   * events do.
    */
-  fleetAttachTerminal: (input: {
-    attachId: string
-    connectionId: string
-    sessionId: string
-  }) => Promise<FleetAttachResult>
-  fleetDetachTerminal: (attachId: string) => Promise<void>
-  fleetTerminalInput: (attachId: string, data: string) => void
-  fleetTerminalResize: (attachId: string, cols: number, rows: number) => void
-  onFleetTerminalEvent: (attachId: string, cb: (event: FleetTerminalEvent) => void) => () => void
+  meshGetLiveState: () => Promise<MeshLiveState>
   /**
-   * Every attachment main holds right now with its link state — the initial
-   * read behind `onFleetEvent`, carrying the same revision the events do.
-   */
-  fleetGetLiveState: () => Promise<FleetLiveState>
-  /**
-   * Whole-app fleet lifecycle (remote-sessions-ux): a machine paired or
-   * forgotten, an attachment's link state changing — broadcast to every
+   * Whole-app mesh lifecycle (remote-sessions-ux): a machine paired or
+   * forgotten, answering or not, a pairing wait moving on — broadcast to every
    * window, credential-free. Returns the unsubscribe.
    */
-  onFleetEvent: (cb: (event: FleetEvent) => void) => () => void
-  // Automations platform (per-project scheduled agent automations). The renderer
-  // reads/writes only through these channels; the engine owns the on-disk store.
-  listAutomations: (input: AutomationsWorkspaceInput) => Promise<AutomationsListResult>
+  onMeshEvent: (cb: (event: MeshEvent) => void) => () => void
   /**
-   * Instance-wide automation index: every automation across every known project
-   * root with live rail state (status, last-run outcome/time, running-now). The
-   * full-page Automations surface reads this instead of one host folder's list.
+   * Conversations on a paired machine, the same calls the local session API
+   * makes with the machine named in the key. Main follows over the tailnet
+   * and keeps the transcript tail; the renderer never holds a credential.
    */
-  listInstanceAutomations: () => Promise<AutomationsInstanceListResult>
-  /**
-   * The five automations that ship inside the app (Extensions drawer ruling,
-   * 2026-09-05). Read, never imported: main decides what is built in, so the
-   * Automations surface's "Built in" group asks rather than holding its own copy.
-   */
-  listBuiltinAutomations: () => Promise<AutomationsBuiltinListResult>
-  /**
-   * Writes a built-in's definition into a project — the same catalogue write the
-   * marketplace shelf's Get used, keyed on the built-in's stable id, so adding
-   * one twice reports the copy the project already has instead of duplicating it.
-   */
-  addBuiltinAutomation: (input: AutomationsBuiltinInstallInput) => Promise<AutomationsBuiltinInstallResult>
-  createAutomation: (input: AutomationsCreateInput) => Promise<AutomationsDefinitionResult>
-  updateAutomation: (input: AutomationsUpdateInput) => Promise<AutomationsDefinitionResult>
-  deleteAutomation: (input: AutomationsDefinitionInput) => Promise<AutomationsDeleteResult>
-  runAutomationNow: (input: AutomationsDefinitionInput) => Promise<AutomationsRunNowResult>
-  listAutomationRuns: (input: AutomationsRunsListInput) => Promise<AutomationsRunsListResult>
-  finalizeAutomationRun: (input: AutomationsRunFinalizeInput) => Promise<AutomationsRunFinalizeResult>
-  listAutomationProviders: () => Promise<AutomationsProvidersResult>
-  // Read-only health of the Automations engine/scheduler sidecar for the control
-  // center indicator. Never mutates; main reads kernel sidecar status (T5).
-  getAutomationsEngineStatus: () => Promise<AutomationsEngineStatusResult>
-  onAutomationRunEvent: (cb: (event: AutomationsRunEvent) => void) => () => void
-  /** Fires after any automation-definition write (user IPC or module service); panels reload their list. */
-  onAutomationsDefinitionsChanged: (cb: (event: AutomationsDefinitionsChangedEvent) => void) => () => void
+  meshConversationList: (connectionId: string) => Promise<MeshConversationListResult>
+  onMeshConversationSession: (
+    input: { key: MeshConversationKey; turnLimit?: number },
+    cb: (frame: MeshConversationFrame) => void,
+  ) => () => void
+  meshConversationLoadEarlier: (input: {
+    key: MeshConversationKey
+    beforeCursor: number
+    turnLimit?: number
+  }) => Promise<ConversationPageResult>
+  meshConversationSend: (input: { key: MeshConversationKey; message: string }) => Promise<MeshConversationCommandResult>
+  meshConversationInterrupt: (input: { key: MeshConversationKey }) => Promise<MeshConversationCommandResult>
+  meshConversationResolveApproval: (input: {
+    key: MeshConversationKey
+    requestId: string
+    decision: 'once' | 'conversation' | 'deny'
+  }) => Promise<MeshConversationCommandResult>
+  meshConversationAnswerQuestion: (input: {
+    key: MeshConversationKey
+    requestId: string
+    answers: Record<string, string>
+  }) => Promise<MeshConversationCommandResult>
+  // `manual` and `auto` need `conversation-permission-modes` there.
+  meshConversationSetPermissionPreset: (input: {
+    key: MeshConversationKey
+    preset: CliPermissionPreset
+  }) => Promise<MeshConversationCommandResult>
+  // Switch a paired machine's chat to another model of its CLI, from the
+  // catalog that machine's list names. Needs `conversation-models` there.
+  meshConversationSetModel: (input: {
+    key: MeshConversationKey
+    modelId: string
+  }) => Promise<MeshConversationCommandResult>
+  meshConversationToolDetail: (input: {
+    key: MeshConversationKey
+    toolUseId: string
+  }) => Promise<ConversationToolDetailResult>
+  meshConversationTurnDiff: (input: {
+    key: MeshConversationKey
+    turnSeq: number
+    path?: string
+  }) => Promise<ConversationTurnDiffResult>
+  // The picture a step of a paired machine's chat made or looked at, as a data
+  // URL. Needs `conversation-images` there; the list says whether it has it.
+  meshConversationToolImage: (input: {
+    key: MeshConversationKey
+    toolUseId: string
+  }) => Promise<MeshConversationImageResult>
+  // Scheduled agents: a prompt and a schedule, each run a new chat. Main owns
+  // the list and the scheduler; the renderer reads and writes through these.
+  listScheduledAgents: () => Promise<ScheduledAgentView[]>
+  createScheduledAgent: (draft: ScheduledAgentDraft) => Promise<ScheduledAgentWriteResult>
+  updateScheduledAgent: (id: string, draft: ScheduledAgentDraft) => Promise<ScheduledAgentWriteResult>
+  removeScheduledAgent: (id: string) => Promise<{ ok: true } | { ok: false; message: string }>
+  runScheduledAgentNow: (
+    id: string,
+  ) => Promise<{ ok: true; run: ScheduledAgentLastRun } | { ok: false; message: string }>
+  /** The card's "Failed" was seen: it goes back to saying when the agent runs next. */
+  markScheduledAgentFailureSeen: (id: string) => Promise<{ ok: true }>
+  /** The whole list, after every change — a write from anywhere, or a run's outcome. */
+  onScheduledAgentsChanged: (cb: (agents: ScheduledAgentView[]) => void) => () => void
   authGetState: () => Promise<SprintEngineAuthState>
   authLogin: (organizationId?: string | null) => Promise<{ state: string; authorizationUrl: string }>
   authLogout: () => Promise<{ loggedOut: true }>
-  authRefreshEntitlements: () => Promise<SprintEngineAuthState>
-  authOpenUpgrade: (reason?: string) => Promise<{ opened: true; url: string }>
+  authRefreshAccount: () => Promise<SprintEngineAuthState>
   onAuthStateChanged: (cb: (state: SprintEngineAuthState) => void) => () => void
   onAuthCallbackError: (cb: (message: string) => void) => () => void
-  mobileBridgeGetState: () => Promise<MobileBridgeState>
-  mobileBridgeUpdateSettings: (input: MobileBridgeSettingsUpdate) => Promise<MobileBridgeState>
-  mobileBridgeRequestPairingCode: () => Promise<MobileBridgePairingChallenge>
-  mobileBridgeRevokeDevice: (deviceId: string, reason?: string) => Promise<MobileControlDevice>
-  mobileBridgeGetDiagnostics: () => Promise<MobileBridgeDiagnosticEntry[]>
-  onMobileBridgeStateChanged: (cb: (state: MobileBridgeState) => void) => () => void
   readdir: (path: string) => Promise<{ name: string; isDir: boolean }[]>
-  searchFiles: (rootPath: string, query: string, options?: { limit?: number }) => Promise<FileSearchResult>
+  searchFiles: (
+    rootPath: string,
+    query: string,
+    options?: { limit?: number; purpose?: 'mention'; channel?: string; recentAt?: Record<string, number> },
+  ) => Promise<FileSearchResult>
   searchContent: (rootPath: string, query: string, options?: { limit?: number }) => Promise<ContentSearchResult>
   cancelContentSearch: () => Promise<void>
+  cancelFileSearch: (channel?: string) => Promise<void>
   readfile: (path: string) => Promise<string>
   readImageDataUrl: (path: string) => Promise<string>
   pathExists: (path: string) => Promise<boolean>
@@ -786,20 +900,26 @@ export type ElectronApi = {
    * holds. Read-only — the built-in plugin has no Install and no Remove.
    */
   studioPluginStatus: (input: { workspaceRoot: string | null }) => Promise<StudioPluginStatus>
+  /**
+   * The built-in plugin's area skills, opted into one by one and machine-wide
+   * (shared/studio-area-skills.ts). A change installs into, or takes out of,
+   * every workspace, and is pushed through `onStudioAreaSkillsChanged`.
+   */
+  studioAreaSkillsGet: () => Promise<StudioAreaSkillChoices>
+  studioAreaSkillsSetEnabled: (input: {
+    skillId: StudioAreaSkillId
+    enabled: boolean
+  }) => Promise<StudioAreaSkillChoices>
+  /** Turn a surface's suggestion down; the skill stays a switch in Settings. */
+  studioAreaSkillsDismiss: (input: { skillId: StudioAreaSkillId }) => Promise<StudioAreaSkillChoices>
+  onStudioAreaSkillsChanged: (cb: (choices: StudioAreaSkillChoices) => void) => () => void
   pluginsList: () => Promise<PluginRegistryListResult>
   pluginsDetectAvailability: (input?: PluginDetectAvailabilityInput) => Promise<PluginAvailabilityResult>
   agentLaunchPreview: (input: AgentLaunchPreviewInput) => Promise<AgentLaunchPreviewResult>
   readMarketplaceRegistry: (input?: MarketplaceRegistryReadInput) => Promise<MarketplaceRegistryReadResult>
-  // The hosted model feed (src/shared/hosted-model-feed.ts). `get` is the disk
-  // copy with no network; `refresh` may fetch (the client's TTL decides unless
-  // forced); `changed` fires after any read that replaced the feed.
   /** The recommended-sources feed, from disk (cache, else seed); never fetches. */
   hostedSourcesFeedGet: () => Promise<HostedSourcesFeedReadResult>
-  hostedModelFeedGet: () => Promise<HostedModelFeedReadResult>
-  hostedModelFeedRefresh: (input?: Pick<HostedModelFeedReadInput, 'forceRefresh'>) => Promise<HostedModelFeedReadResult>
-  onHostedModelFeedChanged: (cb: (result: HostedModelFeedReadResult) => void) => () => void
-  // The hosted card feed (src/shared/hosted-card-feed.ts), the model feed's
-  // sibling. `get` is the disk copy with no network — the first-paint path;
+  // The hosted card feed (src/shared/hosted-card-feed.ts). `get` is the disk copy with no network — the first-paint path;
   // `refresh` may fetch (the client's TTL decides unless forced); `changed`
   // fires after any read that replaced the feed, and only then.
   hostedCardFeedGet: () => Promise<HostedCardFeedReadResult>
@@ -815,8 +935,10 @@ export type ElectronApi = {
   cliVersionAdvisories: (input?: CliVersionAdvisoriesInput) => Promise<CliVersionAdvisoriesResult>
   cliVersionChecksSetEnabled: (enabled: boolean) => Promise<{ enabled: boolean }>
   onCliVersionAdvisoriesChanged: (cb: (result: CliVersionAdvisoriesResult) => void) => () => void
-  installPluginFolder: (srcDir: string) => Promise<PluginInstallResult>
-  verifyMarketplacePlugin: (entry: MarketplacePluginEntry) => Promise<MarketplacePluginVerifyResult>
+  // Verify resolves the entry by id in main and answers with what an install
+  // would put on the machine, plus the one-time trust token that installs
+  // exactly that (see src/main/marketplace/trust-tokens.ts).
+  verifyMarketplacePlugin: (input: MarketplacePluginVerifyInput) => Promise<MarketplacePluginVerifyResult>
   installMarketplacePluginFromRegistry: (
     input: MarketplacePluginRegistryInstallInput,
   ) => Promise<MarketplacePluginRegistryInstallResult>
@@ -830,8 +952,18 @@ export type ElectronApi = {
   // it is the user's from the moment it lands.
   uninstallMarketplacePlugin: (input: MarketplacePluginUninstallInput) => Promise<MarketplacePluginUninstallResult>
   readMarketplacePluginUpdateStates: (input?: MarketplaceRegistryReadInput) => Promise<MarketplaceUpdateStatesResult>
+  // Install extension from GitHub: main resolves the repository's default
+  // branch (or the ref the URL names) to a commit, discloses what it found
+  // there, and issues the one-time token `installGithubExtension` spends.
+  // `checkGithubExtensionUpdate` is the same review of where the branch is now.
+  resolveGithubExtension: (input: GithubExtensionResolveInput) => Promise<GithubExtensionResolveResult>
+  installGithubExtension: (input: GithubExtensionInstallInput) => Promise<MarketplacePluginRegistryInstallResult>
+  checkGithubExtensionUpdate: (input: GithubExtensionCheckUpdateInput) => Promise<GithubExtensionCheckUpdateResult>
   conversationProvidersList: (input?: ConversationProvidersListInput) => Promise<ConversationProviderListResult>
   conversationProviderModels: (input: ConversationProviderModelsInput) => Promise<ConversationProviderModelsResult>
+  // The line a plain terminal on this machine runs to sign a chat's CLI back
+  // in, resolved to the executable the conversation provider runs.
+  conversationProviderSignIn: (input: ConversationProviderSignInInput) => Promise<ConversationProviderSignInResult>
   conversationSecretStatus: (input: ConversationSecretStatusInput) => Promise<ConversationSecretStatusResult>
   conversationSecretSet: (input: ConversationSecretSetInput) => Promise<ConversationSecretSetResult>
   conversationSecretClear: (input: ConversationSecretClearInput) => Promise<ConversationSecretClearResult>
@@ -847,9 +979,48 @@ export type ElectronApi = {
   // Live tool-permission switch on a running conversation session (takes effect
   // on the agent's next tool call).
   conversationSessionSetPermission: (input: ConversationSetPermissionInput) => Promise<ConversationSessionActionResult>
+  // Switch a running conversation to another model of its provider; applies
+  // from the next turn.
+  conversationSessionSetModel: (input: ConversationSetModelInput) => Promise<ConversationSessionActionResult>
   conversationSessionStop: (input: ConversationStopSessionInput) => Promise<ConversationSessionActionResult>
+  // Settle and Snooze: end the chat's child process, keeping the session so the
+  // next message respawns it.
+  conversationSessionSuspend: (input: ConversationSuspendSessionInput) => Promise<ConversationSessionActionResult>
+  // Resume in terminal: suspend the chat and open a terminal agent that
+  // resumes its CLI session (`claude --resume <id>`, `codex resume <id>`).
+  conversationSessionTerminalHandoff: (
+    input: ConversationTerminalHandoffInput,
+  ) => Promise<ConversationTerminalHandoffResult>
   conversationSessionsList: (input?: ConversationListSessionsInput) => Promise<ConversationListSessionsResult>
   conversationTranscript: (input: ConversationTranscriptInput) => Promise<ConversationTranscriptResult>
+  conversationToolDetail: (input: ConversationToolDetailInput) => Promise<ConversationToolDetailResult>
+  // The bytes of an image a sent turn carried, by the store reference its
+  // `user_message` recorded — for a bubble replayed after a restart.
+  conversationAttachment: (input: ConversationAttachmentInput) => Promise<ConversationAttachmentResult>
+  // A plan the agent proposed, as a file the workspace pane can open: the
+  // agent's own plan file while it still holds that plan, otherwise a copy in
+  // app data.
+  conversationPlanDocument: (input: ConversationPlanDocumentInput) => Promise<ConversationPlanDocumentResult>
+  conversationLoadEarlier: (input: ConversationLoadEarlierInput) => Promise<ConversationPageResult>
+  conversationTurnDiff: (input: ConversationTurnDiffInput) => Promise<ConversationTurnDiffResult>
+  conversationRevertToTurn: (input: ConversationRevertInput) => Promise<ConversationRevertResult>
+  // Take the conversation back to before one of its user messages ("Edit from
+  // here"); gated on the provider's `rewind` capability.
+  conversationRewindToTurn: (input: ConversationRewindInput) => Promise<ConversationRewindResult>
+  conversationApprovalRules: () => Promise<ConversationApprovalRulesResult>
+  conversationThreads: (input: ConversationWorkspaceKey) => Promise<ConversationThreadsResult>
+  conversationSearch: (input: ConversationSearchInput) => Promise<ConversationSearchResult>
+  onConversationSearchBatch: (
+    callback: (batch: { requestId: string; hits: ConversationSearchHit[] }) => void,
+  ) => () => void
+  conversationCancelSearch: (input: { requestId: string }) => Promise<{ ok: boolean }>
+  conversationRename: (input: ConversationRenameInput) => Promise<{ ok: true } | { ok: false; message: string }>
+  conversationDelete: (input: ConversationTranscriptInput) => Promise<{ ok: true } | { ok: false; message: string }>
+  conversationRevokeApprovalRule: (input: { ruleId: string }) => Promise<ConversationApprovalRuleRevokeResult>
+  onConversationSession: (
+    input: ConversationSubscribeInput,
+    cb: (frame: ConversationSessionFrame) => void,
+  ) => () => void
   onConversationEvent: (cb: (event: ConversationEvent) => void) => () => void
   logDiagnostic: (input: DiagnosticLogInput) => Promise<DiagnosticLogEntry>
   openDiagnosticsLogsFolder: () => Promise<{ opened: true; path: string }>
@@ -858,11 +1029,36 @@ export type ElectronApi = {
   updateDownload: () => Promise<AppUpdateCheckResult>
   updateQuitAndInstall: () => Promise<AppUpdateCheckResult>
   updateOpenReleaseNotes: () => Promise<{ opened: true; url: string }>
+  /** The release channel the updater follows, and whether the person chose it. */
+  updateGetChannel: () => Promise<AppUpdateChannelSetting>
+  /** Save a channel choice, re-point the updater at it and check that channel. */
+  updateSetChannel: (channel: AppUpdateTrack) => Promise<AppUpdateCheckResult>
+  /** Download updates as soon as they are found, or wait to be asked (the default). */
+  updateSetAutoDownload: (enabled: boolean) => Promise<AppUpdateState>
+  /** The last update's result has been shown; stop reporting it. */
+  updateDismissInstallOutcome: () => Promise<AppUpdateState>
   onUpdateStateChanged: (cb: (state: AppUpdateState) => void) => () => void
-  /** Push the renderer-authored launch settings main composes a spawn from. */
-  syncAgentLaunchSettings: (input: AgentLaunchSettings) => Promise<AgentLaunchSettingsWriteAck>
-  /** Seed main's launch-settings store on first boot; a no-op once it holds one. */
-  hydrateAgentLaunchSettings: (input: AgentLaunchSettings) => Promise<AgentLaunchSettingsWriteAck>
+  /** Read main's agent-launch settings: the record (null before any write) and the settings in force. */
+  launchSettingsGet: () => Promise<AgentLaunchSettingsSnapshot>
+  /** Apply a partial write to main's launch settings; the answer carries the record main now holds. */
+  launchSettingsUpdate: (patch: AgentLaunchSettingsPatch) => Promise<AgentLaunchSettingsWriteAck>
+  /**
+   * Offer this window's pre-ownership localStorage values once. Main accepts
+   * only while it holds no record; `changed: false` is a refusal.
+   */
+  launchSettingsMigrate: (settings: AgentLaunchSettings) => Promise<AgentLaunchSettingsWriteAck>
+  /** Every change to main's launch settings, as the new record. Returns the unsubscribe. */
+  onLaunchSettingsChanged: (cb: (record: AgentLaunchSettingsRecord) => void) => () => void
+  /**
+   * The machines this computer offers: this one, then (on Windows) its WSL
+   * distributions — every one with `all`, the enabled ones otherwise.
+   * `refresh` asks WSL again rather than answering from what it last said.
+   */
+  hostsList: (options?: { refresh?: boolean; all?: boolean }) => Promise<HostsListResult>
+  /** A WSL machine's home, as the UNC path the folder picker opens at. */
+  hostsHome: (hostId: ExecutionHostId) => Promise<HostHomeResult>
+  /** The machine list may read differently now; ask again. Returns the unsubscribe. */
+  onHostsChanged: (cb: () => void) => () => void
   writefile: (path: string, content: string) => Promise<void>
   /**
    * Save one pasted/dropped image that exists only as bytes (a clipboard
@@ -890,7 +1086,16 @@ export type ElectronApi = {
   openHtmlFileInBrowser: (targetPath: string) => Promise<void>
   listFolderOpenTargets: () => Promise<FolderOpenTargetAvailability[]>
   openFolderInTarget: (request: FolderOpenRequest) => Promise<FolderOpenResult>
-  watchPath: (path: string, cb: (event: FileWatchEvent) => void) => Promise<() => Promise<void>>
+  /**
+   * Watch a directory tree. Events under `.git/`, `node_modules/`,
+   * `.sprintengine/` and build output are dropped in main unless
+   * `includeIgnored` is set; a burst arrives as one event naming its paths.
+   */
+  watchPath: (
+    path: string,
+    cb: (event: FileWatchEvent) => void,
+    options?: { includeIgnored?: boolean },
+  ) => Promise<() => Promise<void>>
   openDir: (options?: { defaultPath?: string }) => Promise<string | null>
   /** Creates `~/.sprintengine/skills` if needed and returns its absolute path. */
   ensureDefaultUserSkillsDir: () => Promise<string>
@@ -902,7 +1107,7 @@ export type ElectronApi = {
   // What this machine actually has: probed `git`/`gh` versions plus gh's own
   // auth login. Read-only and argument-free — see src/shared/version-control.ts.
   probeVersionControlProviders: () => Promise<VersionControlProviderProbe[]>
-  getGitRepoRoot: (folderPath: string) => Promise<string | null>
+  getGitRepoRoot: (folderPath: string, hostId?: string) => Promise<string | null>
   getGitStatus: (repoRoot: string) => Promise<GitStatusSnapshot>
   /**
    * Which of `relativePaths` the ignore rules cover — one `check-ignore` per
@@ -920,6 +1125,15 @@ export type ElectronApi = {
    * only the renderer holds the workspace's worktree record.
    */
   getWorkspaceChangeSummary: (checkoutPath: string) => Promise<WorkspaceChangeSummary>
+  /**
+   * Be told when a checkout's git readings go stale, instead of polling for it.
+   * Main watches the checkout's git directory while any listener in any window
+   * wants it, holds changes while no window is focused, and sends a slow
+   * fallback. Returns the unsubscribe.
+   */
+  watchGitCheckout: (checkoutPath: string, cb: (change: GitCheckoutChange) => void) => () => void
+  /** Remove agent worktrees that are clean and merged; report (and keep) the rest. */
+  cleanupAgentWorktrees: (input: AgentWorktreeCleanupInput) => Promise<AgentWorktreeCleanupReport>
   /**
    * The branch's commits as steps, oldest first, for the changed-files surface.
    * Read live on every call — a rebase re-identifies commits, so a cached strip
@@ -986,6 +1200,11 @@ export type ElectronApi = {
   createGitWorktree: (input: GitWorktreeCreateInput) => Promise<GitWorktreeOperationResult<GitWorktreeEntry>>
   removeGitWorktree: (input: GitWorktreeRemoveInput) => Promise<GitWorktreeOperationResult<GitCommandResult>>
   pruneGitWorktrees: (repoRoot: string) => Promise<GitWorktreeOperationResult<GitCommandResult>>
+  /** Lift an in-use lock the app placed on an agent worktree (never a lock a person placed). */
+  unlockAgentGitWorktree: (
+    repoRoot: string,
+    worktreePath: string,
+  ) => Promise<GitWorktreeOperationResult<GitCommandResult>>
   /**
    * This repository's changelists, pruned against `git status` before they are
    * answered (git-commit-window T6). Every call below answers with the whole
@@ -1027,6 +1246,8 @@ export type ElectronApi = {
   adoptAgentConfig: (input: AgentConfigAdoptInput) => Promise<AgentConfigAdoptResult>
   mcpSync: (input: McpSyncInput) => Promise<McpSyncResult>
   workspaceSkillsList: (input: WorkspaceSkillsListInput) => Promise<WorkspaceSkillsListResult>
+  installedSkillsList: (input: InstalledSkillsInput) => Promise<InstalledSkillsResult>
+  installedSkillRemove: (input: InstalledSkillRemoveInput) => Promise<InstalledSkillRemoveResult>
   // Everything the agent in one CLI can reach in one workspace, in one call:
   // its skills, its MCP servers, and any path that failed to read.
   agentCapabilities: (input: AgentCapabilitiesInput) => Promise<AgentCapabilitiesResult>
@@ -1063,6 +1284,16 @@ export type ElectronApi = {
   cliInstall: (input: CliInstallInput, runtime?: Partial<CliRuntimeSettings>) => Promise<CliInstallResult>
   cliUpdate: (cli: AgentCli, runtime?: Partial<CliRuntimeSettings>) => Promise<CliInstallResult>
   onCliInstallOutput: (cli: AgentCli, cb: (chunk: string) => void) => () => void
+  // Model discovery (src/shared/ipc/cli-model-discovery.ts): ask the installed
+  // CLIs which models they accept. `discover` answers per CLI, skipping any that
+  // are fresh, absent or unprobeable; `changed` pushes every catalog a probe
+  // produced, whoever asked, and returns the unsubscribe.
+  cliModelsDiscover: (input?: CliModelDiscoveryInput) => Promise<CliModelDiscoveryResult>
+  onCliModelsChanged: (cb: (result: CliModelDiscoveryResult) => void) => () => void
+  // A chat composer's slash commands for one CLI in one folder, and every
+  // list main hears afterwards (src/main/conversation-commands).
+  conversationCommands: (input: ConversationCommandsRequest) => Promise<ConversationCommandCatalog>
+  onConversationCommandsChanged: (listener: (catalog: ConversationCommandCatalog) => void) => () => void
   // One-shot text generation on the person's own agent CLI (their login, no
   // API key): today the chat title from a first prompt. Never rejects — a
   // failure is a typed `{ ok: false }` the caller answers by keeping what it
@@ -1108,6 +1339,8 @@ export type ElectronApi = {
   installThirdPartyModuleFolder: (srcDir: string) => Promise<ThirdPartyModuleInstallResult>
   /** Trust or untrust an installed third-party module. */
   setThirdPartyModuleTrust: (id: string, trusted: boolean) => Promise<ThirdPartyModuleTrustResult>
+  /** Remove a third-party module however it was installed (folder, marketplace, GitHub), with its trust, enablement and secrets. */
+  uninstallThirdPartyModule: (input: ThirdPartyModuleUninstallInput) => Promise<ThirdPartyModuleUninstallResult>
   /** Serve trusted third-party modules' entry.renderer bundles for the renderer loader. */
   listThirdPartyRendererEntries: () => Promise<ThirdPartyRendererEntriesResult>
   /** Install/trust changed; renderer-only modules may now be available. */
@@ -1133,7 +1366,7 @@ export type ElectronApi = {
   terminalResize: (sessionId: string, cols: number, rows: number) => Promise<void>
   terminalStatus: (sessionId: string) => Promise<{ processAlive: boolean; suspended: boolean }>
   terminalList: () => Promise<TerminalSessionSnapshot[]>
-  terminalSetVisible: (sessionId: string, visible: boolean) => Promise<void>
+  terminalSetVisible: (sessionId: string, visible: boolean, options?: TerminalVisibilityOptions) => Promise<void>
   // Freeze-the-view: suspend kills the agent process but keeps the painted,
   // resumable session; resume relaunches it (mirrors terminalSpawn's payload,
   // forced --resume) on the first keystroke.
@@ -1158,25 +1391,40 @@ export type ElectronApi = {
   // the idle reaper never pauses live agent terminals. Clamped/validated in main.
   setTerminalKeepRecentAliveCount: (count: number) => Promise<void>
   // Toggle the per-terminal user lock: while set, the reaper never suspends or
-  // disposes this session. Broadcasts a sessions-changed snapshot so the lock
+  // disposes this session. Broadcasts a sessions delta so the lock
   // state stays in sync across views.
   setTerminalReapExempt: (sessionId: string, exempt: boolean) => Promise<void>
   onTerminalReplay: (sessionId: string, cb: (data: string) => void) => () => void
   onTerminalData: (sessionId: string, cb: (data: string) => void) => () => void
   onTerminalExit: (sessionId: string, cb: (code: number) => void) => () => void
   onTerminalError: (sessionId: string, cb: (message: string) => void) => () => void
-  onTerminalSessionsChanged: (cb: (sessions: TerminalSessionSnapshot[]) => void) => () => void
-  // The conversation peek: what has actually been said in a chat the person is
-  // hovering rather than looking at — the first message, everything since, and
-  // what they attached to the first. `source` says which of the three shapes the
-  // answer is in (the CLI's transcript, the prompts seen since launch, or
-  // neither), because the card is required to say so rather than look broken.
-  // See `shared/conversation-peek.ts`.
+  // What changed among the sessions — the changed ones and the ids of the gone
+  // ones, never the whole list (`terminalList` is that).
+  onTerminalSessionsDelta: (cb: (delta: TerminalSessionsDelta) => void) => () => void
+  // First messages main could not type into their agent CLIs wait in main until
+  // a workspace window takes them (once: the first to ask gets them). The event
+  // says there is something to take; a window also asks when it mounts, so one
+  // that opens later still hands them back.
+  onTerminalPromptUndelivered: (cb: () => void) => () => void
+  terminalTakeUndeliveredPrompts: () => Promise<TerminalPromptUndelivered[]>
+  // Flow control: tell main the pane has parsed `units` UTF-16 units of the
+  // session's live output, so it can pause the pty while a pane falls behind.
+  terminalAck: (sessionId: string, units: number) => void
+  // The conversation peek: what has been said in a chat the person is hovering
+  // rather than looking at — the first message and everything since, from the
+  // prompts this app captured. `source` says whether there is an answer, a
+  // runtime that reports nothing, or no record at all, because the card is
+  // required to say so rather than look broken. See `shared/conversation-peek.ts`.
   readConversationPeek: (sessionId: string) => Promise<ConversationPeek>
+  // Compact a terminal agent's conversation: `/compact` at its prompt, once
+  // main has checked the prompt is Claude Code's, waiting and empty
+  // (terminalCompactBlocker in shared/prompt-cache.ts). Offered as its prompt
+  // cache expires, so the next message re-sends a summary rather than all of it.
+  compactAgentSession: (sessionId: string) => Promise<{ ok: true } | { ok: false; message: string }>
   // The hover hook for a conversation's pull request marks: main looks the
   // session's branch up (once per key per hold) and re-reads any state older
   // than ~60s. The pull requests themselves arrive as a fresh
-  // `terminal:sessions-changed` carrying the session's `pullRequests`, never as
+  // `terminal:sessions-delta` carrying the session's `pullRequests`, never as
   // a return value, so one path owns the fact. The boolean says only whether
   // there was anything to ask about — false for a session main cannot name, or
   // one whose checkout has not resolved yet — so a caller that asks once per
@@ -1191,11 +1439,6 @@ export type ElectronApi = {
   listPullRequestsForWorkspaces: (workspaceIds: readonly string[]) => Promise<Record<string, BranchPullRequest[]>>
   /** Which conversations' lists moved; the ids only, never the lists. */
   onPullRequestWorkspacesChanged: (listener: (workspaceIds: string[]) => void) => () => void
-  // Open an attachment the peek just handed out: an image goes to the OS image
-  // viewer, a file is revealed in the file manager. Takes the attachment's id,
-  // never a path — main resolves it against the peek it produced, so a renderer
-  // cannot name a file of its own.
-  openConversationPeekAttachment: (sessionId: string, attachmentId: string) => Promise<void>
   diagnosticsGetProcessMetrics: () => Promise<ProcessMetricsSnapshot>
   // Synchronous: returns the preload's accumulated IPC counters (empty channels
   // when diagnostics is disabled, since instrumentation is skipped entirely).
@@ -1210,7 +1453,9 @@ export type ElectronApi = {
   // caches the last push in memory for its own read surfaces.
   setModuleRegistrySnapshot: (snapshot: ModuleRegistrySnapshot) => Promise<ModuleRegistrySnapshotWriteResult>
   setColorScheme: (scheme: ColorScheme) => Promise<void>
-  setWindowMaterial: (material: WindowMaterial) => Promise<void>
+  // `canvasColor` is the theme's opaque window ground (`#rrggbb`), sent with an
+  // opaque material so main can paint new windows in it; omitted under glass.
+  setWindowMaterial: (material: WindowMaterial, canvasColor?: string) => Promise<void>
   // Renderer → main mirror of `appSettings.keepRunningInBackground`.
   // Main reads it inside `window-all-closed`, when no renderer is left to ask.
   setBackgroundMode: (enabled: boolean) => Promise<void>
@@ -1236,4 +1481,10 @@ export type ElectronApi = {
   updateBacklogDependencies: (input: BacklogDependenciesInput) => Promise<BacklogMutationResult>
   updateBacklogMockups: (input: BacklogMockupsInput) => Promise<BacklogMutationResult>
   createBacklogEpic: (input: BacklogCreateEpicInput) => Promise<BacklogCreateEpicResult>
+  // ── extension-platform additions ──
+  // Build an extension (the New chat door's extension mode): what is at
+  // `<project>/<name>` while the name is typed (null for a name that is not an
+  // id yet), and the project made there.
+  extensionScaffoldTarget: (input: ExtensionScaffoldTargetInput) => Promise<ExtensionScaffoldTarget | null>
+  extensionScaffoldCreate: (input: ExtensionScaffoldCreateInput) => Promise<ExtensionScaffoldCreateResult>
 }

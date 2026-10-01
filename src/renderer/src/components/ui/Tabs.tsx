@@ -73,6 +73,10 @@ type TabsProps<T extends string = string> = {
    *  Every item MUST carry an `icon`; a labelless tab with no glyph is a blank
    *  button. */
   iconOnly?: boolean
+  /** Mark these tabs as the destinations owned by an ancestor's contextual
+   *  Control-Tab scope. Used where a panel contains nested tab strips but the
+   *  outer strip owns panel switching. */
+  controlTabItems?: boolean
 }
 
 export function Tabs<T extends string = string>({
@@ -87,6 +91,7 @@ export function Tabs<T extends string = string>({
   onItemAuxClick,
   onItemContextMenu,
   iconOnly = false,
+  controlTabItems = false,
 }: TabsProps<T>) {
   const fallbackPrefix = useId()
   const prefix = idPrefix ?? fallbackPrefix
@@ -189,6 +194,7 @@ export function Tabs<T extends string = string>({
             role="tab"
             type="button"
             data-tab-id={item.id}
+            data-control-tab-item={controlTabItems ? '' : undefined}
             aria-selected={selected}
             aria-controls={panelId}
             // The glyph carries no words, so the name comes from the label the

@@ -32,7 +32,6 @@ export function TextGenerationSettingsSection(): JSX.Element {
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
   const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
   const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
-  const hostedModelCatalogs = useWorkspaceStore((s) => s.hostedModelCatalogs)
 
   // Installed CLIs with a backend, in catalog order. Availability filtering
   // hides only an explicit not-installed, like every deployment picker.
@@ -44,17 +43,8 @@ export function TextGenerationSettingsSection(): JSX.Element {
         cliRuntimes,
         { map: cliAvailability, status: cliAvailabilityStatus },
         cliModelCatalog,
-        hostedModelCatalogs,
       ).filter((option) => supportsTextGeneration(option.value)),
-    [
-      pluginCatalogStatus,
-      pluginCatalogEntries,
-      cliRuntimes,
-      cliAvailability,
-      cliAvailabilityStatus,
-      cliModelCatalog,
-      hostedModelCatalogs,
-    ],
+    [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, cliAvailability, cliAvailabilityStatus, cliModelCatalog],
   )
 
   // What a title request made right now would run on: the stored choice when

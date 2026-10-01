@@ -269,16 +269,69 @@ export function isAppTheme(value: unknown): value is AppTheme {
 
 // Window chrome material — a second appearance axis, orthogonal to the theme.
 // 'glass' frosts the window canvas (sidebar, title strip, aside column) with
-// OS-native vibrancy under the active theme's tint; macOS-only, opt-in. The
-// picker is hidden on other platforms and main ignores 'glass' there.
-const WINDOW_MATERIALS = ['solid', 'glass'] as const
+// OS-native vibrancy under the active theme's tint; macOS-only.
+// 'tinted' paints the same canvas opaque, with a static, heavily feathered
+// wash in the colours of what sits on it — the foreground under the rail and
+// the title band, the wordmark's own two inks behind it, and no control of its
+// own — the premium ground for platforms with no vibrancy,
+// and an option on macOS for anyone who would rather not have glass (owner
+// ruling 2026-09-24). 'solid' is the plain opaque canvas.
+const WINDOW_MATERIALS = ['solid', 'glass', 'tinted'] as const
 export type WindowMaterial = (typeof WINDOW_MATERIALS)[number]
 
 export function isWindowMaterial(value: unknown): value is WindowMaterial {
   return typeof value === 'string' && (WINDOW_MATERIALS as readonly string[]).includes(value)
 }
 
+// The material a stored preference paints on this platform. The stored default
+// is 'glass' — "the premium material" — and where the OS has no vibrancy the
+// premium material is tinted, so glass resolves to tinted off macOS. That is
+// also how every existing Windows and Linux profile, which holds the untouched
+// glass default, lands on tinted without a migration. An explicit solid or
+// tinted is honoured everywhere.
+export function effectiveWindowMaterial(material: WindowMaterial, platform: string | undefined): WindowMaterial {
+  return material === 'glass' && platform !== 'darwin' ? 'tinted' : material
+}
+
+// How far the conversation column may grow. `full` is the pane's own width —
+// the chat's shape before this setting existed, and so the default: a new
+// setting that re-lays everyone's transcript is a change nobody asked for.
+// The other two cap the transcript and the composer together at a reading
+// measure and centre them, the scrollbar staying at the pane's edge.
+const CHAT_WIDTHS = ['comfortable', 'wide', 'full'] as const
+export type ChatWidth = (typeof CHAT_WIDTHS)[number]
+export const DEFAULT_CHAT_WIDTH: ChatWidth = 'full'
+
+export function isChatWidth(value: unknown): value is ChatWidth {
+  return typeof value === 'string' && (CHAT_WIDTHS as readonly string[]).includes(value)
+}
+
+// The chat's text contrast, in percent of the theme's own inks: under 100 the
+// inks fade toward the chat's background, over 100 they move away from it.
+// Five-point steps, so the value the slider names is always one it can reach.
+// The floor is measured, not picked: 85 is the lowest step at which body text
+// still clears 4.5:1 against the chat surface in every theme (herbarium, the
+// theme with the least contrast to give, is 4.9:1 there and 4.4:1 at 80). Dark
+// and light alone would allow 75, but a floor that holds only in some themes
+// is a setting that silently breaks when the theme changes.
+export const CHAT_CONTRAST_MIN = 85
+export const CHAT_CONTRAST_MAX = 200
+export const CHAT_CONTRAST_STEP = 5
+export const DEFAULT_CHAT_CONTRAST = 100
+
+/** A stored contrast as one the slider can show: on the ramp, on a step. */
+export function normalizeChatContrast(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_CHAT_CONTRAST
+  const stepped = Math.round(value / CHAT_CONTRAST_STEP) * CHAT_CONTRAST_STEP
+  return Math.min(CHAT_CONTRAST_MAX, Math.max(CHAT_CONTRAST_MIN, stepped))
+}
+
 export type AppearanceSettings = {
   theme: AppTheme
   windowMaterial: WindowMaterial
+  chatContrast: number
+  chatWidth: ChatWidth
+  // Draw each spawned agent as a small character that moves while it works.
+  // Off, an agent is a working mark while it runs and a lifecycle glyph after.
+  agentCharacters: boolean
 }

@@ -225,6 +225,25 @@ export type CanvasImage = {
   height: number
 }
 
+/**
+ * The pictures an export writes beside the board file, rendered by the tab's
+ * own editor. Both optional: the board file is always written, and each image
+ * only when the person asked for it.
+ */
+export type CanvasExportImages = {
+  /** Base64, no data-URL prefix. */
+  png?: string
+  /** The whole SVG document. */
+  svg?: string
+}
+
+/**
+ * What an export did. `cancelled` is the person closing the folder picker,
+ * which is an answer rather than a failure; otherwise `files` names every file
+ * written, absolute, board file first.
+ */
+export type CanvasExportResult = { cancelled: true } | { cancelled: false; directory: string; files: string[] }
+
 export type CanvasLintIssueType =
   | 'overlap'
   | 'cramped'

@@ -1,5 +1,6 @@
 import React from 'react'
 
+import { LOCAL_HOST_ID, normalizeExecutionHostId } from '../../../shared/execution-host'
 import type { RendererModule } from './renderer-host'
 import {
   agentBacklogOpenPorts,
@@ -13,7 +14,7 @@ import {
   dispatchExtensionsSurfaceTarget,
   EXTENSIONS_DRAWER_VIEWS,
 } from '../components/workspace/globalSurface/extensions/extensionsSurfaceTarget'
-import { CliGlyph, McpGlyph, SkillsGlyph } from '../components/ui/CapabilityGlyphs'
+import { McpGlyph, SkillsGlyph } from '../components/ui/CapabilityGlyphs'
 import { PluginsGlyph } from '../components/workspace/surfaceGlyphs'
 
 // The Plugins surface (the Extensions door until doors→modals,
@@ -53,7 +54,7 @@ export const agentRuntimeRendererModule: RendererModule = {
     core: true,
   },
   registerRenderer(host) {
-    // Open on the bell rows the hosted feed writes (new models, a CLI update,
+    // Open on the bell rows the background checks write (new models, a CLI update,
     // an app update ready): each carries `{ kind: 'settings', ref: <tab> }`
     // and lands on that Settings tab. Registered through the always-on core so
     // the rows always have their Open.
@@ -69,13 +70,58 @@ export const agentRuntimeRendererModule: RendererModule = {
               label: 'Open',
               run: async () => {
                 const { useWorkspaceStore } = await import('../store/workspaceStore')
-                useWorkspaceStore.getState().openSettingsOverlay({ initialTab: target.ref || 'agents' })
+                // `agents@<host>` names the machine a CLI update is for (a host id
+                // is `local` or `wsl:<distro>`, and no distribution name holds
+                // an `@`, so the first one splits it). Without
+                // one the news is this machine's (model discovery runs here),
+                // so it lands on This PC rather than on whichever machine the
+                // Agents tab last showed.
+                const [tab = 'agents', machine] = (target.ref || 'agents').split('@')
+                useWorkspaceStore
+                  .getState()
+                  .openSettingsOverlay(
+                    tab === 'agents'
+                      ? { initialTab: tab, agentsMachine: normalizeExecutionHostId(machine) ?? LOCAL_HOST_ID }
+                      : { initialTab: tab },
+                  )
               },
             },
           ]
         },
       })
     }
+    // Copy message on the row for a first message that never reached its CLI
+    // (utils/undeliveredPrompt.ts): the row keeps the message, and this gives
+    // it back exactly as written. Open stays beside it, since claiming the
+    // source replaces the generic reveal-workspace action for this row. Every
+    // other terminal row gets no provider action and keeps that generic Open.
+    host.registerNotificationActionProvider({
+      source: 'terminal',
+      resolveActions: ({ notification }) => {
+        const text = notification.returnedPrompt
+        if (typeof text !== 'string') return []
+        const workspaceId = notification.workspaceId
+        return [
+          {
+            id: 'terminal.copy-returned-prompt',
+            label: 'Copy message',
+            run: async () => {
+              // A failed copy leaves the row, and the message on it, where they were.
+              await window.api.clipboardWriteText(text).catch(() => {})
+            },
+          },
+          ...(workspaceId
+            ? [
+                {
+                  id: 'terminal.reveal-workspace',
+                  label: 'Open',
+                  run: (ctx: { revealWorkspace(workspaceId: string): void }) => ctx.revealWorkspace(workspaceId),
+                },
+              ]
+            : []),
+        ]
+      },
+    })
     // Open on the source drift notice ("A plugin source has updates … Open
     // Plugins and press Sync"): the bell row lands on the Plugins view, where
     // the source's tab wears its update mark and Sync is — or on Skills when
@@ -123,11 +169,12 @@ export const agentRuntimeRendererModule: RendererModule = {
       onOpen: () => {
         consumePendingExtensionsSurfaceTarget()
       },
-      // Three rows in the Extensions drawer, not one (drawer ruling,
-      // 2026-09-05: Design · Plugins · Skills · Agent CLIs). Plugins,
-      // Skills and Agent CLIs are separate destinations to the operator even
-      // though one surface still renders all three, so each contributes its own
-      // row here rather than the shell learning this module's sections. Each
+      // Two rows in the Extensions drawer, not one (drawer ruling, 2026-09-05:
+      // Design · Plugins · Skills). Plugins and Skills are separate
+      // destinations to the operator even though one surface renders both, so
+      // each contributes its own row here rather than the shell learning this
+      // module's sections. Agent CLIs was a third until 2026-09-25 (owner
+      // ruling): they are listed per machine in Settings ▸ Agents. Each
       // opens by the deep-link latch the surface already drains, so the row and
       // a notification's Open arrive by exactly one route. The latch names the
       // view itself since the source-tabs ruling: `browse` used to stand in for
@@ -145,12 +192,6 @@ export const agentRuntimeRendererModule: RendererModule = {
           label: 'Skills',
           Icon: SkillsGlyph,
           open: () => dispatchExtensionsSurfaceTarget({ view: EXTENSIONS_DRAWER_VIEWS.skills }),
-        },
-        {
-          id: EXTENSIONS_DRAWER_VIEWS.agentClis,
-          label: 'Agent CLIs',
-          Icon: CliGlyph,
-          open: () => dispatchExtensionsSurfaceTarget({ view: EXTENSIONS_DRAWER_VIEWS.agentClis }),
         },
       ],
       Component: ExtensionsGlobalSurface,

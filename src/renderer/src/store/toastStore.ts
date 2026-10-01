@@ -12,17 +12,20 @@ import type { Tone } from '../components/ui/tokens'
 // bell. A person who missed a toast lost nothing they cannot find, so nothing
 // here survives a reload.
 //
-// Auto-dismiss stays the PRIMITIVE's policy (polite tones 5s, warn/error never)
+// Auto-dismiss stays the PRIMITIVE's policy (polite tones 5s, warn/error 10s)
 // — the store only holds what is showing and removes what was dismissed.
 
-// A button on a toast. ONE toast carries these: the CLI-update toast (owner
+// A button on a toast. TWO toasts carry these: the CLI-update toast (owner
 // ruling 2026-09-04 — "Update available: Codex 0.153.3" with Settings and
-// Update). Every other toast stays button-free; the design-system toast
-// spec names this variant and the lint pins it.
+// Update), and the app-update toast (owner ruling 2026-09-23 — Later and
+// Restart to update). Every other toast stays button-free; the design-system toast
+// spec names both consumers.
 type ToastAction = {
   id: string
   label: string
   primary?: boolean
+  /** The press went through and its work is running: disabled, with a spinner. */
+  busy?: boolean
   run: () => void
 }
 
@@ -41,6 +44,8 @@ type AppToast = {
   content?: ReactNode
   /** Override the tone's auto-dismiss: `false` keeps the toast until acted on. */
   autoDismissMs?: number | false
+  /** The person pressed Dismiss (never the timer) — see `ShowToastInput`. */
+  onDismissPressed?: () => void
 }
 
 export type ShowToastInput = {
@@ -49,11 +54,11 @@ export type ShowToastInput = {
   description?: string
   /**
    * A stable identity for a toast that a producer will later RETRACT
-   * (`pair-request:<id>`, `fleet:<connectionId>`). Showing again under the
+   * (`pair-request:<id>`, `mesh:<connectionId>`). Showing again under the
    * same id replaces the toast in place and keeps the id, so the producer's
    * handle never goes stale. Id-less toasts dedupe on (tone, title) instead.
    * A replaced toast keeps its React key, so a polite tone's auto-dismiss
-   * clock is NOT restarted by a re-show; producers that retract use warn.
+   * clock is NOT restarted by a re-show.
    */
   id?: string
   actions?: ToastAction[]
@@ -69,6 +74,13 @@ export type ShowToastInput = {
    */
   content?: ReactNode
   autoDismissMs?: number | false
+  /**
+   * Called when the person presses the toast's Dismiss, and only then: a toast
+   * that timed out, was shed or was replaced was not dismissed by anyone. The
+   * two update toasts use it to clear the update's badges (owner ruling
+   * 2026-09-25) — Dismiss on "Update available" means "not now".
+   */
+  onDismissPressed?: () => void
 }
 
 interface ToastStore {
@@ -86,12 +98,12 @@ let nextToastId = 0
  * its predecessor in place — a drag that fails five times is one "File
  * action failed", freshly worded, exactly what the old self-replacing inline
  * toast did — and the region holds at most this many,
- * shedding the OLDEST auto-dismissing toast first. Persistent tones
- * (warn/error) are only ever shed by another persistent one arriving, so an
- * error cannot be pushed out by a parade of successes.
+ * shedding the OLDEST polite toast first. Warn and error are only ever shed
+ * by another of their kind arriving, so an error cannot be pushed out by a
+ * parade of successes before its own clock runs.
  */
 const MAX_TOASTS = 6
-const PERSISTENT_TONES: ReadonlySet<AppToast['tone']> = new Set(['warn', 'error'])
+const PROTECTED_TONES: ReadonlySet<AppToast['tone']> = new Set(['warn', 'error'])
 
 export const useToastStore = create<ToastStore>()((set) => ({
   toasts: [],
@@ -115,7 +127,7 @@ export const useToastStore = create<ToastStore>()((set) => ({
         ? state.toasts.map((toast) => (toast === replaced ? { ...input, id, stableId } : toast))
         : [...state.toasts, { ...input, id, stableId }]
       if (toasts.length > MAX_TOASTS) {
-        const shed = toasts.find((toast) => !PERSISTENT_TONES.has(toast.tone)) ?? toasts[0]
+        const shed = toasts.find((toast) => !PROTECTED_TONES.has(toast.tone)) ?? toasts[0]
         toasts = toasts.filter((toast) => toast !== shed)
       }
       return { toasts }

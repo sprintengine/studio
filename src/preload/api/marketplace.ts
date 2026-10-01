@@ -1,10 +1,16 @@
 import { ipcRenderer } from 'electron'
 import type {
   ElectronApi,
+  GithubExtensionCheckUpdateInput,
+  GithubExtensionCheckUpdateResult,
+  GithubExtensionInstallInput,
+  GithubExtensionResolveInput,
+  GithubExtensionResolveResult,
   MarketplacePluginRegistryInstallInput,
   MarketplacePluginRegistryInstallResult,
   MarketplacePluginUninstallInput,
   MarketplacePluginUninstallResult,
+  MarketplacePluginVerifyInput,
   MarketplacePluginVerifyResult,
   MarketplaceRegistryReadInput,
   MarketplaceRegistryReadResult,
@@ -18,7 +24,7 @@ type MarketplaceIpcRenderer = {
   ): Promise<MarketplaceRegistryReadResult>
   invoke(
     channel: 'marketplace:plugins:verify',
-    entry: Parameters<ElectronApi['verifyMarketplacePlugin']>[0],
+    input: MarketplacePluginVerifyInput,
   ): Promise<MarketplacePluginVerifyResult>
   invoke(
     channel: 'marketplace:plugins:install-entry',
@@ -36,15 +42,28 @@ type MarketplaceIpcRenderer = {
     channel: 'marketplace:plugins:update-states',
     input?: MarketplaceRegistryReadInput,
   ): Promise<MarketplaceUpdateStatesResult>
+  invoke(
+    channel: 'extensions:github:resolve',
+    input: GithubExtensionResolveInput,
+  ): Promise<GithubExtensionResolveResult>
+  invoke(
+    channel: 'extensions:github:install',
+    input: GithubExtensionInstallInput,
+  ): Promise<MarketplacePluginRegistryInstallResult>
+  invoke(
+    channel: 'extensions:github:check-update',
+    input: GithubExtensionCheckUpdateInput,
+  ): Promise<GithubExtensionCheckUpdateResult>
 }
 
 export function createMarketplaceApi(renderer: MarketplaceIpcRenderer) {
   return {
     readMarketplaceRegistry: (input?: MarketplaceRegistryReadInput): Promise<MarketplaceRegistryReadResult> =>
       renderer.invoke('marketplace:registry:read', input),
-    verifyMarketplacePlugin: (
-      entry: Parameters<ElectronApi['verifyMarketplacePlugin']>[0],
-    ): Promise<MarketplacePluginVerifyResult> => renderer.invoke('marketplace:plugins:verify', entry),
+    // By id: main resolves the entry itself and answers with a trust token
+    // for exactly what it disclosed; install and update pass that token back.
+    verifyMarketplacePlugin: (input: MarketplacePluginVerifyInput): Promise<MarketplacePluginVerifyResult> =>
+      renderer.invoke('marketplace:plugins:verify', input),
     installMarketplacePluginFromRegistry: (
       input: MarketplacePluginRegistryInstallInput,
     ): Promise<MarketplacePluginRegistryInstallResult> => renderer.invoke('marketplace:plugins:install-entry', input),
@@ -58,6 +77,12 @@ export function createMarketplaceApi(renderer: MarketplaceIpcRenderer) {
       renderer.invoke('marketplace:plugins:uninstall', input),
     readMarketplacePluginUpdateStates: (input?: MarketplaceRegistryReadInput): Promise<MarketplaceUpdateStatesResult> =>
       renderer.invoke('marketplace:plugins:update-states', input),
+    resolveGithubExtension: (input: GithubExtensionResolveInput): Promise<GithubExtensionResolveResult> =>
+      renderer.invoke('extensions:github:resolve', input),
+    installGithubExtension: (input: GithubExtensionInstallInput): Promise<MarketplacePluginRegistryInstallResult> =>
+      renderer.invoke('extensions:github:install', input),
+    checkGithubExtensionUpdate: (input: GithubExtensionCheckUpdateInput): Promise<GithubExtensionCheckUpdateResult> =>
+      renderer.invoke('extensions:github:check-update', input),
   } satisfies Pick<
     ElectronApi,
     | 'readMarketplaceRegistry'
@@ -66,6 +91,9 @@ export function createMarketplaceApi(renderer: MarketplaceIpcRenderer) {
     | 'updateMarketplacePluginFromRegistry'
     | 'uninstallMarketplacePlugin'
     | 'readMarketplacePluginUpdateStates'
+    | 'resolveGithubExtension'
+    | 'installGithubExtension'
+    | 'checkGithubExtensionUpdate'
   >
 }
 

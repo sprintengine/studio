@@ -1416,6 +1416,7 @@ const APP_TO_BUNDLE = new Map(
     '--shadow-drawer': '--sem-shadow-drawer',
     '--shadow-popover': '--sem-shadow-popover',
     '--shadow-modal': '--sem-shadow-modal',
+    '--shadow-toast': '--sem-shadow-toast',
     '--shadow-control-raised': '--sem-shadow-control-raised',
     '--shadow-control-edge': '--sem-shadow-control-edge',
     '--shadow-control-pressed': '--sem-shadow-control-pressed',

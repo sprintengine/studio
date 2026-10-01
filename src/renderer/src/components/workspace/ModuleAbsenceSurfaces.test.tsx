@@ -156,7 +156,7 @@ test('ModuleAbsenceSurfaces', async () => {
   // register a type under a name of its own — so the turned-off surface reads the
   // label off the MODULE id, not the mode.
   function testModuleIdLabelNamesTheBundledModule(): void {
-    assert.equal(moduleLabelForModuleId('automations'), 'Automations')
+    assert.equal(moduleLabelForModuleId('scheduled-agents'), 'Scheduled agents')
     assert.equal(moduleLabelForModuleId('tide-tables'), 'tide-tables', 'an id no manifest knows is returned as-is')
   }
 
@@ -166,17 +166,11 @@ test('ModuleAbsenceSurfaces', async () => {
   // at all.
   function testWorkspaceAbsenceAnswersInstalledAbsentAndDisabled(): void {
     const deps = (enabled: boolean, registered = true) => ({
-      isBundledHiddenMode: (mode: string) => mode === 'automations-host',
       workspaceTypeModuleId: (mode: string) => (registered && mode === 'tide-tables' ? 'tide-tables' : undefined),
       isModuleEnabled: () => enabled,
     })
 
     assert.equal(workspaceModuleAbsence('standard', deps(true)), null, 'the shell mode is never absent')
-    assert.equal(
-      workspaceModuleAbsence('automations-host', deps(false)),
-      null,
-      'a bundled hidden host is a background container, not a surface that can be absent',
-    )
     assert.equal(
       workspaceModuleAbsence('tide-tables', deps(true)),
       null,
