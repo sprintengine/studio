@@ -465,6 +465,22 @@ test('a refusal from below is answered in stable words, never the runtime’s ow
   assert.ok(otherId && otherId !== errorId, 'each refusal has an id of its own')
 })
 
+test('a command id reused for a different command is refused; the same command again is answered from its receipt', async () => {
+  const { path, auth, backend } = await serve()
+  const c = await open(path, pairFakeClient(auth, 'app', ['conversation:operate']))
+  const first = await request(c, 'a', 'conversation.send', { key, commandId: 'same', message: 'hello' })
+  assert.equal(first.ok, true)
+  const again = await request(c, 'b', 'conversation.send', { key, commandId: 'same', message: 'hello' })
+  assert.equal(again.ok, true)
+  const other = await request(c, 'c', 'conversation.send', { key, commandId: 'same', message: 'something else' })
+  assert.equal(!other.ok && other.error.code, 'command_id_conflict')
+  const method = await request(c, 'd', 'conversation.interrupt', { key, commandId: 'same' })
+  assert.equal(!method.ok && method.error.code, 'command_id_conflict', 'another method under the id is another command')
+  assert.equal(backend.commands.length, 1)
+  // A fingerprint rides with the command to the runtime's receipts.
+  assert.match(backend.fingerprints[0] ?? '', /^[A-Za-z0-9_-]{32}$/)
+})
+
 test('a line over the client cap is refused under its id, and the connection stays open', async () => {
   const { path, auth } = await serve()
   const c = await open(path, pairFakeClient(auth, 'big-sender', ['conversation:operate']))

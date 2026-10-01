@@ -631,7 +631,15 @@ export function createTailnetConversationStream(options: TailnetConversationStre
       if (!key) return finish(false, 'not_found')
       const commandResult = await host.command(key, options.deviceId, frame.commandId, frame.command)
       if (commandResult.ok) finish(true, undefined, undefined, commandResult.notice)
-      else finish(false, commandResult.code ?? 'unavailable', commandResult.message)
+      // This lane names no fingerprint, so a conflict cannot come back on it.
+      else
+        finish(
+          false,
+          commandResult.code === undefined || commandResult.code === 'command_id_conflict'
+            ? 'unavailable'
+            : commandResult.code,
+          commandResult.message,
+        )
     }
   }
   // Reads and commands are bounded per socket: one device cannot queue up

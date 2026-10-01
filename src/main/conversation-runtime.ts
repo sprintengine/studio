@@ -325,6 +325,28 @@ const REQUEST_KIND_NAMES: Record<string, string> = {
   plan: 'a plan',
 }
 
+/** The answer to a command id already used for a different command. */
+function commandIdConflict(): ConversationSessionActionResult {
+  return {
+    ok: false,
+    code: 'command_id_conflict',
+    message: 'That command id was already used for a different command. Send this one under a new id.',
+  }
+}
+
+/** The fingerprint a receipt was kept with, if it has one. */
+function receiptFingerprint(receipt: ConversationSessionActionResult): string | undefined {
+  const value = (receipt as { fingerprint?: unknown }).fingerprint
+  return typeof value === 'string' ? value : undefined
+}
+
+/** A receipt as its command's result: the fingerprint is the receipt's, not the answer's. */
+function withoutFingerprint(receipt: ConversationSessionActionResult): ConversationSessionActionResult {
+  if (receiptFingerprint(receipt) === undefined) return receipt
+  const { fingerprint: _fingerprint, ...result } = receipt as ConversationSessionActionResult & { fingerprint: string }
+  return result as ConversationSessionActionResult
+}
+
 export class ConversationRuntime {
   private readonly adapters = new Map<string, ConversationProviderAdapter>()
   private readonly secretStore: Pick<ProviderSecretStore, 'getStatus'> &
@@ -369,6 +391,9 @@ export class ConversationRuntime {
   private readonly emissionTails = new Map<string, Promise<unknown>>()
   private readonly receipts = new Map<string, Promise<Map<string, ConversationSessionActionResult>>>()
   private readonly pendingCommands = new Map<string, Promise<ConversationSessionActionResult>>()
+  // What each command in flight was, by the same key, so a different command
+  // under its id is refused while the first is still running too.
+  private readonly pendingFingerprints = new Map<string, string | undefined>()
   private readonly receiptWrites = new Map<string, Promise<void>>()
   // Transcripts with a write that failed this run: a sequence number was
   // published that is not on disk, so they never serve incremental catch-up.
@@ -705,8 +730,11 @@ export class ConversationRuntime {
     input: ConversationSendTurnInput & { sourceCommandId?: string },
   ): Promise<ConversationSessionActionResult> {
     if (input.commandId)
-      return this.runCommand(input.sessionId, input.commandId, () =>
-        this.sendTurn({ ...input, sourceCommandId: input.commandId, commandId: undefined }),
+      return this.runCommand(
+        input.sessionId,
+        input.commandId,
+        () => this.sendTurn({ ...input, sourceCommandId: input.commandId, commandId: undefined }),
+        input.commandFingerprint,
       )
     const session = this.sessions.get(input.sessionId)
     if (!session) return { ok: false, message: 'Conversation session is invalid.' }
@@ -1203,8 +1231,11 @@ export class ConversationRuntime {
 
   async respondToRequest(input: ConversationRespondToRequestInput): Promise<ConversationSessionActionResult> {
     if (input.commandId)
-      return this.runCommand(input.sessionId, input.commandId, () =>
-        this.respondToRequest({ ...input, commandId: undefined }),
+      return this.runCommand(
+        input.sessionId,
+        input.commandId,
+        () => this.respondToRequest({ ...input, commandId: undefined }),
+        input.commandFingerprint,
       )
     const session = this.sessions.get(input.sessionId)
     if (!session) return { ok: false, message: 'Conversation session is invalid.' }
@@ -1300,8 +1331,11 @@ export class ConversationRuntime {
   // plainly when it starts applying.
   async setPermission(input: ConversationSetPermissionInput): Promise<ConversationSessionActionResult> {
     if (input.commandId)
-      return this.runCommand(input.sessionId, input.commandId, () =>
-        this.setPermission({ ...input, commandId: undefined }),
+      return this.runCommand(
+        input.sessionId,
+        input.commandId,
+        () => this.setPermission({ ...input, commandId: undefined }),
+        input.commandFingerprint,
       )
     const session = this.sessions.get(input.sessionId)
     if (!session) return { ok: false, message: 'Conversation session is invalid.' }
@@ -1382,7 +1416,12 @@ export class ConversationRuntime {
   // Gated on the adapter declaring `liveModelSwitch`, never on its id.
   async setModel(input: ConversationSetModelInput): Promise<ConversationSessionActionResult> {
     if (input.commandId)
-      return this.runCommand(input.sessionId, input.commandId, () => this.setModel({ ...input, commandId: undefined }))
+      return this.runCommand(
+        input.sessionId,
+        input.commandId,
+        () => this.setModel({ ...input, commandId: undefined }),
+        input.commandFingerprint,
+      )
     const session = this.sessions.get(input.sessionId)
     if (!session) return { ok: false, message: 'Conversation session is invalid.' }
     const pending = (session.modelChangeTail ?? Promise.resolve())
@@ -1415,7 +1454,12 @@ export class ConversationRuntime {
 
   async interrupt(input: ConversationInterruptInput): Promise<ConversationSessionActionResult> {
     if (input.commandId)
-      return this.runCommand(input.sessionId, input.commandId, () => this.interrupt({ ...input, commandId: undefined }))
+      return this.runCommand(
+        input.sessionId,
+        input.commandId,
+        () => this.interrupt({ ...input, commandId: undefined }),
+        input.commandFingerprint,
+      )
     const session = this.sessions.get(input.sessionId)
     if (!session) return { ok: false, message: 'Conversation session is invalid.' }
     if (!session.activeTurnId) return { ok: false, message: 'Conversation session has no active turn.' }
@@ -1447,7 +1491,12 @@ export class ConversationRuntime {
 
   async stopSession(input: ConversationStopSessionInput): Promise<ConversationSessionActionResult> {
     if (input.commandId)
-      return this.runCommand(input.sessionId, input.commandId, () => this.stopSession({ sessionId: input.sessionId }))
+      return this.runCommand(
+        input.sessionId,
+        input.commandId,
+        () => this.stopSession({ sessionId: input.sessionId }),
+        input.commandFingerprint,
+      )
     const session = this.sessions.get(input.sessionId)
     if (!session) return { ok: false, message: 'Conversation session is invalid.' }
     const adapter = this.getAdapterForProviderId(session.providerId)
@@ -2158,6 +2207,7 @@ export class ConversationRuntime {
     sessionId: string,
     commandId: string,
     action: () => Promise<ConversationSessionActionResult>,
+    fingerprint?: string,
   ): Promise<ConversationSessionActionResult> {
     const session = this.sessions.get(sessionId)
     if (!session) return Promise.resolve({ ok: false, message: 'Conversation session is invalid.' })
@@ -2166,8 +2216,12 @@ export class ConversationRuntime {
       '.receipts.json',
     )
     const key = `${path}:${commandId}`
+    // A command id is the client's promise that it names one command. The
+    // same id for a different command (by its fingerprint, where the caller
+    // gave one) is refused, never answered with the first command's result.
+    const conflict = (known: string | undefined) => Boolean(fingerprint && known && known !== fingerprint)
     const pending = this.pendingCommands.get(key)
-    if (pending) return pending
+    if (pending) return conflict(this.pendingFingerprints.get(key)) ? Promise.resolve(commandIdConflict()) : pending
     const result = (async (): Promise<ConversationSessionActionResult> => {
       let receipts: Map<string, ConversationSessionActionResult>
       try {
@@ -2176,7 +2230,7 @@ export class ConversationRuntime {
         return { ok: false, message: error instanceof Error ? error.message : 'Command receipts are unavailable.' }
       }
       const prior = receipts.get(commandId)
-      if (prior) return prior
+      if (prior) return conflict(receiptFingerprint(prior)) ? commandIdConflict() : withoutFingerprint(prior)
       const persist = async () => {
         while (receipts.size > 256) receipts.delete(receipts.keys().next().value!)
         const serialized = JSON.stringify(Array.from(receipts))
@@ -2186,13 +2240,20 @@ export class ConversationRuntime {
         this.receiptWrites.set(path, write)
         await write
       }
+      // The fingerprint is kept inside the receipt, so the file keeps its
+      // shape and one written before fingerprints reads as it always has.
+      const stamped = (value: ConversationSessionActionResult): ConversationSessionActionResult =>
+        fingerprint ? Object.assign({}, value, { fingerprint }) : value
       // Write the intent before an adapter can do work. If the process dies
       // before completion, replay this uncertainty instead of executing twice.
-      receipts.set(commandId, {
-        ok: false,
-        message:
-          'This command started before the connection was interrupted. Check the conversation before sending a new command.',
-      })
+      receipts.set(
+        commandId,
+        stamped({
+          ok: false,
+          message:
+            'This command started before the connection was interrupted. Check the conversation before sending a new command.',
+        }),
+      )
       try {
         await persist()
       } catch (error) {
@@ -2208,12 +2269,18 @@ export class ConversationRuntime {
       } catch (error) {
         receipt = { ok: false, message: error instanceof Error ? error.message : 'Conversation command failed.' }
       }
-      receipts.set(commandId, receipt)
+      receipts.set(commandId, stamped(receipt))
       await persist().catch(() => undefined)
       return receipt
     })()
     this.pendingCommands.set(key, result)
-    void result.finally(() => this.pendingCommands.delete(key)).catch(() => undefined)
+    this.pendingFingerprints.set(key, fingerprint)
+    void result
+      .finally(() => {
+        this.pendingCommands.delete(key)
+        this.pendingFingerprints.delete(key)
+      })
+      .catch(() => undefined)
     return result
   }
 

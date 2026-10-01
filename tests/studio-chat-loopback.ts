@@ -54,10 +54,14 @@ function conversationsOver(api: Api): StudioConversationBackend {
   }
 }
 
-// The runtime behind a window's IPC never sees a command id; the protocol's
-// carry one for its receipts, which these stubs, standing in for the IPC, are
-// not asked to keep.
-const withoutId = <T extends { commandId?: string }>({ commandId: _id, ...rest }: T) => rest
+// The runtime behind a window's IPC never sees a command id or its
+// fingerprint; the protocol's carry both for its receipts, which these stubs,
+// standing in for the IPC, are not asked to keep.
+const withoutId = <T extends { commandId?: string; commandFingerprint?: string }>({
+  commandId: _id,
+  commandFingerprint: _fingerprint,
+  ...rest
+}: T) => rest
 
 function chatOver(api: Api) {
   return createStudioChatBackend({

@@ -215,6 +215,8 @@ export const STUDIO_ERROR_CODES = [
   'unsupported_model',
   // A subscription id already in use on this connection.
   'duplicate_subscription',
+  // A command id already used for a different command; send this one under a new id.
+  'command_id_conflict',
   // The client fell too far behind a stream; resubscribe with the last cursor.
   'resync_required',
 ] as const

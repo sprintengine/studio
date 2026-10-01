@@ -69,19 +69,29 @@ const failed = (error: unknown): { ok: false; message: string } => ({
 
 /**
  * A session input checked as the IPC checks it. The IPC takes a command id
- * only as a UUID, from a window; the RPC's is namespaced to its client, so it
- * is set aside for the check and put back after.
+ * only as a UUID, from a window, and no fingerprint at all; the RPC's id is
+ * namespaced to its client and comes with its command's fingerprint, so both
+ * are set aside for the check and put back after.
  */
-function checked<T extends { commandId?: string }>(
+function checked<T extends { commandId?: string; commandFingerprint?: string }>(
   input: T,
   parse: (
     raw: unknown,
-  ) => { ok: true; input: Omit<T, 'commandId'> & { commandId?: string } } | { ok: false; message: string },
+  ) =>
+    | { ok: true; input: Omit<T, 'commandId' | 'commandFingerprint'> & { commandId?: string } }
+    | { ok: false; message: string },
 ): { ok: true; input: T } | { ok: false; message: string } {
-  const { commandId, ...rest } = input
+  const { commandId, commandFingerprint, ...rest } = input
   const parsed = parse(rest)
   if (!parsed.ok) return parsed
-  return { ok: true, input: { ...parsed.input, ...(commandId === undefined ? {} : { commandId }) } as T }
+  return {
+    ok: true,
+    input: {
+      ...parsed.input,
+      ...(commandId === undefined ? {} : { commandId }),
+      ...(commandFingerprint === undefined ? {} : { commandFingerprint }),
+    } as T,
+  }
 }
 
 export function createStudioChatBackend(deps: StudioChatBackendDeps): StudioChatBackend {

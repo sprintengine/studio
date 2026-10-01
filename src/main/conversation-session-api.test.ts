@@ -296,6 +296,53 @@ test('concurrent duplicate commands and receipts after restart produce one user 
   }
 })
 
+test('a command id named for a different command is refused, while the first runs, after it, and after a restart', async () => {
+  const f = await fixture()
+  try {
+    const commandId = randomUUID()
+    const send = (message: string, commandFingerprint: string) =>
+      f.runtime.sendTurn({ sessionId: f.sessionId, message, commandId, commandFingerprint })
+    const conflict = {
+      ok: false,
+      code: 'command_id_conflict',
+      message: 'That command id was already used for a different command. Send this one under a new id.',
+    }
+    const [first, racing] = await Promise.all([send('/tools', 'fp-tools'), send('/help', 'fp-help')])
+    assert.equal(first.ok, true)
+    assert.deepEqual(racing, conflict, 'while the first is still running')
+    assert.deepEqual(await send('/tools', 'fp-tools'), first, 'the same command again is answered from its receipt')
+    assert.deepEqual(await send('/help', 'fp-help'), conflict, 'and another one under its id is refused')
+    // A receipt's answer is its command's result: the fingerprint is the receipt's own.
+    assert.equal('fingerprint' in (await send('/tools', 'fp-tools')), false)
+    await f.runtime.shutdown()
+    const restarted = new ConversationRuntime({
+      adapters: [createMockConversationProvider()],
+      getProviderById: () => undefined,
+    })
+    try {
+      const session = await restarted.startSession({ ...f.key, providerId: 'mock-provider', modelId: 'mock-model' })
+      if (!session.ok) throw new Error(session.message)
+      const again = (message: string, commandFingerprint?: string) =>
+        restarted.sendTurn({
+          sessionId: session.session.sessionId,
+          message,
+          commandId,
+          ...(commandFingerprint ? { commandFingerprint } : {}),
+        })
+      assert.deepEqual(await again('/help', 'fp-help'), conflict, 'the receipt on disk keeps what the command was')
+      assert.deepEqual(await again('/tools', 'fp-tools'), first)
+      // A caller that names no fingerprint (the IPC never does) is answered as before.
+      assert.deepEqual(await again('/anything'), first)
+      const replay = await restarted.readTranscript(f.key)
+      assert.equal(replay.ok && replay.events.filter((e) => e.type === 'user_message').length, 1)
+    } finally {
+      await restarted.shutdown()
+    }
+  } finally {
+    await f.cleanup()
+  }
+})
+
 test('a crash after command intent persistence never replays its side effect', async () => {
   let intent = ''
   let receiptsPath = ''

@@ -35,6 +35,8 @@ export type FakeBackend = StudioConversationBackend & {
   /** Append an event to a conversation's log and deliver it to its followers. */
   emit(agentId: string, type: ConversationEvent['type'], payload?: Record<string, unknown>): ConversationEvent
   commands: Array<{ clientId: string; commandId: string; command: ConversationCommand }>
+  /** The fingerprint each command carried, in order. */
+  fingerprints: Array<string | undefined>
   creates: Array<{ request: ConversationCreateRequest; launchCommandId: string }>
   /** Every stop carried out, by its namespaced command id. */
   stops: string[]
@@ -50,6 +52,7 @@ export function createFakeBackend(agentIds: string[] = ['agent-1']): FakeBackend
   const created = new Map<string, StudioCreatedConversation>()
   const backend: FakeBackend = {
     commands: [],
+    fingerprints: [],
     creates: [],
     stops: [],
     presets: new Map(),
@@ -133,9 +136,10 @@ export function createFakeBackend(agentIds: string[] = ['agent-1']): FakeBackend
     async turnDiff() {
       return { ok: false, message: 'No checkpoint.' }
     },
-    async command(key, clientId, commandId, command) {
+    async command(key, clientId, commandId, command, fingerprint) {
       const prior = receipts.get(commandId)
       if (prior) return prior
+      backend.fingerprints.push(fingerprint)
       // A refusal in the runtime's own words, which can name internals.
       if (command.kind === 'send' && command.message === 'explode')
         return { ok: false, message: 'ENOENT: no such file, open /Users/dev/app/.sprintengine/secret.json' }

@@ -10,6 +10,7 @@ import type {
   ConversationKey,
   ConversationImageAttachment,
   ConversationPermissionPreset,
+  ConversationSessionActionResult,
   ConversationSessionFrame,
   ConversationSessionSummary,
   ConversationSubscribeInput,
@@ -118,12 +119,32 @@ export type ConversationGatewayHost = {
    * same answer its listed thread gives as `permissionPreset`.
    */
   permissionOf?(key: Pick<ConversationKey, 'workspaceId' | 'agentId'>): ConversationPermissionPreset
+  /**
+   * Carry out one command under its client's id. `fingerprint`, where the
+   * client's door computes one, is kept with the command's receipt: the same
+   * id for a different command is then refused (`command_id_conflict`).
+   */
   command(
     key: ConversationKey,
     deviceId: string,
     commandId: string,
     command: ConversationCommand,
+    fingerprint?: string,
   ): Promise<ConversationGatewayCommandResult>
+}
+
+/**
+ * A runtime answer as a command's result. The runtime names one refusal by a
+ * code, a command id already used for a different command, and that is kept;
+ * the commands built here name none, and the runtime's words stay in the message.
+ */
+function relay(
+  result: ConversationGatewayCommandResult | ConversationSessionActionResult,
+): ConversationGatewayCommandResult {
+  if (result.ok || result.code === undefined || result.code === 'command_id_conflict')
+    return result as ConversationGatewayCommandResult
+  const { code: _unnamed, ...rest } = result
+  return rest as ConversationGatewayCommandResult
 }
 
 export type ConversationToolImagePath =
@@ -137,7 +158,7 @@ export type ConversationToolImagePath =
 export type ConversationGatewayCommandResult = {
   ok: boolean
   message?: string
-  code?: ConversationWireErrorCode
+  code?: ConversationWireErrorCode | 'command_id_conflict'
   notice?: string
 }
 
@@ -280,6 +301,7 @@ export function createConversationGatewayHost(
     key: ConversationKey,
     commandId: string,
     modelId: string,
+    fingerprint?: string,
   ): Promise<ConversationGatewayCommandResult> => {
     let session = sessionFor(key)
     const providerId = session?.providerId ?? (await threadFor(key))?.providerId
@@ -296,7 +318,12 @@ export function createConversationGatewayHost(
       if (!resumed.ok) return resumed
       session = resumed.session
     }
-    const switched = await api.setModel({ sessionId: session.sessionId, commandId, modelId })
+    const switched = await api.setModel({
+      sessionId: session.sessionId,
+      commandId,
+      modelId,
+      ...(fingerprint ? { commandFingerprint: fingerprint } : {}),
+    })
     if (!switched.ok) return { ok: false, message: switched.message }
     return { ok: true, ...(switched.notice ? { notice: switched.notice } : {}) }
   }
@@ -412,9 +439,11 @@ export function createConversationGatewayHost(
       uploads.set(id, { ...input, at: Date.now() })
       return id
     },
-    command(key, deviceId, commandId, command) {
-      if (command.kind === 'setModel') return setModel(key, commandId, command.modelId)
-      const execute = async (): Promise<ConversationGatewayCommandResult> => {
+    command(key, deviceId, commandId, command, fingerprint) {
+      if (command.kind === 'setModel') return setModel(key, commandId, command.modelId, fingerprint)
+      const stamp = fingerprint ? { commandFingerprint: fingerprint } : {}
+      const execute = async (): Promise<ConversationGatewayCommandResult> => relay(await run())
+      const run = async (): Promise<ConversationGatewayCommandResult | ConversationSessionActionResult> => {
         let session = sessionFor(key)
         // A send, or a preset switch, reaches a conversation with no live
         // session by resuming it; the switch then applies to that session.
@@ -437,6 +466,7 @@ export function createConversationGatewayHost(
                 commandId,
                 message: command.message,
                 attachments: [],
+                ...stamp,
               })
             const attachments: ConversationImageAttachment[] = []
             for (const id of ids) {
@@ -470,6 +500,7 @@ export function createConversationGatewayHost(
               commandId,
               message: command.message,
               attachments,
+              ...stamp,
             })
             // Accepted: the images are in the turn now, so their staged files
             // are removed rather than left for the hour-long expiry. A refused
@@ -484,7 +515,7 @@ export function createConversationGatewayHost(
             return sent
           }
           case 'interrupt':
-            return api.interrupt({ sessionId: session.sessionId, commandId })
+            return api.interrupt({ sessionId: session.sessionId, commandId, ...stamp })
           case 'resolveApproval':
             return api.resolveApproval({
               sessionId: session.sessionId,
@@ -492,6 +523,7 @@ export function createConversationGatewayHost(
               requestId: command.requestId,
               approved: command.decision !== 'deny',
               decision: command.decision,
+              ...stamp,
             })
           case 'answerQuestion':
             return api.answerQuestion({
@@ -500,6 +532,7 @@ export function createConversationGatewayHost(
               requestId: command.requestId,
               approved: true,
               answers: command.answers,
+              ...stamp,
             })
           // A plan's own answer, refused for a request that is not a plan.
           // A plan answered as a `resolveApproval`, as before this command
@@ -511,6 +544,7 @@ export function createConversationGatewayHost(
               requestId: command.requestId,
               approved: command.decision === 'approve',
               requestKind: 'plan',
+              ...stamp,
             })
           case 'setPermissionPreset': {
             // A mode that is no mode id of a CLI's own is dropped, and the
@@ -521,6 +555,7 @@ export function createConversationGatewayHost(
               commandId,
               permissionPreset: command.preset,
               ...(permissionMode ? { permissionMode } : {}),
+              ...stamp,
             })
           }
         }

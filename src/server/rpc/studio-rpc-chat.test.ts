@@ -336,7 +336,7 @@ test('a picture arrives in pieces and reaches the runtime whole, spent by the on
         commandId: 'c1',
         sessionId: 's1',
         message: 'look',
-        attachments: [{ id: 'img', uploadId }],
+        attachments: [{ id: 'img', uploadId, name: 'shot.png' }],
       })
     ).ok,
   )

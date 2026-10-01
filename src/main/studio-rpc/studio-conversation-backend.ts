@@ -44,13 +44,20 @@ export function createStudioConversationBackend(deps: StudioConversationBackendD
     loadEarlier: (key, beforeCursor, turnLimit) => host.loadEarlier(key, beforeCursor, turnLimit),
     toolDetail: (key, toolUseId) => host.getToolDetail(key, toolUseId),
     turnDiff: (key, turnSeq, path) => host.getTurnDiff(key, turnSeq, path),
-    command: (key, clientId, commandId, command) => host.command(key, clientId, commandId, command),
+    command: (key, clientId, commandId, command, fingerprint) =>
+      host.command(key, clientId, commandId, command, fingerprint),
     // The newest live session, as a send reaches it, through the receipts.
-    async stop(key, commandId) {
+    async stop(key, commandId, fingerprint) {
       const live = liveSessions(key).sort((a, b) => b.createdAt - a.createdAt)[0]
       if (!live) return { ok: true }
-      const stopped = await deps.stopSession({ sessionId: live.sessionId, commandId })
-      return stopped.ok ? { ok: true } : { ok: false, message: stopped.message }
+      const stopped = await deps.stopSession({
+        sessionId: live.sessionId,
+        commandId,
+        ...(fingerprint ? { commandFingerprint: fingerprint } : {}),
+      })
+      return stopped.ok
+        ? { ok: true }
+        : { ok: false, message: stopped.message, ...(stopped.code ? { code: stopped.code } : {}) }
     },
     // How loose the chat runs, for a ceiling: its preset, except that a
     // session started with tools it may use unasked runs those tools as

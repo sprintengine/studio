@@ -76,13 +76,19 @@ export type StudioConversationBackend = {
     clientId: string,
     commandId: string,
     command: ConversationCommand,
+    /** What the command was, kept with its receipt: the id for another command is then refused. */
+    fingerprint?: string,
   ): Promise<StudioCommandOutcome>
   /**
    * End the conversation's live session, if it has one, under the command id
    * already namespaced to its client: the receipt answers a resend with the
    * first result rather than stopping a session started since.
    */
-  stop(key: ConversationKey, commandId: string): Promise<{ ok: true } | { ok: false; message: string }>
+  stop(
+    key: ConversationKey,
+    commandId: string,
+    fingerprint?: string,
+  ): Promise<{ ok: true } | { ok: false; message: string; code?: string }>
   /** The preset the conversation runs on now, or resumes on. */
   permissionOf(key: ConversationKey): ConversationWirePermissionPreset
   /** The conversation an earlier create under this namespaced id started, if it still exists. */

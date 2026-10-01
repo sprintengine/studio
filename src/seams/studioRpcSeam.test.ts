@@ -215,13 +215,19 @@ test('a paired app starts a chat, follows it and drives it, held to its ceiling'
     const second = await until(stream, (frame) => frame.type === 'event' && frame.event.type === 'turn_completed')
     assert.deepEqual(texts(second), ['re: again'])
 
-    // A retried create finds the chat the first one made.
-    const retried = await client.conversations.create({
+    // A retried create finds the chat the first one made; another create
+    // under the same id is another command, and is refused.
+    const request = {
       workspaceId: 'ws-a',
       cli: 'claude-code',
+      prompt: 'hello',
+      permissionPreset: 'bypass' as const,
       commandId: 'make-chat',
-    })
+    }
+    const retried = await client.conversations.create(request)
     assert.equal(retried.ok && retried.conversation.agentId, chat.ref.agentId)
+    const other = await client.conversations.create({ ...request, prompt: 'something else' })
+    assert.equal(!other.ok && other.code, 'command_id_conflict')
 
     // The listing the app reads is the conversation lane's own thread shape.
     const listed = (await client.conversations.list()).find((thread) => thread.agentId === chat.ref.agentId)

@@ -228,6 +228,10 @@ export type ConversationPlanDocumentInput = ConversationKey & {
 export type ConversationPlanDocumentResult = { ok: true; path: string } | { ok: false; message: string }
 
 export type ConversationSendTurnInput = {
+  // What the command was, hashed by whoever named its id: a receipt keeps it,
+  // and the same id coming back for a different command is refused rather
+  // than answered with the first one's result. Never sent by a window's IPC.
+  commandFingerprint?: string
   mentions?: import('./conversation/mentions').ConversationMentionRef[]
   reasoningEffort?: string
   mode?: 'default' | 'plan' | 'ask'
@@ -252,11 +256,19 @@ export type ConversationSendTurnInput = {
 }
 
 export type ConversationInterruptInput = {
+  // What the command was, hashed by whoever named its id: a receipt keeps it,
+  // and the same id coming back for a different command is refused rather
+  // than answered with the first one's result. Never sent by a window's IPC.
+  commandFingerprint?: string
   commandId?: string
   sessionId: string
 }
 
 export type ConversationRespondToRequestInput = {
+  // What the command was, hashed by whoever named its id: a receipt keeps it,
+  // and the same id coming back for a different command is refused rather
+  // than answered with the first one's result. Never sent by a window's IPC.
+  commandFingerprint?: string
   commandId?: string
   decision?: import('./conversation/approvalRules').ConversationApprovalDecision
   sessionId: string
@@ -278,6 +290,10 @@ export type ConversationRespondToRequestInput = {
 // effect on its next tool call, without recreating the session or losing
 // history.
 export type ConversationSetPermissionInput = {
+  // What the command was, hashed by whoever named its id: a receipt keeps it,
+  // and the same id coming back for a different command is refused rather
+  // than answered with the first one's result. Never sent by a window's IPC.
+  commandFingerprint?: string
   commandId?: string
   sessionId: string
   permissionPreset: ConversationPermissionPreset
@@ -288,12 +304,20 @@ export type ConversationSetPermissionInput = {
 // Switch a running conversation to another model of the same provider. The
 // CLI's own default row is `default`. Applies from the next turn.
 export type ConversationSetModelInput = {
+  // What the command was, hashed by whoever named its id: a receipt keeps it,
+  // and the same id coming back for a different command is refused rather
+  // than answered with the first one's result. Never sent by a window's IPC.
+  commandFingerprint?: string
   commandId?: string
   sessionId: string
   modelId: string
 }
 
 export type ConversationStopSessionInput = {
+  // What the command was, hashed by whoever named its id: a receipt keeps it,
+  // and the same id coming back for a different command is refused rather
+  // than answered with the first one's result. Never sent by a window's IPC.
+  commandFingerprint?: string
   sessionId: string
   // With one, the stop goes through the conversation's durable receipts like
   // any other command: a retry is answered with the first result, so a resend
@@ -330,7 +354,9 @@ export type ConversationSessionActionResult =
   // but does not apply yet (switching to Bypass while a turn is still
   // streaming). The action succeeded; this is not an error.
   | { ok: true; session: ConversationSessionSummary; notice?: string }
-  | { ok: false; message: string; event?: ConversationEvent }
+  // `code` names a refusal a caller acts on by itself. The runtime gives one:
+  // `command_id_conflict`, a command id already used for a different command.
+  | { ok: false; message: string; event?: ConversationEvent; code?: string }
 
 export type ConversationListSessionsResult =
   { ok: true; sessions: ConversationSessionSummary[] } | { ok: false; message: string }

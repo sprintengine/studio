@@ -14,7 +14,7 @@ import {
   type StudioMethodResult,
   type StudioServerInfo,
 } from '../../../packages/studio-protocol/src/public'
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 
 import { isLooserCliPermissionPreset } from '../../shared/cli-permission-preset'
 import { ceilingAllowsUnaskedTools, clampPresetToCeiling } from '../../shared/permission-ceiling'
@@ -124,7 +124,37 @@ const STABLE_MESSAGES: Readonly<Record<string, string>> = {
   cli_not_conversational: 'That agent CLI does not run as a chat here.',
   unknown_skill: 'A skill the request names is not installed here.',
   conversation_start_failed: 'The conversation could not be started.',
+  command_id_conflict: 'That command id was already used for a different command. Send this one under a new id.',
 }
+
+/** JSON with every object's keys in order, so two spellings of one command hash alike. */
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  if (value !== null && typeof value === 'object')
+    return `{${Object.keys(value)
+      .filter((key) => (value as Record<string, unknown>)[key] !== undefined)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson((value as Record<string, unknown>)[key])}`)
+      .join(',')}}`
+  return JSON.stringify(value) ?? 'null'
+}
+
+/**
+ * What a command is, for its receipt: its method and its params (but its id),
+ * hashed. Kept with the receipt, it tells a retry of the command from another
+ * command sent under the same id, which is refused rather than answered with
+ * the first one's result.
+ */
+export function studioCommandFingerprint(method: string, params: unknown): string {
+  const { commandId: _id, ...rest } = (params ?? {}) as Record<string, unknown>
+  return createHash('sha256')
+    .update(`${method}\n${canonicalJson(rest)}`)
+    .digest('base64url')
+    .slice(0, 32)
+}
+
+// How many command ids' fingerprints the router keeps, across every way in.
+const MAX_FINGERPRINTS = 4096
 
 /** An opaque id for one refusal, logged beside its real cause. */
 export function studioErrorId(): string {
@@ -188,6 +218,10 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
   // Answers to the chat surface's conversation-level mutations, by namespaced
   // id, shared while pending so a retry racing the first attempt waits for it.
   const kept = new Map<string, Promise<StudioRpcAnswer>>()
+  // What each command id named, while this process runs: the receipts the
+  // runtime keeps hold the same fingerprint for a session's commands across a
+  // restart, and this covers the rest (a create, a revert, a fork, a stop).
+  const fingerprints = new Map<string, string>()
   // Creates still starting, by namespaced id: a retry that arrives while the
   // first attempt is launching shares it, so one id makes one chat.
   const stopsDone = new Set<string>()
@@ -234,6 +268,7 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
     params: { key: StudioConversationKey; commandId: string },
     command: ConversationCommand,
     voice: Voice,
+    fingerprint: string | undefined,
   ): Promise<StudioRpcAnswer> {
     const key = resolve(params.key, grant)
     if (!key) return notFound(params.key)
@@ -267,7 +302,13 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
           `This conversation runs on "${running}", looser than the "${grant.ceiling}" this app is allowed. Lower its preset first, or pair the app again with a looser ceiling.`,
         )
     }
-    const outcome = await backend.command(key, grant.clientId, studioRuntimeCommandId(grant, params.commandId), carried)
+    const outcome = await backend.command(
+      key,
+      grant.clientId,
+      studioRuntimeCommandId(grant, params.commandId),
+      carried,
+      fingerprint,
+    )
     if (!outcome.ok) return voice.failed(outcome.code ?? 'unavailable', outcome.message, `conversation.${carried.kind}`)
     const notice = outcome.notice ? { notice: outcome.notice } : {}
     if (carried.kind === 'setPermissionPreset')
@@ -332,8 +373,9 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
     params: never,
     context: StudioRequestContext,
     voice: Voice,
+    fingerprint: string | undefined,
   ): Promise<StudioRpcAnswer> {
-    if (isStudioChatMethod(method)) return chatDispatch(grant, method, params, context, voice)
+    if (isStudioChatMethod(method)) return chatDispatch(grant, method, params, context, voice, fingerprint)
     const { failed } = voice
     switch (method) {
       case 'server.info':
@@ -350,12 +392,18 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
         // A stop with no session to stop leaves no receipt in the runtime, so
         // it is remembered here: a resend of it never stops a later session.
         if (stopsDone.has(runtimeId)) return { ok: true, result: {} }
-        const stopped = await backend.stop(key, runtimeId)
+        const stopped = await backend.stop(key, runtimeId, fingerprint)
         if (stopped.ok) {
           stopsDone.add(runtimeId)
           while (stopsDone.size > MAX_REMEMBERED_STOPS) stopsDone.delete(stopsDone.values().next().value!)
         }
-        return stopped.ok ? { ok: true, result: {} } : failed('unavailable', stopped.message, 'conversation.stop')
+        return stopped.ok
+          ? { ok: true, result: {} }
+          : failed(
+              stopped.code === 'command_id_conflict' ? stopped.code : 'unavailable',
+              stopped.message,
+              'conversation.stop',
+            )
       }
       case 'conversation.loadEarlier': {
         const { key: wire, beforeCursor, turnLimit } = params as StudioMethodParams<'conversation.loadEarlier'>
@@ -397,7 +445,7 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
           commandId: string
         } & Record<string, unknown>
         const kind = method.slice('conversation.'.length) as ConversationCommand['kind']
-        return command(grant, { key, commandId }, { kind, ...members } as ConversationCommand, voice)
+        return command(grant, { key, commandId }, { kind, ...members } as ConversationCommand, voice, fingerprint)
       }
     }
   }
@@ -435,8 +483,11 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
     params: never,
     context: StudioRequestContext,
     voice: Voice,
+    fingerprint: string | undefined,
   ): Promise<StudioRpcAnswer> {
     const chat = options.chat?.() ?? null
+    // A session command's receipt keeps what it was, across a restart too.
+    const stamp = fingerprint ? { commandFingerprint: fingerprint } : {}
     if (!chat) return refuse('unavailable', `This Studio does not serve ${method}.`)
     // A reply is what the backend answered, as this connection may be shown it.
     const outcome = (result: unknown): StudioRpcAnswer => ({ ok: true, result: voice.redact(result) as never })
@@ -484,12 +535,13 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
             ...(mentions ? { mentions: mentions as never } : {}),
             ...(pictures ? { attachments: pictures } : {}),
             commandId: runtimeId(commandId),
+            ...stamp,
           }),
         )
       }
       case 'session.interrupt': {
         const { commandId, ...input } = params as StudioMethodParams<'session.interrupt'>
-        return outcome(await chat.interrupt({ ...input, commandId: runtimeId(commandId) }))
+        return outcome(await chat.interrupt({ ...input, commandId: runtimeId(commandId), ...stamp }))
       }
       case 'session.respond': {
         const { commandId, requestKind, ...input } = params as StudioMethodParams<'session.respond'>
@@ -498,16 +550,17 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
             ...input,
             ...(requestKind === undefined ? {} : { requestKind: requestKind as never }),
             commandId: runtimeId(commandId),
+            ...stamp,
           }),
         )
       }
       case 'session.setPermission': {
         const { commandId, ...input } = params as StudioMethodParams<'session.setPermission'>
-        return outcome(await chat.setPermission({ ...input, commandId: runtimeId(commandId) }))
+        return outcome(await chat.setPermission({ ...input, commandId: runtimeId(commandId), ...stamp }))
       }
       case 'session.setModel': {
         const { commandId, ...input } = params as StudioMethodParams<'session.setModel'>
-        return outcome(await chat.setModel({ ...input, commandId: runtimeId(commandId) }))
+        return outcome(await chat.setModel({ ...input, commandId: runtimeId(commandId), ...stamp }))
       }
       case 'uploads.begin': {
         const begun = uploads.begin(grant.clientId, params as StudioMethodParams<'uploads.begin'>)
@@ -592,11 +645,27 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
         answer = refuse('scope_required', `This app's grant does not include "${spec.scope}".`)
       } else {
         const parsed = parseStudioMethodParams(method, params)
+        // A mutation's id names one command: the same id for another one is refused.
+        const fingerprint = spec.mutation
+          ? studioCommandFingerprint(method, parsed.ok ? parsed.params : null)
+          : undefined
+        const runtimeId =
+          spec.mutation && parsed.ok
+            ? studioRuntimeCommandId(grant, (parsed.params as { commandId: string }).commandId)
+            : undefined
+        const known = runtimeId === undefined ? undefined : fingerprints.get(runtimeId)
         if (!parsed.ok) answer = refuse(parsed.code, parsed.message)
         else if (!grant.owner && namesFolder(parsed.params)) answer = refuse('owner_required', FOLDER_OWNER_ONLY)
+        else if (known !== undefined && known !== fingerprint)
+          answer = refuse('command_id_conflict', STABLE_MESSAGES.command_id_conflict)
         else {
           read = parsed.params
-          answer = await dispatch(grant, method, parsed.params as never, context, voice).catch(
+          if (runtimeId !== undefined && fingerprint !== undefined) {
+            fingerprints.delete(runtimeId)
+            fingerprints.set(runtimeId, fingerprint)
+            while (fingerprints.size > MAX_FINGERPRINTS) fingerprints.delete(fingerprints.keys().next().value!)
+          }
+          answer = await dispatch(grant, method, parsed.params as never, context, voice, fingerprint).catch(
             (error: unknown): StudioRpcAnswer =>
               voice.failed('unavailable', error instanceof Error ? error.message : String(error), method),
           )
