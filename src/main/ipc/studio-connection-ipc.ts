@@ -74,7 +74,15 @@ export function registerStudioConnectionIpc(ipcMain: IpcMain, studio: WindowConn
       const index = list.indexOf(frames)
       if (index >= 0) list.splice(index, 1)
     })
-    const connection = studio.connectWindow(frames)
+    let connection: StudioConnectResult
+    try {
+      connection = studio.connectWindow(frames)
+    } catch (error) {
+      // No connection to hand over: main's end goes with it, and the window's
+      // end is never sent.
+      frames.close()
+      throw error
+    }
     while (list.length > MAX_CONNECTIONS_PER_WINDOW) list[0].close()
     sender.postMessage(STUDIO_PORT_CHANNEL, { connectionId: connection.connectionId }, [port2])
     return connection

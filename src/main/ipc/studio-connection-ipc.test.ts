@@ -53,7 +53,7 @@ function windowEvent(id: number, options: { url?: string; parent?: object | null
   return { event: { sender, senderFrame: { parent: options.parent ?? null, url: options.url ?? appUrl } }, posted }
 }
 
-async function register() {
+async function register(options: { refuse?: boolean } = {}) {
   const { registerStudioConnectionIpc } = await import('./studio-connection-ipc')
   const connected: StudioFramePort[] = []
   registerStudioConnectionIpc(
@@ -65,6 +65,7 @@ async function register() {
     {
       connectWindow: (port) => {
         connected.push(port)
+        if (options.refuse) throw new Error('The Studio RPC is not running.')
         return { connectionId: `w${connected.length}`, ticket: `seport_ticket_${connected.length}_000000000000` }
       },
     },
@@ -120,4 +121,14 @@ test('a window that keeps connecting is held to a few connections, the oldest cl
     connected[at].onClose(() => closes.push(at))
   }
   assert.deepEqual(closes, [0, 1])
+})
+
+test('a connection the RPC cannot take is closed in main, and the window is sent no port', async () => {
+  const { connect, connected } = await register({ refuse: true })
+  const { event, posted } = windowEvent(11)
+  let ended = 0
+  assert.throws(() => connect(event), /not running/)
+  connected[0].onClose(() => ended++)
+  assert.equal(ended, 1, "main's end is closed")
+  assert.equal(posted.length, 0)
 })
