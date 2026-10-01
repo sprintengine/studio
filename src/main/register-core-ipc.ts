@@ -169,7 +169,7 @@ export function registerCoreIpc(
     openDiagnosticsWindow: () => {
       createDiagnosticsWindow()
     },
-    listConversationRoots: () => services.conversationRuntime.listLiveConversationRoots(),
+    listConversationRoots: () => services.conversations.listLiveConversationRoots(),
   })
   registerUpdateIpc(ipcMain, { updateService: services.updateService })
   registerLaunchSettingsIpc(ipcMain, { launchSettings: services.agentLaunchSettings })
@@ -236,7 +236,7 @@ export function registerCoreIpc(
     // headless conversation child processes share the threshold.
     setIdleSuspendThresholdMs: (value: unknown): void => {
       services.terminalRuntime.ipcHandlers.setIdleSuspendThresholdMs(value)
-      services.conversationRuntime.setIdleThresholdMs(value)
+      services.conversationOwner.setIdleThresholdMs(value)
     },
   })
 

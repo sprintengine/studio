@@ -11,15 +11,15 @@ import type { ConversationRuntime } from '../../main/conversation-runtime'
 // a `ConversationBackend`, never the runtime class, and a member belongs here
 // only if a remote server could answer it too.
 //
-// What stays off it is the owner's business, kept on the runtime the core
-// constructs: when its idle sweep runs, flushing and shutting down, and the
-// live child processes of this machine.
+// What stays off it is the owner's business, on the owner handle the core
+// hands out beside it: when its idle sweep runs, flushing and shutting down.
 
 // `Pick` refuses a name the runtime does not have, so this list cannot drift
 // from the class.
 export type ConversationBackendMember =
   | 'onEvent'
   | 'listSessions'
+  | 'listLiveConversationRoots'
   | 'getProviderCapabilities'
   | 'getNativeProviderModels'
   | 'startSession'

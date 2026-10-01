@@ -73,7 +73,7 @@ test('app-lifecycle', async () => {
           order.push('terminal.shutdown')
         },
       },
-      conversationRuntime: {
+      conversationOwner: {
         flushTranscripts: async () => {
           order.push('conversation.flushTranscripts')
         },

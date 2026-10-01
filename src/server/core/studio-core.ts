@@ -187,6 +187,13 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     ...(options.resolveStudioMcpServer ? { resolveStudioMcpServer: options.resolveStudioMcpServer } : {}),
   })
   conversationRuntime.startIdleSweep(powerActivity)
+  // What only the runtime's owner does with it: the idle threshold, and the
+  // flush and shutdown at the end. Everything else goes through the backend.
+  const conversationOwner = {
+    setIdleThresholdMs: (value: unknown) => conversationRuntime.setIdleThresholdMs(value),
+    flushTranscripts: () => conversationRuntime.flushTranscripts(),
+    shutdown: () => conversationRuntime.shutdown(),
+  }
   // What every caller drives chats through; the runtime itself is only for
   // what its owner does (the idle sweep, flush, shutdown).
   const conversations = localConversationBackend(conversationRuntime)
@@ -304,8 +311,8 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     hosts,
     workspaceRegistry,
     workspaceSyncService,
-    conversationRuntime,
     conversations,
+    conversationOwner,
     conversationModelCatalog,
     conversationLaunchService,
     resolveAgentPermissionPreset,

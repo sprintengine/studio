@@ -51,7 +51,7 @@ export function createScheduledAgentsModule(platform: Pick<StudioPlatform, 'path
     },
     registerMain(host) {
       const conversationLaunchService = host.requireService(ConversationLaunchServiceToken)
-      const conversationRuntime = host.requireService(ConversationRuntimeToken)
+      const conversations = host.requireService(ConversationRuntimeToken)
       const store = createScheduledAgentsStore({
         filePath: scheduledAgentsFilePath(platform.paths.dataDir()),
         warn: (message) => console.warn(`[scheduled-agents] ${message}`),
@@ -64,7 +64,7 @@ export function createScheduledAgentsModule(platform: Pick<StudioPlatform, 'path
         recordRun: (id, run) => store.recordRun(id, run),
         onRan: () => service?.notifyChanged(),
         isRunWorking: (workspaceId) => {
-          const listed = conversationRuntime.listSessions({ workspaceId })
+          const listed = conversations.listSessions({ workspaceId })
           return listed.ok && isRunChatWorking(listed.sessions)
         },
         // A skipped time is not a failed run — nothing was tried, and the

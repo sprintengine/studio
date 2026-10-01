@@ -40,10 +40,14 @@ type RegisterAppLifecycleOptions = {
   }
   /** Handed the one attention channel once it exists, for asks that are not a turn (a diff tour). */
   onAgentAttentionReady?(attention: { notify(key: string): void }): void
-  // Conversation-agent runtime: quit must dispose its headless child
-  // processes too — they live outside the PTY reaper's sight.
-  conversationRuntime?: {
+  // The chats, as every caller drives them (the core's conversation backend):
+  // the attention channel follows their events.
+  conversations?: {
     onEvent?(listener: (event: ConversationEvent) => void): () => void
+  }
+  // The conversation runtime's owner handle: quit must dispose its headless
+  // child processes too — they live outside the PTY reaper's sight.
+  conversationOwner?: {
     /** Buffered transcript text to disk, before the slower session stops. */
     flushTranscripts?(): Promise<void>
     shutdown(): Promise<void>
@@ -157,7 +161,8 @@ export function registerAppLifecycle({
   diagnosticsEnabled,
   allowMultipleInstances = false,
   terminalRuntime,
-  conversationRuntime,
+  conversations,
+  conversationOwner,
   automationService,
   studioRpcService,
   agentStateService,
@@ -479,7 +484,7 @@ export function registerAppLifecycle({
       setBadgeCount: (count) => app.setBadgeCount(count),
     })
     terminalRuntime.registerAgentPhaseListener?.((event) => agentAttention.onAgentPhase(event))
-    const disposeConversationAttention = conversationRuntime?.onEvent?.(
+    const disposeConversationAttention = conversations?.onEvent?.(
       createConversationAttentionListener(agentAttention),
     )
     if (disposeConversationAttention) app.once('will-quit', disposeConversationAttention)
@@ -567,14 +572,14 @@ export function registerAppLifecycle({
       ['automations', () => automationService?.shutdown()],
       ['agent state', () => agentStateService?.shutdown()],
       ['workspace registry', () => workspaceSyncService?.flush()],
-      ['chat transcripts', () => conversationRuntime?.flushTranscripts?.()],
+      ['chat transcripts', () => conversationOwner?.flushTranscripts?.()],
       ['terminals', () => terminalRuntime.shutdown()],
       // After the terminal service: the last frames it ingests can still file
       // a captured pull request, and this is what gets that write to disk and
       // stops the watch timers.
       ['pull requests (flush)', () => pullRequestRecord?.flush()],
       ['pull requests (dispose)', () => pullRequestRecord?.dispose()],
-      ['chats', () => conversationRuntime?.shutdown()],
+      ['chats', () => conversationOwner?.shutdown()],
       ['canvas', () => canvasService?.dispose()],
       ['command lists', () => conversationCommands?.dispose()],
       ['workspace registry (final)', () => workspaceSyncService?.flush()],
