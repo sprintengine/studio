@@ -277,6 +277,7 @@ registerAppLifecycle({
   agentStateService: services.agentStateService,
   workspaceSyncService: services.workspaceSyncService,
   removeSessionIntegrations: services.removeSessionIntegrations,
+  releaseDataDir: () => services.studioCore.dataDirLock?.release(),
   canvasService: services.canvasService,
   conversationCommands: coreIpc.conversationCommands,
   onAgentAttentionReady: (attention) => services.setTourAttention((key) => attention.notify(key)),

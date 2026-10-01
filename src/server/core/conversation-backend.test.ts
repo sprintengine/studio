@@ -17,7 +17,7 @@ const RUNTIME = resolve(ROOT, 'src/main/conversation-runtime.ts')
 const MAY_NAME_THE_RUNTIME: Record<string, string> = {
   'src/main/conversation-runtime.ts': 'the runtime itself',
   'src/server/core/conversation-backend.ts': 'picks the backend out of it',
-  'src/main/app-services.ts': 'constructs the one runtime and hands out its backend',
+  'src/server/core/studio-core.ts': 'constructs the one runtime and hands out its backend',
   'src/main/ipc/conversation-ipc.ts': 'builds a stand-alone runtime only when it is handed none (its own tests)',
 }
 
@@ -62,6 +62,6 @@ test('only the runtime and the code that constructs it name the ConversationRunt
 })
 
 test('the scan sees an import of the runtime class where there is one', () => {
-  assert.equal(namesTheRuntime('src/main/app-services.ts'), true)
+  assert.equal(namesTheRuntime('src/server/core/studio-core.ts'), true)
   assert.equal(namesTheRuntime('src/main/conversation-session-api.ts'), false)
 })

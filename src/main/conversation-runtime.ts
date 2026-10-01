@@ -218,7 +218,7 @@ function openProviderTurn(turnId: string, continuation: boolean): ProviderTurn {
   return { streamTurnId: turnId, turnId, finished: false, continuation, ended, settle }
 }
 
-type ConversationRuntimeOptions = {
+export type ConversationRuntimeOptions = {
   approvalRules?: ConversationApprovalRuleStore
   attachmentStore?: ConversationAttachmentStore
   planStore?: ConversationPlanStore

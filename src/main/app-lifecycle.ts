@@ -68,6 +68,13 @@ type RegisterAppLifecycleOptions = {
    * so deleting the app leaves none of them behind. Once no agent is running.
    */
   removeSessionIntegrations?: () => Promise<void>
+  /**
+   * Lets go of the data directory's run lock (src/server/core/data-dir.ts), so
+   * a server started after the app quits finds it free rather than asking
+   * whether the process that held it is still running. Last, after every leg
+   * that writes into the directory.
+   */
+  releaseDataDir?: () => void
   // The Canvas pane's service: it holds a board mid-write (temp file, then a
   // rename), a directory watcher per open board, and a hidden worker window.
   // Quitting between those two fs calls would leave a stray temp file in the
@@ -147,6 +154,7 @@ export function registerAppLifecycle({
   agentStateService,
   workspaceSyncService,
   removeSessionIntegrations,
+  releaseDataDir,
   canvasService,
   conversationCommands,
   pullRequestRecord,
@@ -569,6 +577,7 @@ export function registerAppLifecycle({
       // draining in-flight work and stopping kernel-owned sidecars in reverse
       // registration order.
       ['modules', () => moduleKernel?.runShutdown()],
+      ['data directory', () => releaseDataDir?.()],
     ]
     const shutdown = async () => {
       for (const [index, [name, task]] of legs.entries()) {
