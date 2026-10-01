@@ -1,6 +1,7 @@
 # Studio server — design and phased plan
 
-Status: proposed, 2026-10-01. Nothing here is implemented. This file replaces
+Status: proposed, 2026-10-01. Phase 2 has landed (section 13, "As landed");
+the rest is not implemented. This file replaces
 the remaining steps of the agent SDK plan on `feat/studio-agent-sdk` (the work
 after the protocol package and the tailnet lane and module service that speak
 it) with the phases in section 13. When code and this file disagree, fix one of
@@ -322,6 +323,19 @@ The conversation stream's payloads are the existing `ConversationServerFrame`
 payloads wrapped with a `sub` id, so the desktop, the SDK and the phone parse
 one vocabulary. New namespaces add their own topics and methods.
 
+As built in phase 2, a stream frame is `{ t: 'frame', sub, frame }`, the inner
+`frame` being the conversation lane's `snapshot`, `event` or `synchronized`
+exactly, so a client validates it with `parseConversationServerFrame`; and a
+server closing a connection says why first, `{ t: 'bye', code, message,
+retryAfterMs? }` (`revoked`, `resync_required`, `shutting_down`,
+`unauthorized`, `unsupported_protocol_version`, …), standing in for the
+WebSocket close codes the tailnet lane uses. On the owner socket each frame is
+one line of JSON, the automation socket's framing; a WebSocket carries the same
+frames one per message. The conversation commands are one method each, named
+after the command kind they carry (`conversation.resolveApproval`,
+`conversation.answerQuestion`, …, where 5.2 says `respond`), with params read
+by `parseConversationClientMessage`.
+
 Every method declares its required scope in one table
 (`STUDIO_METHOD_SCOPES`), typed so that a method without an entry does not
 compile. The router checks it on every request, as the tailnet lane re-reads
@@ -383,11 +397,16 @@ grants on every frame.
 
 ### 5.4 Where the protocol lives
 
-The protocol grows inside `@sprintengine/conversation-protocol` while it is
-0.x: new files (`studio/envelope.ts`, `studio/handshake.ts`,
-`studio/methods.ts`, one file per namespace) re-exported from `public.ts`,
-leaving the phone's five pinned files untouched. Whether it is renamed to a
-broader package name before 1.0 is an open question (section 15).
+The protocol is `@sprintengine/studio-protocol` (owner ruling 2026-10-01), a
+package of its own that depends on `@sprintengine/conversation-protocol` and
+re-exports all of it, so a client imports one package. The conversation
+package stays the conversation lane on its own, the phone's subset, and its
+five pinned files are untouched: the Studio protocol adds the connection around
+the contract rather than growing inside it. In this repository the protocol's
+one bridging file re-exports the conversation package's source by path, and
+its build swaps that file for the published dependency; the pack check
+installs the tarballs together. New namespaces are new files in the Studio
+protocol package.
 
 `@sprintengine/agent-sdk` is the client library built on it, for Node and the
 browser: connect (owner socket, loopback with a token, or a ticketed WebSocket
@@ -727,7 +746,17 @@ local users connect, and a second check costs nothing.
   mints the token and hands it over in the bootstrap envelope (10.1); the
   server stores only its hash. A server started any other way writes
   `<dataDir>/run/owner-token` (0600) and the SDK reads it from there, which is
-  the same-user check.
+  the same-user check. While the server runs inside the app (phases 2 to 5)
+  the token is minted in memory for each run and never written down, so no
+  file grants owner access.
+- **Paired local apps** (phase 2) are not owners. The person mints a one-time
+  pairing code in Settings naming the app, its scopes (`conversation:read`,
+  `conversation:operate`, `conversation:create`) and its permission ceiling;
+  the app's first hello redeems it for a token, kept only as a hash. The
+  ceiling is the module service's: a preset asked for is lowered to it, none
+  asked for is pinned to it, `allowedTools` needs `bypass`, and a chat already
+  running looser than it is not driven by the app. Revocation in Settings
+  closes the app's connections at once.
 - A desktop window gets a **single-use ticket** (30 seconds, as on the tailnet)
   from main for each connection, and opens the WebSocket with it. The long-lived
   token stays in main.
@@ -1025,6 +1054,18 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
   checks.
 - **Risks.** Freezing names that later namespaces regret; mitigated by shipping
   only `server` and `conversation` and the envelope.
+- **As landed.** `packages/studio-protocol` (not `conversation-protocol/src/studio`,
+  see 5.4); `src/server/rpc/` (listener, connection, router, an import-graph
+  guard against Electron); `src/main/studio-rpc/` (the backend over the
+  tailnet lane's conversation host and the launch service, the paired-app
+  store, the service started and stopped with the gateway); Settings → Agents →
+  Local apps; `packages/agent-sdk` with `./node`, an in-process adapter over
+  the module SDK's conversation service, an example script and a pack check
+  that installs all three tarballs. The socket is
+  `<userData>/run/studio.sock` in a 0700 directory (a private temp directory
+  when the path is too long; a pipe with a random name on Windows), found
+  through `<userData>/run/server.json`. Audit records go into the gateway's one
+  log under the `studio-client` connection kind.
 
 ### Phase 3 — An Electron-free core and the `studio-server` entry (L)
 
@@ -1150,9 +1191,9 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
 
 ## 15. Open questions for the owner
 
-1. **Package names.** Grow `@sprintengine/conversation-protocol` into the whole
-   Studio protocol, or rename it (for example `@sprintengine/studio-protocol`)
-   before 1.0 while the conversation package stays as the phone's subset?
+1. **Package names.** Answered (owner ruling 2026-10-01):
+   `@sprintengine/studio-protocol`, depending on and re-exporting the
+   conversation package, which stays the phone's subset (5.4).
 2. **Local server lifetime.** Exit with the app (default here), or keep running
    as a background service when the app quits, so agents keep working and the
    web client stays reachable?
