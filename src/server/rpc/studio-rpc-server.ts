@@ -40,6 +40,7 @@ export type StudioRpcServerOptions = {
   socketPath?: string
   helloTimeoutMs?: number
   maxConnections?: number
+  onConnectionsChanged?: () => void
   log?: (message: string) => void
 }
 
@@ -65,6 +66,7 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
     ...(options.socketPath ? { socketPath: options.socketPath } : {}),
     ...(options.maxConnections ? { maxConnections: options.maxConnections } : {}),
     log: options.log,
+    onConnectionsChanged: options.onConnectionsChanged,
     createConnection: (socket, connectionId, onClosed) =>
       createStudioRpcConnection({
         socket,

@@ -28,6 +28,7 @@ import {
 } from './terminal-launch'
 import { createAutomationService } from './automation/automation-service'
 import { REMOTE_OPEN_REQUESTED_CHANNEL, TAILNET_EVENT_CHANNEL } from '../shared/tailnet'
+import { STUDIO_LOCAL_APPS_CHANGED_CHANNEL } from '../shared/studio-local-apps'
 import { MESH_EVENT_CHANNEL } from '../shared/tailnet-mesh'
 import { CANVAS_MODULE_DEFAULT_ENABLED } from '../shared/modules/manifest'
 import { createTailnetNotifier } from './tailnet-notifications'
@@ -167,6 +168,8 @@ import { ConversationApprovalRuleStore } from './conversation-approval-rules'
 import { ConversationAttachmentStore } from './conversation-attachment-store'
 import { ConversationPlanStore } from './conversation-plan-store'
 import { createConversationGatewayHost } from './automation/tailnet/tailnet-conversation-host'
+import { createStudioConversationBackend } from './studio-rpc/studio-conversation-backend'
+import { createStudioRpcService } from './studio-rpc/studio-rpc-service'
 import { createConversationModelCatalog } from './conversation-model-catalog'
 import { readDiscoveredCliModelCatalogs } from './model-discovery/service'
 import { getSharedCredentialStore } from './secret-store'
@@ -1449,6 +1452,37 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
   })
 
+  // The conversation host both remote doors wrap: the tailnet lane a paired
+  // device follows chats through, and the Studio RPC a local app does. One
+  // factory, so a chat lists, resumes and switches the same by either.
+  const createAppConversationHost = () =>
+    createConversationGatewayHost(
+      conversationRuntime,
+      (workspaceId) => workspaceRegistry.getRecord(workspaceId)?.folderPath ?? null,
+      () =>
+        workspaceRegistry
+          .getRecords()
+          .filter((record) => Boolean(record.folderPath))
+          .map((record) => ({
+            workspaceId: record.id,
+            workspaceRoot: record.folderPath!,
+          })),
+      // A chat's own agent record carries the preset the person last chose
+      // for it; a chat without one starts on the app-wide spawn default, as a
+      // new chat in a window does.
+      (key) =>
+        parseCliPermissionPreset(
+          workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]?.cliPermissionPreset,
+        ) ?? effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastAgentSpawnPermissionPreset,
+      // The agent record's name — the same record, and the same field, this
+      // desktop's tab and sidebar read — so a remote lists the chat by the
+      // name it has here rather than by its first message.
+      (key) => workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]?.name,
+      // The chat's CLI catalog as this machine's own picker lists it, so a
+      // paired device offers the same models and can switch to no other.
+      conversationModelCatalog,
+    )
+
   // Instance-global SprintEngine Studio MCP surface: reads come from the
   // workspace-sync snapshot and terminal runtime, and mutations go straight to
   // the main services that own them — one lane, no window required.
@@ -1483,33 +1517,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         (window) =>
           !window.isDestroyed() && !isCanvasWorkerWindow(window) && window.isVisible() && !window.isMinimized(),
       ),
-    resolveConversationHost: () =>
-      createConversationGatewayHost(
-        conversationRuntime,
-        (workspaceId) => workspaceRegistry.getRecord(workspaceId)?.folderPath ?? null,
-        () =>
-          workspaceRegistry
-            .getRecords()
-            .filter((record) => Boolean(record.folderPath))
-            .map((record) => ({
-              workspaceId: record.id,
-              workspaceRoot: record.folderPath!,
-            })),
-        // A chat's own agent record carries the preset the person last chose
-        // for it; a chat without one starts on the app-wide spawn default, as a
-        // new chat in a window does.
-        (key) =>
-          parseCliPermissionPreset(
-            workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]?.cliPermissionPreset,
-          ) ?? effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastAgentSpawnPermissionPreset,
-        // The agent record's name — the same record, and the same field, this
-        // desktop's tab and sidebar read — so a remote lists the chat by the
-        // name it has here rather than by its first message.
-        (key) => workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]?.name,
-        // The chat's CLI catalog as this machine's own picker lists it, so a
-        // paired device offers the same models and can switch to no other.
-        conversationModelCatalog,
-      ),
+    resolveConversationHost: createAppConversationHost,
     // The gateway's tool set: core app tools + canonical run tools merged once,
     // module-contributed tools read from the host kernel per request
     // and gated on their owner's live enablement.
@@ -1775,6 +1783,34 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
   })
   tailnetToolsFrontDoor = automationService
+  // The Studio RPC: the protocol applications on this machine follow, drive
+  // and start chats with, on an owner-only socket in userData/run. It serves
+  // the same conversation host the tailnet lane does, starts chats through the
+  // same launch service, and audits into the gateway's one log. Nothing in the
+  // app uses it yet; paired apps are listed and revoked in Settings.
+  const studioRpcService = createStudioRpcService({
+    resolveUserDataDir: () => app.getPath('userData'),
+    appVersion: app.getVersion(),
+    backend: () =>
+      createStudioConversationBackend({
+        host: createAppConversationHost(),
+        launch: (request) => conversationLaunchService.launch(request),
+        listSessions: (input) => conversationRuntime.listSessions(input),
+        stopSession: (input) => conversationRuntime.stopSession(input),
+        // The live workspace state the module conversation service reads too.
+        getWorkspaceAgents: () => workspaceSyncService.getSnapshot().state.workspaces,
+      }),
+    audit: () => automationService.gatewayAudit(),
+    onChanged: (status) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (window.isDestroyed() || window.webContents.isDestroyed()) continue
+        window.webContents.send(STUDIO_LOCAL_APPS_CHANGED_CHANNEL, status)
+      }
+    },
+    log: (message) => {
+      void writeDiagnosticLog({ level: 'warning', source: 'workspace', title: 'Local app socket', message })
+    },
+  })
   // The conversation peek (hover a chat row or an agent tab): the prompts this
   // app captured for the session the card is anchored to. Built here rather
   // than inside the runtime so its assembly rules stay Electron-free and
@@ -1968,6 +2004,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     canvasService,
     canvasSubscribers,
     automationService,
+    studioRpcService,
     backgroundModeStore,
     telemetryConsentStore,
     analytics,

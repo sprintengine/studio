@@ -6,6 +6,7 @@ import { registerBackgroundModeIpc } from './ipc/background-mode-ipc'
 import { registerTelemetryIpc } from './ipc/telemetry-ipc'
 import { registerAuthIpc } from './ipc/auth-ipc'
 import { registerAutomationIpc } from './ipc/automation-ipc'
+import { registerStudioLocalAppsIpc } from './ipc/studio-local-apps-ipc'
 import { registerAppMenuIpc } from './app-menu'
 import { registerBacklogIpc } from './ipc/backlog-ipc'
 import { registerBuiltinSkillsIpc } from './ipc/builtin-skills-ipc'
@@ -120,6 +121,7 @@ export function registerCoreIpc(
     registry: services.workspaceRegistry,
   })
   registerAutomationIpc(ipcMain, services.automationService)
+  registerStudioLocalAppsIpc(ipcMain, services.studioRpcService)
   registerMeshIpc(ipcMain, services.automationService)
   registerAppMenuIpc(ipcMain)
   registerWorkspaceBackupIpc(ipcMain, services.workspaceBackupService)

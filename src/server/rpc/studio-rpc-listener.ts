@@ -73,6 +73,8 @@ export type StudioRpcListenerOptions = {
   /** A socket path or pipe name of the caller's choosing (tests); otherwise one is resolved. */
   socketPath?: string
   maxConnections?: number
+  /** Told whenever a connection opens or closes. */
+  onConnectionsChanged?: () => void
   platform?: NodeJS.Platform
   log?: (message: string) => void
 }
@@ -155,8 +157,12 @@ export function createStudioRpcListener(options: StudioRpcListenerOptions): Stud
       )
       return
     }
-    const connection = options.createConnection(socket, `c${++sequence}`, (closed) => open.delete(closed))
-    if (!connection.isClosed()) open.add(connection)
+    const connection = options.createConnection(socket, `c${++sequence}`, (closed) => {
+      if (open.delete(closed)) options.onConnectionsChanged?.()
+    })
+    if (connection.isClosed()) return
+    open.add(connection)
+    options.onConnectionsChanged?.()
   }
 
   function writeDiscovery(socketPath: string): void {
