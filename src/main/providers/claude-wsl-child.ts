@@ -6,13 +6,13 @@
 // starts its CLI in WSL (cli-host-child.ts). What this adds is which of the
 // SDK's variables go in with it.
 
-import { spawn, type ChildProcess } from 'node:child_process'
+import type { spawn, ChildProcess } from 'node:child_process'
 
 import type { ExecutionHostId } from '../../shared/execution-host'
 import {
   CONVERSATION_IDENTITY_ENV_KEYS,
-  cliHostSpawn,
   prepareWslCliTarget,
+  spawnCliHostChild,
   wslCliLaunchArgs,
   type WslCliTarget,
 } from './cli-host-child'
@@ -60,17 +60,25 @@ export type ClaudeSpawnRequest = {
 /**
  * Spawns the SDK's request inside the distribution. `request.command` is
  * already the Linux path of `claude` (the WSL host's CLI detection found it
- * there) and `request.cwd` the native workspace folder.
+ * there) and `request.cwd` the native workspace folder. The child is issued
+ * its own MCP channel token, which the app's gateway (handed to it in the
+ * SDK's `mcpServers`) inherits from it and opens its channel with.
  */
-export function spawnWslClaude(target: WslClaudeTarget, request: ClaudeSpawnRequest): ChildProcess {
-  const plan = cliHostSpawn({
-    command: request.command,
-    args: request.args,
-    cwd: request.cwd ?? '',
-    env: request.env as NodeJS.ProcessEnv,
-    wsl: { ...target, forwardEnv: WSL_FORWARDED_ENV_KEYS },
-  })
-  return spawn(plan.file, plan.args, { ...plan.options, signal: request.signal })
+export function spawnWslClaude(
+  target: WslClaudeTarget,
+  request: ClaudeSpawnRequest,
+  deps: { spawn?: typeof spawn } = {},
+): ChildProcess {
+  return spawnCliHostChild(
+    {
+      command: request.command,
+      args: request.args,
+      cwd: request.cwd ?? '',
+      env: request.env as NodeJS.ProcessEnv,
+      wsl: { ...target, forwardEnv: WSL_FORWARDED_ENV_KEYS },
+    },
+    { ...deps, ...(request.signal ? { signal: request.signal } : {}) },
+  )
 }
 
 /**
