@@ -145,6 +145,7 @@ import { CompactGlyph } from './agentChat/toolRows/ToolKindGlyph'
 import { ConversationTodoStrip } from './agentChat/todoProgressStrip'
 import { TimelineRow, type TimelineChrome } from './agentChat/timelineRows'
 import type { EditFromHereDraft } from './agentChat/editFromHere'
+import { forkChat, type ForkFromHereTarget } from './agentChat/forkFromHere'
 import { EmptyChatState, ReadinessState, readinessLabel, type ChatReadiness } from './agentChat/chatStates'
 import { ComposerActionButton, ComposerContextMenu, type ComposerMenuState } from './agentChat/composerControls'
 export { ComposerContextMenu, editingShortcut } from './agentChat/composerControls'
@@ -2253,6 +2254,26 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // Offered where the provider can drop turns from its own context and this
   // view can operate the conversation.
   const rewindEnabled = operate && capabilities?.rewind === true && typeof transport.rewind === 'function'
+  // "Fork from here", where the provider can be forked and this machine can
+  // open the fork in a tab. A provider that branches only the session it is
+  // running (an ACP agent's `session/fork`, `forkFromLiveSession`) has this
+  // chat's session started first for a fork at the newest reply; any other
+  // is not started for nothing.
+  const forkRef = useRef<(target: ForkFromHereTarget) => Promise<void>>(async () => undefined)
+  forkRef.current = async (target) => {
+    if (!workspaceRoot) throw new Error('This chat has no folder to fork in.')
+    if (
+      target.side === 'assistant' &&
+      target.turnId === latestTurnId &&
+      capabilities?.forkFromLiveSession === true &&
+      transport.capabilities.startSession
+    )
+      await ensureSession()
+    await forkChat({ transport, key: { workspaceRoot, workspaceId, agentId }, target })
+  }
+  const forkFromHere = useCallback((target: ForkFromHereTarget) => forkRef.current(target), [])
+  const onFork =
+    operate && capabilities?.fork === true && typeof transport.fork === 'function' ? forkFromHere : undefined
   const chrome: TimelineChrome =
     oldChrome &&
     oldChrome.assistantName === assistantName &&
@@ -2265,6 +2286,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     oldChrome.conversationRunning === projection.activeTurn &&
     oldChrome.checkpointSeqs === stableCheckpointSeqs &&
     oldChrome.rewindEnabled === rewindEnabled &&
+    oldChrome.onFork === onFork &&
     oldChrome.cli === chatCli
       ? oldChrome
       : {
@@ -2280,6 +2302,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           checkpointSeqs: stableCheckpointSeqs,
           rewindEnabled,
           onRestoreDraft: restoreDraft,
+          onFork,
           cli: chatCli,
         }
   chromeRef.current = chrome

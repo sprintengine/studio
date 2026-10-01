@@ -44,6 +44,8 @@ import type {
   ConversationRevertResult,
   ConversationRewindInput,
   ConversationRewindResult,
+  ConversationForkInput,
+  ConversationForkResult,
 } from '../shared/conversation-runtime'
 import { distroOfHostId, type ExecutionHostId } from '../shared/execution-host'
 import { wslInputInRootSpelling } from '../shared/host-paths'
@@ -284,6 +286,11 @@ const UNSAVED_NOTICE =
 // renderer; the JSONL on disk keeps everything.
 const MAX_TRANSCRIPT_REPLAY_EVENTS = 2000
 
+// The most a step's detail, or its streamed output, can be on disk
+// (conversation-tool-details.ts), with room to spare: what a fork copies of
+// each.
+const MAX_FORKED_DETAIL_BYTES = 6 * 1024 * 1024
+
 // Stateful adapters that never read `fallbackHistory`: Claude Code resumes
 // its own session and has no use for the conversation replayed as text. The
 // history is up to a page of transcript, so it is not built for them.
@@ -344,6 +351,10 @@ export class ConversationRuntime {
   private readonly terminalHandoffs = new Set<string>()
   // Transcripts being taken back to an earlier message; a send waits for it.
   private readonly rewindingTranscripts = new Set<string>()
+  // The MCP servers a fork's session starts with when its start names none:
+  // the ones the chat it was forked from was running with. Held for this run
+  // only, as a session's own are; they are never written down.
+  private readonly forkedMcpServers = new Map<string, ConversationMcpServer[]>()
   private readonly sequenceInitializations = new Map<string, Promise<void>>()
   private readonly listeners = new Set<ConversationRuntimeListener>()
   private readonly sequences = new Map<string, number>()
@@ -448,6 +459,8 @@ export class ConversationRuntime {
     // the cursor before it would resume the whole session and undo the rewind.
     if (this.deletingTranscripts.has(path) || this.startingTranscripts.has(path) || this.rewindingTranscripts.has(path))
       return { ok: false, message: 'Conversation lifecycle operation is already in progress.' }
+    const inherited = input.mcpServers === undefined ? this.forkedMcpServers.get(path) : undefined
+    if (inherited) input = { ...input, mcpServers: inherited }
     this.startingTranscripts.add(path)
     try {
       return (await this.adoptLiveSession(input, path)) ?? (await this.startSessionNow(input))
@@ -623,6 +636,7 @@ export class ConversationRuntime {
           ...session,
           resumeSessionId: resume?.sessionId,
           ...(resume?.at ? { resumeSessionAt: resume.at } : {}),
+          ...(resume?.seedFromHistory ? { seedFromHistory: true } : {}),
           ...(session.history ? { fallbackHistory: session.history } : fallbackHistory ? { fallbackHistory } : {}),
           // Continuation channel: the adapter opens a mirror turn here when its
           // child resumes after a `result` (background subagents completing).
@@ -1544,6 +1558,15 @@ export class ConversationRuntime {
     if (isSessionBusy(session) && (!cursor?.sessionId || cursor.at))
       return { ok: false, message: 'The agent has not opened its CLI session yet. Try again in a moment.' }
     if (!cursor?.sessionId) return { ok: false, message: 'This chat has no CLI session yet. Send it a message first.' }
+    // A fork's CLI session is made by its first turn. Until then the id is
+    // the chat it was forked from, and a terminal resuming it would carry
+    // that chat on instead of this one.
+    if (cursor.forked && cursor.at)
+      return {
+        ok: false,
+        message:
+          'This chat was forked from another and has no CLI session of its own yet. Send it a message first, so a terminal resumes the fork and not the chat it came from.',
+      }
     // After Edit from here the chat's next turn forks the CLI session at an
     // earlier point. A terminal resuming the id would load the turns the
     // person edited away.
@@ -2588,6 +2611,7 @@ export class ConversationRuntime {
       this.nonDurableLogs.delete(path)
       this.sequences.delete(path)
       this.emissionTails.delete(path)
+      this.forkedMcpServers.delete(path)
       for (const session of matching) this.sessions.delete(session.sessionId)
       return { ok: true, events: [] }
     } catch (error) {
@@ -3301,16 +3325,185 @@ export class ConversationRuntime {
     return { ok: true, event: target, cursor, fromSeq }
   }
 
+  /**
+   * "Fork from here": a new chat, `newAgentId`, holding this one up to a point
+   * and carrying on from there by itself. Forked at a reply, it holds that
+   * turn; forked at a user message, everything before it. This chat is not
+   * touched, and both work in the same files.
+   *
+   * The fork's transcript is this one's events up to the point, as the view
+   * shows them (turns a rewind hid are left out), then a mark saying where it
+   * came from that is also its resume cursor (readResumeCursor). The adapter
+   * says what that cursor is (`fork`): the parent's provider session at the
+   * point, which the fork's first child branches from; a session it branched
+   * already; or none, and the fork's first message carries the conversation
+   * as text. A stateless provider replays the transcript and needs none.
+   * Refused while this chat is working: a point inside a turn is no point.
+   */
+  async forkAtTurn(input: ConversationForkInput): Promise<ConversationForkResult> {
+    const { key } = input
+    const newAgentId = typeof input.newAgentId === 'string' ? input.newAgentId.trim() : ''
+    if (!key?.workspaceRoot?.trim() || !key.workspaceId?.trim() || !key.agentId?.trim() || !newAgentId)
+      return { ok: false, message: 'Conversation identity is required.' }
+    if (newAgentId === key.agentId) return { ok: false, message: 'A fork needs a chat of its own.' }
+    if (
+      input.side === 'user'
+        ? !Number.isSafeInteger(input.turnSeq) || input.turnSeq < 1
+        : input.side !== 'assistant' || typeof input.turnId !== 'string' || !input.turnId
+    )
+      return { ok: false, message: 'The message to fork from is invalid.' }
+    const path = this.transcriptPath(key.workspaceRoot, key.workspaceId, key.agentId)
+    const forkPath = this.transcriptPath(key.workspaceRoot, key.workspaceId, newAgentId)
+    const scope = await this.checkpoints.fileScope(key.workspaceRoot)
+    if (
+      this.revertingScopes.has(scope) ||
+      [path, forkPath].some(
+        (busy) =>
+          this.deletingTranscripts.has(busy) ||
+          this.startingTranscripts.has(busy) ||
+          this.rewindingTranscripts.has(busy),
+      )
+    )
+      return { ok: false, message: 'A workspace lifecycle operation is already in progress.' }
+    const live = this.liveSessionFor(path)
+    if (live && (isSessionBusy(live) || live.status === 'starting'))
+      return { ok: false, message: 'Stop the running turn before forking from an earlier message.' }
+    // The fork's transcript is held the way a start holds it, so nothing
+    // starts a session on it while it is being written.
+    this.startingTranscripts.add(forkPath)
+    try {
+      await this.initializeSequence(key)
+      await this.eventLog.flush(path)
+      if (
+        this.liveSessionFor(forkPath) ||
+        (await this.transcripts.tail(key.workspaceRoot, forkPath, { events: 1 })).length
+      )
+        return { ok: false, message: 'The chat to fork into already has a conversation.' }
+      const stored = await this.transcripts.tail(key.workspaceRoot, path, { compact: true })
+      const providerId = live?.providerId ?? stored.at(-1)?.providerId ?? ''
+      const modelId = live?.modelId ?? stored.at(-1)?.modelId ?? ''
+      const plan = planFork(stored, input, providerId)
+      if (!plan.ok) return plan
+      const adapter = this.getAdapterForProviderId(providerId)
+      if (!adapter || adapter.capabilities?.fork !== true) return { ok: false, message: 'This agent cannot be forked.' }
+
+      let cursor: ConversationProviderCursor | null = null
+      if (adapter.sessions === 'stateful') {
+        const resume = await this.readResumeCursor(key.workspaceRoot, key.workspaceId, key.agentId, providerId)
+        const parent = live ?? { ...key, sessionId: '', providerId, modelId }
+        const forked = adapter.fork
+          ? await adapter.fork({
+              ...parent,
+              ...(resume?.sessionId ? { resumeSessionId: resume.sessionId } : {}),
+              cursor: plan.cursor,
+              exact: plan.exact,
+              latest: plan.latest,
+            })
+          : ({ ok: true, cursor: null } as const)
+        if (!forked.ok) return forked
+        cursor = forked.cursor
+      }
+      // Without a session to branch, the fork's first message hands the new
+      // one what came before; a fork with nothing before it needs nothing.
+      const seed = adapter.sessions === 'stateful' && !cursor && completedHistory(plan.kept).length > 0
+
+      const createdAt = this.now()
+      const forkKey = { ...key, agentId: newAgentId }
+      const events: ConversationEvent[] = []
+      for (const [index, event] of plan.kept.entries()) {
+        const payload = forkedPayload(event)
+        // The images a message carried, copied into the fork's own folder, so
+        // deleting the chat it came from leaves the fork's bubbles whole.
+        const attachments = event.type === 'user_message' ? payload?.attachments : undefined
+        events.push({
+          ...event,
+          agentId: newAgentId,
+          workspaceId: key.workspaceId,
+          seq: index + 1,
+          payload: Array.isArray(attachments)
+            ? { ...payload, attachments: await this.attachmentStore.copy(attachments, forkKey) }
+            : payload,
+        })
+      }
+      events.push({
+        id: `conv_evt_${this.eventEpoch}_${++this.eventSequence}`,
+        seq: events.length + 1,
+        createdAt,
+        workspaceId: key.workspaceId,
+        agentId: newAgentId,
+        sessionId: live?.sessionId ?? stored.at(-1)?.sessionId ?? 'forked',
+        providerId,
+        modelId,
+        type: 'session_updated',
+        payload: {
+          forkedFrom: { agentId: key.agentId, turnSeq: plan.fromSeq },
+          providerSessionId: cursor?.sessionId ?? null,
+          ...(cursor?.at ? { providerResumeAt: cursor.at } : {}),
+          ...(seed ? { seedFromHistory: true } : {}),
+          ...(input.title?.trim() ? { conversationTitle: input.title.trim().slice(0, 200), titleSource: 'user' } : {}),
+        },
+      })
+      const appended = events.map((event) => this.eventLog.append(forkPath, event, key.workspaceRoot))
+      await this.eventLog.flush(forkPath)
+      if ((await Promise.all(appended)).includes('failed')) {
+        await this.eventLog.close(forkPath)
+        await removeConversationStorage(key.workspaceRoot, forkPath).catch(() => undefined)
+        return { ok: false, message: 'The fork could not be saved to disk.' }
+      }
+      this.sequences.set(forkPath, events.length)
+      await this.eventLog.close(forkPath)
+      await this.copyToolDetails(key, newAgentId, plan.kept)
+      if (live?.mcpServers?.length) this.forkedMcpServers.set(forkPath, live.mcpServers)
+      this.runInBackground(this.threadIndex.refresh(forkKey).catch(() => undefined))
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : 'The conversation could not be forked.' }
+    } finally {
+      this.startingTranscripts.delete(forkPath)
+    }
+  }
+
+  // The details of the steps a fork holds, so its tool rows open as the
+  // parent's do. Best effort: a step whose detail is missing shows its
+  // preview, as one whose detail was never written does.
+  private async copyToolDetails(
+    key: ConversationTranscriptInput,
+    newAgentId: string,
+    events: ConversationEvent[],
+  ): Promise<void> {
+    const ids = new Set<string>()
+    for (const event of events)
+      if (event.type === 'tool_started' && typeof event.payload?.toolUseId === 'string' && event.payload.toolUseId)
+        ids.add(event.payload.toolUseId)
+    for (const toolUseId of ids) {
+      const from = this.toolDetailPath({ ...key, toolUseId })
+      const to = this.toolDetailPath({ ...key, agentId: newAgentId, toolUseId })
+      for (const [source, target] of [
+        [from, to],
+        [toolOutputStreamPath(from), toolOutputStreamPath(to)],
+      ])
+        await readConversationStorage(key.workspaceRoot, source, MAX_FORKED_DETAIL_BYTES)
+          .then((content) => writeConversationStorage(key.workspaceRoot, target, content.toString('utf8')))
+          .catch(() => undefined)
+    }
+  }
+
   // The latest provider-session cursor recorded in the transcript; stateful
   // providers use it to natively resume after a restart. A rewind is a cursor
   // too: to no session at all when it went back past the first turn, else to a
-  // point inside one (`providerResumeAt`) that the next child forks at.
+  // point inside one (`providerResumeAt`) that the next child forks at. So is
+  // the mark a fork's transcript starts from (`forkedFrom`); until a turn of
+  // the fork has completed, the cursor says so (`forked`), and whether its
+  // next message carries the conversation as text (`seedFromHistory`): owed
+  // until the adapter says a message carried it (`historySeeded`), so a first
+  // send that never reached the provider (signed out, a CLI that would not
+  // start) owes it still.
   private async readResumeCursor(
     workspaceRoot: string,
     workspaceId: string,
     agentId: string,
     providerId: string,
-  ): Promise<{ sessionId?: string; at?: string } | undefined> {
+  ): Promise<{ sessionId?: string; at?: string; forked?: true; seedFromHistory?: true } | undefined> {
     const text = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim() : undefined)
     // Only a cursor this provider wrote: a transcript restarted on another
     // provider holds that one's cursors too, and a session id means nothing to
@@ -3319,18 +3512,50 @@ export class ConversationRuntime {
     const isCursor = (event: ConversationEvent) =>
       event.providerId === providerId &&
       (event.type === 'session_updated' || event.type === 'session_started') &&
-      (text(event.payload?.providerSessionId) !== undefined || typeof event.payload?.rewoundFromSeq === 'number')
+      (text(event.payload?.providerSessionId) !== undefined ||
+        typeof event.payload?.rewoundFromSeq === 'number' ||
+        isForkMark(event))
+    // The newest cursor, read on back to a message whose turn completed, a
+    // seed's delivery or a fork's mark, whichever comes first: only a mark
+    // read before either still speaks for the next start.
+    const walk: {
+      found?: ConversationEvent
+      settled: boolean
+      completed: Set<string>
+      forked: boolean
+      seed: boolean
+    } = { settled: false, completed: new Set(), forked: false, seed: false }
     try {
       await this.eventLog.flush(this.transcriptPath(workspaceRoot, workspaceId, agentId))
-      const event = await this.transcripts.findLast(
+      await this.transcripts.findLast(
         workspaceRoot,
         this.transcriptPath(workspaceRoot, workspaceId, agentId),
-        isCursor,
+        (event) => {
+          const turnId = typeof event.payload?.turnId === 'string' ? event.payload.turnId : undefined
+          if (event.type === 'turn_completed' && turnId) walk.completed.add(turnId)
+          if (
+            (event.type === 'user_message' && turnId && walk.completed.has(turnId)) ||
+            event.payload?.historySeeded === true
+          )
+            walk.settled = true
+          if (!walk.found && isCursor(event)) walk.found = event
+          if (isForkMark(event)) {
+            walk.forked = !walk.settled
+            walk.seed = !walk.settled && event.payload?.seedFromHistory === true
+            return true
+          }
+          return walk.found !== undefined && walk.settled
+        },
       )
-      const sessionId = text(event?.payload?.providerSessionId)
-      if (!sessionId) return undefined
-      const at = text(event?.payload?.providerResumeAt)
-      return { sessionId, ...(at ? { at } : {}) }
+      const sessionId = text(walk.found?.payload?.providerSessionId)
+      const at = sessionId ? text(walk.found?.payload?.providerResumeAt) : undefined
+      const cursor = {
+        ...(sessionId ? { sessionId } : {}),
+        ...(at ? { at } : {}),
+        ...(walk.forked ? { forked: true as const } : {}),
+        ...(walk.seed ? { seedFromHistory: true as const } : {}),
+      }
+      return Object.keys(cursor).length > 0 ? cursor : undefined
     } catch {
       return undefined
     }
@@ -3471,6 +3696,144 @@ function readProviderCursor(value: unknown): ConversationProviderCursor | null {
   const { sessionId, at } = value as Record<string, unknown>
   if (typeof sessionId !== 'string' || !sessionId.trim()) return null
   return { sessionId, at: typeof at === 'string' && at ? at : null }
+}
+
+/** The mark a fork's transcript starts from (`forkAtTurn`). */
+function isForkMark(event: ConversationEvent): boolean {
+  const from = event.payload?.forkedFrom
+  return event.type === 'session_updated' && Boolean(from) && typeof from === 'object'
+}
+
+type ForkPlan = {
+  ok: true
+  // What the fork holds, oldest first, as stored (a run of deltas is one event).
+  kept: ConversationEvent[]
+  // The parent's message the fork was made at: the one it stops before, or
+  // the one that opened the turn it ends with.
+  fromSeq: number
+  cursor: ConversationProviderCursor | null
+  exact: boolean
+  latest: boolean
+}
+
+/**
+ * Where a fork cuts the parent's transcript and where the provider stood
+ * there, from the stored events read oldest first. The view's turns only:
+ * those a rewind hid stay behind, and so do the marks that refer to the
+ * parent's numbering (rewinds, reverts) and its title. Forked at a user
+ * message, the cut is before it; at a reply, after that turn's end. The
+ * cursor is read back from the cut as a rewind reads it (findRewindTarget):
+ * the newest turn end that recorded one, past turns that never reached the
+ * provider; a message joined to the turn before it by a steer goes back with
+ * that turn's own message, and a reply that was joined has no point of its
+ * own (`exact` false). The copy keeps the newest events up to
+ * MAX_TRANSCRIPT_REPLAY_EVENTS, from a turn's start.
+ */
+function planFork(
+  stored: ConversationEvent[],
+  input: ConversationForkInput,
+  providerId: string,
+): ForkPlan | { ok: false; message: string } {
+  const hidden: Array<{ from: number; before: number }> = []
+  for (const event of stored) {
+    const from = event.type === 'session_updated' ? event.payload?.rewoundFromSeq : undefined
+    if (typeof from === 'number') hidden.push({ from, before: event.seq ?? 0 })
+  }
+  const visible = stored.filter((event) => {
+    const seq = event.seq ?? 0
+    if (hidden.some((range) => seq >= range.from && seq < range.before)) return false
+    const payload = event.payload ?? {}
+    return !(
+      event.type === 'session_updated' &&
+      (typeof payload.rewoundFromSeq === 'number' ||
+        typeof payload.revertedAfterSeq === 'number' ||
+        typeof payload.conversationTitle === 'string')
+    )
+  })
+  const turnOf = (event: ConversationEvent) =>
+    typeof event.payload?.turnId === 'string' ? event.payload.turnId : undefined
+  const isTurnEnd = (event: ConversationEvent) => event.type === 'turn_completed' || event.type === 'turn_failed'
+  let cut: number
+  let fromSeq: number
+  if (input.side === 'user') {
+    cut = visible.findIndex((event) => event.type === 'user_message' && event.seq === input.turnSeq)
+    if (cut === -1) return { ok: false, message: 'That message is no longer in this conversation.' }
+    fromSeq = input.turnSeq
+  } else {
+    const end = visible.findLastIndex((event) => isTurnEnd(event) && turnOf(event) === input.turnId)
+    if (end === -1)
+      return {
+        ok: false,
+        message: visible.some((event) => turnOf(event) === input.turnId)
+          ? 'Only a reply that has finished can be forked from.'
+          : 'That reply is no longer in this conversation.',
+      }
+    cut = end + 1
+    const opened = visible.find((event) => event.type === 'user_message' && turnOf(event) === input.turnId)
+    fromSeq = opened?.seq ?? visible[end].seq ?? 0
+  }
+
+  const joined = new Set<string>()
+  const unreached = new Set<string>()
+  let cursor: ConversationProviderCursor | null = null
+  let uncharted = false
+  for (let index = cut - 1; index >= 0; index--) {
+    const event = visible[index]
+    const turnId = turnOf(event)
+    if (isTurnEnd(event)) {
+      // Only a cursor the fork's own provider wrote: a transcript that moved
+      // between runtimes holds the other one's too, which means nothing here.
+      const found = event.providerId === providerId ? readProviderCursor(event.payload?.providerCursor) : null
+      if (found?.at) {
+        cursor = found
+        break
+      }
+      if (turnId && event.payload?.steered === true) joined.add(turnId)
+      const reason = event.payload?.reason
+      if (turnId && !found && (reason === 'runtime' || reason === 'spawn')) unreached.add(turnId)
+      continue
+    }
+    if (event.type !== 'user_message') continue
+    if (turnId && joined.has(turnId)) {
+      // Forked at a reply a steer ended, there is no point between it and the
+      // message that joined it to go back to.
+      if (input.side === 'assistant') {
+        uncharted = true
+        break
+      }
+      cut = index
+      continue
+    }
+    if (!(turnId && unreached.has(turnId))) {
+      uncharted = true
+      break
+    }
+  }
+
+  // Nothing the provider has seen comes after the cut: no message, and no
+  // turn it opened by itself.
+  const latest = !visible.slice(cut).some((event) => event.type === 'user_message' || event.type === 'turn_started')
+  let kept = visible.slice(0, cut)
+  if (kept.length > MAX_TRANSCRIPT_REPLAY_EVENTS) {
+    const from = kept.length - MAX_TRANSCRIPT_REPLAY_EVENTS
+    const start = kept.findIndex((event, index) => index >= from && event.type === 'user_message')
+    kept = kept.slice(start === -1 ? from : start)
+  }
+  return { ok: true, kept, fromSeq, cursor, exact: cursor !== null || !uncharted, latest }
+}
+
+// A parent's event as its fork keeps it. A turn's checkpoint belongs to the
+// parent, whose refs the fork has none of, so its changed-files card and
+// revert stay with the parent.
+function forkedPayload(event: ConversationEvent): ConversationEvent['payload'] {
+  if (!event.payload || (event.type !== 'turn_completed' && event.type !== 'turn_failed')) return event.payload
+  const {
+    checkpointTurnSeq: _seq,
+    checkpointAvailable: _available,
+    checkpointSummary: _summary,
+    ...rest
+  } = event.payload
+  return rest
 }
 
 /** Beside the transcript: the highest sequence number published that may not be in it. */

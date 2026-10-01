@@ -23,3 +23,4 @@ export type { McpServerStatusUpdatedNotification } from './v2/McpServerStatusUpd
 export type { CommandExecutionRequestApprovalParams } from './v2/CommandExecutionRequestApprovalParams'
 export type { FileChangeRequestApprovalParams } from './v2/FileChangeRequestApprovalParams'
 export type { ToolRequestUserInputParams } from './v2/ToolRequestUserInputParams'
+export type { ThreadForkParams } from './v2/ThreadForkParams'

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'crypto'
-import { lstat, mkdir, readFile, rm, writeFile } from 'fs/promises'
+import { copyFile, lstat, mkdir, readFile, rm, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { MAX_ATTACHMENT_BYTES } from '../shared/conversation-attachments'
 import type {
@@ -81,6 +81,36 @@ export class ConversationAttachmentStore {
       })
     }
     return stored
+  }
+
+  /**
+   * The same images kept for another conversation, for a fork: each file is
+   * copied into that conversation's folder and its reference rewritten. One
+   * that cannot be copied keeps the reference it had, which still reads while
+   * the conversation it came from is kept.
+   */
+  async copy(attachments: unknown[], to: ConversationKey): Promise<unknown[]> {
+    const root = this.root
+    if (!root) return attachments
+    const folder = ConversationAttachmentStore.folderFor(to)
+    await mkdir(join(root, folder), { recursive: true }).catch(() => undefined)
+    const copied: unknown[] = []
+    for (const attachment of attachments) {
+      const ref = (attachment as { ref?: unknown } | null)?.ref
+      const match = typeof ref === 'string' ? REF_PATTERN.exec(ref) : null
+      if (!match) {
+        copied.push(attachment)
+        continue
+      }
+      const file = `${match[2]}.${match[3]}`
+      try {
+        await copyFile(join(root, match[1], file), join(root, folder, file))
+        copied.push({ ...(attachment as object), ref: `${folder}/${file}` })
+      } catch {
+        copied.push(attachment)
+      }
+    }
+    return copied
   }
 
   async read(ref: unknown): Promise<ConversationAttachmentResult> {

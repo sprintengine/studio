@@ -450,6 +450,10 @@ function foldEvent(fold: ThreadFold, event: ConversationEvent): void {
     ? parts.flatMap((part) => (Array.isArray(part) && typeof part[3] === 'number' ? [part[3]] : []))
     : []
   thread.lastSeq = Math.max(thread.lastSeq, event.seq ?? thread.lastSeq + 1, ...partSeqs)
+  // What a fork holds of the chat it came from was spent there: its own total
+  // starts at its mark.
+  if (event.type === 'session_updated' && event.payload?.forkedFrom && typeof event.payload.forkedFrom === 'object')
+    fold.costs.clear()
   if (event.type === 'turn_completed') {
     const cost = event.payload?.costUsd
     if (typeof cost === 'number' && Number.isFinite(cost) && cost >= 0)

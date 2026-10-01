@@ -43,6 +43,7 @@ const ROOTS = [
   'v2/CommandExecutionRequestApprovalParams',
   'v2/FileChangeRequestApprovalParams',
   'v2/ToolRequestUserInputParams',
+  'v2/ThreadForkParams',
 ]
 
 const version = execFileSync(codex, ['--version'], { encoding: 'utf8' }).trim()

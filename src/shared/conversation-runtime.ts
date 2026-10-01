@@ -388,6 +388,13 @@ export type ConversationCapabilities = {
   // messages, dropping that message and everything after it from its own
   // context ("Edit from here"). Without it the action is not offered.
   rewind?: boolean
+  // A new chat can be made holding this one up to an earlier message, and
+  // carry on from there on its own ("Fork from here"). Without it the action
+  // is not offered.
+  fork?: boolean
+  // A fork at the newest reply branches the session the chat is running
+  // (an ACP agent's `session/fork`), so the chat's session is started first.
+  forkFromLiveSession?: boolean
 }
 export type ConversationCheckpointFile = {
   path: string
@@ -427,6 +434,18 @@ export type ConversationRevertResult =
  */
 export type ConversationRewindInput = { key: ConversationKey; turnSeq: number }
 export type ConversationRewindResult = { ok: true } | { ok: false; message: string }
+/**
+ * Start a new chat, `newAgentId`, holding this one up to a point: through the
+ * reply of the turn `turnId` names, or up to (not including) the user message
+ * at `turnSeq`. The new chat carries on by itself; this one is not touched.
+ * `title` names it in the chat history.
+ */
+export type ConversationForkInput = {
+  key: ConversationKey
+  newAgentId: string
+  title?: string
+} & ({ side: 'assistant'; turnId: string } | { side: 'user'; turnSeq: number })
+export type ConversationForkResult = { ok: true } | { ok: false; message: string }
 export type ConversationSkillRef = { id: string; sourcePath?: string }
 export type ConversationApprovalRulesResult =
   | { ok: true; rules: import('./conversation/approvalRules').ConversationApprovalRule[] }
