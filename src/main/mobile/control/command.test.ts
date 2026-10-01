@@ -7,6 +7,8 @@ import { mobileControlProtocolVersion, MobileControlCommandService, type MobileC
 import { defaultMobileSnapshotCommands } from './snapshot'
 import { deriveWorkspaceId } from './workspace-id'
 import { parseBacklogFrontmatter } from '../../../shared/backlog/frontmatter'
+import { installStudioPlatform } from '../../../server/platform/platform'
+import { createElectronPlatform, type ElectronPlatformDeps } from '../../platform/electron-platform'
 import { test } from 'vitest'
 
 test('command', async () => {
@@ -555,7 +557,16 @@ test('command', async () => {
 
     try {
       // The app proper, which is what registers the IPC handlers; the entry
-      // (index.ts) only takes the single-instance lock and loads it.
+      // (index.ts) only installs the Electron platform, takes the
+      // single-instance lock and loads it.
+      const electron = (await import('electron')) as unknown as ElectronPlatformDeps
+      installStudioPlatform(
+        createElectronPlatform({
+          app: electron.app,
+          safeStorage: electron.safeStorage,
+          BrowserWindow: electron.BrowserWindow,
+        } as ElectronPlatformDeps),
+      )
       await import('../../app-main')
     } finally {
       restoreModules()

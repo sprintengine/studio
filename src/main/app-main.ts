@@ -33,11 +33,12 @@ import { writeDiagnosticLog } from './diagnostics-service'
 import { removeRetiredEntitlementCache } from './retired-entitlement-cache'
 import { removeRetiredRelayState } from './retired-relay-state'
 import { applyHostApiGate } from './modules/host-api-gate'
+import { studioPlatform } from '../server/platform/platform'
 
 // The app proper, loaded by the entry (index.ts) only in the process that holds
 // the single-instance lock. By the time this runs the startup timeline is
-// attached, the userData override is applied and the module-asset scheme is
-// registered.
+// attached, the userData override is applied, the Electron platform is
+// installed and the module-asset scheme is registered.
 
 // Build-identity check. Registered next to the startup marks and for
 // the same reason: a window reports the moment it starts, and the listener has
@@ -108,7 +109,7 @@ const getModulePermissions = (moduleId: string): readonly string[] | undefined =
 // Extracted as a const (rather than inlined) so `mainModuleManifests` below can
 // reference its manifest for the enablement gate; constructed after
 // `getModulePermissions` so the companion-attach permission check is wired in.
-const agentRuntimeModule = createAgentRuntimeModule(services, { getModulePermissions })
+const agentRuntimeModule = createAgentRuntimeModule(services, { getModulePermissions, platform: studioPlatform() })
 const moduleLoad = loadMainModules({
   ipcMain,
   modules: [agentRuntimeModule, ...activeMainModules, ...thirdPartyMainLoad.modules],

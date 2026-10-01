@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'n
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, vi } from 'vitest'
-import { createSafeStorageStandIn } from '../../../tests/stubs/safe-storage'
+import { createSecretCipherStandIn } from '../../../tests/stubs/secret-cipher'
 
 import type { ConversationEvent, ConversationSessionFrame } from '../../shared/conversation-runtime'
 import type { TailnetScope } from '../../shared/tailnet'
@@ -176,11 +176,11 @@ async function startHarness(): Promise<Harness> {
   const port = server.address()!.port
   // One keychain across launches, so a restarted client opens the pairing the
   // first one sealed.
-  const keychain = createSafeStorageStandIn()
+  const keychain = createSecretCipherStandIn()
   const newMesh = () =>
     createTailnetMeshService({
       resolveUserDataDir: () => localDir,
-      createStore: (options) => createTailnetMeshStore({ ...options, safeStorage: keychain }),
+      createStore: (options) => createTailnetMeshStore({ ...options, cipher: keychain }),
       resolveDeviceName: () => 'dev-macbook-air',
       resolvePeerName: async () => null,
       conversations: { retry: { baseMs: 20, maxMs: 200 }, saveDelayMs: 5, requestTimeoutMs: 5_000 },

@@ -14,7 +14,7 @@ import { createTailnetPeerResolver } from './tailnet/tailnet-peer-identity'
 import { pairingUrl } from './tailnet/tailnet-service'
 import { parseTailnetEndpoint } from './tailnet/tailnet-remote-client'
 import { test } from 'vitest'
-import { createSafeStorageStandIn } from '../../../tests/stubs/safe-storage'
+import { createSecretCipherStandIn } from '../../../tests/stubs/secret-cipher'
 
 test('tailnet-mesh', async () => {
   // The Mesh client: this Studio driving another machine.
@@ -71,7 +71,7 @@ test('tailnet-mesh', async () => {
       resolveUserDataDir: () => localDir,
       // A stand-in keychain, so the credential file is written the way the app
       // writes it: sealed, never as plaintext.
-      createStore: (options) => createTailnetMeshStore({ ...options, safeStorage: createSafeStorageStandIn() }),
+      createStore: (options) => createTailnetMeshStore({ ...options, cipher: createSecretCipherStandIn() }),
       resolveDeviceName: () => 'laptop',
       // No Tailscale in a test, so no name: the machine is listed by address, and
       // the point is that this degrades rather than blocking the pairing.

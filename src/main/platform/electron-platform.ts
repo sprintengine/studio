@@ -10,7 +10,8 @@ import type { StudioPlatform } from '../../server/platform/platform'
 // broadcast is the all-windows loop, and a notice is an OS notification.
 //
 // Electron is handed in rather than imported, so the entry decides when it is
-// touched and a test can build the platform over a stand-in.
+// touched and a test can build the platform over a stand-in. Each member is
+// looked up only when it is used, so a stand-in needs only what its suite uses.
 
 export type ElectronPlatformDeps = {
   app: Pick<App, 'getPath' | 'getAppPath' | 'getVersion' | 'isPackaged'>
@@ -25,27 +26,26 @@ export type ElectronPlatformDeps = {
 }
 
 export function createElectronPlatform(deps: ElectronPlatformDeps): StudioPlatform {
-  const { app, safeStorage, BrowserWindow, Notification } = deps
   const resourcesPath = deps.resourcesPath ?? (() => process.resourcesPath)
   // A later notice with the same key replaces the banner rather than stacking
   // under it.
   const shown = new Map<string, Pick<Notification, 'on' | 'close' | 'show'>>()
   return {
     paths: {
-      dataDir: () => app.getPath('userData'),
-      logsDir: () => app.getPath('logs'),
-      isPackaged: () => app.isPackaged,
+      dataDir: () => deps.app.getPath('userData'),
+      logsDir: () => deps.app.getPath('logs'),
+      isPackaged: () => deps.app.isPackaged,
       resourcesDir: () => resourcesPath() ?? null,
-      appRoot: () => app.getAppPath(),
+      appRoot: () => deps.app.getAppPath(),
     },
     secrets: {
-      available: () => safeStorage.isEncryptionAvailable(),
-      seal: (plaintext) => safeStorage.encryptString(plaintext),
-      open: (sealed) => safeStorage.decryptString(sealed),
+      available: () => deps.safeStorage.isEncryptionAvailable(),
+      seal: (plaintext) => deps.safeStorage.encryptString(plaintext),
+      open: (sealed) => deps.safeStorage.decryptString(sealed),
     },
     clients: {
       publish(topic, payload) {
-        for (const window of BrowserWindow.getAllWindows()) {
+        for (const window of deps.BrowserWindow.getAllWindows()) {
           if (window.isDestroyed() || window.webContents.isDestroyed()) continue
           try {
             window.webContents.send(topic, payload)
@@ -57,9 +57,9 @@ export function createElectronPlatform(deps: ElectronPlatformDeps): StudioPlatfo
     },
     notifier: {
       notify(notice) {
-        if (!Notification.isSupported()) return
+        if (!deps.Notification.isSupported()) return
         shown.get(notice.key)?.close()
-        const banner = new Notification({ title: notice.title, body: notice.body, silent: false })
+        const banner = new deps.Notification({ title: notice.title, body: notice.body, silent: false })
         if (notice.onActivate) banner.on('click', notice.onActivate)
         banner.on('close', () => {
           if (shown.get(notice.key) === banner) shown.delete(notice.key)
@@ -69,7 +69,7 @@ export function createElectronPlatform(deps: ElectronPlatformDeps): StudioPlatfo
       },
     },
     identity: {
-      version: () => app.getVersion(),
+      version: () => deps.app.getVersion(),
     },
   }
 }

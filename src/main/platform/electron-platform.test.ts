@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
 import { createElectronPlatform, type ElectronPlatformDeps } from './electron-platform'
-import { createSafeStorageStandIn } from '../../../tests/stubs/safe-storage'
 
 type FakeWindow = { destroyed: boolean; sent: Array<[string, unknown]>; throws?: boolean }
 
@@ -13,7 +12,13 @@ function harness(options: { packaged?: boolean; notifications?: boolean } = {}) 
   }
   const windows: FakeWindow[] = []
   const banners: Array<{ title: string; body?: string; closed: boolean; shown: boolean; click?: () => void }> = []
-  const safeStorage = createSafeStorageStandIn()
+  // A keychain whose ciphertext is not the plaintext, as the real one's is not.
+  const scramble = (bytes: Buffer): Buffer => Buffer.from(bytes.map((byte) => byte ^ 0x5a))
+  const safeStorage = {
+    isEncryptionAvailable: () => true,
+    encryptString: (value: string) => scramble(Buffer.from(value, 'utf8')),
+    decryptString: (value: Buffer) => scramble(value).toString('utf8'),
+  }
   class FakeNotification {
     private readonly record: (typeof banners)[number]
     private readonly closeListeners: Array<() => void> = []

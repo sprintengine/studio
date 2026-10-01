@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict'
 import type { PathLike } from 'node:fs'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { ProviderSecretStore } from './secret-store'
 import type { ProviderSecretStoreOptions } from './secret-store'
 import type { LoadedConversationProvider } from '../shared/plugin-manifest'
+import { createNodeStudioPlatform, installStudioPlatform, resetStudioPlatform } from '../server/platform/platform'
+import { createSecretCipherStandIn } from '../../tests/stubs/secret-cipher'
 import { test } from 'vitest'
 
 test('secret-store', async () => {
@@ -163,10 +168,10 @@ test('secret-store', async () => {
     return new ProviderSecretStore({
       resolveAuthOwner: input.providerById ?? ((id) => (id === 'openai-compatible' ? provider : undefined)),
       resolveUserDataDir: () => '/user-data',
-      safeStorage: {
-        isEncryptionAvailable: () => input.encryptionAvailable,
-        encryptString: (value) => Buffer.from(`encrypted:${value}`),
-        decryptString: (value) => value.toString('utf-8').replace(/^encrypted:/, ''),
+      cipher: {
+        available: () => input.encryptionAvailable,
+        seal: (value) => Buffer.from(`encrypted:${value}`),
+        open: (value) => value.toString('utf-8').replace(/^encrypted:/, ''),
       },
       files: input.files.adapter,
       env: input.env ?? {},
@@ -200,4 +205,40 @@ test('secret-store', async () => {
   })
 
   await suiteRun
+})
+
+test('a store built with no options reads the installed platform when it is used, not when it is built', async () => {
+  const provider: LoadedConversationProvider = {
+    manifest: {
+      kind: 'provider',
+      id: 'openai-compatible',
+      displayName: 'OpenAI Compatible',
+      version: 1,
+      providerType: 'model-provider',
+      models: [{ id: 'gpt-5' }],
+      auth: { type: 'api-key', label: 'API key', env: 'OPENAI_API_KEY' },
+    },
+    source: 'bundled',
+    manifestPath: '/fixtures/openai-compatible/plugin.json',
+    pluginRoot: '/fixtures/openai-compatible',
+    adapter: { kind: 'declarative', execution: 'declarative', trust: 'not_required' },
+  }
+  // Built before any platform exists, as the shared store can be.
+  const store = new ProviderSecretStore({
+    resolveAuthOwner: (id) => (id === 'openai-compatible' ? provider : undefined),
+    env: {},
+  })
+  const dataDir = await mkdtemp(join(tmpdir(), 'secret-store-platform-'))
+  const cipher = createSecretCipherStandIn()
+  installStudioPlatform({ ...createNodeStudioPlatform({ dataDir, version: '0.0.0' }), secrets: cipher })
+  try {
+    const set = await store.setSecret('openai-compatible', 'sk-test-value')
+    assert.equal(set.ok, true)
+    const sealed = await readFile(join(dataDir, 'provider-secrets', 'openai-compatible-OPENAI_API_KEY.bin'))
+    assert.equal(cipher.open(sealed), 'sk-test-value')
+    assert.equal(cipher.seals, 1)
+  } finally {
+    resetStudioPlatform()
+    await rm(dataDir, { recursive: true, force: true })
+  }
 })

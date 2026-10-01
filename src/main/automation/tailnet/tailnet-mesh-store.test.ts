@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'vitest'
 
-import { createSafeStorageStandIn as cipher } from '../../../../tests/stubs/safe-storage'
+import { createSecretCipherStandIn as cipher } from '../../../../tests/stubs/secret-cipher'
 import { createTailnetMeshStore, LEGACY_TAILNET_MESH_FILENAME, TAILNET_MESH_FILENAME } from './tailnet-mesh-store'
 
 const stored = {
@@ -49,7 +49,7 @@ test('pairings stored under the legacy file name are moved to the current one an
     writeFileSync(join(dir, LEGACY_TAILNET_MESH_FILENAME), JSON.stringify({ version: 1, connections: [stored] }), {
       mode: 0o600,
     })
-    const store = createTailnetMeshStore({ resolveUserDataDir: () => dir, safeStorage: cipher() })
+    const store = createTailnetMeshStore({ resolveUserDataDir: () => dir, cipher: cipher() })
     assert.deepEqual(
       store.list().map((connection) => connection.id),
       ['tnc_1'],
@@ -67,14 +67,14 @@ test('a current file wins over a leftover legacy one', () => {
   withDir((dir) => {
     writeFileSync(join(dir, TAILNET_MESH_FILENAME), JSON.stringify({ version: 2, connections: [] }))
     writeFileSync(join(dir, LEGACY_TAILNET_MESH_FILENAME), JSON.stringify({ version: 1, connections: [stored] }))
-    const store = createTailnetMeshStore({ resolveUserDataDir: () => dir, safeStorage: cipher() })
+    const store = createTailnetMeshStore({ resolveUserDataDir: () => dir, cipher: cipher() })
     assert.deepEqual(store.list(), [])
   })
 })
 
 test('a token is sealed on disk and opened again by the next launch', () => {
   withDir((dir) => {
-    const first = createTailnetMeshStore({ resolveUserDataDir: () => dir, safeStorage: cipher() })
+    const first = createTailnetMeshStore({ resolveUserDataDir: () => dir, cipher: cipher() })
     const added = first.add(input)
 
     const { raw, parsed } = readFile(dir)
@@ -91,7 +91,7 @@ test('a token is sealed on disk and opened again by the next launch', () => {
       'the atomic write leaves no temporary behind',
     )
 
-    const second = createTailnetMeshStore({ resolveUserDataDir: () => dir, safeStorage: cipher() })
+    const second = createTailnetMeshStore({ resolveUserDataDir: () => dir, cipher: cipher() })
     assert.equal(second.find(added.id)?.deviceToken, 'mctn_fresh-secret')
     assert.deepEqual(second.list(), first.list())
   })
@@ -99,7 +99,7 @@ test('a token is sealed on disk and opened again by the next launch', () => {
 
 test('the public view never carries a token or its ciphertext', () => {
   withDir((dir) => {
-    const store = createTailnetMeshStore({ resolveUserDataDir: () => dir, safeStorage: cipher() })
+    const store = createTailnetMeshStore({ resolveUserDataDir: () => dir, cipher: cipher() })
     store.add(input)
     for (const connection of store.list()) {
       assert.equal('deviceToken' in connection, false)
@@ -111,12 +111,12 @@ test('the public view never carries a token or its ciphertext', () => {
 test('a rewrite reuses the sealed token instead of asking the keychain again', () => {
   withDir((dir) => {
     const keychain = cipher()
-    const store = createTailnetMeshStore({ resolveUserDataDir: () => dir, safeStorage: keychain })
+    const store = createTailnetMeshStore({ resolveUserDataDir: () => dir, cipher: keychain })
     const added = store.add(input)
     const sealed = readFile(dir).parsed.connections[0].sealedToken
     store.markConnected(added.id)
     store.updateScopes(added.id, ['workspace:read', 'conversation:read'])
-    assert.equal(keychain.encryptions, 1)
+    assert.equal(keychain.seals, 1)
     assert.equal(readFile(dir).parsed.connections[0].sealedToken, sealed)
   })
 })
@@ -126,7 +126,7 @@ test('a plaintext file is rewritten sealed on its first read', () => {
     writeFileSync(join(dir, TAILNET_MESH_FILENAME), JSON.stringify({ version: 1, connections: [stored] }), {
       mode: 0o600,
     })
-    const store = createTailnetMeshStore({ resolveUserDataDir: () => dir, safeStorage: cipher() })
+    const store = createTailnetMeshStore({ resolveUserDataDir: () => dir, cipher: cipher() })
     assert.equal(store.find('tnc_1')?.deviceToken, 'mctn_plaintext-secret', 'the pairing still works')
 
     const { raw, parsed } = readFile(dir)
@@ -135,14 +135,14 @@ test('a plaintext file is rewritten sealed on its first read', () => {
     assert.equal(parsed.connections[0].id, 'tnc_1')
     assert.equal(parsed.connections[0].machineName, 'mac-mini')
 
-    const next = createTailnetMeshStore({ resolveUserDataDir: () => dir, safeStorage: cipher() })
+    const next = createTailnetMeshStore({ resolveUserDataDir: () => dir, cipher: cipher() })
     assert.equal(next.find('tnc_1')?.deviceToken, 'mctn_plaintext-secret', 'and the next launch opens it')
   })
 })
 
 test('without encryption a new pairing lives in memory only', () => {
   withDir((dir) => {
-    const store = createTailnetMeshStore({ resolveUserDataDir: () => dir, safeStorage: cipher({ value: false }) })
+    const store = createTailnetMeshStore({ resolveUserDataDir: () => dir, cipher: cipher({ value: false }) })
     const added = store.add(input)
     assert.equal(store.find(added.id)?.deviceToken, 'mctn_fresh-secret', 'usable for this session')
 
@@ -150,14 +150,14 @@ test('without encryption a new pairing lives in memory only', () => {
     assert.doesNotMatch(raw, /mctn_fresh-secret/u)
     assert.deepEqual(parsed.connections, [], 'nothing about it reaches the disk')
 
-    const next = createTailnetMeshStore({ resolveUserDataDir: () => dir, safeStorage: cipher({ value: false }) })
+    const next = createTailnetMeshStore({ resolveUserDataDir: () => dir, cipher: cipher({ value: false }) })
     assert.deepEqual(next.list(), [], 'and it does not survive a restart')
   })
 })
 
-test('outside Electron the store falls back to memory only rather than plaintext', () => {
+test('with no cipher installed the store falls back to memory only rather than plaintext', () => {
   withDir((dir) => {
-    // No `safeStorage` option: the lazy load finds no Electron in a test run.
+    // No `cipher` option and no platform installed in a test run: no cipher.
     const store = createTailnetMeshStore({ resolveUserDataDir: () => dir })
     store.add(input)
     assert.doesNotMatch(readFile(dir).raw, /mctn_fresh-secret/u)
@@ -170,7 +170,7 @@ test('without encryption a plaintext file loses its tokens from disk but keeps t
     const logged: string[] = []
     const store = createTailnetMeshStore({
       resolveUserDataDir: () => dir,
-      safeStorage: cipher({ value: false }),
+      cipher: cipher({ value: false }),
       log: (line) => logged.push(line),
     })
     assert.equal(store.find('tnc_1')?.deviceToken, 'mctn_plaintext-secret')
@@ -185,18 +185,18 @@ test('without encryption a plaintext file loses its tokens from disk but keeps t
 test('a sealed record this launch cannot open is kept for a later one', () => {
   withDir((dir) => {
     const available = { value: true }
-    const first = createTailnetMeshStore({ resolveUserDataDir: () => dir, safeStorage: cipher(available) })
+    const first = createTailnetMeshStore({ resolveUserDataDir: () => dir, cipher: cipher(available) })
     const kept = first.add(input)
 
     // The keychain is unavailable for one launch, which still makes a change.
     available.value = false
-    const locked = createTailnetMeshStore({ resolveUserDataDir: () => dir, safeStorage: cipher(available) })
+    const locked = createTailnetMeshStore({ resolveUserDataDir: () => dir, cipher: cipher(available) })
     assert.deepEqual(locked.list(), [], 'what cannot be opened is not offered')
     locked.add({ ...input, deviceId: 'dev_10', deviceToken: 'mctn_session-only' })
     assert.doesNotMatch(readFile(dir).raw, /mctn_session-only/u)
 
     available.value = true
-    const later = createTailnetMeshStore({ resolveUserDataDir: () => dir, safeStorage: cipher(available) })
+    const later = createTailnetMeshStore({ resolveUserDataDir: () => dir, cipher: cipher(available) })
     assert.equal(later.find(kept.id)?.deviceToken, 'mctn_fresh-secret', 'the sealed pairing survived that launch')
     assert.equal(later.list().length, 1)
   })
