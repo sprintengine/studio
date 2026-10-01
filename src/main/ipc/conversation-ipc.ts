@@ -57,6 +57,8 @@ import type {
   ConversationRevertResult,
   ConversationRewindInput,
   ConversationRewindResult,
+  ConversationForkInput,
+  ConversationForkResult,
   ConversationApprovalRulesResult,
   ConversationApprovalRuleRevokeResult,
   ConversationEventType,
@@ -116,6 +118,7 @@ export type ConversationIpcHandlers = {
   getTurnDiff?(input: ConversationTurnDiffInput): Promise<ConversationTurnDiffResult>
   revertToTurn?(input: ConversationRevertInput): Promise<ConversationRevertResult>
   rewindToTurn?(input: ConversationRewindInput): Promise<ConversationRewindResult>
+  forkAtTurn?(input: ConversationForkInput): Promise<ConversationForkResult>
   listApprovalRules?(): Promise<ConversationApprovalRulesResult>
   revokeApprovalRule?(ruleId: string): Promise<ConversationApprovalRuleRevokeResult>
   onEvent(listener: (event: ConversationEvent) => void): () => void
@@ -308,6 +311,9 @@ export function createConversationIpcHandlers(
     rewindToTurn(input) {
       return sessions.rewindToTurn(input)
     },
+    forkAtTurn(input) {
+      return sessions.forkAtTurn(input)
+    },
     onEvent(listener: (event: ConversationEvent) => void): () => void {
       return runtime.onEvent(listener)
     },
@@ -459,6 +465,32 @@ export function registerConversationIpc(
         ok: false,
         message: 'Editing an earlier message is unavailable.',
       }
+    )
+  })
+  ipcMain.handle('conversation:turn:fork', async (_, input: unknown): Promise<ConversationForkResult> => {
+    if (
+      !isRecord(input) ||
+      typeof input.newAgentId !== 'string' ||
+      !input.newAgentId.trim() ||
+      (input.title !== undefined && typeof input.title !== 'string') ||
+      (input.side === 'user'
+        ? !Number.isSafeInteger(input.turnSeq) || Number(input.turnSeq) < 1
+        : input.side !== 'assistant' || typeof input.turnId !== 'string' || !input.turnId)
+    )
+      return { ok: false, message: 'The message to fork from is required.' }
+    const key = parseTranscriptInput(input.key)
+    if (!key.ok) return key
+    const common = {
+      key: key.input,
+      newAgentId: input.newAgentId,
+      ...(typeof input.title === 'string' ? { title: input.title } : {}),
+    }
+    return (
+      handlers.forkAtTurn?.(
+        input.side === 'user'
+          ? { ...common, side: 'user', turnSeq: Number(input.turnSeq) }
+          : { ...common, side: 'assistant', turnId: input.turnId as string },
+      ) ?? { ok: false, message: 'Forking a conversation is unavailable.' }
     )
   })
   ipcMain.handle('conversation:session:subscribe', (event, input: unknown) => {
