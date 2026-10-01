@@ -62,7 +62,12 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
       capabilities: STUDIO_RPC_CONVERSATION_CAPABILITIES,
     },
   })
-  const router = createStudioRpcRouter({ backend: options.backend, info: welcome, audit: options.audit })
+  const router = createStudioRpcRouter({
+    backend: options.backend,
+    info: welcome,
+    audit: options.audit,
+    log: options.log,
+  })
   const listener: StudioRpcListener = createStudioRpcListener({
     dataDir: options.dataDir,
     version: options.version,

@@ -52,7 +52,28 @@ export type StudioRpcRouterOptions = {
   /** What `server.info` answers, without the grant. */
   info: () => Omit<StudioServerInfo, 'grant'>
   audit?: (entry: StudioAuditEntry) => void
+  /** Where a refusal's own words go: the client is answered with a stable message instead. */
+  log?: (message: string) => void
   now?: () => number
+}
+
+/**
+ * What a client is told when the work below the router refused or failed: one
+ * stable sentence per code. The runtime's and the launch's own words can name
+ * paths, processes and other internals, so they go to the log and not to the
+ * client; a code with no sentence here is answered as `unavailable`.
+ */
+const STABLE_MESSAGES: Readonly<Record<string, string>> = {
+  unavailable: 'Studio could not carry that out.',
+  not_found: 'Studio has no such record for this conversation.',
+  invalid_params: 'Studio could not read that request.',
+  unsupported_model: "That model is not one this chat's agent offers here.",
+  unknown_workspace: 'There is no workspace with that id here.',
+  workspace_folder_missing: 'That workspace has no project folder.',
+  no_cli_selected: 'No agent CLI was named, and none is chosen here.',
+  cli_not_conversational: 'That agent CLI does not run as a chat here.',
+  unknown_skill: 'A skill the request names is not installed here.',
+  conversation_start_failed: 'The conversation could not be started.',
 }
 
 /** The receipt key a client's command id is held under. */
@@ -89,6 +110,12 @@ function drivesChat(command: ConversationCommand): boolean {
 
 export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRpcRouter {
   const { backend } = options
+  // A refusal from below: logged in its own words, answered in stable ones.
+  const failed = (code: string, detail: string | undefined, context: string): { ok: false; error: StudioErrorBody } => {
+    const known = Object.hasOwn(STABLE_MESSAGES, code) ? code : 'unavailable'
+    if (detail) options.log?.(`Studio RPC ${context} refused (${code}): ${detail}`)
+    return refuse(known, STABLE_MESSAGES[known])
+  }
   const now = options.now ?? Date.now
   // Creates still starting, by namespaced id: a retry that arrives while the
   // first attempt is launching shares it, so one id makes one chat.
@@ -164,7 +191,7 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
         )
     }
     const outcome = await backend.command(key, grant.clientId, studioRuntimeCommandId(grant, params.commandId), carried)
-    if (!outcome.ok) return refuse(outcome.code ?? 'unavailable', outcome.message ?? 'The command was not carried out.')
+    if (!outcome.ok) return failed(outcome.code ?? 'unavailable', outcome.message, `conversation.${carried.kind}`)
     const notice = outcome.notice ? { notice: outcome.notice } : {}
     if (carried.kind === 'setPermissionPreset')
       return {
@@ -218,7 +245,7 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
     const created = await pending
     return created.ok
       ? { ok: true, result: { conversation: created.conversation } }
-      : refuse(created.code, created.message)
+      : failed(created.code, created.message, 'conversation.create')
   }
 
   async function dispatch(grant: StudioGrant, method: StudioMethod, params: never): Promise<StudioRpcAnswer> {
@@ -242,7 +269,7 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
           stopsDone.add(runtimeId)
           while (stopsDone.size > MAX_REMEMBERED_STOPS) stopsDone.delete(stopsDone.values().next().value!)
         }
-        return stopped.ok ? { ok: true, result: {} } : refuse('unavailable', stopped.message)
+        return stopped.ok ? { ok: true, result: {} } : failed('unavailable', stopped.message, 'conversation.stop')
       }
       case 'conversation.loadEarlier': {
         const { key: wire, beforeCursor, turnLimit } = params as StudioMethodParams<'conversation.loadEarlier'>
@@ -254,7 +281,7 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
               ok: true,
               result: { page: { ...read.page, events: read.page.events.map((event) => backend.redact(event)) } },
             }
-          : refuse('unavailable', read.message)
+          : failed('unavailable', read.message, 'conversation.loadEarlier')
       }
       case 'conversation.toolDetail': {
         const { key: wire, toolUseId } = params as StudioMethodParams<'conversation.toolDetail'>
@@ -263,9 +290,10 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
         const read = await backend.toolDetail(key, toolUseId)
         if (read.ok)
           return { ok: true, result: { detail: backend.redact(read.detail) as unknown as Record<string, unknown> } }
-        return refuse(
+        return failed(
           read.code === 'not_found' ? 'not_found' : read.code === 'invalid_input' ? 'invalid_params' : 'unavailable',
           read.message,
+          'conversation.toolDetail',
         )
       }
       case 'conversation.turnDiff': {
@@ -273,7 +301,7 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
         const key = resolve(wire)
         if (!key) return notFound(wire)
         const read = await backend.turnDiff(key, turnSeq, path)
-        if (!read.ok) return refuse('unavailable', read.message)
+        if (!read.ok) return failed('unavailable', read.message, 'conversation.turnDiff')
         const { ok: _ok, ...diff } = read
         return { ok: true, result: backend.redact(diff) }
       }
@@ -302,7 +330,7 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
         else {
           read = parsed.params
           answer = await dispatch(grant, method, parsed.params as never).catch((error: unknown): StudioRpcAnswer =>
-            refuse('unavailable', error instanceof Error ? error.message : 'Studio could not carry that out.'),
+            failed('unavailable', error instanceof Error ? error.message : String(error), method),
           )
         }
       }

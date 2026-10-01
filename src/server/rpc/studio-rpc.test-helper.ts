@@ -135,6 +135,9 @@ export function createFakeBackend(agentIds: string[] = ['agent-1']): FakeBackend
     async command(key, clientId, commandId, command) {
       const prior = receipts.get(commandId)
       if (prior) return prior
+      // A refusal in the runtime's own words, which can name internals.
+      if (command.kind === 'send' && command.message === 'explode')
+        return { ok: false, message: 'ENOENT: no such file, open /Users/dev/app/.sprintengine/secret.json' }
       backend.commands.push({ clientId, commandId, command })
       if (command.kind === 'setPermissionPreset') backend.presets.set(key.agentId, command.preset)
       const outcome: StudioCommandOutcome = { ok: true }

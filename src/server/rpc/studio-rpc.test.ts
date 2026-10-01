@@ -424,6 +424,18 @@ test('an answer over the frame cap arrives chunked and whole', async () => {
   assert.equal(!elsewhere.ok && elsewhere.error.code, 'not_found')
 })
 
+test('a refusal from below is answered in stable words, never the runtime’s own', async () => {
+  const { path, auth } = await serve()
+  const c = await open(path, pairFakeClient(auth, 'app', ['conversation:operate', 'conversation:create']))
+  const sent = await request(c, 's1', 'conversation.send', { key, commandId: 'boom', message: 'explode' })
+  assert.deepEqual(!sent.ok && sent.error, { code: 'unavailable', message: 'Studio could not carry that out.' })
+  const created = await request(c, 'c1', 'conversation.create', { workspaceId: 'ws-9', commandId: 'nowhere' })
+  assert.deepEqual(!created.ok && created.error, {
+    code: 'unknown_workspace',
+    message: 'There is no workspace with that id here.',
+  })
+})
+
 test('a line over the client cap is refused under its id, and the connection stays open', async () => {
   const { path, auth } = await serve()
   const c = await open(path, pairFakeClient(auth, 'big-sender', ['conversation:operate']))
