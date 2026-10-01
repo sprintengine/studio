@@ -77,6 +77,7 @@ import { SkillsAndMcpsPicker } from './SkillsAndMcpsPicker'
 import { launchCommandLineKey, launchPreviewRequest, type LaunchCommandLineState } from './launchCommandLine'
 import { drawSuggestions, newSuggestionSeed, type SuggestionEntry } from './suggestionBank'
 import { WorktreeChip } from './WorktreeChip'
+import { FoldedControls, useMeasuredFold } from '../../ui/FoldedControls'
 import { ScheduleTray } from './schedule/SchedulePicker'
 import { ScheduledRuns } from './schedule/ScheduledRuns'
 import type { ScheduledRunEntry } from '../../../utils/scheduledAgentRuns'
@@ -383,6 +384,10 @@ const SCHEDULE_COMMAND = /(?:^|\s)\/schedule(?:[ \t]+([^\n]*))?$/u
  * Nothing here creates anything: `onLaunch` hands the host a confirm plus the
  * prompt, and the host retypes this tab into the agent's terminal.
  */
+// The width below which the launch row folds worktree and skills: the model
+// chip, worktree, skills, ⋯ and Start side by side at typical label widths.
+const LAUNCH_ROW_FOLD_WIDTH = 520
+
 export default function NewAgentPanel({
   workspaceId,
   conversationModeEnabled = true,
@@ -841,6 +846,9 @@ export default function NewAgentPanel({
   const [prompt, setPrompt] = React.useState(() => editing?.prompt ?? draft?.prompt ?? '')
   const [enginePopoverOpen, setEnginePopoverOpen] = React.useState(false)
   const [moreOpen, setMoreOpen] = React.useState(false)
+  // Below its budget the launch row folds worktree and skills behind one
+  // chevron rather than wrapping onto a second line (owner ruling 2026-10-01).
+  const [launchRowFolded, launchRowRef] = useMeasuredFold(LAUNCH_ROW_FOLD_WIDTH)
   const [workspaceIsGitRepo, setWorkspaceIsGitRepo] = React.useState(false)
   const [seed] = React.useState(() => newSuggestionSeed())
   const promptRef = React.useRef<HTMLTextAreaElement>(null)
@@ -1761,7 +1769,10 @@ export default function NewAgentPanel({
             />
           </div>
 
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 border-t border-[color:var(--border-subtle)] pt-2">
+          <div
+            ref={launchRowRef}
+            className="mt-1.5 flex flex-wrap items-center gap-1.5 border-t border-[color:var(--border-subtle)] pt-2"
+          >
             {/* Engine: the CLI's own mark, then the model. The mark is the
                 identity — the word "claude" beside a Claude asterisk was saying
                 it twice. */}
@@ -1792,57 +1803,65 @@ export default function NewAgentPanel({
               />
             ) : null}
 
-            {/* Worktree sits beside the agent it isolates rather than behind ⋯
+            {/* An extension's folder is new, so there is nothing to fork: its
+                name takes the worktree chip's place, in the extension violet.
+                It never folds — it is a field the launch cannot start without,
+                and a required field behind a chevron is one nobody fills. */}
+            {extensionMode ? (
+              <ExtensionNameChip name={extensionName} onChange={setExtensionName} invalid={extensionNote !== null} />
+            ) : null}
+
+            {/* Worktree and skills fold behind a chevron when the row is too
+                narrow for them; the model, ⋯ and Start never do. */}
+            <FoldedControls folded={launchRowFolded} ariaLabel="More launch settings" placement="bottom-start">
+              {/* Worktree sits beside the agent it isolates rather than behind ⋯
                 (owner, 2026-09-30): off until turned on or named. This machine
                 only, and only inside a git repository — a paired machine's
                 chat has no checkout here to fork. */}
-            {/* An extension's folder is new, so there is nothing to fork: its
-                name takes the worktree chip's place, in the extension violet. */}
-            {extensionMode ? (
-              <ExtensionNameChip name={extensionName} onChange={setExtensionName} invalid={extensionNote !== null} />
-            ) : selection.kind !== 'terminal' && !remoteTarget && workspaceIsGitRepo ? (
-              <WorktreeChip name={composer.worktreeName} onChange={composer.setWorktreeName} />
-            ) : null}
+              {!extensionMode && selection.kind !== 'terminal' && !remoteTarget && workspaceIsGitRepo ? (
+                <WorktreeChip name={composer.worktreeName} onChange={composer.setWorktreeName} />
+              ) : null}
 
-            {/* Every pick is a chip; the one trigger opens the picker for more.
+              {/* Every pick is a chip; the one trigger opens the picker for more.
                 A terminal launches nothing that reads a skill or an MCP. */}
-            {selection.kind !== 'terminal' ? (
-              <>
-                {composer.skills.map((skill) => (
-                  <AttachmentChip
-                    key={`skill-${skill.id}`}
-                    glyph={<StarGlyph filled className="icon-xs text-[color:var(--accent-primary)]" />}
-                    label={skill.name}
-                    removeLabel={`Remove skill ${skill.name}`}
-                    onRemove={() => composer.setSkills(composer.skills.filter((entry) => entry.id !== skill.id))}
+              {selection.kind !== 'terminal' ? (
+                <>
+                  {composer.skills.map((skill) => (
+                    <AttachmentChip
+                      key={`skill-${skill.id}`}
+                      glyph={<StarGlyph filled className="icon-xs text-[color:var(--accent-primary)]" />}
+                      label={skill.name}
+                      removeLabel={`Remove skill ${skill.name}`}
+                      onRemove={() => composer.setSkills(composer.skills.filter((entry) => entry.id !== skill.id))}
+                    />
+                  ))}
+                  {composer.mcpServers.map((server) => (
+                    <AttachmentChip
+                      key={`mcp-${server.id}`}
+                      glyph={
+                        <ExtensionIcon slug={mcpIconSlug(server.id)} name={server.name} icon={server.icon} size={13} />
+                      }
+                      label={server.name}
+                      removeLabel={`Remove MCP server ${server.name}`}
+                      onRemove={() =>
+                        composer.setMcpServers(composer.mcpServers.filter((entry) => entry.id !== server.id))
+                      }
+                    />
+                  ))}
+                  <SkillsAndMcpsPicker
+                    workspaceRoot={workspaceRoot}
+                    // A chat stages skills itself rather than through the CLI's own
+                    // skill directory, so the workspace-wide inventory is its list.
+                    pluginId={commandCli}
+                    skills={composer.skills}
+                    onSkillsChange={composer.setSkills}
+                    mcpServers={composer.mcpServers}
+                    onMcpServersChange={composer.setMcpServers}
+                    placement="bottom-start"
                   />
-                ))}
-                {composer.mcpServers.map((server) => (
-                  <AttachmentChip
-                    key={`mcp-${server.id}`}
-                    glyph={
-                      <ExtensionIcon slug={mcpIconSlug(server.id)} name={server.name} icon={server.icon} size={13} />
-                    }
-                    label={server.name}
-                    removeLabel={`Remove MCP server ${server.name}`}
-                    onRemove={() =>
-                      composer.setMcpServers(composer.mcpServers.filter((entry) => entry.id !== server.id))
-                    }
-                  />
-                ))}
-                <SkillsAndMcpsPicker
-                  workspaceRoot={workspaceRoot}
-                  // A chat stages skills itself rather than through the CLI's own
-                  // skill directory, so the workspace-wide inventory is its list.
-                  pluginId={commandCli}
-                  skills={composer.skills}
-                  onSkillsChange={composer.setSkills}
-                  mcpServers={composer.mcpServers}
-                  onMcpServersChange={composer.setMcpServers}
-                  placement="bottom-start"
-                />
-              </>
-            ) : null}
+                </>
+              ) : null}
+            </FoldedControls>
 
             {/* Always rendered, whatever is selected: this menu is the only way
                 to change WHAT is being launched, so hiding it for a terminal
@@ -1858,7 +1877,7 @@ export default function NewAgentPanel({
                 renderTrigger={({ ref, triggerProps, togglePopover }) => (
                   <ChipButton
                     ref={ref}
-                    variant="outline"
+                    variant="raised"
                     aria-label="More launch options"
                     onClick={togglePopover}
                     {...triggerProps}
@@ -2119,10 +2138,10 @@ function MachineScopePicker({
       surfaceClassName={`w-[280px] ${MENU_LIST_CLASS}`}
       onOpenAutoFocus={focusChecked}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
-        // The kit's ghost chip: `px-1.5 py-0.5` on the line box, and the
-        // `subtle` tone's `--text-default` hover ink, both of which this
-        // scope-line trigger already spelled.
-        <ChipButton ref={ref} onClick={togglePopover} data-machine-trigger="true" {...triggerProps}>
+        // The kit's raised chip, and the `subtle` tone's `--text-default`
+        // hover ink: one of the launch row's controls, so it stands on the
+        // same edge and height as the model and skills chips beside it.
+        <ChipButton ref={ref} variant="raised" onClick={togglePopover} data-machine-trigger="true" {...triggerProps}>
           {selected ? <RemoteMachineGlyph className="icon-xs shrink-0" /> : null}
           {!selected && selectedHost?.kind === 'wsl' ? <WslMachineGlyph className="icon-xs shrink-0" /> : null}
           {selected ? selected.machineName : selectedHost && hostRows.length > 0 ? selectedHost.label : 'This device'}
@@ -2309,7 +2328,7 @@ function RemoteProjectPicker({
         // The same stable hook the local chip carries: the two never render
         // together, so a pass looking for "the project control on the scope
         // line" finds whichever one is there.
-        <ChipButton ref={ref} onClick={togglePopover} data-project-trigger="true" {...triggerProps}>
+        <ChipButton ref={ref} variant="raised" onClick={togglePopover} data-project-trigger="true" {...triggerProps}>
           {/* The bare glyph, not `FolderIdentityIcon`: a logo is detected by
               reading THIS disk, and the folder is on another machine. */}
           <FolderTypeIcon className="icon-xs shrink-0" color={color} unfiled={unfiled} />

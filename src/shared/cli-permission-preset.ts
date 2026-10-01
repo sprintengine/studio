@@ -7,7 +7,9 @@
  *   it YOLO).
  * - `auto` edits files inside the workspace and reads without asking, and asks
  *   before anything riskier: shell commands the runtime does not already treat
- *   as safe, network access, MCP tools, and anything outside the workspace.
+ *   as safe, network access, and anything outside the workspace. In a chat it
+ *   also runs MCP tools unasked, bar the gateway's agent-launching ones
+ *   (owner ruling 2026-10-01); a terminal agent's own CLI still asks for them.
  * - `manual` asks before every action that changes something or reaches out:
  *   each edit, command, web request and MCP tool. Read-only lookups inside the
  *   workspace (reading, searching, listing files) run without a card, since a

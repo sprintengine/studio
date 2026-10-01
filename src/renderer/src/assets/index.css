@@ -162,6 +162,9 @@
      from their own ramp — one rung below their `--bg-selected`, which is
      exactly where the bundle puts it in dark. */
   --bg-selected-resting: var(--sem-color-bg-selected-resting);
+  /* A tint of the ink, not a solid, so it reads the same on every theme's
+     surface: the groove of a segmented control, the ground of a code well. */
+  --bg-well: var(--sem-color-bg-well);
   /* The selection EDGE: the 2px accent border worn by the selected row of the
      pane the keyboard is driving (design-system/patterns/selection.html, owner
      ruling 2026-09-05). The neutral fill alone could not be found on a rail
@@ -516,6 +519,13 @@
   --shadow-control-raised: var(--sem-shadow-control-raised);
   --shadow-control-edge: var(--sem-shadow-control-edge);
   --shadow-control-pressed: var(--sem-shadow-control-pressed);
+  /* The face of an elevated control: a faint top-to-bottom falloff painted as
+     a background-image, so it lays over whatever ground colour the control's
+     own utilities set. Same classes, same three states as the shadows. */
+  --gradient-control-sheen: var(--sem-gradient-control-sheen);
+  --gradient-control-raised-sheen: var(--sem-gradient-control-raised-sheen);
+  /* The groove a segmented control's raised thumb slides along. */
+  --shadow-control-track: var(--sem-shadow-control-track);
 
   /* The overlay stacking ladder, aliased from the bundle so there is ONE ladder
      of record. The app used to carry a second one in a comment at the
@@ -1991,17 +2001,22 @@ samp,
  * thrown is held down, not merely styled, so it keeps the sunken edge. */
 .control-raised {
   box-shadow: var(--shadow-control-raised);
+  background-image: var(--gradient-control-raised-sheen);
 }
 
 .control-edge {
   box-shadow: var(--shadow-control-edge);
+  background-image: var(--gradient-control-sheen);
 }
 
+/* Pressed drops the sheen with the drop: the light that fell across the face
+ * is now cast into it, so the face goes flat under the finger. */
 .control-raised:active:not(:disabled):not([aria-disabled="true"]),
 .control-raised[data-pressed]:not(:disabled),
 .control-edge:active:not(:disabled):not([aria-disabled="true"]),
 .control-edge[data-pressed]:not(:disabled) {
   box-shadow: var(--shadow-control-pressed);
+  background-image: none;
 }
 
 .control-raised:disabled,
@@ -2009,6 +2024,16 @@ samp,
 .control-edge:disabled,
 .control-edge[aria-disabled="true"] {
   box-shadow: none;
+  background-image: none;
+}
+
+/* ── Control track ─────────────────────────────────────────────────────────
+ * A segmented control's groove: the well ground with light falling into it
+ * from above. The selected segment inside it takes `.control-edge`, so the
+ * thumb stands out of the groove by exactly the step every other bordered
+ * control stands off the page. */
+.control-track {
+  box-shadow: var(--shadow-control-track);
 }
 
 /* ── Switch thumb ──────────────────────────────────────────────────────────

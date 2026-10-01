@@ -21,6 +21,12 @@ import { FOCUS_RING_CLASS } from './tokens'
 // `control-edge`, which is elevation, and elevation in the document flow is
 // exactly what the hairline principle rules out for anything that is not a
 // pressable control standing on its own.
+//
+// `raised` is the one tile that IS such a control (owner ruling 2026-10-01): a
+// launcher tile — the empty pane's Browser / Terminal / Files grid — whose whole
+// job is to be pressed once. It takes `.control-edge` at rest, so the
+// elevation is there before the pointer arrives and hover still moves only the
+// ground and the edge colour; nothing appears, nothing reflows.
 
 /**
  * - `plain` (default) — no edge. The tile IS its content: a preview iframe, a
@@ -29,8 +35,11 @@ import { FOCUS_RING_CLASS } from './tokens'
  *   `border.strong`. For a tile whose content does not draw its own box: a
  *   summary tile, a theme card, a graph node. The border is present at rest, so
  *   it appears at no point and moves nothing.
+ * - `raised` — `bordered`'s hairline over `bg.surface-raised`, standing off the
+ *   page on `.control-edge` exactly as an outline button does. For a LAUNCHER
+ *   tile: one of a grid of things to open, pressed once and gone.
  */
-export type CardVariant = 'plain' | 'bordered'
+export type CardVariant = 'plain' | 'bordered' | 'raised'
 
 const RESTING: Record<CardVariant, string> = {
   plain: 'bg-transparent hover:bg-[color:var(--bg-hover)] ' + 'disabled:hover:bg-transparent',
@@ -38,6 +47,10 @@ const RESTING: Record<CardVariant, string> = {
     'border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] ' +
     'hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] ' +
     'disabled:hover:border-[color:var(--border-default)] disabled:hover:bg-[color:var(--bg-surface)]',
+  raised:
+    'control-edge border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] ' +
+    'hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] ' +
+    'disabled:hover:border-[color:var(--border-default)] disabled:hover:bg-[color:var(--bg-surface-raised)]',
 }
 
 // Selection on a tile is the same neutral canon a row takes — the fill, the ink
@@ -50,6 +63,13 @@ const SELECTED: Record<CardVariant, string> = {
     'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)] ' +
     'ring-2 ring-inset ring-[color:var(--selection-edge)]',
   bordered:
+    'border border-[color:var(--border-strong)] bg-[color:var(--bg-selected)] ' +
+    'text-[color:var(--text-strong)] ring-2 ring-inset ring-[color:var(--selection-edge)]',
+  // No `.control-edge` once chosen: the selection edge is a `ring`, which is a
+  // box-shadow, and the two would be one property set twice. A chosen launcher
+  // tile is a place you are, not a thing to press, so it sits down into the
+  // selection fill the way `bordered` does.
+  raised:
     'border border-[color:var(--border-strong)] bg-[color:var(--bg-selected)] ' +
     'text-[color:var(--text-strong)] ring-2 ring-inset ring-[color:var(--selection-edge)]',
 }

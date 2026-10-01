@@ -1,16 +1,26 @@
-/* Segmented control — a radiogroup strip of 2–4 always-visible, mutually
- * exclusive choices (src/renderer/src/components/ui/SegmentedControl.tsx).
+/* Segmented control — a radiogroup of 2–4 always-visible, mutually exclusive
+ * choices (src/renderer/src/components/ui/SegmentedControl.tsx).
  *
- * The group owns the border, radius, and clip; segments own nothing
- * structural. Selection is neutral — bg.selected plus an ink lift — never the
- * accent: a selected segment is a state display, not the view's one primary
- * action. */
+ * A TRACK and a THUMB (owner ruling 2026-10-01). The group is a groove set into
+ * the surface — bg.well, a border.subtle hairline, and shadow.control-track
+ * light falling into it — and owns the ramp height. The selected segment is a
+ * raised thumb standing out of the groove on shadow.control-edge and
+ * gradient.control-sheen: the same step every bordered control stands off the
+ * page. Unselected segments are bare ink on the groove.
+ *
+ * Selection stays neutral — a lifted ground and an ink lift, never the accent:
+ * a selected segment is a state display, not the view's one primary action. */
 
 .ds-segmented-control {
   display: inline-flex;
-  overflow: hidden;
-  border: 1px solid var(--sem-color-border-default);
+  align-items: stretch;
+  gap: var(--sem-space-3xs);
+  height: var(--sem-size-control-sm);
+  padding: var(--sem-space-3xs);
+  border: 1px solid var(--sem-color-border-subtle);
   border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-well);
+  box-shadow: var(--sem-shadow-control-track);
 }
 
 .ds-segmented-control-segment {
@@ -18,10 +28,12 @@
   align-items: center;
   /* Only a badged segment has a second child: its count, after the label. */
   gap: var(--sem-space-xs);
-  height: var(--sem-size-control-sm);
-  padding: 0 var(--sem-space-lg);
+  padding: 0 var(--sem-space-md);
   border: 0;
-  background: var(--sem-color-bg-surface);
+  /* The thumb sits 2px inside the track's 7px corner, so it takes the chip
+   * step: concentric rather than a second 7px curve crowding the first. */
+  border-radius: var(--sem-radius-chip);
+  background: transparent;
   color: var(--sem-color-text-muted);
   font-family: var(--sem-font-family-ui);
   font-size: var(--sem-font-size-meta);
@@ -29,12 +41,8 @@
   cursor: pointer;
   transition:
     background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    box-shadow var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
     color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
-}
-
-/* One internal hairline per join — on the segment after it, never doubled. */
-.ds-segmented-control-segment + .ds-segmented-control-segment {
-  border-left: 1px solid var(--sem-color-border-subtle);
 }
 
 .ds-segmented-control-segment:hover:not(:disabled):not([aria-checked='true']) {
@@ -42,16 +50,15 @@
   color: var(--sem-color-text-primary);
 }
 
-/* Neutral selection: a luminance step and an ink lift, which is why the
- * checked segment survives grayscale. */
+/* The thumb: the raised ground over the groove, lit from above. A luminance
+ * step AND an edge, which is why the checked segment survives grayscale. */
 .ds-segmented-control-segment[aria-checked='true'] {
-  background: var(--sem-color-bg-selected);
+  background-color: var(--sem-color-bg-surface-raised);
+  background-image: var(--sem-gradient-control-sheen);
+  box-shadow: var(--sem-shadow-control-edge);
   color: var(--sem-color-text-primary);
 }
 
-/* The group clips its own overflow, so the shared treatment turns inward —
- * only the offset is negated, same width, same colour (the split button's
- * reasoning, and its exact rule). */
 .ds-segmented-control-segment:focus-visible {
   outline: var(--sem-focus-ring);
   outline-offset: calc(-1 * var(--sem-focus-ring-offset));
@@ -63,9 +70,12 @@
 }
 
 /* Dense variant for inline sub-controls inside compact popovers. */
-.ds-segmented-control--sm .ds-segmented-control-segment {
+.ds-segmented-control--sm {
   height: var(--sem-size-control-xs);
-  padding: 0 var(--sem-space-md);
+}
+
+.ds-segmented-control--sm .ds-segmented-control-segment {
+  padding: 0 var(--sem-space-sm);
   font-size: var(--sem-font-size-micro);
 }
 
@@ -80,7 +90,7 @@
  * that cannot spend width on labels — the diff window's side-by-side / unified
  * toggle, sharing its row with the file stepper and the include counter.
  *
- * `size.control.xs` square, so the strip matches the `button --icon` items
+ * A `size.control.xs` track of square thumbs, so the strip matches the `button --icon` items
  * beside it in a `toolbar` band rather than standing a step taller than them,
  * and the glyph steps up to `icon.size.sm`: here the glyph IS the control, not
  * a mark beside the word that is.
@@ -89,9 +99,12 @@
  * tooltip, which is the contract `tabs --icon-only` already wrote. A segment
  * with no label and no tooltip is a blank button, and it is the only thing this
  * variant can get wrong. */
-.ds-segmented-control--icon-only .ds-segmented-control-segment {
-  width: var(--sem-size-control-xs);
+.ds-segmented-control--icon-only {
   height: var(--sem-size-control-xs);
+}
+
+.ds-segmented-control--icon-only .ds-segmented-control-segment {
+  aspect-ratio: 1;
   justify-content: center;
   padding: 0;
 }

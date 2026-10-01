@@ -14,6 +14,7 @@ import {
   InlineNotice,
   LifecycleGlyph,
   MenuItem,
+  OutlineButton,
   OverflowMenu,
   Popover,
   PrimaryButton,
@@ -2413,10 +2414,12 @@ export function BacklogDetail({
         cta={
           <div className="flex flex-wrap items-center justify-center gap-2">
             {redirected ? null : <PrimaryButton onClick={actions.createFolder}>Create backlog folder</PrimaryButton>}
+            {/* Outlined: when the folder went missing there is no primary, and
+                this is the way forward; beside Create it is the one rung down. */}
             {actions.chooseFolder ? (
-              <GhostButton onClick={actions.chooseFolder}>
+              <OutlineButton onClick={actions.chooseFolder}>
                 {redirected ? 'Choose a different folder' : 'Choose a folder…'}
-              </GhostButton>
+              </OutlineButton>
             ) : null}
             {redirected && actions.useDefaultFolder ? (
               <GhostButton onClick={actions.useDefaultFolder}>Use the default</GhostButton>

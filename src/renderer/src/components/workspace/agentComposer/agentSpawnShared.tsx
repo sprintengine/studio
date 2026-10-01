@@ -34,7 +34,7 @@ export const AGENT_SPAWN_PERMISSION_OPTIONS: Array<{
     label: 'Auto',
     summary: 'Edits go through; commands and the rest ask.',
     title:
-      'Read and edit files in the workspace without asking. Commands, web access, MCP tools and anything outside the workspace ask first.',
+      'Read and edit files in the workspace without asking, and in a chat use your connected MCP tools too. Commands, web access and anything outside the workspace ask first.',
   },
   {
     value: 'manual',

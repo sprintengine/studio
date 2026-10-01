@@ -1,6 +1,8 @@
 import React from 'react'
 
 import { CloseIconButton, IconButton, Input, Tooltip } from '../../ui'
+import { RAISED_CHIP_SHELL } from '../../ui/ChipButton'
+import { FOCUS_RING_WITHIN_INPUT_CLASS } from '../../ui/tokens'
 import { GitBranchGlyph } from '../../AppIcons'
 
 /**
@@ -22,18 +24,26 @@ export function WorktreeChip({
   const on = name !== null
   const inputRef = React.useRef<HTMLInputElement>(null)
   return (
+    // The raised chip's own shell, so the switch stands at the same height,
+    // radius and elevation as the model and skills chips beside it rather
+    // than a step taller (its field used to bring the form ramp's 30px with
+    // it). The box is a wrapper around a field, so the wrapper takes the ring.
+    // On reads from the accent glyph and the name, not from a tinted ground:
+    // a second ground on one chip of a raised row breaks the row.
     <span
       data-worktree-chip={on ? 'on' : 'off'}
-      className={`inline-flex items-center gap-0.5 rounded py-0.5 pl-0.5 pr-1 text-meta ${
-        on
-          ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
-          : 'border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-subtle)]'
+      className={`${RAISED_CHIP_SHELL} gap-0.5 pl-0.5 pr-1 ${FOCUS_RING_WITHIN_INPUT_CLASS} ${
+        on ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-subtle)]'
       }`}
     >
       <Tooltip content={on ? 'Runs in a worktree of its own' : 'Run in a worktree of its own'} placement="top">
         <IconButton
           size="2xs"
-          pressed={on}
+          // A toggle, announced as one, but without the thrown fill: inside the
+          // chip's own box a selected square is a box in a box. The accent
+          // glyph is what says on.
+          tone="ink"
+          aria-pressed={on}
           aria-label={on ? 'Worktree on' : 'Run in a worktree'}
           onClick={() => {
             if (on) return inputRef.current?.focus()
@@ -51,6 +61,7 @@ export function WorktreeChip({
       <Input
         ref={inputRef}
         variant="seamless"
+        size="none"
         fullWidth={false}
         value={name ?? ''}
         onChange={(event) => {
@@ -60,7 +71,7 @@ export function WorktreeChip({
         }}
         placeholder={on ? 'auto-named' : 'Worktree'}
         aria-label="Worktree name — leave empty to have one made up"
-        className="field-sizing-content min-w-[8ch] max-w-[160px] text-meta"
+        className="field-sizing-content h-full min-w-[8ch] max-w-[160px] px-0.5 text-meta"
       />
       {on ? <CloseIconButton size="2xs" onClick={() => onChange(null)} aria-label="Turn worktree off" /> : null}
     </span>

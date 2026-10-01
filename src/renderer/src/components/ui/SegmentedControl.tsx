@@ -22,9 +22,9 @@ export type SegmentedControlItem<V extends string = string> = {
    * A count of what is waiting behind this choice — the Agents machine
    * switcher's "1 CLI update available" on the machine that has it (owner
    * ruling 2026-09-25). The kit's count badge, trailing the label inside the
-   * segment rather than docked on its corner: the strip clips its own edge
-   * (`overflow-hidden` draws the rounded border), so a corner count would be
-   * cut in half. Its `label` joins the segment's accessible name. Ignored on an
+   * segment rather than docked on its corner: a segment is a thumb inside a
+   * 2px-inset track, so a corner count would sit on the track's rim and read
+   * as the strip's rather than the segment's. Its `label` joins the segment's accessible name. Ignored on an
    * `iconOnly` strip, whose square has no room beside the glyph. Null or 0
    * draws nothing.
    */
@@ -64,14 +64,28 @@ type SegmentedControlProps<V extends string = string> = {
   className?: string
 }
 
+// The TRACK carries the ramp height; segments fill it. A track and a thumb
+// (owner ruling 2026-10-01): the strip is a groove set into the surface —
+// `bg.well` with `.control-track` light falling into it — and the chosen
+// segment is a raised thumb standing out of it on `.control-edge`, the same
+// step every bordered control stands off the page. The old strip of hairline
+// separators over one flat fill read as a row of cells rather than as a
+// switch, and the chosen cell was only a luminance step away from the rest.
+const TRACK_SIZE: Record<'sm' | 'md' | 'icon', string> = {
+  sm: 'h-control-xs',
+  md: 'h-control-sm',
+  // Level with the `button --icon` squares beside it in a Toolbar band.
+  icon: 'h-control-xs',
+}
+
 const SEGMENT_SIZE: Record<'sm' | 'md', string> = {
-  sm: 'h-control-xs px-2.5 text-micro',
-  md: 'h-control-sm px-3 text-meta',
+  sm: 'px-2 text-micro',
+  md: 'px-2.5 text-meta',
 }
 
 /** Square, `size.control.xs`, glyph at `icon.size.sm`: the strip sits level
  *  with the `button --icon` items beside it in a Toolbar band. */
-const ICON_ONLY_SEGMENT = 'size-control-xs justify-center px-0'
+const ICON_ONLY_SEGMENT = 'aspect-square justify-center px-0'
 
 export function SegmentedControl<V extends string = string>({
   ariaLabel,
@@ -127,9 +141,9 @@ export function SegmentedControl<V extends string = string>({
       aria-label={ariaLabel}
       aria-describedby={ariaDescribedBy}
       onKeyDown={handleKeyDown}
-      className={`inline-flex overflow-hidden rounded-sm border border-[color:var(--border-default)] ${className ?? ''}`}
+      className={`control-track inline-flex items-stretch gap-0.5 rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--bg-well)] p-0.5 ${TRACK_SIZE[iconOnly ? 'icon' : size]} ${className ?? ''}`}
     >
-      {items.map((item, index) => {
+      {items.map((item) => {
         const checked = item.value === value
         const badge = !iconOnly && item.badge && item.badge.count > 0 ? item.badge : null
         const segment = (
@@ -154,14 +168,13 @@ export function SegmentedControl<V extends string = string>({
               if (!checked) onChange(item.value)
             }}
             className={`
-              interactive ${iconOnly ? ICON_ONLY_SEGMENT : SEGMENT_SIZE[size]} font-medium ${FOCUS_RING_CLASS}
-              ${index > 0 ? 'border-l border-[color:var(--border-subtle)]' : ''}
+              interactive inline-flex items-center rounded-xs ${iconOnly ? ICON_ONLY_SEGMENT : SEGMENT_SIZE[size]} font-medium ${FOCUS_RING_CLASS}
               ${
                 checked
-                  ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                  : 'bg-[color:var(--bg-surface)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+                  ? 'control-edge bg-[color:var(--bg-surface-raised)] text-[color:var(--text-strong)]'
+                  : 'bg-transparent text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:hover:bg-transparent'
               }
-              disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-[color:var(--bg-surface)]
+              disabled:cursor-not-allowed disabled:opacity-45
             `}
           >
             {iconOnly ? (

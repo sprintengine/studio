@@ -2330,7 +2330,7 @@ test('a foreground Claude agent keeps its own result and background shells are n
  * recorded, and `emit` plays a message out of the child when the test says so.
  * `refuseModes` stands in for a CLI that will not take a live permission mode.
  */
-function scriptedHarness(options: { refuseModes?: boolean } = {}) {
+function scriptedHarness(options: { refuseModes?: boolean; wedged?: boolean } = {}) {
   const prompts: Record<string, unknown>[] = []
   const spawned: Record<string, unknown>[] = []
   const interrupts: unknown[] = []
@@ -2352,10 +2352,13 @@ function scriptedHarness(options: { refuseModes?: boolean } = {}) {
       },
       // As the CLI does, the child goes on after an interrupt: it still plays
       // out the tail of the exchange it was stopped in.
-      interrupt: async (options?: unknown) => {
-        interrupts.push(options)
+      // A wedged child (a process hung inside WSL) never answers either.
+      interrupt: async (interruptOptions?: unknown) => {
+        interrupts.push(interruptOptions)
+        if (options.wedged) await new Promise(() => undefined)
       },
       setPermissionMode: async (mode: string) => {
+        if (options.wedged) await new Promise(() => undefined)
         if (options.refuseModes) throw new Error('Cannot set permission mode.')
         modes.push(mode)
       },
@@ -2365,6 +2368,7 @@ function scriptedHarness(options: { refuseModes?: boolean } = {}) {
     loadQuery: (async () => query) as never,
     resolveExecutable: async () => '/fake/bin/claude',
     buildEnv: () => ({ PATH: '/usr/bin' }),
+    childAnswerTimeoutMs: 30,
   })
   const emit = (message: Record<string, unknown>) => {
     pending.push({ session_id: 'native', ...message })
@@ -3052,9 +3056,10 @@ test('a Claude child that refuses bypass mid-reply finishes it as it started, an
     const canUseTool = h.spawned[0].canUseTool as CanUseTool
     const asked = canUseTool('Bash', { command: 'npm test' }, {})
     await settle()
+    // No "from your next message": a looser mode is answered by the runtime
+    // from the very next request, whatever the child is still running under.
     assert.deepEqual(await h.adapter.setPermissionPreset({ ...h.turn('turn_1'), permissionPreset: 'bypass' }), {
       ok: true,
-      notice: 'Bypass permissions applies from your next message.',
     })
     assert.deepEqual(requestIdsOf(first.events, 'approval_resolved'), [], 'the waiting ask is left to the person')
     h.adapter.resolveApproval({ ...h.turn('turn_1'), requestId: 'approval_turn_1', approved: true })
@@ -3159,6 +3164,52 @@ test('Manual sends every action that changes something to a card, and lets looku
   }
 })
 
+test('a mode switch a wedged child never answers does not hold the switch, and a looser mode needs no next message', async () => {
+  const h = scriptedHarness({ wedged: true })
+  try {
+    await running(h)
+    assert.deepEqual(await h.adapter.setPermissionPreset({ ...h.turn('turn_1'), permissionPreset: 'auto' }), {
+      ok: true,
+    })
+  } finally {
+    await h.adapter.disposeAll()
+  }
+})
+
+test('Stop on a child that never acknowledges it ends the child, so the next message starts a fresh one', async () => {
+  const h = scriptedHarness({ wedged: true })
+  try {
+    await running(h)
+    h.adapter.interrupt(h.turn('turn_1'))
+    assert.equal(h.adapter.listLiveSessions()[0]?.hasChildProcess, true, 'given its moment to answer')
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    assert.equal(h.adapter.listLiveSessions()[0]?.hasChildProcess, false)
+  } finally {
+    await h.adapter.disposeAll()
+  }
+})
+
+test('an answer to a card no child holds any more closes the card and ends a turn with no child', async () => {
+  const h = scriptedHarness({ wedged: true })
+  try {
+    await running(h)
+    h.adapter.interrupt(h.turn('turn_1'))
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    const events = h.adapter.resolveApproval({
+      ...h.turn('turn_1'),
+      requestId: 'approval_gone',
+      approved: true,
+    }) as ConversationEvent[]
+    assert.deepEqual(
+      events.map((event) => event.type),
+      ['approval_resolved', 'turn_failed'],
+    )
+    assert.equal(events[0]?.payload?.requestId, 'approval_gone')
+  } finally {
+    await h.adapter.disposeAll()
+  }
+})
+
 test('choosing Manual mid-reply holds the very next call, even before the child has taken the mode', async () => {
   const h = scriptedHarness({ refuseModes: true })
   try {
@@ -3167,9 +3218,9 @@ test('choosing Manual mid-reply holds the very next call, even before the child 
     await promptsRead(h.prompts, 1)
     const hook = preToolUse(h.spawned[0])
     assert.deepEqual(await hook(hookCall('Bash')), {})
+    // In force at once through the hook, so nothing waits for a next message.
     assert.deepEqual(await h.adapter.setPermissionPreset({ ...h.turn('turn_1'), permissionPreset: 'manual' }), {
       ok: true,
-      notice: 'The new permissions apply from your next message.',
     })
     assert.equal(await hookDecision(hook, 'Bash'), 'ask')
     // What the child, still on bypass, sends to canUseTool is not answered

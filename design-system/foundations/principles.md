@@ -290,6 +290,14 @@ person with everything at once.
   `shadow.popover` for trigger-anchored surfaces, `shadow.drawer` for drawers
   and side panels, `shadow.modal` for centred dialogs. Nothing in the document
   flow — no card, row, or hover state — takes a shadow.
+- **Control elevation is the one in-flow exception** (2026-09-02, widened by
+  owner ruling 2026-10-01): a control that is pressed to act stands off the page
+  on `shadow.control-edge` / `shadow.control-raised` — a 1px lit top lip over a
+  shallow drop — with the matching `gradient.control-*` sheen across its face,
+  and sinks on `shadow.control-pressed`. Outline and filled buttons, raised
+  chips, launcher tiles and a segmented control's thumb take it; fields, rows,
+  cards and borderless controls do not. See
+  [button → Elevation](../components/button/component.md).
 - In light mode, `bg.surface-raised` is deliberately the same white as
   `bg.surface`: raised surfaces separate by shadow and `border.strong`, not by
   tone. In dark mode the tone step does the work.
@@ -820,7 +828,10 @@ surface rather than patching it.
 - A card inside a card with no containment reason.
 - A hero composition — oversized headline, decorative blob, three-up stat
   row — inside an operational panel.
-- A primary button with a gradient fill, inset highlight, or blurred shadow.
+- A primary button with a two-hue gradient fill, a coloured glow, or a blurred
+  halo. The lit lip, the shallow drop and the same-hue sheen of the control
+  elevation tokens are the system's own and are not this; anything past them
+  is.
 - Decorative emoji as iconography, or celebration copy ("✅", "🎉", "Awesome!").
 - Placeholder content: "Lorem ipsum", "Card title", "Item 1 / 2 / 3".
 - Empty-state copy that explains an obvious interaction ("Click here to

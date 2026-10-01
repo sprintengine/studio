@@ -53,10 +53,22 @@ test('auto answers reads and edits inside the workspace', () => {
   assert.equal(permissionModeAllows('auto', edit({ file_path: 'a.ts', edits: [{ old_string: 'a' }] }), root), true)
 })
 
-test('auto asks before commands, the network, MCP tools and subagents', () => {
+test('auto answers MCP tools, but never the gateway tools that start an agent', () => {
+  assert.equal(permissionModeAllows('auto', { action: 'mcp__github__create_pr', toolKind: 'mcp' }, root), true)
+  assert.equal(
+    permissionModeAllows('auto', { action: 'mcp__sprintengine-studio__agent_launch', toolKind: 'mcp' }, root),
+    false,
+  )
+  assert.equal(
+    permissionModeAllows('auto', { action: 'github create_pr', toolKind: 'mcp' }, root),
+    false,
+    'unread name',
+  )
+})
+
+test('auto asks before commands, the network and subagents', () => {
   assert.equal(permissionModeAllows('auto', command, root), false)
   assert.equal(permissionModeAllows('auto', { action: 'WebFetch', toolKind: 'web', input: {} }, root), false)
-  assert.equal(permissionModeAllows('auto', { action: 'mcp__github__create_pr', toolKind: 'mcp' }, root), false)
   assert.equal(permissionModeAllows('auto', { action: 'Task', toolKind: 'subagent' }, root), false)
   assert.equal(permissionModeAllows('auto', { action: 'SomethingElse', toolKind: 'other' }, root), false)
 })

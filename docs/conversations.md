@@ -27,7 +27,7 @@ takes where its CLI has a setting for them (owner request 2026-09-30):
 | Mode | What it means |
 | --- | --- |
 | **Bypass permissions** (Codex: **YOLO**) | The default. Never asks: the CLI's own skip-every-prompt setting. |
-| **Auto** | Reads and edits files inside the workspace without asking. Commands the runtime does not already treat as safe, web access, MCP tools, subagents and anything outside the workspace ask. |
+| **Auto** | Reads and edits files inside the workspace, and calls MCP tools, without asking — except the gateway tools that start another agent or workspace. Commands the runtime does not already treat as safe, web access, subagents and anything outside the workspace ask. |
 | **Manual** | Asks before every action that changes something or reaches out: each edit, command, web request and MCP tool. Reading, searching and listing inside the workspace do not ask, since a card for every file read would stop a chat from getting anywhere. |
 | **No flag** | Passes no permission setting at all, so the CLI runs on its own configured default. That can mean asking, or not. |
 

@@ -47,6 +47,12 @@ export type ConversationProviderAdapter = {
   // the runtime refuses a start that names any: a connector's agent run
   // without its connector would be a different agent.
   acceptsMcpServers?: boolean
+  // The CLI whose `cliRuntimes` entry decides where this adapter's agent runs
+  // (`claude-code`, `codex`, an ACP profile's CLI). The runtime reads that
+  // entry's host to know when an agent runs in WSL, whose tool calls name files
+  // the Linux way while the workspace root is a Windows path. Absent, the agent
+  // is taken to run on this machine as it is.
+  executionHostCli?: string
   startSession(input: MockAdapterSessionInput): ConversationProviderEventStream
   sendTurn(input: MockAdapterTurnInput): ConversationProviderEventStream
   resolveApproval(input: MockAdapterApprovalInput): ConversationProviderEventStream

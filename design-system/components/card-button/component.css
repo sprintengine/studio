@@ -52,6 +52,33 @@
   background: var(--sem-color-bg-hover);
 }
 
+/* raised — a LAUNCHER tile: one of a grid of things to open, pressed once and
+ * gone (owner ruling 2026-10-01). The bordered hairline over the raised ground,
+ * standing off the page on the control edge exactly as an outline button does.
+ * The elevation is there at rest, so hover still moves only the ground and the
+ * edge colour; nothing appears and nothing reflows. */
+.ds-card-button--raised {
+  border: 1px solid var(--sem-color-border-default);
+  background-color: var(--sem-color-bg-surface-raised);
+  background-image: var(--sem-gradient-control-sheen);
+  box-shadow: var(--sem-shadow-control-edge);
+}
+
+.ds-card-button--raised:hover:not(:disabled):not([aria-pressed='true']) {
+  border-color: var(--sem-color-border-strong);
+  background-color: var(--sem-color-bg-hover);
+}
+
+.ds-card-button--raised:active:not(:disabled):not([aria-pressed='true']) {
+  background-image: none;
+  box-shadow: var(--sem-shadow-control-pressed);
+}
+
+.ds-card-button--raised:disabled {
+  background-image: none;
+  box-shadow: none;
+}
+
 /* The chosen tile — the same neutral canon a row takes, because a chosen tile
  * and a chosen row are one fact in two layouts. Hover is excluded above rather
  * than repainted here. */
@@ -61,7 +88,9 @@
   box-shadow: inset 0 0 0 2px var(--sem-color-accent-primary);
 }
 
-.ds-card-button--bordered[aria-pressed='true'] {
+.ds-card-button--bordered[aria-pressed='true'],
+.ds-card-button--raised[aria-pressed='true'] {
+  background-image: none;
   border-color: var(--sem-color-border-strong);
 }
 

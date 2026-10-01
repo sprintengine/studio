@@ -68,6 +68,7 @@ import {
   Tooltip,
   TruncatedText,
 } from '../ui'
+import { FoldedControls, useMeasuredFold } from '../ui/FoldedControls'
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
 import {
   CONVERSATION_DEFAULT_MODEL_ID,
@@ -237,6 +238,10 @@ const END_FOLLOW_TRIGGERS = { dataChange: true, itemLayout: true, layout: true }
 // Stable empty-catalog reference: returned for any provider whose live catalog
 // has not loaded so effects keyed on the derived list do not re-run each render.
 const EMPTY_MODELS: ConversationProviderModel[] = []
+
+// The width below which the composer row folds its secondary controls: attach,
+// skills, the model chip, permissions and send at a typical model name's width.
+const COMPOSER_ROW_FOLD_WIDTH = 460
 
 // ── Component ───────────────────────────────────────────────────────────────
 
@@ -609,6 +614,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // An image drag is over the composer; drives the drop-target affordance.
   const [dropActive, setDropActive] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  // Below its budget the composer row folds its secondary controls behind one
+  // chevron rather than wrapping or crushing them.
+  const [composerRowFolded, composerRowRef] = useMeasuredFold(COMPOSER_ROW_FOLD_WIDTH)
   const attachmentSeqRef = useRef(0)
   // Type-ahead queue (D6/1776): a message the user committed while the session
   // was busy. It holds until the turn unlocks, then auto-sends as a follow-up
@@ -1911,7 +1919,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   cycleEffortRef.current = () =>
     changeReasoningEffort(nextConversationEffort(capabilities?.reasoningEfforts ?? [], reasoningEffort))
   // Continue in terminal (the palette, `/terminal`, the tab's menu): main
-  // suspends this chat and opens a terminal agent resuming its CLI session.
+  // stops a turn this chat is running, suspends it and opens a terminal agent
+  // resuming its CLI session. A message queued behind that turn is refused
+  // while the terminal opens, and so comes back to the composer.
   // Only a chat on this machine: a paired machine's session is not here.
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const resumesInTerminal = transport.kind === 'local' && chatResumesInTerminal(agent, pluginCatalogEntries)
@@ -2366,6 +2376,34 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   const billingNotice = apiKeyBillingNotice(projection.apiKeySource)
   const requestPending = pendingApprovalEntries.length > 0
 
+  // The composer row's secondary controls, named once so the fold can move
+  // them into its popover without a second copy of each.
+  const composerAttachControl = imagesEnabled ? (
+    <Tooltip content="Attach an image" placement="top">
+      <IconButton aria-label="Attach an image" onClick={() => fileInputRef.current?.click()}>
+        <PaperclipGlyph className="icon-sm" />
+      </IconButton>
+    </Tooltip>
+  ) : null
+  const composerSkillsControl = supportsSkills ? (
+    <ComposerSkillsPicker workspaceRoot={workspaceRoot} skills={attachedSkills} onSkillsChange={setAttachedSkills} />
+  ) : null
+  const composerPermissionControl =
+    chatCli && permissionsEditable ? (
+      <PermissionFooter
+        cli={chatCli}
+        preset={permissionPreset}
+        placement="top-start"
+        disabled={permissionChanging}
+        disabledReasons={permissionDisabledReasons}
+        onSelect={(next) => void changePermissionPreset(next)}
+      />
+    ) : null
+  // Folding must not hide a standing warning: the chevron wears the warn tint
+  // the permissions chip would have.
+  const composerPermissionWarn = Boolean(
+    composerPermissionControl && (permissionPreset === 'bypass' || permissionDisabledReasons?.[permissionPreset]),
+  )
   return (
     <ConversationLinkProvider
       workspaceId={workspaceId}
@@ -2629,7 +2667,6 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
               <ConversationPendingDock
                 pendingApprovals={pendingApprovalEntries}
                 workspaceRoot={workspaceRoot ?? undefined}
-                workspaceName={workspace?.name}
                 onApprove={resolveApproval}
                 modeSwitches={approvalModeSwitches}
                 onApproveAndSwitch={(requestId, preset) => void approveAndSwitchMode(requestId, preset)}
@@ -2801,37 +2838,46 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                   <ContextMeter used={usedTokens} total={contextLength} />
                 </div>
               ) : null}
-              <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-0.5">
+              <div ref={composerRowRef} className="flex items-center justify-between gap-2 px-2 pb-2 pt-0.5">
                 <div className="flex min-w-0 items-center gap-1">
+                  {/* Outside the fold: the picker it serves opens from a button
+                      that may live in the fold's popover, and the file arrives
+                      after that popover has gone. */}
                   {imagesEnabled ? (
-                    <>
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept={ATTACHABLE_IMAGE_TYPES.join(',')}
-                        multiple
-                        className="hidden"
-                        onChange={(event) => {
-                          const files = Array.from(event.target.files ?? [])
-                          // Clearing lets the same file be picked twice in a row.
-                          event.target.value = ''
-                          void attachFiles(files)
-                        }}
-                      />
-                      <Tooltip content="Attach an image" placement="top">
-                        <IconButton aria-label="Attach an image" onClick={() => fileInputRef.current?.click()}>
-                          <PaperclipGlyph className="icon-sm" />
-                        </IconButton>
-                      </Tooltip>
-                    </>
-                  ) : null}
-                  {supportsSkills ? (
-                    <ComposerSkillsPicker
-                      workspaceRoot={workspaceRoot}
-                      skills={attachedSkills}
-                      onSkillsChange={setAttachedSkills}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept={ATTACHABLE_IMAGE_TYPES.join(',')}
+                      multiple
+                      className="hidden"
+                      onChange={(event) => {
+                        const files = Array.from(event.target.files ?? [])
+                        // Clearing lets the same file be picked twice in a row.
+                        event.target.value = ''
+                        void attachFiles(files)
+                      }}
                     />
                   ) : null}
+                  {/* A squashed chat keeps the model and send in the row and
+                      folds the rest behind one chevron (owner ruling
+                      2026-10-01), rather than wrapping or crushing every chip. */}
+                  {/* A squashed chat keeps the model and send in the row and
+                      folds the rest behind one chevron (owner ruling
+                      2026-10-01), rather than wrapping or crushing every chip.
+                      Unfolded, the row keeps its order: attach and skills,
+                      the model, then permissions beside it. */}
+                  {composerRowFolded ? (
+                    <FoldedControls folded ariaLabel="More composer options" warn={composerPermissionWarn}>
+                      {composerAttachControl}
+                      {composerSkillsControl}
+                      {composerPermissionControl}
+                    </FoldedControls>
+                  ) : (
+                    <>
+                      {composerAttachControl}
+                      {composerSkillsControl}
+                    </>
+                  )}
                   {chatCli ? (
                     <EnginePickerChip
                       cli={chatCli}
@@ -2865,16 +2911,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                       className="max-w-[180px] px-1.5 text-meta text-[color:var(--text-muted)]"
                     />
                   )}
-                  {chatCli && permissionsEditable ? (
-                    <PermissionFooter
-                      cli={chatCli}
-                      preset={permissionPreset}
-                      placement="top-start"
-                      disabled={permissionChanging}
-                      disabledReasons={permissionDisabledReasons}
-                      onSelect={(next) => void changePermissionPreset(next)}
-                    />
-                  ) : null}
+                  {composerRowFolded ? null : composerPermissionControl}
                 </div>
                 {projection.activeTurn && !operate ? null : projection.activeTurn ? (
                   <ComposerActionButton
