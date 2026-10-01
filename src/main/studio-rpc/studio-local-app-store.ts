@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { chmodSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import {
@@ -167,10 +167,15 @@ export function createStudioLocalAppStore(options: {
   let ownerTokenHash: string | null = null
   let ownerTokenValue: string | null = null
 
+  // Written beside and renamed over, so a crash mid-write never leaves a
+  // half file that reads back as no apps, or as some.
   function persist(): void {
     const body = `${JSON.stringify({ version: 1, apps }, null, 2)}\n`
-    writeFileSync(path(), body, { mode: 0o600 })
-    if (process.platform !== 'win32') chmodSync(path(), 0o600)
+    const target = path()
+    const staged = `${target}.${process.pid}.tmp`
+    writeFileSync(staged, body, { mode: 0o600 })
+    if (process.platform !== 'win32') chmodSync(staged, 0o600)
+    renameSync(staged, target)
   }
   function changed(): void {
     for (const listener of changeListeners) {
@@ -270,17 +275,22 @@ export function createStudioLocalAppStore(options: {
       const next = apps.filter((app) => app.id !== id)
       if (next.length === apps.length) return false
       apps = next
-      // Authorization: a revoke that did not reach disk would come back on the
-      // next launch, so the failure reaches the caller.
-      persist()
-      for (const listener of revokeListeners) {
-        try {
-          listener(id)
-        } catch (error) {
-          options.log?.(`A revoke listener threw: ${error instanceof Error ? error.message : String(error)}`)
+      try {
+        // Authorization: a revoke that did not reach disk would come back on
+        // the next launch, so the failure reaches the caller.
+        persist()
+      } finally {
+        // Whether or not the write landed, the app is revoked for this run:
+        // its connections are closed now, and a failed write is still thrown.
+        for (const listener of revokeListeners) {
+          try {
+            listener(id)
+          } catch (error) {
+            options.log?.(`A revoke listener threw: ${error instanceof Error ? error.message : String(error)}`)
+          }
         }
+        changed()
       }
-      changed()
       return true
     },
 

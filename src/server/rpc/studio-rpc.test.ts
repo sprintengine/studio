@@ -317,6 +317,23 @@ test('revoking a client mid-stream closes it at once, and its token stops workin
   assert.equal(((await again.next(isT('bye'))) as { code: string }).code, 'unauthorized')
 })
 
+test('a client that only listens is held to a revoke by its next outbound frame', async () => {
+  const { path, auth, backend } = await serve()
+  const c = await open(path, pairFakeClient(auth, 'listener', ['conversation:read']))
+  c.send({ t: 'sub', id: 'chat', topic: 'conversation.session', params: { key } })
+  await c.next((frame) => frame.t === 'frame' && frame.frame.type === 'synchronized')
+  // Revoked without the revoke listener reaching this connection.
+  auth.grants.delete('listener')
+  backend.emit('agent-1', 'turn_started')
+  const bye = await c.next(isT('bye'))
+  assert.equal(bye.t === 'bye' && bye.code, 'revoked')
+  assert.equal(
+    c.frames.some((frame) => frame.t === 'frame' && frame.frame.type === 'event'),
+    false,
+  )
+  await c.closed
+})
+
 test('a grant that loses read ends its streams but keeps the connection', async () => {
   const { path, auth } = await serve()
   const c = await open(path, pairFakeClient(auth, 'narrowed', ['conversation:read', 'conversation:create']))

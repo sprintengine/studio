@@ -433,6 +433,16 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
 
   function onFollowFrame(subscription: Subscription, source: ConversationSessionFrame): void {
     if (state === 'closed' || subscriptions.get(subscription.id) !== subscription) return
+    // The grant is read again before anything goes out, not only when the
+    // client sends: a client that only listens is held to a revoke or a
+    // narrowed grant by its next outbound frame even if the revoke listener
+    // never reached this connection.
+    const grant = liveGrant()
+    if (!grant) return
+    if (!studioScopesGrant(grant.scopes, STUDIO_TOPICS[subscription.topic].scope)) {
+      refreshGrant()
+      return
+    }
     if (source.type === 'error') {
       // The join could not read the log. Retryable: a log being written by a
       // turn that is starting is readable a moment later.

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync, statSync } from 'node:fs'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { chmod, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, test } from 'vitest'
@@ -125,3 +125,28 @@ test('a data directory keeps one environment id for good', async () => {
   assert.match(id, /^[0-9a-f-]{36}$/)
   assert.equal(readStudioEnvironmentId(dir), id)
 })
+
+test.runIf(process.platform !== 'win32')(
+  'a revoke whose write fails still closes the app now, and still says the write failed',
+  async () => {
+    const dir = await dataDir()
+    const store = createStudioLocalAppStore({ resolveUserDataDir: () => dir })
+    const redeemed = store.redeem(store.offer(offerInput).code)
+    assert.ok(redeemed.ok)
+    const revoked: string[] = []
+    store.onRevoked((id) => revoked.push(id))
+    await chmod(dir, 0o500)
+    try {
+      assert.throws(() => store.revoke(redeemed.grant.clientId), /EACCES|permission/i)
+    } finally {
+      await chmod(dir, 0o700)
+    }
+    assert.deepEqual(revoked, [redeemed.grant.clientId])
+    assert.equal(store.authenticate(redeemed.token), null)
+    // No half-written file was left beside the store.
+    assert.deepEqual(
+      (await readdir(dir)).filter((name) => name.endsWith('.tmp')),
+      [],
+    )
+  },
+)
