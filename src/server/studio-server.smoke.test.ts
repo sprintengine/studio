@@ -147,6 +147,26 @@ test('the bundle carries nothing of Electron and serves the gateway under plain 
   assert.equal(existsSync(join(dataDir, 'sprintengine-studio-mcp-info.json')), false, 'discovery is taken down')
 })
 
+test('a bundle copied away from its node_modules says so at start, not at the first chat', async () => {
+  const away = join(scratch, 'away')
+  mkdirSync(away, { recursive: true })
+  const copy = join(away, 'server.cjs')
+  writeFileSync(copy, readFileSync(bundle))
+  const env = isolatedEnv('away')
+  delete env.NODE_PATH
+  const child = spawn(process.execPath, [copy, 'serve', '--data-dir', join(away, 'data'), '--app-root', ROOT], {
+    env,
+    cwd: away,
+  })
+  const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]()
+  const exited = new Promise<number | null>((resolve) => child.on('exit', (code) => resolve(code)))
+  const { fatal } = JSON.parse((await lines.next()).value as string) as { fatal?: { code: number; message: string } }
+  assert.equal(fatal?.code, 70)
+  assert.match(fatal!.message, /@anthropic-ai\/claude-agent-sdk and @agentclientprotocol\/sdk cannot be found/)
+  assert.equal(await exited, 70)
+  assert.equal(existsSync(join(away, 'data', 'run', 'studio.lock')), false, 'nothing is taken before the check')
+})
+
 test('a server stops when the parent that drives it goes away', async () => {
   const served = serve(['--data-dir', join(scratch, 'orphan', 'data')], isolatedEnv('orphan'))
   assert.ok((await firstLine(served)).ready, served.stderr())

@@ -92,7 +92,33 @@ export const EXIT_FAILED = 70
 // how long the app's gateway waits at its start.
 const LOCK_WATCH_MS = 500
 
+// What the bundle loads from node_modules on the first chat rather than at
+// start (build:server leaves dependencies out of it): Claude Code's chats and
+// every ACP agent's. Looked for at start, so a bundle copied away from the
+// checkout or app it was built in fails there, by name, and not at a chat.
+const RUNTIME_PACKAGES = ['@anthropic-ai/claude-agent-sdk', '@agentclientprotocol/sdk']
+
+/** The runtime packages this process cannot resolve from where its code is. */
+export function missingRuntimePackages(resolve: (name: string) => unknown = require.resolve): string[] {
+  return RUNTIME_PACKAGES.filter((name) => {
+    try {
+      resolve(name)
+      return false
+    } catch {
+      return true
+    }
+  })
+}
+
 export async function startStudioServer(options: StudioServerOptions): Promise<StudioServer> {
+  const missing = missingRuntimePackages()
+  if (missing.length > 0) {
+    throw new StudioServerStartError(
+      `${missing.join(' and ')} cannot be found from ${__dirname}. The server loads its dependencies from the ` +
+        'node_modules beside the checkout or app it was built in; run it from there (or point NODE_PATH at one).',
+      EXIT_FAILED,
+    )
+  }
   try {
     mkdirSync(options.dataDir, { recursive: true, mode: 0o700 })
     mkdirSync(options.logsDir, { recursive: true, mode: 0o700 })
