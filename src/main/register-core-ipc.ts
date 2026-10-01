@@ -7,6 +7,8 @@ import { registerTelemetryIpc } from './ipc/telemetry-ipc'
 import { registerAuthIpc } from './ipc/auth-ipc'
 import { registerAutomationIpc } from './ipc/automation-ipc'
 import { registerStudioLocalAppsIpc } from './ipc/studio-local-apps-ipc'
+import { registerStudioConnectionIpc } from './ipc/studio-connection-ipc'
+import { createStudioChatBackend } from './studio-rpc/studio-chat-backend'
 import { registerAppMenuIpc } from './app-menu'
 import { registerBacklogIpc } from './ipc/backlog-ipc'
 import { registerBuiltinSkillsIpc } from './ipc/builtin-skills-ipc'
@@ -31,7 +33,7 @@ import { registerMeshIpc } from './ipc/mesh-ipc'
 import { createFolderOpenIpcDependencies, registerFolderOpenIpc } from './ipc/folder-open-ipc'
 import { registerGitHubTokenIpc } from './ipc/github-token-ipc'
 import { registerGitHubReposIpc } from './ipc/github-repos-ipc'
-import { registerGitIpc } from './ipc/git-ipc'
+import { gitRepoRootFor, registerGitIpc } from './ipc/git-ipc'
 import { registerDesignSystemIpc } from './ipc/design-system-ipc'
 import { registerMcpIpc } from './ipc/mcp-ipc'
 import { registerMemoryActivityIpc } from './ipc/memory-activity-ipc'
@@ -123,6 +125,7 @@ export function registerCoreIpc(
   })
   registerAutomationIpc(ipcMain, services.automationService)
   registerStudioLocalAppsIpc(ipcMain, services.studioRpcService)
+  registerStudioConnectionIpc(ipcMain, services.studioRpcService)
   registerMeshIpc(ipcMain, services.automationService)
   registerAppMenuIpc(ipcMain)
   registerWorkspaceBackupIpc(ipcMain, services.workspaceBackupService)
@@ -151,7 +154,8 @@ export function registerCoreIpc(
     agentCapabilities: services.agentCapabilityService,
     agentSkillInstaller: services.agentSkillInstaller,
   })
-  registerFilesystemWatchSearchIpc(ipcMain, createFilesystemWatchSearchHandlers())
+  const filesystemSearchHandlers = createFilesystemWatchSearchHandlers()
+  registerFilesystemWatchSearchIpc(ipcMain, filesystemSearchHandlers)
   const filesystemReadHandlers = createFilesystemReadHandlers()
   registerFilesystemReadIpc(ipcMain, filesystemReadHandlers)
   // The file-manager target of the open-in-editor control is the same reveal the
@@ -220,10 +224,29 @@ export function registerCoreIpc(
   registerCliVersionIpc(ipcMain)
   registerMarketplacePluginIpc(ipcMain, services)
   registerPluginIpc(ipcMain)
+  // Over the core's chats, as every in-process consumer reaches them.
+  const conversationHandlers = createConversationIpcHandlers(services.conversations)
   registerConversationIpc(ipcMain, {
-    ...createConversationIpcHandlers(services.conversations),
+    ...conversationHandlers,
     terminalHandoff: (input) => services.conversationTerminalHandoff.handoff(input),
   })
+  // The Studio RPC's chat surface is these same handlers, so a chat view on
+  // the protocol and one on IPC reach one chat by the same rules.
+  services.studioRpcService.provideChat(
+    createStudioChatBackend({
+      conversation: conversationHandlers,
+      files: { ...filesystemSearchHandlers, ...filesystemReadHandlers },
+      repoRoot: gitRepoRootFor,
+      commands: (input) => conversationCommands.list(input),
+      workspaces: () =>
+        services.workspaceRegistry.getRecords().map((record) => ({
+          id: record.id,
+          name: record.name,
+          folderPath: record.folderPath ?? null,
+          ...(record.hostId ? { hostId: record.hostId } : {}),
+        })),
+    }),
+  )
   registerCredentialIpc(ipcMain)
   registerDesignSystemIpc(ipcMain)
   registerThirdPartyModuleIpc(ipcMain, services)

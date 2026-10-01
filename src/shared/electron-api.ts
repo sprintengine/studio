@@ -96,6 +96,7 @@ export type {
 } from './skills'
 import type { AutomationServerStatus } from './automation'
 import type { StudioLocalAppOfferInput, StudioLocalAppOfferView, StudioLocalAppsStatus } from './studio-local-apps'
+import type { StudioChatTransportMode, StudioConnectResult } from './studio-connection'
 import type {
   TailnetApprovePairRequestView,
   TailnetLiveState,
@@ -673,6 +674,15 @@ export type ElectronApi = {
   /** Revoke an app: its token stops working and its open connections are closed at once. */
   studioLocalAppsRevoke: (id: string) => Promise<StudioLocalAppsStatus>
   onStudioLocalAppsChanged: (cb: (status: StudioLocalAppsStatus) => void) => () => void
+  /** How this window's chat view reaches conversations: the protocol, or the conversation IPC. */
+  studioChatTransport: StudioChatTransportMode
+  /** A new connection to the Studio RPC over a port the preload keeps; its ticket is good for one hello. */
+  studioConnect: () => Promise<StudioConnectResult>
+  /** Send one frame on a connection. */
+  studioPortSend: (connectionId: string, frame: string) => void
+  /** Hear a connection's frames, and its end. Frames wait for this to be called. */
+  studioPortListen: (connectionId: string, onFrame: (frame: string) => void, onClose: () => void) => void
+  studioPortClose: (connectionId: string) => void
   // Tailnet remote control: the opt-in listener that serves the same
   // gateway surface to paired devices on the Tailscale network. Configuration
   // only — it never carries a tool call, and no MCP tool can reach it, so an

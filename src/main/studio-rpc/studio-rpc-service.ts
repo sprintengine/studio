@@ -12,10 +12,17 @@ import type { AppIdentity } from '../../server/platform/app-identity'
 import type { ClientBus } from '../../server/platform/client-bus'
 import { studioPlatform } from '../../server/platform/platform'
 import type { StudioPaths } from '../../server/platform/studio-paths'
+import {
+  createTicketAuthenticator,
+  framePortStream,
+  mintStudioTicket,
+  type StudioFramePort,
+} from '../../server/rpc/studio-frame-port'
 import { createStudioRpcServer, type StudioRpcServer } from '../../server/rpc/studio-rpc-server'
 import type {
   StudioAuditEntry,
   StudioAuthenticator,
+  StudioChatBackend,
   StudioConversationBackend,
 } from '../../server/rpc/studio-rpc-types'
 import type { GatewayAuditStore } from '../automation/gateway-audit'
@@ -27,6 +34,11 @@ import { createStudioLocalAppStore, type StudioLocalAppStore } from './studio-lo
 // revokes them. Started with the app and stopped with it; a listener that
 // cannot start (another Studio on this profile, a directory someone else owns)
 // is reported in Settings and changes nothing else the app does.
+//
+// Studio's own windows reach the same RPC over a port each, which main hands
+// them (`connectWindow`). That way in does not depend on the socket: a window
+// connects whether or not the listener started, and keeps its connection
+// while the socket is down.
 
 export const STUDIO_ENVIRONMENT_FILENAME = 'studio-environment.json'
 const REFUSAL_WINDOW_MS = 60_000
@@ -42,6 +54,14 @@ export type StudioRpcService = {
   revoke(id: unknown): StudioLocalAppsStatus
   /** This run's owner credential, for the desktop's own client. Never written to disk. */
   ownerToken(): string
+  /**
+   * Serve a window over a port main holds the other end of. The answer names
+   * the connection and the ticket its hello must present, once, within thirty
+   * seconds; nothing longer-lived reaches the window.
+   */
+  connectWindow(port: StudioFramePort): { connectionId: string; ticket: string }
+  /** The chat surface, from the handlers the app's own IPC serves its windows with. */
+  provideChat(chat: StudioChatBackend): void
 }
 
 // Paths, the version and the push to Settings come from the Studio platform
@@ -94,7 +114,10 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
   const clients = () => options.clients ?? studioPlatform().clients
   const now = options.now ?? Date.now
   let store: StudioLocalAppStore | null = null
+  // Built on first need (a window connecting, or the socket starting) and kept
+  // for the run: its router holds the receipts and uploads every way in shares.
   let server: StudioRpcServer | null = null
+  let chat: StudioChatBackend | null = null
   let lastError: string | null = null
   let starting: Promise<void> | null = null
 
@@ -211,24 +234,28 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
       throw new Error('This Studio is not serving the local app socket, so it cannot pair or revoke apps.')
   }
 
-  async function startNow(): Promise<void> {
+  function hub(): StudioRpcServer {
+    if (server) return server
     const directory = dataDir()
-    const apps = appStore()
-    const next = createStudioRpcServer({
+    server = createStudioRpcServer({
       dataDir: directory,
       version: version(),
       environmentId: readStudioEnvironmentId(directory),
       backend: options.backend(),
-      authenticator: authenticator(apps),
+      chat: () => chat,
+      authenticator: authenticator(appStore()),
       audit,
       resyncRetryAfterMs: createResyncBackoff(),
       onConnectionsChanged: () => announce(),
       ...(options.socketPath ? { socketPath: options.socketPath } : {}),
       log: options.log,
     })
+    return server
+  }
+
+  async function startNow(): Promise<void> {
     try {
-      await next.start()
-      server = next
+      await hub().start()
       lastError = null
     } catch (error) {
       lastError = `The local app socket did not start: ${error instanceof Error ? error.message : String(error)}`
@@ -247,9 +274,7 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
     },
     async stop() {
       await starting
-      const current = server
-      server = null
-      await current?.stop()
+      await server?.stop()
     },
     getStatus: status,
     // Pairing and revoking are recorded too: they decide who may connect.
@@ -288,5 +313,18 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
       return status()
     },
     ownerToken: () => appStore().ownerToken(),
+    connectWindow(port) {
+      const ticket = mintStudioTicket()
+      const connection = hub().attach(framePortStream(port), {
+        authenticator: createTicketAuthenticator(ticket),
+        // The window is the app's own chat view: shown conversations as its
+        // IPC shows them, and its actions are not a client's to audit.
+        ownWindow: true,
+      })
+      return { connectionId: connection.connectionId, ticket }
+    },
+    provideChat(next) {
+      chat = next
+    },
   }
 }
