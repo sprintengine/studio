@@ -132,3 +132,19 @@ test('a connection the RPC cannot take is closed in main, and the window is sent
   assert.equal(ended, 1, "main's end is closed")
   assert.equal(posted.length, 0)
 })
+
+test('a window that is destroyed, or whose renderer goes, has its connections closed in main at once', async () => {
+  for (const ending of ['destroyed', 'render-process-gone']) {
+    const { connect, connected } = await register()
+    const { event } = windowEvent(ending === 'destroyed' ? 21 : 22)
+    connect(event)
+    connect(event)
+    const closed: number[] = []
+    connected.forEach((port, index) => port.onClose(() => closed.push(index)))
+    ;(event.sender as EventEmitter).emit(ending)
+    assert.deepEqual(closed, [0, 1], ending)
+    // The window comes back (a reload after a crash) and is served afresh.
+    connect(event)
+    assert.equal(connected.length, 3)
+  }
+})

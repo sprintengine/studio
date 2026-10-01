@@ -62,9 +62,20 @@ export function registerStudioConnectionIpc(ipcMain: IpcMain, studio: WindowConn
     const sender = event.sender
     let held = open.get(sender.id)
     if (!held) {
-      held = []
-      open.set(sender.id, held)
-      sender.once('destroyed', () => open.delete(sender.id))
+      const list: StudioFramePort[] = []
+      held = list
+      open.set(sender.id, list)
+      // A window that closes, or whose renderer crashes or is killed, ends
+      // its connections here at once rather than whenever its ports' far ends
+      // are collected: the RPC lets go of their streams and staged pictures.
+      const end = () => {
+        sender.off('destroyed', end)
+        sender.off('render-process-gone', end)
+        if (open.get(sender.id) === list) open.delete(sender.id)
+        for (const frames of list.splice(0)) frames.close()
+      }
+      sender.on('destroyed', end)
+      sender.on('render-process-gone', end)
     }
     const { port1, port2 } = new MessageChannelMain()
     const frames = messagePortFrames(port1)
