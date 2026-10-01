@@ -4,7 +4,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, test } from 'vitest'
 
-import { createDataKeySecretCipher, createKeyFileSecretCipher } from './secret-cipher'
+import {
+  createDataKeySecretCipher,
+  createKeyFileSecretCipher,
+  createUnavailableSecretCipher,
+  isDataKeySealed,
+} from './secret-cipher'
 
 const directories: string[] = []
 function tempDir(): string {
@@ -57,4 +62,13 @@ test('an unreadable key file makes the cipher unavailable instead of throwing ou
   const cipher = createKeyFileSecretCipher({ keyPath })
   assert.equal(cipher.available(), false)
   assert.throws(() => cipher.seal('value'), /cannot be read or created/)
+})
+
+test("a data key's ciphertext is recognised as such, and an unavailable cipher says why it is", () => {
+  assert.equal(isDataKeySealed(createDataKeySecretCipher(Buffer.alloc(32, 9)).seal('value')), true)
+  assert.equal(isDataKeySealed(Buffer.from('v10 keychain bytes')), false)
+  const cipher = createUnavailableSecretCipher('Sealed by the desktop.')
+  assert.equal(cipher.available(), false)
+  assert.throws(() => cipher.seal('value'), /Sealed by the desktop/)
+  assert.throws(() => cipher.open(Buffer.from('x')), /Sealed by the desktop/)
 })

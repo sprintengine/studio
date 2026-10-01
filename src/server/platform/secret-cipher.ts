@@ -64,6 +64,29 @@ export function createDataKeySecretCipher(key: Buffer): SecretCipher {
   }
 }
 
+/** Whether `sealed` is what a data-key cipher writes (whichever key), rather than another cipher's ciphertext. */
+export function isDataKeySealed(sealed: Buffer): boolean {
+  return sealed.length >= MAGIC.length && sealed.subarray(0, MAGIC.length).equals(MAGIC)
+}
+
+/**
+ * A cipher that seals and opens nothing, saying why. For a server whose data
+ * directory holds secrets another cipher sealed (the desktop's keychain): every
+ * store then treats a secret as session-only, never opens what is on disk and
+ * never writes over it with ciphertext the desktop could not open.
+ */
+export function createUnavailableSecretCipher(reason: string): SecretCipher {
+  return {
+    available: () => false,
+    seal: () => {
+      throw new Error(reason)
+    },
+    open: () => {
+      throw new Error(reason)
+    },
+  }
+}
+
 /**
  * A data key kept in `keyPath`, created on first use with mode 0600 in a 0700
  * directory. Secrets sealed with it are protected by the OS user boundary, the
