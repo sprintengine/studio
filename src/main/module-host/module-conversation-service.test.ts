@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'vitest'
 
 import type { AgentState } from '../../shared/agent-state'
@@ -6,10 +9,18 @@ import type {
   ConversationEvent,
   ConversationEventType,
   ConversationSendTurnInput,
+  ConversationSessionFrame,
   ConversationSessionSummary,
   ConversationStartSessionInput,
+  ConversationSubscribeInput,
 } from '../../shared/conversation-runtime'
-import type { ModuleConversationEvent, ModuleConversationSummary } from '../../shared/modules/conversation-service'
+import type {
+  ModuleConversationEvent,
+  ModuleConversationStreamFrame,
+  ModuleConversationSummary,
+} from '../../shared/modules/conversation-service'
+import { ConversationRuntime } from '../conversation-runtime'
+import { createMockConversationProvider } from '../providers/mock-conversation-provider'
 import { emptyAgentLaunchSettings } from '../../shared/launch-settings'
 import { createConversationLaunchService } from '../conversation-launch-service'
 import type { CliPermissionPreset } from '../../shared/cli-permission-preset'
@@ -65,6 +76,7 @@ function harness(
         createdAt: sessionSeq,
         updatedAt: sessionSeq,
         ...(input.permissionPreset ? { permissionPreset: input.permissionPreset } : {}),
+        ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
       }
       sessions.push(summary)
       return { ok: true, session: summary }
@@ -85,6 +97,8 @@ function harness(
       calls.presets.push(input)
       const found = sessions.find((entry) => entry.sessionId === input.sessionId)!
       found.permissionPreset = input.permissionPreset
+      if (input.permissionMode) found.permissionMode = input.permissionMode
+      else delete found.permissionMode
       return input.permissionPreset === 'bypass'
         ? { ok: true, session: found, notice: 'Applies once the reply finishes.' }
         : { ok: true, session: found }
@@ -141,9 +155,22 @@ function harness(
     newAgentSuffix: () => `s${++suffix}`,
   })
 
+  // Each follow the service opened: what it asked the session API for, the
+  // listener a test drives the session API's frames through, and whether it
+  // was let go.
+  const follows: Array<{
+    input: ConversationSubscribeInput
+    listener: (frame: ConversationSessionFrame) => void
+    disposed: boolean
+  }> = []
   const registry = createConversationModuleRegistry({
     launch: (request) => launch.launch(request),
     runtime,
+    follow: (input, listener) => {
+      const entry = { input, listener, disposed: false }
+      follows.push(entry)
+      return { dispose: () => void (entry.disposed = true), ready: Promise.resolve() }
+    },
     writeAgent: (workspaceId, agentId, patch) => {
       const workspace = workspaces.find((candidate) => candidate.id === workspaceId)!
       workspace.agents[agentId] = { ...workspace.agents[agentId]!, ...patch }
@@ -164,7 +191,7 @@ function harness(
     for (const listener of listeners) listener(event(type, ref, payload))
   }
 
-  return { registry, workspaces, sessions, calls, emit, listenerCount: () => listeners.size }
+  return { registry, workspaces, sessions, calls, emit, follows, listenerCount: () => listeners.size }
 }
 
 let eventSeq = 0
@@ -582,4 +609,287 @@ test('an approval answer is once, for the conversation, or deny, and never a per
     assert.equal(!refused.ok && refused.code, 'invalid_input', JSON.stringify(input))
   }
   assert.equal(calls.responses.length, 5, 'nothing refused reached the runtime')
+})
+
+const BYPASS = ['conversation:operate', 'conversation:bypass']
+
+test('a commandId reaches the runtime namespaced by the module, and a retried create makes one chat', async () => {
+  const { registry, workspaces, calls } = harness({ reviews: OPERATE, calendar: OPERATE })
+  const service = registry.forModule('reviews')
+  // Two attempts in flight at once, and one after: one chat.
+  const [first, second] = await Promise.all([
+    service.create({ workspaceId: 'ws-1', cli: 'claude-code', commandId: 'create-1' }),
+    service.create({ workspaceId: 'ws-1', cli: 'claude-code', commandId: 'create-1' }),
+  ])
+  const third = await service.create({ workspaceId: 'ws-1', cli: 'claude-code', commandId: 'create-1' })
+  assert.ok(first.ok && second.ok && third.ok)
+  assert.equal(second.conversation.agentId, first.conversation.agentId)
+  assert.equal(third.conversation.agentId, first.conversation.agentId)
+  assert.equal(calls.starts.length, 1)
+  assert.equal(workspaces[0]!.agents[first.conversation.agentId]!.launchCommandId, 'module:reviews:create-1')
+  // Another module's command with the same id is its own.
+  const other = await registry
+    .forModule('calendar')
+    .create({ workspaceId: 'ws-1', cli: 'claude-code', commandId: 'create-1' })
+  assert.ok(other.ok)
+  assert.notEqual(other.conversation.agentId, first.conversation.agentId)
+  // Without an id, each create is its own, as before.
+  await service.create({ workspaceId: 'ws-1', cli: 'claude-code' })
+  assert.equal(calls.starts.length, 3)
+
+  const ref = { workspaceId: 'ws-1', agentId: first.conversation.agentId }
+  await service.send(ref, { message: 'hi', commandId: 'send-1' })
+  await service.send(ref, { message: 'again' })
+  await service.setPermissionPreset(ref, 'manual', { commandId: 'preset-1' })
+  await service.setModel(ref, 'default', { commandId: 'model-1' })
+  await service.interrupt(ref, { commandId: 'stop-turn-1' })
+  await service.respondToApproval(ref, { requestId: 'r1', decision: 'once', commandId: 'answer-1' })
+  assert.deepEqual(
+    calls.sends.map((send) => send.commandId),
+    ['module:reviews:send-1', 'cmd'],
+  )
+  assert.equal((calls.presets[0] as { commandId?: string }).commandId, 'module:reviews:preset-1')
+  assert.equal((calls.models[0] as { commandId?: string }).commandId, 'module:reviews:model-1')
+  assert.equal((calls.responses[0] as { commandId?: string }).commandId, 'module:reviews:answer-1')
+
+  for (const commandId of ['', 'x'.repeat(201), 7]) {
+    const refused = await service.send(ref, { message: 'hi', commandId: commandId as never })
+    assert.equal(!refused.ok && refused.code, 'invalid_input', String(commandId))
+    const notCreated = await service.create({ workspaceId: 'ws-1', commandId: commandId as never })
+    assert.equal(!notCreated.ok && notCreated.code, 'invalid_input', String(commandId))
+  }
+})
+
+test('a retried send through the real runtime is carried out once and answered with the first result', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'module-conversation-receipts-'))
+  const runtime = new ConversationRuntime({
+    adapters: [createMockConversationProvider()],
+    getProviderById: () => undefined,
+  })
+  try {
+    const workspaces: ModuleConversationWorkspace[] = [
+      {
+        id: 'ws-1',
+        folderPath: folder,
+        agents: {
+          chat: {
+            id: 'chat',
+            name: 'Notes',
+            runtimeKind: 'conversation',
+            conversation: { providerId: 'mock-provider', modelId: 'mock-model' },
+            ownerModuleId: 'reviews',
+          } as AgentState,
+        },
+      },
+    ]
+    const registry = createConversationModuleRegistry({
+      launch: async () => ({ ok: false, code: 'unused', message: 'unused' }),
+      runtime,
+      follow: () => ({ dispose: () => undefined, ready: Promise.resolve() }),
+      writeAgent: () => ({ ok: true }),
+      getWorkspaceAgents: () => workspaces,
+      getModulePermissions: () => OPERATE,
+    })
+    const turns: ConversationEvent[] = []
+    runtime.onEvent((next) => {
+      if (next.type === 'user_message') turns.push(next)
+    })
+    const service = registry.forModule('reviews')
+    const ref = { workspaceId: 'ws-1', agentId: 'chat' }
+    const [first, retry] = await Promise.all([
+      service.send(ref, { message: '/tools', commandId: 'send-1' }),
+      service.send(ref, { message: '/tools', commandId: 'send-1' }),
+    ])
+    const late = await service.send(ref, { message: '/tools', commandId: 'send-1' })
+    assert.deepEqual([first, retry, late], [{ ok: true }, { ok: true }, { ok: true }])
+    assert.equal(turns.length, 1, 'one turn for one command, however often it is sent')
+    await service.send(ref, { message: '/tools', commandId: 'send-2' })
+    assert.equal(turns.length, 2)
+  } finally {
+    await runtime.shutdown()
+    await rm(folder, { recursive: true, force: true })
+  }
+})
+
+test('answerQuestion and resolvePlan each answer only their own kind of request', async () => {
+  const { registry, calls } = harness({ reviews: OPERATE, reader: ['conversation:read'] })
+  const service = registry.forModule('reviews')
+  const created = await service.create({ workspaceId: 'ws-1', cli: 'claude-code' })
+  assert.ok(created.ok)
+  const ref = { workspaceId: 'ws-1', agentId: created.conversation.agentId }
+
+  assert.deepEqual(await service.answerQuestion(ref, { requestId: 'q1', answers: { 'Which file?': 'a.ts' } }), {
+    ok: true,
+  })
+  assert.deepEqual(await service.resolvePlan(ref, { requestId: 'p1', decision: 'approve', commandId: 'plan-1' }), {
+    ok: true,
+  })
+  assert.deepEqual(await service.resolvePlan(ref, { requestId: 'p2', decision: 'reject' }), { ok: true })
+  // The runtime is told which kind each answer is for, and refuses one that does not match.
+  assert.deepEqual(calls.responses, [
+    {
+      sessionId: 'conv_1',
+      requestId: 'q1',
+      approved: true,
+      requestKind: 'question',
+      answers: { 'Which file?': 'a.ts' },
+    },
+    { sessionId: 'conv_1', requestId: 'p1', approved: true, requestKind: 'plan', commandId: 'module:reviews:plan-1' },
+    { sessionId: 'conv_1', requestId: 'p2', approved: false, requestKind: 'plan' },
+  ])
+
+  const refusals = [
+    await service.resolvePlan(ref, { requestId: 'p3', decision: 'once' as never }),
+    await service.resolvePlan(ref, { requestId: 7 as never, decision: 'approve' }),
+    await service.answerQuestion(ref, { requestId: 'q2', answers: { q: 3 } as never }),
+    await service.answerQuestion(ref, { requestId: 'q2', answers: ['a'] as never }),
+  ]
+  for (const refused of refusals) assert.equal(!refused.ok && refused.code, 'invalid_input')
+  const reader = registry.forModule('reader')
+  const readOnly = await reader.resolvePlan(ref, { requestId: 'p1', decision: 'approve' })
+  assert.equal(!readOnly.ok && readOnly.code, 'permission_missing')
+  const stranger = await registry.forModule('reviews').answerQuestion(
+    { workspaceId: 'ws-1', agentId: 'nothing' },
+    {
+      requestId: 'q1',
+      answers: {},
+    },
+  )
+  assert.equal(!stranger.ok && stranger.code, 'not_owned')
+  assert.equal(calls.responses.length, 3, 'nothing refused reached the runtime')
+})
+
+test('a CLI mode rides beside the preset it belongs to, and goes when the preset is lowered or changed', async () => {
+  const { registry, workspaces, calls } = harness({ reviews: OPERATE })
+  const service = registry.forModule('reviews')
+  const created = await service.create({
+    workspaceId: 'ws-1',
+    cli: 'claude-code',
+    permissionPreset: 'auto',
+    permissionMode: 'acceptEdits',
+  })
+  assert.ok(created.ok)
+  assert.equal(calls.starts[0]!.permissionMode, 'acceptEdits')
+  assert.equal(created.conversation.permissionMode, 'acceptEdits')
+  // Asked above the module's ceiling: the preset is lowered and the mode,
+  // which belonged to the preset asked for, is dropped.
+  const lowered = await service.create({
+    workspaceId: 'ws-1',
+    cli: 'claude-code',
+    permissionPreset: 'bypass',
+    permissionMode: 'dontAsk',
+  })
+  assert.ok(lowered.ok)
+  assert.equal(calls.starts[1]!.permissionPreset, 'auto')
+  assert.equal(calls.starts[1]!.permissionMode, undefined)
+
+  const ref = { workspaceId: 'ws-1', agentId: created.conversation.agentId }
+  const record = () => workspaces[0]!.agents[ref.agentId]!
+  assert.deepEqual(await service.setPermissionPreset(ref, 'manual'), { ok: true, permissionPreset: 'manual' })
+  assert.equal(record().cliPermissionMode, undefined, 'a mode left from another preset is cleared')
+  assert.deepEqual(await service.setPermissionPreset(ref, 'auto', { permissionMode: 'acceptEdits' }), {
+    ok: true,
+    permissionPreset: 'auto',
+    permissionMode: 'acceptEdits',
+  })
+  assert.equal((calls.presets.at(-1) as { permissionMode?: string }).permissionMode, 'acceptEdits')
+  assert.equal(record().cliPermissionMode, 'acceptEdits')
+  assert.equal(service.list()[0]!.permissionMode, 'acceptEdits')
+  const capped = await service.setPermissionPreset(ref, 'bypass', { permissionMode: 'dontAsk' })
+  assert.deepEqual(capped, { ok: true, permissionPreset: 'auto' })
+
+  for (const permissionMode of ['workspace', '../x', 'manual']) {
+    const refused = await service.setPermissionPreset(ref, 'auto', { permissionMode })
+    assert.equal(!refused.ok && refused.code, 'invalid_input', permissionMode)
+  }
+  const badCreate = await service.create({ workspaceId: 'ws-1', permissionPreset: 'auto', permissionMode: 'a b' })
+  assert.equal(!badCreate.ok && badCreate.code, 'invalid_input')
+})
+
+test('allowed tools need conversation:bypass, and never ride a tool call capped below it', async () => {
+  let callerCeiling: CliPermissionPreset | null = null
+  const { registry, calls } = harness({ reviews: OPERATE, trusted: BYPASS }, { callerCeiling: () => callerCeiling })
+  const refused = await registry
+    .forModule('reviews')
+    .create({ workspaceId: 'ws-1', cli: 'claude-code', allowedTools: ['Write'] })
+  assert.equal(!refused.ok && refused.code, 'permission_missing')
+  assert.match(!refused.ok ? refused.message : '', /conversation:bypass/)
+  // An empty list asks for nothing.
+  assert.ok(
+    (await registry.forModule('reviews').create({ workspaceId: 'ws-1', cli: 'claude-code', allowedTools: [] })).ok,
+  )
+
+  const trusted = registry.forModule('trusted')
+  const allowed = await trusted.create({ workspaceId: 'ws-1', cli: 'claude-code', allowedTools: ['Write', 'Edit'] })
+  assert.ok(allowed.ok)
+  assert.deepEqual(calls.starts.at(-1)!.allowedTools, ['Write', 'Edit'])
+  callerCeiling = 'auto'
+  const throughAgent = await trusted.create({ workspaceId: 'ws-1', cli: 'claude-code', allowedTools: ['Write'] })
+  assert.equal(!throughAgent.ok && throughAgent.code, 'permission_missing')
+  callerCeiling = null
+  for (const allowedTools of ['Write', ['Write\nBash'], Array.from({ length: 65 }, (_, i) => `T${i}`)]) {
+    const bad = await trusted.create({ workspaceId: 'ws-1', allowedTools: allowedTools as never })
+    assert.equal(!bad.ok && bad.code, 'invalid_input')
+  }
+})
+
+test('follow hands the session API the module’s cursor, redacts what comes back, and ends when reading is no longer allowed', async () => {
+  const permissions: Record<string, string[]> = { reviews: OPERATE, reader: ['conversation:read'] }
+  const { registry, follows } = harness(permissions)
+  const created = await registry.forModule('reviews').create({ workspaceId: 'ws-1', cli: 'claude-code' })
+  assert.ok(created.ok)
+  const ref = { workspaceId: 'ws-1', agentId: created.conversation.agentId }
+  const frames: ModuleConversationStreamFrame[] = []
+  const stop = registry.forModule('reviews').follow(ref, { afterSeq: 4, generation: 'log-1' }, (frame) => {
+    frames.push(frame)
+    throw new Error('a module callback that throws does not end the stream')
+  })
+  assert.deepEqual(follows[0]!.input, {
+    key: { workspaceRoot: '/repo/a', workspaceId: 'ws-1', agentId: ref.agentId },
+    afterSeq: 4,
+    generation: 'log-1',
+  })
+  const secret = event('tool_output', ref, { output: 'ok', apiKey: 'sk-live' })
+  follows[0]!.listener({
+    type: 'snapshot',
+    page: { events: [secret], hasMore: false, beforeCursor: secret.seq! },
+    reset: true,
+    generation: 'log-2',
+  })
+  follows[0]!.listener({ type: 'synchronized', seq: secret.seq!, generation: 'log-2' })
+  follows[0]!.listener({ type: 'event', event: event('content_delta', ref, { text: 'hi', token: 'x' }) })
+  assert.deepEqual(
+    frames.map((frame) => frame.type),
+    ['snapshot', 'synchronized', 'event'],
+  )
+  const snapshot = frames[0] as Extract<ModuleConversationStreamFrame, { type: 'snapshot' }>
+  assert.equal(snapshot.reset, true)
+  assert.equal(snapshot.page.events[0]!.payload?.apiKey, '[redacted]')
+  assert.equal((frames[2] as { event: ModuleConversationEvent }).event.payload?.token, '[redacted]')
+
+  // A module whose read is withdrawn is told once, and the follow is let go.
+  delete permissions.reviews
+  follows[0]!.listener({ type: 'event', event: event('content_delta', ref, { text: 'more' }) })
+  assert.deepEqual(frames.at(-1), { type: 'error', message: 'This conversation is no longer readable by this module.' })
+  assert.equal(follows[0]!.disposed, true)
+  follows[0]!.listener({ type: 'event', event: event('content_delta', ref, { text: 'after' }) })
+  assert.equal(frames.length, 4)
+  stop()
+
+  // A follow refuses a cursor that is not one, a chat that is not the
+  // module's, and a module that may not read.
+  permissions.reviews = OPERATE
+  const service = registry.forModule('reviews')
+  for (const options of [{ afterSeq: -1 }, { generation: '' }, { turnLimit: 0 }, { turnLimit: 101 }])
+    assert.throws(() => service.follow(ref, options, () => undefined), /afterSeq|generation|turnLimit/)
+  assert.throws(() => service.follow({ workspaceId: 'ws-1', agentId: 'nothing' }, undefined, () => undefined))
+  assert.throws(() => registry.forModule('none').follow(ref, undefined, () => undefined), /conversation:read/)
+  const second = service.follow(ref, undefined, () => undefined)
+  assert.deepEqual(follows[1]!.input, { key: { workspaceRoot: '/repo/a', workspaceId: 'ws-1', agentId: ref.agentId } })
+  second()
+  assert.equal(follows[1]!.disposed, true)
+  // Teardown lets every open follow go.
+  service.follow(ref, undefined, () => undefined)
+  registry.dispose()
+  assert.equal(follows[2]!.disposed, true)
 })

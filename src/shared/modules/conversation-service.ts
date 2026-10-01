@@ -14,7 +14,12 @@ import type {
   ConversationPermissionPreset,
   ConversationSessionStatus,
 } from '../conversation-runtime'
-import type { ConversationApprovalDecision } from '../conversation/approvalRules'
+import type {
+  ConversationPage,
+  ConversationPlanDecision,
+  ConversationRequestDecision,
+  ConversationStreamFrame,
+} from '../../../packages/conversation-protocol/src/public'
 
 export type ModuleConversationEventType = ConversationEventType
 export type ModuleConversationEvent = ConversationEvent
@@ -23,9 +28,20 @@ export type ModuleConversationImageAttachment = ConversationImageAttachment
 // The runtime's four presets. What a module may start or switch a chat to is
 // capped by its grant (main/module-host/module-conversation-service.ts).
 export type ModuleConversationPermissionPreset = ConversationPermissionPreset
-// The runtime's answers bar `always`: a rule that outlives the conversation is
-// the person's to make, never a module's.
-export type ModuleConversationApprovalDecision = Exclude<ConversationApprovalDecision, 'always'>
+// The protocol's answers, which bar `always`: a rule that outlives the
+// conversation is the person's to make, never a module's.
+export type ModuleConversationApprovalDecision = ConversationRequestDecision
+export type ModuleConversationPlanDecision = ConversationPlanDecision
+export type ModuleConversationPage = ConversationPage
+export type ModuleConversationStreamFrame = ConversationStreamFrame
+
+// Where a `follow` starts: after the sequence a module already holds, in the
+// log generation it read it from. Absent, from a snapshot.
+export type ModuleConversationFollowOptions = { afterSeq?: number; generation?: string; turnLimit?: number }
+
+// A module's own id for a mutating call. A retry with the same id is answered
+// with the first call's result, and never carried out twice.
+export type ModuleConversationCommandOptions = { commandId?: string }
 
 export type ModuleConversationRef = { workspaceId: string; agentId: string }
 
@@ -38,6 +54,8 @@ export type ModuleConversationSummary = ModuleConversationRef & {
   status: ModuleConversationStatus | 'absent'
   // The live session's preset, else the one the chat's record starts it on.
   permissionPreset?: ModuleConversationPermissionPreset
+  // The CLI's own mode at that preset, when one other than the preset's own.
+  permissionMode?: string
 }
 
 export type ModuleConversationErrorCode =
@@ -62,6 +80,11 @@ export type ModuleConversationCreateInput = {
   attachments?: ModuleConversationImageAttachment[]
   permissionPreset?: ModuleConversationPermissionPreset
   name?: string
+  // The CLI's own mode at `permissionPreset`; read only beside it.
+  permissionMode?: string
+  // Tools the chat may use without asking. Needs `conversation:bypass`.
+  allowedTools?: string[]
+  commandId?: string
 }
 
 export type ModuleConversationResult<T = object> =
@@ -76,9 +99,15 @@ export type ModuleConversationService = {
   ): Promise<ModuleConversationResult<{ conversation: ModuleConversationSummary }>>
   send(
     ref: ModuleConversationRef,
-    input: { message: string; skills?: string[]; attachments?: ModuleConversationImageAttachment[]; steer?: boolean },
+    input: {
+      message: string
+      skills?: string[]
+      attachments?: ModuleConversationImageAttachment[]
+      steer?: boolean
+      commandId?: string
+    },
   ): Promise<ModuleConversationResult>
-  interrupt(ref: ModuleConversationRef): Promise<ModuleConversationResult>
+  interrupt(ref: ModuleConversationRef, options?: ModuleConversationCommandOptions): Promise<ModuleConversationResult>
   // `decision`, or the older `approved` (true is `once`, false is `deny`).
   respondToApproval(
     ref: ModuleConversationRef,
@@ -87,20 +116,46 @@ export type ModuleConversationService = {
       decision?: ModuleConversationApprovalDecision
       approved?: boolean
       answers?: Record<string, string>
+      commandId?: string
     },
   ): Promise<ModuleConversationResult>
+  // A question's answers; refused for a request that is not a question.
+  answerQuestion(
+    ref: ModuleConversationRef,
+    input: { requestId: string; answers: Record<string, string>; commandId?: string },
+  ): Promise<ModuleConversationResult>
+  // A plan carried out or sent back; refused for a request that is not a plan.
+  resolvePlan(
+    ref: ModuleConversationRef,
+    input: { requestId: string; decision: ModuleConversationPlanDecision; commandId?: string },
+  ): Promise<ModuleConversationResult>
   // Answers with the preset now in force, which is lower than the one asked
-  // for when the module's grant caps it.
+  // for when the module's grant caps it, and the CLI's mode with it.
   setPermissionPreset(
     ref: ModuleConversationRef,
     preset: ModuleConversationPermissionPreset,
-  ): Promise<ModuleConversationResult<{ permissionPreset: ModuleConversationPermissionPreset; notice?: string }>>
+    options?: ModuleConversationCommandOptions & { permissionMode?: string },
+  ): Promise<
+    ModuleConversationResult<{
+      permissionPreset: ModuleConversationPermissionPreset
+      permissionMode?: string
+      notice?: string
+    }>
+  >
   setModel(
     ref: ModuleConversationRef,
     modelId: string,
+    options?: ModuleConversationCommandOptions,
   ): Promise<ModuleConversationResult<{ modelId: string; notice?: string }>>
   stop(ref: ModuleConversationRef): Promise<ModuleConversationResult>
   subscribe(ref: ModuleConversationRef, cb: (event: ModuleConversationEvent) => void): () => void
+  // A snapshot (or, for a cursor the log can vouch for, only the missed
+  // events), then one `synchronized` fence, then live events.
+  follow(
+    ref: ModuleConversationRef,
+    options: ModuleConversationFollowOptions | undefined,
+    onFrame: (frame: ModuleConversationStreamFrame) => void,
+  ): () => void
   transcript(ref: ModuleConversationRef): Promise<ModuleConversationResult<{ events: ModuleConversationEvent[] }>>
   list(filter?: { workspaceId?: string }): ModuleConversationSummary[]
   watch(

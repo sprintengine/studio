@@ -26,6 +26,7 @@ import {
 } from '../module-host/service-tokens'
 import type { CapabilityModule } from '../module-host/load-modules'
 import { createConversationModuleRegistry } from '../module-host/module-conversation-service'
+import { ConversationSessionApi } from '../conversation-session-api'
 import { createModuleGitHubRegistry } from '../module-host/module-github'
 import { createModuleSecretsRegistry } from '../module-host/module-secrets'
 import { createModuleStorageRegistry } from '../module-host/module-storage'
@@ -120,9 +121,12 @@ export function createAgentRuntimeModule(
       // `conversation:operate` and the chat's owner on every call.
       host.provideService(ConversationLaunchServiceToken, () => services.conversationLaunchService)
       host.provideService(ConversationRuntimeToken, () => services.conversationRuntime)
+      const conversationSessions = new ConversationSessionApi(services.conversationRuntime)
       const conversations = createConversationModuleRegistry({
         launch: (request) => services.conversationLaunchService.launch(request),
         runtime: services.conversationRuntime,
+        // The same replay, fence and live tail every other follower gets.
+        follow: (input, listener) => conversationSessions.subscribe(input, listener),
         // A preset or model switch moves the chat's record as the chat view
         // moves it, through the same bus every window hears.
         writeAgent: (workspaceId, agentId, patch) =>

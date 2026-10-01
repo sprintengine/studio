@@ -536,16 +536,23 @@ test('pictures ride the first message, and a failed first message reaches the ca
   assert.match(failures[0]!, /provider went away/)
 })
 
-test('the owner survives the registry normalisation every window and restart goes through', async () => {
+test('the owner and the creating command survive the registry normalisation every window and restart goes through', async () => {
   const { service, record } = harness()
-  await service.launch({ workspaceId: 'ws-1', cli: 'claude-code', ownerModuleId: 'acme.reviews' })
+  await service.launch({
+    workspaceId: 'ws-1',
+    cli: 'claude-code',
+    ownerModuleId: 'acme.reviews',
+    launchCommandId: 'module:acme.reviews:create-1',
+  })
   const agent = record.writes[0]!.agent!
   const workspace = normalizeWorkspaceForRegistry({
     id: 'ws-1',
     agents: { [agent.id]: agent },
   } as unknown as Workspace)
   assert.equal(workspace.agents[agent.id]!.ownerModuleId, 'acme.reviews')
-  assert.equal(JSON.parse(JSON.stringify(workspace)).agents[agent.id].ownerModuleId, 'acme.reviews')
+  const persisted = JSON.parse(JSON.stringify(workspace)).agents[agent.id]
+  assert.equal(persisted.ownerModuleId, 'acme.reviews')
+  assert.equal(persisted.launchCommandId, 'module:acme.reviews:create-1')
 })
 
 test("a connector launch starts the chat with that connector's MCP server, and refuses one it cannot run", async () => {

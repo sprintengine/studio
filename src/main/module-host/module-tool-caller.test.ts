@@ -50,6 +50,7 @@ function harness(agentPresets: Record<string, CliPermissionPreset>) {
   })
   const conversations = createConversationModuleRegistry({
     launch: (request) => launch.launch(request),
+    follow: () => ({ dispose: () => undefined, ready: Promise.resolve() }),
     runtime: {
       startSession: async () => ({ ok: false, message: 'unused' }),
       sendTurn: async () => ({ ok: false, message: 'unused' }),

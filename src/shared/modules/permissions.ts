@@ -83,7 +83,8 @@ export type CapabilityPermission =
   // Start, prompt, interrupt and stop the module's own conversations, and open
   // a chat in the renderer (`RendererHost.openChat`). Implies read.
   | 'conversation:operate'
-  // Run those conversations on `bypass`, where the agent asks before nothing.
+  // Run those conversations on `bypass`, where the agent asks before nothing,
+  // and start them with tools the agent uses without asking (`allowedTools`).
   // Without it a module's chats go no looser than `auto`, whatever it asks
   // for; checked on every create and every preset switch.
   | 'conversation:bypass'

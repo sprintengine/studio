@@ -125,6 +125,8 @@ export type ConversationLaunchRequest = {
   attachments?: ConversationImageAttachment[]
   /** The module that started the chat; only that module reaches it through the module service. */
   ownerModuleId?: string
+  /** The caller's namespaced id for this create, kept on the chat so a retry can find it. */
+  launchCommandId?: string
   /**
    * The scheduled agent whose run this is. Written on the workspace a new
    * chat is born in (`Workspace.scheduledAgentId`), so the chat says where it
@@ -336,6 +338,7 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
       ...(worktreePath ? { execution: { mode: 'worktree' as const, worktreeId: null, cwd: worktreePath } } : {}),
       ...(skills.length > 0 ? { conversationSkills: skills } : {}),
       ...(request.ownerModuleId?.trim() ? { ownerModuleId: request.ownerModuleId.trim() } : {}),
+      ...(request.launchCommandId ? { launchCommandId: request.launchCommandId } : {}),
     }
     let chatWorkspaceId = workspace.id
     if (newChat) {

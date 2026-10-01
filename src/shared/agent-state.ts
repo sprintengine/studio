@@ -199,6 +199,11 @@ export type AgentState = {
   // person's own, and no module's). Set once at launch and never edited, so it
   // rides the workspace registry and every window's store as-is.
   ownerModuleId?: string
+  // The caller's id for the command that created this chat, namespaced by the
+  // caller (a module's is `module:<moduleId>:<commandId>`), so a create that
+  // is retried finds the chat its first attempt made rather than making a
+  // second. Set once at launch and never edited.
+  launchCommandId?: string
 }
 
 type AgentBacklogItemRef = {
