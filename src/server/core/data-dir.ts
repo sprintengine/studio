@@ -1,10 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import {
+  chmodSync,
   existsSync,
+  linkSync,
   mkdirSync,
   readdirSync,
   readFileSync,
   readlinkSync,
+  renameSync,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -42,11 +45,29 @@ export type DataDirHolder = {
 
 export type DataDirLock = {
   readonly path: string
+  /** Whether the file still names this lock: false once another process has taken it over. */
+  isHeld(): boolean
   /** Remove the lock if it is still this one's. Safe to call more than once. */
   release(): void
 }
 
-export type DataDirLockResult = { ok: true; lock: DataDirLock } | { ok: false; holder: DataDirHolder; message: string }
+export type DataDirLockResult =
+  | {
+      ok: true
+      lock: DataDirLock
+      /** A holder that was still running, or could not be asked, and was displaced (`takeOver`). */
+      displaced: DataDirHolder | null
+    }
+  | { ok: false; holder: DataDirHolder; message: string }
+
+/** The file operations the lock makes, so a suite can fail one the way a full or locked disk does. */
+export type DataDirLockFs = {
+  mkdirSync: typeof mkdirSync
+  writeFileSync: typeof writeFileSync
+  linkSync: typeof linkSync
+  renameSync: typeof renameSync
+  unlinkSync: typeof unlinkSync
+}
 
 export type DataDirLockDeps = {
   pid?: number
@@ -54,14 +75,24 @@ export type DataDirLockDeps = {
   now?: () => Date
   /** Whether a process with this id is running on this machine. */
   isRunning?: (pid: number) => boolean
+  /**
+   * Whether to displace a holder that would otherwise refuse this process: one
+   * still running, one on another machine, or one whose file cannot be read.
+   */
+  takeOver?: (holder: DataDirHolder) => boolean
+  fs?: Partial<DataDirLockFs>
 }
 
 export const DATA_DIR_LOCK_FILE = join('run', 'studio.lock')
 
-// A lock file that cannot be parsed is most likely one being written this
-// instant. It is only treated as abandoned once it has been unreadable for
-// longer than any write takes.
+// A lock file that cannot be parsed was damaged (this build never leaves a
+// partial one: it is written whole under another name, then linked into
+// place). It is still only treated as abandoned once it has been unreadable
+// for longer than any write takes, in case an older writer is mid-write.
 const UNREADABLE_LOCK_GRACE_MS = 10_000
+
+/** Who an unreadable lock file is, as far as anyone can tell. */
+const UNKNOWN_HOLDER: DataDirHolder = { role: 'server', pid: 0, hostname: '', startedAt: '' }
 
 type LockBody = DataDirHolder & { token: string }
 
@@ -70,14 +101,20 @@ type LockBody = DataDirHolder & { token: string }
  *
  * A lock left by a process that is no longer running (a crash, a force quit)
  * is taken over. One whose process is running, or that names another machine
- * (a data directory on a shared disk, where nothing here can tell), is not.
- * A server also refuses a directory whose Electron profile lock names a
- * running app: an app older than this lock holds only that one.
+ * (a data directory on a shared disk, where nothing here can tell), is not,
+ * unless `takeOver` says so. A server also refuses a directory whose Electron
+ * profile lock names a running app: an app older than this lock holds only
+ * that one.
+ *
+ * The lock is written whole to a file of its own and then linked into place,
+ * so a disk that fills mid-write leaves no half-written lock behind to refuse
+ * every later start. File errors other than "already there" are thrown.
  */
 export function acquireDataDirLock(dataDir: string, role: StudioRole, deps: DataDirLockDeps = {}): DataDirLockResult {
   const pid = deps.pid ?? process.pid
   const host = deps.hostname ?? osHostname()
   const isRunning = deps.isRunning ?? processIsRunning
+  const fs: DataDirLockFs = { mkdirSync, writeFileSync, linkSync, renameSync, unlinkSync, ...deps.fs }
   const path = join(dataDir, DATA_DIR_LOCK_FILE)
 
   if (role === 'server') {
@@ -85,7 +122,7 @@ export function acquireDataDirLock(dataDir: string, role: StudioRole, deps: Data
     if (app) return refused(app, path)
   }
 
-  mkdirSync(join(dataDir, 'run'), { recursive: true, mode: 0o700 })
+  fs.mkdirSync(join(dataDir, 'run'), { recursive: true, mode: 0o700 })
   const body: LockBody = {
     role,
     pid,
@@ -93,45 +130,63 @@ export function acquireDataDirLock(dataDir: string, role: StudioRole, deps: Data
     startedAt: (deps.now?.() ?? new Date()).toISOString(),
     token: randomUUID(),
   }
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      writeFileSync(path, `${JSON.stringify(body)}\n`, { flag: 'wx', mode: 0o600 })
-      return { ok: true, lock: heldLock(path, body.token) }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+  const staged = `${path}.${body.token}`
+  try {
+    fs.writeFileSync(staged, `${JSON.stringify(body)}\n`, { flag: 'wx', mode: 0o600 })
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        fs.linkSync(staged, path)
+        return { ok: true, lock: heldLock(path, body.token, fs), displaced: null }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      }
+      const existing = readLock(path)
+      const holder = existing === 'unreadable' ? UNKNOWN_HOLDER : existing
+      const abandoned =
+        existing === null ||
+        (existing === 'unreadable' ? unreadableForLong(path) : isAbandoned(existing, { pid, host, isRunning }))
+      if (holder && !abandoned) {
+        if (!deps.takeOver?.(holder)) return refused(holder, path)
+        // Displaced in one step: the file never goes missing in between, so a
+        // third process cannot slip in.
+        fs.renameSync(staged, path)
+        return { ok: true, lock: heldLock(path, body.token, fs), displaced: holder }
+      }
+      try {
+        fs.unlinkSync(path)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
     }
-    const existing = readLock(path)
-    if (existing === 'unreadable') {
-      if (!unreadableForLong(path)) return refused({ role: 'server', pid: 0, hostname: host, startedAt: '' }, path)
-    } else if (existing && !isAbandoned(existing, { pid, host, isRunning })) {
-      return refused(existing, path)
-    }
+    const holder = readLock(path)
+    return refused(holder && holder !== 'unreadable' ? holder : UNKNOWN_HOLDER, path)
+  } finally {
     try {
-      unlinkSync(path)
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      fs.unlinkSync(staged)
+    } catch {
+      // Renamed into place, or never written. A staged copy cut short by a
+      // full disk goes here too.
     }
   }
-  const holder = readLock(path)
-  return refused(
-    holder && holder !== 'unreadable' ? holder : { role: 'server', pid: 0, hostname: host, startedAt: '' },
-    path,
-  )
 }
 
-function heldLock(path: string, token: string): DataDirLock {
+function heldLock(path: string, token: string, fs: Pick<DataDirLockFs, 'unlinkSync'>): DataDirLock {
   let released = false
+  const isHeld = (): boolean => {
+    const current = readLock(path)
+    return current !== null && current !== 'unreadable' && current.token === token
+  }
   return {
     path,
+    isHeld,
     release() {
       if (released) return
       released = true
-      const current = readLock(path)
-      // Never another process's: a lock this one lost (removed by hand, then
-      // taken by someone else) stays theirs.
-      if (!current || current === 'unreadable' || current.token !== token) return
+      // Never another process's: a lock this one lost (taken over by the
+      // desktop, or removed by hand and taken by someone else) stays theirs.
+      if (!isHeld()) return
       try {
-        unlinkSync(path)
+        fs.unlinkSync(path)
       } catch {
         // Gone already, or the directory went with it.
       }
@@ -255,12 +310,8 @@ const SEALED_DIRECTORIES = ['provider-secrets', 'module-secrets']
  * other than a data key; otherwise nothing has sealed anything here yet.
  */
 export function readDataDirSecrets(dataDir: string): DataDirSecrets | null {
-  try {
-    const parsed = JSON.parse(readFileSync(join(dataDir, DATA_DIR_RECORD_FILE), 'utf8')) as { secrets?: unknown }
-    if (parsed.secrets === 'desktop-keychain' || parsed.secrets === 'server-key') return parsed.secrets
-  } catch {
-    // No record, or one this build cannot read: look at what is there.
-  }
+  const recorded = readRecord(join(dataDir, DATA_DIR_RECORD_FILE))
+  if (recorded) return recorded
   if (existsSync(join(dataDir, 'Local State'))) return 'desktop-keychain'
   const sealed = [
     ...SEALED_FILES.map((name) => join(dataDir, name)),
@@ -284,12 +335,52 @@ export function readDataDirSecrets(dataDir: string): DataDirSecrets | null {
   return null
 }
 
-/** Record which cipher seals this directory, unless one is recorded already. */
+/** What the record file says, or null when it is missing or damaged. */
+function readRecord(path: string): DataDirSecrets | null {
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf8')) as { secrets?: unknown }
+    if (parsed.secrets === 'desktop-keychain' || parsed.secrets === 'server-key') return parsed.secrets
+  } catch {
+    // Missing, cut short, or not ours.
+  }
+  return null
+}
+
+/**
+ * Record which cipher seals this directory, unless one is recorded already.
+ * Written whole under another name and renamed into place, so a crash or a
+ * full disk never leaves half a record; a record that is there but damaged
+ * (from a build before that) is written again.
+ */
 export function recordDataDirSecrets(dataDir: string, secrets: DataDirSecrets): void {
   const path = join(dataDir, DATA_DIR_RECORD_FILE)
+  if (readRecord(path)) return
+  const staged = `${path}.${randomUUID()}`
   try {
-    writeFileSync(path, `${JSON.stringify({ version: 1, secrets }, null, 2)}\n`, { flag: 'wx', mode: 0o600 })
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+    writeFileSync(staged, `${JSON.stringify({ version: 1, secrets }, null, 2)}\n`, { flag: 'wx', mode: 0o600 })
+    renameSync(staged, path)
+  } finally {
+    try {
+      unlinkSync(staged)
+    } catch {
+      // Renamed into place.
+    }
+  }
+}
+
+/**
+ * Make the data directory its owner's alone (0700). Created that way, but a
+ * directory that already existed keeps whatever mode it had; this narrows it.
+ * Answers false where it could not (another owner, a file system without
+ * modes), for the caller to warn about. A no-op on Windows, where the
+ * directory's ACL is inherited from the profile.
+ */
+export function restrictDataDir(dataDir: string): boolean {
+  if (process.platform === 'win32') return true
+  try {
+    if ((statSync(dataDir).mode & 0o077) !== 0) chmodSync(dataDir, 0o700)
+    return (statSync(dataDir).mode & 0o077) === 0
+  } catch {
+    return false
   }
 }

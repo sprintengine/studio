@@ -1,4 +1,3 @@
-import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
@@ -32,14 +31,8 @@ import { createWorkspaceSyncService } from '../../main/workspace-sync-service'
 import { installedStudioPlatform, installStudioPlatform, type StudioPlatform } from '../platform/platform'
 import type { StudioPaths } from '../platform/studio-paths'
 import { localConversationBackend } from './conversation-backend'
-import {
-  acquireDataDirLock,
-  readDataDirSecrets,
-  recordDataDirSecrets,
-  type DataDirHolder,
-  type DataDirLock,
-  type StudioRole,
-} from './data-dir'
+import type { StudioRole } from './data-dir'
+import { takeDataDir } from './take-data-dir'
 
 // The Studio core: the services the server owns (studio-server design, section
 // 4.1), composed once. The desktop builds it inside Electron main, from
@@ -85,16 +78,7 @@ export type StudioCoreOptions = {
   onHostSettingsChanged?: () => void
 }
 
-/** Another process holds the data directory. Thrown to a server, which exits rather than run as a second writer. */
-export class StudioDataDirBusyError extends Error {
-  constructor(
-    message: string,
-    readonly holder: DataDirHolder,
-  ) {
-    super(message)
-    this.name = 'StudioDataDirBusyError'
-  }
-}
+export { StudioDataDirBusyError, StudioDataDirUnusableError } from './take-data-dir'
 
 export type StudioCore = ReturnType<typeof createStudioCore>
 
@@ -104,9 +88,8 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
   // installed one. The desktop's entry has already installed the same one.
   if (installedStudioPlatform() !== platform) installStudioPlatform(platform)
   const dataDir = platform.paths.dataDir()
-  mkdirSync(dataDir, { recursive: true })
-
-  const dataDirLock = takeDataDir(platform, options.role)
+  const taken = takeDataDir(platform, options.role)
+  const dataDirLock = taken.lock
 
   const logDiagnostic =
     (source: 'agents' | 'workspace') =>
@@ -283,6 +266,11 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
    * flushed around the chats' end, the machines' helpers told to stop, the
    * data directory let go. The desktop runs the same steps as legs of its own
    * quit (app-lifecycle.ts), interleaved with the shell's.
+   *
+   * The lock is let go last, once the chats' shutdown has closed every
+   * transcript, so a process that takes the directory next never finds a log
+   * still being written. A stop cut short leaves the lock to be found
+   * abandoned instead.
    */
   async function shutdown(): Promise<void> {
     const legs: Array<() => unknown> = [
@@ -305,8 +293,10 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
   return {
     platform,
     role: options.role,
-    /** Null only in a desktop that found the directory held and carried on, as builds before the lock did. */
+    /** Null only in a desktop that could not take the directory and carried on, as builds before the lock did. */
     dataDirLock,
+    /** Resolves once a Studio server this desktop displaced has exited; a gateway or socket opens after it. */
+    whenDataDirFree: taken.whenFree,
     agentLaunchSettings,
     hosts,
     workspaceRegistry,
@@ -319,52 +309,6 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     createConversationHost,
     shutdown,
   }
-}
-
-/**
- * Take the data directory and settle whose cipher seals it. A server refuses a
- * held directory, and refuses to seal into one the desktop's keychain sealed
- * (its entry hands it a cipher that is off there). The desktop never refuses
- * to start: a held directory, or one a server sealed, is reported and the app
- * runs as it did before either existed.
- */
-function takeDataDir(platform: StudioPlatform, role: StudioRole): DataDirLock | null {
-  const dataDir = platform.paths.dataDir()
-  const taken = acquireDataDirLock(dataDir, role)
-  if (!taken.ok && role === 'server') throw new StudioDataDirBusyError(taken.message, taken.holder)
-  if (!taken.ok) {
-    void writeDiagnosticLog({
-      level: 'warning',
-      source: 'workspace',
-      title: 'Data directory in use',
-      message: taken.message,
-    })
-  }
-
-  const sealedBy = readDataDirSecrets(dataDir)
-  if (role === 'desktop') {
-    if (sealedBy === 'server-key') {
-      void writeDiagnosticLog({
-        level: 'warning',
-        source: 'workspace',
-        title: 'Secrets sealed by a Studio server',
-        message:
-          "This data directory's secrets were sealed by a standalone Studio server, which the app's keychain cannot open. Saved keys read as not set here.",
-      })
-    } else {
-      recordDataDirSecrets(dataDir, 'desktop-keychain')
-    }
-  } else if (sealedBy === 'desktop-keychain') {
-    if (platform.secrets.available()) {
-      if (taken.ok) taken.lock.release()
-      throw new Error(
-        `${dataDir} holds secrets the desktop's keychain sealed; a server there must run with its secrets off.`,
-      )
-    }
-  } else if (platform.secrets.available()) {
-    recordDataDirSecrets(dataDir, 'server-key')
-  }
-  return taken.ok ? taken.lock : null
 }
 
 /**

@@ -1,5 +1,17 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, test } from 'vitest'
@@ -11,6 +23,7 @@ import {
   DATA_DIR_RECORD_FILE,
   readDataDirSecrets,
   recordDataDirSecrets,
+  restrictDataDir,
 } from './data-dir'
 
 const directories: string[] = []
@@ -120,4 +133,65 @@ test('a directory says whose cipher seals it: its record, else what it holds', (
   assert.equal(readDataDirSecrets(sealed), null)
   writeFileSync(join(sealed, 'github-token.bin'), Buffer.from('v10 keychain bytes'))
   assert.equal(readDataDirSecrets(sealed), 'desktop-keychain')
+})
+
+test('a disk that fills while the lock is written leaves no half lock to refuse the next start', () => {
+  const dir = dataDir()
+  assert.throws(
+    () =>
+      acquireDataDirLock(dir, 'server', {
+        pid: 1,
+        hostname: host,
+        isRunning: running(1),
+        fs: {
+          writeFileSync: ((path: string, data: string) => {
+            writeFileSync(path, data.slice(0, 5))
+            throw Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' })
+          }) as typeof writeFileSync,
+        },
+      }),
+    /ENOSPC/,
+  )
+  assert.equal(existsSync(join(dir, DATA_DIR_LOCK_FILE)), false)
+  assert.deepEqual(readdirSync(join(dir, 'run')), [], 'and no staged copy either')
+  assert.ok(acquireDataDirLock(dir, 'server', { pid: 1, hostname: host, isRunning: running(1) }).ok)
+})
+
+test('a holder that would refuse is displaced in one step when the caller takes over', () => {
+  const dir = dataDir()
+  const first = acquireDataDirLock(dir, 'server', { pid: 100, hostname: 'mac-mini', isRunning: running(100) })
+  assert.ok(first.ok)
+  const desktop = acquireDataDirLock(dir, 'desktop', {
+    pid: 200,
+    hostname: host,
+    isRunning: running(100, 200),
+    takeOver: (holder) => holder.role === 'server',
+  })
+  assert.ok(desktop.ok)
+  assert.deepEqual({ role: desktop.displaced?.role, pid: desktop.displaced?.pid }, { role: 'server', pid: 100 })
+  assert.equal(first.lock.isHeld(), false, 'the displaced holder can tell')
+  assert.equal(desktop.lock.isHeld(), true)
+  first.lock.release()
+  assert.equal(desktop.lock.isHeld(), true, 'and its release leaves the new lock alone')
+  assert.deepEqual(readdirSync(join(dir, 'run')), ['studio.lock'])
+})
+
+test('a damaged record is written again, whole', () => {
+  const dir = dataDir()
+  writeFileSync(join(dir, DATA_DIR_RECORD_FILE), '{"version":1,"secr')
+  assert.equal(readDataDirSecrets(dir), null)
+  recordDataDirSecrets(dir, 'server-key')
+  assert.equal(readDataDirSecrets(dir), 'server-key')
+  assert.deepEqual(
+    readdirSync(dir).filter((name) => name.startsWith(DATA_DIR_RECORD_FILE)),
+    [DATA_DIR_RECORD_FILE],
+  )
+})
+
+test.skipIf(process.platform === 'win32')('a data directory that already existed is narrowed to its owner', () => {
+  const dir = dataDir()
+  chmodSync(dir, 0o755)
+  assert.equal(restrictDataDir(dir), true)
+  assert.equal(statSync(dir).mode & 0o777, 0o700)
+  assert.equal(restrictDataDir(join(dir, 'missing')), false)
 })
