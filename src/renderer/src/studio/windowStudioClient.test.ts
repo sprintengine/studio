@@ -34,6 +34,20 @@ test('a window keeps one client, and starts a new one only after the old has clo
   second.close()
 })
 
+test('a window belongs to the Studio it first reached, and refuses any other after', async () => {
+  const win: { api: Record<string, unknown> } = { api: {} }
+  const first = installStudioLoopback(win) as StudioLoopback
+  const api = win.api as never
+  const client = await windowStudioClient(api)
+  expect(client.welcome.environment.id).toBe('studio-loopback')
+  client.close()
+  await client.closed
+  first.drop()
+  // Another Studio answers this window from now on.
+  installStudioLoopback(win, { environmentId: 'elsewhere' })
+  await expect(windowStudioClient(api)).rejects.toMatchObject({ code: 'environment_changed' })
+})
+
 test('a first connection that fails is forgotten, so the next use tries again', async () => {
   const win: { api: Record<string, unknown> } = { api: {} }
   installStudioLoopback(win)

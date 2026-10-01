@@ -52,6 +52,7 @@ function commandId(): string {
 // reconnects by itself, so they are told as one calm sentence instead of the
 // socket's own words, which mean nothing to someone using a chat.
 const CONNECTION_CODES = new Set([
+  'environment_changed',
   'disconnected',
   'closed',
   'hello_timeout',

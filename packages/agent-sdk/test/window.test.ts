@@ -30,6 +30,8 @@ type Window = {
   tickets: string[]
   /** Drop the open connection, as a reload of the server would. */
   drop(): void
+  /** From now on, connections reach a different Studio. */
+  replace(environmentId: string): void
   commandListeners: Set<(catalog: unknown) => void>
   transport: StudioTransportFactory
 }
@@ -45,15 +47,19 @@ function window(options: { follow?: FakeBackend['follow'] } = {}): Window {
     },
     releaseFileSearches: () => undefined,
   } as unknown as StudioChatBackend
-  const server = createStudioRpcServer({
-    dataDir: '/nonexistent/sdk-window',
-    version: '0.0.0-test',
-    environmentId: 'env-test',
-    backend,
-    chat: () => chat,
-    authenticator: createFakeAuthenticator(),
-  })
-  cleanups.push(() => server.stop(1))
+  const make = (environmentId: string) => {
+    const made = createStudioRpcServer({
+      dataDir: '/nonexistent/sdk-window',
+      version: '0.0.0-test',
+      environmentId,
+      backend,
+      chat: () => chat,
+      authenticator: createFakeAuthenticator(),
+    })
+    cleanups.push(() => made.stop(1))
+    return made
+  }
+  let server = make('env-test')
   const sent: Array<Record<string, unknown>> = []
   const tickets: string[] = []
   let open: MemoryChannelEnd | null = null
@@ -76,7 +82,20 @@ function window(options: { follow?: FakeBackend['follow'] } = {}): Window {
       onClose: (listener) => clientEnd.onClose(() => listener()),
     }
   }
-  return { server, backend, sent, tickets, drop: () => open?.close(), commandListeners, transport }
+  return {
+    get server() {
+      return server
+    },
+    backend,
+    sent,
+    tickets,
+    drop: () => open?.close(),
+    replace: (environmentId) => {
+      server = make(environmentId)
+    },
+    commandListeners,
+    transport,
+  }
 }
 
 async function connected(target: Window): Promise<StudioClient> {
@@ -168,4 +187,31 @@ test('a consumer that retries by itself hears a stream Studio could not start, i
   assert.deepEqual(frames, [{ type: 'error', message: 'Transcript is busy' }])
   await new Promise((resolve) => setTimeout(resolve, 50))
   assert.equal(follows, 1, 'and nothing subscribes again behind its back')
+})
+
+test('a reconnect that reaches a different Studio is refused: no cursor resumed, no command sent again', async () => {
+  const target = window()
+  const client = await connected(target)
+  assert.equal(client.welcome.environment.id, 'env-test')
+  const ref = { workspaceId: 'ws-1', agentId: 'agent-1' }
+  const frames: Array<{ type: string; message?: string }> = []
+  client.conversations.follow(ref, undefined, (frame) => frames.push(frame))
+  await until(() => frames.some((frame) => frame.type === 'synchronized'))
+  const subscribed = () => target.sent.filter((frame) => frame.t === 'sub').length
+  const before = subscribed()
+  target.replace('env-elsewhere')
+  target.drop()
+  const pending = client.request('server.info', {})
+  await assert.rejects(client.closed, (error: { code?: string }) => error.code === 'environment_changed')
+  await assert.rejects(pending, (error: { code?: string }) => error.code === 'environment_changed')
+  assert.equal(subscribed(), before, 'no stream resumed its cursor over there')
+  const infos = target.sent.filter((frame) => frame.t === 'req' && frame.method === 'server.info')
+  assert.equal(infos.length, 1, 'and the request in flight was not sent again')
+  assert.equal(frames.at(-1)?.type, 'error')
+
+  // A client bound to a Studio up front refuses any other from the start.
+  await assert.rejects(
+    connect({ transport: target.transport, client: { name: 'w' }, environmentId: 'env-test', reconnect: false }),
+    (error: { code?: string }) => error.code === 'environment_changed',
+  )
 })

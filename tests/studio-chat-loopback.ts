@@ -144,13 +144,16 @@ export type StudioLoopback = {
  * the `chat-over-studio` one. Call it after `window.api` is stubbed; members
  * the test changes later are read when they are called.
  */
-export function installStudioLoopback(win: { api?: Api }): StudioLoopback | null {
+export function installStudioLoopback(
+  win: { api?: Api },
+  options: { environmentId?: string } = {},
+): StudioLoopback | null {
   if (!chatOverStudioUnderTest()) return null
   const api = (win.api ??= {})
   const server = createStudioRpcServer({
     dataDir: '/nonexistent/studio-loopback',
     version: 'test',
-    environmentId: 'studio-loopback',
+    environmentId: options.environmentId ?? 'studio-loopback',
     backend: conversationsOver(api),
     chat: () => chatOver(api),
     // The socket is never started; windows say hello with their tickets.

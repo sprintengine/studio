@@ -59,6 +59,10 @@ export function windowPortTransport(api: PortApi): StudioTransportFactory {
 }
 
 const clients = new WeakMap<object, Promise<StudioClient>>()
+// The Studio each window belongs to, by its environment id: a window's later
+// clients refuse any other, so nothing the window holds (a stream's cursor, a
+// command's id) is ever offered to a different Studio.
+const environments = new WeakMap<object, string>()
 
 /**
  * The window's client, connected on first use and kept. A first connection
@@ -68,13 +72,21 @@ const clients = new WeakMap<object, Promise<StudioClient>>()
 export function windowStudioClient(api: PortApi = window.api): Promise<StudioClient> {
   const known = clients.get(api)
   if (known) return known
+  const bound = environments.get(api)
   const connecting = connect({
     transport: windowPortTransport(api),
     client: { name: 'Studio window' },
     // A window and the Studio it belongs to come and go together; a short
     // ceiling brings a window back quickly after a restart of the server.
     reconnect: { initialDelayMs: 100, maxDelayMs: 5_000 },
+    ...(bound === undefined ? {} : { environmentId: bound }),
   })
+  void connecting.then(
+    (client) => {
+      if (!environments.has(api)) environments.set(api, client.welcome.environment.id)
+    },
+    () => undefined,
+  )
   clients.set(api, connecting)
   const forget = () => {
     if (clients.get(api) === connecting) clients.delete(api)

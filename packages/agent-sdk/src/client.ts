@@ -80,6 +80,15 @@ export type ConnectOptions = {
   helloTimeoutMs?: number
   /** Mints the command id for a mutation the caller gave none. */
   newCommandId?: () => string
+  /**
+   * The Studio this client follows, by `welcome.environment.id`. Absent, it is
+   * the one the first connection reaches. A connection that reaches any other
+   * (a server restarted on another data directory, another Studio on a reused
+   * address) is refused: this client's cursors and command ids mean nothing
+   * there, so it closes with `environment_changed` rather than resume or
+   * resend against it.
+   */
+  environmentId?: string
 }
 
 /** The ref-level conversation service, plus the reads only a Studio serves. */
@@ -185,6 +194,9 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
   const maxAttempts = reconnect?.maxAttempts ?? Number.POSITIVE_INFINITY
 
   let auth: StudioAuth | undefined = options.auth
+  // The Studio this client is bound to; its streams' cursors and its command
+  // ids are that Studio's.
+  let environmentId: string | null = options.environmentId ?? null
   let transport: StudioTransport | null = null
   let welcome: StudioWelcomeFrame | null = null
   let state: StudioClientState | 'connecting' = 'connecting'
@@ -526,6 +538,15 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
       opened.close()
       return
     }
+    // Checked before a stream resumes from its cursor or a request goes out again.
+    if (environmentId !== null && frame.environment.id !== environmentId) {
+      opened.close()
+      throw new StudioError(
+        'environment_changed',
+        `This connection reached a different Studio (${frame.environment.id}) from the one this client follows (${environmentId}).`,
+      )
+    }
+    environmentId = frame.environment.id
     transport = opened
     welcome = frame
     if (frame.pairing) {
