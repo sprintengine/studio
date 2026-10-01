@@ -26,7 +26,6 @@ export type ElectronPlatformDeps = {
 }
 
 export function createElectronPlatform(deps: ElectronPlatformDeps): StudioPlatform {
-  const resourcesPath = deps.resourcesPath ?? (() => process.resourcesPath)
   // A later notice with the same key replaces the banner rather than stacking
   // under it.
   const shown = new Map<string, Pick<Notification, 'on' | 'close' | 'show'>>()
@@ -35,7 +34,7 @@ export function createElectronPlatform(deps: ElectronPlatformDeps): StudioPlatfo
       dataDir: () => deps.app.getPath('userData'),
       logsDir: () => deps.app.getPath('logs'),
       isPackaged: () => deps.app.isPackaged,
-      resourcesDir: () => resourcesPath() ?? null,
+      resourcesDir: () => (deps.resourcesPath ? deps.resourcesPath() : process.resourcesPath) ?? null,
       appRoot: () => deps.app.getAppPath(),
     },
     secrets: {
