@@ -6,6 +6,7 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
@@ -89,8 +90,10 @@ export function resolveStudioSocketPath(
   if (platform === 'win32') return `\\\\.\\pipe\\sprintengine-studio-${profile}-${randomBytes(8).toString('hex')}`
   const direct = join(dataDir, STUDIO_RUN_DIRECTORY, 'studio.sock')
   if (direct.length <= MAX_POSIX_SOCKET_PATH) return direct
+  // A random part, so the directory cannot be predicted and prepared by
+  // another account first; clients learn the path from the discovery file.
   const owner = typeof process.getuid === 'function' ? process.getuid() : 'user'
-  return join(temporaryDir, `sprintengine-studio-${owner}-${profile}`, 'studio.sock')
+  return join(temporaryDir, `sprintengine-studio-${owner}-${profile}-${randomBytes(6).toString('hex')}`, 'studio.sock')
 }
 
 /**
@@ -221,7 +224,12 @@ export function createStudioRpcListener(options: StudioRpcListenerOptions): Stud
         }
         next.once('error', onError)
         next.once('listening', onListening)
-        next.listen(socketPath)
+        // Never widened to other accounts (Node's `readableAll` and
+        // `writableAll`). On Windows Node cannot set the pipe's security
+        // descriptor or refuse remote clients by flag; the pipe keeps the
+        // default access its creator gets, its name is unguessable, and every
+        // client must present a token Studio minted (see the design, 9.1).
+        next.listen({ path: socketPath, readableAll: false, writableAll: false })
       })
       if (platform !== 'win32') chmodSync(socketPath, 0o600)
       next.on('error', (error) => options.log?.(`Studio RPC listener error: ${error.message}`))
@@ -252,6 +260,9 @@ export function createStudioRpcListener(options: StudioRpcListenerOptions): Stud
         } catch {
           // Already gone.
         }
+        // A private temp directory minted for this run goes with it.
+        if (!socketPath.startsWith(runDir) && socketPath !== options.socketPath)
+          rmSync(dirname(socketPath), { recursive: true, force: true })
       }
       removeDiscovery(socketPath)
     },

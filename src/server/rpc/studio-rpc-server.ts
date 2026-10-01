@@ -40,6 +40,8 @@ export type StudioRpcServerOptions = {
   socketPath?: string
   helloTimeoutMs?: number
   maxConnections?: number
+  /** The most connections one client may hold at once; 8 unless set. */
+  maxConnectionsPerClient?: number
   onConnectionsChanged?: () => void
   log?: (message: string) => void
 }
@@ -47,6 +49,7 @@ export type StudioRpcServerOptions = {
 export type StudioRpcServer = StudioRpcListener
 
 export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRpcServer {
+  const perClient = options.maxConnectionsPerClient ?? 8
   const welcome = (): Omit<StudioWelcomeFrame, 't' | 'grant' | 'pairing'> => ({
     protocolVersion: STUDIO_PROTOCOL_VERSION,
     minProtocolVersion: STUDIO_PROTOCOL_MIN_SUPPORTED,
@@ -60,7 +63,7 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
     },
   })
   const router = createStudioRpcRouter({ backend: options.backend, info: welcome, audit: options.audit })
-  return createStudioRpcListener({
+  const listener: StudioRpcListener = createStudioRpcListener({
     dataDir: options.dataDir,
     version: options.version,
     ...(options.socketPath ? { socketPath: options.socketPath } : {}),
@@ -79,7 +82,12 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
         resyncRetryAfterMs: options.resyncRetryAfterMs,
         helloTimeoutMs: options.helloTimeoutMs,
         log: options.log,
+        // Counted among the connections already authenticated as it; this one
+        // has no client yet, so it is not among them.
+        admitClient: (clientId) =>
+          listener.connections().filter((connection) => connection.clientId() === clientId).length < perClient,
         onClosed,
       }),
   })
+  return listener
 }

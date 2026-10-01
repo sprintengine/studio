@@ -320,6 +320,7 @@ export async function startTestServer(
     auth?: FakeAuthenticator
     helloTimeoutMs?: number
     maxConnections?: number
+    maxConnectionsPerClient?: number
   } = {},
 ): Promise<{
   server: StudioRpcServer
@@ -344,6 +345,7 @@ export async function startTestServer(
     resyncRetryAfterMs: () => 1_500,
     ...(input.helloTimeoutMs ? { helloTimeoutMs: input.helloTimeoutMs } : {}),
     ...(input.maxConnections ? { maxConnections: input.maxConnections } : {}),
+    ...(input.maxConnectionsPerClient ? { maxConnectionsPerClient: input.maxConnectionsPerClient } : {}),
   })
   await server.start()
   return {

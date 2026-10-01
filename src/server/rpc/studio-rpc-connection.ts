@@ -90,6 +90,8 @@ export type StudioRpcConnectionOptions = {
   audit?: (entry: StudioAuditEntry) => void
   onClosed(connection: StudioRpcConnection): void
   helloTimeoutMs?: number
+  /** Whether one more connection for this client is allowed, asked once it has authenticated. */
+  admitClient?: (clientId: string) => boolean
   log?: (message: string) => void
 }
 
@@ -580,6 +582,11 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
         durationMs: 0,
       })
       bye('unauthorized', outcome.message)
+      return
+    }
+    // One app cannot take every connection the listener allows.
+    if (options.admitClient && !options.admitClient(outcome.grant.clientId)) {
+      bye('too_many_connections', 'This app has as many connections open as Studio allows one app.', 1_000)
       return
     }
     state = 'open'
