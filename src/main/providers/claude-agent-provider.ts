@@ -76,10 +76,12 @@ import type {
 } from '../../shared/conversation-runtime'
 import type {
   ConversationProviderAdapter,
+  ConversationProviderForkResult,
   ConversationProviderLiveSession,
   ConversationProviderPermissionResult,
   ConversationSessionEventSink,
   MockAdapterApprovalInput,
+  MockAdapterForkInput,
   MockAdapterModelInput,
   MockAdapterPermissionInput,
   MockAdapterRewindInput,
@@ -135,6 +137,7 @@ export type ClaudeAgentProviderAdapter = ConversationProviderAdapter & {
   setPermissionPreset(input: MockAdapterPermissionInput): Promise<ConversationProviderPermissionResult>
   setModel(input: MockAdapterModelInput): Promise<ConversationProviderPermissionResult>
   rewind(input: MockAdapterRewindInput): Promise<ConversationProviderPermissionResult>
+  fork(input: MockAdapterForkInput): Promise<ConversationProviderForkResult>
   steer(input: MockAdapterSteerInput): Promise<ConversationProviderSteerResult>
 }
 
@@ -1061,6 +1064,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       atMentions: true,
       steer: true,
       rewind: true,
+      fork: true,
     },
     sessions: 'stateful',
     acceptsMcpServers: true,
@@ -1416,6 +1420,22 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       state.pendingSessionEvents = []
       state.lastActivityAt = now()
       return { ok: true }
+    },
+
+    // A fork branches this chat's session where a rewind would: its first
+    // child resumes the session up to the turn's last entry as a fork of its
+    // own (`resumeSessionAt`), so the session it came from stays as it was
+    // whatever the parent does meanwhile. That needs the entry the turn's end
+    // recorded; a Claude chat has no other way in, since it does not take the
+    // conversation as text.
+    async fork(input: MockAdapterForkInput): Promise<ConversationProviderForkResult> {
+      if (input.exact && input.cursor?.at) return { ok: true, cursor: input.cursor }
+      if (input.exact && !input.cursor) return { ok: true, cursor: null }
+      return {
+        ok: false,
+        message:
+          'Claude Code did not record where this conversation stood at that point, so it cannot be forked there.',
+      }
     },
 
     stopSession(input: MockAdapterSessionInput) {

@@ -230,3 +230,34 @@ test('a Claude fork whose point is gone fails the turn plainly and leaves the se
     await h.adapter.disposeAll()
   }
 })
+
+test('a Claude fork branches the parent’s session at the recorded entry, and only there', async () => {
+  const h = harness()
+  try {
+    const parent = { ...h.turn('x'), resumeSessionId: 'native-1', latest: false }
+    assert.deepEqual(
+      await h.adapter.fork({ ...parent, cursor: { sessionId: 'native-1', at: 'entry-1' }, exact: true }),
+      { ok: true, cursor: { sessionId: 'native-1', at: 'entry-1' } },
+    )
+    // Before the first message there is nothing to branch.
+    assert.deepEqual(await h.adapter.fork({ ...parent, cursor: null, exact: true }), { ok: true, cursor: null })
+    // A Claude chat takes no conversation as text, so a point it never
+    // recorded is refused rather than guessed.
+    assert.equal((await h.adapter.fork({ ...parent, cursor: null, exact: false })).ok, false)
+
+    // The fork's own session: its first child resumes the parent's session up
+    // to the entry, as a fork, and from then on follows the session it made.
+    await h.adapter.startSession({ ...h.turn('turn_1'), resumeSessionId: 'native-1', resumeSessionAt: 'entry-1' })
+    const events = await h.run('turn_1', (child) => {
+      child.emit({ type: 'system', subtype: 'init', session_id: 'native-2' })
+      child.emit(assistant('entry-9', { session_id: 'native-2' }))
+      child.emit(result('native-2'))
+    })
+    assert.equal(h.children[0].options.resume, 'native-1')
+    assert.equal(h.children[0].options.resumeSessionAt, 'entry-1')
+    assert.equal(h.children[0].options.forkSession, true)
+    assert.equal(events.find((event) => event.type === 'session_updated')?.payload?.providerSessionId, 'native-2')
+  } finally {
+    await h.adapter.disposeAll()
+  }
+})
