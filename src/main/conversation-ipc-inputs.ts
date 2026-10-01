@@ -101,10 +101,10 @@ export function parseTranscriptInput(
 
 // Image attachments accepted on a send-turn. The media-type set, the per-image
 // byte ceiling and the per-turn cap are the shared boundary limits the composer
-// stages against (src/shared/conversation-attachments.ts) — one declaration, so
-// the composer can never stage an image this boundary then refuses (1810).
-// Anything outside them is rejected here rather than failing deep in the
-// provider.
+// stages against (src/shared/conversation-attachments.ts) — one declaration
+// rather than a copy on each side, so the composer can never stage an image
+// this boundary then refuses. Anything outside them is rejected here rather
+// than failing deep in the provider.
 const ALLOWED_IMAGE_MEDIA_TYPES = new Set<string>(ATTACHABLE_IMAGE_TYPES)
 const BASE64_PATTERN = /^[A-Za-z0-9+/]*={0,2}$/
 
