@@ -358,8 +358,8 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
       }
     }
 
-    // The chat's CLI on the machine the chat runs on: a WSL workspace's Claude
-    // chat runs that distribution's `claude`, as a window's chat would.
+    // The chat's CLI on the machine the chat runs on: a WSL workspace's chat
+    // runs that distribution's CLI, whichever it is, as a window's chat would.
     const cliRuntimes = conversationCliRuntimesForHost(settings.cliRuntimes, workspace.hostId, settings.hosts)
     const started = await deps
       .startSession({

@@ -734,17 +734,29 @@ test('every model-picker surface passes the discovered catalog to the merge', as
   }
 })
 
-test("a chat in a WSL workspace runs that machine's claude; everything else keeps the app's runtimes", () => {
+test("a chat in a WSL workspace runs that machine's CLI, whichever chat CLI it is", () => {
   const cliRuntimes = {
     'claude-code': { command: 'C:\\tools\\claude.exe', models: ['opus'] },
     codex: { command: 'codex' },
+    'kimi-code': { command: 'kimi' },
   }
-  const hosts = { 'wsl:Ubuntu': { enabled: true, cliCommands: { 'claude-code': '/opt/claude/bin/claude' } } }
+  const hosts = {
+    'wsl:Ubuntu': {
+      enabled: true,
+      cliCommands: { 'claude-code': '/opt/claude/bin/claude', cursor: '/home/dev/.local/bin/cursor-agent' },
+    },
+  }
   assert.equal(conversationCliRuntimesFor(cliRuntimes, 'local', hosts as never), cliRuntimes)
   assert.equal(conversationCliRuntimesFor(cliRuntimes, undefined, hosts as never), cliRuntimes)
   assert.deepEqual(conversationCliRuntimesFor(cliRuntimes, 'wsl:Ubuntu', hosts as never), {
     'claude-code': { command: '/opt/claude/bin/claude', models: ['opus'], hostId: 'wsl:Ubuntu' },
-    codex: { command: 'codex' },
+    // This PC's command does not go with it: the distribution's PATH finds `codex`.
+    codex: { command: '', hostId: 'wsl:Ubuntu' },
+    cursor: { command: '/home/dev/.local/bin/cursor-agent', hostId: 'wsl:Ubuntu' },
+    opencode: { command: '', hostId: 'wsl:Ubuntu' },
+    grok: { command: '', hostId: 'wsl:Ubuntu' },
+    // A CLI with no chat runtime is a terminal's business, and left alone.
+    'kimi-code': { command: 'kimi' },
   })
   // No override on that machine: its own PATH finds `claude`.
   assert.deepEqual(conversationCliRuntimesFor(cliRuntimes, 'wsl:Debian', hosts as never)?.['claude-code'], {

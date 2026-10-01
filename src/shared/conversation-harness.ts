@@ -53,14 +53,13 @@ export function conversationProviderForCli(cli: string | null | undefined): stri
   return null
 }
 
-// The CLIs whose chat can run on a WSL machine: its child is started inside
-// the distribution, with the login and settings under the Linux home. The
-// other chat runtimes still start their CLI on this machine only.
-const WSL_CHAT_CLIS: ReadonlySet<string> = new Set(['claude-code'])
-
-/** Whether a CLI's chat can run on a WSL machine rather than only on this one. */
-export function conversationRunsOnWsl(cli: string | null | undefined): boolean {
-  return Boolean(cli && WSL_CHAT_CLIS.has(cli))
+/**
+ * Every CLI that has a chat runtime. Each one's chat can run on a WSL machine
+ * as well as on this one: its child is started inside the distribution, with
+ * the login and settings under the Linux home (owner ruling 2026-10-01).
+ */
+export function conversationClis(): string[] {
+  return [...new Set(Object.values(CONVERSATION_PROVIDER_CLI))]
 }
 
 /**
