@@ -135,3 +135,15 @@ test('pairing names the app, picks scopes and a ceiling, and shows the code once
   await act(async () => push?.({ ...status, offers: [] }))
   expect(host.textContent).not.toContain('sepair_abcdefghijklmnop')
 })
+
+test('a Studio that is not serving the socket shows its apps but offers no pair or revoke', async () => {
+  status = {
+    ...status,
+    running: false,
+    lastError: 'The local app socket did not start: Another Studio is already serving this data directory.',
+  }
+  await render()
+  expect(button('Pair an app').disabled).toBe(true)
+  expect(button('Revoke').disabled).toBe(true)
+  expect(host.textContent).toContain('Pair and revoke apps from the Studio that is serving it.')
+})

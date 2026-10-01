@@ -90,6 +90,8 @@ export type StudioRpcConnectionOptions = {
   audit?: (entry: StudioAuditEntry) => void
   onClosed(connection: StudioRpcConnection): void
   helloTimeoutMs?: number
+  /** Whether one more connection for this client is allowed, asked once it has authenticated. */
+  admitClient?: (clientId: string) => boolean
   log?: (message: string) => void
 }
 
@@ -364,7 +366,7 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
   // ── Streams ───────────────────────────────────────────────────────────────
 
   function redactedSnapshotPart(part: ConversationSnapshotFrame): ConversationSnapshotFrame {
-    return { ...part, page: { ...part.page, events: part.page.events.map(backend.redactEvent) } }
+    return { ...part, page: { ...part.page, events: part.page.events.map((event) => backend.redact(event)) } }
   }
 
   /** Everything a join produced, queued as one paced unit ahead of the live events that follow it. */
@@ -389,9 +391,7 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
         producers.push(() => parts.frames(wire, current))
       } else {
         const json = JSON.stringify(
-          source.type === 'event'
-            ? { ...source, event: backend.redactEvent(source.event as ConversationEvent) }
-            : source,
+          source.type === 'event' ? { ...source, event: backend.redact(source.event as ConversationEvent) } : source,
         )
         bytes += Buffer.byteLength(json)
         producers.push(() => wire(json))
@@ -433,6 +433,16 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
 
   function onFollowFrame(subscription: Subscription, source: ConversationSessionFrame): void {
     if (state === 'closed' || subscriptions.get(subscription.id) !== subscription) return
+    // The grant is read again before anything goes out, not only when the
+    // client sends: a client that only listens is held to a revoke or a
+    // narrowed grant by its next outbound frame even if the revoke listener
+    // never reached this connection.
+    const grant = liveGrant()
+    if (!grant) return
+    if (!studioScopesGrant(grant.scopes, STUDIO_TOPICS[subscription.topic].scope)) {
+      refreshGrant()
+      return
+    }
     if (source.type === 'error') {
       // The join could not read the log. Retryable: a log being written by a
       // turn that is starting is readable a moment later.
@@ -454,7 +464,7 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
       return
     }
     if (frame.type === 'event') {
-      const event = backend.redactEvent(frame.event as ConversationEvent)
+      const event = backend.redact(frame.event as ConversationEvent)
       // A copy the queue may extend in place without touching the runtime's own.
       const owned =
         event === frame.event ? { ...event, ...(event.payload ? { payload: { ...event.payload } } : {}) } : event
@@ -570,6 +580,11 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
         durationMs: 0,
       })
       bye('unauthorized', outcome.message)
+      return
+    }
+    // One app cannot take every connection the listener allows.
+    if (options.admitClient && !options.admitClient(outcome.grant.clientId)) {
+      bye('too_many_connections', 'This app has as many connections open as Studio allows one app.', 1_000)
       return
     }
     state = 'open'

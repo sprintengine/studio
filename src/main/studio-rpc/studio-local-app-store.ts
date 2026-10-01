@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { chmodSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import {
@@ -18,8 +18,10 @@ import { hashSecret, secretsMatch } from '../automation/tailnet/secret-hash'
 // machine instead of devices on the tailnet. The person mints a one-time
 // pairing code in Settings, naming the app, the scopes it gets and its
 // permission ceiling; the app's first hello presents the code, and its welcome
-// carries a long-lived token exactly once. Only the token's SHA-256 reaches
-// disk (0600), so a copied store file cannot be presented back. An outstanding
+// carries a long-lived token. The code stays good until the app first presents
+// that token, so a welcome lost with its connection does not lose the pairing.
+// Only the token's SHA-256 reaches disk (0600), so a copied store file cannot
+// be presented back. An outstanding
 // code never reaches disk at all: it lives in this process, so a restart
 // voids every unredeemed code rather than leaving one live nobody remembers.
 //
@@ -42,7 +44,12 @@ const LAST_SEEN_PERSIST_INTERVAL_MS = 60 * 1000
 const OWNER_CLIENT_ID = 'owner'
 
 type StoredApp = Omit<StudioLocalApp, 'connected'> & { tokenHash: string }
-type Offer = StudioLocalAppOffer & { codeHash: string; expiresAtMs: number }
+type Offer = StudioLocalAppOffer & {
+  codeHash: string
+  expiresAtMs: number
+  /** The app this code paired, until that app first presents its token. */
+  appId?: string
+}
 
 export type StudioLocalAppRedeemResult =
   { ok: true; grant: StudioGrant; token: string } | { ok: false; message: string }
@@ -167,10 +174,15 @@ export function createStudioLocalAppStore(options: {
   let ownerTokenHash: string | null = null
   let ownerTokenValue: string | null = null
 
+  // Written beside and renamed over, so a crash mid-write never leaves a
+  // half file that reads back as no apps, or as some.
   function persist(): void {
     const body = `${JSON.stringify({ version: 1, apps }, null, 2)}\n`
-    writeFileSync(path(), body, { mode: 0o600 })
-    if (process.platform !== 'win32') chmodSync(path(), 0o600)
+    const target = path()
+    const staged = `${target}.${process.pid}.tmp`
+    writeFileSync(staged, body, { mode: 0o600 })
+    if (process.platform !== 'win32') chmodSync(staged, 0o600)
+    renameSync(staged, target)
   }
   function changed(): void {
     for (const listener of changeListeners) {
@@ -190,7 +202,8 @@ export function createStudioLocalAppStore(options: {
     list: () => apps.map(publicApp),
     offers() {
       prune()
-      return [...pending.values()].map(publicOffer)
+      // A code that paired an app is that app's now, not one waiting.
+      return [...pending.values()].filter((offer) => !offer.appId).map(publicOffer)
     },
 
     offer(value) {
@@ -218,6 +231,12 @@ export function createStudioLocalAppStore(options: {
       return removed
     },
 
+    // A code stays good until the app it paired first presents its token
+    // (or it lapses): the welcome that carries the token can be lost with the
+    // connection, and a code spent on a token nobody received would leave the
+    // person pairing again. Presenting the code again issues a fresh token for
+    // the same app and voids the one before it; presenting the token proves it
+    // arrived, and spends the code.
     redeem(code) {
       prune()
       const presented = hashSecret(code)
@@ -225,29 +244,32 @@ export function createStudioLocalAppStore(options: {
       // One answer for a wrong code and a spent or expired one, and a wrong
       // guess never burns an outstanding code.
       if (!offer) return { ok: false, message: 'That pairing code is not valid. Mint a new one in Studio’s Settings.' }
-      // One-time by construction: consumed before anything that could fail.
-      pending.delete(offer.id)
       const token = `sest_${randomBytes(32).toString('base64url')}`
-      const app: StoredApp = {
-        id: `sla_${randomBytes(9).toString('base64url')}`,
-        name: offer.name,
-        scopes: offer.scopes,
-        ceiling: offer.ceiling,
-        createdAt: now().toISOString(),
-        lastSeenAt: null,
-        tokenHash: hashSecret(token),
-      }
-      apps = [...apps, app]
+      const earlier = offer.appId ? apps.find((candidate) => candidate.id === offer.appId) : undefined
+      const app: StoredApp = earlier
+        ? { ...earlier, tokenHash: hashSecret(token) }
+        : {
+            id: `sla_${randomBytes(9).toString('base64url')}`,
+            name: offer.name,
+            scopes: offer.scopes,
+            ceiling: offer.ceiling,
+            createdAt: now().toISOString(),
+            lastSeenAt: null,
+            tokenHash: hashSecret(token),
+          }
+      const before = apps
+      apps = earlier ? apps.map((candidate) => (candidate === earlier ? app : candidate)) : [...apps, app]
       try {
         persist()
       } catch (error) {
-        apps = apps.filter((candidate) => candidate !== app)
+        apps = before
         changed()
         return {
           ok: false,
           message: `The pairing could not be saved: ${error instanceof Error ? error.message : String(error)}`,
         }
       }
+      offer.appId = app.id
       changed()
       return { ok: true, grant: grantOf(app), token }
     },
@@ -257,7 +279,10 @@ export function createStudioLocalAppStore(options: {
       const presented = hashSecret(token)
       if (ownerTokenHash && secretsMatch(presented, ownerTokenHash)) return ownerGrant()
       const app = apps.find((candidate) => secretsMatch(presented, candidate.tokenHash))
-      return app ? grantOf(app) : null
+      if (!app) return null
+      // The token arrived: the code that paired it is spent.
+      for (const [id, offer] of pending) if (offer.appId === app.id) pending.delete(id)
+      return grantOf(app)
     },
 
     grantFor(clientId) {
@@ -270,17 +295,24 @@ export function createStudioLocalAppStore(options: {
       const next = apps.filter((app) => app.id !== id)
       if (next.length === apps.length) return false
       apps = next
-      // Authorization: a revoke that did not reach disk would come back on the
-      // next launch, so the failure reaches the caller.
-      persist()
-      for (const listener of revokeListeners) {
-        try {
-          listener(id)
-        } catch (error) {
-          options.log?.(`A revoke listener threw: ${error instanceof Error ? error.message : String(error)}`)
+      // The code that paired it cannot bring it back.
+      for (const [offerId, offer] of pending) if (offer.appId === id) pending.delete(offerId)
+      try {
+        // Authorization: a revoke that did not reach disk would come back on
+        // the next launch, so the failure reaches the caller.
+        persist()
+      } finally {
+        // Whether or not the write landed, the app is revoked for this run:
+        // its connections are closed now, and a failed write is still thrown.
+        for (const listener of revokeListeners) {
+          try {
+            listener(id)
+          } catch (error) {
+            options.log?.(`A revoke listener threw: ${error instanceof Error ? error.message : String(error)}`)
+          }
         }
+        changed()
       }
-      changed()
       return true
     },
 

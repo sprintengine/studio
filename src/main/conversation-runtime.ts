@@ -1446,6 +1446,8 @@ export class ConversationRuntime {
   }
 
   async stopSession(input: ConversationStopSessionInput): Promise<ConversationSessionActionResult> {
+    if (input.commandId)
+      return this.runCommand(input.sessionId, input.commandId, () => this.stopSession({ sessionId: input.sessionId }))
     const session = this.sessions.get(input.sessionId)
     if (!session) return { ok: false, message: 'Conversation session is invalid.' }
     const adapter = this.getAdapterForProviderId(session.providerId)
@@ -3593,6 +3595,7 @@ export class ConversationRuntime {
       // preset reports absence rather than an invented 'default'.
       ...(permissionPreset ? { permissionPreset } : {}),
       ...(permissionPreset && session.permissionMode ? { permissionMode: session.permissionMode } : {}),
+      ...(session.allowedTools?.length ? { allowsUnaskedTools: true as const } : {}),
     }
   }
 }

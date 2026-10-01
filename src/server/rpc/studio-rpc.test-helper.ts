@@ -15,6 +15,7 @@ import {
   type StudioParsedServerFrame,
 } from '../../../packages/studio-protocol/src/public'
 import type { ConversationEvent, ConversationKey, ConversationSessionFrame } from '../../shared/conversation-runtime'
+import { redactConversationValue } from '../../main/conversation-tool-details'
 import { createStudioRpcServer, type StudioRpcServer } from './studio-rpc-server'
 import type {
   StudioAuditEntry,
@@ -34,6 +35,8 @@ export type FakeBackend = StudioConversationBackend & {
   emit(agentId: string, type: ConversationEvent['type'], payload?: Record<string, unknown>): ConversationEvent
   commands: Array<{ clientId: string; commandId: string; command: ConversationCommand }>
   creates: Array<{ request: ConversationCreateRequest; launchCommandId: string }>
+  /** Every stop carried out, by its namespaced command id. */
+  stops: string[]
   presets: Map<string, ConversationWirePermissionPreset>
   followers(agentId: string): number
 }
@@ -47,6 +50,7 @@ export function createFakeBackend(agentIds: string[] = ['agent-1']): FakeBackend
   const backend: FakeBackend = {
     commands: [],
     creates: [],
+    stops: [],
     presets: new Map(),
     followers: (agentId) => logs.get(agentId)?.listeners.size ?? 0,
     emit(agentId, type, payload) {
@@ -119,7 +123,10 @@ export function createFakeBackend(agentIds: string[] = ['agent-1']): FakeBackend
     },
     async toolDetail(_key, toolUseId) {
       return toolUseId === 'big'
-        ? { ok: true, detail: { toolUseId, output: 'é'.repeat(300_000) } as never }
+        ? {
+            ok: true,
+            detail: { toolUseId, output: 'é'.repeat(300_000), input: { authorization: 'Bearer abc' } } as never,
+          }
         : { ok: false, code: 'not_found', message: 'No such tool call.' }
     },
     async turnDiff() {
@@ -128,13 +135,18 @@ export function createFakeBackend(agentIds: string[] = ['agent-1']): FakeBackend
     async command(key, clientId, commandId, command) {
       const prior = receipts.get(commandId)
       if (prior) return prior
+      // A refusal in the runtime's own words, which can name internals.
+      if (command.kind === 'send' && command.message === 'explode')
+        return { ok: false, message: 'ENOENT: no such file, open /Users/dev/app/.sprintengine/secret.json' }
       backend.commands.push({ clientId, commandId, command })
       if (command.kind === 'setPermissionPreset') backend.presets.set(key.agentId, command.preset)
       const outcome: StudioCommandOutcome = { ok: true }
       receipts.set(commandId, outcome)
       return outcome
     },
-    async stop() {
+    async stop(_key, commandId) {
+      if (!receipts.has(commandId)) backend.stops.push(commandId)
+      receipts.set(commandId, { ok: true })
       return { ok: true }
     },
     permissionOf: (key) => backend.presets.get(key.agentId) ?? 'auto',
@@ -158,10 +170,8 @@ export function createFakeBackend(agentIds: string[] = ['agent-1']): FakeBackend
       created.set(launchCommandId, conversation)
       return { ok: true, conversation }
     },
-    redactEvent: (event) =>
-      event.payload && 'apiKey' in event.payload
-        ? { ...event, payload: { ...event.payload, apiKey: '[redacted]' } }
-        : event,
+    // The real backend's rule, so a test reads what a client is shown.
+    redact: (value) => redactConversationValue(value),
   }
   return backend
 }
@@ -320,6 +330,7 @@ export async function startTestServer(
     auth?: FakeAuthenticator
     helloTimeoutMs?: number
     maxConnections?: number
+    maxConnectionsPerClient?: number
   } = {},
 ): Promise<{
   server: StudioRpcServer
@@ -344,6 +355,7 @@ export async function startTestServer(
     resyncRetryAfterMs: () => 1_500,
     ...(input.helloTimeoutMs ? { helloTimeoutMs: input.helloTimeoutMs } : {}),
     ...(input.maxConnections ? { maxConnections: input.maxConnections } : {}),
+    ...(input.maxConnectionsPerClient ? { maxConnectionsPerClient: input.maxConnectionsPerClient } : {}),
   })
   await server.start()
   return {

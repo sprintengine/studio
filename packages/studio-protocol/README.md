@@ -57,8 +57,10 @@ not hold, `unsupported_protocol_version` with both numbers named
 A local app is paired once. The person mints a one-time pairing code in
 Studio's Settings, naming the app, the scopes it gets and its permission
 ceiling. The app's first `hello` presents `{ pairingCode }`; its `welcome`
-carries `pairing.token`, shown that once — Studio keeps only its hash. Every
-later `hello` presents `{ token }`. Revoking the app in Settings ends its open
+carries `pairing.token` — Studio keeps only its hash. The code stays good
+until that token is first presented: a welcome lost with its connection is
+answered again by presenting the code again, with a fresh token that voids the
+lost one. Every later `hello` presents `{ token }`, which spends the code. Revoking the app in Settings ends its open
 connections with `bye { code: 'revoked' }`.
 
 The `welcome`'s `grant` is what the connection may do:
@@ -71,8 +73,11 @@ The `welcome`'s `grant` is what the connection may do:
   chat it starts, or switches, with a looser preset is lowered to the ceiling,
   and one it starts without a preset is pinned to it. A chat that already runs
   looser than the ceiling can be read, interrupted and stopped, and its
-  requests denied, but not sent to or approved. Naming `allowedTools` needs a
-  `bypass` ceiling, since a tool allowed unasked is as loose as bypass for it.
+  requests denied, but not sent to or approved; a chat whose session runs
+  tools unasked counts as `bypass` for that. Naming `allowedTools` needs a
+  `bypass` ceiling, since a tool allowed unasked is as loose as bypass for it,
+  and answering a request `conversation` (an allow rule for its kind) needs a
+  ceiling of at least `auto`.
 - `owner` — the connection is Studio's own, with every scope and no ceiling.
 
 ## Methods

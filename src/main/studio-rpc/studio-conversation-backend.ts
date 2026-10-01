@@ -13,7 +13,7 @@ import type {
 import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET } from '../../shared/launch-settings'
 import type { StudioConversationBackend } from '../../server/rpc/studio-rpc-types'
 import type { ConversationGatewayHost } from '../automation/tailnet/tailnet-conversation-host'
-import { redactEvent } from '../companion-agent-service'
+import { redactConversationValue } from '../conversation-tool-details'
 import type { ConversationLaunchRequest, ConversationLaunchResult } from '../conversation-launch-service'
 
 // The conversations the Studio RPC serves, in main: the conversation host the
@@ -45,15 +45,20 @@ export function createStudioConversationBackend(deps: StudioConversationBackendD
     toolDetail: (key, toolUseId) => host.getToolDetail(key, toolUseId),
     turnDiff: (key, turnSeq, path) => host.getTurnDiff(key, turnSeq, path),
     command: (key, clientId, commandId, command) => host.command(key, clientId, commandId, command),
-    async stop(key) {
-      for (const session of liveSessions(key)) {
-        const stopped = await deps.stopSession({ sessionId: session.sessionId })
-        if (!stopped.ok) return { ok: false, message: stopped.message }
-      }
-      return { ok: true }
+    // The newest live session, as a send reaches it, through the receipts.
+    async stop(key, commandId) {
+      const live = liveSessions(key).sort((a, b) => b.createdAt - a.createdAt)[0]
+      if (!live) return { ok: true }
+      const stopped = await deps.stopSession({ sessionId: live.sessionId, commandId })
+      return stopped.ok ? { ok: true } : { ok: false, message: stopped.message }
     },
+    // How loose the chat runs, for a ceiling: its preset, except that a
+    // session started with tools it may use unasked runs those tools as
+    // `bypass` would, and so counts as `bypass`.
     permissionOf: (key) =>
-      (host.permissionOf?.(key) ?? DEFAULT_AGENT_SPAWN_PERMISSION_PRESET) as ConversationWirePermissionPreset,
+      liveSessions(key).some((session) => session.allowsUnaskedTools)
+        ? 'bypass'
+        : ((host.permissionOf?.(key) ?? DEFAULT_AGENT_SPAWN_PERMISSION_PRESET) as ConversationWirePermissionPreset),
     findCreated(launchCommandId) {
       for (const workspace of deps.getWorkspaceAgents()) {
         for (const agent of Object.values(workspace.agents)) {
@@ -110,9 +115,10 @@ export function createStudioConversationBackend(deps: StudioConversationBackendD
         },
       }
     },
-    // What a chat view is shown: secret-shaped payload members redacted. Paths
-    // stay as they are, because a client on this machine reads this machine's
-    // files; the tailnet lane rewrites them for a reader elsewhere.
-    redactEvent,
+    // The tailnet lane's redaction of secret-shaped members, for events, pages,
+    // tool details and diffs alike. Paths stay as they are, because a client on
+    // this machine reads this machine's files; the tailnet lane rewrites them
+    // for a reader elsewhere.
+    redact: (value) => redactConversationValue(value),
   }
 }

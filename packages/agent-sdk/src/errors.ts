@@ -22,4 +22,6 @@ export const TERMINAL_CODES: ReadonlySet<string> = new Set([
   'unsupported_protocol_version',
   'hello_required',
   'invalid_frame',
+  // A pairing's token could not be kept; connecting again needs that fixed first.
+  'token_not_kept',
 ])

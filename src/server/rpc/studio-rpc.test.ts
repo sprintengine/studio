@@ -79,8 +79,16 @@ test('a client outside the version window is refused with both numbers named', a
 
 test('no credential, a wrong one, or a late or missing hello never reaches a request', async () => {
   const { path, audit, backend } = await serve({ helloTimeoutMs: 150 })
+  // Every attempt carries mutations, sent at once behind its hello (or with
+  // none), so a request that slipped through would show in the backend.
+  const mutations = [
+    { t: 'req', id: 'm1', method: 'conversation.send', params: { key, commandId: 'c1', message: 'hi' } },
+    { t: 'req', id: 'm2', method: 'conversation.create', params: { workspaceId: 'ws-1', commandId: 'c2' } },
+    { t: 'req', id: 'm3', method: 'conversation.stop', params: { key, commandId: 'c3' } },
+  ]
   const wrong = await client(path)
   wrong.send(hello({ token: 'sest_not_a_real_token_000' }))
+  for (const frame of mutations) wrong.send(frame)
   const refused = await wrong.next(isT('bye'))
   assert.equal(refused.t === 'bye' && refused.code, 'unauthorized')
   await wrong.closed
@@ -90,13 +98,27 @@ test('no credential, a wrong one, or a late or missing hello never reaches a req
   )
 
   const skipped = await client(path)
-  skipped.send({ t: 'req', id: 'r1', method: 'conversation.list' })
+  for (const frame of mutations) skipped.send(frame)
   assert.equal(((await skipped.next(isT('bye'))) as { code: string }).code, 'hello_required')
+  await skipped.closed
 
   const silent = await client(path)
   assert.equal(((await silent.next(isT('bye'))) as { code: string }).code, 'hello_required')
   await silent.closed
-  assert.equal(backend.commands.length, 0)
+  // A hello after the deadline, with mutations behind it, reaches nothing either.
+  for (const frame of [hello({ token: OWNER_TOKEN }), ...mutations]) silent.send(frame)
+
+  assert.equal(
+    wrong.frames.some((frame) => frame.t === 'res'),
+    false,
+  )
+  assert.equal(
+    skipped.frames.some((frame) => frame.t === 'res'),
+    false,
+  )
+  assert.deepEqual(backend.commands, [])
+  assert.deepEqual(backend.creates, [])
+  assert.deepEqual(backend.stops, [])
 })
 
 test('a pairing code is exchanged once for a token, and the token is what works afterwards', async () => {
@@ -202,6 +224,25 @@ test('the ceiling lowers presets, pins a missing one, guards allowed tools and l
     assert.equal(held.ok, true, method)
   }
 
+  // Allowing a kind of request for the rest of a chat is an allow rule: an app
+  // below `auto` answers once at a time.
+  backend.presets.set('agent-1', 'manual')
+  const strict = await open(path, pairFakeClient(auth, 'strict', ['conversation:operate'], 'manual'))
+  const rule = await request(strict, 'c1', 'conversation.resolveApproval', {
+    key,
+    commandId: 'rule-1',
+    requestId: 'req-2',
+    decision: 'conversation',
+  })
+  assert.equal(!rule.ok && rule.error.code, 'ceiling_exceeded')
+  const once = await request(strict, 'c2', 'conversation.resolveApproval', {
+    key,
+    commandId: 'once-1',
+    requestId: 'req-2',
+    decision: 'once',
+  })
+  assert.equal(once.ok, true)
+
   // The owner has no ceiling.
   const owner = await open(path, OWNER_TOKEN)
   const ownerSend = await request(owner, 's2', 'conversation.send', { key, commandId: 'send-1', message: 'go' })
@@ -221,6 +262,10 @@ test('command ids are namespaced per client, and a retried id is carried out onc
     backend.commands.map((entry) => entry.commandId),
     ['client:one:same', 'client:two:same', 'owner:same'],
   )
+  // A stop is a command like the rest: carried out once under its id.
+  await request(one, 'e', 'conversation.stop', { key, commandId: 'halt' })
+  await request(one, 'f', 'conversation.stop', { key, commandId: 'halt' })
+  assert.deepEqual(backend.stops, ['client:one:halt'])
 })
 
 test('a create retried while the first is starting, and after, makes one chat', async () => {
@@ -317,6 +362,23 @@ test('revoking a client mid-stream closes it at once, and its token stops workin
   assert.equal(((await again.next(isT('bye'))) as { code: string }).code, 'unauthorized')
 })
 
+test('a client that only listens is held to a revoke by its next outbound frame', async () => {
+  const { path, auth, backend } = await serve()
+  const c = await open(path, pairFakeClient(auth, 'listener', ['conversation:read']))
+  c.send({ t: 'sub', id: 'chat', topic: 'conversation.session', params: { key } })
+  await c.next((frame) => frame.t === 'frame' && frame.frame.type === 'synchronized')
+  // Revoked without the revoke listener reaching this connection.
+  auth.grants.delete('listener')
+  backend.emit('agent-1', 'turn_started')
+  const bye = await c.next(isT('bye'))
+  assert.equal(bye.t === 'bye' && bye.code, 'revoked')
+  assert.equal(
+    c.frames.some((frame) => frame.t === 'frame' && frame.frame.type === 'event'),
+    false,
+  )
+  await c.closed
+})
+
 test('a grant that loses read ends its streams but keeps the connection', async () => {
   const { path, auth } = await serve()
   const c = await open(path, pairFakeClient(auth, 'narrowed', ['conversation:read', 'conversation:create']))
@@ -371,6 +433,10 @@ test('an answer over the frame cap arrives chunked and whole', async () => {
   const c = await open(path, pairFakeClient(auth, 'reader', ['conversation:read']))
   const detail = await request(c, 'd1', 'conversation.toolDetail', { key, toolUseId: 'big' })
   assert.equal(detail.ok && (detail.result as { detail: { output: string } }).detail.output.length, 300_000)
+  // Redacted as the tailnet lane redacts it.
+  assert.deepEqual(detail.ok && (detail.result as { detail: { input: unknown } }).detail.input, {
+    authorization: '[redacted]',
+  })
   const missing = await request(c, 'd2', 'conversation.toolDetail', { key, toolUseId: 'nope' })
   assert.equal(!missing.ok && missing.error.code, 'not_found')
   const elsewhere = await request(c, 'd3', 'conversation.loadEarlier', {
@@ -378,6 +444,18 @@ test('an answer over the frame cap arrives chunked and whole', async () => {
     beforeCursor: 3,
   })
   assert.equal(!elsewhere.ok && elsewhere.error.code, 'not_found')
+})
+
+test('a refusal from below is answered in stable words, never the runtime’s own', async () => {
+  const { path, auth } = await serve()
+  const c = await open(path, pairFakeClient(auth, 'app', ['conversation:operate', 'conversation:create']))
+  const sent = await request(c, 's1', 'conversation.send', { key, commandId: 'boom', message: 'explode' })
+  assert.deepEqual(!sent.ok && sent.error, { code: 'unavailable', message: 'Studio could not carry that out.' })
+  const created = await request(c, 'c1', 'conversation.create', { workspaceId: 'ws-9', commandId: 'nowhere' })
+  assert.deepEqual(!created.ok && created.error, {
+    code: 'unknown_workspace',
+    message: 'There is no workspace with that id here.',
+  })
 })
 
 test('a line over the client cap is refused under its id, and the connection stays open', async () => {

@@ -149,6 +149,7 @@ beforeAll(async () => {
     audit: () => audit,
   })
   await service.start()
+  assert.equal(service.getStatus().lastError, null)
   assert.equal(service.getStatus().running, true)
 })
 
@@ -236,6 +237,27 @@ test('a paired app starts a chat, follows it and drives it, held to its ceiling'
     assert.ok(lines.some((line) => line.tool === 'conversation.create' && line.connection.kind === 'studio-client'))
     assert.ok(lines.some((line) => line.tool === 'conversation.send' && line.connection.clientName === 'seam-app'))
     assert.equal(auditText.includes('again'), false)
+  } finally {
+    client.close()
+  }
+})
+
+test('a stop resent after the chat started again does not stop it again', async () => {
+  const client = await pairedClient(['conversation:read', 'conversation:operate', 'conversation:create'], 'auto')
+  try {
+    const chat = await client.createConversation({ workspaceId: 'ws-a', cli: 'claude-code' })
+    const live = () => {
+      const listed = runtime.listSessions({ workspaceId: 'ws-a', agentId: chat.ref.agentId })
+      return listed.ok ? listed.sessions.filter((session) => session.status !== 'stopped') : []
+    }
+    await chat.stop({ commandId: 'halt' })
+    assert.equal(live().length, 0)
+    // The chat is sent to again, which starts its session again.
+    await chat.send('back again')
+    assert.equal(live().length, 1)
+    // The same stop, as a client resends it after a reconnect.
+    await chat.stop({ commandId: 'halt' })
+    assert.equal(live().length, 1)
   } finally {
     client.close()
   }

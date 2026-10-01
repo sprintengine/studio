@@ -9,7 +9,6 @@ import type {
   StudioGrant,
 } from '../../../packages/studio-protocol/src/public'
 import type {
-  ConversationEvent,
   ConversationKey,
   ConversationPageResult,
   ConversationSessionFrame,
@@ -53,8 +52,12 @@ export type StudioConversationBackend = {
     commandId: string,
     command: ConversationCommand,
   ): Promise<StudioCommandOutcome>
-  /** End the conversation's live session, if it has one. */
-  stop(key: ConversationKey): Promise<{ ok: true } | { ok: false; message: string }>
+  /**
+   * End the conversation's live session, if it has one, under the command id
+   * already namespaced to its client: the receipt answers a resend with the
+   * first result rather than stopping a session started since.
+   */
+  stop(key: ConversationKey, commandId: string): Promise<{ ok: true } | { ok: false; message: string }>
   /** The preset the conversation runs on now, or resumes on. */
   permissionOf(key: ConversationKey): ConversationWirePermissionPreset
   /** The conversation an earlier create under this namespaced id started, if it still exists. */
@@ -64,8 +67,12 @@ export type StudioConversationBackend = {
     request: ConversationCreateRequest,
     launchCommandId: string,
   ): Promise<{ ok: true; conversation: StudioCreatedConversation } | { ok: false; code: string; message: string }>
-  /** What a client is shown of an event: secret-shaped payload members redacted. */
-  redactEvent(event: ConversationEvent): ConversationEvent
+  /**
+   * What a client is shown of anything read from a conversation — an event, a
+   * page, a tool's detail, a turn's diff: secret-shaped members redacted, as
+   * the tailnet lane redacts them. Returns a copy.
+   */
+  redact<T>(value: T): T
 }
 
 export type StudioAuthOutcome = { ok: true; grant: StudioGrant; pairingToken?: string } | { ok: false; message: string }

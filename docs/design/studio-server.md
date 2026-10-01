@@ -756,6 +756,14 @@ The owner token is required on the socket even though the file mode already
 keeps other users out, because a Windows named pipe's default ACL lets other
 local users connect, and a second check costs nothing.
 
+As built in phase 2, Node cannot set a pipe's security descriptor or refuse
+remote clients by flag (`PIPE_REJECT_REMOTE_CLIENTS`), so on Windows the pipe
+keeps the default access its creator gets, and what holds instead is its
+unguessable name (a random part per start, learned only from the owner's 0600
+discovery file) and the token every connection must present. A native helper
+that creates the pipe with an owner-only descriptor would close the gap; it is
+not part of v1.
+
 ### 9.2 Local, same user
 
 - The **owner token** is 32 random bytes. When the desktop spawns a server, it
@@ -771,8 +779,20 @@ local users connect, and a second check costs nothing.
   the app's first hello redeems it for a token, kept only as a hash. The
   ceiling is the module service's: a preset asked for is lowered to it, none
   asked for is pinned to it, `allowedTools` needs `bypass`, and a chat already
-  running looser than it is not driven by the app. Revocation in Settings
-  closes the app's connections at once.
+  running looser than it is not driven by the app (a chat whose session runs
+  tools unasked counts as `bypass`). Allowing a request for the rest of a
+  conversation needs a ceiling of at least `auto`. Revocation in Settings
+  closes the app's connections at once, and a connection re-reads its grant
+  before every frame it streams. One app holds at most eight connections.
+- **Scopes are not a sandbox.** On macOS and Linux a paired app runs as the
+  same OS user as Studio. It can read and write everything Studio can,
+  `studio-local-apps.json` included, so it could grant itself a wider scope or
+  ceiling, or run the agent CLIs itself. Scopes and ceilings protect against
+  mistakes in a trusted app, and against a script given less than it could
+  take; they do not contain a malicious one. Pair only software you would let
+  run as you. A follow-up can seal the paired-apps file with an integrity MAC
+  under the platform's `SecretCipher`, so an edit to it is detected (not
+  prevented).
 - A desktop window gets a **single-use ticket** (30 seconds, as on the tailnet)
   from main for each connection, and opens the WebSocket with it. The long-lived
   token stays in main.
