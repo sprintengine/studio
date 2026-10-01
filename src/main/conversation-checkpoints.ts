@@ -1,7 +1,8 @@
 import { createHash } from 'crypto'
+import type { Stats } from 'fs'
 import { copyFile, lstat, mkdtemp, realpath, rm, stat, utimes } from 'fs/promises'
 import { tmpdir } from 'os'
-import { basename, dirname, join, resolve, relative, isAbsolute } from 'path'
+import { basename, dirname, join, resolve, relative, isAbsolute, sep } from 'path'
 import { runGitCommand } from './git-utils'
 import type {
   ConversationKey,
@@ -275,7 +276,7 @@ export class ConversationCheckpoints {
     let bytes = 0
     for (let start = 0; start < paths.length; start += LSTAT_BATCH) {
       const sizes = await Promise.all(
-        paths.slice(start, start + LSTAT_BATCH).map(async (path) => (await lstat(safePath(root, path))).size),
+        paths.slice(start, start + LSTAT_BATCH).map(async (path) => (await lstatIn(root, path))?.size ?? 0),
       )
       bytes += sizes.reduce((sum, size) => sum + size, 0)
       if (bytes > this.limits.bytes) return 'Checkpoints skipped: untracked files exceed the size limit.'
@@ -350,8 +351,7 @@ export class ConversationCheckpoints {
       if (!tag || (tag === tag.toUpperCase() && tag !== 'S')) continue
       const path = entry.slice(2)
       if (tag !== tag.toUpperCase()) flagged['--no-assume-unchanged'].push(path)
-      if (tag.toUpperCase() === 'S' && (await lstat(safePath(root, path)).catch(() => null)))
-        flagged['--no-skip-worktree'].push(path)
+      if (tag.toUpperCase() === 'S' && (await lstatIn(root, path))) flagged['--no-skip-worktree'].push(path)
     }
     // One call per flag: `update-index --stdin` applies only the last flag given.
     for (const [flag, paths] of Object.entries(flagged))
@@ -373,8 +373,7 @@ export class ConversationCheckpoints {
       const captured = new Set((await this.git(root, ['ls-files', '--cached', '-z'], env)).split('\0'))
       const extra: string[] = []
       for (const path of new Set(include))
-        if (!captured.has(path) && !isSidecar(path) && (await lstat(safePath(root, path)).catch(() => null))?.isFile())
-          extra.push(path)
+        if (!captured.has(path) && !isSidecar(path) && (await lstatIn(root, path))?.isFile()) extra.push(path)
       if (extra.length)
         await this.git(
           root,
@@ -454,8 +453,24 @@ export class ConversationCheckpoints {
 function safePath(root: string, path: string): string {
   const absolute = resolve(root, path)
   const rel = relative(root, absolute)
-  if (!rel || rel.startsWith('..') || isAbsolute(rel)) throw new Error('Checkpoint path escapes the work tree.')
+  // A parent step, not a name: `..env` is a file in the work tree.
+  if (!rel || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel))
+    throw new Error('Checkpoint path escapes the work tree.')
   return absolute
+}
+/**
+ * The entry at a path git listed, or null when there is none this process can
+ * reach — gone since git listed it, or a name this machine's paths cannot
+ * hold inside the work tree (a WSL repository is listed by Linux git and
+ * looked up here through Windows paths). Only a lookup: git itself still
+ * captures the file, and one such name used to cost the turn its checkpoint.
+ */
+async function lstatIn(root: string, path: string): Promise<Stats | null> {
+  try {
+    return await lstat(safePath(root, path))
+  } catch {
+    return null
+  }
 }
 function isSidecar(path: string): boolean {
   return SIDECARS.some((sidecar) => path === sidecar || path.startsWith(`${sidecar}/`))

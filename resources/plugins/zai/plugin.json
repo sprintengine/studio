@@ -19,7 +19,7 @@
       "args": ["--permission-mode", "default"]
     },
     "auto": {
-      "$comment": "acceptEdits, not the CLI's classifier mode (`auto`): Auto promises that edits in the workspace go through and everything riskier asks, on every CLI. The classifier answers for the person instead of asking, and is offered only on some plans and models.",
+      "$comment": "acceptEdits, not the classifier mode (`auto`) Claude Code's own Auto uses: the classifier is not offered on a third-party model endpoint, and there the CLI would start in its asking mode instead, so Auto would ask more than it does with acceptEdits.",
       "label": "Auto — edits go through, commands ask",
       "args": ["--permission-mode", "acceptEdits"]
     },

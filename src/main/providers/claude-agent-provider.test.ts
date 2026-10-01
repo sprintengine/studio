@@ -3122,10 +3122,10 @@ const hookCall = (tool_name: string) => ({ hook_event_name: 'PreToolUse', tool_n
 const hookDecision = async (hook: PreToolUseHook, tool: string) =>
   ((await hook(hookCall(tool))).hookSpecificOutput as Record<string, unknown> | undefined)?.permissionDecision
 
-test('a Claude chat spawns Manual as default and Auto as acceptEdits', async () => {
+test('a Claude chat spawns Manual as default and Auto as the CLI’s own auto mode', async () => {
   for (const [permissionPreset, mode] of [
     ['manual', 'default'],
-    ['auto', 'acceptEdits'],
+    ['auto', 'auto'],
   ] as const) {
     const h = scriptedHarness()
     try {
@@ -3155,7 +3155,7 @@ test('Manual sends every action that changes something to a card, and lets looku
 
     // Leaving Manual lets the CLI's own mode decide again, from the next call.
     await h.adapter.setPermissionPreset({ ...h.turn('turn_1'), permissionPreset: 'auto' })
-    assert.deepEqual(h.modes, ['acceptEdits'])
+    assert.deepEqual(h.modes, ['auto'])
     assert.deepEqual(await hook(hookCall('Bash')), {})
     h.emit(success({ user_message_uuids: [h.uuidOf(0)] }))
     await first.done
@@ -3254,7 +3254,7 @@ test('an idle Claude child moves between Manual, Auto and Bypass in place', asyn
     await first.done
     for (const permissionPreset of ['auto', 'manual', 'bypass'] as const)
       assert.deepEqual(await h.adapter.setPermissionPreset({ ...h.turn('turn_1'), permissionPreset }), { ok: true })
-    assert.deepEqual(h.modes, ['acceptEdits', 'default', 'bypassPermissions'])
+    assert.deepEqual(h.modes, ['auto', 'default', 'bypassPermissions'])
     assert.equal(h.spawned.length, 1)
     assert.equal(h.adapter.listLiveSessions()[0]?.hasChildProcess, true)
   } finally {

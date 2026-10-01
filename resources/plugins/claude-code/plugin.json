@@ -14,9 +14,9 @@
       "args": ["--permission-mode", "default"]
     },
     "auto": {
-      "$comment": "acceptEdits, not the CLI's classifier mode (`auto`): Auto promises that edits in the workspace go through and everything riskier asks, on every CLI. The classifier answers for the person instead of asking, and is offered only on some plans and models.",
-      "label": "Auto — edits go through, commands ask",
-      "args": ["--permission-mode", "acceptEdits"]
+      "$comment": "The CLI's own classifier mode (owner ruling 2026-10-01): a person who picks Auto for Claude expects Claude's auto mode, and acceptEdits asked before every command. Where the account or model is not offered the classifier, the CLI starts in its asking mode instead.",
+      "label": "Auto — Claude runs what it judges safe",
+      "args": ["--permission-mode", "auto"]
     },
     "bypass": {
       "label": "Bypass all approvals (dangerous)",

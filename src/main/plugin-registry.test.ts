@@ -286,10 +286,10 @@ test('plugin-registry', async () => {
       const launchedNone = renderPluginLaunch(plugin!.manifest, { sessionId: 'sid_demo', permissionPreset })
       assert.deepEqual(launchedNone.argv, ['claude', '--session-id', 'sid_demo'], `${permissionPreset}: no flag`)
     }
-    // Manual is the CLI's asking mode, Auto the one that lets edits through.
+    // Manual is the CLI's asking mode, Auto its own classifier mode.
     for (const [permissionPreset, mode] of [
       ['manual', 'default'],
-      ['auto', 'acceptEdits'],
+      ['auto', 'auto'],
     ] as const) {
       const launchedMode = renderPluginLaunch(plugin!.manifest, { sessionId: 'sid_demo', permissionPreset })
       assert.deepEqual(launchedMode.argv, ['claude', '--permission-mode', mode, '--session-id', 'sid_demo'])

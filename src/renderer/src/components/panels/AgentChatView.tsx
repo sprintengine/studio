@@ -2586,13 +2586,6 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
                   {projection.sessionNotice}
                 </ComposerTrayRow>
               ) : null}
-              {capabilities?.checkpoints === true &&
-              projection.checkpointNotice !== null &&
-              !dismissedNotices.has(projection.checkpointNotice) ? (
-                <ComposerTrayRow tone="warn" onDismiss={() => dismissNotice(projection.checkpointNotice!)}>
-                  {projection.checkpointNotice} A turn without a checkpoint cannot be reverted.
-                </ComposerTrayRow>
-              ) : null}
               {/*
                * A permission change the provider recorded but cannot apply to
                * the turn already streaming (1808). Information, not a failure:

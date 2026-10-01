@@ -160,8 +160,6 @@ type RuntimeSession = ConversationSessionSummary & {
   checkpointTurnSeq: number | null
   checkpointCapture: Promise<void> | null
   checkpointCaptured: boolean
-  checkpointNotice?: string
-  checkpointNoticeSent?: boolean
   revertedNote?: string
   // Skills attached to a message that opened with a slash command. The CLI
   // runs that message as the command, so they wait here and go with the next
@@ -1920,10 +1918,6 @@ export class ConversationRuntime {
           }
       }
     }
-    if (session.checkpointNotice && !session.checkpointNoticeSent) {
-      stamped.payload = { ...stamped.payload, notice: session.checkpointNotice }
-      session.checkpointNoticeSent = true
-    }
     this.trackStatefulSessionEvent(session, stamped)
     let automaticRequestId: string | undefined
     if (stamped.type === 'approval_requested' && typeof stamped.payload?.requestId === 'string') {
@@ -3012,7 +3006,11 @@ export class ConversationRuntime {
       session.checkpointCapture = (async () => {
         const result = await this.checkpoints.capture(session, session.checkpointTurnSeq!, 'pre')
         session.checkpointCaptured = result.ok
-        if (!result.ok) session.checkpointNotice = result.message
+        // Said nowhere in the chat (owner ruling 2026-10-01): a turn with no
+        // checkpoint offers no Revert, so there is nothing for a notice to
+        // explain, and the line came back on every session that had one.
+        if (!result.ok && !result.skipped)
+          console.warn(`[conversation-runtime] checkpoint before a tool failed: ${result.message}`)
       })()
     }
     await session.checkpointCapture

@@ -242,9 +242,6 @@ export type ConversationProjection = {
   // What each kind of agent this session can spawn is for, by type name
   // ('Explore', 'Plan', a custom agent), as the provider described them.
   agentTypes: Record<string, string>
-  // Why this session's turns carry no file checkpoints (too many or too large
-  // untracked files), so a missing "Revert" reads as explained, not broken.
-  checkpointNotice: string | null
   // The checkpoint the most recent revert still in effect went back to.
   revertedAfterSeq: number | null
   // The conversation's prompt cache, from the provider's per-request reports:
@@ -536,7 +533,6 @@ export function projectConversation(
   let apiKeySource: string | null = null
   let sessionNotice: string | null = null
   const agentTypes: Record<string, string> = {}
-  let checkpointNotice: string | null = null
   let promptCache: PromptCacheReading | null = null
   // Reverts still in effect, oldest first. Each covers the turns from its
   // checkpoint up to the revert itself: a turn sent after a revert started from
@@ -591,13 +587,6 @@ export function projectConversation(
     const sessionMapped = SESSION_STATUS_BY_EVENT[event.type]
     if (sessionMapped) sessionStatus = sessionMapped
     if (event.seq !== undefined && event.seq > highestSeq) highestSeq = event.seq
-    // The runtime attaches a checkpoint capture failure to whichever event
-    // follows it, once per session.
-    if (event.type !== 'session_updated') {
-      const notice = readString(event.payload, 'notice')
-      if (notice) checkpointNotice = notice
-    }
-
     const turnId = readString(event.payload, 'turnId')
     if (turnId && event.seq !== undefined && !turnStartSeq.has(turnId)) turnStartSeq.set(turnId, event.seq)
     promptCache = applyPromptCacheEvent(promptCache, event)
@@ -608,7 +597,6 @@ export function projectConversation(
         // false-alarm the API-key banner after a restart).
         apiKeySource = null
         sessionNotice = null
-        checkpointNotice = null
         break
       }
       case 'session_updated': {
@@ -1113,7 +1101,6 @@ export function projectConversation(
     apiKeySource,
     sessionNotice,
     agentTypes,
-    checkpointNotice,
     revertedAfterSeq: reverts.at(-1)?.afterSeq ?? null,
     promptCache,
   }
