@@ -5,6 +5,13 @@
 // Here the failure stays in the chat's pane: it says the chat stopped, that
 // nothing else did, and offers to draw the chat again from what the runtime
 // holds, which is the same as reopening it.
+//
+// A chat's code arrives as a lazy chunk, and `React.lazy` keeps the first
+// answer to its import, a failed one included, so drawing it again would only
+// throw the same failure. The chat view is loaded through `reloadableLazy`,
+// whose failed import Reload chat starts afresh, and a failure that is a
+// chunk that would not load also offers to reload the window, which fetches
+// every chunk again.
 
 import React from 'react'
 
@@ -16,7 +23,59 @@ type ChatViewErrorBoundaryProps = {
   children: React.ReactNode
 }
 
-type ChatViewErrorBoundaryState = { failed: boolean; detail: string | null }
+type ChatViewErrorBoundaryState = { failed: boolean; detail: string | null; chunk: boolean }
+
+const CLEAN: ChatViewErrorBoundaryState = { failed: false, detail: null, chunk: false }
+
+// The ways a browser says a module or chunk did not load: Chromium, WebKit,
+// Firefox, and a bundler's own chunk loader.
+const CHUNK_FAILURE =
+  /failed to fetch dynamically imported module|importing a module script failed|error loading dynamically imported module|loading (css )?chunk \S+ failed/i
+
+/** Whether what a chat threw is its code failing to load, rather than the chat failing to render. */
+export function isChunkLoadFailure(error: unknown): boolean {
+  if (error instanceof Error && error.name === 'ChunkLoadError') return true
+  const message = error instanceof Error ? error.message : String(error)
+  return CHUNK_FAILURE.test(message)
+}
+
+// The reloadable lazy components whose import failed, each with what starts it afresh.
+const failedLoads = new Set<() => void>()
+
+/**
+ * `React.lazy` whose import can be started again once it has failed. React
+ * keeps a lazy component's first answer for good, so a chunk that failed to
+ * load once (a dropped connection to the dev server, an update that replaced
+ * the files) would fail every later render too. A failed one is swapped for a
+ * fresh lazy component when the chat boundary's Reload chat asks
+ * (`retryFailedLoads`), never by itself, so a chunk that keeps failing is not
+ * fetched in a loop.
+ */
+export function reloadableLazy<P extends object>(
+  load: () => Promise<{ default: React.ComponentType<P> }>,
+): React.ComponentType<P> {
+  const fresh = () => React.lazy(attempt)
+  const attempt = (): Promise<{ default: React.ComponentType<P> }> =>
+    load().catch((error: unknown) => {
+      failedLoads.add(renew)
+      throw error
+    })
+  const renew = () => {
+    current = fresh()
+  }
+  let current = fresh()
+  function Reloadable(props: P) {
+    const Current = current as unknown as React.ComponentType<P>
+    return <Current {...props} />
+  }
+  return Reloadable
+}
+
+/** Start every failed reloadable import afresh on its next render. */
+function retryFailedLoads(): void {
+  for (const renew of failedLoads) renew()
+  failedLoads.clear()
+}
 
 // What the chat threw, first line only and bounded: a message can carry a
 // path or a payload, and the notice is not the place to read either whole.
@@ -26,10 +85,10 @@ function describeError(error: unknown): string {
 }
 
 export class ChatViewErrorBoundary extends React.Component<ChatViewErrorBoundaryProps, ChatViewErrorBoundaryState> {
-  state: ChatViewErrorBoundaryState = { failed: false, detail: null }
+  state: ChatViewErrorBoundaryState = CLEAN
 
   static getDerivedStateFromError(error: unknown): ChatViewErrorBoundaryState {
-    return { failed: true, detail: describeError(error) }
+    return { failed: true, detail: describeError(error), chunk: isChunkLoadFailure(error) }
   }
 
   componentDidCatch(error: unknown): void {
@@ -40,7 +99,7 @@ export class ChatViewErrorBoundary extends React.Component<ChatViewErrorBoundary
     // A pane that moves to another chat must not carry this one's failure.
     if (previous.chatKey !== this.props.chatKey && this.state.failed) {
       // oxlint-disable-next-line react/no-did-update-set-state -- guarded reset, runs once per switch
-      this.setState({ failed: false, detail: null })
+      this.setState(CLEAN)
     }
   }
 
@@ -49,22 +108,48 @@ export class ChatViewErrorBoundary extends React.Component<ChatViewErrorBoundary
     return (
       <ChatViewErrorFallback
         detail={this.state.detail}
-        onRetry={() => this.setState({ failed: false, detail: null })}
+        onRetry={() => {
+          retryFailedLoads()
+          this.setState(CLEAN)
+        }}
+        {...(this.state.chunk ? { onReloadWindow: () => window.location.reload() } : {})}
       />
     )
   }
 }
 
 // Exported so the failure surface is testable without a real render error.
-export function ChatViewErrorFallback({ detail, onRetry }: { detail: string | null; onRetry: () => void }) {
+export function ChatViewErrorFallback({
+  detail,
+  onRetry,
+  onReloadWindow,
+}: {
+  detail: string | null
+  onRetry: () => void
+  /** Offered when the chat's code did not load: reloading the window fetches it again. */
+  onReloadWindow?: () => void
+}) {
   return (
     <div className="p-3">
       <InlineNotice
         tone="error"
-        title="This chat hit a problem and stopped. The rest of the app is unaffected."
-        hint="Reload the chat to draw it again; its conversation is kept."
+        title={
+          onReloadWindow
+            ? 'This chat could not load its code. The rest of the app is unaffected.'
+            : 'This chat hit a problem and stopped. The rest of the app is unaffected.'
+        }
+        hint={
+          onReloadWindow
+            ? 'Reload the chat to try again, or reload the window if it keeps failing; its conversation is kept.'
+            : 'Reload the chat to draw it again; its conversation is kept.'
+        }
         {...(detail ? { detail } : {})}
-        action={<GhostButton onClick={onRetry}>Reload chat</GhostButton>}
+        action={
+          <>
+            <GhostButton onClick={onRetry}>Reload chat</GhostButton>
+            {onReloadWindow ? <GhostButton onClick={onReloadWindow}>Reload window</GhostButton> : null}
+          </>
+        }
       />
     </div>
   )

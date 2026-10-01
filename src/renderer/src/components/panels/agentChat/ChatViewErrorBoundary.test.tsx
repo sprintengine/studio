@@ -62,3 +62,67 @@ test('a chat that throws stops in its pane, says so, and draws again on Reload c
     }
   }
 })
+
+test('a chat whose code failed to load loads it again on Reload chat, and offers to reload the window', async () => {
+  const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost' })
+  const previous = Object.getOwnPropertyDescriptors(globalThis)
+  Object.assign(globalThis, {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    HTMLElement: dom.window.HTMLElement,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  })
+  const quiet = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+  try {
+    const { act, createElement, Suspense } = await import('react')
+    const { createRoot } = await import('react-dom/client')
+    const { ChatViewErrorBoundary, reloadableLazy, isChunkLoadFailure } = await import('./ChatViewErrorBoundary')
+    let loads = 0
+    const Chat = reloadableLazy<{ name: string }>(async () => {
+      loads++
+      if (loads === 1)
+        throw new TypeError('Failed to fetch dynamically imported module: http://localhost/assets/AgentChatView.js')
+      return { default: ({ name }: { name: string }) => createElement('p', null, `chat ${name}`) }
+    })
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const root = createRoot(host)
+    await act(async () =>
+      root.render(
+        createElement(ChatViewErrorBoundary, {
+          chatKey: 'one',
+          children: createElement(Suspense, { fallback: null }, createElement(Chat, { name: 'one' })),
+        }),
+      ),
+    )
+    // The import is refused a turn later: wait for the pane to say so.
+    for (let tries = 0; !host.querySelector('[role="alert"]') && tries < 50; tries++)
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 5)))
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('This chat could not load its code.')
+    const buttons = () => [...host.querySelectorAll('button')].map((button) => button.textContent)
+    expect(buttons()).toEqual(['Reload chat', 'Reload window'])
+    expect(loads, 'a failed chunk is not fetched again by itself').toBe(1)
+    // React keeps a lazy component's failed import for good; this one starts it again.
+    const reload = [...host.querySelectorAll('button')].find((button) => button.textContent === 'Reload chat')!
+    await act(async () => reload.click())
+    for (let tries = 0; host.textContent !== 'chat one' && tries < 50; tries++)
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 5)))
+    expect(loads).toBe(2)
+    expect(host.textContent).toBe('chat one')
+    // Only a chunk that did not load is told this way.
+    expect(isChunkLoadFailure(new Error('a reply nobody expected'))).toBe(false)
+    expect(isChunkLoadFailure(new TypeError('Importing a module script failed.'))).toBe(true)
+    expect(isChunkLoadFailure(Object.assign(new Error('Loading chunk 7 failed.'), { name: 'ChunkLoadError' }))).toBe(
+      true,
+    )
+    await act(async () => root.unmount())
+  } finally {
+    quiet.mockRestore()
+    dom.window.close()
+    for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'IS_REACT_ACT_ENVIRONMENT']) {
+      if (previous[key]) Object.defineProperty(globalThis, key, previous[key])
+      else Reflect.deleteProperty(globalThis, key)
+    }
+  }
+})
