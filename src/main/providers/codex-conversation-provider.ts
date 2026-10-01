@@ -818,14 +818,15 @@ export function createCodexConversationProvider(
         let result: RecordValue
         if (state.forkFrom) {
           // A fork's thread is the parent's, through the turn it was forked
-          // at. One Codex no longer has carries the conversation over as a
-          // lost resume does.
+          // at. One Codex cannot branch there, because the thread or that turn
+          // of it is gone, carries the conversation over as a lost resume does:
+          // a saved point it refuses would otherwise refuse every start.
           const from = state.forkFrom
           const params: ThreadForkParams = { ...threadParams, threadId: from.threadId, lastTurnId: from.lastTurnId }
           try {
             result = record(await transport.request('thread/fork', params))
           } catch (error) {
-            if (!isMissingThreadError(error)) throw error
+            if (!isUnusableForkPoint(error)) throw error
             result = record(await transport.request('thread/start', threadParams))
             forkLost = true
           }
@@ -860,7 +861,7 @@ export function createCodexConversationProvider(
             : forkLost
               ? {
                   notice:
-                    'The Codex thread this chat was forked from could not be found, so it continues in a new thread. The earlier messages were passed to it as context.',
+                    'Codex could not branch the thread this chat was forked from at that point, so it continues in a new thread. The earlier messages were passed to it as context.',
                 }
               : {}),
         })
@@ -1018,6 +1019,7 @@ export function createCodexConversationProvider(
             input.mode === 'ask'
               ? { approvalPolicy: 'never', sandboxPolicy: { type: 'readOnly', networkAccess: false } }
               : codexPermissionPolicy(state.input.permissionPreset, state.input.permissionMode)
+          const seeding = state.replayHistory
           const result = record(
             await state.transport!.request('turn/start', {
               threadId: state.threadId,
@@ -1040,6 +1042,12 @@ export function createCodexConversationProvider(
             }),
           )
           if (state.turn) state.turn.nativeId = text(record(result.turn).id) || state.turn.nativeId
+          // Codex has the conversation now; until here a failed start owes it
+          // to the next message, after a restart too (`historySeeded`).
+          if (seeding) {
+            state.replayHistory = false
+            emit(state, 'session_updated', { historySeeded: true })
+          }
           if (state.turn?.cancelled || input.signal?.aborted) await interrupt(state)
         } catch (error) {
           finish(state, error instanceof Error ? error.message : 'Codex could not start this turn.')
@@ -1181,7 +1189,6 @@ export function createCodexConversationProvider(
 // only context the new thread gets.
 function withReplayedHistory(state: Session, message: string): string {
   if (!state.replayHistory) return message
-  state.replayHistory = false
   const prior = [
     ...(state.input.fallbackHistory ?? []).map((entry) => `${entry.role}: ${entry.content}`),
     ...state.history.map((turn) => `User: ${turn.user}\nAssistant: ${turn.assistant}`),
@@ -1296,6 +1303,21 @@ export async function probeCodexConversationCommands(
   } finally {
     transport.close()
   }
+}
+
+/**
+ * Codex's answer to `thread/fork` says the point cannot be branched at all: the
+ * thread is gone, or it has no such turn to fork through (or that turn cannot
+ * be the end of a fork). Anything else, a busy thread or a rate limit, may
+ * pass, and keeps the point for the next message.
+ */
+function isUnusableForkPoint(error: unknown): boolean {
+  return (
+    isMissingThreadError(error) ||
+    (error instanceof CodexRpcError &&
+      /turn/i.test(error.message) &&
+      /not found|unknown|invalid|no such|in progress/i.test(error.message))
+  )
 }
 
 /** Codex's answer to `thread/resume` says the thread does not exist, rather than that it cannot be used right now. */

@@ -17,6 +17,8 @@ function fixture(
     account?: unknown
     resume?: (params: unknown) => unknown
     fork?: (params: unknown) => unknown
+    // Codex refuses `turn/start` while this answers true.
+    refuseTurn?: () => boolean
     skills?: unknown
     saveGeneratedImage?: (input: { sessionId: string; itemId: string; base64: string }) => Promise<string>
     // Codex accepts `turn/interrupt` but never sends the turn's `turn/completed`.
@@ -49,6 +51,7 @@ function fixture(
           if (method === 'thread/start' || method === 'thread/resume') return { thread: { id: 'native-thread' } }
           if (method === 'turn/start') {
             resolveStarted()
+            if (setup.refuseTurn?.()) throw new CodexRpcError('The turn could not be started.')
             return { turn: { id: 'native-turn' } }
           }
           if (method === 'skills/list') return setup.skills ?? { data: [] }
@@ -850,7 +853,7 @@ test('a fork whose parent thread Codex no longer has continues in a new thread w
   await f.message({ method: 'turn/completed', params: { turn: { status: 'completed' } } })
   await done
   expect(String(f.events.find((event) => event.type === 'session_updated')?.payload?.notice)).toContain(
-    'forked from could not be found',
+    'could not branch the thread this chat was forked from',
   )
   expect(JSON.stringify(f.calls.find((call) => call.method === 'turn/start')?.params)).toContain('persisted question')
 })
@@ -1460,4 +1463,48 @@ test("a chat's own MCP servers reach Codex as config overrides for its app-serve
     /"acme\.tools" is not a Codex config key/,
   )
   expect(codexMcpServerArgs([])).toEqual([])
+})
+
+test('a fork Codex refuses to branch at its turn starts a new thread with the conversation, not a dead end', async () => {
+  const f = fixture({
+    fork: () => {
+      throw new CodexRpcError('turn turn-7 not found in thread parent-thread')
+    },
+  })
+  await f.adapter.startSession({
+    ...f.input,
+    resumeSessionId: 'parent-thread',
+    resumeSessionAt: 'turn-7',
+    fallbackHistory: [{ role: 'user', content: 'persisted question' }],
+  })
+  const done = f.send()
+  await f.started
+  await f.message({ method: 'turn/completed', params: { turn: { status: 'completed' } } })
+  await done
+  expect(f.calls.map((call) => call.method)).toContain('thread/start')
+  expect(JSON.stringify(f.calls.find((call) => call.method === 'turn/start')?.params)).toContain('persisted question')
+})
+
+test('a seeded Codex fork says when Codex took its conversation, and a refused start owes it still', async () => {
+  let refuse = true
+  const f = fixture({ refuseTurn: () => refuse })
+  await f.adapter.startSession({
+    ...f.input,
+    seedFromHistory: true,
+    fallbackHistory: [{ role: 'user', content: 'persisted question' }],
+  })
+  await f.send()
+  expect(f.events.at(-1)?.type).toBe('turn_failed')
+  expect(f.events.some((event) => event.payload?.historySeeded === true)).toBe(false)
+  refuse = false
+  f.nextTurn()
+  const done = f.send(undefined, undefined, 'Again.')
+  await f.started
+  // Codex answers `turn/start` before the turn can end.
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  await f.message({ method: 'turn/completed', params: { turn: { status: 'completed' } } })
+  await done
+  const starts = f.calls.filter((call) => call.method === 'turn/start')
+  expect(JSON.stringify(starts.at(-1)?.params)).toContain('persisted question')
+  expect(f.events.filter((event) => event.payload?.historySeeded === true)).toHaveLength(1)
 })
