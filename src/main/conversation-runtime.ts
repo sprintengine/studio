@@ -2595,6 +2595,7 @@ export class ConversationRuntime {
       this.nonDurableLogs.delete(path)
       this.sequences.delete(path)
       this.emissionTails.delete(path)
+      this.forkedMcpServers.delete(path)
       for (const session of matching) this.sessions.delete(session.sessionId)
       return { ok: true, events: [] }
     } catch (error) {
@@ -3363,10 +3364,10 @@ export class ConversationRuntime {
       )
         return { ok: false, message: 'The chat to fork into already has a conversation.' }
       const stored = await this.transcripts.tail(key.workspaceRoot, path, { compact: true })
-      const plan = planFork(stored, input)
-      if (!plan.ok) return plan
       const providerId = live?.providerId ?? stored.at(-1)?.providerId ?? ''
       const modelId = live?.modelId ?? stored.at(-1)?.modelId ?? ''
+      const plan = planFork(stored, input, providerId)
+      if (!plan.ok) return plan
       const adapter = this.getAdapterForProviderId(providerId)
       if (!adapter || adapter.capabilities?.fork !== true) return { ok: false, message: 'This agent cannot be forked.' }
 
@@ -3391,13 +3392,23 @@ export class ConversationRuntime {
       const seed = adapter.sessions === 'stateful' && !cursor && completedHistory(plan.kept).length > 0
 
       const createdAt = this.now()
-      const events: ConversationEvent[] = plan.kept.map((event, index) => ({
-        ...event,
-        agentId: newAgentId,
-        workspaceId: key.workspaceId,
-        seq: index + 1,
-        payload: forkedPayload(event),
-      }))
+      const forkKey = { ...key, agentId: newAgentId }
+      const events: ConversationEvent[] = []
+      for (const [index, event] of plan.kept.entries()) {
+        const payload = forkedPayload(event)
+        // The images a message carried, copied into the fork's own folder, so
+        // deleting the chat it came from leaves the fork's bubbles whole.
+        const attachments = event.type === 'user_message' ? payload?.attachments : undefined
+        events.push({
+          ...event,
+          agentId: newAgentId,
+          workspaceId: key.workspaceId,
+          seq: index + 1,
+          payload: Array.isArray(attachments)
+            ? { ...payload, attachments: await this.attachmentStore.copy(attachments, forkKey) }
+            : payload,
+        })
+      }
       events.push({
         id: `conv_evt_${this.eventEpoch}_${++this.eventSequence}`,
         seq: events.length + 1,
@@ -3427,7 +3438,7 @@ export class ConversationRuntime {
       await this.eventLog.close(forkPath)
       await this.copyToolDetails(key, newAgentId, plan.kept)
       if (live?.mcpServers?.length) this.forkedMcpServers.set(forkPath, live.mcpServers)
-      this.runInBackground(this.threadIndex.refresh({ ...key, agentId: newAgentId }).catch(() => undefined))
+      this.runInBackground(this.threadIndex.refresh(forkKey).catch(() => undefined))
       return { ok: true }
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : 'The conversation could not be forked.' }
@@ -3465,9 +3476,12 @@ export class ConversationRuntime {
   // providers use it to natively resume after a restart. A rewind is a cursor
   // too: to no session at all when it went back past the first turn, else to a
   // point inside one (`providerResumeAt`) that the next child forks at. So is
-  // the mark a fork's transcript starts from (`forkedFrom`); until the fork is
-  // sent a message, the cursor says so (`forked`), and whether that message
-  // carries the conversation as text (`seedFromHistory`).
+  // the mark a fork's transcript starts from (`forkedFrom`); until a turn of
+  // the fork has completed, the cursor says so (`forked`), and whether its
+  // next message carries the conversation as text (`seedFromHistory`): owed
+  // until the adapter says a message carried it (`historySeeded`), so a first
+  // send that never reached the provider (signed out, a CLI that would not
+  // start) owes it still.
   private async readResumeCursor(
     workspaceRoot: string,
     workspaceId: string,
@@ -3485,31 +3499,36 @@ export class ConversationRuntime {
       (text(event.payload?.providerSessionId) !== undefined ||
         typeof event.payload?.rewoundFromSeq === 'number' ||
         isForkMark(event))
-    // The newest cursor, read on back to the message before it or to a fork's
-    // mark, whichever comes first: only a mark no message was sent after
-    // still speaks for the next start.
-    const walk: { found?: ConversationEvent; sent: boolean; forked: boolean; seed: boolean } = {
-      sent: false,
-      forked: false,
-      seed: false,
-    }
+    // The newest cursor, read on back to a message whose turn completed, a
+    // seed's delivery or a fork's mark, whichever comes first: only a mark
+    // read before either still speaks for the next start.
+    const walk: {
+      found?: ConversationEvent
+      settled: boolean
+      completed: Set<string>
+      forked: boolean
+      seed: boolean
+    } = { settled: false, completed: new Set(), forked: false, seed: false }
     try {
       await this.eventLog.flush(this.transcriptPath(workspaceRoot, workspaceId, agentId))
       await this.transcripts.findLast(
         workspaceRoot,
         this.transcriptPath(workspaceRoot, workspaceId, agentId),
         (event) => {
-          if (event.type === 'user_message') {
-            walk.sent = true
-            return walk.found !== undefined
-          }
+          const turnId = typeof event.payload?.turnId === 'string' ? event.payload.turnId : undefined
+          if (event.type === 'turn_completed' && turnId) walk.completed.add(turnId)
+          if (
+            (event.type === 'user_message' && turnId && walk.completed.has(turnId)) ||
+            event.payload?.historySeeded === true
+          )
+            walk.settled = true
           if (!walk.found && isCursor(event)) walk.found = event
           if (isForkMark(event)) {
-            walk.forked = !walk.sent
-            walk.seed = !walk.sent && event.payload?.seedFromHistory === true
+            walk.forked = !walk.settled
+            walk.seed = !walk.settled && event.payload?.seedFromHistory === true
             return true
           }
-          return walk.found !== undefined && walk.sent
+          return walk.found !== undefined && walk.settled
         },
       )
       const sessionId = text(walk.found?.payload?.providerSessionId)
@@ -3697,6 +3716,7 @@ type ForkPlan = {
 function planFork(
   stored: ConversationEvent[],
   input: ConversationForkInput,
+  providerId: string,
 ): ForkPlan | { ok: false; message: string } {
   const hidden: Array<{ from: number; before: number }> = []
   for (const event of stored) {
@@ -3745,7 +3765,9 @@ function planFork(
     const event = visible[index]
     const turnId = turnOf(event)
     if (isTurnEnd(event)) {
-      const found = readProviderCursor(event.payload?.providerCursor)
+      // Only a cursor the fork's own provider wrote: a transcript that moved
+      // between runtimes holds the other one's too, which means nothing here.
+      const found = event.providerId === providerId ? readProviderCursor(event.payload?.providerCursor) : null
       if (found?.at) {
         cursor = found
         break

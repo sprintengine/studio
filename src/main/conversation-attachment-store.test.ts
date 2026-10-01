@@ -144,3 +144,24 @@ test('an attachment store that cannot write leaves the turn to go ahead without 
     await rm(userData, { recursive: true, force: true })
   }
 })
+
+test('a fork keeps its own copies of the images its messages carried', async () => {
+  const userData = await mkdtemp(join(tmpdir(), 'conversation-attachment-store-'))
+  try {
+    const store = new ConversationAttachmentStore(userData)
+    const [stored] = await store.save(key, [{ id: 'img-1', mediaType: 'image/png', dataBase64: PNG, byteLength: 16 }])
+    const fork = { ...key, agentId: 'fork' }
+    const [copied, foreign] = (await store.copy(
+      [stored, { id: 'x', ref: '../elsewhere.png' }],
+      fork,
+    )) as Array<ConversationStoredImageAttachment>
+    assert.equal(copied.ref.split('/')[0], ConversationAttachmentStore.folderFor(fork))
+    assert.equal(copied.id, 'img-1')
+    // A reference this store did not write is passed on untouched, never followed.
+    assert.equal(foreign.ref, '../elsewhere.png')
+    await store.deleteConversation(key)
+    assert.deepEqual(await store.read(copied.ref), { ok: true, mediaType: 'image/png', dataBase64: PNG })
+  } finally {
+    await rm(userData, { recursive: true, force: true })
+  }
+})

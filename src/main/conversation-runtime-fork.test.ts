@@ -74,11 +74,11 @@ function event(input: MockAdapterSessionInput, type: ConversationEventType, payl
 
 function forkingProvider(
   record: Calls,
-  options: { fork?: ForkMode; stateless?: boolean; capable?: boolean; gate?: Promise<void> } = {},
+  options: { fork?: ForkMode; stateless?: boolean; capable?: boolean; gate?: Promise<void>; providerId?: string } = {},
 ) {
   let entries = 0
   const adapter: ConversationProviderAdapter = {
-    id: 'forking',
+    id: options.providerId ?? 'forking',
     ...(options.stateless ? {} : { sessions: 'stateful' as const }),
     capabilities: { ...CAPABILITIES, fork: options.capable !== false },
     listModels: () => ['model'],
@@ -94,6 +94,12 @@ function forkingProvider(
     async *sendTurn(input) {
       record.messages.push(input.messages ?? [])
       yield event(input, 'turn_started', { turnId: input.turnId })
+      // A send that never reaches the provider, as a signed-out CLI's.
+      if (input.message === 'unreached') {
+        yield event(input, 'turn_failed', { turnId: input.turnId, reason: 'provider', message: 'Not signed in.' })
+        return
+      }
+      if (input.seedFromHistory) yield event(input, 'session_updated', { historySeeded: true })
       await options.gate
       yield event(input, 'content_delta', { turnId: input.turnId, text: `reply to ${input.message}` })
       yield event(input, 'turn_completed', {
@@ -101,6 +107,7 @@ function forkingProvider(
         providerCursor: { sessionId: 'provider-1', at: `entry-${++entries}` },
         checkpointTurnSeq: 1,
         checkpointAvailable: true,
+        costUsd: 0.5,
       })
     },
     resolveApproval: () => [],
@@ -436,4 +443,57 @@ test('a fork’s steps open their details as the parent’s do', async () => {
   const copied = await t.chat.runtime.getToolDetail({ ...t.forkKey, toolUseId: 'tool-1' })
   assert.ok(copied.ok)
   assert.equal(copied.detail.output, 'file text')
+})
+
+test('a seeded fork whose first message never reached the provider still owes the conversation', async () => {
+  const t = await setup({ fork: 'seed' })
+  t.chat.sessionId = await t.start()
+  await t.send('one')
+  const one = await t.userMessage('one')
+  assert.ok(
+    (await t.chat.runtime.forkAtTurn({ key: t.key, newAgentId: 'fork', side: 'assistant', turnId: one.turnId })).ok,
+  )
+  await t.chat.runtime.sendTurn({ sessionId: await t.start(t.forkKey), message: 'unreached' })
+  assert.ok((await t.events(t.forkKey)).some((entry) => entry.type === 'turn_failed'))
+  await t.restart()
+  const again = await t.start(t.forkKey)
+  assert.equal(t.record.starts.at(-1)?.seedFromHistory, true, 'nothing carried it yet')
+  await t.send('carried', again)
+  await t.restart()
+  await t.start(t.forkKey)
+  assert.equal(t.record.starts.at(-1)?.seedFromHistory, undefined)
+})
+
+test('a fork reads only cursors its own provider wrote', async () => {
+  const base = { workspaceId: 'workspace', agentId: 'agent', sessionId: 'old', modelId: 'model' }
+  const lines = [
+    { providerId: 'other', type: 'user_message', payload: { turnId: 'x', text: 'elsewhere' } },
+    {
+      providerId: 'other',
+      type: 'turn_completed',
+      payload: { turnId: 'x', providerCursor: { sessionId: 'other-session', at: 'other-entry' } },
+    },
+    { providerId: 'forking', type: 'user_message', payload: { turnId: 'y', text: 'here' } },
+    { providerId: 'forking', type: 'turn_completed', payload: { turnId: 'y' } },
+  ].map((line, index) => ({ ...base, ...line, id: `e${index + 1}`, seq: index + 1, createdAt: index }))
+  const t = await setup({ fork: 'seed', transcript: lines })
+  assert.ok((await t.chat.runtime.forkAtTurn({ key: t.key, newAgentId: 'fork', side: 'assistant', turnId: 'y' })).ok)
+  assert.equal(t.record.forks.at(-1)?.cursor, null, 'the other runtime’s session is not this one’s')
+  assert.equal(t.record.forks.at(-1)?.exact, false)
+})
+
+test('a fork’s thread totals only what it spent itself', async () => {
+  const t = await setup()
+  t.chat.sessionId = await t.start()
+  const base = { workspaceRoot: t.key.workspaceRoot, workspaceId: 'workspace' }
+  await t.send('one')
+  const one = await t.userMessage('one')
+  assert.ok(
+    (await t.chat.runtime.forkAtTurn({ key: t.key, newAgentId: 'fork', side: 'assistant', turnId: one.turnId })).ok,
+  )
+  const listed = await t.chat.runtime.listThreads(base)
+  assert.ok(listed.ok)
+  const fork = listed.threads.find((thread) => thread.agentId === 'fork')
+  assert.equal(listed.threads.find((thread) => thread.agentId === 'agent')?.totalCostUsd, 0.5)
+  assert.equal(fork?.totalCostUsd, undefined, 'the copied turn was paid for by the chat it came from')
 })
