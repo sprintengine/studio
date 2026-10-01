@@ -3593,6 +3593,7 @@ export class ConversationRuntime {
       // preset reports absence rather than an invented 'default'.
       ...(permissionPreset ? { permissionPreset } : {}),
       ...(permissionPreset && session.permissionMode ? { permissionMode: session.permissionMode } : {}),
+      ...(session.allowedTools?.length ? { allowsUnaskedTools: true as const } : {}),
     }
   }
 }

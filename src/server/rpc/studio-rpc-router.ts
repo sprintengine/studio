@@ -28,10 +28,13 @@ import type { StudioAuditEntry, StudioConversationBackend } from './studio-rpc-t
 // - Ceiling. A paired app's chats run no looser than its ceiling, exactly as a
 //   module's do (permission-ceiling.ts): a preset it asks for is lowered to the
 //   ceiling, none asked for is pinned to it, and naming tools a chat may use
-//   unasked needs the loosest ceiling. And an app does not drive a chat that
+//   unasked needs the loosest ceiling. An app does not drive a chat that
 //   already runs looser than its ceiling — it may read it, interrupt or stop
 //   it, deny its requests and lower its preset, but not send to it or approve
-//   for it — or the ceiling would hold only for chats the app started.
+//   for it — or the ceiling would hold only for chats the app started. A chat
+//   running with tools it may use unasked counts as `bypass` for that check,
+//   and answering a request for the rest of the conversation (an allow rule
+//   for its kind) needs a ceiling of at least `auto`.
 // - Command ids. A client's ids are namespaced by the client before they reach
 //   the runtime's receipts (`client:<id>:<commandId>`, `owner:<commandId>`), as
 //   a module's are (`module:<id>:<commandId>`), so one client can neither
@@ -56,6 +59,9 @@ export type StudioRpcRouterOptions = {
 export function studioRuntimeCommandId(grant: StudioGrant, commandId: string): string {
   return grant.owner ? `owner:${commandId}` : `client:${grant.clientId}:${commandId}`
 }
+
+/** The strictest ceiling under which an app may answer a request for the rest of a conversation. */
+const CONVERSATION_RULE_FLOOR = 'auto' as const
 
 const refuse = (code: string, message: string): { ok: false; error: StudioErrorBody } => ({
   ok: false,
@@ -135,6 +141,18 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
         preset,
         ...(preset === command.preset && command.permissionMode ? { permissionMode: command.permissionMode } : {}),
       }
+    } else if (
+      command.kind === 'resolveApproval' &&
+      command.decision === 'conversation' &&
+      isLooserCliPermissionPreset(CONVERSATION_RULE_FLOOR, grant.ceiling)
+    ) {
+      // Allowing a kind of request for the rest of the chat is an allow rule,
+      // as loose for that kind as `auto` lets edits be: an app held below
+      // `auto` answers one request at a time.
+      return refuse(
+        'ceiling_exceeded',
+        `Allowing a request for the rest of the conversation needs a ceiling of "${CONVERSATION_RULE_FLOOR}" or looser; this app's is "${grant.ceiling}". Answer it "once" instead.`,
+      )
     } else if (drivesChat(command)) {
       const running = backend.permissionOf(key)
       if (isLooserCliPermissionPreset(running, grant.ceiling))

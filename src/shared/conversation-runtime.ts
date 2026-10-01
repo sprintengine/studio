@@ -86,6 +86,11 @@ export type ConversationSessionSummary = {
   // other than the preset's own is in force (cli-permission-mode.ts). Absent,
   // the preset's own mode.
   permissionMode?: string
+  // The session was started with tools it may use without asking
+  // (`allowedTools`). For those tools that is as loose as `bypass`, so anything
+  // holding a caller to a ceiling counts it as bypass. The tools themselves
+  // are not listed here.
+  allowsUnaskedTools?: true
 }
 
 // Loose mirror of the CLI runtime override map (`appSettings.cliRuntimes`)

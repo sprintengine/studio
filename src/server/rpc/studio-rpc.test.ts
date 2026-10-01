@@ -202,6 +202,25 @@ test('the ceiling lowers presets, pins a missing one, guards allowed tools and l
     assert.equal(held.ok, true, method)
   }
 
+  // Allowing a kind of request for the rest of a chat is an allow rule: an app
+  // below `auto` answers once at a time.
+  backend.presets.set('agent-1', 'manual')
+  const strict = await open(path, pairFakeClient(auth, 'strict', ['conversation:operate'], 'manual'))
+  const rule = await request(strict, 'c1', 'conversation.resolveApproval', {
+    key,
+    commandId: 'rule-1',
+    requestId: 'req-2',
+    decision: 'conversation',
+  })
+  assert.equal(!rule.ok && rule.error.code, 'ceiling_exceeded')
+  const once = await request(strict, 'c2', 'conversation.resolveApproval', {
+    key,
+    commandId: 'once-1',
+    requestId: 'req-2',
+    decision: 'once',
+  })
+  assert.equal(once.ok, true)
+
   // The owner has no ceiling.
   const owner = await open(path, OWNER_TOKEN)
   const ownerSend = await request(owner, 's2', 'conversation.send', { key, commandId: 'send-1', message: 'go' })

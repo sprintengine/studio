@@ -52,8 +52,13 @@ export function createStudioConversationBackend(deps: StudioConversationBackendD
       }
       return { ok: true }
     },
+    // How loose the chat runs, for a ceiling: its preset, except that a
+    // session started with tools it may use unasked runs those tools as
+    // `bypass` would, and so counts as `bypass`.
     permissionOf: (key) =>
-      (host.permissionOf?.(key) ?? DEFAULT_AGENT_SPAWN_PERMISSION_PRESET) as ConversationWirePermissionPreset,
+      liveSessions(key).some((session) => session.allowsUnaskedTools)
+        ? 'bypass'
+        : ((host.permissionOf?.(key) ?? DEFAULT_AGENT_SPAWN_PERMISSION_PRESET) as ConversationWirePermissionPreset),
     findCreated(launchCommandId) {
       for (const workspace of deps.getWorkspaceAgents()) {
         for (const agent of Object.values(workspace.agents)) {
