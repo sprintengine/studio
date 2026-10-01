@@ -105,7 +105,9 @@ When you feed such content to an agent, say in the prompt that it is data to
 analyse, not instructions.
 
 **Draft by default.** `openChat` without `send: true` lets the person read the
-prompt before anything runs. `permissionPreset: 'bypass'` only when they asked.
+prompt before anything runs. `permissionPreset: 'bypass'` only when they asked,
+and it needs `conversation:bypass` in the manifest; without it the chat runs on
+`auto`.
 
 **Permissions are disclosure.** The host checks some, not all; it does not
 sandbox your code. The prompt is a promise to the person: keep it true.

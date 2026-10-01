@@ -123,6 +123,12 @@ export function createAgentRuntimeModule(
       const conversations = createConversationModuleRegistry({
         launch: (request) => services.conversationLaunchService.launch(request),
         runtime: services.conversationRuntime,
+        // A preset or model switch moves the chat's record as the chat view
+        // moves it, through the same bus every window hears.
+        writeAgent: (workspaceId, agentId, patch) =>
+          services.workspaceSyncService.updateWorkspaceAgent(workspaceId, agentId, patch, 'system'),
+        // A model switch takes the ids the person's own picker offers.
+        modelCatalog: services.conversationModelCatalog,
         getWorkspaceAgents: () => services.workspaceSyncService.getSnapshot().state.workspaces,
         onWorkspacesChanged: (listener) => services.workspaceSyncService.subscribeEvents(() => listener()),
         getCliRuntimes: () =>

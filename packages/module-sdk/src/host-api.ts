@@ -25,6 +25,9 @@ export const HOST_API_MIN_SUPPORTED = 1
  */
 export type HostCapability =
   | 'conversations'
+  // The conversation service's controls: all four permission presets,
+  // `setPermissionPreset`, `setModel` and approval `decision`s.
+  | 'conversation-controls'
   | 'chat.open'
   | 'companion-agents'
   | 'scheduled-agents'

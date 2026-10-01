@@ -31,8 +31,32 @@ new chat. The app no longer has an automations engine for a module to extend.
   whether the host in front of the module provides it.
   A scheduled agent's `permissionPreset` is any of the four modes a chat
   takes (`bypass`, `auto`, `manual`, `none`), or null to follow the person's
-  choice at run time; a chat an extension starts with `conversation.create`
-  still names only `none` or `bypass`.
+  choice at run time.
+- **Conversation controls.** `host.supports('conversation-controls')` says the
+  host takes all of these:
+  - `create` takes any of the four presets (`none`, `manual`, `auto`,
+    `bypass`), and `ModuleConversationPermissionPreset` names all four.
+  - `setPermissionPreset(ref, preset)` switches a conversation's preset from
+    its next tool call, and `setModel(ref, modelId)` switches it to another
+    model of the same agent runtime from its next turn: an id the runtime's
+    picker lists, or `default`. Both answer with what is now in force and the
+    runtime's `notice` when the change applies later than at once, and both
+    move the conversation's record, so its next session starts on them.
+  - `respondToApproval` takes a `decision`: `once`, `conversation` (allow
+    requests of its kind for the rest of the conversation) or `deny`
+    (`ModuleConversationApprovalDecision`). `approved` still works, as `once`
+    or `deny`. No answer makes a permanent rule.
+  - `ModuleConversationSummary.permissionPreset` names the preset a
+    conversation runs on.
+- **The `conversation:bypass` permission.** A module's conversations run no
+  looser than `auto` unless its manifest declares it.
+
+### Changed
+
+- **`bypass` needs `conversation:bypass`.** A module that asks for `bypass`
+  without declaring it gets `auto`, on `create` and on `setPermissionPreset`:
+  lowered, not refused, and the answer names the preset in force. Before,
+  `conversation:operate` alone started a conversation on `bypass`.
 
 ## 1.0.0-beta.0
 

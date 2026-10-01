@@ -16,6 +16,8 @@ agent CLIs from `entry.main` to work around that.
 
 Check `host.supports('conversations')` (main) or `host.supports('chat.open')`
 (renderer) first, and tell the person when the host does not offer it.
+`host.supports('conversation-controls')` says the host also takes the four
+presets, `setPermissionPreset`, `setModel` and approval `decision`s.
 
 ## openChat (renderer)
 
@@ -63,13 +65,15 @@ export const registerMain: RegisterMain = (host) => {
 
 | Method | Needs | Notes |
 | --- | --- | --- |
-| `create({ workspaceId, prompt?, name?, cli?, model?, skills?, attachments?, permissionPreset? })` | operate | Resolves `{ ok: true, conversation }` once the chat exists. `prompt` is sent as the first turn. `permissionPreset` absent = the person's default; `'bypass'` skips the runtime's approval prompts — only when the person asked for it. |
+| `create({ workspaceId, prompt?, name?, cli?, model?, skills?, attachments?, permissionPreset? })` | operate | Resolves `{ ok: true, conversation }` once the chat exists. `prompt` is sent as the first turn. `permissionPreset` (`manual`, `none`, `auto`, `bypass`) absent = the person's default; `'bypass'` skips the runtime's approval prompts — only when the person asked for it, and only with `conversation:bypass` declared (otherwise it runs on `auto`). |
 | `send(ref, { message, skills?, attachments?, steer? })` | operate | Another turn. `steer: true` lands it inside the turn that is running. |
 | `interrupt(ref)` / `stop(ref)` | operate | Stop the current turn / end the session. |
-| `respondToApproval(ref, { requestId, approved, answers? })` | operate | Answer an `approval_requested` event. Approve only what the person would approve. |
+| `respondToApproval(ref, { requestId, decision, answers? })` | operate | Answer an `approval_requested` event: `decision` is `once`, `conversation` (that kind of request, for the rest of the chat) or `deny`; the older `approved: boolean` still works. Approve only what the person would approve. |
+| `setPermissionPreset(ref, preset)` | operate | Switch the chat's preset from its next tool call. Answers `{ ok: true, permissionPreset, notice? }`: the preset in force, lowered to the module's ceiling when it asked for more. |
+| `setModel(ref, modelId)` | operate | Switch to another model of the chat's runtime from its next turn (an id `listChatRuntimes()` lists, or `default`). Answers `{ ok: true, modelId, notice? }`; a runtime that binds a chat to its model refuses. |
 | `subscribe(ref, cb)` | read | Live events from now on; returns the unsubscriber. |
 | `transcript(ref)` | read | Every recorded event, for catching up. |
-| `list(filter?)` / `watch(filter, cb)` | read | The module's own chats: `{ workspaceId, agentId, sessionId, name, cli, providerId, modelId, status }`. `watch` fires at once, then on change. |
+| `list(filter?)` / `watch(filter, cb)` | read | The module's own chats: `{ workspaceId, agentId, sessionId, name, cli, providerId, modelId, status, permissionPreset? }`. `watch` fires at once, then on change. |
 
 `ref` is `{ workspaceId, agentId }` — keep it (in `getModuleStorage`) if you
 need the chat after a restart.

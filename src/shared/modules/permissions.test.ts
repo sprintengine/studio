@@ -98,7 +98,14 @@ test('permissions', async () => {
   }
 
   function testExtensionPlatformScopesAreKnownAndDescribed(): void {
-    const scopes = ['conversation:read', 'conversation:operate', 'secrets', 'github', 'mcp:tools']
+    const scopes = [
+      'conversation:read',
+      'conversation:operate',
+      'conversation:bypass',
+      'secrets',
+      'github',
+      'mcp:tools',
+    ]
     for (const scope of scopes) {
       assert.equal(isKnownCapabilityPermission(scope), true, `${scope} is a known scope`)
       assert.equal(isBroadCapabilityPermission(scope), false, `${scope} is not flagged broad`)

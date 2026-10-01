@@ -55,13 +55,17 @@ function harness(agentPresets: Record<string, CliPermissionPreset>) {
       sendTurn: async () => ({ ok: false, message: 'unused' }),
       interrupt: async () => ({ ok: false, message: 'unused' }),
       respondToRequest: async () => ({ ok: false, message: 'unused' }),
+      setPermission: async () => ({ ok: false, message: 'unused' }),
+      setModel: async () => ({ ok: false, message: 'unused' }),
       stopSession: async () => ({ ok: false, message: 'unused' }),
       listSessions: () => ({ ok: true, sessions: [] }),
       readTranscript: async () => ({ ok: false, message: 'unused' }),
       onEvent: () => () => undefined,
     },
+    writeAgent: () => ({ ok: false, message: 'unused' }),
     getWorkspaceAgents: () => workspaces,
-    getModulePermissions: () => ['conversation:operate', 'mcp:tools'],
+    // `conversation:bypass`, so the module's own ceiling is not what lowers it.
+    getModulePermissions: () => ['conversation:operate', 'conversation:bypass', 'mcp:tools'],
     getCallerPermissionCeiling: moduleToolCallerCeiling,
   })
   const acme = conversations.forModule('acme')

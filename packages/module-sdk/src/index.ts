@@ -148,6 +148,9 @@ export type CapabilityPermission =
   // Start, prompt, interrupt and stop the module's own conversations, and open
   // a chat in the renderer (`RendererHost.openChat`). Implies read.
   | 'conversation:operate'
+  // Run those conversations on `bypass`. Without it a module's chats go no
+  // looser than `auto`, whatever it asks for.
+  | 'conversation:bypass'
   // Store secrets the host sends only to origins the module named, never
   // handing the value back (the SDK's scoped secrets service).
   | 'secrets'
@@ -176,6 +179,7 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'storage',
   'conversation:read',
   'conversation:operate',
+  'conversation:bypass',
   'secrets',
   'github',
   'mcp:tools',
@@ -2132,6 +2136,7 @@ export {
 export {
   getConversationService,
   type ModuleChatRuntimeOption,
+  type ModuleConversationApprovalDecision,
   type ModuleConversationCreateInput,
   type ModuleConversationErrorCode,
   type ModuleConversationEvent,

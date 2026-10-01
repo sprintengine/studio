@@ -524,6 +524,7 @@ expectType<IsExact<appConversation.ModuleConversationRef, sdk.ModuleConversation
 expectType<IsExact<appConversation.ModuleConversationSummary, sdk.ModuleConversationSummary>>()
 expectType<IsExact<appConversation.ModuleConversationImageAttachment, sdk.ModuleConversationImageAttachment>>()
 expectType<IsExact<appConversation.ModuleConversationPermissionPreset, sdk.ModuleConversationPermissionPreset>>()
+expectType<IsExact<appConversation.ModuleConversationApprovalDecision, sdk.ModuleConversationApprovalDecision>>()
 expectType<IsExact<appConversation.ModuleConversationErrorCode, sdk.ModuleConversationErrorCode>>()
 expectType<IsExact<appConversation.ModuleConversationCreateInput, sdk.ModuleConversationCreateInput>>()
 expectType<

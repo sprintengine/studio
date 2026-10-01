@@ -14,6 +14,13 @@
 // list, watch) throw, since calling them without the permission is a mistake
 // in the module and not a state of the world.
 //
+// A module picks any of the four presets for its chats, up to a ceiling:
+// `auto`, or `bypass` for a module that declared `conversation:bypass`, so the
+// consent prompt says so before the person trusts it. A preset above the
+// ceiling is lowered to it rather than refused, as the tool-caller cap lowers
+// one, and the answer names the preset in force. A preset left out takes the
+// person's own default, which is theirs to choose and is not capped here.
+//
 // Events reach a module the way they reach a chat UI: redacted (secret-shaped
 // payload keys) and only for its own chats.
 
@@ -21,34 +28,40 @@ import { randomUUID } from 'crypto'
 
 import { conversationWorkingRoot, type AgentState } from '../../shared/agent-state'
 import { cliForConversationProvider } from '../../shared/conversation-harness'
-import type {
-  ConversationCliRuntimeOverrides,
-  ConversationEvent,
-  ConversationInterruptInput,
-  ConversationListSessionsInput,
-  ConversationListSessionsResult,
-  ConversationRespondToRequestInput,
-  ConversationSendTurnInput,
-  ConversationSessionActionResult,
-  ConversationSessionSummary,
-  ConversationStartSessionInput,
-  ConversationStartSessionResult,
-  ConversationStopSessionInput,
-  ConversationTranscriptInput,
-  ConversationTranscriptResult,
+import {
+  CONVERSATION_PERMISSION_PRESETS,
+  type ConversationCliRuntimeOverrides,
+  type ConversationEvent,
+  type ConversationInterruptInput,
+  type ConversationListSessionsInput,
+  type ConversationListSessionsResult,
+  type ConversationRespondToRequestInput,
+  type ConversationSendTurnInput,
+  type ConversationSessionActionResult,
+  type ConversationSessionSummary,
+  type ConversationSetModelInput,
+  type ConversationSetPermissionInput,
+  type ConversationStartSessionInput,
+  type ConversationStartSessionResult,
+  type ConversationStopSessionInput,
+  type ConversationTranscriptInput,
+  type ConversationTranscriptResult,
 } from '../../shared/conversation-runtime'
 import type {
+  ModuleConversationApprovalDecision,
   ModuleConversationCreateInput,
   ModuleConversationErrorCode,
   ModuleConversationEvent,
   ModuleConversationImageAttachment,
+  ModuleConversationPermissionPreset,
   ModuleConversationRef,
   ModuleConversationRegistry,
   ModuleConversationResult,
   ModuleConversationService,
   ModuleConversationSummary,
 } from '../../shared/modules/conversation-service'
-import type { CliPermissionPreset } from '../../shared/cli-permission-preset'
+import { isLooserCliPermissionPreset, type CliPermissionPreset } from '../../shared/cli-permission-preset'
+import { CONVERSATION_DEFAULT_MODEL_ID } from '../../../packages/conversation-protocol/src'
 import { redactEvent } from '../companion-agent-service'
 import type { ConversationLaunchRequest, ConversationLaunchResult } from '../conversation-launch-service'
 import { clampToModuleToolCaller } from './module-tool-caller'
@@ -66,6 +79,8 @@ export type ModuleConversationRuntime = {
   sendTurn(input: ConversationSendTurnInput): Promise<ConversationSessionActionResult>
   interrupt(input: ConversationInterruptInput): Promise<ConversationSessionActionResult>
   respondToRequest(input: ConversationRespondToRequestInput): Promise<ConversationSessionActionResult>
+  setPermission(input: ConversationSetPermissionInput): Promise<ConversationSessionActionResult>
+  setModel(input: ConversationSetModelInput): Promise<ConversationSessionActionResult>
   stopSession(input: ConversationStopSessionInput): Promise<ConversationSessionActionResult>
   listSessions(input?: ConversationListSessionsInput): ConversationListSessionsResult
   readTranscript(input: ConversationTranscriptInput): Promise<ConversationTranscriptResult>
@@ -75,6 +90,18 @@ export type ModuleConversationRuntime = {
 export type ModuleConversationDeps = {
   launch: (request: ConversationLaunchRequest) => Promise<ConversationLaunchResult>
   runtime: ModuleConversationRuntime
+  /**
+   * Patch a chat's agent record through the sequenced workspace bus. A preset
+   * or model switch is written there as the chat view writes it, so the next
+   * session the chat starts is on what the module chose.
+   */
+  writeAgent: (workspaceId: string, agentId: string, patch: Partial<AgentState>) => { ok: boolean; message?: string }
+  /**
+   * The models a chat's CLI offers, as this machine's own picker lists them
+   * (conversation-model-catalog.ts). Present, `setModel` takes only those ids
+   * and the CLI's default; absent, the runtime is the only check.
+   */
+  modelCatalog?: (providerId: string) => Promise<{ cliLabel: string; options: { id: string }[] } | null>
   /** Every workspace with its agent records, read fresh on each call. */
   getWorkspaceAgents: () => readonly ModuleConversationWorkspace[]
   /** The permissions the module declared in its manifest. */
@@ -111,7 +138,24 @@ type OwnedChat = {
 
 type Failure = { ok: false; code: ModuleConversationErrorCode; message: string }
 
-const PERMISSION_PRESETS = new Set(['none', 'bypass'])
+const PERMISSION_PRESETS: ReadonlySet<string> = new Set(CONVERSATION_PERMISSION_PRESETS)
+const APPROVAL_DECISIONS: ReadonlySet<string> = new Set<ModuleConversationApprovalDecision>([
+  'once',
+  'conversation',
+  'deny',
+])
+
+/** The loosest preset a module's chats run on unless it declared `conversation:bypass`. */
+export const MODULE_CONVERSATION_DEFAULT_CEILING: CliPermissionPreset = 'auto'
+
+/** The loosest preset a module with these declared permissions may put its chats on. */
+export function moduleConversationCeiling(permissions: readonly string[]): CliPermissionPreset {
+  return permissions.includes('conversation:bypass') ? 'bypass' : MODULE_CONVERSATION_DEFAULT_CEILING
+}
+
+function isPermissionPreset(value: unknown): value is ModuleConversationPermissionPreset {
+  return typeof value === 'string' && PERMISSION_PRESETS.has(value)
+}
 
 function failure(code: ModuleConversationErrorCode, message: string): Failure {
   return { ok: false, code, message }
@@ -180,6 +224,17 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
   function requireRead(moduleId: string): void {
     if (!canRead(moduleId)) throw new Error(missing(moduleId, 'conversation:read').message)
   }
+  // A preset the module asked for, lowered to its own ceiling and then to the
+  // ceiling of the agent whose tool call into the module is running, if any:
+  // otherwise the module would be a capped agent's way to a chat that asks less.
+  function capped(
+    moduleId: string,
+    requested: ModuleConversationPermissionPreset | undefined,
+  ): ModuleConversationPermissionPreset | undefined {
+    const ceiling = moduleConversationCeiling(declared(moduleId))
+    const own = requested && isLooserCliPermissionPreset(requested, ceiling) ? ceiling : requested
+    return clampToModuleToolCaller(own, deps.getCallerPermissionCeiling?.() ?? null)
+  }
 
   function findOwned(moduleId: string, ref: ModuleConversationRef): OwnedChat | null {
     const workspace = deps.getWorkspaceAgents().find((candidate) => candidate.id === ref.workspaceId)
@@ -230,6 +285,15 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
     return started.ok ? started.session.sessionId : failure('conversation_start_failed', started.message)
   }
 
+  // The live session's preset, else the one the chat's record starts it on.
+  function presetOf(
+    live: ConversationSessionSummary | null | undefined,
+    agent: AgentState | undefined,
+  ): { permissionPreset?: ModuleConversationPermissionPreset } {
+    const permissionPreset = live?.permissionPreset ?? agent?.cliPermissionPreset
+    return permissionPreset ? { permissionPreset } : {}
+  }
+
   function summarize(workspaceId: string, agent: AgentState): ModuleConversationSummary {
     const providerId = agent.conversation?.providerId ?? ''
     const live = liveSession({ workspaceId, agentId: agent.id })
@@ -242,6 +306,7 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
       providerId,
       modelId: live?.modelId ?? agent.conversation?.modelId ?? '',
       status: live?.status ?? 'absent',
+      ...presetOf(live, agent),
     }
   }
 
@@ -347,16 +412,10 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
         if (input.attachments !== undefined && !isAttachmentList(input.attachments)) {
           return failure('invalid_input', '"attachments" must be a list of images.')
         }
-        if (input.permissionPreset !== undefined && !PERMISSION_PRESETS.has(input.permissionPreset)) {
-          return failure('invalid_input', '"permissionPreset" must be "none" or "bypass".')
+        if (input.permissionPreset !== undefined && !isPermissionPreset(input.permissionPreset)) {
+          return failure('invalid_input', '"permissionPreset" must be "none", "manual", "auto" or "bypass".')
         }
-        // A module tool called by an agent held to a stricter preset starts
-        // its chat on that preset, whatever the module asked for: otherwise
-        // the module would be the capped agent's way to a chat that asks less.
-        const permissionPreset = clampToModuleToolCaller(
-          input.permissionPreset,
-          deps.getCallerPermissionCeiling?.() ?? null,
-        )
+        const permissionPreset = capped(moduleId, input.permissionPreset)
         const launched = await deps.launch({
           workspaceId: input.workspaceId.trim(),
           ...(input.cli ? { cli: input.cli } : {}),
@@ -369,6 +428,10 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
           ownerModuleId: moduleId,
         })
         if (!launched.ok) return failure(launched.code as ModuleConversationErrorCode, launched.message)
+        const live = liveSession(launched)
+        const record = deps.getWorkspaceAgents().find((workspace) => workspace.id === launched.workspaceId)?.agents[
+          launched.agentId
+        ]
         return {
           ok: true,
           conversation: {
@@ -379,7 +442,8 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
             cli: launched.cli,
             providerId: launched.providerId,
             modelId: launched.modelId,
-            status: liveSession(launched)?.status ?? 'starting',
+            status: live?.status ?? 'starting',
+            ...presetOf(live, record),
           },
         }
       },
@@ -424,8 +488,20 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
       async respondToApproval(ref, input) {
         if (!canOperate(moduleId)) return missing(moduleId, 'conversation:operate')
         if (!isRef(ref) || !findOwned(moduleId, ref)) return notOwned(ref)
-        if (typeof input?.requestId !== 'string' || typeof input.approved !== 'boolean') {
-          return failure('invalid_input', '"requestId" and "approved" are required.')
+        if (typeof input?.requestId !== 'string') return failure('invalid_input', '"requestId" is required.')
+        if (input.decision !== undefined && !APPROVAL_DECISIONS.has(input.decision)) {
+          return failure('invalid_input', '"decision" must be "once", "conversation" or "deny".')
+        }
+        if (input.approved !== undefined && typeof input.approved !== 'boolean') {
+          return failure('invalid_input', '"approved" must be true or false when provided.')
+        }
+        if (input.decision === undefined && input.approved === undefined) {
+          return failure('invalid_input', 'An answer needs "decision" (or the older "approved").')
+        }
+        // The older boolean reads as the narrowest answer it can mean.
+        const decision: ModuleConversationApprovalDecision = input.decision ?? (input.approved ? 'once' : 'deny')
+        if (input.approved !== undefined && input.approved !== (decision !== 'deny')) {
+          return failure('invalid_input', '"approved" and "decision" disagree.')
         }
         if (
           input.answers !== undefined &&
@@ -437,16 +513,82 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
         }
         const live = liveSession(ref)
         if (!live) return failure('runtime_refused', 'The conversation has no live session to answer.')
-        // Never a remembered rule: a module answers this one request, and a
-        // rule that outlives the conversation is the person's to make.
+        // Never a permanent rule: a module answers this request, or allows
+        // its kind for the rest of this conversation. A rule that outlives the
+        // conversation is the person's to make.
         return deps.runtime
           .respondToRequest({
             sessionId: live.sessionId,
             requestId: input.requestId,
-            approved: input.approved,
+            approved: decision !== 'deny',
+            ...(decision === 'conversation' ? { decision } : {}),
             ...(input.answers ? { answers: input.answers } : {}),
           })
           .then(actionResult, actionError)
+      },
+
+      async setPermissionPreset(ref, preset) {
+        if (!canOperate(moduleId)) return missing(moduleId, 'conversation:operate')
+        if (!isRef(ref)) return notOwned(ref)
+        if (!isPermissionPreset(preset)) {
+          return failure('invalid_input', 'The preset must be "none", "manual", "auto" or "bypass".')
+        }
+        const owned = findOwned(moduleId, ref)
+        if (!owned) return notOwned(ref)
+        const permissionPreset = capped(moduleId, preset) ?? preset
+        // A live session takes the switch first, and the record moves only once
+        // the provider accepted it. With none, the record is what the next
+        // session starts on, as in the chat view.
+        const live = liveSession(ref)
+        let notice: string | undefined
+        if (live) {
+          const applied = await deps.runtime
+            .setPermission({ sessionId: live.sessionId, commandId: newCommandId(), permissionPreset })
+            .catch((error: unknown): ConversationSessionActionResult => actionError(error))
+          if (!applied.ok) return failure('runtime_refused', applied.message)
+          notice = applied.notice
+        }
+        const written = deps.writeAgent(ref.workspaceId, ref.agentId, { cliPermissionPreset: permissionPreset })
+        if (!written.ok) {
+          return failure('agent_write_failed', written.message ?? 'The conversation could not be saved.')
+        }
+        return { ok: true, permissionPreset, ...(notice ? { notice } : {}) }
+      },
+
+      async setModel(ref, modelId) {
+        if (!canOperate(moduleId)) return missing(moduleId, 'conversation:operate')
+        if (!isRef(ref)) return notOwned(ref)
+        if (typeof modelId !== 'string' || !modelId.trim()) return failure('invalid_input', 'A model id is required.')
+        const owned = findOwned(moduleId, ref)
+        if (!owned) return notOwned(ref)
+        const id = modelId.trim()
+        const providerId = liveSession(ref)?.providerId ?? owned.agent.conversation?.providerId
+        if (!providerId) return failure('runtime_refused', 'The conversation has no engine to switch.')
+        // The rows the person's own picker offers for the chat's CLI, and the
+        // CLI's default: a switch never leaves the CLI.
+        if (deps.modelCatalog) {
+          const catalog = await deps.modelCatalog(providerId).catch(() => null)
+          if (!catalog) return failure('runtime_refused', "This conversation's model cannot be changed.")
+          if (id !== CONVERSATION_DEFAULT_MODEL_ID && !catalog.options.some((option) => option.id === id)) {
+            return failure('invalid_input', `${catalog.cliLabel} does not offer the model "${id}".`)
+          }
+        }
+        // A chat with no live session is started again, as a send starts it:
+        // only a running provider says whether it takes a new model
+        // mid-conversation, and the runtime refuses one that does not.
+        const sessionId = await sessionFor(ref, owned)
+        if (typeof sessionId !== 'string') return sessionId
+        const switched = await deps.runtime
+          .setModel({ sessionId, commandId: newCommandId(), modelId: id })
+          .catch((error: unknown): ConversationSessionActionResult => actionError(error))
+        if (!switched.ok) return failure('runtime_refused', switched.message)
+        const conversation = owned.agent.conversation
+        if (conversation && conversation.modelId !== id) {
+          // The session is on the new model already, so a record write that
+          // did not land is no reason to answer that the switch failed.
+          deps.writeAgent(ref.workspaceId, ref.agentId, { conversation: { ...conversation, modelId: id } })
+        }
+        return { ok: true, modelId: id, ...(switched.notice ? { notice: switched.notice } : {}) }
       },
 
       async stop(ref) {
@@ -526,6 +668,8 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
     send: (moduleId, ref, input) => serviceFor(moduleId).send(ref, input),
     interrupt: (moduleId, ref) => serviceFor(moduleId).interrupt(ref),
     respondToApproval: (moduleId, ref, input) => serviceFor(moduleId).respondToApproval(ref, input),
+    setPermissionPreset: (moduleId, ref, preset) => serviceFor(moduleId).setPermissionPreset(ref, preset),
+    setModel: (moduleId, ref, modelId) => serviceFor(moduleId).setModel(ref, modelId),
     stop: (moduleId, ref) => serviceFor(moduleId).stop(ref),
     subscribe: (moduleId, ref, cb) => serviceFor(moduleId).subscribe(ref, cb),
     transcript: (moduleId, ref) => serviceFor(moduleId).transcript(ref),

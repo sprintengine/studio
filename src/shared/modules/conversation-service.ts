@@ -11,13 +11,21 @@ import type {
   ConversationEvent,
   ConversationEventType,
   ConversationImageAttachment,
+  ConversationPermissionPreset,
   ConversationSessionStatus,
 } from '../conversation-runtime'
+import type { ConversationApprovalDecision } from '../conversation/approvalRules'
 
 export type ModuleConversationEventType = ConversationEventType
 export type ModuleConversationEvent = ConversationEvent
 export type ModuleConversationStatus = ConversationSessionStatus
 export type ModuleConversationImageAttachment = ConversationImageAttachment
+// The runtime's four presets. What a module may start or switch a chat to is
+// capped by its grant (main/module-host/module-conversation-service.ts).
+export type ModuleConversationPermissionPreset = ConversationPermissionPreset
+// The runtime's answers bar `always`: a rule that outlives the conversation is
+// the person's to make, never a module's.
+export type ModuleConversationApprovalDecision = Exclude<ConversationApprovalDecision, 'always'>
 
 export type ModuleConversationRef = { workspaceId: string; agentId: string }
 
@@ -28,9 +36,9 @@ export type ModuleConversationSummary = ModuleConversationRef & {
   providerId: string
   modelId: string
   status: ModuleConversationStatus | 'absent'
+  // The live session's preset, else the one the chat's record starts it on.
+  permissionPreset?: ModuleConversationPermissionPreset
 }
-
-export type ModuleConversationPermissionPreset = 'none' | 'bypass'
 
 export type ModuleConversationErrorCode =
   | 'permission_missing'
@@ -71,10 +79,26 @@ export type ModuleConversationService = {
     input: { message: string; skills?: string[]; attachments?: ModuleConversationImageAttachment[]; steer?: boolean },
   ): Promise<ModuleConversationResult>
   interrupt(ref: ModuleConversationRef): Promise<ModuleConversationResult>
+  // `decision`, or the older `approved` (true is `once`, false is `deny`).
   respondToApproval(
     ref: ModuleConversationRef,
-    input: { requestId: string; approved: boolean; answers?: Record<string, string> },
+    input: {
+      requestId: string
+      decision?: ModuleConversationApprovalDecision
+      approved?: boolean
+      answers?: Record<string, string>
+    },
   ): Promise<ModuleConversationResult>
+  // Answers with the preset now in force, which is lower than the one asked
+  // for when the module's grant caps it.
+  setPermissionPreset(
+    ref: ModuleConversationRef,
+    preset: ModuleConversationPermissionPreset,
+  ): Promise<ModuleConversationResult<{ permissionPreset: ModuleConversationPermissionPreset; notice?: string }>>
+  setModel(
+    ref: ModuleConversationRef,
+    modelId: string,
+  ): Promise<ModuleConversationResult<{ modelId: string; notice?: string }>>
   stop(ref: ModuleConversationRef): Promise<ModuleConversationResult>
   subscribe(ref: ModuleConversationRef, cb: (event: ModuleConversationEvent) => void): () => void
   transcript(ref: ModuleConversationRef): Promise<ModuleConversationResult<{ events: ModuleConversationEvent[] }>>
