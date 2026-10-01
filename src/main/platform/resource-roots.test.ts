@@ -38,7 +38,9 @@ test('an installed build finds its bundled skills and runtimes under the resourc
 })
 
 test('a source checkout looks in the working tree', () => {
-  installStudioPlatform(createNodeStudioPlatform({ dataDir: '/Users/dev/studio-data', version: '0.0.0' }))
+  installStudioPlatform(
+    createNodeStudioPlatform({ dataDir: '/Users/dev/studio-data', packaged: false, version: '0.0.0' }),
+  )
   assert.equal(builtinSkillSourceRoot(), join(process.cwd(), 'resources', 'builtin-skills'))
 })
 

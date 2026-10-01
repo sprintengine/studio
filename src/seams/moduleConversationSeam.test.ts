@@ -158,7 +158,7 @@ test('moduleConversationSeam', async () => {
     // Module storage in the suite's own directory, and a cipher that, honestly,
     // cannot encrypt here.
     platform: {
-      paths: createNodeStudioPaths({ dataDir: join(root, 'user-data') }),
+      paths: createNodeStudioPaths({ dataDir: join(root, 'user-data'), packaged: false }),
       secrets: createSecretCipherStandIn({ value: false }),
     },
   })

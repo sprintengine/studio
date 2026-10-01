@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { join } from 'node:path'
 import { test } from 'vitest'
 
 import { createNodeStudioPaths, defaultServerLocations } from './studio-paths'
@@ -52,10 +53,15 @@ test('Windows paths are spelled the Windows way whatever the host running the te
   )
 })
 
-test('node paths answer what the server was started with, and a source checkout by default', () => {
-  const paths = createNodeStudioPaths({ dataDir: '/srv/studio/data', logsDir: '/srv/studio/logs' })
+test('node paths answer what the server was started with', () => {
+  const paths = createNodeStudioPaths({ dataDir: '/srv/studio/data', logsDir: '/srv/studio/logs', packaged: false })
   assert.equal(paths.dataDir(), '/srv/studio/data')
   assert.equal(paths.logsDir(), '/srv/studio/logs')
+  assert.equal(
+    createNodeStudioPaths({ dataDir: '/srv/studio/data', packaged: false }).logsDir(),
+    join('/srv/studio/data', 'logs'),
+    'a server pointed at a data directory keeps its logs in it',
+  )
   assert.equal(paths.isPackaged(), false)
   assert.equal(paths.resourcesDir(), null)
   assert.equal(paths.appRoot(), null)
