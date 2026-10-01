@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -167,6 +167,26 @@ test('a bundle copied away from its node_modules says so at start, not at the fi
   assert.equal(existsSync(join(away, 'data', 'run', 'studio.lock')), false, 'nothing is taken before the check')
 })
 
+test.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+  "a data directory whose run/ cannot be made is the directory's problem: 65, not 70",
+  async () => {
+    const dataDir = join(scratch, 'readonly', 'data')
+    mkdirSync(dataDir, { recursive: true })
+    chmodSync(dataDir, 0o500)
+    try {
+      const served = serve(
+        ['--data-dir', dataDir, '--logs-dir', join(scratch, 'readonly', 'logs')],
+        isolatedEnv('readonly'),
+      )
+      const { fatal } = await firstLine(served)
+      assert.equal(fatal?.code, 65, served.stderr())
+      assert.equal(await served.exited, 65)
+    } finally {
+      chmodSync(dataDir, 0o700)
+    }
+  },
+)
+
 test('a server stops when the parent that drives it goes away', async () => {
   const served = serve(['--data-dir', join(scratch, 'orphan', 'data')], isolatedEnv('orphan'))
   assert.ok((await firstLine(served)).ready, served.stderr())
@@ -192,7 +212,7 @@ test('a server stops when the desktop app takes its data directory, and leaves t
 test("a desktop's data directory is refused, or shared with the server's secrets off", async () => {
   const env = isolatedEnv('desktop')
   const dataDir = join(scratch, 'desktop', 'data')
-  mkdirSync(dataDir, { recursive: true })
+  mkdirSync(dataDir, { recursive: true, mode: 0o755 })
   // What every Electron profile directory holds.
   writeFileSync(join(dataDir, 'Local State'), '{}')
 
@@ -205,6 +225,7 @@ test("a desktop's data directory is refused, or shared with the server's secrets
   const shared = serve(['--data-dir', dataDir, '--share-desktop-data-dir'], env)
   const { ready } = await firstLine(shared)
   assert.equal(ready?.secrets, false, shared.stderr())
+  if (process.platform !== 'win32') assert.equal(statSync(dataDir).mode & 0o777, 0o700, 'narrowed to its owner')
   assert.equal(existsSync(join(dataDir, 'run', 'secret-key')), false, 'no key of its own is minted there')
   shared.child.stdin.write('{"t":"shutdown"}\n')
   assert.equal(await shared.exited, 0)

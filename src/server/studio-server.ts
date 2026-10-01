@@ -3,11 +3,17 @@ import { mkdirSync } from 'node:fs'
 import { isWslHostId } from '../shared/execution-host'
 import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../shared/product-identity'
 import { resolveSocketPath } from '../main/automation/automation-service'
-import { createStudioCore, StudioDataDirBusyError, studioBridgeScriptPath, type StudioCore } from './core/studio-core'
+import {
+  createStudioCore,
+  StudioDataDirBusyError,
+  StudioDataDirUnusableError,
+  studioBridgeScriptPath,
+  type StudioCore,
+} from './core/studio-core'
 import { createStudioGateway, type StudioGateway } from './core/studio-gateway'
 import { createStudioRpc } from './core/studio-rpc'
 import type { StudioRpcService } from '../main/studio-rpc/studio-rpc-service'
-import { readDataDirSecrets } from './core/data-dir'
+import { readDataDirSecrets, restrictDataDir } from './core/data-dir'
 import { createNodeStudioPlatform, type NodeStudioPlatform } from './platform/platform'
 import { createUnavailableSecretCipher } from './platform/secret-cipher'
 
@@ -128,6 +134,12 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       EXIT_DATA_DIR_UNUSABLE,
     )
   }
+  // Created owner-only, but a directory that was already there keeps its
+  // mode; it holds sealed secrets and the owner socket's parent, so it is
+  // narrowed, and said out loud where it cannot be.
+  if (!restrictDataDir(options.dataDir)) {
+    options.log?.(`${options.dataDir} could not be made readable by its owner only; check who else can open it.`)
+  }
 
   const desktopSealed = readDataDirSecrets(options.dataDir) === 'desktop-keychain'
   if (desktopSealed && !options.shareDesktopDataDir) {
@@ -181,6 +193,11 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   } catch (error) {
     if (error instanceof StudioDataDirBusyError) {
       throw new StudioServerStartError(error.message, EXIT_DATA_DIR_BUSY)
+    }
+    // `run/` that cannot be made, a lock or record that cannot be written:
+    // the directory, not the server, is what has to change.
+    if (error instanceof StudioDataDirUnusableError) {
+      throw new StudioServerStartError(error.message, EXIT_DATA_DIR_UNUSABLE)
     }
     throw error
   }
