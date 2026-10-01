@@ -1,4 +1,14 @@
 import { toTomlBasicString } from '../shared/host-context/document'
+import {
+  CLI_PERMISSION_PRESETS,
+  parseCliPermissionPreset,
+  type CliPermissionPreset,
+} from '../shared/cli-permission-preset'
+import {
+  parseCliPermissionModeId,
+  type CliPermissionModeSpec,
+  type CliPermissionSetting,
+} from '../shared/cli-permission-mode'
 import type {
   PluginArgvToken,
   PluginManifest,
@@ -72,6 +82,21 @@ export function renderPluginContextArgs(manifest: PluginManifest, context: Plugi
   return Array.isArray(value) ? value : []
 }
 
+/**
+ * The environment a launch whose first message is typed in adds (the manifest's
+ * `promptInjection.overflow.env`): whatever keeps a startup prompt from standing
+ * between the CLI and its composer, said through the environment. Empty for
+ * every other launch, and for a manifest that declares none.
+ */
+export function renderPluginTypedPromptEnv(
+  manifest: PluginManifest,
+  context: PluginRenderContext,
+): Record<string, string> {
+  const spec = manifest.promptInjection?.overflow
+  if (context.promptOverflow?.mode !== 'input' || !spec || spec.mode !== 'input' || !spec.env) return {}
+  return renderEnv(spec.env, buildVariableScope(manifest, context))
+}
+
 function renderArgvSpec(
   manifest: PluginManifest,
   context: PluginRenderContext,
@@ -90,6 +115,8 @@ function renderArgvSpec(
   const env = {
     ...renderEnv(launchSpec.env, variables),
     ...renderEnv(contextEnvSpec(manifest, context), variables),
+    // A preset told through the CLI's configuration rides the same record.
+    ...resolvePermissionPreset(manifest, context.permissionPreset)?.env,
   }
   return { argv, cwd, env }
 }
@@ -110,52 +137,97 @@ function contextEnvSpec(manifest: PluginManifest, context: PluginRenderContext):
   return injection.env
 }
 
-// The ordered presets the app can ask for, least → most permissive. A manifest
-// need not declare all three, and an undeclared one must not be passed through
-// as an unknown flag — that is fatal to the CLI. It degrades DOWN this ladder
-// instead, to the most permissive preset the CLI actually declares, which can
-// never grant more than was requested.
-//
-// `none` is deliberately NOT on the ladder. It means "pass no permission flag
-// and let the CLI's own default win", which is always expressible, so it never
-// degrades and no manifest declares it. It is also not a floor: on Claude Code
-// 2.1.228+ with a Pro/Max/Team plan, passing no flag now starts the session in
-// auto mode, so `none` can be more permissive than `manual`. Ordering it would
-// make degradation escalate.
-const PERMISSION_PRESET_LADDER = ['manual', 'auto', 'bypass'] as const
-
-// Pre-rename manifest keys. Bundled manifests use the new names, but a
-// third-party plugin installed before the rename still declares the old ones,
-// and an unknown flag is fatal — so resolution falls back through the alias
-// rather than treating the preset as undeclared.
-const LEGACY_PRESET_KEYS: Record<string, string> = {
+// `none` passes no permission flag and lets the CLI's own configuration
+// decide, which every CLI can express, so a manifest keys it, if at all, only
+// for its label. Every other preset is what the manifest names for it, under
+// its own key or the one it had before the rename (`default`,
+// `auto_workspace`, `bypass_all`). One the manifest does not name renders no
+// flag: passing a flag the CLI does not know is fatal to it, and inventing one
+// is worse. The launcher offers a terminal agent only the presets its manifest
+// names (`declaredPermissionPresets`).
+const LEGACY_PRESET_KEYS: Record<Exclude<CliPermissionPreset, 'none'>, string> = {
   manual: 'default',
   auto: 'auto_workspace',
   bypass: 'bypass_all',
 }
 
-function declaredPreset(manifest: PluginManifest, name: string): PluginPermissionPreset | undefined {
-  const legacy = LEGACY_PRESET_KEYS[name]
-  return manifest.permissionPresets[name] ?? (legacy ? manifest.permissionPresets[legacy] : undefined)
-}
-
+// What a launch renders for `requested`, which is a preset or one of the CLI's
+// own mode ids (`permissionRenderKey`). A mode the manifest does not hold, or
+// holds without a level, falls back to nothing rather than to a guess: the
+// caller resolves a mode id beside its preset, and passes the preset when the
+// mode is not one this CLI has.
 function resolvePermissionPreset(
   manifest: PluginManifest,
   requested: string | undefined,
 ): PluginPermissionPreset | undefined {
-  const name = requested ?? 'manual'
-  // `none` short-circuits to no args without consulting the manifest at all.
-  if (name === 'none') return undefined
-  const declared = declaredPreset(manifest, name)
-  if (declared) return declared
-  const rung = PERMISSION_PRESET_LADDER.indexOf(name as (typeof PERMISSION_PRESET_LADDER)[number])
-  for (let below = rung - 1; below >= 0; below -= 1) {
-    const candidate = declaredPreset(manifest, PERMISSION_PRESET_LADDER[below])
-    if (candidate) return candidate
+  const own = parseCliPermissionModeId(requested)
+  if (own) {
+    const entry = Object.hasOwn(manifest.permissionPresets, own) ? manifest.permissionPresets[own] : undefined
+    return entry && ownModeLevel(entry) ? entry : undefined
   }
-  // A name outside the ladder has no ordering to walk. Render no permission
-  // args rather than inventing one — never the most permissive thing declared.
-  return undefined
+  const preset = parseCliPermissionPreset(requested)
+  if (!preset || preset === 'none') return undefined
+  return manifest.permissionPresets[preset] ?? manifest.permissionPresets[LEGACY_PRESET_KEYS[preset]]
+}
+
+function ownModeLevel(entry: PluginPermissionPreset): CliPermissionPreset | null {
+  return entry.level === 'manual' || entry.level === 'auto' || entry.level === 'bypass' ? entry.level : null
+}
+
+/**
+ * What a launch at `preset` renders from when the CLI's own `mode` was chosen
+ * beside it: the mode, when this manifest holds it at that level, else the
+ * preset's own mode. A mode another CLI has, or one this CLI no longer
+ * declares, never renders as nothing.
+ */
+export function permissionRenderKey(
+  manifest: PluginManifest | undefined,
+  preset: CliPermissionPreset,
+  mode: string | undefined,
+): CliPermissionSetting {
+  const own = parseCliPermissionModeId(mode)
+  if (!own || !manifest || !Object.hasOwn(manifest.permissionPresets, own)) return preset
+  return ownModeLevel(manifest.permissionPresets[own]!) === preset ? own : preset
+}
+
+/** The presets a launch of this CLI is told in its own words: `none`, and each one the manifest names. */
+export function declaredPermissionPresets(manifest: PluginManifest): CliPermissionPreset[] {
+  return CLI_PERMISSION_PRESETS.filter(
+    (preset) => preset === 'none' || resolvePermissionPreset(manifest, preset) !== undefined,
+  )
+}
+
+/**
+ * The CLI's permission modes under its own names, in the manifest's order: the
+ * mode each named preset stands for, keyed by that preset, and each mode of
+ * its own at the level it names. `none` is where the manifest keys it, else
+ * last, labelled as passing no flag.
+ */
+export function declaredPermissionModes(manifest: PluginManifest): CliPermissionModeSpec[] {
+  const modes: CliPermissionModeSpec[] = []
+  const describe = (entry: PluginPermissionPreset | undefined) => ({
+    ...(entry?.summary ? { summary: entry.summary } : {}),
+    ...(entry?.description ? { description: entry.description } : {}),
+  })
+  for (const [key, entry] of Object.entries(manifest.permissionPresets)) {
+    if (key === 'none') {
+      modes.push({ id: 'none', label: entry.label, level: 'none', ...describe(entry) })
+      continue
+    }
+    const preset = parseCliPermissionPreset(key)
+    if (preset) {
+      // The entry a launch renders for the preset, so a manifest keying both a
+      // preset and its retired spelling lists the one it runs.
+      const effective = resolvePermissionPreset(manifest, preset)
+      if (effective && !modes.some((mode) => mode.id === preset))
+        modes.push({ id: preset, label: effective.label, level: preset, ...describe(effective) })
+      continue
+    }
+    const level = ownModeLevel(entry)
+    if (level && parseCliPermissionModeId(key)) modes.push({ id: key, label: entry.label, level, ...describe(entry) })
+  }
+  if (!modes.some((mode) => mode.id === 'none')) modes.push({ id: 'none', label: 'No flag', level: 'none' })
+  return modes
 }
 
 /**

@@ -37,14 +37,15 @@ const PLUGIN_COPY: WslPluginCopy = {
   digest: 'ab'.repeat(32),
   tree: 'plugin-abc123def456',
   root: `${STUB_HELPER_INFO.appDir}/plugin-abc123def456`,
-  pluginDirs: [
-    `${STUB_HELPER_INFO.appDir}/plugin-abc123def456/sprintengine-studio`,
-    `${STUB_HELPER_INFO.appDir}/plugin-abc123def456/studio-skills`,
-  ],
+  pluginDirs: [`${STUB_HELPER_INFO.appDir}/plugin-abc123def456/sprintengine-studio`],
+  skillPluginDirs: { backlog: `${STUB_HELPER_INFO.appDir}/plugin-abc123def456/launch-skills/backlog` },
   statusLineScriptPath: `${STUB_HELPER_INFO.appDir}/plugin-abc123def456/sprintengine-studio/hooks/status-line.mjs`,
 }
 
-function hostWith(handlers: Parameters<typeof stubWslHelper>[1], extra: { plugin?: WslPluginCopy | null } = {}) {
+function hostWith(
+  handlers: Parameters<typeof stubWslHelper>[1],
+  extra: { plugin?: WslPluginCopy | null; launcher?: 'written' | 'failed' } = {},
+) {
   const helper = stubWslHelper('Debian', handlers)
   const host = createWslHost('Debian', {
     readSettings: () => undefined,
@@ -52,6 +53,9 @@ function hostWith(handlers: Parameters<typeof stubWslHelper>[1], extra: { plugin
     helper,
     buildPluginCopy: async () => (extra.plugin === undefined ? PLUGIN_COPY : extra.plugin),
     survivorDelayMs: 0,
+    ensureLauncher: async () => {
+      if (extra.launcher === 'failed') throw new Error('the distribution refused the write')
+    },
   })
   return { helper, host }
 }
@@ -272,6 +276,16 @@ test('CLI detection is one request, read with the same parser as every probe', a
   assert.equal(results[1].error, null, 'not found is an answer')
   assert.equal(results[2].error, 'EACCES', 'a failed check is not "not installed"')
   assert.match(results[3].error ?? '', /No plugin manifest/u)
+  assert.equal('force' in (helper.requests[0].params as object), false, 'a plain read may reuse remembered versions')
+})
+
+// The helper keeps each binary's `--version` while its size and mtime stand
+// still, and an npm update can leave both of a launcher script unchanged: the
+// check after an update, and Re-check, must make it run `--version` again.
+test('a forced detection tells the helper to look again', async () => {
+  const { helper, host } = hostWith({ 'cli.detect': () => ({ results: [{ found: false }] }) })
+  await host.detectClis([{ cli: 'claude-code' }], { force: true })
+  assert.equal((helper.requests[0].params as { force?: boolean }).force, true)
 })
 
 test('prepare starts the helper, writes the plugin copy only when it changed, and exposes the integration', async () => {
@@ -300,12 +314,22 @@ test('prepare starts the helper, writes the plugin copy only when it changed, an
     '/home/dev/repo/x.mjs',
   )
   assert.deepEqual(integration.pluginDirs, PLUGIN_COPY.pluginDirs)
+  // The one-skill plugins travel with it, so a WSL launch that invokes
+  // `/backlog` is handed the distribution's own copy of that skill.
+  assert.deepEqual(integration.skillPluginDirs, PLUGIN_COPY.skillPluginDirs)
+  // Hooks and the gateway run the distribution's own launcher, never the
+  // pinned Node or this version's payload folder, which an update prunes.
+  assert.deepEqual(integration.commandRuntime.launcher, {
+    path: '/home/dev/.sprintengine/bin/studio-run',
+    shell: 'posix',
+  })
   assert.deepEqual(integration.studioMcpEntry, {
-    command: STUB_HELPER_INFO.nodePath,
-    args: [`${STUB_HELPER_INFO.appDir}/automation/mcp-stdio-bridge.mjs`],
-    env: { ELECTRON_RUN_AS_NODE: '1', SPRINTENGINE_USER_DATA_DIR: STUB_HELPER_INFO.userDataDir },
+    command: '/bin/sh',
+    args: ['/home/dev/.sprintengine/bin/studio-run', 'mcp'],
+    env: { SPRINTENGINE_USER_DATA_DIR: STUB_HELPER_INFO.userDataDir },
     envVarNames: ['SPRINTENGINE_MCP_CHANNEL_TOKEN'],
   })
+  assert.equal(JSON.stringify(integration.studioMcpEntry).includes(STUB_HELPER_INFO.appDir), false)
   assert.deepEqual(integration.home, {
     host: '/home/dev',
     native: '\\\\wsl.localhost\\Debian\\home\\dev',
@@ -320,6 +344,18 @@ test('prepare starts the helper, writes the plugin copy only when it changed, an
   current = true
   await host.prepare()
   assert.equal(trees.length, 2)
+})
+
+test('a launcher that could not be written leaves hooks and the gateway naming the pinned Node', async () => {
+  const { host } = hostWith(
+    { home: () => ({ home: '/home/dev' }), 'files.ensureTree': () => ({ current: true }) },
+    { launcher: 'failed' },
+  )
+  await host.prepare()
+  const integration = host.agentIntegration()
+  assert.ok(integration)
+  assert.equal(integration.commandRuntime.launcher, undefined, 'no command may name a launcher that is not there')
+  assert.equal(integration.studioMcpEntry.command, STUB_HELPER_INFO.nodePath)
 })
 
 test('a helper that cannot start fails prepare with its reason, and one without the copy still launches', async () => {

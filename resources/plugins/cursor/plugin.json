@@ -9,18 +9,24 @@
   "binary": "cursor-agent",
   "$comment": "Cursor's docs now present `agent` as the primary command, but the installer still ships `cursor-agent` and `agent` is far too generic a name to probe for (`command -v agent` can false-positive on unrelated binaries). `cursor-agent` remains supported as the stable alias, so it is both the probe target and the launch binary.",
   "permissionPresets": {
-    "manual": {
-      "label": "Manual — Cursor prompts for approvals",
+    "none": {
+      "label": "Default",
+      "summary": "Asks before commands; edits go through.",
+      "description": "Cursor with no permission flag: it asks before commands its allowlist does not cover, and applies file edits in the workspace without asking.",
       "args": []
     },
     "auto": {
-      "$comment": "Cursor's own auto mode, and mechanically the closest analogue to Claude Code's anywhere in this set. `cursor-agent --help`: `--auto-review  Use Auto-review (Smart Auto): a server classifier auto-runs safe tool calls and prompts for the rest`. A classifier decides, not a sandbox — so this belongs on the same rung as Claude Code's auto rather than beside Codex's workspace-write.",
-      "label": "Auto — a classifier runs the safe calls, prompts for the rest",
+      "$comment": "Cursor's own auto mode. `cursor-agent --help`: `--auto-review  Use Auto-review (Smart Auto): a server classifier auto-runs safe tool calls and prompts for the rest`. No `manual` is declared: Cursor applies file edits in the workspace without asking whatever flag it gets, so it cannot be held to asking before every change.",
+      "label": "Auto-review",
+      "summary": "Cursor runs what it judges safe; asks for the rest.",
+      "description": "Cursor’s own auto-review: a classifier runs the tool calls it judges safe and asks for the rest.",
       "args": ["--auto-review"]
     },
     "bypass": {
       "$comment": "`--yolo` is documented as an alias for `--force`; only one is sent.",
-      "label": "Bypass all approvals (dangerous)",
+      "label": "Run Everything",
+      "summary": "Runs every command unless denied.",
+      "description": "Cursor’s Run Everything (--force): every command runs without asking unless your rules deny it. Use only in repositories you trust.",
       "args": ["--force"]
     }
   },

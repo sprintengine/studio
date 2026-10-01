@@ -7,14 +7,8 @@
   "category": "Agent CLI",
   "icon": "icon.svg",
   "binary": "muse",
-  "$comment": "Muse Code shipped 2026-08-05 as a macOS/Linux beta (Meta Superintelligence Labs). Everything declared below comes from Meta's launch materials: the binary is `muse`, `muse --version` confirms an install, `muse exec \"<prompt>\"` is a headless one-shot, the default model is muse-spark-1.2, and /plan, /grill and /goal ship as built-in skills. Four blocks are deliberately NOT declared because no public reference documents them and no Muse install was reachable from this machine to probe: modelSelection (the model flag's spelling is unknown), mcpConfig (path and format unknown), skillIntegration (Muse has native slash commands, but the directory a user skill installs into is undocumented), and a resume argv (the runtime keeps a replay-exact local event log and restarts after a crash, but no `--resume`/`--session-id` flag is documented). Each is a config-only flip — run `muse --help` against a real install and fill the block in; no code change is needed, because bundled plugins are directory-scanned and AgentCli is an open string. A FIFTH block is deliberately absent and load-bearing: agentStateSpec. Hooks are the only supported status mechanism (decision of record 2026-08-31), and Muse's beta cannot deliver them — its docs describe a .muse/hooks.json registration and a `muse hooks` CLI, but beta 0.2.1 silently ignores both; hooks only function through an experimental plugin path (MUSE_EXPERIMENTAL_PLUGINS=1) that promises breaking changes before GA. Without the spec, Muse is install/detect-only: it is hidden from agent pickers, refused by agent.launch, and reported agentSelectable: false by cli.runtime.list. When Muse's hooks GA, author the agentStateSpec here (its hook contract reportedly matches Claude Code's exactly, so the settings-json or owned-json kind should fit) and every surface re-admits it with zero code changes.",
-  "permissionPresets": {
-    "manual": {
-      "$comment": "Only `manual` is declared. Muse's approval-bypass flag (if it has one) is undocumented, and resolvePermissionPreset in src/main/plugin-render.ts degrades an undeclared auto/bypass DOWN this ladder to `manual` rather than passing an unknown flag through \u2014 which that code notes is fatal to the CLI. Guessing a flag name here would be the one failure mode the ladder exists to prevent. Add the higher rungs once `muse --help` names the real flags.",
-      "label": "Manual — Muse prompts for approvals",
-      "args": []
-    }
-  },
+  "$comment": "Muse Code shipped 2026-08-05 as a macOS/Linux beta (Meta Superintelligence Labs). Everything declared below comes from Meta's launch materials: the binary is `muse`, `muse --version` confirms an install, `muse exec \"<prompt>\"` is a headless one-shot, the default model is muse-spark-1.2, and /plan, /grill and /goal ship as built-in skills. Four blocks are deliberately NOT declared because no public reference documents them and no Muse install was reachable from this machine to probe: modelSelection (the model flag's spelling is unknown), mcpConfig (path and format unknown), skillIntegration (Muse has native slash commands, but the directory a user skill installs into is undocumented), and a resume argv (the runtime keeps a replay-exact local event log and restarts after a crash, but no `--resume`/`--session-id` flag is documented). Each is a config-only flip — run `muse --help` against a real install and fill the block in; no code change is needed, because bundled plugins are directory-scanned and AgentCli is an open string. A FIFTH block is deliberately absent and load-bearing: agentStateSpec. Hooks are the only supported status mechanism (decision of record 2026-08-31), and Muse's beta cannot deliver them — its docs describe a .muse/hooks.json registration and a `muse hooks` CLI, but beta 0.2.1 silently ignores both; hooks only function through an experimental plugin path (MUSE_EXPERIMENTAL_PLUGINS=1) that promises breaking changes before GA. Without the spec, Muse is install/detect-only: it is hidden from agent pickers, refused by agent.launch, and reported agentSelectable: false by cli.runtime.list. When Muse's hooks GA, author the agentStateSpec here (its hook contract reportedly matches Claude Code's exactly, so the settings-json or owned-json kind should fit) and every surface re-admits it with zero code changes. No bypass preset is declared either: Muse's approval-bypass flag (if it has one) is undocumented, and a flag the CLI does not know is fatal to it, so Muse launches with no permission flag whichever preset is chosen until `muse --help` names the real one.",
+  "permissionPresets": {},
   "launch": {
     "argv": ["{{binary}}", { "spreadIf": "permissionArgs" }]
   },
@@ -22,12 +16,11 @@
     "supported": false
   },
   "promptInjection": {
-    "$comment": "Same reasoning as the grok manifest, and for the same reason: Muse's interactive TUI documents no positional prompt argument (`muse exec` is a one-shot, not a session), and its real input-ready marker is unknown. The pattern (?!) never matches by design — any guessable marker would match the startup banner before the TUI accepts input, swallowing the keystrokes and cancelling the timeout fallback, while a late post-timeout match would inject a second copy. Never-match makes delivery deterministic: exactly one injection, via the runtime's timeout fallback, once the TUI has had timeoutMs to become ready. If a real install confirms `muse \"prompt\"` works interactively, flip mode to positional-arg.",
+    "$comment": "Muse's interactive TUI documents no positional prompt argument (`muse exec` is a one-shot, not a session), so the first message is typed in once the TUI is reading: when it turns bracketed paste on and output has gone quiet, the signal Claude Code, Codex and Cursor were verified against, with the message sent anyway after timeoutMs. Not verified against Muse itself: it was not installed on the machine this was written on (2026-09-24), so neither its help nor whether a startup dialog precedes the composer could be checked. If one does, this needs an output-match readiness like Kimi Code's before Muse can run as an agent at all; today it cannot, because it declares no agentStateSpec and the launch refuses it.",
     "mode": "send-after-ready",
     "readiness": {
-      "type": "output-match",
-      "pattern": "(?!)",
-      "timeoutMs": 8000
+      "type": "bracketed-paste",
+      "timeoutMs": 20000
     }
   },
   "contextInjection": {

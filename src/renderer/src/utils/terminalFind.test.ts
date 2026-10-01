@@ -35,10 +35,7 @@ test('terminalFind', async () => {
   // Opening a find bar in all of them is a bug you do not see until you switch
   // tabs and find a stale search sitting in a pane you never searched.
 
-  function pane(
-    workspaceId: string | null,
-    options: { focused?: boolean } = {},
-  ): MountedTerminalFind & { opened: number } {
+  function pane(workspaceId: string, options: { focused?: boolean } = {}): MountedTerminalFind & { opened: number } {
     const entry = {
       workspaceId,
       opened: 0,
@@ -79,25 +76,6 @@ test('terminalFind', async () => {
     assert.equal(newer.opened, 1)
     assert.equal(older.opened, 0)
     assert.equal(other.opened, 0, 'a pane in another workspace must never answer')
-  })
-
-  run('a pane with no workspace answers only by holding focus', () => {
-    // A fleet pane is attached to a MACHINE. Letting it answer through the
-    // active-workspace fallback would put a find bar on a remote terminal because
-    // of a key pressed while looking at a local one.
-    const fleet = pane(null)
-    registerMountedTerminalFind(fleet)
-
-    assert.equal(respondToTerminalFind('workspace-a'), null)
-    assert.equal(fleet.opened, 0)
-  })
-
-  run('a focused pane with no workspace does answer', () => {
-    const fleet = pane(null, { focused: true })
-    registerMountedTerminalFind(fleet)
-
-    assert.equal(respondToTerminalFind(null), fleet)
-    assert.equal(fleet.opened, 1)
   })
 
   run('exactly one pane ever answers', () => {

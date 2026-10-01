@@ -183,6 +183,30 @@ test('an agent on a WSL machine runs its startup script from inside the distribu
   await h.runtime.shutdown()
 })
 
+// A chat on a WSL machine can be continued in a terminal there, so every CLI
+// with a chat runtime has to start as a terminal agent in the distribution too.
+test('every chat CLI starts as a terminal agent inside the distribution', async () => {
+  const h = await harness()
+  const binaries: Record<string, string> = {
+    'claude-code': 'claude',
+    codex: 'codex',
+    cursor: 'cursor-agent',
+    opencode: 'opencode',
+    grok: 'grok',
+  }
+  for (const [cli, binary] of Object.entries(binaries)) {
+    const sessionId = `wsl-${cli}`
+    const result = await h.spawn({ ...agent(sessionId), cli, cliRuntimes: { [cli]: { command: '' } } })
+    assert.equal(result.ok, true, `${cli}: ${JSON.stringify(result)}`)
+    const call = h.spawned.at(-1)
+    assert.equal(call?.command, 'wsl.exe', cli)
+    const script = writes(h.helper).at(-1)?.files[0]
+    assert.ok(script && call?.args.at(-1)?.endsWith(script.path), `${cli} runs the script written for it`)
+    assert.match(decoded(script.b64), new RegExp(`\\b${binary}\\b`, 'u'), `${cli} starts ${binary}`)
+  }
+  await h.runtime.shutdown()
+})
+
 test('a plain terminal on a WSL machine waits for the helper and carries no token', async () => {
   const h = await harness()
   const result = await h.spawn({ sessionId: 'wsl-plain', kind: 'terminal', shellOnly: true })

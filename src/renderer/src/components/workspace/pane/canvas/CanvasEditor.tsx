@@ -5,6 +5,7 @@ import {
   MainMenu,
   exportToBlob,
   exportToSvg,
+  isElementLink,
   reconcileElements,
 } from '@excalidraw/excalidraw'
 import type {
@@ -46,12 +47,14 @@ import {
   CANVAS_PUSH_RETRY_MS,
 } from './canvasSync'
 import type { CanvasBoardExporter } from './canvasExport'
+import { canvasLinkAction } from './canvasLinks'
 
 // The live editor, and the ONE file in the tree that imports
 // `@excalidraw/excalidraw`. It is reached only through the `React.lazy` in
 // `CanvasTab.tsx`, which is what keeps the heaviest dependency in the tree — and
-// its stylesheet — out of the boot chunk; `scripts/check-bundle-budget.mjs`
-// fails the build if it ever arrives there.
+// its stylesheet — off the boot path until a board is actually opened. A static
+// import of this file anywhere eager would undo that without failing anything,
+// so it stays the only door in.
 //
 // Everything about talking to main lives here too, because the parts that do it
 // need values from the library (`reconcileElements`, `CaptureUpdateAction`) and
@@ -625,6 +628,19 @@ export default function CanvasEditor({
     [presence?.controller],
   )
 
+  // See canvasLinks.ts: the editor's own link handling can put a web page in
+  // this window, so every click is decided there and the default never runs.
+  const onLinkOpen = useCallback(
+    (element: { link: string | null }, event: CustomEvent<{ nativeEvent: MouseEvent | React.PointerEvent }>) => {
+      event.preventDefault()
+      if (!element.link) return
+      const action = canvasLinkAction(element.link, isElementLink)
+      if (action.kind === 'element') api?.scrollToContent(element.link, { fitToContent: true, animate: true })
+      else if (action.kind === 'external') void window.api.openExternal(action.url)
+    },
+    [api],
+  )
+
   return (
     <Excalidraw
       excalidrawAPI={setApi}
@@ -648,6 +664,7 @@ export default function CanvasEditor({
       onChange={onChange}
       onPointerDown={noteHumanInput}
       onPointerUp={flushPendingPush}
+      onLinkOpen={onLinkOpen}
     >
       {mainMenu}
     </Excalidraw>

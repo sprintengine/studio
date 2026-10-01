@@ -22,6 +22,8 @@ export type LaunchCommandLineInput = {
   model?: string
   reasoning?: string
   permissionPreset: CliPermissionPreset
+  /** The CLI's own mode at that preset, when it is not the preset's own. */
+  permissionMode?: string
   runtime?: Partial<CliRuntimeSettings>
 }
 
@@ -40,6 +42,7 @@ export function launchCommandLineKey(input: LaunchCommandLineInput): string {
     input.model ?? '',
     input.reasoning ?? '',
     input.permissionPreset,
+    input.permissionMode ?? '',
     input.runtime?.command ?? '',
     input.runtime?.hostId ?? '',
   ].join('\0')
@@ -54,6 +57,7 @@ export function launchPreviewRequest(input: LaunchCommandLineInput): AgentLaunch
     ...(input.model ? { cliModel: input.model } : {}),
     ...(input.reasoning ? { cliReasoning: input.reasoning } : {}),
     cliPermissionPreset: input.permissionPreset,
+    ...(input.permissionMode ? { cliPermissionMode: input.permissionMode } : {}),
     // Only forward a runtime override that actually overrides something: an
     // empty command would otherwise render as a blank binary in the receipt.
     ...(runtime?.command?.trim()

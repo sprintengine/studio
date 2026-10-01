@@ -34,7 +34,9 @@ export function WorkspacePaneLauncher({ kinds, onPick }: WorkspacePaneLauncherPr
           // tile is a column, so its one row of content is a row inside it.
           <CardButton
             key={kind}
-            variant="bordered"
+            // A launcher tile is pressed once and gone, so it stands off the
+            // pane on the control edge rather than lying in it as a hairline.
+            variant="raised"
             onClick={() => onPick(kind)}
             className="min-h-control-md px-3 py-2.5 text-meta text-[color:var(--text-default)]"
           >

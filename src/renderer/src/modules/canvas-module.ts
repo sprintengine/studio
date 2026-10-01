@@ -16,8 +16,8 @@ import type { RendererModule } from './renderer-host'
 // stays a local `React.lazy` in WorkspacePaneBody — the same split dev-tools
 // makes for `explorer` and git for its conflict resolver — and this manifest is
 // what that lazy import gates on. The editor is the heaviest dependency in the
-// tree, so keeping it behind that boundary is also what keeps it out of the
-// boot chunk (scripts/check-bundle-budget.mjs fails the build otherwise).
+// tree, so keeping it behind that boundary is also what keeps it off the boot
+// path until a board is opened.
 export const canvasRendererModule: RendererModule = {
   manifest: {
     id: 'canvas',

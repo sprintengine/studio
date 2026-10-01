@@ -22,6 +22,12 @@ commit or squash, never rebase, with Conventional Commit titles; see
 - Do not manually edit the app version. Stable tags are the release version
   ledger; the workflow stamps `package.json` before compilation and packaging.
   The committed version remains a development baseline. SDK versions are separate.
+- Publish `@sprintengine/module-sdk` on its own: set its `package.json` version,
+  write that version's `CHANGELOG.md` entry on top, then push an
+  `sdk-v<version>` tag (`.github/workflows/sdk-publish.yml`; needs the
+  `NPM_TOKEN` secret). `scripts/release/sdk-release-check.mjs` refuses a tag,
+  CHANGELOG or quoted host API version that disagrees, and `npm run
+  test:release` runs the same check on every pull request.
 - Keep the download site's release-notes data in step with releases if using its
   version-specific What's New section.
 - Keep macOS signing credentials configured: the `CSC_*` pair and `APPLE_*`
@@ -33,8 +39,59 @@ commit or squash, never rebase, with Conventional Commit titles; see
 Removals an installed profile cannot be migrated through. State each in the notes
 of the first release that ships it, then delete the line.
 
+- Automations, 2026-09-30 (owner ruling): replaced by scheduled agents — a
+  prompt and a cron schedule, set up from New chat, each run a new chat in the
+  project. Gone with them: the Automations door and its rail square, webhook and
+  module-provided triggers, the skill-loop action, "run once then pause",
+  paused automations, the approval review, run history and reports, the five
+  built-in starters and the marketplace's automation plugins, the plugin
+  bundle's `automation` component, and the agent tools `automation.list`,
+  `automation.runs`, `automation.create` and `automation.run` (now
+  `schedule.list`, `schedule.create`, `schedule.delete` and `schedule.run`).
+  Definitions on disk under a project's `.sprintengine/automations/` are left
+  untouched and no longer run; the hidden per-project Automations workspace
+  and its notifications are dropped on load. The area skill
+  `studio-automations` is now `studio-scheduled-agents`, and a person who had
+  switched it on is asked again.
+- Terminals over the tailnet, 2026-09-29 (owner ruling): a paired device no
+  longer lists, watches, types into or starts a terminal on this machine, and
+  this machine no longer does so on another. What crosses the tailnet is
+  conversations: the phone and a paired Studio follow and start chat agents
+  only. Gone with it: the terminal WebSocket, the Mesh terminal pane and its
+  New chat launch (a paired machine is offered for a Chat agent only), the
+  remote band's terminal rows, the "driving a terminal" marks in the Remote
+  popover and on tabs, and the lost/reconnected toasts that came from terminal
+  links. `terminal.list`,
+  `terminal.create`, `agent.launch`, `backlog.work` and `automation.run` stay on
+  the local socket, for agents and MCP clients on this machine, and are no
+  longer served to a paired device. The two scopes only terminals used,
+  `terminal:observe` and `terminal:control`, are retired: a paired device that
+  holds them keeps its pairing and loses just those two, silently, on first
+  load — the same way the Horizon scopes went. A Mesh tab left open on a remote
+  terminal reopens as an unavailable panel; close it. Local terminals are
+  unchanged.
+- Automations on the phone, 2026-09-29 (owner ruling): the desktop no longer
+  sends its automations to the phone, and the phone can no longer enable,
+  pause or run one. The snapshot's `automations` member, the `automations`
+  collection and the `automations.control` command are gone from the
+  mobile-control wire; the phone's own release drops its Automations screen.
+  An older phone that still asks for the collection gets a snapshot without
+  it, not an error. Automations themselves are unchanged on the desktop, and
+  an agent on this machine still lists and runs them through `automation.*`.
+- Hosted mobile relay, 2026-09-27 (owner ruling): the phone companion pairs
+  with and talks to the desktop over Tailscale only. The relay bridge, its
+  pairing links, its push notifications and Settings > Mobile are gone, and
+  nothing in the app connects or publishes to the relay. The relay module only
+  ever loaded in from-source builds, so no installed build loses a surface. On
+  first start a build deletes `mobile-bridge.json` from its user-data folder —
+  the relay's own pairings and push tokens — and records how many it held in
+  the diagnostics log; tailnet pairings are untouched. The
+  `@sprintengine/mobile-control-protocol` package is no longer built or
+  published from this repository: the snapshot and command shapes the tailnet
+  gateway still serves live in `src/main/mobile/control/protocol.ts`, on the
+  same wire version 4.
 - Automation review-only mode (item 2032): `autonomyDefault: 'review_only' |
-  'allow_changes'` is retired. An existing automation on disk still loads — the
+'allow_changes'` is retired. An existing automation on disk still loads — the
   key is dropped on read and never written back — and one whose author chose
   `review_only` keeps that intent: it is carried into the composed prompt as a
   write-up-only instruction, so nothing silently becomes a fixer. Two behaviour
@@ -44,7 +101,9 @@ of the first release that ships it, then delete the line.
   worktree, its own branch, and a pull request nothing merges automatically.
   And an automation with no explicit permission preset now launches its agent on
   `bypass_all` (item 2033) rather than stopping for an approval nobody is awake
-  to give. An agent still cannot grant itself bypass through the MCP tools.
+  to give. The MCP tools take bypass as well (owner ruling 2026-09-27): an
+  agent launched or an automation created through them may name it, and one
+  that names no preset runs on the machine's spawn default.
 - Automation autonomy field on the module SDK (item 2032): `autonomyDefault` is
   removed from `AutomationDefinition`, `AutomationDefinitionDraft` and the patch
   type in `@sprintengine/module-sdk`. This is a **breaking type change** for a
@@ -85,12 +144,12 @@ of the first release that ships it, then delete the line.
   workspace is removed outright. There is no replacement flow.
   A workspace saved in that mode is DROPPED from the Projects list on first load
   - everything it wrote is on disk and untouched (`product/`, `architecture/`,
-  `mockups/`, `design-system/`, `.guided-brief/`), so open the project as a normal
-  chat to keep working on those files. The Settings -> Agents toggle that ran the
-  design interview as chat sessions is gone and its saved value is dropped. The
-  Design door, design-system bundles, the library, attach and the bundle lint are
-  unaffected - they were never part of the wizard. Three Learn Center cards under
-  a "Design Wizard" category are gone with it.
+    `mockups/`, `design-system/`, `.guided-brief/`), so open the project as a normal
+    chat to keep working on those files. The Settings -> Agents toggle that ran the
+    design interview as chat sessions is gone and its saved value is dropped. The
+    Design door, design-system bundles, the library, attach and the bundle lint are
+    unaffected - they were never part of the wizard. Three Learn Center cards under
+    a "Design Wizard" category are gone with it.
 
 - Horizon and Multiloop, 2026-09-08: the two workspace modes are removed from
   the tree. A workspace saved in either mode is DROPPED from the Projects list
@@ -278,8 +337,9 @@ GitHub settings.
 ## Smoke Test
 
 - Install on a clean Windows machine or VM. The installer is one-click and
-  per-user: it shows no wizard and no UAC prompt, installs under
-  `%LOCALAPPDATA%\Programs`, and launches the app when it finishes.
+  per-user: it shows its small progress window with the app icon, no wizard
+  and no UAC prompt, installs under `%LOCALAPPDATA%\Programs`, and launches the
+  app when it finishes.
 - Install on macOS Intel and Apple Silicon where available.
 - Install on Linux using the AppImage.
 - Launch the installed app.
@@ -294,44 +354,124 @@ GitHub settings.
 
 ## Update Validation
 
-- Install the previous release.
-- Publish or draft the next release.
-- Start the previous release and run Help -> Check For Updates.
-- Confirm the new version is detected.
-- Confirm the update downloads without being asked, with its progress visible
-  in Settings -> General.
-- Confirm the "is ready" toast appears with Later and Restart to update.
-- Confirm Restart to update installs the update and relaunches the app. On
-  Windows, confirm no installer window and no UAC prompt appears.
-- Confirm Later leaves the app running, and the update installs at the next quit.
-- Relaunch and verify the new version is shown in Settings.
+Every update is asked for: a check that finds one offers it, and nothing
+downloads until Download is pressed, unless Settings -> General -> Download
+updates automatically is on (it is off by default). The diagnostics log
+(Open logs on a notification in the bell) has a line for each step below: the
+check, the download at 25/50/75%, "Update downloaded" (after the file's sha512
+and, on Windows, its signature were checked), "Restart to update", each
+shutdown leg with its time, the installer's full command line, and the
+hand-over. Read it first when an update misbehaves.
+
+What the person should see, in order:
+
+1. **Offered.** Help -> Check For Updates, or the hourly check: the toast
+   "SprintEngine Studio X is available" with Later and Download, a bell row,
+   and Settings -> General shows "X available" with a Download button. Nothing
+   downloads yet (no progress bar in Settings).
+2. **Downloading.** Press Download. The same toast becomes "Downloading
+   SprintEngine Studio X" and counts up ("42% downloaded"); the Settings row
+   shows a filling bar. Later on the offer instead leaves it offered; the next
+   hourly check does not offer the same version again in that window.
+3. **Ready.** The toast becomes "SprintEngine Studio X is ready" with Later and
+   Restart to update. On a Windows all-users installation its description says
+   Windows will ask for administrator permission.
+4. **Restart pressed.** At once, before anything else happens: the toast reads
+   "Installing update" and its button reads "Restarting…" with a spinner and
+   cannot be pressed again. The window stays responsive; Windows never labels
+   it "Not responding".
+5. **Progress window.** The workspace windows close and the small launch-plate
+   window appears in the centre of the screen: "Getting ready to update…", then
+   "Saving your work…" with the bar at its foot advancing as each part of the
+   app shuts down (terminals are the long step), then "Starting the
+   installer…", then "Installing SprintEngine Studio X…" (Windows) or
+   "Restarting into SprintEngine Studio X…" (macOS). It takes at most about
+   ten seconds, however many terminals are open.
+6. **Installer (Windows).** The small one-click installer window with the app
+   icon and a progress bar: no wizard, nothing to click. No UAC prompt for a
+   per-user installation. It closes itself when done.
+7. **Back.** The app starts again on its own with the normal launch plate, and
+   once it is up the toast "Updated to SprintEngine Studio X" appears (a bell
+   row too). Settings shows version X. If it came back on the old version, the
+   toast is "Update to X did not install" with the reason instead.
+
+Also confirm:
+
+- Later on the ready toast leaves the app running, and a per-user update
+  installs at the next quit (the next start then says "Updated to X"). An
+  all-users Windows installation does not install at quit; its toast said so.
+- Turning on Download updates automatically with an update offered starts the
+  download at once, and later checks download without asking.
 - On a nightly install, switch Update channel to Stable and confirm the check
   that follows offers the latest stable even when its version is lower than the
   nightly's. Switch back to Nightly and confirm the latest nightly is offered.
+- Switching channel is refused while an install is under way.
 
-### Windows installs from the assisted installer
+### Windows: updating the installation that is running
 
-There are existing Windows installs to update. Stable 0.4.0, 0.5.0, 0.5.1 and
-0.6.0 shipped the assisted NSIS installer (`oneClick: false`), which let the
-person choose an all-users install under Program Files (recorded in HKLM) or a
-folder of their own. The one-click per-user installer that replaced it looks
-for an earlier install in HKCU only, so it may not find either kind: the update
-can land as a second copy under `%LOCALAPPDATA%\Programs` while the old copy and
-its all-users shortcuts stay on 0.6.0 and keep being offered the update.
+Owner ruling 2026-09-24: an update installs over the installation the person
+is running, wherever it is. Stable 0.4.0, 0.5.0, 0.5.1 and 0.6.0 shipped the
+assisted NSIS installer (`oneClick: false`), which let the person install for
+all users under Program Files (recorded in HKLM) or into a folder of their own;
+the one-click per-user installer on its own only finds a per-user installation
+(HKCU), and would have put a second copy under `%LOCALAPPDATA%\Programs`.
 
-**Migration from an all-users 0.x install must be tested before the next
-stable.** How to handle it (point the installer at the existing folder, migrate
-off the all-users install, or document a manual reinstall) is still an owner
-decision; until it is made, run these on a Windows machine or VM:
+How it works: this build's app passes its own folder to the installer as
+`/D=<folder>` (last, unquoted), and `build/installer.nsh` installs there, in
+all-users mode when HKLM records that folder. An all-users installation needs
+an administrator: this build's app asks Windows for permission when Restart to
+update is pressed, before it shuts anything down. An older build (0.6.0 and
+earlier) passes no folder; the installer then takes the folder of the app that
+started it, and relaunches itself elevated when that folder is an all-users
+installation.
 
-- Install 0.6.0 for all users (Program Files), start it, and update to the
-  candidate through Restart to update. Record where the new version landed,
-  which copy the Start menu and desktop shortcuts start, and whether the old
-  copy still reports an update.
-- Repeat with 0.6.0 installed for the current user into a custom folder.
-- Repeat with 0.6.0 installed with the defaults (only for the current user,
-  default folder). That install is recorded in HKCU and is expected to update
-  in place; confirm that it does.
+Run every row on a Windows 10 or 11 VM with a fresh snapshot per row. Install
+0.6.0 from its GitHub release, start it, let it offer the candidate, and update
+through Restart to update. Then check every column; "one entry" means Settings
+-> Apps -> Installed apps lists SprintEngine Studio exactly once.
+
+| Row | Install 0.6.0 as                                                          | UAC                                                                                               | Version launched afterwards                                         | `%LOCALAPPDATA%\Programs`                                                                                  | Apps & features                          | Shortcuts                                                                           |
+| --- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------- |
+| a   | Only for me, default folder                                               | None                                                                                              | The candidate, relaunched by the installer                          | Only the original `SprintEngine Studio` folder, now holding the candidate; no `sprintengine-studio` folder | One entry, candidate version             | Start menu and desktop start the candidate                                          |
+| b   | Only for me, a custom folder (for example `D:\Tools\SprintEngine Studio`) | None                                                                                              | The candidate, from the custom folder                               | No `SprintEngine Studio` or `sprintengine-studio` folder created                                           | One entry, candidate version             | Start menu and desktop start `D:\Tools\SprintEngine Studio\SprintEngine Studio.exe` |
+| c   | Anyone who uses this computer (Program Files)                             | One prompt, from the installer that 0.6.0 started, naming "SprintEngine Studio" and its publisher | The candidate, from `C:\Program Files\SprintEngine Studio`          | No `SprintEngine Studio` or `sprintengine-studio` folder created                                           | One entry (all users), candidate version | The all-users Start menu and Public Desktop shortcuts start the Program Files copy  |
+| d   | As (c), and answer No on the UAC prompt                                   | Declined                                                                                          | 0.6.0 again, restarted by the installer; it offers the update again | Nothing created                                                                                            | One entry, 0.6.0                         | Unchanged                                                                           |
+
+Then, from the candidate itself (the path this build's app takes), install
+the candidate on each kind of installation and update it to a later build
+(a nightly cut after it):
+
+| Row | Installation              | UAC                                                                                                          | Expected                                                                                                                                                                                                      |
+| --- | ------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| e   | Per-user default          | None                                                                                                         | As (a): installer window, relaunch, "Updated to X" toast                                                                                                                                                      |
+| f   | Custom folder             | None                                                                                                         | As (b)                                                                                                                                                                                                        |
+| g   | All users (Program Files) | One prompt, in front of the app window, as soon as Restart to update is pressed (before the progress window) | As (c); the installer window then shows progress; "Updated to X" toast                                                                                                                                        |
+| h   | All users, answer No      | Declined                                                                                                     | No progress window, nothing shut down: the app keeps running on its version, and the toast turns to "Update not installed" saying administrator permission was not given, with Restart to update to try again |
+
+For each of (a) to (h) also check:
+
+- `reg query HKLM\SOFTWARE\811b2173-7620-5d95-bc40-528684ed1d2d /v InstallLocation /reg:64`
+  and the same under HKCU: exactly one of them names the installation (HKLM for
+  c, d, g, h; HKCU otherwise), and it is the folder updated.
+- Uninstall from Apps & features removes the folder, the entry and every
+  shortcut (for an all-users installation Windows asks for permission once, and
+  the "are you sure" question is asked once).
+- Row (c) or (g) on a machine that also has a stray per-user copy under
+  `%LOCALAPPDATA%\Programs\sprintengine-studio` (left by a nightly from before
+  this change): the update removes that copy, its HKCU entry, and its per-user
+  shortcuts; the all-users shortcuts remain. Repeat it through 0.6.0's
+  install at quit (Later on its ready toast, then quit 0.6.0): the Program
+  Files copy is the one updated, after one UAC prompt.
+- An older build's install at quit cannot see which copy it came from, so the
+  installer picks by registry: the per-user installation, unless it sits in
+  the one-click default folder (`%LOCALAPPDATA%\Programs\sprintengine-studio`)
+  beside an all-users one, which is the stray case above. Known limit, stated
+  in the release notes: a person running a pre-fix nightly per-user on a
+  machine where another account installed 0.6.0 for all users is asked for
+  administrator permission at quit, and their copy is folded into the
+  all-users one if they give it. Restart to update is not affected.
+- Later, then quit, on (e) and (f): no window and no prompt; the next start is
+  the candidate's successor, in the same folder, with "Updated to X".
 
 ## Failure And Rollback
 

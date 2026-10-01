@@ -28,24 +28,32 @@ test('a chosen value is shown and launched as chosen', () => {
   const stored = {
     ...emptyAgentLaunchSettings(),
     lastSelectedCli: 'codex',
-    lastAgentSpawnPermissionPreset: 'manual' as const,
+    lastAgentSpawnPermissionPreset: 'none' as const,
   }
   const effective = effectiveAgentLaunchSettings(stored)
   const shown = withLaunchSettings(defaultAppSettings(), stored, [])
   assert.equal(effective.lastSelectedCli, 'codex')
   assert.equal(shown.lastSelectedCli, 'codex')
-  assert.equal(effective.lastAgentSpawnPermissionPreset, 'manual')
-  assert.equal(shown.lastAgentSpawnPermissionPreset, 'manual')
+  assert.equal(effective.lastAgentSpawnPermissionPreset, 'none')
+  assert.equal(shown.lastAgentSpawnPermissionPreset, 'none')
 })
 
-test('a stored preset that is present but not current never escalates to the default', () => {
-  // A legacy spelling keeps its meaning and an unrecognised value floors to
-  // manual, as the window's own normalizer does, instead of reading as "never
-  // chosen" and so as the bypass default.
-  const legacy = normalizeAgentLaunchSettings({ lastAgentSpawnPermissionPreset: 'default' })
-  assert.equal(effectiveAgentLaunchSettings(legacy).lastAgentSpawnPermissionPreset, 'manual')
-  assert.equal(withLaunchSettings(defaultAppSettings(), legacy, []).lastAgentSpawnPermissionPreset, 'manual')
+test('a stored preset that asks never escalates to the default', () => {
+  // Manual and Auto read as themselves, and each pre-rename spelling as the
+  // preset its label promised, instead of reading as "never chosen" and so as
+  // the bypass default. Only an absent value, or one no version wrote, takes it.
+  for (const [stored, preset] of [
+    ['manual', 'manual'],
+    ['auto', 'auto'],
+    ['default', 'manual'],
+    ['auto_workspace', 'auto'],
+  ] as const) {
+    const legacy = normalizeAgentLaunchSettings({ lastAgentSpawnPermissionPreset: stored })
+    assert.equal(effectiveAgentLaunchSettings(legacy).lastAgentSpawnPermissionPreset, preset, stored)
+    assert.equal(withLaunchSettings(defaultAppSettings(), legacy, []).lastAgentSpawnPermissionPreset, preset, stored)
+  }
   const corrupt = normalizeAgentLaunchSettings({ lastAgentSpawnPermissionPreset: 'root' })
-  assert.equal(effectiveAgentLaunchSettings(corrupt).lastAgentSpawnPermissionPreset, 'manual')
+  assert.equal(corrupt.lastAgentSpawnPermissionPreset, null)
+  assert.equal(effectiveAgentLaunchSettings(corrupt).lastAgentSpawnPermissionPreset, 'auto')
   assert.equal(normalizeAgentLaunchSettings({}).lastAgentSpawnPermissionPreset, null)
 })

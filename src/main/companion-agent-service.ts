@@ -142,6 +142,12 @@ type CompanionEntry = {
   sessionId: string | null
   disposed: boolean
   spawning: Promise<void> | null
+  // Set while startSession is in flight. The runtime emits the new session's
+  // first events before startSession answers with its id, and other sessions
+  // of the same (workspaceId, agentId) — a leftover one being retired, say —
+  // emit on the same key. Events are held here until the id is known, then
+  // only the new session's are delivered.
+  pendingStart: { events: ConversationEvent[] } | null
   /** Delivered once, prepended to the first outgoing turn. */
   pendingPreamble: string | null
   lastStatus: CompanionAgentStatus
@@ -169,6 +175,9 @@ export type CreateCompanionAgentServiceOptions = {
 
 const DEFAULT_PROVIDER_ID = 'claude-agent'
 const DEFAULT_MODEL_ID = 'sonnet'
+// A start answers within a handful of events; the cap only bounds a runtime
+// that emits on the key without end while the start hangs.
+const MAX_PENDING_START_EVENTS = 256
 
 function defaultEngineDefaults(engine?: CompanionAgentSpec['engine']): { providerId: string; modelId: string } {
   return {
@@ -192,8 +201,19 @@ export function createCompanionAgentService(options: CreateCompanionAgentService
   const unsubscribeRuntime = runtime.onEvent((event) => {
     const entry = entries.get(entryKey(event.workspaceId, event.agentId))
     if (!entry || entry.disposed) return
-    if (entry.sessionId && event.sessionId !== entry.sessionId) return
+    // No session of its own yet: nothing on this key is the companion's until
+    // its start answers. Held while a start is in flight, dropped otherwise.
+    if (!entry.sessionId) {
+      if (entry.pendingStart && entry.pendingStart.events.length < MAX_PENDING_START_EVENTS) {
+        entry.pendingStart.events.push(event)
+      }
+      return
+    }
+    if (event.sessionId !== entry.sessionId) return
+    deliver(entry, event)
+  })
 
+  function deliver(entry: CompanionEntry, event: ConversationEvent): void {
     // Forward canonical (redacted) events to chat UIs.
     if (entry.eventListeners.size > 0) {
       const redacted = redactEvent(event)
@@ -214,7 +234,13 @@ export function createCompanionAgentService(options: CreateCompanionAgentService
         if (requestId && entry.sessionId) {
           const sessionId = entry.sessionId
           queueMicrotask(() => {
-            void runtime.respondToRequest({ sessionId, requestId, approved: true }).catch(() => undefined)
+            const prior = entry.pendingSend
+            const response = runtime.respondToRequest({ sessionId, requestId, approved: true })
+            // A stateless approval opens a separate continuation stream. The
+            // next validation retry must wait for both streams to drain.
+            entry.pendingSend = Promise.all([prior, response])
+              .then(() => undefined)
+              .catch(() => undefined)
           })
         }
       } else if (event.type === 'turn_completed') {
@@ -231,7 +257,7 @@ export function createCompanionAgentService(options: CreateCompanionAgentService
     }
 
     notifyStatus(entry)
-  })
+  }
 
   function settleCollector(
     collector: StructuredRunCollector,
@@ -264,20 +290,35 @@ export function createCompanionAgentService(options: CreateCompanionAgentService
     if (entry.sessionId) return
     if (entry.spawning) return entry.spawning
     const { providerId, modelId } = resolveEngineDefaults(entry.spec.engine)
+    const pendingStart: { events: ConversationEvent[] } = { events: [] }
+    entry.pendingStart = pendingStart
     entry.spawning = (async () => {
-      const started = await runtime.startSession({
-        workspaceRoot: entry.spec.workspaceRoot,
-        workspaceId: entry.spec.workspaceId,
-        agentId: entry.spec.agentId,
-        providerId,
-        modelId,
-      })
-      if (!started.ok) {
-        throw new Error(`Companion session could not start: ${started.message}`)
+      try {
+        const started = await runtime.startSession({
+          workspaceRoot: entry.spec.workspaceRoot,
+          workspaceId: entry.spec.workspaceId,
+          agentId: entry.spec.agentId,
+          providerId,
+          modelId,
+        })
+        if (!started.ok) {
+          throw new Error(`Companion session could not start: ${started.message}`)
+        }
+        const sessionId = started.session.sessionId
+        // Disposed while starting: the session it started is nobody's.
+        if (entry.disposed) {
+          void runtime.stopSession({ sessionId }).catch(() => undefined)
+          return
+        }
+        entry.sessionId = sessionId
+        entry.pendingPreamble = entry.spec.systemPrompt.trim() || null
+        // What the new session said while it was starting, and nothing any
+        // other session on this key said.
+        for (const event of pendingStart.events) if (event.sessionId === sessionId) deliver(entry, event)
+        notifyStatus(entry)
+      } finally {
+        if (entry.pendingStart === pendingStart) entry.pendingStart = null
       }
-      entry.sessionId = started.session.sessionId
-      entry.pendingPreamble = entry.spec.systemPrompt.trim() || null
-      notifyStatus(entry)
     })()
     try {
       await entry.spawning
@@ -455,6 +496,7 @@ export function createCompanionAgentService(options: CreateCompanionAgentService
         sessionId: null,
         disposed: false,
         spawning: null,
+        pendingStart: null,
         pendingPreamble: null,
         lastStatus: 'absent',
         statusListeners: new Set(),
@@ -476,9 +518,11 @@ export function createCompanionAgentService(options: CreateCompanionAgentService
 }
 
 // The moduleId-first registry behind the SDK's getCompanionAgentsService helper.
-// It enforces the `agents:companion` permission at attach time — the only
-// permission the platform actually gates, since there is no shared runtime
-// permission broker to inherit — then delegates to the app's companion service.
+// It enforces the `agents:companion` permission at attach time, then delegates
+// to the app's companion service under an agent id namespaced by the module
+// (`companionAgentIdFor`): a module picks its companion's id, and without the
+// namespace two modules picking the same one — or one picking the id of a chat
+// the person already has — would share a conversation.
 export type CompanionAgentsModuleRegistry = {
   attach(moduleId: string, spec: CompanionAgentSpec): CompanionAgentHandle
 }
@@ -496,9 +540,14 @@ export function createCompanionAgentsModuleRegistry(input: {
           `Module "${moduleId}" must declare the "agents:companion" permission to attach a companion agent.`,
         )
       }
-      return input.service.attach(spec)
+      return input.service.attach({ ...spec, agentId: companionAgentIdFor(moduleId, spec.agentId) })
     },
   }
+}
+
+/** The agent id a module's companion runs under: its own id, inside the module's namespace. */
+export function companionAgentIdFor(moduleId: string, agentId: string): string {
+  return `companion-${moduleId}-${agentId}`
 }
 
 function createDeferred<T>(): { promise: Promise<T>; resolve(value: T): void } {

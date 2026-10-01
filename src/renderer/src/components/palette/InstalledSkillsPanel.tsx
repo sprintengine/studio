@@ -8,7 +8,7 @@ import { useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { bracketedPaste } from '../../utils/terminalDrop'
 import { GhostButton, OutlineButton } from '../ui/Buttons'
 import { RowButton } from '../ui/RowButton'
-import { AgentWorkingDots } from '../ui/AgentWorkingDots'
+import { WorkingMark } from '../ui/WorkingMark'
 
 /** The listbox the palette's field controls while the Skills tab is showing. */
 export const INSTALLED_SKILLS_RESULTS_ID = 'installed-skills-results'
@@ -410,7 +410,7 @@ export const InstalledSkillsPanel = forwardRef<InstalledSkillsPanelHandle, Props
               </p>
             ) : !result ? (
               <p role="status" className="flex items-center gap-2 px-4 py-3 text-meta text-[color:var(--text-muted)]">
-                Reading installed skills <AgentWorkingDots label="Reading installed skills" />
+                Reading installed skills <WorkingMark label="Reading installed skills" />
               </p>
             ) : !result.ok ? (
               <p role="alert" className="px-4 py-3 text-meta text-[color:var(--tone-error)]">

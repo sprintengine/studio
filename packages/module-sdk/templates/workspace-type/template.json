@@ -1,0 +1,14 @@
+{
+  "id": "workspace-type",
+  "title": "Workspace type",
+  "summary": "A workspace type with a creation step, and a panel that reads the workspace it opens in.",
+  "permissions": [
+    "ipc:workspace-read",
+    "storage"
+  ],
+  "capabilities": [
+    "workspace-type",
+    "panel",
+    "storage"
+  ]
+}

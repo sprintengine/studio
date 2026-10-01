@@ -45,10 +45,6 @@ export function targetTabId(target: ExtensionsSurfaceTarget): string | null {
  * nothing more than the view (or the Installed tab, which needs no read).
  */
 export function landingFromTarget(target: ExtensionsSurfaceTarget): CatalogueLanding | null {
-  // Agent CLIs resolves no landing: its one tab is the app's own catalogue and
-  // it has no plugin or skill to open. A landing nobody consumes would sit in
-  // the door's state until the next target.
-  if (target.view !== 'plugins' && target.view !== 'skills') return null
   const itemId = target.view === 'plugins' ? (target.pluginId ?? null) : (target.skillId ?? null)
   if (!target.sourceId && !itemId) return null
   return { sourceId: target.sourceId ?? '', itemId }

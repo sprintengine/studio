@@ -5,15 +5,15 @@
  * permission preset, connector environment and name, wrote
  * an `AgentState`, and left the actual spawn to whichever `TerminalView` mounted
  * afterwards. Every one of those decisions is data, none of it is presentation —
- * but because it lived in the renderer, `agent.launch`, `backlog.work`, and
- * agent-backed `automation.run` all failed outright when no window was open.
+ * but because it lived in the renderer, `agent.launch` and `backlog.work` both
+ * failed outright when no window was open.
  *
  * The decision layer now lives in `src/main/agent-launch-service.ts`. This
  * module is the vocabulary both sides speak:
  *
  * - {@link AgentLaunchRequest} — what a caller asks for. Identical in shape to
- *   the old `agent.launch` renderer request, so the gateway, the automations
- *   executor, and the plan orchestrators migrate without changing what they send.
+ *   the old `agent.launch` renderer request, so the gateway and the plan
+ *   orchestrators migrate without changing what they send.
  * - {@link AgentLaunchRecord} — what main DECIDED, carried back on the terminal
  *   session snapshot. The renderer projects it into an `AgentState` so the tab
  *   is a view of main's session list rather than the thing that created it.
@@ -35,6 +35,11 @@ export type AgentLaunchRequest = {
   cliModel?: string
   /** Absent takes the app-level agent-spawn default. */
   permissionPreset?: CliPermissionPreset
+  /**
+   * The CLI's own mode at `permissionPreset`, read only beside it. A mode this
+   * CLI does not have at that preset launches the preset's own.
+   */
+  permissionMode?: string
   /** Git worktree to run in, instead of the workspace checkout. */
   worktreePath?: string
   /** Connector id from the installed connectors; resolves to an isolated single-server MCP. */
@@ -56,7 +61,7 @@ export type AgentLaunchRequest = {
   cwd?: string
   /**
    * Accept a workspace of any mode as the launch host. The default refuses
-   * anything but standard/automations-host, because an `agent.launch` caller
+   * anything but a standard workspace, because an `agent.launch` caller
    * that named a hidden workspace has almost certainly named the wrong one. A
    * module agent session names its host explicitly — the workspace its surface
    * was opened from — so it opts out of that guard rather than being told the
@@ -69,6 +74,13 @@ export type AgentLaunchRequest = {
    * a choice (`wsl:<distro>`); anywhere else every launch runs locally.
    */
   host?: ExecutionHostId
+  /**
+   * The CLI's own session id to resume instead of starting a new
+   * conversation: the launch runs the CLI's resume command
+   * (`claude --resume <id>`, `codex resume <id>`). A resume carries no
+   * startup prompt. Refused for a CLI whose manifest declares no resume.
+   */
+  resumeCliSessionId?: string
 }
 
 export type AgentDisposeRequest = {
@@ -91,6 +103,8 @@ export type AgentLaunchRecord = {
   cli: AgentCli
   cliModel?: string
   cliPermissionPreset: CliPermissionPreset
+  /** The CLI's own mode at that preset, when one other than the preset's own was chosen. */
+  cliPermissionMode?: string
   connectorMcpSettings?: McpSettings
   spawnSkillId?: string
   /**

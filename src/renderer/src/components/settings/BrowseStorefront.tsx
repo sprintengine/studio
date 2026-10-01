@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { installAndActivateRendererModules } from '../../modules'
 
 import { isClaudeCodePluginEntry, type MarketplacePluginEntry } from '../../../../shared/marketplace/manifest'
-import type { CapabilityPermission } from '../../../../shared/modules/permissions'
 import type { McpServerConfig, McpSettings } from '../../types/workspace'
+import { ExtensionTrustReview } from '../extensions/ExtensionTrustReview'
 import {
   Badge,
   FOCUS_RING_CLASS,
@@ -17,7 +17,6 @@ import {
 import { Modal, ModalFooter, ModalHeader } from '../ui/Modal'
 import { mcpMonogram } from '../ui/mcpMonogram'
 import { iconHasOwnPlate } from '../ui/iconPlate'
-import { PermissionChips } from './ThirdPartyModuleList'
 import { componentKindLabels, externalSourceHref } from './storefrontView'
 import {
   classifyVerification,
@@ -31,10 +30,12 @@ import {
 // Connectors surface next to its browse rows. The detail data comes from the
 // T2.1 RegistryClient (the registry INDEX only, so it shows real
 // components-carried + version). Clicking Install runs the T3.4
-// verifyMarketplacePlugin IPC (real download + ed25519-verify, no install), then
-// verified plugins install directly, signed community plugins show a trust prompt
-// populated with the REAL verified permissions before install, and unsigned/
-// invalid bundles hard-block with no install affordance. No permission is ever
+// verifyMarketplacePlugin IPC (main resolves the entry by id, downloads and
+// ed25519-verifies it, installs nothing), then verified plugins install directly,
+// signed community plugins show a trust prompt populated with what verify
+// disclosed — permissions, every MCP command line, the pinned commit — and install
+// with the one-time token verify issued; unsigned code and invalid bundles
+// hard-block with no install affordance. No permission is ever
 // fabricated (the index omits them; they come only from the verified signed
 // manifest), and there are no purchase/Buy affordances (D4). The install state
 // machine lives in the DOM-free `installFlow` view-model. The old aspect-square
@@ -88,18 +89,17 @@ export function PluginDetailPanel({
   const workspaceBlocked = needsWorkspace && !workspaceRoot
 
   const runInstall = useCallback(
-    async (trustGranted: boolean, claudePluginRef?: string) => {
+    async (trustToken?: string) => {
       setFlow({ status: 'installing' })
       try {
         const result = await installAndActivateRendererModules(() =>
           window.api.installMarketplacePluginFromRegistry({
-            entry: plugin,
-            trustGranted,
+            id: plugin.id,
+            // The approval main issued at verify; it installs exactly what the
+            // prompt disclosed, never whatever the source moved to since.
+            ...(trustToken ? { trustToken } : {}),
             workspaceRoot: workspaceRoot ?? undefined,
             mcpSettings,
-            // Claude plugins: install exactly the commit the trust prompt
-            // disclosed, never whatever the source ref moved to since.
-            ...(claudePluginRef ? { claudePluginRef } : {}),
           }),
         )
         if (result.ok) {
@@ -122,14 +122,10 @@ export function PluginDetailPanel({
   )
 
   const startInstall = useCallback(async () => {
-    // Inline-MCP entries ship their server config in the registry entry itself —
-    // there is no bundle to download or verify. They are executable config, so they
-    // always route through the explicit trust prompt — never a silent install — and
-    // carry no capability permissions (those live only in signed module bundles).
-    if (plugin.mcp) {
-      setFlow({ status: 'needs-trust', permissions: [] })
-      return
-    }
+    // Inline-MCP entries verify too: there is no bundle to download, but main
+    // still resolves the entry itself, discloses each server exactly as it
+    // would be written, and issues the token — they are executable config, so
+    // they always route through the explicit trust prompt.
     if (typeof window.api.verifyMarketplacePlugin !== 'function') {
       setFlow({ status: 'error', message: 'Installing extensions needs a newer app build. Update and restart.' })
       return
@@ -137,7 +133,7 @@ export function PluginDetailPanel({
     setFlow({ status: 'verifying' })
     let verify
     try {
-      verify = await window.api.verifyMarketplacePlugin(plugin)
+      verify = await window.api.verifyMarketplacePlugin({ id: plugin.id })
     } catch (error) {
       setFlow({ status: 'error', message: error instanceof Error ? error.message : 'Could not verify this extension.' })
       return
@@ -153,16 +149,11 @@ export function PluginDetailPanel({
       return
     }
     if (outcome.kind === 'needs-trust') {
-      setFlow({
-        status: 'needs-trust',
-        permissions: outcome.permissions,
-        ...(outcome.files ? { files: outcome.files } : {}),
-        ...(outcome.pinnedRef ? { pinnedRef: outcome.pinnedRef } : {}),
-      })
+      setFlow({ status: 'needs-trust', review: outcome.review, trustToken: outcome.trustToken })
       return
     }
     // Verified: install directly, no trust prompt.
-    await runInstall(false)
+    await runInstall(outcome.trustToken)
   }, [plugin, runInstall])
 
   const installView = deriveInstallView(flow)
@@ -214,18 +205,13 @@ export function PluginDetailPanel({
 
         {plugin.skills?.length ? <PluginSkillsList skills={plugin.skills} /> : null}
 
-        {/* Phase-3 trust-gate install flow. Permissions shown here come only from
-          the ed25519-verified signed manifest (via verifyMarketplacePlugin) and
-          are never fabricated; unsigned/invalid never reach an install affordance;
+        {/* Phase-3 trust-gate install flow. Everything the prompt shows came from
+          main's verify (via verifyMarketplacePlugin) and is never fabricated;
+          unsigned code and invalid bundles never reach an install affordance;
           no purchase/Buy affordance anywhere (D4). */}
         <div className="mt-4 space-y-2">
-          {installView.trustPrompt ? (
-            <TrustPrompt
-              tier={trust.tier}
-              permissions={installView.permissions ?? []}
-              inlineServers={inlineServers}
-              files={installView.files}
-            />
+          {installView.trustPrompt && installView.review ? (
+            <ExtensionTrustReview {...installView.review} publisher={plugin.publisher} />
           ) : null}
 
           {installView.notice ? (
@@ -294,7 +280,7 @@ export function PluginDetailPanel({
               disabled={workspaceBlocked}
               onClick={() =>
                 void (installView.action?.kind === 'trust-install'
-                  ? runInstall(true, installView.pinnedRef ?? undefined)
+                  ? runInstall(installView.trustToken ?? undefined)
                   : startInstall())
               }
             >
@@ -351,117 +337,6 @@ function PluginSkillsList({ skills }: { skills: NonNullable<MarketplacePluginEnt
       ) : null}
     </div>
   )
-}
-
-// The pre-trust disclosure shown inside the trust prompt. Community/unsigned
-// bundles disclose their real capability permissions (never fabricated); an
-// inline-MCP entry has no capability permissions, so it discloses the executable
-// server config the trust grant will run instead. Copy avoids any purchase/paywall
-// framing (D4) and states plainly that trust is install-time, not a runtime sandbox.
-export function TrustPrompt({
-  tier,
-  permissions,
-  inlineServers,
-  files,
-}: {
-  tier: PluginTrustTier
-  permissions: CapabilityPermission[]
-  inlineServers: McpServerConfig[]
-  // Real content listing for file-payload entries (Claude Code plugin skills):
-  // shown in place of permission chips, never alongside fabricated ones.
-  files?: string[] | null
-}) {
-  const copy =
-    tier === 'inline'
-      ? {
-          heading: 'Inline MCP server — review it before trusting',
-          body: 'This entry runs a local command or connects to a remote endpoint as an MCP server. Trusting it adds and starts the server below — review it before you continue.',
-        }
-      : files?.length
-        ? {
-            heading: 'Unsigned plugin skills — review before trusting',
-            body: 'Skills are instruction files your agents read and follow. This plugin isn’t signed, so its contents can’t be verified — trusting it copies the skills below into this workspace for your installed agent CLIs.',
-          }
-        : tier === 'unsigned'
-          ? {
-              heading: 'Unsigned extension — review before trusting',
-              body: 'This extension isn’t signed, so its publisher and contents can’t be verified. Trusting it installs it with the app’s access — install-time disclosure, not a runtime sandbox.',
-            }
-          : {
-              heading: 'Community extension — review the access it requests',
-              body: 'This publisher isn’t verified. Trusting it lets its code run with the app’s access — requested access is install-time disclosure, not a runtime sandbox.',
-            }
-  return (
-    <div className="rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-3">
-      <div className="text-meta font-semibold text-[color:var(--text-default)]">{copy.heading}</div>
-      <p className="mt-1 text-meta leading-4 text-[color:var(--text-subtle)]">{copy.body}</p>
-      <div className="mt-2">
-        {tier === 'inline' ? (
-          <ul className="space-y-1">
-            {inlineServers.map((server) => (
-              <li key={server.id} className="min-w-0">
-                <div className="flex items-center gap-1.5 text-meta text-[color:var(--text-muted)]">
-                  <span className="font-mono text-meta text-[color:var(--text-subtle)]">{server.transport}</span>
-                  <TruncatedText as="span" text={server.name} className="font-medium" />
-                </div>
-                <TruncatedText
-                  as="div"
-                  text={inlineServerCommand(server)}
-                  className="mt-0.5 font-mono text-meta leading-4 text-[color:var(--text-subtle)]"
-                />
-              </li>
-            ))}
-          </ul>
-        ) : files?.length ? (
-          <TrustFileListing files={files} />
-        ) : (
-          <PermissionChips permissions={permissions} />
-        )}
-      </div>
-    </div>
-  )
-}
-
-// How many trust-prompt file rows show before the remainder collapses into a
-// "+N more" line — the disclosure stays real without swallowing the panel.
-const TRUST_FILES_LIMIT = 8
-
-// The real file listing a trust grant installs (Claude Code plugin skill
-// folders), fetched by the pre-trust verify — the file-payload counterpart of
-// the permission chips.
-function TrustFileListing({ files }: { files: string[] }) {
-  const visible = files.slice(0, TRUST_FILES_LIMIT)
-  const hiddenCount = files.length - visible.length
-  return (
-    <div>
-      <div className="text-meta font-semibold text-[color:var(--text-subtle)]">
-        Adds {files.length} skill{files.length === 1 ? '' : 's'} to the workspace
-      </div>
-      <ul className="mt-1 space-y-0.5">
-        {visible.map((file) => (
-          <li key={file} className="min-w-0">
-            <TruncatedText
-              as="div"
-              text={file}
-              className="font-mono text-meta leading-4 text-[color:var(--text-muted)]"
-            />
-          </li>
-        ))}
-      </ul>
-      {hiddenCount > 0 ? (
-        <div className="mt-0.5 text-meta leading-4 text-[color:var(--text-subtle)]">+{hiddenCount} more</div>
-      ) : null}
-    </div>
-  )
-}
-
-// The executable summary of an inline MCP server: the stdio command line, or the
-// endpoint URL for http/sse transports. This is what the trust grant will run.
-function inlineServerCommand(server: McpServerConfig): string {
-  if (server.transport === 'stdio') {
-    return [server.command, ...(server.args ?? [])].filter(Boolean).join(' ') || '(no command)'
-  }
-  return server.url || '(no endpoint)'
 }
 
 type PluginTrustTier = 'verified' | 'community' | 'unsigned' | 'inline'

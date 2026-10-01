@@ -1,0 +1,17 @@
+{
+  "kind": "provider",
+  "id": "codex-agent",
+  "displayName": "Codex",
+  "publisher": "sprintengine",
+  "version": 1,
+  "summary": "Codex conversations with streamed tools, approvals, and resumable threads.",
+  "category": "Agent Runtime",
+  "icon": "icon.svg",
+  "providerType": "agent-harness",
+  "models": [
+    { "id": "gpt-6-sol", "displayName": "GPT-6 Sol" },
+    { "id": "gpt-6-astra", "displayName": "GPT-6 Astra" },
+    { "id": "gpt-6-luna", "displayName": "GPT-6 Luna" }
+  ],
+  "adapter": { "kind": "declarative" }
+}

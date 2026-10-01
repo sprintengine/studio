@@ -24,6 +24,14 @@ import { bracketedTerminalPaste } from '../shared/terminal-paste'
 // message once the fallback window has passed, because a prompt that never
 // arrives is the failure this exists to prevent.
 //
+// Some CLIs turn the mode on for a dialog before their composer — Kimi Code's
+// "Trust this folder?" does, with "Trust" selected, so the Enter would trust the
+// folder. Their manifests declare an `output-match` readiness instead: the
+// message waits for text only the composer screen prints, and a CLI that never
+// prints it within the window gets nothing typed at all. That is abandoned as
+// `not-ready`, and the caller hands the message back to the person rather than
+// typing it blind into a screen nobody recognised.
+//
 // "The CLI exits" is not the pty exiting. An agent launch runs the CLI from a
 // startup script that then execs an interactive shell, and a modern shell turns
 // bracketed paste on too: a CLI that died at startup would hand the message to
@@ -57,6 +65,17 @@ export function sanitizeTypedPrompt(text: string): string {
 export const DEFERRED_PROMPT_QUIET_MS = 500
 /** From spawn: past this, the message goes whatever the CLI has or has not said. */
 export const DEFERRED_PROMPT_FALLBACK_MS = 20_000
+/** How much earlier output an `output-match` pattern can still see, so a match split across chunks is found. */
+const OUTPUT_MATCH_CARRY = 1_024
+
+/**
+ * What counts as "the CLI is ready" (a manifest's `promptInjection.readiness`).
+ * `bracketed-paste` — the mode sequence or a hook frame, and a send on timeout.
+ * `output-match` — `pattern` in the output or a hook frame, and no send on
+ * timeout.
+ */
+export type DeferredPromptReadiness =
+  { type: 'bracketed-paste'; timeoutMs?: number } | { type: 'output-match'; pattern: RegExp; timeoutMs: number }
 /**
  * Between the paste and the Enter. The Enter is a separate write because an
  * Enter inside the bracketed block is text, not a submit; the gap grows with the
@@ -82,7 +101,7 @@ const realTimers: Timers = {
 
 export type DeferredPromptOutcome =
   | { kind: 'delivered'; via: 'ready' | 'fallback'; atMs: number }
-  | { kind: 'abandoned'; reason: 'exited' | 'cancelled' | 'write-failed' }
+  | { kind: 'abandoned'; reason: 'exited' | 'cancelled' | 'write-failed' | 'not-ready' }
 
 export type DeferredPromptDelivery = {
   /** Every chunk the CLI writes, in order. */
@@ -112,10 +131,19 @@ export function createDeferredPromptDelivery(input: {
   write(data: string): void
   /** Told once, when the delivery settles either way. */
   onSettled?(outcome: DeferredPromptOutcome): void
+  /** Absent is `bracketed-paste` with the default window. */
+  readiness?: DeferredPromptReadiness
   timers?: Timers
 }): DeferredPromptDelivery {
   const timers = input.timers ?? realTimers
   const text = sanitizeTypedPrompt(input.text)
+  const readiness: DeferredPromptReadiness = input.readiness ?? { type: 'bracketed-paste' }
+  // A global or sticky regex carries `lastIndex` between tests; a copy without
+  // those flags answers the same question statelessly.
+  const readyPattern =
+    readiness.type === 'output-match'
+      ? new RegExp(readiness.pattern.source, readiness.pattern.flags.replace(/[gy]/g, ''))
+      : null
   const startedAt = timers.now()
   const held: string[] = []
   let exitCarry = ''
@@ -128,7 +156,14 @@ export function createDeferredPromptDelivery(input: {
   let pasted = false
   let readyPoll: unknown = null
   let submitTimer: unknown = null
-  const fallbackTimer = timers.setTimeout(() => deliver('fallback'), DEFERRED_PROMPT_FALLBACK_MS)
+  // `bracketed-paste` types the message on timeout. `output-match` does only if
+  // the composer was recognised and the screen simply never went quiet;
+  // otherwise it gives up, because what is on screen is not a screen its
+  // manifest recognised.
+  const fallbackTimer = timers.setTimeout(
+    () => (readyPattern && !reading ? settle({ kind: 'abandoned', reason: 'not-ready' }) : deliver('fallback')),
+    readiness.timeoutMs ?? DEFERRED_PROMPT_FALLBACK_MS,
+  )
 
   const clearTimers = (): void => {
     timers.clearTimeout(fallbackTimer)
@@ -209,6 +244,11 @@ export function createDeferredPromptDelivery(input: {
       lastOutputAt = timers.now()
       if (reading) return
       const window = carry + data
+      if (readyPattern) {
+        if (readyPattern.test(window)) markReading()
+        else carry = window.slice(-OUTPUT_MATCH_CARRY)
+        return
+      }
       if (window.includes(BRACKETED_PASTE_ON)) markReading()
       else carry = window.slice(-(BRACKETED_PASTE_ON.length - 1))
     },

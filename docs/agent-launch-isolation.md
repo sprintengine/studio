@@ -27,10 +27,17 @@ build under the profile's userData directory
 
 - `--plugin-dir <userData>/agent-integration/<version>/sprintengine-studio`
   carries the agent-state hook (`hooks/hooks.json` and the reporter beside it),
-  the MCP gateway (`.mcp.json`) and the studio skills.
-- `--plugin-dir <userData>/agent-integration/<version>/studio-skills` carries
-  the workflow skills the app ships (debug, backlog, frontend-design and the
-  rest). **New in this change.**
+  the MCP gateway (`.mcp.json`) and the studio skills the person opted into
+  (none by default; `src/shared/studio-area-skills.ts`). A choice changed in
+  Settings is applied to this copy in place, not by rebuilding it.
+- `--plugin-dir <userData>/agent-integration/<version>/launch-skills/<id>`,
+  **only on the launch whose prompt invokes that skill**: `backlog`, for a
+  Backlog handoff (Hand to agent, `backlog.work`). It is a plugin holding that
+  one skill, so no other session sees it and nothing is written to the
+  repository. It is the only skill the
+  app ships (`resources/builtin-skills`). A `studio-skills` bundle holding it,
+  `debug` and seven general workflow skills was passed to every launch until
+  2026-09-28 and is gone; so is Debug Mode, the feature `debug` backed.
 - `--settings '<json>'` carries the status line, which no plugin can declare.
 
 Each is documented by Claude Code as applying to that session only and writing
@@ -38,9 +45,9 @@ nothing to disk. The manifests declare them as `launchPlugins` and
 `launchSettings`
 (`resources/plugins/{claude-code,zai,kimi-claude}/plugin.json`).
 
-A plugin skill is invoked by its bare name (`/debug`) whenever no other command
-claims that name, and always as `/studio-skills:debug`, so the invocations the
-app already prefills keep resolving. A person's own `.claude/skills/debug`
+A plugin skill is invoked by its bare name (`/backlog`) whenever no other command
+claims that name, and always as `/sprintengine-backlog:backlog`, so the invocations
+the app already prefills keep resolving. A person's own `.claude/skills/backlog`
 takes the bare name ahead of the plugin's, which is the precedence they would
 expect.
 
@@ -54,6 +61,47 @@ into it (`src/main/hosts/wsl-plugin-copy.ts`). The launch flag, the agent-state
 installer and the MCP sync all ask this one question, so none of them can write
 a workspace copy of something the launch is also carrying, or skip one it is
 not.
+
+## What outlives the app
+
+Everything below that is still written into a repository or a CLI's user
+configuration can outlive the app: it is uninstalled, it moves, or an update
+prunes the version folder a command named. So none of it names the app
+directly any more.
+
+- **The launcher.** Every hook command and every MCP gateway entry runs
+  `~/.sprintengine/bin/studio-run` (a POSIX `sh` script, run as `/bin/sh
+  <path> <target> …`) or, on Windows, `studio-run.cmd` beside it — inside a
+  WSL distribution, the same script under that distribution's home. The app
+  rewrites a small pointer file beside it (`current`: the Node to run, and the
+  directory holding `hooks/` and `automation/`) on every start, and a WSL
+  distribution's whenever its helper is prepared. When the app is gone the
+  launcher does the harmless thing: a hook drains its input and exits 0, and
+  the MCP target answers `initialize` with a server that has no tools, which
+  Claude Code and OpenCode report as connected rather than failed
+  (`src/main/integrations/launcher.ts`). Nothing is copied into a repository
+  for a hook to run any more; the reporter and the status-line forwarder that
+  ship with the app are what the launcher runs.
+- **The ledger.** Every file, entry and piece of machine state the app writes
+  outside userData — hook blocks, gateway entries, settings keys, plugin and
+  skill copies, git excludes, worktree locks, tailnet shares, the protocol
+  registration, the launcher — is recorded in `integration-ledger.json` in
+  userData as it is written, with how our part is recognised
+  (`src/main/integrations/ledger.ts`). A WSL distribution's entries are
+  mirrored into its own `~/.sprintengine/integration-ledger.json`. The first
+  start of a build that keeps a ledger scans the workspaces it knows (and their
+  worktrees) and the home for what an earlier build wrote
+  (`integration-scan.ts`), and every start moves any listed entry still in the
+  older form onto the launcher, in place (`integration-migrate.ts`).
+- **Kimi Code's user-level hook** is written when a Kimi Code session is
+  launched and taken back out when the app quits: it applies to every Kimi Code
+  session on the machine, and only sessions the app launched ever report
+  through it.
+- **Connector worktrees' excludes** go into that worktree's own
+  `config.worktree` (`core.excludesFile`, with `extensions.worktreeConfig` on),
+  never the repository's shared `info/exclude`, which hid a real `.mcp.json` in
+  the main checkout. The pair an earlier build appended there is taken back
+  out (`src/main/integrations/worktree-exclude.ts`).
 
 ## Inventory
 
@@ -70,10 +118,10 @@ receives the same thing from the command line the app built.
 | `.sprintengine/studio-plugin/` | Materialised studio plugin (absolute paths substituted in) | Claude Code, via the two settings keys below | `--plugin-dir` | Written only when the launch does **not** carry the plugin; removed otherwise. The other harnesses' skill copies are taken from the bundled template, whose skills carry no tokens. |
 | `.claude/settings.local.json` → agent-state hook entries | Agent phase reporting | Claude Code, Z.AI, Kimi Claude | `--plugin-dir` (the plugin's `hooks/hooks.json`) | Removed when the launch carries the plugin (already true before this change); the removal now shares one implementation with the launch-time tidy. |
 | `.claude/settings.local.json` → `extraKnownMarketplaces` | Points Claude Code at the workspace plugin copy | Claude Code | `--plugin-dir` | Removed when the launch carries the plugin (already true). |
-| `.claude/settings.json` → `enabledPlugins` | Enables the workspace plugin copy | Claude Code | `--plugin-dir` | Removed when the launch carries the plugin (already true). |
-| `.sprintengine/hooks/agent-state.mjs` | The reporter the hook entries run | Every command-hook CLI in the workspace | `--plugin-dir` for Claude only | Removed when the launch carries the plugin **and** no other CLI's registration in the workspace still names it. Before this change it was removed unconditionally, which broke a Codex, Cursor or Grok hook in the same checkout. |
+| `.claude/settings.local.json` → `enabledPlugins` | Enables the workspace plugin copy | Claude Code | `--plugin-dir` | Removed when the launch carries the plugin. Written to the gitignored file; an earlier build wrote it into the committed `.claude/settings.json`, and the install takes that key back out. |
+| `.sprintengine/hooks/agent-state.mjs` | The reporter older hook entries ran | Every command-hook CLI in the workspace | The launcher (see above) | No longer written: every hook runs the launcher, which runs the reporter the app ships. A copy an earlier build left is removed once no registration in the checkout names it. |
 | `.claude/skills/studio-*` | Studio skills | Claude Code | `--plugin-dir` | Not copied, and earlier copies with our provenance removed, when the launch carries the plugin (already true). |
-| `.agents/skills/studio-*`, `.codex/skills/studio-*`, `.opencode/skills/studio-*`, `.grok/skills/studio-*` | Studio skills | Codex, OpenCode, Grok and any CLI that reads `.agents/skills` | None known; see Remaining | Unchanged. |
+| `.agents/skills/studio-*`, `.codex/skills/studio-*`, `.opencode/skills/studio-*`, `.grok/skills/studio-*` | Studio skills | Codex, OpenCode, Grok and any CLI that reads `.agents/skills` | None known; see Remaining | Only the skills the person opted into (none by default). A copy of any other, with our provenance and not committed, is removed on the next workspace pass. |
 
 The workspace install used to race the materialisation of the launch copy at
 startup: a workspace opened in that window was installed the old way — hook,
@@ -92,15 +140,15 @@ way, which keeps agent state working.
 | `.claude/settings.local.json` → `enabledMcpjsonServers` | Pre-approval for the gateway in `.mcp.json` | Claude family | Not needed once the gateway comes from the plugin | Removed with the entry above; the file and `.claude/` are deleted when nothing else is in them. |
 | `.codex/config.toml` managed MCP block | MCP gateway | Codex | Possibly `-c mcp_servers.…`; see Remaining | Unchanged. |
 | `.cursor/mcp.json`, `opencode.json` | MCP gateway | Cursor, OpenCode | Possibly; see Remaining | Unchanged. |
-| `.agents/skills/<id>`, `.claude/skills/<id>`, `.codex/skills/<id>`, … | A bundled skill the prompt invokes (Debug Mode's `debug`, an attached skill, `backlog.work`'s `backlog`) — `builtin-skills.ts` `ensureSkillInstalled` | Each CLI's native skill directory | `--plugin-dir` (`studio-skills`) for the Claude family | **Not copied at all** for a launch that carries the plugin — the call answers `delivered-at-launch` and writes nothing for any harness. For every other CLI the fan-out still runs, but leaves out `.claude/skills` whenever the Claude-family launches carry the plugin, so a Debug Mode Codex launch no longer drops a Claude copy into the repository. Skills a capability module registers live in the module rather than in the plugin, and are copied everywhere as before. |
+| `.agents/skills/<id>`, `.claude/skills/<id>`, `.codex/skills/<id>`, … | A bundled skill the prompt invokes (an attached skill, `backlog.work`'s `backlog`) — `builtin-skills.ts` `ensureSkillInstalled` | Each CLI's native skill directory | `--plugin-dir` (`launch-skills/<id>`, that launch only) for the Claude family | **Not copied at all** for a launch that carries that skill's plugin — the call answers `delivered-at-launch` and writes nothing for any harness. For every other CLI the fan-out still runs, but leaves out `.claude/skills` whenever the Claude-family launches carry the plugin, so a Backlog handoff on Codex no longer drops a Claude copy into the repository. Skills a capability module registers live in the module rather than in the plugin, and are copied everywhere as before. |
 | `.claude/settings.local.json` → agent-state hooks + status line; `.sprintengine/hooks/agent-state.mjs`; `.sprintengine/hooks/status-line.mjs` | Agent phase and context usage | Claude family | `--plugin-dir` + `--settings` | Not written when the launch carries the plugin (already true). **New:** the launch now also removes what an earlier build wrote, once per workspace per run, so an existing repository is cleaned on the next app-launched session rather than only when the workspace is next opened — which covers worktrees and other launch directories that are never opened as workspaces. |
 | `.codex/config.toml` hooks block | Agent phase | Codex | See Remaining | Unchanged. |
 | `.cursor/hooks.json` | Agent phase | Cursor | See Remaining | Unchanged. |
 | `.grok/hooks/sprintengine-agent-state.json` | Agent phase | Grok | See Remaining | Unchanged. |
 | `.opencode/plugin/sprintengine-agent-state.js` | Agent phase | OpenCode | See Remaining | Unchanged. |
-| `~/.kimi-code/config.toml` hooks block, `~/.sprintengine/hooks/agent-state.mjs` | Agent phase | Kimi Code | See Remaining | Unchanged. Not in the repository, but it applies to every Kimi Code session on the machine. |
+| `~/.kimi-code/config.toml` hooks block | Agent phase | Kimi Code | See Remaining | Written when a Kimi Code session launches and removed when the app quits; it runs the launcher, so one a crash left behind exits quietly. |
 | `.sprintengine/hooks/.gitignore` | Keeps the reporter copies out of `git status` | git | — | **New.** Written once (never over an existing file) wherever the app still copies a reporter into a workspace, the same self-ignore the backlog cache and browser captures already use. Removed with the directory when the last registration goes. |
-| `<git dir>/info/exclude` | Keeps `.mcp.json` / `.codex/config.toml` out of a connector worktree's git | git | — | Unchanged (connector launches only). |
+| `<worktree git dir>/sprintengine-exclude`, named by that worktree's `config.worktree` | Keeps `.mcp.json` / `.codex/config.toml` out of a connector worktree's git | git | — | Per worktree (connector launches only), never the shared `info/exclude`. |
 
 Nothing else the launch produces touches the repository. The host-context
 document every launch writes (and the one-session plugin directory Cursor
@@ -110,7 +158,7 @@ session ends.
 ### Not agent integration
 
 The app's own features keep their state under `.sprintengine/` already:
-worktrees, automations, the backlog link cache, browser captures, conversation
+worktrees, the backlog link cache, browser captures, conversation
 records, module storage and phone uploads. The caches ignore themselves. None
 of it is read by an agent CLI's configuration loader, so none of it carries the
 app's behaviour into a plain-terminal session.
@@ -122,9 +170,12 @@ choice, not pollution.
 
 ## What this change does, in short
 
-- The Claude-family launch carries the `studio-skills` plugin directory, and the
-  skill installer writes nothing for a launch that carries it — nor
-  `.claude/skills` for another CLI's launch while it does.
+- The Claude-family launch whose prompt invokes a bundled skill carries that
+  one skill as a plugin directory, and the skill installer writes nothing for
+  it — nor `.claude/skills` for another CLI's launch while Claude launches are
+  handed it. Copies of the seven retired workflow skills an earlier build wrote
+  (untouched, with the app's managed marker, not committed) are removed by the
+  workspace pass.
 - The Claude-family launch takes the MCP gateway from the plugin, not from the
   repository's `.mcp.json`, and removes the entry and approval an earlier launch
   wrote. The agent CLI now travels in the session environment
@@ -184,7 +235,7 @@ measured first.
   install (and the gateway and skill copies). A WSL machine does not: its helper
   holds a copy of its own inside the distribution.
 - **Bundled skills in WSL.** The skill installer does not yet ask which machine
-  a launch is on, so a Debug Mode or skill-at-spawn launch in WSL still copies
+  a launch is on, so a skill-at-spawn launch in WSL still copies
   the skill into `.claude/skills` beside the plugin's own.
 - **Chat mode.** The conversation runtime (the Agent SDK provider) still pins
   the gateway into `.mcp.json` before a chat. The SDK takes MCP servers and
@@ -192,7 +243,7 @@ measured first.
   change; it has not been done here.
 - **Skills a capability module registers** are copied into each CLI's native
   directory for every CLI, Claude included, because they live in the module's
-  tree rather than in the `studio-skills` plugin.
+  tree rather than in a launch skill plugin.
 - **Copies an earlier build left in `.claude/skills`.** A bundled skill copied
   there by an earlier launch carries the same managed manifest as one copied
   when a person imports an existing agent configuration, so the two cannot be

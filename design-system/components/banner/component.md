@@ -28,8 +28,8 @@ panel's content; success is the state the screen already shows.
 | Part | Class | Required |
 |---|---|---|
 | Strip | `.ds-banner` | yes — full width of the panel's content region |
-| Body | `.ds-banner-body` | yes — dot + message cluster; shrinks first |
-| Dot | `.ds-banner-dot` | yes — the 6px status dot in the tone's hue, `aria-hidden` |
+| Body | `.ds-banner-body` | yes — mark + message cluster; shrinks first |
+| Mark | `.ds-status-dot` + the tone modifier | yes — the `status-dot` component's glyph in the tone's ink, `aria-hidden` |
 | Message | `.ds-banner-message` | yes — one line, truncates |
 | Action | `.ds-banner-action` | danger: required; warn: optional — holds a ghost button (`.ds-button.ds-button--ghost`) |
 
@@ -39,12 +39,14 @@ hairline on the bottom edge only (it shares every other edge with the panel),
 `text.primary`.
 
 **No left tone-bar** — the rejected-on-sight rule applies to banners exactly
-as it does to notices. The dot is the tone's shape; the tint is its echo.
+as it does to notices. The mark is the tone's shape; the tint is its echo.
 
 ## Variants
 
-- `ds-banner--danger` — failure. `status.danger` dot on `status.danger-soft`.
-- `ds-banner--warn` — degraded. `status.warn` dot on `status.warn-soft`.
+- `ds-banner--danger` — failure. The danger glyph (a ring with "×", in
+  `status.danger`) on `status.danger-soft`.
+- `ds-banner--warn` — degraded. The warn glyph (a ring with "!", in
+  `status.warn`) on `status.warn-soft`.
 
 Nothing else: no sizes, no icon slots, no dismiss-x variant. A banner leaves
 when its condition resolves — a dismissable failure is a failure you are
@@ -71,8 +73,9 @@ interactive part.
 - The action names the recovery, usually "Retry". It is a ghost button — the
   banner's tint is already the emphasis, and a solid button here would compete
   with the view's real primary action.
-- The dot is the status idiom, and it is the only one: no additional glyph, no
-  tinted pill, no second mark saying the same thing.
+- The status mark is the status idiom, and it is the only one: no additional
+  glyph, no tinted pill, no second mark saying the same thing. Never a dot:
+  the product draws no status dots (owner ruling 2026-09-28).
 - Do not stack banners. Two conditions at once is one banner for the worse
   condition; the other surfaces where it lives.
 
@@ -81,9 +84,9 @@ interactive part.
 - `role="alert"` on danger — a failure interrupts. `role="status"` on warn —
   degradation informs politely. This split is the tone vocabulary made
   audible; do not flatten both to one role.
-- The dot is `aria-hidden`: the message carries the meaning in words, so the
+- The mark is `aria-hidden`: the message carries the meaning in words, so the
   state is never conveyed by color alone — and the two roles differ, so it is
-  not conveyed by the dot's shape alone either.
+  not conveyed by the glyph's shape alone either.
 - The action is a real button, reachable by Tab, with the banner's context in
   its accessible name where "Retry" alone is ambiguous ("Retry loading
   sessions").

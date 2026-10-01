@@ -1,7 +1,7 @@
 import React from 'react'
 
-// Hand-rolled inline-SVG sparkline — no charting dependency (the project enforces
-// a bundle budget, so recharts/chart.js are off the table). Plots a numeric
+// Hand-rolled inline-SVG sparkline — no charting dependency (one polyline does
+// not justify a charting library's weight in the diagnostics panel). Plots a numeric
 // series scaled to its own min/max so trends and spikes are visible at a glance,
 // where the panel otherwise shows only the latest value plus a single growth
 // slope. Pure presentational; the caller owns the data and colour (via

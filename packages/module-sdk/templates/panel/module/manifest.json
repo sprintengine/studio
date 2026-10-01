@@ -1,0 +1,18 @@
+{
+  "id": "{{id}}",
+  "displayName": "{{displayName}}",
+  "version": 1,
+  "publisher": "{{publisher}}",
+  "summary": "{{displayName}}, an extension for SprintEngine Studio.",
+  "defaultEnabled": false,
+  "source": "third-party",
+  "engines": {
+    "hostApi": 1
+  },
+  "permissions": [
+    "storage"
+  ],
+  "entry": {
+    "renderer": "dist/renderer.mjs"
+  }
+}

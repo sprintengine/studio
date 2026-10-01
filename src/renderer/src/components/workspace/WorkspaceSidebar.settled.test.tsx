@@ -4,10 +4,10 @@ import { JSDOM } from 'jsdom'
 import { test } from 'vitest'
 
 test('WorkspaceSidebar.settled', async () => {
-  // Settled chats (2026-09-07). A folder's resting rows leave the active list
-  // for the folder's Settled shelf: one fold row carrying the count, closed by
-  // default, over compact rows. The row menu offers Settle on an active row and
-  // Un-settle on a resting one. This holds the shelf's shape; the rule that
+  // Settled chats (2026-09-07; off the rail 2026-09-28). A folder's resting
+  // rows leave the sidebar altogether — Settings ▸ Settled chats holds them —
+  // except the one you are in. The row menu offers Settle on an active row and
+  // Un-settle on a resting one. This holds the rail's side; the rule that
   // decides what rests is held by workspaceSettle.test.ts and the store by
   // workspacesSlice.test.ts.
 
@@ -49,6 +49,9 @@ test('WorkspaceSidebar.settled', async () => {
   // Alpha holds a live agent pty; the settled rows hold nothing, which is what
   // a chat that came to rest looks like after the kill lands.
   const killed: string[] = []
+  // A chat agent has no pty: main owns its process, and Settle ends it through
+  // the conversation runtime. Echo's live chat and a chat already stopped.
+  const chatsSuspended: string[] = []
   domWindow.api = {
     platform: 'darwin',
     detectProjectLogo: async () => null,
@@ -66,6 +69,17 @@ test('WorkspaceSidebar.settled', async () => {
     getWorkspaceChangeSummary: async () => null,
     terminalKill: async (sessionId: string) => {
       killed.push(sessionId)
+    },
+    conversationSessionsList: async () => ({
+      ok: true,
+      sessions: [
+        { sessionId: 'echo-chat', workspaceId: 'w5', agentId: 'agent-5', status: 'ready' },
+        { sessionId: 'echo-old', workspaceId: 'w5', agentId: 'agent-5', status: 'stopped' },
+      ],
+    }),
+    conversationSessionSuspend: async ({ sessionId }: { sessionId: string }) => {
+      chatsSuspended.push(sessionId)
+      return { ok: true }
     },
   }
 
@@ -200,39 +214,16 @@ test('WorkspaceSidebar.settled', async () => {
     try {
       await render(props)
       assert.deepEqual(rowNames(), ['Alpha'], 'only the active row is in the list at rest')
-      const shelf = shelfButton()
-      assert.ok(shelf, 'the folder shows its Settled shelf row')
-      assert.equal(shelf.getAttribute('aria-expanded'), 'false', 'the shelf is closed by default')
-      assert.match(shelf.textContent ?? '', /Settled\s*2/, 'the shelf row carries the count')
-      const shelfBody = dom.window.document.getElementById(shelf.getAttribute('aria-controls') ?? '')
-      assert.ok(shelfBody, 'the shelf row controls a real node')
-      assert.equal(shelfBody.hidden, true, 'and that node is hidden while closed')
-
-      act(() => {
-        shelf.click()
-      })
-      await settle()
-      assert.equal(shelfButton()?.getAttribute('aria-expanded'), 'true', 'opening the shelf is a disclosure')
-      assert.deepEqual(
-        rowNames(),
-        ['Alpha', 'Charlie', 'Bravo'],
-        'open, the shelf lists its rows most recently worked first',
-      )
-      const bravo = [...container.querySelectorAll<HTMLElement>('[role="treeitem"]')].find((el) =>
-        el.textContent?.includes('Bravo'),
-      )
-      assert.ok(bravo?.textContent?.includes('(settled)'), 'a resting row says so in words')
+      // Settled chats are off the rail (owner, 2026-09-28): no shelf row to
+      // read past, and the resting rows are not drawn anywhere in the sidebar.
+      // Settings ▸ Settled chats is where they are found.
+      assert.equal(shelfButton(), null, 'the folder grows no Settled shelf')
+      assert.equal(container.textContent?.includes('Bravo'), false, 'a resting chat is not drawn')
+      assert.equal(container.textContent?.includes('Charlie'), false, 'nor is any other')
 
       const activeMenu = await openMenuOn('Alpha')
       assert.ok(activeMenu.includes('Settle'), `an active row's menu offers Settle (got ${activeMenu.join(' | ')})`)
       assert.equal(activeMenu.includes('Un-settle'), false)
-
-      const settledMenu = await openMenuOn('Bravo')
-      assert.ok(
-        settledMenu.includes('Un-settle'),
-        `a resting row's menu offers Un-settle (got ${settledMenu.join(' | ')})`,
-      )
-      assert.equal(settledMenu.includes('Settle'), false)
 
       // The one-click seat is rest, not removal. The ✕ that used to sit here
       // terminates the row's terminals and removes the chat; it keeps its entry
@@ -241,11 +232,6 @@ test('WorkspaceSidebar.settled', async () => {
       assert.ok(actionLabel('Settle Alpha'), 'an active row offers Settle in its hover seat')
       assert.equal(actionLabel('Close Alpha'), null, 'and no longer offers Close there')
       assert.ok(activeMenu.includes('Close workspace'), 'Close keeps its place in the row menu')
-
-      // A resting row's seat is the undo arrow, not a second tick: the action
-      // there is "put this back", and a tick would still be saying "done".
-      assert.ok(actionLabel('Un-settle Bravo'), 'a resting row offers Un-settle in its hover seat')
-      assert.equal(actionLabel('Settle Bravo'), null)
 
       // Rest means rest (owner ruling 2026-09-07): a chat that has come to rest
       // holds no terminals, so settling takes its ptys with it. Nothing is
@@ -259,25 +245,48 @@ test('WorkspaceSidebar.settled', async () => {
       })
       await settle()
       assert.deepEqual(killed, ['alpha-pty'], 'settling a chat kills the terminals it held')
+      assert.deepEqual(chatsSuspended, [], "and leaves another workspace's chat agents alone")
 
-      // The row you are in always has a row: selecting a settled chat keeps it
-      // in the active list (still settled) instead of in a closed shelf.
+      // The row you are in stays put when it settles, so the seat has to say
+      // it did: the tick becomes the ringed settled mark, which un-settles,
+      // and the row is pinned open while the flourish plays. The record is
+      // the store's; here it arrives the way it does in the app, as props.
+      const settledAlpha = [{ ...workspaces[0], settledAt: Date.now() } as Workspace, ...workspaces.slice(1)]
+      await render({ ...props, workspaces: settledAlpha } as unknown as SidebarProps)
+      assert.equal(actionLabel('Settle Alpha') === null, true, 'a settled row no longer offers Settle')
+      const unsettleAlpha = actionLabel('Un-settle Alpha')
+      assert.ok(unsettleAlpha, 'its seat offers Un-settle instead')
+      assert.ok(unsettleAlpha.querySelector('.settle-mark-flourish'), 'and plays the settle flourish')
+      const alphaRow = unsettleAlpha.closest('[role="treeitem"]')
+      assert.equal(alphaRow?.hasAttribute('data-settle-flourish'), true, 'with the seat pinned open while it plays')
+      await render(props)
+      assert.ok(actionLabel('Settle Alpha'), 'un-settled, the row offers Settle again')
+      assert.equal(alphaRow?.hasAttribute('data-settle-flourish'), false, 'and the flourish ends with it')
+
+      // The row you are in always has a row: selecting a settled chat (from
+      // Settings or search) keeps it in the active list, still settled, while
+      // the other resting chat stays off the rail.
       await render({ ...props, activeWorkspaceId: 'w2' } as unknown as SidebarProps)
-      assert.deepEqual(
-        rowNames(),
-        ['Alpha', 'Bravo', 'Charlie'],
-        'the selected settled row sits in the active list, the other stays shelved',
+      assert.deepEqual(rowNames(), ['Alpha', 'Bravo'], 'the selected settled row sits in the active list')
+      const unsettleBravo = actionLabel('Un-settle Bravo')
+      assert.ok(unsettleBravo, 'its seat wears the settled mark')
+      assert.equal(
+        unsettleBravo.querySelector('.settle-mark-flourish') === null,
+        true,
+        'but a row that was already resting when it drew does not play the flourish',
       )
-      assert.match(shelfButton()?.textContent ?? '', /Settled\s*1/, 'the shelf counts only the rows it holds')
+      assert.equal(shelfButton(), null, 'and still no shelf for the one left resting')
 
-      // A folder with nothing resting shows no shelf at all — a heading must
-      // separate something from something else.
-      await render({ ...props, workspaces: [workspace('w1', 'Alpha')] } as unknown as SidebarProps)
-      assert.equal(shelfButton(), null, 'no settled rows, no shelf row')
+      const settledMenu = await openMenuOn('Bravo')
+      assert.ok(
+        settledMenu.includes('Un-settle'),
+        `a resting row's menu offers Un-settle (got ${settledMenu.join(' | ')})`,
+      )
+      assert.equal(settledMenu.includes('Settle'), false)
 
-      // A row born on a paired machine keeps the ✕: the Remote band has no
-      // Settled shelf, so there is nothing for a tick to put it into — the same
-      // rule the menu's Settle entry already follows.
+      // A row born on a paired machine keeps the ✕: rest is a state a chat
+      // enters on this disk, so there is nothing for a tick to put it into —
+      // the same rule the menu's Settle entry already follows.
       await render({
         ...props,
         workspaces: [
@@ -297,6 +306,24 @@ test('WorkspaceSidebar.settled', async () => {
       } as unknown as SidebarProps)
       assert.ok(actionLabel('Close Delta'), 'a remote-band row keeps Close in its seat')
       assert.equal(actionLabel('Settle Delta'), null, 'and is never offered Settle')
+
+      // A chat-agent row has no pty, and settling it still ends its agent's
+      // process: the live chat is suspended, the stopped one left alone, and
+      // no terminal is killed on its account.
+      await render({
+        ...props,
+        workspaces: [workspace('w1', 'Alpha'), workspace('w5', 'Echo')],
+        activityByWorkspaceId: { w1: 'idle', w5: 'idle' },
+        conversationSessions: [{ sessionId: 'echo-chat', workspaceId: 'w5', agentId: 'agent-5', status: 'ready' }],
+      } as unknown as SidebarProps)
+      const settleEcho = actionLabel('Settle Echo')
+      assert.ok(settleEcho, 'Echo has a Settle button to click')
+      act(() => {
+        settleEcho.click()
+      })
+      await settle()
+      assert.deepEqual(chatsSuspended, ['echo-chat'], "settling a chat ends its chat agent's process")
+      assert.deepEqual(killed, ['alpha-pty'], 'and kills no terminal for it')
     } finally {
       act(() => {
         root.unmount()
@@ -305,7 +332,7 @@ test('WorkspaceSidebar.settled', async () => {
   }
 
   const suiteRun = main()
-    .then(() => console.log('workspace sidebar settled shelf tests passed'))
+    .then(() => console.log('workspace sidebar settled tests passed'))
     .catch((error) => {
       console.error(error)
       process.exitCode = 1

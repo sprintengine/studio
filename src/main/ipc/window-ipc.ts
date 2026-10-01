@@ -84,6 +84,7 @@ type RegisterWindowIpcOptions = {
     singletonKey: string
     params: Record<string, string>
     bounds?: WindowBounds | null
+    focus?: boolean
   }): { retargeted: boolean }
   /** Membership of the aux-window registry. Only an aux window hands a diff
    *  back to the app, and the registry already knows which windows those are. */
@@ -240,6 +241,7 @@ export function registerWindowIpc(ipcMain: IpcMain, options: RegisterWindowIpcOp
         singletonKey?: unknown
         params?: unknown
         bounds?: unknown
+        focus?: unknown
       },
     ): OpenAuxWindowResult => {
       const kind = AUX_WINDOW_KINDS.find((candidate) => candidate === input?.kind)
@@ -253,6 +255,9 @@ export function registerWindowIpc(ipcMain: IpcMain, options: RegisterWindowIpcOp
           singletonKey,
           params,
           bounds: normalizeWindowBounds(input?.bounds),
+          // Only an explicit false: a caller that says nothing is the person's
+          // own click, which brings the window forward as it always did.
+          ...(input?.focus === false ? { focus: false } : {}),
         })
         return { ok: true, retargeted }
       } catch (error) {

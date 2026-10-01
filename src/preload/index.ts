@@ -7,8 +7,8 @@ import { appMenuApi } from './api/app-menu'
 import { appearanceApi } from './api/appearance'
 import { authApi } from './api/auth'
 import { automationApi } from './api/automation'
-import { fleetApi } from './api/fleet'
-import { automationsApi } from './api/automations'
+import { meshApi } from './api/mesh'
+import { scheduledAgentsApi } from './api/scheduled-agents'
 import { backlogApi } from './api/backlog'
 import { buildStampApi } from './api/build-stamp'
 import { builtinSkillsApi } from './api/builtinSkills'
@@ -17,7 +17,9 @@ import { cliModelDiscoveryApi } from './api/cli-model-discovery'
 import { textGenerationApi } from './api/text-generation'
 import { clipboardApi } from './api/clipboard'
 import { conversationApi } from './api/conversation'
+import { conversationCommandsApi } from './api/conversation-commands'
 import { conversationPeekApi } from './api/conversation-peek'
+import { agentCompactApi } from './api/agent-compact'
 import { pullRequestApi } from './api/pull-request'
 import { credentialApi } from './api/credential'
 import { designSystemApi } from './api/design-system'
@@ -32,7 +34,6 @@ import { mcpApi } from './api/mcp'
 import { modulesApi } from './api/modules'
 import { pluginsApi } from './api/plugins'
 import { skillsApi } from './api/skills'
-import { mobileBridgeApi } from './api/mobile-bridge'
 import { launchSettingsApi } from './api/launch-settings'
 import { hostsApi } from './api/hosts'
 import { splashApi } from './api/splash'
@@ -43,9 +44,12 @@ import { voiceApi } from './api/voice'
 import { windowApi } from './api/window'
 import { browserApi } from './api/browser'
 import { canvasApi } from './api/canvas'
+import { editorRevealApi } from './api/editor-reveal'
+import { toursApi } from './api/tours'
 import { workspaceBackupApi } from './api/workspace-backup'
 import { workspaceSkillsApi } from './api/workspace-skills'
 import { workspaceSyncApi } from './api/workspace-sync'
+import { extensionScaffoldApi } from './api/extension-scaffold'
 
 const diagnosticsEnabled = process.env.NODE_ENV === 'development' || readStudioEnv('SPRINTENGINE_DIAGNOSTICS') === '1'
 
@@ -58,14 +62,16 @@ const api = {
   ...windowApi,
   ...browserApi,
   ...canvasApi,
+  ...editorRevealApi,
+  ...toursApi,
   ...splashApi,
   ...startupApi,
   ...buildStampApi,
   ...appearanceApi,
   ...authApi,
   ...automationApi,
-  ...fleetApi,
-  ...automationsApi,
+  ...meshApi,
+  ...scheduledAgentsApi,
   ...backlogApi,
   ...builtinSkillsApi,
   ...clipboardApi,
@@ -75,7 +81,6 @@ const api = {
   ...hostedSourcesFeedApi,
   ...hostedCardFeedApi,
   ...cliVersionApi,
-  ...mobileBridgeApi,
   ...filesystemApi,
   ...launchSettingsApi,
   ...hostsApi,
@@ -86,7 +91,9 @@ const api = {
   ...modulesApi,
   ...pluginsApi,
   ...conversationApi,
+  ...conversationCommandsApi,
   ...conversationPeekApi,
+  ...agentCompactApi,
   ...pullRequestApi,
   ...credentialApi,
   ...designSystemApi,
@@ -98,6 +105,8 @@ const api = {
   ...workspaceBackupApi,
   ...workspaceSkillsApi,
   ...workspaceSyncApi,
+  // ── extension-platform additions ──
+  ...extensionScaffoldApi,
 } satisfies ElectronApi
 
 // Wrap the whole surface for IPC accounting only when diagnostics is enabled, so

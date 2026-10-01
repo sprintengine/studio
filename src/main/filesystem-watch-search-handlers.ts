@@ -1,4 +1,10 @@
-import { cancelActiveContentSearch, searchContent, searchFiles } from './filesystem-search'
+import {
+  cancelActiveFileSearch,
+  cancelAllFileSearches,
+  cancelActiveContentSearch,
+  searchContent,
+  searchFiles,
+} from './filesystem-search'
 import { isMissingPathError, pathExists } from './filesystem-workspace'
 
 export function createFilesystemWatchSearchHandlers() {
@@ -8,5 +14,7 @@ export function createFilesystemWatchSearchHandlers() {
     searchFiles,
     searchContent,
     cancelActiveContentSearch,
+    cancelActiveFileSearch,
+    cancelAllFileSearches,
   }
 }

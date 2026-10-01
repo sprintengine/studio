@@ -2,6 +2,7 @@
 // how resolved approvals are grouped.
 
 import { type TranscriptToolEntry, type TranscriptEntry } from './conversationProjection'
+import { toolActionVerb } from '../../../../../shared/conversation/presentation'
 
 // Every call in a lane subtree, lane headers included, in start order.
 export function flattenToolEntries(tools: TranscriptToolEntry[]): TranscriptToolEntry[] {
@@ -26,16 +27,27 @@ export function activeConversationStage(
   entries: TranscriptEntry[],
   activeTurn: boolean,
 ): 'idle' | 'thinking' | 'tool' | 'approval' | 'responding' {
-  const latestPendingApproval = [...entries]
-    .reverse()
-    .find((entry) => entry.kind === 'approval' && entry.status === 'pending')
-  if (latestPendingApproval) return 'approval'
-  const latestRunningTool = [...entries].reverse().find((entry) => entry.kind === 'tool' && entry.status === 'running')
-  if (latestRunningTool) return 'tool'
+  if (findLast(entries, (entry) => entry.kind === 'approval' && entry.status === 'pending')) return 'approval'
+  if (findLast(entries, (entry) => entry.kind === 'tool' && entry.status === 'running')) return 'tool'
   if (!activeTurn) return 'idle'
-  const latestAssistant = [...entries].reverse().find((entry) => entry.kind === 'assistant')
-  if (latestAssistant?.kind === 'assistant' && latestAssistant.text.trim().length > 0) return 'responding'
+  const latestAssistant = findLast(entries, (entry) => entry.kind === 'assistant')
+  if (latestAssistant?.kind === 'assistant' && /\S/u.test(latestAssistant.text)) return 'responding'
   return 'thinking'
+}
+
+// The last entry matching, read from the end without copying the list: the
+// timeline is derived on every token of the reply streaming now.
+function findLast<T extends TranscriptEntry>(
+  entries: readonly TranscriptEntry[],
+  match: (entry: TranscriptEntry) => entry is T,
+): T | undefined
+function findLast(
+  entries: readonly TranscriptEntry[],
+  match: (entry: TranscriptEntry) => boolean,
+): TranscriptEntry | undefined
+function findLast(entries: readonly TranscriptEntry[], match: (entry: TranscriptEntry) => boolean) {
+  for (let index = entries.length - 1; index >= 0; index--) if (match(entries[index]!)) return entries[index]
+  return undefined
 }
 
 export type ConversationApprovalEntry = Extract<TranscriptEntry, { kind: 'approval' }>
@@ -65,37 +77,29 @@ export type ConversationTimelineRow =
       entry: Extract<TranscriptEntry, { kind: 'assistant' }>
       tools: Extract<TranscriptEntry, { kind: 'tool' }>[]
       decisions: ConversationDecisionRow[]
+      // The turn ran on another model than the reply before it — the model
+      // can be switched mid-conversation, and the footer then names it.
+      modelSwitched?: boolean
     }
   // Requests that never named a turn; they surface on their own.
   | { kind: 'approval'; id: string; decisions: ConversationDecisionRow[] }
+  | { kind: 'compaction'; id: string; entry: Extract<TranscriptEntry, { kind: 'compaction' }> }
+  | { kind: 'commandOutput'; id: string; entry: Extract<TranscriptEntry, { kind: 'commandOutput' }> }
   | {
       kind: 'working'
       id: string
       stage: ReturnType<typeof activeConversationStage>
       label: string
       startedAt?: number
+      // Agents still working, when the line is counting them.
+      agents?: number
     }
 
 // ── Presentation vocabulary (pure, unit-tested) ─────────────────────────────
 
 // Step verbs: past tense for finished steps, continuous for the live one.
-export const TOOL_VERBS: Record<string, { done: string; live: string }> = {
-  Read: { done: 'Read', live: 'Reading' },
-  Grep: { done: 'Searched', live: 'Searching' },
-  Glob: { done: 'Searched', live: 'Searching' },
-  WebSearch: { done: 'Searched', live: 'Searching' },
-  Edit: { done: 'Edited', live: 'Editing' },
-  MultiEdit: { done: 'Edited', live: 'Editing' },
-  NotebookEdit: { done: 'Edited', live: 'Editing' },
-  Write: { done: 'Wrote', live: 'Writing' },
-  Bash: { done: 'Ran', live: 'Running' },
-  WebFetch: { done: 'Fetched', live: 'Fetching' },
-}
-
 export function toolVerb(tool: string, live: boolean): string {
-  const verbs = TOOL_VERBS[tool]
-  if (verbs) return live ? verbs.live : verbs.done
-  return live ? `Calling ${tool}` : `Called ${tool}`
+  return toolActionVerb(tool, live)
 }
 
 // The step object is the provider summary minus its "Tool: " prefix — the verb
@@ -154,7 +158,7 @@ export function groupResolvedDecisions(approvals: ConversationApprovalEntry[]): 
   }
   for (const approval of approvals) {
     if (approval.status === 'pending') continue
-    if ((approval.requestKind ?? 'tool') !== 'tool') {
+    if ((approval.requestKind ?? 'tool') !== 'tool' || approval.autoApproved) {
       flush()
       rows.push({ kind: 'decision', id: `approval:${approval.requestId}`, entry: approval })
       continue
@@ -169,24 +173,30 @@ export function groupResolvedDecisions(approvals: ConversationApprovalEntry[]): 
 export function deriveConversationTimelineRows(
   entries: TranscriptEntry[],
   activeTurn: boolean,
+  previousRows: ConversationTimelineRow[] = [],
 ): ConversationTimelineRow[] {
   const rows: ConversationTimelineRow[] = []
   const stage = activeConversationStage(entries, activeTurn)
-  const latestAssistant = [...entries]
-    .reverse()
-    .find((entry): entry is Extract<TranscriptEntry, { kind: 'assistant' }> => entry.kind === 'assistant')
-  const pendingApproval = [...entries]
-    .reverse()
-    .find(
-      (entry): entry is Extract<TranscriptEntry, { kind: 'approval' }> =>
-        entry.kind === 'approval' && entry.status === 'pending',
-    )
+  const latestAssistant = findLast(
+    entries,
+    (entry): entry is Extract<TranscriptEntry, { kind: 'assistant' }> => entry.kind === 'assistant',
+  )
+  const pendingApproval = findLast(entries, (entry) => entry.kind === 'approval' && entry.status === 'pending')
 
+  let previousModelId: string | undefined
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index]
     if (!entry) continue
     if (entry.kind === 'user') {
       rows.push({ kind: 'user', id: `user:${entry.id}`, entry })
+      continue
+    }
+    if (entry.kind === 'compaction') {
+      rows.push({ kind: 'compaction', id: `compaction:${entry.id}`, entry })
+      continue
+    }
+    if (entry.kind === 'commandOutput') {
+      rows.push({ kind: 'commandOutput', id: `commandOutput:${entry.id}`, entry })
       continue
     }
     if (entry.kind === 'assistant') {
@@ -217,8 +227,17 @@ export function deriveConversationTimelineRows(
         entry.status === 'failed' ||
         entry.status === 'interrupted'
       ) {
-        rows.push({ kind: 'assistant', id: `assistant:${entry.turnId}`, entry, tools, decisions })
+        const modelSwitched = Boolean(previousModelId && entry.modelId && entry.modelId !== previousModelId)
+        rows.push({
+          kind: 'assistant',
+          id: `assistant:${entry.turnId}`,
+          entry,
+          tools,
+          decisions,
+          ...(modelSwitched ? { modelSwitched } : {}),
+        })
       }
+      previousModelId = entry.modelId ?? previousModelId
       index = cursor - 1
       continue
     }
@@ -241,9 +260,10 @@ export function deriveConversationTimelineRows(
   }
 
   if (stage !== 'idle' && !pendingApproval) {
-    const runningTool = [...entries]
-      .reverse()
-      .find((entry): entry is TranscriptToolEntry => entry.kind === 'tool' && entry.status === 'running')
+    const runningTool = findLast(
+      entries,
+      (entry): entry is TranscriptToolEntry => entry.kind === 'tool' && entry.status === 'running',
+    )
     // Fan-out is the headline: while background agents run, the live line
     // counts them instead of naming whichever tool happened to start last.
     const runningLanes = entries.filter(
@@ -270,8 +290,63 @@ export function deriveConversationTimelineRows(
       stage,
       label,
       startedAt: latestAssistant?.startedAt,
+      ...(stage === 'tool' && runningLanes.length > 0 ? { agents: runningLanes.length } : {}),
     })
   }
 
-  return rows
+  if (!previousRows.length) return rows
+  const previousById = new Map(previousRows.map((row) => [row.id, row]))
+  return rows.map((row) => {
+    const previous = previousById.get(row.id)
+    if (!previous || previous.kind !== row.kind) return row
+    if (row.kind === 'user' && previous.kind === 'user' && row.entry === previous.entry) return previous
+    if (row.kind === 'assistant' && previous.kind === 'assistant') {
+      const sameTools =
+        row.tools.length === previous.tools.length && row.tools.every((tool, index) => tool === previous.tools[index])
+      const sameDecisionRows = sameDecisions(row.decisions, previous.decisions)
+      if (sameTools && sameDecisionRows && row.entry === previous.entry && row.modelSwitched === previous.modelSwitched)
+        return previous
+      // A token changes the turn's entry, not its steps or its decisions: they
+      // keep their lists, so what is drawn from them is not drawn again.
+      return {
+        ...row,
+        ...(sameTools ? { tools: previous.tools } : {}),
+        ...(sameDecisionRows ? { decisions: previous.decisions } : {}),
+      }
+    }
+    if (row.kind === 'compaction' && previous.kind === 'compaction' && row.entry === previous.entry) return previous
+    if (row.kind === 'commandOutput' && previous.kind === 'commandOutput' && row.entry === previous.entry)
+      return previous
+    if (row.kind === 'approval' && previous.kind === 'approval' && sameDecisions(row.decisions, previous.decisions))
+      return previous
+    if (
+      row.kind === 'working' &&
+      previous.kind === 'working' &&
+      row.stage === previous.stage &&
+      row.label === previous.label &&
+      row.startedAt === previous.startedAt
+    )
+      return previous
+    return row
+  })
+}
+
+function sameDecisions(first: ConversationDecisionRow[], second: ConversationDecisionRow[]): boolean {
+  return (
+    first.length === second.length &&
+    first.every((item, index) => {
+      const prior = second[index]
+      if (!prior || item.kind !== prior.kind || item.id !== prior.id) return false
+      if (item.kind === 'decision' && prior.kind === 'decision') return item.entry === prior.entry
+      if (item.kind === 'decisionGroup' && prior.kind === 'decisionGroup') {
+        return (
+          item.status === prior.status &&
+          item.label === prior.label &&
+          item.entries.length === prior.entries.length &&
+          item.entries.every((entry, offset) => entry === prior.entries[offset])
+        )
+      }
+      return false
+    })
+  )
 }

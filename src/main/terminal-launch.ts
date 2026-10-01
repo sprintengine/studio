@@ -4,7 +4,8 @@ import { existsSync, mkdirSync, renameSync, statSync, unlinkSync, writeFileSync 
 import { rm, stat, unlink } from 'fs/promises'
 import { homedir } from 'os'
 import { dirname, join } from 'path'
-import type { AgentCli, CliRuntimeSettings, CliPermissionPreset, TerminalPathStyle } from '../shared/electron-api'
+import type { AgentCli, CliRuntimeSettings, TerminalPathStyle } from '../shared/electron-api'
+import type { CliPermissionSetting } from '../shared/cli-permission-mode'
 import type { PluginContextInjectionMode } from '../shared/plugin-manifest'
 import { DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME } from '../shared/design-system/bundle-scaffold'
 import {
@@ -36,8 +37,6 @@ import { getColorScheme } from './color-scheme-store'
 import { ensureManagedRuntimeShims, withManagedRuntimePath } from './managed-runtime'
 import { AGENT_IDENTITY_ENV_KEYS, MCP_CHANNEL_TOKEN_ENV, studioEnvEntry, withoutStudioEnv } from '../shared/studio-env'
 import { withoutInheritedSessionEnv } from './inherited-session-env'
-import type { LaunchContributionPathStyle } from '../shared/modules/launch-contributions'
-import { collectLaunchContributions, type MergedLaunchContribution } from './module-host/launch-contributions'
 import { isWindowsPath, toWslPath, wslToWindowsPath } from '../shared/host-paths'
 import { wslDistroArgs, wslDistroForPath, wslSessionPidFileCommand, wslSessionPidKey } from './hosts/wsl-distro'
 import type { HostLaunchFile, HostLaunchTarget } from './hosts/execution-host'
@@ -57,10 +56,11 @@ export type ShellLaunchConfig = {
    */
   hostContextPath?: string
   /**
-   * The first message, when it was too long for this platform's command line
-   * and the CLI takes it as typed input instead (`planAgentLaunch`). The launch
-   * carries none of it; the caller owes the CLI exactly this text, once, as a
-   * bracketed paste and an Enter, when the CLI is ready for input.
+   * The first message, when the CLI takes it as typed input: because it was too
+   * long for this platform's command line, or because the manifest is
+   * `send-after-ready` (`planAgentLaunch`). The launch carries none of it; the
+   * caller owes the CLI exactly this text, once, as a bracketed paste and an
+   * Enter, when the CLI is ready for input.
    */
   deferredPrompt?: string
   /**
@@ -76,14 +76,6 @@ export type ShellLaunchConfig = {
    * Linux does.
    */
   hostFiles?: HostLaunchFile[]
-  /**
-   * A module owns this session's lifetime. The idle reaper excludes it from the
-   * recency floor that protects the user's own agents. Set from launch
-   * contributions; absent means unmanaged.
-   */
-  managed?: boolean
-  /** A module asked the idle reaper to skip this session entirely. */
-  reapExempt?: boolean
 }
 
 export function getTerminalEnv(): Record<string, string> {
@@ -204,19 +196,42 @@ export function setLaunchPluginDirsResolver(resolver: (() => string[]) | null): 
  * app-services agrees, so the two can never each think the other registers the
  * hook.
  */
-function pluginDirsForLaunch(cli: AgentCli, target: HostLaunchTarget): string[] {
+function pluginDirsForLaunch(cli: AgentCli, target: HostLaunchTarget, skills: readonly string[] = []): string[] {
   if (target.kind === 'wsl') {
     const dirs = target.integration?.pluginDirs ?? []
-    return dirs.length > 0 && cliTakesLaunchPlugins(cli) ? [...dirs] : []
+    if (dirs.length === 0 || !cliTakesLaunchPlugins(cli)) return []
+    return [...dirs, ...skillDirsFor(skills, target.integration?.skillPluginDirs ?? {})]
   }
   let dirs: string[]
+  let skillDirs: Record<string, string>
   try {
     dirs = launchPluginDirsResolver?.() ?? []
+    skillDirs = launchSkillPluginDirsResolver?.() ?? {}
   } catch {
     return []
   }
   if (!launchCarriesAppPluginsFor(cli, dirs)) return []
-  return target.kind === 'posix' ? dirs : dirs.map((dir) => wslToWindowsPath(dir))
+  const all = [...dirs, ...skillDirsFor(skills, skillDirs)]
+  return target.kind === 'posix' ? all : all.map((dir) => wslToWindowsPath(dir))
+}
+
+/** The one-skill plugins a launch that invokes `skills` adds, in the order asked, each once. */
+function skillDirsFor(skills: readonly string[], available: Record<string, string>): string[] {
+  const dirs: string[] = []
+  for (const skill of new Set(skills)) {
+    const dir = Object.hasOwn(available, skill) ? available[skill] : undefined
+    if (dir) dirs.push(dir)
+  }
+  return dirs
+}
+
+// The one-skill plugins in this machine's copy, by skill id (see
+// `launchSkillPluginDir`). Published beside the plugin directories, and empty
+// until that copy lands — a launch then falls back to the workspace install.
+let launchSkillPluginDirsResolver: (() => Record<string, string>) | null = null
+
+export function setLaunchSkillPluginDirsResolver(resolver: (() => Record<string, string>) | null): void {
+  launchSkillPluginDirsResolver = resolver
 }
 
 /**
@@ -414,69 +429,15 @@ function parseJsonObject(value: string): Record<string, unknown> | null {
   }
 }
 
-function collectLaunchContributionMerge(input: {
-  cwd: string
-  sessionId: string
-  resume?: boolean
-  cli?: AgentCli
-  knowledgeRoot?: string
-  pathStyle: LaunchContributionPathStyle
-  agentId?: string
-  agentKind?: string
-}): MergedLaunchContribution {
-  return collectLaunchContributions(
-    {
-      cli: input.cli ?? '',
-      workspaceRoot: input.cwd,
-      sessionId: input.sessionId,
-      resume: input.resume,
-      pathStyle: input.pathStyle,
-      ...(input.knowledgeRoot ? { knowledgeRoot: input.knowledgeRoot } : {}),
-      ...(input.agentId ? { agentId: input.agentId } : {}),
-      ...(input.agentKind ? { agentKind: input.agentKind } : {}),
-    },
-    (failure) => {
-      console.warn(`[modules] launch contribution from "${failure.moduleId}" failed: ${failure.message}`)
-    },
-  )
-}
-
 /**
- * Merge a collected launch contribution onto a base session env: strip the
- * contribution's identity keys from inherited env, apply `env` (protected keys
- * cannot be overwritten), then prepend `pathEntries` to PATH.
- */
-export function applyMergedLaunchContribution(
-  env: Record<string, string>,
-  merged: MergedLaunchContribution,
-  pathStyle: 'posix' | 'windows',
-): Record<string, string> {
-  const next: Record<string, string> = { ...env }
-  for (const key of merged.identityKeys) delete next[key]
-  for (const [key, value] of Object.entries(merged.env)) {
-    if (PROTECTED_LAUNCH_ENV_KEYS.has(key)) continue
-    next[key] = value
-  }
-  if (merged.pathEntries.length === 0) return next
-  const delimiter = pathStyle === 'windows' ? ';' : ':'
-  const pathKey =
-    Object.keys(next).find((key) => key.toLowerCase() === 'path') ?? (pathStyle === 'windows' ? 'Path' : 'PATH')
-  return {
-    ...next,
-    [pathKey]: `${merged.pathEntries.join(delimiter)}${delimiter}${next[pathKey] ?? ''}`,
-  }
-}
-
-/**
- * POSIX bootstrap fragment: module shell functions, then managed-MCP env, then
- * the CLI manifest's `launch.env`. Empty when nothing has anything to say.
+ * POSIX bootstrap fragment: managed-MCP env, then the CLI manifest's
+ * `launch.env`. Empty when neither has anything to say.
  */
 export function buildLaunchShellBootstrap(
-  merged: MergedLaunchContribution,
   managedMcpEnv?: Record<string, string>,
   providerLaunchEnv?: Record<string, string>,
 ): string {
-  const lines: string[] = [...merged.shellFunctions]
+  const lines: string[] = []
   for (const [key, value] of Object.entries(managedMcpEnv ?? {})) {
     if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
       lines.push(`export ${key}=${quotePosix(value)}`)
@@ -492,13 +453,6 @@ export function buildLaunchShellBootstrap(
     }
   }
   return lines.join('; ')
-}
-
-function launchSessionTags(merged: MergedLaunchContribution): { managed?: boolean; reapExempt?: boolean } {
-  return {
-    ...(merged.session.managed ? { managed: true } : {}),
-    ...(merged.session.reapExempt ? { reapExempt: true } : {}),
-  }
 }
 
 function replaceAllLiteral(value: string, search: string, replacement: string): string {
@@ -1141,8 +1095,9 @@ export function resolveHostContextDelivery(input: {
   cli: AgentCli
   memoryRootPath?: string
   memoryRelativeRoot?: string
-  moduleSections?: Array<{ heading: string; body: string }>
   onHost?: { dir: string; files: HostLaunchFile[] }
+  /** The session is an agent bound to a workspace, so it can call the editor tools. */
+  editorTools?: boolean
 }): HostContextDelivery {
   const injection = getPluginManifest(input.cli)?.contextInjection
   const mode = injection?.mode ?? 'prompt'
@@ -1162,7 +1117,11 @@ export function resolveHostContextDelivery(input: {
           },
         }
       : {}),
-    ...(input.moduleSections && input.moduleSections.length > 0 ? { moduleSections: input.moduleSections } : {}),
+    // Out-of-band channels only. On the prompt fallback the document is pasted
+    // after the person's first message, and four lines of tool advice are not
+    // worth putting in their words; those CLIs learn the editor tools from the
+    // tool descriptions and the studio-workspaces skill instead.
+    ...(input.editorTools && mode !== 'prompt' ? { editorTools: true } : {}),
   })
   if (!document || mode === 'prompt') return { mode, document, filePath: null }
   if (input.onHost) {
@@ -1366,34 +1325,26 @@ function buildWslShellScript(
   cli: AgentCli = 'codex',
   initialPrompt?: string,
   cliRuntime?: CliRuntimeSettings,
-  cliPermissionPreset: CliPermissionPreset = 'manual',
+  cliPermissionPreset: CliPermissionSetting = 'none',
   cliModel?: string,
   memoryRootPath?: string,
   managedMcpEnv?: Record<string, string>,
-  debugMode = false,
   providerLaunchEnv?: Record<string, string>,
   cliReasoning?: string,
   hostContext: HostContextRenderInputs = {},
   host: WslLaunchTarget = DEFAULT_WSL_TARGET,
   planOptions: AgentLaunchPlanOptions = { budget: launchArgBudgetFor('wsl') },
   onPlan?: (plan: PlannedAgentLaunch) => void,
+  launchSkills: readonly string[] = [],
 ): string {
   const shellInitialPrompt = normalizeTextPaths(initialPrompt, 'wsl', [cwd, memoryRootPath])
-  const merged = collectLaunchContributionMerge({
-    cwd,
-    sessionId,
-    resume,
-    cli,
-    knowledgeRoot: memoryRootPath,
-    pathStyle: 'wsl',
-  })
   return [
     wslPidFileLine(scriptPath, host),
     buildUserShellStartup(),
     wslHostEnvExports(host),
     wslIdentityExports(host),
     `cd ${quotePosix(toWslPath(cwd))}`,
-    buildLaunchShellBootstrap(merged, managedMcpEnv, providerLaunchEnv),
+    buildLaunchShellBootstrap(managedMcpEnv, providerLaunchEnv),
     buildAgentLaunchCommand(
       cli,
       sessionId,
@@ -1402,11 +1353,10 @@ function buildWslShellScript(
       cliRuntime,
       cliPermissionPreset,
       cliModel,
-      debugMode,
       cliReasoning,
       undefined,
       hostContext,
-      pluginDirsForLaunch(cli, host),
+      pluginDirsForLaunch(cli, host, launchSkills),
       launchSettingsForLaunch(cli, cwd, host),
       planOptions,
       onPlan,
@@ -1480,12 +1430,11 @@ export function getShellLaunchConfig(
   cli: AgentCli = 'codex',
   initialPrompt?: string,
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,
-  cliPermissionPreset: CliPermissionPreset = 'manual',
+  cliPermissionPreset: CliPermissionSetting = 'none',
   cliModel?: string,
   memoryRootPath?: string,
   memoryRelativeRoot?: string,
   managedMcpEnv?: Record<string, string>,
-  debugMode = false,
   cliAuthToken?: string,
   cliReasoning?: string,
   // Absolute binary path resolved by the spawn pre-flight; see
@@ -1495,23 +1444,26 @@ export function getShellLaunchConfig(
   // The machine this runs on (its host's `launchTarget()`). Absent is this
   // machine as the platform runs it, which is all macOS and Linux ever have.
   launchHost: HostLaunchTarget = defaultLaunchTarget(),
+  // What else the host context says about this launch. `editorTools`: the
+  // session is an agent bound to a workspace, so it can open files and diffs
+  // for the person through the app's gateway.
+  hostContextOptions: {
+    editorTools?: boolean
+    /**
+     * The bundled skills this launch's prompt invokes (a Backlog handoff's
+     * `backlog`). A launch that takes the app's plugin
+     * directories is handed each as a plugin of its own; see
+     * `bundledSkillDeliveredAtLaunch`, which answers from the same copy.
+     */
+    launchSkills?: readonly string[]
+  } = {},
 ): ShellLaunchConfig {
   assertExistingDirectory(cwd)
 
   const cliRuntime = getCliRuntimeSettings(cli, cliRuntimes)
-  const contributionPathStyle: LaunchContributionPathStyle = launchHost.kind
-  const merged = collectLaunchContributionMerge({
-    cwd: contributionPathStyle === 'windows' ? wslToWindowsPath(cwd) : cwd,
-    sessionId,
-    resume,
-    cli,
-    knowledgeRoot:
-      contributionPathStyle === 'windows' && memoryRootPath ? wslToWindowsPath(memoryRootPath) : memoryRootPath,
-    pathStyle: contributionPathStyle,
-  })
 
   // The host's own context for this launch (an attached design system, the
-  // project's Knowledge Graph, plus any module sections), built here so EVERY
+  // project's Knowledge Graph), built here so EVERY
   // launcher gets the same document — interactive, mobile, and the headless
   // AgentLaunchService all arrive at this function. The manifest's
   // `contextInjection` decides the channel; only the prompt fallback touches
@@ -1525,8 +1477,8 @@ export function getShellLaunchConfig(
     cli,
     ...(memoryRootPath ? { memoryRootPath } : {}),
     ...(memoryRelativeRoot ? { memoryRelativeRoot } : {}),
-    ...(merged.hostContext.length > 0 ? { moduleSections: merged.hostContext } : {}),
     ...(onHost ? { onHost } : {}),
+    ...(hostContextOptions.editorTools ? { editorTools: true } : {}),
   })
   const launchPrompt = applyHostContextToPrompt(hostContext, initialPrompt)
   const hostContextPath = hostContext.filePath ?? undefined
@@ -1549,7 +1501,6 @@ export function getShellLaunchConfig(
     cliPermissionPreset,
     cliModel,
     cliReasoning,
-    debugMode,
     colorScheme: getColorScheme(),
     secretToken: cliAuthToken,
     ...hostContextRenderInputs(hostContext, launchHost.kind === 'posix' ? null : launchHost.kind, [
@@ -1584,10 +1535,9 @@ export function getShellLaunchConfig(
         cliRuntime,
         cliPermissionPreset,
         cliModel,
-        debugMode,
         cliReasoning,
         windowsHostContext,
-        pluginDirsForLaunch(cli, launchHost),
+        pluginDirsForLaunch(cli, launchHost, hostContextOptions.launchSkills),
         launchSettingsForLaunch(cli, cwd, launchHost),
         launchPlanOptions(launchHost, sessionId, cwd),
         (plan) => {
@@ -1601,7 +1551,7 @@ export function getShellLaunchConfig(
       args: ['-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', startupScriptPath],
       env: mergeProviderLaunchEnv(
         {
-          ...applyMergedLaunchContribution(getTerminalEnv(), merged, 'windows'),
+          ...getTerminalEnv(),
           ...managedMcpEnv,
         },
         providerLaunchEnv,
@@ -1611,7 +1561,6 @@ export function getShellLaunchConfig(
       startupScriptPath,
       ...(hostContextPath ? { hostContextPath } : {}),
       ...promptDeliveryConfig(promptDelivery),
-      ...launchSessionTags(merged),
     }
   }
 
@@ -1629,7 +1578,6 @@ export function getShellLaunchConfig(
         cliModel,
         memoryRootPath,
         managedMcpEnv,
-        debugMode,
         providerLaunchEnv,
         cliReasoning,
         hostContextRenderInputs(hostContext, 'wsl', [cwd, memoryRootPath]),
@@ -1638,6 +1586,7 @@ export function getShellLaunchConfig(
         (plan) => {
           promptDelivery = plan.promptDelivery
         },
+        hostContextOptions.launchSkills,
       ),
     )
     return {
@@ -1652,14 +1601,13 @@ export function getShellLaunchConfig(
       hostFiles: [startup.file, ...hostFiles],
       ...(hostContextPath ? { hostContextPath } : {}),
       ...promptDeliveryConfig(promptDelivery),
-      ...launchSessionTags(merged),
     }
   }
 
   const shellPath = getPosixShellPath()
   const shellName = shellPath.split(/[\\/]/).at(-1)
   const launchCommand = [
-    buildLaunchShellBootstrap(merged, managedMcpEnv, providerLaunchEnv),
+    buildLaunchShellBootstrap(managedMcpEnv, providerLaunchEnv),
     buildAgentLaunchCommand(
       cli,
       sessionId,
@@ -1668,11 +1616,10 @@ export function getShellLaunchConfig(
       cliRuntime,
       cliPermissionPreset,
       cliModel,
-      debugMode,
       cliReasoning,
       resolvedBinaryPath,
       hostContextRenderInputs(hostContext, null, []),
-      pluginDirsForLaunch(cli, launchHost),
+      pluginDirsForLaunch(cli, launchHost, hostContextOptions.launchSkills),
       launchSettingsForLaunch(cli, cwd, launchHost),
       launchPlanOptions(launchHost, sessionId, cwd),
       (plan) => {
@@ -1691,7 +1638,7 @@ export function getShellLaunchConfig(
     cwd,
     env: mergeProviderLaunchEnv(
       {
-        ...applyMergedLaunchContribution(getTerminalEnv(), merged, 'posix'),
+        ...getTerminalEnv(),
         ...managedMcpEnv,
       },
       providerLaunchEnv,
@@ -1700,7 +1647,6 @@ export function getShellLaunchConfig(
     startupScriptPath,
     ...(hostContextPath ? { hostContextPath } : {}),
     ...promptDeliveryConfig(promptDelivery),
-    ...launchSessionTags(merged),
   }
 }
 
@@ -1719,36 +1665,22 @@ export function getPlainShellLaunchConfig(
     // (a bare Linux path) is opened in the default distribution by the caller,
     // which hands this a WSL target for it.
     if (launchHost.kind === 'windows' && isWindowsPath(windowsCwd)) {
-      const merged = collectLaunchContributionMerge({
-        cwd: windowsCwd,
-        sessionId,
-        pathStyle: 'windows',
-        agentKind: 'terminal',
-      })
       return {
         command: 'powershell.exe',
         args: ['-NoLogo'],
-        env: applyMergedLaunchContribution(getTerminalEnv(), merged, 'windows'),
+        env: getTerminalEnv(),
         cwd: windowsCwd,
         pathStyle: 'windows',
-        ...launchSessionTags(merged),
       }
     }
 
     const wslHost = launchHost.kind === 'wsl' ? launchHost : DEFAULT_WSL_TARGET
-    const merged = collectLaunchContributionMerge({
-      cwd,
-      sessionId,
-      pathStyle: 'wsl',
-      agentKind: 'terminal',
-    })
     const startup = wslStartupScript(sessionId, wslHost, (scriptPath) =>
       [
         wslPidFileLine(scriptPath, wslHost),
         buildUserShellStartup(),
         wslHostEnvExports(wslHost),
         `cd ${quotePosix(toWslPath(cwd))}`,
-        buildLaunchShellBootstrap(merged),
         wslShellExec(wslHost),
       ]
         .filter(Boolean)
@@ -1761,21 +1693,14 @@ export function getPlainShellLaunchConfig(
       pathStyle: 'wsl',
       startupScriptPath: startup.path,
       hostFiles: [startup.file],
-      ...launchSessionTags(merged),
     }
   }
 
   const shellPath = getPosixShellPath()
   const shellName = shellPath.split(/[\\/]/).at(-1)
-  const merged = collectLaunchContributionMerge({
-    cwd,
-    sessionId,
-    pathStyle: 'posix',
-    agentKind: 'terminal',
-  })
   // Only a shell pane gets shell integration — OSC 7 and OSC 133 alike. An
   // agent pane runs a CLI rather than a prompt (nothing would fire the hook),
-  // and a fleet pane must not resolve a local path at all — so this is the one
+  // and a mesh pane must not resolve a local path at all — so this is the one
   // launcher that arms it. The 133 marks are shell ergonomics and nothing else:
   // agent phase comes from `agent-state.ts` over the state socket, and no pane
   // ever derives it from what a shell printed.
@@ -1784,7 +1709,6 @@ export function getPlainShellLaunchConfig(
     shellName === 'zsh' ? ensureShellIntegrationZshZdotdir() : null,
   )
   const launchCommand = [
-    buildLaunchShellBootstrap(merged),
     ...(shellIntegrationSetup ? [shellIntegrationSetup] : []),
     buildInteractiveShellExec(shellPath, shellName),
   ]
@@ -1796,23 +1720,23 @@ export function getPlainShellLaunchConfig(
     command: shellPath,
     cwd,
     args: isLoginShell(shellName) ? ['-l', startupScriptPath] : [startupScriptPath],
-    env: applyMergedLaunchContribution(getTerminalEnv(), merged, 'posix'),
+    env: getTerminalEnv(),
     pathStyle: 'posix',
     startupScriptPath,
-    ...launchSessionTags(merged),
   }
 }
 
-function buildNativeAgentLaunchPowerShellScript(
+// Exported for launch regression coverage: the startup script a native Windows
+// agent launch runs.
+export function buildNativeAgentLaunchPowerShellScript(
   cli: AgentCli,
   sessionId: string,
   resume: boolean,
   cwd: string,
   initialPrompt: string | undefined,
   cliRuntime: CliRuntimeSettings,
-  cliPermissionPreset: CliPermissionPreset = 'manual',
+  cliPermissionPreset: CliPermissionSetting = 'none',
   cliModel?: string,
-  debugMode = false,
   cliReasoning?: string,
   hostContext: HostContextRenderInputs = {},
   pluginDirs: string[] = [],
@@ -1831,7 +1755,6 @@ function buildNativeAgentLaunchPowerShellScript(
       cliRuntime,
       cliPermissionPreset,
       cliModel,
-      debugMode,
       cliReasoning,
       hostContext,
       getColorScheme(),
@@ -1845,13 +1768,11 @@ function buildNativeAgentLaunchPowerShellScript(
       cli,
       sessionId,
       resume,
-      workspaceRoot: cwd,
       initialPrompt,
       cliRuntime,
       cliPermissionPreset,
       cliModel,
       cliReasoning,
-      debugMode,
       colorScheme: getColorScheme(),
       pluginDirs,
       ...(launchSettings ? { launchSettings } : {}),
@@ -1869,9 +1790,28 @@ function buildNativeAgentLaunchPowerShellScript(
     `Set-Location -LiteralPath ${quotePowerShell(cwd)}`,
     `$command = ${quotePowerShell(binary)}`,
     `$arguments = @(${args.map((arg) => powerShellBase64Literal(arg)).join(', ')})`,
+    ...powerShellTypedPromptEnvLines(plan.typedPromptEnv),
     ...buildNativeWindowsInvocation(args),
+    ...powerShellClearTypedPromptEnvLines(plan.typedPromptEnv),
     ...(plan.promptDelivery.kind === 'input' ? [POWERSHELL_CLI_EXITED_LINE] : []),
   ].join('\r\n')
+}
+
+// The environment a launch whose first message is typed in adds (see
+// `PlannedAgentLaunch.typedPromptEnv`), set for the CLI the script is about to
+// start. PowerShell has no per-command assignment, so it is removed again once
+// the CLI returns: the session the script leaves behind must not run the same
+// CLI by hand with its update check silently off.
+function powerShellTypedPromptEnvLines(env: Record<string, string> | undefined): string[] {
+  return typedPromptEnvEntries(env).map(([name, value]) => `$env:${name} = ${quotePowerShell(value)}`)
+}
+
+function powerShellClearTypedPromptEnvLines(env: Record<string, string> | undefined): string[] {
+  return typedPromptEnvEntries(env).map(([name]) => `Remove-Item Env:${name} -ErrorAction SilentlyContinue`)
+}
+
+function typedPromptEnvEntries(env: Record<string, string> | undefined): Array<[string, string]> {
+  return Object.entries(env ?? {}).filter(([name]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
 }
 
 // Exported for launch regression coverage. The legacy name is retained for
@@ -1883,9 +1823,8 @@ export function buildCodexLegacyNativeAgentLaunchPowerShellScript(
   cwd: string,
   initialPrompt: string | undefined,
   cliRuntime: CliRuntimeSettings,
-  cliPermissionPreset: CliPermissionPreset = 'manual',
+  cliPermissionPreset: CliPermissionSetting = 'none',
   cliModel?: string,
-  debugMode = false,
   cliReasoning?: string,
   hostContext: HostContextRenderInputs = {},
   colorScheme?: 'light' | 'dark',
@@ -1898,23 +1837,23 @@ export function buildCodexLegacyNativeAgentLaunchPowerShellScript(
     cli: 'codex' as const,
     sessionId,
     resume,
-    workspaceRoot: cwd,
     initialPrompt,
     cliRuntime,
     cliPermissionPreset,
     cliModel,
     cliReasoning,
-    debugMode,
     colorScheme,
     ...hostContext,
   }
   let rendered: { argv: string[]; binary: string }
   let typedPrompt = false
+  let typedPromptEnv: Record<string, string> | undefined
   if (planOptions) {
     const plan = planAgentLaunch(renderInput, planOptions)
     onPlan?.(plan)
     rendered = plan
     typedPrompt = plan.promptDelivery.kind === 'input'
+    typedPromptEnv = plan.typedPromptEnv
   } else {
     rendered = renderAgentLaunchArgv(renderInput)
   }
@@ -1943,7 +1882,9 @@ export function buildCodexLegacyNativeAgentLaunchPowerShellScript(
     // in .js, so quoting it needs no trailing-backslash escaping either.
     `  $env:SPRINTENGINE_LAUNCH_ARGS = '"' + $codexJs + '" ' + $env:SPRINTENGINE_LAUNCH_ARGS`,
     `}`,
+    ...powerShellTypedPromptEnvLines(typedPromptEnv),
     ...invoke,
+    ...powerShellClearTypedPromptEnvLines(typedPromptEnv),
     ...(typedPrompt ? [POWERSHELL_CLI_EXITED_LINE] : []),
   ].join('\r\n')
 }
@@ -1954,9 +1895,8 @@ function buildAgentLaunchCommand(
   resume = false,
   initialPrompt?: string,
   cliRuntime?: CliRuntimeSettings,
-  cliPermissionPreset: CliPermissionPreset = 'manual',
+  cliPermissionPreset: CliPermissionSetting = 'none',
   cliModel?: string,
-  debugMode = false,
   cliReasoning?: string,
   resolvedBinaryPath?: string,
   hostContext: HostContextRenderInputs = {},
@@ -1975,7 +1915,6 @@ function buildAgentLaunchCommand(
       cliPermissionPreset,
       cliModel,
       cliReasoning,
-      debugMode,
       colorScheme: getColorScheme(),
       resolvedBinaryPath,
       pluginDirs,

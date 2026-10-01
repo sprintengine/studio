@@ -13,13 +13,16 @@ import { findHealthyWorktreeScope, resolveWorkspaceWorktree, workspaceProjectRoo
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
 import {
+  COMPOSER_SURFACE_CLASS,
   EmptyState,
   FOCUS_RING_CLASS,
+  FOCUS_RING_WITHIN_TEXTAREA_CLASS,
   FileTypeGlyph,
   GhostButton,
   IconButton,
   InboxRow,
   InlineNotice,
+  OutlineButton,
   PrimaryButton,
   RefreshIcon,
   Select,
@@ -2268,13 +2271,17 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
             borderless
           />
         </TabsScroller>
+        {/* Pull and Push are outlined, not ghost: they only exist while there is
+            something to send or fetch, and a flat count in the chrome row read
+            as a label rather than as the one action the row is offering
+            (owner ruling 2026-10-01). */}
         <div className="flex shrink-0 items-center gap-1">
           {behind > 0 ? (
             <Tooltip
               content={`Pull ${behind} commit${behind === 1 ? '' : 's'}${upstreamLabel ? ` from ${upstreamLabel}` : ''}`}
               placement="bottom"
             >
-              <GhostButton
+              <OutlineButton
                 size="xs"
                 onClick={() => void handlePull()}
                 disabled={Boolean(busy)}
@@ -2283,7 +2290,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
               >
                 <SyncArrowIcon direction="down" />
                 {behind}
-              </GhostButton>
+              </OutlineButton>
             </Tooltip>
           ) : null}
           {ahead > 0 ? (
@@ -2291,7 +2298,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
               content={`Push ${ahead} commit${ahead === 1 ? '' : 's'}${upstreamLabel ? ` to ${upstreamLabel}` : ''}`}
               placement="bottom"
             >
-              <GhostButton
+              <OutlineButton
                 size="xs"
                 onClick={() => void handlePush()}
                 disabled={Boolean(busy)}
@@ -2300,7 +2307,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
               >
                 <SyncArrowIcon direction="up" />
                 {ahead}
-              </GhostButton>
+              </OutlineButton>
             </Tooltip>
           ) : null}
           {/* The resting sync line the retired header subtitle carried
@@ -2388,9 +2395,11 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
             />
             {activeScope?.kind === 'worktree' ? (
               <Tooltip content={`Review this branch's changes against ${reviewDiffTarget.baseRef}`} placement="bottom">
-                <GhostButton size="xs" onClick={() => void handleReviewDiff()} disabled={Boolean(busy) || !repoRoot}>
+                {/* Outlined to stand level with the scope picker it sits beside:
+                    a flat label next to a bordered field read as a caption. */}
+                <OutlineButton size="xs" onClick={() => void handleReviewDiff()} disabled={Boolean(busy) || !repoRoot}>
                   Review changes
-                </GhostButton>
+                </OutlineButton>
               </Tooltip>
             ) : null}
           </div>
@@ -2403,9 +2412,11 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
             tone="warn"
             action={
               <span className="flex shrink-0 items-center gap-1">
-                <GhostButton onClick={() => void handleContinueOperation()} disabled={Boolean(busy)}>
+                {/* A confirm pair one rung apart: the way forward outlined, the
+                    way back ghost. */}
+                <OutlineButton onClick={() => void handleContinueOperation()} disabled={Boolean(busy)}>
                   Continue
-                </GhostButton>
+                </OutlineButton>
                 <GhostButton onClick={() => void handleAbortOperation()} disabled={Boolean(busy)}>
                   Abort
                 </GhostButton>
@@ -2909,7 +2920,9 @@ function CommitComposer({
   placeholder?: string
 }) {
   return (
-    <section className="shrink-0 border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-3">
+    // No band ground of its own: the box below brings the composer's material,
+    // and a raised band behind a raised box flattens the step between them.
+    <section className="shrink-0 border-t border-[color:var(--border-subtle)] px-3 py-3">
       <div className="mb-2 min-w-0 text-micro text-[color:var(--text-subtle)]">
         <span className="font-medium text-[color:var(--text-muted)]">Commit scope</span>
         <span className="mx-1.5 text-[color:var(--text-disabled)]" aria-hidden="true">
@@ -2923,40 +2936,58 @@ function CommitComposer({
           </span>
         </Tooltip>
       </div>
-      <Textarea
-        ref={inputRef}
-        size="sm"
-        resize="none"
-        value={commitMessage}
-        onChange={(event) => onCommitMessageChange(event.target.value)}
-        placeholder={placeholder ?? 'Commit message'}
-        aria-label="Commit message"
-        className="h-16"
-      />
-      <div className="mt-2 flex items-center justify-between gap-2">
-        {/*
-         * `11 of 26 files` — what the index holds, of what the list shows. It
-         * replaces "3 staged", and the difference is not wording: the checkbox
-         * IS the index now, so the line states the same fact the boxes do and
-         * the Commit button beside it turns on at exactly the same moment.
-         *
-         * Fetch / Pull / Push left with it. Both counts already ride the panel's
-         * chrome row as the arrow buttons that appear when there is anything to
-         * pull or push, and a foot with five controls in a 340px pane had none
-         * of them readable. What a commit needs is here: commit, or commit and
-         * send it.
-         */}
-        <div className="min-w-0 truncate text-micro text-[color:var(--text-subtle)]">{countsLabel}</div>
-        <div className="flex shrink-0 items-center gap-2">
-          <PrimaryButton size="md" onClick={() => void onCommit()} disabled={Boolean(busy) || !readyToCommit}>
-            Commit
-          </PrimaryButton>
-          {/* The ellipsis is honest: the push half can still ask (an upstream
+      {/*
+       * The chat composer's box, not a form field (owner ruling 2026-10-01).
+       * Both are the place a person writes the sentence that sends something
+       * off, and they sit side by side when the Git pane is open beside a
+       * chat: a bordered form textarea with its buttons hanging underneath it
+       * read as a settings form next to the composer's one raised surface. So
+       * the same material (`COMPOSER_SURFACE_CLASS`), the same `composer`
+       * field inside it with the ring on the wrapper, and the actions on a
+       * footer row INSIDE the box, where the composer keeps Send.
+       */}
+      <div
+        className={`${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} border-[color:var(--border-default)]`}
+      >
+        <Textarea
+          ref={inputRef}
+          variant="composer"
+          resize="none"
+          value={commitMessage}
+          onChange={(event) => onCommitMessageChange(event.target.value)}
+          placeholder={placeholder ?? 'Commit message'}
+          aria-label="Commit message"
+          // Grows with the message between three lines and a body's worth, as
+          // the chat composer grows with a draft.
+          className="max-h-[200px] min-h-[56px] overflow-y-auto rounded-t-lg px-3 pb-1 pt-2.5"
+        />
+        <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-0.5">
+          {/*
+           * `11 of 26 files` — what the index holds, of what the list shows. It
+           * replaces "3 staged", and the difference is not wording: the checkbox
+           * IS the index now, so the line states the same fact the boxes do and
+           * the Commit button beside it turns on at exactly the same moment.
+           *
+           * Fetch / Pull / Push left with it. Both counts already ride the panel's
+           * chrome row as the arrow buttons that appear when there is anything to
+           * pull or push, and a foot with five controls in a 340px pane had none
+           * of them readable. What a commit needs is here: commit, or commit and
+           * send it.
+           */}
+          <div className="min-w-0 truncate px-1 text-micro text-[color:var(--text-subtle)]">{countsLabel}</div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {/* The ellipsis is honest: the push half can still ask (an upstream
               to set, a confirmation), and the commit half runs first — a push
-              never follows a commit git refused. */}
-          <GhostButton size="md" onClick={() => void onCommitAndPush()} disabled={Boolean(busy) || !readyToCommit}>
-            Commit &amp; Push…
-          </GhostButton>
+              never follows a commit git refused. Outline, one rung under the
+              primary, and before it, so Commit sits in the corner the
+              composer keeps for Send. */}
+            <OutlineButton size="sm" onClick={() => void onCommitAndPush()} disabled={Boolean(busy) || !readyToCommit}>
+              Commit &amp; Push…
+            </OutlineButton>
+            <PrimaryButton size="sm" onClick={() => void onCommit()} disabled={Boolean(busy) || !readyToCommit}>
+              Commit
+            </PrimaryButton>
+          </div>
         </div>
       </div>
     </section>

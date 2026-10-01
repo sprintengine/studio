@@ -198,7 +198,7 @@ function SkillFacts({
           a reason to withhold it — so it is stated here and Install stays live. */}
       {nameWarning ? (
         <p className="flex items-start gap-1.5 text-meta leading-5 text-[color:var(--text-subtle)]">
-          <StatusDot tone="warn" className="mt-1.5" />
+          <StatusDot tone="warn" className="mt-1" />
           {nameWarning}
         </p>
       ) : null}

@@ -8,7 +8,10 @@ import {
   clearCliAvailabilityCache,
   detectAgentCliAvailability,
   invalidateCliAvailability,
+  invalidateCliAvailabilityOnHost,
+  knownCliAvailability,
   preflightAgentCliLaunch,
+  recordCliDetection,
   setMaxConcurrentCliProbes,
 } from './cli-availability'
 
@@ -86,10 +89,10 @@ test('re-probes once the cache entry expires', async () => {
   assert.equal(probes, 2)
 })
 
-// Focus and visibility refresh the pickers, so a minute-long answer re-ran
-// every CLI's `--version` for a person switching windows about once a minute.
-// Off Windows the default holds for well past that.
-test.skipIf(process.platform === 'win32')('the default cache outlives a window switch by minutes', async () => {
+// Detection runs at startup and on Re-check, and at no other time: focus and
+// visibility refresh the pickers, and every one of those reads the answer
+// startup found rather than re-running each CLI's `--version`.
+test('the default cache holds an answer until something says it is stale', async () => {
   clearCliAvailabilityCache()
   let probes = 0
   let clock = 1000
@@ -102,12 +105,100 @@ test.skipIf(process.platform === 'win32')('the default cache outlives a window s
     now: () => clock,
   }
   await detectAgentCliAvailability(undefined, deps)
-  clock += 10 * 60_000
+  clock += 24 * 60 * 60_000
   await detectAgentCliAvailability(undefined, deps)
-  assert.equal(probes, 1, 'still cached ten minutes later')
-  clock += 30 * 60_000
-  await detectAgentCliAvailability(undefined, deps)
-  assert.equal(probes, 2, 'and not held for ever')
+  assert.equal(probes, 1, 'still the startup answer a day later')
+  await detectAgentCliAvailability({ force: true }, deps)
+  assert.equal(probes, 2, 'Re-check (force) probes again')
+})
+
+// The version check compares what detection last found, and must keep it when
+// a WSL helper reports a PATH change there: that drops the probe cache so the
+// next read looks again, not the installed versions the badges are built on.
+test('knownCliAvailability reads the last answer without probing, and survives an invalidation', async () => {
+  clearCliAvailabilityCache()
+  let probes = 0
+  const wsl: Partial<CliRuntimeSettings> = { command: '', hostId: 'wsl:Ubuntu' }
+  const deps = {
+    listEntries: () => [entry('codex'), entry('grok')],
+    detect: async (cli: AgentCli, runtime?: Partial<CliRuntimeSettings>) => {
+      probes += 1
+      return { ...detected(cli, cli === 'codex'), hostId: runtime?.hostId ?? 'local' }
+    },
+    now: () => 1000,
+  }
+  assert.deepEqual(knownCliAvailability({ cliRuntimes: { codex: wsl, grok: wsl } }, deps), {}, 'nothing yet')
+  await detectAgentCliAvailability({ cliRuntimes: { codex: wsl, grok: wsl } }, deps)
+  assert.equal(probes, 2)
+
+  const known = knownCliAvailability({ cliRuntimes: { codex: wsl, grok: wsl } }, deps)
+  assert.equal(known.codex?.installed, true)
+  assert.equal(known.grok?.installed, false, 'a definitive absence is known too')
+  assert.deepEqual(knownCliAvailability({ cliRuntimes: {} }, deps), {}, 'this machine was never asked')
+
+  invalidateCliAvailabilityOnHost('wsl:Ubuntu')
+  assert.equal(
+    knownCliAvailability({ cliRuntimes: { codex: wsl, grok: wsl } }, deps).codex?.version,
+    '1.0.0',
+    'the installed version outlives the PATH change',
+  )
+  assert.equal(probes, 2, 'and reading it probed nothing')
+})
+
+// An install or update the app ran re-detects its one CLI; that answer replaces
+// the old one so the row and the badge move without a re-scan.
+test('recordCliDetection replaces one CLI’s answer on one machine', async () => {
+  clearCliAvailabilityCache()
+  let probes = 0
+  const deps = {
+    listEntries: () => [entry('codex'), entry('opencode')],
+    detect: async (cli: AgentCli) => {
+      probes += 1
+      return detected(cli, true)
+    },
+    now: () => 1000,
+  }
+  await detectAgentCliAvailability({ cliRuntimes: {} }, deps)
+  assert.equal(probes, 2)
+  recordCliDetection({ command: '' }, { ...detected('codex', true), version: '1.1.0' })
+  const after = await detectAgentCliAvailability({ cliRuntimes: {} }, deps)
+  assert.equal(after.codex?.version, '1.1.0', 'the recorded version is served')
+  assert.equal(after.opencode?.version, '1.0.0')
+  assert.equal(probes, 2, 'and nothing was probed again')
+  assert.equal(knownCliAvailability({ cliRuntimes: {} }, deps).codex?.version, '1.1.0')
+
+  recordCliDetection({ command: '' }, detected('codex', false, 'the helper did not answer'))
+  await detectAgentCliAvailability({ cliRuntimes: {} }, deps)
+  assert.equal(probes, 3, 'an undecided result drops the old answer so the next read looks again')
+
+  // Another machine's answer for the same CLI is its own.
+  const wsl = { codex: { command: '', hostId: 'wsl:Ubuntu' as const } }
+  await detectAgentCliAvailability({ cliRuntimes: wsl }, deps)
+  assert.equal(probes, 4, 'codex on the distribution; opencode is still this machine’s, held')
+  recordCliDetection({ command: '' }, { ...detected('codex', true), version: '1.2.0' })
+  await detectAgentCliAvailability({ cliRuntimes: wsl }, deps)
+  assert.equal(probes, 4, 'recording this machine’s codex leaves the distribution’s answer held')
+})
+
+// The cache holds "not installed" until Re-check, so a CLI installed from a
+// terminal since startup would be refused. A launch looks again first.
+test('pre-flight probes again before refusing a CLI the cache calls missing', async () => {
+  clearCliAvailabilityCache()
+  let installed = false
+  let probes = 0
+  const deps = {
+    listEntries: () => [entry('codex')],
+    detect: async (cli: AgentCli) => {
+      probes += 1
+      return { ...detected(cli, installed), resolvedPath: installed ? `/usr/local/bin/${cli}` : null }
+    },
+    now: () => 1000,
+  }
+  await detectAgentCliAvailability({ cliRuntimes: {} }, deps)
+  installed = true
+  const result = await preflightAgentCliLaunch({ cli: 'codex', ...POSIX_SETUP }, deps)
+  assert.deepEqual(result, { status: 'resolved', binaryPath: '/usr/local/bin/codex' })
+  assert.equal(probes, 2, 'one more probe, for this CLI')
 })
 
 test('force bypasses the cache', async () => {

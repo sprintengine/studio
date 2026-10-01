@@ -91,7 +91,7 @@ test('ExtensionsHomeSurface', async () => {
   /** A model id this machine "has", added the way Settings adds one. */
   const MODEL = 'claude-opus-5'
 
-  const RULED_ORDER = ['Design', 'Plugins', 'Skills', 'Agent CLIs']
+  const RULED_ORDER = ['Design', 'Plugins', 'Skills']
 
   function mount(element: React.ReactElement): { host: HTMLElement; unmount: () => void } {
     const host = dom.window.document.createElement('div')
@@ -121,7 +121,7 @@ test('ExtensionsHomeSurface', async () => {
   assert.deepEqual(
     tilesIn(home.host).map(nameOf),
     RULED_ORDER,
-    'the home is the ruling’s four parts in the ruling’s order — the same list the drawer holds, resolved by the same function',
+    'the home is the ruling’s three parts in the ruling’s order — the same list the drawer holds, resolved by the same function',
   )
 
   // Each tile is a real button carrying its own name as text, so it is in the tab
@@ -145,7 +145,6 @@ test('ExtensionsHomeSurface', async () => {
     Design: EXTENSIONS_HOME_TILE_SUMMARIES.design,
     Plugins: EXTENSIONS_HOME_TILE_SUMMARIES.plugins,
     Skills: EXTENSIONS_HOME_TILE_SUMMARIES.skills,
-    'Agent CLIs': EXTENSIONS_HOME_TILE_SUMMARIES['agent-clis'],
   }
   for (const tile of tilesIn(home.host)) {
     const name = nameOf(tile)
@@ -252,7 +251,7 @@ test('ExtensionsHomeSurface', async () => {
   // latches before the shell opens, exactly as a drawer row does, so an
   // already-open surface and a cold one both land on the tile that was clicked.
   act(() => {
-    useWorkspaceStore.getState().openGlobalSurface('automations')
+    useWorkspaceStore.getState().openGlobalSurface('design')
   })
   consumePendingExtensionsSurfaceTarget()
   act(() => {
@@ -278,7 +277,7 @@ test('ExtensionsHomeSurface', async () => {
   })
   assert.deepEqual(
     tilesIn(home.host).map(nameOf),
-    ['Plugins', 'Skills', 'Agent CLIs'],
+    ['Plugins', 'Skills'],
     'a tile for a module that is off is absent rather than dead, and the rest keep their order',
   )
   assert.deepEqual(
@@ -304,10 +303,10 @@ test('ExtensionsHomeSurface', async () => {
   const FEED: HostedCard[] = [
     {
       slug: 'big-task',
-      kind: 'automation',
+      kind: 'showcase',
       title: 'Big task? No problem.',
       dek: 'Hand it something too big for one sitting and let it run.',
-      credit: 'Automations',
+      credit: 'Studio',
       art: 'split',
       publishedAt: '2026-09-01T00:00:00.000Z',
       hero: true,
@@ -406,7 +405,7 @@ test('ExtensionsHomeSurface', async () => {
 
   // The stamp, the sentences and the credit — Frame 2’s anatomy, in the DOM.
   for (const [title, stamp, credit] of [
-    ['Big task? No problem.', 'Automation', 'Automations'],
+    ['Big task? No problem.', 'Showcase', 'Studio'],
     ['Let an agent drive your browser', 'MCP server', 'Playwright'],
     ['Build a 3D apocalypse of your own street', 'Showcase', 'Unreal Engine'],
   ]) {
@@ -451,14 +450,14 @@ test('ExtensionsHomeSurface', async () => {
       'the accessible name leads with the visible label and then says which card it belongs to',
     )
   }
-  // This hero is an `automation` card that opens a chat, so its kind names the offer.
+  // This hero is a `showcase` card that opens a chat, so its kind names the offer.
   // The other direction — a card whose actions only navigate, which must say so
   // whatever its stamp claims — is the pure function's own business and is
   // asserted in homeCards.test.ts, where it needs no DOM.
   const heroButton = cardButtons().find((button) =>
     (button.getAttribute('aria-label') ?? '').endsWith('Big task? No problem.'),
   )
-  assert.equal(heroButton?.textContent?.trim(), 'Create', 'the word is the offer the card makes')
+  assert.equal(heroButton?.textContent?.trim(), 'See it', 'the word is the offer the card makes')
   const accented = cardButtons().filter((button) =>
     (button.getAttribute('class') ?? '').includes('var(--accent-primary)'),
   )
@@ -565,12 +564,12 @@ test('ExtensionsHomeSurface', async () => {
           ...state.appSettings,
           lastSelectedCli: 'claude-code',
           cliRuntimes: { 'claude-code': { command: 'claude', models: [MODEL] } },
-          lastAgentSpawnPermissionPreset: 'manual' as const,
+          lastAgentSpawnPermissionPreset: 'none' as const,
         },
       }))
     })
     __resetCliPermissionPresetsForTest()
-    setCliPermissionPreset('claude-code', 'auto')
+    setCliPermissionPreset('claude-code', 'bypass')
 
     // With no host registered (no WorkspaceManager mounted), opening the picker
     // and choosing from it is a no-op that must not throw: the same guard every
@@ -591,7 +590,6 @@ test('ExtensionsHomeSurface', async () => {
       const ran: Array<{ slug: string; launch: CardLaunchChoice }> = []
       setExtensionsSurfaceHost({
         onLaunchConnector: () => {},
-        onUseInAutomation: () => {},
         onUseSkillInNewAgent: () => {},
         onRunCard: (card, launch) => {
           ran.push({ slug: card.slug, launch })
@@ -644,7 +642,7 @@ test('ExtensionsHomeSurface', async () => {
       assert.equal(ran.length, 1, 'choosing a row runs the card exactly once')
       assert.deepEqual(
         ran[0]?.launch,
-        { cli: 'claude-code', model: MODEL, reasoning: null, permissionPreset: 'auto' },
+        { cli: 'claude-code', model: MODEL, reasoning: null, permissionPreset: 'bypass' },
         'and it runs on THAT row — its cli, its model, and the preset stored for its CLI rather than the app-wide default',
       )
       assert.equal(ran[0]?.slug, 'big-task', 'on the card whose Go was pressed')
@@ -687,7 +685,7 @@ test('ExtensionsHomeSurface', async () => {
       assert.equal(cardButtons()[0]?.getAttribute('aria-busy'), null, 'and no card is left claiming to be busy')
 
       // The preset belongs to the CLI, not the model: the CLI's own default-model
-      // row launches on the same Auto. A CLI nobody has set falls back to the
+      // row launches on the same Bypass. A CLI nobody has set falls back to the
       // APP-WIDE default in Settings, not to something invented here, so with
       // the store emptied that row launches on `lastAgentSpawnPermissionPreset`.
       act(() => {
@@ -699,7 +697,7 @@ test('ExtensionsHomeSurface', async () => {
       assert.equal(ran.length, 2)
       assert.deepEqual(
         ran[1]?.launch,
-        { cli: 'claude-code', model: null, reasoning: null, permissionPreset: 'auto' },
+        { cli: 'claude-code', model: null, reasoning: null, permissionPreset: 'bypass' },
         'every model of the CLI launches on the preset stored for it',
       )
       settlers.pop()?.()
@@ -718,11 +716,11 @@ test('ExtensionsHomeSurface', async () => {
       assert.equal(ran.length, 3)
       assert.deepEqual(
         ran[2]?.launch,
-        { cli: 'claude-code', model: null, reasoning: null, permissionPreset: 'manual' },
+        { cli: 'claude-code', model: null, reasoning: null, permissionPreset: 'none' },
         'a CLI nobody has touched launches on the app-wide default preset, and on the CLI’s own model',
       )
       // Put the stored choice back: the checks below still launch Claude Code on it.
-      setCliPermissionPreset('claude-code', 'auto')
+      setCliPermissionPreset('claude-code', 'bypass')
       settlers.pop()?.()
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 0))
@@ -813,7 +811,6 @@ test('ExtensionsHomeSurface', async () => {
       const rememberedModel = useWorkspaceStore.getState().appSettings.lastSelectedAgentModel
       setExtensionsSurfaceHost({
         onLaunchConnector: () => {},
-        onUseInAutomation: () => {},
         onUseSkillInNewAgent: () => {},
         onRunCard: (card, launch) => {
           ran.push({ slug: card.slug, launch })
@@ -895,7 +892,7 @@ test('ExtensionsHomeSurface', async () => {
       })
       assert.deepEqual(
         ran.at(-1)?.launch,
-        { cli: 'claude-code', model: MODEL, reasoning: 'high', permissionPreset: 'auto' },
+        { cli: 'claude-code', model: MODEL, reasoning: 'high', permissionPreset: 'bypass' },
         'the level chosen here is the level the run launches at, on the row that was clicked',
       )
       // The whole point of holding the choice locally: a card is how to run ONE
@@ -939,8 +936,8 @@ test('ExtensionsHomeSurface', async () => {
     // no browser globals at all and this predicate's module reaches the store.
     //
     // The case worth writing down is the LAST one: `kind` is the word on the
-    // stamp, and the schema lets a showcase card open a chat exactly as it lets an
-    // automation card open a surface. A gate keyed on `kind` would pass every
+    // stamp, and the schema lets a showcase card open a chat exactly as it lets a
+    // plugin card open a surface. A gate keyed on `kind` would pass every
     // assertion above and put a plain button in front of an agent launch.
     const asCard = (kind: HostedCard['kind'], go: HostedCard['go']): HostedCard => ({
       slug: 'probe',
@@ -951,9 +948,9 @@ test('ExtensionsHomeSurface', async () => {
       publishedAt: '2026-09-06T00:00:00.000Z',
       go,
     })
-    assert.equal(cardRunsAModel(asCard('automation', [])), false, 'no actions at all runs no model')
+    assert.equal(cardRunsAModel(asCard('showcase', [])), false, 'no actions at all runs no model')
     assert.equal(
-      cardRunsAModel(asCard('automation', [{ verb: 'open.surface', view: 'agent-clis' }])),
+      cardRunsAModel(asCard('showcase', [{ verb: 'open.surface', view: 'agent-clis' }])),
       false,
       'opening a door runs no model — this is the shipped hero',
     )
@@ -963,7 +960,7 @@ test('ExtensionsHomeSurface', async () => {
       'and installing a server runs no model either',
     )
     assert.equal(
-      cardRunsAModel(asCard('automation', [{ verb: 'require.cli', cli: 'claude-code' }, CHAT])),
+      cardRunsAModel(asCard('showcase', [{ verb: 'require.cli', cli: 'claude-code' }, CHAT])),
       true,
       'a card that ends in a chat runs one',
     )
@@ -991,7 +988,7 @@ test('ExtensionsHomeSurface', async () => {
         cards: [
           {
             slug: 'opens-a-door',
-            kind: 'automation' as const,
+            kind: 'showcase' as const,
             title: 'Big task? No problem.',
             dek: 'Its whole go is one open.surface, exactly as the shipped hero’s is.',
             art: 'split',
@@ -1017,7 +1014,6 @@ test('ExtensionsHomeSurface', async () => {
       const ran: Array<{ slug: string; launch: CardLaunchChoice }> = []
       setExtensionsSurfaceHost({
         onLaunchConnector: () => {},
-        onUseInAutomation: () => {},
         onUseSkillInNewAgent: () => {},
         onRunCard: (card, launch) => {
           ran.push({ slug: card.slug, launch })
@@ -1047,7 +1043,7 @@ test('ExtensionsHomeSurface', async () => {
       // on everything was a misreading of R4's ceremony ruling).
       assert.equal(
         direct?.getAttribute('aria-label'),
-        'Open Agent CLIs — Big task? No problem.',
+        'Open Agents settings — Big task? No problem.',
         'both hosts draw the same button: same label, same name, same card in it',
       )
       assert.equal(
@@ -1066,7 +1062,7 @@ test('ExtensionsHomeSurface', async () => {
       assert.equal(ran[0]?.slug, 'opens-a-door')
       assert.deepEqual(
         ran[0]?.launch,
-        { cli: 'claude-code', model: null, reasoning: null, permissionPreset: 'auto' },
+        { cli: 'claude-code', model: null, reasoning: null, permissionPreset: 'bypass' },
         'on the app’s own defaults and the preset stored for that CLI — the wire shape is unchanged, so nothing downstream learns a second kind of press',
       )
 
@@ -1170,7 +1166,6 @@ test('ExtensionsHomeSurface', async () => {
       const ran: string[] = []
       setExtensionsSurfaceHost({
         onLaunchConnector: () => {},
-        onUseInAutomation: () => {},
         onUseSkillInNewAgent: () => {},
         onRunCard: (card) => {
           ran.push(card.slug)

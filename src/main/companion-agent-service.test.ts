@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { ConversationRuntime } from './conversation-runtime'
 import {
   createCompanionAgentService,
+  companionAgentIdFor,
   createCompanionAgentsModuleRegistry,
   extractJson,
   redactEvent,
@@ -37,6 +38,8 @@ test('companion-agent-service', async () => {
     await testColdLoadPersistedRecordDoesNotSpawnUntilIntent()
     await testEventStreamHasNoSecrets()
     await testModuleRegistryEnforcesCompanionPermission()
+    await testModuleRegistryNamespacesAgentIdsByModule()
+    await testEventsBeforeTheCompanionSessionStartsNeverLeak()
     testExtractJsonVariants()
 
     console.log('companion-agent-service tests passed')
@@ -161,6 +164,8 @@ test('companion-agent-service', async () => {
       assert.deepEqual(runtime.listSessions({ workspaceId: 'workspace' }).ok, true)
       assert.equal(okSessions(runtime.listSessions({ workspaceId: 'workspace' })).length, 0)
       service.dispose()
+      // A finished turn refreshes the thread index in the background.
+      await runtime.shutdown()
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true })
     }
@@ -194,6 +199,8 @@ test('companion-agent-service', async () => {
       assert.equal(statuses[0], 'absent')
       assert.ok(statuses.includes('ready'))
       service.dispose()
+      // A finished turn refreshes the thread index in the background.
+      await runtime.shutdown()
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true })
     }
@@ -218,6 +225,8 @@ test('companion-agent-service', async () => {
       assert.equal(script.seenMessages[1].includes('You are the review guide.'), false)
       assert.ok(script.seenMessages[1].includes('Second.'))
       service.dispose()
+      // A finished turn refreshes the thread index in the background.
+      await runtime.shutdown()
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true })
     }
@@ -246,6 +255,8 @@ test('companion-agent-service', async () => {
       assert.ok(script.seenMessages[1].includes('could not be accepted'))
       assert.ok(phases.includes('retrying'))
       service.dispose()
+      // A finished turn refreshes the thread index in the background.
+      await runtime.shutdown()
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true })
     }
@@ -276,6 +287,8 @@ test('companion-agent-service', async () => {
       // Default retries = 1, so exactly two attempts.
       assert.equal(script.seenMessages.length, 2)
       service.dispose()
+      // A finished turn refreshes the thread index in the background.
+      await runtime.shutdown()
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true })
     }
@@ -308,6 +321,8 @@ test('companion-agent-service', async () => {
       const sessionIdAfterReuse = okSessions(runtime.listSessions({ workspaceId: 'workspace' }))[0]?.sessionId
       assert.equal(sessionIdAfterReuse, sessionIdAfterInterrupt)
       service.dispose()
+      // A finished turn refreshes the thread index in the background.
+      await runtime.shutdown()
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true })
     }
@@ -333,6 +348,8 @@ test('companion-agent-service', async () => {
       const value = await second
       assert.deepEqual(value, { done: true })
       service.dispose()
+      // A finished turn refreshes the thread index in the background.
+      await runtime.shutdown()
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true })
     }
@@ -365,6 +382,8 @@ test('companion-agent-service', async () => {
       assert.ok(secondSessionId)
       assert.notEqual(secondSessionId, firstSessionId)
       service.dispose()
+      // A finished turn refreshes the thread index in the background.
+      await runtime.shutdown()
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true })
     }
@@ -379,6 +398,8 @@ test('companion-agent-service', async () => {
       const b = service.attach({ ...SPEC_BASE, workspaceRoot })
       assert.equal(a, b)
       service.dispose()
+      // A finished turn refreshes the thread index in the background.
+      await runtime.shutdown()
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true })
     }
@@ -414,6 +435,8 @@ test('companion-agent-service', async () => {
       assert.ok(events.includes('approval_resolved'))
       assert.ok(events.includes('turn_completed'))
       service.dispose()
+      // A finished turn refreshes the thread index in the background.
+      await runtime.shutdown()
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true })
     }
@@ -459,6 +482,8 @@ test('companion-agent-service', async () => {
       assert.equal(okSessions(runtime.listSessions({ workspaceId: 'workspace' })).length, 1)
       assert.equal(handle.status(), 'ready')
       service.dispose()
+      // A finished turn refreshes the thread index in the background.
+      await runtime.shutdown()
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true })
     }
@@ -500,6 +525,8 @@ test('companion-agent-service', async () => {
       assert.ok(serialized.includes('[redacted]'))
       assert.ok(serialized.includes('safe'))
       service.dispose()
+      // A finished turn refreshes the thread index in the background.
+      await runtime.shutdown()
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true })
     }
@@ -528,8 +555,84 @@ test('companion-agent-service', async () => {
       const handle = registry.attach('with-perm', spec)
       assert.equal(handle.status(), 'absent')
       service.dispose()
+      // A finished turn refreshes the thread index in the background.
+      await runtime.shutdown()
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true })
+    }
+  }
+
+  // A module picks its companion's id; the registry runs it inside that
+  // module's namespace, so two modules picking the same id get two agents.
+  async function testModuleRegistryNamespacesAgentIdsByModule(): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'companion-'))
+    try {
+      const runtime = companionRuntime(scriptedProvider({ responses: [], seenMessages: [] }))
+      const service = companionService(runtime)
+      const registry = createCompanionAgentsModuleRegistry({
+        service,
+        getModulePermissions: () => ['agents:companion'],
+      })
+      const spec = { ...SPEC_BASE, workspaceRoot }
+      const reviews = registry.attach('reviews', spec)
+      const calendar = registry.attach('calendar', spec)
+      assert.equal(reviews.agentId, 'companion-reviews-review-guide')
+      assert.equal(calendar.agentId, 'companion-calendar-review-guide')
+      assert.equal(companionAgentIdFor('reviews', 'review-guide'), reviews.agentId)
+      assert.notEqual(reviews, calendar, 'two modules, two companions')
+      assert.equal(registry.attach('reviews', spec), reviews, 'the same module and id is the same companion')
+      service.dispose()
+      await runtime.shutdown()
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true })
+    }
+  }
+
+  // Before its own session exists, a companion hears nothing on its key: not
+  // a session left from an earlier run being retired as it starts, and not
+  // that earlier session's events. Its own session's first events, emitted
+  // before startSession answered with its id, still arrive once it has.
+  async function testEventsBeforeTheCompanionSessionStartsNeverLeak(): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'companion-'))
+    const otherRoot = await mkdtemp(join(tmpdir(), 'companion-other-'))
+    try {
+      const runtime = companionRuntime(scriptedProvider({ responses: ['{"ok":true}'], seenMessages: [] }))
+      const service = companionService(runtime)
+      const handle = service.attach({ ...SPEC_BASE, workspaceRoot })
+      const seen: ConversationEvent[] = []
+      handle.onEvent((event) => seen.push(event))
+
+      // A session on the same key that is not the companion's.
+      const stray = await runtime.startSession({
+        workspaceRoot: otherRoot,
+        workspaceId: SPEC_BASE.workspaceId,
+        agentId: SPEC_BASE.agentId,
+        providerId: 'companion-mock',
+        modelId: 'companion-model',
+      })
+      assert.ok(stray.ok)
+      assert.equal(seen.length, 0, 'nothing reaches a companion before its own session exists')
+
+      await handle.runStructured({ prompt: 'go', validate: (raw) => ({ ok: true, value: raw }) })
+      const own = okSessions(
+        runtime.listSessions({ workspaceId: SPEC_BASE.workspaceId, agentId: SPEC_BASE.agentId }),
+      ).find((session) => session.status !== 'stopped')
+      assert.ok(own)
+      assert.notEqual(own.sessionId, stray.session.sessionId)
+      assert.ok(seen.length > 0)
+      assert.ok(
+        seen.every((event) => event.sessionId === own.sessionId),
+        "every event delivered is the companion session's own",
+      )
+      assert.ok(
+        seen.some((event) => event.type === 'session_started'),
+        'its own start, emitted before startSession answered, is delivered',
+      )
+      service.dispose()
+      await runtime.shutdown()
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true })
+      await rm(otherRoot, { recursive: true, force: true })
     }
   }
 

@@ -1,0 +1,968 @@
+import { mkdtemp, writeFile, readFile, rm, symlink, mkdir, realpath } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { expect, test } from 'vitest'
+import {
+  ACP_PROFILES,
+  acpLaunchArgv,
+  acpLaunchEnv,
+  acpApprovalInput,
+  acpMcpServers,
+  acpToolKind,
+  confinedAcpPath,
+  createAcpConversationProvider,
+  probeAcpConversationCommands,
+} from './acp-conversation-provider'
+import type {
+  ConversationEvent,
+  ConversationMcpServer,
+  ConversationPermissionPreset,
+} from '../../shared/conversation-runtime'
+import type { ConversationCommandCatalog } from '../../shared/conversation/commands'
+import { conversationCommandsFor, onConversationCommandsChanged } from '../conversation-commands/registry'
+
+// A separate process speaks JSON-RPC over real stdio, including agent-to-client
+// permission and file requests. No installed CLI or network is needed in CI.
+const agent = `
+const { createInterface } = require('node:readline');
+let prompt, opened, serial=100, pending=new Map(), model='model-one';
+const send=value=>process.stdout.write(JSON.stringify({jsonrpc:'2.0',...value})+'\\n');
+const result=(id,result)=>send({id,result});
+const update=update=>send({method:'session/update',params:{sessionId:'native',update}});
+const request=(method,params)=>new Promise(resolve=>{const id=++serial;pending.set(id,resolve);send({id,method,params})});
+createInterface({input:process.stdin}).on('line',async line=>{
+ const m=JSON.parse(line),p=m.params||{};
+ if(!m.method){pending.get(m.id)?.(m.result||{error:m.error});pending.delete(m.id);return}
+ if(m.method==='initialize')return result(m.id,{protocolVersion:1,agentCapabilities:{loadSession:!process.env.NO_LOAD,promptCapabilities:{image:true},mcpCapabilities:{http:!!process.env.MCP_HTTP}},authMethods:[],_meta:{availableCommands:[{name:'handshake',description:'Listed before any session'}]}});
+ if(m.method==='session/load'&&p.sessionId==='gone')return send({id:m.id,error:{code:-32002,message:'Resource not found'}});
+ if(m.method==='session/load'&&require('node:fs').existsSync('busy-session'))return send({id:m.id,error:{code:-32603,message:'Internal error',data:{details:'rate limit reached'}}});
+ if((m.method==='session/new'||m.method==='session/load')&&require('node:fs').existsSync('fail-session'))return send({id:m.id,error:{code:-32603,message:'session store unavailable'}});
+ if(m.method==='session/new'||m.method==='session/load'){
+   opened=m.method;
+   if(p.mcpServers?.length)require('node:fs').writeFileSync('mcp-servers.json',JSON.stringify(p.mcpServers));
+   if(m.method==='session/load')update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:'REPLAY SHOULD BE SUPPRESSED'}});
+   result(m.id,{...(m.method==='session/new'?{sessionId:'native'}:{}),modes:{currentModeId:'agent',availableModes:[{id:'agent',name:'Agent'},{id:'plan',name:'Plan'},{id:'ask',name:'Ask'}]},configOptions:[{id:'model',name:'Model',category:'model',type:'select',currentValue:'model-one',options:[{value:'model-one',name:'Model One'},{value:'model-two',name:'Model Two'}]}]});
+   // Like Cursor and OpenCode: the command list follows the new session, outside any turn. STRAY
+   // text goes first, so a test that has seen the list knows the text was read too.
+   if(m.method==='session/new'){if(process.env.STRAY)update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:'STRAY OUTSIDE A TURN'}});update({sessionUpdate:'available_commands_update',availableCommands:[{name:'review',description:'Review changes',input:{hint:'[commit|branch]'}},{name:'triage',description:'Sort the open issues. (builtin skill)'},{name:'changelog',description:'Draft a changelog entry. (global)'},{name:'always-approve',description:'Toggle approvals',input:{hint:'on|off'}},{name:'exit',description:'Leave'}]})}
+   return;
+ }
+ if(m.method==='session/set_mode')return result(m.id,{});
+ if(m.method==='session/set_config_option'){if(p.configId==='model')model=p.value;return result(m.id,{configOptions:[]})}
+ if(m.method==='session/cancel'){if(process.env.IGNORE_CANCEL)return;if(prompt)result(prompt,{stopReason:'cancelled'});prompt=null;return}
+ if(m.method!=='session/prompt')return result(m.id,{});
+ prompt=m.id;const text=p.prompt[0].text;
+ if(text.startsWith('/')){if(text==='/refresh')update({sessionUpdate:'available_commands_update',availableCommands:[{name:'fresh',description:'Replaced list'}]});update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:'ran '+text}});result(m.id,{stopReason:'end_turn'});prompt=null;return}
+ if(text.includes('inspect history')){update({sessionUpdate:'agent_message_chunk',content:{type:'text',text}});result(m.id,{stopReason:'end_turn'});return}
+ if(text==='argv'){update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:JSON.stringify({argv:process.argv.slice(2),opened,model,permission:process.env.OPENCODE_PERMISSION??null})}});result(m.id,{stopReason:'end_turn'});prompt=null;return}
+ if(text==='crash')process.exit(2);
+ if(text==='pid'){update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:String(process.pid)}});result(m.id,{stopReason:'end_turn'});prompt=null;return}
+ if(text==='flood'){process.stdout.write('x'.repeat(17*1024*1024));return}
+ update({sessionUpdate:'agent_thought_chunk',content:{type:'text',text:'Thinking'}});
+ if(text==='hang'){update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:'waiting'}});return}
+ update({sessionUpdate:'tool_call',toolCallId:'tool',kind:'edit',title:'Write',rawInput:{path:'result.txt'},status:'pending'});
+ const permission=await request('session/request_permission',{sessionId:'native',toolCall:{toolCallId:'tool',kind:'edit',name:'Write'},options:[{kind:text==='broad'?'allow_always':'allow_once',optionId:'allow',name:'Allow'},{kind:'reject_once',optionId:'deny',name:'Deny'}]});
+ if(permission.outcome?.outcome==='selected'&&permission.outcome.optionId==='allow'){
+  if(text==='write')await request('fs/write_text_file',{sessionId:'native',path:process.cwd()+'/result.txt',content:'approved write'});
+  if(text==='create'){const w=await request('fs/write_text_file',{sessionId:'native',path:process.cwd()+'/new.txt',content:'fresh'});update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:w.error?'refused: '+w.error.message+' '+JSON.stringify(w.error.data):'created'}})}
+  update({sessionUpdate:'tool_call_update',toolCallId:'tool',status:'completed',content:[{type:'diff',path:'result.txt',oldText:'',newText:'approved write'}]});
+ }
+ update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:permission.outcome?.outcome==='selected'?'Done':'Denied'}});
+ result(m.id,{stopReason:'end_turn',usage:{inputTokens:10,outputTokens:2,totalTokens:12}});prompt=null;
+});
+`
+async function fixture(resume = false, lostSessionId?: string, env: Record<string, string> = {}) {
+  const root = await mkdtemp(join(tmpdir(), 'acp-provider-'))
+  const input = {
+    sessionId: 'session',
+    workspaceId: 'workspace',
+    agentId: 'agent',
+    providerId: 'test-acp',
+    modelId: 'default',
+    workspaceRoot: root,
+    ...(resume || lostSessionId
+      ? {
+          resumeSessionId: lostSessionId ?? 'old',
+          fallbackHistory: [
+            { role: 'user' as const, content: 'persisted question' },
+            { role: 'assistant' as const, content: 'persisted answer' },
+          ],
+        }
+      : {}),
+  }
+  const provider = createAcpConversationProvider(
+    {
+      id: input.providerId,
+      displayName: 'Test agent',
+      cli: 'test',
+      argv: ['-e', agent],
+      authHint: 'Configure test agent.',
+      images: true,
+      planMode: true,
+    },
+    {
+      detect: async () => process.execPath,
+      buildEnv: async () => ({ PATH: process.env.PATH, ...(resume ? { NO_LOAD: '1' } : {}), ...env }),
+      startupTimeoutMs: 2000,
+      // Short only where the agent ignores the cancel, so a slow machine never
+      // ends a process that was about to wind its turn down.
+      cancelGraceMs: env.IGNORE_CANCEL ? 300 : 10_000,
+    },
+  )
+  const started = (await provider.startSession(input)) as ConversationEvent[]
+  return {
+    started,
+    root,
+    input,
+    provider,
+    cleanup: async () => {
+      provider.disposeAll?.()
+      await rm(root, { recursive: true, force: true })
+    },
+  }
+}
+// A shipped profile whose CLI is the stand-in agent: the script path leads
+// every argv, so the agent receives exactly the flags the profile launches with.
+async function presetFixture(profileId: string, permissionPreset: ConversationPermissionPreset) {
+  const root = await mkdtemp(join(tmpdir(), 'acp-preset-'))
+  const support = await mkdtemp(join(tmpdir(), 'acp-preset-support-'))
+  const script = join(support, 'agent.js')
+  await writeFile(script, agent)
+  const shipped = ACP_PROFILES.find((profile) => profile.id === profileId)!
+  const provider = createAcpConversationProvider(
+    {
+      ...shipped,
+      argv: [script, ...shipped.argv],
+      presets: Object.fromEntries(
+        Object.entries(shipped.presets ?? {}).map(([preset, launch]) => [
+          preset,
+          { ...launch, ...(launch.argv ? { argv: [script, ...launch.argv] } : {}) },
+        ]),
+      ),
+      authenticate: undefined,
+    },
+    {
+      detect: async () => process.execPath,
+      buildEnv: async () => ({ PATH: process.env.PATH }),
+      startupTimeoutMs: 2000,
+    },
+  )
+  const input = {
+    sessionId: 'session',
+    workspaceId: 'workspace',
+    agentId: 'agent',
+    providerId: shipped.id,
+    modelId: 'default',
+    workspaceRoot: root,
+    permissionPreset,
+  }
+  const started = (await provider.startSession(input)) as ConversationEvent[]
+  return {
+    started,
+    root,
+    input,
+    provider,
+    cleanup: async () => {
+      provider.disposeAll?.()
+      await rm(root, { recursive: true, force: true })
+      await rm(support, { recursive: true, force: true })
+    },
+  }
+}
+async function launched(f: { provider: ReturnType<typeof createAcpConversationProvider>; input: object }) {
+  const text = (await turn(f as Awaited<ReturnType<typeof fixture>>, 'argv'))
+    .filter((event) => event.type === 'content_delta')
+    .map((event) => event.payload?.text)
+    .join('')
+  return JSON.parse(text) as { argv: string[]; opened: string; model: string; permission: string | null }
+}
+async function turn(f: Awaited<ReturnType<typeof fixture>>, message: string) {
+  const events: ConversationEvent[] = []
+  for await (const event of await f.provider.sendTurn({ ...f.input, turnId: 'turn', requestId: 'request', message })) {
+    events.push(event)
+    if (event.type === 'approval_requested')
+      await f.provider.resolveApproval({
+        ...f.input,
+        turnId: 'turn',
+        requestId: String(event.payload?.requestId),
+        approved: true,
+      })
+  }
+  return events
+}
+
+test('ACP streams text, reasoning, typed edits, permissions, usage and workspace writes over stdio', async () => {
+  const f = await fixture()
+  try {
+    await writeFile(join(f.root, 'result.txt'), 'before edit')
+    expect(f.provider.listModels()).toEqual(['default', 'model-one', 'model-two'])
+    const events = await turn(f, 'write')
+    expect(events.map((event) => event.type)).toEqual(
+      expect.arrayContaining([
+        'reasoning_delta',
+        'tool_started',
+        'tool_output',
+        'approval_requested',
+        'content_delta',
+        'usage_updated',
+        'turn_completed',
+      ]),
+    )
+    expect(events.find((event) => event.type === 'tool_started')?.payload).toMatchObject({
+      kind: 'file_edit',
+      toolUseId: 'tool',
+      input: { path: 'result.txt' },
+    })
+    expect(events.filter((event) => event.type === 'approval_requested')).toHaveLength(2)
+    // The write approval shows the change itself, not only where it lands.
+    expect(events.filter((event) => event.type === 'approval_requested')[1]?.payload?.input).toMatchObject({
+      oldText: 'before edit',
+      newText: 'approved write',
+    })
+    expect(await readFile(join(f.root, 'result.txt'), 'utf8')).toBe('approved write')
+    expect(f.provider.listLiveSessions?.()[0]).toMatchObject({
+      hasChildProcess: true,
+      turnActive: false,
+      providerSessionId: 'native',
+    })
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP refuses a new-file write before asking for approval it cannot use', async () => {
+  const f = await fixture()
+  try {
+    const events = await turn(f, 'create')
+    // Only the agent's own tool permission; the callback write is refused unasked.
+    expect(events.filter((event) => event.type === 'approval_requested')).toHaveLength(1)
+    expect(
+      events
+        .filter((event) => event.type === 'content_delta')
+        .map((event) => event.payload?.text)
+        .join(''),
+    ).toContain('can edit existing files only')
+    await expect(readFile(join(f.root, 'new.txt'), 'utf8')).rejects.toThrow()
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP idle disposal resumes its native session without replaying old text into the turn', async () => {
+  const f = await fixture()
+  try {
+    await turn(f, 'first')
+    expect(f.provider.disposeChildProcess?.('session')).toBe(true)
+    const events = await turn(f, 'second')
+    expect(events.filter((event) => event.type === 'content_delta').map((event) => event.payload?.text)).toEqual([
+      'Done',
+    ])
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP reports a failed session reload as a failed turn instead of dropping it', async () => {
+  const f = await fixture()
+  try {
+    await turn(f, 'first')
+    expect(f.provider.disposeChildProcess?.('session')).toBe(true)
+    await writeFile(join(f.root, 'fail-session'), '')
+    const events = await turn(f, 'second')
+    expect(events.at(-1)).toMatchObject({ type: 'turn_failed' })
+    expect(String(events.at(-1)?.payload?.message)).toContain('session store unavailable')
+    await rm(join(f.root, 'fail-session'))
+    expect((await turn(f, 'third')).at(-1)?.type).toBe('turn_completed')
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP keeps its session when reopening it fails for a reason other than it being gone', async () => {
+  const f = await fixture()
+  try {
+    await turn(f, 'first')
+    expect(f.provider.disposeChildProcess?.('session')).toBe(true)
+    await writeFile(join(f.root, 'busy-session'), '')
+    const events = await turn(f, 'second')
+    expect(events.at(-1)).toMatchObject({ type: 'turn_failed' })
+    expect(events.some((event) => String(event.payload?.notice ?? '').includes('could not reopen'))).toBe(false)
+    await rm(join(f.root, 'busy-session'))
+    const reopened = (await turn(f, 'argv')).find((event) => event.type === 'content_delta')?.payload?.text
+    expect(JSON.parse(String(reopened)).opened).toBe('session/load')
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP cancellation and child crashes always terminate streaming', async () => {
+  const f = await fixture()
+  try {
+    const events: ConversationEvent[] = []
+    for await (const event of await f.provider.sendTurn({
+      ...f.input,
+      turnId: 'turn',
+      requestId: 'request',
+      message: 'hang',
+    })) {
+      events.push(event)
+      if (event.type === 'content_delta') await f.provider.interrupt(f.input)
+    }
+    expect(events.some((event) => event.type === 'turn_failed')).toBe(true)
+    expect((await turn(f, 'crash')).some((event) => event.type === 'turn_failed')).toBe(true)
+  } finally {
+    await f.cleanup()
+  }
+})
+// Starts a turn the agent keeps open, and stops it once the agent has spoken.
+async function stoppedTurn(f: Awaited<ReturnType<typeof fixture>>, afterStop?: () => void) {
+  const events: ConversationEvent[] = []
+  for await (const event of await f.provider.sendTurn({
+    ...f.input,
+    turnId: 'turn',
+    requestId: 'request',
+    message: 'hang',
+  })) {
+    events.push(event)
+    if (event.type === 'content_delta') {
+      await f.provider.interrupt(f.input)
+      afterStop?.()
+    }
+  }
+  return events
+}
+const pidOf = async (f: Awaited<ReturnType<typeof fixture>>) =>
+  (await turn(f, 'pid')).find((event) => event.type === 'content_delta')?.payload?.text
+test('ACP Stop cancels the turn and keeps the process for the next one', async () => {
+  const f = await fixture()
+  try {
+    const before = await pidOf(f)
+    const events = await stoppedTurn(f)
+    expect(events.at(-1)).toMatchObject({ type: 'turn_failed', payload: { reason: 'interrupted' } })
+    expect(f.provider.listLiveSessions?.()[0]?.hasChildProcess).toBe(true)
+    expect(await pidOf(f)).toBe(before)
+    // Not reopened: the session stayed live in the same process.
+    expect((await launched(f)).opened).toBe('session/new')
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP ends the process of a stopped turn the agent does not wind down', async () => {
+  const f = await fixture(false, undefined, { IGNORE_CANCEL: '1' })
+  try {
+    const before = await pidOf(f)
+    const events = await stoppedTurn(f)
+    expect(events.at(-1)?.type).toBe('turn_failed')
+    expect(f.provider.listLiveSessions?.()[0]?.hasChildProcess).toBe(false)
+    // The next turn starts a new process and reopens the session.
+    expect(await pidOf(f)).not.toBe(before)
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP Settle ends the process of a turn just stopped', async () => {
+  const f = await fixture(false, undefined, { IGNORE_CANCEL: '1' })
+  try {
+    let disposed: boolean | undefined
+    const events = await stoppedTurn(f, () => {
+      disposed = f.provider.disposeChildProcess?.('session')
+    })
+    expect(disposed).toBe(true)
+    expect(events.at(-1)?.type).toBe('turn_failed')
+    expect(f.provider.listLiveSessions?.()[0]?.hasChildProcess).toBe(false)
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP forced disposal ends a turn still running', async () => {
+  const f = await fixture()
+  try {
+    const events: ConversationEvent[] = []
+    for await (const event of await f.provider.sendTurn({
+      ...f.input,
+      turnId: 'turn',
+      requestId: 'request',
+      message: 'hang',
+    })) {
+      events.push(event)
+      if (event.type === 'content_delta') {
+        expect(f.provider.disposeChildProcess?.('session')).toBe(false)
+        expect(f.provider.disposeChildProcess?.('session', { force: true })).toBe(true)
+      }
+    }
+    expect(events.at(-1)?.type).toBe('turn_failed')
+    expect(f.provider.listLiveSessions?.()[0]?.hasChildProcess).toBe(false)
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP ends an agent whose protocol line exceeds the size limit', async () => {
+  const f = await fixture()
+  try {
+    expect((await turn(f, 'flood')).at(-1)?.type).toBe('turn_failed')
+    expect(f.provider.listLiveSessions?.()[0]?.hasChildProcess).toBe(false)
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP without native loading restores persisted history after application restart', async () => {
+  const f = await fixture(true)
+  try {
+    const content = (await turn(f, 'inspect history')).find((event) => event.type === 'content_delta')?.payload?.text
+    expect(content).toContain('persisted question')
+    expect(content).toContain('persisted answer')
+    expect(content).toContain('inspect history')
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP continues in a new session with replayed history when its stored session is gone', async () => {
+  const f = await fixture(false, 'gone')
+  try {
+    const notice = f.started.find((event) => event.type === 'session_updated')
+    expect(notice?.payload).toMatchObject({ providerSessionId: 'native' })
+    expect(String(notice?.payload?.notice)).toContain('could not reopen its previous session')
+    const content = (await turn(f, 'inspect history')).find((event) => event.type === 'content_delta')?.payload?.text
+    expect(content).toContain('persisted question')
+    expect(content).toContain('inspect history')
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP shutdown during executable discovery never spawns a late child', async () => {
+  let finish!: (path: string) => void
+  const detection = new Promise<string>((resolve) => {
+    finish = resolve
+  })
+  const provider = createAcpConversationProvider(
+    {
+      id: 'late',
+      displayName: 'Late',
+      cli: 'test',
+      argv: ['-e', agent],
+      authHint: 'Configure agent.',
+      images: false,
+      planMode: false,
+    },
+    { detect: () => detection, buildEnv: async () => ({}) },
+  )
+  const pending = provider.startSession({
+    sessionId: 'late',
+    workspaceId: 'workspace',
+    agentId: 'agent',
+    providerId: 'late',
+    modelId: 'default',
+    workspaceRoot: tmpdir(),
+  })
+  provider.disposeAll?.()
+  finish(process.execPath)
+  await expect(pending).rejects.toThrow('stopped during startup')
+  expect(provider.listLiveSessions?.()).toEqual([])
+})
+test('ACP reports a CLI that cannot be started without a misleading sign-in hint', async () => {
+  const provider = createAcpConversationProvider(
+    {
+      id: 'missing',
+      displayName: 'Missing',
+      cli: 'test',
+      argv: ['acp'],
+      authHint: 'Run missing login in a terminal.',
+      images: false,
+      planMode: false,
+    },
+    { detect: async () => join(tmpdir(), 'no-such-acp-agent'), buildEnv: async () => ({}) },
+  )
+  const pending = provider.startSession({
+    sessionId: 'missing',
+    workspaceId: 'workspace',
+    agentId: 'agent',
+    providerId: 'missing',
+    modelId: 'default',
+    workspaceRoot: tmpdir(),
+  })
+  await expect(pending).rejects.toThrow(/Missing could not be started from .*no-such-acp-agent: .*ENOENT/)
+  await expect(pending).rejects.not.toThrow('login')
+  expect(provider.listLiveSessions?.()).toEqual([])
+})
+test('ACP handshake timeout disposes the child and cannot publish a late connection', async () => {
+  const slow = `setTimeout(()=>{process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:0,result:{protocolVersion:1}})+'\\n')},2000);process.stdin.resume()`
+  const provider = createAcpConversationProvider(
+    {
+      id: 'slow',
+      displayName: 'Slow',
+      cli: 'test',
+      argv: ['-e', slow],
+      authHint: 'Configure agent.',
+      images: false,
+      planMode: false,
+    },
+    { detect: async () => process.execPath, buildEnv: async () => ({}), startupTimeoutMs: 20 },
+  )
+  await expect(
+    provider.startSession({
+      sessionId: 'slow',
+      workspaceId: 'workspace',
+      agentId: 'agent',
+      providerId: 'slow',
+      modelId: 'default',
+      workspaceRoot: tmpdir(),
+    }),
+  ).rejects.toThrow('timed out')
+  expect(provider.listLiveSessions?.()).toEqual([])
+  provider.disposeAll?.()
+})
+test('ACP refuses permission presets that the selected CLI cannot enforce', async () => {
+  const f = await fixture()
+  try {
+    // The stand-in profile names no way to hold it to a preset, so it offers `none` alone.
+    expect(f.provider.capabilities?.permissionPresets).toEqual(['none'])
+    expect(await f.provider.setPermissionPreset?.({ ...f.input, permissionPreset: 'bypass' })).toMatchObject({
+      ok: false,
+    })
+    await expect(
+      f.provider.startSession({ ...f.input, sessionId: 'other', permissionPreset: 'bypass' }),
+    ).rejects.toThrow('cannot be held to this permission preset')
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP never upgrades an allow-once decision to a persistent agent permission', async () => {
+  const f = await fixture()
+  try {
+    expect((await turn(f, 'broad')).find((event) => event.type === 'content_delta')?.payload?.text).toBe('Denied')
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP file helpers reject traversal, absolute escapes and symlink ancestors', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acp-files-'))
+  try {
+    await mkdir(join(root, 'workspace'))
+    await mkdir(join(root, 'outside'))
+    await writeFile(join(root, 'outside', 'secret'), 'private')
+    await symlink(join(root, 'outside'), join(root, 'workspace', 'link'))
+    const cwd = join(root, 'workspace')
+    await expect(confinedAcpPath(cwd, '../outside/secret')).rejects.toThrow('outside')
+    await expect(confinedAcpPath(cwd, join(root, 'outside', 'secret'))).rejects.toThrow('outside')
+    await expect(confinedAcpPath(cwd, 'link/secret')).rejects.toThrow('Symbolic')
+    await expect(confinedAcpPath(cwd, 'link/new', true)).rejects.toThrow('Symbolic')
+    expect(await confinedAcpPath(cwd, 'new', true)).toBe(join(await realpath(cwd), 'new'))
+    // A workspace opened through a symlinked ancestor: the agent names files
+    // under the path it was started in, which is not the resolved path.
+    await symlink(join(root, 'workspace'), join(root, 'alias'))
+    const aliased = join(root, 'alias')
+    await writeFile(join(cwd, 'file.txt'), 'inside')
+    expect(await confinedAcpPath(aliased, join(aliased, 'file.txt'))).toBe(join(await realpath(cwd), 'file.txt'))
+    expect(await confinedAcpPath(aliased, join(await realpath(cwd), 'file.txt'))).toBe(
+      join(await realpath(cwd), 'file.txt'),
+    )
+    await expect(confinedAcpPath(aliased, join(aliased, 'link', 'secret'))).rejects.toThrow('Symbolic')
+    await expect(confinedAcpPath(aliased, join(root, 'outside', 'secret'))).rejects.toThrow('outside')
+    expect(acpToolKind('execute')).toBe('command')
+    expect(acpToolKind('think')).toBe('other')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+test('an ACP permission request carries the locations the agent listed beside its input', () => {
+  const locations = [{ path: '/Users/dev/proj/a.ts', line: 3 }]
+  expect(acpApprovalInput(undefined, locations)).toEqual({ locations: [{ path: '/Users/dev/proj/a.ts' }] })
+  expect(acpApprovalInput({ target_file: 'a.ts' }, locations)).toEqual({
+    target_file: 'a.ts',
+    locations: [{ path: '/Users/dev/proj/a.ts' }],
+  })
+  expect(acpApprovalInput('cat a.ts', locations)).toEqual({
+    input: 'cat a.ts',
+    locations: [{ path: '/Users/dev/proj/a.ts' }],
+  })
+  expect(acpApprovalInput({ target_file: 'a.ts' }, [])).toEqual({ target_file: 'a.ts' })
+})
+test("ACP launches each preset through the CLI's own switch, and Cursor offers no Manual", () => {
+  const profile = (id: string) => ACP_PROFILES.find((entry) => entry.id === id)!
+  const cursor = profile('cursor-agent')
+  const grok = profile('grok-agent')
+  const opencode = profile('opencode-agent')
+  expect(createAcpConversationProvider(cursor).capabilities?.permissionPresets).toEqual(['none', 'auto', 'bypass'])
+  for (const entry of [grok, opencode])
+    expect(createAcpConversationProvider(entry).capabilities?.permissionPresets).toEqual([
+      'none',
+      'manual',
+      'auto',
+      'bypass',
+    ])
+  // `none` passes no permission flag, so the CLI's own configuration decides.
+  expect(acpLaunchArgv(cursor, 'none')).toEqual(['acp'])
+  expect(acpLaunchArgv(cursor, 'auto')).toEqual(['--auto-review', 'acp'])
+  expect(acpLaunchArgv(cursor, 'bypass')).toEqual(['--force', 'acp'])
+  expect(acpLaunchArgv(grok, 'none')).toEqual(['agent', '--no-leader', 'stdio'])
+  expect(acpLaunchArgv(grok, 'manual')).toEqual(['--permission-mode', 'default', 'agent', '--no-leader', 'stdio'])
+  expect(acpLaunchArgv(grok, 'auto')).toEqual(['--permission-mode', 'auto', 'agent', '--no-leader', 'stdio'])
+  expect(acpLaunchArgv(grok, 'bypass')).toEqual(['agent', '--always-approve', '--no-leader', 'stdio'])
+  // Grok's own modes, each only at the preset it sits at.
+  expect(acpLaunchArgv(grok, 'auto', 'acceptEdits')).toEqual([
+    '--permission-mode',
+    'acceptEdits',
+    'agent',
+    '--no-leader',
+    'stdio',
+  ])
+  expect(acpLaunchArgv(grok, 'manual', 'dontAsk')).toEqual([
+    '--permission-mode',
+    'dontAsk',
+    'agent',
+    '--no-leader',
+    'stdio',
+  ])
+  expect(acpLaunchArgv(grok, 'bypass', 'acceptEdits')).toEqual(['agent', '--always-approve', '--no-leader', 'stdio'])
+  expect(createAcpConversationProvider(grok).capabilities?.permissionModes).toEqual(['acceptEdits', 'dontAsk'])
+  expect(createAcpConversationProvider(cursor).capabilities?.permissionModes).toEqual([])
+  // `opencode acp` takes no permission flag; every preset travels in its environment.
+  for (const preset of ['none', 'manual', 'auto', 'bypass'] as const)
+    expect(acpLaunchArgv(opencode, preset)).toEqual(['acp'])
+  expect(acpLaunchEnv(opencode, 'none')).toEqual({})
+  expect(JSON.parse(acpLaunchEnv(opencode, 'bypass').OPENCODE_PERMISSION!)).toEqual({ '*': 'allow' })
+  const manual = JSON.parse(acpLaunchEnv(opencode, 'manual').OPENCODE_PERMISSION!)
+  const auto = JSON.parse(acpLaunchEnv(opencode, 'auto').OPENCODE_PERMISSION!)
+  // The wildcard leads, so each named tool after it is the rule that wins.
+  expect(Object.keys(manual)[0]).toBe('*')
+  expect(manual).toMatchObject({ '*': 'ask', read: 'allow', grep: 'allow', edit: 'ask', bash: 'ask', webfetch: 'ask' })
+  expect(auto).toMatchObject({ '*': 'ask', read: 'allow', edit: 'allow', bash: 'ask', external_directory: 'ask' })
+})
+
+test('an OpenCode chat and an OpenCode terminal agent are held to the same rule set for each mode', async () => {
+  const manifest = JSON.parse(
+    await readFile(join(process.cwd(), 'resources/plugins/opencode/plugin.json'), 'utf8'),
+  ) as { permissionPresets: Record<string, { env?: Record<string, string> }> }
+  const opencode = ACP_PROFILES.find((entry) => entry.id === 'opencode-agent')!
+  for (const preset of ['manual', 'auto'] as const)
+    expect(JSON.parse(manifest.permissionPresets[preset]!.env!.OPENCODE_PERMISSION!)).toEqual(
+      JSON.parse(acpLaunchEnv(opencode, preset).OPENCODE_PERMISSION!),
+    )
+})
+
+test('Cursor refuses Manual with the reason, rather than running it as something looser', async () => {
+  const cursor = createAcpConversationProvider(
+    ACP_PROFILES.find((entry) => entry.id === 'cursor-agent')!,
+    {
+      detect: async () => process.execPath,
+      buildEnv: async () => ({}),
+    },
+  )
+  await expect(
+    cursor.startSession({
+      sessionId: 'manual',
+      workspaceId: 'workspace',
+      agentId: 'agent',
+      providerId: 'cursor-agent',
+      modelId: 'default',
+      workspaceRoot: tmpdir(),
+      permissionPreset: 'manual',
+    }),
+  ).rejects.toThrow('Cursor edits files without asking')
+})
+
+test('ACP takes a preset change mid-turn and launches the next turn under it', async () => {
+  const f = await presetFixture('grok-agent', 'none')
+  try {
+    expect((await launched(f)).argv).toEqual(['agent', '--no-leader', 'stdio'])
+    const iterator = (
+      (await f.provider.sendTurn({
+        ...f.input,
+        turnId: 'slow',
+        requestId: 'request',
+        message: 'write',
+      })) as AsyncIterable<ConversationEvent>
+    )[Symbol.asyncIterator]()
+    // The turn is running: its approval is waiting on the person.
+    for (;;) {
+      const next = await iterator.next()
+      if (next.done || next.value.type === 'approval_requested') break
+    }
+    expect(await f.provider.setPermissionPreset?.({ ...f.input, permissionPreset: 'manual' })).toEqual({
+      ok: true,
+      notice: 'Grok takes the new permissions from your next message.',
+    })
+    expect(f.provider.listLiveSessions?.()[0]).toMatchObject({ hasChildProcess: true })
+    await f.provider.interrupt?.({ ...f.input })
+    for (;;) if ((await iterator.next()).done) break
+    expect((await launched(f)).argv).toEqual(['--permission-mode', 'default', 'agent', '--no-leader', 'stdio'])
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test("Grok's own permission commands are refused under a stricter preset", async () => {
+  const f = await presetFixture('grok-agent', 'auto')
+  try {
+    const events = await turn(f as Awaited<ReturnType<typeof fixture>>, '/always-approve')
+    expect(events.find((event) => event.type === 'turn_failed')?.payload?.message).toContain(
+      'Use the permission picker in the chat box instead.',
+    )
+  } finally {
+    await f.cleanup()
+  }
+  // `/auto` is the mode Auto already starts Grok in, so only Manual refuses it.
+  const manual = await presetFixture('grok-agent', 'manual')
+  try {
+    const events = await turn(manual as Awaited<ReturnType<typeof fixture>>, '/auto')
+    expect(events.find((event) => event.type === 'turn_failed')?.payload?.message).toContain('/auto would change Grok')
+  } finally {
+    await manual.cleanup()
+  }
+})
+test('ACP respawns the child with the new preset flags and reloads the same session', async () => {
+  const f = await presetFixture('cursor-agent', 'none')
+  try {
+    expect((await launched(f)).argv).toEqual(['acp'])
+    expect(await f.provider.setPermissionPreset?.({ ...f.input, permissionPreset: 'bypass' })).toEqual({ ok: true })
+    // The old child is gone at once; the flags it was launched with cannot change.
+    expect(f.provider.listLiveSessions?.()[0]).toMatchObject({ hasChildProcess: false, providerSessionId: 'native' })
+    expect(await launched(f)).toMatchObject({ argv: ['--force', 'acp'], opened: 'session/load' })
+    expect(await f.provider.setPermissionPreset?.({ ...f.input, permissionPreset: 'none' })).toEqual({ ok: true })
+    expect((await launched(f)).argv).toEqual(['acp'])
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP launches Grok bypass with --always-approve after the agent subcommand, and Auto as its own auto mode before it', async () => {
+  const f = await presetFixture('grok-agent', 'bypass')
+  try {
+    expect((await launched(f)).argv).toEqual(['agent', '--always-approve', '--no-leader', 'stdio'])
+    expect(await f.provider.setPermissionPreset?.({ ...f.input, permissionPreset: 'auto' })).toEqual({ ok: true })
+    expect((await launched(f)).argv).toEqual(['--permission-mode', 'auto', 'agent', '--no-leader', 'stdio'])
+    expect(await f.provider.setPermissionPreset?.({ ...f.input, permissionPreset: 'none' })).toEqual({ ok: true })
+    expect((await launched(f)).argv).toEqual(['agent', '--no-leader', 'stdio'])
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP gives OpenCode bypass as an allow-everything permission rule, and none leaves its config alone', async () => {
+  const f = await presetFixture('opencode-agent', 'bypass')
+  try {
+    expect(await launched(f)).toMatchObject({ argv: ['acp'], permission: JSON.stringify({ '*': 'allow' }) })
+    expect(await f.provider.setPermissionPreset?.({ ...f.input, permissionPreset: 'manual' })).toEqual({ ok: true })
+    expect(JSON.parse((await launched(f)).permission!)).toMatchObject({ '*': 'ask', edit: 'ask' })
+    expect(await f.provider.setPermissionPreset?.({ ...f.input, permissionPreset: 'none' })).toEqual({ ok: true })
+    expect(await launched(f)).toMatchObject({ argv: ['acp'], permission: null })
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP under no permission flag still turns the agent permission requests into approval cards', async () => {
+  const f = await presetFixture('grok-agent', 'none')
+  try {
+    expect((await launched(f)).argv).toEqual(['agent', '--no-leader', 'stdio'])
+    await writeFile(join(f.root, 'result.txt'), 'before edit')
+    const approvals = (await turn(f, 'write')).filter((event) => event.type === 'approval_requested')
+    expect(approvals[0]?.payload).toMatchObject({ kind: 'tool', toolKind: 'file_edit', toolUseId: 'tool' })
+    expect(await readFile(join(f.root, 'result.txt'), 'utf8')).toBe('approved write')
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP starts a session under any preset without a notice of its own', async () => {
+  for (const preset of ['none', 'auto', 'bypass'] as const) {
+    const f = await presetFixture('cursor-agent', preset)
+    try {
+      expect(f.started.some((event) => event.type === 'session_updated')).toBe(false)
+    } finally {
+      await f.cleanup()
+    }
+  }
+})
+
+test('a model switch lands on the ACP session config before the next prompt, and default returns to its start value', async () => {
+  const f = await fixture()
+  try {
+    expect(f.provider.capabilities?.liveModelSwitch).toBe(true)
+    expect((await launched(f)).model).toBe('model-one')
+    expect(await f.provider.setModel?.({ ...f.input, nextModelId: 'model-two' })).toEqual({ ok: true })
+    expect((await launched(f)).model, 'the next turn runs on the new model').toBe('model-two')
+    expect(await f.provider.setModel?.({ ...f.input, nextModelId: 'default' })).toEqual({ ok: true })
+    expect((await launched(f)).model, 'the CLI default row maps back to the model it started on').toBe('model-one')
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('ACP publishes the command list the agent sends outside a turn, filtered for chat, without touching turn state', async () => {
+  const published: ConversationCommandCatalog[] = []
+  const stop = onConversationCommandsChanged((catalog) => published.push(catalog))
+  const f = await fixture(false, undefined, { STRAY: '1' })
+  try {
+    // The handshake's list, then the session's, which replaces it.
+    const own = published.filter((catalog) => catalog.cwd === f.root && catalog.cli === 'test')
+    expect(own[0]?.commands.map((command) => command.name)).toEqual(['handshake'])
+    await expect.poll(() => conversationCommandsFor('test', f.root).commands.length).toBe(3)
+    expect(conversationCommandsFor('test', f.root).commands).toEqual([
+      { name: 'review', description: 'Review changes', argumentHint: '[commit|branch]', source: 'cli' },
+      { name: 'triage', description: 'Sort the open issues.', source: 'skill' },
+      { name: 'changelog', description: 'Draft a changelog entry.', source: 'custom' },
+    ])
+    // Text the agent streamed outside a turn is not carried into the next one.
+    const events = await turn(f, 'first')
+    expect(events.filter((event) => event.type === 'content_delta').map((event) => event.payload?.text)).toEqual([
+      'Done',
+    ])
+    expect(events.at(-1)?.type).toBe('turn_completed')
+  } finally {
+    stop()
+    await f.cleanup()
+  }
+})
+test('ACP replaces the published command list when the agent sends a new one', async () => {
+  const f = await fixture()
+  try {
+    await expect.poll(() => conversationCommandsFor('test', f.root).commands.length).toBe(3)
+    const events = await turn(f, '/refresh')
+    expect(events.at(-1)?.type).toBe('turn_completed')
+    expect(conversationCommandsFor('test', f.root).commands).toEqual([
+      { name: 'fresh', description: 'Replaced list', source: 'cli' },
+    ])
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP sends a leading slash command as the prompt itself, and replays lost history with the next message', async () => {
+  const f = await fixture(false, 'gone')
+  try {
+    const ran = (await turn(f, '/review HEAD~1')).find((event) => event.type === 'content_delta')?.payload?.text
+    expect(ran).toBe('ran /review HEAD~1')
+    const content = (await turn(f, 'inspect history')).find((event) => event.type === 'content_delta')?.payload?.text
+    expect(content).toContain('persisted question')
+    expect(content).toContain('inspect history')
+  } finally {
+    await f.cleanup()
+  }
+})
+test('ACP lists the commands an agent gives in its handshake without opening a session', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acp-probe-'))
+  try {
+    const commands = await probeAcpConversationCommands(
+      {
+        id: 'probe-acp',
+        displayName: 'Test agent',
+        cli: 'probe-test',
+        argv: ['-e', agent],
+        authHint: '',
+        images: false,
+        planMode: false,
+      },
+      { cwd: root },
+      { detect: async () => process.execPath, buildEnv: async () => ({ PATH: process.env.PATH }) },
+    )
+    expect(commands).toEqual([{ name: 'handshake', description: 'Listed before any session', source: 'cli' }])
+    expect(conversationCommandsFor('probe-test', root).commands).toEqual(commands)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("ACP opens the session with the chat's own MCP servers, and refuses one the agent cannot reach", async () => {
+  const start = async (env: Record<string, string>, mcpServers: ConversationMcpServer[]) => {
+    const root = await mkdtemp(join(tmpdir(), 'acp-mcp-'))
+    const provider = createAcpConversationProvider(
+      {
+        id: 'test-acp',
+        displayName: 'Test agent',
+        cli: 'test',
+        argv: ['-e', agent],
+        authHint: 'Configure test agent.',
+        images: true,
+        planMode: true,
+      },
+      {
+        detect: async () => process.execPath,
+        buildEnv: async () => ({ PATH: process.env.PATH, ...env }),
+        startupTimeoutMs: 2000,
+      },
+    )
+    const started = Promise.resolve(
+      provider.startSession({
+        sessionId: 'session',
+        workspaceId: 'workspace',
+        agentId: 'agent',
+        providerId: 'test-acp',
+        modelId: 'default',
+        workspaceRoot: root,
+        mcpServers,
+      }),
+    )
+    return { provider, root, started }
+  }
+  const stdio: ConversationMcpServer = {
+    id: 'railway',
+    name: 'Railway',
+    transport: 'stdio',
+    command: 'npx',
+    args: ['-y', '@railway/mcp'],
+    env: { RAILWAY_ENV: 'prod' },
+  }
+  const http: ConversationMcpServer = {
+    id: 'linear',
+    name: 'Linear',
+    transport: 'http',
+    url: 'https://mcp.linear.app/mcp',
+    headers: { 'X-Team': 'acme' },
+  }
+
+  const plain = await start({}, [stdio])
+  try {
+    expect(createAcpConversationProvider(ACP_PROFILES[0]!).acceptsMcpServers).toBe(true)
+    await plain.started
+    expect(JSON.parse(await readFile(join(plain.root, 'mcp-servers.json'), 'utf8'))).toEqual([
+      { name: 'railway', command: 'npx', args: ['-y', '@railway/mcp'], env: [{ name: 'RAILWAY_ENV', value: 'prod' }] },
+    ])
+  } finally {
+    plain.provider.disposeAll?.()
+    await rm(plain.root, { recursive: true, force: true })
+  }
+
+  // An agent that says nothing about HTTP servers is not handed one; the start fails with why.
+  const refused = await start({}, [http])
+  try {
+    await expect(refused.started).rejects.toThrow(
+      'Test agent does not connect to HTTP MCP servers, so it cannot run with "Linear".',
+    )
+    await expect(refused.started).rejects.not.toThrow('Configure test agent')
+  } finally {
+    refused.provider.disposeAll?.()
+    await rm(refused.root, { recursive: true, force: true })
+  }
+
+  const capable = await start({ MCP_HTTP: '1' }, [http])
+  try {
+    await capable.started
+    expect(JSON.parse(await readFile(join(capable.root, 'mcp-servers.json'), 'utf8'))).toEqual([
+      { type: 'http', name: 'linear', url: 'https://mcp.linear.app/mcp', headers: [{ name: 'X-Team', value: 'acme' }] },
+    ])
+  } finally {
+    capable.provider.disposeAll?.()
+    await rm(capable.root, { recursive: true, force: true })
+  }
+
+  // Variables a server names are read from this app's environment, since ACP names an environment outright.
+  process.env.ACP_MCP_TEST_TOKEN = 'secret-token'
+  try {
+    expect(
+      acpMcpServers(
+        [
+          { ...stdio, env: undefined, envVarNames: ['ACP_MCP_TEST_TOKEN', 'ACP_MCP_TEST_UNSET'] },
+          { ...http, headers: undefined, envVarNames: ['ACP_MCP_TEST_TOKEN'] },
+        ],
+        { http: true },
+        'Test agent',
+      ),
+    ).toEqual([
+      {
+        name: 'railway',
+        command: 'npx',
+        args: ['-y', '@railway/mcp'],
+        env: [{ name: 'ACP_MCP_TEST_TOKEN', value: 'secret-token' }],
+      },
+      {
+        type: 'http',
+        name: 'linear',
+        url: 'https://mcp.linear.app/mcp',
+        headers: [{ name: 'Authorization', value: 'Bearer secret-token' }],
+      },
+    ])
+  } finally {
+    delete process.env.ACP_MCP_TEST_TOKEN
+  }
+})

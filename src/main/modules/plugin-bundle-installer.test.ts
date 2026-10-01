@@ -7,20 +7,20 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
 import type { WebContents } from 'electron'
-import type { AutomationDefinition } from '../../shared/automations/contracts'
 import type { MarketplacePluginInstallInput, McpClientTarget, McpSettings } from '../../shared/electron-api'
 import { canonicalManifestPayload, validateMarketplacePluginManifest } from '../../shared/marketplace'
 import type { PluginManifest, PluginMcpConfigFormat } from '../../shared/plugin-manifest'
-import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
-import { createBuiltInAutomationProviderRegistry } from '../automations/provider-registry'
-import { AutomationsStore } from '../automations/store'
-import { registerAutomationsIpc } from '../ipc/automations-ipc'
 import { createMcpConfigService, type PluginLookup } from '../mcp-config-service'
 import {
   canonicalManifestPayload as moduleCanonicalPayload,
   validateThirdPartyModuleManifest,
 } from '../../shared/modules/third-party-manifest'
-import { installMarketplacePlugin, type MarketplaceAutomationInstaller } from './plugin-bundle-installer'
+import { findMarketplaceResourcePath } from '../marketplace/resources'
+import { readTrustedMarketplacePublisherFingerprintsSync } from '../marketplace/trusted-publishers'
+import type { ModuleTrustContext } from './module-signature'
+import { installMarketplacePlugin } from './plugin-bundle-installer'
+import { planThirdPartyMainModules } from './third-party-main-loader'
+import { discoverUserModules } from './user-module-registry'
 import { test } from 'vitest'
 
 test('plugin-bundle-installer', async () => {
@@ -37,7 +37,7 @@ test('plugin-bundle-installer', async () => {
     // reads), which is a different signature from the bundle's — G1 is about the
     // inner one.
     module?: { path: string; permissions?: string[]; signer?: ModuleSigner }
-    cli?: { path: string }
+    // A kind this Studio retired; built only to prove it is refused.
     automation?: { path: string; source?: string }
   }
 
@@ -261,37 +261,13 @@ test('plugin-bundle-installer', async () => {
         version: 1,
         permissions: components.module.permissions ?? ['network'],
       }
+      // Signed the way `sprintengine-module sign` signs: with the digests of the
+      // module's files, of which this one ships none besides its manifest.
+      const withFiles = { ...moduleManifest, files: {} }
       const signed = components.module.signer
-        ? { ...moduleManifest, signature: components.module.signer.sign(moduleManifest) }
+        ? { ...withFiles, signature: components.module.signer.sign(withFiles) }
         : moduleManifest
       files.set(`${components.module.path}/manifest.json`, `${JSON.stringify(signed, null, 2)}\n`)
-    }
-    if (components.cli) {
-      files.set(
-        `${components.cli.path}/plugin.json`,
-        `${JSON.stringify(
-          {
-            id: 'bundle-cli',
-            displayName: 'Bundle CLI',
-            version: 1,
-            binary: 'node',
-            permissionPresets: {
-              default: { label: 'Default', args: [] },
-            },
-            launch: { argv: ['{{binary}}'] },
-            promptInjection: { mode: 'stdin-pipe' },
-            completion: { mode: 'process-exit' },
-            capabilities: {
-              resumeSession: false,
-              sessionIdFromCaller: false,
-              toolUse: false,
-              mcpServers: false,
-            },
-          },
-          null,
-          2,
-        )}\n`,
-      )
     }
     if (components.automation) {
       files.set(components.automation.path, components.automation.source ?? AUTOMATION_PAYLOAD)
@@ -307,72 +283,21 @@ test('plugin-bundle-installer', async () => {
     return bundle
   }
 
-  // The real automations app front door over a real per-project store — the same
-  // object `marketplace-plugin-ipc.ts` resolves, reached the same way, so the
-  // installer's automation arm is tested against the path it actually uses rather
-  // than a stand-in that could disagree with it about the input shape.
-  function automationInstaller(workspaceRoot: string): MarketplaceAutomationInstaller {
-    const registry = createBuiltInAutomationProviderRegistry()
-    const frontDoor = registerAutomationsIpc(
-      { registerIpc: () => undefined },
-      {
-        engine: {
-          runNow: async () => ({
-            ok: false as const,
-            problem: { code: 'not_stubbed', message: 'Installing never runs an automation.' },
-          }),
-          finalizeRun: async () => ({
-            ok: false as const,
-            problem: { code: 'not_stubbed', message: 'Installing never finalizes a run.' },
-          }),
-        },
-        triggerProviders: registry.listTriggerProviders(),
-        actionProviders: registry.listActionProviders(),
-        getWorkspaceSyncSnapshot: () =>
-          ({
-            sequence: 1,
-            state: {
-              activeWorkspaceId: 'ws-1',
-              primaryWorkspaceWindowId: 'primary',
-              workspaceWindows: [],
-              workspaces: [{ id: 'ws-1', folderPath: workspaceRoot }],
-            },
-          }) as unknown as WorkspaceSyncSnapshot,
-        now: () => Date.parse('2026-07-30T12:00:00.000Z'),
-      },
-    )
-    return async (input) => {
-      const result = await frontDoor.installCatalogueDefinition(input)
-      if (!result.ok) return result
-      return { ok: true, value: { definition: result.value.definition, alreadyAdded: result.value.alreadyAdded } }
-    }
-  }
-
-  async function installedAutomations(workspaceRoot: string): Promise<AutomationDefinition[]> {
-    const definitions = await new AutomationsStore(workspaceRoot).listDefinitions()
-    assert.equal(definitions.ok, true)
-    return definitions.ok ? definitions.values : []
-  }
-
   async function installInput(
     temp: string,
     bundle: string,
     options: {
       lookupPlugin?: PluginLookup
       mcpClients?: McpClientTarget[]
-      automationDefaultCli?: string | null
-      automations?: MarketplaceAutomationInstaller | null
     } = {},
   ): Promise<{
     input: MarketplacePluginInstallInput
     services: Parameters<typeof installMarketplacePlugin>[1]
     workspaceRoot: string
     moduleRoot: string
-    pluginRoot: string
   }> {
     const workspaceRoot = join(temp, 'workspace')
     const moduleRoot = join(temp, 'modules')
-    const pluginRoot = join(temp, 'plugins')
     await mkdir(workspaceRoot, { recursive: true })
 
     const lookupPlugin: PluginLookup =
@@ -386,10 +311,6 @@ test('plugin-bundle-installer', async () => {
       homeDir: () => join(temp, 'home'),
     })
     const mcpSettings: McpSettings = { syncEnabled: false, servers: {} }
-    const automationDefaultCli =
-      options.automationDefaultCli === null ? undefined : (options.automationDefaultCli ?? 'claude-code')
-    const installAutomationDefinition =
-      options.automations === null ? undefined : (options.automations ?? automationInstaller(workspaceRoot))
     return {
       input: {
         localFolder: bundle,
@@ -397,19 +318,14 @@ test('plugin-bundle-installer', async () => {
         mcpSettings,
         mcpClients: options.mcpClients ?? ['codex'],
         skillHarnesses: ['agents'],
-        ...(automationDefaultCli ? { automationDefaultCli } : {}),
       },
       services: {
         mcpConfigService,
         trustContext: () => ({ trustedModules: new Map() }),
         moduleRoot: () => moduleRoot,
-        pluginRoot: () => pluginRoot,
-        reloadPlugins: () => undefined,
-        ...(installAutomationDefinition ? { installAutomationDefinition } : {}),
       },
       workspaceRoot,
       moduleRoot,
-      pluginRoot,
     }
   }
 
@@ -419,10 +335,9 @@ test('plugin-bundle-installer', async () => {
         mcp: { path: 'mcp.json' },
         skills: { path: 'skills/local-skill' },
         module: { path: 'module' },
-        cli: { path: 'cli' },
       }
       const bundle = await createBundle(temp, components)
-      const { input, services, workspaceRoot, moduleRoot, pluginRoot } = await installInput(temp, bundle)
+      const { input, services, workspaceRoot, moduleRoot } = await installInput(temp, bundle)
 
       const result = await installMarketplacePlugin(input, services)
 
@@ -432,7 +347,7 @@ test('plugin-bundle-installer', async () => {
       assert.equal(result.loadEligible, false, 'signed but untrusted bundle is not auto-trusted')
       assert.deepEqual(
         result.installed.map((component) => component.kind),
-        ['mcp', 'skills', 'module', 'cli'],
+        ['mcp', 'skills', 'module'],
       )
       // G7: the bundle landed a module, and no module outside
       // LIVE_ENABLED_MODULE_IDS loads until the app is launched again.
@@ -443,7 +358,6 @@ test('plugin-bundle-installer', async () => {
       assert.match(codexConfig, /\[mcp_servers\.bundle-mcp\]/)
       assert.equal(existsSync(join(workspaceRoot, '.agents', 'skills', 'local-skill', 'SKILL.md')), true)
       assert.equal(existsSync(join(moduleRoot, 'bundle-module', 'manifest.json')), true)
-      assert.equal(existsSync(join(pluginRoot, 'bundle-cli', 'plugin.json')), true)
     })
   }
 
@@ -672,26 +586,35 @@ test('plugin-bundle-installer', async () => {
     })
   }
 
-  async function testRejectsUnsignedCliBundleBeforeWrites(): Promise<void> {
+  // The GitHub-URL lane: main may let an unsigned module through when the
+  // person trusted it as code, and only then. It lands unsigned — nothing about
+  // installing it makes it load; the trust decision is the lifecycle's.
+  async function testUnsignedModuleInstallsOnlyWhenAllowed(): Promise<void> {
     await withTempDir(async (temp) => {
-      const components: BundleComponents = { cli: { path: 'cli' } }
+      const components: BundleComponents = { module: { path: 'module' } }
       const bundle = await createBundle(temp, components, { signed: false })
-      const { input, services, pluginRoot } = await installInput(temp, bundle)
+      const { input, services, moduleRoot } = await installInput(temp, bundle)
 
-      const result = await installMarketplacePlugin(input, services)
+      const result = await installMarketplacePlugin(input, services, { allowUnsignedCode: true })
 
-      assert.equal(result.ok, false)
-      if (result.ok) return
-      assert.equal(result.message, 'Plugin bundle is unsigned and cannot be installed.')
-      assert.equal(existsSync(pluginRoot), false)
+      assert.equal(result.ok, true, result.ok ? '' : result.message)
+      if (!result.ok) return
+      assert.equal(result.trust, 'unsigned')
+      assert.equal(result.loadEligible, false)
+      assert.equal(result.installed[0]?.trustStatus, 'unsigned')
+      assert.equal(existsSync(join(moduleRoot, 'bundle-module', 'manifest.json')), true)
     })
   }
 
-  async function testRejectsAutomationPayloadThatIsNotADefinition(): Promise<void> {
+  async function testRefusesRetiredAutomationComponentBeforeWrites(): Promise<void> {
     await withTempDir(async (temp) => {
+      // A bundle built for an older Studio, when automations shipped as files.
+      // It is refused by name, before its sibling MCP server is written: an
+      // install that quietly dropped one component would be an install that
+      // did not do what the bundle said.
       const components: BundleComponents = {
         mcp: { path: 'mcp.json' },
-        automation: { path: 'automation/automation.json', source: `${JSON.stringify({ name: 'No trigger' })}\n` },
+        automation: { path: 'automation/automation.json' },
       }
       const bundle = await createBundle(temp, components, { signed: false })
       const { input, services, workspaceRoot } = await installInput(temp, bundle)
@@ -700,11 +623,8 @@ test('plugin-bundle-installer', async () => {
 
       assert.equal(result.ok, false)
       if (result.ok) return
-      assert.equal(result.component, 'automation')
-      assert.deepEqual(
-        result.issues?.map((issue) => issue.path),
-        ['components.automation.trigger', 'components.automation.action'],
-      )
+      assert.match(result.message, /Automation components are no longer supported/)
+      assert.ok(result.issues?.some((issue) => issue.path === 'components.automation'))
       assert.equal(
         existsSync(join(workspaceRoot, '.codex', 'config.toml')),
         false,
@@ -713,153 +633,6 @@ test('plugin-bundle-installer', async () => {
     })
   }
 
-  async function testAutomationAndSkillBundleInstallsBoth(): Promise<void> {
-    await withTempDir(async (temp) => {
-      // Each kind installs its own way in one bundle: the skill is copied into the
-      // workspace harness dir, the automation becomes a definition in the
-      // project's store. Neither path is a file copy for the other.
-      const components: BundleComponents = {
-        skills: { path: 'skills/local-skill' },
-        automation: { path: 'automation/automation.json' },
-      }
-      const bundle = await createBundle(temp, components, { signed: false })
-      const { input, services, workspaceRoot } = await installInput(temp, bundle)
-
-      const result = await installMarketplacePlugin(input, services)
-
-      assert.equal(result.ok, true, result.ok ? '' : result.message)
-      if (!result.ok) return
-      assert.deepEqual(
-        result.installed.map((component) => component.kind),
-        ['skills', 'automation'],
-      )
-      assert.equal(existsSync(join(workspaceRoot, '.agents', 'skills', 'local-skill', 'SKILL.md')), true)
-
-      const automations = await installedAutomations(workspaceRoot)
-      assert.equal(automations.length, 1)
-      const automation = automations[0]
-      assert.equal(automation.name, 'Nightly dependency sweep')
-      assert.equal(automation.status, 'enabled', 'the payload ships paused; an added automation arrives on')
-      assert.notEqual(automation.runInWorktree, false, 'a shelf item never opts the user out of run isolation')
-      assert.equal(automation.nextRunAt !== null, true, 'scheduled at install, not at the next app start')
-      assert.equal(automation.sourceCatalogueId, 'bundle-plugin', 'provenance is the catalogue entry, not the store id')
-      assert.notEqual(automation.id, 'bundle-plugin', 'the store issues its own id')
-      assert.equal(
-        result.installed.find((component) => component.kind === 'automation')?.id,
-        automation.id,
-        'the receipt names the store-issued id, which is what update and uninstall have to work from',
-      )
-    })
-  }
-
-  async function testSecondInstallIntoSameProjectReportsAlreadyAdded(): Promise<void> {
-    await withTempDir(async (temp) => {
-      const components: BundleComponents = { automation: { path: 'automation/automation.json' } }
-      const bundle = await createBundle(temp, components, { signed: false })
-      const { input, services, workspaceRoot } = await installInput(temp, bundle)
-
-      const first = await installMarketplacePlugin(input, services)
-      const second = await installMarketplacePlugin(input, services)
-
-      assert.equal(first.ok && second.ok, true)
-      if (!first.ok || !second.ok) return
-      assert.match(second.installed[0]?.message ?? '', /already added/i)
-      assert.equal(second.installed[0]?.id, first.installed[0]?.id)
-      assert.equal((await installedAutomations(workspaceRoot)).length, 1, 'a second Get creates nothing')
-    })
-  }
-
-  async function testAutomationInstallWithNoCliRefusesBeforeAnyWrite(): Promise<void> {
-    await withTempDir(async (temp) => {
-      // The automation launches an agent and names no CLI of its own, so it would
-      // resolve the app's last-selected CLI at 02:00 — with nobody there to pick
-      // one. Refuse at install instead, and refuse before the sibling skill lands.
-      const components: BundleComponents = {
-        skills: { path: 'skills/local-skill' },
-        automation: { path: 'automation/automation.json' },
-      }
-      const bundle = await createBundle(temp, components, { signed: false })
-      const { input, services, workspaceRoot } = await installInput(temp, bundle, { automationDefaultCli: null })
-
-      const result = await installMarketplacePlugin(input, services)
-
-      assert.equal(result.ok, false)
-      if (result.ok) return
-      assert.equal(result.component, 'automation')
-      assert.match(result.message, /no CLI is selected/i)
-      assert.equal(result.installed, undefined, 'the plan fails before any component is installed')
-      assert.equal(existsSync(join(workspaceRoot, '.agents', 'skills', 'local-skill', 'SKILL.md')), false)
-      assert.equal((await installedAutomations(workspaceRoot)).length, 0)
-    })
-  }
-
-  async function testAutomationInstallWithNoProjectRefuses(): Promise<void> {
-    await withTempDir(async (temp) => {
-      const components: BundleComponents = { automation: { path: 'automation/automation.json' } }
-      const bundle = await createBundle(temp, components, { signed: false })
-      const { input, services, workspaceRoot } = await installInput(temp, bundle)
-
-      const result = await installMarketplacePlugin({ ...input, workspaceRoot: '  ' }, services)
-
-      assert.equal(result.ok, false)
-      if (result.ok) return
-      assert.equal(result.component, 'automation')
-      assert.match(result.message, /Open the project/)
-      assert.equal((await installedAutomations(workspaceRoot)).length, 0, 'no project is guessed at')
-    })
-  }
-
-  async function testAutomationInstallWithAutomationsOffRefuses(): Promise<void> {
-    await withTempDir(async (temp) => {
-      const components: BundleComponents = { automation: { path: 'automation/automation.json' } }
-      const bundle = await createBundle(temp, components, { signed: false })
-      const { input, services, workspaceRoot } = await installInput(temp, bundle, { automations: null })
-
-      const result = await installMarketplacePlugin(input, services)
-
-      assert.equal(result.ok, false)
-      if (result.ok) return
-      assert.equal(result.component, 'automation')
-      assert.match(result.message, /Automations are switched off/)
-      assert.equal((await installedAutomations(workspaceRoot)).length, 0)
-    })
-  }
-
-  async function testAutomationNamingItsOwnCliNeedsNoFallback(): Promise<void> {
-    await withTempDir(async (temp) => {
-      // The CLI precondition is about the fallback, not about the kind: an
-      // automation that names its own CLI installs with no last-selected one.
-      const components: BundleComponents = {
-        automation: {
-          path: 'automation/automation.json',
-          source: `${JSON.stringify(
-            {
-              name: 'Nightly dependency sweep',
-              status: 'enabled',
-              trigger: {
-                kind: 'schedule',
-                config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '03:00' }, timezone: 'UTC' },
-              },
-              action: { kind: 'spawn-agent', config: { prompt: 'Check for outdated dependencies.', cli: 'codex' } },
-            },
-            null,
-            2,
-          )}\n`,
-        },
-      }
-      const bundle = await createBundle(temp, components, { signed: false })
-      const { input, services, workspaceRoot } = await installInput(temp, bundle, { automationDefaultCli: null })
-
-      const result = await installMarketplacePlugin(input, services)
-
-      assert.equal(result.ok, true, result.ok ? '' : result.message)
-      assert.equal((await installedAutomations(workspaceRoot)).length, 1)
-    })
-  }
-
-  // The trust prompt discloses the BUNDLE's permissions, so a module manifest
-  // asking for more than plugin.json declared would be trusted for access the
-  // user never saw. The bundle is refused, before anything is written.
   async function testRejectsModuleDeclaringUndisclosedPermissionsBeforeWrites(): Promise<void> {
     await withTempDir(async (temp) => {
       const components: BundleComponents = {
@@ -969,14 +742,8 @@ test('plugin-bundle-installer', async () => {
     await testModuleComponentSurfacesTrustIdentity()
     await testInstallsUnsignedMcpSkillsBundle()
     await testRejectsUnsignedModuleBundleBeforeWrites()
-    await testRejectsUnsignedCliBundleBeforeWrites()
-    await testRejectsAutomationPayloadThatIsNotADefinition()
-    await testAutomationAndSkillBundleInstallsBoth()
-    await testSecondInstallIntoSameProjectReportsAlreadyAdded()
-    await testAutomationInstallWithNoCliRefusesBeforeAnyWrite()
-    await testAutomationInstallWithNoProjectRefuses()
-    await testAutomationInstallWithAutomationsOffRefuses()
-    await testAutomationNamingItsOwnCliNeedsNoFallback()
+    await testUnsignedModuleInstallsOnlyWhenAllowed()
+    await testRefusesRetiredAutomationComponentBeforeWrites()
     await testMcpFanOutWarningDoesNotReportCleanSuccess()
     await testLocalInstallRejectsSignedComponentDigestMismatchBeforeWrites()
     await testMcpSkillBundleIsVisibleAndLaunchesTerminalWithInstalledMcp()
@@ -991,4 +758,147 @@ test('plugin-bundle-installer', async () => {
   })
 
   await suiteRun
+})
+
+// The first-party review module's own manifest was signed before `files`
+// existed, and nobody but the owner can re-sign it. Its bundle's plugin.json,
+// signed by the same trusted publisher, digests every file of the module, so
+// installing the bundle vouches for the module's code: the install records the
+// content it verified, and discovery holds the folder to exactly that.
+test('the shipped review bundle installs trusted, and code swapped in afterwards is refused', async () => {
+  const bundlePath = findMarketplaceResourcePath('plugins/review')
+  assert.ok(bundlePath)
+  const temp = await mkdtemp(join(tmpdir(), 'mc-marketplace-review-'))
+  try {
+    const moduleRoot = join(temp, 'modules')
+    const baseContext: ModuleTrustContext = {
+      trustedModules: new Map(),
+      trustedKeyFingerprints: readTrustedMarketplacePublisherFingerprintsSync({ isPackaged: true }),
+    }
+    const services: Parameters<typeof installMarketplacePlugin>[1] = {
+      trustContext: () => baseContext,
+      mcpConfigService: createMcpConfigService({ lookupPlugin: () => undefined, homeDir: () => join(temp, 'home') }),
+      moduleRoot: () => moduleRoot,
+    }
+
+    const result = await installMarketplacePlugin({ localFolder: bundlePath }, services, {
+      requireTrustedModuleComponents: true,
+    })
+    assert.equal(result.ok, true, JSON.stringify(result))
+    if (!result.ok) return
+    const module = result.installed.find((component) => component.kind === 'module')
+    assert.equal(module?.id, 'review')
+    assert.equal(module?.trustStatus, 'trusted')
+    assert.match(module?.manifestFp ?? '', /^[0-9a-f]{64}$/)
+
+    // What the install receipt records is what vouches at every later launch.
+    const vouched: ModuleTrustContext = {
+      ...baseContext,
+      verifiedModuleInstalls: new Map([['review', module!.manifestFp!]]),
+    }
+    const listed = await discoverUserModules(moduleRoot, vouched)
+    assert.deepEqual(listed.rejected, [])
+    assert.equal(listed.modules[0]?.trust.status, 'trusted')
+    assert.equal(listed.modules[0]?.trust.via, 'publisher')
+    assert.ok(listed.modules[0]?.trust.verifiedFiles?.['dist/main.cjs'])
+    const planned = planThirdPartyMainModules(listed)
+    assert.deepEqual(planned.ineligible, {}, 'the first-party module stays load eligible')
+
+    // The review module signs its own `files`, so the first-party signature
+    // covers its code even without the install record.
+    const unvouched = await discoverUserModules(moduleRoot, baseContext)
+    assert.deepEqual(unvouched.rejected, [])
+    assert.equal(unvouched.modules[0]?.trust.status, 'trusted')
+
+    // Code swapped in after the install no longer matches what was vouched for.
+    await writeFile(join(moduleRoot, 'review', 'dist', 'main.cjs'), 'exports.registerMain = () => {}\n')
+    const swapped = await discoverUserModules(moduleRoot, vouched)
+    assert.deepEqual(swapped.modules, [], JSON.stringify(swapped.rejected))
+    assert.ok(
+      swapped.rejected[0]?.issues.some(
+        (issue) => issue.path === 'files.dist/main.cjs' && /does not match the signed digests/.test(issue.message),
+      ),
+      JSON.stringify(swapped.rejected),
+    )
+  } finally {
+    await rm(temp, { recursive: true, force: true })
+  }
+})
+
+// The install prompt's grant is recorded for a signed module, and a grant
+// covers code only through the module's own `files`. A signed module without
+// them — outside a trusted publisher's bundle, whose digests vouch for it —
+// would be granted and never load, so the bundle is refused before any write.
+test('a signed module without file digests is refused unless a trusted publisher bundle vouches for it', async () => {
+  const temp = await mkdtemp(join(tmpdir(), 'mc-marketplace-undigested-'))
+  try {
+    const bundle = join(temp, 'bundle')
+    const moduleDir = join(bundle, 'module')
+    await mkdir(moduleDir, { recursive: true })
+    const { publicKey, privateKey } = generateKeyPairSync('ed25519')
+    const declaration = validateThirdPartyModuleManifest({ id: 'undigested', displayName: 'Undigested', version: 1 })
+    assert.ok(declaration.ok)
+    if (!declaration.ok) return
+    const manifestSource = `${JSON.stringify({
+      ...declaration.manifest,
+      signature: {
+        algorithm: 'ed25519',
+        publicKey: publicKey.export({ type: 'spki', format: 'der' }).toString('base64'),
+        signature: sign(null, Buffer.from(moduleCanonicalPayload(declaration.manifest), 'utf8'), privateKey).toString(
+          'base64',
+        ),
+      },
+    })}\n`
+    await writeFile(join(moduleDir, 'manifest.json'), manifestSource)
+    const unsignedBundle = {
+      id: 'undigested-plugin',
+      displayName: 'Undigested Plugin',
+      version: 1,
+      permissions: [],
+      components: {
+        module: {
+          path: 'module',
+          files: [{ path: 'module/manifest.json', sha256: createHash('sha256').update(manifestSource).digest('hex') }],
+        },
+      },
+    }
+    const bundleKeys = generateKeyPairSync('ed25519')
+    const validated = validateMarketplacePluginManifest({
+      ...unsignedBundle,
+      signature: { algorithm: 'ed25519', publicKey: 'YWJj', signature: 'ZGVm' },
+    })
+    assert.ok(validated.ok)
+    if (!validated.ok) return
+    await writeFile(
+      join(bundle, 'plugin.json'),
+      JSON.stringify({
+        ...validated.manifest,
+        signature: {
+          algorithm: 'ed25519',
+          publicKey: bundleKeys.publicKey.export({ type: 'spki', format: 'der' }).toString('base64'),
+          signature: sign(
+            null,
+            Buffer.from(canonicalManifestPayload(validated.manifest), 'utf8'),
+            bundleKeys.privateKey,
+          ).toString('base64'),
+        },
+      }),
+    )
+    const moduleRoot = join(temp, 'modules')
+    const result = await installMarketplacePlugin(
+      { localFolder: bundle },
+      {
+        trustContext: () => ({ trustedModules: new Map() }),
+        mcpConfigService: createMcpConfigService({ lookupPlugin: () => undefined, homeDir: () => join(temp, 'home') }),
+        moduleRoot: () => moduleRoot,
+      },
+    )
+    assert.equal(result.ok, false)
+    if (result.ok) return
+    assert.equal(result.component, 'module')
+    assert.match(result.message, /lists no digests of its code/)
+    assert.equal(existsSync(join(moduleRoot, 'undigested')), false)
+  } finally {
+    await rm(temp, { recursive: true, force: true })
+  }
 })

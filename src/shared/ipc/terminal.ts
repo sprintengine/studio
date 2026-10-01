@@ -8,6 +8,7 @@ import type { ObservedCheckout } from '../observed-checkout'
 import type { AgentExecutionMode, CliPermissionPreset } from './agent-runtime'
 import type { AgentCli } from './conversations'
 import type { McpSettings } from './mcp'
+import type { PromptCacheReading } from '../prompt-cache'
 
 export type TerminalKind = 'agent' | 'terminal'
 export type TerminalPathStyle = 'posix' | 'windows' | 'wsl'
@@ -51,11 +52,10 @@ export type TerminalSpawnMetadata = {
   worktreeId?: string
   worktreePath?: string
   cliPermissionPreset?: CliPermissionPreset
-  // Orthogonal Debug Mode toggle (the agent picker). Layers on top of the chosen
-  // permission preset without changing its flags; the launch boundary prepends
-  // the debug directive to the initial prompt when set. Transient per-spawn —
-  // not persisted like cliPermissionPreset.
-  debugMode?: boolean
+  // The CLI's own permission mode chosen at that preset (Claude Code's Accept
+  // edits), rendered in its place when the CLI's manifest has it. Absent, the
+  // preset's own mode.
+  cliPermissionMode?: string
   // Model id passed to the agent CLI when its plugin declares modelSelection;
   // undefined means the CLI's own default model.
   cliModel?: string
@@ -215,6 +215,10 @@ export type TerminalSessionSnapshot = {
   startedAt: number
   lastOutputAt: number | null
   lastInputAt: number | null
+  // `lastInputAt` without the focus reports and query answers the terminal
+  // sends on its own: when something was last typed or pasted. Absent from a
+  // main that predates it.
+  lastKeyInputAt?: number | null
   lastVisibleAt: number | null
   // When the agent's last turn ended — the hook-reported Stop, epoch ms. Kept
   // apart from `activity`, which the reaper's suspend and the quit path
@@ -267,6 +271,11 @@ export type TerminalSessionSnapshot = {
   // for a moment afterwards, and "not known right now" is not "empty", so the
   // last known reading stands until a real one replaces it.
   contextUsage: SessionContextUsage | null
+  // The main conversation's prompt cache, from the same status line: when it
+  // goes cold and what a cold resume re-caches. Null (or absent, from a main
+  // that predates it) for a session whose CLI reports none; surfaces derive
+  // warm / expiring / cold from it and a clock (shared/prompt-cache.ts).
+  promptCache?: PromptCacheReading | null
   exitedAt: number | null
   outputBufferLength: number
   retainedOutputBytes: number
@@ -293,6 +302,23 @@ export type TerminalSessionDeltaEntry = Omit<TerminalSessionSnapshot, 'fileChang
 export type TerminalSessionsDelta = {
   upserts: TerminalSessionDeltaEntry[]
   removed: string[]
+}
+
+/**
+ * A first message main was to type into an agent CLI once it was ready, and did
+ * not (`src/main/deferred-prompt-delivery.ts`): the CLI exited first, the
+ * terminal stopped taking input, or the CLI never showed the screen its
+ * manifest says it is ready on. `text` is the message as the person wrote it,
+ * handed back so it is not lost.
+ */
+export type TerminalPromptUndelivered = {
+  sessionId: string
+  workspaceId?: string
+  agentId?: string
+  agentName?: string
+  cli?: string
+  text: string
+  reason: 'exited' | 'write-failed' | 'not-ready'
 }
 
 // One process row from Electron's app.getAppMetrics() plus throttled child

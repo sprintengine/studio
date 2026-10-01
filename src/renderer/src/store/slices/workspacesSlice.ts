@@ -45,8 +45,8 @@ import type {
   WorkspaceMode,
   WorkspaceWorktreeState,
 } from '../../types/workspace'
-import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../../types/workspace'
 import { deriveWorkspaceTitle, isDefaultWorkspaceName } from '../../../../shared/workspace-title'
+import { MESH_CONVERSATION_COMPONENT, meshConversationSessionId } from '../../../../shared/tailnet-mesh'
 
 // How far the person's last-input clock may run ahead of main's copy before
 // the next report is sent as a field patch (recordWorkspaceTerminalActivity).
@@ -296,9 +296,9 @@ interface WorkspacesSliceActions {
       // When set, overrides the remembered `lastSelectedCli` default below.
       templateAgentCli?: AgentCli | null
       mode?: Workspace['mode']
-      // Externally-triggered creation (the automation executor's hidden host):
-      // it must not dismiss whatever the operator is reading, so a background
-      // create skips the door-surface clear that user-initiated creation does.
+      // Externally-triggered creation: it must not dismiss whatever the
+      // operator is reading, so a background create skips the door-surface
+      // clear that user-initiated creation does.
       // activeWorkspaceId assignment is unchanged either way.
       background?: boolean
       windowId?: WorkspaceWindowId | null
@@ -498,14 +498,18 @@ export type SoloChatSeed = {
   tabName?: string
   terminal?: { terminalId: string }
   /**
-   * Swap the lone agent tab for a fleet-terminal pane attached to a session
-   * on another machine (remote-sessions-ux / new-chat-on-a-remote-machine).
-   * Like `terminal`, no local agent record is created — the agent lives on
-   * the remote machine; this workspace is the pane onto it. The tab id
-   * follows `addFleetTerminalTab`'s convention so opening the same session
-   * later focuses this pane rather than attaching twice.
+   * Swap it instead for a chat pane following a conversation on another
+   * machine (remote-sessions-ux / new-chat-on-a-remote-machine). Like
+   * `terminal`, no local agent record is created — the conversation lives on
+   * the remote machine; this workspace is the pane onto it.
    */
-  fleet?: { connectionId: string; machineName: string; remoteSessionId: string }
+  meshConversation?: {
+    connectionId: string
+    machineName: string
+    remoteWorkspaceId: string
+    remoteAgentId: string
+    title: string
+  }
 }
 
 // Transform the single-agent solo-chat layout for a seed: rename the lone agent
@@ -519,14 +523,18 @@ export function applySoloChatSeed(layout: IJsonModel, seed: SoloChatSeed): IJson
     if (!node || done) return
     if (node.component === 'agent') {
       const target = node as { component?: unknown; id?: unknown; name?: unknown; config?: Record<string, unknown> }
-      if (seed.fleet) {
-        target.component = 'fleet-terminal'
-        target.id = `fleet-terminal:${seed.fleet.connectionId}:${encodeURIComponent(seed.fleet.remoteSessionId)}`
-        target.name = seed.tabName ?? 'Remote terminal'
+      if (seed.meshConversation) {
+        const remote = seed.meshConversation
+        target.component = MESH_CONVERSATION_COMPONENT
+        target.id = `mesh-conversation:${remote.connectionId}:${encodeURIComponent(remote.remoteWorkspaceId)}:${encodeURIComponent(remote.remoteAgentId)}`
+        target.name = seed.tabName ?? remote.title
         target.config = {
-          connectionId: seed.fleet.connectionId,
-          machineName: seed.fleet.machineName,
-          remoteSessionId: seed.fleet.remoteSessionId,
+          connectionId: remote.connectionId,
+          machineName: remote.machineName,
+          remoteWorkspaceId: remote.remoteWorkspaceId,
+          remoteAgentId: remote.remoteAgentId,
+          remoteSessionId: meshConversationSessionId(remote.remoteWorkspaceId, remote.remoteAgentId),
+          title: remote.title,
         }
         done = true
         return
@@ -874,7 +882,7 @@ export function createWorkspacesSlice(
     // target window claims the single global active id. A retired-mode record
     // (`RETIRED_WORKSPACE_MODES`) is ignored: main refuses to mint one, and an
     // older main's broadcast must not bring a dropped row back.
-    applyWorkspaceCreatedEvent: ({ workspace, windowId, createdAt, isCurrentWindowTarget }) =>
+    applyWorkspaceCreatedEvent: ({ workspace, windowId, createdAt, isCurrentWindowTarget, activate }) =>
       set((state) => {
         if (isRetiredWorkspaceMode(workspace.mode)) return
         if (!state.workspaces.some((candidate) => candidate.id === workspace.id)) {
@@ -896,9 +904,13 @@ export function createWorkspacesSlice(
         }
         const target = ensureWorkspaceWindow(state, windowId)
         target.workspaceIds = [workspace.id, ...target.workspaceIds]
-        target.activeWorkspaceId = workspace.id
-        if (Number.isFinite(createdAt)) target.lastFocusedAt = createdAt
-        if (isCurrentWindowTarget) state.activeWorkspaceId = workspace.id
+        // A workspace created in the background (a scheduled run) joins the
+        // list and leaves what the window shows alone, as main's reducer does.
+        if (activate) {
+          target.activeWorkspaceId = workspace.id
+          if (Number.isFinite(createdAt)) target.lastFocusedAt = createdAt
+          if (isCurrentWindowTarget) state.activeWorkspaceId = workspace.id
+        }
         state.workspaceRegistryEmptyState = null
         normalizeWindowAssignments(state)
       }),
@@ -1152,12 +1164,9 @@ export function createWorkspacesSlice(
 
     addWorkspace: (template, options) => {
       let id = nanoid()
-      // Captured for a genuinely new workspace (not the host-reuse early
-      // return) so creation is broadcast through main as a workspace.created
-      // event — and for an Automations-host reuse, where the offer heals a main
-      // process whose routing snapshot forgot the host. Local creation stays the
-      // functional path; storage-event sync is the rollback. Fire-and-forget
-      // after the synchronous set().
+      // Captured so creation is broadcast through main as a workspace.created
+      // event. Local creation stays the functional path; storage-event sync is
+      // the rollback. Fire-and-forget after the synchronous set().
       let createdEventPayload: { workspace: Workspace; windowId: WorkspaceWindowId; folderPath: string | null } | null =
         null
 
@@ -1165,53 +1174,10 @@ export function createWorkspacesSlice(
         const folderPath = options?.folderPath ?? null
         const fallbackName = `${template.name} ${state.workspaces.length + 1}`
         const explicitMode = options?.mode
-        const isAutomationsHost = explicitMode === AUTOMATIONS_HOST_WORKSPACE_MODE
         const targetWindowId =
           options?.windowId ??
           (state.activeWorkspaceId ? findWorkspaceWindow(state, state.activeWorkspaceId)?.id : null) ??
           state.primaryWorkspaceWindowId
-        // A background host — Automations (item 1707) — is strictly
-        // one-per-project. Every
-        // creation path funnels here, so reusing the folder's existing host at
-        // this boundary is what guarantees a duplicate can never be minted,
-        // whatever the caller believed. It is created by code rather than by a
-        // person, which is exactly why the check has to be inside `set()`: two
-        // calls in one tick each read the store before either writes.
-        const hostMode = isAutomationsHost ? AUTOMATIONS_HOST_WORKSPACE_MODE : null
-        const hostFolderKey = hostMode ? workspaceFolderKey(folderPath) : null
-        const existingHost = hostFolderKey
-          ? state.workspaces.find(
-              (workspace) => workspace.mode === hostMode && workspaceFolderKey(workspace.folderPath) === hostFolderKey,
-            )
-          : null
-        if (existingHost) {
-          if (folderPath) {
-            state.appSettings.recentWorkspaceFolders = normalizeRecentWorkspaceFolders(
-              [folderPath],
-              state.appSettings.recentWorkspaceFolders,
-            )
-          }
-          id = existingHost.id
-          existingHost.folderMissing = false
-          state.activeWorkspaceId = existingHost.id
-          if (!options?.background) clearRoutedSurfaces(state)
-          const targetWindow = ensureWorkspaceWindow(
-            state,
-            options?.windowId ?? findWorkspaceWindow(state, existingHost.id)?.id ?? targetWindowId,
-          )
-          if (!targetWindow.workspaceIds.includes(existingHost.id)) {
-            targetWindow.workspaceIds.push(existingHost.id)
-          }
-          targetWindow.activeWorkspaceId = existingHost.id
-          normalizeWindowAssignments(state)
-          // No re-offer to main. That step existed only to heal a
-          // restart-restored routing placeholder whose mode main had lost
-          // (moving workspace creation to main removed the placeholder), and reuse itself is main's call
-          // now: `prepareCreate` resolves the folder's existing host inside the
-          // same critical section as the mint, which is the only place the
-          // check can hold ACROSS windows.
-          return
-        }
         const workspaceName = options?.name?.trim() || fallbackName
         // Only a workspace on an app-minted name ("Chat 44", "Solo 3") is a
         // candidate for auto-titling. A wizard-typed name or a chained run's
@@ -1222,8 +1188,8 @@ export function createWorkspacesSlice(
         // at birth and the first prompt never named anything.
         const titleLocked = !isDefaultWorkspaceName(workspaceName, template.name)
         const agents: Workspace['agents'] = {}
-        if (options?.seedAgent?.terminal || options?.seedAgent?.fleet) {
-          // Terminal and fleet seeds: the lone agent tab is swapped for a
+        if (options?.seedAgent?.terminal || options?.seedAgent?.meshConversation) {
+          // Terminal and remote seeds: the lone agent tab is swapped for a
           // terminal / remote-pane tab in the layout below, so no local agent
           // record is created for it — a remote chat's agent lives on the
           // other machine.
@@ -1256,21 +1222,20 @@ export function createWorkspacesSlice(
         // renames the lone tab or swaps it for a terminal, apply that transform.
         const baseStandardLayout = deps.hideNavRailTabStrip(template.layout) ?? template.layout
         const standardLayout =
-          options?.seedAgent && (options.seedAgent.tabName || options.seedAgent.terminal || options.seedAgent.fleet)
+          options?.seedAgent &&
+          (options.seedAgent.tabName || options.seedAgent.terminal || options.seedAgent.meshConversation)
             ? applySoloChatSeed(baseStandardLayout, options.seedAgent)
             : baseStandardLayout
         const newWorkspace: Workspace = {
           id,
           name: workspaceName,
           ...(titleLocked ? { titleLocked: true } : {}),
-          mode: isAutomationsHost
-            ? AUTOMATIONS_HOST_WORKSPACE_MODE
-            : // Module-contributed workspace types: the explicit mode
-              // from buildModuleTypeCreation IS the identity every
-              // mode-derived surface (panel scopes, run glyphs, the
-              // not-installed state, creation re-resolution) keys on —
-              // dropping it to 'standard' silently strips all of them.
-              (explicitMode ?? 'standard'),
+          // Module-contributed workspace types: the explicit mode from
+          // buildModuleTypeCreation IS the identity every mode-derived surface
+          // (panel scopes, run glyphs, the not-installed state, creation
+          // re-resolution) keys on — dropping it to 'standard' silently strips
+          // all of them.
+          mode: explicitMode ?? 'standard',
           folderPath,
           folderMissing: false,
           ...(options?.remoteOrigin ? { remoteOrigin: options.remoteOrigin } : {}),

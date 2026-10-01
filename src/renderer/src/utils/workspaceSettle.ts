@@ -4,7 +4,6 @@ import { deriveWorkspaceRunGlyph } from './workspaceRunGlyph'
 import { isStarred } from './highlight'
 import { isSnoozeUnexpired, wakeSnoozedWorkspacePatch } from './workspaceSnooze'
 import { workspaceLastActiveAt } from './workspaceRecency'
-import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../types/workspace'
 import type { LifecycleState } from '../../../shared/lifecycle-state'
 
 // A chat settles — moves from its folder's active list into the folder's
@@ -59,7 +58,6 @@ export function shouldAutoSettleWorkspace(workspace: Workspace, now: number): bo
   if (isSnoozeUnexpired(workspace, now)) return false
   if (isStarred(workspace.highlight)) return false
   if (workspace.remoteOrigin) return false
-  if (workspace.mode === AUTOMATIONS_HOST_WORKSPACE_MODE) return false
   if (now - workspaceLastActiveAt(workspace) < WORKSPACE_AUTO_SETTLE_AFTER_MS) return false
   const glyph = deriveWorkspaceRunGlyph(workspace)
   if (glyph && PINNED_RUN_STATES.has(glyph.state)) return false

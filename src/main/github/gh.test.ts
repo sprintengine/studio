@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 
 import { buildShellGhDescriptor, createDefaultGhRunner, sharedGhRunner, type GhSpawn } from './gh'
-import { createGhCommandRunner } from '../automations/pull-request'
 import { test } from 'vitest'
 
 test('gh', async () => {
@@ -77,6 +76,17 @@ test('gh', async () => {
         file: '/bin/bash',
         args: ['-ilc', `'gh' 'pr' 'view' 'a'\\''; rm -rf /'`],
       })
+      // A variable to keep from gh is unset inside the login shell too, after the
+      // rc files that would export it have run; a name that is not a plain
+      // identifier is dropped rather than spliced into the command.
+      assert.deepEqual(
+        buildShellGhDescriptor(['auth', 'token'], '/bin/zsh', 'darwin', [
+          'GH_ENTERPRISE_TOKEN',
+          'X; rm -rf /',
+          'GH_TOKEN',
+        ]),
+        { file: '/bin/zsh', args: ['-ilc', "unset GH_ENTERPRISE_TOKEN GH_TOKEN; 'gh' 'auth' 'token'"] },
+      )
       assert.equal(buildShellGhDescriptor(['--version'], '/bin/zsh', 'win32'), null, 'no shell retry on Windows')
       assert.equal(buildShellGhDescriptor(['--version'], undefined, 'darwin'), null, 'no $SHELL, no retry')
       assert.equal(buildShellGhDescriptor(['--version'], '/usr/bin/fish', 'darwin'), null, 'only zsh/bash take -ilc')
@@ -108,53 +118,12 @@ test('gh', async () => {
     }
 
     // ---------------------------------------------------------------------------
-    // ONE runner (epic decision 11): every caller — the version-control probe, the
-    // review paths, and the automations path that used to lack the fallback
-    // entirely — reaches this module's factory and its shell retry.
+    // ONE runner (epic decision 11): every caller — the version-control probe and
+    // the review paths — reaches this module's factory and its shell retry.
     // ---------------------------------------------------------------------------
     {
       assert.equal(sharedGhRunner(), sharedGhRunner(), 'one process-wide instance')
     }
-    {
-      const { spawn, calls } = spawnStub((call) =>
-        call.file === 'gh' ? enoent() : Promise.resolve({ stdout: 'https://github.com/o/r/pull/7\n', stderr: '' }),
-      )
-      const runGh = createGhCommandRunner(createDefaultGhRunner({ spawn, shell: '/bin/zsh', platform: 'darwin' }))
-      const result = await runGh('/worktree', ['pr', 'view', 'feature', '--json', 'url'])
-
-      assert.deepEqual(result, { ok: true, stdout: 'https://github.com/o/r/pull/7\n', stderr: '' })
-      assert.deepEqual(
-        calls.map((call) => call.file),
-        ['gh', '/bin/zsh'],
-        'the automations path gets the PATH fallback',
-      )
-      assert.equal(calls[1].cwd, '/worktree', 'and still runs in the run worktree')
-    }
-
-    // The automations path keeps its Fallback Discipline wording: a missing gh is a
-    // reason, never a faked pull request.
-    {
-      const missing = createGhCommandRunner({
-        available: async () => false,
-        run: async () => ({ found: false, code: -1, stdout: '', stderr: '' }),
-      })
-      assert.deepEqual(await missing('/worktree', ['pr', 'create']), {
-        ok: false,
-        stdout: '',
-        stderr: 'the GitHub CLI (gh) is not installed or not on PATH',
-      })
-
-      const failing = createGhCommandRunner({
-        available: async () => true,
-        run: async () => ({ found: true, code: 1, stdout: '', stderr: '  ' }),
-      })
-      assert.deepEqual(await failing('/worktree', ['pr', 'create']), {
-        ok: false,
-        stdout: '',
-        stderr: 'gh command failed',
-      })
-    }
-
     // ---------------------------------------------------------------------------
     // REVIEW FIX (finding 6). A read's bound has to KILL the child, not merely
     // stop waiting on it: a caller that races a timer leaves a `gh` — and on the
@@ -212,4 +181,44 @@ test('gh', async () => {
   )
 
   await suiteRun
+})
+
+test('on Windows, gh is spawned by its full PATH location and never looked up in the repository', async () => {
+  const files: string[] = []
+  const spawn: GhSpawn = async (file) => {
+    files.push(file)
+    return { stdout: '', stderr: '' }
+  }
+  const installed = 'C:\\Program Files\\GitHub CLI\\gh.exe'
+  const gh = createDefaultGhRunner({ spawn, platform: 'win32', resolveWindowsProgram: async () => installed })
+  const result = await gh.run(['pr', 'list'], { cwd: 'C:\\Users\\dev\\repo' })
+  assert.equal(result.found, true)
+  assert.deepEqual(files, [installed])
+})
+
+test('on Windows, no gh on PATH is "not installed", without a bare-name spawn that would search the repository', async () => {
+  const files: string[] = []
+  const spawn: GhSpawn = async (file) => {
+    files.push(file)
+    return { stdout: '', stderr: '' }
+  }
+  const gh = createDefaultGhRunner({ spawn, platform: 'win32', resolveWindowsProgram: async () => null })
+  const result = await gh.run(['pr', 'list'], { cwd: 'C:\\Users\\dev\\repo' })
+  assert.equal(result.found, false)
+  assert.deepEqual(files, [])
+})
+
+test("the git that gh runs inside a repository ignores the repository's filesystem-monitor program", async () => {
+  const envs: NodeJS.ProcessEnv[] = []
+  const spawn: GhSpawn = async (_file, _args, options) => {
+    envs.push(options.env)
+    return { stdout: '', stderr: '' }
+  }
+  const gh = createDefaultGhRunner({ spawn, platform: 'darwin' })
+  await gh.run(['pr', 'list'], { cwd: '/Users/dev/repo' })
+  const env = envs[0]
+  const count = Number(env.GIT_CONFIG_COUNT)
+  const index = count - 1
+  assert.equal(env[`GIT_CONFIG_KEY_${index}`], 'core.fsmonitor')
+  assert.equal(env[`GIT_CONFIG_VALUE_${index}`], 'false')
 })

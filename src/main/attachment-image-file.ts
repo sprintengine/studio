@@ -11,8 +11,9 @@ import { tmpdir } from 'os'
 
 // The same image set the conversation composer stages
 // (shared/conversation-attachments.ts), keyed to the extension the saved file
-// wears — agents and previewers alike read the type off the name.
-const ATTACHMENT_IMAGE_EXTENSIONS: Record<string, string> = {
+// wears — agents and previewers alike read the type off the name. The
+// conversation attachment store names its files from the same map.
+export const ATTACHMENT_IMAGE_EXTENSIONS: Readonly<Record<string, string>> = {
   'image/png': 'png',
   'image/jpeg': 'jpg',
   'image/webp': 'webp',

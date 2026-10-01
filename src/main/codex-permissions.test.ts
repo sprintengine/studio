@@ -21,9 +21,25 @@ afterAll(() => __resetPluginRegistryForTest())
 const permissionArgs: Record<CliPermissionPreset, string[]> = {
   none: [],
   manual: ['--ask-for-approval', 'on-request', '--sandbox', 'read-only'],
-  auto: ['--ask-for-approval', 'never', '--sandbox', 'workspace-write'],
+  auto: ['--approve-for-me'],
   bypass: ['--dangerously-bypass-approvals-and-sandbox'],
 }
+
+test('a retired Codex spelling renders the preset that kept its promise', () => {
+  for (const [retired, preset] of [
+    ['default', 'manual'],
+    ['auto_workspace', 'auto'],
+  ] as const) {
+    const rendered = renderAgentLaunchArgv({
+      cli: 'codex',
+      sessionId: 'session-example',
+      resume: false,
+      cliPermissionPreset: retired as unknown as CliPermissionPreset,
+      initialPrompt: 'fix the parser',
+    })
+    assert.deepEqual(rendered.argv, ['codex', ...permissionArgs[preset], 'fix the parser'], retired)
+  }
+})
 
 function scriptArgs(script: string): string[] {
   const line = script.split('\r\n').find((entry) => entry.startsWith('$arguments = @('))!
@@ -73,7 +89,6 @@ test('Windows YOLO preserves quoted prompts, host context and reasoning through 
     { command: 'C:\\agent bin\\codex.exe' },
     'bypass',
     'gpt-5.6-sol',
-    false,
     'high',
     { contextText },
     'dark',
@@ -112,7 +127,6 @@ test.skipIf(process.platform !== 'win32')(
         { command: shim },
         'bypass',
         undefined,
-        false,
         'high',
         { contextText: 'Use "project" rules.' },
       )

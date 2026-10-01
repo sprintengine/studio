@@ -3,11 +3,10 @@ import type { RepositoryIdentity } from '../../shared/repository-identity'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type { CliPermissionPreset, TerminalSessionSnapshot } from '../../shared/electron-api'
 import { projectColorKey, projectHue } from '../../shared/project-hue'
-import { normalizeCliPermissionPreset } from '../../shared/cli-permission-preset'
+import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
+import { declaredPermissionModes, declaredPermissionPresets } from '../plugin-render'
 import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
-import type { AutomationDefinition, AutomationRun } from '../../shared/automations/contracts'
-import { AUTOMATION_DEFAULT_PERMISSION_PRESET } from '../../shared/automations/contracts'
-import { mobileSnapshotCollections } from '../../../packages/mobile-control-protocol/src/index'
+import { mobileSnapshotCollections, retiredMobileSnapshotCollections } from '../mobile/control/protocol'
 import type { Workspace } from '../../renderer/src/types/workspace'
 import type {
   BacklogAddOrUpdateLinkInput,
@@ -29,8 +28,8 @@ import type {
   BacklogListItemsResult,
   BacklogReadItemResult,
 } from '../backlog-service'
-import type { AutomationStoreListResult } from '../automations/store'
-import type { AutomationsAppFrontDoor } from '../ipc/automations-ipc'
+import type { ScheduledAgentsService } from '../scheduled-agents/service'
+import { scheduledAgentScheduleWords, type ScheduledAgentView } from '../../shared/scheduled-agents'
 import type { LoadedPlugin } from '../../shared/plugin-manifest'
 import type { MarketplaceRegistryReadInput, MarketplaceRegistryReadResult } from '../../shared/electron-api'
 import {
@@ -59,11 +58,18 @@ import type { McpConnectionContext, McpToolRegistration, McpToolResult } from '.
 import type { WorkspaceCreateRequest, WorkspaceCreateResult } from '../workspace-registry-service'
 import type { WorkspaceMutationActor } from '../workspace-sync-service'
 import { getWorkspaceChangeSummary } from '../workspace-change-summary'
+import {
+  capScheduledAgentPreset,
+  capLaunchPermissionPreset,
+  launchPermissionCeiling,
+  refuseScheduledAgentRun,
+  type AgentPermissionResolver,
+} from './launch-permission-cap'
 import { normalizeExecutionHostId, type ExecutionHostId } from '../../shared/execution-host'
 
 // The automation tool surface. v1: workspace.create / workspace.list /
 // workspace.status / agent.launch / agent.status; the read expansion adds
-// backlog.list / backlog.read / automation.list / automation.runs. Reads and
+// backlog.list / backlog.read / schedule.list. Reads and
 // mutations alike answer from main's own services — there is one lane, and it is
 // main's. No tool on this surface needs a window, and the renderer
 // delegate that used to carry mutations, along with its `no_primary_window` /
@@ -74,16 +80,21 @@ import { normalizeExecutionHostId, type ExecutionHostId } from '../../shared/exe
 const LAUNCH_CONFIRM_TIMEOUT_MS = 20_000
 const CONFIRM_POLL_INTERVAL_MS = 150
 
-// External callers get only these two presets; `bypass` is refused at the
-// tool boundary everywhere (epic decision 4, same policy as automation.create).
-// Order matters: the first entry is what an omitted preset resolves to.
-const LAUNCH_PERMISSION_PRESETS = ['manual', 'auto'] as const
+// All agents spawn on Auto unless someone chooses another preset (owner
+// request 2026-10-01; Bypass before then), and that holds on this surface too
+// (owner ruling 2026-09-27): an
+// external caller, a paired machine and an automation may name any preset,
+// exactly as a person at the launcher can. An omitted preset is not floored here; the
+// launch service resolves it the way the desktop launcher does, so an agent
+// started from outside runs on the preset the spawn footer shows for its CLI.
+// The one exception is a caller that is itself one of this app's agents: it
+// launches at its own preset or stricter (launch-permission-cap.ts).
+const LAUNCH_PERMISSION_PRESETS = ['none', 'manual', 'auto', 'bypass'] as const satisfies readonly CliPermissionPreset[]
 
-// The built-in action kinds that launch a CLI agent, and so resolve a permission
-// preset (`runLocalAutomationAction` dispatches on exactly these two literals;
-// `run-skill-loop` reuses `parseSpawnAgentConfig`). Local because the automation
-// contracts carry no exported list yet — collapse this into one when they do.
-const AGENT_BACKED_ACTION_KINDS: readonly string[] = ['spawn-agent', 'run-skill-loop']
+// Said on every launching tool, so an agent learns the rule before it is refused by it.
+const CALLER_PRESET_CAP_SENTENCE =
+  "Called by an agent of this app, the launch runs no looser than that agent's own preset: a looser one " +
+  'is refused with "permission_escalation", and an omitted one takes the stricter of the two.'
 
 export type AutomationBackends = {
   getWorkspaceSyncSnapshot(): WorkspaceSyncSnapshot
@@ -91,19 +102,11 @@ export type AutomationBackends = {
   /** Compose and spawn an agent in main. */
   launchAgent(request: AgentLaunchRequest): Promise<AgentLaunchResult>
   /**
-   * This machine's own agent-spawn permission preset for `cli` (the CLI the
-   * launch will run on; absent for the last-selected one), from the main-owned
-   * launch settings store: the preset the person chose for that CLI, else the
-   * app-wide spawn default; `null` when they have chosen neither.
-   *
-   * Read by `terminal.create` so a remotely-opened terminal runs under the
-   * preset the person at this machine chose — and read HERE rather than left to
-   * the launch service, because the surface's `bypass` ceiling has to be
-   * applied before the pty exists, not after. The CLI default needs no such
-   * accessor: the launch service resolves it from the same store and says so
-   * when there is none.
+   * The preset an agent of this app is running on now. A connection that
+   * declares itself one of them launches no looser than this; see
+   * launch-permission-cap.ts.
    */
-  getAgentSpawnPermissionDefault(cli?: string): CliPermissionPreset | null
+  resolveAgentPermissionPreset: AgentPermissionResolver
   /**
    * Mint a workspace in main's registry. Synchronous and
    * window-independent: `workspace.create` no longer asks a renderer to build
@@ -117,19 +120,17 @@ export type AutomationBackends = {
   listBacklogItems(workspaceRoot: string): Promise<BacklogListItemsResult>
   /** Read one backlog item (validated backlog/ relative path). */
   readBacklogItem(workspaceRoot: string, relativePath: string): Promise<BacklogReadItemResult>
-  /** Automation definitions from the workspace's .sprintengine/automations store. */
-  listAutomationDefinitions(workspaceRoot: string): Promise<AutomationStoreListResult<AutomationDefinition>>
-  /** Run history for one automation, newest-first (store-capped). */
-  listAutomationRuns(workspaceRoot: string, automationId: string): Promise<AutomationStoreListResult<AutomationRun>>
   /** Backlog write services (main-owned file/store writers in backlog-service). */
   backlogWrite: BacklogWriteBackends
   /**
-   * The Automations module's IPC-equivalent create/run-now pipeline, resolved
-   * lazily (the module kernel boots after the automation server's tools are
-   * constructed). Null while the Automations module is disabled or not yet
-   * loaded — tools report that explicitly instead of buffering.
+   * The scheduled agents service, resolved lazily (the module kernel boots
+   * after the automation server's tools are constructed). Null while the
+   * Scheduled agents module is disabled or not yet loaded — tools report that
+   * explicitly instead of buffering.
    */
-  getAutomationsFrontDoor(): AutomationsAppFrontDoor | null
+  getScheduledAgents(): ScheduledAgentsService | null
+  /** The CLI a scheduled agent runs when its creator names none: the last one picked here. */
+  defaultChatCli(): string | null
   /**
    * Create a git worktree for a widened agent.launch (model/preset launches
    * that request isolation, and every connector launch). Worktree
@@ -214,13 +215,11 @@ export type AutomationBackends = {
    */
   readMarketplaceRegistry(input?: MarketplaceRegistryReadInput): Promise<MarketplaceRegistryReadResult>
   /**
-   * The mobile companion's read model and command lane, served over the
-   * gateway so a tailnet-paired phone works without the relay
-   * (tailnet-mobile-transport, self-hosted-relay epic). Snapshots come back
-   * in the same path-token form the relay serves — the phone round-trips
-   * `ws_` tokens, never local paths — and commands run through the same
-   * MobileControlCommandService the relay bridge dispatches to, so the
-   * two transports cannot drift in behaviour.
+   * The mobile companion's read model and command lane. The phone pairs with
+   * and talks to this desktop only over the tailnet gateway, so this is the
+   * whole of its connection: snapshots come back in path-token form — the
+   * phone round-trips `ws_` tokens, never local paths — and commands run
+   * through the MobileControlCommandService.
    */
   mobileControl: {
     readSnapshot(input: {
@@ -407,38 +406,48 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   }
 
   // The `permissionPreset` argument every launching tool accepts, validated
-  // once: `bypass` is refused with its own code (epic decision 4) rather
-  // than folded into invalid_arguments, because "you may not ask for that here"
-  // and "that is not a preset" are different answers to the caller. Returns the
-  // named preset, `undefined` when the caller named none, or the failure.
+  // once. Returns the named preset, `undefined` when the caller named none (the
+  // launch service then resolves it), or the failure.
   function validatePermissionPreset(args: Record<string, unknown>): CliPermissionPreset | undefined | McpToolResult {
     if (args.permissionPreset === undefined) return undefined
     if (typeof args.permissionPreset !== 'string') {
       return failure('invalid_arguments', '"permissionPreset" must be a string when provided.')
     }
-    // Normalize first so the refusal below catches BOTH spellings of bypass: an
-    // external caller written before the preset rename still sends `bypass_all`, and a
-    // refusal that only matched the new name would let the old one straight
-    // through the ceiling this surface exists to enforce.
-    const requested = normalizeCliPermissionPreset(args.permissionPreset as CliPermissionPreset)
-    if (requested === 'bypass') {
-      return failure(
-        'permission_preset_not_allowed',
-        'Agents launched over the automation surface may not use permissionPreset "bypass". ' +
-          'A person can set that preset in the app if it is genuinely needed.',
-      )
-    }
-    if (!LAUNCH_PERMISSION_PRESETS.includes(args.permissionPreset as (typeof LAUNCH_PERMISSION_PRESETS)[number])) {
+    // Parsed, not compared: an external caller written before the preset
+    // rename still sends `bypass_all`, `default` or `auto_workspace`. Each
+    // keeps meaning what its caller meant rather than failing on a spelling.
+    const requested = parseCliPermissionPreset(args.permissionPreset)
+    if (!requested) {
       return failure('invalid_arguments', `"permissionPreset" must be one of: ${LAUNCH_PERMISSION_PRESETS.join(', ')}.`)
     }
-    return args.permissionPreset as CliPermissionPreset
+    return requested
+  }
+
+  // The validated preset held to the calling agent's own (launch-permission-cap.ts):
+  // the preset to forward, `undefined` to leave it to the launch service, or
+  // the failure — `permission_escalation` for a preset looser than the caller's.
+  function cappedPermissionPreset(
+    args: Record<string, unknown>,
+    context: McpConnectionContext | undefined,
+  ): CliPermissionPreset | undefined | McpToolResult {
+    const requested = validatePermissionPreset(args)
+    if (requested !== undefined && typeof requested !== 'string') return requested
+    const capped = capLaunchPermissionPreset(
+      requested,
+      launchPermissionCeiling(context, backends.resolveAgentPermissionPreset),
+    )
+    if ('refused' in capped) return failure(capped.refused.code, capped.refused.message)
+    return capped.permissionPreset
   }
 
   // The launch-config fields agent.launch and backlog.work both accept:
-  // `permissionPreset` (`bypass` refused with its own code, epic decision 4)
+  // `permissionPreset` (either preset, or omitted for the spawn default)
   // and `worktree` (an object with an optional name — never a bare cwd). Returns
   // the resolved options or a failure McpToolResult.
-  function resolveLaunchOptions(args: Record<string, unknown>):
+  function resolveLaunchOptions(
+    args: Record<string, unknown>,
+    context: McpConnectionContext | undefined,
+  ):
     | {
         permissionPreset?: CliPermissionPreset
         worktreeRequested: boolean
@@ -446,7 +455,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         worktreeBaseRef?: string
       }
     | McpToolResult {
-    const preset = validatePermissionPreset(args)
+    const preset = cappedPermissionPreset(args, context)
     if (preset !== undefined && typeof preset !== 'string') return preset
     let worktreeRequested = false
     let worktreeName: string | undefined
@@ -468,13 +477,11 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       worktreeBaseRef = optionalString(rawBaseRef)
     }
     return {
-      // Always resolved, never forwarded as undefined: the renderer fills an
-      // absent preset from the user's last spawn choice, which ships as
-      // `bypass` — so omitting the key reached the preset this surface
-      // refuses. An external caller that names none gets the most restrictive
-      // allowed value.
-      permissionPreset:
-        (optionalString(args.permissionPreset) as CliPermissionPreset | undefined) ?? LAUNCH_PERMISSION_PRESETS[0],
+      // Forwarded as the caller sent it, absent included: the launch service
+      // fills an absent preset from the person's choice for the CLI, else the
+      // app default, which is the same answer the desktop launcher gives. An
+      // agent's own launch arrives here already held to its cap.
+      ...(preset ? { permissionPreset: preset } : {}),
       worktreeRequested,
       worktreeName,
       worktreeBaseRef,
@@ -499,6 +506,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     worktreeName?: string
     worktreeBaseRef?: string
     host?: ExecutionHostId
+    /** A bundled skill the prompt invokes; the launch carries it (see `launchSkills`). */
+    spawnSkillId?: string
   }): Promise<
     | {
         workspace: Workspace
@@ -548,6 +557,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       connectorId: plan.connectorId,
       worktreePath,
       ...(plan.host ? { host: plan.host } : {}),
+      ...(plan.spawnSkillId ? { spawnSkillId: plan.spawnSkillId } : {}),
     })
     if (!launched.ok) return failure(launched.code, launched.message)
     const { agentId, sessionId } = launched
@@ -575,8 +585,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       return failure('unknown_workspace', `Workspace "${plan.workspaceId}" is not known to the running app.`)
     }
     // `live` is the session the launch actually minted, carried out so a caller
-    // that needs the session id (terminal.create, whose whole point is the
-    // immediate attach) reads the confirmed one rather than re-searching for it.
+    // that needs the session id (terminal.create answers with it) reads the
+    // confirmed one rather than re-searching for it.
     return {
       workspace,
       agentId,
@@ -613,17 +623,17 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   }
 
   // ── Mobile companion over the gateway ────────────────────────────────────
-  // tailnet-mobile-transport (self-hosted-relay epic): the phone's snapshot
-  // and command lane without the relay. v1 deliberately serves the epic's
-  // acceptance set and nothing more; widening the command allowlist is a
-  // decision, not a default.
+  // The phone's snapshot and command lane, and its only one: the companion
+  // pairs over the tailnet and reaches the desktop through these two tools. The
+  // command allowlist is deliberately narrow; widening it is a decision, not a
+  // default.
   const MOBILE_GATEWAY_COMMAND_TYPES = ['backlog.update'] as const
 
   const workspaceSnapshot: McpToolRegistration = {
     name: 'workspace.snapshot',
     description:
-      'The mobile companion snapshot: backlog, automations and the dev servers published on the tailnet as one ' +
-      'versioned document, in the same path-token form the relay serves (ws_ tokens round-trip; local paths never leave ' +
+      'The mobile companion snapshot: backlog and the dev servers published on the tailnet as one ' +
+      'versioned document, in path-token form (ws_ tokens round-trip; local paths never leave ' +
       'the desktop). Pass knownSnapshotVersion from the previous read to get an {unchanged: true} marker ' +
       'instead of the full document when nothing moved.',
     inputSchema: {
@@ -631,8 +641,10 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       properties: {
         include: {
           type: 'array',
-          items: { type: 'string', enum: [...mobileSnapshotCollections] },
-          description: `Collections to include (${mobileSnapshotCollections.join(', ')}). Defaults to all of them.`,
+          items: { type: 'string', enum: [...mobileSnapshotCollections, ...retiredMobileSnapshotCollections] },
+          description:
+            `Collections to include (${mobileSnapshotCollections.join(', ')}). Defaults to all of them. ` +
+            `${retiredMobileSnapshotCollections.join(', ')} is retired: accepted, and answered with nothing.`,
         },
         knownSnapshotVersion: { type: 'string', description: 'The snapshotVersion returned by the previous read.' },
       },
@@ -641,10 +653,12 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     handler: async (args) => {
       const invalidArray = firstInvalidStringArray(args, ['include'])
       if (invalidArray) return invalidArray
-      // Checked here rather than left to the bridge, which drops unknown names and
-      // falls back to the default set: a caller that misspells a collection would
-      // otherwise get a full snapshot and no hint that its scope was ignored.
-      const collections: readonly string[] = mobileSnapshotCollections
+      // Checked here rather than left to the bridge, which drops unknown names:
+      // a caller that misspells a collection would otherwise get no hint that
+      // its scope was ignored. A retired name is not a misspelling — phones
+      // built before automations left the wire still ask for them on every
+      // read — so it is accepted and serves nothing.
+      const collections: readonly string[] = [...mobileSnapshotCollections, ...retiredMobileSnapshotCollections]
       const unknownCollection = optionalStringArray(args.include)?.find((entry) => !collections.includes(entry))
       if (unknownCollection !== undefined) {
         return failure(
@@ -666,8 +680,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const workspaceMobileCommand: McpToolRegistration = {
     name: 'workspace.mobile_command',
     description:
-      'Dispatch one mobile-control command envelope from a paired companion device — the same commands the phone ' +
-      `sends over the relay, over this transport instead. Served types: ${MOBILE_GATEWAY_COMMAND_TYPES.join(', ')}. ` +
+      'Dispatch one mobile-control command envelope from a paired companion device. ' +
+      `Served types: ${MOBILE_GATEWAY_COMMAND_TYPES.join(', ')}. ` +
       'The device identity comes from the transport, never from the arguments.',
     inputSchema: {
       type: 'object',
@@ -818,9 +832,15 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           type: 'string',
           enum: [...LAUNCH_PERMISSION_PRESETS],
           description:
-            'CLI permission preset: "manual" or "auto" — the canonical names. "bypass" is refused on this ' +
-            'surface, and so is its pre-rename spelling "bypass_all"; the other legacy spellings ' +
-            '("default", "auto_workspace") are not accepted here at all.',
+            'CLI permission preset: "bypass" launches the CLI with its own skip-every-prompt flag; "auto" runs ' +
+            "the CLI's own auto mode (a classifier or reviewer that runs what it judges safe, where the CLI has " +
+            'one, else edits in the workspace go through and commands ask); "manual" asks before every edit, ' +
+            'command and outside call; "none" passes no permission flag, so the CLI\'s own configuration ' +
+            'decides. A terminal agent takes only the presets its CLI has a setting for (cli.runtime.list names ' +
+            'them, with the name each mode has in that CLI). Omitted, the launch takes the preset chosen for ' +
+            'that CLI on this machine, else the app default "auto" ("none" for a CLI with no auto mode), ' +
+            'exactly as the desktop launcher would. The older "bypass_all" is read as "bypass". ' +
+            CALLER_PRESET_CAP_SENTENCE,
         },
         connectorId: {
           type: 'string',
@@ -847,13 +867,13 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       required: ['workspaceId'],
       additionalProperties: false,
     },
-    handler: async (args) => {
+    handler: async (args, context) => {
       const workspaceId = requireString(args, 'workspaceId')
       if (typeof workspaceId !== 'string') return workspaceId
       const invalid = firstInvalidOptionalString(args, ['cli', 'name', 'prompt', 'cliModel', 'connectorId', 'host'])
       if (invalid) return invalid
 
-      const options = resolveLaunchOptions(args)
+      const options = resolveLaunchOptions(args, context)
       if ('content' in options) return options
 
       const host = args.host === undefined ? undefined : normalizeExecutionHostId(args.host)
@@ -988,17 +1008,16 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     },
   }
 
-  // The list a remote client reads before attaching to one. Its own
-  // tool family, not part of `agent.*`, because the tailnet scopes gate the
-  // terminal tier separately from the structured-command set: watching an
-  // agent's screen is a different grant from reading its launch state.
+  // The terminals this app holds, for an agent or MCP client on this machine.
+  // Served on the local socket only (`localOnlyGatewayToolReason`): terminals
+  // do not cross the tailnet, so a paired device neither sees nor may call it.
   const terminalList: McpToolRegistration = {
     name: 'terminal.list',
     description:
       'List the terminal sessions open in this app: session id, agent name, CLI, working directory, ' +
       'workspace, whether the process is live or the session is paused, and the agent phase when the CLI ' +
-      "reports one. Use the session id to attach to a session's live output. Reads the terminal runtime; " +
-      'never writes.',
+      'reports one. Reads the terminal runtime; never writes. Served on this machine only, never to a ' +
+      'paired device.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1022,15 +1041,15 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       const workspaceId = optionalString(args.workspaceId)
       // The name lookup reads the sync snapshot ONCE for the whole answer. It
       // used to go through `findWorkspace` per session, and each of those took
-      // a fresh snapshot — a whole-registry clone per row, every 30 seconds
-      // per paired machine, which was the main-thread stall of 2026-09-05.
+      // a fresh snapshot — a whole-registry clone per row, which was the
+      // main-thread stall of 2026-09-05.
       const workspaceRows = new Map(
         backends.getWorkspaceSyncSnapshot().state.workspaces.map((workspace) => [workspace.id, workspace]),
       )
       // The project hue, resolved once per DISTINCT workspace rather than per
       // row: `readRepositoryIdentity` holds its answers behind a timed cache
       // and de-duplicates in flight, but a dozen rows in one project would
-      // still be a dozen awaits on the 30-second poll each paired device runs.
+      // still be a dozen awaits.
       const projectHues = new Map<string, number | null>()
       const projectHueFor = async (
         workspace: { id: string; folderPath?: string | null } | undefined,
@@ -1052,25 +1071,23 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           .filter((session) => !kind || session.kind === kind)
           .map(async (session) => ({
             ...terminalSessionProjection(session),
-            // The phone's thread row (sprintengine-mobile id 81) carries the same
-            // second line the sidebar does: the workspace's display name, and the
-            // checkout's branch and diff read through the sidebar's own summary
-            // share (one read per checkout per hold window, at most four reads
-            // in flight). Both are additive and null when unknown, so an older
-            // phone reads the row as before and a newer one never guesses.
+            // The same second line the sidebar draws: the workspace's display
+            // name, and the checkout's branch and diff read through the
+            // sidebar's own summary share (one read per checkout per hold
+            // window, at most four reads in flight). Both are null when
+            // unknown, so a caller never guesses.
             workspaceName: (session.workspaceId ? workspaceRows.get(session.workspaceId)?.name : null) ?? null,
             git: await terminalGitSummary(session),
             // The project's hue as a whole degree on the OKLCH wheel, hashed
             // from the repository key (or the folder's name when there is no
             // remote) by shared/project-hue.ts. Sent rather than left to the
-            // client to derive so a phone and this desktop cannot disagree
-            // about a degree; null when the chat has no folder, which is not a
-            // project and wears no colour.
+            // caller to derive so it cannot disagree with the sidebar about a
+            // degree; null when the chat has no folder, which is not a project
+            // and wears no colour.
             projectHue: await projectHueFor(session.workspaceId ? workspaceRows.get(session.workspaceId) : undefined),
-            // When the chat is asleep until, or null. The phone's list needs it
-            // for the same reason the sidebar does: a snoozed chat that still
-            // claims to be running is the bug the desktop fixed on 2026-09-10,
-            // and the wire kept it.
+            // When the chat is asleep until, or null, for the same reason the
+            // sidebar shows it: a snoozed chat that still claims to be running
+            // is the bug the desktop fixed on 2026-09-10.
             snoozedUntil: (session.workspaceId ? workspaceRows.get(session.workspaceId)?.snoozedUntil : null) || null,
           })),
       )
@@ -1081,12 +1098,11 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   /**
    * The workspace a `terminal.create` names, by id or by display name.
    *
-   * Name resolution exists because the terminal tier is a scope tier of its own
-   * (epic decision 4): a device paired for `terminal:control` alone may not call
-   * `workspace.list`, so requiring an opaque id would make the terminal grant
-   * unusable without a structured grant it was deliberately not given. A name
-   * matching more than one workspace is an explicit refusal listing the ids —
-   * picking the first would open a terminal in someone else's project.
+   * A name is accepted because it is how the person names a workspace when
+   * they ask an agent to open one, and it saves the caller a `workspace.list`
+   * round trip. A name matching more than one workspace is an explicit refusal
+   * listing the ids — picking the first would open a terminal in someone
+   * else's project.
    */
   function resolveTerminalWorkspace(args: Record<string, unknown>): { workspace: Workspace } | McpToolResult {
     const workspaceId = optionalString(args.workspaceId)?.trim()
@@ -1124,29 +1140,25 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     return { workspace: matches[0] }
   }
 
-  // Open a terminal on THIS machine from wherever the call came from.
+  // Open an agent terminal on this machine: `agent.launch`'s plain case, for a
+  // caller that wants a terminal agent in a workspace and nothing else. It
+  // deliberately does NOT carry `agent.launch`'s connector or worktree options:
+  // those create git worktrees and write connector config into the checkout,
+  // and a caller that needs them has `agent.launch`. Served on the local socket
+  // only (`localOnlyGatewayToolReason`), like `agent.launch`.
   //
-  // `terminal.*` rather than `agent.launch` because of the scopes: the terminal
-  // tier is granted separately from the structured-command families, and "open
-  // me a terminal I can type into" is that tier's own verb — a device holding
-  // `terminal:control` already has arbitrary shell on this host through the
-  // attach socket, so letting it create the session it will type into adds no
-  // authority. It deliberately does NOT carry `agent.launch`'s connector or
-  // worktree options: those create git worktrees and write connector config
-  // into the checkout, which are workspace mutations and stay behind
-  // `workspace:operate`.
-  //
-  // The session id comes back so the caller can attach immediately — that
-  // round trip (create → attach → type) is the whole point, and searching
-  // terminal.list for "the one that just appeared" would be a guess.
+  // The session id comes back so the caller can follow the session it just
+  // opened — searching terminal.list for "the one that just appeared" would be
+  // a guess.
   const terminalCreate: McpToolRegistration = {
     name: 'terminal.create',
     description:
-      'Open a new agent terminal on the machine running this app and return its session id, ready to attach. ' +
+      'Open a new agent terminal on the machine running this app and return its session id. ' +
       'Works with no window open: the session exists in the main process, and a window opened later shows it as ' +
-      'a pane with its scrollback intact. Name the workspace by "workspaceId" or by "workspaceName". The CLI and ' +
-      "permission preset default to this machine's own launch settings unless you name them; `bypass` is " +
-      'refused here as everywhere on this surface. Use cli.runtime.list for the CLI ids this app holds.',
+      'a pane with its scrollback intact. Name the workspace by "workspaceId" or by "workspaceName". The ' +
+      "CLI and permission preset default to this machine's own launch settings unless you name them, exactly " +
+      'as a launch from the desktop would, and the answer reports the preset the launch resolved. Use ' +
+      'cli.runtime.list for the CLI ids this app holds. Served on this machine only, never to a paired device.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1173,16 +1185,21 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           type: 'string',
           enum: [...LAUNCH_PERMISSION_PRESETS],
           description:
-            'CLI permission preset: "manual" or "auto" — the canonical names. "bypass" is refused on this ' +
-            'surface, and so is its pre-rename spelling "bypass_all"; the other legacy spellings ' +
-            '("default", "auto_workspace") are not accepted here at all. ' +
-            "Omit to take this machine's own spawn default.",
+            'CLI permission preset: "bypass" launches the CLI with its own skip-every-prompt flag; "auto" runs ' +
+            "the CLI's own auto mode (a classifier or reviewer that runs what it judges safe, where the CLI has " +
+            'one, else edits in the workspace go through and commands ask); "manual" asks before every edit, ' +
+            'command and outside call; "none" passes no permission flag, so the CLI\'s own configuration ' +
+            'decides. A terminal agent takes only the presets its CLI has a setting for (cli.runtime.list names ' +
+            'them, with the name each mode has in that CLI). Omitted, the launch takes the preset chosen for ' +
+            'that CLI on this machine, else the app default "auto" ("none" for a CLI with no auto mode), ' +
+            'exactly as the desktop launcher would. The older "bypass_all" is read as "bypass". ' +
+            CALLER_PRESET_CAP_SENTENCE,
         },
       },
       required: [],
       additionalProperties: false,
     },
-    handler: async (args) => {
+    handler: async (args, context) => {
       const invalid = firstInvalidOptionalString(args, [
         'workspaceId',
         'workspaceName',
@@ -1196,28 +1213,20 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       const resolved = resolveTerminalWorkspace(args)
       if (!('workspace' in resolved)) return resolved
 
-      const requestedPreset = validatePermissionPreset(args)
+      const requestedPreset = cappedPermissionPreset(args, context)
       if (requestedPreset !== undefined && typeof requestedPreset !== 'string') return requestedPreset
 
-      // Resolved here rather than left to the launch service so the preset the
-      // pty will run under is known before it exists. The machine's own default
-      // is honoured — that is what "uses this machine's launch settings" means —
-      // except that `bypass` never crosses this surface: a caller that
-      // inherited it would get an unsandboxed agent nobody on either end asked
-      // for. Falling to the most restrictive preset is the surface's ceiling,
-      // and the answer reports which preset actually applied.
-      const machineDefault = backends.getAgentSpawnPermissionDefault(optionalString(args.cli))
-      const permissionPreset =
-        requestedPreset ??
-        (machineDefault && machineDefault !== 'bypass' ? machineDefault : LAUNCH_PERMISSION_PRESETS[0])
-
+      // An omitted preset is left to the launch service, which resolves it the
+      // way the desktop launcher does (owner ruling 2026-09-27): the person's
+      // choice for this CLI, else the app default, `auto` — unless the caller
+      // is an agent whose own preset is stricter, which it then launches on.
       const launched = await launchConfiguredAgent({
         workspaceId: resolved.workspace.id,
         cli: optionalString(args.cli),
         name: optionalString(args.name),
         prompt: optionalString(args.prompt),
         cliModel: optionalString(args.cliModel),
-        permissionPreset,
+        ...(requestedPreset ? { permissionPreset: requestedPreset } : {}),
         worktreeRequested: false,
       })
       if (!('agentId' in launched)) return launched
@@ -1225,10 +1234,10 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         sessionId: launched.session.sessionId,
         workspaceId: launched.workspace.id,
         agentId: launched.agentId,
-        // What the launch RESOLVED, not what was asked for: the CLI came from
-        // this machine's settings when the caller named none, and the preset may
-        // have been clamped by the rule above.
-        permissionPreset,
+        // What the launch RESOLVED, not what was asked for: the CLI and the
+        // preset both came from this machine's settings when the caller named
+        // none. The launch record on the session is the resolution itself.
+        permissionPreset: launched.session.agentRecord?.cliPermissionPreset ?? requestedPreset ?? null,
         terminal: terminalSessionProjection(launched.session),
       })
     },
@@ -1289,56 +1298,6 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       const read = await backends.readBacklogItem(resolved.root, path)
       if (!read.ok) return failure('backlog_read_failed', read.message)
       return success({ item: read.item, body: read.body })
-    },
-  }
-
-  const automationList: McpToolRegistration = {
-    name: 'automation.list',
-    description:
-      "List a workspace's Automations (the outbound trigger/action definitions in .sprintengine/automations). Read-only.",
-    inputSchema: {
-      type: 'object',
-      properties: { workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' } },
-      required: ['workspaceId'],
-      additionalProperties: false,
-    },
-    handler: async (args) => {
-      const workspaceId = requireString(args, 'workspaceId')
-      if (typeof workspaceId !== 'string') return workspaceId
-      const resolved = resolveWorkspaceRoot(workspaceId)
-      if (!('root' in resolved)) return resolved
-      const listed = await backends.listAutomationDefinitions(resolved.root)
-      if (!listed.ok) {
-        return failure('automations_unavailable', listed.errors.map((problem) => problem.message).join('; '))
-      }
-      return success({ automations: listed.values })
-    },
-  }
-
-  const automationRuns: McpToolRegistration = {
-    name: 'automation.runs',
-    description: "One automation's run history, newest first (the store keeps the most recent 50). Read-only.",
-    inputSchema: {
-      type: 'object',
-      properties: {
-        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
-        automationId: { type: 'string', description: 'Automation id from automation.list.' },
-      },
-      required: ['workspaceId', 'automationId'],
-      additionalProperties: false,
-    },
-    handler: async (args) => {
-      const workspaceId = requireString(args, 'workspaceId')
-      if (typeof workspaceId !== 'string') return workspaceId
-      const automationId = requireString(args, 'automationId')
-      if (typeof automationId !== 'string') return automationId
-      const resolved = resolveWorkspaceRoot(workspaceId)
-      if (!('root' in resolved)) return resolved
-      const listed = await backends.listAutomationRuns(resolved.root, automationId)
-      if (!listed.ok) {
-        return failure('automations_unavailable', listed.errors.map((problem) => problem.message).join('; '))
-      }
-      return success({ runs: listed.values })
     },
   }
 
@@ -1766,8 +1725,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       'is the target CLI\'s Backlog skill invocation (e.g. "/backlog <path>" for Claude, a plain-language ' +
       'lifecycle block for CLIs without skill integration), then records the working-agent link. Never changes ' +
       'item status — the Backlog skill contract owns lifecycle, exactly like dragging the item onto a terminal. ' +
-      'Refuses completed or archived items. Same launch fields as agent.launch (bypass refused), minus ' +
-      'the connector.',
+      'Refuses completed or archived items. Same launch fields as agent.launch, minus the connector.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1792,9 +1750,15 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           type: 'string',
           enum: [...LAUNCH_PERMISSION_PRESETS],
           description:
-            'CLI permission preset: "manual" or "auto" — the canonical names. "bypass" is refused on this ' +
-            'surface, and so is its pre-rename spelling "bypass_all"; the other legacy spellings ' +
-            '("default", "auto_workspace") are not accepted here at all.',
+            'CLI permission preset: "bypass" launches the CLI with its own skip-every-prompt flag; "auto" runs ' +
+            "the CLI's own auto mode (a classifier or reviewer that runs what it judges safe, where the CLI has " +
+            'one, else edits in the workspace go through and commands ask); "manual" asks before every edit, ' +
+            'command and outside call; "none" passes no permission flag, so the CLI\'s own configuration ' +
+            'decides. A terminal agent takes only the presets its CLI has a setting for (cli.runtime.list names ' +
+            'them, with the name each mode has in that CLI). Omitted, the launch takes the preset chosen for ' +
+            'that CLI on this machine, else the app default "auto" ("none" for a CLI with no auto mode), ' +
+            'exactly as the desktop launcher would. The older "bypass_all" is read as "bypass". ' +
+            CALLER_PRESET_CAP_SENTENCE,
         },
         worktree: {
           type: 'object',
@@ -1816,7 +1780,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       if (typeof path !== 'string') return path
       const invalid = firstInvalidOptionalString(args, ['cli', 'name', 'cliModel', 'instructions'])
       if (invalid) return invalid
-      const options = resolveLaunchOptions(args)
+      const options = resolveLaunchOptions(args, context)
       if ('content' in options) return options
       const resolved = resolveBacklogWorkspace(args, context)
       if (!('workspace' in resolved)) return resolved
@@ -1860,6 +1824,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         permissionPreset: options.permissionPreset,
         worktreeRequested: options.worktreeRequested,
         worktreeName: options.worktreeName,
+        // The launch carries the skill its `/backlog` invocation names; the
+        // ensure above wrote nothing for a launch that does.
+        spawnSkillId: BACKLOG_SKILL_ID,
       })
       if (!('agentId' in launched)) return launched
 
@@ -1894,101 +1861,205 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     },
   }
 
-  function automationsFrontDoorOrFailure(): AutomationsAppFrontDoor | McpToolResult {
-    const frontDoor = backends.getAutomationsFrontDoor()
-    if (!frontDoor) {
+  function scheduledAgentsOrFailure(): ScheduledAgentsService | McpToolResult {
+    const service = backends.getScheduledAgents()
+    if (!service) {
       return failure(
-        'automations_module_unavailable',
-        'The Automations module is disabled or not loaded in this app session; enable it in Settings → Modules.',
+        'scheduled_agents_unavailable',
+        'Scheduled agents are switched off or not loaded in this app session; turn them on in Settings → Modules.',
       )
     }
-    return frontDoor
+    return service
   }
 
-  const automationCreate: McpToolRegistration = {
-    name: 'automation.create',
+  // A chat a schedule started may read the schedules but not make, remove or
+  // fire one. A run that could schedule runs could fill the list with copies
+  // of itself, each starting more, with nobody watching any of them; and one
+  // that could fire its own schedule would be a loop by another name. The
+  // schedule is the one long-lived thing, set up by a person, and its runs
+  // come and go under it.
+  //
+  // The caller is the chat whose agent declared itself on this connection
+  // (`launchPermissionCeiling` reads the same identity). A caller that
+  // declared no workspace is not a run's chat as far as anything here can
+  // tell, and keeps what it had.
+  function refuseScheduledRunCaller(context: McpConnectionContext | undefined, action: string): McpToolResult | null {
+    if (context?.metadata.kind !== 'studio-agent') return null
+    if (!connectionWorkspace(context)?.scheduledAgentId) return null
+    return failure(
+      'scheduled_run_refused',
+      `This chat was started by a scheduled agent, and a scheduled run may not ${action} one. ` +
+        'Ask the person to change schedules from the app.',
+    )
+  }
+
+  // What a caller reads about a scheduled agent: the record, its schedule in
+  // words, and when it runs next as an ISO instant.
+  const scheduledAgentForCaller = (agent: ScheduledAgentView) => ({
+    ...agent,
+    scheduleWords: scheduledAgentScheduleWords(agent.schedule),
+    nextRunAt: agent.nextRunAt === null ? null : new Date(agent.nextRunAt).toISOString(),
+  })
+
+  const scheduledAgentList: McpToolRegistration = {
+    name: 'schedule.list',
     description:
-      'Create an Automation definition through the same validated pipeline the UI uses (provider/permission ' +
-      'checks, schedule validation, workspace-root trust). The definition object carries name, trigger ' +
-      '{kind, config}, action {kind, config}, and an optional status. An agent-backed action must name ' +
-      'permissionPreset "auto": naming none runs the agent unattended on "bypass", which is refused on ' +
-      'this surface — that preset can only be set by a person in the app. "manual" is accepted but is ' +
-      'rarely what you want here: an automation agent has nobody at its terminal, so it stops at the ' +
-      'first approval prompt and hangs the run until the idle reaper fails it.',
+      'List the scheduled agents on this computer: each is a prompt and a cron schedule, and each time the ' +
+      'schedule comes round a new chat starts in its project with that prompt. Read-only.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    handler: async () => {
+      const service = scheduledAgentsOrFailure()
+      if (!('list' in service)) return service
+      return success({ scheduledAgents: service.list().map(scheduledAgentForCaller) })
+    },
+  }
+
+  const scheduledAgentCreate: McpToolRegistration = {
+    name: 'schedule.create',
+    description:
+      "Schedule an agent: each time the cron schedule comes round, a new chat starts in the workspace's " +
+      'project, on its machine, with `prompt` as its first message. Nothing carries over between runs. ' +
+      '`cron` is five-field cron (minute hour day month weekday), several separated by ";". The schedule is ' +
+      "read in this computer's timezone unless `timezone` names another IANA zone. " +
+      CALLER_PRESET_CAP_SENTENCE +
+      ' Refused to a chat a scheduled agent started.',
     inputSchema: {
       type: 'object',
       properties: {
-        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
-        definition: {
-          type: 'object',
+        workspaceId: { type: 'string', description: 'Workspace id from workspace.list: its project and machine.' },
+        prompt: { type: 'string', description: 'The first message each run is sent.' },
+        cron: { type: 'string', description: 'Five-field cron, e.g. "0 9 * * 1-5" for weekdays at 9:00 AM.' },
+        timezone: { type: 'string', description: "IANA zone the cron is read in; this computer's when omitted." },
+        cli: { type: 'string', description: 'Agent CLI id (e.g. "claude-code"); the last-picked one when omitted.' },
+        model: { type: 'string', description: "The CLI's model id; its default when omitted." },
+        permissionPreset: {
+          type: 'string',
+          enum: [...LAUNCH_PERMISSION_PRESETS],
           description:
-            'Automation definition draft: { name, trigger: { kind, config }, action: { kind, config }, ' +
-            'status? }. See automation.list output for the shape of existing definitions.',
+            'Each run\'s CLI permission preset: "bypass" skips every prompt; "auto" runs the CLI\'s own auto ' +
+            'mode, or lets edits in the workspace through and asks before commands where it has none; "manual" asks before every ' +
+            'edit, command and outside call; "none" passes no flag. Nobody watches a run, so one that asks ' +
+            'waits on its approval card. Omitted, each run takes the preset chosen for its CLI at run time.',
         },
+        worktree: {
+          type: 'boolean',
+          description: 'Run each time in a fresh git worktree rather than the project checkout.',
+        },
+        skills: { type: 'array', items: { type: 'string' }, description: 'Skill ids attached to each run.' },
+        mcpServers: { type: 'array', items: { type: 'string' }, description: 'Installed MCP server ids.' },
       },
-      required: ['workspaceId', 'definition'],
+      required: ['workspaceId', 'prompt', 'cron'],
       additionalProperties: false,
     },
-    handler: async (args) => {
+    handler: async (args, context) => {
+      const refused = refuseScheduledRunCaller(context, 'create')
+      if (refused) return refused
       const workspaceId = requireString(args, 'workspaceId')
       if (typeof workspaceId !== 'string') return workspaceId
-      if (typeof args.definition !== 'object' || args.definition === null || Array.isArray(args.definition)) {
-        return failure('invalid_arguments', '"definition" must be an object.')
-      }
-      const preset = resolvedActionPermissionPreset(args.definition)
-      // Normalized before the compare, exactly as validatePermissionPreset does
-      // above and for the same reason: a definition naming the pre-rename
-      // `bypass_all` cleared this ceiling on the raw string and was then
-      // normalized to `bypass` downstream (parseSpawnAgentConfig), which is the
-      // unattended self-escalation the ceiling exists to prevent
-      // (backlog/2026-09-06-automation-create-misses-the-legacy-bypass-spelling.md).
-      // A value outside the vocabulary normalizes to `manual`, which the create
-      // pipeline then rejects on its own terms.
-      if (preset !== null && normalizeCliPermissionPreset(preset as CliPermissionPreset) === 'bypass') {
+      const workspace = findWorkspace(workspaceId)
+      if (!workspace?.folderPath) return resolveWorkspaceRoot(workspaceId) as McpToolResult
+      const service = scheduledAgentsOrFailure()
+      if (!('create' in service)) return service
+      const requested =
+        typeof args.permissionPreset === 'string' ? parseCliPermissionPreset(args.permissionPreset) : null
+      if (typeof args.permissionPreset === 'string' && requested === null) {
         return failure(
-          'permission_preset_not_allowed',
-          'Automations created over the automation surface may not run on permissionPreset "bypass", which is ' +
-            'what an agent-backed automation runs on when it names no preset — name "auto" explicitly. ' +
-            'A person can set that preset in the Automations panel if it is genuinely needed.',
+          'invalid_arguments',
+          `"permissionPreset" must be one of: ${LAUNCH_PERMISSION_PRESETS.join(', ')}.`,
         )
       }
-      const resolved = resolveWorkspaceRoot(workspaceId)
-      if (!('root' in resolved)) return resolved
-      const frontDoor = automationsFrontDoorOrFailure()
-      if (!('createDefinition' in frontDoor)) return frontDoor
-      const created = await frontDoor.createDefinition({ workspaceRoot: resolved.root, definition: args.definition })
-      if (!created.ok) return failure(created.code || 'automation_create_failed', created.message)
-      return success({ automation: created.value })
+      // A scheduled agent launches later with nobody watching, so one made by
+      // an agent of this app stores no looser a preset than the agent's own.
+      const capped = capScheduledAgentPreset(
+        requested,
+        launchPermissionCeiling(context, backends.resolveAgentPermissionPreset),
+      )
+      if ('refused' in capped) return failure(capped.refused.code, capped.refused.message)
+      const cli = (typeof args.cli === 'string' && args.cli.trim()) || backends.defaultChatCli()
+      if (!cli) return failure('no_cli_selected', 'Name a "cli": no agent CLI has been picked on this computer yet.')
+      const strings = (value: unknown) =>
+        Array.isArray(value)
+          ? value.filter((id): id is string => typeof id === 'string').map((id) => ({ id, name: id }))
+          : []
+      const created = await service.create({
+        prompt: args.prompt,
+        schedule: {
+          cron: args.cron,
+          timezone:
+            typeof args.timezone === 'string' && args.timezone.trim()
+              ? args.timezone
+              : Intl.DateTimeFormat().resolvedOptions().timeZone,
+        },
+        // A workspace on a worktree schedules into its project, not into that
+        // one worktree: each run makes its own.
+        folderPath: workspace.worktree?.repoRoot ?? workspace.folderPath,
+        hostId: workspace.hostId ?? null,
+        cli,
+        cliModel: typeof args.model === 'string' ? args.model : null,
+        permissionPreset: capped.permissionPreset,
+        skills: strings(args.skills),
+        mcpServers: strings(args.mcpServers),
+        worktree: args.worktree === true ? { name: '' } : null,
+      })
+      if (!created.ok) return failure('scheduled_agent_invalid', created.message)
+      return success({ scheduledAgent: scheduledAgentForCaller(created.agent) })
     },
   }
 
-  const automationRun: McpToolRegistration = {
-    name: 'automation.run',
+  const scheduledAgentDelete: McpToolRegistration = {
+    name: 'schedule.delete',
     description:
-      'Run an existing schedule-triggered Automation now (the same "Run now" the panel offers). The run record ' +
-      'is confirmed in the store before success. Agent-backed actions launch in the main process, so the run ' +
-      'works with no app window open.',
+      'Stop and remove a scheduled agent. Chats its past runs started are left as they are. ' +
+      'Refused to a chat a scheduled agent started.',
     inputSchema: {
       type: 'object',
-      properties: {
-        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
-        automationId: { type: 'string', description: 'Automation id from automation.list.' },
-      },
-      required: ['workspaceId', 'automationId'],
+      properties: { id: { type: 'string', description: 'Scheduled agent id from schedule.list.' } },
+      required: ['id'],
       additionalProperties: false,
     },
-    handler: async (args) => {
-      const workspaceId = requireString(args, 'workspaceId')
-      if (typeof workspaceId !== 'string') return workspaceId
-      const automationId = requireString(args, 'automationId')
-      if (typeof automationId !== 'string') return automationId
-      const resolved = resolveWorkspaceRoot(workspaceId)
-      if (!('root' in resolved)) return resolved
-      const frontDoor = automationsFrontDoorOrFailure()
-      if (!('runNow' in frontDoor)) return frontDoor
-      const ran = await frontDoor.runNow({ workspaceRoot: resolved.root, automationId })
-      if (!ran.ok) return failure(ran.code || 'automation_run_failed', ran.message)
-      return success({ definition: ran.value.definition, run: ran.value.run })
+    handler: async (args, context) => {
+      const refused = refuseScheduledRunCaller(context, 'delete')
+      if (refused) return refused
+      const id = requireString(args, 'id')
+      if (typeof id !== 'string') return id
+      const service = scheduledAgentsOrFailure()
+      if (!('remove' in service)) return service
+      const removed = await service.remove(id)
+      return removed.ok ? success({ removed: id }) : failure('unknown_scheduled_agent', removed.message)
+    },
+  }
+
+  const scheduledAgentRun: McpToolRegistration = {
+    name: 'schedule.run',
+    description:
+      "Start a scheduled agent's run now, without waiting for its schedule: a new chat with its prompt. " +
+      "Called by an agent of this app, the scheduled agent must launch no looser than that agent's own " +
+      'preset, or the run is refused with "permission_escalation". Refused to a chat a scheduled agent ' +
+      "started, and while the scheduled agent's last run is still working.",
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'Scheduled agent id from schedule.list.' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    handler: async (args, context) => {
+      const refused = refuseScheduledRunCaller(context, 'run')
+      if (refused) return refused
+      const id = requireString(args, 'id')
+      if (typeof id !== 'string') return id
+      const service = scheduledAgentsOrFailure()
+      if (!('runNow' in service)) return service
+      const agent = service.get(id)
+      if (!agent) return failure('unknown_scheduled_agent', `No scheduled agent "${id}".`)
+      const refusal = refuseScheduledAgentRun(
+        agent.permissionPreset,
+        launchPermissionCeiling(context, backends.resolveAgentPermissionPreset),
+      )
+      if (refusal) return failure(refusal.code, refusal.message)
+      const ran = await service.runNow(id)
+      if (!ran.ok) return failure('scheduled_agent_run_failed', ran.message)
+      if (!ran.run.ok) return failure('scheduled_agent_run_failed', ran.run.message)
+      return success({ workspaceId: ran.run.workspaceId })
     },
   }
 
@@ -2010,23 +2081,22 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     backlogRepair,
     backlogAssign,
     backlogWork,
-    automationList,
-    automationRuns,
     moduleList,
     moduleStatus,
     marketplaceList,
-    automationCreate,
-    automationRun,
+    scheduledAgentList,
+    scheduledAgentCreate,
+    scheduledAgentDelete,
+    scheduledAgentRun,
   ]
 }
 
-// One terminal session as terminal.list reports it: enough to choose
-// one and label the stream, and nothing about its contents — the scrollback
-// arrives over the attach socket, behind the same terminal scope, not here.
+// One terminal session as terminal.list reports it: enough to choose one and
+// say what it is doing, and nothing about its contents.
 //
 // `processAlive` and `suspended` are separate on purpose: a paused agent is not
 // running (its pty was killed to reclaim memory) but is not gone either, and a
-// client that collapsed the two would offer to type into a frozen screen.
+// caller that collapsed the two would treat a parked agent as finished.
 /**
  * The checkout a terminal works in, summarised the way the sidebar row is:
  * branch, `+n −n`, and the scope that says whose changes they are (`worktree` —
@@ -2044,8 +2114,8 @@ async function terminalGitSummary(session: TerminalSessionSnapshot): Promise<{
   // Only a running session is asked about — the sidebar's own rule (owner
   // ruling 2026-09-04, the-diff-an-agent-made decision 9): a parked or exited
   // chat's numbers would be the checkout's present state, not anything the
-  // chat did. It is also what keeps a network read from fanning git out to
-  // every checkout the runtime has ever held a session in.
+  // chat did. It is also what keeps a list from fanning git out to every
+  // checkout the runtime has ever held a session in.
   if (!session.processAlive) return null
   const checkoutPath = session.worktreePath ?? session.cwd
   if (!checkoutPath) return null
@@ -2085,15 +2155,10 @@ function terminalSessionProjection(session: TerminalSessionSnapshot): Record<str
     agentState: session.agentState
       ? { phase: session.agentState.phase, source: session.agentState.source, since: session.agentState.since }
       : null,
-    // ── What a remote row needs to say the same thing the sidebar says ──────
+    // ── What a row needs to say the same thing the sidebar says ──────────────
     //
-    // Every field below is additive and null/zero when unknown, so a client
-    // built before them reads the row exactly as it did. They exist because
-    // the phone's thread list was already written against the first of them
-    // and never received it: `readTerminalRow` in the mobile repo has read
-    // `lastTurnEndedAt` since its thread-row epic, and this projection has
-    // never sent it — so "finished while you were away" could not fire. The
-    // rest are the facts the desktop's own row draws and the wire dropped.
+    // Every field below is additive and null/zero when unknown, so a caller
+    // built before them reads the row exactly as it did.
 
     // When the agent's last turn ended. Distinct from `activity`, which the
     // reaper's suspend and the quit path overwrite with the moment the PROCESS
@@ -2151,7 +2216,17 @@ function cliRuntimeProjection(plugin: LoadedPlugin): Record<string, unknown> {
       ...(level.label ? { label: level.label } : {}),
     })),
     defaultReasoningLevel: manifest.reasoningSelection?.default ?? null,
-    permissionPresets: Object.keys(manifest.permissionPresets ?? {}),
+    // The presets a launch on this CLI can honour: `none` always (it passes no
+    // flag), each other one only where the manifest names its setting.
+    permissionPresets: declaredPermissionPresets(manifest),
+    // The CLI's modes under its own names, each with the preset a caller names
+    // to get it. A mode that is not a preset's own is chosen in the app; a
+    // caller's preset runs that preset's own mode.
+    permissionModes: declaredPermissionModes(manifest).map((mode) => ({
+      id: mode.id,
+      label: mode.label,
+      preset: mode.level,
+    })),
   }
 }
 
@@ -2266,27 +2341,6 @@ function marketplaceEntryProjection(plugin: MarketplacePluginEntry): Record<stri
     signed: Boolean(plugin.signature),
     ...(plugin.source ? { bundleSource: plugin.source } : {}),
   }
-}
-
-// The definition draft's action config is opaque at this layer; the preset key
-// is the one security-relevant field the tool inspects before handing the draft
-// to the validated pipeline. It resolves the preset the way the run itself does
-// (parseSpawnAgentConfig): an agent-backed action that names no preset runs on
-// AUTOMATION_DEFAULT_PERMISSION_PRESET, so reading only the literal key would let
-// an external caller reach bypass by omission. Non-agent actions launch no CLI
-// and have no preset to resolve.
-function resolvedActionPermissionPreset(definition: object): string | null {
-  const action = (definition as { action?: unknown }).action
-  if (typeof action !== 'object' || action === null) return null
-  const kind = (action as { kind?: unknown }).kind
-  const agentBacked = typeof kind === 'string' && AGENT_BACKED_ACTION_KINDS.includes(kind)
-  const config = (action as { config?: unknown }).config
-  const preset =
-    typeof config === 'object' && config !== null
-      ? (config as { permissionPreset?: unknown }).permissionPreset
-      : undefined
-  if (typeof preset === 'string') return preset
-  return agentBacked ? AUTOMATION_DEFAULT_PERMISSION_PRESET : null
 }
 
 // Archived items live under backlog/archived/ (path-derived, matching the

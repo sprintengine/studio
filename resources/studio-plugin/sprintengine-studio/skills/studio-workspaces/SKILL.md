@@ -1,6 +1,6 @@
 ---
 name: studio-workspaces
-description: Read and drive SprintEngine Studio's workspaces, agents, terminals, git checkouts and the workspace browser pane through the workspace_*, agent_*, terminal_* and browser_* tools. Use when asked what workspaces or agents exist, to open a workspace or launch an agent, to start or attach to a terminal on this machine, to inspect a workspace's branches and worktrees, to drive or screenshot the in-app browser, or to check the mobile companion snapshot or tailnet pairing.
+description: Read and drive SprintEngine Studio's workspaces, agents, terminals, git checkouts and the editor and the workspace browser pane through the workspace_*, agent_*, terminal_*, editor_* and browser_* tools. Use when asked what workspaces or agents exist, to open a workspace or launch an agent, to start or list the agent terminals on this machine, to inspect a workspace's branches and worktrees, to show the person specific files, lines or your diff in their editor, to drive or screenshot the in-app browser, or to check the mobile companion snapshot or tailnet pairing.
 ---
 
 # Workspaces and terminals
@@ -39,20 +39,32 @@ permission preset and connector, and can isolate the agent in a git
 worktree. Success is confirmed by the agent's terminal session registering with
 the main process — a call that returns success has a live session behind it.
 
-`terminal_create` starts an AGENT terminal on this machine and returns a session
-id ready to attach — it launches a CLI under a permission preset through the
-same path `agent_launch` uses, and `terminal_list`'s `kind` filter counts it as
-`agent`, not as a plain shell. There is no tool here that opens a bare shell.
-Name the workspace by `workspaceId` or by `workspaceName`. The CLI and
-permission preset default to this machine's own launch settings unless you name
-them; when you do name one it must be `manual` or `auto`. `bypass` is refused
-here as everywhere on this surface, and so is its old spelling `bypass_all`; if
-a task genuinely needs it, say so and let a person set it in the app.
+`terminal_create` starts an AGENT terminal on this machine and returns its
+session id and agent id — it launches a CLI under a permission preset through
+the same path `agent_launch` uses, without the connector and worktree options,
+and `terminal_list`'s `kind` filter counts it as `agent`, not as a plain shell.
+There is no tool here that opens a bare shell. Name the workspace by
+`workspaceId` or by `workspaceName`. The CLI and the permission preset default
+to this machine's own launch settings unless you name them: the preset chosen
+for that CLI, else `auto`, exactly as the app's launcher would. Name `bypass`
+(every prompt skipped), `manual` (every edit and command asks) or `none` (no
+permission flag, so the CLI's own configuration decides) when the person asks
+for it; `auto` is the CLI's own auto mode where it has one (Claude Code's and
+Grok's classifier, Codex's and Cursor's auto-review), else edits go through and
+commands ask. A terminal agent takes only the presets its CLI has a setting
+for, which `cli_runtime_list` names, each with the name the CLI gives its mode
+(`permissionModes`): when the person asks for "Accept edits" or "YOLO", pass
+the preset that list puts it at. The answer reports the preset the launch
+resolved. Follow the agent with `agent_status` or `terminal_list`.
 
 `terminal_list` lists open sessions — session id, agent name, CLI, working
 directory, workspace, whether the process is live or the session is paused, and
 the agent phase when the CLI reports one. It reads the terminal runtime and
 never writes.
+
+These terminal tools and the launch tools above are served to agents on this
+machine only, never to a paired machine over the tailnet — a paired device
+starts chat agents instead.
 
 Read `cli_runtime_list` before naming any `cli` or `cliModel`. Only rows with
 `agentSelectable: true` can be launched as agents.
@@ -75,19 +87,56 @@ find an element.
 expression in the page — use it when the DOM holds an answer the snapshot does
 not, not as a substitute for clicking.
 
+## Showing files and diffs
+
+When you want the person to look at specific code, open it for them instead of
+pasting paths into your reply. `editor_open` takes up to eight `files`, each a
+`path` (absolute, or relative to your working directory) with an optional
+1-based `range` (`startLine`, `endLine`); the editor scrolls there and briefly
+highlights the lines. Add a `note` of one line saying why. Pick the few files
+that matter — three out of forty — rather than everything you touched.
+
+`editor_open_diff` opens the diff viewer on your own changes: by default only
+the files in your changelist, `only: "all"` for every change in your checkout.
+`changes` picks the view (`uncommitted`, `staged`, `unstaged`, `branch`, or
+`commit` with `commit`), `paths` narrows it to named files with a "Show all"
+way back, and `focus` lands on one file at a `range`.
+
+Neither ever takes the keyboard or raises a window. Read the answer:
+
+- `shown: "foreground"` — it is in front of them.
+- `shown: "background"` — they were typing, so it opened behind their tab;
+  tell them it is there.
+- `shown: "not_visible"` — no window shows this workspace. It opens when they
+  switch to it. Say so in your reply and **do not retry**: retrying cannot
+  make them look.
+
+Each file comes back `opened`, `awaiting_owner` or `refused` with a `reason`.
+A file outside the workspace, your worktree and the files you wrote is
+`awaiting_owner`: the person is asked whether to open it. Credential stores
+(`~/.ssh`, `~/.aws` and the like) are always refused. A patch you wrote to
+`/tmp` for them to copy opens directly, because you wrote it.
+
+`editor_state` says whether a window shows the workspace, which file is
+active with its visible lines and selection, and how many reveals are still
+waiting for them. Check it before talking about what they can see — not in a
+loop.
+
 ## The mobile companion and the tailnet
 
-`workspace_snapshot` is the companion document: backlog, automations and
-workspaces as one versioned read, in the same path-token form
-the relay serves — `ws_` tokens round-trip and local paths never leave the
-desktop. Pass `knownSnapshotVersion` from your previous read to get an
-`{unchanged: true}` marker instead of the whole document when nothing moved; a
-polling loop that ignores this is re-sending the same document every time.
+The phone companion pairs with and talks to this desktop only over the tailnet;
+there is no hosted relay. These two tools are its whole connection.
 
-`workspace_mobile_command` dispatches one mobile-control command envelope over
-this transport instead of the relay. The device identity comes from the
-transport, never from the arguments — do not try to name a device in the
-payload.
+`workspace_snapshot` is the companion document: backlog and the dev servers
+published on the tailnet as one versioned read, in path-token form
+— `ws_` tokens round-trip and local paths never leave the desktop. Pass
+`knownSnapshotVersion` from your previous read to get an `{unchanged: true}`
+marker instead of the whole document when nothing moved; a polling loop that
+ignores this is re-sending the same document every time.
+
+`workspace_mobile_command` dispatches one mobile-control command envelope from a
+paired device. The device identity comes from the transport, never from the
+arguments — do not try to name a device in the payload.
 
 The `tailnet_*` tools are served **only over the local socket** and are
 unreachable from a remote client, by design. `tailnet_status` and

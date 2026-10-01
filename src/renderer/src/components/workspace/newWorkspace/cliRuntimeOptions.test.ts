@@ -4,6 +4,7 @@ import {
   buildAgentCliCatalog,
   buildCliRuntimeOptions,
   cliRuntimeForPlugin,
+  conversationCliRuntimesFor,
   filterCatalogByAvailability,
   installableCliSummary,
   isAgentCliAvailable,
@@ -703,15 +704,14 @@ test('a CLI with no declared modelSelection surfaces no model UI even when disco
 
 // Every surface that renders a model picker must hand the merge what the CLIs
 // reported, or it offers the manifest seed while the others offer the CLI's own
-// list: the New chat composer (and the hosts that borrow its catalog) and the
-// automation editor's model field did exactly that. Read from source because the
-// defect is a missing argument, invisible to the merge's own tests.
+// list: the New chat composer (and the hosts that borrow its catalog) once did
+// exactly that. Read from source because the defect is a missing argument,
+// invisible to the merge's own tests.
 test('every model-picker surface passes the discovered catalog to the merge', async () => {
   const { readFileSync } = await import('node:fs')
   const { join } = await import('node:path')
   const surfaces = [
     'src/renderer/src/components/workspace/agentComposer/useAgentComposer.ts',
-    'src/renderer/src/components/panels/AutomationsPanel/AutomationEditor.tsx',
     'src/renderer/src/components/workspace/WorkspaceManager.tsx',
     'src/renderer/src/components/settings/TextGenerationSettingsSection.tsx',
     'src/renderer/src/modules/index.ts',
@@ -732,4 +732,36 @@ test('every model-picker surface passes the discovered catalog to the merge', as
     }
     assert.match(source.slice(start, end), /cliModelCatalog/, `${file} passes cliModelCatalog to the merge`)
   }
+})
+
+test("a chat in a WSL workspace runs that machine's CLI, whichever chat CLI it is", () => {
+  const cliRuntimes = {
+    'claude-code': { command: 'C:\\tools\\claude.exe', models: ['opus'] },
+    codex: { command: 'codex' },
+    'kimi-code': { command: 'kimi' },
+  }
+  const hosts = {
+    'wsl:Ubuntu': {
+      enabled: true,
+      cliCommands: { 'claude-code': '/opt/claude/bin/claude', cursor: '/home/dev/.local/bin/cursor-agent' },
+    },
+  }
+  assert.equal(conversationCliRuntimesFor(cliRuntimes, 'local', hosts as never), cliRuntimes)
+  assert.equal(conversationCliRuntimesFor(cliRuntimes, undefined, hosts as never), cliRuntimes)
+  assert.deepEqual(conversationCliRuntimesFor(cliRuntimes, 'wsl:Ubuntu', hosts as never), {
+    'claude-code': { command: '/opt/claude/bin/claude', models: ['opus'], hostId: 'wsl:Ubuntu' },
+    // This PC's command does not go with it: the distribution's PATH finds `codex`.
+    codex: { command: '', hostId: 'wsl:Ubuntu' },
+    cursor: { command: '/home/dev/.local/bin/cursor-agent', hostId: 'wsl:Ubuntu' },
+    opencode: { command: '', hostId: 'wsl:Ubuntu' },
+    grok: { command: '', hostId: 'wsl:Ubuntu' },
+    // A CLI with no chat runtime is a terminal's business, and left alone.
+    'kimi-code': { command: 'kimi' },
+  })
+  // No override on that machine: its own PATH finds `claude`.
+  assert.deepEqual(conversationCliRuntimesFor(cliRuntimes, 'wsl:Debian', hosts as never)?.['claude-code'], {
+    command: '',
+    models: ['opus'],
+    hostId: 'wsl:Debian',
+  })
 })

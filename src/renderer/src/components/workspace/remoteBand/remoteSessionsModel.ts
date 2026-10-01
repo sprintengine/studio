@@ -1,15 +1,17 @@
 import type { RepositoryIdentity } from '../../../../../shared/repository-identity'
-import type {
-  FleetBrowse,
-  FleetConnection,
-  FleetLiveAttachment,
-  FleetMachineReachability,
-  FleetTerminal,
-} from '../../../../../shared/tailnet-fleet'
+import { cliForConversationProvider } from '../../../../../shared/conversation-harness'
+import {
+  isMeshConversationPane,
+  meshConversationPresence,
+  meshConversationSessionId,
+  type MeshBrowse,
+  type MeshConnection,
+  type MeshConversation,
+  type MeshMachineReachability,
+} from '../../../../../shared/tailnet-mesh'
 import type { Workspace } from '../../../types/workspace'
 import type { Tone } from '../../ui'
-import { fleetMachinePhase, type FleetMachinePhase } from '../../remote/machineRowModel'
-import { fleetTerminalStatus, fleetTerminalTitle } from '../../panels/fleet/fleetModel'
+import { meshMachinePhase, type MeshMachinePhase } from '../../remote/machineRowModel'
 
 // The sidebar's Remote band (remote-sessions-in-the-sidebar): the sessions
 // that live on each paired machine, as rows a person can open here. DOM-free,
@@ -24,40 +26,36 @@ import { fleetTerminalStatus, fleetTerminalTitle } from '../../panels/fleet/flee
 /** One machine's last read, as the hook holds it. */
 export type RemoteBrowseEntry = {
   /** The newest browse that answered. Kept across a machine going quiet, so its rows stay on screen dimmed. */
-  browse: FleetBrowse | null
+  browse: MeshBrowse | null
   loading: boolean
   /** Why the newest read did not answer; null when it did. */
   error: string | null
   /** Epoch ms of the newest read that settled, or null before the first. */
   at: number | null
+  /**
+   * The chat conversations the machine listed on the newest read that could
+   * list them; absent before one has. A pairing without conversation access,
+   * or a machine that does not serve them, simply has none.
+   */
+  conversations?: MeshConversation[]
 }
 
 /**
  * What a remote conversation is doing, in the local rows' vocabulary (owner
  * ruling 2026-09-05: the band reuses the marks local rows already have — the
- * working dots and elapsed, the gold surface for needs-input, a quiet time
- * for idle — and invents no dot of its own). `paused` is the one state a
- * local row has no word for: suspended to reclaim memory, resumes on open.
+ * working mark and elapsed, the gold surface for needs-input, a quiet time
+ * for idle — and invents no dot of its own).
  */
-type RemoteRowActivity = 'working' | 'needs-input' | 'idle' | 'paused'
+type RemoteRowActivity = 'working' | 'needs-input' | 'idle'
 
-/** The hook phases that mean a turn is in flight. Anything else alive is idle. */
-const WORKING_PHASES = new Set(['starting', 'thinking', 'tool_use', 'working'])
-
-function remoteRowActivity(terminal: Pick<FleetTerminal, 'suspended' | 'phase'>): RemoteRowActivity {
-  if (terminal.suspended) return 'paused'
-  if (terminal.phase === 'awaiting_input') return 'needs-input'
-  if (terminal.phase && WORKING_PHASES.has(terminal.phase)) return 'working'
-  return 'idle'
-}
-
-/** A session on a paired machine — one AGENT, a line on its conversation's row. */
+/** A chat on a paired machine — one AGENT, a line on its conversation's row. */
 export type RemoteSessionRow = {
   key: string
   connectionId: string
   machineName: string
   sessionId: string
-  kind: 'agent' | 'terminal'
+  /** The conversation's agent id over there. */
+  remoteAgentId: string
   /**
    * The agent's own name ("Gael Corry"), or the kind when the remote has not
    * named it. This is a LINE's name, not a row's: it used to be the row title,
@@ -67,16 +65,10 @@ export type RemoteSessionRow = {
   title: string
   cli: string | null
   /** The remote workspace: its id, name, and folder there, and which repository that is. */
-  workspaceId: string | null
+  workspaceId: string
   workspaceName: string | null
   workspaceRoot: string | null
   repository: RepositoryIdentity | null
-  branch: string | null
-  additions: number
-  deletions: number
-  diffScope: 'worktree' | 'branch' | 'folder'
-  /** The pty is running and not paused — the row a keystroke reaches. */
-  live: boolean
   status: { label: string; tone: Tone }
   activity: RemoteRowActivity
   /** Epoch ms the activity began — how long it has worked, or sat idle. Null when the remote did not say. */
@@ -91,7 +83,7 @@ export type RemoteMachineGroup = {
   /** Null when the pairing is gone but rows born on it remain — they still need a home. */
   connectionId: string | null
   machineName: string
-  phase: FleetMachinePhase | null
+  phase: MeshMachinePhase | null
   rows: RemoteSessionRow[]
   /**
    * Remote-born workspaces here whose session the machine did not list: the
@@ -105,61 +97,57 @@ export type RemoteMachineGroup = {
 }
 
 /**
- * A CONVERSATION on a paired machine: the remote workspace, and every agent
- * standing in it.
+ * A CONVERSATION on a paired machine: one chat, and the agent in it.
  *
- * This is the unit the sidebar draws (owner, 2026-09-11). Before it, a row was
- * one remote SESSION titled with that session's agent name — so a machine
- * running nine agents produced nine rows called "Gael Corry", "Liam Slane",
- * "Agent", with no way to tell which chat or which project any of them was.
- * A conversation is titled with its own name, files under its project like
- * every other chat, and grows a line per agent exactly as a local row does.
+ * This is the unit the sidebar draws (owner, 2026-09-11): titled with its own
+ * name, filed under its project like every other chat, and drawn with a line
+ * per agent exactly as a local row is.
  */
 export type RemoteConversation = {
   key: string
   connectionId: string
   machineName: string
-  /** The chat's name over there. Falls back to the lone agent's name on a remote that sent none. */
+  /** The chat's name over there. */
   title: string
-  /** The remote workspace's id; null for a session the remote filed under no workspace. */
-  workspaceId: string | null
+  /** The remote workspace's id. */
+  workspaceId: string
   /** The folder it stands in, on that machine's disk. */
   workspaceRoot: string | null
   repository: RepositoryIdentity | null
-  /** Every agent in it, in activity order. Never empty. */
+  /** Its agent, as the one line the row draws. Never empty. */
   agents: RemoteSessionRow[]
-  /** The loudest thing any of its agents is doing — what the row's marks report. */
+  /** What its agent is doing — what the row's marks report. */
   activity: RemoteRowActivity
   /** When that began, for the row's clock; null when the remote did not say. */
   since: number | null
-  /** The workspace here whose pane is attached to one of its agents, when one is. */
+  /** The workspace here whose pane is following it, when one is. */
   attachedWorkspaceId: string | null
   /** Read from an earlier browse on a machine that is not answering now. */
   stale: boolean
 }
 
-/** What opening a row asks the app to do: focus the attached workspace, or attach a new one. */
+/** What opening a row asks the app to do: focus the attached workspace, or follow the chat in a new one. */
 export type RemoteSessionOpenSpec = {
+  /** The chat it opens, followed in the chat view. */
+  conversation: { workspaceId: string; agentId: string }
   connectionId: string
   machineName: string
   sessionId: string
   title: string
   cli: string | null
-  workspaceId: string | null
   workspaceName: string | null
   workspaceRoot: string | null
   repository: RepositoryIdentity | null
-  branch: string | null
   attachedWorkspaceId: string | null
 }
 
-/** The remote sessions a workspace's layout holds panes on, read off the fleet-terminal tabs. */
-function fleetPaneSessionsOf(workspace: Workspace): Array<{ connectionId: string; remoteSessionId: string }> {
+/** The remote sessions a workspace's layout holds panes on, read off its remote conversation tabs. */
+function meshPaneSessionsOf(workspace: Workspace): Array<{ connectionId: string; remoteSessionId: string }> {
   const panes: Array<{ connectionId: string; remoteSessionId: string }> = []
   const walk = (node: unknown): void => {
     if (!node || typeof node !== 'object') return
     const record = node as { type?: unknown; component?: unknown; config?: unknown; children?: unknown }
-    if (record.type === 'tab' && record.component === 'fleet-terminal') {
+    if (record.type === 'tab' && isMeshConversationPane(record.component)) {
       const config = record.config as { connectionId?: unknown; remoteSessionId?: unknown } | undefined
       if (typeof config?.connectionId === 'string' && typeof config.remoteSessionId === 'string') {
         panes.push({ connectionId: config.connectionId, remoteSessionId: config.remoteSessionId })
@@ -175,7 +163,7 @@ function fleetPaneSessionsOf(workspace: Workspace): Array<{ connectionId: string
 
 /**
  * The workspace here that is this remote session, if any: by the session id
- * stamped at its creation first, then by a fleet pane still in its layout
+ * stamped at its creation first, then by a mesh pane still in its layout
  * (rows born before the stamp existed). Two panes on one session in two
  * workspaces are two healthy attachments; the first in list order is the one
  * a click focuses.
@@ -191,7 +179,7 @@ export function attachedWorkspaceFor(
   }
   for (const workspace of workspaces) {
     if (
-      fleetPaneSessionsOf(workspace).some(
+      meshPaneSessionsOf(workspace).some(
         (pane) => pane.connectionId === connectionId && pane.remoteSessionId === sessionId,
       )
     ) {
@@ -207,7 +195,7 @@ export function attachedWorkspaceFor(
  * checked gets one read — the check and the read race at mount, and waiting
  * on the check would leave the band empty on a quiet system.
  */
-export function shouldBrowse(reach: FleetMachineReachability | undefined): boolean {
+export function shouldBrowse(reach: MeshMachineReachability | undefined): boolean {
   if (!reach) return true
   if (reach.unauthorized) return false
   if (reach.checkedAt === null) return true
@@ -215,52 +203,49 @@ export function shouldBrowse(reach: FleetMachineReachability | undefined): boole
 }
 
 /**
- * A conversation is a row while it exists: an agent session, running or
- * paused. An exited pty is not a session anyone can open, and a plain shell
- * is not a conversation (owner ruling 2026-09-05): the band lists the agents
- * a person can read and talk to, not every pty the other machine holds.
+ * A chat conversation on a paired machine, as a row: the same marks a local
+ * row wears — working while a turn runs, the needs-input surface while it
+ * waits on an approval or a question — titled with the chat's own name.
  */
-function isRemoteSessionRow(terminal: FleetTerminal): boolean {
-  return terminal.kind === 'agent' && (terminal.processAlive || terminal.suspended)
-}
-
-function remoteSessionRowOf(
-  connection: FleetConnection,
-  terminal: FleetTerminal,
-  browse: FleetBrowse,
+function remoteChatRowOf(
+  connection: MeshConnection,
+  conversation: MeshConversation,
+  browse: MeshBrowse | null,
   workspaces: readonly Workspace[],
 ): RemoteSessionRow {
-  const remoteWorkspace = terminal.workspaceId
-    ? (browse.workspaces.find((workspace) => workspace.id === terminal.workspaceId) ?? null)
-    : null
-  const attached = attachedWorkspaceFor(workspaces, connection.id, terminal.sessionId)
+  const remoteWorkspace = browse?.workspaces.find((workspace) => workspace.id === conversation.workspaceId) ?? null
+  const sessionId = meshConversationSessionId(conversation.workspaceId, conversation.agentId)
+  const presence = meshConversationPresence(conversation.phase)
+  const attached = attachedWorkspaceFor(workspaces, connection.id, sessionId)
   return {
-    key: `${connection.id}:${terminal.sessionId}`,
+    key: `${connection.id}:${sessionId}`,
     connectionId: connection.id,
     machineName: connection.machineName,
-    sessionId: terminal.sessionId,
-    kind: terminal.kind,
-    title: fleetTerminalTitle(terminal),
-    cli: terminal.cli,
-    workspaceId: terminal.workspaceId,
-    workspaceName: terminal.workspaceName ?? remoteWorkspace?.name ?? null,
+    sessionId,
+    remoteAgentId: conversation.agentId,
+    title: conversation.title || 'Conversation',
+    cli: cliForConversationProvider(conversation.providerId),
+    workspaceId: conversation.workspaceId,
+    workspaceName: remoteWorkspace?.name ?? null,
     workspaceRoot: remoteWorkspace?.folderPath ?? null,
     repository: remoteWorkspace?.repository ?? null,
-    branch: terminal.git?.branch ?? null,
-    additions: terminal.git?.additions ?? 0,
-    deletions: terminal.git?.deletions ?? 0,
-    diffScope: terminal.git?.scope ?? 'folder',
-    live: terminal.processAlive && !terminal.suspended,
-    status: fleetTerminalStatus(terminal),
-    activity: remoteRowActivity(terminal),
-    since: terminal.phaseSince,
+    status:
+      presence === 'running'
+        ? { label: 'Running', tone: 'accent' }
+        : presence === 'needs-input'
+          ? { label: 'Needs approval', tone: 'warn' }
+          : conversation.phase === 'failed'
+            ? { label: 'Failed', tone: 'error' }
+            : { label: 'Done', tone: 'neutral' },
+    activity: presence === 'running' ? 'working' : presence === 'needs-input' ? 'needs-input' : 'idle',
+    since: conversation.updatedAt,
     attachedWorkspaceId: attached?.id ?? null,
   }
 }
 
-const ACTIVITY_RANK: Record<RemoteRowActivity, number> = { working: 0, 'needs-input': 1, idle: 2, paused: 3 }
+const ACTIVITY_RANK: Record<RemoteRowActivity, number> = { working: 0, 'needs-input': 1, idle: 2 }
 
-/** Activity order, like the local rows: working, then waiting for a person, then idle, then paused; then by name. */
+/** Activity order, like the local rows: working, then waiting for a person, then idle; then by name. */
 function compareRows(a: RemoteSessionRow, b: RemoteSessionRow): number {
   const rank = ACTIVITY_RANK[a.activity] - ACTIVITY_RANK[b.activity]
   if (rank !== 0) return rank
@@ -269,47 +254,42 @@ function compareRows(a: RemoteSessionRow, b: RemoteSessionRow): number {
 
 export function openSpecOf(row: RemoteSessionRow): RemoteSessionOpenSpec {
   return {
+    conversation: { workspaceId: row.workspaceId, agentId: row.remoteAgentId },
     connectionId: row.connectionId,
     machineName: row.machineName,
     sessionId: row.sessionId,
     title: row.title,
     cli: row.cli,
-    workspaceId: row.workspaceId,
     workspaceName: row.workspaceName,
     workspaceRoot: row.workspaceRoot,
     repository: row.repository,
-    branch: row.branch,
     attachedWorkspaceId: row.attachedWorkspaceId,
   }
 }
 
-const QUIET_PHASES = new Set<FleetMachinePhase['phase']>(['unreachable', 'offline', 'revoked'])
+const QUIET_PHASES = new Set<MeshMachinePhase['phase']>(['unreachable', 'revoked'])
 
 /**
  * The band: one group per paired machine, in name order, plus a group for
  * any machine whose pairing is gone but whose rows are still here.
  */
 export function buildRemoteBand(input: {
-  connections: readonly FleetConnection[]
+  connections: readonly MeshConnection[]
   browses: ReadonlyMap<string, RemoteBrowseEntry>
-  attachments: ReadonlyMap<string, FleetLiveAttachment>
-  reachability: ReadonlyMap<string, FleetMachineReachability>
+  reachability: ReadonlyMap<string, MeshMachineReachability>
   workspaces: readonly Workspace[]
 }): RemoteMachineGroup[] {
-  const { connections, browses, attachments, reachability, workspaces } = input
+  const { connections, browses, reachability, workspaces } = input
   const paired = new Set(connections.map((connection) => connection.id))
   const groups: RemoteMachineGroup[] = [...connections]
     .sort((a, b) => a.machineName.localeCompare(b.machineName))
     .map((connection) => {
       const entry = browses.get(connection.id)
       const browse = entry?.browse ?? null
-      const phase = fleetMachinePhase(connection.id, attachments, reachability)
-      const rows = browse
-        ? browse.terminals
-            .filter(isRemoteSessionRow)
-            .map((terminal) => remoteSessionRowOf(connection, terminal, browse, workspaces))
-            .sort(compareRows)
-        : []
+      const phase = meshMachinePhase(connection.id, reachability)
+      const rows = (entry?.conversations ?? [])
+        .map((conversation) => remoteChatRowOf(connection, conversation, browse, workspaces))
+        .sort(compareRows)
       const attachedIds = new Set(rows.map((row) => row.attachedWorkspaceId).filter((id): id is string => id !== null))
       const parked = workspaces.filter(
         (workspace) => workspace.remoteOrigin?.connectionId === connection.id && !attachedIds.has(workspace.id),
@@ -355,50 +335,25 @@ export function buildRemoteBand(input: {
   return groups
 }
 
-/** The loudest thing happening in a conversation is what its row reports. */
-function loudest(agents: readonly RemoteSessionRow[]): RemoteSessionRow {
-  return [...agents].sort(compareRows)[0]!
-}
-
 /**
- * A machine's sessions folded into the conversations they stand in
- * (owner, 2026-09-11): one entry per remote workspace, carrying every agent in
- * it. A session the remote filed under no workspace is its own conversation —
- * there is nothing to fold it into, and dropping it would lose a chat.
+ * A machine's chats as conversation rows (owner, 2026-09-11): one entry per
+ * chat, carrying its agent, in the order the rows sort in.
  */
 export function conversationsOf(group: RemoteMachineGroup): RemoteConversation[] {
-  const byWorkspace = new Map<string, RemoteSessionRow[]>()
-  for (const row of group.rows) {
-    // No workspace id: keyed by the session, so it stands alone rather than
-    // pooling every folderless session on the machine into one fake chat.
-    const key = row.workspaceId ?? `session:${row.sessionId}`
-    const list = byWorkspace.get(key) ?? []
-    list.push(row)
-    byWorkspace.set(key, list)
-  }
-  const conversations: RemoteConversation[] = []
-  for (const [key, rows] of byWorkspace) {
-    const agents = [...rows].sort(compareRows)
-    const lead = loudest(agents)
-    conversations.push({
-      key: `${group.machineName}:${key}`,
-      connectionId: lead.connectionId,
-      machineName: group.machineName,
-      // The chat's name, and only if the remote has one to give. The lone
-      // agent's name is the fallback rather than the first choice — it is the
-      // best a remote that predates `workspaceName` can do, not the title.
-      title: lead.workspaceName?.trim() || lead.title,
-      workspaceId: lead.workspaceId,
-      workspaceRoot: lead.workspaceRoot,
-      repository: lead.repository,
-      agents,
-      activity: lead.activity,
-      since: lead.since,
-      attachedWorkspaceId: agents.find((row) => row.attachedWorkspaceId)?.attachedWorkspaceId ?? null,
-      stale: group.stale,
-    })
-  }
-  return conversations
+  return group.rows.map((row) => ({
+    key: `${group.machineName}:chat:${row.sessionId}`,
+    connectionId: row.connectionId,
+    machineName: group.machineName,
+    title: row.title,
+    workspaceId: row.workspaceId,
+    workspaceRoot: row.workspaceRoot,
+    repository: row.repository,
+    agents: [row],
+    activity: row.activity,
+    since: row.since,
+    attachedWorkspaceId: row.attachedWorkspaceId,
+    stale: group.stale,
+  }))
 }
 
 /** Conversations sort the way rows do: by what their loudest agent is doing. */
@@ -460,6 +415,16 @@ export function remoteWorkspaceName(agentTitle: string, remoteChatName: string |
 }
 
 /**
+ * The tab name a remote pane wears. The machine is part of the name, not a
+ * tooltip: the same message means different things on two machines, and a pane
+ * that looks local while talking to another computer is the failure this has to
+ * not have.
+ */
+export function remotePaneTabName(machineName: string, title: string): string {
+  return `${title} · ${machineName}`
+}
+
+/**
  * A remote-born row's title, for rows that already exist.
  *
  * `workspace.name` is the answer, except for the rows minted under the old
@@ -490,7 +455,7 @@ export function remoteConversationTitle(workspace: Pick<Workspace, 'name' | 'rem
  * `tailnetAddress` is the signal rather than `running`, which is the INBOUND
  * listener's state: a person can drive paired machines with Remote turned off
  * here — the listener is what lets other machines drive THIS one — so a
- * listener that is down says nothing about whether the fleet can be reached.
+ * listener that is down says nothing about whether the mesh can be reached.
  * An address out of Tailscale's own ranges sits on an interface only while
  * Tailscale is up (`resolveTailnetInterface`), which is exactly the question.
  */
@@ -517,9 +482,9 @@ export function attachedConversations(
   groups: readonly RemoteMachineGroup[],
   workspaces: readonly Workspace[],
 ): ReadonlyMap<string, RemoteConversation> {
-  // Remote-BORN rows only. A local project's workspace can hold a fleet pane
-  // too — someone opened a terminal from another machine inside the chat they
-  // were working in — and `attachedWorkspaceFor` matches it, because for the
+  // Remote-BORN rows only. A local project's workspace can hold a mesh pane
+  // too — someone opened a conversation from another machine inside the chat
+  // they were working in — and `attachedWorkspaceFor` matches it, because for the
   // band's purposes it genuinely is the window showing that session. It is not
   // a remote conversation, though: it is a local chat with a visitor in it, and
   // handing this map its id would replace its own agents' lines with the other

@@ -135,7 +135,7 @@ export function deriveWorkspaceTerminalActivity(
     if (activity.kind === 'working') {
       // Live processes only (`isSessionWorking`). A chat whose last agent was
       // paused mid-turn would otherwise read as working for as long as the
-      // frozen session sits in the list: bold row, working dots, no idle
+      // frozen session sits in the list: bold row, working mark, no idle
       // clock — the sidebar claiming an agent that is not there.
       if (!isSessionWorking(session)) continue
       if (workingSince === null || activity.since < workingSince) workingSince = activity.since
@@ -319,7 +319,9 @@ export function deriveWorkspaceDisplayActivity(
   return 'idle'
 }
 
-export type TabRecencySource = 'idle' | 'input' | 'persisted' | 'exited'
+// `finished` is a chat's: when its last turn ended. It has no word — a chat
+// reads as the time alone ("3m"), on the tab, the card and the sidebar.
+export type TabRecencySource = 'idle' | 'input' | 'persisted' | 'exited' | 'finished'
 
 export type TabRecencyDisplay = {
   at: number
@@ -369,5 +371,6 @@ export function tabRecencyLabel(source: TabRecencySource): string {
   if (source === 'idle') return 'Idle'
   if (source === 'input') return 'Last typed'
   if (source === 'persisted') return 'Last activity'
+  if (source === 'finished') return ''
   return 'Exited'
 }

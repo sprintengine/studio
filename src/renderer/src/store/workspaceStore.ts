@@ -28,8 +28,8 @@ import type {
   WorkspaceHighlight,
   McpServerConfig,
 } from '../types/workspace'
-import type { AppTheme, WindowMaterial } from '../types/appTheme'
-import type { LaunchedAgentProjection } from '../utils/launchedAgentProjection'
+import type { AppTheme, ChatWidth, WindowMaterial } from '../types/appTheme'
+import { noteLaunchedAgentArrived, type LaunchedAgentProjection } from '../utils/launchedAgentProjection'
 import type { DiscoveredCliModelCatalog } from '../../../shared/cli-model-catalog'
 import type { FolderOpenTargetId } from '../../../shared/folder-open-targets'
 import type { CommandId } from '../commands/commandRegistry'
@@ -40,6 +40,8 @@ import {
   normalizeAppSettings,
   type ChatListView,
   type DiffViewMode,
+  type SettingsOverlayOptions,
+  type SettingsOverlayState,
   type SidebarSection,
 } from './slices/settingsSlice'
 import { clampSidebarWidth } from '../components/workspace/sidebarWidth'
@@ -76,7 +78,6 @@ import { createPluginsSlice, type PluginsSlice } from './slices/pluginsSlice'
 import { createHostedCardFeedSlice, type HostedCardFeedSlice } from './slices/hostedCardFeedSlice'
 import { createCliVersionAdvisorySlice, type CliVersionAdvisorySlice } from './slices/cliVersionAdvisorySlice'
 import {
-  dedupeAutomationsHostWorkspaces,
   dropRetiredModeWorkspaces,
   nameGenericWorkspaceAgents,
   normalizeWorkspaceForPartialize,
@@ -174,13 +175,10 @@ export interface WorkspaceStore
   setCheckCliVersions: (enabled: boolean) => void
   // The request that opened the Settings modal — not the modal's visibility;
   // `activeModalSurface === 'settings'` is what says it is showing.
-  settingsOverlay: {
-    initialTab: string | null
-    checkForUpdatesRequestId: number | null
-  }
-  openSettingsOverlay: (opts?: { initialTab?: string | null; checkForUpdates?: boolean }) => void
+  settingsOverlay: SettingsOverlayState
+  openSettingsOverlay: (opts?: SettingsOverlayOptions) => void
   closeSettingsOverlay: () => void
-  // Opens the Extensions door on one of its three views, optionally on that
+  // Opens the Extensions door on one of its views, optionally on that
   // view's Installed tab (source-tabs ruling, 2026-09-05).
   openExtensionsSurface: (opts?: { view?: ExtensionsDrawerView; installed?: boolean }) => void
   // The door-routed full-page surface for this window (global-surfaces epic
@@ -279,7 +277,7 @@ export interface WorkspaceStore
   markDesignSystemSeen: (bundleId: string, at?: string) => void
   setLastAgentSpawnPermissionPreset: (preset: CliPermissionPreset) => void
   /** The preset spawns on one CLI launch with; `null` returns it to the app-wide default. */
-  setCliPermissionPreset: (cli: AgentCli, preset: CliPermissionPreset | null) => void
+  setCliPermissionPreset: (cli: AgentCli, preset: CliPermissionPreset | null, mode?: string | null) => void
   setLastSelectedAgentModel: (selection: AgentCliModelSelection | null) => void
   /** Drop retired model ids from every remembered launch default for `cli`. */
   forgetCliModels: (cli: AgentCli, modelIds: readonly string[]) => void
@@ -296,6 +294,8 @@ export interface WorkspaceStore
   setTelemetryEnabled: (enabled: boolean) => void
   setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
   setModuleEnabled: (moduleId: string, enabled: boolean) => void
+  /** Drop what the app kept for uninstalled modules: the enablement choice and the settings namespace. */
+  forgetModules: (moduleIds: readonly string[]) => void
   /** Write one value in a module's `module:<id>` settings namespace; `undefined` deletes the key. */
   setModuleSettingValue: (moduleId: string, key: string, value: unknown) => void
   dismissFirstRunCliCard: () => void
@@ -306,6 +306,9 @@ export interface WorkspaceStore
   setAgentConfigAdoptionResult: (result: AgentConfigAdoptionResult | null) => void
   setAppearanceTheme: (theme: AppTheme) => void
   setAppearanceWindowMaterial: (material: WindowMaterial) => void
+  setAppearanceChatContrast: (contrast: number) => void
+  setAppearanceChatWidth: (width: ChatWidth) => void
+  setAppearanceAgentCharacters: (enabled: boolean) => void
   addWorkspace: (
     template: LayoutTemplate,
     options?: {
@@ -1140,11 +1143,6 @@ async function attemptBackupRecovery(): Promise<void> {
     // This backup-recovery path bypasses the migrate ladder too, so run the same
     // retired-mode filter here before we re-persist.
     envelope.state.workspaces = dropRetiredModeWorkspaces(envelope.state.workspaces as Workspace[])
-    // Same bypass applies to the one-host-per-project invariant (store v64):
-    // a recovered backup can carry one Automations host per automation run,
-    // and once recovery writes it back the state is stamped current-version so
-    // the migrate ladder never sees it again. Dedupe before adopting.
-    envelope.state.workspaces = dedupeAutomationsHostWorkspaces(envelope.state.workspaces as Workspace[])
     envelope.state.workspaces = (envelope.state.workspaces as Workspace[]).map(healRetiredRailLayout)
     if (envelope.state.workspaces.length === 0) {
       emitHydrationDiagnostic()
@@ -1325,13 +1323,12 @@ export const useWorkspaceStore: WorkspaceStoreHook = create<WorkspaceStore>()(
         // Version-gated migrations cannot be the only enforcement of these
         // workspace-row invariants: a dev-HMR module swap (or any write path that
         // stamps WORKSPACE_STORE_VERSION onto un-migrated state) leaves the
-        // un-migrated rows — duplicate Automations hosts, or a workspace in a
-        // mode whose feature was retired (store v65, v66) — in a
-        // "current-version" envelope the migrate ladder will never look at again,
-        // exactly how the v63 dedupe was bypassed in the wild. merge() runs on
-        // every hydration regardless of version, so the invariants self-heal here.
+        // un-migrated rows — a workspace in a mode whose feature was retired —
+        // in a "current-version" envelope the migrate ladder will never look at
+        // again. merge() runs on every hydration regardless of version, so the
+        // invariants self-heal here.
         const rawWorkspaces = nameGenericWorkspaceAgents(
-          dropRetiredModeWorkspaces(dedupeAutomationsHostWorkspaces(state?.workspaces ?? current.workspaces)),
+          dropRetiredModeWorkspaces(state?.workspaces ?? current.workspaces),
           // Files/Git rail tabs → pane tabs (browser-pane epic, store v73): the
           // enforcement half, for the same reason as the heals above.
         ).map(healRetiredRailLayout)
@@ -1742,6 +1739,10 @@ function initWorkspaceSyncClient(): void {
             const { [apply.agentId]: _removed, ...agents } = workspace.agents
             return { ...workspace, agents }
           }
+          // An agent that arrives on the bus while this window runs may be one
+          // main just launched and registered; the session tick decides whether
+          // it gets a tab. A snapshot never counts, so a reload reveals nothing.
+          if (!workspace.agents[apply.agentId]) noteLaunchedAgentArrived(workspace.id, apply.agentId)
           const existing = workspace.agents[apply.agentId] ?? defaultAgent(apply.agentId)
           return {
             ...workspace,

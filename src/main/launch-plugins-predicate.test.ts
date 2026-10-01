@@ -22,6 +22,7 @@ import {
   getShellLaunchConfig,
   launchCarriesAppPluginsFor,
   setLaunchPluginDirsResolver,
+  setLaunchSkillPluginDirsResolver,
 } from './terminal-launch'
 
 vi.mock('electron', () => import('../../tests/stubs/electron'))
@@ -92,12 +93,11 @@ test('a Windows launch passes no --plugin-dir, which is what the workspace insta
           'claude-code',
           undefined,
           { 'claude-code': { command: 'claude' } },
-          'manual',
+          'none',
           undefined,
           undefined,
           undefined,
           undefined,
-          false,
           undefined,
           undefined,
           undefined,
@@ -123,6 +123,60 @@ test('a Windows launch passes no --plugin-dir, which is what the workspace insta
   setLaunchPluginDirsResolver(null)
 })
 
+test('a launch is handed a bundled skill as one more --plugin-dir only when its prompt invokes it', () => {
+  const base = '/Users/dev/agent-integration/1/sprintengine-studio'
+  const backlogPlugin = '/Users/dev/agent-integration/1/launch-skills/backlog'
+  setLaunchPluginDirsResolver(() => [base])
+  setLaunchSkillPluginDirsResolver(() => ({ backlog: backlogPlugin }))
+  const cwd = join(temp, 'workspace-launch-skills')
+  mkdirSync(cwd, { recursive: true })
+  const launchText = (launchSkills?: string[]): string => {
+    const config = withPlatform('darwin', () =>
+      getShellLaunchConfig(
+        cwd,
+        `sid-skills-${launchSkills?.join('-') ?? 'none'}`,
+        false,
+        'claude-code',
+        undefined,
+        { 'claude-code': { command: 'claude' } },
+        'none',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { kind: 'posix' },
+        launchSkills ? { launchSkills } : {},
+      ),
+    )
+    try {
+      const script = config.startupScriptPath ? readFileSync(config.startupScriptPath, 'utf8') : ''
+      return `${script}\n${JSON.stringify(config.args)}\n${config.initialInput ?? ''}`
+    } finally {
+      cleanupTerminalStartupScript(config.startupScriptPath)
+    }
+  }
+  try {
+    const plain = launchText()
+    assert.match(plain, /--plugin-dir/u, 'every launch carries the studio plugin')
+    assert.equal(plain.includes(backlogPlugin), false, 'and no skill it did not ask for')
+    assert.equal(plain.includes('studio-skills'), false, 'and never the retired bundle')
+
+    const backlog = launchText(['backlog'])
+    assert.equal(backlog.includes(backlogPlugin), true, 'a Backlog handoff is handed the backlog skill')
+    // A skill this machine's copy does not hold adds nothing; that launch got
+    // the workspace install instead, which is what `ensureSkillInstalled` was
+    // told by the same map. `debug` is the one an older build would still ask for.
+    const retired = launchText(['debug'])
+    assert.equal(retired.includes('launch-skills'), false)
+  } finally {
+    setLaunchSkillPluginDirsResolver(null)
+    setLaunchPluginDirsResolver(null)
+  }
+})
+
 test('on Windows the workspace keeps its Claude hook when the plugin copy has landed', async () => {
   const workspace = join(temp, 'workspace-install')
   const userData = join(temp, 'userData')
@@ -145,5 +199,9 @@ test('on Windows the workspace keeps its Claude hook when the plugin copy has la
   const record = service.installed(workspace)
   assert.ok(record?.hookSettingsPath, 'the Claude hook is registered in the workspace')
   assert.equal(existsSync(join(workspace, '.claude', 'settings.local.json')), true)
-  assert.equal(existsSync(join(workspace, '.sprintengine', 'hooks', 'agent-state.mjs')), true)
+  assert.equal(
+    existsSync(join(workspace, '.sprintengine', 'hooks', 'agent-state.mjs')),
+    false,
+    'the launcher runs the shipped reporter',
+  )
 })

@@ -11,7 +11,7 @@ import { showToast } from '../../store/toastStore'
 
 // The scope VOCABULARY moved to `scopePickerModel.ts` and the rows to
 // `ScopePicker.tsx` (remote-settings-rebuild). What used to live here was four
-// combined family rows with the terminal tier unticked, plus a
+// combined family rows, plus a
 // `DEFAULT_PAIR_SCOPES` constant for the surfaces that showed no rows at all —
 // the toast's Allow and the peer picker's reverse grant. Both are gone:
 //
@@ -19,9 +19,8 @@ import { showToast } from '../../store/toastStore'
 //     `requestedScopes`, and every surface that answers one grants exactly
 //     that, so the toast and the card can no longer disagree about what Allow
 //     means.
-//   * an OUTBOUND pairing is chosen in the Pair a device dialog, where all
-//     eight rows are on screen with the words "Arbitrary shell on this
-//     machine" against the last of them (owner ruling 2026-09-10).
+//   * an OUTBOUND pairing is chosen in the Pair a device dialog, where every
+//     row is on screen (owner ruling 2026-09-10).
 //
 // What remains here is the part both surfaces genuinely share: the typed code
 // and the IPC round trip, with its inline-mismatch rule.

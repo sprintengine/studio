@@ -23,7 +23,7 @@ export const STUDIO_PLUGIN_ID = 'sprintengine-studio'
 const STUDIO_PLUGIN_ROW_NAME = 'SprintEngine Studio'
 
 const STUDIO_PLUGIN_ROW_DESCRIPTION =
-  'Backlog, automations, workspaces and terminals — the bridge to this app and the skills that teach it.'
+  'The bridge to this app. Its skills — backlog, design, canvas, automations, tours, workspaces — are switched on in Settings › Agents.'
 
 export type StudioPluginRow = {
   name: string

@@ -1,5 +1,13 @@
 # Agent-specific permissions
 
+> Superseded twice. The two-mode ruling of 2026-09-27 left only `bypass` (Codex:
+> YOLO), the default, and `none`, and opened bypass on every surface that starts
+> an agent, so the remote restrictions below are gone. The four presets came
+> back on 2026-09-30 (owner request), with a chat able to change its mode at any
+> time; `docs/conversations.md` ("Permission modes") is the current design and
+> `src/shared/cli-permission-preset.ts` the vocabulary. The plan below is kept as
+> the record of the first four-preset design.
+
 ## Implementation
 
 1. Keep the persisted `none`, `manual`, `auto`, and `bypass` ids compatible.

@@ -1,8 +1,9 @@
 # Glyphs
 
 The product's icon language: one concept per glyph, drawn in `currentColor`
-line work, sized only by the `--sem-icon-size-*` ramp. The thirty-eight SVGs in
+line work, sized only by the `--sem-icon-size-*` ramp. The fifty-nine SVGs in
 `glyphs/` (close, search, spinner, sprintengine-mark, git-branch, remote-machine,
+schedule,
 the four `device-*` marks,
 commit, worktree, history, folder, file-typescript, file-generic, the three
 pull-request marks — pull-request-open, pull-request-merged,
@@ -10,7 +11,11 @@ pull-request-closed — and the
 nineteen Commit-window action marks — rollback, move-to-changelist, stash,
 group-by, expand-all, collapse-all, next-difference, previous-difference,
 show-diff, side-by-side, unified, gear, open-in-editor, write-commit-message,
-new-changelist, delete-changelist, edit-changelist, create-patch, kebab) are
+new-changelist, delete-changelist, edit-changelist, create-patch, kebab — and
+the diff tour's four — tour, play, pause, step-list — and the copy
+affordance's pair — copy, and the check it confirms with — and the code
+block's two — wrap-lines, terminal-prompt — the chat's ten tool-step
+marks, `tool-*`, and the quote mark — quote) are
 the framework-neutral assets; the shipped vocabulary lives in React —
 `src/renderer/src/components/AppIcons.tsx` and the `ui/` glyph primitives
 beside it. This entry documents that vocabulary so a consumer can pick, size,
@@ -77,9 +82,9 @@ the ramp and `currentColor`.
 
 | Export | Meaning |
 |---|---|
-| `CheckIcon` | Confirmed / applied |
+| `CheckIcon` | Confirmed / applied — `glyphs/check.svg` is its 16-grid sample |
 | `ChevronDownIcon` | Disclosure; rotate for other directions rather than adding siblings |
-| `CopyIcon` | Copy to clipboard |
+| `CopyIcon` | Copy to clipboard — `glyphs/copy.svg` is its 16-grid sample. Reach for it through `CopyGlyphButton`, which swaps it for `CheckIcon` on a landed copy ([button → The copy glyph](../button/component.md#the-copy-glyph)) |
 | `NewChatIcon` | Compose — pencil-in-square, deliberately *not* a plus, because compose is not create |
 | `WarningIcon` | Finding / warning triangle — a real glyph so it scales and inks like one, never the `▲` character |
 | `FolderPlusIcon` | Install from a folder on disk — a folder wearing the plus |
@@ -168,8 +173,14 @@ second answer to the same question, drawn on a different grid, and the folder
 status enum it keyed off is now `FolderStatus` in the shared layer with no
 glyph family of its own.
 
-One status idiom per surface: a surface shows the 6 px `StatusDot` *or* a
-`LifecycleGlyph`, never both.
+`StatusDot` draws from this same vocabulary: the product draws no status dots
+(owner ruling 2026-09-28), so a status tone maps onto a lifecycle shape —
+danger to `failed`'s ×, warn to `needs_input`'s !, good and merged to `done`'s
+check, neutral to `blocked`'s bar, accent to `in_progress`'s held arc — and a
+live good or accent tone is the working mark (`components/liveness`). One
+status idiom per surface still holds: a surface speaks in status tones
+(`StatusDot`) *or* in lifecycle states (`LifecycleGlyph`), never both, or the
+same shapes turn up twice saying two different things.
 
 ### Lifecycle (16-grid — `ui/LifecycleGlyph.tsx`)
 
@@ -375,7 +386,49 @@ working tree), `FileTypeGlyph` `lock` (the padlock), `glyphs/commit.svg`,
 | `GitBranchGlyph` | The branch fork beside a branch name — sidebar rows, the git button, the run-on strip. `glyphs/git-branch.svg` |
 | `PresetDialGlyph` · `LockGlyph` · `UnlockedGlyph` · `SparkGlyph` | The access-level vocabulary (CLI default · Manual · Bypass · Auto) on the permission-preset menu rows and the composer's permission pill — one drawing per concept, shared by both hosts. Inline in `AppIcons.tsx`; no standalone asset. |
 | `RemoteMachineGlyph` | Also the Device identity family's fallback (above). The stacked-server mark for anything remote — rows, group headers, pickers, the top-bar glyph (remote-sessions-ux decision 7: one glyph, machine name beside it or in the tooltip). Stroke 1.4. `glyphs/remote-machine.svg` |
+| `ScheduleGlyph` | A scheduled agent: a prompt that starts a new chat each time its schedule comes round. The plain clock face — hands at the hour, nothing else — on the New chat panel's Scheduled agent switch, its schedule row, the entry beside New chat, each scheduled agent's row in the sidebar's Scheduled section, and beside the title of every chat a scheduled run started, where it is named "Started by a schedule" (accessible name and tooltip) and says where the chat came from, never that it is working. **Not** `glyphs/history.svg`, whose clock carries a rewind arrow and means *the past* (the Git log); this one means *a time that is coming*. Stroke 1.4. `glyphs/schedule.svg` |
 | `WslMachineGlyph` | A WSL distribution on this computer, which is a machine of its own ("WSL: Ubuntu"): a terminal window with a prompt, because the distribution is reached as a shell. It is not remote — it sits beside `RemoteMachineGlyph` in the New chat machine dropdown and must not be mistaken for it — and it is not a Device identity mark, because it names no hardware. Stroke 1.4. `glyphs/wsl-machine.svg` |
+
+### Code block actions (16-grid — `ui/CodeBlockGlyphs.tsx`)
+
+The two header actions a code block has beside its copy glyph
+([code-block](../code-block/component.md)). Stroke 1.4, `currentColor`, drawn
+at `icon-xs` inside an `xs` icon button.
+
+| Export | Asset | Drawing |
+|---|---|---|
+| `WrapLinesGlyph` | `glyphs/wrap-lines.svg` | A full line, a line that runs to the edge and turns back under itself with an arrowhead, and the short line it continues on. The turn is the meaning; without it the mark is a paragraph icon. A toggle, so it takes the pressed fill when on |
+| `TerminalPromptGlyph` | `glyphs/terminal-prompt.svg` | A terminal frame with a `>` prompt and the cursor after it: "put this at a terminal's prompt". Deliberately not the play triangle — nothing runs until the person presses Enter, and a play mark would promise that it does. The same drawing as the terminal pane kind's private glyph (`workspace/pane/paneKinds.tsx`); see Known drift |
+
+### Tool step (16-grid — `ui/ToolKindGlyph.tsx`)
+
+*What kind of step did the agent take* — the mark that leads each tool row in
+a conversation's work log, and the summary row over a group of them. A column
+of steps is read by shape before it is read by label ("read, read, ran,
+edited"), so each kind gets one drawing and the label beside it never has to
+start with the kind. 16-grid, stroke 1.4, `currentColor`, `fill="none"`,
+decorative (`aria-hidden`; the row's label says what happened). The glyph
+carries its kind as `data-tool-glyph`.
+
+`ToolKindGlyph({ kind })` takes a `ConversationToolKind` and falls back to the
+wrench for anything it does not know. The row owns the ink: the quietest text
+ink at rest, the accent (pulsing) while the step runs, the error tone when it
+failed — so the mark doubles as the step's status and the row needs no second
+status mark.
+
+| Kind | Drawing | Asset |
+|---|---|---|
+| `command` | A prompt caret and a cursor line | `glyphs/tool-command.svg` |
+| `file_read` | A page with its corner folded and two lines of text | `glyphs/tool-read.svg` |
+| `file_edit` | A pencil | `glyphs/tool-edit.svg` |
+| `file_write` | The page again, wearing a plus: a file made rather than read | `glyphs/tool-write.svg` |
+| `search` | A magnifier, drawn to this family's grid and weight; `glyphs/search.svg` stays the search field's 11-grid mark | `glyphs/tool-search.svg` |
+| `list` | A folder | `glyphs/tool-list.svg` |
+| `web` | A globe: rim, meridian, equator | `glyphs/tool-web.svg` |
+| `mcp` | `McpGlyph`, the plug the capability inventory already wears for MCP — one concept, one drawing, so it has no second asset | — |
+| `subagent` | A small robot head | `glyphs/tool-subagent.svg` |
+| `todo` | A checklist: two ticks, two lines | `glyphs/tool-todo.svg` |
+| `other` | A wrench | `glyphs/tool-other.svg` |
 
 ### Settings rail (24-grid, one per category)
 
@@ -389,6 +442,16 @@ triangle), `DesignSystemSettingsIcon` (disc, square and triangle),
 prompt; Windows only), `MobileSettingsIcon` (phone),
 `RemoteSettingsIcon` (two linked machines).
 All at `iconStroke` so the rail reads as one set.
+
+### Conversation actions (16-grid — `ui/QuoteGlyph.tsx`)
+
+What a person can do with a stretch of a conversation they have selected.
+Stroke 1.4, `currentColor`, drawn at `icon-xs` beside the action's word in the
+selection toolbar.
+
+| Export | Asset | Drawing |
+|---|---|---|
+| `QuoteGlyph` | `glyphs/quote.svg` | Two opening quotation marks, each a small block with a tail that curls up and forward: "carry these words into what I write next". Deliberately not a speech bubble — a bubble reads as reply or comment, and pressing it sends nothing; the selection lands in the composer as a markdown blockquote for the person to write under |
 
 ## States
 
@@ -404,7 +467,7 @@ All at `iconStroke` so the rail reads as one set.
 ## Usage
 
 - **Pick the family by the question, then the glyph by the table.** Never
-  answer a lifecycle question with a status dot *and* a glyph, or an identity
+  answer a lifecycle question with a status mark *and* a glyph, or an identity
   question with an action icon.
 - **Size from the ramp, nothing else.** Rails and toolbars at `sm`; chips and
   inline-with-meta at `xs`; button-paired and panel-header at `md`;
@@ -498,3 +561,8 @@ Cite these rather than matching the code you happen to be nearest.
    joined it (Git and diff actions, above), `previous-difference` among them
    as a shipped mirror rather than a transform the reader has to apply, and
    the three pull-request marks with them (Pull request, above).
+7. **Two copies of the terminal-prompt drawing.** `TerminalPromptGlyph`
+   (`ui/CodeBlockGlyphs.tsx`, stroke 1.4) and the terminal pane kind's private
+   `TerminalGlyph` (`workspace/pane/paneKinds.tsx`, stroke 1.5) are the same
+   frame, `>` and cursor. The pane kind should import the kit's export and
+   drop its own copy.

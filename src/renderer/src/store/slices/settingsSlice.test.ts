@@ -90,7 +90,7 @@ test('settingsSlice', async () => {
   assert.deepEqual(Object.keys(normalized.mcp.servers), ['valid-server'])
   assert.deepEqual(normalized.mcp.servers['valid-server'].args, ['package'])
   assert.deepEqual(normalized.mcp.servers['valid-server'].clients, ['codex', 'opencode', 'bad-cli'])
-  assert.equal(normalized.lastAgentSpawnPermissionPreset, 'manual')
+  assert.equal(normalized.lastAgentSpawnPermissionPreset, 'auto', 'a value no version wrote takes the default')
   assert.deepEqual(normalized.projectKnowledgeRoots, {
     '/Users/example/project': 'docs/knowledge',
   })
@@ -153,42 +153,37 @@ test('settingsSlice', async () => {
     'standalone keybinding normalization rejects duplicates and invalid chords',
   )
 
-  assert.equal(normalizeCliPermissionPreset('auto'), 'auto')
-  assert.equal(normalizeCliPermissionPreset('bypass'), 'bypass')
-  // Corruption floors to `manual`, which the preset rename moved from `default`: no flag
-  // is no longer the conservative answer now that Claude Code reads it as auto.
-  assert.equal(normalizeCliPermissionPreset('bad' as never), 'manual')
-  // A recognised legacy spelling is not corruption — it maps, it does not floor.
-  assert.equal(normalizeCliPermissionPreset('default' as never), 'manual')
-  assert.equal(normalizeCliPermissionPreset('auto_workspace' as never), 'auto')
-  assert.equal(normalizeCliPermissionPreset('bypass_all' as never), 'bypass')
-
-  // The preset rename's rule: migration must NEVER escalate. Ordered least → most
-  // permissive, `none` sits outside the order because what it grants depends on
-  // the CLI (no flag now means auto mode on Claude Code), so it is checked
-  // separately: nothing may migrate INTO it, since that would hand the decision
-  // to a CLI whose default the user never chose.
-  {
-    const rank: Record<string, number> = { manual: 0, auto: 1, bypass: 2 }
-    const legacyRank: Record<string, number> = { default: 0, auto_workspace: 1, bypass_all: 2 }
-    for (const [legacy, before] of Object.entries(legacyRank)) {
-      const after = normalizeCliPermissionPreset(legacy as never)
-      assert.notEqual(after, 'none', `${legacy} must not migrate into the CLI's own default`)
-      assert.ok(rank[after] <= before, `${legacy} migrated UP the ladder to ${after} — migration may never grant more`)
-    }
-    // Corruption floors, and the floor is the least permissive rung.
-    assert.equal(rank[normalizeCliPermissionPreset('nonsense' as never)], 0)
+  // The migration table. Each of the four presets reads as itself, and each
+  // pre-rename spelling as the preset its label promised; none of them that
+  // asked is ever widened into bypass. Only the pre-rename spelling of bypass
+  // itself, an absent value, or one no version ever wrote reads as `bypass`,
+  // the default.
+  const migration: Array<[unknown, 'none' | 'manual' | 'auto' | 'bypass']> = [
+    ['none', 'none'],
+    ['bypass', 'bypass'],
+    ['manual', 'manual'],
+    ['auto', 'auto'],
+    ['default', 'manual'],
+    ['auto_workspace', 'auto'],
+    ['bypass_all', 'bypass'],
+    [undefined, 'auto'],
+    [null, 'auto'],
+    ['nonsense', 'auto'],
+    [42, 'auto'],
+  ]
+  for (const [stored, expected] of migration) {
+    assert.equal(normalizeCliPermissionPreset(stored), expected, `${String(stored)} reads as ${expected}`)
   }
 
   // New-chat agent choice: the three spawn kinds round-trip; only malformed
-  // shapes and missing values fall back to general.
+  // shapes and missing values use the first-run choice, which is Terminal.
   assert.deepEqual(normalizeNewChatAgentChoice({ kind: 'terminal' }), { kind: 'terminal' })
   assert.deepEqual(normalizeNewChatAgentChoice({ kind: 'conversation' }), { kind: 'conversation' })
   assert.deepEqual(normalizeNewChatAgentChoice({ kind: 'general' }), { kind: 'general' })
-  assert.deepEqual(normalizeNewChatAgentChoice({ kind: 'bogus' }), { kind: 'general' })
-  assert.deepEqual(normalizeNewChatAgentChoice(undefined), { kind: 'general' })
-  assert.deepEqual(normalizeNewChatAgentChoice('terminal'), { kind: 'general' })
-  assert.deepEqual(defaultAppSettings().lastNewChatAgent, { kind: 'general' })
+  assert.deepEqual(normalizeNewChatAgentChoice({ kind: 'bogus' }), { kind: 'terminal' })
+  assert.deepEqual(normalizeNewChatAgentChoice(undefined), { kind: 'terminal' })
+  assert.deepEqual(normalizeNewChatAgentChoice('conversation'), { kind: 'terminal' })
+  assert.deepEqual(defaultAppSettings().lastNewChatAgent, { kind: 'terminal' })
 
   // A model override keeps only a well-formed { cli, model } pair.
   assert.deepEqual(normalizeCliModelSelection({ cli: 'claude-code', model: ' opus ' }), {
@@ -360,6 +355,29 @@ test('settingsSlice', async () => {
   slice.closeSettingsOverlay()
   assert.equal(carrier.activeModalSurface, null, 'closing settings closes the modal')
   assert.deepEqual(carrier.settingsOverlay, { initialTab: null, checkForUpdatesRequestId: null })
+
+  // An opener that knows which machine its news is about (a CLI update is This
+  // PC's) names it, and each open is a new request so an Agents tab already
+  // showing another machine still moves. A plain open carries none.
+  // Re-read through the declared type: the deepEqual above narrowed it.
+  const overlay = (): SettingsOverlayState => carrier.settingsOverlay
+  slice.openSettingsOverlay({ initialTab: 'agents', agentsMachine: 'local' })
+  const first = overlay().agentsMachineRequest
+  assert.equal(first?.hostId, 'local')
+  slice.openSettingsOverlay({ initialTab: 'agents', agentsMachine: 'local' })
+  assert.ok(
+    (overlay().agentsMachineRequest?.requestId ?? 0) > (first?.requestId ?? 0),
+    'a second open is a second request',
+  )
+  slice.openSettingsOverlay({ initialTab: 'agents' })
+  assert.equal(overlay().agentsMachineRequest, undefined, 'a plain open names no machine')
+  slice.openSettingsOverlay({ initialTab: 'agents', agentsMachine: 'local' })
+  slice.closeSettingsOverlay()
+  assert.deepEqual(
+    carrier.settingsOverlay,
+    { initialTab: null, checkForUpdatesRequestId: null },
+    'closing clears it with the rest of the request',
+  )
 
   // Where a diff opens (git-commit-window T3). The window is the out-of-the-box
   // answer, and the flip is a
@@ -544,11 +562,13 @@ test('settingsSlice', async () => {
   assert.equal(carrier.appSettings.lastAgentSpawnPermissionPreset, 'bypass')
   slice.setLastAgentSpawnPermissionPreset('none')
   assert.equal(carrier.appSettings.lastAgentSpawnPermissionPreset, 'none')
-  slice.setLastAgentSpawnPermissionPreset('nonsense' as never)
+  slice.setLastAgentSpawnPermissionPreset('manual')
+  assert.equal(carrier.appSettings.lastAgentSpawnPermissionPreset, 'manual')
+  slice.setLastAgentSpawnPermissionPreset('auto_workspace' as never)
   assert.equal(
     carrier.appSettings.lastAgentSpawnPermissionPreset,
-    'manual',
-    'a corrupt pick floors at the least permissive rung',
+    'auto',
+    'a pre-rename pick from an older window keeps what its label promised',
   )
 
   const store = useWorkspaceStore.getState()
@@ -824,21 +844,40 @@ test('settingsSlice', async () => {
   )
 
   // Appearance: windowMaterial is a second axis beside theme.
-  assert.deepEqual(defaultAppearanceSettings(), { theme: 'system', windowMaterial: 'glass' })
+  assert.deepEqual(defaultAppearanceSettings(), {
+    theme: 'system',
+    windowMaterial: 'glass',
+    chatContrast: 100,
+    chatWidth: 'full',
+    agentCharacters: true,
+  })
   assert.deepEqual(normalizeAppearanceSettings(undefined), defaultAppearanceSettings())
   assert.deepEqual(normalizeAppearanceSettings({ theme: 'sage', windowMaterial: 'glass' }), {
     theme: 'sage',
     windowMaterial: 'glass',
+    chatContrast: 100,
+    chatWidth: 'full',
+    agentCharacters: true,
   })
   assert.deepEqual(
     normalizeAppearanceSettings({ theme: 'sage', windowMaterial: 'tinted' }),
-    { theme: 'sage', windowMaterial: 'tinted' },
+    { theme: 'sage', windowMaterial: 'tinted', chatContrast: 100, chatWidth: 'full', agentCharacters: true },
     'tinted is a stored material in its own right',
   )
   assert.deepEqual(
     normalizeAppearanceSettings({ theme: 'sage' }),
-    { theme: 'sage', windowMaterial: 'glass' },
+    { theme: 'sage', windowMaterial: 'glass', chatContrast: 100, chatWidth: 'full', agentCharacters: true },
     'a persisted appearance predating the material axis hydrates to the glass default',
+  )
+  assert.equal(
+    normalizeAppearanceSettings({ theme: 'sage', agentCharacters: false }).agentCharacters,
+    false,
+    'turning the characters off is kept',
+  )
+  assert.equal(
+    normalizeAppearanceSettings({ theme: 'sage', agentCharacters: 'no' }).agentCharacters,
+    true,
+    'a malformed value falls back to characters on',
   )
   assert.deepEqual(
     normalizeAppearanceSettings({ theme: 'nope', windowMaterial: 'frosted' }),
@@ -1288,4 +1327,39 @@ test('a remembered model survives a refresh that stops listing it', () => {
   })
   store.setLastSelectedAgentModel(null)
   store.setCliModelCatalog('codex', null)
+})
+
+test('a stored appearance from before the chat settings hydrates to the chat as it was', () => {
+  assert.deepEqual(normalizeAppearanceSettings({ theme: 'light', windowMaterial: 'solid' }), {
+    theme: 'light',
+    windowMaterial: 'solid',
+    chatContrast: 100,
+    chatWidth: 'full',
+    agentCharacters: true,
+  })
+})
+
+test('chat contrast is clamped to its ramp and snapped to a step', () => {
+  const contrast = (value: unknown) => normalizeAppearanceSettings({ chatContrast: value }).chatContrast
+  assert.equal(contrast(135), 135)
+  assert.equal(contrast(132), 130)
+  assert.equal(contrast(10), 85)
+  assert.equal(contrast(500), 200)
+  assert.equal(contrast(Number.NaN), 100)
+  assert.equal(contrast('140'), 100)
+})
+
+test('an unknown chat width falls back to full', () => {
+  assert.equal(normalizeAppearanceSettings({ chatWidth: 'wide' }).chatWidth, 'wide')
+  assert.equal(normalizeAppearanceSettings({ chatWidth: 'narrow' }).chatWidth, 'full')
+})
+
+test('the chat appearance setters store normalised values', () => {
+  const store = useWorkspaceStore.getState()
+  store.setAppearanceChatContrast(163)
+  assert.equal(useWorkspaceStore.getState().appSettings.appearance.chatContrast, 165)
+  store.setAppearanceChatWidth('comfortable')
+  assert.equal(useWorkspaceStore.getState().appSettings.appearance.chatWidth, 'comfortable')
+  store.setAppearanceChatContrast(100)
+  store.setAppearanceChatWidth('full')
 })

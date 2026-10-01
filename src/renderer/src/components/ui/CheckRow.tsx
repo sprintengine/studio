@@ -253,7 +253,7 @@ export type DescribedCheckRowProps = {
   id: string
   /** The name, in the reader's language. */
   title: React.ReactNode
-  /** The same fact in the system's vocabulary — `terminal:control`. Optional:
+  /** The same fact in the system's vocabulary — `conversation:operate`. Optional:
    *  a described row whose subject has no identifier simply has no mono name. */
   code?: string
   /** ONE supporting line. Two would be a card. */

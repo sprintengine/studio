@@ -1,23 +1,22 @@
-import type {
-  AgentCli,
-  CliRuntimeSettings,
-  CliVersionAdvisoriesResult,
-  CliVersionAdvisoryMap,
-} from '../../../../shared/electron-api'
+import type { CliVersionAdvisoriesResult, CliVersionHostAdvisories } from '../../../../shared/electron-api'
 
 // CLI version advisories as the renderer sees them: installed version against
-// the registry's newest, per CLI. Not persisted; the main process recomputes
-// them at boot and hourly and pushes when the set of outdated CLIs changes.
+// the registry's newest, per CLI, per machine (this one and each WSL
+// distribution turned on). Not persisted; the main process recomputes them at
+// boot, hourly, on Re-check and after an update it ran, and pushes when the
+// answer changes.
 export interface CliVersionAdvisorySliceState {
-  cliVersionAdvisories: CliVersionAdvisoryMap
+  cliVersionAdvisories: CliVersionHostAdvisories
   cliVersionAdvisoriesCheckedAt: string | null
   cliVersionAdvisoriesError: string | null
 }
 
 interface CliVersionAdvisorySliceActions {
   refreshCliVersionAdvisories: (options?: {
+    // Ask the registry again, and answer even with version checks off.
     force?: boolean
-    cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
+    // Settings' Re-check: detect every CLI on every machine again first.
+    detect?: boolean
   }) => Promise<CliVersionAdvisoriesResult | null>
   applyCliVersionAdvisories: (result: CliVersionAdvisoriesResult) => void
 }
@@ -65,7 +64,7 @@ export function createCliVersionAdvisorySlice(
       try {
         const result = await api.cliVersionAdvisories({
           ...(options.force ? { force: true } : {}),
-          ...(options.cliRuntimes ? { cliRuntimes: options.cliRuntimes } : {}),
+          ...(options.detect ? { detect: true } : {}),
         })
         apply(result)
         return result

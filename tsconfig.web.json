@@ -1,13 +1,15 @@
 {
   "extends": "@electron-toolkit/tsconfig/tsconfig.web.json",
   "include": [
+    "packages/conversation-protocol/src/**/*.ts",
     "src/renderer/src/**/*",
     "src/shared/**/*",
     "packages/module-sdk/src/index.ts",
     "packages/module-sdk/src/manifest-validate.ts",
     "packages/module-sdk/src/plugin-manifest.ts",
-    "packages/module-sdk/src/cli-manifest.ts",
-    "packages/mobile-control-protocol/src/index.ts"
+    "packages/module-sdk/src/host-api.ts",
+    "packages/module-sdk/src/conversation.ts",
+    "packages/module-sdk/src/brokers.ts"
   ],
   "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"],
   "compilerOptions": {

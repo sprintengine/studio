@@ -35,7 +35,7 @@
 
 import type { SkillSourceUpdateCheck, SkillSourceUpdateEntry } from '../../shared/electron-api'
 import { sourceHasUpdate, sourceUpdateIntervalMs, sourceUpdateSkipMessage, type SkillSource } from '../../shared/skills'
-import { parseSkillRepoRef, resolveSkillRepoCommit, type SkillGithubOptions } from './github-tree'
+import { parseSkillRepoRef, resolveSkillRepoCommit, skillRepoName, type SkillGithubOptions } from './github-tree'
 import type { SkillRepoReader, SkillRepoTransport } from './repo-reader'
 import type { SkillSourceStore } from './source-store'
 
@@ -85,7 +85,7 @@ export function createSourceUpdateChecker(deps: SourceUpdateCheckerDeps): Source
       // The reader's own head resolution when there is one — one round trip
       // either way, but git's is not counted by the API's hourly limit.
       const reader = deps.repoReader
-      if (reader) return reader.resolveCommit(`${ref.owner}/${ref.repo}`, ref.ref)
+      if (reader) return reader.resolveCommit(skillRepoName(ref), ref.ref)
       return resolveSkillRepoCommit(ref, { ...deps.github, token })
     })
   let inFlight: Promise<SkillSourceUpdateCheck> | null = null

@@ -281,7 +281,7 @@ test('tailnet-peers', async () => {
         protocolVersions: ['2025-06-18'],
         // A field a newer Studio publishes (2026-09-06) and one it does not: the
         // prober must read past both, since it probes whatever is out there.
-        capabilities: ['events', 'sliced-frames'],
+        capabilities: ['events', 'upload'],
         somethingLater: true,
         userEmail: 'someone@example.com',
         workspaces: ['/Users/someone/secret-project'],

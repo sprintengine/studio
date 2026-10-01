@@ -65,6 +65,10 @@ const hoisted = vi.hoisted(() => {
     quitAndInstall(isSilent: boolean, isForceRunAfter: boolean) {
       this.installs.push({ isSilent, isForceRunAfter })
     },
+    // BaseUpdater's getter for the downloaded file.
+    installerPath:
+      'C:\\Users\\dev\\AppData\\Local\\sprintengine-studio-updater\\pending\\SprintEngine-Studio-0.7.0-win-x64.exe' as
+        string | null,
   }
   return { app, updater, CancellationToken, loads }
 })
@@ -92,9 +96,12 @@ standIn({
 })
 
 const { SprintEngineUpdateService } = await import('./update-service')
+type ServiceOptions = ConstructorParameters<typeof SprintEngineUpdateService>[0]
+type UpdateInstallPlatform = import('./update-service').UpdateInstallPlatform
 
-function memoryStore(initial: AppUpdateTrack | null = null) {
+function memoryStore(initial: AppUpdateTrack | null = null, autoDownload = false) {
   let value = initial
+  let download = autoDownload
   const writes: AppUpdateTrack[] = []
   return {
     writes,
@@ -103,11 +110,67 @@ function memoryStore(initial: AppUpdateTrack | null = null) {
       value = next
       writes.push(next)
     },
+    getAutoDownload: () => download,
+    setAutoDownload: (next: boolean) => {
+      download = next
+    },
   }
 }
 
-function service(store = memoryStore()) {
-  return new SprintEngineUpdateService({ writeDiagnosticLog: async () => ({}) as never, channelStore: store })
+/** Automatic download on: the check starts the download, as before the preference existed. */
+function autoStore() {
+  return memoryStore(null, true)
+}
+
+// Every step of the install path, in the order it happened.
+let steps: string[] = []
+let quitHandlers: Array<(exitCode: number) => void> = []
+let diagnostics: Array<{ level: string; title: string }> = []
+
+/** A machine the install path runs on, recording what it was asked to do. */
+function fakePlatform(overrides: Partial<UpdateInstallPlatform> = {}): Partial<UpdateInstallPlatform> {
+  return {
+    platform: 'darwin',
+    pid: 4242,
+    resolveWindowsTarget: async () => ({
+      installDir: 'C:\\Users\\dev\\AppData\\Local\\Programs\\sprintengine-studio',
+      perMachine: false,
+      writable: true,
+      requiresAdmin: false,
+    }),
+    spawnInstaller: async (installerPath, args) => {
+      steps.push(`spawn ${installerPath} ${args.join(' ')}`)
+      return 99
+    },
+    launchElevated: async ({ args }) => {
+      steps.push(`elevate ${args.join(' ')}`)
+      return { outcome: 'started' }
+    },
+    parentWindowHandle: () => '1234',
+    hideAppWindows: () => steps.push('hide windows'),
+    quitApp: () => steps.push('quit'),
+    relaunchApp: () => steps.push('relaunch'),
+    onAppQuit: (handler) => {
+      quitHandlers.push(handler)
+    },
+    ...overrides,
+  }
+}
+
+function service(store: ReturnType<typeof memoryStore> = memoryStore(), extra: Partial<ServiceOptions> = {}) {
+  return new SprintEngineUpdateService({
+    writeDiagnosticLog: async (input) => {
+      diagnostics.push({ level: input.level, title: input.title })
+      return {} as never
+    },
+    channelStore: store,
+    installPlatform: fakePlatform(),
+    progressWindow: {
+      show: (progress) => steps.push(`progress show ${progress.status}`),
+      update: (progress) => steps.push(`progress ${progress.status} ${progress.progress.toFixed(2)}`),
+    },
+    ...extra,
+  })
 }
 
 /**
@@ -131,6 +194,9 @@ async function settle(): Promise<void> {
 }
 
 beforeEach(() => {
+  steps = []
+  quitHandlers = []
+  diagnostics = []
   hoisted.app.version = '0.5.2'
   hoisted.app.packaged = true
   Object.assign(hoisted.updater, {
@@ -141,6 +207,9 @@ beforeEach(() => {
     downloads: [],
     offered: null,
     installs: [],
+    autoInstallOnAppQuit: false,
+    installerPath:
+      'C:\\Users\\dev\\AppData\\Local\\sprintengine-studio-updater\\pending\\SprintEngine-Studio-0.7.0-win-x64.exe',
   })
   hoisted.updater.listeners.clear()
 })
@@ -304,8 +373,8 @@ function downloaded(version: string) {
   hoisted.updater.listeners.get('update-downloaded')?.({ version })
 }
 
-test('a check that finds an update downloads it in the background, reporting progress', async () => {
-  const s = service()
+test('with automatic download on, a check that finds an update downloads it, reporting progress', async () => {
+  const s = service(autoStore())
   hoisted.updater.offered = '0.5.3'
   const result = await s.checkForUpdates(false)
   assert.equal(result.ok, true)
@@ -334,7 +403,7 @@ test('a check that finds nothing downloads nothing', async () => {
 })
 
 test('checks while an update downloads or waits for a restart leave it alone', async () => {
-  const s = service()
+  const s = service(autoStore())
   hoisted.updater.offered = '0.5.3'
   await s.checkForUpdates(false)
   assert.equal(hoisted.updater.checks.length, 1)
@@ -358,7 +427,7 @@ test('checks while an update downloads or waits for a restart leave it alone', a
 })
 
 test('a background download that fails reports the error and the next check tries again', async () => {
-  const s = service()
+  const s = service(autoStore())
   hoisted.updater.offered = '0.5.3'
   await s.checkForUpdates(false)
   hoisted.updater.downloads[0]?.fail(new Error('socket hang up'))
@@ -373,8 +442,8 @@ test('a background download that fails reports the error and the next check trie
   assert.equal(s.getState().status, 'downloading')
 })
 
-test('restart to update installs silently and relaunches, and only once an update is ready', async () => {
-  const s = service()
+test('on macOS, restart to update hands over to electron-updater silently, and only once an update is ready', async () => {
+  const s = service(autoStore())
   const early = await s.quitAndInstall()
   assert.equal(early.ok, false)
   assert.deepEqual(hoisted.updater.installs, [])
@@ -392,7 +461,7 @@ test('restart to update installs silently and relaunches, and only once an updat
 })
 
 test('restart to update runs the app’s shutdown before the installer starts, once', async () => {
-  const s = service()
+  const s = service(autoStore())
   hoisted.updater.offered = '0.5.3'
   await s.checkForUpdates(false)
   downloaded('0.5.3')
@@ -421,7 +490,7 @@ test('restart to update runs the app’s shutdown before the installer starts, o
 })
 
 test('a channel switch mid-download fetches the new channel only after the old download lets go', async () => {
-  const s = service()
+  const s = service(autoStore())
   hoisted.updater.offered = '0.5.3'
   await s.checkForUpdates(false)
   const old = hoisted.updater.downloads[0]
@@ -448,4 +517,253 @@ test('a channel switch mid-download fetches the new channel only after the old d
   await Promise.resolve()
   assert.equal(s.getState().downloaded, true)
   assert.equal(s.getState().updateVersion, '0.6.0-nightly.20260923.41')
+})
+
+test('without automatic download, a check offers the update and downloads nothing', async () => {
+  const s = service()
+  hoisted.updater.offered = '0.5.3'
+  const result = await s.checkForUpdates(false)
+  assert.equal(result.ok, true)
+  assert.equal(s.getState().status, 'available')
+  assert.equal(s.getState().autoDownload, false)
+  assert.equal(hoisted.updater.downloads.length, 0, 'nothing downloads until the person asks')
+
+  // Turning it on with the update waiting fetches it, as a check would have.
+  const store = memoryStore()
+  const later = service(store)
+  await later.checkForUpdates(false)
+  assert.equal(hoisted.updater.downloads.length, 0)
+  const state = later.setAutoDownload(true)
+  assert.equal(state.autoDownload, true)
+  assert.equal(store.getAutoDownload(), true, 'the choice is saved')
+  await settle()
+  assert.equal(hoisted.updater.downloads.length, 1)
+})
+
+const WIN_PER_USER = 'C:\\Users\\dev\\AppData\\Local\\Programs\\sprintengine-studio'
+const WIN_PROGRAM_FILES = 'C:\\Program Files\\SprintEngine Studio'
+const INSTALLER =
+  'C:\\Users\\dev\\AppData\\Local\\sprintengine-studio-updater\\pending\\SprintEngine-Studio-0.7.0-win-x64.exe'
+
+function notes() {
+  const written: Array<Record<string, unknown>> = []
+  let pending: Record<string, unknown> | null = null
+  return {
+    written,
+    seed(note: Record<string, unknown>) {
+      pending = note
+    },
+    write(note: Record<string, unknown>) {
+      steps.push(note.failureReason ? 'note (failed)' : 'note')
+      written.push(note)
+    },
+    consume() {
+      const note = pending
+      pending = null
+      return note as never
+    },
+  }
+}
+
+type WindowsTarget = { installDir: string; perMachine: boolean; requiresAdmin: boolean }
+
+/** A Windows install with 0.7.0 downloaded and a two-leg shutdown that reports each leg. */
+async function windowsReady(options: { target?: WindowsTarget; platform?: Partial<UpdateInstallPlatform> } = {}) {
+  const installNotes = notes()
+  const target = options.target ?? { installDir: WIN_PER_USER, perMachine: false, requiresAdmin: false }
+  const s = service(autoStore(), {
+    installNotes: installNotes as never,
+    installPlatform: fakePlatform({
+      platform: 'win32',
+      resolveWindowsTarget: async () => ({ ...target, writable: !target.requiresAdmin }),
+      ...options.platform,
+    }),
+  })
+  s.setPrepareForInstall(async (report) => {
+    steps.push('shutdown')
+    report?.({ name: 'terminals', done: 1, total: 2, durationMs: 12, failed: false })
+    report?.({ name: 'telemetry', done: 2, total: 2, durationMs: 3, failed: false })
+  })
+  hoisted.updater.offered = '0.7.0'
+  await s.checkForUpdates(false)
+  downloaded('0.7.0')
+  hoisted.updater.downloads[0]?.finish()
+  await settle()
+  steps = []
+  return { s, installNotes }
+}
+
+test('Windows, per user: the app starts the installer into its own folder, after the shutdown, and quits', async () => {
+  const { s, installNotes } = await windowsReady()
+  assert.equal(hoisted.updater.autoInstallOnAppQuit, false, 'electron-updater never installs at quit on Windows')
+  const result = await s.quitAndInstall()
+  assert.equal(result.ok, true)
+  assert.deepEqual(steps, [
+    'progress show Getting ready to update…',
+    'hide windows',
+    'shutdown',
+    'progress Saving your work… 0.45',
+    'progress Saving your work… 0.85',
+    'progress Starting the installer… 0.92',
+    'note',
+    // Non-silent, so the installer's progress banner shows; /D= last and unquoted.
+    `spawn ${INSTALLER} --updated --force-run --wait-for-pid=4242 /D=${WIN_PER_USER}`,
+    'progress Installing SprintEngine Studio 0.7.0… 1.00',
+    'quit',
+  ])
+  assert.deepEqual(hoisted.updater.installs, [], 'electron-updater does not start a second installer')
+  assert.equal(hoisted.updater.autoInstallOnAppQuit, false, 'nor does its install at quit')
+  quitHandlers.forEach((handler) => handler(0))
+  assert.equal(steps.filter((step) => step.startsWith('spawn')).length, 1, 'the quit after it starts no second one')
+  assert.deepEqual(installNotes.written[0], {
+    fromVersion: '0.5.2',
+    toVersion: '0.7.0',
+    startedAt: installNotes.written[0]?.startedAt,
+    platform: 'win32',
+    installDir: WIN_PER_USER,
+    requiresAdmin: false,
+  })
+  const titles = diagnostics.map((entry) => entry.title)
+  for (const title of [
+    'Restart to update',
+    'Shutdown: terminals',
+    'Shutdown: telemetry',
+    'Starting the installer',
+    'Handing over to the installer',
+  ]) {
+    assert.ok(titles.includes(title), `the diagnostics log has "${title}"`)
+  }
+})
+
+test('Windows, all users: the installer is started elevated before anything shuts down, and waits for the app', async () => {
+  const { s } = await windowsReady({ target: { installDir: WIN_PROGRAM_FILES, perMachine: true, requiresAdmin: true } })
+  assert.equal(s.getState().installRequiresAdmin, true)
+  assert.equal(hoisted.updater.autoInstallOnAppQuit, false, 'no UAC prompt after the app has gone')
+  const result = await s.quitAndInstall()
+  assert.equal(result.ok, true)
+  assert.deepEqual(steps, [
+    `elevate --updated --force-run --wait-for-pid=4242 /D=${WIN_PROGRAM_FILES}`,
+    'progress show Getting ready to update…',
+    'hide windows',
+    'shutdown',
+    'progress Saving your work… 0.45',
+    'progress Saving your work… 0.85',
+    'progress Starting the installer… 0.92',
+    'note',
+    'progress Installing SprintEngine Studio 0.7.0… 1.00',
+    'quit',
+  ])
+})
+
+test('Windows, all users: a declined prompt leaves the app running on its version, and says so', async () => {
+  let asked = 0
+  const { s } = await windowsReady({
+    target: { installDir: WIN_PROGRAM_FILES, perMachine: true, requiresAdmin: true },
+    platform: {
+      launchElevated: async () => {
+        asked += 1
+        steps.push('elevate')
+        return { outcome: 'declined' }
+      },
+    },
+  })
+  const result = await s.quitAndInstall()
+  assert.equal(result.ok, false)
+  assert.match(result.message, /did not get administrator permission.*still on 0\.5\.2/)
+  assert.deepEqual(steps, ['elevate'], 'no progress window, no shutdown, no quit')
+  assert.equal(s.getState().status, 'downloaded', 'the update is still ready')
+  assert.equal(s.getState().downloaded, true)
+  assert.equal(s.getState().errorMessage, result.message)
+  // Pressing again asks again.
+  await s.quitAndInstall()
+  assert.equal(asked, 2)
+})
+
+test('Windows: an installer that will not start brings the app back, with the reason for the next start', async () => {
+  const { s, installNotes } = await windowsReady({
+    platform: {
+      spawnInstaller: async () => {
+        throw new Error('EACCES')
+      },
+    },
+  })
+  const result = await s.quitAndInstall()
+  assert.equal(result.ok, false)
+  assert.equal(steps.at(-1), 'relaunch')
+  assert.ok(!steps.includes('quit'))
+  assert.match(String(installNotes.written.at(-1)?.failureReason), /could not be started: EACCES/)
+  // The relaunch exits through app.exit, which still emits quit: no silent
+  // installer behind the app coming back, and the reason is kept.
+  const notesBefore = installNotes.written.length
+  quitHandlers.forEach((handler) => handler(0))
+  assert.equal(steps.filter((step) => step.startsWith('spawn')).length, 0)
+  assert.equal(installNotes.written.length, notesBefore)
+})
+
+test('an install under way cannot be moved to another channel', async () => {
+  const { s } = await windowsReady()
+  let release: () => void = () => undefined
+  s.setPrepareForInstall(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve
+      }),
+  )
+  const installing = s.quitAndInstall()
+  await settle()
+  assert.equal(s.getState().status, 'installing')
+  const switched = await s.setChannel('nightly')
+  assert.equal(switched.ok, false)
+  assert.equal(s.getChannel().channel, 'stable')
+  release()
+  assert.equal((await installing).ok, true)
+})
+
+test('the start after an update reports how it went, once', () => {
+  const installNotes = notes()
+  hoisted.app.version = '0.7.0'
+  installNotes.seed({
+    fromVersion: '0.5.2',
+    toVersion: '0.7.0',
+    startedAt: new Date().toISOString(),
+    platform: 'win32',
+    installDir: WIN_PER_USER,
+    requiresAdmin: false,
+  })
+  const s = service(memoryStore(), { installNotes: installNotes as never })
+  assert.deepEqual(s.getState().installOutcome, {
+    kind: 'updated',
+    version: '0.7.0',
+    fromVersion: '0.5.2',
+    message: null,
+  })
+  assert.ok(diagnostics.some((entry) => entry.title === 'Updated to 0.7.0'))
+  assert.equal(s.dismissInstallOutcome().installOutcome, null)
+  // Consumed: a second service (a second start) hears nothing.
+  assert.equal(service(memoryStore(), { installNotes: installNotes as never }).getState().installOutcome, null)
+})
+
+test('Windows, per user: Later then quit installs silently into the running installation', async () => {
+  const { installNotes } = await windowsReady()
+  assert.equal(hoisted.updater.autoInstallOnAppQuit, false, 'not electron-updater, which cannot pass the folder')
+  assert.equal(quitHandlers.length, 1)
+  quitHandlers[0]?.(0)
+  assert.deepEqual(steps, ['note', `spawn ${INSTALLER} --updated /S --wait-for-pid=4242 /D=${WIN_PER_USER}`])
+  assert.equal(installNotes.written[0]?.installDir, WIN_PER_USER)
+  // A quit with an error code installs nothing.
+  steps = []
+  const other = await windowsReady()
+  steps = []
+  quitHandlers.at(-1)?.(1)
+  assert.deepEqual(steps, [])
+  assert.equal(other.installNotes.written.length, 0)
+})
+
+test('Windows, all users: Later then quit installs nothing, rather than raise UAC after the app has gone', async () => {
+  const { installNotes } = await windowsReady({
+    target: { installDir: WIN_PROGRAM_FILES, perMachine: true, requiresAdmin: true },
+  })
+  quitHandlers.forEach((handler) => handler(0))
+  assert.deepEqual(steps, [])
+  assert.equal(installNotes.written.length, 0)
 })

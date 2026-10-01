@@ -14,6 +14,7 @@ import type {
   CliVersionAdvisory,
   CliVersionAdvisoryMap,
 } from '../shared/electron-api'
+import { LOCAL_HOST_ID, type ExecutionHostId } from '../shared/execution-host'
 import type { PluginManifest } from '../shared/plugin-manifest'
 import { compareSemver } from '../shared/semver'
 
@@ -107,6 +108,8 @@ export function chooseCliUpdateCommand(input: {
 }
 
 export type ResolveCliVersionAdvisoriesDeps = {
+  /** The machine the availability map was detected on; absent is this one. */
+  hostId?: ExecutionHostId
   getManifest: (cli: string) => PluginManifest | null | undefined
   fetchLatest?: (packageName: string, force: boolean) => Promise<string | null>
   now?: () => Date
@@ -116,6 +119,8 @@ export type ResolveCliVersionAdvisoriesDeps = {
 // One advisory per CLI in the availability map. Only an installed CLI with a
 // version and an npm package is asked about; everything else is `unknown`
 // with the update command still named, so Settings can offer Update either way.
+// A CLI that is not installed costs nothing here: no registry request, and the
+// map it comes from was read, not probed.
 export async function resolveCliVersionAdvisories(
   availability: Partial<Record<string, CliAvailability>>,
   deps: ResolveCliVersionAdvisoriesDeps,
@@ -123,6 +128,7 @@ export async function resolveCliVersionAdvisories(
   const fetchLatest = deps.fetchLatest ?? ((pkg, force) => fetchNpmLatestVersion(pkg, { force }))
   const now = deps.now ?? (() => new Date())
   const force = deps.force ?? false
+  const hostId = deps.hostId ?? LOCAL_HOST_ID
   const out: CliVersionAdvisoryMap = {}
   await Promise.all(
     Object.values(availability).map(async (entry) => {
@@ -135,6 +141,7 @@ export async function resolveCliVersionAdvisories(
         entry.installed && currentVersion && packageName ? await fetchLatest(packageName, force) : null
       out[entry.cli] = {
         cli: entry.cli,
+        hostId,
         status: entry.installed ? deriveCliVersionStatus(currentVersion, latestVersion) : 'unknown',
         currentVersion,
         latestVersion,

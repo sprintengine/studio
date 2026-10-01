@@ -48,10 +48,11 @@ test('WorkspaceSidebar.allChats', async () => {
   anyGlobal.ResizeObserver = NoopResizeObserver
   dom.window.ResizeObserver = NoopResizeObserver as unknown as typeof dom.window.ResizeObserver
 
+  let terminalAnswer: unknown[] = []
   domWindow.api = {
     platform: 'darwin',
     detectProjectLogo: async () => null,
-    terminalList: async () => [],
+    terminalList: async () => terminalAnswer,
     onTerminalSessionsDelta: () => () => {},
     getWorkspaceChangeSummary: async () => null,
     terminalKill: async () => {},
@@ -62,6 +63,7 @@ test('WorkspaceSidebar.allChats', async () => {
     const { act } = React
     const { createRoot } = await import('react-dom/client')
     const { default: WorkspaceSidebar } = await import('./WorkspaceSidebar')
+    const { refreshTerminalSessions } = await import('../../hooks/useTerminalSessions')
     const { useWorkspaceStore } = await import('../../store/workspaceStore')
     type SidebarProps = Parameters<typeof WorkspaceSidebar>[0]
     type Workspace = SidebarProps['workspaces'][number]
@@ -77,7 +79,22 @@ test('WorkspaceSidebar.allChats', async () => {
     // minute ago, but the person has not said anything there since yesterday, so
     // it must stay at the bottom rather than jump the row you were reaching for.
     const workspaces = [
-      workspace('w1', 'Alpha', '/repo/apples', { lastUserMessageAt: now - 3 * HOUR }),
+      workspace('w1', 'Alpha', '/repo/apples', {
+        lastUserMessageAt: now - 3 * HOUR,
+        // The chat tab the conversation line further down stands for.
+        layoutModel: {
+          global: {},
+          layout: {
+            type: 'row',
+            children: [
+              {
+                type: 'tabset',
+                children: [{ type: 'tab', component: 'agent', config: { agentId: 'conversation-agent' } }],
+              },
+            ],
+          },
+        },
+      }),
       workspace('w2', 'Bravo', '/repo/pears', {
         createdAt: now - 30 * HOUR,
         lastUserMessageAt: now - 26 * HOUR,
@@ -243,17 +260,14 @@ test('WorkspaceSidebar.allChats', async () => {
       // Order is the clock's here, so there is no order to drag a row into.
       assert.equal(rowFor('Bravo').getAttribute('draggable'), 'false', 'no drag-to-reorder in the stream')
 
-      // One shelf for the whole stream, not one per project.
+      // Resting chats are off the stream entirely (owner, 2026-09-28): no
+      // Settled shelf at its foot, and Delta is nowhere on the rail —
+      // Settings ▸ Settled chats is where it is found.
       const shelf = [...container.querySelectorAll<HTMLButtonElement>('button[aria-expanded]')].filter((button) =>
         button.textContent?.startsWith('Settled'),
       )
-      assert.equal(shelf.length, 1, 'one Settled shelf at the foot of the stream')
-      assert.match(shelf[0].textContent ?? '', /Settled\s*1/, 'holding the resting chats of every project')
-      act(() => {
-        shelf[0].click()
-      })
-      await settle()
-      assert.ok(rowNames().includes('Delta'), 'opening it shows them')
+      assert.equal(shelf.length, 0, 'no Settled shelf at the foot of the stream')
+      assert.equal(rowNames().includes('Delta'), false, 'and the resting chat is not drawn')
 
       // Back to the tree, and the headers come back.
       chooseView('projects')
@@ -265,6 +279,60 @@ test('WorkspaceSidebar.allChats', async () => {
       )
       assert.deepEqual(starredNames(), ['Echo'], 'and Echo is still only in Starred')
       assert.equal(streamOrFolderNames().includes('Echo'), false, 'not under apples')
+
+      // One chat can hold both a terminal agent and a conversation agent.
+      // Each has its own head and the conversation's line carries its phase.
+      terminalAnswer = [
+        {
+          sessionId: 'terminal-agent-1',
+          workspaceId: 'w1',
+          agentId: 'terminal-agent',
+          agentName: 'CLI agent',
+          kind: 'agent',
+          processAlive: true,
+          visible: true,
+          suspended: false,
+          reapExempt: false,
+          startedAt: now - MINUTE,
+          lastInputAt: now - MINUTE,
+          lastOutputAt: now - MINUTE,
+          lastVisibleAt: now,
+          exitedAt: null,
+          activity: { kind: 'working', since: now - MINUTE },
+          fileChanges: [],
+        },
+      ]
+      await act(async () => {
+        await refreshTerminalSessions()
+      })
+      act(() => {
+        root.render(
+          React.createElement(WorkspaceSidebar, {
+            ...props,
+            conversationSessions: [
+              {
+                sessionId: 'conversation-1',
+                workspaceId: 'w1',
+                agentId: 'conversation-agent',
+                providerId: 'claude-agent',
+                modelId: 'model-1',
+                status: 'awaiting_approval',
+                createdAt: now - MINUTE,
+                updatedAt: now,
+              },
+            ],
+            activityByWorkspaceId: { ...props.activityByWorkspaceId, w1: 'needs-input' },
+          }),
+        )
+      })
+      await settle()
+      const alpha = rowFor('Alpha')
+      assert.equal(alpha.querySelectorAll('[data-peek-session]').length, 2, 'one terminal and one chat head')
+      assert.ok(alpha.textContent?.includes('Needs approval'), 'the chat line states what is pending')
+      assert.ok(
+        alpha.querySelector('[aria-label="Claude Code chat"]'),
+        'the chat head wears the mark of the CLI it rides',
+      )
     } finally {
       act(() => {
         root.unmount()

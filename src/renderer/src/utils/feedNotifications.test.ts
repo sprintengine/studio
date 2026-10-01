@@ -68,19 +68,20 @@ test('feedNotifications', async () => {
     null,
   )
 
+  const codexBehind = {
+    cli: 'codex',
+    hostId: 'local' as const,
+    status: 'behind_latest' as const,
+    currentVersion: '0.153.2',
+    latestVersion: '0.153.3',
+    updateCommand: null,
+    checkedAt: '',
+  }
+  assert.deepEqual(cliUpdateNotice(codexBehind, displayName), { title: 'Update available: Codex 0.153.3' })
   assert.deepEqual(
-    cliUpdateNotice(
-      {
-        cli: 'codex',
-        status: 'behind_latest',
-        currentVersion: '0.153.2',
-        latestVersion: '0.153.3',
-        updateCommand: null,
-        checkedAt: '',
-      },
-      displayName,
-    ),
-    { title: 'Update available: Codex 0.153.3' },
+    cliUpdateNotice({ ...codexBehind, hostId: 'wsl:Ubuntu' }, displayName, 'WSL: Ubuntu'),
+    { title: 'Update available: Codex 0.153.3 (WSL: Ubuntu)' },
+    'a WSL machine’s update names the machine',
   )
   assert.deepEqual(updateReadyNotice('Sprint Engine Studio', '0.4.0'), {
     title: 'Sprint Engine Studio 0.4.0 is ready',

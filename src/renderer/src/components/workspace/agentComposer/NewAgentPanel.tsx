@@ -1,16 +1,15 @@
 import React from 'react'
+import { AttachmentChip } from '../../ui/AttachmentChip'
 import type { AgentCli, CliPermissionPreset, WorkspaceSkill } from '../../../../../shared/electron-api'
 import type {
-  FleetBrowse,
-  FleetCheckoutRequest,
-  FleetConnection,
-  FleetWorkspace,
-  FleetWorkspaceCheckout,
-} from '../../../../../shared/tailnet-fleet'
-import type { TailnetScope } from '../../../../../shared/tailnet'
+  MeshBrowse,
+  MeshConnection,
+  MeshWorkspace,
+  MeshWorkspaceCheckout,
+} from '../../../../../shared/tailnet-mesh'
 import { sameRepository, type RepositoryIdentity } from '../../../../../shared/repository-identity'
 import { folderIdentityKey, useFolderRepositoryIdentities } from '../useFolderRepositoryIdentities'
-import { FolderTypeIcon, RemoteMachineGlyph, WslMachineGlyph } from '../../AppIcons'
+import { ExtensionsGlyph, FolderTypeIcon, RemoteMachineGlyph, ScheduleGlyph, WslMachineGlyph } from '../../AppIcons'
 import {
   hostIdForFolder,
   isWslHostId,
@@ -25,12 +24,15 @@ import { useProjectColor, useProjectColors } from '../../../hooks/useProjectColo
 import { projectColorKey, resolveProjectColor, type ProjectColor } from '../../../utils/projectColor'
 import { resolveSkillMentionPrefix, renderSkillMention } from '../../../../../shared/skill-invocation'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
-import { ATTACHABLE_IMAGE_TYPES } from '../../../../../shared/conversation-attachments'
 import {
-  dataTransferHasFiles,
-  filesFromDataTransfer,
+  dataTransferHasDroppableFiles,
   imageFilesFromDataTransfer,
+  pastedImagePaths,
+  pathlessDropMessage,
+  quotePromptPath as quotePath,
   readFileAsBase64,
+  readPastedImagePaths,
+  sortDroppedFiles,
 } from '../../../utils/imageFileTransfer'
 import { ComposerAttachmentStrip } from '../../panels/ComposerAttachmentStrip'
 import { basename } from '../../../utils/paths'
@@ -38,39 +40,35 @@ import { resolveWorkspaceWorktree } from '../../../utils/workspaceWorktree'
 import {
   CardButton,
   ChipButton,
-  CliModelPopoverSurface,
   CloseIconButton,
   COMPOSER_SURFACE_CLASS,
   FOCUS_RING_WITHIN_TEXTAREA_CLASS,
   MENU_DIVIDER_CLASS,
   MENU_LIST_CLASS,
   Input,
+  EmptyState,
+  GhostButton,
   InlineSkillPicker,
-  MenuItem,
+  LinkButton,
   MenuOption,
   Popover,
   PrimaryButton,
+  SegmentedControl,
   Textarea,
   StarGlyph,
   Tooltip,
-  TruncatedText,
+  useCliPermissionMode,
   useCliPermissionPreset,
   type InlineSkillPickerHandle,
 } from '../../ui'
 import { CheckIcon } from '../../AppIcons'
-import CliIcon from '../../CliIcon'
 import { ExtensionIcon } from '../../ui/ExtensionIcon'
 import { mcpIconSlug } from '../../ui/mcpIconSlug'
 import SprintEngineFrond from '../../brand/SprintEngineFrond'
 import { CliInstallCta } from '../cliInstallRoute'
-import {
-  agentPermissionOptions,
-  menuRadioRowKeyDown,
-  nearestRemotePermissionPreset,
-  REMOTE_PERMISSION_PRESETS,
-  REMOTE_PRESET_DISABLED_REASONS,
-} from './agentSpawnShared'
+import { menuRadioRowKeyDown } from './agentSpawnShared'
 import { SpawnPermissionFooter } from './spawnFooter'
+import { EnginePickerChip } from './enginePicker'
 import { ProjectScopePicker } from './ProjectScopePicker'
 import { remoteProjectOfWorkspace, remoteProjectsOf, type RemoteProject } from './remoteProjects'
 import { type ProjectCloneRequest, type ProjectCloneResult } from './ProjectSourceMenu'
@@ -79,7 +77,28 @@ import { showToast } from '../../../store/toastStore'
 import { SkillsAndMcpsPicker } from './SkillsAndMcpsPicker'
 import { launchCommandLineKey, launchPreviewRequest, type LaunchCommandLineState } from './launchCommandLine'
 import { drawSuggestions, newSuggestionSeed, type SuggestionEntry } from './suggestionBank'
-import { FEATURE_FLAGS } from '../../../featureFlags'
+import { WorktreeChip } from './WorktreeChip'
+import { FoldedControls, useMeasuredFold } from '../../ui/FoldedControls'
+import { ScheduleTray } from './schedule/SchedulePicker'
+import { ScheduledRuns } from './schedule/ScheduledRuns'
+import type { ScheduledRunEntry } from '../../../utils/scheduledAgentRuns'
+import { ExtensionNameChip } from './ExtensionNameChip'
+import { EXTENSION_IDEAS, EXTENSION_IDEAS_FIRST, type ExtensionIdea } from './extensionIdeas'
+import {
+  EXTENSION_BUILDER_SKILL_ID,
+  extensionIdProblem,
+  type ExtensionScaffoldTargetState,
+} from '../../../../../shared/extension-scaffold'
+import { ScheduleSlashPicker, type ScheduleSlashPickerHandle } from './schedule/ScheduleSlashPicker'
+import { localTimeZone } from './schedule/scheduleEditor'
+import { rememberSchedule } from './schedule/recentSchedules'
+import { selectModuleEnabled } from '../../../modules'
+import {
+  DEFAULT_SCHEDULED_AGENT_CRON,
+  type ScheduledAgentDraft,
+  type ScheduledAgentView,
+} from '../../../../../shared/scheduled-agents'
+import { CONVERSATION_DEFAULT_MODEL_ID, conversationProviderForCli } from '../../../../../shared/conversation-harness'
 import {
   rowMatchesSelection,
   useAgentComposer,
@@ -97,6 +116,12 @@ export type NewAgentLaunch = AgentComposerConfirm & {
    * spawns into a workspace whose machine is already fixed).
    */
   hostId?: ExecutionHostId
+  /**
+   * Extension mode: the extension's name. The host makes `<project>/<id>` from
+   * the SDK's template first, and the chat starts in that folder rather than
+   * the project.
+   */
+  extension?: { id: string }
 }
 
 /** One choosable project scope: a folder some open workspace lives in. */
@@ -104,16 +129,11 @@ export type NewAgentProjectOption = { path: string; label: string }
 
 export type NewAgentPanelProps = {
   workspaceId: string
-  /** Development gate for the unfinished conversation runtime. */
+  /** Development gate for the chat agent runtime. */
   conversationModeEnabled?: boolean
-  conversationAvailable: boolean
-  /**
-   * Ask the host to load the conversation provider catalog. `conversationAvailable`
-   * stays false until it has, so a surface that never asks can never offer the
-   * row — which is exactly what happened while the catalog was loaded by the top
-   * bar's menu alone.
-   */
-  onRequestConversationCatalog?: () => void
+  /** False where the workspace cannot host a chat agent (a module's workspace type). */
+  conversationWorkspaceSupported?: boolean
+  forceSelection?: AgentComposerSelection | null
   /**
    * Where this launch lands when it is NOT the active workspace's own folder —
    * the New chat door, which creates a solo workspace in a project you pick. The
@@ -128,8 +148,6 @@ export type NewAgentPanelProps = {
   /** The app-wide default a model row nobody has set still resolves to; the
    *  picker's footer writes per-row, so this is a fallback, never what it edits. */
   permissionPreset: CliPermissionPreset
-  debugMode: boolean
-  onChangeDebugMode: (next: boolean) => void
   /** Host performs the spawn and retypes this tab into the agent's terminal. */
   onLaunch: (launch: NewAgentLaunch) => void
   /** MCP servers picked before the panel opened (a connector's own "New chat"); still removable. */
@@ -143,10 +161,10 @@ export type NewAgentPanelProps = {
    */
   showCloseButton?: boolean
   /**
-   * Door-only (remote-sessions-ux / new-chat-on-a-remote-machine): start the
-   * chat on a paired machine instead of this one. Present = the panel offers
-   * the machine dropdown (This device first, paired machines after — one
-   * dropdown, no separate Local/Remote switch; owner ruling 2026-09-03) and
+   * Door-only (remote-sessions-ux / new-chat-on-a-remote-machine): start a
+   * chat agent on a paired machine instead of this one. Present = the panel
+   * offers the machine dropdown (This device first, paired machines after —
+   * one dropdown, no separate Local/Remote switch; owner ruling 2026-09-03) and
    * routes a remote launch here instead of `onLaunch`.
    */
   onLaunchRemote?: (launch: RemoteNewChatLaunch) => Promise<void>
@@ -166,9 +184,39 @@ export type NewAgentPanelProps = {
    * passes none and keeps its per-tab state.
    */
   draftKey?: string
+  /**
+   * Door-only: open switched to Scheduled agent (the clock beside New chat).
+   * The switch itself is offered wherever the door is and the Scheduled
+   * agents module is on.
+   */
+  initialMode?: NewAgentPanelMode
+  /**
+   * Door-only: the scheduled agent this panel edits, opened from its row in
+   * the sidebar's Scheduled section. The panel opens on its prompt, schedule, machine, engine, skills,
+   * MCP servers and worktree, and its primary action saves rather than
+   * creates. Absent, the panel creates.
+   */
+  editingScheduledAgent?: ScheduledAgentView | null
+  /** Told once a scheduled agent was created or saved, with the record main returned. */
+  onScheduled?: (agent: ScheduledAgentView) => void
+  /** The edited scheduled agent's recent runs, newest first: the chats its runs started. */
+  scheduledRuns?: readonly ScheduledRunEntry[]
+  /** Open one of those runs' chats. */
+  onOpenScheduledRun?: (workspaceId: string) => void
 }
 
-/** What a remote launch carries: the target, and the launch identity. */
+/**
+ * What the door starts: a chat now, a scheduled agent that starts one each
+ * time its schedule comes round, or an extension — a new project made inside
+ * the chosen one, and a chat in it with the extension-builder skill.
+ */
+export type NewAgentPanelMode = 'chat' | 'scheduled' | 'extension'
+
+/**
+ * What a remote launch carries: the target, and the launch identity. It is
+ * always a chat agent, which runs in that machine's conversation runtime and is
+ * followed from here; terminals do not cross the tailnet.
+ */
 export type RemoteNewChatLaunch = {
   connectionId: string
   machineName: string
@@ -180,16 +228,7 @@ export type RemoteNewChatLaunch = {
   cli?: AgentCli
   cliModel?: string | null
   permissionPreset: CliPermissionPreset
-  /**
-   * Where the chat runs there (checkout-and-branch-on-remote-create): the
-   * workspace's current checkout, or a fresh worktree branched from `baseRef`.
-   */
-  checkout: FleetCheckoutRequest
-  /**
-   * The branch the chat is on, as far as the panel knows before the create:
-   * the remote's current branch for its checkout; for a worktree the branch
-   * is minted there and comes back with the create instead.
-   */
+  /** The branch the workspace's checkout is on over there, as the panel read it before the create. */
   branch: string | null
   /** Which repository the remote workspace is, as its machine served it (one-project-across-machines). */
   remoteRepository: RepositoryIdentity | null
@@ -204,15 +243,15 @@ export type RemoteNewChatLaunch = {
 export type MachineAvailability =
   | { state: 'none' }
   | { state: 'loading' }
-  | { state: 'has'; workspace: FleetWorkspace }
+  | { state: 'has'; workspace: MeshWorkspace }
   | { state: 'lacks'; reason: string }
   | { state: 'unreachable'; reason: string }
 
 /** A machine's last browse, stamped so a stale or failed one is asked again. */
-type MachineBrowseEntry = 'loading' | { browse: FleetBrowse; at: number }
+type MachineBrowseEntry = 'loading' | { browse: MeshBrowse; at: number }
 const MACHINE_BROWSE_HOLD_MS = 30_000
 
-function browseOf(entry: MachineBrowseEntry | undefined): FleetBrowse | 'loading' | undefined {
+function browseOf(entry: MachineBrowseEntry | undefined): MeshBrowse | 'loading' | undefined {
   return entry === 'loading' || entry === undefined ? entry : entry.browse
 }
 
@@ -223,7 +262,7 @@ function machineBrowseStale(entry: MachineBrowseEntry | undefined, now = Date.no
 }
 
 /** Which of a machine's workspaces is the repository in hand, if any. */
-export function machineCopyOf(browse: FleetBrowse, identity: RepositoryIdentity | null): FleetWorkspace | null {
+export function machineCopyOf(browse: MeshBrowse, identity: RepositoryIdentity | null): MeshWorkspace | null {
   if (!identity) return null
   const copies = browse.workspaces.filter((workspace) => sameRepository(workspace.repository, identity))
   // A plain checkout over a worktree of the same repository (its worktrees
@@ -235,8 +274,8 @@ export function machineCopyOf(browse: FleetBrowse, identity: RepositoryIdentity 
 }
 
 export function machineAvailabilityOf(
-  machine: FleetConnection,
-  browse: FleetBrowse | 'loading' | undefined,
+  machine: MeshConnection,
+  browse: MeshBrowse | 'loading' | undefined,
   identity: RepositoryIdentity | null,
 ): MachineAvailability {
   if (!identity) return { state: 'none' }
@@ -257,59 +296,15 @@ export function machineAvailabilityOf(
 }
 
 type RemoteTargetState = {
-  connection: FleetConnection
+  connection: MeshConnection
   /** What `workspace.list` served: the machine's open CHATS, not its projects. */
-  workspaces: FleetWorkspace[] | null
+  workspaces: MeshWorkspace[] | null
   /** Those chats folded into the folders they stand in — the list the chip offers. */
   projects: RemoteProject[] | null
   error: string | null
   picked: RemoteProject | null
-  /** The scopes the machine reports NOW (the browse refreshes them), for the worktree gate. */
-  scopes: TailnetScope[]
-  /** The picked project's checkout facts; null until read, or unreadable (see `checkoutError`). */
-  checkout: FleetWorkspaceCheckout | null
-  checkoutError: string | null
-}
-
-/**
- * Why a fresh worktree cannot be asked for on this target, or null when it
- * can. A worktree is minted by `agent.launch`, which the gateway serves on
- * `workspace:operate` — a pairing without it is refused there, so the option
- * dims here with that reason rather than letting a launch travel to a refusal.
- */
-export function remoteWorktreeDisabledReason(target: {
-  connection: { machineName: string }
-  scopes: readonly TailnetScope[]
-  checkout: FleetWorkspaceCheckout | null
-  checkoutError: string | null
-}): string | null {
-  if (!target.scopes.includes('workspace:operate')) {
-    return `This pairing may not create worktrees on ${target.connection.machineName} — it needs the workspace:operate scope.`
-  }
-  if (target.checkoutError) return target.checkoutError
-  // Not yet read is not yet allowed: the base to fork from comes off this
-  // read, and a remote whose build predates `workspace.checkout` fails it —
-  // which is exactly the build whose agent.launch would ignore the base ref.
-  if (!target.checkout) return `Reading the checkout on ${target.connection.machineName}…`
-  if (!target.checkout.git) return `That project is not a git repository on ${target.connection.machineName}.`
-  if (!effectiveBaseRefOf(target.checkout)) return `No branch to fork from on ${target.connection.machineName}.`
-  return null
-}
-
-/**
- * The base ref a remote worktree launch forks from: the checkout's own branch,
- * else the trunk. Null when the remote has nothing to fork from (a detached
- * checkout with no trunk), which is a disabled worktree row rather than a fork
- * of an arbitrary commit.
- *
- * It took a `picked` override until 2026-09-11, when the scope line's base-ref
- * picker went with the rest of the duplicated worktree controls. A remote fork
- * now starts where the project stands over there — the same promise the local
- * worktree row makes about this disk — so there is nothing to override with.
- */
-function effectiveBaseRefOf(checkout: FleetWorkspaceCheckout | null): string | null {
-  if (!checkout?.git) return null
-  return checkout.branch ?? checkout.defaultBranch ?? null
+  /** The picked project's checkout facts, for the branch the launch names; null until read, or unreadable. */
+  checkout: MeshWorkspaceCheckout | null
 }
 
 // The greeting rotates per tab open. No exclamation marks and no "we" (the copy
@@ -351,9 +346,25 @@ export function defaultNewChatHostId(
 
 // This device first, then paired machines alphabetically — a list that
 // reorders as pairings come and go is one nobody can learn.
-export function sortMachines(machines: FleetConnection[]): FleetConnection[] {
+export function sortMachines(machines: MeshConnection[]): MeshConnection[] {
   return [...machines].sort((a, b) => a.machineName.localeCompare(b.machineName, undefined, { sensitivity: 'base' }))
 }
+
+// A scheduled agent keeps its skills by id and name; the composer's chips
+// want the skill as the inventory lists it, and the id and name are what they
+// show and what the run attaches.
+function scheduledSkill(skill: { id: string; name: string }): WorkspaceSkill {
+  return { id: skill.id, name: skill.name, source: 'custom', harnesses: [], installState: 'installed' }
+}
+
+// The skill an extension's chat opens with, as its chip shows it. Removing the
+// chip is how the door goes back to a plain New chat.
+const NO_SCHEDULED_RUNS: readonly ScheduledRunEntry[] = []
+
+const EXTENSION_BUILDER_CHIP = scheduledSkill({ id: EXTENSION_BUILDER_SKILL_ID, name: 'extension-builder' })
+
+// `/schedule` at the end of the prompt, and whatever follows it on that line.
+const SCHEDULE_COMMAND = /(?:^|\s)\/schedule(?:[ \t]+([^\n]*))?$/u
 
 /**
  * The launch surface behind the tab strip's "+" (v2).
@@ -370,19 +381,21 @@ export function sortMachines(machines: FleetConnection[]): FleetConnection[] {
  * Nothing here creates anything: `onLaunch` hands the host a confirm plus the
  * prompt, and the host retypes this tab into the agent's terminal.
  */
+// The width below which the launch row folds worktree and skills: the model
+// chip, worktree, skills, ⋯ and Start side by side at typical label widths.
+const LAUNCH_ROW_FOLD_WIDTH = 520
+
 export default function NewAgentPanel({
   workspaceId,
-  conversationModeEnabled = FEATURE_FLAGS.conversationMode,
-  conversationAvailable,
-  onRequestConversationCatalog,
+  conversationModeEnabled = true,
+  conversationWorkspaceSupported = true,
+  forceSelection,
   folderPath,
   projectOptions,
   onSelectProject,
   onBrowseProject,
   initialSelection,
   permissionPreset,
-  debugMode,
-  onChangeDebugMode,
   onLaunch,
   initialMcpServers,
   onClose,
@@ -390,11 +403,27 @@ export default function NewAgentPanel({
   onLaunchRemote,
   onCloneProject,
   draftKey,
+  initialMode = 'chat',
+  editingScheduledAgent = null,
+  onScheduled,
+  scheduledRuns = NO_SCHEDULED_RUNS,
+  onOpenScheduledRun,
 }: NewAgentPanelProps) {
   // The parked draft, read once at mount: what the door held when the person
   // last stepped off it. An explicit connector attachment leads the draft's
   // own picks (a connector "New chat" over a parked draft adds, never doubles).
   const [draft] = React.useState(() => (draftKey ? readNewChatDraft(draftKey) : null))
+  // A scheduled agent being edited opens on everything it was made with, and
+  // stays a scheduled agent: there is no switching it to a chat.
+  const editing = editingScheduledAgent
+  const [mode, setMode] = React.useState<NewAgentPanelMode>(editing ? 'scheduled' : initialMode)
+  const extensionMode = mode === 'extension'
+  const [cron, setCron] = React.useState(() => editing?.schedule.cron ?? DEFAULT_SCHEDULED_AGENT_CRON)
+  // Written in this computer's zone: the scheduler runs here, on its clock.
+  const [scheduleTimezone] = React.useState(() => editing?.schedule.timezone ?? localTimeZone())
+  const scheduledAgentsEnabled = useWorkspaceStore((s) =>
+    selectModuleEnabled(s.appSettings.modules, 'scheduled-agents'),
+  )
   // The machines on THIS computer (this one, and the WSL distributions turned
   // on in Settings ▸ Machines). Offered only where a launch creates its
   // workspace — the door — because a workspace's machine is fixed once it
@@ -402,7 +431,9 @@ export default function NewAgentPanel({
   const hostChoosable = Boolean(onBrowseProject || onSelectProject)
   const { listing: hostListing } = useExecutionHosts()
   const localHosts: ExecutionHostSummary[] = hostChoosable ? (hostListing?.hosts ?? []) : []
-  const [pickedHostId, setPickedHostId] = React.useState<ExecutionHostId | null>(() => lastPickedHostId)
+  const [pickedHostId, setPickedHostId] = React.useState<ExecutionHostId | null>(() =>
+    editing ? editing.hostId : lastPickedHostId,
+  )
   const scopeFolder = folderPath !== undefined ? folderPath : null
   // A remembered pick counts only while that machine is still offered: one
   // turned off in Settings, or gone from WSL, falls back to this machine
@@ -461,17 +492,33 @@ export default function NewAgentPanel({
       ? { availability: { map: hostAvailability.map, status: hostAvailability.status } }
       : {}),
     showTerminal: true,
-    conversationAvailable: conversationModeEnabled && conversationAvailable,
-    initialSelection: draft?.selection ?? initialSelection,
-    initialMcpServers: draft ? mergeDraftConnectors(initialMcpServers, draft.mcpServers) : initialMcpServers,
-    initialSkills: draft?.skills,
+    conversationAvailable: conversationModeEnabled,
+    // A scheduled agent's runs are chats: a terminal needs someone at it. An
+    // extension is built in a chat too, with its skill attached.
+    initialSelection:
+      editing || initialMode === 'scheduled' || initialMode === 'extension'
+        ? { kind: 'conversation' }
+        : (forceSelection ?? draft?.selection ?? initialSelection),
+    initialMcpServers: editing
+      ? editing.mcpServers
+      : draft
+        ? mergeDraftConnectors(initialMcpServers, draft.mcpServers)
+        : initialMcpServers,
+    initialSkills: editing
+      ? editing.skills.map(scheduledSkill)
+      : initialMode === 'extension'
+        ? [EXTENSION_BUILDER_CHIP]
+        : draft?.skills,
+    initialWorktreeName: editing ? (editing.worktree?.name ?? null) : null,
     // The engine a parked draft was made on, when whoever made it stored none —
     // a card's `Go` picker, which must not move this door's remembered engine
     // on its way past (item 2473). The panel opens standing on that row and
     // launches it; the first row picked here retires it.
-    initialEngine: draft?.engine ?? null,
+    initialEngine: editing ? { cli: editing.cli, model: editing.cliModel, reasoning: null } : (draft?.engine ?? null),
   })
   const { selection } = composer
+  const setLastNewChatAgent = useWorkspaceStore((s) => s.setLastNewChatAgent)
+  const isChatLaunch = selection.kind === 'conversation'
 
   const activeWorkspaceRoot = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null,
@@ -485,9 +532,17 @@ export default function NewAgentPanel({
   React.useEffect(() => {
     if (pickedForRoot.current === workspaceRoot) return
     pickedForRoot.current = workspaceRoot
-    composer.setSkills([])
+    // The builder skill is not a pick: the scaffold puts it in the new
+    // project, wherever that is, so it stays with the extension.
+    composer.setSkills(extensionMode ? [EXTENSION_BUILDER_CHIP] : [])
     composer.setMcpServers([])
-  }, [composer, workspaceRoot])
+  }, [composer, extensionMode, workspaceRoot])
+  // Removing the builder chip is leaving extension mode: the door is a plain
+  // New chat again, with the project it was on.
+  const builderAttached = composer.skills.some((skill) => skill.id === EXTENSION_BUILDER_SKILL_ID)
+  React.useEffect(() => {
+    if (extensionMode && !builderAttached) setMode('chat')
+  }, [builderAttached, extensionMode])
   // The PROJECT, not the workspace: a solo-chat workspace is called things like
   // "new chat panel", which says nothing about where the agent will run. The
   // folder it opens in is the fact worth showing, so a wrong-project spawn is
@@ -506,37 +561,38 @@ export default function NewAgentPanel({
   // The machine dimension (remote-sessions-ux / new-chat-on-a-remote-machine).
   // One dropdown: This device is the default entry, paired machines follow. A
   // remote target swaps the project choice for the machine's own workspaces
-  // (fetched over the audited fleet client) and routes the launch remotely.
-  // Terminal and conversation launches are this machine's only — picking
-  // either resets the target rather than lying about where they would run.
-  const [remoteMachines, setRemoteMachines] = React.useState<FleetConnection[]>([])
+  // (fetched over the audited mesh client) and routes the launch remotely.
+  // What runs there is always a chat agent, in that machine's own conversation
+  // runtime, followed from here: terminals do not cross the tailnet, so a
+  // terminal agent or a bare terminal is this machine's only. Picking a machine
+  // turns the launch into a chat; picking Agent or Terminal after that returns
+  // it to This device rather than lying about where it would run.
+  const [remoteMachines, setRemoteMachines] = React.useState<MeshConnection[]>([])
   const [remoteTarget, setRemoteTarget] = React.useState<RemoteTargetState | null>(null)
   // What each paired machine holds, read once per machine per door open
   // (one-project-across-machines): the machine dropdown says which machines
   // have the project in hand, and a pick that keeps the project reads its
   // workspace off this rather than asking the machine again.
   const [machineBrowses, setMachineBrowses] = React.useState<Map<string, MachineBrowseEntry>>(() => new Map())
-  const browseMachine = React.useCallback((connection: FleetConnection): Promise<FleetBrowse> => {
+  const browseMachine = React.useCallback((connection: MeshConnection): Promise<MeshBrowse> => {
     setMachineBrowses((current) => {
       const existing = current.get(connection.id)
       return existing && existing !== 'loading' ? current : new Map(current).set(connection.id, 'loading')
     })
     return window.api
-      .fleetBrowse(connection.id)
+      .meshBrowse(connection.id)
       .then((browse) => {
         setMachineBrowses((current) => new Map(current).set(connection.id, { browse, at: Date.now() }))
         return browse
       })
       .catch((error: unknown) => {
-        const failed: FleetBrowse = {
+        const failed: MeshBrowse = {
           connectionId: connection.id,
           reachable: false,
           unreachableReason: error instanceof Error ? error.message : String(error),
           unauthorized: false,
           scopes: connection.scopes,
-          terminalAccess: 'none',
           workspaces: [],
-          terminals: [],
           gaps: [],
         }
         setMachineBrowses((current) => new Map(current).set(connection.id, { browse: failed, at: Date.now() }))
@@ -552,9 +608,6 @@ export default function NewAgentPanel({
   // another machine, and a second Enter during that window must read as
   // "starting", never as a second agent.
   const [remoteLaunching, setRemoteLaunching] = React.useState(false)
-  // A note the panel writes when it moves a choice on the person's behalf —
-  // a preset the remote cannot take, say. Shown under the box, not toasted.
-  const [remoteNote, setRemoteNote] = React.useState<string | null>(null)
   const remoteCapable = Boolean(onLaunchRemote)
   // The remembered machine is applied once, when the list first arrives.
   const rememberedApplied = React.useRef(false)
@@ -563,7 +616,7 @@ export default function NewAgentPanel({
     let cancelled = false
     const load = (): void => {
       void window.api
-        .fleetListConnections()
+        .meshListConnections()
         .then((connections) => {
           if (cancelled) return
           const sorted = sortMachines(connections)
@@ -579,8 +632,8 @@ export default function NewAgentPanel({
     load()
     // A machine paired or forgotten while the door is open shows up live.
     const unsubscribe =
-      typeof window.api.onFleetEvent === 'function'
-        ? window.api.onFleetEvent((event) => {
+      typeof window.api.onMeshEvent === 'function'
+        ? window.api.onMeshEvent((event) => {
             if (event.kind === 'machine-paired' || event.kind === 'machine-forgotten') load()
           })
         : null
@@ -589,10 +642,26 @@ export default function NewAgentPanel({
       unsubscribe?.()
     }
   }, [remoteCapable])
-  const remoteSelectable = remoteCapable && selection.kind !== 'terminal' && selection.kind !== 'conversation'
+  // Chat agent is offered only where the workspace can host one; without it
+  // there is nothing a paired machine could run for this launch.
+  const chatAvailable =
+    conversationWorkspaceSupported && composer.visibleRows.some((row) => row.kind === 'conversation')
+  const remoteSelectable = remoteCapable && chatAvailable && selection.kind !== 'terminal'
+  // Scheduling is the door's, and needs a chat to start: a run happens with
+  // nobody at it, which a terminal cannot do.
+  const scheduleOffered = hostChoosable && scheduledAgentsEnabled && chatAvailable && !extensionMode
+  const scheduled = mode === 'scheduled' && (scheduleOffered || editing !== null)
+  // Both run as a chat: a scheduled agent's runs have nobody at them, and an
+  // extension is built with its skill in a conversation.
+  const chatOnly = scheduled || extensionMode
   React.useEffect(() => {
-    if (!remoteSelectable) setRemoteTarget(null)
-  }, [remoteSelectable])
+    if (chatOnly && composer.selection.kind !== 'conversation') composer.setSelection({ kind: 'conversation' })
+  }, [composer, chatOnly])
+  // An extension is made on this computer: the scaffold writes to its disk.
+  const remoteChosenAway = !remoteSelectable || selection.kind !== 'conversation' || chatOnly
+  React.useEffect(() => {
+    if (remoteChosenAway) setRemoteTarget(null)
+  }, [remoteChosenAway])
   // The project in hand, as an identity the next machine can be searched for:
   // the local folder's repository, or the remote project's as its machine
   // served it. Null when nothing is chosen or the folder has no remote.
@@ -646,7 +715,7 @@ export default function NewAgentPanel({
   const localIdentityRead = !workspaceRoot?.trim() || localIdentities.has(folderIdentityKey(workspaceRoot))
   const scopeProjectColor = useProjectColor(remoteTarget || localIdentityRead ? scopeProjectKey : null)
   const pickRemoteMachine = (
-    connection: FleetConnection | null,
+    connection: MeshConnection | null,
     keep: RepositoryIdentity | null = activeIdentity,
   ): void => {
     lastPickedMachineId = connection?.id ?? null
@@ -669,15 +738,17 @@ export default function NewAgentPanel({
       setRemoteTarget(null)
       return
     }
+    // A paired machine runs chat agents only, so choosing one is choosing a
+    // chat — and where no chat can be hosted, there is nothing to choose.
+    if (!chatAvailable) return
+    if (composer.selection.kind !== 'conversation') composer.setSelection({ kind: 'conversation' })
     setRemoteTarget({
       connection,
       workspaces: null,
       projects: null,
       error: null,
       picked: null,
-      scopes: connection.scopes,
       checkout: null,
-      checkoutError: null,
     })
     void browseMachine(connection).then((browse) => {
       setRemoteTarget((current) => {
@@ -700,7 +771,7 @@ export default function NewAgentPanel({
         }
         // A gap is a DIFFERENT statement from an empty list: a pairing
         // without workspace:read genuinely cannot list workspaces, and
-        // "no workspaces on that machine" would be false (the FleetGap
+        // "no workspaces on that machine" would be false (the MeshGap
         // contract). Say the real reason instead.
         const workspaceGap = browse.gaps.find((gap) => gap.part === 'workspaces')
         if (browse.workspaces.length === 0 && workspaceGap) {
@@ -721,7 +792,6 @@ export default function NewAgentPanel({
         const kept = copy ? remoteProjectOfWorkspace(projects, browse.workspaces, copy.id) : null
         return {
           ...current,
-          scopes: browse.scopes,
           workspaces: browse.workspaces,
           projects,
           // A choice already made meanwhile is never overwritten by a late answer.
@@ -732,20 +802,11 @@ export default function NewAgentPanel({
   }
   const pickRemoteMachineRef = React.useRef(pickRemoteMachine)
   pickRemoteMachineRef.current = pickRemoteMachine
-  // A remote target takes exactly what its gateway accepts (manual, auto).
-  // The moment one is picked, a preset it would refuse — or silently replace
-  // with the other machine's default — launches as the nearest supported one
-  // and says so; the unsupported rows stay listed, dimmed, with the reason.
-  const remotePresetReasons = remoteTarget ? REMOTE_PRESET_DISABLED_REASONS : undefined
-  const remoteMachineName = remoteTarget?.connection.machineName ?? null
-  React.useEffect(() => {
-    if (!remoteTarget) setRemoteNote(null)
-  }, [remoteTarget])
   // The picked project's checkout facts (checkout-and-branch-on-remote-create),
   // read over `workspace.checkout` the moment a project is chosen — keyed on
   // the machine and the project, so a re-pick re-reads and a browse settling
-  // does not. A refusal (a read-only pairing, a machine gone quiet) is kept
-  // as the reason the worktree option dims with, never as an empty branch list.
+  // does not. A refusal (a read-only pairing, a machine gone quiet) leaves the
+  // branch unnamed rather than guessed.
   const remoteConnectionId = remoteTarget?.connection.id ?? null
   // `workspace.checkout` is keyed by workspace id, and a project's seat is one
   // of the chats standing in it — every chat in a folder answers for the folder.
@@ -754,33 +815,20 @@ export default function NewAgentPanel({
     if (!remoteConnectionId || !remotePickedId) return
     let cancelled = false
     void window.api
-      .fleetWorkspaceCheckout(remoteConnectionId, remotePickedId)
+      .meshWorkspaceCheckout(remoteConnectionId, remotePickedId)
       .then((result) => {
         if (cancelled) return
         setRemoteTarget((current) => {
           if (current?.connection.id !== remoteConnectionId || current.picked?.workspaceId !== remotePickedId)
             return current
-          if (!result.ok) return { ...current, checkout: null, checkoutError: result.message }
-          return { ...current, checkout: result.checkout, checkoutError: null }
+          return { ...current, checkout: result.ok ? result.checkout : null }
         })
       })
-      .catch((error: unknown) => {
-        if (cancelled) return
-        setRemoteTarget((current) =>
-          current?.connection.id === remoteConnectionId && current.picked?.workspaceId === remotePickedId
-            ? { ...current, checkout: null, checkoutError: error instanceof Error ? error.message : String(error) }
-            : current,
-        )
-      })
+      .catch(() => {})
     return () => {
       cancelled = true
     }
   }, [remoteConnectionId, remotePickedId])
-  // The ⋯ worktree row is the ONLY worktree control now, local or remote
-  // (owner, 2026-09-11), so picking a machine no longer clears it. A worktree
-  // asked for on a remote target travels as `FleetCheckoutRequest.name` — the
-  // same branch name the local spawn mints its worktree on — and the gate
-  // below is what stops one being asked for where the pairing cannot make it.
   const activeBranch = useWorkspaceStore((s) => {
     const ws = s.workspaces.find((w) => w.id === workspaceId)
     return ws ? (resolveWorkspaceWorktree(ws)?.branch ?? null) : null
@@ -791,11 +839,13 @@ export default function NewAgentPanel({
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const displayName = useWorkspaceStore((s) => s.authState.user?.displayName ?? null)
-  const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
 
-  const [prompt, setPrompt] = React.useState(() => draft?.prompt ?? '')
+  const [prompt, setPrompt] = React.useState(() => editing?.prompt ?? draft?.prompt ?? '')
   const [enginePopoverOpen, setEnginePopoverOpen] = React.useState(false)
   const [moreOpen, setMoreOpen] = React.useState(false)
+  // Below its budget the launch row folds worktree and skills behind one
+  // chevron rather than wrapping onto a second line (owner ruling 2026-10-01).
+  const [launchRowFolded, launchRowRef] = useMeasuredFold(LAUNCH_ROW_FOLD_WIDTH)
   const [workspaceIsGitRepo, setWorkspaceIsGitRepo] = React.useState(false)
   const [seed] = React.useState(() => newSuggestionSeed())
   const promptRef = React.useRef<HTMLTextAreaElement>(null)
@@ -838,18 +888,21 @@ export default function NewAgentPanel({
     promptRef.current?.focus()
   }
 
+  // A drop, whatever it carries: every file with a path is typed as its path,
+  // the way a drop onto a terminal would be; images attach; a file with no path
+  // and no image to read is refused with a message rather than swallowed.
+  const dropFiles = (data: DataTransfer) => {
+    const { paths, images, pathless } = sortDroppedFiles(data, true)
+    for (const path of paths) insertPromptPath(path)
+    if (images.length > 0) void attachDroppedFiles(images)
+    else setAttachNote(pathless.length > 0 ? pathlessDropMessage(pathless) : null)
+    promptRef.current?.focus()
+  }
+
   const attachDroppedFiles = async (files: File[]) => {
     setAttachNote(null)
     for (const file of files) {
       const existingPath = window.api.getPathForFile(file)
-      const isImage = (ATTACHABLE_IMAGE_TYPES as readonly string[]).includes(file.type)
-      // A non-image with a path is a path: it goes into the prompt as text, the
-      // way a drop onto a terminal would. One with no path falls through to the
-      // save, which refuses it with a message rather than silently swallowing it.
-      if (existingPath && !isImage) {
-        insertPromptPath(existingPath)
-        continue
-      }
       setAttachingCount((count) => count + 1)
       try {
         const { mediaType, dataBase64 } = await readFileAsBase64(file)
@@ -875,6 +928,29 @@ export default function NewAgentPanel({
     promptRef.current?.focus()
   }
 
+  // A paste that is only paths to images outside the project attaches those
+  // images, read now: the file may be a screenshot's temporary copy the system
+  // clears minutes later, and the copy saved here is the one the prompt names
+  // at launch. One that cannot be read goes back in as the text it was, with
+  // the reason.
+  const attachPastedPaths = async (paths: string[], text: string, selectionStart: number, selectionEnd: number) => {
+    setAttachNote(null)
+    setAttachingCount((count) => count + paths.length)
+    let read: Awaited<ReturnType<typeof readPastedImagePaths>>
+    try {
+      read = await readPastedImagePaths(paths)
+    } finally {
+      setAttachingCount((count) => count - paths.length)
+    }
+    if (read.ok) {
+      await attachDroppedFiles(read.files)
+      return
+    }
+    setPrompt((current) => current.slice(0, selectionStart) + text + current.slice(selectionEnd))
+    setAttachNote(read.message)
+    promptRef.current?.focus()
+  }
+
   const removeImage = (id: string) => setImages((current) => current.filter((image) => image.id !== id))
 
   // The name is a greeting, not an identity claim: an email local-part reads
@@ -887,10 +963,17 @@ export default function NewAgentPanel({
   const [greetingIndex] = React.useState(() => Math.floor(Math.random() * GREETINGS.length))
   const greeting = GREETINGS[greetingIndex % GREETINGS.length](firstName)
 
-  // Neither a plain shell nor a conversation agent launches a CLI, so neither
-  // may wear a CLI's chip, its flags, or its command line.
-  const launchCli: AgentCli | null =
-    selection.kind === 'terminal' || selection.kind === 'conversation' ? null : composer.selectionCli
+  // A plain shell launches no CLI, so it wears no CLI chip. A chat agent is a
+  // CLI too — the same one, driven as a chat — so it wears the same chip and
+  // opens the same picker, with the rail narrowed to the CLIs that have a chat
+  // runtime (`composer.optionsFor`).
+  const launchCli: AgentCli | null = selection.kind === 'terminal' ? null : composer.selectionCli
+  const pickerOptions = composer.optionsFor(selection)
+  // No installed CLI can run as a chat: the Chat agent choice has nothing to
+  // start, and says so with the install route rather than a dead chip.
+  const chatUnavailable = isChatLaunch && composer.catalogStatus === 'ready' && pickerOptions.length === 0
+  // Only a terminal launch runs a command line, so only it has one to preview.
+  const commandCli: AgentCli | null = selection.kind === 'general' ? launchCli : null
   const engineNames = composer.engineNamesFor(selection)
   const model = launchCli ? composer.modelForSelection(selection, launchCli) : undefined
   const reasoning = launchCli ? composer.reasoningForSelection(selection, launchCli) : undefined
@@ -900,40 +983,55 @@ export default function NewAgentPanel({
   // app-wide default a CLI nobody has set still resolves to. A terminal or a
   // conversation has no CLI and no permission flag, so it simply reads the
   // fallback and shows no control.
-  const storedPreset = useCliPermissionPreset(launchCli, permissionPreset)
-  // A remote machine cannot take every preset, so a remote launch runs on the
-  // nearest one it accepts. The narrowing is derived, never written back: the
-  // stored value is what every local launch of this CLI reads, and picking a
-  // remote machine must not quietly take Bypass away from all of them.
-  // Everything the surface says about permissions — the chip, the command-line
-  // preview, what the launch carries — reads THIS, never the prop.
-  const effectivePreset = remoteMachineName ? nearestRemotePermissionPreset(storedPreset) : storedPreset
-  React.useEffect(() => {
-    // Keyed on the MACHINE, not the target object: the browse resolving
-    // replaces the object, and the note must be written once per pick.
-    if (!remoteMachineName) return
-    if (REMOTE_PERMISSION_PRESETS.has(storedPreset)) return
-    const next = nearestRemotePermissionPreset(storedPreset)
-    const from =
-      agentPermissionOptions(launchCli).find((option) => option.value === storedPreset)?.label ?? storedPreset
-    const to = agentPermissionOptions(launchCli).find((option) => option.value === next)?.label ?? next
-    setRemoteNote(`Switched permissions from ${from} to ${to}: ${from} is not available on ${remoteMachineName}.`)
-  }, [storedPreset, launchCli, remoteMachineName])
+  //
+  // A remote machine takes the same preset (owner ruling 2026-09-27: every
+  // surface may spawn in bypass), and it travels explicitly, so the agent over
+  // there runs on the choice this launcher shows rather than on that machine's
+  // own default. Everything the surface says about permissions — the chip, the
+  // command-line preview, what the launch carries — reads THIS, never the prop.
+  const effectivePreset = useCliPermissionPreset(launchCli, permissionPreset)
+  // The CLI's own mode chosen beside it (Claude Code's Accept edits), which the
+  // preview renders. A scheduled agent and a launch on another machine carry
+  // the preset alone, and run its own mode.
+  const effectiveMode = useCliPermissionMode(launchCli)
 
   // ── The skill trigger ────────────────────────────────────────────────────
+  // A chat carries skills as attachments rather than a typed invocation, so the
+  // CLI's mention syntax is a terminal launch's alone.
   const skillIntegration = React.useMemo(() => {
-    if (!launchCli) return undefined
-    return pluginCatalogEntries.find((entry) => entry.id === launchCli)?.skillIntegration
-  }, [launchCli, pluginCatalogEntries])
+    if (!commandCli) return undefined
+    return pluginCatalogEntries.find((entry) => entry.id === commandCli)?.skillIntegration
+  }, [commandCli, pluginCatalogEntries])
   const mentionPrefix = resolveSkillMentionPrefix(skillIntegration)
+
+  // `/schedule every weekday at 9`: the schedule said where the cursor is.
+  // Offered wherever scheduling is, from a chat launch too — picking a
+  // schedule is what switches the door to Scheduled agent.
+  const [slashDismissed, setSlashDismissed] = React.useState(false)
+  const slashRef = React.useRef<ScheduleSlashPickerHandle | null>(null)
+  const slashQuery = React.useMemo(() => {
+    if (!scheduleOffered || editing || slashDismissed) return null
+    const match = SCHEDULE_COMMAND.exec(prompt)
+    return match ? (match[1] ?? '') : null
+  }, [editing, prompt, scheduleOffered, slashDismissed])
+  // A dismissal holds for that `/schedule`, not for the next one typed.
+  React.useEffect(() => {
+    if (slashDismissed && !SCHEDULE_COMMAND.test(prompt)) setSlashDismissed(false)
+  }, [prompt, slashDismissed])
+  const applySlashSchedule = React.useCallback((picked: { cron: string }) => {
+    setPrompt((current) => current.replace(SCHEDULE_COMMAND, '').trimEnd())
+    setMode('scheduled')
+    setCron(picked.cron)
+    promptRef.current?.focus()
+  }, [])
 
   const [mentionDismissed, setMentionDismissed] = React.useState(false)
   const mentionRef = React.useRef<InlineSkillPickerHandle | null>(null)
   const mentionQuery = React.useMemo(() => {
-    if (!mentionPrefix || mentionDismissed) return null
+    if (!mentionPrefix || mentionDismissed || slashQuery !== null) return null
     const match = new RegExp(`(?:^|\\s)\\${mentionPrefix}([^\\s]*)$`).exec(prompt)
     return match ? match[1] : null
-  }, [mentionDismissed, mentionPrefix, prompt])
+  }, [mentionDismissed, mentionPrefix, prompt, slashQuery])
 
   const applySkillMention = (skill: WorkspaceSkill) => {
     const mention = renderSkillMention(skillIntegration, skill.id)
@@ -978,17 +1076,18 @@ export default function NewAgentPanel({
   const [commandLine, setCommandLine] = React.useState<LaunchCommandLineState>({ status: 'idle' })
   const previewInput = React.useMemo(
     () => ({
-      cli: launchCli,
+      cli: commandCli,
       model,
       reasoning,
       permissionPreset: effectivePreset,
-      runtime: launchCli
+      ...(effectiveMode ? { permissionMode: effectiveMode } : {}),
+      runtime: commandCli
         ? isWslHostId(hostId)
-          ? { command: hostSettings?.[hostId]?.cliCommands[launchCli] ?? '', hostId }
-          : cliRuntimes?.[launchCli]
+          ? { command: hostSettings?.[hostId]?.cliCommands[commandCli] ?? '', hostId }
+          : cliRuntimes?.[commandCli]
         : undefined,
     }),
-    [cliRuntimes, effectivePreset, hostId, hostSettings, launchCli, model, reasoning],
+    [cliRuntimes, commandCli, effectiveMode, effectivePreset, hostId, hostSettings, model, reasoning],
   )
   const previewKey = launchCommandLineKey(previewInput)
   React.useEffect(() => {
@@ -1020,59 +1119,195 @@ export default function NewAgentPanel({
   }, [previewKey])
 
   const suggestions = React.useMemo(() => drawSuggestions(seed), [seed])
-  const canLaunch = composer.visibleRows.some((row) => rowMatchesSelection(row, selection))
+
+  // ── Extension ─────────────────────────────────────────────────────────────
+  // The name is the folder made inside the project and the module id. What is
+  // at `<project>/<name>` is asked as it is typed, so a name already taken by
+  // something else is said before the press: an empty folder is filled, an
+  // extension there is carried on, anything else is never written over.
+  const [extensionName, setExtensionName] = React.useState('')
+  const [allIdeas, setAllIdeas] = React.useState(false)
+  const extensionNameProblem = extensionName === '' ? null : extensionIdProblem(extensionName)
+  const [extensionTarget, setExtensionTarget] = React.useState<{
+    key: string
+    state: ExtensionScaffoldTargetState
+  } | null>(null)
+  const extensionTargetKey =
+    extensionMode && workspaceRoot && extensionName && !extensionNameProblem
+      ? `${workspaceRoot}\u0000${extensionName}`
+      : null
+  React.useEffect(() => {
+    if (!extensionTargetKey || !workspaceRoot || typeof window.api.extensionScaffoldTarget !== 'function') return
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      void window.api
+        .extensionScaffoldTarget({ parentDir: workspaceRoot, id: extensionName })
+        .then((target) => {
+          if (!cancelled && target) setExtensionTarget({ key: extensionTargetKey, state: target.state })
+        })
+        .catch(() => undefined)
+    }, 150)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+    // extensionTargetKey is (workspaceRoot, extensionName); listing them too would ask twice.
+  }, [extensionTargetKey])
+  const extensionTargetState = extensionTarget?.key === extensionTargetKey ? extensionTarget.state : null
+  const extensionNote = extensionNameProblem
+    ? extensionNameProblem
+    : extensionTargetState === 'taken'
+      ? `${projectLabel ?? 'The project'} already has a ${extensionName} folder. Choose another name.`
+      : extensionTargetState === 'no_parent'
+        ? 'That project folder is not there any more. Choose another project.'
+        : null
+  // Everything the extension needs before ⏎: a project to make it in, a name
+  // that is free (or an extension to carry on), and something to build.
+  const extensionReady =
+    !extensionMode ||
+    (Boolean(workspaceRoot?.trim()) &&
+      extensionName !== '' &&
+      !extensionNameProblem &&
+      (extensionTargetState === 'free' || extensionTargetState === 'extension') &&
+      prompt.trim() !== '')
+  const pickIdea = (idea: ExtensionIdea): void => {
+    setPrompt(idea.prompt)
+    window.requestAnimationFrame(() => {
+      const field = promptRef.current
+      if (!field) return
+      field.focus()
+      field.setSelectionRange(idea.prompt.length, idea.prompt.length)
+    })
+  }
+  // Every chat runtime runs on a WSL machine as well as on this one, so the
+  // machine never keeps a chat from starting (owner ruling 2026-10-01).
+  const canLaunch =
+    composer.visibleRows.some((row) => rowMatchesSelection(row, selection)) &&
+    (!isChatLaunch || (conversationWorkspaceSupported && pickerOptions.length > 0))
+
+  // ── Scheduling ────────────────────────────────────────────────────────────
+  // What a scheduled agent is made of is exactly what this launch would start
+  // now — the machine, project, CLI, model, preset, skills, MCP servers and
+  // worktree on screen — plus the schedule in the tray. Main owns the list;
+  // the door closes on the card it lands as.
+  const [scheduleBusy, setScheduleBusy] = React.useState(false)
+  // Why the last run did not start, until the person has seen it here.
+  const [lastRunFailure, setLastRunFailure] = React.useState<string | null>(() =>
+    editing?.lastRun && !editing.lastRun.ok && (editing.lastFailureSeenAt ?? 0) < editing.lastRun.at
+      ? editing.lastRun.message
+      : null,
+  )
+  const editingId = editing?.id ?? null
+  React.useEffect(() => {
+    if (editingId && lastRunFailure) void window.api.markScheduledAgentFailureSeen(editingId).catch(() => {})
+    // Once, on open: seeing it here is what the card's "Failed" was waiting for.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingId])
+
+  const schedule = async (text: string) => {
+    if (!canLaunch || scheduleBusy) return
+    const folder = workspaceRoot?.trim()
+    if (!folder) {
+      showToast({
+        tone: 'warn',
+        title: 'Choose a project',
+        description: 'A scheduled agent starts its chats in a project.',
+      })
+      return
+    }
+    const body = [text.trim(), ...images.map((image) => quotePath(image.path))].filter(Boolean).join(' ')
+    if (!body) {
+      showToast({
+        tone: 'warn',
+        title: 'Say what it should do',
+        description: 'Each run starts with this prompt, so a scheduled agent needs one.',
+      })
+      promptRef.current?.focus()
+      return
+    }
+    const confirm = composer.buildConfirm(selection)
+    if (confirm.kind !== 'conversation' || !confirm.cli) return
+    const draftRecord: ScheduledAgentDraft = {
+      prompt: body,
+      schedule: { cron, timezone: scheduleTimezone },
+      folderPath: folder,
+      hostId: hostId === LOCAL_HOST_ID ? null : hostId,
+      cli: confirm.cli,
+      cliModel: confirm.model ?? null,
+      // The preset this launcher shows, recorded, so each run is the launch
+      // the person saw rather than whatever the default is by then.
+      permissionPreset: effectivePreset,
+      skills: (confirm.skills ?? []).map((skill) => ({ id: skill.id, name: skill.name })),
+      mcpServers: composer.mcpServers.map((server) => ({ id: server.id, name: server.name })),
+      worktree: confirm.worktree ? { name: confirm.worktree.name } : null,
+    }
+    setScheduleBusy(true)
+    try {
+      const result = editing
+        ? await window.api.updateScheduledAgent(editing.id, draftRecord)
+        : await window.api.createScheduledAgent(draftRecord)
+      if (!result.ok) {
+        showToast({ tone: 'error', title: editing ? 'Not saved' : 'Not scheduled', description: result.message })
+        return
+      }
+      rememberSchedule(cron)
+      onScheduled?.(result.agent)
+    } catch (error) {
+      showToast({
+        tone: 'error',
+        title: editing ? 'Not saved' : 'Not scheduled',
+        description: error instanceof Error ? error.message : String(error),
+      })
+    } finally {
+      setScheduleBusy(false)
+    }
+  }
+
+  // Run now starts what is saved, not what is on screen: an unsaved edit is
+  // still a question, and a run is an answer.
+  const runSavedNow = async () => {
+    if (!editing) return
+    const result = await window.api.runScheduledAgentNow(editing.id).catch((error: unknown) => ({
+      ok: false as const,
+      message: error instanceof Error ? error.message : String(error),
+    }))
+    if (!result.ok) {
+      showToast({ tone: 'error', title: 'Did not run', description: result.message })
+    } else if (!result.run.ok) {
+      setLastRunFailure(result.run.message)
+    } else {
+      setLastRunFailure(null)
+      // The run is a chat of its own, started in the background as every run
+      // is, so the window stays on this editor; it lands first under Recent
+      // runs below as soon as this window hears of it — the place to open it.
+      showToast({ tone: 'good', title: 'Started', description: 'Its chat is first under Recent runs, below.' })
+    }
+  }
 
   const launch = (text: string) => {
-    if (!canLaunch) return
+    if (!canLaunch || !extensionReady) return
+    if (scheduled) {
+      void schedule(text)
+      return
+    }
     if (remoteTarget) {
       if (!remoteTarget.picked || !onLaunchRemote || remoteLaunching) return
       const confirm = composer.buildConfirm(selection)
-      if (confirm.kind !== 'general') return
-      // What cannot travel must not be silently dropped while its chip is on
-      // screen: skills install locally, MCP servers were synced into the LOCAL
-      // workspace config, and debug drives the local state machine.
-      // Images too: a local path means nothing on another machine, and there
-      // is no upload path to the remote today (uploading them into the remote
-      // environment is the future path; until it exists the refusal names them
-      // rather than dropping them while their chips stay on screen).
-      //
-      // The worktree left this list on 2026-09-11: it DOES travel now. The
-      // remote mints it, on the branch name the ⋯ row carries, through the same
-      // `agent.launch` mutation that already owned remote worktree creation.
+      if (confirm.kind !== 'conversation') return
+      // A chat's skills are this machine's and its images are local files;
+      // neither has a way over yet, so their chips refuse rather than vanish.
       const stranded = [
         confirm.skills?.length ? 'the skills' : null,
-        confirm.mcpServers?.length ? 'the MCP servers' : null,
-        debugMode ? 'debug mode' : null,
         images.length > 0 ? 'the attached images' : null,
       ].filter((entry): entry is string => entry !== null)
       if (stranded.length > 0) {
         showToast({
           tone: 'warn',
-          title: 'That launch cannot travel yet',
-          description: `Remove ${stranded.join(', ')} to start on ${remoteTarget.connection.machineName}, or launch on This device.`,
+          title: 'That chat cannot travel yet',
+          description: `Remove ${stranded.join(' and ')} to start on ${remoteTarget.connection.machineName}, or start it on This device.`,
         })
         return
       }
-      // Never a value the gateway will refuse after a round-trip: the remote
-      // narrowing above already moved the choice, and this is the belt to its
-      // braces.
-      if (!REMOTE_PERMISSION_PRESETS.has(effectivePreset)) return
-      // A worktree the gate has since closed on (a scope read that came back
-      // narrower, a project that turned out not to be a repo) never travels:
-      // the pick falls back to the checkout it can have.
-      //
-      // The base is the remote checkout's OWN branch, never a branch this
-      // machine chose: the local worktree row forks from where the project
-      // stands, and a remote fork is the same promise about someone else's
-      // disk. `confirm.worktree.name` empty means "name it after the agent",
-      // which is the remote's own default when the field is absent.
-      const worktreeBlocked = remoteWorktreeDisabledReason(remoteTarget) !== null
-      const worktreeName = confirm.worktree?.name.trim()
-      const baseRef = confirm.worktree ? effectiveBaseRefOf(remoteTarget.checkout) : null
-      const checkout: FleetCheckoutRequest =
-        confirm.worktree && !worktreeBlocked && baseRef
-          ? { mode: 'worktree', baseRef, ...(worktreeName ? { name: worktreeName } : {}) }
-          : { mode: 'current' }
       setRemoteLaunching(true)
       onLaunchRemote({
         connectionId: remoteTarget.connection.id,
@@ -1084,8 +1319,7 @@ export default function NewAgentPanel({
         cli: confirm.cli,
         cliModel: confirm.model ?? null,
         permissionPreset: effectivePreset,
-        checkout,
-        branch: checkout.mode === 'current' ? (remoteTarget.checkout?.branch ?? null) : null,
+        branch: remoteTarget.checkout?.branch ?? null,
         remoteRepository: remoteTarget.picked.repository,
       })
         .finally(() => setRemoteLaunching(false))
@@ -1097,21 +1331,31 @@ export default function NewAgentPanel({
     // The attached images ride along as paths after the text, quoted only when
     // the path needs it — the terminal drop idiom.
     const prompt = [text.trim(), ...images.map((image) => quotePath(image.path))].filter(Boolean).join(' ')
-    // A conversation runs in this app's process, which is this machine.
-    const launchHostId = selection.kind === 'conversation' ? LOCAL_HOST_ID : hostId
-    onLaunch({ ...composer.buildConfirm(selection), prompt, ...(hostChoosable ? { hostId: launchHostId } : {}) })
+    const confirm = composer.buildConfirm(selection)
+    if (confirm.kind === 'conversation') {
+      // The picker's CLI and model, mapped onto the conversation provider that
+      // drives that CLI as a chat. The CLI's own default row asks for no model.
+      const providerId = confirm.cli ? conversationProviderForCli(confirm.cli) : null
+      if (!providerId) return
+      confirm.provider = {
+        providerId,
+        modelId: confirm.model ?? CONVERSATION_DEFAULT_MODEL_ID,
+        modelLabel: engineNames.modelLabel ?? engineNames.cliLabel,
+      }
+    }
+    onLaunch({
+      ...confirm,
+      prompt,
+      ...(hostChoosable ? { hostId } : {}),
+      ...(extensionMode ? { extension: { id: extensionName } } : {}),
+    })
   }
 
   React.useEffect(() => {
+    if (!canLaunch || (composer.noAgentCliInstalled && localHosts.length <= 1)) return
     const id = requestAnimationFrame(() => promptRef.current?.focus())
     return () => cancelAnimationFrame(id)
-  }, [])
-
-  // Ask once per open, so a provider configured since last time shows up.
-  React.useEffect(() => {
-    if (!conversationModeEnabled) return
-    onRequestConversationCatalog?.()
-  }, [conversationModeEnabled, onRequestConversationCatalog])
+  }, [canLaunch, composer.noAgentCliInstalled, localHosts.length])
 
   // Escape cancels from anywhere on the surface — the prompt is where focus
   // starts, but a person who has tabbed to a chip must not be trapped. The
@@ -1136,6 +1380,24 @@ export default function NewAgentPanel({
   }, [onClose])
 
   const onPromptKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (slashQuery !== null) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        if (slashRef.current?.moveSelection(event.key === 'ArrowDown' ? 1 : -1)) {
+          event.preventDefault()
+          return
+        }
+      } else if (event.key === 'Enter' && !event.shiftKey) {
+        // Enter with nothing to pick is not a launch: the words after
+        // `/schedule` are not the prompt.
+        event.preventDefault()
+        slashRef.current?.pickActive()
+        return
+      } else if (event.key === 'Escape') {
+        event.preventDefault()
+        setSlashDismissed(true)
+        return
+      }
+    }
     if (mentionQuery !== null) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         if (mentionRef.current?.moveSelection(event.key === 'ArrowDown' ? 1 : -1)) {
@@ -1167,27 +1429,17 @@ export default function NewAgentPanel({
   const isTerminalLaunch = selection.kind === 'terminal'
   // The Skills & MCPs trigger on the row is where skills are offered now; the
   // inline `$`/`/` type-ahead still works, it just no longer needs advertising.
-  const placeholder = isTerminalLaunch ? 'A shell opens with nothing typed' : 'Describe the task…'
-
-  // With a second machine on this computer the dropdown is the way to one that
-  // has a CLI, so the panel stays up and the roster says what this one lacks.
-  if (composer.noAgentCliInstalled && localHosts.length <= 1) {
-    return (
-      <div className="flex h-full min-h-0 flex-col overflow-auto bg-[color:var(--bg-app)] px-6 py-8">
-        <div className="mx-auto w-full max-w-[620px]">
-          <h1 className="text-center text-title font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
-            No agent CLI is installed on this machine.
-          </h1>
-          <p className="mt-1 text-center text-body text-[color:var(--text-muted)]">
-            Install one to start an agent here.
-          </p>
-          <div className="mt-5">
-            <CliInstallCta />
-          </div>
-        </div>
-      </div>
-    )
-  }
+  const placeholder = isTerminalLaunch
+    ? 'A shell opens with nothing typed'
+    : scheduled
+      ? 'What each run should do…'
+      : extensionMode
+        ? 'Describe the extension…'
+        : 'Describe the task…'
+  // No agent CLI at all, or (for a chat agent) none with a chat runtime: the
+  // same install route either way, because installing a CLI is the answer to
+  // both.
+  const terminalUnavailable = (composer.noAgentCliInstalled && localHosts.length <= 1) || chatUnavailable
 
   return (
     <div
@@ -1201,12 +1453,43 @@ export default function NewAgentPanel({
       ) : null}
       <div className="@container mx-auto w-full max-w-[620px]">
         <div className="text-center">
+          {/* What the door starts: a chat now, or a scheduled agent that starts
+              one each time its schedule comes round. A choice of value, so the
+              kit's segmented control; the rest of the panel is the same either
+              way, bar the schedule's row in the tray. Not offered while editing
+              one — a scheduled agent stays one. */}
+          {scheduleOffered && !editing ? (
+            <div className="mb-4 flex justify-center">
+              <SegmentedControl
+                ariaLabel="What to start"
+                items={[
+                  { value: 'chat', label: 'Chat' },
+                  { value: 'scheduled', label: 'Scheduled agent' },
+                ]}
+                value={mode}
+                onChange={(next) => setMode(next)}
+              />
+            </div>
+          ) : null}
           {/* icon-lg is the top of the icon scale and the step the system names for
             empty-state glyphs. There is no larger token, and an off-scale hero
             mark is what made this fill the pane. */}
-          <SprintEngineFrond tone="current" className="icon-lg mx-auto text-[color:var(--text-strong)]" />
+          {scheduled ? (
+            <ScheduleGlyph className="icon-lg mx-auto text-[color:var(--text-strong)]" />
+          ) : extensionMode ? (
+            <ExtensionsGlyph className="icon-lg mx-auto text-[color:var(--text-strong)]" />
+          ) : (
+            <SprintEngineFrond tone="current" className="icon-lg mx-auto text-[color:var(--text-strong)]" />
+          )}
           <h1 className="mt-2.5 text-title font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
-            {greeting}
+            {/* Editing, the tray below already says when; the heading names what. */}
+            {scheduled
+              ? editing
+                ? 'Scheduled agent'
+                : 'What should run on a schedule?'
+              : extensionMode
+                ? 'What should your extension do?'
+                : greeting}
           </h1>
           {/* State, not decoration: where this agent will run.
               Whether this is a PICKER is decided by what the host can do, never
@@ -1226,7 +1509,10 @@ export default function NewAgentPanel({
                 line reads exactly as it always did. */}
             {(remoteSelectable && remoteMachines.length > 0) || localHosts.length > 1 ? (
               <MachineScopePicker
-                machines={remoteSelectable ? remoteMachines : []}
+                // A scheduled agent runs on this computer or one of its WSL
+                // distributions: the scheduler is this computer's, and a paired
+                // machine's chat would need its own.
+                machines={remoteSelectable && !chatOnly ? remoteMachines : []}
                 selected={remoteTarget?.connection ?? null}
                 onSelect={(connection) => pickRemoteMachine(connection)}
                 localHosts={localHosts}
@@ -1236,11 +1522,6 @@ export default function NewAgentPanel({
                   pickLocalHost(next)
                 }}
                 hostDisabledReason={(host) => {
-                  // A conversation agent runs in this app's own process, which
-                  // is this machine; it cannot be sent into a distribution.
-                  if (host.kind === 'wsl' && selection.kind === 'conversation') {
-                    return 'Conversation agents run on This PC.'
-                  }
                   // A folder inside a distribution runs there: its files, its
                   // git and its CLIs' homes are that machine's.
                   const folderHost = hostIdForFolder(scopeFolder)
@@ -1272,9 +1553,7 @@ export default function NewAgentPanel({
                 target={remoteTarget}
                 color={scopeProjectColor}
                 onPick={(project) => {
-                  setRemoteTarget((current) =>
-                    current ? { ...current, picked: project, checkout: null, checkoutError: null } : current,
-                  )
+                  setRemoteTarget((current) => (current ? { ...current, picked: project, checkout: null } : current))
                 }}
               />
             ) : canChooseProject ? (
@@ -1314,41 +1593,71 @@ export default function NewAgentPanel({
                 to grow here the moment a remote project was picked, which put
                 the worktree question in TWO places on one surface: up on this
                 line for a remote target, and down behind ⋯ for a local one.
-                One control now — the ⋯ Worktree row — and it serves both. */}
+                One control now — the Worktree chip beside the agent picker. */}
           </div>
         </div>
 
+        {terminalUnavailable ? (
+          <EmptyState
+            density="list"
+            title={
+              chatUnavailable
+                ? 'No agent CLI on this machine can run as a chat.'
+                : 'No agent CLI is installed on this machine.'
+            }
+            body={
+              chatUnavailable
+                ? 'Install one with a chat runtime to start a chat agent here.'
+                : 'Install one to start an agent here.'
+            }
+            action={<CliInstallCta />}
+          />
+        ) : null}
+        {/* The schedule is one sentence in the tray behind the box, where the
+            composer says everything it has to say — not a field in the prompt,
+            which stays the prompt's alone. Change opens the picker over it. */}
+        {scheduled && !terminalUnavailable ? (
+          <div className="mt-5">
+            <ScheduleTray
+              cron={cron}
+              timezone={scheduleTimezone}
+              onChange={setCron}
+              failure={lastRunFailure}
+              onDismissFailure={() => setLastRunFailure(null)}
+            />
+          </div>
+        ) : null}
         <div
           // The box owns the visible border while the textarea inside it is the
           // tab stop, so the product's one focus ring lands on the box keyed to
           // the textarea's own focus (`FOCUS_RING_WITHIN_TEXTAREA_CLASS`) — not
           // an accent border swap on `focus-within`, which lit the box for the
           // footer's buttons too and was a second focus idiom.
-          className={`relative mt-5 px-3 pb-2 pt-2.5 ${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} ${
+          className={`relative ${scheduled ? '' : 'mt-5'} px-3 pb-2 pt-2.5 ${terminalUnavailable ? 'hidden' : ''} ${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} ${
             dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
           }`}
           onDragEnter={(event) => {
-            if (isTerminalLaunch || !dataTransferHasFiles(event.dataTransfer)) return
+            if (isTerminalLaunch || !dataTransferHasDroppableFiles(event.dataTransfer)) return
             dragDepthRef.current += 1
             setDropActive(true)
           }}
           onDragOver={(event) => {
             // Claiming the drag is what stops the window from navigating to the
             // dropped file, so it has to happen on every dragover.
-            if (isTerminalLaunch || !dataTransferHasFiles(event.dataTransfer)) return
+            if (isTerminalLaunch || !dataTransferHasDroppableFiles(event.dataTransfer)) return
             event.preventDefault()
           }}
           onDragLeave={(event) => {
-            if (isTerminalLaunch || !dataTransferHasFiles(event.dataTransfer)) return
+            if (isTerminalLaunch || !dataTransferHasDroppableFiles(event.dataTransfer)) return
             dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
             if (dragDepthRef.current === 0) setDropActive(false)
           }}
           onDrop={(event) => {
-            if (isTerminalLaunch || !dataTransferHasFiles(event.dataTransfer)) return
+            if (isTerminalLaunch || !dataTransferHasDroppableFiles(event.dataTransfer)) return
             event.preventDefault()
             dragDepthRef.current = 0
             setDropActive(false)
-            void attachDroppedFiles(filesFromDataTransfer(event.dataTransfer))
+            dropFiles(event.dataTransfer)
           }}
         >
           {/* Opaque, not a scrim: the field's own text ghosting through the
@@ -1357,6 +1666,14 @@ export default function NewAgentPanel({
             <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-[color:var(--bg-app)] text-meta font-medium text-[color:var(--accent-primary)]">
               Drop to attach
             </div>
+          ) : null}
+          {slashQuery !== null ? (
+            <ScheduleSlashPicker
+              ref={slashRef}
+              query={slashQuery}
+              onPick={applySlashSchedule}
+              onDismiss={() => setSlashDismissed(true)}
+            />
           ) : null}
           {mentionQuery !== null ? (
             <InlineSkillPicker
@@ -1384,21 +1701,25 @@ export default function NewAgentPanel({
           <div className="flex items-start gap-2">
             {/* The prompt caret as an SVG glyph, not a text character: a
                 character picks up the font's rendering and the guard's
-                emoji-as-icon rule for a reason. */}
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 16 16"
-              fill="none"
-              className="mt-1 size-icon-sm shrink-0 select-none text-[color:var(--accent-primary)]"
-            >
-              <path
-                d="M5.5 3.5 10 8l-4.5 4.5"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
+                emoji-as-icon rule for a reason. A chat is not a terminal, so
+                it gets no caret; the model picker below already says what
+                answers. */}
+            {isChatLaunch ? null : (
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 16 16"
+                fill="none"
+                className="mt-1 size-icon-sm shrink-0 select-none text-[color:var(--accent-primary)]"
+              >
+                <path
+                  d="M5.5 3.5 10 8l-4.5 4.5"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            )}
             {/* Grows with its content (field-sizing: content) from the two-row
                 floor to a ceiling, then scrolls — a box that showed two lines
                 of a six-line prompt was hiding what the person was about to
@@ -1415,11 +1736,22 @@ export default function NewAgentPanel({
               rows={2}
               onPaste={(event) => {
                 // A pasted screenshot only exists as a clipboard item; a text
-                // paste reports no image and falls through to the default.
+                // paste reports no image and falls through to the default —
+                // unless the text is only paths to images outside the project,
+                // which attach instead. A chat starting on another machine
+                // cannot open this one's project, so there every path attaches.
                 const files = imageFilesFromDataTransfer(event.clipboardData)
-                if (files.length === 0) return
+                if (files.length > 0) {
+                  event.preventDefault()
+                  void attachDroppedFiles(files)
+                  return
+                }
+                const text = event.clipboardData.getData('text/plain')
+                const paths = pastedImagePaths(text, !remoteTarget && workspaceRoot ? [workspaceRoot] : [])
+                if (!paths) return
                 event.preventDefault()
-                void attachDroppedFiles(files)
+                const field = event.currentTarget
+                void attachPastedPaths(paths, text, field.selectionStart, field.selectionEnd)
               }}
               onChange={(event) => {
                 setPrompt(event.currentTarget.value)
@@ -1433,154 +1765,99 @@ export default function NewAgentPanel({
             />
           </div>
 
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 border-t border-[color:var(--border-subtle)] pt-2">
+          <div
+            ref={launchRowRef}
+            className="mt-1.5 flex flex-wrap items-center gap-1.5 border-t border-[color:var(--border-subtle)] pt-2"
+          >
             {/* Engine: the CLI's own mark, then the model. The mark is the
                 identity — the word "claude" beside a Claude asterisk was saying
                 it twice. */}
             {launchCli ? (
-              <Popover
+              <EnginePickerChip
+                cli={launchCli}
+                options={pickerOptions}
+                model={model}
+                reasoning={reasoning}
                 open={enginePopoverOpen}
                 onOpenChange={setEnginePopoverOpen}
-                ariaLabel={`Engine: ${engineNames.cliLabel}`}
-                popupRole="menu"
-                placement="bottom-start"
-                renderTrigger={({ ref, triggerProps, togglePopover }) => (
-                  // The kit's chip. `outline` is the variant that stays findable
-                  // on a busy strip; the accent-soft ground it used to wear is
-                  // gone, because a solid-ish accent on a standing chip is the
-                  // budget spent on a state display rather than on the view's
-                  // one primary action (principles.md → The accent budget).
-                  <ChipButton
-                    ref={ref}
-                    variant="outline"
-                    tone="neutral"
-                    onClick={togglePopover}
-                    // Named, not left to its contents: the chip is a mark plus a
-                    // truncated label, and it is the only way to the model,
-                    // effort and permissions the picker holds.
-                    aria-label={`Engine: ${engineNames.modelLabel ?? engineNames.cliLabel}`}
-                    {...triggerProps}
-                  >
-                    <CliIcon cli={launchCli} className="icon-xs" />
-                    <TruncatedText
-                      as="span"
-                      text={engineNames.modelLabel ?? engineNames.cliLabel}
-                      className="max-w-[150px]"
-                    />
-                    {reasoning ? <span className="text-[color:var(--text-subtle)]">· {reasoning}</span> : null}
-                    <ChevronGlyph />
-                  </ChipButton>
+                onSelectCli={(cli) => composer.setEngineCli(selection, cli)}
+                onSelectModel={(cli, next) => composer.setEngineModel(selection, cli, next)}
+                onSelectReasoning={(cli, next) => composer.setEngineReasoning(selection, cli, next)}
+                // Permissions live in the picker rather than on a chip beside
+                // it (owner, 2026-09-05). A preset is a property of the runtime
+                // the row names — each CLI spells bypass its own way — so it is
+                // chosen where the runtime is, remembered once per CLI for all
+                // of its models, and sits on the picker's one trailing row
+                // beside the effort control.
+                permissions={(cli) => (
+                  <SpawnPermissionFooter
+                    cli={cli}
+                    fallback={permissionPreset}
+                    launch={isChatLaunch ? 'chat' : 'terminal'}
+                  />
                 )}
-              >
-                {/* Reasoning effort is a property OF the model, so it lives in
-                    the model's own picker (attached to the selected row, which
-                    is where this surface already draws it) rather than as a
-                    second control the row has to carry. */}
-                <CliModelPopoverSurface
-                  ariaLabel="Agent runtime"
-                  options={composer.agentCliOptions}
-                  currentCli={launchCli}
-                  effectiveModelFor={(cli) => composer.modelForSelection(selection, cli)}
-                  effectiveReasoningFor={(cli) => composer.reasoningForSelection(selection, cli)}
-                  onSelectReasoning={(cli, next) => composer.setEngineReasoning(selection, cli, next)}
-                  showReasoning
-                  reasoningAriaLabel="Reasoning effort"
-                  onSelectCli={(cli) => composer.setEngineCli(selection, cli)}
-                  onSelectModel={(cli, next) => composer.setEngineModel(selection, cli, next)}
-                  // Permissions live in the picker rather than on a chip beside
-                  // it (owner, 2026-09-05). A preset is a property of the runtime
-                  // the row names — Claude Code's auto mode is not Codex's
-                  // sandbox — so it is chosen where the runtime is, remembered
-                  // once per CLI for all of its models, and sits on the picker's
-                  // one trailing row beside the effort control.
-                  permissions={(cli) => (
-                    <SpawnPermissionFooter
-                      cli={cli}
-                      fallback={permissionPreset}
-                      {...(remotePresetReasons
-                        ? { disabledReasons: remotePresetReasons, shown: nearestRemotePermissionPreset }
-                        : {})}
-                      onSelect={() => setRemoteNote(null)}
-                    />
-                  )}
-                />
-              </Popover>
-            ) : null}
-
-            {/* Every pick is a chip; the one trigger opens the picker for more.
-                A terminal launches nothing that reads a skill or an MCP. */}
-            {selection.kind !== 'terminal' ? (
-              <>
-                {composer.skills.map((skill) => (
-                  <AttachmentChip
-                    key={`skill-${skill.id}`}
-                    glyph={<StarGlyph filled className="icon-xs text-[color:var(--accent-primary)]" />}
-                    label={skill.name}
-                    removeLabel={`Remove skill ${skill.name}`}
-                    onRemove={() => composer.setSkills(composer.skills.filter((entry) => entry.id !== skill.id))}
-                  />
-                ))}
-                {composer.mcpServers.map((server) => (
-                  <AttachmentChip
-                    key={`mcp-${server.id}`}
-                    glyph={
-                      <ExtensionIcon slug={mcpIconSlug(server.id)} name={server.name} icon={server.icon} size={13} />
-                    }
-                    label={server.name}
-                    removeLabel={`Remove MCP server ${server.name}`}
-                    onRemove={() =>
-                      composer.setMcpServers(composer.mcpServers.filter((entry) => entry.id !== server.id))
-                    }
-                  />
-                ))}
-                <SkillsAndMcpsPicker
-                  workspaceRoot={workspaceRoot}
-                  // A conversation agent is not a CLI: the workspace-wide inventory
-                  // is the honest list for it.
-                  pluginId={selection.kind === 'conversation' ? null : launchCli}
-                  skills={composer.skills}
-                  onSkillsChange={composer.setSkills}
-                  mcpServers={composer.mcpServers}
-                  onMcpServersChange={composer.setMcpServers}
-                  placement="bottom-start"
-                />
-              </>
-            ) : null}
-
-            {/* Set rarities rise onto the row; unset ones live behind ⋯. */}
-            {composer.worktreeName !== null ? (
-              <span className="inline-flex items-center gap-1.5 rounded bg-[color:var(--accent-primary-soft)] px-2 py-0.5 text-meta text-[color:var(--text-strong)]">
-                <BranchGlyph />
-                {/* Sized to what is typed, not a fixed field: a chip that
-                    reserves 128px for a three-letter branch is what pushed this
-                    row onto a second line. */}
-                <Input
-                  variant="seamless"
-                  fullWidth={false}
-                  value={composer.worktreeName}
-                  onChange={(event) => composer.setWorktreeName(event.currentTarget.value)}
-                  placeholder="branch name"
-                  aria-label="Worktree name — leave empty to derive from the agent’s name"
-                  // `field-sizing-content` in place of the `size` attribute the
-                  // kit's `size` prop takes the name of: the box tracks what is
-                  // typed rather than a character count guessed per render.
-                  className="field-sizing-content min-w-[8ch] max-w-[160px] text-meta"
-                />
-                <CloseIconButton
-                  onClick={() => composer.setWorktreeName(null)}
-                  aria-label="Remove worktree"
-                  className="-mr-1"
-                />
-              </span>
-            ) : null}
-            {debugMode ? (
-              <AttachmentChip
-                glyph={<DebugGlyph />}
-                label="Debug"
-                removeLabel="Turn debug mode off"
-                onRemove={() => onChangeDebugMode(false)}
               />
             ) : null}
+
+            {/* An extension's folder is new, so there is nothing to fork: its
+                name takes the worktree chip's place, in the extension violet.
+                It never folds — it is a field the launch cannot start without,
+                and a required field behind a chevron is one nobody fills. */}
+            {extensionMode ? (
+              <ExtensionNameChip name={extensionName} onChange={setExtensionName} invalid={extensionNote !== null} />
+            ) : null}
+
+            {/* Worktree and skills fold behind a chevron when the row is too
+                narrow for them; the model, ⋯ and Start never do. */}
+            <FoldedControls folded={launchRowFolded} ariaLabel="More launch settings" placement="bottom-start">
+              {/* Worktree sits beside the agent it isolates rather than behind ⋯
+                (owner, 2026-09-30): off until turned on or named. This machine
+                only, and only inside a git repository — a paired machine's
+                chat has no checkout here to fork. */}
+              {!extensionMode && selection.kind !== 'terminal' && !remoteTarget && workspaceIsGitRepo ? (
+                <WorktreeChip name={composer.worktreeName} onChange={composer.setWorktreeName} />
+              ) : null}
+
+              {/* Every pick is a chip; the one trigger opens the picker for more.
+                A terminal launches nothing that reads a skill or an MCP. */}
+              {selection.kind !== 'terminal' ? (
+                <>
+                  {composer.skills.map((skill) => (
+                    <AttachmentChip
+                      key={`skill-${skill.id}`}
+                      glyph={<StarGlyph filled className="icon-xs text-[color:var(--accent-primary)]" />}
+                      label={skill.name}
+                      removeLabel={`Remove skill ${skill.name}`}
+                      onRemove={() => composer.setSkills(composer.skills.filter((entry) => entry.id !== skill.id))}
+                    />
+                  ))}
+                  {composer.mcpServers.map((server) => (
+                    <AttachmentChip
+                      key={`mcp-${server.id}`}
+                      glyph={
+                        <ExtensionIcon slug={mcpIconSlug(server.id)} name={server.name} icon={server.icon} size={13} />
+                      }
+                      label={server.name}
+                      removeLabel={`Remove MCP server ${server.name}`}
+                      onRemove={() =>
+                        composer.setMcpServers(composer.mcpServers.filter((entry) => entry.id !== server.id))
+                      }
+                    />
+                  ))}
+                  <SkillsAndMcpsPicker
+                    workspaceRoot={workspaceRoot}
+                    // A chat stages skills itself rather than through the CLI's own
+                    // skill directory, so the workspace-wide inventory is its list.
+                    pluginId={commandCli}
+                    skills={composer.skills}
+                    onSkillsChange={composer.setSkills}
+                    mcpServers={composer.mcpServers}
+                    onMcpServersChange={composer.setMcpServers}
+                    placement="bottom-start"
+                  />
+                </>
+              ) : null}
+            </FoldedControls>
 
             {/* Always rendered, whatever is selected: this menu is the only way
                 to change WHAT is being launched, so hiding it for a terminal
@@ -1596,7 +1873,7 @@ export default function NewAgentPanel({
                 renderTrigger={({ ref, triggerProps, togglePopover }) => (
                   <ChipButton
                     ref={ref}
-                    variant="outline"
+                    variant="raised"
                     aria-label="More launch options"
                     onClick={togglePopover}
                     {...triggerProps}
@@ -1607,28 +1884,15 @@ export default function NewAgentPanel({
               >
                 <MoreMenu
                   selection={selection}
-                  conversationModeEnabled={conversationModeEnabled}
-                  conversationAvailable={conversationAvailable}
+                  chatAvailable={chatAvailable}
                   onSelectKind={(next) => {
                     composer.setSelection(next)
+                    setLastNewChatAgent(next)
                     setMoreOpen(false)
                   }}
-                  onOpenProviderSettings={() => {
-                    setMoreOpen(false)
-                    openSettingsOverlay({ initialTab: 'agents' })
-                  }}
-                  worktreeName={composer.worktreeName}
-                  onToggleWorktree={() => composer.setWorktreeName(composer.worktreeName === null ? '' : null)}
-                  onChangeWorktree={composer.setWorktreeName}
-                  // One row for both targets now. A remote one is offered it
-                  // once a project is picked — until then there is no checkout
-                  // to fork and nothing to say about it — and the reason it
-                  // cannot have one dims the row instead of hiding it, which is
-                  // the menu spec's rule for a choice that stays true tomorrow.
-                  worktreeAvailable={remoteTarget ? remoteTarget.picked !== null : workspaceIsGitRepo}
-                  worktreeReason={remoteTarget ? remoteWorktreeDisabledReason(remoteTarget) : null}
-                  debugMode={debugMode}
-                  onToggleDebug={() => onChangeDebugMode(!debugMode)}
+                  // A scheduled agent's runs are chats, and so is an extension's
+                  // build; the kinds that are not are not offered.
+                  scheduled={chatOnly}
                 />
               </Popover>
             }
@@ -1638,41 +1902,78 @@ export default function NewAgentPanel({
             {/* The invocation lives on Start's hover: the one moment someone
                 asks "what am I about to run?", and it answers with the line
                 main renders through the spawn's own argv renderer. */}
-            <Tooltip
-              content={
-                selection.kind === 'terminal'
-                  ? 'Opens a shell in this folder'
-                  : selection.kind === 'conversation'
-                    ? 'Starts a conversation agent — pick its model in the chat'
-                    : commandLine.status === 'ready'
-                      ? commandLine.preview.display
-                      : commandLine.status === 'error'
-                        ? commandLine.message
-                        : 'Reading this agent’s launch command…'
-              }
-              placement="top"
-              multiline
-            >
-              {/* The key that starts it, not the word "Start" and not a chat
-                  send-arrow: this launches a command, and a circle-arrow is the
-                  idiom for posting a message into a thread. The glyph names the
-                  keyboard path, so the shortcut stops being invisible, and the
-                  accessible name carries the verb for anyone who cannot see it. */}
-              {/* The composer's one primary, built from the kit (ruling 9):
-                  `PrimaryButton` squared to the `xs` control step, so the
-                  send carries the accent fill, the canon disabled treatment
-                  and the shared ring rather than a private 28px recipe. */}
-              <PrimaryButton
-                size="xs"
-                onClick={() => launch(prompt)}
-                disabled={!canLaunch}
-                aria-label="Start agent"
-                aria-keyshortcuts="Enter"
-                className="aspect-square shrink-0 font-mono"
+            {scheduled ? (
+              <>
+                {/* Run now starts what is saved; only a scheduled agent that
+                    exists has anything saved to run. */}
+                {editing ? (
+                  <GhostButton size="xs" onClick={() => void runSavedNow()}>
+                    Run now
+                  </GhostButton>
+                ) : null}
+                {/* A scheduled agent is made, not started, so this primary says
+                    so in a word rather than the ⏎ that starts a chat now. */}
+                <Tooltip
+                  content={
+                    editing
+                      ? 'Save the prompt, schedule and settings'
+                      : `Starts a new ${engineNames.cliLabel} chat with this prompt each time the schedule comes round`
+                  }
+                  placement="top"
+                  multiline
+                >
+                  <PrimaryButton
+                    size="xs"
+                    onClick={() => launch(prompt)}
+                    disabled={!canLaunch}
+                    busy={scheduleBusy}
+                    aria-keyshortcuts="Enter"
+                    className="shrink-0 gap-1.5"
+                  >
+                    <ScheduleGlyph className="icon-xs" />
+                    {editing ? 'Save' : 'Schedule'}
+                  </PrimaryButton>
+                </Tooltip>
+              </>
+            ) : (
+              <Tooltip
+                content={
+                  selection.kind === 'terminal'
+                    ? 'Opens a shell in this folder'
+                    : extensionMode
+                      ? `Makes ${extensionName || 'the extension'} in ${projectLabel ?? 'the project'} and starts ${engineNames.cliLabel} there`
+                      : isChatLaunch
+                        ? `Starts ${engineNames.cliLabel} as a chat`
+                        : commandLine.status === 'ready'
+                          ? commandLine.preview.display
+                          : commandLine.status === 'error'
+                            ? commandLine.message
+                            : 'Reading this agent’s launch command…'
+                }
+                placement="top"
+                multiline
               >
-                <span aria-hidden="true">⏎</span>
-              </PrimaryButton>
-            </Tooltip>
+                {/* The key that starts it, not the word "Start" and not a chat
+                    send-arrow: this launches a command, and a circle-arrow is the
+                    idiom for posting a message into a thread. The glyph names the
+                    keyboard path, so the shortcut stops being invisible, and the
+                    accessible name carries the verb for anyone who cannot see it. */}
+                {/* The composer's one primary, built from the kit (ruling 9):
+                    `PrimaryButton` squared to the `xs` control step, so the
+                    send carries the accent fill, the canon disabled treatment
+                    and the shared ring rather than a private 28px recipe. */}
+                <PrimaryButton
+                  size="xs"
+                  onClick={() => launch(prompt)}
+                  disabled={!canLaunch || !extensionReady}
+                  aria-label="Start agent"
+                  aria-keyshortcuts="Enter"
+                  className="aspect-square shrink-0 font-mono"
+                >
+                  <span aria-hidden="true">⏎</span>
+                </PrimaryButton>
+              </Tooltip>
+            )}
           </div>
         </div>
 
@@ -1681,13 +1982,37 @@ export default function NewAgentPanel({
             {attachNote}
           </p>
         ) : null}
-        {remoteNote ? (
+        {extensionMode && extensionNote ? (
+          <p role="status" className="mt-1.5 text-meta leading-5 text-[color:var(--tone-error)]">
+            {extensionNote}
+          </p>
+        ) : extensionMode && extensionTargetState === 'extension' ? (
           <p role="status" className="mt-1.5 text-meta leading-5 text-[color:var(--text-muted)]">
-            {remoteNote}
+            {extensionName} is already an extension in {projectLabel ?? 'this project'}: the chat opens it to carry on.
           </p>
         ) : null}
 
-        {isTerminalLaunch ? null : (
+        {/* Extension mode's cards fill the box and start nothing: the words
+            are the person's to change, and the chat needs a name first. */}
+        {extensionMode && !terminalUnavailable ? (
+          <section aria-label="Extension ideas" className="mt-4">
+            <div className="mb-2 flex items-baseline justify-between gap-3">
+              <h2 className="m-0 text-meta font-medium text-[color:var(--text-subtle)]">Start from an idea</h2>
+              <LinkButton ink="quiet" onClick={() => setAllIdeas((current) => !current)}>
+                {allIdeas ? 'Show fewer' : `Show all ${EXTENSION_IDEAS.length}`}
+              </LinkButton>
+            </div>
+            <div className="grid grid-cols-1 gap-2 @[520px]:grid-cols-2">
+              {(allIdeas ? EXTENSION_IDEAS : EXTENSION_IDEAS.slice(0, EXTENSION_IDEAS_FIRST)).map((idea) => (
+                <ExtensionIdeaCard key={idea.id} idea={idea} onPick={() => pickIdea(idea)} />
+              ))}
+            </div>
+          </section>
+        ) : null}
+        {editing && scheduled && onOpenScheduledRun ? (
+          <ScheduledRuns runs={scheduledRuns} onOpen={onOpenScheduledRun} />
+        ) : null}
+        {terminalUnavailable || isTerminalLaunch || scheduled || extensionMode ? null : (
           <div className="mt-4 grid grid-cols-1 gap-2 @[520px]:grid-cols-2">
             {suggestions.map((entry) => (
               <SuggestionCard
@@ -1720,31 +2045,6 @@ function ChevronGlyph() {
   )
 }
 
-function BranchGlyph() {
-  return (
-    <svg className="icon-xs text-[color:var(--accent-primary)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <circle cx="4.5" cy="3.5" r="1.75" stroke="currentColor" strokeWidth="1.3" />
-      <circle cx="4.5" cy="12.5" r="1.75" stroke="currentColor" strokeWidth="1.3" />
-      <circle cx="11.5" cy="6" r="1.75" stroke="currentColor" strokeWidth="1.3" />
-      <path d="M4.5 5.25v5.5M11.5 7.75c0 2-1.5 3-4 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function DebugGlyph() {
-  return (
-    <svg className="icon-xs text-[color:var(--accent-primary)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <rect x="5" y="5" width="6" height="7" rx="3" stroke="currentColor" strokeWidth="1.3" />
-      <path
-        d="M2.5 7.5h2.5M11 7.5h2.5M2.5 11h2.5M11 11h2.5M8 2.5V5"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-      />
-    </svg>
-  )
-}
-
 /**
  * The machine dropdown (remote-sessions-ux / new-chat-on-a-remote-machine):
  * This device is the first entry and the default; paired machines follow with
@@ -1770,9 +2070,9 @@ function MachineScopePicker({
   onOpen,
   projectName,
 }: {
-  machines: FleetConnection[]
-  selected: FleetConnection | null
-  onSelect: (connection: FleetConnection | null) => void
+  machines: MeshConnection[]
+  selected: MeshConnection | null
+  onSelect: (connection: MeshConnection | null) => void
   /** This computer's machines, this one first. One entry (or none) draws the plain "This device" row. */
   localHosts?: ExecutionHostSummary[]
   selectedHostId?: ExecutionHostId
@@ -1780,14 +2080,14 @@ function MachineScopePicker({
   /** Why a machine here cannot be picked right now, or null. */
   hostDisabledReason?: (host: ExecutionHostSummary) => string | null
   /** Whether each machine holds the project in hand (one-project-across-machines); `none` lists it plainly. */
-  availability?: (machine: FleetConnection) => MachineAvailability
+  availability?: (machine: MeshConnection) => MachineAvailability
   onOpen?: () => void
   /** The project in hand, named in the dimmed rows' reasons and the list's heading. */
   projectName?: string | null
 }) {
   const [open, setOpen] = React.useState(false)
-  const availabilityOf = (machine: FleetConnection): MachineAvailability => availability?.(machine) ?? { state: 'none' }
-  const chosen = (machine: FleetConnection): boolean => {
+  const availabilityOf = (machine: MeshConnection): MachineAvailability => availability?.(machine) ?? { state: 'none' }
+  const chosen = (machine: MeshConnection): boolean => {
     const state = availabilityOf(machine).state
     return state !== 'lacks' && state !== 'unreachable'
   }
@@ -1828,10 +2128,10 @@ function MachineScopePicker({
       surfaceClassName={`w-[280px] ${MENU_LIST_CLASS}`}
       onOpenAutoFocus={focusChecked}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
-        // The kit's ghost chip: `px-1.5 py-0.5` on the line box, and the
-        // `subtle` tone's `--text-default` hover ink, both of which this
-        // scope-line trigger already spelled.
-        <ChipButton ref={ref} onClick={togglePopover} data-machine-trigger="true" {...triggerProps}>
+        // The kit's raised chip, and the `subtle` tone's `--text-default`
+        // hover ink: one of the launch row's controls, so it stands on the
+        // same edge and height as the model and skills chips beside it.
+        <ChipButton ref={ref} variant="raised" onClick={togglePopover} data-machine-trigger="true" {...triggerProps}>
           {selected ? <RemoteMachineGlyph className="icon-xs shrink-0" /> : null}
           {!selected && selectedHost?.kind === 'wsl' ? <WslMachineGlyph className="icon-xs shrink-0" /> : null}
           {selected ? selected.machineName : selectedHost && hostRows.length > 0 ? selectedHost.label : 'This device'}
@@ -1952,7 +2252,7 @@ function MachineScopePicker({
 }
 
 /**
- * A remote machine's projects: its workspaces, served over the fleet client.
+ * A remote machine's projects: its workspaces, served over the mesh client.
  * Loading and unreachable states are said plainly — a machine that does not
  * answer keeps its entry with the reason, never a silent empty list.
  */
@@ -2018,7 +2318,7 @@ function RemoteProjectPicker({
         // The same stable hook the local chip carries: the two never render
         // together, so a pass looking for "the project control on the scope
         // line" finds whichever one is there.
-        <ChipButton ref={ref} onClick={togglePopover} data-project-trigger="true" {...triggerProps}>
+        <ChipButton ref={ref} variant="raised" onClick={togglePopover} data-project-trigger="true" {...triggerProps}>
           {/* The bare glyph, not `FolderIdentityIcon`: a logo is detected by
               reading THIS disk, and the folder is on another machine. */}
           <FolderTypeIcon className="icon-xs shrink-0" color={color} unfiled={unfiled} />
@@ -2087,189 +2387,50 @@ function RemoteProjectPicker({
  */
 function MoreMenu({
   selection,
-  conversationModeEnabled,
-  conversationAvailable,
+  chatAvailable,
   onSelectKind,
-  onOpenProviderSettings,
-  worktreeName,
-  onToggleWorktree,
-  onChangeWorktree,
-  worktreeAvailable,
-  worktreeReason,
-  debugMode,
-  onToggleDebug,
+  scheduled,
 }: {
   selection: AgentComposerSelection
-  conversationModeEnabled: boolean
-  conversationAvailable: boolean
+  /** Whether the Chat agent row is offered (the roster has it). */
+  chatAvailable: boolean
   onSelectKind: (next: AgentComposerSelection) => void
-  onOpenProviderSettings: () => void
-  worktreeName: string | null
-  onToggleWorktree: () => void
-  onChangeWorktree: (next: string | null) => void
-  worktreeAvailable: boolean
-  /**
-   * Why this target cannot have a worktree, when it cannot — a pairing without
-   * `workspace:operate`, a project that is not a repository, a checkout still
-   * being read. The row stays listed and dims with the sentence rather than
-   * disappearing: it is a choice that will be true again, not one that does not
-   * exist here. Null when the worktree can be asked for.
-   */
-  worktreeReason?: string | null
-  debugMode: boolean
-  onToggleDebug: () => void
+  /** A scheduled agent runs as a chat, so only that kind is offered. */
+  scheduled: boolean
 }) {
-  const worktreeRef = React.useRef<HTMLInputElement>(null)
-
   // The Popover surface is the menu and carries the list class; this is its
   // content, not a second menu.
   return (
     <>
-      {/* What is being launched. An agent is the answer nearly every time, so it
-          stays the default and lives here rather than on the row — but a plain
-          shell and a conversation agent have to be reachable somewhere, and this
-          is the surface that starts them. */}
-      <MenuRow
-        selected={selection.kind !== 'terminal' && selection.kind !== 'conversation'}
-        label="Agent"
-        hint="A CLI agent, in a terminal"
-        onClick={() => onSelectKind({ kind: 'general' })}
-      />
-      <MenuRow
-        selected={selection.kind === 'terminal'}
-        label="Terminal"
-        hint="A plain shell — no agent"
-        onClick={() => onSelectKind({ kind: 'terminal' })}
-      />
-      {conversationModeEnabled ? (
+      {/* The only place the kind of launch is chosen. The two agent rows are
+          the same CLI with the same picker; they differ only in the interface
+          it opens in. Chat agent is listed only where the workspace can host
+          one. Worktree left this menu for the launch row (2026-09-30). */}
+      {scheduled ? null : (
+        <MenuRow
+          selected={selection.kind === 'general'}
+          label="Agent"
+          hint="A CLI agent, in a terminal"
+          onClick={() => onSelectKind({ kind: 'general' })}
+        />
+      )}
+      {chatAvailable ? (
         <MenuRow
           selected={selection.kind === 'conversation'}
-          disabled={!conversationAvailable}
-          // "Chat", not "Conversation agent": the trio reads as what you GET —
-          // an agent in a terminal, a plain shell, or an agent in a window — and
-          // "conversational agent" names the mechanism instead. The app already
-          // calls this door New chat and renders it through AgentChatView.
-          label="Chat"
-          hint={
-            conversationAvailable
-              ? 'An agent in a chat window — no terminal'
-              : 'Needs a model provider — connect one in Settings'
-          }
-          onClick={() => {
-            if (conversationAvailable) onSelectKind({ kind: 'conversation' })
-            else onOpenProviderSettings()
-          }}
+          label="Chat agent"
+          hint={scheduled ? 'Each run is a chat of its own' : 'The same CLI agent, as a chat'}
+          onClick={() => onSelectKind({ kind: 'conversation' })}
         />
       ) : null}
-      <div className={MENU_DIVIDER_CLASS} role="separator" />
-
-      {/* A conversation has no repo checkout of its own, so no worktree. */}
-      {worktreeAvailable && selection.kind !== 'conversation' ? (
-        <>
-          <MenuValueRow
-            label="Worktree"
-            value={worktreeReason ? 'Unavailable' : worktreeName === null ? 'Off' : worktreeName || 'Named on start'}
-            expanded={!worktreeReason && worktreeName !== null}
-            disabled={Boolean(worktreeReason)}
-            hint={worktreeReason ?? null}
-            onClick={() => {
-              if (worktreeReason) return
-              onToggleWorktree()
-              // Opening it puts the caret where the name goes — the click that
-              // turns it on is the same click that starts typing.
-              if (worktreeName === null) {
-                window.requestAnimationFrame(() => worktreeRef.current?.focus())
-              }
-            }}
-          />
-          {/* The reveal is the app's "just changed" motion, and it collapses to
-              nothing when off rather than reserving the row. */}
-          <div
-            className={`grid transition-[grid-template-rows,opacity] duration-[var(--motion-normal)] ease-[var(--motion-ease)] ${
-              worktreeReason || worktreeName === null ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100'
-            }`}
-          >
-            <div className="overflow-hidden">
-              {/* `quiet` is the field a floating surface hosts: a transparent
-                  ground and a `border.subtle` hairline, because `bg.field`
-                  inside an already-grounded menu reads as a panel nested in a
-                  panel. `content` gives the height back to the menu's own
-                  rhythm. */}
-              <Input
-                ref={worktreeRef}
-                variant="quiet"
-                size="content"
-                value={worktreeName ?? ''}
-                onChange={(event) => onChangeWorktree(event.currentTarget.value)}
-                placeholder="Branch name — blank uses the agent’s"
-                aria-label="Worktree branch name"
-                aria-hidden={Boolean(worktreeReason) || worktreeName === null}
-                tabIndex={worktreeReason || worktreeName === null ? -1 : 0}
-                className="mx-2 mb-1 w-[calc(100%-1rem)] text-meta"
-              />
-            </div>
-          </div>
-          <div className={MENU_DIVIDER_CLASS} role="separator" />
-        </>
-      ) : null}
-
-      <MenuRow
-        selected={debugMode}
-        label="Debug mode"
-        // Not about debugging the agent: it hands the agent the debug skill's
-        // state machine to find a bug in YOUR software, instrumenting the code
-        // and removing every tag before it finishes.
-        hint="The agent instruments your code, works the debug loop, then cleans up"
-        onClick={onToggleDebug}
-      />
-    </>
-  )
-}
-
-function MenuValueRow({
-  label,
-  value,
-  expanded = false,
-  disabled = false,
-  hint = null,
-  onClick,
-}: {
-  label: string
-  value: string
-  expanded?: boolean
-  /** Listed and dimmed with its `hint`, per the menu spec — never hidden. */
-  disabled?: boolean
-  /** The one line under the label: why a dimmed row is dimmed. */
-  hint?: string | null
-  onClick: () => void
-}) {
-  return (
-    // The kit's action row, with `expanded` — the prop that says a row is a
-    // DOOR rather than a choice — and the current value plus the chevron in the
-    // trailing slot. Full-bleed like its sibling rows (menu spec): the inset
-    // rounded fill is the card-in-a-card the spec retires.
-    <MenuItem
-      onClick={onClick}
-      disabled={disabled || undefined}
-      expanded={expanded || undefined}
-      trailing={
-        <>
-          <span className="max-w-[110px] shrink-0 truncate text-[color:var(--text-subtle)]">{value}</span>
-          <span aria-hidden="true" className="shrink-0 text-micro text-[color:var(--text-disabled)]">
-            ›
-          </span>
-        </>
-      }
-    >
-      {hint ? (
-        <>
-          <span className="block text-body">{label}</span>
-          <span className="block text-meta leading-snug text-[color:var(--text-subtle)]">{hint}</span>
-        </>
-      ) : (
-        label
+      {scheduled ? null : (
+        <MenuRow
+          selected={selection.kind === 'terminal'}
+          label="Terminal"
+          hint="A plain shell — no agent"
+          onClick={() => onSelectKind({ kind: 'terminal' })}
+        />
       )}
-    </MenuItem>
+    </>
   )
 }
 
@@ -2277,31 +2438,6 @@ function MenuValueRow({
 // shared strip renders it) plus the file path that stands in for it once the
 // prompt becomes text.
 type PromptImage = NewChatDraftImage
-
-// Quoted only when the path needs it, matching the terminal drop idiom.
-function quotePath(path: string): string {
-  return /\s/.test(path) ? `'${path}'` : path
-}
-
-function AttachmentChip({
-  glyph,
-  label,
-  removeLabel,
-  onRemove,
-}: {
-  glyph: React.ReactNode
-  label: string
-  removeLabel: string
-  onRemove: () => void
-}) {
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded bg-[color:var(--accent-primary-soft)] px-2 py-0.5 text-meta font-medium text-[color:var(--text-strong)]">
-      {glyph}
-      <TruncatedText as="span" text={label} className="max-w-[140px]" />
-      <CloseIconButton onClick={onRemove} aria-label={removeLabel} className="-mr-1" />
-    </span>
-  )
-}
 
 function MenuRow({
   selected,
@@ -2366,6 +2502,18 @@ function SuggestionCard({
       <span className="mt-1.5 inline-block self-start rounded border border-[color:var(--border-default)] px-1.5 text-micro text-[color:var(--text-subtle)]">
         {entry.outcome}
       </span>
+    </CardButton>
+  )
+}
+
+function ExtensionIdeaCard({ idea, onPick }: { idea: ExtensionIdea; onPick: () => void }) {
+  return (
+    // The suggestion tile's shape; the surface it adds leads, because the cards
+    // together are a map of what an extension can be.
+    <CardButton variant="bordered" onClick={onPick} className="px-3 py-2.5">
+      <span className="text-micro text-[color:var(--text-subtle)]">{idea.surface}</span>
+      <div className="mt-0.5 text-body font-medium text-[color:var(--text-strong)]">{idea.title}</div>
+      <p className="mt-0.5 text-meta leading-5 text-[color:var(--text-muted)]">{idea.description}</p>
     </CardButton>
   )
 }

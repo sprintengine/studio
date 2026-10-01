@@ -66,20 +66,35 @@ export function newModelsNotice(input: {
   }
 }
 
-// The CLI-update toast's copy: "Update available: Codex 0.153.3".
+// The CLI-update toast's copy: "Update available: Codex 0.153.3", with the
+// machine after it when it is not this one — "(WSL: Ubuntu)" — since the same
+// CLI may be current here and behind there.
 export function cliUpdateNotice(
   advisory: CliVersionAdvisory,
   displayName: (cli: string) => string,
+  machineLabel: string | null = null,
 ): Pick<Notice, 'title'> {
+  const title = `Update available: ${displayName(advisory.cli)} ${advisory.latestVersion ?? ''}`.trim()
+  return { title: machineLabel ? `${title} (${machineLabel})` : title }
+}
+
+export function updateReadyNotice(appName: string, version: string | null, requiresAdmin = false): Notice {
   return {
-    title: `Update available: ${displayName(advisory.cli)} ${advisory.latestVersion ?? ''}`.trim(),
+    title: version ? `${appName} ${version} is ready` : `${appName} update is ready`,
+    // An update that needs an administrator does not install at quit: the
+    // permission prompt would come up after the app had gone.
+    description: requiresAdmin
+      ? 'Restart to update. Windows will ask for administrator permission.'
+      : 'Restart now to update, or it installs the next time you quit.',
   }
 }
 
-export function updateReadyNotice(appName: string, version: string | null): Notice {
+// Owner ruling 2026-09-24: an update downloads when the person asks for it
+// (unless they turned automatic download on in Settings -> General).
+export function updateAvailableNotice(appName: string, version: string | null): Notice {
   return {
-    title: version ? `${appName} ${version} is ready` : `${appName} update is ready`,
-    description: 'Restart now to update, or it installs the next time you quit.',
+    title: version ? `${appName} ${version} is available` : `A ${appName} update is available`,
+    description: 'Download it now, or any time from Settings → General.',
   }
 }
 

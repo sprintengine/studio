@@ -94,7 +94,7 @@ test('WorkspaceSidebar.worktreeGroup', async () => {
     const { getRendererHost } = await import('../../modules')
     const { deriveWorkspaceRunGlyph } = await import('../../utils/workspaceRunGlyph')
     getRendererHost()
-      .hostFor('automations')
+      .hostFor('scheduled-agents')
       .registerWorkspaceType({
         id: 'worktree-glyph-probe',
         label: 'Glyph probe',

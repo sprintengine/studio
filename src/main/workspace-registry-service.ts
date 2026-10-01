@@ -29,7 +29,6 @@ import {
   normalizeWorkspaceForRegistry,
   parseWorkspaceRegistryFile,
   parseWorkspaceRegistryRecord,
-  resolveWorkspaceReuseTarget,
   shouldApplyFieldEdit,
   toWorkspaceRegistryRecord,
   WORKSPACE_REGISTRY_SCHEMA_VERSION,
@@ -50,7 +49,16 @@ import {
   type WorkspaceSyncEvent,
   type WorkspaceSyncState,
 } from '../shared/workspace-sync'
-import type { Workspace, WorkspaceId, WorkspaceMode, WorkspaceWindowId } from '../renderer/src/types/workspace'
+import type {
+  AgentId,
+  AgentState,
+  Workspace,
+  WorkspaceId,
+  WorkspaceMode,
+  WorkspaceWindowId,
+  WorkspaceWorktree,
+} from '../renderer/src/types/workspace'
+import type { ExecutionHostId } from '../shared/execution-host'
 import type { WorkspaceRegistryStore } from './workspace-registry-store'
 
 export type WorkspaceRegistryDiagnostic = {
@@ -74,14 +82,35 @@ export type WorkspaceCreateRequest = {
   mode?: WorkspaceMode
   /** Target window; defaults to the primary window, which always exists. */
   windowId?: WorkspaceWindowId
+  /** The machine on this computer it runs on; absent or `local` is this one. */
+  hostId?: ExecutionHostId | null
+  /** Marks a workspace whose folder is a worktree, filed under the project it was cut from. */
+  worktree?: WorkspaceWorktree | null
+  /**
+   * Agent records it is born with, keyed by the layout's agent tab ids, so a
+   * window never sees a tab with no agent behind it.
+   */
+  agents?: Record<AgentId, AgentState>
+  /**
+   * The name is one the app derived (a chat named after the first message main
+   * sent it), so it is not locked: a window's own titling may still replace it
+   * with a model-written title. Absent, a name that is not app-minted locks.
+   */
+  titleOpen?: boolean
+  /** The scheduled agent whose run this chat is; see `Workspace.scheduledAgentId`. */
+  scheduledAgentId?: string
+  /**
+   * Join the window without becoming its active workspace (the
+   * `workspace.created` event's `activate: false`), for a chat started on
+   * nobody's request at that moment.
+   */
+  background?: boolean
 }
 
 export type WorkspaceCreateResult = {
   workspace: WorkspaceRegistryRecord
   windowId: WorkspaceWindowId
   folderPath: string | null
-  /** True when an existing one-per-project host workspace was reused. */
-  reused: boolean
 }
 
 export type WorkspaceRegistryHydrateResult = {
@@ -338,14 +367,7 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
   }
 
   /**
-   * Mint the record a `workspace.created` event will carry, or resolve the
-   * folder's existing one-per-project host.
-   *
-   * Reuse runs in the same critical section as the mint. The renderer ran the
-   * same check inside `set()` because two calls in one tick each read the store
-   * before either wrote; main's single writer removes that hazard structurally,
-   * and — unlike the renderer check — it holds ACROSS windows, so two windows
-   * both asking for the automations host of one folder get the same id.
+   * Mint the record a `workspace.created` event will carry.
    *
    * The caller applies the returned record through the bus, which is what makes
    * the new id observable in the same tick and retires the 7s confirmation poll.
@@ -353,20 +375,7 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
   function prepareCreate(input: WorkspaceCreateRequest): WorkspaceCreateResult {
     const folderPath = normalizeOptionalString(input.folderPath)
     const windowId = resolveTargetWindowId(input.windowId)
-    const reuseTarget = resolveWorkspaceReuseTarget(getRecords(), input.mode, folderPath)
-    if (reuseTarget) {
-      // Reuse must carry both behaviours the renderer branch had: the folder is
-      // no longer missing (the caller just named it), and the workspace joins
-      // the requesting window's membership if it is not already there.
-      return {
-        workspace: { ...reuseTarget, folderMissing: false },
-        windowId: findWindowForWorkspace(reuseTarget.id) ?? windowId,
-        folderPath,
-        reused: true,
-      }
-    }
-
-    const template = resolveHeadlessLayoutTemplate({ templateId: input.templateId, mode: input.mode })
+    const template = resolveHeadlessLayoutTemplate({ templateId: input.templateId })
     const createdAt = now()
     const name = normalizeOptionalString(input.name) ?? defaultWorkspaceName(template.name, getRecords().length + 1)
     const workspace: Workspace = {
@@ -377,13 +386,16 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
       // creation path applies. An app-minted name ("Chat 63" from the New chat
       // button, "Solo 4" from a headless create) is NOT meaningful and stays
       // open for the first prompt to name.
-      ...(isDefaultWorkspaceName(name, template.name) ? {} : { titleLocked: true }),
+      ...(isDefaultWorkspaceName(name, template.name) || input.titleOpen ? {} : { titleLocked: true }),
       mode: input.mode ?? 'standard',
       folderPath,
       folderMissing: false,
+      ...(input.hostId && input.hostId !== 'local' ? { hostId: input.hostId } : {}),
+      ...(input.worktree ? { worktree: input.worktree } : {}),
+      ...(input.scheduledAgentId?.trim() ? { scheduledAgentId: input.scheduledAgentId.trim() } : {}),
       templateId: template.id,
       layoutModel: template.layout,
-      agents: {},
+      agents: { ...input.agents },
       worktreeState: { containerPath: null, entries: {}, updatedAt: null },
       memory: { relativeRoot: null },
       editorState: { openFiles: [], activeFilePath: null },
@@ -393,7 +405,6 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
       workspace: toWorkspaceRegistryRecord(workspace, file.revision + 1, stampsForCreate(createdAt)),
       windowId,
       folderPath,
-      reused: false,
     }
   }
 
@@ -416,10 +427,6 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
     const trimmed = requested?.trim()
     if (trimmed && state.workspaceWindows.some((windowState) => windowState.id === trimmed)) return trimmed
     return state.primaryWorkspaceWindowId
-  }
-
-  function findWindowForWorkspace(workspaceId: WorkspaceId): WorkspaceWindowId | null {
-    return state.workspaceWindows.find((windowState) => windowState.workspaceIds.includes(workspaceId))?.id ?? null
   }
 
   // -------------------------------------------------------------------------

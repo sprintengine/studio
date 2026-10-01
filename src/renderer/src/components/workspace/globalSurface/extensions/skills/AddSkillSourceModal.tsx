@@ -141,7 +141,7 @@ export function AddSkillSourceModal({
 
   return (
     <Modal open={open} onClose={onClose} labelledBy="add-skill-source-title" size="standard">
-      <ModalHeader titleId="add-skill-source-title" title="Add a source from GitHub" onClose={onClose} />
+      <ModalHeader titleId="add-skill-source-title" title="Add a source from a git repository" onClose={onClose} />
       <ModalBody className="flex flex-col gap-4">
         <Input
           value={repo}
@@ -151,7 +151,9 @@ export function AddSkillSourceModal({
           onKeyDown={(event) => {
             if (event.key === 'Enter') void scan()
           }}
-          placeholder="owner/repo"
+          // `owner/repo` is github.com; any other git host is named by the
+          // address its Clone button gives, https or ssh.
+          placeholder="owner/repo, or any git clone address"
           aria-label="Repository"
           className="font-mono"
         />

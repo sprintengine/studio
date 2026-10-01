@@ -382,7 +382,7 @@ test('premiumFeelSeam', async () => {
       assert.equal(geometry(stateLine, 'font-size', utilities).pixels, 12, 'the state line is meta')
       assert.equal(geometry(mark, 'width', utilities).pixels, 22, 'the brand mark box is icon-lg')
       assert.equal(geometry(mark, 'height', utilities).pixels, 22)
-      assert.equal(geometry(dot, 'width', utilities).pixels, 6, 'the health dot is 6px')
+      assert.equal(geometry(dot, 'width', utilities).pixels, 10, 'the health mark is a 10px glyph, not a 6px dot')
       assert.equal(geometry(chevronGlyph, 'width', utilities).pixels, 13, 'the chevron glyph is icon-xs')
       assert.equal(
         geometry(chevronButton, 'width', utilities).pixels,
@@ -470,25 +470,25 @@ test('premiumFeelSeam', async () => {
       platform: 'darwin',
       isDevelopment: false,
       isDiagnosticsEnabled: false,
-      // The tailnet/fleet presence bridge is ABSENT here, deliberately, rather
+      // The tailnet/mesh presence bridge is ABSENT here, deliberately, rather
       // than stubbed.
       // `hasTailnetPresenceBridge` (topbar/useTailnetPresence.ts) needs all six to
       // be functions and otherwise leaves the sidebar's Remote band empty. Without
-      // this, the inert fallback answered `fleetListConnections()` with its
+      // this, the inert fallback answered `meshListConnections()` with its
       // `{ ok: false, … }` refusal, `buildRemoteBand` called `.map` on that object
       // and WorkspaceSidebar threw "connections.map is not a function" at mount,
       // taking the rail-swap check below with it. (The band landed 2026-09-05,
       // after this seam, and was never seen because verify:app halts earlier.)
       // Naming them undefined keeps `prop in target` true, so the Proxy hands back
       // undefined and the guard reads the bridge as missing — which it is. This
-      // seam says nothing about the Remote band; stubbing a fleet here would be
+      // seam says nothing about the Remote band; stubbing a mesh here would be
       // inventing a shape no assertion reads.
       onTailnetEvent: undefined,
-      onFleetEvent: undefined,
+      onMeshEvent: undefined,
       tailnetGetStatus: undefined,
       tailnetGetLiveState: undefined,
-      fleetListConnections: undefined,
-      fleetGetLiveState: undefined,
+      meshListConnections: undefined,
+      meshGetLiveState: undefined,
     })
 
     /**

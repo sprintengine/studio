@@ -5,16 +5,11 @@ import { resolveWorkspaceTerminalCwd, resolveWorkspaceWorktree } from '../../uti
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { recordReplayProfile } from '../../utils/diagnostics/replayProfileStore'
-import {
-  createStudioTerminal,
-  terminalSurfaceLinkRoots,
-  type StudioTerminal,
-  type TerminalSurface,
-} from '../../utils/createStudioTerminal'
+import { createStudioTerminal, type StudioTerminal, type TerminalSurface } from '../../utils/createStudioTerminal'
 import { useTerminalFind } from '../../hooks/useTerminalFind'
 import { isTerminalChromeTarget, TERMINAL_SURFACE_ATTRIBUTE } from '../../utils/keyboard'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
-import { createTerminalFileLinkProvider } from '../../utils/terminalFileLinks'
+import { createTerminalFileLinkProvider, terminalWslDistro } from '../../utils/terminalFileLinks'
 import { parseTerminalOscCwd } from '../../utils/terminalOscLinks'
 import { registerMountedTerminalPromptNavigation } from '../../utils/terminalPromptNavigation'
 import {
@@ -116,11 +111,6 @@ export default function PlainTerminalPanel({
       kind: 'shell',
       workspaceRoot: folderReadyPath ?? savedFolderPath ?? null,
     }
-    // Read here rather than off `studioTerminal` because the OSC 8 handler is a
-    // CONSTRUCTION option (xterm's OscLinkProvider reads `options.linkHandler`),
-    // so this surface's permission to resolve a local path must be known before
-    // the terminal exists. Same function the factory calls.
-    const surfaceLinkRoots = terminalSurfaceLinkRoots(terminalSurface)
     // Where this shell actually IS, in two layers, newest first.
     //
     // `launchExecutionRoot` is the directory the pty was spawned in, which is
@@ -163,7 +153,7 @@ export default function PlainTerminalPanel({
           kind: 'file',
           resolvedPath,
           isDirectory,
-          workspaceRoot: surfaceLinkRoots?.workspaceRoot ?? null,
+          workspaceRoot: terminalSurface.workspaceRoot,
         },
         x: anchor.x,
         y: anchor.y,
@@ -208,9 +198,8 @@ export default function PlainTerminalPanel({
         7: (data) => {
           // Same gate as an OSC 8 payload, and for the same reason: this is a
           // sequence any program with a pane can print. A payload naming
-          // another host, or any local path at all on a surface with no link
-          // roots, leaves the previous value standing.
-          const cwd = parseTerminalOscCwd(data, { allowLocalPaths: surfaceLinkRoots !== null })
+          // another host leaves the previous value standing.
+          const cwd = parseTerminalOscCwd(data)
           if (cwd) oscExecutionRoot = cwd
           // Handled either way: nothing else in the app wants OSC 7, and
           // reporting it unhandled would only put it back on xterm's floor.
@@ -292,26 +281,30 @@ export default function PlainTerminalPanel({
     // GPU failure loaded before that point escapes through `open()` itself.
     studioTerminal.loadWebglRenderer()
 
-    // Non-null for every shell surface; the guard is what keeps a surface that
-    // must not resolve local paths (fleet) from ever registering this provider.
-    const fileLinkDisposable = surfaceLinkRoots
-      ? term.registerLinkProvider(
-          createTerminalFileLinkProvider({
-            terminal: term,
-            workspaceRoot: surfaceLinkRoots.workspaceRoot,
-            // A thunk, so a `cd` (or the async spawn-cwd resolution below) reaches the
-            // links already on screen without re-registering the provider.
-            executionRoot: () => oscExecutionRoot ?? launchExecutionRoot,
-            inspectPath,
-            onActivate: openFileLinkMenu,
-            onOpenError: (message, anchor) => setCursorError({ message, x: anchor.x, y: anchor.y }),
-            // A matched path that never became a link leaves no trace on screen, so
-            // count it — a workspace with no configured folder drops every relative
-            // path in the pane and looks identical to a pane containing none.
-            onDrop: terminalDiagnostics.recordFileLinkDrop,
+    const linkRoots = studioTerminal.linkRoots
+    const fileLinkDisposable = term.registerLinkProvider(
+      createTerminalFileLinkProvider({
+        terminal: term,
+        workspaceRoot: linkRoots.workspaceRoot,
+        // A thunk, so a `cd` (or the async spawn-cwd resolution below) reaches the
+        // links already on screen without re-registering the provider.
+        executionRoot: () => oscExecutionRoot ?? launchExecutionRoot,
+        // A shell under WSL reports its cwd and prints its paths the Linux
+        // way; a folder inside a distribution's share says which one.
+        wslDistro: () =>
+          terminalWslDistro({
+            platform: window.api.platform,
+            roots: [oscExecutionRoot ?? launchExecutionRoot, linkRoots.workspaceRoot],
           }),
-        )
-      : null
+        inspectPath,
+        onActivate: openFileLinkMenu,
+        onOpenError: (message, anchor) => setCursorError({ message, x: anchor.x, y: anchor.y }),
+        // A matched path that never became a link leaves no trace on screen, so
+        // count it — a workspace with no configured folder drops every relative
+        // path in the pane and looks identical to a pane containing none.
+        onDrop: terminalDiagnostics.recordFileLinkDrop,
+      }),
+    )
 
     // Loaded AFTER the file-link provider on purpose: xterm resolves link
     // providers in registration order and the earlier one's links suppress the
@@ -544,7 +537,7 @@ export default function PlainTerminalPanel({
       disposeError()
       onDataDisposable.dispose()
       onResizeDisposable.dispose()
-      fileLinkDisposable?.dispose()
+      fileLinkDisposable.dispose()
       disposePromptNavigation()
       markTracker?.dispose()
       terminalDiagnostics.dispose()

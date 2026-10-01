@@ -1,5 +1,6 @@
 import React from 'react'
 
+import { ExtensionsGlyph } from '../AppIcons'
 import type { RegisteredGlobalSurface, SurfaceIconComponent } from '../../modules/renderer-host'
 import type { SidebarSection } from '../../store/slices/settingsSlice'
 import { Badge } from '../ui/Badge'
@@ -26,8 +27,7 @@ import { TITLE_BAR_HEIGHT } from './AppTitleBar'
 //   Automations — the Automations surface takes the card region, with its own
 //                 list of automations in the sidebar column beside it.
 //   Extensions  — the sidebar becomes the Extensions drawer (Design, Plugins,
-//                 Skills, Agent CLIs) and the Extensions home takes the card
-//                 region.
+//                 Skills) and the Extensions home takes the card region.
 // Plugins left the rail: it is one of the things UNDER Extensions, and a
 // glyph of its own said it stood beside them. Automations stays because it is
 // what the product does rather than something added to it — and it is still
@@ -60,11 +60,11 @@ export const APP_RAIL_WIDTH = 56
 export const TRAFFIC_LIGHT_RESERVE = 78
 
 // The registered surfaces that stand on the rail, in rail order. Ids, not
-// modules. One of them today: the ruling promotes only Automations. The
-// mechanism stays a LIST because what the rail holds is a ruling rather than a
-// constant of the code — a second standing tool would join it here rather than
-// be hand-placed in the JSX.
-export const RAIL_SURFACE_IDS = ['automations'] as const
+// modules. None today: Automations stood here until scheduled agents replaced
+// it (2026-09-30). The mechanism stays a LIST because what the rail holds is a
+// ruling rather than a constant of the code — a standing tool would join it
+// here rather than be hand-placed in the JSX.
+export const RAIL_SURFACE_IDS: readonly string[] = []
 
 // A rail square needs a name and a glyph, and a door declares both optionally
 // (a door may name itself through its own nav-entry row instead). Narrowing here
@@ -94,19 +94,6 @@ function HomeGlyph({ className }: { className?: string }) {
   )
 }
 
-// Four tiles identify additions to the product beyond chat, drawn in the
-// icon family's 16-box round-stroke idiom.
-function ExtensionsGlyph({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
-      <rect x="2.5" y="2.5" width="4.6" height="4.6" rx="1.1" stroke="currentColor" strokeWidth="1.4" />
-      <rect x="8.9" y="2.5" width="4.6" height="4.6" rx="1.1" stroke="currentColor" strokeWidth="1.4" />
-      <rect x="2.5" y="8.9" width="4.6" height="4.6" rx="1.1" stroke="currentColor" strokeWidth="1.4" />
-      <rect x="8.9" y="8.9" width="4.6" height="4.6" rx="1.1" stroke="currentColor" strokeWidth="1.4" />
-    </svg>
-  )
-}
-
 // What a rail square wears at its corner when its area has news: the count of
 // things there that the person has not seen or that are waiting on them, in the
 // tone of the loudest one. Null (or absent) is no badge at all — a zero is
@@ -120,8 +107,8 @@ export type RailBadge = {
   label: string
 }
 
-// Keyed by what the square opens: `home`, `extensions`, or a rail surface's id
-// (`automations`). Derived by the host (useRailBadges); the rail only wears them.
+// Keyed by what the square opens: `home`, `extensions`, or a rail surface's id.
+// Derived by the host (useRailBadges); the rail only wears them.
 export type RailBadges = Readonly<Partial<Record<string, RailBadge | null>>>
 
 type AppRailProps = {
@@ -168,11 +155,11 @@ function RailGlyph({
   children: React.ReactNode
 }) {
   return (
-    // `material-bleed` is the tinted window material's accent glow around the
-    // square (assets/index.css); it is on the tooltip's wrapper, not the
-    // button, because the button owns its own box-shadow. Nothing on glass or
-    // solid.
-    <Tooltip content={label} placement="right" wrapperClassName="material-bleed flex">
+    // No material paint of its own: under the tinted window material the
+    // square is exactly the solid one, standing on the rail's ambient wash
+    // (assets/index.css). A glow worn per square read as a tile behind every
+    // button, so the material never decorates a single control.
+    <Tooltip content={label} placement="right" wrapperClassName="flex">
       {/* The kit's icon button at its one `lg` step — the rail's own square,
           which is what `size.control.lg` exists for. `pressed` carries the
           neutral selection fill for BOTH rail states; the explicit

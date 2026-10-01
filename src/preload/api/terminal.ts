@@ -3,6 +3,7 @@ import type {
   AgentCli,
   CliRuntimeSettings,
   ElectronApi,
+  TerminalPromptUndelivered,
   TerminalSessionSnapshot,
   TerminalSessionsDelta,
   TerminalSpawnMetadata,
@@ -106,6 +107,14 @@ export const terminalApi = {
     ipcRenderer.on(ch, handler)
     return () => ipcRenderer.removeListener(ch, handler)
   },
+  onTerminalPromptUndelivered: (cb: () => void): (() => void) => {
+    const ch = 'terminal:prompt-undelivered'
+    const handler = () => cb()
+    ipcRenderer.on(ch, handler)
+    return () => ipcRenderer.removeListener(ch, handler)
+  },
+  terminalTakeUndeliveredPrompts: (): Promise<TerminalPromptUndelivered[]> =>
+    ipcRenderer.invoke('terminal:take-undelivered-prompts'),
   terminalAck: (sessionId: string, units: number): void => ipcRenderer.send('terminal:ack', { sessionId, units }),
 } satisfies Pick<
   ElectronApi,
@@ -127,5 +136,7 @@ export const terminalApi = {
   | 'onTerminalExit'
   | 'onTerminalError'
   | 'onTerminalSessionsDelta'
+  | 'onTerminalPromptUndelivered'
+  | 'terminalTakeUndeliveredPrompts'
   | 'terminalAck'
 >

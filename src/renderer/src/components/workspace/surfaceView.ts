@@ -2,9 +2,9 @@ import { useSyncExternalStore } from 'react'
 
 // Which VIEW an open surface is showing (Extensions drawer ruling,
 // 2026-09-05). A surface that contributes several drawer rows — the one
-// `extensions` surface is Plugins, Skills and Agent CLIs to the person
+// `extensions` surface is Plugins and Skills to the person
 // (renderer-host, SurfaceViewDefinition) — has to say which of them it is on,
-// or all three rows would read selected the moment the surface opened, and the
+// or both rows would read selected the moment the surface opened, and the
 // drawer would stop being navigation.
 //
 // "Modal" is out of the name (Stage 2, same ruling): these surfaces are doors

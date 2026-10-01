@@ -1,36 +1,39 @@
 import { app, BrowserWindow, Notification, ipcMain, net, powerMonitor } from 'electron'
-import { randomUUID } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import { existsSync } from 'fs'
-import { hostname } from 'os'
+import { homedir, hostname } from 'os'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { createAgentConfigImportService } from './agent-config-import'
 import {
   ensureAgentIntegrationHome,
   LAUNCH_STATUS_LINE_REL,
   pruneAgentIntegrationHomes,
+  type EnsureAgentIntegrationHomeOptions,
 } from './agent-integration-home'
 import { createAgentStateService } from './agent-state-service'
 import { primeDefaultWslDistro } from './hosts/wsl-distro'
 import { configureWslHelpers } from './hosts/wsl-helper-runtime'
 import { cliTakesLaunchPlugins } from './agent-launch-render'
 import { resolveSocketPath as resolveAutomationSocketPath } from './automation/automation-service'
-import { invalidateCliAvailabilityOnHost } from './cli-availability'
+import { invalidateCliAvailabilityOnHost, subscribeKnownCliAvailability } from './cli-availability'
 import { wslHostId } from '../shared/execution-host'
 import {
   appLaunchPluginsActive,
   launchCarriesAppPluginsFor,
   setLaunchPluginDirsResolver,
+  setLaunchSkillPluginDirsResolver,
   setLaunchStatusLineScriptResolver,
 } from './terminal-launch'
 import { createAutomationService } from './automation/automation-service'
 import { REMOTE_OPEN_REQUESTED_CHANNEL, TAILNET_EVENT_CHANNEL } from '../shared/tailnet'
-import { FLEET_EVENT_CHANNEL } from '../shared/tailnet-fleet'
+import { MESH_EVENT_CHANNEL } from '../shared/tailnet-mesh'
 import { CANVAS_MODULE_DEFAULT_ENABLED } from '../shared/modules/manifest'
 import { createTailnetNotifier } from './tailnet-notifications'
 import { revealMainWindow } from './window-factory'
 import { createAutomationTools } from './automation/automation-tools'
+import { createAgentPermissionResolver, launchPermissionCeiling } from './automation/launch-permission-cap'
 import { createTailnetTools, type TailnetToolsFrontDoor } from './automation/tailnet/tailnet-tools'
 import { createStudioGatewayTools } from './automation/studio-gateway-tools'
 import type { McpToolContribution } from './module-host/main-host'
@@ -38,12 +41,10 @@ import { createDefaultMarketplaceRegistryClient } from './ipc/marketplace-regist
 import { toThirdPartyModuleView } from './ipc/third-party-module-ipc'
 import { getGitRepoWatch } from './ipc/git-repo-watch-ipc'
 import { resolveCheckoutForCwd } from './checkout-resolve'
-import { readTrustedMarketplacePublisherFingerprintsSync } from './marketplace/trusted-publishers'
 import { createModuleRegistryMirror } from './modules/registry-mirror'
-import { readTrustedModulesSync } from './modules/trust-store'
+import { readModuleTrustContextSync } from './modules/trust-context'
 import { defaultUserModuleRoot, discoverUserModules } from './modules/user-module-registry'
-import { AutomationsStore } from './automations/store'
-import type { AutomationsAppFrontDoor } from './ipc/automations-ipc'
+import type { ScheduledAgentsService } from './scheduled-agents/service'
 import {
   addOrUpdateBacklogLink,
   listBacklogItems,
@@ -59,26 +60,30 @@ import {
   createBuiltinSkillManager,
   ensureSkillInstalled,
   setDefaultSkillManager,
-  setLaunchDeliversBundledSkillsResolver,
+  setLaunchDeliversBundledSkillResolver,
+  pruneRetiredBuiltinSkillCopies,
+  BUILTIN_SKILLS_RESOURCE_DIR,
 } from './builtin-skills'
 import { SprintEngineAuthBridge } from './auth-service'
 import { createMainDiagnostics } from './main-diagnostics'
 import { createTailnetShareService, readTailnetWebTargets } from './automation/tailnet/tailnet-share-service'
-import { MobileControlSnapshotService, sanitizeMobileSnapshotForRelay } from './mobile/control/snapshot'
+import { MobileControlSnapshotService, sanitizeMobileSnapshotForTransport } from './mobile/control/snapshot'
 import { MobileControlCommandService } from './mobile/control/command'
-import { deepRedactLocalPaths } from './mobile/control/relay-path-safety'
+import { deepRedactLocalPaths } from './mobile/control/path-safety'
 import { listKnownWorkspaceRoots, uniqueResolvedRoots } from './workspace-roots'
 import {
   mobileControlProtocolVersion,
   mobileSnapshotCollections,
   type MobileControlCommandType,
   type MobileSnapshotCollection,
-} from '../../packages/mobile-control-protocol/src/index'
+} from './mobile/control/protocol'
 import { createAgentSkillInstaller } from './agent-skill-installer'
 import { createCapabilityWatcher } from './capability-watcher'
 import { createMcpConfigService } from './mcp-config-service'
 import { createSkillsService } from './skills'
 import { createGitRepoReader, sweepGitRepoCache } from './skills/git-repo-reader'
+import { sharedGhRunner } from './github/gh'
+import { createGhHostTokenResolver } from './github/host-token'
 import type { SkillRepoReader } from './skills/repo-reader'
 import { SKILL_SOURCES_UPDATED_CHANNEL } from './skills/source-updates'
 import {
@@ -92,9 +97,17 @@ import { createHostRegistry, hostRegistry, installHostRegistry } from './hosts/h
 import { isWslHostId } from '../shared/execution-host'
 import { comparablePath } from '../shared/host-paths'
 import { installGitHostResolver } from './git-run'
-import { effectiveAgentLaunchSettings, resolveAgentSpawnPermissionPreset } from '../shared/launch-settings'
+import { effectiveAgentLaunchSettings } from '../shared/launch-settings'
+import { parseCliPermissionPreset } from '../shared/cli-permission-preset'
 import { setCliModelDiscoveryRuntimesResolver } from './ipc/cli-model-discovery-ipc'
+import {
+  configureCliVersionService,
+  launchSettingsCliMachines,
+  scheduleCliVersionRead,
+} from './cli-version-advisory-service'
 import { createBackgroundModeStore } from './background-mode-store'
+import { powerActivity } from './power-activity'
+import { createStudioAreaSkillStore } from './studio-area-skill-store'
 import { createAnalyticsService } from './telemetry/analytics-service'
 import { createTelemetryConsentStore } from './telemetry/consent-store'
 import { readInstallId } from './telemetry/install-id'
@@ -103,6 +116,7 @@ import { resolveMemoryRoot } from './memory-graph'
 import { getPluginManifest, listPluginRegistryEntries } from './plugin-registry-instance'
 import { createMcpServerResolver } from './mcp-config-readers/resolve-servers'
 import { syncStudioMcpConfig } from './studio-mcp-sync'
+import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../shared/product-identity'
 import { createGitWorktree, excludeMcpConfigFromWorktree, getGitRepoRoot } from './git'
 import { readBranchName, resolveTrunk } from './git-branch-span'
 import { getGitBranches } from './git-read-models'
@@ -110,6 +124,7 @@ import { listGitWorktrees } from './git-worktree-list'
 import { readRepositoryIdentity } from './repository-identity'
 import { agentWorktreePaths } from '../shared/worktree-paths'
 import { createConversationPeekService } from './conversation-peek/service'
+import { createConversationTerminalHandoff } from './conversation-terminal-handoff'
 import { createAgentPromptStore, registeredAgentOwners } from './agent-prompt-store'
 import {
   cliResumeCapabilities,
@@ -120,27 +135,46 @@ import {
   notePullRequestRecordChanged,
   resolveSpawnEventSink,
 } from './terminal-runtime'
-import { setSessionPullRequestReader } from './terminal-session'
+import { isTerminalProcessAlive, setSessionPullRequestReader } from './terminal-session'
 import { createAgentChangelistFeed } from './agent-changelist-feed'
 import { createPullRequestRecord } from './pull-request-record'
 import { createBrowserManager } from './browser/browser-manager'
 import { createBrowserControl } from './browser/browser-control'
 import { createBrowserTools } from './automation/browser-tools'
 import { createCanvasTools } from './automation/canvas-tools'
+import { createEditorTools } from './automation/editor-tools'
+import { createAgentWrittenFiles } from './editor-reveal/agent-written-files'
+import { createEditorRevealBroker } from './editor-reveal/editor-reveal-broker'
+import { createEditorToolBackends } from './editor-reveal/editor-tool-backends'
+import { EDITOR_REVEAL_PENDING_CHANNEL } from '../shared/editor-reveal'
+import { createTourTools } from './automation/tour-tools'
+import { createConversationTools } from './automation/conversation-tools'
+import { createConversationLaunchService } from './conversation-launch-service'
+import { createAppTourService } from './tours/tour-app'
 import { canvasBoardStoreDir } from './canvas/canvas-board-store'
 import { createCanvasService } from './canvas/canvas-service'
 import { createNodeCanvasFs, watchCanvasDirectory } from './canvas/canvas-node-fs'
 import { createCanvasSubscriberRegistry } from './canvas/canvas-subscribers'
 import { createCanvasWorkerHost } from './canvas/canvas-worker-host'
 import { createCanvasWorkerTransport, isCanvasWorkerWindow } from './canvas/canvas-worker-window'
-import { broadcastToWorkspaceWindows, isWorkspaceWindowWebContents } from './window-factory'
+import { broadcastToWorkspaceWindows, isWorkspaceWindowWebContents, listWorkspaceWindows } from './window-factory'
 import { createAgentControlPlane } from './agent-control-plane'
 import { createAgentLaunchService } from './agent-launch-service'
+import { createLaunchedAgentRegistration, withLaunchedAgentRegistration } from './launched-agent-registration'
 import { ConversationRuntime } from './conversation-runtime'
+import type { ConversationEventType } from '../shared/conversation-runtime'
+import { ConversationApprovalRuleStore } from './conversation-approval-rules'
+import { ConversationAttachmentStore } from './conversation-attachment-store'
+import { ConversationPlanStore } from './conversation-plan-store'
+import { createConversationGatewayHost } from './automation/tailnet/tailnet-conversation-host'
+import { createConversationModelCatalog } from './conversation-model-catalog'
+import { readDiscoveredCliModelCatalogs } from './model-discovery/service'
 import { getSharedCredentialStore } from './secret-store'
 import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
 import { SprintEngineUpdateService } from './update-service'
-import { createUpdateChannelStore } from './update-channel-store'
+import { channelForVersion, createUpdateChannelStore } from './update-channel-store'
+import { createUpdateInstallNoteStore } from './update-install-note'
+import { sendSplashProgress, showUpdateProgressWindow } from './splash-window'
 import { GitHubTokenStore } from './github-token-store'
 import { createWorkspaceBackupService } from './workspace-backup'
 import { createWorkspaceRegistryStore } from './workspace-registry-store'
@@ -148,8 +182,41 @@ import { createWorkspaceRegistryService } from './workspace-registry-service'
 import { createWorkspaceSyncService } from './workspace-sync-service'
 import { writeDiagnosticLog } from './diagnostics-service'
 import { getPluginRegistry } from './plugin-registry-instance'
+import { declaredPermissionPresets } from './plugin-render'
 import { createStudioPluginService } from './studio-plugin-service'
 import { resolveInstalledSkillHarnesses } from './marketplace/skill-harness-targets'
+import { buildLauncherMcpServer, usableLocalLauncherRef } from './integrations/launcher'
+import { prepareStudioIntegrations, wslLedgerMirrorPath } from './integrations/integration-boot'
+import {
+  holdLauncher,
+  launcherHeldByOthers,
+  leaveLiveInstances,
+  otherInstanceRunning,
+  registerLiveInstance,
+  releaseLauncher,
+} from './integrations/live-instances'
+import { entriesRunLauncher, removeIntegrations, SESSION_INTEGRATION_KINDS } from './integrations/remove-integrations'
+
+// How long the quit gives the session integrations' removal. What it does not
+// reach stays listed, and the next quit takes it out.
+const QUIT_INTEGRATION_REMOVAL_BUDGET_MS = 5_000
+/** The conversation events that change what a paired device's list says: a start, an end, a phase. */
+const CONVERSATION_LIST_EVENTS = new Set<ConversationEventType>([
+  'session_started',
+  'session_closed',
+  'user_message',
+  'turn_started',
+  'turn_completed',
+  'turn_failed',
+  'approval_requested',
+  'approval_resolved',
+])
+import {
+  createIntegrationLedger,
+  hostIdForPath,
+  installIntegrationLedger,
+  INTEGRATION_LEDGER_FILE,
+} from './integrations/ledger'
 
 const execFileAsync = promisify(execFile)
 
@@ -162,6 +229,27 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   primeDefaultWslDistro()
   const sprintengineAuth = new SprintEngineAuthBridge()
   const mcpConfigService = createMcpConfigService()
+  // Every file, entry and piece of machine state the app writes outside
+  // userData is recorded here as it is written (integrations/ledger.ts), so it
+  // can all be taken back out. Installed before anything that writes.
+  const integrationLedgerStore = createIntegrationLedger({
+    path: join(app.getPath('userData'), INTEGRATION_LEDGER_FILE),
+    // A distribution's entries are mirrored into it while its helper is up.
+    mirrorPathFor: (hostId) => {
+      const host = hostRegistry().get(hostId)
+      const home = host.kind === 'wsl' ? host.agentIntegration()?.home.native : null
+      return home ? wslLedgerMirrorPath(home) : null
+    },
+    onError: (error) => {
+      void writeDiagnosticLog({
+        level: 'warning',
+        title: 'Integration ledger not written',
+        message: error instanceof Error ? error.message : String(error),
+        source: 'workspace',
+      })
+    },
+  })
+  installIntegrationLedger(integrationLedgerStore)
   const resolveStudioMcpBridgeScriptPath = () =>
     app.isPackaged
       ? join(process.resourcesPath, 'automation', 'mcp-stdio-bridge.mjs')
@@ -190,8 +278,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     invalidate: (workspaceRoot, harnessId) => capabilityWatcher.invalidate(workspaceRoot, harnessId),
   })
 
-  // Declared before terminalRuntime so the runtime can ensure-install skills
-  // (Debug Mode) at spawn. Reads loaded CLI plugins to compute native targets.
+  // Declared before terminalRuntime so the runtime can ensure-install a skill
+  // at spawn. Reads loaded CLI plugins to compute native targets.
   const builtinSkillManager = createBuiltinSkillManager({
     listPlugins: () => getPluginRegistry().loaded(),
   })
@@ -206,6 +294,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // `resolveLaunchInjectsPlugins` closes over it: the launch flag and the
   // workspace installer must read one value, never two that can disagree.
   let agentIntegrationPluginDirs: string[] = []
+  // The one-skill plugins in that copy, by skill id (`launchSkillPluginDir`).
+  let agentIntegrationSkillPluginDirs: Record<string, string> = {}
   // The status-line forwarder inside that copy. Separate from the directories
   // because a status line is not a plugin component — no plugin can declare
   // one — so it travels in the launch's `--settings` document instead.
@@ -249,14 +339,36 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     if (host.kind === 'wsl') {
       return (integration === undefined ? host.agentIntegration() : integration)?.studioMcpEntry ?? null
     }
+    // Through the Studio launcher, so the entry this writes into a repository
+    // keeps working when the app moves or updates, and serves an empty MCP
+    // server rather than failing to start once the app is gone.
+    const launcher = usableLocalLauncherRef(homedir())
+    if (!launcher) {
+      // The launcher could not be written this run: name this build directly,
+      // which works for as long as it stays installed.
+      return {
+        command: process.execPath,
+        args: [resolveStudioMcpBridgeScriptPath()],
+        env: { ELECTRON_RUN_AS_NODE: '1', SPRINTENGINE_USER_DATA_DIR: app.getPath('userData') },
+      }
+    }
     return {
-      command: process.execPath,
-      args: [resolveStudioMcpBridgeScriptPath()],
-      env: { ELECTRON_RUN_AS_NODE: '1', SPRINTENGINE_USER_DATA_DIR: app.getPath('userData') },
+      ...buildLauncherMcpServer(launcher),
+      env: { SPRINTENGINE_USER_DATA_DIR: app.getPath('userData') },
     }
   }
-  // Bundled skills arrive in the `studio-skills` directory of that same copy.
-  setLaunchDeliversBundledSkillsResolver(launchCarriesAppPlugins)
+  // A bundled skill arrives as a plugin of its own, in that same copy, on the
+  // launch whose prompt invokes it — when the copy on the launch's machine
+  // holds it. The launch builder reads the same map (`pluginDirsForLaunch`).
+  setLaunchDeliversBundledSkillResolver((cli, skillId, hostId, integration) => {
+    if (!launchCarriesAppPlugins(cli, hostId, integration)) return false
+    const host = hostRegistry().get(hostId)
+    const available =
+      host.kind === 'wsl'
+        ? ((integration === undefined ? host.agentIntegration() : integration)?.skillPluginDirs ?? {})
+        : agentIntegrationSkillPluginDirs
+    return Object.hasOwn(available, skillId)
+  })
   const listAgentStateSpecs = () =>
     getPluginRegistry()
       .loaded()
@@ -290,6 +402,18 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
   })
 
+  // Which of the built-in plugin's area skills agents get: none until the
+  // person opts in, from a surface's suggestion or from Settings, and then in
+  // every workspace (shared/studio-area-skills.ts). Read by every plugin copy
+  // (this machine's launch home, each WSL distribution's) and the workspace
+  // installer; a change re-runs them.
+  const studioAreaSkillStore = createStudioAreaSkillStore({
+    resolveUserDataDir: () => app.getPath('userData'),
+    logDiagnostic: (diagnostic) => {
+      void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
+    },
+  })
+
   // WSL machines: each distribution's helper relays its agents' hook frames,
   // their MCP connections and PATH changes back here (hosts/wsl-helper-*.ts).
   // Configured on every platform because it costs nothing; only Windows ever
@@ -307,6 +431,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       templateRoot: getBundledStudioPluginRoot(),
       reporterSourcePath: getBundledAgentStateReporterPath(),
       statusLineSourcePath: getBundledStatusLineForwarderPath(),
+      enabledSkillDirs: studioAreaSkillStore.enabledSkillDirs(),
+      launchSkillsSourceRoot: getBundledResourceDir(BUILTIN_SKILLS_RESOURCE_DIR),
     }),
     automationSocketPath: () => resolveAutomationSocketPath(app.getPath('userData')),
     ingestAgentStateLine: (line) => agentStateService.ingestLine(line),
@@ -319,16 +445,45 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
   })
 
-  // Boot jobs that nothing on screen needs — the plugin-home copy, the git
-  // probe, the first plugin install into open workspaces — wait for the main
-  // window to reveal, so they do not compete with the renderer's first load.
-  // The lifecycle opens the gate on reveal; an agent launch opens it early,
-  // because a launch has to wait for the plugin home rather than race it.
+  // Boot jobs that nothing on screen needs — the git probe and the rest — wait
+  // for the main window to reveal, so they do not compete with the renderer's
+  // first load. The lifecycle opens the gate on reveal; an agent launch opens
+  // it early.
   let openBootJobsGate: () => void = () => undefined
   const bootJobsGate = new Promise<void>((resolve) => {
     openBootJobsGate = resolve
   })
-  const startDeferredBootJobs = (): void => openBootJobsGate()
+  // The workspace sync — the launcher, the plugin home and the pass over every
+  // known workspace — runs while the loading screen is up instead (owner,
+  // 2026-09-28: it "should happen when the user opens the application"). The
+  // lifecycle opens this gate as the plate goes up and waits a bounded time for
+  // the pass (`prepareWorkspacesAtBoot`); the reveal, and an agent launch, open
+  // it too, so nothing depends on the lifecycle having asked.
+  let openWorkspaceSyncGate: () => void = () => undefined
+  const workspaceSyncGate = new Promise<void>((resolve) => {
+    openWorkspaceSyncGate = resolve
+  })
+  const startDeferredBootJobs = (): void => {
+    openWorkspaceSyncGate()
+    openBootJobsGate()
+  }
+
+  const agentIntegrationHomeOptions = (): EnsureAgentIntegrationHomeOptions => ({
+    templateRoot: getBundledStudioPluginRoot(),
+    reporterSourcePath: getBundledAgentStateReporterPath(),
+    // The forwarder the launch names in its `--settings` status line: it is
+    // how the app reads context usage, cost and lines changed for a session.
+    statusLineSourcePath: getBundledStatusLineForwarderPath(),
+    userDataDir: app.getPath('userData'),
+    tokens: {
+      nodeCommand: process.execPath,
+      bridgeScriptPath: resolveStudioMcpBridgeScriptPath(),
+      userDataDir: app.getPath('userData'),
+      agentStateSocketPath: agentStateService.getSocketPath(),
+    },
+    enabledSkillDirs: studioAreaSkillStore.enabledSkillDirs(),
+    launchSkillsSourceRoot: getBundledResourceDir(BUILTIN_SKILLS_RESOURCE_DIR),
+  })
 
   // The app's own plugin, materialised ONCE for this build under the profile's
   // userData directory and handed to every launch that can take it
@@ -337,21 +492,56 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // `whenAgentLaunchReady`), and a build whose copy failed falls back to the
   // workspace installer instead of losing agent state.
   const agentIntegrationReady = (async () => {
-    await bootJobsGate
-    const home = await ensureAgentIntegrationHome({
-      templateRoot: getBundledStudioPluginRoot(),
-      reporterSourcePath: getBundledAgentStateReporterPath(),
-      // The forwarder the launch names in its `--settings` status line: it is
-      // how the app reads context usage, cost and lines changed for a session.
-      statusLineSourcePath: getBundledStatusLineForwarderPath(),
-      userDataDir: app.getPath('userData'),
-      tokens: {
-        nodeCommand: process.execPath,
-        bridgeScriptPath: resolveStudioMcpBridgeScriptPath(),
-        userDataDir: app.getPath('userData'),
-        agentStateSocketPath: agentStateService.getSocketPath(),
-      },
+    await workspaceSyncGate
+    // The Studio launcher every hook and gateway entry runs, pointed at this
+    // build — before any launch, because a launch writes commands that name
+    // it. Then, in the background, the one-time list of what earlier builds
+    // wrote and every listed entry moved onto the launcher.
+    let launcherReady: () => void = () => undefined
+    const launcherWritten = new Promise<void>((resolve) => {
+      launcherReady = resolve
     })
+    // Listed as running before anything is written, so another instance's
+    // quit leaves what this one is about to use (integrations/live-instances.ts).
+    await registerLiveInstance(homedir()).catch(() => undefined)
+    void prepareStudioIntegrations({
+      onLauncherReady: () => launcherReady(),
+      ledger: integrationLedgerStore,
+      home: homedir(),
+      shell: process.platform === 'win32' ? 'windows' : 'posix',
+      pointer: {
+        node: process.execPath,
+        runAsNode: true,
+        payload: app.isPackaged
+          ? process.resourcesPath
+          : dirname(getBundledResourceDir('hooks') ?? join(app.getAppPath(), 'resources', 'hooks')),
+        packaged: app.isPackaged,
+      },
+      // This machine's checkouts only: reading a `\\wsl.localhost` folder
+      // would boot a stopped distribution just to look.
+      listRoots: () =>
+        workspaceRegistry
+          .getState()
+          .workspaces.flatMap((workspace) =>
+            workspace.folderPath && hostIdForPath(workspace.folderPath) === 'local'
+              ? [{ path: workspace.folderPath, hostId: 'local' }]
+              : [],
+          ),
+      log: (message) => {
+        void writeDiagnosticLog({ level: 'info', title: 'Integrations', message, source: 'workspace' })
+      },
+    }).catch((error: unknown) => {
+      void writeDiagnosticLog({
+        level: 'warning',
+        title: 'Studio integrations not prepared',
+        message:
+          'The launcher, or the pass over what earlier builds wrote, failed. A hook naming a missing launcher fails until it is written; the pass is tried again next start.',
+        details: error instanceof Error ? error.message : String(error),
+        source: 'workspace',
+      })
+    })
+    await launcherWritten
+    const home = await ensureAgentIntegrationHome(agentIntegrationHomeOptions())
     if (!home.ok) {
       void writeDiagnosticLog({
         level: 'warning',
@@ -363,6 +553,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       return
     }
     agentIntegrationPluginDirs = home.home.pluginDirs
+    agentIntegrationSkillPluginDirs = home.home.skillPluginDirs
     agentIntegrationStatusLinePath = join(home.home.root, LAUNCH_STATUS_LINE_REL)
     // Old versions are only safe to delete here: a CLI reads a plugin directory
     // as it starts, and every agent this app launches dies with the app, so no
@@ -370,6 +561,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     await pruneAgentIntegrationHomes(app.getPath('userData'), home.home.version)
   })()
   setLaunchPluginDirsResolver(() => agentIntegrationPluginDirs)
+  setLaunchSkillPluginDirsResolver(() => agentIntegrationSkillPluginDirs)
   setLaunchStatusLineScriptResolver(() => agentIntegrationStatusLinePath)
 
   // The app's own plugin, installed into every workspace it opens. Declared
@@ -391,6 +583,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     // keeps agent state working rather than losing it.
     resolveLaunchPluginsActive: () => appLaunchPluginsActive(agentIntegrationPluginDirs),
     whenLaunchPluginsSettled: () => agentIntegrationReady,
+    resolveEnabledSkillDirs: () => studioAreaSkillStore.enabledSkillDirs(),
+    pruneRetiredSkillCopies: pruneRetiredBuiltinSkillCopies,
     listAgentStateSpecs,
     logDiagnostic: (diagnostic) => {
       void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
@@ -402,23 +596,28 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // dispose its child processes and diagnostics can inventory them.
   const conversationRuntime = new ConversationRuntime({
     secretStore: getSharedCredentialStore(),
-    prepareStudioMcp: async ({ workspaceRoot }) => {
+    approvalRules: new ConversationApprovalRuleStore(app.getPath('userData')),
+    attachmentStore: new ConversationAttachmentStore(app.getPath('userData')),
+    planStore: new ConversationPlanStore(app.getPath('userData')),
+    // A Claude chat's child loads no project settings, so the gateway pinned
+    // into a workspace's `.mcp.json` never reached it; the child is handed the
+    // gateway itself, on the machine its `claude` runs on.
+    resolveStudioMcpServer: async ({ hostId }) => {
       await whenAgentLaunchReady()
-      const result = await syncStudioMcpConfig(
-        {
-          workspaceRoot,
-          settings: { syncEnabled: false, servers: {} },
-          clients: ['claude-code'],
-        },
-        {
-          mcpConfigService,
-          studioGateway: () => studioGatewayFor(null),
-        },
-      )
-      return result.ok ? { ok: true } : result
+      const gateway = studioGatewayFor(hostId ?? null)
+      if (!gateway) return null
+      return {
+        id: STUDIO_MCP_SERVER_ID,
+        name: STUDIO_MCP_SERVER_NAME,
+        transport: 'stdio',
+        command: gateway.command,
+        args: gateway.args,
+        env: gateway.env,
+        ...(gateway.envVarNames?.length ? { envVarNames: gateway.envVarNames } : {}),
+      }
     },
   })
-  conversationRuntime.startIdleSweep()
+  conversationRuntime.startIdleSweep(powerActivity)
 
   // Renderer-pushed "keep running in the background" setting. Read
   // synchronously inside `window-all-closed`, which is precisely when no
@@ -482,6 +681,18 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // A model-discovery pass main starts itself (boot, after an install) probes
   // with the same per-CLI command overrides a launch would use.
   setCliModelDiscoveryRuntimesResolver(() => agentLaunchSettings.get().cliRuntimes)
+  const conversationModelCatalog = createConversationModelCatalog({
+    listClis: () => listPluginRegistryEntries(),
+    readDiscovered: () => readDiscoveredCliModelCatalogs(),
+    userModels: (cli) => agentLaunchSettings.get().cliRuntimes[cli]?.models,
+  })
+  // The version check asks about the same machines, with the same commands,
+  // that Settings ▸ Agents lists: this one and each WSL distribution turned on.
+  configureCliVersionService({ machines: launchSettingsCliMachines(() => agentLaunchSettings.get()) })
+  // It compares again whenever detection learns something new about a machine
+  // — startup, Re-check, a WSL list opened for the first time — and when the
+  // machines change (below), so a badge follows without the hourly wait.
+  subscribeKnownCliAvailability(() => scheduleCliVersionRead())
 
   // The machines this computer offers (shared/execution-host.ts): this one,
   // and on Windows each WSL distribution. One registry, installed for the whole
@@ -497,6 +708,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     if (next === lastHostSettings) return
     lastHostSettings = next
     hosts.notifyChanged()
+    // A distribution turned on or off adds or drops its CLI updates.
+    scheduleCliVersionRead()
   })
   // Git for a repository on a WSL machine runs in that distribution: a folder
   // inside it (`\\wsl.localhost\<distro>\…`), or one an open workspace on that
@@ -510,13 +723,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     return owner ? hosts.get(owner) : null
   })
 
-  // The Automations module (and its app front door) registers on the module
-  // kernel AFTER app services are constructed; index.ts injects the resolver once
-  // the kernel is up. Declared here because both the automation tools and the
-  // terminal runtime's mobile command service (the phone's `automations.control`)
-  // resolve it lazily, at call time. Until the module is up, both report the
-  // module as unavailable rather than buffering.
-  let resolveAutomationsAppFrontDoor: () => AutomationsAppFrontDoor | null = () => null
+  // The Scheduled agents module registers on the module kernel AFTER app
+  // services are constructed; index.ts injects the resolver once the kernel is
+  // up. Declared here because the scheduled-agent tools resolve it lazily, at
+  // call time. Until the module is up, they report it as unavailable rather
+  // than buffering.
+  let resolveScheduledAgents: () => ScheduledAgentsService | null = () => null
   // Live main-process module enablement, injected by index.ts once the manifest
   // universe exists; it recomputes on every override the renderer pushes, so a
   // module the user just switched off is off here on the next call. Until then
@@ -557,6 +769,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     userDataDir: app.getPath('userData'),
     broadcast: broadcastGitChangelistsChanged,
   })
+  // What each agent wrote, for the editor reveal: a file outside the workspace
+  // that the asking agent wrote itself may be shown without asking the person.
+  const agentWrittenFiles = createAgentWrittenFiles()
 
   // The conversation peek's durable history: each agent's captured prompts,
   // kept beside the agent's record in userData so they outlive the session,
@@ -593,16 +808,16 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     // The three agent-changelist seams. Fire-and-forget by contract: the feed
     // swallows its own failures, so none of them can cost a session anything.
     onAgentLaunched: (session) => agentChangelistFeed.onAgentLaunched(session),
-    onAgentFileEdit: (input) => agentChangelistFeed.onAgentFileEdit(input),
+    onAgentFileEdit: (input) => {
+      agentWrittenFiles.note(input.session.agentId, input.path)
+      agentChangelistFeed.onAgentFileEdit(input)
+    },
     onAgentSessionExit: (session) => agentChangelistFeed.onAgentSessionExit(session),
     // The hook capture of a pull request the agent just opened (epic
     // `pull-request-marks`, decision 8b). The record is built below — this
     // closure only runs once a frame arrives, long after — and it is what files
     // the pull request under the URL's own repository.
     onPullRequestCaptured: (input) => pullRequestRecord.noteCaptured(input),
-    // Item 47: the phone enables, pauses and fires automations through the same
-    // front door the desktop UI writes through.
-    resolveAutomationsFrontDoor: () => resolveAutomationsAppFrontDoor(),
     // Durable freeze-the-view: suspended agent terminals persist their painted
     // screen to disk and reopen painted-and-paused after an app restart.
     snapshotSidecars: createTerminalSnapshotSidecarStore({
@@ -647,8 +862,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           },
         ),
       ),
-    // Debug Mode: make the `debug` skill present in the session CLI's native
-    // skill dir before launch. Check-first so already-installed workspaces skip
+    // Skill-at-spawn: make the skill the launch's prompt invokes present in the
+    // session CLI's native skill dir before launch. Check-first so already-installed workspaces skip
     // the rewrite; install only fills missing or stale native targets. A CLI
     // whose launch carries the skill in the app's plugin directory gets no copy.
     ensureBuiltinSkillInstalled: async (workspaceRoot, skillId, cli, launch) => {
@@ -682,8 +897,17 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         .state.workspaces.find((workspace) => workspace.id === workspaceId)?.hostId
       return typeof hostId === 'string' ? hostId : null
     },
-    prepareAgentStateHook: (workspaceRoot, cli, execution) =>
-      agentStateService.installForWorkspace(workspaceRoot, cli, execution),
+    prepareAgentStateHook: async (workspaceRoot, cli, execution) => {
+      // A workspace's Studio skills, before the CLI reads its skill folder: the
+      // boot pass reaches the known workspaces one at a time, and the last quit
+      // took every copy back out. Settled, this costs nothing. A workspace
+      // folder only — never an agent worktree, which the pass never writes to.
+      const [root] = uniqueResolvedRoots([workspaceRoot])
+      if (root && listKnownWorkspaceRoots(workspaceSyncService.getSnapshot()).includes(root)) {
+        await studioPluginService.ensureInstalled(root)
+      }
+      return agentStateService.installForWorkspace(workspaceRoot, cli, execution)
+    },
   })
   // The conversation pull request record (epic `pull-request-marks`, decision
   // 10): main owns which pull requests a conversation has and what state each is
@@ -767,20 +991,28 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       void writeDiagnosticLog({ ...diagnostic, source: 'update' })
     },
   })
-  const updateService = new SprintEngineUpdateService({ writeDiagnosticLog, channelStore: updateChannelStore })
+  const updateService = new SprintEngineUpdateService({
+    writeDiagnosticLog,
+    channelStore: updateChannelStore,
+    // The note an update leaves for the build that starts after it.
+    installNotes: createUpdateInstallNoteStore({ resolveUserDataDir: () => app.getPath('userData') }),
+    // "Restart to update" shows its progress on the launch plate.
+    progressWindow: {
+      show: (progress) => showUpdateProgressWindow(channelForVersion(app.getVersion()), progress),
+      update: (progress) => sendSplashProgress(progress),
+    },
+  })
   const agentConfigImportService = createAgentConfigImportService({
     mcpConfigService,
     builtinSkillManager,
   })
   const githubTokenStore = new GitHubTokenStore()
 
-  // The mobile relay bridge (construction + IPC + shutdown) moved to its
-  // capability module (src/main/modules/), registered through the host kernel.
-  // The terminal runtime now exposes only generic agent-session seams
-  // (spawn/kill/inventory + a session-exit listener); modules layer their own
-  // system-specific behavior on top. sprintengineAuth and terminalRuntime are
-  // seeded into the kernel so those modules can build on them via the service
-  // bridge.
+  // The terminal runtime exposes only generic agent-session seams
+  // (spawn/kill/inventory + a session-exit listener); capability modules layer
+  // their own system-specific behavior on top. sprintengineAuth and
+  // terminalRuntime are seeded into the kernel so those modules can build on
+  // them via the service bridge.
 
   const workspaceBackupService = createWorkspaceBackupService({
     resolveUserDataDir: () => app.getPath('userData'),
@@ -859,6 +1091,13 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         .find((candidate) => candidate.manifest.id === cli)
       return plugin ? Boolean(plugin.manifest.agentStateSpec) : true
     },
+    permissionPresetsForCli: (cli) => {
+      const plugin = getPluginRegistry()
+        .loaded()
+        .find((candidate) => candidate.manifest.id === cli)
+      return plugin ? declaredPermissionPresets(plugin.manifest) : null
+    },
+    cliResumesSessions: (cli) => cliResumeCapabilities(cli).resumeSession,
     // The same resolver the renderer reaches over `memory:resolve-root`, so a
     // headless launch carries the project's Knowledge Graph exactly like an
     // interactively-spawned agent does.
@@ -872,6 +1111,39 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
   })
 
+  // The launched agent is registered in the workspace registry here, in main,
+  // at launch — not left for a window to project from the session list. Every
+  // launch main composes (a paired machine over the tailnet, the MCP tools,
+  // backlog work, automations, a module's agent sessions) comes through this
+  // door, and the registry broadcast is what tells every window and every
+  // paired device. An agent a window creates itself is in the registry already.
+  const launchedAgentRegistration = createLaunchedAgentRegistration({
+    registry: workspaceRegistry,
+    workspaceSync: workspaceSyncService,
+    // The live session objects, not `listTerminals()` snapshots: this runs on
+    // every session-list beat and reads a handful of fields.
+    listLaunchedSessions: () =>
+      listLiveTerminalSessions()
+        .filter((session) => session.agentRecord !== undefined)
+        .map((session) => ({
+          sessionId: session.sessionId,
+          kind: session.kind,
+          processAlive: isTerminalProcessAlive(session),
+          workspaceId: session.workspaceId,
+          agentRecord: session.agentRecord,
+          worktreeId: session.worktreeId,
+          cliSessionId: session.cliSessionId,
+        })),
+    hasSession: (sessionId) => {
+      const session = getTerminalSessionById(sessionId)
+      return session !== null && !session.isDisposed
+    },
+  })
+  const registeredAgentLaunchService = withLaunchedAgentRegistration(
+    composedAgentLaunchService,
+    launchedAgentRegistration,
+  )
+
   // Telemetry rides on the OUTSIDE of the composed service rather than inside
   // it. `createAgentLaunchService` is a pure composer with its own tests; a
   // measurement is not part of what it composes, and every caller — agent.launch,
@@ -882,9 +1154,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // prompt, name, worktree path and cwd do not: they are the user's words and
   // the user's disk (see the boundary in shared/telemetry.ts).
   const agentLaunchService: typeof composedAgentLaunchService = {
-    ...composedAgentLaunchService,
+    ...registeredAgentLaunchService,
     async launch(request) {
-      const result = await composedAgentLaunchService.launch(request)
+      const result = await registeredAgentLaunchService.launch(request)
       if (result.ok) {
         analytics.record('agent.launched', {
           cli: result.cli,
@@ -897,6 +1169,24 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       return result
     },
   }
+
+  // Resume in terminal: a chat's CLI session handed to a terminal agent,
+  // through the same launch door as every other agent.
+  const conversationTerminalHandoff = createConversationTerminalHandoff({
+    runtime: conversationRuntime,
+    launch: (request) => agentLaunchService.launch(request),
+    cliResumesSessions: (cli) => cliResumeCapabilities(cli).resumeSession,
+    permissionPresetsForCli: (cli) => {
+      const plugin = getPluginRegistry()
+        .loaded()
+        .find((candidate) => candidate.manifest.id === cli)
+      return plugin ? declaredPermissionPresets(plugin.manifest) : null
+    },
+    chatName: (workspaceId, agentId) =>
+      workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId)?.agents?.[
+        agentId
+      ]?.name,
+  })
 
   // Built after workspace sync because adopting the retired skill packs needs to
   // know which projects are open — that is where a previously installed pack's
@@ -915,6 +1205,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const gitTransport = createGitTransportProbe({
     cacheDir: skillRepoCacheDir,
     resolveToken: () => githubTokenStore.resolveToken(),
+    // A source on a company's self-hosted GitHub reads with the GitHub CLI's
+    // sign-in for that host; the stored token above only ever goes to github.com.
+    resolveHostToken: createGhHostTokenResolver(sharedGhRunner()),
   })
   void Promise.all([app.whenReady(), bootJobsGate]).then(async () => {
     await gitTransport.refresh()
@@ -1007,6 +1300,18 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // the `canvas.*` tools call it directly, so a board has one merge and one
   // revision however it was edited. The hidden worker window behind it is built
   // lazily on the first call that needs a DOM and disposed when it goes idle.
+  // The editor reveal's main half (editor.* tools): asks the windows to open a
+  // file or diff, and keeps what no window could show for when one does.
+  const editorRevealBroker = createEditorRevealBroker({
+    targets: () =>
+      listWorkspaceWindows().map((window) => ({
+        id: window,
+        isDestroyed: () => window.isDestroyed() || window.webContents.isDestroyed(),
+        send: (channel: string, payload: unknown) => window.webContents.send(channel, payload),
+      })),
+    broadcastPending: (workspaceIds) => broadcastToWorkspaceWindows(EDITOR_REVEAL_PENDING_CHANNEL, { workspaceIds }),
+  })
+
   const canvasSubscribers = createCanvasSubscriberRegistry()
   const canvasService = createCanvasService({
     fs: createNodeCanvasFs(),
@@ -1042,6 +1347,32 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       })
     },
   })
+  // Diff tours (tour.* tools, the Diff viewer's tour mode). One owner for
+  // every tour: the gateway writes them, the viewer plays them, and an owner's
+  // question is typed into the author's terminal from here.
+  const tours = createAppTourService({
+    userDataDir: app.getPath('userData'),
+    resolveWorkspaceRoot: (workspaceId) =>
+      workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId)
+        ?.folderPath ?? null,
+    listTerminals: () => terminalRuntime.ipcHandlers.listTerminals(),
+    writeTerminal: (sessionId, data) => terminalRuntime.ipcHandlers.writeTerminal(sessionId, data),
+    launchAgent: async (request) => {
+      const launched = await agentLaunchService.launch(request)
+      return launched.ok ? { ok: true, agentId: launched.agentId } : { ok: false, message: launched.message }
+    },
+    broadcastToWorkspaceWindows,
+    broadcastToViewers: (channel, payload) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (window.isDestroyed() || window.webContents.isDestroyed() || isCanvasWorkerWindow(window)) continue
+        window.webContents.send(channel, payload)
+      }
+    },
+    isAppFocused: () => BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()),
+  })
+  const tourService = tours.service
+  terminalRuntime.registerAgentPhaseListener((event) => tourService.onAgentPhase(event))
+
   /**
    * Whether the Canvas module is on.
    *
@@ -1068,6 +1399,56 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     return CANVAS_MODULE_DEFAULT_ENABLED
   }
 
+  // Starting a chat in main, for a caller with no window here to start it in
+  // (a paired machine's New chat, `conversation.create`). The record goes
+  // through the sequenced bus like any agent main registers, so every window
+  // and paired device hears about the chat the moment it exists.
+  const conversationLaunchService = createConversationLaunchService({
+    getWorkspace: (workspaceId) => workspaceRegistry.getRecord(workspaceId) ?? null,
+    getLaunchSettings: () => agentLaunchSettings.get(),
+    writeAgent: (workspaceId, agentId, agent) =>
+      workspaceSyncService.updateWorkspaceAgent(workspaceId, agentId, agent, 'system'),
+    listWorkspaces: () => workspaceRegistry.getRecords(),
+    createWorkspace: (request) => {
+      const created = workspaceSyncService.createWorkspace(request, 'system')
+      return created.ok ? { ok: true, workspaceId: created.result.workspace.id } : created
+    },
+    removeWorkspace: (workspaceId) => {
+      workspaceSyncService.removeWorkspace(workspaceId, 'system')
+    },
+    startSession: (input) => conversationRuntime.startSession(input),
+    send: (input) => conversationRuntime.sendTurn(input),
+    // The same installer a terminal launch's skill-at-spawn uses, into the
+    // folder the chat works in (a run's worktree when it has one).
+    ensureSkillInstalled: (workingRoot, skillId) => ensureSkillInstalled(workingRoot, skillId),
+    warn: (message) => {
+      void writeDiagnosticLog({ level: 'warning', source: 'workspace', title: 'Chat launch', message })
+    },
+  })
+
+  // What an agent of this app is running on now, for the gateway's launch cap:
+  // an agent may start agents only at its own preset or stricter.
+  const resolveAgentPermissionPreset = createAgentPermissionResolver({
+    listConversationSessions: (agentId) => {
+      const listed = conversationRuntime.listSessions({ agentId })
+      return listed.ok ? listed.sessions : []
+    },
+    // The live session objects, not `listTerminals()` snapshots: only four
+    // fields are read, and a snapshot of every session is not cheap.
+    listTerminalSessions: () =>
+      listLiveTerminalSessions().map((session) => ({
+        kind: session.kind,
+        workspaceId: session.workspaceId,
+        agentId: session.agentId,
+        processAlive: isTerminalProcessAlive(session),
+        agentRecord: session.agentRecord,
+      })),
+    readAgentRecordPreset: (workspaceId, agentId) => {
+      const agent = workspaceRegistry.getRecord(workspaceId)?.agents[agentId]
+      return agent ? { found: true, preset: agent.cliPermissionPreset } : { found: false }
+    },
+  })
+
   // Instance-global SprintEngine Studio MCP surface: reads come from the
   // workspace-sync snapshot and terminal runtime, and mutations go straight to
   // the main services that own them — one lane, no window required.
@@ -1088,25 +1469,56 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       }
       tailnetNotifier.onTailnetEvent(payload)
     },
-    onFleetEvent: (event) => {
+    onMeshEvent: (event) => {
       for (const window of BrowserWindow.getAllWindows()) {
         if (window.isDestroyed() || window.webContents.isDestroyed()) continue
-        window.webContents.send(FLEET_EVENT_CHANNEL, event)
+        window.webContents.send(MESH_EVENT_CHANNEL, event)
       }
-      tailnetNotifier.onFleetEvent(event)
+      tailnetNotifier.onMeshEvent(event)
     },
+    // A window someone could be looking at: the mesh's reachability timer and
+    // its re-checks of an absent machine only feed rows on screen.
     hasWindow: () =>
-      BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && !isCanvasWorkerWindow(window)),
-    // Terminal streaming for the tailnet listener: the runtime's own
-    // multi-viewer port, so a paired device watches the same pty the local
-    // window does rather than a second copy of it.
-    resolveTerminalHost: () => terminalRuntime.remoteHost,
+      BrowserWindow.getAllWindows().some(
+        (window) =>
+          !window.isDestroyed() && !isCanvasWorkerWindow(window) && window.isVisible() && !window.isMinimized(),
+      ),
+    resolveConversationHost: () =>
+      createConversationGatewayHost(
+        conversationRuntime,
+        (workspaceId) => workspaceRegistry.getRecord(workspaceId)?.folderPath ?? null,
+        () =>
+          workspaceRegistry
+            .getRecords()
+            .filter((record) => Boolean(record.folderPath))
+            .map((record) => ({
+              workspaceId: record.id,
+              workspaceRoot: record.folderPath!,
+            })),
+        // A chat's own agent record carries the preset the person last chose
+        // for it; a chat without one starts on the app-wide spawn default, as a
+        // new chat in a window does.
+        (key) =>
+          parseCliPermissionPreset(
+            workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]?.cliPermissionPreset,
+          ) ?? effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastAgentSpawnPermissionPreset,
+        // The agent record's name — the same record, and the same field, this
+        // desktop's tab and sidebar read — so a remote lists the chat by the
+        // name it has here rather than by its first message.
+        (key) => workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]?.name,
+        // The chat's CLI catalog as this machine's own picker lists it, so a
+        // paired device offers the same models and can switch to no other.
+        conversationModelCatalog,
+      ),
     // The gateway's tool set: core app tools + canonical run tools merged once,
     // module-contributed tools read from the host kernel per request
     // and gated on their owner's live enablement.
     resolveGatewayTools: createStudioGatewayTools({
       resolveModuleTools: () => resolveModuleMcpTools(),
       isModuleEnabled: (moduleId) => resolveModuleEnabled(moduleId),
+      // A module tool runs under its caller's launch cap, so a chat the module
+      // starts for a capped agent is no looser than that agent.
+      callerPermissionCeiling: (context) => launchPermissionCeiling(context, resolveAgentPermissionPreset),
       warn: (details) => {
         void writeDiagnosticLog({
           level: 'warning',
@@ -1129,29 +1541,36 @@ export function createAppServices(diagnosticsEnabled: boolean) {
             workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
           isCanvasEnabled,
         }),
+        ...createEditorTools(
+          createEditorToolBackends({
+            findWorkspace: (workspaceId) =>
+              workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId) ??
+              null,
+            listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
+            agentWrittenFiles,
+            broker: editorRevealBroker,
+            userDataDir: () => app.getPath('userData'),
+            isAppFocused: () =>
+              BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()),
+          }),
+        ),
+        ...createTourTools({
+          service: tourService,
+          hasWorkspace: (workspaceId) =>
+            workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
+        }),
+        ...createConversationTools({
+          launch: (request) => conversationLaunchService.launch(request),
+          resolveAgentPermissionPreset,
+        }),
         ...createAutomationTools({
           getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
           listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
           launchAgent: (request) => agentLaunchService.launch(request),
-          // Read live, never captured: the same store the launch service reads, so
-          // a preset changed in Settings reaches the next terminal.create without
-          // a restart.
-          // The CLI's own preset, else the app-wide one, and a never-chosen
-          // preset reads as the app default: the same resolution the window's
-          // pickers and the launch service use. With no CLI named, the launch
-          // runs on the last-selected one, so that is whose preset applies.
-          getAgentSpawnPermissionDefault: (cli) => {
-            const settings = effectiveAgentLaunchSettings(agentLaunchSettings.get())
-            return resolveAgentSpawnPermissionPreset(settings, cli?.trim() || settings.lastSelectedCli)
-          },
+          resolveAgentPermissionPreset,
           createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
           listBacklogItems: (workspaceRoot) => listBacklogItems(workspaceRoot),
           readBacklogItem: (workspaceRoot, relativePath) => readBacklogItem(workspaceRoot, relativePath),
-          // Same filesystem store the Automations IPC front door reads; roots are
-          // snapshot-resolved, so only open workspaces are reachable.
-          listAutomationDefinitions: (workspaceRoot) => new AutomationsStore(workspaceRoot).listDefinitions(),
-          listAutomationRuns: (workspaceRoot, automationId) =>
-            new AutomationsStore(workspaceRoot).listRuns(automationId),
           backlogWrite: {
             updateStatus: updateBacklogStatus,
             updateType: updateBacklogType,
@@ -1161,12 +1580,14 @@ export function createAppServices(diagnosticsEnabled: boolean) {
             addOrUpdateLink: addOrUpdateBacklogLink,
             repairIntegrity: repairBacklogIntegrity,
           },
-          getAutomationsFrontDoor: () => resolveAutomationsAppFrontDoor(),
-          // The mobile companion over the gateway (tailnet-mobile-transport):
-          // the SAME snapshot builder and command service the relay bridge uses,
-          // wired to the same root/state-path discovery, so the two transports
-          // serve one behaviour. Both services are stateless enough to own here;
-          // the relay bridge keeps its own instances (it also publishes pushes).
+          getScheduledAgents: () => resolveScheduledAgents(),
+          defaultChatCli: () => effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastSelectedCli ?? null,
+          // The mobile companion, which reaches this desktop only over the
+          // tailnet gateway: the snapshot builder and the command service behind
+          // `workspace.snapshot` and `workspace.mobile_command`, scoped to the
+          // workspaces main already knows. Both are stateless enough to own here,
+          // and nothing else holds an instance: this desktop publishes nothing
+          // to a phone, it only answers what a paired device asks.
           mobileControl: (() => {
             // Dev servers this machine publishes on the tailnet ride the snapshot
             // so the phone has a door to them. Stateless; the daemon is the truth.
@@ -1187,19 +1608,28 @@ export function createAppServices(diagnosticsEnabled: boolean) {
             return {
               async readSnapshot(input: { include?: string[]; knownSnapshotVersion?: string }) {
                 const roots = workspaceRoots()
-                const include = input.include?.filter((entry): entry is MobileSnapshotCollection =>
-                  (mobileSnapshotCollections as readonly string[]).includes(entry),
-                )
+                // An empty or absent `include` is the default set. A named one is
+                // served exactly, retired names included: they select nothing, so
+                // a read that names only a retired collection gets an empty
+                // snapshot rather than silently widening to every collection.
+                const include =
+                  input.include && input.include.length > 0
+                    ? input.include.filter((entry): entry is MobileSnapshotCollection =>
+                        (mobileSnapshotCollections as readonly string[]).includes(entry),
+                      )
+                    : undefined
                 const snapshot = await snapshotService.readSnapshot({
                   desktopSessionId,
                   workspaceRoots: roots,
                   commands: gatewayCommands,
-                  ...(include && include.length > 0 ? { include } : {}),
+                  ...(include ? { include } : {}),
                 })
-                const safe = sanitizeMobileSnapshotForRelay(snapshot)
-                if (input.knownSnapshotVersion && input.knownSnapshotVersion === safe.snapshotVersion) {
-                  return { unchanged: true as const, snapshotVersion: safe.snapshotVersion }
+                // The version is computed before sanitizing and sanitizing
+                // keeps it, so an unchanged read is answered without the copy.
+                if (input.knownSnapshotVersion && input.knownSnapshotVersion === snapshot.snapshotVersion) {
+                  return { unchanged: true as const, snapshotVersion: snapshot.snapshotVersion }
                 }
+                const safe = sanitizeMobileSnapshotForTransport(snapshot)
                 return { unchanged: false as const, snapshot: safe as unknown as Record<string, unknown> }
               },
               async dispatchCommand(input: {
@@ -1303,10 +1733,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           // same client the Extensions storefront's IPC uses, cache included.
           getModuleRegistrySnapshot: () => moduleRegistryMirror.read(),
           listInstalledThirdPartyModules: async () => {
-            const { modules, rejected } = await discoverUserModules(defaultUserModuleRoot(), {
-              trustedModules: readTrustedModulesSync(app.getPath('userData')),
-              trustedKeyFingerprints: readTrustedMarketplacePublisherFingerprintsSync(),
-            })
+            const { modules, rejected } = await discoverUserModules(
+              defaultUserModuleRoot(),
+              readModuleTrustContextSync(app.getPath('userData')),
+            )
             return { modules: modules.map((module) => toThirdPartyModuleView(module)), rejected }
           },
           listModuleContributedTools: () =>
@@ -1316,7 +1746,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           // loaded plugin manifests.
           listPlugins: () => getPluginRegistry().loaded(),
           // backlog.work ensures the Backlog skill exists in the CLI's native dir
-          // before launch (same getStatus → install seam as Debug Mode). Reports
+          // before launch (the same getStatus → install seam as a spawn). Reports
           // whether the skill is now present; a false result is non-fatal. Asked
           // of the machine the agent will run on: a WSL machine is prepared
           // first (the launch that follows waits for the same), so its answer
@@ -1351,15 +1781,34 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // testable.
   const conversationPeek = createConversationPeekService({
     readSessionState: terminalRuntime.readConversationPeekSessionState,
+    readConversationEvents: async (sessionId) => {
+      const listed = conversationRuntime.listSessions()
+      const summary = listed.ok ? listed.sessions.find((session) => session.sessionId === sessionId) : undefined
+      if (!summary) return null
+      const workspaceRoot = workspaceRegistry.getRecord(summary.workspaceId)?.folderPath
+      if (!workspaceRoot) return []
+      // The first message and the newest turn, never the whole transcript:
+      // a long chat is tens of megabytes, and a hover must not parse it.
+      return conversationRuntime
+        .readPeekTranscript({ workspaceRoot, workspaceId: summary.workspaceId, agentId: summary.agentId })
+        .catch(() => [])
+    },
   })
 
-  // The change feed (2026-09-05): paired devices used to poll terminal.list
-  // and workspace.list every thirty seconds; now the runtime's own coalesced
-  // sessions beat, and the registry's accepted events, become one small push
-  // each, and a device re-reads only when told to. Both are throttled in the
-  // listener, so a burst here is one push there.
-  terminalRuntime.subscribeSessionsChanged(() => automationService.notifyTerminalsChanged())
+  // A live launched session whose agent is missing from its workspace is
+  // adopted, so a launch-time write that did not land is not the end of it.
+  terminalRuntime.subscribeSessionsChanged(() => launchedAgentRegistration.reconcile())
+  // The change feed (2026-09-05): paired devices used to poll workspace.list
+  // every thirty seconds; now the registry's accepted events become one small
+  // push, throttled in the listener so a burst here is one push there, and a
+  // device re-reads only when told to.
   workspaceSyncService.subscribeEvents(() => automationService.notifyWorkspacesChanged())
+  // A conversation's row on another machine shows its phase: running, waiting
+  // on a person, done. The events that move it (never a token of a reply)
+  // become the same throttled push.
+  conversationRuntime.onEvent((event) => {
+    if (CONVERSATION_LIST_EVENTS.has(event.type)) automationService.notifyConversationsChanged()
+  })
   // The app's own plugin goes into every workspace it opens, at the two moments
   // a workspace becomes real to main: the roots the registry already holds when
   // this process starts, and every accepted registry event after that. Not at
@@ -1372,20 +1821,48 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     )
   })
   // The pass over the roots the registry already holds runs once the app's own
-  // plugin copy has settled (itself a boot job, started after the reveal), so
-  // it installs the arrangement launches will actually use. Each install also
-  // waits for that copy on its own, which is what keeps an install triggered
-  // by an early registry event from writing the old arrangement.
-  void agentIntegrationReady.then(() =>
+  // plugin copy has settled, so it installs the arrangement launches will
+  // actually use. Each install also waits for that copy on its own, which is
+  // what keeps an install triggered by an early registry event from writing the
+  // old arrangement. Both start while the loading screen is up (see
+  // `prepareWorkspacesAtBoot`); whatever the plate's budget does not cover
+  // simply carries on after the reveal.
+  const bootWorkspacePass = agentIntegrationReady.then(() =>
     studioPluginService.ensureInstalledForRoots(
       uniqueResolvedRoots(listKnownWorkspaceRoots(workspaceSyncService.getSnapshot())),
     ),
   )
+  void bootWorkspacePass.catch(() => undefined)
+  const prepareWorkspacesAtBoot = (): Promise<void> => {
+    openWorkspaceSyncGate()
+    return bootWorkspacePass
+  }
+  // A Studio skill switched on or off reaches the next agent launched: the
+  // plugin home the launch passes is brought in line, then every known
+  // workspace (the choice is machine-wide). A session already running keeps
+  // the skills it started with.
+  studioAreaSkillStore.onChange(() => {
+    void (async () => {
+      await agentIntegrationReady
+      if (agentIntegrationPluginDirs.length > 0) await ensureAgentIntegrationHome(agentIntegrationHomeOptions())
+      await studioPluginService.ensureInstalledForRoots(
+        uniqueResolvedRoots(listKnownWorkspaceRoots(workspaceSyncService.getSnapshot())),
+      )
+    })().catch((error: unknown) => {
+      void writeDiagnosticLog({
+        level: 'warning',
+        title: 'Studio skills not updated',
+        message: 'The choice is saved and applies the next time a workspace is opened.',
+        details: error instanceof Error ? error.message : String(error),
+        source: 'workspace',
+      })
+    })
+  })
   // Staying paired across sleep (phase 4): waking re-checks every paired
   // machine and re-dials waiting panes at once. `powerMonitor` needs the app
   // ready; services are built before that, so the hook waits for it.
   void app.whenReady().then(() => {
-    const wake = () => automationService.fleet().onWake()
+    const wake = () => automationService.mesh().onWake()
     powerMonitor.on('resume', wake)
     powerMonitor.on('unlock-screen', wake)
   })
@@ -1416,8 +1893,75 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     }
   }
 
+  // This profile, as the launcher's other users know it (integrations/live-instances.ts).
+  const launcherProfile = createHash('sha256').update(app.getPath('userData')).digest('hex').slice(0, 16)
+  // Every quit takes back out what the app writes again whenever it next needs
+  // it (SESSION_INTEGRATION_KINDS): nothing Studio put into a repository or a
+  // CLI's configuration outlives it, and deleting the app — which nothing
+  // announces on macOS or Linux — leaves none of it behind. This machine's
+  // entries only: reaching into a distribution would boot it just as its
+  // helper is being stopped (the Windows uninstaller takes those out).
+  async function removeSessionIntegrations(): Promise<void> {
+    const home = homedir()
+    // Held first: should the quit be cut short, what it leaves in place keeps
+    // the launcher it runs, whichever profile quits next.
+    await holdLauncher(home, launcherProfile).catch(() => undefined)
+    const { othersRunning } = await leaveLiveInstances(home)
+    // Another Studio (a development build beside the packaged app) runs the
+    // same entries; they stay listed here, for a quit with nobody else running.
+    if (othersRunning) return
+    const removal = removeIntegrations(
+      { ledger: integrationLedgerStore, scan: false },
+      {
+        kinds: SESSION_INTEGRATION_KINDS,
+        hostId: 'local',
+        keepCommitted: true,
+        keepLauncher: await launcherHeldByOthers(home, launcherProfile),
+        // Stops early enough to record what it did before the leg is cut off,
+        // and as soon as another Studio starts.
+        deadline: Date.now() + QUIT_INTEGRATION_REMOVAL_BUDGET_MS - 500,
+        stop: () => otherInstanceRunning(home),
+      },
+    ).then(
+      async (report) => {
+        if (!entriesRunLauncher(await integrationLedgerStore.list(), 'local')) {
+          await releaseLauncher(home, launcherProfile)
+        }
+        if (report.failed === 0) return
+        void writeDiagnosticLog({
+          level: 'warning',
+          title: 'Integrations not removed at quit',
+          message: `${report.failed} of Studio's entries could not be removed; the next quit tries them again.`,
+          details: report.outcomes
+            .filter((outcome) => outcome.status === 'failed')
+            .map((outcome) => `${outcome.label}\t${outcome.path}\t${outcome.reason ?? ''}`)
+            .join('\n'),
+          source: 'workspace',
+        })
+      },
+      (error: unknown) => {
+        void writeDiagnosticLog({
+          level: 'warning',
+          title: 'Integrations not removed at quit',
+          message: error instanceof Error ? error.message : String(error),
+          source: 'workspace',
+        })
+      },
+    )
+    let timer: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([
+      removal,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, QUIT_INTEGRATION_REMOVAL_BUDGET_MS)
+      }),
+    ])
+    if (timer) clearTimeout(timer)
+  }
+
   return {
+    removeSessionIntegrations,
     startDeferredBootJobs,
+    prepareWorkspacesAtBoot,
     agentConfigImportService,
     agentStateService,
     browserManager,
@@ -1428,13 +1972,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     telemetryConsentStore,
     analytics,
     readBackgroundStatus,
-    setAutomationsAppFrontDoorResolver(resolver: () => AutomationsAppFrontDoor | null): void {
-      resolveAutomationsAppFrontDoor = resolver
+    setScheduledAgentsResolver(resolver: () => ScheduledAgentsService | null): void {
+      resolveScheduledAgents = resolver
     },
-    // Read side of the same lazy resolver: the marketplace install path adds a
-    // catalogue automation through this door, and gets null while the module is
-    // down rather than a second way into the automations store.
-    getAutomationsAppFrontDoor: (): AutomationsAppFrontDoor | null => resolveAutomationsAppFrontDoor(),
     setModuleEnabledResolver(resolver: (moduleId: string) => boolean): void {
       resolveModuleEnabled = resolver
     },
@@ -1444,22 +1984,26 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     moduleRegistryMirror,
     agentControlPlane,
     agentLaunchService,
+    conversationTerminalHandoff,
+    conversationLaunchService,
+    conversationModelCatalog,
+    tourService,
+    setTourAttention: tours.setAttention,
     builtinSkillManager,
     studioPluginService,
+    studioAreaSkillStore,
     conversationRuntime,
     githubTokenStore,
     logMainPerfEvent,
     mcpConfigService,
     sprintengineAuth,
-    // The provider-agnostic entitlement seam. Feature gates resolve THIS;
-    // `sprintengineAuth` is the account-service adapter sitting behind it.
-    entitlements: sprintengineAuth.entitlements,
     skillsService,
     agentLaunchSettings,
     hosts,
     conversationPeek,
     terminalRuntime,
     agentChangelistFeed,
+    editorRevealBroker,
     pullRequestRecord,
     broadcastGitChangelistsChanged,
     updateService,
@@ -1561,7 +2105,11 @@ const GIT_VERSION_FLOOR: readonly [number, number] = [2, 19]
 const GIT_REPROBE_MS = 60_000
 const SKILL_REPO_CACHE_IDLE_MS = 60 * 24 * 60 * 60 * 1000
 
-function createGitTransportProbe(options: { cacheDir: string; resolveToken: () => Promise<string> }): {
+function createGitTransportProbe(options: {
+  cacheDir: string
+  resolveToken: () => Promise<string>
+  resolveHostToken: (host: string) => Promise<string>
+}): {
   readonly reader: SkillRepoReader | undefined
   readonly installed: boolean
   refresh(): Promise<void>

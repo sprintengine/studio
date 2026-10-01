@@ -8,7 +8,7 @@ and scrollable, until the relaunched agent's first frame replaces it, and the
 edge is what says the click was heard.
 
 It is a [liveness](../liveness/component.md) mark: it means *alive right now*.
-What sets it apart from the spinner and the working dots is where it sits. Both
+What sets it apart from the spinner and the working mark is where it sits. Both
 of those are marks placed beside something; the working edge belongs to a whole
 surface, and it is the one liveness mark that can run while the content it
 concerns is fully visible, because it paints on the edge and never over the

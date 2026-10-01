@@ -12,22 +12,42 @@
 // node-level coverage without rendering.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
+import {
+  LegendList,
+  type LegendListRef,
+  type NativeSyntheticEvent,
+  type NativeScrollEvent,
+} from '@legendapp/list/react'
 
 import type {
   ConversationCliRuntimeOverrides,
-  ConversationEvent,
   ConversationImageAttachment,
   ConversationSessionSummary,
 } from '../../../../shared/conversation-runtime'
+import type { ConversationApprovalDecision } from '../../../../shared/conversation/approvalRules'
+import { apiKeyBillingNotice } from '../../../../shared/conversation/apiKeySource'
+import { PromptCacheComposerNotice } from './agentChat/promptCacheNotice'
 import type { ConversationProviderListEntry, ConversationProviderModel } from '../../../../shared/plugin-manifest'
+import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET } from '../../../../shared/launch-settings'
 import type { CliPermissionPreset } from '../../types/workspace'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { ChevronDownIcon } from '../AppIcons'
+import { copySelectionAsMarkdown } from '../../utils/selectionToMarkdown'
 import { getEffectiveKeybindings } from '../../commands/effectiveKeybindings'
 import { renderKeybinding } from '../../commands/keybindings'
 import { PANEL_COMMAND_EVENT } from '../../utils/panelCommands'
-import { uniqueAgentName } from '../workspace/workspaceManagerHelpers'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
-import { dataTransferHasFiles, imageFilesFromDataTransfer } from '../../utils/imageFileTransfer'
+import {
+  dataTransferHasDroppableFiles,
+  dataTransferHasFiles,
+  imageFilesFromDataTransfer,
+  pastedImagePaths,
+  pathlessDropMessage,
+  quotePromptPath,
+  readPastedImagePaths,
+  sortDroppedFiles,
+} from '../../utils/imageFileTransfer'
 import {
   attachmentCountLabel,
   attachmentPreviewUrl,
@@ -36,32 +56,95 @@ import {
 } from './ComposerAttachmentStrip'
 import {
   COMPOSER_SURFACE_CLASS,
+  FOCUS_RING_INSET_CLASS,
   FOCUS_RING_WITHIN_TEXTAREA_CLASS,
+  GhostButton,
   IconButton,
   InlineNotice,
-  InlineSkillPicker,
   OutlineButton,
-  SkillPickerPopover,
+  Spinner,
+  useWorkspaceSkills,
   Textarea,
   Tooltip,
   TruncatedText,
 } from '../ui'
-import type { InlineSkillPickerHandle } from '../ui'
+import { FoldedControls, useMeasuredFold } from '../ui/FoldedControls'
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
-import { renderChatSkillMention, renderChatSkillPrefill } from '../../utils/skillInvocation'
-import { CreationBackdrop } from '../backdrops/CreationBackdrop'
-import { projectConversation, type TranscriptEntry, type UserTurn } from './agentChat/conversationProjection'
+import {
+  CONVERSATION_DEFAULT_MODEL_ID,
+  cliForConversationProvider,
+  conversationPermissionPresetRefusals,
+} from '../../../../shared/conversation-harness'
+import {
+  CLI_PERMISSION_PRESETS,
+  isLooserCliPermissionPreset,
+  parseCliPermissionPreset,
+} from '../../../../shared/cli-permission-preset'
+import { parseCliPermissionModeId } from '../../../../shared/cli-permission-mode'
+import { pickRandomAgentName } from '../../../../shared/agent-names'
+import { lockedChatEngineOption, isModelDerivedChatName } from './agentChat/chatEngine'
+import { EnginePickerChip } from '../workspace/agentComposer/enginePicker'
+import type { CliRuntimeOption } from '../ui/CliModelPicker'
+import { PermissionFooter, usePermissionModeOptions } from '../workspace/agentComposer/spawnFooter'
+import { PRESET_CHIP_LABEL, selectedPermissionOption } from '../workspace/agentComposer/agentSpawnShared'
+import { useAgentCliCatalogOptions } from '../workspace/agentComposer/useAgentComposer'
+import { conversationCliRuntimesFor } from '../workspace/newWorkspace/cliRuntimeOptions'
+import {
+  parseStoredAttachments,
+  readString,
+  type TranscriptEntry,
+  type UserTurn,
+} from './agentChat/conversationProjection'
+import { rememberSentAttachment } from './agentChat/storedAttachments'
 import { deriveConversationTimelineRows } from './agentChat/conversationTimeline'
+import {
+  createConversationProjectionState,
+  syncConversationProjection,
+} from './agentChat/incrementalConversationProjection'
+import { ConversationLinkProvider } from './agentChat/conversationLinks'
+import { SubagentTypesProvider } from './agentChat/subagentStatus'
+import { recalledConversationScroll, rememberConversationScroll } from './agentChat/conversationViewState'
+import { chatResumesInTerminal, resumeChatInTerminal } from './agentChat/resumeInTerminal'
+import { useConversationSession } from './agentChat/useConversationSession'
+import { useChatViewActive } from './agentChat/chatViewActivity'
+import { prefersReducedMotion } from './agentChat/reducedMotion'
+import { useConversationTransport } from './agentChat/conversationTransport'
+import { openCliSignInTerminal } from './agentChat/cliSignIn'
+import { useLocalChatBinding, type ChatBinding } from './agentChat/chatBinding'
+import { latestReplyTurnId } from './agentChat/turnFolds'
+import { useComposerDraft, type ComposerDraftMetadata } from './agentChat/useComposerDraft'
+import { useComposerRecall } from './agentChat/composerRecall'
+import { ComposerContextChips, ComposerSkillsPicker, useComposerContextPicker } from './agentChat/composerContextPicker'
+import { studioAppCommands, useConversationCommands } from './agentChat/useConversationCommands'
+import { composerAppCommand } from './agentChat/composerAppCommands'
+import { commandInsertText } from './agentChat/slashCommandMenu'
+import { useConversationSearchJump } from './agentChat/conversationSearchJump'
+import { useTurnNavigation } from './agentChat/turnNavigation'
+import { TimelineMinimap } from './agentChat/TimelineMinimap'
+import {
+  QUOTE_SELECTION_COMMAND,
+  QuoteSelectionToolbar,
+  insertQuoteIntoDraft,
+  quoteSelectionInto,
+} from './agentChat/quoteSelection'
+import { useStickToBottom } from './agentChat/useStickToBottom'
+import { ConversationRowFrame } from './agentChat/conversationRowFrame'
+import { useConversationScrollRestore } from './agentChat/conversationScrollRestore'
+import { useComposerSkillReader } from './agentChat/composerSkillReader'
+import { nextConversationEffort } from './agentChat/conversationEffort'
 import {
   ATTACHABLE_IMAGE_TYPES,
   MAX_ATTACHMENTS_PER_TURN,
   attachmentRejection,
-  providerAcceptsImages,
   readImageAttachment,
 } from './agentChat/imageAttachments'
-import { ModelPickerPill, PermissionPresetPill, type ModelGroup } from './agentChat/modelPicker'
-import { ConversationPendingDock } from './agentChat/pendingDock'
+import { ConversationPendingDock, type ApprovalModeSwitch } from './agentChat/pendingDock'
+import { QueuedTurnRow, queuedTurnSendNow } from './agentChat/queuedTurnBubble'
+import { ComposerTray, ComposerTrayRow } from './agentChat/composerTray'
+import { CompactGlyph } from './agentChat/toolRows/ToolKindGlyph'
+import { ConversationTodoStrip } from './agentChat/todoProgressStrip'
 import { TimelineRow, type TimelineChrome } from './agentChat/timelineRows'
+import type { EditFromHereDraft } from './agentChat/editFromHere'
 import { EmptyChatState, ReadinessState, readinessLabel, type ChatReadiness } from './agentChat/chatStates'
 import { ComposerActionButton, ComposerContextMenu, type ComposerMenuState } from './agentChat/composerControls'
 export { ComposerContextMenu, editingShortcut } from './agentChat/composerControls'
@@ -70,23 +153,10 @@ export type { ComposerMenuState } from './agentChat/composerControls'
 export { readinessLabel } from './agentChat/chatStates'
 export type { ChatReadiness } from './agentChat/chatStates'
 
-export {
-  ResolvedDecisions,
-  UserTimelineRow,
-  WorkTimeline,
-  formatStepDuration,
-  isAuthShapedFailure,
-} from './agentChat/timelineRows'
+export { ResolvedDecisions, UserTimelineRow, WorkTimeline, isAuthShapedFailure } from './agentChat/timelineRows'
+export { formatStepDuration } from './agentChat/stepDuration'
 
 export { parseOptionLabel } from './agentChat/pendingDock'
-
-export {
-  PermissionPresetPill,
-  filterModelGroups,
-  permissionChangeScopeLabel,
-  permissionPresetLabel,
-} from './agentChat/modelPicker'
-export type { ModelGroup } from './agentChat/modelPicker'
 
 export {
   ATTACHABLE_IMAGE_TYPES,
@@ -161,9 +231,18 @@ export function queuedTurnLabel(text: string, attachmentCount: number): string {
   return text ? `${text} · ${images}` : images
 }
 
+// What keeps the transcript at its end while the reader is there: a row added
+// or growing, and the list itself resizing (a pane dragged, the composer tray
+// growing). One path, not the list's plus an effect per token.
+const END_FOLLOW_TRIGGERS = { dataChange: true, itemLayout: true, layout: true }
+
 // Stable empty-catalog reference: returned for any provider whose live catalog
 // has not loaded so effects keyed on the derived list do not re-run each render.
 const EMPTY_MODELS: ConversationProviderModel[] = []
+
+// The width below which the composer row folds its secondary controls: attach,
+// skills, the model chip, permissions and send at a typical model name's width.
+const COMPOSER_ROW_FOLD_WIDTH = 460
 
 // ── Component ───────────────────────────────────────────────────────────────
 
@@ -191,7 +270,45 @@ type PendingAction = 'starting' | 'sending' | 'stopping' | null
 
 // A message committed while the session was busy, waiting for the turn to
 // unlock (D6/1776). Attachments ride along so a queued image is not lost.
-type QueuedTurn = { text: string; attachments: ConversationImageAttachment[] }
+type QueuedTurn = { text: string; attachments: ConversationImageAttachment[]; metadata: ComposerDraftMetadata }
+
+// An error on the composer's line. Most are a sentence and nothing to redo — a
+// refused image, a clipboard write, a search that lost its row. A send that did
+// not go carries the send, so Retry repeats exactly that message and only
+// appears when there is one to repeat.
+type ComposerActionError = string | { message: string; retry: QueuedTurn }
+
+function composerErrorMessage(error: ComposerActionError | null): string | null {
+  return typeof error === 'string' ? error : (error?.message ?? null)
+}
+
+// Fold what the composer holds into the queued turn — the one merge every
+// queueing path makes, whether the message then waits or is sent at once.
+export function queueComposerDraft(
+  previous: QueuedTurn | null,
+  text: string,
+  attachments: ConversationImageAttachment[],
+  metadata: ComposerDraftMetadata,
+): { turn: QueuedTurn; dropped: number } {
+  const { dropped, ...merged } = mergeQueuedTurn(previous, text, attachments)
+  return {
+    turn: {
+      ...merged,
+      metadata: {
+        skillIds: [...new Set([...(previous?.metadata.skillIds ?? []), ...metadata.skillIds])],
+        mentions: [...(previous?.metadata.mentions ?? []), ...metadata.mentions],
+      },
+    },
+    dropped,
+  }
+}
+
+// The composer's note when the per-turn image cap trimmed a queued message.
+function queuedDropNotice(dropped: number): string | null {
+  return dropped > 0
+    ? `Only ${MAX_ATTACHMENTS_PER_TURN} images fit in one message — ${attachmentCountLabel(dropped)} were not queued.`
+    : null
+}
 
 export function stopDisabledForPending(pending: PendingAction): boolean {
   return pending === 'stopping'
@@ -207,31 +324,6 @@ export function stopDisabledForPending(pending: PendingAction): boolean {
 // routing keys off this.
 export function isConversationBusy(activeTurn: boolean, awaitingApproval: boolean, pending: PendingAction): boolean {
   return activeTurn || awaitingApproval || pending !== null
-}
-
-/**
- * The skill type-ahead the draft is asking for, if any. Two doors into one list
- * (agent-harness chats only — plain model chats run no tools):
- *
- * - `slash` — a `/` opening an otherwise-empty draft, the CLI-native habit. Only
- *   until the first space: a space commits the text as literal.
- * - `mention` — a `$` at the start of a word anywhere in the draft, so a skill
- *   can be named mid-sentence.
- *   The token runs to the end of the draft; a space ends it.
- *
- * `token` is the exact text the pick replaces, `query` the part after the
- * trigger character that filters the list. Pure, so the contract is testable
- * without a DOM.
- */
-export type ChatSkillTrigger = { kind: 'slash' | 'mention'; query: string; token: string }
-
-export function chatSkillTrigger(draft: string): ChatSkillTrigger | null {
-  if (draft.startsWith('/') && !/\s/.test(draft)) {
-    return { kind: 'slash', query: draft.slice(1), token: draft }
-  }
-  const mention = /(?:^|\s)(\$(\S*))$/.exec(draft)
-  if (mention) return { kind: 'mention', query: mention[2], token: mention[1] }
-  return null
 }
 
 // The composer's one commit rule, shared by every affordance that can commit a
@@ -266,19 +358,59 @@ export function isConversationModelLocked(
   return userTurnCount > 0 || sessionId !== null || hasTranscriptHistory
 }
 
+/**
+ * The presets a chat cannot be switched to, each with the one line its row
+ * shows: one its CLI cannot be held to (Cursor never asks before an edit), one
+ * the provider does not list, and — on a paired machine built before Manual
+ * and Auto came back — the two it would read as No flag.
+ */
+export function chatPermissionRefusals(input: {
+  cli: string | null | undefined
+  allowed: readonly CliPermissionPreset[] | undefined
+  permissionModes: boolean
+  machineName?: string
+}): Partial<Record<CliPermissionPreset, string>> | undefined {
+  const refusals = conversationPermissionPresetRefusals(input.cli)
+  const reasons: Partial<Record<CliPermissionPreset, string>> = {}
+  for (const preset of CLI_PERMISSION_PRESETS) {
+    const reason =
+      refusals[preset] ??
+      (!input.permissionModes && (preset === 'manual' || preset === 'auto')
+        ? `${input.machineName ?? 'That machine'} needs a newer Studio for this.`
+        : input.allowed?.length && !input.allowed.includes(preset)
+          ? 'This agent cannot run with this preset.'
+          : null)
+    if (reason) reasons[preset] = reason
+  }
+  return Object.keys(reasons).length > 0 ? reasons : undefined
+}
+
 // The tool-permission preset the pill reports, in precedence order (1809):
 // the live session's own reported preset first — it is what the running child
 // applies on its next tool call, and it can disagree with the agent record (an
 // optimistic write lost to a reload race, a session started with an explicit
 // preset); then the persisted per-agent field every CLI spawn stamps from the
-// picker, which is also what the next session starts on; then 'default' (ask
-// per tool) for an agent record predating the field — the safe end of the
-// scale, never the loose one.
+// picker, which is also what the next session starts on; then the app's spawn
+// default for an agent record predating the field.
+// No mode of the CLI's own: what a chat whose runtime names none offers.
+const NO_MODES: readonly string[] = []
+
 export function resolvePermissionPreset(
   session: Pick<ConversationSessionSummary, 'permissionPreset'> | null,
   agentPreset: CliPermissionPreset | undefined,
 ): CliPermissionPreset {
-  return session?.permissionPreset ?? agentPreset ?? 'manual'
+  return session?.permissionPreset ?? agentPreset ?? DEFAULT_AGENT_SPAWN_PERMISSION_PRESET
+}
+
+// The CLI's own mode beside that preset, from the same source the preset came
+// from: a live session's own report wins whole, so a session that fell back
+// to No flag never shows the record's mode beside it.
+export function resolvePermissionMode(
+  session: Pick<ConversationSessionSummary, 'permissionPreset' | 'permissionMode'> | null,
+  agent: { cliPermissionPreset?: CliPermissionPreset; cliPermissionMode?: string } | undefined,
+): string | undefined {
+  if (session?.permissionPreset) return session.permissionMode
+  return agent?.cliPermissionPreset ? agent.cliPermissionMode : undefined
 }
 
 // Which mounted chat view answers a whole-window model-picker shortcut (see
@@ -287,9 +419,15 @@ export type MountedChatView = {
   workspaceId: string
   isFocused: () => boolean
   toggleModelPicker: () => void
+  cycleEffort?: () => void
+  resumeInTerminal?: () => void
+  stepTurn?: (direction: -1 | 1) => void
+  /** Quote the document's selection when it is in this view's transcript; whether it was. */
+  quoteSelection?: () => boolean
 }
 const mountedChatViews: MountedChatView[] = []
 export const MODEL_PICKER_TOGGLE_COMMAND = 'chat.modelPicker.toggle'
+const RESUME_IN_TERMINAL_COMMAND = 'chat.resumeInTerminal'
 
 /**
  * Answer `chat.modelPicker.toggle` (⌘⇧M, or the palette row) with ONE chat
@@ -313,6 +451,32 @@ export function respondToModelPickerToggle(): MountedChatView | null {
 function onModelPickerPanelCommand(event: Event): void {
   const detail = (event as CustomEvent<{ id?: string }>).detail
   if (detail?.id === MODEL_PICKER_TOGGLE_COMMAND) respondToModelPickerToggle()
+  if (detail?.id === 'chat.effort.cycle') {
+    const responder =
+      mountedChatViews.find((view) => view.isFocused()) ??
+      [...mountedChatViews]
+        .reverse()
+        .find((view) => view.workspaceId === useWorkspaceStore.getState().activeWorkspaceId)
+    responder?.cycleEffort?.()
+  }
+  if (detail?.id === RESUME_IN_TERMINAL_COMMAND) {
+    const responder =
+      mountedChatViews.find((view) => view.isFocused()) ??
+      [...mountedChatViews]
+        .reverse()
+        .find((view) => view.workspaceId === useWorkspaceStore.getState().activeWorkspaceId)
+    responder?.resumeInTerminal?.()
+  }
+  if (detail?.id === 'chat.turn.previous' || detail?.id === 'chat.turn.next') {
+    const responder =
+      mountedChatViews.find((view) => view.isFocused()) ??
+      [...mountedChatViews]
+        .reverse()
+        .find((view) => view.workspaceId === useWorkspaceStore.getState().activeWorkspaceId)
+    responder?.stepTurn?.(detail.id === 'chat.turn.previous' ? -1 : 1)
+  }
+  // The view whose transcript holds the selection answers, whichever has focus.
+  if (detail?.id === QUOTE_SELECTION_COMMAND) mountedChatViews.some((view) => view.quoteSelection?.() === true)
 }
 
 /** Register a mounted chat view as a possible responder; returns the unregister. */
@@ -327,21 +491,60 @@ export function registerMountedChatView(entry: MountedChatView): () => void {
 }
 
 export default function AgentChatView({ workspaceId, agentId }: Props) {
-  const agent = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.agents[agentId])
-  const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId) ?? null)
-  const updateAgent = useWorkspaceStore((s) => s.updateAgent)
+  const binding = useLocalChatBinding(workspaceId, agentId)
+  if (!binding)
+    return (
+      <ChatShell>
+        <InlineNotice tone="error" className="mx-3 my-2">
+          This agent has no conversation provider selected.
+        </InlineNotice>
+      </ChatShell>
+    )
+  return (
+    <ConversationChatBody
+      key={`${workspaceId}:${agentId}`}
+      workspaceId={workspaceId}
+      agentId={agentId}
+      binding={binding}
+    />
+  )
+}
+
+/**
+ * The chat view itself, over whichever transport the tree provides: the
+ * conversation IPC here, or a paired machine's conversation over the Mesh.
+ * `binding` is the agent it is for — a record in the store, or the fields a
+ * remote pane keeps — and the transport's capabilities decide which controls
+ * it offers.
+ */
+export function ConversationChatBody({ workspaceId, agentId, binding }: Props & { binding: ChatBinding }) {
+  const transport = useConversationTransport()
+  const agent = binding.agent
+  const workspace = binding.workspace
+  const updateBinding = binding.update
   // A conversation-runtime chat has no pty, so no `UserPromptSubmit` frame
   // reaches the sidebar's ordering clock the way a CLI's does. Sending a turn
   // is the same event, so it stamps the same clock here — without this these
   // chats would sit at their creation time for ever while every CLI chat moved.
-  const recordWorkspaceUserMessage = useWorkspaceStore((s) => s.recordWorkspaceUserMessage)
-  const setLastSelectedConversationModel = useWorkspaceStore((s) => s.setLastSelectedConversationModel)
-  const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
-  const conversation = agent?.conversation
-  const label = agent?.name ?? agentId
-  const workspaceRoot = workspace?.folderPath ?? null
+  const recordUserMessage = binding.recordUserMessage
+  const appCliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  const hostSettings = useWorkspaceStore((s) => s.appSettings.hosts)
+  // A chat in a workspace on a WSL machine runs that machine's `claude`.
+  const workspaceHostId = workspace?.hostId
+  const cliRuntimes = useMemo(
+    () => conversationCliRuntimesFor(appCliRuntimes, workspaceHostId, hostSettings),
+    [appCliRuntimes, workspaceHostId, hostSettings],
+  )
+  const conversation = agent.conversation
+  const label = agent.name ?? agentId
+  const workspaceRoot = binding.workspaceRoot
+  const { operate } = transport.capabilities
 
-  const [readiness, setReadiness] = useState<ChatReadiness>({ kind: 'loading' })
+  const [localReadiness, setReadiness] = useState<ChatReadiness>({ kind: 'loading' })
+  // A transport that decides readiness itself (a remote link) replaces this
+  // machine's provider check, which says nothing about a provider over there.
+  const hostReadiness = binding.readiness
+  const readiness = hostReadiness ?? localReadiness
   const [providers, setProviders] = useState<ConversationProviderListEntry[]>([])
   // Live model catalogs keyed by providerId, fetched lazily as the user opens
   // the picker or filters to a provider — never a blanket prefetch. A non-empty
@@ -355,20 +558,70 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   // current-model label, context length, and the tab self-heal below.
   const liveModels = catalogByProvider[conversation?.providerId ?? ''] ?? EMPTY_MODELS
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
-  const [permissionMenuOpen, setPermissionMenuOpen] = useState(false)
   // The live session as the runtime last reported it — adopted on start and
   // re-adopted from every result that can change its preset, so the pill moves
   // when the provider accepts a change, never on an optimistic guess. The pill
   // reads the session's own preset first, then the agent record, then 'default'
   // (`resolvePermissionPreset`).
-  const [session, setSession] = useState<ConversationSessionSummary | null>(null)
+  const [session, setSession] = useState<ConversationSessionSummary | null>(binding.session ?? null)
+  const hostSession = binding.session
+  useEffect(() => {
+    if (hostSession !== undefined) setSession(hostSession)
+  }, [hostSession])
   const sessionId = session?.sessionId ?? null
+  const providerEntry = providers.find((entry) => entry.id === conversation?.providerId)
+  const capabilities = session?.capabilities ?? providerEntry?.capabilities
   const permissionPreset = resolvePermissionPreset(session, agent?.cliPermissionPreset)
-  const [events, setEvents] = useState<ConversationEvent[]>([])
+  const permissionMode = resolvePermissionMode(session, agent)
+  const supportsSkills =
+    transport.capabilities.composerContext && capabilities?.skills !== undefined && capabilities.skills !== 'none'
+  // The chat has no plan toggle: a turn goes out in the mode the agent is on,
+  // which is the default unless a read-only ask was set for it.
+  const conversationMode: 'default' | 'ask' = agent?.conversationMode === 'ask' ? 'ask' : 'default'
+  const reasoningEffort = capabilities?.reasoningEfforts?.includes(agent?.conversationReasoningEffort ?? '')
+    ? agent?.conversationReasoningEffort
+    : undefined
+  // The chat's root. Whether it can be seen decides whether streamed tokens
+  // render now or wait until it is seen again.
+  const shellRef = useRef<HTMLDivElement | null>(null)
+  const viewActive = useChatViewActive(shellRef)
+  const {
+    events,
+    hydrated,
+    hasMore,
+    loadingEarlier,
+    loadEarlier: fetchEarlier,
+    error: historyError,
+    replayThroughSeq,
+    announcement,
+  } = useConversationSession(binding.sessionRoot ?? workspaceRoot, workspaceId, agentId, { active: viewActive })
+  const animatedRowIds = useRef(new Set<string>())
   const [userTurns, setUserTurns] = useState<UserTurn[]>([])
-  // Skill-at-spawn seeds the first draft (prefill only — the user submits).
-  const [draft, setDraft] = useState(() => agent?.chatComposerPrefill ?? '')
+  const {
+    draft,
+    setDraft,
+    draftMetadata: storedDraftMetadata,
+    setDraftMetadata,
+    flushDraft,
+    persistenceError,
+    beginDraftSend,
+    finishDraftSend,
+    clearDraft,
+  } = useComposerDraft(workspaceId, agentId, '')
+  const draftMetadata = useMemo<ComposerDraftMetadata>(
+    () => ({
+      mentions: storedDraftMetadata.mentions,
+      skillIds: supportsSkills ? (agent?.conversationSkills ?? storedDraftMetadata.skillIds) : [],
+    }),
+    [storedDraftMetadata.mentions, storedDraftMetadata.skillIds, agent?.conversationSkills, supportsSkills],
+  )
+  const [composerCaret, setComposerCaret] = useState(draft.length)
+  const [pickedSkills, setPickedSkills] = useState<Record<string, WorkspaceSkill>>({})
   const [pending, setPending] = useState<PendingAction>(null)
+  const sendInFlightRef = useRef(false)
+  // The ref's value as state, so what waits on a send (the queue's flush) runs
+  // again once it settles; the ref stays the synchronous re-entry guard.
+  const [sendInFlight, setSendInFlight] = useState(false)
   // Images staged for the next turn (D3/1774), in the order they were added.
   const [attachments, setAttachments] = useState<ConversationImageAttachment[]>([])
   // A pasted/dropped/picked image is being read and resampled. Held so the
@@ -377,6 +630,9 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   // An image drag is over the composer; drives the drop-target affordance.
   const [dropActive, setDropActive] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  // Below its budget the composer row folds its secondary controls behind one
+  // chevron rather than wrapping or crushing them.
+  const [composerRowFolded, composerRowRef] = useMeasuredFold(COMPOSER_ROW_FOLD_WIDTH)
   const attachmentSeqRef = useRef(0)
   // Type-ahead queue (D6/1776): a message the user committed while the session
   // was busy. It holds until the turn unlocks, then auto-sends as a follow-up
@@ -384,6 +640,13 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   // typed intent is dropped. Attachments ride the queue too — dropping them at
   // the queue boundary would silently lose what the user staged.
   const [queuedTurn, setQueuedTurn] = useState<QueuedTurn | null>(null)
+  // The local id of a queued message handed to the running turn (a steer),
+  // until its own `user_message` arrives. One is delivered at a time, and the
+  // queue holds its next message until then.
+  const [steeringTurnId, setSteeringTurnId] = useState<string | null>(null)
+  // Steers whose `user_message` is in the conversation while their send has
+  // not settled yet.
+  const landedSteerIdsRef = useRef(new Set<string>())
   // The composer's right-click menu (1793); null when closed. Opening it snapshots
   // the click point, the field's selection, and the clipboard, so the menu's
   // enable states describe the moment the user asked for it.
@@ -392,36 +655,24 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   // Applied once the new value has rendered, so the caret lands in the edited
   // text instead of jumping to the end of it.
   const pendingCaretRef = useRef<number | null>(null)
-  const [actionError, setActionError] = useState<string | null>(null)
-  const [skillsMenuOpen, setSkillsMenuOpen] = useState(false)
-  // Skill type-ahead: Escape, a click elsewhere, or non-matching text sets
-  // dismissed so the trigger character stays literal; cleared once the draft no
-  // longer carries a trigger token (the `/` was removed, or a space ended the
-  // `$word`), so the next one opens the list again.
-  const [skillTriggerDismissed, setSkillTriggerDismissed] = useState(false)
-  const skillPickerRef = useRef<InlineSkillPickerHandle | null>(null)
-  const openExtensionsSurface = useWorkspaceStore((s) => s.openExtensionsSurface)
-  const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
-  const listRef = useRef<HTMLDivElement | null>(null)
+  const [actionError, setActionError] = useState<ComposerActionError | null>(null)
+  const skillReader = useComposerSkillReader(workspaceRoot)
+  const listRef = useRef<LegendListRef | null>(null)
+  const conversationKey = `${workspaceId}:${agentId}`
+  const scrollMemoryRef = useRef(recalledConversationScroll(conversationKey))
+  const firstVisibleRowRef = useRef<string | undefined>(scrollMemoryRef.current?.rowId)
+  const pendingUserScrollIdRef = useRef<string | null>(null)
+  const [anchoredUserId, setAnchoredUserId] = useState<string | null>(null)
+  const chromeRef = useRef<TimelineChrome | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
-  // Drag enter/leave fire for every child the pointer crosses; the depth
-  // counter keeps the drop affordance from flickering inside the composer.
-  const dragDepthRef = useRef(0)
   // Completed assistant replies the user has "seen" (was at the bottom for);
   // the jump pill counts completions past this baseline while scrolled up.
   const repliesSeenRef = useRef(0)
 
-  // The prefill is one-shot: once the user has sent anything, clear it from the
-  // record so a later remount never re-seeds a stale invocation.
-  useEffect(() => {
-    if (!agent?.chatComposerPrefill || userTurns.length === 0) return
-    updateAgent(workspaceId, agentId, { chatComposerPrefill: undefined })
-  }, [agent?.chatComposerPrefill, userTurns.length, updateAgent, workspaceId, agentId])
-
   // Resolve provider/model/key readiness from the conversation IPC.
   useEffect(() => {
     let cancelled = false
-    if (!conversation) return
+    if (!conversation || hostReadiness) return
     if (!workspaceRoot) {
       setReadiness({ kind: 'no-workspace-folder' })
       return
@@ -458,7 +709,14 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
         }
         // Providers with a live catalog accept models not in the static seed, so
         // membership is only enforced for static-only providers.
-        if (!provider.supportsDynamicModels && !provider.models.some((model) => model.id === conversation.modelId)) {
+        // An agent-harness provider is a CLI and takes whatever model id that CLI
+        // takes (the picker offers the CLI's own list), exactly as the runtime's
+        // start check does.
+        if (
+          !provider.supportsDynamicModels &&
+          provider.providerType !== 'agent-harness' &&
+          !provider.models.some((model) => model.id === conversation.modelId)
+        ) {
           setReadiness({
             kind: 'model-unavailable',
             providerId: conversation.providerId,
@@ -483,45 +741,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
     return () => {
       cancelled = true
     }
-  }, [conversation, workspaceRoot, cliRuntimes])
-
-  // Subscribe to canonical events for this agent's session. Every event carries a
-  // unique id, so we dedupe on it: a window holds one broadcast subscription per
-  // open chat tab (and dev StrictMode double-invokes effects), which would
-  // otherwise deliver — and append — each streamed token more than once, tripling
-  // the text. Deduping on id makes the transcript immune to duplicate delivery.
-  const seenEventIdsRef = useRef<Set<string>>(new Set())
-  useEffect(() => {
-    if (typeof window.api.onConversationEvent !== 'function') return
-    const unsubscribe = window.api.onConversationEvent((event) => {
-      if (event.workspaceId !== workspaceId || event.agentId !== agentId) return
-      if (seenEventIdsRef.current.has(event.id)) return
-      seenEventIdsRef.current.add(event.id)
-      setEvents((current) => [...current, event])
-    })
-    return unsubscribe
-  }, [workspaceId, agentId])
-
-  // Replay the persisted transcript once per mount so the conversation
-  // survives app/tab reloads. Replayed events are older than anything the live
-  // subscription delivers, so they are prepended; ids dedupe the overlap.
-  useEffect(() => {
-    if (!workspaceRoot || typeof window.api.conversationTranscript !== 'function') return
-    let cancelled = false
-    void window.api
-      .conversationTranscript({ workspaceRoot, workspaceId, agentId })
-      .then((result) => {
-        if (cancelled || !result.ok || result.events.length === 0) return
-        const replayed = result.events.filter((event) => !seenEventIdsRef.current.has(event.id))
-        if (replayed.length === 0) return
-        for (const event of replayed) seenEventIdsRef.current.add(event.id)
-        setEvents((current) => [...replayed, ...current])
-      })
-      .catch(() => undefined)
-    return () => {
-      cancelled = true
-    }
-  }, [workspaceRoot, workspaceId, agentId])
+  }, [conversation, workspaceRoot, cliRuntimes, hostReadiness])
 
   // Fetch one provider's live catalog and key status on demand, caching both.
   // Called for the active provider on mount and for whichever provider the user
@@ -550,41 +770,314 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
 
   // Fetch the active provider up front so the current model's display label,
   // context length, and readiness resolve before the picker is ever opened.
+  // A model on another machine is that machine's catalog, not this one's: a
+  // binding that names its engine brings the catalog with it.
+  const modelSwitch = transport.capabilities.modelSwitch
+  const hostEngine = binding.engine
   useEffect(() => {
     const providerId = conversation?.providerId
-    if (providerId) fetchProviderCatalog(providerId)
-  }, [conversation?.providerId, fetchProviderCatalog])
+    if (providerId && modelSwitch && !hostEngine) fetchProviderCatalog(providerId)
+  }, [conversation?.providerId, fetchProviderCatalog, modelSwitch, hostEngine])
 
-  const projection = useMemo(() => projectConversation(events, userTurns), [events, userTurns])
-  const timelineRows = useMemo(
-    () => deriveConversationTimelineRows(projection.entries, projection.activeTurn),
-    [projection.entries, projection.activeTurn],
-  )
+  const projectionStateRef = useRef(createConversationProjectionState())
+  const { projection, structureRevision } = useMemo(() => {
+    const state = syncConversationProjection(projectionStateRef.current, events, userTurns)
+    projectionStateRef.current = state
+    return { projection: state.projection, structureRevision: state.structureRevision }
+  }, [events, userTurns])
+  // The transcript's shape — its turns, requests and messages — without the
+  // words streaming into the latest reply. What is derived from the shape is
+  // computed when it changes, not on every token.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const shapeEntries = useMemo(() => projection.entries, [structureRevision])
+  const shape = useMemo(() => transcriptShape(shapeEntries), [shapeEntries])
+
+  // A sent picture's bytes stay with the local turn only until the transcript
+  // has stored it: once its `user_message` names the stored copies, the bubble
+  // reads them from the attachment store (seeded here, so it draws at once)
+  // and the view stops holding up to 16 images' worth of base64 for as long as
+  // it is open.
+  useEffect(() => {
+    if (!transport.attachment || !userTurns.some((turn) => turn.attachments?.length)) return
+    const pending = new Map(userTurns.filter((turn) => turn.attachments?.length).map((turn) => [turn.id, turn]))
+    const released = new Set<string>()
+    // A sent message lands near the end of the log; how far back is looked is
+    // bounded, so a send whose images were never stored costs little.
+    const stop = Math.max(0, events.length - 2_000)
+    for (let index = events.length - 1; index >= stop && released.size < pending.size; index--) {
+      const event = events[index]!
+      if (event.type !== 'user_message') continue
+      const turn = pending.get(readString(event.payload, 'localTurnId') ?? '')
+      const stored = parseStoredAttachments(event.payload?.attachments)
+      if (!turn?.attachments || !stored || stored.length !== turn.attachments.length) continue
+      stored.forEach((reference, position) => {
+        const local = turn.attachments!.find((image) => image.id === reference.id) ?? turn.attachments![position]!
+        rememberSentAttachment(reference.ref, local)
+      })
+      released.add(turn.id)
+    }
+    if (!released.size) return
+    setUserTurns((current) =>
+      current.map((turn) => {
+        if (!released.has(turn.id)) return turn
+        const { attachments: _sent, ...rest } = turn
+        return rest
+      }),
+    )
+    // Only a new message can land one: keyed on the transcript's shape.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [structureRevision, userTurns, transport])
+  const previousRowsRef = useRef<ReturnType<typeof deriveConversationTimelineRows>>([])
+  const timelineRows = useMemo(() => {
+    const rows = deriveConversationTimelineRows(projection.entries, projection.activeTurn, previousRowsRef.current)
+    previousRowsRef.current = rows
+    return rows
+  }, [projection.entries, projection.activeTurn])
+  const { handleRecallKeyDown, detachRecall } = useComposerRecall(shape.promptHistory, draft, setDraft)
+
+  // A model switch made from a paired device reaches this window as the
+  // session's own `session_updated` event naming the model. The agent record
+  // follows it, so this chip — and a later resume, which starts on the record's
+  // model — name the model the chat is on. Only an event after the replay
+  // moves it, and each one once: a switch replayed from an earlier session is
+  // history, and the record may have moved since.
+  // Each render looks only at the events that arrived since the last one: the
+  // scan stops at the newest number it has already read.
+  //
+  // The same scan finds the runtime moving the chat to another permission mode
+  // on its own: a runtime that would not start under the chosen mode is
+  // started with none, and says so. The chip follows the live session; the
+  // agent record keeps the person's choice, so the next start tries it again.
+  type LiveSessionScan = {
+    replay: number
+    through: number
+    found: { id: string; modelId: string } | null
+    preset: { id: string; sessionId: string; permissionPreset: CliPermissionPreset; permissionMode?: string } | null
+  }
+  const modelScanRef = useRef<LiveSessionScan>({ replay: -1, through: 0, found: null, preset: null })
+  const liveSessionScan = useMemo(() => {
+    if (!hydrated) return null
+    const scan = modelScanRef.current
+    if (scan.replay !== replayThroughSeq)
+      modelScanRef.current = { replay: replayThroughSeq, through: replayThroughSeq, found: null, preset: null }
+    const { through } = modelScanRef.current
+    let found: LiveSessionScan['found'] = null
+    let preset: LiveSessionScan['preset'] = null
+    let newest = through
+    for (let index = events.length - 1; index >= 0; index--) {
+      const event = events[index]!
+      if (event.seq === undefined) continue
+      if (event.seq <= through) break
+      newest = Math.max(newest, event.seq)
+      if (event.type !== 'session_updated') continue
+      const modelId = event.payload?.modelId
+      if (!found && typeof modelId === 'string' && modelId) found = { id: event.id, modelId }
+      const permissionPreset = parseCliPermissionPreset(event.payload?.permissionPreset)
+      const permissionMode = parseCliPermissionModeId(event.payload?.permissionMode) ?? undefined
+      if (!preset && permissionPreset)
+        preset = { id: event.id, sessionId: event.sessionId, permissionPreset, permissionMode }
+    }
+    modelScanRef.current = {
+      ...modelScanRef.current,
+      through: newest,
+      found: found ?? modelScanRef.current.found,
+      preset: preset ?? modelScanRef.current.preset,
+    }
+    return modelScanRef.current
+  }, [events, hydrated, replayThroughSeq])
+  const liveModelEvent = liveSessionScan?.found ?? null
+  const livePresetEvent = liveSessionScan?.preset ?? null
+  const appliedPresetEventRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!livePresetEvent || appliedPresetEventRef.current === livePresetEvent.id) return
+    appliedPresetEventRef.current = livePresetEvent.id
+    setSession((current) =>
+      current && current.sessionId === livePresetEvent.sessionId
+        ? {
+            ...current,
+            permissionPreset: livePresetEvent.permissionPreset,
+            permissionMode: livePresetEvent.permissionMode,
+          }
+        : current,
+    )
+  }, [livePresetEvent])
+  const appliedModelEventRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!liveModelEvent || appliedModelEventRef.current === liveModelEvent.id) return
+    appliedModelEventRef.current = liveModelEvent.id
+    if (transport.kind !== 'local' || !conversation || liveModelEvent.modelId === conversation.modelId) return
+    updateBinding({ conversation: { providerId: conversation.providerId, modelId: liveModelEvent.modelId } })
+  }, [liveModelEvent, transport.kind, conversation, updateBinding])
 
   // Follow the stream only while the user is at (or near) the bottom: reading
   // scrollback must never be yanked away by incoming tokens. A "jump to
   // latest" pill appears once they scroll up. Keyed on events.length so token
   // appends (which don't change the row count) also keep the view pinned.
-  const [atBottom, setAtBottom] = useState(true)
-  const atBottomRef = useRef(true)
-  const handleLogScroll = useCallback(() => {
-    const node = listRef.current
-    if (!node) return
-    const nearBottom = node.scrollHeight - node.scrollTop - node.clientHeight < 48
-    atBottomRef.current = nearBottom
-    setAtBottom(nearBottom)
-  }, [])
+  const { atBottom, atBottomRef, setAtBottom, observeScroll } = useStickToBottom(scrollMemoryRef.current?.atEnd ?? true)
+  const loadEarlier = useCallback((): Promise<void> => {
+    // Let the list preserve its visible row when a page is prepended, even if
+    // the currently loaded page is short enough to also count as at the end.
+    atBottomRef.current = false
+    setAtBottom(false)
+    return fetchEarlier()
+  }, [fetchEarlier, atBottomRef, setAtBottom])
+  const { flashRowId, clearFlash, searching, jumpToRow } = useConversationSearchJump({
+    workspaceId,
+    agentId,
+    rows: timelineRows,
+    hydrated,
+    hasMore,
+    loadingEarlier,
+    loadEarlier,
+    pauseFollowing: () => {
+      atBottomRef.current = false
+      setAtBottom(false)
+    },
+    scrollToRow: (index) => {
+      // Tail padding is only needed for a newly sent prompt. Applying it to a
+      // historical row pins every following row for measurement in the list.
+      setAnchoredUserId(null)
+      void listRef.current?.scrollToIndex({ index, viewPosition: 0, animated: false })
+    },
+    reportError: setActionError,
+  })
+  const turnNavigation = useTurnNavigation({ rows: timelineRows, listRef, jumpToRow })
+  const stepTurn = turnNavigation.step
+  // Drawn again when the prompts move; the reader's place in them it follows
+  // on its own, and a token changes neither.
+  const minimap = useMemo(() => <TimelineMinimap navigation={turnNavigation} />, [turnNavigation])
+  const { isRestoring: isRestoringScroll } = useConversationScrollRestore({
+    memory: scrollMemoryRef.current,
+    hydrated,
+    searching,
+    hasMore,
+    loadingEarlier,
+    rows: timelineRows,
+    loadEarlier,
+    scrollRoot: () => transcriptRef.current,
+    // The remembered row is gone: open where a conversation opens anyway, and
+    // follow it from there.
+    fallbackToEnd: () => {
+      void listRef.current?.scrollToEnd({ animated: false })
+      atBottomRef.current = true
+      setAtBottom(true)
+    },
+    restore: (index, offset) => {
+      const list = listRef.current
+      if (!list) return
+      void list.scrollToIndex({ index, animated: false, viewPosition: 0 }).then(() => {
+        if (listRef.current !== list) return
+        const position = list.getState().positionAtIndex(index)
+        if (position !== undefined) void list.scrollToOffset({ offset: position + offset, animated: false })
+      })
+    },
+  })
+  // End-follow is paused for the one frame a disclosure resizes its row. That
+  // pause is not the reader leaving the end, so it must not show the pill.
+  const [followPaused, setFollowPaused] = useState(false)
+  const followPausedRef = useRef(false)
+  // A scroll is read once a frame, however many events it fired: an animated
+  // end-follow or a fling fires one per frame or more, and each read measures
+  // the scroller.
+  const scrollFrameRef = useRef(0)
+  const lastScrollRef = useRef<NativeScrollEvent | null>(null)
+  const readLogScroll = useCallback(() => {
+    scrollFrameRef.current = 0
+    const scrolled = lastScrollRef.current
+    lastScrollRef.current = null
+    if (!scrolled || followPausedRef.current) return
+    const { contentOffset, contentSize, layoutMeasurement } = scrolled
+    const element = listRef.current?.getScrollableNode()
+    observeScroll(
+      element?.scrollTop ?? contentOffset.y,
+      element?.scrollHeight ?? contentSize.height,
+      element?.clientHeight ?? layoutMeasurement.height,
+    )
+    // The restore's own jumps are not a place the reader chose; remembering
+    // them would overwrite the position being restored.
+    if (isRestoringScroll()) return
+    // At the end, where the view opens again anyway, there is no row to find.
+    if (atBottomRef.current) {
+      rememberConversationScroll(conversationKey, { offset: 0, atEnd: true })
+      return
+    }
+    const rowId = firstVisibleRowRef.current
+    const position = rowId ? listRef.current?.getState().positionByKey(rowId) : undefined
+    rememberConversationScroll(conversationKey, {
+      rowId,
+      offset: position === undefined ? contentOffset.y : Math.max(0, contentOffset.y - position),
+      atEnd: false,
+    })
+  }, [conversationKey, observeScroll, atBottomRef, isRestoringScroll])
+  const handleLogScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (followPausedRef.current) return
+      lastScrollRef.current = event.nativeEvent
+      if (scrollFrameRef.current) return
+      if (typeof requestAnimationFrame === 'function') scrollFrameRef.current = requestAnimationFrame(readLogScroll)
+      else readLogScroll()
+    },
+    [readLogScroll],
+  )
+  useEffect(() => () => cancelAnimationFrame(scrollFrameRef.current), [])
   const jumpToLatest = useCallback(() => {
-    const node = listRef.current
-    if (!node) return
-    node.scrollTop = node.scrollHeight
+    void listRef.current?.scrollToEnd({ animated: !prefersReducedMotion() })
     atBottomRef.current = true
     setAtBottom(true)
-  }, [])
+  }, [atBottomRef, setAtBottom])
+  const preserveDisclosurePosition = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      const target = event.target instanceof Element ? event.target.closest('button[aria-expanded]') : null
+      const row = target?.closest<HTMLElement>('[data-conversation-row-kind]')
+      if (!row) return
+      const top = row.getBoundingClientRect().top
+      const wasFollowing = atBottomRef.current
+      // Disable native end-follow before the disclosure changes its height.
+      // Otherwise the resize can yank the control away from the pointer.
+      atBottomRef.current = false
+      followPausedRef.current = true
+      flushSync(() => setFollowPaused(true))
+      requestAnimationFrame(() => {
+        // The disclosure suspends follow for its resize frame, not forever.
+        // A user already reading scrollback remains there.
+        const resume = () => {
+          atBottomRef.current = wasFollowing
+          followPausedRef.current = false
+          setFollowPaused(false)
+        }
+        const scroller = listRef.current?.getScrollableNode()
+        if (!row.isConnected || !scroller) return resume()
+        const shift = row.getBoundingClientRect().top - top
+        if (Math.abs(shift) > 0.5) scroller.scrollTop += shift
+        resume()
+      })
+    },
+    [atBottomRef],
+  )
+  const followedInitialSnapshot = useRef(false)
   useEffect(() => {
-    const node = listRef.current
-    if (node && atBottomRef.current) node.scrollTop = node.scrollHeight
-  }, [events.length, timelineRows.length, projection.activeTurn])
+    if (!hydrated) return
+    const animate = followedInitialSnapshot.current
+    followedInitialSnapshot.current = true
+    if (atBottomRef.current) {
+      void listRef.current?.scrollToEnd({
+        animated: animate && !prefersReducedMotion(),
+      })
+    }
+    // Not on every event: tokens grow the last row, and the list's own
+    // end-follow keeps up with that. This lands the first snapshot at the
+    // end, and follows a turn starting or ending and a row being added.
+  }, [timelineRows.length, projection.activeTurn, hydrated, atBottomRef])
+  useEffect(() => {
+    const id = pendingUserScrollIdRef.current
+    if (!id) return
+    const index = timelineRows.findIndex((row) => row.id === id)
+    if (index < 0) return
+    pendingUserScrollIdRef.current = null
+    setAnchoredUserId(id)
+    atBottomRef.current = false
+    void listRef.current?.scrollToIndex({ index, viewPosition: 0, animated: false })
+  }, [timelineRows, atBottomRef])
 
   // Surface turn failures (streamed via `turn_failed`) to the app Notifications
   // panel, deduped on the message so a single failure is logged once.
@@ -603,62 +1096,100 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
       source: 'workspace',
       title: `${label} turn failed`,
       message,
+      ...(projection.lastErrorDetail && projection.lastErrorDetail !== message
+        ? { details: projection.lastErrorDetail }
+        : {}),
       workspaceId,
       workspaceName: workspace?.name,
       agentId,
     })
-  }, [projection.lastError, label, workspaceId, workspace?.name, agentId])
+  }, [projection.lastError, projection.lastErrorDetail, label, workspaceId, workspace?.name, agentId])
 
   // Surface session/send action errors (start failure, missing key, IPC error)
   // the same way — these never reach the event stream.
   const lastNotifiedActionErrorRef = useRef<string | null>(null)
+  const actionErrorMessage = composerErrorMessage(actionError)
   useEffect(() => {
-    if (!actionError || actionError === lastNotifiedActionErrorRef.current) return
-    lastNotifiedActionErrorRef.current = actionError
+    if (!actionErrorMessage || actionErrorMessage === lastNotifiedActionErrorRef.current) return
+    lastNotifiedActionErrorRef.current = actionErrorMessage
     publishDiagnosticSync({
       level: 'error',
       source: 'workspace',
       title: `${label} could not start`,
-      message: actionError,
+      message: actionErrorMessage,
       workspaceId,
       workspaceName: workspace?.name,
       agentId,
     })
-  }, [actionError, label, workspaceId, workspace?.name, agentId])
+  }, [actionErrorMessage, label, workspaceId, workspace?.name, agentId])
 
-  // Self-heal an ugly tab name: spawn may have named the tab with the raw model
-  // id (a remembered live-only model has no nice label until the catalog loads).
-  // Once live models arrive, rename to the model's display name.
+  // A chat agent is named as a terminal agent is — from the shared pool — and
+  // never after its model. A chat created before that rule wears its model's
+  // label as its name ("Opus 5.5"); once this machine's model labels are known,
+  // it is renamed the way an unnamed terminal agent is on load. A chat on
+  // another machine is named there.
+  const cliCatalogOptions = useAgentCliCatalogOptions()
+  const derivedNameLabels = useMemo(() => {
+    const labels = new Set<string>()
+    for (const provider of providers)
+      for (const model of provider.models) if (model.displayName) labels.add(model.displayName)
+    for (const model of liveModels) if (model.displayName) labels.add(model.displayName)
+    for (const option of cliCatalogOptions)
+      for (const model of option.modelSelection?.options ?? []) if (model.label) labels.add(model.label)
+    return labels
+  }, [providers, liveModels, cliCatalogOptions])
+  const renamedFromModelRef = useRef(false)
   useEffect(() => {
-    if (!conversation) return
-    const displayName = liveModels.find((model) => model.id === conversation.modelId)?.displayName
-    if (displayName && agent?.name === conversation.modelId && displayName !== conversation.modelId) {
-      updateAgent(workspaceId, agentId, { name: displayName })
-    }
-  }, [liveModels, conversation, agent?.name, updateAgent, workspaceId, agentId])
+    if (!conversation || !workspace || renamedFromModelRef.current || providers.length === 0) return
+    if (!isModelDerivedChatName(agent?.name, conversation.modelId, derivedNameLabels)) return
+    renamedFromModelRef.current = true
+    updateBinding({
+      name: pickRandomAgentName(
+        Object.entries(workspace.agents)
+          .filter(([id]) => id !== agentId)
+          .map(([, other]) => other.name),
+      ),
+    })
+  }, [conversation, workspace, providers.length, agent?.name, derivedNameLabels, agentId, updateBinding])
 
   const ensureSession = useCallback(async (): Promise<string | null> => {
     if (sessionId) return sessionId
-    if (!conversation || !workspaceRoot) return null
-    const result = await window.api.conversationSessionStart({
-      workspaceRoot,
-      workspaceId,
-      agentId,
-      providerId: conversation.providerId,
-      modelId: conversation.modelId,
-      cliRuntimes: cliRuntimes as ConversationCliRuntimeOverrides,
-      // The spawn picker's preset, stamped on the agent record at spawn and
-      // editable from the composer's permission pill until the first turn. No
-      // hardcoded 'default' here: an agent spawned as Bypass starts as Bypass.
-      permissionPreset,
-    })
-    if (!result.ok) {
-      setActionError(result.message)
+    if (!conversation || !workspaceRoot || !transport.capabilities.startSession) return null
+    try {
+      const result = await window.api.conversationSessionStart({
+        workspaceRoot,
+        workspaceId,
+        agentId,
+        providerId: conversation.providerId,
+        modelId: conversation.modelId,
+        cliRuntimes: cliRuntimes as ConversationCliRuntimeOverrides,
+        // The spawn picker's preset, stamped on the agent record at spawn and
+        // editable from the composer's permission pill until the first turn. No
+        // hardcoded 'default' here: an agent spawned as Bypass starts as Bypass.
+        permissionPreset,
+        ...(permissionMode ? { permissionMode } : {}),
+      })
+      if (!result.ok) {
+        setActionError(result.message)
+        return null
+      }
+      setSession(result.session)
+      return result.session.sessionId
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Could not start the conversation.')
       return null
     }
-    setSession(result.session)
-    return result.session.sessionId
-  }, [agentId, cliRuntimes, conversation, permissionPreset, sessionId, workspaceId, workspaceRoot])
+  }, [
+    agentId,
+    cliRuntimes,
+    conversation,
+    permissionMode,
+    permissionPreset,
+    sessionId,
+    workspaceId,
+    workspaceRoot,
+    transport,
+  ])
 
   // Change the tool-permission preset. The agent record is the durable seed (it
   // starts the next session and survives a remount), so it is written first; a
@@ -672,52 +1203,104 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   // applying (1808).
   const [permissionChanging, setPermissionChanging] = useState(false)
   const [permissionNotice, setPermissionNotice] = useState<string | null>(null)
+  // A mode of the CLI's own rides beside its preset (Claude Code's Accept edits
+  // at Auto); the record keeps both, and a preset's own mode clears the mode.
   const changePermissionPreset = useCallback(
-    async (next: CliPermissionPreset) => {
-      if (next === permissionPreset || permissionChanging) return
+    async (next: CliPermissionPreset, nextMode?: string) => {
+      if ((next === permissionPreset && nextMode === permissionMode) || permissionChanging) return
       setActionError(null)
       setPermissionNotice(null)
-      const previous = agent?.cliPermissionPreset
-      updateAgent(workspaceId, agentId, { cliPermissionPreset: next })
+      const previous = { cliPermissionPreset: agent?.cliPermissionPreset, cliPermissionMode: agent?.cliPermissionMode }
+      updateBinding({ cliPermissionPreset: next, cliPermissionMode: nextMode })
       if (!sessionId) return
-      if (typeof window.api.conversationSessionSetPermission !== 'function') {
-        updateAgent(workspaceId, agentId, { cliPermissionPreset: previous })
+      if (transport.kind === 'local' && typeof window.api.conversationSessionSetPermission !== 'function') {
+        updateBinding(previous)
         setActionError('Changing tool permissions mid-conversation needs an app restart.')
         return
       }
       setPermissionChanging(true)
       try {
-        const result = await window.api.conversationSessionSetPermission({ sessionId, permissionPreset: next })
+        const answered = await transport.setPermissionPreset({
+          sessionId,
+          permissionPreset: next,
+          ...(nextMode ? { permissionMode: nextMode } : {}),
+        })
+        // A remote command answers without a session: the preset it accepted
+        // is the one now in force over there, on the session this pane holds.
+        const result = answered.ok
+          ? {
+              ...answered,
+              session: answered.session ?? { ...session!, permissionPreset: next, permissionMode: nextMode },
+            }
+          : answered
         if (result.ok) {
           setSession(result.session)
           setPermissionNotice(result.notice ?? null)
         } else {
-          updateAgent(workspaceId, agentId, { cliPermissionPreset: previous })
+          updateBinding(previous)
           setActionError(result.message)
         }
       } catch (err) {
-        updateAgent(workspaceId, agentId, { cliPermissionPreset: previous })
+        updateBinding(previous)
         setActionError(err instanceof Error ? err.message : 'Could not change tool permissions.')
       } finally {
         setPermissionChanging(false)
       }
     },
-    [agent?.cliPermissionPreset, agentId, permissionChanging, permissionPreset, sessionId, updateAgent, workspaceId],
+    [
+      agent?.cliPermissionMode,
+      agent?.cliPermissionPreset,
+      permissionChanging,
+      permissionMode,
+      permissionPreset,
+      session,
+      sessionId,
+      updateBinding,
+      transport,
+    ],
   )
 
   // Send one turn. A turn needs text or at least one image — the runtime accepts
   // an image-only turn, so the composer does too.
   const sendTurn = useCallback(
-    async (message: string, turnAttachments: ConversationImageAttachment[] = []) => {
+    async (
+      message: string,
+      turnAttachments: ConversationImageAttachment[] = [],
+      requestedMetadata: ComposerDraftMetadata = { skillIds: [], mentions: [] },
+      fromDraft = false,
+    ) => {
+      const metadata = supportsSkills ? requestedMetadata : { ...requestedMetadata, skillIds: [] }
       const text = message.trim()
-      if ((!text && turnAttachments.length === 0) || pending) return
+      if (
+        (!text && turnAttachments.length === 0 && metadata.mentions.length === 0 && metadata.skillIds.length === 0) ||
+        pending ||
+        sendInFlightRef.current
+      )
+        return
+      sendInFlightRef.current = true
+      setSendInFlight(true)
       setActionError(null)
       // A "from the next turn" notice is spent once that turn leaves.
       setPermissionNotice(null)
       setPending('starting')
       const activeSession = await ensureSession()
+      const thisSend = { text, attachments: turnAttachments, metadata }
       if (!activeSession) {
+        // The session's own failure is already on the line; it is this send's.
+        setActionError((current) => {
+          const message = composerErrorMessage(current)
+          return message ? { message, retry: thisSend } : current
+        })
+        sendInFlightRef.current = false
+        setSendInFlight(false)
         setPending(null)
+        if (!fromDraft) {
+          setDraft((current) => current || text)
+          setDraftMetadata((current) => ({
+            skillIds: [...new Set([...metadata.skillIds, ...current.skillIds])],
+            mentions: [...metadata.mentions, ...current.mentions],
+          }))
+        }
         // The turn never left, so hand the staged images back rather than make
         // the user re-attach them — unless they already staged new ones.
         if (turnAttachments.length > 0) {
@@ -726,55 +1309,129 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
         return
       }
       const localTurnId = `user-${userTurns.length}-${Date.now()}`
-      setUserTurns((current) => [
-        ...current,
-        { id: localTurnId, text, ...(turnAttachments.length > 0 ? { attachments: turnAttachments } : {}) },
-      ])
-      setDraft('')
+      // An optimistic bubble only where the runtime echoes its id back on the
+      // `user_message` that replaces it. A remote send has no such id, so its
+      // bubble is the host's own event, a moment later.
+      if (transport.capabilities.optimisticTurns) {
+        pendingUserScrollIdRef.current = `user:${localTurnId}`
+        setUserTurns((current) => [
+          ...current,
+          {
+            id: localTurnId,
+            text,
+            createdAt: Date.now(),
+            mentions: metadata.mentions,
+            skills: metadata.skillIds,
+            ...(turnAttachments.length > 0 ? { attachments: turnAttachments } : {}),
+          },
+        ])
+      }
+      const draftSend = fromDraft ? beginDraftSend(message) : null
       setPending('sending')
-      recordWorkspaceUserMessage(workspaceId, Date.now())
+      recordUserMessage?.(Date.now())
       try {
-        const result = await window.api.conversationSessionSendTurn({
+        const result = await transport.send({
           sessionId: activeSession,
           message: text,
           localTurnId,
+          skills: metadata.skillIds.map((id) => ({ id })),
+          mentions: metadata.mentions,
+          mode: conversationMode,
+          reasoningEffort,
           ...(turnAttachments.length > 0 ? { attachments: turnAttachments } : {}),
         })
-        if (!result.ok) setActionError(result.message)
+        finishDraftSend(draftSend, result.ok)
+        // A failed send keeps the mode and effort the user chose. Rolling them
+        // back would quietly turn a plan-mode resend into one that can write.
+        if (!result.ok) {
+          setActionError({ message: result.message, retry: thisSend })
+          setUserTurns((current) => current.filter((turn) => turn.id !== localTurnId))
+          if (turnAttachments.length) setAttachments((current) => (current.length ? current : turnAttachments))
+          if (!fromDraft) {
+            setDraft((current) => current || text)
+            setDraftMetadata((current) => ({
+              skillIds: [...new Set([...metadata.skillIds, ...current.skillIds])],
+              mentions: [...metadata.mentions, ...current.mentions],
+            }))
+          }
+        }
       } catch (err) {
-        setActionError(err instanceof Error ? err.message : 'Could not send the message.')
+        finishDraftSend(draftSend, false)
+        setUserTurns((current) => current.filter((turn) => turn.id !== localTurnId))
+        if (!fromDraft) {
+          setDraft((current) => current || text)
+          setDraftMetadata((current) => ({
+            skillIds: [...new Set([...metadata.skillIds, ...current.skillIds])],
+            mentions: [...metadata.mentions, ...current.mentions],
+          }))
+        }
+        if (turnAttachments.length) setAttachments((current) => (current.length ? current : turnAttachments))
+        setActionError({
+          message: err instanceof Error ? err.message : 'Could not send the message.',
+          retry: thisSend,
+        })
       } finally {
+        sendInFlightRef.current = false
+        setSendInFlight(false)
         setPending(null)
       }
     },
-    [ensureSession, pending, recordWorkspaceUserMessage, userTurns.length, workspaceId],
+    [
+      ensureSession,
+      pending,
+      recordUserMessage,
+      userTurns.length,
+      transport,
+      conversationMode,
+      reasoningEffort,
+      supportsSkills,
+      beginDraftSend,
+      finishDraftSend,
+      setDraft,
+      setDraftMetadata,
+    ],
   )
 
+  // Set further down, once the model picker and effort control it drives are
+  // known; answers whether it handled the message.
+  const runAppCommandRef = useRef<(text: string, attachments: number) => boolean>(() => false)
   // Composer submit (Enter or the send affordance). Sends immediately when the
-  // session is idle; queues the message when a turn is streaming or awaiting
-  // approval, so the user gets terminal-style type-ahead without the send
-  // erroring against the runtime's turn guard (D6/1776). The flush effect below
-  // sends the queued message the moment the session unlocks.
+  // session is idle. While a turn runs the message queues, where it stays in
+  // sight: the flush effect below sends it the moment the session unlocks,
+  // and "Send now" hands it to the running turn only when the person asks.
+  // Handing every mid-turn Enter straight to the turn lost messages the
+  // running turn never took in, with nothing left in the queue to show for
+  // them, so the queue is the default and a steer is always a choice.
   const submitComposer = useCallback(() => {
     const text = draft.trim()
-    if (!text && attachments.length === 0) return
-    if (isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending)) {
-      const { dropped, ...merged } = mergeQueuedTurn(queuedTurn, text, attachments)
-      setQueuedTurn(merged)
-      setDraft('')
-      setAttachments([])
+    if (!text && attachments.length === 0 && !draftMetadata.mentions.length && !draftMetadata.skillIds.length) return
+    // A command Studio answers itself, or one it will not send, is handled
+    // here whatever the turn is doing: it never reaches the CLI or the queue.
+    if (runAppCommandRef.current(text, attachments.length)) return
+    if (isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending) || steeringTurnId !== null) {
       // The cap is the IPC boundary's; trimming to it is right, hiding the trim
       // is not — the user must know which images did not make the queue.
-      setActionError(
-        dropped > 0
-          ? `Only ${MAX_ATTACHMENTS_PER_TURN} images fit in one message — ${attachmentCountLabel(dropped)} were not queued.`
-          : null,
-      )
+      const { turn, dropped } = queueComposerDraft(queuedTurn, text, attachments, draftMetadata)
+      setQueuedTurn(turn)
+      clearDraft()
+      setAttachments([])
+      setActionError(queuedDropNotice(dropped))
       return
     }
-    void sendTurn(text, attachments)
+    void sendTurn(text, attachments, draftMetadata, true)
     setAttachments([])
-  }, [attachments, draft, projection.activeTurn, projection.awaitingApproval, pending, queuedTurn, sendTurn])
+  }, [
+    attachments,
+    draft,
+    draftMetadata,
+    clearDraft,
+    projection.activeTurn,
+    projection.awaitingApproval,
+    pending,
+    queuedTurn,
+    steeringTurnId,
+    sendTurn,
+  ])
 
   // Open the composer's right-click menu (1793). The clipboard read is awaited
   // before opening so Paste is never offered against an empty clipboard, and the
@@ -797,10 +1454,13 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
 
   // Replace the menu's captured selection with `text` ('' for a plain cut) and
   // put the caret after what was inserted.
-  const replaceComposerSelection = useCallback((menu: ComposerMenuState, text: string) => {
-    setDraft((current) => current.slice(0, menu.selectionStart) + text + current.slice(menu.selectionEnd))
-    pendingCaretRef.current = menu.selectionStart + text.length
-  }, [])
+  const replaceComposerSelection = useCallback(
+    (menu: Pick<ComposerMenuState, 'selectionStart' | 'selectionEnd'>, text: string) => {
+      setDraft((current) => current.slice(0, menu.selectionStart) + text + current.slice(menu.selectionEnd))
+      pendingCaretRef.current = menu.selectionStart + text.length
+    },
+    [setDraft],
+  )
 
   // Apply the caret position a menu edit asked for, once the rewritten draft has
   // rendered. Focus comes back to the field so the user can keep typing.
@@ -820,10 +1480,57 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   useEffect(() => {
     if (queuedTurn === null || readiness.kind !== 'ready') return
     if (isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending)) return
-    const { text, attachments: queuedAttachments } = queuedTurn
+    // A steer still on its way counts as the turn: the send that it closed
+    // settles before the turn it opened is on screen.
+    if (steeringTurnId !== null) return
+    // "Stop and send" can see the turn end before the send that started it
+    // settles; sendTurn would refuse the message then, and it would be lost.
+    if (sendInFlight || sendInFlightRef.current) return
+    const { text, attachments: queuedAttachments, metadata } = queuedTurn
     setQueuedTurn(null)
-    void sendTurn(text, queuedAttachments)
-  }, [queuedTurn, readiness.kind, projection.activeTurn, projection.awaitingApproval, pending, sendTurn])
+    void sendTurn(text, queuedAttachments, metadata)
+  }, [
+    queuedTurn,
+    readiness.kind,
+    projection.activeTurn,
+    projection.awaitingApproval,
+    pending,
+    steeringTurnId,
+    sendInFlight,
+    sendTurn,
+  ])
+
+  // The launcher's prompt is this chat's first message: Enter there starts the
+  // agent on what was typed, as a terminal agent's startup prompt does, so it is
+  // sent here the moment the provider is ready and the history has loaded —
+  // never left in the composer for a second Enter. One-shot: the record is
+  // cleared before the send, so a remount cannot send it twice. A chat whose
+  // provider cannot start keeps the text as its draft instead of dropping it.
+  const startupPrompt = agent?.chatStartupPrompt
+  const startupHandledRef = useRef(false)
+  useEffect(() => {
+    if (!startupPrompt || startupHandledRef.current || !hydrated) return
+    if (readiness.kind === 'loading') return
+    startupHandledRef.current = true
+    updateBinding({ chatStartupPrompt: undefined })
+    const started = userTurns.length > 0 || shape.hasUserMessage
+    if (started) return
+    if (readiness.kind !== 'ready') {
+      setDraft((current) => current || startupPrompt)
+      return
+    }
+    void sendTurn(startupPrompt, [], draftMetadata)
+  }, [
+    startupPrompt,
+    hydrated,
+    readiness.kind,
+    userTurns.length,
+    shape.hasUserMessage,
+    draftMetadata,
+    sendTurn,
+    setDraft,
+    updateBinding,
+  ])
 
   // Stage images for the next turn. Each file is read and resampled on its own
   // so one unreadable file never drops the rest of a multi-image paste; the
@@ -870,6 +1577,27 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
     [attachments.length],
   )
 
+  // Attach the images a pasted list of paths names, reading them now — the
+  // file may be a screenshot's temporary copy that is gone minutes later. A
+  // paste that cannot be read is put back as the text it was, at the caret it
+  // was pasted at, with the reason on the composer's error line.
+  const attachPastedPaths = async (paths: string[], text: string, selectionStart: number, selectionEnd: number) => {
+    setAttachingCount((count) => count + paths.length)
+    let read: Awaited<ReturnType<typeof readPastedImagePaths>>
+    try {
+      read = await readPastedImagePaths(paths)
+    } finally {
+      setAttachingCount((count) => Math.max(0, count - paths.length))
+    }
+    if (read.ok) {
+      await attachFiles(read.files)
+      return
+    }
+    setDraft((current) => current.slice(0, selectionStart) + text + current.slice(selectionEnd))
+    pendingCaretRef.current = selectionStart + text.length
+    setActionError(read.message)
+  }
+
   const removeAttachment = useCallback((id: string) => {
     setAttachments((current) => current.filter((entry) => entry.id !== id))
   }, [])
@@ -880,59 +1608,300 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   // turn cannot finish until the card is answered).
   const [respondingRequestId, setRespondingRequestId] = useState<string | null>(null)
   const resolveApproval = useCallback(
-    async (requestId: string, approved: boolean, answers?: Record<string, string>) => {
+    async (
+      requestId: string,
+      approved: boolean,
+      answers?: Record<string, string>,
+      decision?: ConversationApprovalDecision,
+    ) => {
       if (!sessionId || respondingRequestId) return
       setActionError(null)
       setRespondingRequestId(requestId)
       try {
-        const result = await window.api.conversationSessionRespondToRequest({ sessionId, requestId, approved, answers })
+        const result = await transport.respond({
+          sessionId,
+          requestId,
+          approved,
+          answers,
+          decision,
+        })
         if (!result.ok) setActionError(result.message)
+        else if (
+          approved &&
+          shapeEntries.some(
+            (entry) => entry.kind === 'approval' && entry.requestId === requestId && entry.requestKind === 'plan',
+          )
+        ) {
+          updateBinding({ conversationMode: 'default' })
+        }
       } catch (err) {
         setActionError(err instanceof Error ? err.message : 'Could not record the approval.')
       } finally {
         setRespondingRequestId(null)
       }
     },
-    [sessionId, respondingRequestId],
+    [sessionId, respondingRequestId, shapeEntries, updateBinding, transport],
+  )
+
+  // "Allow and switch to …" on a permission card: this request is allowed
+  // once, and only then does the chat move to the looser mode, which answers
+  // the requests still waiting that it covers. The order keeps the person's
+  // own answer theirs — the switch never answers, or relabels, the card they
+  // clicked — and a refused allow (the request was already answered) leaves
+  // the mode where it was.
+  const approveAndSwitchMode = useCallback(
+    async (requestId: string, next: CliPermissionPreset) => {
+      if (!sessionId || respondingRequestId) return
+      setActionError(null)
+      setRespondingRequestId(requestId)
+      let allowed = false
+      try {
+        const result = await transport.respond({ sessionId, requestId, approved: true, decision: 'once' })
+        if (result.ok) allowed = true
+        else setActionError(result.message)
+      } catch (err) {
+        setActionError(err instanceof Error ? err.message : 'Could not record the approval.')
+      } finally {
+        setRespondingRequestId(null)
+      }
+      if (allowed) await changePermissionPreset(next)
+    },
+    [sessionId, respondingRequestId, transport, changePermissionPreset],
   )
 
   const interrupt = useCallback(async () => {
     if (!sessionId || pending === 'stopping') return
     setPending('stopping')
     try {
-      const result = await window.api.conversationSessionInterrupt({ sessionId })
+      const result = await transport.interrupt({ sessionId })
       if (!result.ok) setActionError(result.message)
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Could not interrupt the turn.')
     } finally {
       setPending(null)
     }
-  }, [sessionId, pending])
+  }, [sessionId, pending, transport])
+
+  // Send a queued message into the running turn (a steer). It skips sendTurn's
+  // `pending` latch on purpose: that latch belongs to the send whose turn is
+  // running, which settles only when this one takes the turn over. The bubble
+  // is optimistic as any send's is, and lands where the runtime delivered it.
+  // A refused steer goes back to the head of the queue, so it still goes when
+  // the turn ends rather than being lost.
+  const putBackQueued = (turn: QueuedTurn) => {
+    setQueuedTurn((current) => {
+      if (!current) return turn
+      return queueComposerDraft(turn, current.text, current.attachments, current.metadata).turn
+    })
+  }
+  const steerTurn = async (turn: QueuedTurn) => {
+    // The queue was emptied to hand this message over; with no session to
+    // take it, it goes back rather than vanishing.
+    if (!sessionId) {
+      putBackQueued(turn)
+      return
+    }
+    const metadata = supportsSkills ? turn.metadata : { ...turn.metadata, skillIds: [] }
+    const text = turn.text.trim()
+    const localTurnId = `user-${userTurns.length}-${Date.now()}`
+    setActionError(null)
+    setSteeringTurnId(localTurnId)
+    pendingUserScrollIdRef.current = `user:${localTurnId}`
+    setUserTurns((current) => [
+      ...current,
+      {
+        id: localTurnId,
+        text,
+        createdAt: Date.now(),
+        mentions: metadata.mentions,
+        skills: metadata.skillIds,
+        ...(turn.attachments.length > 0 ? { attachments: turn.attachments } : {}),
+      },
+    ])
+    recordUserMessage?.(Date.now())
+    // The send settles only when the turn the steer opened does, so a failure
+    // can arrive after the message was already written to the conversation.
+    // Queueing that one again would send it twice; only a message that never
+    // landed goes back to the head of the queue.
+    const requeue = (message: string) => {
+      setActionError(message)
+      if (landedSteerIdsRef.current.has(localTurnId)) return
+      setUserTurns((current) => current.filter((entry) => entry.id !== localTurnId))
+      putBackQueued(turn)
+    }
+    try {
+      const result = await transport.send({
+        sessionId,
+        message: text,
+        localTurnId,
+        skills: metadata.skillIds.map((id) => ({ id })),
+        mentions: metadata.mentions,
+        mode: conversationMode,
+        reasoningEffort,
+        ...(turn.attachments.length > 0 ? { attachments: turn.attachments } : {}),
+        steer: true,
+      })
+      if (!result.ok) requeue(result.message)
+    } catch (err) {
+      requeue(err instanceof Error ? err.message : 'Could not send the message.')
+    } finally {
+      landedSteerIdsRef.current.delete(localTurnId)
+      setSteeringTurnId((current) => (current === localTurnId ? null : current))
+    }
+  }
+
+  // The steer is delivered once its own `user_message` replaces the optimistic
+  // bubble; the queue may hand over the next one from then on. The id is kept
+  // until its send settles, so a late failure knows the message is already in.
+  useEffect(() => {
+    if (steeringTurnId === null) return
+    const landed = shapeEntries.some(
+      (entry) => entry.kind === 'user' && entry.id === steeringTurnId && entry.seq !== undefined,
+    )
+    if (!landed) return
+    landedSteerIdsRef.current.add(steeringTurnId)
+    setSteeringTurnId(null)
+  }, [steeringTurnId, shapeEntries])
+
+  // What "send it now" does for the queued message: a steer where both the
+  // transport and the provider take one, else stop the turn and let the queue
+  // send it the moment the session is free.
+  const canSteer = transport.capabilities.steer && capabilities?.steer === true
+  const queuedSendNow = queuedTurnSendNow({
+    canSteer,
+    activeTurn: projection.activeTurn,
+    awaitingApproval: projection.awaitingApproval,
+    stopping: pending === 'stopping',
+    steering: steeringTurnId !== null,
+  })
+  const sendQueuedNow = (turn: QueuedTurn) => {
+    if (queuedSendNow.disabled || !operate) {
+      setQueuedTurn(turn)
+      return
+    }
+    if (queuedSendNow.kind === 'steer') {
+      setQueuedTurn(null)
+      void steerTurn(turn)
+      return
+    }
+    setQueuedTurn(turn)
+    void interrupt()
+  }
+
+  // ⌘↵ / Ctrl+↵: commit and send now. Idle, that is an ordinary send; while
+  // the agent works, the draft joins the queue and the queue goes at once.
+  const commitComposerNow = () => {
+    if (!isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending) && steeringTurnId === null) {
+      submitComposer()
+      return
+    }
+    const text = draft.trim()
+    const hasDraft =
+      text.length > 0 ||
+      attachments.length > 0 ||
+      draftMetadata.mentions.length > 0 ||
+      draftMetadata.skillIds.length > 0
+    if (!hasDraft) {
+      if (queuedTurn) sendQueuedNow(queuedTurn)
+      return
+    }
+    const { turn, dropped } = queueComposerDraft(queuedTurn, text, attachments, draftMetadata)
+    clearDraft()
+    setAttachments([])
+    setActionError(queuedDropNotice(dropped))
+    sendQueuedNow(turn)
+  }
+  // Esc stops a running turn, as it does in an agent CLI's own terminal. It
+  // gets here only once the composer's pickers and prompt recall have passed
+  // it on, and never while a menu is open over the composer or text in the
+  // transcript is selected: there Esc belongs to what is showing. Nor while a
+  // request waits in the dock: the turn is paused on the person's answer, Esc
+  // reads there as "no", and a stop would throw away the turn it was asked in.
+  const stopsTurnOnEscape = (event: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.repeat) return false
+    if (!projection.activeTurn || !operate || stopDisabledForPending(pending)) return false
+    if (modelMenuOpen || composerMenu) return false
+    if (shape.pendingApprovals.length > 0) return false
+    return !window.getSelection()?.toString().trim()
+  }
+  const sendNowShortcutLabel = renderKeybinding(
+    'Primary+Enter',
+    window.api.platform === 'darwin' ? 'darwin' : window.api.platform === 'win32' ? 'windows' : 'linux',
+  )
 
   // Retry re-sends the last user message. The projection's entries are the
   // authoritative source — after an app restart the message only exists in the
   // replayed transcript, not in the local userTurns state.
-  const retry = useCallback(() => {
+  const retryLatestRef = useRef<() => void>(() => undefined)
+  retryLatestRef.current = () => {
     const lastUser = [...projection.entries]
       .reverse()
       .find((entry): entry is Extract<TranscriptEntry, { kind: 'user' }> => entry.kind === 'user')
-    if (lastUser?.text) void sendTurn(lastUser.text)
-  }, [sendTurn, projection.entries])
-
-  if (!conversation) {
-    return (
-      <ChatShell>
-        <InlineNotice tone="error" className="mx-3 my-2">
-          This agent has no conversation provider selected.
-        </InlineNotice>
-      </ChatShell>
-    )
+    if (lastUser)
+      void sendTurn(lastUser.text, lastUser.attachments, {
+        skillIds: lastUser.skills ?? [],
+        mentions: lastUser.mentions ?? [],
+      })
   }
+  const retry = useCallback(() => retryLatestRef.current(), [])
+  // The composer's Retry repeats the send that failed. A failed send hands its
+  // message back to the composer, so when the composer still holds it the retry
+  // goes from there and empties it, as the first attempt did; edited since, the
+  // message goes as it was sent and the edit stays. The images handed back go
+  // with the retry either way, so they leave the composer: left there, the next
+  // send would upload them a second time.
+  const failedSend = typeof actionError === 'object' ? (actionError?.retry ?? null) : null
+  const retryFailedSend = () => {
+    if (!failedSend) return
+    const fromDraft = draft.trim() === failedSend.text
+    void sendTurn(failedSend.text, failedSend.attachments, failedSend.metadata, fromDraft)
+    setAttachments((current) => (current === failedSend.attachments ? [] : current))
+  }
+  // Only this machine's Claude chat signs in through its CLI; a paired
+  // machine's chat would need signing in over there.
+  const signInProviderId =
+    transport.kind === 'local' && cliForConversationProvider(conversation?.providerId) === 'claude-code'
+      ? conversation?.providerId
+      : undefined
+  const signIn = useCallback(async () => {
+    if (!signInProviderId) return
+    try {
+      const result = await openCliSignInTerminal({
+        workspaceId,
+        providerId: signInProviderId,
+        cliRuntimes: cliRuntimes as ConversationCliRuntimeOverrides,
+      })
+      if (!result.ok) setActionError(result.message)
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Could not open the sign-in terminal.')
+    }
+  }, [signInProviderId, workspaceId, cliRuntimes])
+  const onSignIn = signInProviderId ? signIn : undefined
+
+  // "Edit from here" went back to before a message: it returns to the
+  // composer ahead of anything already typed there, with what it carried.
+  const restoreDraftRef = useRef<(draft: EditFromHereDraft) => void>(() => undefined)
+  restoreDraftRef.current = (restored) => {
+    setDraft((current) => [restored.text, current].filter(Boolean).join('\n\n'))
+    setDraftMetadata({
+      skillIds: [...new Set([...restored.skills, ...draftMetadata.skillIds])],
+      mentions: [
+        ...restored.mentions,
+        ...draftMetadata.mentions.filter(
+          (mention) => !restored.mentions.some((kept) => kept.path === mention.path && kept.kind === mention.kind),
+        ),
+      ],
+    })
+    setAttachments((current) => [...restored.attachments, ...current].slice(0, MAX_ATTACHMENTS_PER_TURN))
+    composerRef.current?.focus()
+  }
+  const restoreDraft = useCallback((draft: EditFromHereDraft) => restoreDraftRef.current(draft), [])
 
   const ready = readiness.kind === 'ready'
   // The session cannot take a live turn right now (streaming, awaiting approval,
   // or an in-flight send). A submit made while busy queues instead of erroring.
-  const composerBusy = isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending)
+  const composerBusy =
+    isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending) || steeringTurnId !== null
   // Retry and other "act now" affordances stay disabled while busy or not ready.
   const composerDisabled = !ready || composerBusy
   // The textarea itself is only disabled before the provider is ready — it stays
@@ -945,7 +1914,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
     ready,
     busy: composerBusy,
     sending: pending === 'starting' || pending === 'sending',
-    hasText: draft.trim().length > 0,
+    hasText: draft.trim().length > 0 || draftMetadata.mentions.length > 0 || draftMetadata.skillIds.length > 0,
     attachmentCount: attachments.length,
   })
 
@@ -953,16 +1922,39 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   // only until the conversation starts: once a turn is sent, a session exists,
   // or replayed history is present, the pill is read-only and the user opens a
   // new agent to change model.
-  const modelLocked = isConversationModelLocked(
-    userTurns.length,
-    sessionId,
-    projection.entries.some((entry) => entry.kind === 'user' || entry.kind === 'assistant'),
-  )
+  // A provider that declares `liveModelSwitch` takes a new model mid-chat
+  // (from the next turn), so its picker never locks; any other provider binds
+  // a session to its model and the picker locks once the chat has started.
+  const liveModelSwitch = capabilities?.liveModelSwitch === true && typeof transport.setModel === 'function'
+  const modelLocked =
+    !modelSwitch || (!liveModelSwitch && isConversationModelLocked(userTurns.length, sessionId, shape.hasConversation))
   const modelGroups = buildModelGroups(providers, catalogByProvider, keyByProvider)
   const currentModel = modelGroups
     .find((group) => group.providerId === conversation.providerId)
     ?.models.find((model) => model.id === conversation.modelId)
-  const currentModelLabel = currentModel?.displayName ?? conversation.modelId
+  // The engine chip: the terminal agent's picker, locked to this chat's CLI.
+  // The rail shows that CLI alone and the list is its own models (only the
+  // chat's model once it has started); effort and permissions sit on the
+  // picker's trailing row exactly as they do for a terminal launch.
+  // A chat on another machine brings that machine's row for its CLI.
+  const chatCli = hostEngine?.value ?? cliForConversationProvider(conversation.providerId)
+  const chatModel = conversation.modelId === CONVERSATION_DEFAULT_MODEL_ID ? undefined : conversation.modelId
+  const chatCliOption: CliRuntimeOption | null = chatCli
+    ? (hostEngine ??
+      cliCatalogOptions.find((option) => option.value === chatCli) ?? {
+        value: chatCli,
+        label: providerEntry?.displayName ?? chatCli,
+      })
+    : null
+  const chatPickerOptions = chatCliOption
+    ? [modelLocked ? lockedChatEngineOption(chatCliOption, chatModel) : chatCliOption]
+    : []
+  const chatModelLabel = chatCliOption
+    ? (chatCliOption.modelSelection?.options.find((option) => option.id === chatModel)?.label ??
+      chatModel ??
+      chatCliOption.label)
+    : null
+  const currentModelLabel = chatModelLabel ?? currentModel?.displayName ?? conversation.modelId
   const contextLength = currentModel?.contextLength
   const usedTokens = projection.usage ? projection.usage.inputTokens + projection.usage.outputTokens : 0
   // ⌘⇧M toggles the model picker (registered as
@@ -970,12 +1962,58 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   // palette and the conflict suite all know the chord). The shell's dispatcher
   // resolves the binding and `runCommand` routes the registry's panel-event to
   // the module-level responder above; this view only registers itself.
-  const shellRef = useRef<HTMLDivElement | null>(null)
+  const changeReasoningEffort = (effort: string | undefined) => {
+    if (effort && !capabilities?.reasoningEfforts?.includes(effort)) return
+    updateBinding({ conversationReasoningEffort: effort })
+    if (sessionId) setPermissionNotice('Reasoning effort applies from the next turn.')
+  }
+  const cycleEffortRef = useRef(() => {})
+  cycleEffortRef.current = () =>
+    changeReasoningEffort(nextConversationEffort(capabilities?.reasoningEfforts ?? [], reasoningEffort))
+  // Continue in terminal (the palette, `/terminal`, the tab's menu): main
+  // stops a turn this chat is running, suspends it and opens a terminal agent
+  // resuming its CLI session. A message queued behind that turn is refused
+  // while the terminal opens, and so comes back to the composer.
+  // Only a chat on this machine: a paired machine's session is not here.
+  const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
+  const resumesInTerminal = transport.kind === 'local' && chatResumesInTerminal(agent, pluginCatalogEntries)
+  const resumeInTerminalRef = useRef(() => {})
+  resumeInTerminalRef.current = () => {
+    if (!resumesInTerminal) {
+      setActionError('A terminal cannot resume this kind of chat yet.')
+      return
+    }
+    void resumeChatInTerminal({ workspaceId, agentId }).then(
+      (result) => setActionError(result.ok ? null : result.message),
+      (error: unknown) =>
+        setActionError(error instanceof Error ? error.message : 'The chat could not be continued in a terminal.'),
+    )
+  }
   const keybindingSettings = useWorkspaceStore((s) => s.appSettings.keybindings)
   const toggleModelPickerRef = useRef<() => void>(() => {})
+  // The picker stays reachable once the chat has started: its model is fixed
+  // then, but effort and permissions are not.
   toggleModelPickerRef.current = () => {
-    if (modelLocked) return
+    if (!chatCli) return
     setModelMenuOpen((open) => !open)
+  }
+  // A quote (the selection toolbar's, or the quote shortcut's) lands where the
+  // composer's caret was, as a block of its own, and the caret waits on a fresh
+  // line under it. The field keeps its caret while focus is in the transcript.
+  const transcriptRef = useRef<HTMLDivElement | null>(null)
+  const quoteIntoComposer = (markdown: string) => {
+    const field = composerRef.current
+    setDraft((current) => {
+      const next = insertQuoteIntoDraft(current, markdown, field?.selectionEnd ?? current.length)
+      pendingCaretRef.current = next.caret
+      return next.text
+    })
+  }
+  const quoteSelectionRef = useRef<() => boolean>(() => false)
+  quoteSelectionRef.current = () => {
+    const transcript = transcriptRef.current
+    if (!transcript || composerInputDisabled) return false
+    return quoteSelectionInto(transcript, document.getSelection(), quoteIntoComposer)
   }
   useEffect(
     () =>
@@ -983,8 +2021,12 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
         workspaceId,
         isFocused: () => Boolean(shellRef.current?.contains(document.activeElement)),
         toggleModelPicker: () => toggleModelPickerRef.current(),
+        cycleEffort: () => cycleEffortRef.current(),
+        resumeInTerminal: () => resumeInTerminalRef.current(),
+        stepTurn,
+        quoteSelection: () => quoteSelectionRef.current(),
       }),
-    [workspaceId],
+    [workspaceId, stepTurn],
   )
   const modelPickerShortcutLabel = useMemo(() => {
     const keybinding = getEffectiveKeybindings(MODEL_PICKER_TOGGLE_COMMAND, keybindingSettings)[0]
@@ -992,76 +2034,197 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
     const platform = window.api.platform === 'darwin' ? 'darwin' : window.api.platform === 'win32' ? 'windows' : 'linux'
     return renderKeybinding(keybinding, platform)
   }, [keybindingSettings])
+  const quoteShortcutLabel = useMemo(() => {
+    const keybinding = getEffectiveKeybindings(QUOTE_SELECTION_COMMAND, keybindingSettings)[0]
+    if (!keybinding) return null
+    const platform = window.api.platform === 'darwin' ? 'darwin' : window.api.platform === 'win32' ? 'windows' : 'linux'
+    return renderKeybinding(keybinding, platform)
+  }, [keybindingSettings])
+  const [modelChanging, setModelChanging] = useState(false)
   const selectModel = (providerId: string, modelId: string) => {
     setModelMenuOpen(false)
-    if (modelLocked || (providerId === conversation.providerId && modelId === conversation.modelId)) return
-    const nextLabel = modelGroups
-      .find((group) => group.providerId === providerId)
-      ?.models.find((model) => model.id === modelId)?.displayName
-    // The tab was named after the spawn-default model; once the user picks a
-    // different model before the conversation starts, keep the tab truthful.
-    // Only auto-created names are touched — a user-renamed tab (no model-label
-    // match, ignoring a uniqueness suffix) stays as the user wrote it — and
-    // the new name is re-uniqued against the workspace's other agents so two
-    // tabs never end up with the same label.
-    const baseName = (agent?.name ?? '').replace(/ \d+$/, '')
-    const renaming = Boolean(nextLabel && (baseName === currentModelLabel || agent?.name === conversation.modelId))
-    updateAgent(workspaceId, agentId, {
-      conversation: { providerId, modelId },
-      ...(renaming && nextLabel && workspace
-        ? {
-            name: uniqueAgentName(
-              nextLabel,
-              Object.fromEntries(Object.entries(workspace.agents).filter(([id]) => id !== agentId)),
-            ),
-          }
-        : {}),
+    if (modelLocked || modelChanging || (providerId === conversation.providerId && modelId === conversation.modelId))
+      return
+    // The agent keeps its name: it is named from the pool, not after its model.
+    const record = () => {
+      updateBinding({ conversation: { providerId, modelId }, conversationMode: 'default' })
+      binding.rememberModel?.({ providerId, modelId })
+    }
+    // No live session: the record is what the next session starts on.
+    if (!sessionId || !transport.setModel) {
+      record()
+      return
+    }
+    // A live session takes the switch first; the record moves only once the
+    // provider accepted it, so the chip never names a model the session is not
+    // on. Mid-turn the provider says the reply finishes on its old model.
+    setActionError(null)
+    setPermissionNotice(null)
+    setModelChanging(true)
+    void transport
+      .setModel({ sessionId, modelId })
+      .then((result) => {
+        if (!result.ok) {
+          setActionError(result.message)
+          return
+        }
+        record()
+        if (result.session) setSession(result.session)
+        setPermissionNotice(result.notice ?? null)
+      })
+      .catch((error: unknown) => setActionError(error instanceof Error ? error.message : 'Could not change the model.'))
+      .finally(() => setModelChanging(false))
+  }
+  runAppCommandRef.current = (text, attachmentCount) => {
+    const action = composerAppCommand(text, {
+      cli: chatCli,
+      models: chatCliOption?.modelSelection?.options ?? [],
+      efforts: capabilities?.reasoningEfforts ?? [],
+      attachments: attachmentCount,
     })
-    setLastSelectedConversationModel({ providerId, modelId })
+    if (!action) return false
+    if (action.kind === 'refuse') {
+      setPermissionNotice(action.notice)
+      return true
+    }
+    clearDraft()
+    setCommandHint(null)
+    if (action.kind === 'model') {
+      if (action.model && conversation && !modelLocked) selectModel(conversation.providerId, action.model)
+      else setModelMenuOpen(true)
+    } else if (action.effort) changeReasoningEffort(action.effort)
+    else cycleEffortRef.current()
+    return true
   }
 
-  // Agent-harness providers (the Claude CLI) run tools and speak as "Claude";
-  // plain model providers are a direct chat with the model.
-  const providerEntry = providers.find((entry) => entry.id === conversation.providerId)
-  const isAgentHarness = providerEntry?.providerType === 'agent-harness'
-  const assistantName = isAgentHarness ? 'Claude' : currentModelLabel
+  // Capabilities are available from the provider catalog before the first turn,
+  // then the live session reports the declaration it actually started with.
+  const supportsTools = capabilities?.tools === true
+  const assistantName = supportsTools
+    ? (session?.displayName ?? providerEntry?.displayName ?? currentModelLabel)
+    : currentModelLabel
   // Image attach (D3/1774) is offered only where a provider actually reads the
   // turn's attachments, and only once the session can take a turn — a control
   // that stages images no one will receive is worse than no control.
-  const imagesEnabled = ready && providerAcceptsImages(conversation.providerId)
+  const imagesEnabled = ready && capabilities?.images === true && transport.capabilities.composerContext
 
-  // Skills doors (agent harness only — plain model chats run no tools): a '/'
-  // opening an otherwise-empty draft, or a '$' starting a word anywhere in it,
-  // filters the same inventory the Skills chip shows. See `chatSkillTrigger`.
-  const skillTrigger = isAgentHarness && !skillTriggerDismissed ? chatSkillTrigger(draft) : null
-  const dismissSkillTrigger = useCallback(() => setSkillTriggerDismissed(true), [])
-  const applySkillPick = (skill: WorkspaceSkill) => {
-    if (skillTrigger?.kind === 'mention') {
-      // The `$word` is the tail of the draft by construction; swap it for the
-      // mention and leave the caret after a space, ready for the next word.
-      const head = draft.slice(0, draft.length - skillTrigger.token.length)
-      setDraft(`${head}${renderChatSkillMention(skill)} `)
-    } else {
-      setDraft(renderChatSkillPrefill(skill))
-    }
-    setSkillTriggerDismissed(true)
-    composerRef.current?.focus()
+  const skillInventory = useWorkspaceSkills(workspaceRoot, null, supportsSkills)
+  const attachedSkills = draftMetadata.skillIds.map(
+    (id): WorkspaceSkill =>
+      pickedSkills[id] ??
+      skillInventory.skills.find((skill) => skill.id === id) ?? {
+        id,
+        name: id,
+        source: 'custom',
+        harnesses: [],
+        installState: 'installed',
+      },
+  )
+  const setAttachedSkills = (skills: WorkspaceSkill[]) => {
+    const ids = [...new Set(skills.map((skill) => skill.id))].slice(0, 32)
+    setPickedSkills((current) => ({ ...current, ...Object.fromEntries(skills.map((skill) => [skill.id, skill])) }))
+    updateBinding({ conversationSkills: ids })
+    setDraftMetadata((current) => ({ ...current, skillIds: ids }))
   }
-  const modelLabelFor = (modelId?: string): string => {
-    if (!modelId) return currentModelLabel
-    for (const group of modelGroups) {
-      const model = group.models.find((entry) => entry.id === modelId)
-      if (model?.displayName) return model.displayName
-    }
-    return modelId
+  const removeContextTrigger = (range: { start: number; end: number }) => {
+    setDraft((current) => current.slice(0, range.start) + current.slice(range.end))
+    pendingCaretRef.current = range.start
+    setComposerCaret(range.start)
+    detachRecall()
   }
+  // The `/` menu lists what the chat's CLI runs in this folder, plus Studio's
+  // own few. A chat on another machine has no folder here to ask about, so its
+  // menu holds Studio's commands, and the CLI's only once a list for it has
+  // reached this machine.
+  const localCommands = transport.capabilities.composerContext
+  const appCommands = useMemo(
+    () =>
+      studioAppCommands({
+        model: Boolean(chatCli),
+        effort: Boolean(capabilities?.reasoningEfforts?.length),
+        terminal: resumesInTerminal,
+      }),
+    [chatCli, capabilities?.reasoningEfforts?.length, resumesInTerminal],
+  )
+  const conversationCommands = useConversationCommands(
+    chatCli,
+    localCommands ? workspaceRoot : (binding.sessionRoot ?? null),
+    { appCommands, discover: localCommands },
+  )
+  const commandCatalog = conversationCommands.catalog
+  const commandMenuAvailable = Boolean(
+    chatCli && (localCommands ? workspaceRoot : conversationCommands.commands.length),
+  )
+  // A picked command's argument hint, shown under the field until the person
+  // types past what the pick left there.
+  const [commandHint, setCommandHint] = useState<{ command: string; hint: string; draft: string } | null>(null)
+  const contextPicker = useComposerContextPicker({
+    workspaceRoot,
+    draft,
+    caret: composerCaret,
+    skillsEnabled: supportsSkills,
+    // A file mention names a file on this machine's disk.
+    mentionsEnabled: transport.capabilities.composerContext,
+    commandMenu: commandMenuAvailable
+      ? {
+          commands: conversationCommands.commands,
+          status: {
+            cliLabel: chatCliOption?.label ?? providerEntry?.displayName ?? chatCli ?? 'The CLI',
+            loading: conversationCommands.loading,
+            error: commandCatalog?.error,
+            answered: Boolean(commandCatalog?.fetchedAt),
+            reportedCount: commandCatalog?.commands.length ?? 0,
+          },
+          onOpen: conversationCommands.refreshIfStale,
+        }
+      : null,
+    onPickCommand: (command, range) => {
+      // Studio's own commands act here and leave nothing to send. `/model`
+      // leaves focus to the picker it opens, so its token goes without the
+      // caret restore that would pull focus back into the field.
+      if (command.source === 'app') {
+        setCommandHint(null)
+        if (command.name === 'model') {
+          setDraft((current) => current.slice(0, range.start) + current.slice(range.end))
+          setComposerCaret(range.start)
+          detachRecall()
+          setModelMenuOpen(true)
+          return
+        }
+        removeContextTrigger(range)
+        if (command.name === 'effort') cycleEffortRef.current()
+        if (command.name === 'terminal') resumeInTerminalRef.current()
+        return
+      }
+      // Everything else is text the CLI expands when the message goes out.
+      // A space already after the token is reused rather than doubled.
+      const text = commandInsertText(command)
+      const end = text.endsWith(' ') && /^\s/u.test(draft.slice(range.end)) ? range.end + 1 : range.end
+      const next = draft.slice(0, range.start) + text + draft.slice(end)
+      setDraft(next)
+      pendingCaretRef.current = range.start + text.length
+      setComposerCaret(range.start + text.length)
+      detachRecall()
+      setCommandHint(command.argumentHint ? { command: command.name, hint: command.argumentHint, draft: next } : null)
+    },
+    onPickSkill: (skill, range) => {
+      setAttachedSkills([...attachedSkills, skill])
+      removeContextTrigger(range)
+    },
+    onPickMention: (mention, range) => {
+      setDraftMetadata((current) => ({
+        ...current,
+        mentions: [
+          ...current.mentions.filter((entry) => entry.path !== mention.path || entry.kind !== mention.kind),
+          mention,
+        ].slice(-50),
+      }))
+      removeContextTrigger(range)
+    },
+  })
 
-  const pendingApprovalEntry = [...projection.entries]
-    .reverse()
-    .find(
-      (entry): entry is Extract<TranscriptEntry, { kind: 'approval' }> =>
-        entry.kind === 'approval' && entry.status === 'pending',
-    )
+  const pendingApprovalEntries = shape.pendingApprovals
+  const pendingApprovalEntry = pendingApprovalEntries[0]
   const composerPlaceholder = pendingApprovalEntry
     ? pendingApprovalEntry.requestKind === 'question'
       ? 'Answer the question above to continue'
@@ -1076,426 +2239,826 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
 
   // Retry lives on the failed turn's error block in the transcript; only the
   // latest failed turn is retryable (retry re-sends the last user message).
-  const lastFailedTurnId =
-    !projection.activeTurn && ready
-      ? [...projection.entries]
-          .reverse()
-          .find(
-            (entry): entry is Extract<TranscriptEntry, { kind: 'assistant' }> =>
-              entry.kind === 'assistant' && entry.status === 'failed',
-          )?.turnId
-      : undefined
+  const lastFailedTurnId = !projection.activeTurn && ready ? shape.lastFailedTurnId : undefined
 
-  const chrome: TimelineChrome = {
-    assistantName,
-    modelLabelFor,
-    retryTurnId: lastFailedTurnId,
-    onRetry: retry,
-    retryDisabled: composerDisabled,
-  }
+  const latestTurnId = shape.latestTurnId
+  const oldChrome = chromeRef.current
+  const checkpointSeqs = shape.checkpointSeqs
+  const stableCheckpointSeqs =
+    oldChrome?.checkpointSeqs &&
+    oldChrome.checkpointSeqs.size === checkpointSeqs.size &&
+    [...checkpointSeqs].every((seq) => oldChrome.checkpointSeqs?.has(seq))
+      ? oldChrome.checkpointSeqs
+      : checkpointSeqs
+  // Offered where the provider can drop turns from its own context and this
+  // view can operate the conversation.
+  const rewindEnabled = operate && capabilities?.rewind === true && typeof transport.rewind === 'function'
+  const chrome: TimelineChrome =
+    oldChrome &&
+    oldChrome.assistantName === assistantName &&
+    oldChrome.latestTurnId === latestTurnId &&
+    oldChrome.retryTurnId === lastFailedTurnId &&
+    oldChrome.onRetry === retry &&
+    oldChrome.retryDisabled === composerDisabled &&
+    oldChrome.onSignIn === onSignIn &&
+    oldChrome.checkpointsEnabled === (capabilities?.checkpoints === true) &&
+    oldChrome.conversationRunning === projection.activeTurn &&
+    oldChrome.checkpointSeqs === stableCheckpointSeqs &&
+    oldChrome.rewindEnabled === rewindEnabled &&
+    oldChrome.cli === chatCli
+      ? oldChrome
+      : {
+          assistantName,
+          latestTurnId,
+          retryTurnId: lastFailedTurnId,
+          onRetry: retry,
+          retryDisabled: composerDisabled,
+          onSignIn,
+          platform: window.api.platform,
+          checkpointsEnabled: capabilities?.checkpoints === true,
+          conversationRunning: projection.activeTurn,
+          checkpointSeqs: stableCheckpointSeqs,
+          rewindEnabled,
+          onRestoreDraft: restoreDraft,
+          cli: chatCli,
+        }
+  chromeRef.current = chrome
+  // What rows read besides their own item: it changes with a turn starting or
+  // ending, a retry becoming possible, a jump's flash, never with a token.
+  // `chrome` is the previous object while nothing in it changed (above).
+  const rowContext = useMemo(
+    () => ({ chrome, flashRowId, hydrated, replayThroughSeq }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [chrome, flashRowId, hydrated, replayThroughSeq],
+  )
 
-  const completedReplies = projection.entries.filter(
-    (entry) => entry.kind === 'assistant' && entry.status === 'complete',
-  ).length
+  const completedReplies = shape.completedReplies
   if (atBottom && repliesSeenRef.current !== completedReplies) repliesSeenRef.current = completedReplies
   const newReplies = atBottom ? 0 : Math.max(0, completedReplies - repliesSeenRef.current)
+  // Install trailing space in the same render as the optimistic prompt, before
+  // the scroll effect runs. Otherwise a send from scrollback is clamped to the
+  // old scroll range and leaves the new prompt at the bottom.
+  const effectiveAnchorId = pendingUserScrollIdRef.current ?? anchoredUserId
+  const anchorUserIndex = effectiveAnchorId ? timelineRows.findIndex((row) => row.id === effectiveAnchorId) : -1
+  const rememberedRowIndex = scrollMemoryRef.current?.rowId
+    ? timelineRows.findIndex((row) => row.id === scrollMemoryRef.current?.rowId)
+    : -1
 
   // Orphan turn failure: lastError set but no transcript entry carries it (a
   // turn_failed with no turnId while nothing was streaming). Without this the
   // chat would look idle/successful with the only trace in Notifications.
-  const hasFailedTurnEntry = projection.entries.some((entry) => entry.kind === 'assistant' && entry.status === 'failed')
-  const composerError = actionError ?? (projection.lastError && !hasFailedTurnEntry ? projection.lastError : null)
+  const hasFailedTurnEntry = shape.lastFailedTurnId !== undefined
+  // Whether this chat's permission preset can be changed from its picker: the
+  // same gate the separate pill used to have. A preset the provider cannot run
+  // stays listed, dimmed, with the reason.
+  const permissionsEditable =
+    operate &&
+    (transport.capabilities.reportsPreset || session?.permissionPreset !== undefined) &&
+    Boolean(capabilities?.approvals || capabilities?.permissionPresets?.length)
+  const presetRefusals = chatPermissionRefusals({
+    cli: chatCli,
+    allowed: capabilities?.permissionPresets,
+    permissionModes: transport.capabilities.permissionModes,
+    machineName: transport.machineName,
+  })
+  // The CLI's modes under its own names. A mode of its own is offered where
+  // this chat's runtime maps it, and only a local chat says which it maps; a
+  // remote one is told presets, so it lists each preset's own mode.
+  const permissionOptions = usePermissionModeOptions(chatCli, 'chat', capabilities?.permissionModes ?? NO_MODES)
+  // A mode of the CLI's own at a preset this chat cannot run is dimmed with
+  // that preset's reason.
+  const permissionDisabledReasons = presetRefusals
+    ? {
+        ...presetRefusals,
+        ...Object.fromEntries(
+          permissionOptions
+            .filter((option) => option.mode && presetRefusals[option.value])
+            .map((option) => [option.id, presetRefusals[option.value]]),
+        ),
+      }
+    : undefined
+  // The looser modes a permission card offers to allow into: Auto and Bypass,
+  // under the CLI's names for them, where they would ask less than the chat
+  // does now and the chat can run them.
+  const approvalModeSwitches: ApprovalModeSwitch[] =
+    permissionsEditable && chatCli
+      ? (['auto', 'bypass'] as const)
+          .filter((preset) => isLooserCliPermissionPreset(preset, permissionPreset) && !presetRefusals?.[preset])
+          .map((preset) => ({
+            preset,
+            label: `Allow and switch to ${selectedPermissionOption(permissionOptions, preset)?.label ?? PRESET_CHIP_LABEL[preset]}`,
+          }))
+      : []
+  // Type dropped paths at the caret, spaced off the words around them. The
+  // field keeps its selection while the pointer is over the transcript, so a
+  // drop there lands where the user left off typing.
+  const insertComposerPaths = (paths: string[]) => {
+    const field = composerRef.current
+    const selectionStart = field?.selectionStart ?? draft.length
+    const selectionEnd = field?.selectionEnd ?? selectionStart
+    const before = draft.slice(0, selectionStart)
+    const lead = before.length > 0 && !/\s$/.test(before) ? ' ' : ''
+    replaceComposerSelection({ selectionStart, selectionEnd }, `${lead}${paths.map(quotePromptPath).join(' ')} `)
+  }
 
+  // A file dropped anywhere on the chat lands in the composer — over the
+  // transcript as much as on the composer. Aiming a drag at a field a few lines
+  // tall is a needless target, and a drop that missed it used to do nothing at
+  // all. The composer still lights up as the drop's destination. Any file takes:
+  // one from the OS or the studio's own panes is typed as its path, and an image
+  // attaches instead where the provider reads images.
+  const fileDropHandlers: React.HTMLAttributes<HTMLDivElement> = {
+    onDragEnter: (event) => {
+      if (composerInputDisabled || !dataTransferHasDroppableFiles(event.dataTransfer)) return
+      setDropActive(true)
+    },
+    onDragOver: (event) => {
+      // Claiming the drag is what stops the window from navigating to the
+      // dropped file, so it has to happen on every dragover.
+      if (composerInputDisabled || !dataTransferHasDroppableFiles(event.dataTransfer)) return
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'copy'
+    },
+    // Enter and leave fire for every child the pointer crosses, and a row the
+    // stream or the list's virtualization removes mid-drag never reports its
+    // leave. Counting them could stick the overlay over the composer; asking
+    // whether the pointer went somewhere outside the panel cannot.
+    onDragLeave: (event) => {
+      if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+      setDropActive(false)
+    },
+    onDrop: (event) => {
+      if (composerInputDisabled || !dataTransferHasDroppableFiles(event.dataTransfer)) return
+      // Also what keeps the field's own drop from typing a studio drag's paths
+      // a second time when it lands on the field itself.
+      event.preventDefault()
+      setDropActive(false)
+      const { paths, images, pathless } = sortDroppedFiles(event.dataTransfer, imagesEnabled)
+      if (paths.length > 0) insertComposerPaths(paths)
+      if (images.length > 0) void attachFiles(images)
+      else setActionError(pathless.length > 0 ? pathlessDropMessage(pathless) : null)
+      composerRef.current?.focus()
+    },
+  }
+
+  // A drag that ends anywhere — dropped elsewhere in the window, or cancelled —
+  // takes the drop affordance with it, whatever the panel's own events saw.
+  useEffect(() => {
+    if (!dropActive) return
+    const clear = () => setDropActive(false)
+    window.addEventListener('dragend', clear)
+    window.addEventListener('drop', clear)
+    return () => {
+      window.removeEventListener('dragend', clear)
+      window.removeEventListener('drop', clear)
+    }
+  }, [dropActive])
+
+  const orphanTurnError = projection.lastError && !hasFailedTurnEntry ? projection.lastError : null
+  const composerError = actionErrorMessage ?? persistenceError ?? historyError ?? orphanTurnError
+  // Retry only where there is something to send again: the send that failed,
+  // or a turn that failed without a transcript entry to carry its own Retry.
+  const composerRetry = actionError
+    ? failedSend
+      ? retryFailedSend
+      : null
+    : !persistenceError && !historyError && orphanTurnError
+      ? retry
+      : null
+  // An error set by this view's own action is cleared at its source; one that
+  // comes from elsewhere (the draft store, the history subscription, the
+  // projection) is hidden until it clears and a new one arrives.
+  const [dismissedError, setDismissedError] = useState<string | null>(null)
+  useEffect(() => {
+    if (!composerError) setDismissedError(null)
+  }, [composerError])
+  const dismissComposerError = () => {
+    if (actionError) setActionError(null)
+    else setDismissedError(composerError)
+  }
+  // The session's standing notices, dismissed by their words for as long as
+  // this view is open: the same notice again says nothing new.
+  const [dismissedNotices, setDismissedNotices] = useState<ReadonlySet<string>>(() => new Set())
+  const dismissNotice = (notice: string) => setDismissedNotices((current) => new Set(current).add(notice))
+  const billingNotice = apiKeyBillingNotice(projection.apiKeySource)
+  const requestPending = pendingApprovalEntries.length > 0
+
+  // The composer row's secondary controls, named once so the fold can move
+  // them into its popover without a second copy of each.
+  const composerAttachControl = imagesEnabled ? (
+    <Tooltip content="Attach an image" placement="top">
+      <IconButton aria-label="Attach an image" onClick={() => fileInputRef.current?.click()}>
+        <PaperclipGlyph className="icon-sm" />
+      </IconButton>
+    </Tooltip>
+  ) : null
+  const composerSkillsControl = supportsSkills ? (
+    <ComposerSkillsPicker workspaceRoot={workspaceRoot} skills={attachedSkills} onSkillsChange={setAttachedSkills} />
+  ) : null
+  const composerPermissionControl =
+    chatCli && permissionsEditable ? (
+      <PermissionFooter
+        options={permissionOptions}
+        preset={permissionPreset}
+        mode={permissionMode}
+        placement="top-start"
+        disabled={permissionChanging}
+        disabledReasons={permissionDisabledReasons}
+        onSelect={(next) => void changePermissionPreset(next.value, next.mode)}
+      />
+    ) : null
+  // Folding must not hide a standing warning: the chevron wears the warn tint
+  // the permissions chip would have.
+  const composerPermissionWarn = Boolean(
+    composerPermissionControl && (permissionPreset === 'bypass' || presetRefusals?.[permissionPreset]),
+  )
   return (
-    <ChatShell shellRef={shellRef}>
-      <CreationBackdrop surface="chat" visible={timelineRows.length === 0} />
-      {/* Loading is not a notice — it is the state the screen is in, so it reads
-          as the quiet line it is; anything else here is a degraded session. */}
-      {!ready && timelineRows.length > 0 ? (
-        readiness.kind === 'loading' ? (
-          <p className="mx-3 my-2 text-meta leading-5 text-[color:var(--text-muted)]">{readinessLabel(readiness)}</p>
-        ) : (
-          <InlineNotice tone="warn" className="mx-3 my-2">
-            {readinessLabel(readiness)}
-          </InlineNotice>
-        )
-      ) : null}
-      {/* Warn only about the CURRENT session: after a restart the replayed
-          transcript may carry a previous session's source, but no session is
-          live until the next send (which resets the source via
-          session_started). */}
-      {sessionId !== null && projection.apiKeySource !== null && projection.apiKeySource !== 'none' ? (
-        <InlineNotice tone="warn" className="mx-3 my-2">
-          This session is using an API key, not your subscription.
-        </InlineNotice>
-      ) : null}
+    <ConversationLinkProvider
+      workspaceId={workspaceId}
+      agentId={agentId}
+      cwd={workspaceRoot ?? ''}
+      workspaceRoot={workspaceRoot ?? ''}
+    >
+      <SubagentTypesProvider value={projection.agentTypes}>
+        <ChatShell shellRef={shellRef} dropHandlers={fileDropHandlers}>
+          {/* No title row above the transcript: the tab names the agent, as it
+            does a terminal agent, and a thread title here repeated the first
+            message over its own bubble. A remote pane brings its own header. */}
+          {binding.header ?? null}
 
-      <div
-        ref={listRef}
-        role="log"
-        aria-label={`${label} conversation`}
-        aria-live="polite"
-        onScroll={handleLogScroll}
-        className="flex-1 space-y-1 overflow-y-auto px-4 py-4"
-      >
-        {timelineRows.length === 0 ? (
-          !ready ? (
-            <ReadinessState
-              readiness={readiness}
-              canSwitchModel={!modelLocked}
-              onSwitchModel={() => setModelMenuOpen(true)}
-            />
-          ) : isAgentHarness ? (
-            <EmptyChatState
-              assistantName={assistantName}
-              onSuggestion={(text) => {
-                setDraft(text)
-                composerRef.current?.focus()
-              }}
-            />
-          ) : (
-            // Model providers are a plain chat — no tool contract to explain.
-            <div className="flex h-full items-center justify-center">
-              <p className="max-w-[280px] text-center text-meta leading-5 text-[color:var(--text-muted)]">
-                No messages yet. Send a prompt to start the conversation.
-              </p>
-            </div>
-          )
-        ) : (
-          timelineRows.map((row) => <TimelineRow key={row.id} row={row} chrome={chrome} />)
-        )}
-      </div>
-
-      <div className="relative px-4 pb-4 pt-1">
-        {!atBottom && timelineRows.length > 0 ? (
-          <OutlineButton
-            size="xs"
-            onClick={jumpToLatest}
-            className="absolute -top-10 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap"
+          <div
+            ref={transcriptRef}
+            role="log"
+            aria-label={`${label} conversation`}
+            aria-live="off"
+            aria-busy={!hydrated || loadingEarlier}
+            onClickCapture={preserveDisclosurePosition}
+            // A selection of the conversation copies as the markdown it was
+            // rendered from; anything else is the browser's to copy.
+            onCopy={(event) => copySelectionAsMarkdown(event.nativeEvent, event.currentTarget)}
+            className="relative min-h-0 flex-1"
           >
-            {newReplies > 0 ? `↓ ${newReplies} new ${newReplies === 1 ? 'reply' : 'replies'}` : '↓ Jump to latest'}
-          </OutlineButton>
-        ) : null}
-        <ConversationPendingDock
-          pendingApproval={pendingApprovalEntry}
-          workspaceName={workspace?.name}
-          onApprove={resolveApproval}
-          busy={respondingRequestId !== null}
-        />
-
-        {/*
-         * A turn failure renders as a structured error block in the transcript
-         * (with its own Retry), so here we only restate text for action errors
-         * that never reach the transcript (start/send/IPC) — plus the orphan
-         * case: a turn_failed that attached to no turn (no turnId while nothing
-         * was streaming) sets lastError without a failed transcript entry, and
-         * must still surface somewhere in the chat.
-         */}
-        {composerError ? (
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <TruncatedText
-              as="span"
-              text={composerError}
-              className="min-w-0 text-meta leading-5 text-[color:var(--tone-error)]"
-            />
-            <OutlineButton onClick={retry} disabled={composerDisabled} className="shrink-0">
-              Retry
-            </OutlineButton>
-          </div>
-        ) : null}
-
-        {/*
-         * A permission change the provider recorded but cannot apply to the turn
-         * already streaming (1808). Information, not a failure: the pill already
-         * shows the new preset, and this says when it starts applying.
-         */}
-        {permissionNotice ? (
-          <p role="status" className="mb-2 text-meta leading-5 text-[color:var(--text-muted)]">
-            {permissionNotice}
-          </p>
-        ) : null}
-
-        {/*
-         * Queued message (D6/1776): the user typed ahead and committed while the
-         * turn was busy. It auto-sends the moment the session unlocks; Cancel
-         * drops it before then. Kept truthful so a queued turn is never a
-         * silent, invisible pending action.
-         */}
-        {queuedTurn ? (
-          <div className="mb-2 flex items-center justify-between gap-3 rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2">
-            <div className="flex min-w-0 items-baseline gap-2">
-              <span className="shrink-0 text-meta font-medium leading-5 text-[color:var(--text-default)]">Queued</span>
-              <TruncatedText
-                as="span"
-                text={queuedTurnLabel(queuedTurn.text, queuedTurn.attachments.length)}
-                className="min-w-0 text-meta leading-5 text-[color:var(--text-muted)]"
-              />
-            </div>
-            <OutlineButton onClick={() => setQueuedTurn(null)} className="shrink-0">
-              Cancel
-            </OutlineButton>
-          </div>
-        ) : null}
-
-        {/*
-         * Composer: a single rounded field that holds the textarea and a footer
-         * control row (model chip + permission chip + send), so the input reads
-         * as one surface. The model lives here — picked before the first
-         * message, then locked. While an approval card is pending the disabled
-         * placeholder says why the composer is waiting.
-         */}
-        <div
-          className={`relative transition-colors ${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} ${
-            dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
-          }`}
-          onDragEnter={(event) => {
-            if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
-            dragDepthRef.current += 1
-            setDropActive(true)
-          }}
-          onDragOver={(event) => {
-            // Claiming the drag is what stops the window from navigating to the
-            // dropped file, so it has to happen on every dragover.
-            if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
-            event.preventDefault()
-          }}
-          onDragLeave={(event) => {
-            if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
-            dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
-            if (dragDepthRef.current === 0) setDropActive(false)
-          }}
-          onDrop={(event) => {
-            if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
-            event.preventDefault()
-            dragDepthRef.current = 0
-            setDropActive(false)
-            const files = imageFilesFromDataTransfer(event.dataTransfer)
-            if (files.length === 0) {
-              setActionError('Only PNG, JPEG, WebP, and GIF images can be attached.')
-              return
-            }
-            void attachFiles(files)
-          }}
-        >
-          {/* Gated on imagesEnabled too, so a provider/readiness change mid-drag
-              can never strand the overlay over a composer that stopped accepting
-              images. */}
-          {dropActive && imagesEnabled ? (
-            // Opaque, not a scrim: the field's own text ghosting through the
-            // drop state reads as a rendering artifact rather than a state.
-            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-[color:var(--bg-surface)] text-meta font-medium text-[color:var(--accent-primary)]">
-              Drop to attach
-            </div>
-          ) : null}
-          {skillTrigger ? (
-            <InlineSkillPicker
-              ref={skillPickerRef}
-              workspaceRoot={workspaceRoot}
-              query={skillTrigger.query}
-              onPick={applySkillPick}
-              onMatchCountChange={(count) => {
-                // Non-matching text dismisses; the trigger character stays literal.
-                if (count === 0 && skillTrigger.query.length > 0) setSkillTriggerDismissed(true)
-              }}
-              onDismiss={dismissSkillTrigger}
-            />
-          ) : null}
-          <ComposerAttachmentStrip attachments={attachments} reading={attachingCount} onRemove={removeAttachment} />
-          <label htmlFor={`chat-composer-${agentId}`} className="sr-only">
-            Message {label}
-          </label>
-          <Textarea
-            ref={composerRef}
-            variant="composer"
-            resize="none"
-            id={`chat-composer-${agentId}`}
-            value={draft}
-            onPaste={(event) => {
-              // A pasted screenshot only exists as a clipboard item; a text
-              // paste reports no image and falls through to the default.
-              if (!imagesEnabled) return
-              const files = imageFilesFromDataTransfer(event.clipboardData)
-              if (files.length === 0) return
-              event.preventDefault()
-              void attachFiles(files)
-            }}
-            onChange={(event) => {
-              const value = event.target.value
-              setDraft(value)
-              if (!chatSkillTrigger(value)) setSkillTriggerDismissed(false)
-            }}
-            onContextMenu={(event) => void openComposerMenu(event)}
-            onKeyDown={(event) => {
-              // While the skill picker is up, the textarea keeps focus and
-              // forwards navigation; Enter picks instead of sending.
-              if (skillTrigger) {
-                if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-                  if (skillPickerRef.current?.moveSelection(event.key === 'ArrowDown' ? 1 : -1)) {
-                    event.preventDefault()
-                    return
-                  }
-                } else if (event.key === 'Enter' && !event.shiftKey) {
-                  if (skillPickerRef.current?.pickActive()) {
-                    event.preventDefault()
-                    return
-                  }
-                } else if (event.key === 'Escape') {
-                  event.preventDefault()
-                  setSkillTriggerDismissed(true)
-                  return
-                }
-              }
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault()
-                submitComposer()
-              }
-            }}
-            placeholder={composerPlaceholder}
-            rows={1}
-            disabled={composerInputDisabled}
-            className={COMPOSER_CLASS}
-          />
-          <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-0.5">
-            <div className="flex min-w-0 items-center gap-1">
-              {imagesEnabled ? (
-                <>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept={ATTACHABLE_IMAGE_TYPES.join(',')}
-                    multiple
-                    className="hidden"
-                    onChange={(event) => {
-                      const files = Array.from(event.target.files ?? [])
-                      // Clearing lets the same file be picked twice in a row.
-                      event.target.value = ''
-                      void attachFiles(files)
-                    }}
-                  />
-                  <Tooltip content="Attach an image" placement="top">
-                    <IconButton aria-label="Attach an image" onClick={() => fileInputRef.current?.click()}>
-                      <PaperclipGlyph className="icon-sm" />
-                    </IconButton>
-                  </Tooltip>
-                </>
-              ) : null}
-              {isAgentHarness ? (
-                <SkillPickerPopover
-                  open={skillsMenuOpen}
-                  onOpenChange={setSkillsMenuOpen}
-                  workspaceRoot={workspaceRoot}
-                  onPick={applySkillPick}
-                  onManageSkills={() => openExtensionsSurface({ view: 'skills', installed: true })}
+            {timelineRows.length === 0 ? (
+              !ready ? (
+                <ReadinessState
+                  readiness={readiness}
+                  canSwitchModel={!modelLocked}
+                  onSwitchModel={() => setModelMenuOpen(true)}
                 />
-              ) : null}
-              <ModelPickerPill
-                label={currentModelLabel}
-                shortcutLabel={modelPickerShortcutLabel}
-                locked={modelLocked}
-                open={modelMenuOpen}
-                onOpenChange={setModelMenuOpen}
-                groups={modelGroups}
-                selectedProviderId={conversation.providerId}
-                selectedModelId={conversation.modelId}
-                onSelect={selectModel}
-                onBrowseProvider={fetchProviderCatalog}
-                onAddKey={() => {
-                  setModelMenuOpen(false)
-                  openSettingsOverlay({ initialTab: 'providers' })
+              ) : supportsTools ? (
+                <EmptyChatState
+                  assistantName={assistantName}
+                  onSuggestion={(text) => {
+                    setDraft(text)
+                    composerRef.current?.focus()
+                  }}
+                />
+              ) : (
+                // Model providers are a plain chat — no tool contract to explain.
+                <div className="flex h-full items-center justify-center">
+                  <p className="max-w-[280px] text-center text-meta leading-5 text-[color:var(--text-muted)]">
+                    No messages yet. Send a prompt to start the conversation.
+                  </p>
+                </div>
+              )
+            ) : (
+              <LegendList
+                ref={listRef}
+                data={timelineRows}
+                dataKey={conversationKey}
+                // A row on screen renders again only when its item or this
+                // changes, so everything a row reads besides its item rides
+                // here rather than only in the closure below.
+                extraData={rowContext}
+                renderItem={({ item }) => (
+                  <ConversationRowFrame
+                    key={item.id}
+                    id={item.id}
+                    live={
+                      hydrated &&
+                      (item.kind === 'user'
+                        ? item.entry.seq === undefined || item.entry.seq > replayThroughSeq
+                        : item.kind === 'assistant' && (item.entry.checkpointTurnSeq ?? 0) > replayThroughSeq)
+                    }
+                    seen={animatedRowIds.current}
+                    flash={flashRowId === item.id}
+                    onFlashEnd={clearFlash}
+                  >
+                    <TimelineRow key={item.id} row={item} chrome={chrome} />
+                  </ConversationRowFrame>
+                )}
+                keyExtractor={(row) => row.id}
+                getItemType={(row) => row.kind}
+                recycleItems
+                estimatedItemSize={120}
+                // A tab stop so the transcript scrolls from the keyboard, ringed
+                // the way every focusable scroll container in the kit is: inset
+                // (an outward ring is clipped at the pane's edge) and on keyboard
+                // focus only — a click into the transcript to select text is not
+                // a focus change worth drawing, and the UA outline it used to get
+                // was neither the kit's colour nor its shape.
+                // The gutter, not a narrower list, draws the chat width setting's
+                // column: the scroller stays pane-wide so its scrollbar does too.
+                className={`chat-column-gutter h-full overflow-y-auto py-4 focus:outline-none ${FOCUS_RING_INSET_CLASS}`}
+                tabIndex={0}
+                contentContainerClassName="space-y-1"
+                ListHeaderComponent={
+                  hasMore ? (
+                    <div className="flex justify-center pb-3">
+                      <OutlineButton
+                        size="xs"
+                        busy={loadingEarlier}
+                        disabled={loadingEarlier}
+                        onClick={() => {
+                          void loadEarlier().catch(() => undefined)
+                        }}
+                      >
+                        {loadingEarlier ? 'Loading earlier…' : 'Load earlier'}
+                      </OutlineButton>
+                    </div>
+                  ) : null
+                }
+                aria-live="off"
+                onScroll={handleLogScroll}
+                onFirstVisibleItemChanged={({ key }) => {
+                  firstVisibleRowRef.current = key
                 }}
+                initialScrollAtEnd={scrollMemoryRef.current?.atEnd ?? true}
+                initialScrollIndex={rememberedRowIndex >= 0 ? rememberedRowIndex : undefined}
+                maintainVisibleContentPosition={{ data: true, size: true }}
+                maintainScrollAtEnd={
+                  atBottom && !followPaused ? { animated: !prefersReducedMotion(), on: END_FOLLOW_TRIGGERS } : false
+                }
+                anchoredEndSpace={anchorUserIndex >= 0 ? { anchorIndex: anchorUserIndex, anchorOffset: 0 } : undefined}
               />
-              {contextLength ? <ContextMeter used={usedTokens} total={contextLength} /> : null}
-              {isAgentHarness ? (
-                <PermissionPresetPill
-                  cli={conversation.providerId}
-                  preset={permissionPreset}
-                  live={sessionId !== null}
-                  changing={permissionChanging}
-                  open={permissionMenuOpen}
-                  onOpenChange={setPermissionMenuOpen}
-                  onChange={(next) => {
-                    // Close on pick like every other picker here: a refusal
-                    // rolls the pill back and writes the reason to the composer
-                    // error line, which an open popover would sit on top of.
-                    setPermissionMenuOpen(false)
-                    void changePermissionPreset(next)
+            )}
+            {minimap}
+            <QuoteSelectionToolbar
+              rootRef={transcriptRef}
+              // A chat nobody can see has no selection to offer a quote for.
+              enabled={!composerInputDisabled && viewActive}
+              shortcut={quoteShortcutLabel}
+              onQuote={quoteIntoComposer}
+            />
+          </div>
+
+          <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+            {announcement}
+          </div>
+          <div className="chat-column-gutter relative pb-4 pt-1">
+            {!atBottom && timelineRows.length > 0 ? (
+              <OutlineButton
+                size="xs"
+                onClick={jumpToLatest}
+                className="absolute -top-10 left-1/2 z-[var(--z-float)] -translate-x-1/2 whitespace-nowrap"
+              >
+                <ChevronDownIcon className="icon-xs shrink-0" />
+                {newReplies > 0 ? `${newReplies} new ${newReplies === 1 ? 'reply' : 'replies'}` : 'Jump to latest'}
+              </OutlineButton>
+            ) : null}
+            {/*
+             * The composer tray: everything the chat has to say about the next
+             * message, one row each, most urgent against the composer — the
+             * state of the session, then the agent's checklist, the cache and
+             * the context window, what is queued, what the agent is waiting on,
+             * and last what failed. While the agent is blocked on a request, the
+             * checklist, the cache and the context window step aside for it;
+             * what the session can and cannot do, and what the person just
+             * changed, stay beside it.
+             */}
+            <ComposerTray>
+              {/* Loading is not a warning — it is the state the screen is in,
+                so it reads as the quiet line it is; anything else here is a
+                degraded session. */}
+              {!ready && timelineRows.length > 0 ? (
+                readiness.kind === 'loading' ? (
+                  <ComposerTrayRow glyph={<Spinner />}>{readinessLabel(readiness)}</ComposerTrayRow>
+                ) : (
+                  <ComposerTrayRow tone="warn">{readinessLabel(readiness)}</ComposerTrayRow>
+                )
+              ) : null}
+              {/* Warn only about the CURRENT session: after a restart the
+                replayed transcript may carry a previous session's source, but
+                no session is live until the next send (which resets the source
+                via session_started). Only a source that bills API usage warns:
+                a subscription login reports `none`. */}
+              {sessionId !== null && billingNotice !== null && !dismissedNotices.has(billingNotice) ? (
+                <ComposerTrayRow tone="warn" onDismiss={() => dismissNotice(billingNotice)}>
+                  {billingNotice}
+                </ComposerTrayRow>
+              ) : null}
+              {sessionId !== null &&
+              projection.sessionNotice !== null &&
+              !dismissedNotices.has(projection.sessionNotice) ? (
+                <ComposerTrayRow tone="warn" onDismiss={() => dismissNotice(projection.sessionNotice!)}>
+                  {projection.sessionNotice}
+                </ComposerTrayRow>
+              ) : null}
+              {/*
+               * A permission change the provider recorded but cannot apply to
+               * the turn already streaming (1808). Information, not a failure:
+               * the pill already shows the new preset, and this says when it
+               * starts applying.
+               */}
+              {permissionNotice ? (
+                <ComposerTrayRow tone="neutral" onDismiss={() => setPermissionNotice(null)}>
+                  <span className="text-[color:var(--text-muted)]">{permissionNotice}</span>
+                </ComposerTrayRow>
+              ) : null}
+              {requestPending ? null : (
+                <>
+                  <ConversationTodoStrip entries={shapeEntries} activeTurn={projection.activeTurn} />
+                  {/* The prompt cache about to go cold, or gone: what the next
+                    message puts at stake, and `/compact` — which Claude Code runs
+                    as its own command — to shrink it. Only a Claude chat reports
+                    a cache, and only a view that can send may offer to compact
+                    it. */}
+                  {operate && chatCli === 'claude-code' ? (
+                    <PromptCacheComposerNotice
+                      reading={projection.promptCache}
+                      busy={composerBusy}
+                      onCompact={() => void sendTurn('/compact')}
+                    />
+                  ) : null}
+                  {contextLength ? (
+                    <ContextWindowNotice
+                      used={usedTokens}
+                      total={contextLength}
+                      onCompact={
+                        operate && (chatCli === 'claude-code' || chatCli === 'codex')
+                          ? () => void sendTurn('/compact')
+                          : undefined
+                      }
+                      compactDisabled={composerDisabled}
+                    />
+                  ) : null}
+                </>
+              )}
+
+              {/*
+               * Queued message: the user typed ahead and committed while the turn
+               * was busy. It auto-sends the moment the session unlocks; Send now
+               * hands it to the running turn (or stops the turn, where the
+               * provider cannot take it mid-turn), and Edit takes it back into
+               * the composer. Kept truthful so a queued turn is never a silent,
+               * invisible pending action.
+               */}
+              {queuedTurn ? (
+                <QueuedTurnRow
+                  text={queuedTurn.text}
+                  attachments={queuedTurn.attachments}
+                  sendNow={operate ? queuedSendNow : { ...queuedSendNow, disabled: true }}
+                  shortcutLabel={sendNowShortcutLabel}
+                  onSendNow={() => sendQueuedNow(queuedTurn)}
+                  onEdit={() => {
+                    setDraft((current) => [queuedTurn.text, current].filter(Boolean).join('\n'))
+                    setDraftMetadata({
+                      skillIds: [...new Set([...queuedTurn.metadata.skillIds, ...draftMetadata.skillIds])],
+                      mentions: [...queuedTurn.metadata.mentions, ...draftMetadata.mentions],
+                    })
+                    setAttachments((current) =>
+                      [...queuedTurn.attachments, ...current].slice(0, MAX_ATTACHMENTS_PER_TURN),
+                    )
+                    setQueuedTurn(null)
+                    composerRef.current?.focus()
                   }}
                 />
               ) : null}
+
+              <ConversationPendingDock
+                pendingApprovals={pendingApprovalEntries}
+                workspaceRoot={workspaceRoot ?? undefined}
+                onApprove={resolveApproval}
+                modeSwitches={approvalModeSwitches}
+                onApproveAndSwitch={(requestId, preset) => void approveAndSwitchMode(requestId, preset)}
+                // Read-only: the pending requests are shown, not answerable.
+                busy={respondingRequestId !== null || !operate}
+              />
+
+              {/*
+               * A turn failure renders as a structured error block in the
+               * transcript (with its own Retry), so here we only restate text for
+               * action errors that never reach the transcript (start/send/IPC) —
+               * plus the orphan case: a turn_failed that attached to no turn (no
+               * turnId while nothing was streaming) sets lastError without a
+               * failed transcript entry, and must still surface somewhere in the
+               * chat.
+               */}
+              {composerError && composerError !== dismissedError ? (
+                <ComposerTrayRow
+                  tone="error"
+                  onDismiss={dismissComposerError}
+                  actions={
+                    composerRetry ? (
+                      <OutlineButton size="xs" onClick={composerRetry} disabled={composerDisabled}>
+                        Retry
+                      </OutlineButton>
+                    ) : null
+                  }
+                >
+                  {composerError}
+                </ComposerTrayRow>
+              ) : null}
+            </ComposerTray>
+
+            {/*
+             * Composer: a single rounded field that holds the textarea and a footer
+             * control row (model chip + permission chip + send), so the input reads
+             * as one surface. The model lives here — picked before the first
+             * message, then locked. While an approval card is pending the disabled
+             * placeholder says why the composer is waiting.
+             */}
+            <div
+              className={`relative transition-colors ${COMPOSER_SURFACE_CLASS} ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} ${
+                dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
+              }`}
+            >
+              {/* Gated on the field too, so a readiness change mid-drag can never
+              strand the overlay over a composer that stopped taking input. */}
+              {dropActive && !composerInputDisabled ? (
+                // Opaque, not a scrim: the field's own text ghosting through the
+                // drop state reads as a rendering artifact rather than a state.
+                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-[color:var(--bg-surface)] text-meta font-medium text-[color:var(--accent-primary)]">
+                  Drop to attach
+                </div>
+              ) : null}
+              {contextPicker.picker}
+              <ComposerAttachmentStrip attachments={attachments} reading={attachingCount} onRemove={removeAttachment} />
+              <ComposerContextChips
+                skills={supportsSkills ? attachedSkills : []}
+                mentions={draftMetadata.mentions}
+                onRemoveSkill={(id) => setAttachedSkills(attachedSkills.filter((skill) => skill.id !== id))}
+                onRemoveMention={(mention) =>
+                  setDraftMetadata((current) => ({
+                    ...current,
+                    mentions: current.mentions.filter((entry) => entry !== mention),
+                  }))
+                }
+                onOpenSkill={skillReader.openSkill}
+              />
+              <label htmlFor={`chat-composer-${agentId}`} className="sr-only">
+                Message {label}
+              </label>
+              <Textarea
+                ref={composerRef}
+                variant="composer"
+                resize="none"
+                {...contextPicker.comboboxProps}
+                id={`chat-composer-${agentId}`}
+                value={draft}
+                onBlur={flushDraft}
+                onPaste={(event) => {
+                  // A pasted screenshot only exists as a clipboard item; a text
+                  // paste reports no image and falls through to the default —
+                  // unless the text is only paths to images outside the
+                  // workspace, which attach instead.
+                  if (!imagesEnabled) return
+                  const files = imageFilesFromDataTransfer(event.clipboardData)
+                  if (files.length > 0) {
+                    event.preventDefault()
+                    void attachFiles(files)
+                    return
+                  }
+                  const text = event.clipboardData.getData('text/plain')
+                  const paths = pastedImagePaths(
+                    text,
+                    transport.capabilities.localFiles && workspaceRoot ? [workspaceRoot] : [],
+                  )
+                  if (!paths) return
+                  event.preventDefault()
+                  const field = event.currentTarget
+                  void attachPastedPaths(paths, text, field.selectionStart, field.selectionEnd)
+                }}
+                onChange={(event) => {
+                  detachRecall()
+                  const value = event.target.value
+                  setDraft(value)
+                  setComposerCaret(event.target.selectionStart)
+                }}
+                onSelect={(event) => setComposerCaret(event.currentTarget.selectionStart)}
+                onContextMenu={(event) => void openComposerMenu(event)}
+                onKeyDown={(event) => {
+                  if (event.nativeEvent.isComposing) return
+                  if (contextPicker.handleKeyDown(event)) return
+                  if (
+                    event.key === 'Backspace' &&
+                    event.currentTarget.selectionStart === 0 &&
+                    event.currentTarget.selectionEnd === 0
+                  ) {
+                    if (draftMetadata.mentions.length) {
+                      event.preventDefault()
+                      setDraftMetadata((current) => ({ ...current, mentions: current.mentions.slice(0, -1) }))
+                      return
+                    }
+                    if (supportsSkills && attachedSkills.length) {
+                      event.preventDefault()
+                      setAttachedSkills(attachedSkills.slice(0, -1))
+                      return
+                    }
+                    if (attachments.length) {
+                      event.preventDefault()
+                      setAttachments((current) => current.slice(0, -1))
+                      return
+                    }
+                  }
+                  if (handleRecallKeyDown(event)) return
+                  if (event.key === 'Escape' && stopsTurnOnEscape(event)) {
+                    event.preventDefault()
+                    void interrupt()
+                    return
+                  }
+                  if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey) {
+                    event.preventDefault()
+                    commitComposerNow()
+                    return
+                  }
+                  if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault()
+                    submitComposer()
+                  }
+                }}
+                placeholder={composerPlaceholder}
+                rows={1}
+                disabled={composerInputDisabled}
+                className={COMPOSER_CLASS}
+              />
+              {/* What the picked command takes after it, until the person types
+                past the pick. Under the field rather than as ghost text in it:
+                a textarea draws no inline decoration, and an overlay would
+                have to track its wrapping and scroll. */}
+              {commandHint && commandHint.draft === draft ? (
+                <p className="truncate px-3 pb-1 font-mono text-meta text-[color:var(--text-subtle)]">
+                  /{commandHint.command} {commandHint.hint}
+                </p>
+              ) : null}
+              {/* Tokens only, never money: a chat runs on the person's CLI
+                subscription, and the SDK's dollar figure is an API-price
+                estimate that reads as a bill. */}
+              {contextLength ? (
+                <div className="flex items-center justify-end gap-2 px-3 pb-1">
+                  <ContextMeter used={usedTokens} total={contextLength} />
+                </div>
+              ) : null}
+              <div ref={composerRowRef} className="flex items-center justify-between gap-2 px-2 pb-2 pt-0.5">
+                <div className="flex min-w-0 items-center gap-1">
+                  {/* Outside the fold: the picker it serves opens from a button
+                      that may live in the fold's popover, and the file arrives
+                      after that popover has gone. */}
+                  {imagesEnabled ? (
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept={ATTACHABLE_IMAGE_TYPES.join(',')}
+                      multiple
+                      className="hidden"
+                      onChange={(event) => {
+                        const files = Array.from(event.target.files ?? [])
+                        // Clearing lets the same file be picked twice in a row.
+                        event.target.value = ''
+                        void attachFiles(files)
+                      }}
+                    />
+                  ) : null}
+                  {/* A squashed chat keeps the model and send in the row and
+                      folds the rest behind one chevron (owner ruling
+                      2026-10-01), rather than wrapping or crushing every chip. */}
+                  {/* A squashed chat keeps the model and send in the row and
+                      folds the rest behind one chevron (owner ruling
+                      2026-10-01), rather than wrapping or crushing every chip.
+                      Unfolded, the row keeps its order: attach and skills,
+                      the model, then permissions beside it. */}
+                  {composerRowFolded ? (
+                    <FoldedControls folded ariaLabel="More composer options" warn={composerPermissionWarn}>
+                      {composerAttachControl}
+                      {composerSkillsControl}
+                      {composerPermissionControl}
+                    </FoldedControls>
+                  ) : (
+                    <>
+                      {composerAttachControl}
+                      {composerSkillsControl}
+                    </>
+                  )}
+                  {chatCli ? (
+                    <EnginePickerChip
+                      cli={chatCli}
+                      options={chatPickerOptions}
+                      model={chatModel}
+                      reasoning={reasoningEffort}
+                      open={modelMenuOpen}
+                      onOpenChange={setModelMenuOpen}
+                      placement="top-start"
+                      shortcutLabel={modelPickerShortcutLabel}
+                      onSelectCli={() => selectModel(conversation.providerId, CONVERSATION_DEFAULT_MODEL_ID)}
+                      onSelectModel={(_cli, next) =>
+                        selectModel(conversation.providerId, next ?? CONVERSATION_DEFAULT_MODEL_ID)
+                      }
+                      onSelectReasoning={(_cli, next) => changeReasoningEffort(next ?? undefined)}
+                      {...(modelLocked && modelSwitch
+                        ? { groupNote: { cli: chatCli, note: '· model is set once the chat starts' } }
+                        : {})}
+                      // A chat's permissions are its own chip beside this one
+                      // (owner request 2026-09-30), not a row inside the model
+                      // picker: they change far more often than the model, at
+                      // any point in the conversation.
+                      permissions={() => null}
+                    />
+                  ) : (
+                    // A provider that is not a CLI (an API-key provider) has no
+                    // picker of this kind; its model is shown, not chosen.
+                    <TruncatedText
+                      as="span"
+                      text={currentModelLabel}
+                      className="max-w-[180px] px-1.5 text-meta text-[color:var(--text-muted)]"
+                    />
+                  )}
+                  {composerRowFolded ? null : composerPermissionControl}
+                </div>
+                {projection.activeTurn && !operate ? null : projection.activeTurn ? (
+                  <ComposerActionButton
+                    tone="neutral"
+                    ariaLabel={pending === 'stopping' ? 'Stopping' : 'Stop responding'}
+                    onClick={() => void interrupt()}
+                    disabled={stopDisabledForPending(pending)}
+                  >
+                    <StopGlyph className="icon-sm shrink-0" />
+                  </ComposerActionButton>
+                ) : (
+                  <ComposerActionButton
+                    tone="accent"
+                    ariaLabel={sendAction.label}
+                    onClick={submitComposer}
+                    disabled={sendAction.disabled}
+                  >
+                    <SendArrowGlyph className="icon-sm shrink-0" />
+                  </ComposerActionButton>
+                )}
+              </div>
+              {/*
+               * Right-click menu (1793): Send plus the standard editing actions, so
+               * committing a turn is not limited to Enter and the button. Rendered
+               * only while open — it positions itself at the click point.
+               */}
+              {composerMenu ? (
+                <ComposerContextMenu
+                  menu={composerMenu}
+                  send={sendAction}
+                  editable={!composerInputDisabled}
+                  onSend={submitComposer}
+                  onCut={() => {
+                    const selected = draft.slice(composerMenu.selectionStart, composerMenu.selectionEnd)
+                    void writeClipboardText(selected).then((written) => {
+                      if (written) replaceComposerSelection(composerMenu, '')
+                      else setActionError('Could not cut to the clipboard.')
+                    })
+                  }}
+                  onCopy={() => {
+                    const selected = draft.slice(composerMenu.selectionStart, composerMenu.selectionEnd)
+                    void writeClipboardText(selected).then((written) => {
+                      if (!written) setActionError('Could not copy to the clipboard.')
+                    })
+                  }}
+                  onPaste={() => replaceComposerSelection(composerMenu, composerMenu.clipboardText)}
+                  onClose={() => setComposerMenu(null)}
+                />
+              ) : null}
             </div>
-            {projection.activeTurn ? (
-              <ComposerActionButton
-                tone="neutral"
-                ariaLabel={pending === 'stopping' ? 'Stopping' : 'Stop responding'}
-                onClick={() => void interrupt()}
-                disabled={stopDisabledForPending(pending)}
-              >
-                <StopGlyph className="icon-sm shrink-0" />
-              </ComposerActionButton>
-            ) : (
-              <ComposerActionButton
-                tone="accent"
-                ariaLabel={sendAction.label}
-                onClick={submitComposer}
-                disabled={sendAction.disabled}
-              >
-                <SendArrowGlyph className="icon-sm shrink-0" />
-              </ComposerActionButton>
-            )}
           </div>
-          {/*
-           * Right-click menu (1793): Send plus the standard editing actions, so
-           * committing a turn is not limited to Enter and the button. Rendered
-           * only while open — it positions itself at the click point.
-           */}
-          {composerMenu ? (
-            <ComposerContextMenu
-              menu={composerMenu}
-              send={sendAction}
-              editable={!composerInputDisabled}
-              onSend={submitComposer}
-              onCut={() => {
-                const selected = draft.slice(composerMenu.selectionStart, composerMenu.selectionEnd)
-                void writeClipboardText(selected).then((written) => {
-                  if (written) replaceComposerSelection(composerMenu, '')
-                  else setActionError('Could not cut to the clipboard.')
-                })
-              }}
-              onCopy={() => {
-                const selected = draft.slice(composerMenu.selectionStart, composerMenu.selectionEnd)
-                void writeClipboardText(selected).then((written) => {
-                  if (!written) setActionError('Could not copy to the clipboard.')
-                })
-              }}
-              onPaste={() => replaceComposerSelection(composerMenu, composerMenu.clipboardText)}
-              onClose={() => setComposerMenu(null)}
-            />
-          ) : null}
-        </div>
-      </div>
-    </ChatShell>
+        </ChatShell>
+      </SubagentTypesProvider>
+      {skillReader.reader}
+    </ConversationLinkProvider>
   )
 }
 
 // The chat panel is header-less by design: the tab already names the agent, and
-// model/session state live in the composer footer (shared layout). Repeating the name
-// or model in a header is the duplication we're avoiding.
+// Model/session controls live in the composer footer. A saved conversation's
+// editable title sits above the timeline so rename remains directly reachable.
 function ChatShell({
   shellRef,
+  dropHandlers,
   children,
 }: {
   shellRef?: React.RefObject<HTMLDivElement | null>
+  dropHandlers?: React.HTMLAttributes<HTMLDivElement>
   children: React.ReactNode
 }) {
   return (
     <div
       ref={shellRef}
+      {...dropHandlers}
+      // Scopes the chat contrast setting's inks (assets/index.css).
+      data-chat-pane=""
       className="relative isolate flex h-full flex-col bg-[color:var(--agent-surface)] text-meta text-[color:var(--text-default)]"
     >
       {children}
     </div>
   )
 }
+
+// Where the context window counts as nearly full: the meter's ring turns amber
+// and the composer tray says so in words.
+const CONTEXT_NEAR_FULL = 0.9
 
 // Compact context-window meter: a ring that fills as the conversation consumes
 // the model's context, plus "used / total" in tokens. Shown only when the
@@ -1504,7 +3067,7 @@ function ContextMeter({ used, total }: { used: number; total: number }) {
   const fraction = Math.max(0, Math.min(1, total > 0 ? used / total : 0))
   const radius = 6
   const circumference = 2 * Math.PI * radius
-  const nearFull = fraction >= 0.9
+  const nearFull = fraction >= CONTEXT_NEAR_FULL
   return (
     <Tooltip content={`Context used: ${used.toLocaleString()} / ${total.toLocaleString()} tokens`} placement="top">
       <span className="inline-flex items-center gap-1 rounded-sm px-1.5 py-1 text-micro tabular-nums text-[color:var(--text-muted)]">
@@ -1528,42 +3091,144 @@ function ContextMeter({ used, total }: { used: number; total: number }) {
   )
 }
 
+// The context window nearly full, as a row of the composer tray. Compacting is
+// offered where the chat's CLI runs `/compact`. "Not now" holds until the window
+// drops back under the mark — a compaction, or a new session — so a window
+// that fills again says so again.
+function ContextWindowNotice({
+  used,
+  total,
+  onCompact,
+  compactDisabled,
+}: {
+  used: number
+  total: number
+  onCompact?: () => void
+  compactDisabled: boolean
+}) {
+  const fraction = total > 0 ? used / total : 0
+  const nearFull = fraction >= CONTEXT_NEAR_FULL
+  const [dismissed, setDismissed] = useState(false)
+  useEffect(() => {
+    if (!nearFull) setDismissed(false)
+  }, [nearFull])
+  if (!nearFull || dismissed) return null
+  return (
+    <ComposerTrayRow
+      tone="warn"
+      actions={
+        <>
+          {onCompact ? (
+            <GhostButton size="xs" disabled={compactDisabled} onClick={onCompact}>
+              <CompactGlyph className="icon-xs" />
+              Compact
+            </GhostButton>
+          ) : null}
+          <GhostButton size="xs" onClick={() => setDismissed(true)}>
+            Not now
+          </GhostButton>
+        </>
+      }
+    >
+      Context {Math.min(100, Math.round(fraction * 100))}% full · {formatTokens(used)} of {formatTokens(total)} tokens
+    </ComposerTrayRow>
+  )
+}
+
 function formatTokens(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value % 1_000_000 === 0 ? 0 : 1)}M`
   if (value >= 1_000) return `${Math.round(value / 1_000)}k`
   return String(value)
 }
 
-// Picker groups: one per provider, merging each provider's own live catalog
-// (fetched when the user browses to it) over its manifest seed. Subscription
-// providers ('agent-harness') sort first and carry the subscription annotation
-// so metered API entries are never mistaken for the user's own plan. A
+// One provider's models as this view reads them for the current model's label
+// and context length.
+export type ModelGroup = {
+  providerId: string
+  providerLabel: string
+  // Native CLI credentials and app-managed API keys remain visibly distinct;
+  // neither native login nor a tool capability implies a subscription plan.
+  credentialSource?: 'native' | 'api-key' | 'none'
+  // Plain-language reason the provider cannot start sessions.
+  unavailable?: string
+  models: ConversationProviderModel[]
+  // Explicit empty state for a dynamic-catalog provider with no models to list:
+  // 'add-key' — no key configured; 'no-models' — key present but the live
+  // catalog came back empty.
+  emptyState?: 'add-key' | 'no-models'
+}
+
+// What the view reads off the transcript's shape, in one pass: the requests
+// waiting in the dock, the latest failed turn (the one Retry re-sends), the
+// turn left unfolded, the turns that can be reverted, the prompts recall steps
+// through, and whether anything has been said yet.
+function transcriptShape(entries: readonly TranscriptEntry[]) {
+  const pendingApprovals: Extract<TranscriptEntry, { kind: 'approval' }>[] = []
+  const promptHistory: string[] = []
+  const checkpointSeqs = new Set<number>()
+  let lastFailedTurnId: string | undefined
+  let completedReplies = 0
+  let hasUserMessage = false
+  let hasConversation = false
+  for (const entry of entries) {
+    if (entry.kind === 'approval' && entry.status === 'pending') pendingApprovals.push(entry)
+    if (entry.kind === 'user') {
+      hasUserMessage = true
+      hasConversation = true
+      if (entry.text) promptHistory.push(entry.text)
+    }
+    if (entry.kind !== 'assistant') continue
+    hasConversation = true
+    if (entry.status === 'failed') lastFailedTurnId = entry.turnId
+    if (entry.status === 'complete') completedReplies++
+    if (entry.checkpointAvailable && entry.checkpointTurnSeq !== undefined) checkpointSeqs.add(entry.checkpointTurnSeq)
+  }
+  return {
+    pendingApprovals,
+    promptHistory,
+    checkpointSeqs,
+    lastFailedTurnId,
+    completedReplies,
+    hasUserMessage,
+    hasConversation,
+    latestTurnId: latestReplyTurnId(entries),
+  }
+}
+
+// Model groups: one per provider, merging each provider's own live catalog
+// (fetched when the user browses to it) over its manifest seed. Native-login
+// providers sort first and identify their CLI-owned credentials, so app-managed
+// API keys are never mistaken for the user's existing native configuration. A
 // dynamic-catalog provider is never dropped for an empty seed: when its key is
 // missing it shows an explicit add-key state, and when the key is present but
-// the catalog is empty it says so — never a silent stale seed (1772/D5).
+// the catalog is empty it says so — never a silent stale seed.
 export function buildModelGroups(
   providers: ConversationProviderListEntry[],
   catalogByProvider: Record<string, ConversationProviderModel[]>,
   keyByProvider: Record<string, boolean>,
 ): ModelGroup[] {
   return [...providers]
-    .sort((a, b) => Number(b.providerType === 'agent-harness') - Number(a.providerType === 'agent-harness'))
+    .sort((a, b) => Number(b.credentialSource === 'native') - Number(a.credentialSource === 'native'))
     .map((entry): ModelGroup => {
-      const base = { providerId: entry.id, providerLabel: entry.displayName, unavailable: entry.unavailable }
+      const base = {
+        providerId: entry.id,
+        providerLabel: entry.displayName,
+        unavailable: entry.unavailable,
+        credentialSource: entry.credentialSource,
+      }
       const liveCatalog = catalogByProvider[entry.id]
       const hasLive = Array.isArray(liveCatalog) && liveCatalog.length > 0
-      // Subscription (agent-harness) providers need no key: live catalog if it
+      // Native providers need no app-managed key: live catalog if it
       // loaded, else the seed. Static model-providers list their full seed as-is
       // — it is the complete catalog, not a truncated one.
-      if (entry.providerType === 'agent-harness' || !entry.supportsDynamicModels) {
+      if (entry.credentialSource === 'native' || !entry.supportsDynamicModels) {
         return {
           ...base,
-          subscription: entry.providerType === 'agent-harness',
           models: hasLive ? liveCatalog : entry.models,
         }
       }
       // Dynamic model-providers (OpenRouter, xAI): key state gates the catalog.
-      const hasKey = keyByProvider[entry.id]
+      const hasKey = entry.credentialSource === 'none' ? true : keyByProvider[entry.id]
       if (hasKey === false) return { ...base, models: [], emptyState: 'add-key' }
       if (hasLive) return { ...base, models: liveCatalog }
       // Key present but catalog empty/unreachable: say so rather than seed.

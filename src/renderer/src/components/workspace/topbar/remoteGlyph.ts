@@ -2,7 +2,7 @@ import React from 'react'
 
 import type { TailnetPresence } from './useTailnetPresence'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
-import { fleetMachinePhase, machineIsAnswering } from '../../remote/machineRowModel'
+import { meshMachinePhase, machineIsAnswering } from '../../remote/machineRowModel'
 
 // The Remote glyph's own vocabulary — state, tooltip, ink, and the settings
 // opener the trigger needs. Split out of `RemotePopover.tsx` so the title bar's
@@ -17,18 +17,16 @@ import { fleetMachinePhase, machineIsAnswering } from '../../remote/machineRowMo
  * tone vocabulary is the app's (owner ruling 2026-09-05): the GLYPH ITSELF is
  * green while this Studio is serving or something is connected, amber while
  * something wants a person — a waiting pair request, or a machine that
- * stopped answering — and the default ink when remote is idle. A device
- * driving a terminal here is green like any other connection; it is reported
- * in the tooltip and the row, not by an alarm. The corner dot that used to
- * carry all this is gone: two indicators for one state, on a 16px glyph.
+ * stopped answering — and the default ink when remote is idle. The corner dot
+ * that used to carry all this is gone: two indicators for one state, on a
+ * 16px glyph.
  */
 export function remoteGlyphState(presence: TailnetPresence): {
   visible: boolean
-  driving: boolean
   /** The inbound listener is up: this Studio can be reached, so the glyph is green. */
   serving: boolean
   connected: boolean
-  /** An outbound link is reconnecting or has given up. Read by the tooltip; the glyph's ink no longer changes for it. */
+  /** A paired machine revoked this one. Read by the tooltip; the glyph's ink no longer changes for it. */
   degraded: boolean
   requestCount: number
   /** Paired machines answering right now — the count the glyph wears, the way the terminal glyph counts sessions. */
@@ -37,28 +35,21 @@ export function remoteGlyphState(presence: TailnetPresence): {
   listenerError: string | null
 } {
   const enabled = presence.status?.enabled === true
-  const driving = presence.live.devices.some((device) => device.attachedTerminalSessions.length > 0)
-  const connected =
-    presence.live.devices.length > 0 || [...presence.fleetLiveSessions.values()].some((sessions) => sessions.size > 0)
-  const degraded =
-    [...presence.fleetAttachments.values()].some(
-      (attachment) => attachment.state === 'reconnecting' || attachment.state === 'offline',
-    ) ||
-    // A machine that revoked us is degraded too: it will not fix itself, and
-    // the glyph is where a person would look before opening anything.
-    [...presence.fleetReachability.values()].some((entry) => entry.unauthorized)
+  const connected = presence.live.devices.length > 0
+  // A machine that revoked us will not fix itself, and the glyph is where a
+  // person would look before opening anything.
+  const degraded = [...presence.meshReachability.values()].some((entry) => entry.unauthorized)
   const serving = presence.status?.running === true
   const answering = serving
-    ? presence.fleet.filter((connection) =>
-        machineIsAnswering(fleetMachinePhase(connection.id, presence.fleetAttachments, presence.fleetReachability)),
+    ? presence.mesh.filter((connection) =>
+        machineIsAnswering(meshMachinePhase(connection.id, presence.meshReachability)),
       ).length
     : 0
   return {
     // Hidden entirely while the feature is off — absent, not present-but-empty
-    // (epic cross-cutting acceptance). A fleet-only user still gets it: paired
+    // (epic cross-cutting acceptance). A mesh-only user still gets it: paired
     // machines are remote presence even with the inbound listener off.
-    visible: enabled || presence.fleet.length > 0,
-    driving,
+    visible: enabled || presence.mesh.length > 0,
     serving,
     connected,
     degraded,
@@ -81,8 +72,7 @@ export function remoteGlyphTooltip(state: ReturnType<typeof remoteGlyphState>): 
       : 'Remote — not connected to Tailscale'
   }
   const machines = state.answering === 1 ? '1 machine answering' : `${state.answering} machines answering`
-  if (state.driving) return `Remote — live · ${machines} · a device is driving a terminal here`
-  if (state.degraded) return `Remote — live · ${machines} · a link is reconnecting`
+  if (state.degraded) return `Remote — live · ${machines} · a machine revoked this pairing`
   return `Remote — live · ${machines}`
 }
 

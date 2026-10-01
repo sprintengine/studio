@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { hostIdForFolder, isWslHostId, type ExecutionHostId } from '../../../../shared/execution-host'
+import { hostIdForFolder, isWslHostId, LOCAL_HOST_ID, type ExecutionHostId } from '../../../../shared/execution-host'
 import { nanoid } from 'nanoid'
 import { useShallow } from 'zustand/react/shallow'
 import { shouldAutoOpenNewChat, shouldShowFirstRunCliCard } from '../../store/onboardingState'
@@ -26,7 +26,6 @@ import { subscribeHostedCardFeedChanges } from '../../store/slices/hostedCardFee
 import { startCliModelDiscovery } from '../../store/cliModelDiscovery'
 import { subscribeCliVersionAdvisoryChanges } from '../../store/slices/cliVersionAdvisorySlice'
 import { discoveredModelAdditions, newModelsNotice, sourceUpdatesNotice } from '../../utils/feedNotifications'
-import type { ConversationCliRuntimeOverrides } from '../../../../shared/conversation-runtime'
 import { getRendererHost, onThirdPartyRendererModulesLoaded, selectModuleEnabled } from '../../modules'
 import { resolveNotificationActions as resolveNotificationActionsFor } from '../../utils/notificationActions'
 import {
@@ -38,9 +37,20 @@ import {
   reconcileTerminalSessions,
   subscribeLiveTerminalSessionSnapshots,
 } from '../../hooks/useTerminalSessions'
+import { useAgentEditorReveal } from '../../hooks/useAgentEditorReveal'
 import { useAppTheme } from '../../hooks/useAppTheme'
 import { useAgentWorktreeCleanup } from '../../hooks/useAgentWorktreeCleanup'
-import { useConversationSessions } from '../../hooks/useConversationSessions'
+import {
+  conversationSessionsStore,
+  groupConversationSessionsByWorkspace,
+  useConversationSessions,
+  type ConversationSessionEntry,
+} from '../../hooks/conversationSessionsStore'
+import { recencyEqual, stableRecord, stableSet, type RowRecency } from './stableRowSlices'
+import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
+import { meshConversationSessionId } from '../../../../shared/tailnet-mesh'
+import { nextNewChatName } from '../../../../shared/workspace-title'
+import { combinedAgentActivity, conversationFinishedAt, conversationLastInputAt } from './sidebar/conversationLines'
 import type {
   AgentCli,
   AgentExecution,
@@ -57,8 +67,8 @@ import {
   workspaceProjectRootOf,
   worktreeIdFromPath,
 } from '../../utils/workspaceWorktree'
-import { ensureSkillForAgent, renderChatSkillPrefill, skillsSpawnAgentPatch } from '../../utils/skillInvocation'
-import { resolveCliPermissionPreset } from '../ui'
+import { ensureSkillForAgent, skillsSpawnAgentPatch } from '../../utils/skillInvocation'
+import { cliPermissionModeLaunch, cliPermissionModePatch, resolveCliPermissionPreset } from '../ui'
 import { BACKLOG_SKILL_ID, backlogHandoffPrompt } from '../../utils/backlogHandoff'
 import { recordBacklogAgentHandoff } from '../../utils/backlogAgentHandoff'
 import { setBacklogHandoffHost, type BacklogHandoffRequest } from '../backlog/backlogHandoffHost'
@@ -67,6 +77,7 @@ import type { HostedCard } from '../../../../shared/hosted-card-feed'
 import type { CardLaunchChoice } from './globalSurface/extensions/home/CardGoPicker'
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
+import { undeliveredPromptEntry, undeliveredPromptNotice } from '../../utils/undeliveredPrompt'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { initBackgroundModeSync } from '../../utils/backgroundModeSync'
 import { initTelemetryConsentSync } from '../../utils/telemetryConsentSync'
@@ -90,26 +101,27 @@ import {
   type AgentComposerConnector,
   type AgentComposerSelection,
 } from './agentComposer/useAgentComposer'
-// Always-on observer of background automation run events (raises run
-// notifications). Automations is no longer a workspace type, so the shell mounts
-// its global supervisor directly, gated on the automations module + primary
-// window — the same role the workspace-type `supervisors` list used to play.
-import AutomationsRunSupervisor from '../automations/AutomationsRunSupervisor'
 import WorkspaceLayout from './WorkspaceLayout'
 import WorkspaceSidebar from './WorkspaceSidebar'
 import { AppRail, railSurfacesOf, type RailSurface } from './AppRail'
 import { useRailBadges } from './useRailBadges'
 import { EXTENSIONS_HOME_SURFACE_ID, surfaceTakesSidebarColumn } from './extensionsDrawer'
-import {
-  dispatchExtensionsSurfaceTarget,
-  EXTENSIONS_DRAWER_VIEWS,
-} from './globalSurface/extensions/extensionsSurfaceTarget'
+import { dispatchExtensionsSurfaceTarget } from './globalSurface/extensions/extensionsSurfaceTarget'
 import { resolveDefaultParentPath } from './newWorkspace/folderCreation'
 import SidebarAccountBar from './SidebarAccountBar'
 import type { SidebarSection } from '../../store/slices/settingsSlice'
 import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { revealAgentTerminalTab } from '../../utils/agentTabReveal'
-import { markLaunchedAgentProjected, retiredLaunchedAgents } from '../../utils/launchedAgentProjection'
+import { setWorkspaceChatOpener } from '../../modules/chat-opener'
+import { composerDraftStore } from '../panels/agentChat/draftStore'
+import { setBuildExtensionOpener } from '../extensions/buildExtensionHost'
+import { extensionBriefMarkdown } from '../../../../shared/extension-scaffold'
+import { createWorkspaceChatOpener } from './manager/workspaceChatOpener'
+import {
+  markLaunchedAgentProjected,
+  retiredLaunchedAgents,
+  unrevealedLaunchedAgents,
+} from '../../utils/launchedAgentProjection'
 import { WORKSPACE_LAYER_REVEAL_EVENT } from '../../utils/terminalFitScheduler'
 import { useWindowPageVisible, windowActivity } from '../../utils/windowActivity'
 import { startTerminalSessionRecovery } from '../../hooks/terminalSessionRecovery'
@@ -120,10 +132,13 @@ import {
 } from '../../utils/terminalFocusRequest'
 import { SidebarChrome } from './SidebarChrome'
 import { useStableCallback } from '../../hooks/useStableCallback'
-import { fleetTerminalTabName } from '../panels/fleet/fleetModel'
-import { remoteWorkspaceName, type RemoteSessionOpenSpec } from './remoteBand/remoteSessionsModel'
+import { remotePaneTabName, remoteWorkspaceName, type RemoteSessionOpenSpec } from './remoteBand/remoteSessionsModel'
 import { useSurfaceView } from './surfaceView'
-import type { RemoteNewChatLaunch } from './agentComposer/NewAgentPanel'
+import type { NewAgentPanelMode, RemoteNewChatLaunch } from './agentComposer/NewAgentPanel'
+import { useScheduledAgents } from '../../store/scheduledAgentsStore'
+import { formatRunTimes } from './agentComposer/schedule/scheduleEditor'
+import { scheduledAgentScheduleWords } from '../../../../shared/scheduled-agents'
+import { scheduledAgentRuns } from '../../utils/scheduledAgentRuns'
 import {
   clearNewChatDraft,
   newChatDraftHasContent,
@@ -160,9 +175,9 @@ import { WorkspaceIdentity } from './WorkspaceIdentity'
 import { WorkspaceActions, type SessionGroup, type SessionItem } from './WorkspaceActions'
 import {
   buildSidebarWorkspaceOrder,
+  conversationTitleOffers,
   getSessionItems,
   getWorkspaceActivity,
-  uniqueAgentName,
   type WorkspaceActivity,
 } from './workspaceManagerHelpers'
 import { residentAgentWorkspaceIds } from '../../utils/workspaceResidency'
@@ -175,10 +190,10 @@ import {
   type WorkspaceNavigationHistory,
 } from '../../utils/workspaceNavigationHistory'
 import {
-  buildConversationSpawnOptions,
   conversationAgentRuntimePatch,
-  resolveDefaultConversationOption,
-  type ConversationSpawnOption,
+  conversationLaunchDraftPatch,
+  conversationLaunchEnginePatch,
+  conversationNewChatSeed,
 } from './conversationSpawnOptions'
 import {
   computeRetainedWorkspaceLayoutIds,
@@ -188,7 +203,6 @@ import {
   WORKSPACE_LAYOUT_WARM_HIDDEN_LIMIT,
   type WorkspaceLayoutRetentionReason,
 } from './workspaceLayoutRetention'
-import type { ConversationProviderListResult } from '../../../../shared/electron-api'
 import { restoreDetachedWorkspaceWindowsOnStartup } from './workspaceWindowRestore'
 import { LAYOUT_TEMPLATES } from '../../layouts/templates'
 import { collectWorkspaceTypeSupervisors } from '../../modules/workspace-type-supervisors'
@@ -208,8 +222,11 @@ import { subscribePaletteOpenRequest, type PaletteAgentTarget } from '../palette
 import { isGlobalShortcutSuppressedTarget, isTerminalKeyTarget } from '../../utils/keyboard'
 import { controlTabContextItemOf, controlTabContextOf, cycleFocusedControlTabScope } from '../../utils/controlTab'
 import { useExtensionsDrawerRows } from './extensionsDrawerRows'
-import { showAppUpdateReadyToast } from './manager/appUpdateToast'
+import { createAppUpdateToastDriver, showAppUpdateOutcomeToast } from './manager/appUpdateToast'
 import { showCliUpdateToast } from './manager/cliUpdateToast'
+import { cardSurfaceRoute } from './manager/cardSurfaceRoute'
+import { subscribeAppUpdateState } from '../../store/appUpdateStore'
+import { useSettingsUpdateBadges } from '../settings/useSettingsUpdateBadges'
 import { selectWorkspaceManagerWorkspaces } from './manager/workspaceSelector'
 import { hasTerminalInstance } from '../../utils/diagnostics/terminalInstanceRegistry'
 import { clearPaneAttachedHidden, paneAttachedHidden } from '../../utils/terminalPaneVisibility'
@@ -290,7 +307,7 @@ const WorkspacePaneColumn = React.lazy(() =>
   import('./pane/WorkspacePaneColumn').then((m) => ({ default: m.WorkspacePaneColumn })),
 )
 // The toast region and its app-level producers (pair requests, the tailnet
-// listener notice, fleet loss/revocation). Nothing it draws exists at first
+// listener notice, mesh loss/revocation). Nothing it draws exists at first
 // paint — the region is empty until something raises a toast, and its producers
 // are subscriptions to events that arrive after boot — so it is fetched with
 // the rest of the deferred shell rather than carried through it.
@@ -298,7 +315,7 @@ const ToastHost = React.lazy(() => import('./ToastHost').then((m) => ({ default:
 const DiagnosticsOverlay = React.lazy(() => import('../diagnostics/DiagnosticsOverlay'))
 // First-run only: the CLI onboarding card (and the CliInstallControl subtree it
 // shares with the lazy Settings panel) mounts on machines with no CLI installed,
-// so it stays out of the eager boot chunk (bundle-budget ratchet).
+// so the machines that never show it never evaluate it at boot.
 const FirstRunCliCard = React.lazy(() => import('../onboarding/FirstRunCliCard'))
 
 // Display name for a New Chat project scope: the folder's last path segment.
@@ -313,6 +330,7 @@ function newChatFolderLabel(path: string): string {
 const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
 
 const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
+const NO_CONVERSATION_SESSIONS: readonly ConversationSessionEntry[] = []
 const SOLO_CHAT_TEMPLATE = LAYOUT_TEMPLATES.find((template) => template.id === 'solo') ?? null
 const MENU_ACCELERATOR_COMMAND_IDS = [
   'app.settings.open',
@@ -328,14 +346,14 @@ export default function WorkspaceManager() {
   const dialog = useConfirmDialog()
   const workspaceWindowId = useMemo(() => getWorkspaceWindowIdFromLocation(), [])
   // Dock-back from the external editor window: the window owning that workspace's
-  // FlexLayout model reopens the file as a tab and flips the sticky preference
-  // back to tabs; windows that do not own the workspace no-op.
+  // FlexLayout model reopens the file as a tab; windows that do not own the
+  // workspace no-op. It moves that one file and does NOT change where files
+  // open next — that is a Settings choice, and a preference that flipped on
+  // one dock is how profiles ended up on in-app without anyone choosing it.
   useEffect(() => {
     if (typeof window.api.onDockFileToWorkspace !== 'function') return
     return window.api.onDockFileToWorkspace(({ workspaceId, path, name }) => {
-      if (focusOrAddFileTab(workspaceId, path, name)) {
-        useWorkspaceStore.getState().setOpenFilesInExternalWindow(false)
-      }
+      focusOrAddFileTab(workspaceId, path, name)
     })
   }, [])
   // The same hand-off for a diff (git-commit-window T3): the diff window's
@@ -389,7 +407,6 @@ export default function WorkspaceManager() {
     (moduleId: string) => selectModuleEnabled(moduleEnablement, moduleId),
     [moduleEnablement],
   )
-  const automationsEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'automations'))
   const firstRunCliCardDismissed = useWorkspaceStore((s) => s.appSettings.firstRunCliCardDismissed)
   const dismissFirstRunCliCard = useWorkspaceStore((s) => s.dismissFirstRunCliCard)
   const hasAdoptedAgentConfig = useWorkspaceStore((s) => s.appSettings.hasAdoptedAgentConfig)
@@ -446,8 +463,6 @@ export default function WorkspaceManager() {
   const setAuthState = useWorkspaceStore((s) => s.setAuthState)
   const lastSelectedCli = useWorkspaceStore((s) => normalizeSelectedCli(s.appSettings.lastSelectedCli))
   const setLastSelectedCli = useWorkspaceStore((s) => s.setLastSelectedCli)
-  const rememberedConversationModel = useWorkspaceStore((s) => s.appSettings.lastSelectedConversationModel)
-  const setLastSelectedConversationModel = useWorkspaceStore((s) => s.setLastSelectedConversationModel)
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const cliModelCatalog = useWorkspaceStore((s) => s.appSettings.cliModelCatalog)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
@@ -531,6 +546,9 @@ export default function WorkspaceManager() {
         currentWorkspaceWindow.activeWorkspaceId
       : (railWorkspaces[0]?.id ?? null)
   const activeWorkspace = visibleWorkspaces.find((workspace) => workspace.id === windowActiveWorkspaceId) ?? null
+  // An agent's editor.open / open_diff: this window opens it when the
+  // workspace is the one it shows, and claims what waited for it otherwise.
+  useAgentEditorReveal(windowActiveWorkspaceId)
   // Whether the workspace pane column stands at the window's right edge. On
   // win/linux the floating caption buttons sit over whichever top strip owns
   // that corner, and that strip leaves them room (WindowCaptionReserve): the
@@ -558,7 +576,14 @@ export default function WorkspaceManager() {
     folderPath: string | null
     folderLabel: string | null
     connector: AgentComposerConnector | null
+    forcedSelection: AgentComposerSelection | null
+    // Opened on the clock beside New chat: the panel starts switched to
+    // Scheduled agent. Absent opens on Chat.
+    mode?: NewAgentPanelMode
+    // Opened on a scheduled agent's card: the panel edits that one.
+    editingScheduledAgentId?: string | null
   } | null>(null)
+  const scheduledAgents = useScheduledAgents()
   const newChatPanelOpen = newChatPanelState !== null
   // Guards the async adoption against a second workspace creation landing before
   // the persisted `hasAdoptedAgentConfig` flag has been written.
@@ -575,23 +600,12 @@ export default function WorkspaceManager() {
   // sets it; every other way of opening the palette clears it.
   const [paletteTarget, setPaletteTarget] = useState<PaletteAgentTarget | null>(null)
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
-  // Installed conversation providers, loaded lazily when a spawn surface opens.
-  // Kept separate from `agentCliCatalog`: this is the provider/model catalog for
-  // the conversation runtime, not the terminal CLI plugin catalog. `null` means
-  // "not loaded yet"; an `ok: false` result drives the unavailable row.
-  const [conversationProviderResult, setConversationProviderResult] = useState<ConversationProviderListResult | null>(
-    null,
-  )
   // The app-wide default preset, straight from settings. It used to be mirrored
   // into local state so a spawn surface could edit it; a preset is remembered
   // per CLI now (ui/cliPermissionPresets), so nothing on a spawn surface writes
   // this any more — it is the fallback a CLI nobody has set resolves to, and
   // Settings is where it is changed.
   const agentSpawnPermissionPreset = lastAgentSpawnPermissionPreset
-  // Debug Mode is intentionally transient and never persisted (unlike the
-  // permission preset): it defaults off and resets off after each spawn, so a
-  // debug agent never silently leaves the next unrelated spawn in debug.
-  const [agentSpawnDebugMode, setAgentSpawnDebugMode] = useState(false)
   const [sessionsOpen, setSessionsOpen] = useState(false)
   const [viewMenuOpen, setViewMenuOpen] = useState(false)
   const [viewMenuTick, setViewMenuTick] = useState(0)
@@ -618,6 +632,9 @@ export default function WorkspaceManager() {
   // action is idempotent, but calling it on every broadcast would run an immer
   // `set` per snapshot and churn subscribers for nothing.
   const titledPromptAtRef = useRef<Map<string, number>>(new Map())
+  // The same, for chat agents: the last user text each conversation session
+  // offered. Their summaries carry the text but no per-prompt timestamp.
+  const titledConversationTextRef = useRef<Map<string, string>>(new Map())
   const reconciledLaunchFlagsRef = useRef(false)
   const workspaceLayoutLastFocusedAtRef = useRef<Record<string, number>>({})
   const workspaceLayoutRetentionReasonsRef = useRef<Record<string, WorkspaceLayoutRetentionReason>>({})
@@ -703,8 +720,6 @@ export default function WorkspaceManager() {
     // The Canvas tab is a pane tab the canvas module gates; with it off the
     // pane renders the unavailable surface, so the toggle is not offered.
     if (selectModuleEnabled(moduleEnablement, 'canvas')) context.canvasEnabled = true
-    // The global Automations screen needs the automations module (its store/IPC).
-    if (selectModuleEnabled(moduleEnablement, 'automations')) context.automationsEnabled = true
     // The Git panel mounts only while its pane tab is the one showing (the
     // pane unmounts a hidden Git tab) and the git module is on — a disabled
     // module renders the unavailable surface, whose handlers cannot act.
@@ -725,30 +740,16 @@ export default function WorkspaceManager() {
     }
     return context
   }, [workspaceActionsEnabled, moduleEnablement, activeCommandScopes, windowActiveWorkspaceId, terminalSessions])
-  // Names the bucket a session with no workspace row is listed under. A module
-  // that spawns agents outside a window's knowledge (the review guide runs as an
-  // agent terminal in its project workspace) claims its own agent-id prefix and
-  // supplies the label — core asks the registry rather than importing any
-  // module's own id predicate.
-  const resolveDetachedSessionLabel = useCallback(
-    (workspaceId: string): string | null => {
-      for (const summary of [...terminalSessions, ...conversationSessions]) {
-        if (summary.workspaceId !== workspaceId) continue
-        const owner = getRendererHost().getAgentIdNamespace(summary.agentId ?? '', moduleEnabled)
-        if (owner) return owner.label
-      }
-      return null
-    },
-    [terminalSessions, conversationSessions, moduleEnabled],
-  )
   // Resolution runs against EVERY workspace, not just this window's, so a session
   // hosted in another window resolves to its real workspace and is filtered out
   // below — only a session no workspace anywhere claims becomes detached. Detached
   // rows belong to no window, so every window lists them: they are stoppable from
   // wherever the user notices them.
-  const sessions = getSessionItems(useWorkspaceStore.getState().workspaces, terminalSessions, conversationSessions, {
-    resolveDetachedLabel: resolveDetachedSessionLabel,
-  }).filter((item) => item.group.kind === 'detached' || visibleWorkspaceIdSet.has(item.group.id))
+  const sessions = getSessionItems(
+    useWorkspaceStore.getState().workspaces,
+    terminalSessions,
+    conversationSessions,
+  ).filter((item) => item.group.kind === 'detached' || visibleWorkspaceIdSet.has(item.group.id))
   const sidebarWorkspaceOrder = useMemo(() => buildSidebarWorkspaceOrder(railWorkspaces), [railWorkspaces])
   // The bell badge is an error counter: only unread errors increment it (and
   // drive the red just-changed pulse), so a flood of info/warning notifications
@@ -917,8 +918,8 @@ export default function WorkspaceManager() {
   //
   // Extensions is the one section with a page of its own: choosing it also
   // opens the Extensions home in the card region (owner, 2026-09-05), while the
-  // column beside it becomes the drawer — Design, Plugins, Skills,
-  // Agent CLIs. Choosing it again from somewhere else reopens the home — the
+  // column beside it becomes the drawer — Design, Plugins, Skills. Choosing
+  // it again from somewhere else reopens the home — the
   // glyph's promise is the page.
   //
   // Leaving the open door FIRST and opening the home second, rather than
@@ -1036,16 +1037,10 @@ export default function WorkspaceManager() {
   }, [activeGlobalSurfaceEntry, surfaceRegionEl, leaveGlobalSurface])
 
   const pickNewChatName = useCallback(
-    (folderPath: string | null): string => {
-      const folderWorkspaces = workspaces.filter((workspace) => workspace.folderPath === folderPath)
-      const existingNames = new Set(folderWorkspaces.map((workspace) => workspace.name.trim().toLowerCase()))
-      if (!existingNames.has('chat')) return 'Chat'
-      for (let index = 2; index < 1000; index += 1) {
-        const name = `Chat ${index}`
-        if (!existingNames.has(name.toLowerCase())) return name
-      }
-      return `Chat ${Date.now()}`
-    },
+    (folderPath: string | null): string =>
+      nextNewChatName(
+        workspaces.filter((workspace) => workspace.folderPath === folderPath).map((workspace) => workspace.name),
+      ),
     [workspaces],
   )
 
@@ -1080,68 +1075,7 @@ export default function WorkspaceManager() {
 
   // Conversation spawn is offered only in standard workspaces; a module-owned
   // agents stay terminal/MCP-owned (AgentPanel enforces this too).
-  const conversationSpawnEnabled = activeWorkspace?.mode === 'standard'
-  // Every surface that can spawn a conversation agent asks for the catalog by
-  // bumping this counter: the launch surface and the launcher's
-  // picker both offer the row. It used to be keyed on the top bar's spawn
-  // menu alone, which no longer exists, and while it was, the row
-  // could never appear elsewhere — the catalog stayed empty, so the option
-  // silently did not exist.
-  const [conversationCatalogRequests, setConversationCatalogRequests] = useState(0)
-  const requestConversationCatalog = useCallback(() => {
-    setConversationCatalogRequests((count) => count + 1)
-  }, [])
-
-  // Load the conversation provider catalog when a surface that offers one opens
-  // in a standard workspace. Defensive: if the IPC is absent the feature is
-  // simply unavailable and no rows render. We refetch on each open so a provider
-  // just configured in Settings shows up without a restart.
-  React.useEffect(() => {
-    if (conversationCatalogRequests === 0 || !conversationSpawnEnabled) return
-    if (typeof window.api.conversationProvidersList !== 'function') {
-      setConversationProviderResult(null)
-      return
-    }
-    let cancelled = false
-    void window.api
-      .conversationProvidersList({ cliRuntimes: cliRuntimes as ConversationCliRuntimeOverrides })
-      .then((result) => {
-        if (!cancelled) setConversationProviderResult(result)
-      })
-      .catch(() => {
-        if (!cancelled) setConversationProviderResult(null)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [conversationCatalogRequests, conversationSpawnEnabled, cliRuntimes])
-  const conversationSpawnOptions = useMemo<ConversationSpawnOption[]>(
-    () => buildConversationSpawnOptions(conversationProviderResult),
-    [conversationProviderResult],
-  )
-  // Providers with a live catalog accept any model id, so a remembered live-only
-  // model is still a valid spawn default for them.
-  const conversationDynamicProviderIds = useMemo(() => {
-    const ids = new Set<string>()
-    if (conversationProviderResult?.ok) {
-      for (const provider of conversationProviderResult.providers) {
-        if (provider.supportsDynamicModels) ids.add(provider.id)
-      }
-    }
-    return ids
-  }, [conversationProviderResult])
-  // Single spawn entry: the model is picked in the chat composer, so the menu
-  // only needs the default pair to open with (remembered → first available).
-  const conversationDefaultOption = useMemo(
-    () =>
-      resolveDefaultConversationOption(
-        conversationSpawnOptions,
-        rememberedConversationModel,
-        conversationDynamicProviderIds,
-      ),
-    [conversationSpawnOptions, rememberedConversationModel, conversationDynamicProviderIds],
-  )
-  const conversationSpawnAvailable = conversationSpawnEnabled && conversationDefaultOption !== null
+  const conversationSpawnEnabled = !activeWorkspace || activeWorkspace.mode === 'standard'
   // Bring over an existing Claude Code / Codex setup, silently, at the first
   // workspace creation. This used to be a question on the wizard's essentials
   // step — "we found N, adopt them?" — whose answer was replayed here. There is
@@ -1330,6 +1264,10 @@ export default function WorkspaceManager() {
       // The effort of that same row. Same contract as the model: present on the
       // confirm, `null` for the CLI's own default.
       selectedReasoning?: string | null,
+      // A bundled skill the startup prompt already invokes (the Backlog
+      // handoff's `/backlog <item>`): the launch carries it, and nothing is
+      // parked at the prompt the way an attached skill's invocation is.
+      promptSkillId?: string,
     ): { workspaceId: WorkspaceId; agentId: AgentId } | null => {
       const chosenCli = cli && cli.trim() ? cli.trim() : null
       // A plain New chat rides the app's remembered CLI unless the caller named
@@ -1346,7 +1284,7 @@ export default function WorkspaceManager() {
       }
       // Ride the remembered model when it belongs to the spawning CLI. Seeded via
       // an agentPatch (no tabName, so the layout is untouched). The patch always
-      // carries the composer's permission preset and debug mode.
+      // carries the composer's permission preset.
       const cliModel =
         selectedModel !== undefined
           ? (selectedModel ?? undefined)
@@ -1364,12 +1302,13 @@ export default function WorkspaceManager() {
             ...(cliModel ? { cliModel } : {}),
             ...(cliReasoning ? { cliReasoning } : {}),
             cliPermissionPreset: resolveCliPermissionPreset(templateAgentCli, agentSpawnPermissionPreset),
-            debugMode: agentSpawnDebugMode,
+            ...cliPermissionModePatch(templateAgentCli),
             ...(startupPrompt ? { cliStartupPrompt: startupPrompt } : {}),
             ...skillsSpawnAgentPatch(
               skills ?? [],
               pluginCatalogEntries.find((entry) => entry.id === templateAgentCli)?.skillIntegration,
             ),
+            ...(promptSkillId ? { spawnSkillId: promptSkillId } : {}),
           },
         },
       })
@@ -1377,7 +1316,6 @@ export default function WorkspaceManager() {
       // app's own agent, so the CLI it was started on is the answer every surface
       // without a remembered CLI of its own falls back to.
       if (chosenCli) setLastSelectedCli(chosenCli)
-      if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
       // The solo template carries exactly one agent tab, and the seed patch above
       // was merged onto it at creation, so the lone agent record IS this chat's
       // agent. Read back rather than guessed: the id is the template's, not one
@@ -1389,7 +1327,6 @@ export default function WorkspaceManager() {
     },
     [
       agentCliCatalog,
-      agentSpawnDebugMode,
       agentSpawnPermissionPreset,
       createSoloChatWorkspace,
       openSettingsOverlay,
@@ -1445,6 +1382,41 @@ export default function WorkspaceManager() {
         extensionsRow: 'plugins',
       })
     })
+  }, [])
+
+  // A first message main could not type into its agent CLI (the CLI exited
+  // first, or never showed its message box): say so, and keep the message in
+  // the bell where Copy message gives it back. The toast is button-free; the
+  // row is where the message lives.
+  useEffect(() => {
+    const api = window.api
+    if (typeof api?.onTerminalPromptUndelivered !== 'function') return
+    if (typeof api.terminalTakeUndeliveredPrompts !== 'function') return
+    const take = (): void => {
+      void api
+        .terminalTakeUndeliveredPrompts()
+        .then((events) => {
+          const store = useWorkspaceStore.getState()
+          for (const event of events) {
+            const notice = undeliveredPromptNotice(
+              event,
+              (cli) => store.pluginCatalogEntries.find((entry) => entry.id === cli)?.displayName ?? cli,
+            )
+            const workspaceName = event.workspaceId
+              ? store.workspaces.find((workspace) => workspace.id === event.workspaceId)?.name
+              : undefined
+            useNotificationStore.getState().addNotification({
+              ...undeliveredPromptEntry(event, notice),
+              ...(workspaceName ? { workspaceName } : {}),
+            })
+            showToast({ tone: 'warn', title: notice.title, description: notice.toastDescription })
+          }
+        })
+        .catch(() => {})
+    }
+    // Anything that went undelivered while no window was open.
+    take()
+    return api.onTerminalPromptUndelivered(take)
   }, [])
 
   // Model discovery: main pushes a CLI's catalog whenever a probe answers (the
@@ -1503,17 +1475,39 @@ export default function WorkspaceManager() {
     })
   }, [])
 
-  // The app update, once main has downloaded it in the background: one toast
-  // asking to restart into it, and one bell row. Later leaves it to
-  // autoInstallOnAppQuit.
+  // The app update state, held once for the window: the Settings badges and
+  // the General tab's version row read it from here.
+  useEffect(() => subscribeAppUpdateState(), [])
+  // The updates waiting in Settings, worn on the rail's gear.
+  const settingsUpdateBadges = useSettingsUpdateBadges()
+
+  // The app update: one toast that follows it through its steps (offered,
+  // downloading, ready, installing) and a bell row at each question, plus, at
+  // the first start after an update, how it went.
   useEffect(() => {
     const api = typeof window === 'undefined' ? null : window.api
     if (!api || typeof api.onUpdateStateChanged !== 'function') return
-    let last: string | null = null
-    return api.onUpdateStateChanged((state) => {
-      if (state.status === 'downloaded' && last !== 'downloaded') showAppUpdateReadyToast(state)
-      last = state.status
-    })
+    const drive = createAppUpdateToastDriver()
+    const unsubscribe = api.onUpdateStateChanged(drive)
+    let cancelled = false
+    if (typeof api.updateGetState === 'function') {
+      void api
+        .updateGetState()
+        .then((state) => {
+          if (cancelled) return
+          // The boot check often answers before this window subscribes; what it
+          // found is shown from here rather than waiting for the next check.
+          drive(state)
+          if (!state.installOutcome) return
+          showAppUpdateOutcomeToast(state.installOutcome)
+          void api.updateDismissInstallOutcome?.().catch(() => undefined)
+        })
+        .catch(() => undefined)
+    }
+    return () => {
+      cancelled = true
+      unsubscribe()
+    }
   }, [])
 
   // CLI version advisories: the Settings switch is mirrored into main (which
@@ -1524,10 +1518,8 @@ export default function WorkspaceManager() {
     const api = typeof window === 'undefined' ? null : window.api
     if (api && typeof api.cliVersionChecksSetEnabled === 'function')
       void api.cliVersionChecksSetEnabled(checkCliVersions)
-    if (checkCliVersions) {
-      const store = useWorkspaceStore.getState()
-      void store.refreshCliVersionAdvisories({ cliRuntimes: store.appSettings.cliRuntimes })
-    }
+    // The read compares what startup detection found; it probes nothing.
+    if (checkCliVersions) void useWorkspaceStore.getState().refreshCliVersionAdvisories()
   }, [checkCliVersions])
   useEffect(
     () =>
@@ -1980,20 +1972,28 @@ export default function WorkspaceManager() {
       //
       // The store is idempotent (an agent it already holds is untouched), so the
       // only per-tick work is revealing the tabs it just created.
-      for (const projected of projectLaunchedAgentSessions(sessions)) {
-        markLaunchedAgentProjected(projected.workspaceId, projected.agentId)
-        const host = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === projected.workspaceId)
+      const revealLaunched = (target: { workspaceId: string; agentId: string; name: string }) => {
+        markLaunchedAgentProjected(target.workspaceId, target.agentId)
+        const host = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === target.workspaceId)
         revealAgentTerminalTab(
-          {
-            workspaceId: projected.workspaceId,
-            agentId: projected.agentId,
-            name: projected.agent.name,
-          },
+          target,
           // A launch into a standard workspace is something the operator asked
           // for and gets the view; a launch into a rail-hidden host (Automations,
           // a module's background host) gets its tab without moving anyone into it.
           { activateWorkspace: !host || !isHiddenFromRail(host, moduleEnablement) },
         )
+      }
+      for (const projected of projectLaunchedAgentSessions(sessions)) {
+        revealLaunched({ workspaceId: projected.workspaceId, agentId: projected.agentId, name: projected.agent.name })
+      }
+      // Main registers a launched agent in the registry itself, so the record
+      // often reaches this window on the sync bus before the session does and
+      // there is nothing left to project. Its tab still has to appear here.
+      for (const adopted of unrevealedLaunchedAgents({
+        sessions,
+        workspaces: useWorkspaceStore.getState().workspaces,
+      })) {
+        revealLaunched(adopted)
       }
 
       // The renderer half of `agent.dispose`. Main kills a finished run's agent
@@ -2035,6 +2035,19 @@ export default function WorkspaceManager() {
     reconcileWorkspaceAgentLaunchFlags,
     projectLaunchedAgentSessions,
   ])
+
+  // Chat agents are named after their first real prompt through the same
+  // requester as terminals, so the heuristic, the model-written upgrade and
+  // the hand-rename lock all behave identically. A chat has no prompt hook;
+  // its runtime summary carries what the person sent instead.
+  useEffect(() => {
+    const known = new Set(workspaces.map((workspace) => workspace.id))
+    for (const offer of conversationTitleOffers(conversationSessions, titledConversationTextRef.current, (id) =>
+      known.has(id),
+    )) {
+      generatedWorkspaceTitleRequester().titleFromPrompt(offer.workspaceId, offer.prompt)
+    }
+  }, [conversationSessions, workspaces])
 
   useEffect(() => {
     if (window.api.platform === 'darwin') return
@@ -2152,26 +2165,54 @@ export default function WorkspaceManager() {
     void window.api.showItemInFolder(folderPath)
   }, [])
 
+  // Each workspace's chats, grouped once. A workspace whose chats did not move
+  // keeps its array (the store keeps each unchanged session's object), so the
+  // layout layer and the sidebar row handed it hold their memo.
+  const conversationSessionsByWorkspaceIdRef = useRef<ReadonlyMap<string, readonly ConversationSessionEntry[]> | null>(
+    null,
+  )
+  const conversationSessionsByWorkspaceId = useMemo(() => {
+    const grouped = groupConversationSessionsByWorkspace(
+      conversationSessions,
+      conversationSessionsByWorkspaceIdRef.current,
+    )
+    conversationSessionsByWorkspaceIdRef.current = grouped
+    return grouped
+  }, [conversationSessions])
+
+  // Rebuilt whenever a terminal or a chat moves anywhere, but handed on as the
+  // previous object while no workspace's answer changed: the sidebar and its
+  // settle sweep are keyed on it.
+  const activityByWorkspaceIdRef = useRef<Record<string, WorkspaceActivity> | null>(null)
   const activityByWorkspaceId = useMemo(() => {
     const map: Record<string, WorkspaceActivity> = {}
     for (const workspace of workspaces) {
-      map[workspace.id] = getWorkspaceActivity(workspace, terminalSessions)
+      map[workspace.id] = combinedAgentActivity(
+        getWorkspaceActivity(workspace, terminalSessions),
+        conversationSessionsByWorkspaceId.get(workspace.id) ?? NO_CONVERSATION_SESSIONS,
+      )
     }
-    return map
-  }, [workspaces, terminalSessions])
+    const stable = stableRecord(map, activityByWorkspaceIdRef.current)
+    activityByWorkspaceIdRef.current = stable
+    return stable
+  }, [workspaces, terminalSessions, conversationSessionsByWorkspaceId])
 
   // Workspaces whose agents are resident (live PTY) right now, so the sidebar can
   // bold them as "hot" — instant to switch into, versus suspended/exited rows that
   // re-launch on open. Derived from the same live `terminalSessions` snapshot as
   // activity, and recomputes the moment the reaper suspends an agent (it disposes
   // the session, and the terminal:sessions-delta broadcast carries the change).
-  const residentWorkspaceIds = useMemo(() => residentAgentWorkspaceIds(terminalSessions), [terminalSessions])
+  const residentWorkspaceIdsRef = useRef<ReadonlySet<string> | null>(null)
+  const residentWorkspaceIds = useMemo(() => {
+    const ids = residentAgentWorkspaceIds(terminalSessions, conversationSessions)
+    const stable = stableSet(ids, residentWorkspaceIdsRef.current)
+    residentWorkspaceIdsRef.current = stable
+    return stable
+  }, [terminalSessions, conversationSessions])
 
+  const terminalRecencyByWorkspaceIdRef = useRef<Record<string, RowRecency> | null>(null)
   const terminalRecencyByWorkspaceId = useMemo(() => {
-    const map: Record<
-      string,
-      { hasRunning: boolean; idleSince: number | null; lastInputAt: number | null; workingSince: number | null }
-    > = {}
+    const map: Record<string, RowRecency> = {}
     // The persisted keystroke clock is read off the store, not the projection:
     // the projection deliberately ignores it so typing does not re-render the
     // manager. It is only the fallback for a workspace with no live session,
@@ -2200,8 +2241,32 @@ export default function WorkspaceManager() {
       const workingSince = deriveWorkspaceWorkingSince(workspace.id, terminalSessions)
       map[workspace.id] = { hasRunning, idleSince, lastInputAt, workingSince }
     }
-    return map
-  }, [workspaces, terminalSessions])
+    for (const session of conversationSessions) {
+      const row = map[session.workspaceId]
+      if (!row) continue
+      const phase = conversationSummaryPhase(session)
+      if (phase === 'running' || phase === 'starting') {
+        row.hasRunning = true
+        // When the turn started, not `updatedAt`: that also moves when an
+        // approval resolves or the model changes, and the counter restarted.
+        const startedAt = session.turnStartedAt ?? session.updatedAt
+        row.workingSince = Math.min(row.workingSince ?? startedAt, startedAt)
+      }
+      // When the person last sent it something; `updatedAt` also moves on a
+      // model or permission change, which is not the person typing.
+      row.lastInputAt = Math.max(row.lastInputAt ?? 0, conversationLastInputAt(session))
+      if (phase === 'completed' || phase === 'failed' || phase === 'idle') {
+        // When its last turn ended; `updatedAt` also moves on a model or
+        // permission change, which is not the chat finishing anything.
+        row.idleSince = Math.max(row.idleSince ?? 0, conversationFinishedAt(session) ?? session.updatedAt)
+      }
+    }
+    // Each row's recency keeps its object while its four readings are equal,
+    // so a memoized row whose workspace did not move skips its render.
+    const stable = stableRecord(map, terminalRecencyByWorkspaceIdRef.current, recencyEqual)
+    terminalRecencyByWorkspaceIdRef.current = stable
+    return stable
+  }, [workspaces, terminalSessions, conversationSessions])
 
   // The sidebar's "finished while you were away" marks, reported up: the
   // sidebar owns them (it is the layer that knows what the person has looked
@@ -2372,7 +2437,7 @@ export default function WorkspaceManager() {
       // those agree, which is exactly why the drift would ship unnoticed.
       // `createNewChat` reads it the same way, for the same reason.
       cliPermissionPreset: resolveCliPermissionPreset(spawnCli, agentSpawnPermissionPreset),
-      debugMode: agentSpawnDebugMode,
+      ...cliPermissionModePatch(spawnCli),
       cliStartupPrompt: placement?.prompt || undefined,
       cliOnboardingPromptSent: false,
       cliHasLaunched: false,
@@ -2383,22 +2448,22 @@ export default function WorkspaceManager() {
       ),
     })
     placeSpawnedAgentTab(windowActiveWorkspaceId, newId, tabName, placement)
-    if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
   }
 
-  // Spawn a conversation-backed general agent in the active standard workspace.
-  // AgentPanel routes the new tab to AgentChatView based on `runtimeKind` +
-  // `conversation`; no CLI session is created. The model is then switchable in
-  // the chat composer until the first message, so spawning just needs a default
-  // pair. Missing-key/unavailable states are handled downstream by AgentChatView.
-  const addNewConversationAgent = (
-    providerId: string,
-    modelId: string,
-    modelLabel: string,
+  // Spawn a chat agent in the active standard workspace: the CLI the launcher's
+  // picker stood on, driven as a chat. AgentPanel routes the new tab to
+  // AgentChatView based on `runtimeKind` + `conversation`; no CLI session is
+  // created. It is named exactly as a terminal agent is — the name the
+  // new-agent tab already wears, else one from the shared pool — never after
+  // its model. Missing-key/unavailable states are handled downstream by
+  // AgentChatView.
+  const spawnConversationAgent = (
+    confirm: { provider?: { providerId: string; modelId: string }; cli?: AgentCli; reasoning?: string | null },
     skills?: WorkspaceSkill[],
     placement?: AgentSpawnPlacement,
   ) => {
-    if (!windowActiveWorkspaceId) return
+    const target = confirm.provider
+    if (!target || !windowActiveWorkspaceId) return
     const model = getModel(windowActiveWorkspaceId)
     if (!model) return
 
@@ -2407,57 +2472,32 @@ export default function WorkspaceManager() {
       .workspaces.find((workspace) => workspace.id === windowActiveWorkspaceId)
     if (!activeWorkspace || activeWorkspace.mode !== 'standard') return
 
-    const tabName = uniqueAgentName(modelLabel || 'Conversation Agent', activeWorkspace.agents)
-    const newId = `conversation-${providerId}-${nanoid(6)}`
+    const tabName =
+      placement?.agentName || pickRandomAgentName(Object.values(activeWorkspace.agents).map((agent) => agent.name))
+    const newId = `conversation-${target.providerId}-${nanoid(6)}`
     if (!(model.getActiveTabset() ?? firstTabset(model))) return
 
-    // Skill-at-spawn on the conversation transport: make the skill present in
-    // the workspace (best-effort) and seed the chat composer draft with the
-    // invocation — prefilled, never auto-sent.
-    const firstSkill = skills?.[0]
+    // Keep launch skills as agent state: the chat composer displays them as
+    // persistent chips.
     if (activeWorkspace.folderPath) {
       for (const skill of skills ?? []) void ensureSkillForAgent({ workspaceRoot: activeWorkspace.folderPath, skill })
     }
     updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
-      ...conversationAgentRuntimePatch(providerId, modelId),
-      // A conversation is not a model-picker row — it is a provider/model pair
-      // with no CLI — so there is no per-row preset stored against it and the
-      // app-wide default is what it starts on. AgentChatView reads this record
+      ...conversationAgentRuntimePatch(target.providerId, target.modelId),
+      // The preset the picker's footer showed for this CLI, the same one a
+      // terminal launch of it would run on. AgentChatView reads the record
       // field and lets the user change it mid-conversation.
-      cliPermissionPreset: agentSpawnPermissionPreset,
-      // The chat prefill is one sentence opener; with several skills the first
-      // leads and the rest are named after it.
-      ...(firstSkill
-        ? {
-            chatComposerPrefill:
-              (skills ?? []).length > 1
-                ? `${renderChatSkillPrefill(firstSkill)}(also ${(skills ?? [])
-                    .slice(1)
-                    .map((skill) => skill.id)
-                    .join(', ')}) `
-                : renderChatSkillPrefill(firstSkill),
-          }
-        : {}),
-      // A conversation has no CLI to hand a startup prompt to, so the launch
-      // surface's prompt lands in its composer, typed and unsent — the same
-      // place a skill invocation lands.
-      ...(placement?.prompt ? { chatComposerPrefill: placement.prompt } : {}),
+      ...conversationLaunchEnginePatch({
+        permissionPreset: resolveCliPermissionPreset(confirm.cli, agentSpawnPermissionPreset),
+        ...cliPermissionModeLaunch(confirm.cli),
+        reasoning: confirm.reasoning,
+      }),
+      // The typed prompt is the chat's first message, sent as soon as the chat
+      // is ready — the same promise a terminal agent's startup prompt makes.
+      ...conversationLaunchDraftPatch(skills, placement?.prompt),
     })
     placeSpawnedAgentTab(windowActiveWorkspaceId, newId, tabName, placement)
-    setLastSelectedConversationModel({ providerId, modelId })
-  }
-
-  // Single spawn-menu entry: open a conversation agent with the resolved default
-  // model. No-op when no provider/model is available (entry stays hidden).
-  const spawnConversationAgent = (
-    skills?: WorkspaceSkill[],
-    provider?: { providerId: string; modelId: string; modelLabel: string },
-    placement?: AgentSpawnPlacement,
-  ) => {
-    const target = provider ?? conversationDefaultOption
-    if (!target) return
-    addNewConversationAgent(target.providerId, target.modelId, target.modelLabel, skills, placement)
   }
 
   const addNewTerminal = (placement?: AgentSpawnPlacement) => {
@@ -2494,28 +2534,29 @@ export default function WorkspaceManager() {
     })
   }
 
-  // A conversation agent in a fresh chat: same seed mechanism as the CLI paths,
-  // with the conversation runtime patch instead of a CLI. The prompt lands in
-  // the chat composer, typed and unsent — a conversation has no startup prompt
-  // to hand a process, and auto-sending someone's first line is not the same
-  // action as starting a chat.
-  const openConversationInNewChat = (folderPath?: string | null, startupPrompt?: string) => {
-    if (!conversationDefaultOption) return
-    const { providerId, modelId, modelLabel } = conversationDefaultOption
-    const tabName = uniqueAgentName(modelLabel || 'Conversation Agent', {})
+  // A chat agent in a fresh chat: same seed mechanism as the CLI paths, with the
+  // conversation runtime patch instead of a CLI. The seed names no tab, so the
+  // solo workspace names the agent from the shared pool as it does a terminal
+  // agent's. The prompt rides the seed as the chat's first message.
+  const openConversationInNewChat = (
+    folderPath: string | null | undefined,
+    confirm: Parameters<typeof conversationNewChatSeed>[0] & { cli?: AgentCli },
+    startupPrompt?: string,
+    // The worktree New chat made for it: `folderPath` is already the worktree,
+    // and the marker files the chat under the project it was cut from.
+    worktree?: WorkspaceWorktree,
+  ) => {
+    const seed = conversationNewChatSeed(confirm, {
+      prompt: startupPrompt,
+      permissionPreset: resolveCliPermissionPreset(confirm.cli, agentSpawnPermissionPreset),
+      ...cliPermissionModeLaunch(confirm.cli),
+    })
+    if (!seed) return
     createSoloChatWorkspace({
       folderPath,
-      seedAgent: {
-        tabName,
-        agentPatch: {
-          name: tabName,
-          ...conversationAgentRuntimePatch(providerId, modelId),
-          cliPermissionPreset: agentSpawnPermissionPreset,
-          ...(startupPrompt ? { chatComposerPrefill: startupPrompt } : {}),
-        },
-      },
+      seedAgent: { agentPatch: seed.agentPatch },
+      ...(worktree ? { worktree } : {}),
     })
-    setLastSelectedConversationModel({ providerId, modelId })
   }
 
   // New-chat picks: each spawns the chosen agent in a fresh chat AND remembers
@@ -2620,7 +2661,11 @@ export default function WorkspaceManager() {
   // door, opening Settings before the CLI probe resolves) is not what an
   // auto-open may do. The panel simply waits under whatever is open.
   const presentNewChatPanel = useCallback(
-    (folderPath?: string | null, connector?: AgentComposerConnector | null) => {
+    (
+      folderPath?: string | null,
+      connector?: AgentComposerConnector | null,
+      forcedSelection: AgentComposerSelection | null = null,
+    ) => {
       // A draft with nothing in it — no words, no images, no picks — is not a
       // draft, and resuming it would only pin the project and engine of the last
       // open onto every New chat after it. It is dropped here; the reopen scopes
@@ -2637,14 +2682,19 @@ export default function WorkspaceManager() {
         folderPath: resolved,
         folderLabel: resolved ? newChatFolderLabel(resolved) : null,
         connector: connector ?? null,
+        forcedSelection,
       })
     },
     [activeWorkspace?.folderPath, workspaceWindowId],
   )
   presentNewChatPanelRef.current = presentNewChatPanel
   const openNewChatPanel = useCallback(
-    (folderPath?: string | null, connector?: AgentComposerConnector | null) => {
-      presentNewChatPanel(folderPath, connector)
+    (
+      folderPath?: string | null,
+      connector?: AgentComposerConnector | null,
+      forcedSelection: AgentComposerSelection | null = null,
+    ) => {
+      presentNewChatPanel(folderPath, connector, forcedSelection)
       // The panel mounts inside the workspace-card container, which is inert and
       // painted over while a door surface is active — the door closes first or
       // this click is a visible no-op. An
@@ -2663,13 +2713,35 @@ export default function WorkspaceManager() {
   // besides launch that forgets the draft. Every other way off the door
   // (Back, a sidebar click, a door) only parks it:
   // `setNewChatPanelState(null)` alone.
+  // A door making an extension is not the parked draft (its `draftKey` is
+  // unset), so closing it, or picking its project, leaves the draft as it was.
+  const newChatPanelIsDraftRef = useRef(true)
+  newChatPanelIsDraftRef.current = newChatPanelState?.mode !== 'extension'
   const closeNewChatPanel = useCallback(() => {
     setNewChatPanelState(null)
-    clearNewChatDraft(workspaceWindowId)
+    if (newChatPanelIsDraftRef.current) clearNewChatDraft(workspaceWindowId)
   }, [workspaceWindowId])
   // The project the door is scoped to rides with the draft, so a reopen lands
   // on the project the person last picked — Browse, the selector, or a clone.
-  const newChatPanelFolderPath = newChatPanelState?.folderPath
+  const newChatPanelFolderPath = newChatPanelState?.mode === 'extension' ? undefined : newChatPanelState?.folderPath
+  // The scheduled agent the door is editing, as main last listed it. One
+  // closed from elsewhere while it is open closes the door with it.
+  const editingScheduledAgentId = newChatPanelState?.editingScheduledAgentId ?? null
+  const editingScheduledAgent = editingScheduledAgentId
+    ? (scheduledAgents.find((agent) => agent.id === editingScheduledAgentId) ?? null)
+    : null
+  useEffect(() => {
+    if (editingScheduledAgentId && !editingScheduledAgent) setNewChatPanelState(null)
+  }, [editingScheduledAgentId, editingScheduledAgent])
+  // Its recent runs, which the editor lists: the chats in this window's list
+  // that carry its id, each with the activity its sidebar row shows.
+  const editingScheduledAgentRuns = useMemo(
+    () =>
+      editingScheduledAgentId
+        ? scheduledAgentRuns(visibleWorkspaces, editingScheduledAgentId, activityByWorkspaceId)
+        : [],
+    [editingScheduledAgentId, visibleWorkspaces, activityByWorkspaceId],
+  )
   useEffect(() => {
     if (newChatPanelFolderPath === undefined) return
     writeNewChatDraft(workspaceWindowId, { folderPath: newChatPanelFolderPath })
@@ -2784,16 +2856,19 @@ export default function WorkspaceManager() {
       }
 
       if (result.surface) {
-        // `home` is the app's own surface and the rest are views of the
-        // Extensions door, which is exactly the split `CardSurfaceView` states.
-        if (result.surface.view === 'home') {
+        // Where each view lands, including the retired `agent-clis`
+        // (cardSurfaceRoute.ts).
+        const route = cardSurfaceRoute(result.surface.view)
+        if (route.kind === 'extensions-home') {
           openGlobalSurface(EXTENSIONS_HOME_SURFACE_ID)
+        } else if (route.kind === 'settings-agents') {
+          openSettingsOverlay({ initialTab: AGENTS_SETTINGS_TAB, agentsMachine: LOCAL_HOST_ID })
         } else {
           // Latch first, open second — the order every deep-link opener in this
           // file uses, so an already-open door and a cold one both land on the
           // row the card named.
           dispatchExtensionsSurfaceTarget({
-            view: EXTENSIONS_DRAWER_VIEWS[result.surface.view === 'agent-clis' ? 'agentClis' : result.surface.view],
+            view: route.view,
             ...(result.surface.installed ? { installed: true } : {}),
           })
           openGlobalSurface('extensions')
@@ -2944,6 +3019,7 @@ export default function WorkspaceManager() {
       closeModalSurface,
       openGlobalSurface,
       openNewChatPanel,
+      openSettingsOverlay,
       upsertMcpServer,
       windowActiveWorkspaceId,
       workspaceWindowId,
@@ -2974,33 +3050,66 @@ export default function WorkspaceManager() {
       void addNewCliAgent(resolveTemplateAgentCli(null, lastSelectedCli, agentCliCatalog), [skill])
     },
     onRunCard: (card, launch) => runCardGo(card, launch),
-    onUseInAutomation: () => {
-      // The route to author a connector automation is the Automations door
-      // (Extensions drawer ruling, 2026-09-05; a modal before that); the
-      // connector pre-selection lands in T8. Plugins is itself a door, so the
-      // hop is door→door and the card region simply changes hands. The button
-      // renders whether or not the module is on, and the door host resolves a
-      // disabled module to the not-installed explainer — say so rather than let
-      // the click land silently.
-      if (!selectModuleEnabled(moduleEnablement, 'automations')) {
-        showToast({
-          tone: 'warn',
-          title: 'Automations is turned off',
-          description: 'Turn the Automations module on in Settings → Modules to use a connector in an automation.',
-        })
-        return
-      }
-      openGlobalSurface('automations')
-    },
   }
   useEffect(() => {
     setExtensionsSurfaceHost({
       onLaunchConnector: (connector) => extensionsHostRef.current?.onLaunchConnector(connector),
-      onUseInAutomation: (serverId) => extensionsHostRef.current?.onUseInAutomation(serverId),
       onUseSkillInNewAgent: (skill) => extensionsHostRef.current?.onUseSkillInNewAgent(skill),
       onRunCard: (card, launch) => extensionsHostRef.current?.onRunCard(card, launch) ?? Promise.resolve(),
     })
     return () => setExtensionsSurfaceHost(null)
+  }, [])
+
+  // "Build your own extension" (the Extensions home's plate, the palette) is
+  // the New chat door in extension mode: the same machine, project, engine and
+  // composer, with the extension-builder skill attached, a name chip, and ideas
+  // for cards. Never through the parked chat draft, which is the person's next
+  // chat and not this (see `draftKey` below).
+  const openBuildExtensionDoor = useStableCallback(() => {
+    openNewChatPanel()
+    setNewChatPanelState((prev) => (prev ? { ...prev, mode: 'extension', editingScheduledAgentId: null } : prev))
+  })
+  useEffect(() => {
+    setBuildExtensionOpener(openBuildExtensionDoor)
+    return () => setBuildExtensionOpener(null)
+  }, [openBuildExtensionDoor])
+
+  // A module's `openChat` (RendererHost): a chat agent it owns, seeded into a
+  // workspace that is already open and brought to the front, the prompt left
+  // as a draft unless the module asked to send it. Registered while this shell
+  // is mounted — until then `openChat` answers `unavailable`, and
+  // `supports('chat.open')` says so. Everything is read at call time, so the
+  // opener is made once.
+  useEffect(() => {
+    setWorkspaceChatOpener(
+      createWorkspaceChatOpener({
+        getWorkspace: (workspaceId) =>
+          useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === workspaceId) ?? null,
+        lastSelectedCli: () => useWorkspaceStore.getState().appSettings.lastSelectedCli,
+        permissionPresetFor: (cli) =>
+          resolveCliPermissionPreset(
+            cli,
+            useWorkspaceStore.getState().appSettings.lastAgentSpawnPermissionPreset ??
+              DEFAULT_AGENT_SPAWN_PERMISSION_PRESET,
+          ),
+        permissionModeFor: (cli) => cliPermissionModeLaunch(cli).permissionMode,
+        newAgentId: (providerId) => `conversation-${providerId}-${nanoid(6)}`,
+        pickName: pickRandomAgentName,
+        writeAgent: (workspaceId, agentId, patch) =>
+          useWorkspaceStore.getState().updateAgent(workspaceId, agentId, patch),
+        putDraft: (workspaceId, agentId, draft) =>
+          composerDraftStore()
+            .getState()
+            .put(workspaceId, agentId, { ...draft, mentions: [] }),
+        ensureSkills: (workspaceRoot, skillIds) => {
+          for (const id of skillIds) void ensureSkillForAgent({ workspaceRoot, skill: { id } })
+        },
+        reveal: (workspaceId, agentId, name) => {
+          revealAgentTerminalTab({ workspaceId, agentId, name })
+        },
+      }),
+    )
+    return () => setWorkspaceChatOpener(null)
   }, [])
 
   // The terminal pane's star: "find a skill or plugin, for THIS agent". The
@@ -3048,7 +3157,16 @@ export default function WorkspaceManager() {
           ? pluginCatalogEntries.find((entry) => entry.id === request.cli)?.skillIntegration
           : undefined,
       })
-      const started = createNewChat(request.workspaceRoot, request.cli, undefined, prompt, undefined, request.model)
+      const started = createNewChat(
+        request.workspaceRoot,
+        request.cli,
+        undefined,
+        prompt,
+        undefined,
+        request.model,
+        undefined,
+        BACKLOG_SKILL_ID,
+      )
       // A launch that never happened (no installed CLI, missing solo template) has
       // already said so through its own route; there is no agent to link to.
       if (!started) return
@@ -3120,7 +3238,12 @@ export default function WorkspaceManager() {
       setNewChatPanelState((prev) =>
         prev
           ? { ...prev, folderPath: cloned.path, folderLabel: newChatFolderLabel(cloned.path) }
-          : { folderPath: cloned.path, folderLabel: newChatFolderLabel(cloned.path), connector: null },
+          : {
+              folderPath: cloned.path,
+              folderLabel: newChatFolderLabel(cloned.path),
+              connector: null,
+              forcedSelection: null,
+            },
       )
       showToast({
         tone: 'good',
@@ -3133,8 +3256,16 @@ export default function WorkspaceManager() {
   )
   // Switching workspaces parks the pre-creation panel: the user has moved on,
   // and the panel would otherwise sit over the newly revealed workspace. The
-  // draft stays parked — Forward, or the next New chat, resumes it.
+  // draft stays parked — Forward, or the next New chat, resumes it. A window
+  // that had no workspace and gains one did not switch away from anything: a
+  // scheduled run landing in an empty window must not close the editor the
+  // person is using, and a workspace they pick themselves parks the panel on
+  // its own (`sidebarSelectWorkspace`), as a chat started here closes it.
+  const previousWindowActiveWorkspaceIdRef = useRef(windowActiveWorkspaceId)
   useEffect(() => {
+    const previous = previousWindowActiveWorkspaceIdRef.current
+    previousWindowActiveWorkspaceIdRef.current = windowActiveWorkspaceId
+    if (previous === null && windowActiveWorkspaceId !== null) return
     setNewChatPanelState(null)
   }, [windowActiveWorkspaceId])
   // So does opening a door. Left mounted under the door's inert canvas the
@@ -3156,11 +3287,12 @@ export default function WorkspaceManager() {
     confirm: AgentComposerConfirm & { hostId?: ExecutionHostId | null },
     folderPathOverride?: string | null,
     startupPrompt?: string,
+    extension?: { id: string },
   ) => {
     if (newChatConfirmInFlight.current) return
     newChatConfirmInFlight.current = true
     try {
-      await confirmNewChatNow(confirm, folderPathOverride, startupPrompt)
+      await confirmNewChatNow(confirm, folderPathOverride, startupPrompt, extension)
     } finally {
       newChatConfirmInFlight.current = false
     }
@@ -3169,13 +3301,14 @@ export default function WorkspaceManager() {
     confirm: AgentComposerConfirm & { hostId?: ExecutionHostId | null },
     folderPathOverride?: string | null,
     startupPrompt?: string,
+    extension?: { id: string },
   ) => {
     const scopedFolder = folderPathOverride !== undefined ? folderPathOverride : (newChatPanelState?.folderPath ?? null)
     // The machine the door's dropdown stands on rides every creation below
     // (they all end in createSoloChatWorkspace), then lets go.
     newChatHostRef.current = confirm.hostId ?? null
     try {
-      await confirmNewChatOnHost(confirm, scopedFolder, startupPrompt)
+      await confirmNewChatOnHost(confirm, scopedFolder, startupPrompt, extension)
     } finally {
       newChatHostRef.current = null
     }
@@ -3184,13 +3317,35 @@ export default function WorkspaceManager() {
     confirm: AgentComposerConfirm & { hostId?: ExecutionHostId | null },
     scopedFolder: string | null,
     startupPrompt?: string,
+    extension?: { id: string },
   ) => {
     // An agent asked for a worktree starts IN it: the folder becomes the
     // worktree and the marker rides along. A worktree that cannot be made
     // leaves the door open with the diagnostic, never a chat in the checkout.
     let folderPath = scopedFolder
     let worktree: WorkspaceWorktree | undefined
-    if (confirm.kind === 'general' && confirm.worktree) {
+    // An extension starts in a folder of its own inside the project, made from
+    // the SDK's template before the chat (which needs the skill the scaffold
+    // puts there). One already holding an extension is carried on as it is. A
+    // project that cannot be made leaves the door open, with why.
+    if (extension) {
+      if (!scopedFolder) return
+      const made = await window.api
+        .extensionScaffoldCreate({
+          parentDir: scopedFolder,
+          id: extension.id,
+          ideaMarkdown: extensionBriefMarkdown(extension.id, startupPrompt ?? ''),
+        })
+        .catch((caught: unknown) => ({
+          ok: false as const,
+          message: caught instanceof Error ? caught.message : 'The project could not be created.',
+        }))
+      if (!made.ok) {
+        showToast({ tone: 'error', title: `${extension.id} was not created`, description: made.message })
+        return
+      }
+      folderPath = made.folder
+    } else if ((confirm.kind === 'general' || confirm.kind === 'conversation') && confirm.worktree) {
       const made = await createNewChatWorktree(scopedFolder, confirm.worktree.name)
       if (!made) return
       folderPath = made.folderPath
@@ -3217,26 +3372,18 @@ export default function WorkspaceManager() {
         break
       case 'conversation':
         setLastNewChatAgent({ kind: 'conversation' })
-        openConversationInNewChat(folderPath, startupPrompt)
+        openConversationInNewChat(folderPath, confirm, startupPrompt, worktree)
         break
     }
     closeNewChatPanel()
   }
 
-  // A chat started on a paired machine (remote-sessions-ux /
-  // new-chat-on-a-remote-machine): the agent is created THERE over the
-  // audited fleet client — cli, prompt, model, and preset forwarded verbatim,
-  // so the remote's own refusals (bypass, scopes) surface word for word — and
-  // what appears here is a solo workspace whose lone pane is the fleet
-  // attachment onto that session, provenance-badged by the two-line row. A
-  // failure leaves the panel open with the remote's message as a toast; no
-  // phantom row.
-  // A session on a paired machine, opened from the sidebar's Remote band
-  // (remote-sessions-in-the-sidebar): the row that already is that session
-  // is focused; any other becomes a solo workspace whose lone pane is the
-  // fleet attachment — the same shape a chat started over there takes,
-  // minus the create. Provenance is stamped with the session id so the band
-  // recognises the row next time it reads the machine.
+  // A chat on a paired machine, opened from the sidebar's Remote band
+  // (remote-sessions-in-the-sidebar): the row that already is that chat is
+  // focused; any other becomes a solo workspace whose lone pane follows it —
+  // the same shape a chat started over there takes, minus the create.
+  // Provenance is stamped with the session id so the band recognises the row
+  // next time it reads the machine.
   const openRemoteSession = useCallback(
     (spec: RemoteSessionOpenSpec): void => {
       setNewChatPanelState(null)
@@ -3263,21 +3410,25 @@ export default function WorkspaceManager() {
         remoteOrigin: {
           connectionId: spec.connectionId,
           machineName: spec.machineName,
-          workspaceId: spec.workspaceId ?? spec.sessionId,
+          workspaceId: spec.conversation.workspaceId,
           workspaceName: spec.workspaceName ?? '',
           workspaceRoot: spec.workspaceRoot,
           sessionId: spec.sessionId,
           repository: spec.repository,
-          // The checkout as the machine listed it; this device never moves it.
-          checkout: { mode: 'current', branch: spec.branch, worktreePath: null },
+          // A chat has no checkout of its own, and the list does not say which
+          // branch its workspace is on; this device never moves it either way.
+          checkout: { mode: 'current', branch: null, worktreePath: null },
         },
         windowId: workspaceWindowId,
+        // It opens in the chat view, following the conversation over there.
         seedAgent: {
-          tabName: fleetTerminalTabName(spec.machineName, spec.title),
-          fleet: {
+          tabName: remotePaneTabName(spec.machineName, spec.title),
+          meshConversation: {
             connectionId: spec.connectionId,
             machineName: spec.machineName,
-            remoteSessionId: spec.sessionId,
+            remoteWorkspaceId: spec.conversation.workspaceId,
+            remoteAgentId: spec.conversation.agentId,
+            title: spec.title,
           },
         },
       })
@@ -3285,20 +3436,26 @@ export default function WorkspaceManager() {
     [addWorkspace, setActiveWorkspaceForWindow, setNewChatPanelState, workspaceWindowId],
   )
 
+  // A chat agent started on a paired machine (remote-sessions-ux /
+  // new-chat-on-a-remote-machine): it is created THERE over the audited mesh
+  // client — cli, prompt, model, and preset forwarded verbatim, so the remote's
+  // own refusals (a scope, a CLI it lacks) surface word for word — and runs in
+  // that machine's conversation runtime. What opens here is the same chat pane
+  // the Remote band opens for one of its chats, following it by workspace and
+  // agent id. A failure leaves the panel open with the remote's message as a
+  // toast; no phantom row.
   const confirmRemoteNewChat = useCallback(
     async (launch: RemoteNewChatLaunch): Promise<void> => {
       const created = await window.api
-        .fleetCreateTerminal({
+        .meshCreateConversation({
           connectionId: launch.connectionId,
           workspaceId: launch.remoteWorkspaceId,
           cli: launch.cli,
           prompt: launch.prompt || undefined,
           cliModel: launch.cliModel ?? undefined,
-          permissionPreset: launch.permissionPreset === 'none' ? undefined : launch.permissionPreset,
-          // The checkout choice (checkout-and-branch-on-remote-create): a
-          // worktree is minted THERE by the remote's own agent.launch, and its
-          // refusal — a pairing without workspace:operate — comes back verbatim.
-          checkout: launch.checkout,
+          // As named, either preset: the launcher showed it, and the chat
+          // over there starts on it.
+          permissionPreset: launch.permissionPreset,
         })
         .catch((error: unknown): { ok: false; code: string; message: string } => ({
           ok: false,
@@ -3308,13 +3465,13 @@ export default function WorkspaceManager() {
       if (!created.ok) {
         showToast({
           tone: 'error',
-          title: `Could not start on ${launch.machineName}`,
+          title: `Could not start a chat on ${launch.machineName}`,
           description: created.message,
         })
         return
       }
+      const remoteSessionId = meshConversationSessionId(created.workspaceId, created.agentId)
       if (!SOLO_CHAT_TEMPLATE) {
-        // The remote agent is REAL now; say so rather than orphaning it silently.
         showToast({
           tone: 'error',
           title: `Started on ${launch.machineName}, but no pane could open`,
@@ -3324,12 +3481,7 @@ export default function WorkspaceManager() {
         return
       }
       addWorkspace(SOLO_CHAT_TEMPLATE, {
-        // The chat's name over there, same rule as `openRemoteSession`.
         name: remoteWorkspaceName(created.title, launch.remoteWorkspaceName),
-        // No local checkout: the code lives on the other machine, and a local
-        // folder here would claim otherwise. Where it DOES live is the
-        // workspace's provenance, stamped once so the sidebar can group and
-        // badge it by machine after this pane is long closed.
         folderPath: null,
         remoteOrigin: {
           connectionId: launch.connectionId,
@@ -3337,39 +3489,28 @@ export default function WorkspaceManager() {
           workspaceId: launch.remoteWorkspaceId,
           workspaceName: launch.remoteWorkspaceName,
           workspaceRoot: launch.remoteWorkspaceRoot,
-          // The session the pane attaches to: how the sidebar's Remote band
-          // knows the row the machine lists is this one.
-          sessionId: created.sessionId,
-          // Which repository that is, as the machine served it (kept for New
-          // chat's "Run on", which filters machines by project).
+          // The id the Remote band lists this chat by, so its row is this one.
+          sessionId: remoteSessionId,
           repository: launch.remoteRepository,
-          // What the chat landed on: the worktree's branch as the remote minted
-          // it, or the checkout's branch as the panel read it before asking.
-          checkout: {
-            mode: created.checkout.mode,
-            branch: created.checkout.branch ?? launch.branch,
-            worktreePath: created.checkout.worktreePath,
-          },
+          checkout: { mode: 'current', branch: launch.branch, worktreePath: null },
         },
         windowId: workspaceWindowId,
         seedAgent: {
-          tabName: fleetTerminalTabName(launch.machineName, created.title),
-          fleet: {
+          tabName: remotePaneTabName(launch.machineName, created.title),
+          meshConversation: {
             connectionId: launch.connectionId,
             machineName: launch.machineName,
-            remoteSessionId: created.sessionId,
+            remoteWorkspaceId: created.workspaceId,
+            remoteAgentId: created.agentId,
+            title: created.title,
           },
         },
       })
       closeNewChatPanel()
-      const landedBranch = created.checkout.branch ?? launch.branch
       showToast({
         tone: 'good',
-        title: `Started on ${launch.machineName}`,
-        description:
-          created.checkout.mode === 'worktree'
-            ? `${created.title} in ${launch.remoteWorkspaceName}, on a new worktree${landedBranch ? ` (${landedBranch})` : ''}`
-            : `${created.title} in ${launch.remoteWorkspaceName}${landedBranch ? ` · ${landedBranch}` : ''}`,
+        title: `Chat started on ${launch.machineName}`,
+        description: `${created.title} in ${launch.remoteWorkspaceName}${launch.branch ? ` · ${launch.branch}` : ''}`,
       })
     },
     [addWorkspace, closeNewChatPanel, workspaceWindowId],
@@ -3418,8 +3559,16 @@ export default function WorkspaceManager() {
         setDiagnosticsOpen(true)
         return true
       }
-      if (commandId === 'chat.new') {
-        openNewChatPanel()
+      if (commandId === 'chat.new' || commandId === 'chat.newConversation' || commandId === 'chat.newTerminalAgent') {
+        openNewChatPanel(
+          undefined,
+          null,
+          commandId === 'chat.newConversation'
+            ? { kind: 'conversation' }
+            : commandId === 'chat.newTerminalAgent'
+              ? { kind: 'general' }
+              : null,
+        )
         return true
       }
       if (commandId === 'workspace.sidebar.toggle') {
@@ -3581,6 +3730,10 @@ export default function WorkspaceManager() {
       }
       if (commandId === 'panel.git.toggle' && windowActiveWorkspaceId) {
         togglePaneKind(windowActiveWorkspaceId, 'git')
+        return true
+      }
+      if (commandId === 'panel.agents.toggle' && windowActiveWorkspaceId) {
+        togglePaneKind(windowActiveWorkspaceId, 'agents')
         return true
       }
       if (commandId === 'panel.canvas.toggle' && windowActiveWorkspaceId) {
@@ -3843,7 +3996,7 @@ export default function WorkspaceManager() {
         })
         break
       case 'conversation':
-        spawnConversationAgent(confirm.skills, confirm.provider, placement)
+        spawnConversationAgent(confirm, confirm.skills, placement)
         break
     }
   }
@@ -3885,12 +4038,9 @@ export default function WorkspaceManager() {
       <React.Suspense fallback={null}>
         <NewAgentPanel
           workspaceId={windowActiveWorkspaceId ?? ''}
-          conversationAvailable={conversationSpawnAvailable}
-          onRequestConversationCatalog={requestConversationCatalog}
-          initialSelection={COMPOSER_INITIAL_SELECTION}
+          conversationWorkspaceSupported={conversationSpawnEnabled}
+          initialSelection={lastNewChatAgent}
           permissionPreset={agentSpawnPermissionPreset}
-          debugMode={agentSpawnDebugMode}
-          onChangeDebugMode={setAgentSpawnDebugMode}
           onLaunch={({ prompt, ...confirm }) => runComposerSpawnRef.current(confirm, { tabId, prompt, agentName })}
           onClose={() => {
             if (windowActiveWorkspaceId) removeNewAgentTab(windowActiveWorkspaceId, tabId)
@@ -3898,13 +4048,7 @@ export default function WorkspaceManager() {
         />
       </React.Suspense>
     ),
-    [
-      windowActiveWorkspaceId,
-      conversationSpawnAvailable,
-      requestConversationCatalog,
-      agentSpawnPermissionPreset,
-      agentSpawnDebugMode,
-    ],
+    [windowActiveWorkspaceId, conversationSpawnEnabled, agentSpawnPermissionPreset, lastNewChatAgent],
   )
 
   const startLogin = async () => {
@@ -3940,8 +4084,8 @@ export default function WorkspaceManager() {
   }
 
   const refreshAuthState = async () => {
-    setAuthMessage('Checking access.')
-    setAuthState(await window.api.authRefreshEntitlements())
+    setAuthMessage('Checking account.')
+    setAuthState(await window.api.authRefreshAccount())
   }
 
   const logout = async () => {
@@ -3958,17 +4102,7 @@ export default function WorkspaceManager() {
     // A session row can carry an agentId that has no workspace.agents record;
     // updateAgent would fabricate one and focusOrAddAgentTab would open a pane
     // for it. For those rows activation is plain workspace focus only.
-    //
-    // A review guide is the opposite case: it is an ordinary agent terminal
-    // that main spawned without this window's knowledge, so it has no record
-    // until something adopts it. Opening it from here IS that adoption — the
-    // same one the Reviews door performs — and without it the reviewer lands in
-    // the Reviews host with no tab.
-    const agentId =
-      item.agentId &&
-      (workspace.agents[item.agentId] || getRendererHost().getAgentIdNamespace(item.agentId, moduleEnabled))
-        ? item.agentId
-        : null
+    const agentId = item.agentId && workspace.agents[item.agentId] ? item.agentId : null
     const status = await window.api.terminalStatus(item.sessionId)
     if (!status.processAlive) {
       setTerminalSessions((sessions) => sessions.filter((session) => session.sessionId !== item.sessionId))
@@ -4095,6 +4229,32 @@ export default function WorkspaceManager() {
   const sidebarNavigateForward = useStableCallback(() => runCommand('workspace.history.forward'))
   const sidebarOpenSearch = useStableCallback(() => runCommand('commandPalette.open'))
   const sidebarNewChat = useStableCallback(() => openNewChatPanel())
+  // The clock beside New chat: the same panel, switched to Scheduled agent. It
+  // keeps the chat's parked draft — a prompt typed as a chat can become a
+  // scheduled agent's.
+  const sidebarNewScheduledAgent = useStableCallback(() => {
+    openNewChatPanel()
+    setNewChatPanelState((prev) => (prev ? { ...prev, mode: 'scheduled', editingScheduledAgentId: null } : prev))
+  })
+  // A scheduled agent's row in the Scheduled section: the panel, editing it.
+  // Never through the parked chat draft, which is the person's next chat and
+  // not this.
+  const sidebarOpenScheduledAgent = useStableCallback((id: string) => {
+    const agent = scheduledAgents.find((candidate) => candidate.id === id)
+    if (!agent) return
+    closeGlobalSurface()
+    closeModalSurface()
+    setNotificationsOpen(false)
+    setSidebarSection('home')
+    setNewChatPanelState({
+      folderPath: agent.folderPath,
+      folderLabel: newChatFolderLabel(agent.folderPath),
+      connector: null,
+      forcedSelection: null,
+      mode: 'scheduled',
+      editingScheduledAgentId: id,
+    })
+  })
   const sidebarNewChatInFolder = useStableCallback((folderPath: string) => openNewChatPanel(folderPath))
   const sidebarShowMenu = useStableCallback(
     (event: React.MouseEvent<HTMLButtonElement>, label: (typeof MENU_BAR_ITEMS)[number]) =>
@@ -4167,7 +4327,6 @@ export default function WorkspaceManager() {
       {workspaceTypeSupervisors.map((supervisor) => (
         <WorkspaceTypeSupervisorHost key={supervisor.key} supervisor={supervisor} />
       ))}
-      {automationsEnabled && ownsGlobalSupervisors ? <AutomationsRunSupervisor /> : null}
       {/* The one toast region (design-system/components/toast) + its app-level
           producers. Fixed-position; its place in this tree carries no layout. */}
       <React.Suspense fallback={null}>
@@ -4198,6 +4357,7 @@ export default function WorkspaceManager() {
               logout={logout}
               openSettings={openSettings}
               settingsOpen={settingsOpen}
+              settingsBadge={settingsUpdateBadges.rail}
             />
           }
         />
@@ -4214,6 +4374,8 @@ export default function WorkspaceManager() {
           activityByWorkspaceId={activityByWorkspaceId}
           residentWorkspaceIds={residentWorkspaceIds}
           terminalRecencyByWorkspaceId={terminalRecencyByWorkspaceId}
+          conversationSessions={conversationSessions}
+          conversationSessionsReady={conversationSessionsStore().hasSnapshot()}
           onUnseenDoneChange={setUnseenDoneIds}
           onSnoozedWorkspacesChange={setSnoozedWorkspaceIds}
           onOpenRemoteSession={sidebarOpenRemoteSession}
@@ -4223,6 +4385,9 @@ export default function WorkspaceManager() {
           onCloseWorkspace={sidebarCloseWorkspace}
           onForgetFolder={sidebarForgetFolder}
           onNewChat={sidebarNewChat}
+          onNewScheduledAgent={sidebarNewScheduledAgent}
+          onOpenScheduledAgent={sidebarOpenScheduledAgent}
+          openScheduledAgentId={newChatPanelState?.editingScheduledAgentId ?? null}
           onNewChatInFolder={sidebarNewChatInFolder}
           onRevealFolder={sidebarRevealFolder}
           onSetSidebarCollapsed={setSidebarCollapsed}
@@ -4377,6 +4542,9 @@ export default function WorkspaceManager() {
                           >
                             <WorkspaceLayout
                               workspaceId={workspaceId}
+                              conversationSessions={
+                                conversationSessionsByWorkspaceId.get(workspaceId) ?? NO_CONVERSATION_SESSIONS
+                              }
                               // The "+" belongs to the layer the user is actually in:
                               // every spawn handler acts on the ACTIVE workspace, so
                               // offering it on a background layer would open a tab in a
@@ -4402,22 +4570,20 @@ export default function WorkspaceManager() {
                         open panel must remount; keyed on identity, so removing
                         the chip never does. */}
                             <NewAgentPanel
-                              key={newChatPanelState.connector?.id ?? 'plain'}
+                              key={`${newChatPanelState.connector?.id ?? 'plain'}:${newChatPanelState.forcedSelection?.kind ?? 'remembered'}:${newChatPanelState.mode ?? 'chat'}:${newChatPanelState.editingScheduledAgentId ?? ''}`}
                               initialMcpServers={newChatPanelState.connector ? [newChatPanelState.connector] : null}
                               workspaceId={windowActiveWorkspaceId ?? ''}
-                              conversationAvailable={conversationSpawnAvailable}
-                              onRequestConversationCatalog={requestConversationCatalog}
+                              conversationWorkspaceSupported={conversationSpawnEnabled}
                               folderPath={newChatPanelState.folderPath}
                               projectOptions={newChatProjectOptions}
                               onSelectProject={selectNewChatProject}
                               onBrowseProject={(hostId) => void browseNewChatProject(hostId)}
-                              initialSelection={lastNewChatAgent ?? { kind: 'general' }}
+                              initialSelection={newChatPanelState.forcedSelection ?? lastNewChatAgent}
+                              forceSelection={newChatPanelState.forcedSelection}
                               permissionPreset={agentSpawnPermissionPreset}
-                              debugMode={agentSpawnDebugMode}
-                              onChangeDebugMode={setAgentSpawnDebugMode}
-                              onLaunch={({ prompt, ...confirm }) => {
+                              onLaunch={({ prompt, extension, ...confirm }) => {
                                 // confirmNewChat closes the panel (and forgets the draft) itself.
-                                void confirmNewChat(confirm, newChatPanelState.folderPath, prompt)
+                                void confirmNewChat(confirm, newChatPanelState.folderPath, prompt, extension)
                               }}
                               // The promise itself, not a void wrapper: the panel's
                               // one-launch-at-a-time guard waits on it, and a wrapper
@@ -4426,8 +4592,37 @@ export default function WorkspaceManager() {
                               onCloneProject={cloneNewChatProject}
                               onClose={closeNewChatPanel}
                               // The parked draft lives per window; the panel seeds
-                              // from it and writes through, the host clears it.
-                              draftKey={workspaceWindowId}
+                              // from it and writes through, the host clears it. A
+                              // scheduled agent being edited is not a draft.
+                              // An extension being made is not the next chat either.
+                              draftKey={
+                                editingScheduledAgent || newChatPanelState.mode === 'extension'
+                                  ? undefined
+                                  : workspaceWindowId
+                              }
+                              initialMode={newChatPanelState.mode ?? 'chat'}
+                              editingScheduledAgent={editingScheduledAgent}
+                              scheduledRuns={editingScheduledAgentRuns}
+                              // A run's chat opens the way its sidebar row does,
+                              // which parks the editor.
+                              onOpenScheduledRun={sidebarSelectWorkspace}
+                              onScheduled={(agent) => {
+                                if (editingScheduledAgent) setNewChatPanelState(null)
+                                else closeNewChatPanel()
+                                const words = scheduledAgentScheduleWords(agent.schedule)
+                                showToast({
+                                  tone: 'good',
+                                  title: editingScheduledAgent ? 'Saved' : 'Scheduled',
+                                  description: [
+                                    words,
+                                    agent.nextRunAt
+                                      ? `next ${formatRunTimes([agent.nextRunAt], agent.schedule.timezone, Date.now())[0]}`
+                                      : null,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(' · '),
+                                })
+                              }}
                               // The door has no tab to close, so the surface carries the
                               // control itself.
                               showCloseButton
@@ -4602,7 +4797,6 @@ export default function WorkspaceManager() {
 
 // New chat opens on the General agent, the only agent a plain spawn has. A
 // module constant, so the launch surface's props hold still between renders.
-const COMPOSER_INITIAL_SELECTION: AgentComposerSelection = { kind: 'general' }
 
 function getWorkspaceWindowIdFromLocation(): WorkspaceWindowId {
   try {

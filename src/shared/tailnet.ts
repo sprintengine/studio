@@ -8,27 +8,31 @@
  * Per-device scopes, mirroring the gateway's tool families.
  *
  * Read and operate are separate grants so "watch my backlog from the laptop"
- * does not carry the power to change it. `terminal:observe` /
- * `terminal:control` are a distinct tier (epic Decision 4): control means
- * arbitrary shell on the host and is never implied by the structured-command
- * scopes. They are declared before the terminal children of the epic land so a
- * device paired today cannot silently acquire remote shell later.
+ * does not carry the power to change it.
+ *
+ * There is no terminal tier. `terminal:observe` and `terminal:control` were
+ * retired on 2026-09-29, when terminals stopped crossing the tailnet: a stored
+ * device that holds them loads without them (`normalizeTailnetScopes`), and
+ * nothing a device can be granted reaches a shell on this machine.
  */
 export const TAILNET_SCOPES = [
   'workspace:read',
   'workspace:operate',
   'backlog:read',
   'backlog:operate',
-  'terminal:observe',
-  'terminal:control',
+  'conversation:read',
+  'conversation:operate',
 ] as const
 
 export type TailnetScope = (typeof TAILNET_SCOPES)[number]
 
-/** Every scope except the terminal tier — what a structured-command device asks for. */
-export const TAILNET_STRUCTURED_SCOPES: readonly TailnetScope[] = TAILNET_SCOPES.filter(
-  (scope) => !scope.startsWith('terminal:'),
-)
+/** Missing scope lists in older pairing requests must not grant features added later. */
+export const TAILNET_LEGACY_REQUEST_SCOPES: readonly TailnetScope[] = [
+  'workspace:read',
+  'workspace:operate',
+  'backlog:read',
+  'backlog:operate',
+]
 
 export function isTailnetScope(value: unknown): value is TailnetScope {
   return typeof value === 'string' && (TAILNET_SCOPES as readonly string[]).includes(value)
@@ -55,11 +59,6 @@ export function normalizeTailnetScopes(value: unknown): TailnetScope[] {
  */
 export function tailnetScopeGrantsAccess(granted: ReadonlySet<TailnetScope>, required: TailnetScope): boolean {
   if (granted.has(required)) return true
-  // The terminal tier names its halves for what they do rather than read/operate,
-  // but the implication is the same one: a device trusted to TYPE into a
-  // terminal is necessarily trusted to watch it. One-way, and it never reaches
-  // the structured families.
-  if (required === 'terminal:observe') return granted.has('terminal:control')
   if (!required.endsWith(':read')) return false
   return granted.has(`${required.slice(0, -':read'.length)}:operate` as TailnetScope)
 }
@@ -189,13 +188,13 @@ export type TailnetPairRequest = {
    * between answering the question that was put and answering a different one.
    *
    * An asker that names nothing (an older build, or a client that does not
-   * care) is recorded as `TAILNET_STRUCTURED_SCOPES`, the same set every
+   * care) is recorded as `TAILNET_LEGACY_REQUEST_SCOPES`, the same set every
    * pairing path defaulted to before this field existed.
    *
    * Optional in the TYPE, always present at runtime: this machine's store fills
    * it on every request it accepts. It is optional because a status payload
    * from a main process older than this field would not carry one, and a
-   * consumer must read it as `request.requestedScopes ?? TAILNET_STRUCTURED_SCOPES`
+   * consumer must read it as `request.requestedScopes ?? TAILNET_LEGACY_REQUEST_SCOPES`
    * rather than as an empty grant.
    */
   requestedScopes?: TailnetScope[]
@@ -257,7 +256,7 @@ export type TailnetApprovePairRequestView =
 export type TailnetReverseGrant = {
   /** `address:port` of the asker's listener, for the approver to dial. */
   endpoint: string
-  /** The asker's name for itself, as the approver's Fleet will list it. */
+  /** The asker's name for itself, as the approver's Mesh will list it. */
   machineName: string
   deviceId: string
   /** The name the approver's machine was granted under on the asker. */
@@ -284,10 +283,8 @@ export const REMOTE_OPEN_REQUESTED_CHANNEL = 'remote:open-requested'
 export type TailnetLiveDevice = {
   deviceId: string
   deviceName: string
-  /** An RPC stream or terminal socket is open right now. */
+  /** An RPC stream is open right now. */
   connected: boolean
-  /** Terminal session ids this device is currently attached to (observe or control). */
-  attachedTerminalSessions: string[]
   /** Epoch ms of the first socket in the current connected stretch, or null. */
   connectedSince: number | null
   /**
@@ -345,13 +342,6 @@ type TailnetLiveEvent =
       peerNode: string | null
     }
   | { kind: 'device-connection'; deviceId: string; deviceName: string; connected: boolean }
-  | {
-      kind: 'terminal-drive'
-      phase: 'begin' | 'end'
-      deviceId: string
-      deviceName: string
-      terminalSessionId: string
-    }
   | { kind: 'devices-changed' }
 
 export type TailnetPushPayload = {

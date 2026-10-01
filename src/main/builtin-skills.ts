@@ -15,8 +15,9 @@ import type {
 import { SKILL_HARNESS_DIR } from '../shared/skill-harnesses'
 import type { EnsureSkillInstalledResult, ModuleSkillRegistration } from '../shared/modules/skills'
 import type { HostAgentIntegration } from './hosts/execution-host'
-import { STUDIO_MARKETPLACE_RESOURCE_DIR, STUDIO_SKILLS_PLUGIN_ID } from './skills/studio-plugin'
 import { isPathInsideOrEqual } from './path-containment'
+import { integrationLedger } from './integrations/ledger'
+import { gitTracksPath } from './skills/studio-plugin'
 
 // The marker a managed copy carries. Exported because the attach path
 // (src/main/agent-skill-installer.ts) reads and writes the same file, and two
@@ -36,55 +37,25 @@ export type ManagedSkillManifest = {
   updatedAt: string
 }
 
+/**
+ * The skill the app ships, and the only one: `backlog`, which backs the
+ * Backlog handoff (`/backlog <item>` from "Hand to agent", `backlog.work`, a
+ * drop onto an agent terminal, or an automation's `spawnSkillId`) — a prompt
+ * the app itself composes. It is not installed anywhere ahead of time, and
+ * reaches only the launch that composes that prompt. A Claude-family launch
+ * that carries the app's plugin directories is handed a plugin holding just
+ * the skill (see `launchSkillPluginDir` in agent-integration-home.ts), so
+ * nothing lands in the repository; any other launch gets the per-harness copy
+ * `ensureSkillInstalled` writes.
+ *
+ * Kept a list: a module-registered skill resolves beside it, and the launch
+ * path takes skill ids rather than knowing this one by name.
+ *
+ * Everything else that shipped here is retired (`RETIRED_BUILTIN_SKILL_IDS`):
+ * an agent follows a skill it can see, and those were instructions nobody had
+ * asked for, or backed a feature agents do for themselves (Debug Mode).
+ */
 export const BUILTIN_SKILLS: BuiltinSkill[] = [
-  {
-    id: 'workspace-knowledge',
-    name: 'Workspace Knowledge',
-    version: '1.0.0',
-    description: 'Read and update a workspace-local Markdown knowledge graph.',
-  },
-  {
-    id: 'knowledge-grill',
-    name: 'Knowledge Grill',
-    version: '1.0.0',
-    description: 'Stress-test plans against workspace knowledge and current code.',
-  },
-  {
-    id: 'debug',
-    name: 'Debug',
-    version: '1.0.0',
-    description: 'Debug bugs and regressions through a file-backed state machine that survives context compaction.',
-    // Debug Mode delivers this skill's full contract to the agent, so it must
-    // reach each CLI's native skill dir (e.g. .codex/skills), not just .agents/.
-    // The spawn path ensure-installs it when Debug Mode is on — except for a
-    // CLI whose launch carries the `studio-skills` plugin directory, which has
-    // it already (see `bundledSkillDeliveredAtLaunch`).
-    targetPolicy: ALL_NATIVE_TARGET_POLICY,
-  },
-  {
-    id: 'behavior-first-testing',
-    name: 'Behavior First Testing',
-    version: '1.0.0',
-    description: 'Design tests around observable behavior through public interfaces.',
-  },
-  {
-    id: 'prototype',
-    name: 'Prototype',
-    version: '1.0.0',
-    description: 'Build clearly throwaway prototypes for design and workflow questions.',
-  },
-  {
-    id: 'architecture-deepening',
-    name: 'Architecture Deepening',
-    version: '1.0.0',
-    description: 'Find focused architecture improvements for locality and testability.',
-  },
-  {
-    id: 'handoff',
-    name: 'Handoff',
-    version: '1.0.0',
-    description: 'Create concise continuation handoffs for another agent or session.',
-  },
   {
     id: 'backlog',
     name: 'Backlog',
@@ -92,18 +63,19 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     description: 'Take, work, survey, or triage Backlog items with truthful lifecycle status.',
     targetPolicy: ALL_NATIVE_TARGET_POLICY,
   },
-  {
-    id: 'frontend-design',
-    name: 'Frontend Design',
-    version: '1.0.0',
-    description:
-      'Craft guidance for authoring calm, deliberate HTML mockups and design-system bundles instead of generic AI-generated UI.',
-    // Claude-only: it is named in the prompt that wants it and reaches a Claude
-    // session through the launch's `studio-skills` plugin directory (or, where
-    // the launch cannot carry one, .claude/skills). No .agents fan-out —
-    // non-Claude CLIs never see it.
-    harnesses: ['claude'],
-  },
+]
+
+/** Skills earlier builds shipped and wrote into workspaces; see `pruneRetiredBuiltinSkillCopies`. */
+export const RETIRED_BUILTIN_SKILL_IDS: readonly string[] = [
+  'frontend-design',
+  'prototype',
+  'handoff',
+  'architecture-deepening',
+  'behavior-first-testing',
+  'workspace-knowledge',
+  'knowledge-grill',
+  // With Debug Mode, 2026-09-28: the feature that invoked it is gone too.
+  'debug',
 ]
 
 type BuiltinSkillManagerOptions = {
@@ -357,18 +329,17 @@ function canonicalTarget(targets: BuiltinSkillTargetState[]): BuiltinSkillTarget
 /**
  * Where the skills the app ships live, bundled or in the checkout.
  *
- * They moved out of `resources/skills` and into `studio-plugin/studio-skills`
- * with the studio-marketplace ruling (2026-09-06): they are a plugin in the
- * marketplace we publish, which is what lets the Skills catalogue list them
- * from the same source the Plugins catalogue reads instead of from a folder
- * scan nothing else could see. This service still copies them from disk — it is
- * the "attach a built-in skill to this agent" path, not the catalogue — and the
- * directory is the only thing about it that changed.
+ * `resources/builtin-skills`, deliberately OUTSIDE the marketplace we publish
+ * (`resources/studio-plugin`). They sat in it as a `studio-skills` plugin from
+ * 2026-09-06, which made them a plugin every Claude launch was handed whole and
+ * a row every catalogue offered; they are neither now. Only the launch whose
+ * prompt names one gets it (2026-09-28).
  */
+export const BUILTIN_SKILLS_RESOURCE_DIR = 'builtin-skills'
+
 export function builtinSkillSourceRoot(): string {
-  const relative = [STUDIO_MARKETPLACE_RESOURCE_DIR, STUDIO_SKILLS_PLUGIN_ID, 'skills']
-  if (app.isPackaged) return join(process.resourcesPath, ...relative)
-  return join(process.cwd(), 'resources', ...relative)
+  if (app.isPackaged) return join(process.resourcesPath, BUILTIN_SKILLS_RESOURCE_DIR)
+  return join(process.cwd(), 'resources', BUILTIN_SKILLS_RESOURCE_DIR)
 }
 
 export function createBuiltinSkillManager(options: BuiltinSkillManagerOptions = {}) {
@@ -444,20 +415,22 @@ export function createBuiltinSkillManager(options: BuiltinSkillManagerOptions = 
     return targets
   }
 
-  // A harness every one of whose CLIs receives the bundled skills from the
-  // launch itself (today: `claude`, read by Claude Code, Z.AI and Kimi Claude).
-  // A launch-time install for ANOTHER CLI skips it too: its `all-native`
-  // fan-out would otherwise drop `.claude/skills/<id>` into the repository on
-  // a Codex launch, where the next Claude session the app starts does not need
-  // it and a `claude` from a plain terminal would pick it up. `agents` has no
-  // CLI of its own here, so it is never skipped.
-  function launchDeliveredHarness(harness: string, launch: SkillLaunchHost = {}): boolean {
+  // A harness every one of whose CLIs is handed this bundled skill by the
+  // launch that asks for it (today: `claude`, read by Claude Code, Z.AI and
+  // Kimi Claude). A launch-time install for ANOTHER CLI skips it too: its
+  // `all-native` fan-out would otherwise drop `.claude/skills/<id>` into the
+  // repository on a Codex launch, where the next Claude session that wants the
+  // skill is handed its own and a `claude` from a plain terminal would pick the
+  // copy up. `agents` has no CLI of its own here, so it is never skipped.
+  function launchDeliveredHarness(harness: string, skillId: string, launch: SkillLaunchHost = {}): boolean {
     const readers = listPlugins().filter(
       (plugin) =>
         plugin.manifest.skillIntegration?.support === 'native' &&
         plugin.manifest.skillIntegration.harnessId === harness,
     )
-    return readers.length > 0 && readers.every((plugin) => launchDeliversBundledSkillsTo(plugin.manifest.id, launch))
+    return (
+      readers.length > 0 && readers.every((plugin) => launchDeliversBundledSkillTo(plugin.manifest.id, skillId, launch))
+    )
   }
 
   function skillTargets(
@@ -469,7 +442,11 @@ export function createBuiltinSkillManager(options: BuiltinSkillManagerOptions = 
     const result: SkillTargetDescriptor[] = []
     const skipLaunchDelivered = options.skipLaunchDeliveredHarnesses === true && findBuiltinSkill(skill.id) !== null
     for (const target of [...staticSkillTargets(workspaceRoot, skill), ...pluginSkillTargets(workspaceRoot, skill)]) {
-      if (skipLaunchDelivered && target.destinationPath && launchDeliveredHarness(target.harness, options.launch)) {
+      if (
+        skipLaunchDelivered &&
+        target.destinationPath &&
+        launchDeliveredHarness(target.harness, skill.id, options.launch)
+      ) {
         continue
       }
       // Path-bearing targets dedupe on the resolved destination alone: several
@@ -664,19 +641,18 @@ function skillManager(): BuiltinSkillManager {
 
 // ── Skills a launch carries itself ───────────────────────────────────────────
 //
-// A CLI whose launch is handed the app's `studio-skills` plugin directory
-// (`--plugin-dir`, see agent-integration-home.ts) already has every bundled
-// skill for that session, so copying one into the repository first would only
-// put a second, ageing copy of the same bytes where the person's colleagues —
-// and any `claude` run from a plain terminal — would find it. app-services
-// publishes the predicate, because only it knows whether this build managed to
-// materialise the plugin copy; until then (or on a platform that does not take
-// the flag) it answers false and the workspace install stays how the skill
-// arrives.
+// A CLI whose launch takes the app's plugin directories (`--plugin-dir`, see
+// agent-integration-home.ts) is handed a plugin holding just the bundled skill
+// its prompt invokes — the launch asks for it by id — so copying that skill
+// into the repository first would only put a second, ageing copy of the same
+// bytes where the person's colleagues, and any `claude` run from a plain
+// terminal, would find it. app-services publishes the predicate, because only
+// it knows whether this build managed to materialise that skill's plugin on the
+// launch's machine; until then (or on a platform that does not take the flag)
+// it answers false and the workspace install stays how the skill arrives.
 //
 // Bundled skills only. A module-registered skill lives in the module's own
-// tree, not in the `studio-skills` plugin, so it has no launch-scoped route and
-// is still copied for every CLI.
+// tree, so it has no launch-scoped route and is still copied for every CLI.
 
 /**
  * The machine a launch runs on, and what it said about itself when the launch
@@ -687,35 +663,83 @@ function skillManager(): BuiltinSkillManager {
  */
 export type SkillLaunchHost = { hostId?: string | null; integration?: HostAgentIntegration | null }
 
-type LaunchDeliversBundledSkillsResolver = (
+type LaunchDeliversBundledSkillResolver = (
   cli: string,
+  skillId: string,
   hostId?: string | null,
   integration?: HostAgentIntegration | null,
 ) => boolean
 
-let launchDeliversBundledSkills: LaunchDeliversBundledSkillsResolver | null = null
+let launchDeliversBundledSkill: LaunchDeliversBundledSkillResolver | null = null
 
-export function setLaunchDeliversBundledSkillsResolver(resolver: LaunchDeliversBundledSkillsResolver | null): void {
-  launchDeliversBundledSkills = resolver
+export function setLaunchDeliversBundledSkillResolver(resolver: LaunchDeliversBundledSkillResolver | null): void {
+  launchDeliversBundledSkill = resolver
 }
 
-function launchDeliversBundledSkillsTo(cli: string, launch: SkillLaunchHost = {}): boolean {
+function launchDeliversBundledSkillTo(cli: string, skillId: string, launch: SkillLaunchHost = {}): boolean {
   const id = cli.trim()
   if (id === '') return false
   try {
-    return launchDeliversBundledSkills?.(id, launch.hostId, launch.integration) === true
+    return launchDeliversBundledSkill?.(id, skillId, launch.hostId, launch.integration) === true
   } catch {
     return false
   }
 }
 
-/** Whether this launch of `cli`, on `launch`'s machine, receives `skillId` from the app's plugin directory. */
+/**
+ * Whether a launch of `cli` on `launch`'s machine that asks for `skillId` is
+ * handed it as a plugin of its own. The launch asks by passing the id (see
+ * `launchSkills` in terminal-launch.ts), which the terminal runtime does for
+ * exactly the skills it ensures here, so the two agree.
+ */
 export function bundledSkillDeliveredAtLaunch(
   cli: string | undefined,
   skillId: string,
   launch: SkillLaunchHost = {},
 ): boolean {
-  return findBuiltinSkill(skillId) !== null && launchDeliversBundledSkillsTo(cli ?? '', launch)
+  return findBuiltinSkill(skillId) !== null && launchDeliversBundledSkillTo(cli ?? '', skillId, launch)
+}
+
+/**
+ * Take out the copies earlier builds wrote of the skills that no longer ship
+ * (`RETIRED_BUILTIN_SKILL_IDS`), from every harness's skill directory.
+ *
+ * Only a copy this installer wrote and nobody has touched since: its managed
+ * marker names the skill and `sprintengine-builtin`, and its content still
+ * hashes to what was installed. A copy someone edited is theirs now; a copy the
+ * repository committed is the project's (removing it would leave the checkout
+ * modified), the rule the quit removal follows. A skill installed from a
+ * catalogue carries a different marker and is the person's own choice, so it
+ * stays too. Never throws; returns the directories removed, for the diagnostic.
+ */
+export async function pruneRetiredBuiltinSkillCopies(workspaceRoot: string): Promise<string[]> {
+  const root = workspaceRoot.trim()
+  if (root === '') return []
+  const removed: string[] = []
+  for (const harnessDir of new Set(Object.values(SKILL_HARNESS_DIR))) {
+    const skillsRoot = join(root, harnessDir, 'skills')
+    for (const skillId of RETIRED_BUILTIN_SKILL_IDS) {
+      const directory = join(skillsRoot, skillId)
+      try {
+        const manifest = await readJson<ManagedSkillManifest>(join(directory, MANAGED_SKILL_MANIFEST_FILE))
+        if (manifest?.source !== 'sprintengine-builtin' || manifest.id !== skillId) continue
+        const hash = await hashSkillDirectory(directory, new Set([MANAGED_SKILL_MANIFEST_FILE]))
+        if (hash !== manifest.installedSkillHash) continue
+        if (await gitTracksPath(skillsRoot, skillId)) continue
+        await rm(directory, { recursive: true, force: true })
+        removed.push(directory)
+      } catch {
+        // Leaving it costs a stale copy, never a broken workspace.
+      }
+    }
+  }
+  if (removed.length > 0) {
+    const gone = new Set(removed)
+    void integrationLedger()
+      ?.forgetWhere((entry) => entry.kind === 'skill-copy' && gone.has(entry.path))
+      .catch(() => undefined)
+  }
+  return removed
 }
 
 /**

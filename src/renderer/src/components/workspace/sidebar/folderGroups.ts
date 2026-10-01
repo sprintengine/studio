@@ -7,6 +7,7 @@ import { type RemoteConversation } from '../remoteBand/remoteSessionsModel'
 import { type FolderIdentityMap, folderIdentityKey } from '../useFolderRepositoryIdentities'
 import { workspaceProjectRoot } from '../../../utils/workspaceWorktree'
 import { shortMachineName } from '../../remote/machineRowModel'
+import { isMeshConversationPane } from '../../../../../shared/tailnet-mesh'
 
 export type FolderGroup = {
   key: string
@@ -141,7 +142,7 @@ export function folderDisplayName(value: string | null): string {
  * provenance record — the mark rides the workspace, not a live pane, so
  * closing the pane never loses it) groups by the machine
  * and the remote workspace, never under "No folder". A legacy remote row —
- * no `remoteOrigin`, no folder, but fleet panes in its layout — groups by
+ * no `remoteOrigin`, no folder, but mesh panes in its layout — groups by
  * the machine its layout names.
  *
  * A worktree-backed row files under the project it was cut from, not under
@@ -162,7 +163,7 @@ export function groupKeyOf(workspace: Workspace): string {
     return `remote:${origin.connectionId}:${folderKey(origin.workspaceRoot)}`
   }
   if (!workspace.folderPath) {
-    const [machine] = fleetMachineNamesOf(workspace)
+    const [machine] = meshMachineNamesOf(workspace)
     if (machine) return `remote:${machine.toLowerCase()}`
   }
   return folderKey(workspaceProjectRoot(workspace))
@@ -204,7 +205,7 @@ export function remoteGroupOf(workspace: Workspace): FolderGroup['remote'] {
     }
   }
   if (!workspace.folderPath) {
-    const [machine] = fleetMachineNamesOf(workspace)
+    const [machine] = meshMachineNamesOf(workspace)
     if (machine) return { machineName: machine, workspaceRoot: null, repository: null }
   }
   return null
@@ -235,7 +236,7 @@ export function remoteProjectName(workspaceRoot: string | null, machineName: str
 export function remoteGroupDisplayName(workspace: Workspace): string {
   const origin = workspace.remoteOrigin
   if (origin) return remoteProjectName(origin.workspaceRoot, origin.machineName)
-  const [machine] = fleetMachineNamesOf(workspace)
+  const [machine] = meshMachineNamesOf(workspace)
   return machine ? shortMachineName(machine) : 'No folder'
 }
 
@@ -324,19 +325,19 @@ export function reorderFolders(
   return remaining.flatMap((g) => g.workspaces.map((w) => w.id))
 }
 
-export function fleetPanesOf(workspace: Workspace): Array<{ tabId: string; machineName: string; cli?: string }> {
+export function meshPanesOf(workspace: Workspace): Array<{ tabId: string; machineName: string; cli?: string }> {
   const panes: Array<{ tabId: string; machineName: string; cli?: string }> = []
   const walk = (node: unknown): void => {
     if (!node || typeof node !== 'object') return
     const record = node as { type?: unknown; id?: unknown; component?: unknown; config?: unknown; children?: unknown }
-    if (record.type === 'tab' && record.component === 'fleet-terminal') {
+    if (record.type === 'tab' && isMeshConversationPane(record.component)) {
       const config = record.config as { machineName?: unknown; cli?: unknown; remoteSessionId?: unknown } | undefined
       const machine = config?.machineName
       if (typeof machine === 'string' && machine) {
         const tabId =
           typeof record.id === 'string' && record.id
             ? record.id
-            : `fleet-terminal:${machine}:${String(config?.remoteSessionId ?? panes.length)}`
+            : `mesh-conversation:${machine}:${String(config?.remoteSessionId ?? panes.length)}`
         panes.push({
           tabId,
           machineName: machine,
@@ -352,7 +353,7 @@ export function fleetPanesOf(workspace: Workspace): Array<{ tabId: string; machi
   return panes
 }
 
-/** The unique machine names of the workspace's fleet panes, in layout order. */
-export function fleetMachineNamesOf(workspace: Workspace): string[] {
-  return [...new Set(fleetPanesOf(workspace).map((pane) => pane.machineName))]
+/** The unique machine names of the workspace's mesh panes, in layout order. */
+export function meshMachineNamesOf(workspace: Workspace): string[] {
+  return [...new Set(meshPanesOf(workspace).map((pane) => pane.machineName))]
 }

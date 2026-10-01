@@ -214,6 +214,15 @@
     }
   },
   "sem": {
+    "syntax": {
+      "foreground": {"$type":"color","$value":"{sem.color.text.default}","$description":"Code syntax foreground ink.","$extensions":{"com.sprintengine":{"role":"syntax","use":"foreground tokens inside source code.","components":["code-block"]}}},
+      "comment": {"$type":"color","$value":"{sem.color.text.muted}","$description":"Code syntax comment ink.","$extensions":{"com.sprintengine":{"role":"syntax","use":"comment tokens inside source code.","components":["code-block"]}}},
+      "keyword": {"$type":"color","$value":"{sem.color.mark.violet}","$description":"Code syntax keyword ink.","$extensions":{"com.sprintengine":{"role":"syntax","use":"keyword tokens inside source code.","components":["code-block"]}}},
+      "string": {"$type":"color","$value":"{sem.color.mark.teal}","$description":"Code syntax string ink.","$extensions":{"com.sprintengine":{"role":"syntax","use":"string tokens inside source code.","components":["code-block"]}}},
+      "number": {"$type":"color","$value":"{sem.color.mark.orange}","$description":"Code syntax number ink.","$extensions":{"com.sprintengine":{"role":"syntax","use":"number tokens inside source code.","components":["code-block"]}}},
+      "function": {"$type":"color","$value":"{sem.color.mark.blue}","$description":"Code syntax function ink.","$extensions":{"com.sprintengine":{"role":"syntax","use":"function tokens inside source code.","components":["code-block"]}}},
+      "type": {"$type":"color","$value":"{sem.color.mark.cyan}","$description":"Code syntax type ink.","$extensions":{"com.sprintengine":{"role":"syntax","use":"type tokens inside source code.","components":["code-block"]}}}
+    },
     "color": {
       "bg": {
         "app": {
@@ -261,6 +270,26 @@
               "modes": {
                 "light": "{ref.color.white}",
                 "dark": "{ref.color.ink-875}"
+              }
+            }
+          }
+        },
+        "well": {
+          "$type": "color",
+          "$value": "rgba(32, 36, 40, 0.05)",
+          "$description": "A content well set into a reading surface: a translucent tint of the ink over whatever surface is behind it, so it separates from the conversation canvas, a panel, and a card alike.",
+          "$extensions": {
+            "com.sprintengine": {
+              "role": "surface",
+              "use": "Code blocks and other preformatted source shown inside prose \u2014 content the reader is meant to see as a separate object in the flow, not as chrome. Pair with a border.subtle hairline. Also the groove of a segmented control (owner ruling 2026-10-01): a track is set INTO the surface the same way, and a tint rather than a solid is what lets one strip sit on a panel, a card or a popover alike.",
+              "doNotUse": "A control's own face, rows, hover or selection (those are bg.hover / bg.selected), and chrome raised above the panel (bg.surface-raised). Never stack a well inside a well: the tints add.",
+              "components": [
+                "code-block",
+                "segmented-control"
+              ],
+              "modes": {
+                "light": "rgba(32, 36, 40, 0.05)",
+                "dark": "rgba(252, 252, 252, 0.06)"
               }
             }
           }
@@ -573,7 +602,7 @@
             "com.sprintengine": {
               "seeded": true,
               "role": "status",
-              "use": "Idle or unknown status dots and inline status copy.",
+              "use": "Idle or unknown status marks (the ring with a bar) and inline status copy.",
               "doNotUse": "Button fills, chrome tints, or category coding \u2014 status only.",
               "modes": {
                 "light": "{ref.color.gray-500}",
@@ -590,7 +619,7 @@
             "com.sprintengine": {
               "seeded": true,
               "role": "status",
-              "use": "Completion and health marks: done discs, success dots.",
+              "use": "Completion and health marks: the done disc with its knocked-out check, in rows and status marks alike.",
               "doNotUse": "Anything decorative; never retune toward the accent green.",
               "modes": {
                 "light": "{ref.color.emerald-700}",
@@ -991,6 +1020,32 @@
             }
           }
         }
+      },
+      "scaffold": {
+        "ink": {
+          "$type": "color",
+          "$value": "{ref.color.violet-500}",
+          "$description": "Ink of the chip that names something a chat is about to make, such as the extension-name chip on the New chat door (owner, 2026-09-30). Violet so it cannot read as the worktree chip beside it, which several themes draw in a blue accent.",
+          "$extensions": {
+            "com.sprintengine": {
+              "role": "scaffold",
+              "use": "Glyph ink and the dashed empty edge of a name chip for something being made.",
+              "doNotUse": "A second accent on buttons or selection, status of any kind, or file-type glyphs (mark.violet)."
+            }
+          }
+        },
+        "soft": {
+          "$type": "color",
+          "$value": "rgba(137, 87, 229, 0.16)",
+          "$description": "Soft fill of a named scaffold chip: scaffold.ink at 16%.",
+          "$extensions": {
+            "com.sprintengine": {
+              "role": "scaffold",
+              "use": "Fill of a name chip for something being made, once it holds a name.",
+              "doNotUse": "Row selection, banners, or any fill that is not a scaffold chip."
+            }
+          }
+        }
       }
     },
     "shadow": {
@@ -1043,9 +1098,28 @@
           }
         }
       },
+      "toast": {
+        "$type": "shadow",
+        "$value": "inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 1px 2px rgba(16, 20, 24, 0.08), 0 10px 28px -8px rgba(16, 20, 24, 0.22)",
+        "$description": "Elevation for the toast card: a 1px lit top edge over a lifted drop, so the corner report reads as sitting above the page it floats over.",
+        "$extensions": {
+          "com.sprintengine": {
+            "role": "elevation",
+            "use": "The toast card only. The inset highlight is the control-raised light source (lit from above); the drop sits between popover and modal because a toast floats over live content with no scrim and no anchor to lean on.",
+            "doNotUse": "Anchored surfaces (shadow.popover) or scrimmed shells (shadow.modal).",
+            "components": [
+              "toast"
+            ],
+            "modes": {
+              "light": "inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 1px 2px rgba(16, 20, 24, 0.08), 0 10px 28px -8px rgba(16, 20, 24, 0.22)",
+              "dark": "inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 1px 2px rgba(0, 0, 0, 0.4), 0 14px 36px -10px rgba(0, 0, 0, 0.75)"
+            }
+          }
+        }
+      },
       "control-raised": {
         "$type": "shadow",
-        "$value": "inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 1px 2px rgba(16, 20, 24, 0.14)",
+        "$value": "inset 0 1px 0 rgba(255, 255, 255, 0.26), 0 1px 2px rgba(16, 20, 24, 0.16), 0 2px 6px -2px rgba(16, 20, 24, 0.16)",
         "$description": "Resting elevation for a filled control: a 1px lit top edge over a shallow drop.",
         "$extensions": {
           "com.sprintengine": {
@@ -1054,31 +1128,39 @@
             "doNotUse": "Overlays \u2014 those take shadow.popover / shadow.modal / shadow.drawer. Also not for ghost or icon buttons: a borderless control has no edge to light.",
             "components": [
               "button",
-              "split-button"
+              "split-button",
+              "chip-button",
+              "card-button",
+              "segmented-control",
+              "trigger-button"
             ],
             "modes": {
-              "light": "inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 1px 2px rgba(16, 20, 24, 0.14)",
-              "dark": "inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 1px 2px rgba(0, 0, 0, 0.45)"
+              "light": "inset 0 1px 0 rgba(255, 255, 255, 0.26), 0 1px 2px rgba(16, 20, 24, 0.16), 0 2px 6px -2px rgba(16, 20, 24, 0.16)",
+              "dark": "inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 1px 2px rgba(0, 0, 0, 0.5), 0 2px 6px -2px rgba(0, 0, 0, 0.45)"
             }
           }
         }
       },
       "control-edge": {
         "$type": "shadow",
-        "$value": "inset 0 -1px 0 rgba(16, 20, 24, 0.05), 0 1px 1px rgba(16, 20, 24, 0.05)",
+        "$value": "inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -1px 0 rgba(16, 20, 24, 0.04), 0 1px 2px rgba(16, 20, 24, 0.07)",
         "$description": "Resting elevation for a bordered neutral control: the quieter half-step below control-raised.",
         "$extensions": {
           "com.sprintengine": {
             "role": "elevation",
-            "use": "Outlined buttons and other bordered neutral controls at rest. Lights the inner top rim on dark, shades the inner bottom on light \u2014 both read as lit from above.",
+            "use": "Every bordered neutral control at rest: outlined buttons, raised chips, raised cards, a segmented control\u2019s selected thumb and trigger buttons. A 1px lit top lip over a shallow drop in both modes \u2014 lit from above.",
             "doNotUse": "Filled controls \u2014 those take shadow.control-raised, which is a full step brighter.",
             "components": [
               "button",
-              "split-button"
+              "split-button",
+              "chip-button",
+              "card-button",
+              "segmented-control",
+              "trigger-button"
             ],
             "modes": {
-              "light": "inset 0 -1px 0 rgba(16, 20, 24, 0.05), 0 1px 1px rgba(16, 20, 24, 0.05)",
-              "dark": "inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.3)"
+              "light": "inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -1px 0 rgba(16, 20, 24, 0.04), 0 1px 2px rgba(16, 20, 24, 0.07)",
+              "dark": "inset 0 1px 0 rgba(255, 255, 255, 0.075), 0 1px 2px rgba(0, 0, 0, 0.42)"
             }
           }
         }
@@ -1094,11 +1176,79 @@
             "doNotUse": "A resting state, and never on a control that carries no resting elevation.",
             "components": [
               "button",
-              "split-button"
+              "split-button",
+              "chip-button",
+              "card-button",
+              "segmented-control",
+              "trigger-button"
             ],
             "modes": {
               "light": "inset 0 1px 2px rgba(16, 20, 24, 0.12)",
               "dark": "inset 0 1px 2px rgba(0, 0, 0, 0.4)"
+            }
+          }
+        }
+      },
+      "control-track": {
+        "$type": "shadow",
+        "$value": "inset 0 1px 2px rgba(16, 20, 24, 0.06)",
+        "$description": "The recessed well a segmented control\u2019s raised thumb slides along: light falls into it from above.",
+        "$extensions": {
+          "com.sprintengine": {
+            "role": "elevation",
+            "use": "The track of a segmented control, under its control-edge thumb. The one inset-at-rest shadow: a track is a groove in the surface, not a control on it.",
+            "doNotUse": "Inputs, cards or anything a person presses \u2014 those stand off the surface (control-edge) rather than sinking into it.",
+            "components": [
+              "segmented-control"
+            ],
+            "modes": {
+              "light": "inset 0 1px 2px rgba(16, 20, 24, 0.06)",
+              "dark": "inset 0 1px 2px rgba(0, 0, 0, 0.35)"
+            }
+          }
+        }
+      }
+    },
+    "gradient": {
+      "control-sheen": {
+        "$type": "gradient",
+        "$value": "linear-gradient(180deg, rgba(255, 255, 255, 0) 45%, rgba(16, 20, 24, 0.03) 100%)",
+        "$description": "The faint top-to-bottom falloff across a bordered neutral control\u2019s face, painted as a background-image over its ground colour.",
+        "$extensions": {
+          "com.sprintengine": {
+            "role": "elevation",
+            "use": "Paired with shadow.control-edge on every bordered neutral control at rest: light mode shades the lower half, dark mode lifts the upper half, so the face reads as curved toward the light. Reached through the app\u2019s .control-edge class, never spelled at a call site.",
+            "doNotUse": "Filled controls (gradient.control-raised-sheen), flat ghost/icon controls, or any surface that is not a control.",
+            "components": [
+              "button",
+              "chip-button",
+              "card-button",
+              "segmented-control",
+              "trigger-button"
+            ],
+            "modes": {
+              "light": "linear-gradient(180deg, rgba(255, 255, 255, 0) 45%, rgba(16, 20, 24, 0.03) 100%)",
+              "dark": "linear-gradient(180deg, rgba(255, 255, 255, 0.045) 0%, rgba(255, 255, 255, 0) 100%)"
+            }
+          }
+        }
+      },
+      "control-raised-sheen": {
+        "$type": "gradient",
+        "$value": "linear-gradient(180deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0) 100%)",
+        "$description": "The sheen across a filled control\u2019s face: white falling off from the lit top edge.",
+        "$extensions": {
+          "com.sprintengine": {
+            "role": "elevation",
+            "use": "Paired with shadow.control-raised on the primary and destructive fills. Reached through the app\u2019s .control-raised class.",
+            "doNotUse": "Bordered neutrals (gradient.control-sheen) or flat controls.",
+            "components": [
+              "button",
+              "split-button"
+            ],
+            "modes": {
+              "light": "linear-gradient(180deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0) 100%)",
+              "dark": "linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0) 100%)"
             }
           }
         }
@@ -1315,6 +1465,21 @@
               "use": "Long-form prose in inspectors and docs."
             }
           }
+        },
+        "code": {
+          "$type": "number",
+          "$value": 1.6,
+          "$description": "Line height for blocks of source code.",
+          "$extensions": {
+            "com.sprintengine": {
+              "role": "typography",
+              "use": "Multi-line monospace source read line by line \u2014 code blocks. The extra leading over relaxed keeps a line's brackets and operators from touching the line above, which prose at the same size does not need.",
+              "doNotUse": "Prose, labels and single-line code (inline code takes the line height of the sentence it sits in).",
+              "components": [
+                "code-block"
+              ]
+            }
+          }
         }
       },
       "tracking": {
@@ -1483,13 +1648,12 @@
         "$extensions": {
           "com.sprintengine": {
             "role": "shape",
-            "use": "Badges, status chips, switch tracks and progress rails \u2014 anything whose shape says \"this is a marker, not a control\". Referenced by liveness and the list-surface pattern, which spelled var(--sem-radius-pill) before this token existed and therefore rendered square.",
+            "use": "Badges, status chips, switch tracks and progress rails \u2014 anything whose shape says \"this is a marker, not a control\". Referenced by liveness, which spelled var(--sem-radius-pill) before this token existed and therefore rendered square.",
             "doNotUse": "Buttons, inputs, cards and rows \u2014 those take radius.control. A pill-shaped button wears the badge shape, and the two stop being tellable apart. Nor is this a ramp step: it sits outside the 3/7/9 scale on purpose, so a tool reading sem.radius.* as a ramp must exclude it.",
             "components": [
               "badge",
               "liveness",
-              "switch",
-              "status-dot"
+              "switch"
             ]
           }
         }
@@ -1560,6 +1724,27 @@
               "role": "motion",
               "use": "Every transition and animation \u2014 one ease, no exceptions.",
               "doNotUse": "Introducing a second easing curve."
+            }
+          }
+        }
+      }
+    },
+    "opacity": {
+      "dimmed": {
+        "$type": "number",
+        "$value": 0.42,
+        "$description": "How much of itself content keeps when it is set back so one region can lead \u2014 the code around a diff tour step.",
+        "$extensions": {
+          "com.sprintengine": {
+            "role": "emphasis",
+            "use": "Ink opacity of content that stays readable but steps back while a guided walkthrough points at one region (a diff tour: every line outside the step). Reached as the resting value of an animated custom property, so the dim eases in rather than snapping.",
+            "doNotUse": "Disabled controls (they take text.disabled), placeholder text, or hiding anything: dimmed content is still content and must stay legible. Never on the region being pointed at.",
+            "components": [
+              "tour-callout"
+            ],
+            "modes": {
+              "light": 0.42,
+              "dark": 0.38
             }
           }
         }
@@ -1779,6 +1964,32 @@
             }
           }
         }
+      },
+      "chat-column": {
+        "comfortable": {
+          "$type": "dimension",
+          "$value": "768px",
+          "$description": "The comfortable conversation column: a reading measure for chat prose at the conversation type scale.",
+          "$extensions": {
+            "com.sprintengine": {
+              "role": "sizing",
+              "use": "max-width of the conversation column (the transcript and the composer together) when the chat width setting is Comfortable.",
+              "doNotUse": "A cap on anything outside the conversation column, or on the scroller itself: the scroller stays pane-wide so its scrollbar sits at the pane edge."
+            }
+          }
+        },
+        "wide": {
+          "$type": "dimension",
+          "$value": "1152px",
+          "$description": "The wide conversation column: room for tables and diffs, while a very wide pane still keeps a centred column.",
+          "$extensions": {
+            "com.sprintengine": {
+              "role": "sizing",
+              "use": "max-width of the conversation column (the transcript and the composer together) when the chat width setting is Wide.",
+              "doNotUse": "A cap on anything outside the conversation column, or on the scroller itself."
+            }
+          }
+        }
       }
     },
     "focus": {
@@ -1871,48 +2082,64 @@
     "tinted": {
       "wash": {
         "$type": "number",
-        "$value": 0.06,
-        "$description": "How much of the accent the tinted window material's canvas gradient carries at its lit corner; the gradient eases back to plain bg.app across the window.",
+        "$value": 0.02,
+        "$description": "How much of the foreground ink the tinted window material's ambient wash carries at its heart, in the top-left corner where the rail and the title band meet; it feathers to plain bg.app over a large part of the window.",
         "$extensions": {
           "com.sprintengine": {
             "role": "surface",
-            "use": "The tinted window material's canvas only (owner ruling 2026-09-24): an opaque, static gradient painted once on the window ground \u2014 color-mix(accent.primary at tinted.wash, bg.app) at the top-left corner, easing to bg.app by the middle of the window and back to half the wash at the far corner. It sits under the window chrome (rail, sidebar strip, title band), never under a card. Dark mode carries a little more because a near-black ground swallows a faint wash.",
-            "doNotUse": "Any card, panel, row, or control ground, and any surface that says something \u2014 the wash is ground, not signal. Never animated.",
+            "use": "The tinted window material's ground only (owner rulings 2026-09-24): one static, heavily feathered radial wash of text.primary over bg.app, painted once on the window ground under the chrome (rail, sidebar strip, title band). Its colour is the ink of what sits on it \u2014 the rail's glyphs and the chrome's text \u2014 so it reads as a hint of that colour rather than a glow, and it falls off on a smooth curve with no visible edge. At its heart it stays below the step between bg.app and the cards, so a card still reads as raised above the chrome rather than sunk into it.",
+            "doNotUse": "Any card, panel, row or control ground, a wash worn by a single control, and any surface that says something \u2014 the wash is ground, not signal. Never the accent (that is tinted.brand, behind the accent half of the wordmark only). Never animated.",
             "modes": {
-              "light": 0.06,
-              "dark": 0.09
+              "light": 0.02,
+              "dark": 0.014
             }
           }
         }
       },
-      "bleed": {
+      "brand": {
         "$type": "number",
-        "$value": 0.2,
-        "$description": "How much of the accent the tinted material's glow carries at its brightest \u2014 the soft colour bleed around the brand mark and the rail's buttons.",
+        "$value": 0.05,
+        "$description": "How much of the accent the brand wordmark's feathered wash carries at its heart, behind \"engine\", under the tinted material.",
         "$extensions": {
           "com.sprintengine": {
             "role": "surface",
-            "use": "The tinted window material's glow: one static radial gradient of accent.primary reaching tinted.bleed-reach past the brand wordmark and every rail button alike, at tinted.bleed in a ring at the element's edge and at half that under its centre, so the glyph or letter there keeps its contrast. Dark mode glows more because the same share of accent reads weaker against near-black.",
-            "doNotUse": "Marking state. Every rail button wears the same glow whether or not it is selected \u2014 selection stays the neutral bg.selected fill \u2014 and nothing outside the window chrome glows.",
+            "use": "The accent half of the tinted window material's wash behind the brand wordmark, and nothing else: a soft ellipse of accent.primary behind \"engine\", at tinted.brand at its centre and feathered to nothing at tinted.brand-reach past the mark. The colour follows the letters it sits behind, which is the only place the material spends the accent.",
+            "doNotUse": "A rail button, any other control, or marking state \u2014 a wash per control reads as a tile or a halo behind it. Never animated.",
             "modes": {
-              "light": 0.2,
-              "dark": 0.28
+              "light": 0.05,
+              "dark": 0.06
             }
           }
         }
       },
-      "bleed-reach": {
-        "$type": "dimension",
-        "$value": "18px",
-        "$description": "How far the tinted material's glow reaches past the brand mark and the rail's buttons into the chrome around them.",
+      "brand-ink": {
+        "$type": "number",
+        "$value": 0.025,
+        "$description": "How much of the foreground ink the brand wordmark's feathered wash carries at its heart, behind \"sprint\", under the tinted material.",
         "$extensions": {
           "com.sprintengine": {
             "role": "surface",
-            "use": "The outset of the tinted glow's gradient on every side of the element, paired with tinted.bleed. Short enough that neighbouring rail buttons' glows merge into one soft column rather than a row of separate halos.",
+            "use": "The ink half of the tinted window material's wash behind the brand wordmark: a soft ellipse of text.primary behind \"sprint\", paired with tinted.brand behind \"engine\". Smaller than tinted.brand because the foreground sits much further from bg.app than the accent does, so the same share of it would lift the ground several times as much; at this share the two halves read as one faint strength.",
+            "doNotUse": "A rail button, any other control, or marking state \u2014 a wash per control reads as a tile or a halo behind it. Never animated.",
+            "modes": {
+              "light": 0.025,
+              "dark": 0.025
+            }
+          }
+        }
+      },
+      "brand-reach": {
+        "$type": "dimension",
+        "$value": "24px",
+        "$description": "How far the brand wordmark's feathered wash reaches past the mark along the brand row.",
+        "$extensions": {
+          "com.sprintengine": {
+            "role": "surface",
+            "use": "The horizontal outset of the wordmark's wash under the tinted material, paired with tinted.brand; the wash reaches four tenths of it above and below the mark, so it stays inside the 36px brand row and has faded to nothing before any edge.",
             "doNotUse": "Any shadow \u2014 elevation comes from the sem.shadow set.",
             "modes": {
-              "light": "18px",
-              "dark": "22px"
+              "light": "24px",
+              "dark": "24px"
             }
           }
         }
@@ -1922,11 +2149,11 @@
       "behind": {
         "$type": "number",
         "$value": -1,
-        "$description": "Decoration painted behind its own element's content: a glow or wash pseudo-element inside the element's isolated stacking context.",
+        "$description": "Decoration painted behind its own element's content: a wash pseudo-element inside the element's isolated stacking context.",
         "$extensions": {
           "com.sprintengine": {
             "role": "layering",
-            "use": "A `::before` or `::after` that decorates the ground under its own element (the tinted material's bleed) and must sit behind that element's content. Pair it with `isolation: isolate` on the element, so it goes behind the content and no further.",
+            "use": "A `::before` or `::after` that decorates the ground under its own element (the tinted material's wash behind the brand wordmark) and must sit behind that element's content. Pair it with `isolation: isolate` on the element, so it goes behind the content and no further.",
             "doNotUse": "Pushing a real surface under another one, or anything outside an isolated stacking context: without the isolation it slips behind the element's ancestors' backgrounds and vanishes."
           }
         }

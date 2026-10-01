@@ -6,7 +6,6 @@ import { join } from 'node:path'
 import { createWorkspaceRegistryStore, WORKSPACE_REGISTRY_FILE_NAME } from './workspace-registry-store'
 import { createWorkspaceRegistryService } from './workspace-registry-service'
 import { createWorkspaceSyncService } from './workspace-sync-service'
-import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../shared/workspace-mode'
 import { parseWorkspaceRegistryFile } from '../shared/workspace-registry'
 import type { WorkspaceRegistryDiagnostic } from './workspace-registry-service'
 
@@ -88,40 +87,6 @@ test('an explicitly named workspace locks its title at creation', () => {
   }
 })
 
-test('the host mode mints its own single-surface layout headlessly', () => {
-  const h = harness()
-  try {
-    const auto = create(h, { folderPath: '/repo', mode: AUTOMATIONS_HOST_WORKSPACE_MODE })
-    assert.equal(auto.workspace.templateId, 'automations-mode')
-    assert.equal(
-      JSON.stringify(auto.workspace.layoutModel).includes('automations-control-center'),
-      true,
-      'a host minted with no window still gets its control centre, never a bare standard layout',
-    )
-    // The mode wins over a caller-named template: a host built on 'solo' would
-    // have no control surface in it.
-    const forced = create(h, { folderPath: '/other', mode: AUTOMATIONS_HOST_WORKSPACE_MODE, templateId: 'solo' })
-    assert.equal(forced.workspace.templateId, 'automations-mode')
-  } finally {
-    h.cleanup()
-  }
-})
-
-test('two creates for one folder’s host resolve to the same id', () => {
-  const h = harness()
-  try {
-    const first = create(h, { folderPath: '/repo', name: 'Automations', mode: AUTOMATIONS_HOST_WORKSPACE_MODE })
-    const second = create(h, { folderPath: '/Repo/', name: 'Automations', mode: AUTOMATIONS_HOST_WORKSPACE_MODE })
-    assert.equal(second.workspace.id, first.workspace.id, 'reuse holds across callers, not only within one window')
-    assert.equal(second.reused, true)
-    assert.equal(h.registry.getRecords().length, 1, 'no duplicate host is minted')
-    // Reuse clears folderMissing: the caller just named the folder.
-    assert.equal(second.workspace.folderMissing, false)
-  } finally {
-    h.cleanup()
-  }
-})
-
 test('two mutations in one tick land in revision order and persist', async () => {
   const h = harness()
   try {
@@ -144,7 +109,7 @@ test('two mutations in one tick land in revision order and persist', async () =>
 test('a restart reloads a complete registry — no placeholders, every layout real', async () => {
   const h = harness()
   try {
-    create(h, { name: 'Survivor', folderPath: '/repo', mode: AUTOMATIONS_HOST_WORKSPACE_MODE })
+    create(h, { name: 'Survivor', folderPath: '/repo', mode: 'weather-deck' })
     await h.registry.flush()
 
     // Second boot against the same userData dir, with no window at any point.
@@ -155,20 +120,10 @@ test('a restart reloads a complete registry — no placeholders, every layout re
     const record = records[0]!
     assert.equal(record.name, 'Survivor')
     assert.equal(record.folderPath, '/repo')
-    assert.equal(record.mode, AUTOMATIONS_HOST_WORKSPACE_MODE, 'the mode survives, so host-by-folder lookup works')
+    assert.equal(record.mode, 'weather-deck', 'a module-registered mode survives the restart')
     assert.notEqual(record.templateId, 'workspace-sync-routing-placeholder')
     assert.notDeepEqual(record.layoutModel, { global: {}, borders: [], layout: { type: 'row', children: [] } })
     assert.equal(reloaded.needsHydration(), false, 'a loaded registry is authoritative; hydration is over')
-
-    // A restart survivor is reusable by folder, which is what a placeholder
-    // could never be — the executor used to mint a duplicate host per restart.
-    const reloadedSync = createWorkspaceSyncService({ registry: reloaded })
-    const reuse = reloadedSync.createWorkspace(
-      { folderPath: '/repo', mode: AUTOMATIONS_HOST_WORKSPACE_MODE },
-      'automation',
-    )
-    assert.ok(reuse.ok)
-    assert.equal(reuse.result.workspace.id, record.id)
   } finally {
     h.cleanup()
   }

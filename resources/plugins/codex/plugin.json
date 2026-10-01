@@ -9,16 +9,31 @@
   "binary": "codex",
   "permissionPresets": {
     "manual": {
-      "label": "Manual — Codex prompts for approvals",
+      "$comment": "Codex's own Read only: commands run in a read-only sandbox with no network, so every edit, and every command that writes or reaches out, has to ask to leave it. Not `--ask-for-approval untrusted`: Codex 0.157 refuses that value on the command line (`invalid value 'untrusted'`) and in config (`no longer supported`), so a terminal launched with it never started.",
+      "label": "Read only",
+      "summary": "Reads freely; asks to edit or go online.",
+      "description": "Codex’s Read Only: it reads the workspace and runs commands in a read-only sandbox, and asks before it edits a file or uses the network.",
       "args": ["--ask-for-approval", "on-request", "--sandbox", "read-only"]
     },
+    "workspace": {
+      "$comment": "Codex's own Default (what Auto was before it became auto-review): the workspace sandbox, and the person is asked before anything leaves it. Not keyed `default`, which is a retired spelling of the manual preset.",
+      "label": "Default",
+      "summary": "Workspace sandbox; asks you to go past it.",
+      "description": "Codex’s Default: it edits and runs commands inside the workspace sandbox without asking, and asks you before it writes outside the workspace or uses the network.",
+      "level": "auto",
+      "args": ["--ask-for-approval", "on-request", "--sandbox", "workspace-write"]
+    },
     "auto": {
-      "$comment": "Codex's autonomy is enforced by a SANDBOX, not reviewed by a classifier \u2014 same rung as Claude Code's auto, different mechanism. `--ask-for-approval never` is deliberate over `on-request`: this is the rung the automation MCP surface forces callers onto (it refuses bypass outright), and a prompting preset does not escalate an unattended run, it hangs it until the idle reaper fails it.",
-      "label": "Auto — sandboxed to the workspace, never prompts",
-      "args": ["--ask-for-approval", "never", "--sandbox", "workspace-write"]
+      "$comment": "Codex's own auto-review (`codex --help`: `--approve-for-me  Route approval requests through automatic review using the workspace-write sandbox`): it edits and runs commands inside the workspace sandbox without asking, and a request to go past it is judged by Codex's reviewer rather than put to the person, as Claude Code's and Cursor's Auto are their classifiers. The flag sets the sandbox and approval policy itself, and Codex refuses it beside `--ask-for-approval` or `--sandbox`.",
+      "label": "Auto-review",
+      "summary": "Workspace sandbox; a reviewer judges the rest.",
+      "description": "Codex’s auto-review: it edits and runs commands inside the workspace sandbox without asking, and a reviewer judges each request to write outside the workspace or use the network instead of asking you.",
+      "args": ["--approve-for-me"]
     },
     "bypass": {
-      "label": "YOLO — no approvals or sandbox",
+      "label": "YOLO",
+      "summary": "No approvals and no sandbox.",
+      "description": "Run Codex without approval prompts or sandbox restrictions. Use only in repositories and environments you trust.",
       "args": ["--dangerously-bypass-approvals-and-sandbox"]
     }
   },
@@ -133,7 +148,7 @@
   "detect": {
     "versionArgs": ["--version"]
   },
-  "package": {"npm": "@openai/codex", "brew": "codex"},
+  "package": { "npm": "@openai/codex", "brew": "codex" },
   "install": {
     "darwin": [
       {

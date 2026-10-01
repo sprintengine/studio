@@ -1,6 +1,6 @@
 import React from 'react'
 
-import { TAILNET_STRUCTURED_SCOPES, type TailnetPairRequest } from '../../../../shared/tailnet'
+import { TAILNET_LEGACY_REQUEST_SCOPES, type TailnetPairRequest } from '../../../../shared/tailnet'
 import { GhostButton, Input, PrimaryButton } from '../ui'
 import { shortMachineName } from './machineRowModel'
 import { usePairRequestAnswer } from './pairRequestAnswer'
@@ -13,11 +13,11 @@ import { usePairRequestAnswer } from './pairRequestAnswer'
 //
 // Allow here grants exactly what the asking machine ASKED FOR
 // (`requestedScopes`, remote-settings-rebuild). It used to grant a house
-// default with the terminal tier stripped out, which meant a machine that asked
-// to watch your chats was silently paired without the scope that shows them and
-// nobody was told — the same bug in one click that the old Pair a device button
-// had in another. The card in the Remote popover remains the surface that
-// CHANGES the set; this one answers the question as it was put.
+// default, which meant a machine that asked to watch your chats was silently
+// paired without the scope that shows them and nobody was told — the same bug
+// in one click that the old Pair a device button had in another. The card in
+// the Remote popover remains the surface that CHANGES the set; this one answers
+// the question as it was put.
 export function PairRequestToastAccept({ request }: { request: TailnetPairRequest }) {
   const { code, setCode, codeError, busy, answer } = usePairRequestAnswer(request.id)
   const inputId = React.useId()
@@ -27,8 +27,10 @@ export function PairRequestToastAccept({ request }: { request: TailnetPairReques
   const asker = shortMachineName(request.peerNode ?? request.peerAddress)
   const disabled = busy !== null
   // Absent on a request from a build older than the field, which reads as the
-  // set every pairing path defaulted to before it existed.
-  const requested = [...(request.requestedScopes ?? TAILNET_STRUCTURED_SCOPES)]
+  // set every pairing path defaulted to before it existed — never a scope added
+  // since, such as the conversation pair, which that build could not have
+  // asked for. The same fallback the pair-request card and the store use.
+  const requested = [...(request.requestedScopes ?? TAILNET_LEGACY_REQUEST_SCOPES)]
 
   return (
     <div className="mt-1.5">
@@ -68,7 +70,7 @@ export function PairRequestToastAccept({ request }: { request: TailnetPairReques
         id={helpId}
         className={`mt-1 text-micro ${codeError ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-subtle)]'}`}
       >
-        {codeError ?? 'Type the code it is showing. Terminal control stays off.'}
+        {codeError ?? 'Type the code it is showing.'}
       </p>
     </div>
   )

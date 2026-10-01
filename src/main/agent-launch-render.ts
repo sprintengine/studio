@@ -1,11 +1,15 @@
-import { applyDebugDirective } from '../shared/debug-directive'
-import type { AgentCli, CliRuntimeSettings, ColorScheme, CliPermissionPreset } from '../shared/electron-api'
+import type { AgentCli, CliRuntimeSettings, ColorScheme } from '../shared/electron-api'
+import type { CliPermissionSetting } from '../shared/cli-permission-mode'
 import type { LoadedPlugin, PluginRenderContext } from '../shared/plugin-manifest'
-import { resolveSkillInvocation } from '../shared/skill-invocation'
 
 import { getPluginById } from './plugin-registry-instance'
 import { launchArgvExceedsBudget, measureLaunchArgv, type LaunchArgBudget } from './launch-arg-budget'
-import { renderPluginContextArgs, renderPluginLaunch, renderPluginResume } from './plugin-render'
+import {
+  renderPluginContextArgs,
+  renderPluginLaunch,
+  renderPluginResume,
+  renderPluginTypedPromptEnv,
+} from './plugin-render'
 
 export function pluginIdForCli(cli: AgentCli): string {
   return cli
@@ -30,19 +34,6 @@ export function cliTakesLaunchPlugins(cli: string): boolean {
   return Array.isArray(args) && args.length > 0
 }
 
-const DEBUG_SKILL_ID = 'debug'
-
-// Resolves the CLI-native explicit invocation for the debug skill from the
-// plugin manifest (e.g. "/debug" for Claude Code, "Use $debug." for Codex), or
-// undefined when the plugin does not natively support skills (so Debug Mode
-// falls back to the inline directive alone). Debug Mode prepends this so the
-// skill is triggered through the CLI's first-class mechanism; the spawn path
-// ensure-installs the skill (see terminal-runtime) so the invocation always
-// resolves to a skill that is actually present.
-export function resolveDebugSkillInvocation(plugin: LoadedPlugin): string | undefined {
-  return resolveSkillInvocation(plugin.manifest.skillIntegration, DEBUG_SKILL_ID)
-}
-
 // Resolves the effective command override for a launch, and the machine it is
 // for. Uses the plugin-id key only; a blank command means "use the manifest
 // binary".
@@ -59,13 +50,11 @@ export type AgentLaunchRenderInput = {
   cli: AgentCli
   sessionId: string
   resume?: boolean
-  // The workspace this launch runs in, so Debug Mode's directive names the
-  // sidecar directory that workspace actually uses. Absent leaves the current
-  // name, which is right for a launch with no workspace behind it.
-  workspaceRoot?: string
   initialPrompt?: string
   cliRuntime?: CliRuntimeSettings
-  cliPermissionPreset?: CliPermissionPreset
+  // The preset, or the CLI's own mode id when one was chosen beside it
+  // (`permissionRenderKey`): the manifest entry the launch renders.
+  cliPermissionPreset?: CliPermissionSetting
   cliModel?: string
   // Selected reasoning-effort level. Consumed only by manifests declaring
   // reasoningSelection (today: Codex and Claude Code); rendered as
@@ -73,10 +62,6 @@ export type AgentLaunchRenderInput = {
   // so unset/default levels leave the launch argv unchanged. Claude Code
   // declares no default, so every explicitly picked level renders there.
   cliReasoning?: string
-  // Orthogonal Debug Mode flag. When true the launch boundary prepends the debug
-  // directive to the initial prompt; it never affects permission/session/model
-  // flags (the orthogonality invariant). See applyDebugDirective.
-  debugMode?: boolean
   // Host light/dark scheme to launch the CLI matching the app surface. Consumed
   // only by manifests declaring themeSelection (today: Claude Code); undefined
   // leaves the CLI on its own configured theme.
@@ -118,11 +103,12 @@ export type AgentLaunchRenderInput = {
   // that never fills and nothing in the terminal to say so. Absent renders the
   // document the theme alone would have.
   launchSettings?: Record<string, unknown>
-  // Set by `planAgentLaunch` when the prompt is too long for the command line:
-  // the prompt leaves argv and the manifest's `promptInjection.overflow` args
-  // render in its place. `input` renders no prompt at all (it is typed in once
-  // the CLI is up); `file` renders a one-line note naming `promptFile`. Nothing
-  // else sets it, so every other launch renders the argv it always did.
+  // Set by `planAgentLaunch` when the prompt is too long for the command line,
+  // or is typed in because the manifest is `send-after-ready`: the prompt leaves
+  // argv and the manifest's `promptInjection.overflow` args render in its place.
+  // `input` renders no prompt at all (it is typed in once the CLI is up); `file`
+  // renders a one-line note naming `promptFile`. Nothing else sets it, so every
+  // other launch renders the argv it always did.
   promptOverflow?: { mode: 'input' } | { mode: 'file'; promptFile: string }
 }
 
@@ -135,8 +121,8 @@ export type RenderedAgentLaunch = {
   // declare no `launch.env`. The caller injects these into the spawned PTY env
   // (and the WSL bootstrap) — they are intentionally NOT folded into argv.
   env: Record<string, string>
-  // The first message this launch carries, Debug Mode's directive included:
-  // what `{{prompt}}` renders, or what an overflowed launch still owes the CLI.
+  // The first message this launch carries: what `{{prompt}}` renders, or what
+  // an overflowed launch still owes the CLI.
   // Undefined for a launch with nothing to say.
   prompt?: string
 }
@@ -155,17 +141,6 @@ function resolveLaunchPlugin(cli: AgentCli): LoadedPlugin {
   return plugin
 }
 
-// Debug Mode is applied here, at the single render boundary every spawn path
-// converges on, so the directive (led by the CLI-native skill invocation when
-// the plugin supports it) lands in the rendered prompt for any CLI. Only touched
-// when debugMode is set, preserving an undefined prompt (and thus the no-prompt
-// argv shape) for ordinary launches.
-function launchPrompt(input: AgentLaunchRenderInput, plugin: LoadedPlugin): string | undefined {
-  return input.debugMode
-    ? applyDebugDirective(input.initialPrompt ?? '', true, resolveDebugSkillInvocation(plugin))
-    : input.initialPrompt
-}
-
 /**
  * What `{{prompt}}` renders when the prompt went to a file: one line, in the
  * person's voice because it stands where their message would have, pointing at
@@ -177,7 +152,7 @@ export function promptFileNote(promptFile: string): string {
 
 export function renderAgentLaunchArgv(input: AgentLaunchRenderInput): RenderedAgentLaunch {
   const plugin = resolveLaunchPlugin(input.cli)
-  const prompt = launchPrompt(input, plugin)
+  const prompt = input.initialPrompt
   const rendered = renderWithPlugin(input, plugin, renderedPromptToken(input, prompt))
   return { ...rendered, prompt }
 }
@@ -202,7 +177,7 @@ function buildLaunchRenderContext(
     binary,
     sessionId: input.sessionId,
     prompt,
-    permissionPreset: input.cliPermissionPreset ?? 'default',
+    permissionPreset: input.cliPermissionPreset,
     model: input.cliModel,
     reasoning: input.cliReasoning,
     colorScheme: input.colorScheme,
@@ -266,6 +241,11 @@ function renderWithPlugin(
 // 3. If the launch is still over, the context is cut to what room is left; and
 //    if that is not enough either, the launch goes as rendered and says so in
 //    the log. A launch that fits is never changed, context included.
+//
+// A `send-after-ready` manifest never puts the prompt on the command line: its
+// CLI documents no way to take a first message there, so every new launch that
+// carries one types it in, whatever its length. A resume never does — the
+// conversation being resumed already had its first message.
 
 export type AgentPromptDelivery =
   /** On the command line, where `{{prompt}}` put it — or there is no prompt. */
@@ -277,6 +257,11 @@ export type AgentPromptDelivery =
 
 export type PlannedAgentLaunch = RenderedAgentLaunch & {
   promptDelivery: AgentPromptDelivery
+  /**
+   * Environment the launch adds because its first message is typed in (the
+   * manifest's `promptInjection.overflow.env`). Absent for every other launch.
+   */
+  typedPromptEnv?: Record<string, string>
   /** Set when the host-context document was cut to fit: characters kept of the whole. */
   contextTruncated?: { shown: number; total: number }
   /** True when nothing more could be moved and the launch is still over budget. */
@@ -345,7 +330,7 @@ export function planAgentLaunch(input: AgentLaunchRenderInput, options: AgentLau
   const { budget } = options
   const log = options.log ?? defaultPlanLog
   const plugin = resolveLaunchPlugin(input.cli)
-  const prompt = launchPrompt(input, plugin)
+  const prompt = input.initialPrompt
   const overBudget = (argv: string[]): boolean => launchArgvExceedsBudget(argv, budget)
   const render = (candidate: AgentLaunchRenderInput): RenderedAgentLaunch => ({
     ...renderWithPlugin(candidate, plugin, renderedPromptToken(candidate, prompt)),
@@ -378,10 +363,20 @@ export function planAgentLaunch(input: AgentLaunchRenderInput, options: AgentLau
   }
   if (originalContext && !contextFits(working)) cutContext(contextFits)
 
-  // 2. The prompt, when the launch does not fit with it on the command line.
-  let rendered = render(working)
+  // 2. The prompt: typed in by a `send-after-ready` manifest, or moved off the
+  //    command line when the launch does not fit with it there.
   let promptDelivery: AgentPromptDelivery = { kind: 'argv' }
-  if (overBudget(rendered.argv) && prompt && promptRendersIntoArgv(working, plugin, rendered.argv)) {
+  if (typesFirstMessage(plugin, input, prompt)) {
+    working = { ...working, promptOverflow: { mode: 'input' } }
+    promptDelivery = { kind: 'input', text: prompt }
+  }
+  let rendered = render(working)
+  if (
+    promptDelivery.kind === 'argv' &&
+    overBudget(rendered.argv) &&
+    prompt &&
+    promptRendersIntoArgv(working, plugin, rendered.argv)
+  ) {
     const overflow = plugin.manifest.promptInjection?.overflow ?? { mode: 'input' as const }
     if (overflow.mode === 'file') {
       // A CLI that takes an overflowed message from a file has no line editor
@@ -421,6 +416,11 @@ export function planAgentLaunch(input: AgentLaunchRenderInput, options: AgentLau
     })
   }
 
+  const typedPromptEnv =
+    promptDelivery.kind === 'input'
+      ? renderPluginTypedPromptEnv(plugin.manifest, buildLaunchRenderContext(working, plugin, undefined).context)
+      : {}
+
   const stillOver = overBudget(rendered.argv)
   if (stillOver) {
     const measured = measureLaunchArgv(rendered.argv, budget)
@@ -438,15 +438,30 @@ export function planAgentLaunch(input: AgentLaunchRenderInput, options: AgentLau
   return {
     ...rendered,
     promptDelivery,
+    ...(Object.keys(typedPromptEnv).length > 0 ? { typedPromptEnv } : {}),
     ...(contextTruncated ? { contextTruncated } : {}),
     ...(stillOver ? { overBudget: true } : {}),
   }
 }
 
 /**
- * Whether this manifest puts the prompt on the command line at all. A CLI that
- * takes its first message some other way (a `send-after-ready` manifest renders
- * no `{{prompt}}`) gains nothing from moving it, and must not be handed a
+ * Whether this launch types its first message in because the manifest takes it
+ * no other way (`send-after-ready`). Only a new launch with something to say: a
+ * resume must never send the first message a second time, and a message of
+ * nothing but whitespace has nothing to type.
+ */
+function typesFirstMessage(
+  plugin: LoadedPlugin,
+  input: AgentLaunchRenderInput,
+  prompt: string | undefined,
+): prompt is string {
+  return plugin.manifest.promptInjection?.mode === 'send-after-ready' && !input.resume && Boolean(prompt?.trim())
+}
+
+/**
+ * Whether this manifest puts the prompt on the command line at all. A launch
+ * that never carries it there (a resumed session whose manifest renders no
+ * `{{prompt}}` on resume) gains nothing from moving it, and must not be handed a
  * prompt to type in that its own launch never carried.
  */
 function promptRendersIntoArgv(input: AgentLaunchRenderInput, plugin: LoadedPlugin, argv: string[]): boolean {
@@ -513,15 +528,9 @@ export function argvToPosixShellCommand(argv: string[]): string {
  * above, it would re-render the preview on every keystroke, and on the CLIs that
  * pass it as argv it would bury the flags the line exists to show. `binary` is
  * the resolved command; callers show it plus `args`.
- *
- * `debugMode` is absent from the input for the same reason, and it is the
- * orthogonality invariant showing through: debug mode prepends a directive to
- * the PROMPT and never touches a flag, so on a prompt-free preview it has
- * nothing to say — and rendering it anyway would print a multi-line directive
- * into a one-line receipt. The row's own Debug chip carries that state.
  */
 export function renderAgentLaunchPreview(
-  input: Omit<AgentLaunchRenderInput, 'sessionId' | 'resume' | 'initialPrompt' | 'debugMode'>,
+  input: Omit<AgentLaunchRenderInput, 'sessionId' | 'resume' | 'initialPrompt'>,
 ): { binary: string; args: string[]; display: string } {
   const { argv, binary } = renderAgentLaunchArgv({
     ...input,
@@ -531,12 +540,13 @@ export function renderAgentLaunchPreview(
     sessionId: 'preview',
     resume: false,
     initialPrompt: undefined,
-    debugMode: false,
   })
   // argv[0] is the binary; the receipt shows the command name and its flags.
   const args = argv.slice(1)
   return { binary, args, display: argvToPosixShellCommand(argv) }
 }
+
+const POSIX_ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 // Exit status the launch script reports when its agent binary is not there —
 // the shell's own "command not found", matching AGENT_CLI_NOT_FOUND_EXIT.
@@ -570,9 +580,18 @@ export function planAgentShellCommand(
   return { command: agentShellCommandFor(input, plan), plan }
 }
 
-function agentShellCommandFor(input: AgentLaunchRenderInput, rendered: RenderedAgentLaunch): string {
+function agentShellCommandFor(
+  input: AgentLaunchRenderInput,
+  rendered: RenderedAgentLaunch & Pick<PlannedAgentLaunch, 'typedPromptEnv'>,
+): string {
   const { argv, binary, plugin } = rendered
-  const shellCommand = argvToPosixShellCommand(argv)
+  // Assignments in front of the command set them for the CLI alone, not for the
+  // shell the startup script leaves behind.
+  const envPrefix = Object.entries(rendered.typedPromptEnv ?? {})
+    .filter(([name]) => POSIX_ENV_NAME.test(name))
+    .map(([name, value]) => `${name}=${quotePosixForced(value)} `)
+    .join('')
+  const shellCommand = `${envPrefix}${argvToPosixShellCommand(argv)}`
   const displayName = plugin.manifest.displayName
   const shortName = displayName.split(/\s+/)[0] || displayName
   const message = `${shortName} CLI was not found. Check the ${input.cli} command in Settings.`

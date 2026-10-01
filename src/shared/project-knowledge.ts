@@ -45,7 +45,7 @@ export function knowledgeLaunchContext(status: MemoryRootStatus): KnowledgeLaunc
         `Knowledge Graph is configured at ${status.relativeRoot}.`,
         'This is a repo-local Markdown knowledge graph for product, architecture, brand, and ecosystem context.',
         'Inspect it when relevant instead of assuming project context.',
-        'Use the workspace-knowledge skill if it is installed in .agents/skills.',
+        'Read its index notes first, and follow the links from there.',
       ].join(' '),
     }
   }

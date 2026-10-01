@@ -225,6 +225,25 @@ test('useTerminalSessions', async () => {
       ),
       'the same work spread over two files is a different ledger',
     )
+    // The prompt cache arrives on its own status-line refresh, often after the
+    // turn's end settled every other field, so it has to move the row itself.
+    const withCache = (promptCache: { ttl: '1h'; expiresAt: number | null; recacheTokens: number | null }) => [
+      session({ sessionId: 'a', activity: { kind: 'working', since: 1 }, lastOutputAt: 100, promptCache }),
+      base[1],
+    ]
+    const cache = { ttl: '1h' as const, expiresAt: 5_000, recacheTokens: 310_000 }
+    assert.notEqual(getTerminalSessionsSignature(base), getTerminalSessionsSignature(withCache(cache)))
+    assert.notEqual(
+      getTerminalSessionsSignature(withCache(cache)),
+      getTerminalSessionsSignature(withCache({ ...cache, expiresAt: 9_000 })),
+      'a cache warmed again re-renders',
+    )
+    assert.notEqual(
+      getTerminalSessionsSignature(withCache(cache)),
+      getTerminalSessionsSignature(withCache({ ...cache, recacheTokens: null })),
+      'a compaction re-renders',
+    )
+    assert.equal(getTerminalSessionsSignature(withCache(cache)), getTerminalSessionsSignature(withCache({ ...cache })))
     const withContext = (contextUsage: { usedPercentage: number; at: number } | null) => [
       session({ sessionId: 'a', activity: { kind: 'working', since: 1 }, lastOutputAt: 100, contextUsage }),
       base[1],
@@ -586,7 +605,7 @@ test('useTerminalSessions', async () => {
   // was killed — nothing in main revisits it, and the stall watch that would have
   // expired the phase is disarmed by the suspend. Observed live 2026-09-10: an
   // agent paused one second after launch sat at `starting`/`working` for 70
-  // minutes, and the sidebar drew its chat bold, with working dots and no idle
+  // minutes, and the sidebar drew its chat bold, with the working mark and no idle
   // clock, the whole time — the row claiming an agent that was not there.
   //
   // So every "is this working" reading is gated on the process being alive, the
@@ -716,6 +735,8 @@ test('useTerminalSessions', async () => {
     assert.equal(pickAgentTabRecency(null, null, null), null)
     assert.equal(tabRecencyLabel('persisted'), 'Last activity')
     assert.equal(tabRecencyLabel('exited'), 'Exited')
+    // A chat's recency is the time alone, with no word before it.
+    assert.equal(tabRecencyLabel('finished'), '')
   }
 
   /** A delta that carries these sessions whole, lists included. */
@@ -1187,6 +1208,7 @@ test('useTerminalSessions', async () => {
       fileChanges: input.fileChanges ?? [],
       activeSubagents: input.activeSubagents ?? 0,
       contextUsage: input.contextUsage ?? null,
+      promptCache: input.promptCache ?? null,
       pullRequests: input.pullRequests,
       exitedAt: input.exitedAt ?? null,
       outputBufferLength: input.outputBufferLength ?? 0,

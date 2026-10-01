@@ -1,8 +1,11 @@
 import { isSessionWorking } from '../../hooks/useTerminalSessions'
 import { formatRelativeMs } from '../../utils/relativeTime'
 import type { TerminalSessionSnapshot } from '../../../../shared/electron-api'
+import type { ConversationSessionSummary } from '../../../../shared/conversation-runtime'
+import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
 import type { AgentState, Workspace } from '../../types/workspace'
 import type { ConversationPeekIdentity, ConversationPeekStatus } from './ConversationPeekCard'
+import { terminalCompactBlocker } from '../../../../shared/prompt-cache'
 
 // What a SIDEBAR ROW knows about the conversations behind it.
 //
@@ -104,6 +107,7 @@ export function peekStatusOf(activity: ConversationPeekRowActivity, idleFor: str
 export function rowConversationPeekIdentities(input: {
   workspace: Pick<Workspace, 'name' | 'remoteOrigin'> & { agents?: Record<string, AgentState> }
   sessions: ReadonlyArray<TerminalSessionSnapshot>
+  conversations?: ReadonlyArray<ConversationSessionSummary>
   status: ConversationPeekStatus
   now: number
 }): ConversationPeekIdentity[] {
@@ -143,11 +147,49 @@ export function rowConversationPeekIdentities(input: {
           pullRequests: session.pullRequests ?? [],
           activeSubagents: session.activeSubagents ?? 0,
           contextUsage: session.contextUsage ?? null,
+          promptCache: session.promptCache ?? null,
+          // A Claude Code agent's prompt is one this app can type `/compact` at.
+          compact: (record?.cli ?? session.cli) === 'claude-code' ? { blocker: terminalCompactBlocker(session) } : null,
         },
       },
       live: session.exitedAt === null,
       at: activityAt(session),
     })
+  }
+
+  for (const session of input.conversations ?? []) {
+    const phase = conversationSummaryPhase(session)
+    byId.set(session.sessionId, {
+      identity: {
+        name: input.workspace.name,
+        status:
+          phase === 'running' || phase === 'starting'
+            ? { kind: 'working', label: 'Working' }
+            : phase === 'waiting_for_approval'
+              ? { kind: 'attention', label: 'Needs approval' }
+              : phase === 'waiting_for_input'
+                ? { kind: 'attention', label: 'Asked a question' }
+                : phase === 'failed'
+                  ? { kind: 'attention', label: 'Failed' }
+                  : { kind: 'idle', label: 'Idle' },
+        agent: {
+          sessionId: session.sessionId,
+          agentId: session.agentId,
+          cli: null,
+          model: session.modelId,
+          fileChanges: [],
+          pullRequests: [],
+          activeSubagents: session.backgroundAgents ?? 0,
+          contextUsage: null,
+          // A chat compacts from its own composer, where its notice offers it.
+          promptCache: session.promptCache ?? null,
+          compact: null,
+        },
+      },
+      live: phase !== 'completed',
+      at: session.updatedAt,
+    })
+    seenAgents.add(session.agentId)
   }
 
   // Parked records, for the chats main's session list has never heard of. Never

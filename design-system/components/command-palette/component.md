@@ -27,7 +27,7 @@ see Material.
 | Query row | `.ds-command-palette-query` | yes — `space.lg`/`space.xl` insets, no hairline of its own |
 | Leading hint | `.ds-command-palette-hint` | yes — the kit's search glyph in `text.disabled`; it is decoration and says so |
 | Input | `.ds-command-palette-input` | yes — `role="combobox"`, transparent, `font.size.heading` |
-| Working note | `.ds-command-palette-status` | no — `role="status"`, a line in the list: the word and the liveness working dots, for a search in flight or an install round trip |
+| Working note | `.ds-command-palette-status` | no — `role="status"`, a line in the list: the word and the liveness working mark, for a search in flight or an install round trip |
 | Results | `.ds-command-palette-results` | yes — `role="listbox"` with a required label, height-capped and scrolling |
 | Group | `.ds-command-palette-group` | no — `role="group"` with the group's name as its label |
 | Group heading | `.ds-command-palette-group-heading` | with a group — the name alone, `font.size.meta` in `text.muted`; no rule, no count; `aria-hidden` |
@@ -146,7 +146,7 @@ controls, focus behavior, type, spacing and row states follow this system.
 | Skills, no agent to decide by | The meta line reads "No agent in focus" and the list says to focus an agent; Browse skills stays reachable |
 | Skills, a group of more than ten | A Show more row, in `text.muted`, with how many are still hidden in `text.disabled`; pressing it reveals ten more of that group only. Typing resets every group to ten |
 | Typing | The in-memory groups filter on the keystroke; disk-backed groups debounce and appear beneath the rest |
-| Working | The `role="status"` line in the list — "Searching" or "Working" beside the [liveness](../liveness/component.md) working dots. Never beside the query (a note on the field's own line read as part of what was typed), and never a static ellipsis pretending to move |
+| Working | The `role="status"` line in the list — "Searching" or "Working" beside the [liveness](../liveness/component.md) working mark. Never beside the query (a note on the field's own line read as part of what was typed), and never a static ellipsis pretending to move |
 | Rest (row) | `text.default` — the sidebar's row ink. The heading above it is the quieter one, not the row |
 | Active option | `bg.selected` with `text.primary` ink — a cursor, moved by the arrows and by the pointer entering a row, never DOM focus |
 | Hover (inactive row) | `bg.hover` and `text.primary`, at `motion.duration.fast` |

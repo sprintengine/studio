@@ -4,17 +4,7 @@
 import type { DiagnosticLevel } from './git'
 
 export type DiagnosticSource =
-  | 'agents'
-  | 'auth'
-  | 'automations'
-  | 'cli'
-  | 'filesystem'
-  | 'marketplace'
-  | 'models'
-  | 'terminal'
-  | 'update'
-  | 'voice'
-  | 'workspace'
+  'agents' | 'auth' | 'cli' | 'filesystem' | 'marketplace' | 'models' | 'terminal' | 'update' | 'voice' | 'workspace'
 
 // Serializable deep-focus target for a notification's Open action. Mirrors the
 // renderer `NotificationNavigationTarget` (src/renderer/src/types/workspace.ts);
@@ -38,7 +28,7 @@ export type DiagnosticLogInput = {
   navigationTarget?: NotificationNavigationTarget
   /**
    * The Extensions drawer row this news belongs to (`ExtensionsDrawerRowId`:
-   * design, plugins, skills, agent-clis), when the emitter
+   * design, plugins, skills), when the emitter
    * knows. Absent, the row is read off `source` (`extensionsRowOfNotification`).
    * A string rather than the row type because this shape is shared with the
    * main process and persists to localStorage; unknown values fall back to the

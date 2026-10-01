@@ -18,6 +18,7 @@ import type {
 import type { AgentLaunchRecord } from '../shared/agent-launch'
 import type { ExecutionHostId } from '../shared/execution-host'
 import type { AgentStateFrameStatusLine } from './agent-state'
+import { samePromptCacheReading, type PromptCacheReading } from '../shared/prompt-cache'
 import type { DeferredPromptDelivery } from './deferred-prompt-delivery'
 import { isValidFileChangePath, MAX_AGENT_PROMPT_LENGTH, MAX_FILE_CHANGE_COUNT } from './agent-state'
 import { MAX_LIVE_PEEK_PROMPTS } from './conversation-peek/service'
@@ -80,12 +81,6 @@ export type TerminalSession = {
   // dispose sweeps skip this session entirely. Session-scoped; set over IPC from
   // the terminal's lock control.
   reapExempt?: boolean
-  /**
-   * A module owns this session's lifetime (launch contribution `session.managed`).
-   * The idle reaper excludes it from the recency floor that protects the user's
-   * own agents. Distinct from `reapExempt`, which is the user's lock control.
-   */
-  managed?: boolean
   idleTimer?: ReturnType<typeof setTimeout>
   // When a plain terminal's working bolding should lapse to idle. Output moves
   // the deadline; the timer is only re-armed when it fires early, instead of
@@ -174,6 +169,16 @@ export type TerminalSession = {
   // session as unknown would lose the number a person was watching seconds
   // before the next real reading replaces it.
   contextUsage?: SessionContextUsage
+  // When something was last TYPED or pasted into this session — `lastInputAt`
+  // without the focus reports and query answers the terminal sends on its own.
+  // What says a draft may be sitting at the prompt (terminalCompactBlocker):
+  // switching windows is not typing.
+  lastKeyInputAt?: number
+  // The main conversation's prompt cache, from the same status line: its
+  // lifetime, when it goes cold, and what a cold resume re-caches. Replaced
+  // WHOLE by each reading that carries one — its nulls are facts — and kept
+  // when a reading carries none, as the context percentage is.
+  promptCache?: PromptCacheReading
   // Background work the agent still owns — subagents started and not yet
   // stopped, per the manifest's `background` events. A turn end that arrives
   // while this is above zero is held as working (agent-state.ts,
@@ -356,8 +361,20 @@ export function transitionTerminalActivity(session: TerminalSession, next: Sessi
   return true
 }
 
-export function recordTerminalInput(session: TerminalSession, at = Date.now()): void {
+export function recordTerminalInput(session: TerminalSession, at = Date.now(), data?: string): void {
   session.lastInputAt = at
+  if (data !== undefined && !isTerminalReport(data)) session.lastKeyInputAt = at
+}
+
+// What the terminal sends on its own rather than on a keystroke: focus in and
+// out (`CSI I` / `CSI O`, which Claude Code turns on), and its answers to the
+// CLI's queries — device attributes (`CSI ? … c`, `CSI > … c`), status
+// (`CSI … n`) and the cursor position (`CSI row ; col R`). Several can arrive
+// in one write.
+const TERMINAL_REPORT = /^(?:\x1b\[[\d;?>]*[IOcnR])+$/
+
+function isTerminalReport(data: string): boolean {
+  return TERMINAL_REPORT.test(data)
 }
 
 // Visibility recency feeds the stale-terminal sweep. Both transitions count as
@@ -507,6 +524,8 @@ type SuspendedPlaceholderSessionInput = {
   // The context reading the sidecar persisted, so a parked chat still says how
   // full it was.
   contextUsage?: SessionContextUsage
+  // And its prompt cache, so a parked chat still goes cold on time.
+  promptCache?: PromptCacheReading
   // The prompts the sidecar persisted, oldest first, so the conversation peek
   // for a parked chat survives the restart along with the screen.
   peekPrompts?: SessionPrompt[]
@@ -568,6 +587,7 @@ export function createSuspendedPlaceholderSession(input: SuspendedPlaceholderSes
     observedCheckout: input.observedCheckout,
     fileChanges: input.fileChanges,
     contextUsage: input.contextUsage,
+    promptCache: input.promptCache,
     ...(input.peekPrompts?.length
       ? { peekPrompts: input.peekPrompts, lastPrompt: input.peekPrompts[input.peekPrompts.length - 1] }
       : {}),
@@ -974,6 +994,7 @@ export type SessionStatusLine = {
   linesRemoved?: number
   model?: string
   sessionName?: string
+  promptCache?: PromptCacheReading
   // When the reading that produced this state arrived. Also the ordering guard:
   // a status line refreshes several times a turn and its frames can be
   // delivered out of order.
@@ -1014,11 +1035,17 @@ export function recordSessionStatusLine(
   if (previous && previous.at > at) return false
   session.statusLine = { ...previous, ...reading, at }
 
+  let changed = false
+  if (reading.promptCache && !samePromptCacheReading(session.promptCache, reading.promptCache)) {
+    session.promptCache = reading.promptCache
+    changed = true
+  }
   const usedPercentage = reading.usedPercentage
-  if (usedPercentage === undefined) return false
-  if (session.contextUsage?.usedPercentage === usedPercentage) return false
-  session.contextUsage = { usedPercentage, at }
-  return true
+  if (usedPercentage !== undefined && session.contextUsage?.usedPercentage !== usedPercentage) {
+    session.contextUsage = { usedPercentage, at }
+    changed = true
+  }
+  return changed
 }
 
 /**
@@ -1087,6 +1114,8 @@ export function getTerminalSnapshotBase(session: TerminalSession): TerminalSessi
     // The status-line forwarder's reading, or null for a session whose CLI has
     // no status line and for one that has not made an API call yet.
     contextUsage: session.contextUsage ?? null,
+    promptCache: session.promptCache ?? null,
+    lastKeyInputAt: session.lastKeyInputAt ?? null,
     lastTurnEndedAt: session.lastTurnEndedAt ?? null,
     exitedAt: session.exitedAt,
     outputBufferLength: session.output.retainedUnits,

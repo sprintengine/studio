@@ -8,7 +8,7 @@ import { pcmFloatToWav } from '../../utils/voiceTranscription'
 // mounted and both surfaces observe the same recording session. Reached only
 // through lazy/dynamic imports from voice-dictation-module.ts — a static
 // import there would drag the workspace store into the eager module-registry
-// graph (the bundle-budget discipline the other modules follow).
+// graph, which every module's manifest is evaluated in before the first paint.
 //
 // Captures raw PCM via getUserMedia + Web Audio, encodes a 16 kHz mono WAV on
 // stop, POSTs it to the configured Multivoice host, and copies the returned

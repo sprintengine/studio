@@ -1,0 +1,17 @@
+.ds-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  padding: var(--sem-space-3xs) var(--sem-space-sm);
+  border-radius: var(--sem-radius-chip);
+  background: var(--sem-color-bg-selected);
+  color: var(--sem-color-text-primary);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  font-weight: var(--sem-font-weight-medium);
+}
+.ds-attachment-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

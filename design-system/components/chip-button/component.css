@@ -85,9 +85,44 @@
   background: var(--sem-color-bg-hover);
 }
 
+/* raised — a chip that is a CONTROL in a toolbar row rather than a label inside
+ * a line (owner ruling 2026-10-01): a composer's model, skills, permissions and
+ * overflow triggers. It wears the outline button's shell exactly — the xs
+ * control height, the control radius, the hairline, the lit top lip over a
+ * shallow drop and the sheen — so a chip and a button beside the same composer
+ * are one family. The one chip variant that is not content-height. */
+.ds-chip-button--raised {
+  height: var(--sem-size-control-xs);
+  padding: 0 var(--sem-space-md);
+  gap: var(--sem-space-xs);
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-control);
+  background-color: var(--sem-color-bg-surface-raised);
+  background-image: var(--sem-gradient-control-sheen);
+  box-shadow: var(--sem-shadow-control-edge);
+  font-size: var(--sem-font-size-meta);
+}
+
+.ds-chip-button--raised:hover:not(:disabled):not([aria-pressed='true']):not([aria-current='true']) {
+  border-color: var(--sem-color-border-strong);
+  background-color: var(--sem-color-bg-hover);
+}
+
+/* Elevated controls press by inverting the bevel, never by scale as well. */
+.ds-chip-button--raised:active:not(:disabled) {
+  transform: none;
+  background-image: none;
+  box-shadow: var(--sem-shadow-control-pressed);
+}
+
+.ds-chip-button--raised:disabled {
+  background-image: none;
+  box-shadow: none;
+}
+
 /* The two tone tints. A STANDING warning the chip itself carries — scripts are
  * running in this preview, permissions are bypassed on this preset — never a
- * second way of saying what a status dot already says.
+ * second way of saying what a status mark already says.
  *
  * The ink stays the tone's own on the soft fill, which is the call badge and
  * banner already make in this bundle. The shipped primitive darkens it one step

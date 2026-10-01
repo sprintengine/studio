@@ -3,12 +3,11 @@
  * with the main process.
  *
  * These are core agent records: `AgentExecution` and `defaultAgent` are
- * generic, and a module's managed agents are identified by
- * `registerAgentIdNamespace` plus the launch contribution's `session.managed`
- * tag — not by an enum member. Pure data shapes only — no DOM, React, or
+ * generic, and an agent a module started is identified by its
+ * `ownerModuleId` — not by an enum member. Pure data shapes only — no DOM, React, or
  * flexlayout imports may be added here.
  */
-import type { CliPermissionPreset } from './cli-permission-preset'
+import { DEFAULT_CLI_PERMISSION_PRESET, type CliPermissionPreset } from './cli-permission-preset'
 
 /** An agent CLI runtime id (`claude`, `codex`, …). Open: plugins add their own. */
 export type AgentCli = string
@@ -119,6 +118,11 @@ export type AgentState = {
   // conversation runtime additionally requires a valid `conversation` pair.
   runtimeKind?: AgentRuntimeKind
   conversation?: AgentConversationRuntime
+  // Next-turn conversation controls persist independently of terminal flags.
+  conversationMode?: 'default' | 'plan' | 'ask'
+  conversationReasoningEffort?: string
+  /** Selected context skills apply to every turn until explicitly removed. */
+  conversationSkills?: string[]
   cliSessionId?: string
   // The agent's session id within its CLI/harness, captured from lifecycle hooks
   // (the snapshot's `cliSessionId`). Distinct from `cliSessionId` above, which is
@@ -154,11 +158,13 @@ export type AgentState = {
   // (resolveCliReasoning), so it is always a level this agent's CLI accepts.
   cliReasoning?: string
   cliPermissionPreset?: CliPermissionPreset
-  // Orthogonal Debug Mode toggle (the agent picker). Set per-spawn from the
-  // transient spawn-UI state; the launch boundary prepends the debug directive
-  // to the initial prompt when true. Not persisted-by-default UI: defaults off
-  // each spawn, but recorded on the agent so the launch path can read it.
-  debugMode?: boolean
+  // The CLI's own permission mode at that preset (Claude Code's Accept edits,
+  // Codex's Default), when one other than the preset's own was chosen. The
+  // preset stays the level everything else reads; a CLI that does not have
+  // this mode runs the preset's own (cli-permission-mode.ts).
+  cliPermissionMode?: string
+  // (A `debugMode` flag sat here until Debug Mode was removed on 2026-09-28.
+  // Agents persisted before then may still carry it; nothing reads it.)
   cliStartupPrompt?: string
   // Last user edit to renderer-owned per-agent config (name, cliStartupPrompt,
   // …), stamped when a window sends a `workspace.update_agent` command. The
@@ -179,14 +185,20 @@ export type AgentState = {
   // successful launch — the skill invocation sits at the prompt with the caret
   // ready for arguments. Cleared by TerminalView once pasted; never auto-sent.
   cliPendingInput?: string
-  // Conversation-transport counterpart: seeds AgentChatView's draft on first
-  // mount (transcript empty). Prefill only — the user always submits.
-  chatComposerPrefill?: string
+  // Conversation-transport counterpart of `cliStartupPrompt`: what the launch
+  // surface typed, sent as the chat's first message once its provider is ready.
+  // One-shot — the chat clears it before sending, so a remount never resends.
+  chatStartupPrompt?: string
   // The Backlog item this agent was last handed (drag-drop or send-to-agent).
   // Powers the top-right glyph on the agent terminal that navigates back to the
   // item. Latest-wins: one ref per agent, mirroring the most-recent-wins
   // fixed link id on the Backlog item side. Undefined when no item was handed.
   backlogItemRef?: AgentBacklogItemRef
+  // The module that started this chat through the module conversation
+  // service. Only that module reaches it there (a chat without one is the
+  // person's own, and no module's). Set once at launch and never edited, so it
+  // rides the workspace registry and every window's store as-is.
+  ownerModuleId?: string
 }
 
 type AgentBacklogItemRef = {
@@ -196,6 +208,21 @@ type AgentBacklogItemRef = {
   title: string
   linkedAt: number
 }
+
+/**
+ * The folder a chat agent's conversation runs in, and so the root its session
+ * and transcript are keyed by: its worktree when it was started in one (an
+ * automation run's), otherwise the workspace folder.
+ */
+export function conversationWorkingRoot(
+  agent: Pick<AgentState, 'execution'> | null | undefined,
+  workspaceFolder: string | null | undefined,
+): string | null {
+  const execution = agent?.execution
+  if (execution?.mode === 'worktree' && execution.cwd?.trim()) return execution.cwd
+  return workspaceFolder?.trim() ? workspaceFolder : null
+}
+
 // ---------------------------------------------------------------------------
 // Record construction
 // ---------------------------------------------------------------------------
@@ -229,7 +256,7 @@ export function defaultAgent(id: AgentId, name = id): AgentState {
     cliResumeAvailable: false,
     cli: undefined,
     cliModel: undefined,
-    cliPermissionPreset: 'manual',
+    cliPermissionPreset: DEFAULT_CLI_PERMISSION_PRESET,
     cliStartupPrompt: undefined,
     backlogItemRef: undefined,
   }

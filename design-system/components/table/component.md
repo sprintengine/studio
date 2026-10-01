@@ -46,3 +46,34 @@ rewrite would be large for no accessibility gain.
 `whitespace-nowrap`, because a wrapped PID or byte count destroys the column scan
 those tables exist for. Sharing the table chrome does not mean a surface gives up
 the one thing that is genuinely local to it.
+
+## Usage — a table in rendered markdown
+
+A table an agent writes into a reply, a plan or a document is drawn by the
+markdown renderer (`utils/markdown.tsx`) on this same chrome: header rule in
+`border.default`, row hairlines in `border.subtle`, no verticals, no header
+fill, tabular figures, and GFM column alignment carried to every cell. Three
+things differ, each because the table sits in prose rather than in a panel:
+
+- **The header is in strong ink, semibold.** In a panel the header labels
+  columns of chrome and steps back; in a reply it is the author's own words and
+  reads with the headings around it.
+- **In a conversation it is sized to its content and scrolls.** Squeezed to the
+  pane, a column breaks an id at every hyphen and a number across two lines. A
+  cell wraps only past a cap (a readable line, never most of the pane), a wider
+  table scrolls inside the pane, and the edge that hides columns fades so a
+  cut-off table does not read as one that ends there. Its outer columns sit
+  flush with the prose.
+- **A footer copies it whole.** A selection of a table pastes as runs of cells,
+  so the table carries the copy glyph (Markdown, with an HTML flavour so a rich
+  editor pastes a real table) and a menu beside it for CSV and TSV. The footer
+  is `data-copy-exclude` and always visible: two quiet glyphs, and a menu opened
+  from it must not vanish with the pointer. A CSV or TSV cell that a
+  spreadsheet would run as a formula (one opening with `=`, `+`, `-` or `@`,
+  other than a plain signed number) goes out behind a `'`, so it pastes as text.
+
+The conversation's prose around it is one ramp step per rung, not a document's:
+body at `heading` (14px, relaxed leading) in `text.default`, headings compressed
+to `title` / `heading` / `body`, and headings, `strong` and inline code in
+`text.primary` — the contrast between the two inks, not size, is what makes the
+important words stand out.

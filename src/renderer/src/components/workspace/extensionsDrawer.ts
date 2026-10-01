@@ -2,11 +2,15 @@ import type { RegisteredGlobalSurface } from '../../modules/renderer-host'
 
 // What the Extensions drawer IS, as data (Extensions drawer ruling, 2026-09-05).
 //
-// FOUR built-in rows, in a fixed order the owner ruled:
+// THREE built-in rows, in a fixed order the owner ruled:
 //
-//   Design · Plugins · Skills · Agent CLIs
+//   Design · Plugins · Skills
 //
-// Installed module doors follow these four in stable registry order; the
+// (Agent CLIs was a fourth until 2026-09-25, when the owner moved them to
+// Settings ▸ Agents: that list already showed every CLI per machine with its
+// install and update, and two lists of one thing drift.)
+//
+// Installed module doors follow these three in stable registry order; the
 // renderer-side resolver owns those because this file is deliberately a pure
 // leaf with no live registry. Registry `order` does not reorder the built-ins.
 // The earlier cut sorted doors and modal
@@ -36,9 +40,9 @@ export const EXTENSIONS_HOME_SURFACE_ID = 'extensions-home'
 //             status dot and open behaviour.
 //   surface — a module's door, one row for the whole surface (Design).
 //   view    — one of a door's registered `views` (renderer-host): the single
-//             `extensions` surface is Plugins, Skills and Agent CLIs to the
-//             person, so it contributes three rows, each with its own label,
-//             glyph and way of landing the surface on it.
+//             `extensions` surface is Plugins and Skills to the person, so it
+//             contributes two rows, each with its own label, glyph and way of
+//             landing the surface on it.
 export type DrawerRow =
   | { kind: 'nav'; rowId: ExtensionsDrawerRowId; entryId: string }
   | { kind: 'surface'; rowId: ExtensionsDrawerRowId; surfaceId: string }
@@ -48,16 +52,15 @@ export type DrawerRow =
  * A row's own name, stable across what it resolves to. Two things address a row
  * by it: the unread count each row wears (`useExtensionsRowBadges`), and a bell
  * notification's `extensionsRow`, which says which row a piece of news belongs
- * to. Neither is a surface id — Plugins, Skills and Agent CLIs are three rows of
- * ONE surface, and a count keyed on the surface would light all three.
+ * to. Neither is a surface id — Plugins and Skills are two rows of ONE surface,
+ * and a count keyed on the surface would light both.
  */
-export type ExtensionsDrawerRowId = 'design' | 'plugins' | 'skills' | 'agent-clis'
+export type ExtensionsDrawerRowId = 'design' | 'plugins' | 'skills'
 
 export const DRAWER_ROWS: readonly DrawerRow[] = [
   { kind: 'surface', rowId: 'design', surfaceId: 'design' },
   { kind: 'view', rowId: 'plugins', surfaceId: 'extensions', viewId: 'plugins' },
   { kind: 'view', rowId: 'skills', surfaceId: 'extensions', viewId: 'skills' },
-  { kind: 'view', rowId: 'agent-clis', surfaceId: 'extensions', viewId: 'agent-clis' },
 ]
 
 export const EXTENSIONS_DRAWER_ROW_IDS: readonly ExtensionsDrawerRowId[] = DRAWER_ROWS.map((row) => row.rowId)
@@ -68,9 +71,8 @@ export function isExtensionsDrawerRowId(value: unknown): value is ExtensionsDraw
 
 /**
  * Which row the card region is showing, from the open surface and — for the
- * three rows that are views of one surface — the view it stands on. Null while
- * no drawer row is open (the home, a chat, Automations, a surface that is not
- * a row). This is what "opening a row" means to the row's unread count: the
+ * rows that are views of one surface — the view it stands on. Null while
+ * no drawer row is open (the home, a chat, a surface that is not a row). This is what "opening a row" means to the row's unread count: the
  * moment its page is on screen, its news has been seen.
  */
 export function openExtensionsDrawerRow(
@@ -92,10 +94,9 @@ export function openExtensionsDrawerRow(
  * inside the Extensions section, so the rail glyph follows it and leaving lands
  * back on the drawer rather than on the workspaces tree.
  *
- * Automations is deliberately absent. It stands on the rail because it is what
- * the product DOES rather than something added to it, so opening it must not
- * drag the sidebar into a section it does not belong to — the section glyph
- * that reads current while Automations is open is whichever one was showing.
+ * A surface that stands on the app rail is deliberately absent: it is what the
+ * product DOES rather than something added to it, so opening it must not drag
+ * the sidebar into a section it does not belong to.
  */
 export const EXTENSIONS_DRAWER_SURFACE_IDS: readonly string[] = [
   ...new Set([
@@ -103,7 +104,7 @@ export const EXTENSIONS_DRAWER_SURFACE_IDS: readonly string[] = [
     // A nav row's entry id IS its surface id — that pairing is the door contract
     // (`registerSidebarNavEntry` + `registerGlobalSurface` under one id), so a
     // module's nav row belongs here without a second list naming it.
-    // Deduplicated because three of the four rows are three VIEWS of one
+    // Deduplicated because two of the three rows are two VIEWS of one
     // surface.
     ...DRAWER_ROWS.map((row) => (row.kind === 'nav' ? row.entryId : row.surfaceId)),
   ]),
@@ -122,8 +123,7 @@ export function isExtensionsDrawerSurface(surfaceId: string): boolean {
  * door that is itself a row of the drawer declares `inline`: the drawer is the
  * navigation that reached it and must stay put while the card region swaps, so
  * taking the column would delete the column the person is navigating with.
- * Automations, which is not a drawer row at all, is what still swaps; so does
- * any module door whose rail is a list of its own.
+ * A module door whose rail is a list of its own still swaps.
  */
 export function surfaceTakesSidebarColumn(
   surface: Pick<RegisteredGlobalSurface, 'railPlacement'> | null | undefined,

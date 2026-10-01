@@ -10,14 +10,19 @@
 
 import React, { useState, type JSX } from 'react'
 
-import type { SkillSource } from '../../../../../../../shared/skills'
+import { DEFAULT_SKILL_REPO_HOST, splitSkillRepo, type SkillSource } from '../../../../../../../shared/skills'
 import { ExtensionIcon } from '../../../../ui/ExtensionIcon'
 
-/** The GitHub account a repository belongs to, or '' for a source with none. */
+/**
+ * The github.com account a repository belongs to, or '' for a source with none.
+ * A repository on a company's self-hosted GitHub keeps its monogram: its
+ * avatars sit behind that host's sign-in, which an image request cannot carry.
+ */
 export function sourceOwner(source: Pick<SkillSource, 'kind' | 'repo'>): string {
   if (source.kind !== 'github') return ''
-  const owner = source.repo.split('/')[0] ?? ''
-  return /^[A-Za-z0-9-]+$/.test(owner) ? owner : ''
+  const location = splitSkillRepo(source.repo)
+  if (!location || location.host !== DEFAULT_SKILL_REPO_HOST) return ''
+  return /^[A-Za-z0-9-]+$/.test(location.owner) ? location.owner : ''
 }
 
 export function sourceAvatarUrl(source: Pick<SkillSource, 'kind' | 'repo'>, size: number): string | null {

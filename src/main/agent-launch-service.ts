@@ -6,8 +6,8 @@
  * What lived in the renderer was the DECISION layer: which CLI when the caller
  * named none, which permission preset, how a connector resolves, and what the
  * agent is called. It lived in a React hook, so `agent.launch`, `backlog.work`,
- * and agent-backed `automation.run` actions all failed headless — not because they needed a window, but because
- * the composition did.
+ * and the old automation runs all failed headless — not because they needed a
+ * window, but because the composition did.
  *
  * This service is that layer, with every input injected:
  *
@@ -56,9 +56,10 @@ import type {
 } from '../shared/agent-launch'
 import {
   effectiveAgentLaunchSettings,
-  resolveAgentSpawnPermissionPreset,
+  resolveAgentSpawnPermission,
   type AgentLaunchSettings,
 } from '../shared/launch-settings'
+import { parseCliPermissionModeId } from '../shared/cli-permission-mode'
 import { resolveConnectorLaunchFrom } from '../shared/connector-launch'
 import { pickRandomAgentName } from '../shared/agent-names'
 import {
@@ -66,8 +67,8 @@ import {
   resolveProjectKnowledgeConfig,
   type KnowledgeLaunchContext,
 } from '../shared/project-knowledge'
-import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../shared/workspace-mode'
 import { normalizeExecutionHostId } from '../shared/execution-host'
+import type { CliPermissionPreset } from '../shared/cli-permission-preset'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 
 /**
@@ -106,11 +107,26 @@ export type AgentLaunchServiceDeps = {
    * Whether this CLI may launch as an agent: true exactly when its plugin
    * manifest declares an `agentStateSpec` (hooks are the only supported status
    * mechanism — decision of record 2026-08-31). This service is the shared door
-   * for `agent.launch`, `backlog.work`, `terminal.create`, and automation
-   * spawns, so gating here covers them all. Optional so bare test harnesses
+   * for `agent.launch`, `backlog.work` and `terminal.create`, so gating here
+   * covers them all. Optional so bare test harnesses
    * keep working; production wiring always provides it.
    */
   isAgentSelectableCli?: (cli: string) => boolean
+  /**
+   * The permission presets a terminal launch of this CLI is told in its own
+   * words (`declaredPermissionPresets`), or null for a CLI the registry does
+   * not hold. A preset the caller names outside the list is refused rather
+   * than launched with no flag under that preset's name. Optional, like
+   * `isAgentSelectableCli`.
+   */
+  permissionPresetsForCli?: (cli: string) => readonly CliPermissionPreset[] | null
+  /**
+   * Whether this CLI's manifest declares a resume it has been verified to
+   * honour (`capabilities.resumeSession`). A launch that asks to resume a
+   * session on one that does not is refused rather than started fresh under
+   * the resumed conversation's name. Optional, like `isAgentSelectableCli`.
+   */
+  cliResumesSessions?: (cli: string) => boolean
   /**
    * Resolve a project's Knowledge Graph root on disk (`memory-graph.ts`'s
    * `resolveMemoryRoot`, the same call the renderer makes over IPC). Optional:
@@ -147,23 +163,21 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
         message: `Workspace "${request.workspaceId}" does not exist in the main-process registry.`,
       }
     }
-    // Agent-backed automation runs launch into either the per-project hidden
-    // 'automations-host' workspace (the default route resolves-or-creates one)
-    // or a standard workspace named by an explicit/legacy config workspaceId.
-    // Any other mode is not a valid launch host. A restart-restored routing
-    // placeholder reports 'standard', which is the permissive answer and matches
-    // what the renderer used to conclude from its own record.
+    // Agents launch into standard workspaces. Any other mode is not a valid
+    // launch host. A restart-restored routing placeholder reports 'standard',
+    // which is the permissive answer and matches what the renderer used to
+    // conclude from its own record.
     //
     // A caller that owns its own residency (a module agent session, which names
     // the workspace its surface was opened from) opts out with
     // `anyWorkspaceMode`: refusing there would refuse the workspace the user is
     // actually standing in.
     const mode = workspace.mode ?? 'standard'
-    if (!request.anyWorkspaceMode && mode !== 'standard' && mode !== AUTOMATIONS_HOST_WORKSPACE_MODE) {
+    if (!request.anyWorkspaceMode && mode !== 'standard') {
       return {
         ok: false,
         code: 'unsupported_workspace_mode',
-        message: `Agent launch supports standard or automations-host workspaces; "${workspace.id}" is a ${mode} workspace.`,
+        message: `Agent launch supports standard workspaces; "${workspace.id}" is a ${mode} workspace.`,
       }
     }
 
@@ -181,12 +195,30 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
     }
     // Never silently substitute another CLI for an ineligible one — surface it
     // and let the caller pick. Covers a stale persisted selection (a
-    // lastSelectedCli or automation config naming a CLI that lost eligibility).
+    // lastSelectedCli naming a CLI that lost eligibility).
     if (deps.isAgentSelectableCli && !deps.isAgentSelectableCli(cli)) {
       return {
         ok: false,
         code: 'cli_not_agent_selectable',
         message: `Agent CLI "${cli}" cannot report agent status (its plugin declares no lifecycle-hook support), so it is not selectable as an agent. Pick another CLI.`,
+      }
+    }
+
+    const declared = deps.permissionPresetsForCli?.(cli) ?? null
+    if (request.permissionPreset && declared && !declared.includes(request.permissionPreset)) {
+      return {
+        ok: false,
+        code: 'unsupported_permission_preset',
+        message: `Agent CLI "${cli}" has no setting for the "${request.permissionPreset}" permission preset in a terminal. Pass one of: ${declared.join(', ')}.`,
+      }
+    }
+
+    const resumeCliSessionId = request.resumeCliSessionId?.trim() || undefined
+    if (resumeCliSessionId && deps.cliResumesSessions && !deps.cliResumesSessions(cli)) {
+      return {
+        ok: false,
+        code: 'cli_resume_unsupported',
+        message: `Agent CLI "${cli}" cannot resume a session in a terminal.`,
       }
     }
 
@@ -220,6 +252,14 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
       }
     }
 
+    // The caller's preset when it names one: the agent.launch and backlog.work
+    // tools always do, and they floor an unnamed preset to their most
+    // restrictive one. A caller that names none gets what the spawn footer
+    // shows for this CLI: the preset (and the CLI's own mode) the person chose
+    // for it, else the app-wide spawn default, else Auto where the CLI has it.
+    const permission = resolveAgentSpawnPermission(settings, cli, request.permissionPreset, declared)
+    const permissionMode = request.permissionPreset ? parseCliPermissionModeId(request.permissionMode) : permission.mode
+
     const agentId = request.agentId?.trim() || `agent-${cli}-${newAgentSuffix()}`
     const name = request.name?.trim() || pickRandomAgentName(takenAgentNames(workspace, deps.terminal.list()))
     // The project's Knowledge Graph, resolved the same way the interactive
@@ -234,20 +274,17 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
     // about an attached design system, are built into the host-context document
     // by `terminal-launch.ts` from the root/relativeRoot pair below — which is
     // how a headless launch now receives exactly what an interactive one does.
-    const initialPrompt = request.prompt
+    // A resumed conversation already has its opening; a prompt would be sent
+    // into it as a new message nobody typed there.
+    const initialPrompt = resumeCliSessionId ? undefined : request.prompt
 
     const record: AgentLaunchRecord = {
       agentId,
       name,
       cli,
       ...(request.cliModel?.trim() ? { cliModel: request.cliModel.trim() } : {}),
-      // The caller's preset when it names one: an automation's spawn-agent
-      // action always does (its own configured preset, or the automation
-      // default), and so do the agent.launch and backlog.work tools, which
-      // floor an unnamed preset to their most restrictive one. A caller that
-      // names none gets what the spawn footer shows for this CLI: the preset
-      // the person chose for it, else the app-wide spawn default.
-      cliPermissionPreset: resolveAgentSpawnPermissionPreset(settings, cli, request.permissionPreset),
+      cliPermissionPreset: permission.preset,
+      ...(permissionMode ? { cliPermissionMode: permissionMode } : {}),
       ...(connector?.ok ? { connectorMcpSettings: connector.resolved.mcpSettings } : {}),
       ...(request.spawnSkillId?.trim() ? { spawnSkillId: request.spawnSkillId.trim() } : {}),
       ...(worktreePath ? { worktreePath } : {}),
@@ -266,6 +303,10 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
       cwd,
       cli,
       ...(initialPrompt ? { initialPrompt } : {}),
+      // The spawn renders the manifest's resume command around this id, and
+      // seeds the session's harness id with it so a later relaunch resumes the
+      // same conversation.
+      ...(resumeCliSessionId ? { resume: true, cliSessionId: resumeCliSessionId } : {}),
       // The user's command overrides. The two shapes are field-identical
       // (`command`, `models?`); the cast is only the keying — the
       // mirror types its map by plain string, the payload by `AgentCli`, which
@@ -280,6 +321,7 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
       agentId,
       agentName: name,
       cliPermissionPreset: record.cliPermissionPreset,
+      ...(record.cliPermissionMode ? { cliPermissionMode: record.cliPermissionMode } : {}),
       ...(record.cliModel ? { cliModel: record.cliModel } : {}),
       ...(worktreePath ? { executionMode: 'worktree' as const, worktreePath } : {}),
       ...(knowledge.rootPath ? { memoryRootPath: knowledge.rootPath } : {}),

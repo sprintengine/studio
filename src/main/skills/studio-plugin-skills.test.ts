@@ -15,7 +15,9 @@ import { parseSkillFrontmatter, SKILL_ENTRY_FILE } from '../../shared/skills'
 import { createAutomationTools } from '../automation/automation-tools'
 import { createBrowserTools } from '../automation/browser-tools'
 import { createCanvasTools } from '../automation/canvas-tools'
+import { createEditorTools } from '../automation/editor-tools'
 import { createTailnetTools } from '../automation/tailnet/tailnet-tools'
+import { createTourTools } from '../automation/tour-tools'
 import { STUDIO_PLUGIN_ID } from './studio-plugin'
 import { test } from 'vitest'
 
@@ -30,7 +32,7 @@ test('studio-plugin-skills', async () => {
   const MAX_BODY_LINES = 500
 
   /** The areas the item names. One more is fine; a missing one is not. */
-  const REQUIRED_AREAS = ['studio-backlog', 'studio-automations', 'studio-canvas', 'studio-workspaces']
+  const REQUIRED_AREAS = ['studio-backlog', 'studio-scheduled-agents', 'studio-canvas', 'studio-workspaces']
 
   /**
    * Backticked snake_case words the skills use that are NOT tool names — statuses,
@@ -44,10 +46,16 @@ test('studio-plugin-skills', async () => {
     // A canvas error code, not a tool: the board file on disk is unreadable, so
     // nothing was written over it.
     'invalid_scene',
+    // An editor.open file status: the person is asked whether to open it.
+    'awaiting_owner',
     'needs_input',
     'node_modules',
     'not_found',
+    // A launch-permission refusal code, not a tool.
+    'permission_escalation',
     'project_root_required',
+    // A schedule tool's refusal to a chat a scheduled agent started, not a tool.
+    'scheduled_run_refused',
     'too_large',
   ])
 
@@ -56,7 +64,7 @@ test('studio-plugin-skills', async () => {
    * backticks) still counts, because the removed sprint skill named its tools in
    * prose as often as in code spans.
    */
-  const RETIRED_TOOL_FAMILIES = ['sprint', 'sprintengine']
+  const RETIRED_TOOL_FAMILIES = ['sprint', 'sprintengine', 'automation']
 
   /**
    * The tool names the app's MCP server registers, in the form an agent sees
@@ -69,7 +77,9 @@ test('studio-plugin-skills', async () => {
       ...createAutomationTools({} as never),
       ...createBrowserTools({} as never),
       ...createCanvasTools({} as never),
+      ...createEditorTools({} as never),
       ...createTailnetTools({ resolveTailnet: () => null }),
+      ...createTourTools({} as never),
     ]
     return new Set(registrations.map((registration) => registration.name.replace(/\./g, '_')))
   }
@@ -86,6 +96,8 @@ test('studio-plugin-skills', async () => {
     assert.equal(registered.has('browser_open'), true)
     assert.equal(registered.has('canvas_edit'), true)
     assert.equal(registered.has('tailnet_status'), true)
+    assert.equal(registered.has('editor_open'), true)
+    assert.equal(registered.has('tour_create'), true)
     const families = new Set([...registered].map((name) => name.split('_')[0]))
     for (const family of RETIRED_TOOL_FAMILIES) families.add(family)
     const bareMention = new RegExp(`\\b(?:${[...families].join('|')})_[a-z_]*[a-z]\\b`, 'g')
@@ -127,7 +139,7 @@ test('studio-plugin-skills', async () => {
     }
     const toolManual = await readFile(join(SKILLS_ROOT, 'studio-backlog', SKILL_ENTRY_FILE), 'utf8')
     const workflow = await readFile(
-      resolve(process.cwd(), 'resources', 'studio-plugin', 'studio-skills', 'skills', 'backlog', SKILL_ENTRY_FILE),
+      resolve(process.cwd(), 'resources', 'builtin-skills', 'backlog', SKILL_ENTRY_FILE),
       'utf8',
     )
     assert.notEqual(section(toolManual), '', 'studio-backlog must carry an "## Item body" section')

@@ -14,6 +14,7 @@ import {
   isKnownCapabilityPermission,
 } from '../../../../shared/modules/permissions'
 import { getThirdPartyRendererLoadState, type ThirdPartyRendererLoadState } from '../../modules/third-party-loader'
+import { getModuleContributionError } from '../../modules/ModuleContributionBoundary'
 import { getRendererHost, onThirdPartyRendererModulesLoaded, refreshThirdPartyRendererModules } from '../../modules'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
@@ -31,7 +32,8 @@ import {
   Switch,
   Tooltip,
 } from '../ui'
-import { FolderPlusIcon } from '../AppIcons'
+import { FolderPlusIcon, GithubSettingsIcon } from '../AppIcons'
+import { InstallFromGitHubDialog } from '../extensions/InstallFromGitHubDialog'
 import { addThirdPartyModuleFromFolder } from './addThirdPartyModuleFromFolder'
 import { SettingCard, SettingsSectionTitle } from './SettingsAtoms'
 
@@ -83,6 +85,11 @@ export function describeModuleLaunch(
         label: 'Blocked: invalid signature',
         detail: 'Can’t be trusted or loaded until it is reinstalled with a valid signature.',
       }
+    case 'blocked_host_api':
+      return {
+        label: 'Built for another app version',
+        detail: launch.message ?? 'It targets a host API this app does not provide, so it won’t load.',
+      }
     case 'launch_error':
       return { label: 'Launch error', detail: launch.message ?? 'Failed to load at the last app launch.' }
   }
@@ -99,6 +106,8 @@ export function describeRendererEntry(
   view: ThirdPartyRendererEntryView | undefined,
   loadState: ThirdPartyRendererLoadState | undefined,
   trust: ModuleTrustStatus,
+  // The last time one of its contributions failed to render this session.
+  contributionError?: string,
 ): { label: string; detail: string } | null {
   if (trust !== 'trusted' || !view || view.availability === 'none' || view.availability === 'blocked') {
     return null
@@ -114,6 +123,9 @@ export function describeRendererEntry(
   }
   if (loadState.status === 'error') {
     return { label: 'Renderer entry failed', detail: loadState.message }
+  }
+  if (contributionError) {
+    return { label: 'Renderer entry crashed', detail: contributionError }
   }
   return {
     label: 'Renderer entry loaded',
@@ -188,13 +200,18 @@ export function ThirdPartyModuleRow({
   rendererLoadState?: ThirdPartyRendererLoadState
   onTrustChange: (trusted: boolean) => void
   onEnabledChange: (enabled: boolean) => void
-  // G3: the other end of a marketplace install. Absent on a build whose preload
-  // predates the uninstall channel, and the row simply carries no control —
-  // never a button that reports an error when pressed.
+  // The other end of an install — from a folder, the marketplace or GitHub.
+  // Absent on a build whose preload predates the uninstall channel, and the row
+  // simply carries no control — never a button that reports an error when pressed.
   onUninstall?: () => void
 }) {
   const trust = TRUST_PRESENTATION[module.trust]
-  const rendererEntry = describeRendererEntry(module.launch.rendererEntry, rendererLoadState, module.trust)
+  const rendererEntry = describeRendererEntry(
+    module.launch.rendererEntry,
+    rendererLoadState,
+    module.trust,
+    getModuleContributionError(module.manifest.id),
+  )
   // A trusted renderer-entry module without a main entry would otherwise read
   // "Manifest only — no code to run", which is false; the renderer line is the
   // whole story for that shape.
@@ -298,8 +315,18 @@ export function ThirdPartyModuleList({
   const [modules, setModules] = useState<ThirdPartyModuleView[]>([])
   const [rejected, setRejected] = useState<Array<{ path: string; issues: ModuleManifestIssue[] }>>([])
   const [installing, setInstalling] = useState(false)
+  const [installFromGitHub, setInstallFromGitHub] = useState(false)
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [message, setMessage] = useState<Message>(null)
+  // An uninstall that takes out a bundle's MCP servers or skill copies writes
+  // into the project they were installed for, so it carries the same envelope
+  // an install does: the open project and the MCP settings.
+  const activeWorkspaceRoot = useWorkspaceStore(
+    (state) => state.workspaces.find((workspace) => workspace.id === state.activeWorkspaceId)?.folderPath ?? null,
+  )
+  const mcpSettings = useWorkspaceStore((state) => state.appSettings.mcp)
+  const removeMcpServer = useWorkspaceStore((state) => state.removeMcpServer)
+  const forgetModules = useWorkspaceStore((state) => state.forgetModules)
 
   const load = useCallback(async () => {
     if (typeof window.api.listThirdPartyModules !== 'function') return
@@ -346,15 +373,15 @@ export function ThirdPartyModuleList({
 
   const { confirm: confirmDialog } = useConfirmDialog()
 
-  // G3. The uninstall the marketplace install never had a way back from: the
-  // lifecycle removes the module folder, the CLI plugins and skill copies the
-  // same bundle installed, its MCP servers out of the synced configs, and the
-  // trust grant — then drops the receipt. The id passed is the MODULE's, which
-  // the lifecycle resolves to the receipt that owns it (a bundle's id and its
-  // module's id need not match).
+  // Uninstall, however the module arrived. Main resolves the MODULE's id to
+  // the receipt that owns it when a marketplace or GitHub install put it there
+  // (the bundle's skill copies and MCP servers come out with it, and the
+  // receipt goes), or removes its folder when it was added from one. Either
+  // way its trust grant, enablement choice and stored secrets go too — and
+  // the enablement and settings this window keeps are dropped here.
   const uninstall = useCallback(
     async (module: ThirdPartyModuleView) => {
-      if (typeof window.api.uninstallMarketplacePlugin !== 'function') return
+      if (typeof window.api.uninstallThirdPartyModule !== 'function') return
       const name = module.manifest.displayName
       const confirmed = await confirmDialog({
         title: `Uninstall ${name}?`,
@@ -368,11 +395,24 @@ export function ThirdPartyModuleList({
       if (!confirmed) return
       setPendingId(module.manifest.id)
       try {
-        const result = await window.api.uninstallMarketplacePlugin({ pluginId: module.manifest.id })
+        const result = await window.api.uninstallThirdPartyModule({
+          id: module.manifest.id,
+          ...(activeWorkspaceRoot ? { workspaceRoot: activeWorkspaceRoot } : {}),
+          mcpSettings,
+        })
+        if (result.ok) {
+          forgetModules(result.removedModuleIds)
+          // Servers the bundle added and main just took out of the configs.
+          if (result.mcpSettings) {
+            for (const id of Object.keys(mcpSettings.servers)) {
+              if (!(id in result.mcpSettings.servers)) removeMcpServer(id)
+            }
+          }
+        }
         setMessage(
           result.ok
             ? { tone: 'info', text: `Uninstalled "${name}". Restart SprintEngine Studio to finish removing it.` }
-            : { tone: 'error', text: result.message ?? 'Could not uninstall this module.' },
+            : { tone: 'error', text: result.message || 'Could not uninstall this module.' },
         )
         await load()
       } catch (error) {
@@ -381,7 +421,7 @@ export function ThirdPartyModuleList({
         setPendingId(null)
       }
     },
-    [confirmDialog, load],
+    [confirmDialog, load, activeWorkspaceRoot, mcpSettings, forgetModules, removeMcpServer],
   )
 
   const setTrust = useCallback(
@@ -421,7 +461,7 @@ export function ThirdPartyModuleList({
 
   // A build whose preload predates the uninstall channel offers no control at
   // all, rather than one that fails when pressed.
-  const canUninstall = typeof window.api.uninstallMarketplacePlugin === 'function'
+  const canUninstall = typeof window.api.uninstallThirdPartyModule === 'function'
 
   return (
     // No top rule: the modules card below draws its own edge, and a section
@@ -430,15 +470,22 @@ export function ThirdPartyModuleList({
       <SettingsSectionTitle
         count={modules.length || undefined}
         action={
-          <Tooltip content={installing ? 'Installing a module from a folder' : 'Install a module from a folder'}>
-            <IconButton
-              aria-label={installing ? 'Installing a module from a folder' : 'Install a module from a folder'}
-              onClick={() => void installFromFolder()}
-              disabled={installing}
-            >
-              {installing ? <Spinner className="icon-sm" /> : <FolderPlusIcon className="icon-sm" />}
-            </IconButton>
-          </Tooltip>
+          <div className="flex items-center gap-1">
+            <Tooltip content={installing ? 'Installing a module from a folder' : 'Install a module from a folder'}>
+              <IconButton
+                aria-label={installing ? 'Installing a module from a folder' : 'Install a module from a folder'}
+                onClick={() => void installFromFolder()}
+                disabled={installing}
+              >
+                {installing ? <Spinner className="icon-sm" /> : <FolderPlusIcon className="icon-sm" />}
+              </IconButton>
+            </Tooltip>
+            <Tooltip content="Install an extension from GitHub">
+              <IconButton aria-label="Install an extension from GitHub" onClick={() => setInstallFromGitHub(true)}>
+                <GithubSettingsIcon className="icon-sm" />
+              </IconButton>
+            </Tooltip>
+          </div>
         }
       >
         Third-party modules
@@ -463,6 +510,14 @@ export function ThirdPartyModuleList({
           ))}
         </SettingCard>
       )}
+
+      <InstallFromGitHubDialog
+        open={installFromGitHub}
+        onClose={() => setInstallFromGitHub(false)}
+        workspaceRoot={activeWorkspaceRoot}
+        mcpSettings={mcpSettings}
+        onInstalled={() => void load()}
+      />
 
       {rejected.length > 0 ? (
         <InlineNotice tone="warn">

@@ -76,18 +76,26 @@ test('ProviderRow', async () => {
       assert.match(text, /2\.1\.220/, 'a known version renders')
       assert.match(text, /Authenticated as octocat/, 'the state line renders')
 
-      const dot = host.querySelector('span[aria-hidden="true"][style*="background-color"]')
-      assert.ok(dot, 'the health dot renders')
+      // The health mark is the tone's status glyph, never a dot (the app draws
+      // no status dots), on a disc of the row's ground.
+      const glyph = host.querySelector('svg[style*="--tone-good"]')
+      assert.ok(glyph, "the health mark renders, in the tone token's ink")
       assert.equal(
-        dot?.getAttribute('aria-hidden'),
-        'true',
-        'the dot is decorative — the state line, not the colour, carries the state',
+        host.querySelector('[style*="background-color"]'),
+        null,
+        'no tone-filled disc: the health mark is a glyph, not a dot',
       )
-      const dotStyle = (dot as HTMLElement).getAttribute('style') ?? ''
-      assert.match(dotStyle, /var\(--tone-good\)/, 'the dot reads its colour from the tone token')
+      const mark = host.querySelector('[data-health]') as HTMLElement
+      assert.equal(mark, glyph!.parentElement, "the glyph sits on the health mark's ground")
+      assert.equal(mark.getAttribute('data-health'), 'good')
+      assert.equal(
+        mark.getAttribute('aria-hidden'),
+        'true',
+        'the mark is decorative — the state line, not the colour, carries the state',
+      )
 
-      // The 2px keyline is what keeps the dot legible against the mark it sits on.
-      assert.match(dot?.className ?? '', /shadow-\[0_0_0_2px_var\(--bg-surface\)\]/)
+      // The 2px keyline is what keeps the mark legible against the brand mark it sits on.
+      assert.match(mark.className, /shadow-\[0_0_0_2px_var\(--bg-surface\)\]/)
 
       // No box per row: rows separate by spacing, and by the hover fill where the
       // face is actionable (asserted on the disclosable row below).
@@ -166,7 +174,7 @@ test('ProviderRow', async () => {
       // tracks that fill instead of haloing on it.
       const rowBox = host.firstElementChild?.firstElementChild as HTMLElement
       assert.match(rowBox.className, /hover:bg-\[color:var\(--bg-hover\)\]/)
-      const dot = host.querySelector('span[aria-hidden="true"][style*="background-color"]') as HTMLElement
+      const dot = host.querySelector('[data-health]') as HTMLElement
       assert.match(dot.className, /group-hover:shadow-\[0_0_0_2px_var\(--bg-hover\)\]/)
 
       render(<ProviderRow {...BASE} health="good" selected onSelect={() => {}} stateLine="Added — Daily at 02:00" />)
@@ -289,7 +297,7 @@ test('ProviderRow', async () => {
       assert.match(liveFace.className, /hover:bg-\[color:var\(--bg-hover\)\]/, 'an actionable face lights up')
       assert.match(liveFace.className, /cursor-pointer/)
       assert.match(
-        disclosable.host.querySelector('span[aria-hidden="true"][style*="background-color"]')?.className ?? '',
+        disclosable.host.querySelector('[data-health]')?.className ?? '',
         /group-hover:shadow-\[0_0_0_2px_var\(--bg-hover\)\]/,
         'the keyline follows the fill the face will take',
       )
@@ -300,7 +308,7 @@ test('ProviderRow', async () => {
       assert.doesNotMatch(inertFace.className, /hover:bg-/, 'an inert face makes no hover promise')
       assert.doesNotMatch(inertFace.className, /cursor-pointer/)
       assert.doesNotMatch(
-        inert.host.querySelector('span[aria-hidden="true"][style*="background-color"]')?.className ?? '',
+        inert.host.querySelector('[data-health]')?.className ?? '',
         /group-hover:shadow-/,
         'and its keyline stays on the resting fill',
       )
@@ -369,11 +377,12 @@ test('ProviderRow', async () => {
       assert.equal(control.getAttribute('aria-checked'), 'true', 'enabled and unhealthy render together')
       assert.equal(control.getAttribute('aria-label'), 'Claude enabled')
 
-      const dot = host.querySelector('span[aria-hidden="true"][style*="background-color"]') as HTMLElement
+      const dot = host.querySelector('[data-health]') as HTMLElement
+      assert.equal(dot.getAttribute('data-health'), 'error')
       assert.match(
-        dot.getAttribute('style') ?? '',
+        dot.querySelector('svg')?.getAttribute('style') ?? '',
         /var\(--tone-error\)/,
-        'the dot still reports the health tone while the switch reports on',
+        'the mark still reports the health tone while the switch reports on',
       )
 
       act(() => {
@@ -546,11 +555,7 @@ test('ProviderRow', async () => {
       // Health omitted: no dot at all. The owner's Agent CLIs list is nine green
       // dots and one that is not, and the fact they came for is not either of them.
       const { host, root } = mount(<ProviderRow {...BASE} stateLine="Ready — /usr/local/bin/claude" />)
-      assert.equal(
-        host.querySelector('span[aria-hidden="true"][style*="background-color"]'),
-        null,
-        'a row with no health draws no dot',
-      )
+      assert.equal(host.querySelector('[data-health]'), null, 'a row with no health draws no dot')
       assert.match(host.textContent ?? '', /Ready/, 'and the state line still carries the state in words')
       unmount(root, host)
     }
@@ -612,8 +617,8 @@ test('ProviderRow', async () => {
       assert.ok(name, 'the name renders')
       assert.match(
         name?.className ?? '',
-        /text-\[color:var\(--text-default\)\]/,
-        'a recessed name drops one ink step, the way the sidebar recedes an inactive conversation',
+        /text-\[color:var\(--text-muted\)\]/,
+        'a recessed name drops to the muted ink, the lowest that still clears AA in both modes',
       )
       const mark = host.querySelector('span.relative.mt-px') as HTMLElement | null
       assert.match(mark?.className ?? '', /opacity-60/, 'and the mark, being an image, recedes by opacity')
@@ -657,7 +662,7 @@ test('ProviderRow', async () => {
         /rounded-/,
         'no radius — the card clips, and a rounded fill inside it is a card in a card',
       )
-      const dot = host.querySelector('span[aria-hidden="true"][style*="background-color"]') as HTMLElement | null
+      const dot = host.querySelector('[data-health]') as HTMLElement | null
       assert.match(
         dot?.className ?? '',
         /--bg-surface-raised/,
@@ -679,20 +684,19 @@ test('ProviderRow', async () => {
     // Host wiring a mounted row cannot observe
     // ---------------------------------------------------------------------------
     const repoRoot = process.cwd()
-    const settings = readFileSync(join(repoRoot, 'src/renderer/src/components/settings/SettingsPanel.tsx'), 'utf8')
+    // Settings → Agents is the panel (its band) and the list it renders, which
+    // is a file of its own since the list became one machine's at a time.
+    const settings = ['SettingsPanel.tsx', 'AgentClisSection.tsx']
+      .map((file) => readFileSync(join(repoRoot, 'src/renderer/src/components/settings', file), 'utf8'))
+      .join('\n')
     const onboarding = readFileSync(
       join(repoRoot, 'src/renderer/src/components/onboarding/FirstRunCliCard.tsx'),
-      'utf8',
-    )
-    const canvas = readFileSync(
-      join(repoRoot, 'src/renderer/src/components/panels/ConnectorsPanel/AgentCliShelfRows.tsx'),
       'utf8',
     )
 
     for (const [label, source] of [
       ['Settings → Agents', settings],
       ['first-run CLI card', onboarding],
-      ['Agent CLIs canvas', canvas],
     ] as const) {
       assert.match(source, /<ProviderRow/, `${label} renders the shared row`)
     }
@@ -725,24 +729,9 @@ test('ProviderRow', async () => {
     // installed count ("3 installed · checked 2m ago"), so match the fact rather
     // than the sentence it used to be.
     assert.match(settings, /checked \$\{freshness\}/i, 'the band carries the freshness meta')
-    assert.match(settings, /refreshCliAvailability\(\{ force: true, cliRuntimes \}\)/, 'the band re-checks for real')
-
-    // The registry canvas states registry availability, not a local health probe.
-    assert.match(canvas, /pluginTrust/, 'the canvas row reads the registry signing tier')
-    assert.doesNotMatch(canvas, /resolveCliProviderState/, 'the canvas runs no local install probe')
-    // Matched on the prop, not on any mention: the code comment beside it explains
-    // why `plugin.latest` is NOT rendered, so a bare /plugin\.latest/ would trip on
-    // its own rationale.
-    assert.match(
-      canvas,
-      /version=\{null\}/,
-      "the marketplace row renders no version — `latest` is the registry's bundle revision, not the CLI's own version",
-    )
-    assert.doesNotMatch(
-      canvas,
-      /version=\{[^}]*plugin\.latest/,
-      'and the bundle revision never reaches the version slot',
-    )
+    // Re-check has main detect every CLI on every machine again, not only read
+    // the answer startup found.
+    assert.match(settings, /refreshCliVersionAdvisories\(\{ detect: true/, 'the band re-checks for real')
 
     // A failed batch probe is one global fact, stated once, not once per row.
     assert.match(
@@ -755,19 +744,6 @@ test('ProviderRow', async () => {
       onboarding,
       /probeError=\{cliAvailabilityError\}/,
       'onboarding has no section band, so its rows keep the reason',
-    )
-    // The agent-CLI rows are a file of their own since the source-tabs ruling
-    // (2026-09-05) made Agent CLIs a catalogue rather than one kind of a shared
-    // canvas — and they are still the ONLY marketplace list on this anatomy.
-    assert.match(
-      canvas,
-      /export function AgentCliRuntimeRows\(/,
-      'the runtime rows live where the catalogue reads them',
-    )
-    assert.equal(
-      /ConnectorEntryRow/.test(canvas),
-      false,
-      'and they never fall back to the connector row this anatomy replaced',
     )
     process.stdout.write('ProviderRow tests passed\n')
   }

@@ -1,4 +1,4 @@
-import type { EntitlementSnapshot, SessionOrganization } from '../shared/electron-api'
+import type { SessionOrganization } from '../shared/electron-api'
 import {
   CLERK_IDENTITY_PROVIDER,
   IdentityDiscoveryError,
@@ -18,15 +18,14 @@ import {
   type TokenSet,
 } from './desktop-identity'
 import { getErrorMessage } from './error-message'
-import { isEntitlementSnapshotFresh } from './entitlement-service'
 
 // The desktop's client for the studio's ACCOUNT SERVICE (`MULTIAUTH_BASE_URL`):
-// entitlements, the account profile, and — through whichever identity
-// provider the service names — sign-in, refresh and sign-out.
+// the account profile and — through whichever identity provider the service
+// names — sign-in, refresh and sign-out.
 // Everything Electron (safeStorage files, the marker file, the browser
 // window) is injected, so `account-client.test.ts` drives every path below
 // with an in-process fetch: offline resume, the pinned-provider rollback,
-// sign-out with the server unreachable, and a relay token after a failed
+// sign-out with the server unreachable, and an access token after a failed
 // launch.
 
 export type SecureRefreshTokenStore = {
@@ -71,7 +70,6 @@ export type AccountClientLogger = (event: string, data?: Record<string, unknown>
 export type AccountClientOptions = {
   baseUrl: string
   clientId: string
-  product: EntitlementSnapshot['product']
   refreshTokenStores: Readonly<Record<IdentityProviderKind, SecureRefreshTokenStore>>
   identityMarker: IdentityMarkerStore
   env: IdentityEnvironment
@@ -92,7 +90,6 @@ export class SprintEngineAccountClient {
   private accessToken: string | null = null
   private accessTokenExpiresAt = 0
   private selectedOrganizationId: string | null = null
-  private entitlementCache: EntitlementSnapshot | null = null
   // The provider that issued the credential this session runs on, and the
   // config needed to refresh it. Null until a session is installed.
   private identity: IdentityConfig | null = null
@@ -108,7 +105,6 @@ export class SprintEngineAccountClient {
 
   private readonly baseUrl: string
   private readonly clientId: string
-  private readonly product: EntitlementSnapshot['product']
   private readonly refreshTokenStores: Readonly<Record<IdentityProviderKind, SecureRefreshTokenStore>>
   private readonly identityMarker: IdentityMarkerStore
   private readonly env: IdentityEnvironment
@@ -120,7 +116,6 @@ export class SprintEngineAccountClient {
   constructor(options: AccountClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/u, '')
     this.clientId = options.clientId
-    this.product = options.product
     this.refreshTokenStores = options.refreshTokenStores
     this.identityMarker = options.identityMarker
     this.env = options.env
@@ -330,7 +325,6 @@ export class SprintEngineAccountClient {
     }
 
     this.selectedOrganizationId = organizationId
-    this.entitlementCache = null
     if (this.identity) {
       await this.identityMarker.write(this.markerFor(this.identity))
     }
@@ -345,25 +339,6 @@ export class SprintEngineAccountClient {
       throw new Error('The account service returned an unreadable account profile.')
     }
     return profile
-  }
-
-  async getEntitlements(options: { forceRefresh?: boolean } = {}): Promise<EntitlementSnapshot> {
-    if (!options.forceRefresh && this.entitlementCache && isEntitlementSnapshotFresh(this.entitlementCache)) {
-      return this.entitlementCache
-    }
-
-    await this.ensureFreshAccessToken()
-    const snapshot = await this.request<EntitlementSnapshot>(
-      `/api/entitlements?product=${encodeURIComponent(this.product)}`,
-      { method: 'GET' },
-    )
-
-    if (this.selectedOrganizationId && snapshot.organizationId !== this.selectedOrganizationId) {
-      throw new Error('Selected organization does not match the authenticated desktop session.')
-    }
-
-    this.entitlementCache = snapshot
-    return snapshot
   }
 
   // A usable bearer, refreshing when stale — and resuming from disk when no
@@ -490,7 +465,8 @@ export class SprintEngineAccountClient {
   // Every account-service call. The bearer is whichever provider's access
   // token the session holds — the service accepts both while the dual-accept
   // window is open — and the selected organisation rides along on
-  // every bearer call, so profile, entitlements and relay agree on it.
+  // every bearer call, so the account service answers for the organisation
+  // the desktop has selected.
   private async request<T>(path: string, init: RequestInit, options: { bearer?: boolean } = {}): Promise<T> {
     const headers = new Headers(init.headers)
     headers.set('accept', 'application/json')
@@ -543,7 +519,6 @@ export class SprintEngineAccountClient {
     this.selectedOrganizationId = null
     this.accessToken = null
     this.accessTokenExpiresAt = 0
-    this.entitlementCache = null
     // Sign-out means signed out of the account, not of one issuer: both
     // credentials go. (Rollback inside the dual-accept window relies on the
     // OTHER token surviving a provider flip, not surviving a sign-out.)

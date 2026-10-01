@@ -17,8 +17,9 @@ const fakeMain = createFakeLaunchSettingsMain({
   mcp: { syncEnabled: false, servers: {} },
   projectKnowledgeRoots: {},
   lastSelectedCli: 'claude-code',
-  lastAgentSpawnPermissionPreset: 'auto',
+  lastAgentSpawnPermissionPreset: 'none',
   cliPermissionPresets: {},
+  cliPermissionModes: {},
 })
 // This window read main while it still had no record.
 const racingApi = {
@@ -34,7 +35,7 @@ const stored = installFakeWindow(racingApi, {
       appSettings: {
         cliRuntimes: { codex: { command: '/Users/dev/stale/codex' } },
         lastSelectedCli: 'codex',
-        lastAgentSpawnPermissionPreset: 'manual',
+        lastAgentSpawnPermissionPreset: 'bypass',
         telemetryEnabled: false,
       },
     },
@@ -53,7 +54,7 @@ test('an offer onto an existing record is refused and main values win', async ()
 
   const { appSettings } = useWorkspaceStore.getState()
   assert.equal(appSettings.lastSelectedCli, 'claude-code')
-  assert.equal(appSettings.lastAgentSpawnPermissionPreset, 'auto')
+  assert.equal(appSettings.lastAgentSpawnPermissionPreset, 'none')
   assert.deepEqual(appSettings.cliRuntimes.codex, { command: 'codex' })
   assert.equal(appSettings.telemetryEnabled, false, 'settings the window owns hydrate as before')
 })

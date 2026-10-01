@@ -65,6 +65,8 @@ test('agent-launch-service', async () => {
       spawnResult?: TerminalSpawnResult
       resolveKnowledgeRoot?: AgentLaunchServiceDeps['resolveKnowledgeRoot']
       isAgentSelectableCli?: AgentLaunchServiceDeps['isAgentSelectableCli']
+      permissionPresetsForCli?: AgentLaunchServiceDeps['permissionPresetsForCli']
+      cliResumesSessions?: AgentLaunchServiceDeps['cliResumesSessions']
     } = {},
   ) {
     const spawns: TerminalSpawnPayload[] = []
@@ -74,6 +76,8 @@ test('agent-launch-service', async () => {
       listWorkspaces: () => options.workspaces ?? [workspace()],
       getLaunchSettings: () => options.settings ?? settings(),
       ...(options.isAgentSelectableCli ? { isAgentSelectableCli: options.isAgentSelectableCli } : {}),
+      ...(options.permissionPresetsForCli ? { permissionPresetsForCli: options.permissionPresetsForCli } : {}),
+      ...(options.cliResumesSessions ? { cliResumesSessions: options.cliResumesSessions } : {}),
       ...(options.resolveKnowledgeRoot ? { resolveKnowledgeRoot: options.resolveKnowledgeRoot } : {}),
       terminal: {
         list: () => sessions,
@@ -89,11 +93,38 @@ test('agent-launch-service', async () => {
     return { service, spawns, kills, sessions }
   }
 
+  run('a resume launch runs the CLI resume on the session it names, with no startup prompt', async () => {
+    const app = harness({ cliResumesSessions: (cli) => cli === 'claude-code' })
+
+    const launched = await app.service.launch({
+      workspaceId: 'ws-1',
+      cli: 'claude-code',
+      prompt: 'ignored',
+      resumeCliSessionId: ' 5d1c2a3e-chat-session ',
+    })
+
+    assert.equal(launched.ok, true, JSON.stringify(launched))
+    const spawn = app.spawns[0]!
+    assert.equal(spawn.resume, true)
+    assert.equal(spawn.cliSessionId, '5d1c2a3e-chat-session', 'the spawn resumes the named session')
+    assert.equal(spawn.initialPrompt, undefined, 'a resumed conversation is not sent a message nobody typed')
+  })
+
+  run('a resume is refused on a CLI that cannot resume, rather than started fresh', async () => {
+    const app = harness({ cliResumesSessions: () => false })
+
+    const launched = await app.service.launch({ workspaceId: 'ws-1', cli: 'cursor', resumeCliSessionId: 'id' })
+
+    assert.equal(launched.ok, false)
+    assert.equal(!launched.ok && launched.code, 'cli_resume_unsupported')
+    assert.equal(app.spawns.length, 0)
+  })
+
   run('composes a launch with no window: settings defaults reach the spawn', async () => {
     const app = harness({
       settings: settings({
         lastSelectedCli: 'claude-code',
-        lastAgentSpawnPermissionPreset: 'auto',
+        lastAgentSpawnPermissionPreset: 'none',
         cliRuntimes: { 'claude-code': { command: '/usr/local/bin/claude' } },
         mcp: { syncEnabled: true, servers: {} },
       }),
@@ -107,7 +138,7 @@ test('agent-launch-service', async () => {
     assert.equal(app.spawns.length, 1)
     const spawn = app.spawns[0]!
     assert.equal(spawn.cli, 'claude-code', 'the last-selected CLI is the default')
-    assert.equal(spawn.cliPermissionPreset, 'auto', 'the app-level spawn preset is the default')
+    assert.equal(spawn.cliPermissionPreset, 'none', 'the app-level spawn preset is the default')
     assert.equal(spawn.cwd, '/repo/a')
     assert.equal(spawn.initialPrompt, 'go')
     assert.equal(spawn.kind, 'agent')
@@ -127,7 +158,7 @@ test('agent-launch-service', async () => {
       cli: 'codex',
       name: 'Scout',
       cliModel: 'opus',
-      permissionPreset: 'manual',
+      permissionPreset: 'none',
       worktreePath: '/repo/a/.worktrees/run-1',
       spawnSkillId: 'backlog',
     })
@@ -137,7 +168,7 @@ test('agent-launch-service', async () => {
     assert.equal(spawn.cli, 'codex')
     assert.equal(spawn.agentName, 'Scout')
     assert.equal(spawn.cliModel, 'opus')
-    assert.equal(spawn.cliPermissionPreset, 'manual')
+    assert.equal(spawn.cliPermissionPreset, 'none')
     assert.equal(spawn.spawnSkillId, 'backlog')
     assert.equal(spawn.cwd, '/repo/a/.worktrees/run-1', 'a worktree launch runs in the worktree, not the checkout')
     assert.equal(spawn.executionMode, 'worktree')
@@ -157,19 +188,19 @@ test('agent-launch-service', async () => {
     const app = harness({
       settings: settings({
         lastSelectedCli: 'claude-code',
-        lastAgentSpawnPermissionPreset: 'auto',
-        cliPermissionPresets: { codex: 'manual' },
+        lastAgentSpawnPermissionPreset: 'none',
+        cliPermissionPresets: { codex: 'bypass' },
       }),
     })
     await app.service.launch({ workspaceId: 'ws-1', cli: 'codex' })
     await app.service.launch({ workspaceId: 'ws-1', cli: 'claude-code' })
-    await app.service.launch({ workspaceId: 'ws-1', cli: 'codex', permissionPreset: 'auto' })
+    await app.service.launch({ workspaceId: 'ws-1', cli: 'codex', permissionPreset: 'none' })
     assert.deepEqual(
       app.spawns.map((spawn) => [spawn.cli, spawn.cliPermissionPreset]),
       [
-        ['codex', 'manual'],
-        ['claude-code', 'auto'],
-        ['codex', 'auto'],
+        ['codex', 'bypass'],
+        ['claude-code', 'none'],
+        ['codex', 'none'],
       ],
       'Codex keeps its own choice, Claude Code reads the app-wide default, and a named preset wins',
     )
@@ -197,6 +228,22 @@ test('agent-launch-service', async () => {
     assert.equal(launchedOk.ok, true, !launchedOk.ok ? launchedOk.message : '')
   })
 
+  run('a preset the CLI has no setting for in a terminal is refused, never launched with no flag', async () => {
+    const presets = (cli: string) => (cli === 'kimi-code' ? (['none', 'bypass'] as const) : null)
+    const refusing = harness({ permissionPresetsForCli: presets })
+    const refused = await refusing.service.launch({ workspaceId: 'ws-1', cli: 'kimi-code', permissionPreset: 'manual' })
+    assert.equal(!refused.ok && refused.code, 'unsupported_permission_preset')
+    assert.match(!refused.ok ? refused.message : '', /Pass one of: none, bypass/)
+    assert.equal(refusing.spawns.length, 0)
+
+    // A preset it names, and a CLI the registry does not hold, launch as asked.
+    const ok = await refusing.service.launch({ workspaceId: 'ws-1', cli: 'kimi-code', permissionPreset: 'bypass' })
+    assert.equal(ok.ok, true, !ok.ok ? ok.message : '')
+    const unknown = await refusing.service.launch({ workspaceId: 'ws-1', cli: 'claude-code', permissionPreset: 'auto' })
+    assert.equal(unknown.ok, true, !unknown.ok ? unknown.message : '')
+    assert.equal(refusing.spawns.at(-1)?.cliPermissionPreset, 'auto')
+  })
+
   run('an unknown or unsupported workspace refuses before spawning', async () => {
     const missing = harness()
     const unknown = await missing.service.launch({ workspaceId: 'nope' })
@@ -210,12 +257,8 @@ test('agent-launch-service', async () => {
     assert.equal(!refused.ok && refused.code, 'unsupported_workspace_mode')
     assert.equal(moduleHost.spawns.length, 0)
 
-    // An automations host IS a valid launch target — the default route resolves one.
-    const automationsHost = harness({
-      workspaces: [workspace({ mode: 'automations-host' })],
-      settings: settings({ lastSelectedCli: 'codex' }),
-    })
-    const allowed = await automationsHost.service.launch({ workspaceId: 'ws-1' })
+    // A caller that owns its own residency may name any mode.
+    const allowed = await moduleHost.service.launch({ workspaceId: 'ws-1', anyWorkspaceMode: true })
     assert.equal(allowed.ok, true, JSON.stringify(allowed))
   })
 
@@ -308,7 +351,7 @@ test('agent-launch-service', async () => {
 
   run('the launch record rides the spawn so the renderer can project a tab', async () => {
     const app = harness({
-      settings: settings({ lastSelectedCli: 'claude-code', lastAgentSpawnPermissionPreset: 'auto' }),
+      settings: settings({ lastSelectedCli: 'claude-code', lastAgentSpawnPermissionPreset: 'none' }),
     })
     const launched = await app.service.launch({ workspaceId: 'ws-1', name: 'Scout', cliModel: 'opus' })
     assert.equal(launched.ok, true, JSON.stringify(launched))
@@ -317,7 +360,7 @@ test('agent-launch-service', async () => {
       name: 'Scout',
       cli: 'claude-code',
       cliModel: 'opus',
-      cliPermissionPreset: 'auto',
+      cliPermissionPreset: 'none',
     })
   })
 
@@ -377,7 +420,7 @@ test('agent-launch-service', async () => {
   run('the launch carries an execution identity, or the run could never finalize', async () => {
     // Without `agentSession` the runtime fires NO agent-session exit for this
     // terminal (the listener is gated on `agentSession?.executionId`) and
-    // `resolveAgentExecutionId` never matches it — an agent-backed automation run
+    // `resolveAgentExecutionId` never matches it — an agent
     // would start and have no way to end, and its teardown could not find the
     // terminal to kill. This is the field that makes both work.
     const app = harness({

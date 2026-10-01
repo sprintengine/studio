@@ -1,4 +1,5 @@
 import type { SessionPrompt } from '../../shared/electron-api'
+import type { ConversationEvent } from '../../shared/conversation-runtime'
 import type { ConversationPeek, ConversationPeekMessage } from '../../shared/conversation-peek'
 import {
   emptyConversationPeek,
@@ -69,6 +70,7 @@ export type ConversationPeekSessionState = {
 export type ConversationPeekDependencies = {
   /** The session's peek inputs, or null when nothing at all is known about that id. */
   readSessionState(sessionId: string): Promise<ConversationPeekSessionState | null>
+  readConversationEvents?(sessionId: string): Promise<ConversationEvent[] | null>
 }
 
 export type ConversationPeekService = {
@@ -82,6 +84,10 @@ export function createConversationPeekService(deps: ConversationPeekDependencies
       // same reason the missing-state case below is `unknown`.
       if (typeof sessionId !== 'string' || !sessionId) {
         return { sessionId: '', source: 'unknown', first: null, since: [] }
+      }
+      if (deps.readConversationEvents) {
+        const events = await deps.readConversationEvents(sessionId)
+        if (events) return transcriptPeek(sessionId, events)
       }
       const state = await deps.readSessionState(sessionId)
       // No state for this id — no live session, no sidecar and no stored
@@ -101,6 +107,49 @@ export function createConversationPeekService(deps: ConversationPeekDependencies
       if (state.reportsMessages) return { sessionId, source: 'live', first: null, since: [] }
       return emptyConversationPeek(sessionId)
     },
+  }
+}
+
+function transcriptPeek(sessionId: string, events: ConversationEvent[]): ConversationPeek {
+  const messages: ConversationPeekMessage[] = []
+  let assistant = ''
+  let assistantAt = 0
+  let assistantId = ''
+  let lastUserIndex = 0
+  const flushAssistant = () => {
+    if (!assistant.trim()) return
+    const capped = capPeekText(assistant, MAX_PEEK_MESSAGE_CHARS)
+    messages.push({ id: assistantId, text: capped.text, at: assistantAt, truncatedChars: capped.truncatedChars })
+    assistant = ''
+    assistantId = ''
+  }
+  for (const event of events) {
+    if (event.type === 'user_message' && typeof event.payload?.text === 'string') {
+      flushAssistant()
+      const collapsed = collapsePeekText(event.payload.text)
+      const capped = capPeekText(collapsed.text, messages.length === 0 ? MAX_PEEK_FIRST_CHARS : MAX_PEEK_MESSAGE_CHARS)
+      lastUserIndex = messages.length
+      messages.push({
+        id: event.id,
+        text: capped.text,
+        at: event.createdAt,
+        truncatedChars: capped.truncatedChars + collapsed.overflowChars,
+      })
+    } else if (event.type === 'content_delta' && typeof event.payload?.text === 'string') {
+      assistantId ||= event.id
+      assistantAt = event.createdAt
+      assistant += event.payload.text
+    } else if (event.type === 'turn_completed' || event.type === 'turn_failed') {
+      flushAssistant()
+      assistantId = ''
+    }
+  }
+  flushAssistant()
+  return {
+    sessionId,
+    source: 'live',
+    first: messages[0] ?? null,
+    since: messages.slice(Math.max(1, lastUserIndex)).slice(-MAX_PEEK_MESSAGES),
   }
 }
 

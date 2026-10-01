@@ -1,0 +1,22 @@
+{
+  "id": "{{id}}",
+  "displayName": "{{displayName}}",
+  "version": 1,
+  "publisher": "{{publisher}}",
+  "summary": "{{displayName}}, an extension for SprintEngine Studio.",
+  "defaultEnabled": false,
+  "source": "third-party",
+  "permissions": [
+    "conversation:operate",
+    "ipc:invoke",
+    "ipc:workspace-read"
+  ],
+  "dependsOn": [
+    "agent-runtime"
+  ],
+  "components": {
+    "module": {
+      "path": "module"
+    }
+  }
+}

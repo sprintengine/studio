@@ -98,6 +98,30 @@ export function WorkspacePaneColumn({ activeWorkspaceId, renderedWorkspaceIds }:
     [activeWorkspaceId],
   )
 
+  // tour.create from an agent: dock the Diff tab with the tour offered on it,
+  // WITHOUT selecting it or opening the pane — an agent finishing its tour must
+  // not move the owner's view. The tab's "tour ready" mark and the one
+  // attention event main raises are the whole announcement; the answer tells
+  // the tool the tab is there (`revealed: true`). Only the window SHOWING the
+  // workspace answers, the same rule as the canvas and the browser.
+  useEffect(
+    () =>
+      window.api.onTourRevealRequest(({ requestId, workspaceId, tourId }) => {
+        if (workspaceId !== activeWorkspaceId) return
+        const store = useWorkspaceStore.getState()
+        const pane = store.workspaces.find((w) => w.id === workspaceId)?.paneState
+        const existing = pane?.tabs.find((tab) => tab.kind === 'diff')
+        const opened = store.openPaneTab(workspaceId, {
+          kind: 'diff',
+          diff: { ...(existing?.diff ?? { focusPath: null, focusKind: null }), tourOffer: tourId },
+          activate: false,
+        })
+        if (opened === null) return
+        window.api.tourAcknowledgeReveal(requestId)
+      }),
+    [activeWorkspaceId],
+  )
+
   return (
     <WorkspaceAsideColumn
       label="Workspace pane"

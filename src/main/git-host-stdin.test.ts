@@ -13,7 +13,7 @@ import { afterEach, test } from 'vitest'
 
 import { checkIgnoredPaths } from './git-ignore'
 import { readFileHunks, stageGitHunk, unstageGitHunk } from './git-hunks'
-import { installGitHostResolver } from './git-run'
+import { GIT_SAFETY_CONFIG, installGitHostResolver } from './git-run'
 import { createPosixLocalHost } from './hosts/posix-local-host'
 import type { GitFileHunks } from '../shared/git/hunks'
 
@@ -36,7 +36,8 @@ function makeRepo(): { root: string; repo: string } {
 }
 
 // Every git for `repo` goes to a WSL-kind host, which records what it was
-// asked and runs it with this machine's git.
+// asked — after the runner's own safety config, which every call must carry —
+// and runs it with this machine's git.
 function claim(repo: string): Call[] {
   const calls: Call[] = []
   const local = createPosixLocalHost()
@@ -45,9 +46,10 @@ function claim(repo: string): Call[] {
       ? {
           kind: 'wsl',
           runGit: (at, args, options) => {
+            assert.deepEqual(args.slice(0, GIT_SAFETY_CONFIG.length), GIT_SAFETY_CONFIG)
             calls.push({
               cwd: at,
-              args,
+              args: args.slice(GIT_SAFETY_CONFIG.length),
               timeoutMs: options.timeoutMs,
               ...(options.stdin ? { stdin: options.stdin } : {}),
             })

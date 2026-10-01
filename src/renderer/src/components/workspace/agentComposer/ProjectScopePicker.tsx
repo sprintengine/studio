@@ -223,6 +223,7 @@ export function ProjectScopePicker({
         // kit's chip is what they are all made of.
         <ChipButton
           ref={ref}
+          variant="raised"
           onClick={togglePopover}
           // A stable hook for the passes that reach the folder through this
           // control.

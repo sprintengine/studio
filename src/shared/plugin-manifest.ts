@@ -1,6 +1,6 @@
 // Plugin manifest schema for the BYO-CLI system.
 //
-// The authoring contract is `CliPluginManifest` in `@sprintengine/module-sdk`; the
+// The CLI contract is `CliPluginManifest` in `./cli-plugin-manifest`; the
 // bundled manifests under `resources/plugins/` are the worked examples.
 //
 // The running app consumes the registry for terminal agent launches, the
@@ -20,9 +20,20 @@ type PluginVariableDecl = {
   options?: string[]
 }
 
+// One of a CLI's permission modes, keyed in `permissionPresets` by its id. A
+// generic preset's name (`manual`, `auto`, `bypass`) keys the mode that stands
+// for that preset; any other key is a mode of the CLI's own and names the
+// preset it sits at in `level` (cli-permission-mode.ts). `none` may be keyed
+// for its label alone: it passes nothing.
 export type PluginPermissionPreset = {
   label: string
   args: string[]
+  // Environment the launch adds under this preset, for a CLI told its
+  // permissions through its configuration rather than a flag.
+  env?: Record<string, string>
+  level?: import('./cli-permission-preset').CliPermissionPreset
+  summary?: string
+  description?: string
 }
 
 export type PluginArgvToken = string | { spread: string } | { spreadIf: string } | { valueIf: string; value: string }
@@ -40,11 +51,18 @@ type PluginResumeSpec = {
 
 type PluginPromptInjectionMode = 'positional-arg' | 'stdin-pipe' | 'send-after-ready' | 'file'
 
-type PluginReadinessSignal = {
-  type: 'output-match'
-  pattern: string
-  timeoutMs: number
-}
+// When a CLI whose first message is typed in (`send-after-ready`, or an `input`
+// overflow) is ready to take it; see src/main/deferred-prompt-delivery.ts.
+//
+// - `bracketed-paste` — its line editor turned bracketed paste on, or its
+//   lifecycle hook reported in; past `timeoutMs` with neither, it is sent anyway.
+//   What a manifest declaring nothing gets.
+// - `output-match` — it printed `pattern` (a regex over the raw output), or its
+//   hook reported in. For a CLI that turns bracketed paste on for a dialog
+//   before its composer, where the typed Enter would answer the dialog. Past
+//   `timeoutMs` without a match nothing is typed, and the person is told.
+export type PluginReadinessSignal =
+  { type: 'bracketed-paste'; timeoutMs: number } | { type: 'output-match'; pattern: string; timeoutMs: number }
 
 // What a launch does with a first prompt too long for the command line the
 // platform allows (src/main/launch-arg-budget.ts).
@@ -53,11 +71,16 @@ type PluginReadinessSignal = {
 //   without it and type it into the CLI, as one bracketed paste and one Enter,
 //   once the CLI is ready for input. `args` are added to that launch only, as
 //   `promptOverflowArgs`: whatever keeps a startup dialog from standing between
-//   the CLI and its composer, where the typed Enter would answer it.
+//   the CLI and its composer, where the typed Enter would answer it; `env` is
+//   the same thing said through the environment.
 // - `file` — write it to a file and render `args` (which name `{{promptFile}}`)
 //   as `promptOverflowArgs`, for a CLI that documents a file option; `{{prompt}}`
 //   then renders a one-line note pointing at that file.
-type PluginPromptOverflow = { mode: 'input'; args?: string[] } | { mode: 'file'; args: string[] }
+//
+// A `send-after-ready` manifest types every first message in, so its `input`
+// args and env ride every launch that carries one.
+type PluginPromptOverflow =
+  { mode: 'input'; args?: string[]; env?: Record<string, string> } | { mode: 'file'; args: string[] }
 
 type PluginPromptInjection = {
   mode: PluginPromptInjectionMode
@@ -657,9 +680,19 @@ export type PluginRegistryListEntry = {
   // label to render a key-entry row in Agents settings. The secret value itself
   // is never sent to the renderer — only this descriptor.
   auth?: { label: string }
+  // The permission presets a terminal launch of this CLI is told in its own
+  // words: `none` always, and each one its manifest names a setting for. The
+  // launcher dims the rest for a terminal agent rather than launching one
+  // with no flag and calling it that mode.
+  permissionPresets?: import('./cli-permission-preset').CliPermissionPreset[]
+  // The CLI's permission modes under its own names, in the manifest's order,
+  // `none` last unless the manifest places it. What every permission menu for
+  // this CLI lists, a chat's included.
+  permissionModes?: import('./cli-permission-mode').CliPermissionModeSpec[]
 }
 
 export type ConversationProviderListEntry = {
+  capabilities?: import('./conversation-runtime').ConversationCapabilities
   id: string
   displayName: string
   source: PluginSource
@@ -670,6 +703,9 @@ export type ConversationProviderListEntry = {
   // renderer then treats `models` as a seed and trusts the live catalog instead
   // of blocking on static membership.
   supportsDynamicModels: boolean
+  // Authentication/catalog ownership, independent of tool capabilities or
+  // billing. Native CLI credentials may themselves use a plan or an API key.
+  credentialSource: 'native' | 'api-key' | 'none'
   adapter: ConversationProviderAdapterClassification
   // Plain-language reason this provider cannot start sessions right now (e.g.
   // its agent-harness CLI was not found). An unavailable provider is still

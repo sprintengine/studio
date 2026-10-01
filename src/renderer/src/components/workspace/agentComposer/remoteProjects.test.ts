@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { remoteProjectOfWorkspace, remoteProjectsOf } from './remoteProjects'
-import type { FleetWorkspace } from '../../../../../shared/tailnet-fleet'
+import type { MeshWorkspace } from '../../../../../shared/tailnet-mesh'
 import { test } from 'vitest'
 
 test('remoteProjects', async () => {
@@ -30,8 +30,8 @@ test('remoteProjects', async () => {
     id: string,
     name: string,
     folderPath: string | null,
-    repository = null as FleetWorkspace['repository'],
-  ): FleetWorkspace => ({
+    repository = null as MeshWorkspace['repository'],
+  ): MeshWorkspace => ({
     id,
     name,
     mode: 'standard',

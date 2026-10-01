@@ -1,7 +1,8 @@
 /* Task card — extracted from the source product's TaskCard primitive
  * (src/renderer/src/components/ui/TaskCard.tsx), the canonical board-card /
- * inbox-row surface. Family contract: 6px status dot, mono identifier,
- * medium title, neutral two-tier selection, background-only hover.
+ * inbox-row surface. Family contract: a leading status mark (never a dot),
+ * mono identifier, medium title, neutral two-tier selection, background-only
+ * hover.
  * Prefer components/list-row for list surfaces; this is the board card. */
 
 .ds-task-card {
@@ -41,26 +42,11 @@
   background: var(--sem-color-bg-selected-resting);
 }
 
-/* 6px status dot. Status only — never decoration or category coding. */
-.ds-task-card-dot {
-  flex: none;
-  width: var(--sem-space-xs);
-  height: var(--sem-space-xs);
-  border-radius: 999px;
-  background: var(--sem-color-status-neutral);
-}
-
-.ds-task-card-dot--good {
-  background: var(--sem-color-status-good);
-}
-
-.ds-task-card-dot--warn {
-  background: var(--sem-color-status-warn);
-}
-
-.ds-task-card-dot--danger {
-  background: var(--sem-color-status-danger);
-}
+/* The leading mark is components/status-dot (`.ds-status-dot` + a tone
+ * modifier): the tone's 13px glyph, or the working mark while the task runs.
+ * It brings its own size and ink, and the card's centred flex line places it,
+ * so the card defines no mark of its own. Status only — never decoration or
+ * category coding. */
 
 .ds-task-card-id {
   flex: none;

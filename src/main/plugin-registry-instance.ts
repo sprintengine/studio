@@ -30,7 +30,6 @@ function loadElectron(): typeof import('electron') {
 
 let registry: PluginRegistry | null = null
 let lastReport: PluginRegistryLoadReport | null = null
-let configuredUserRoot: string | null = null
 
 function resolveBundledPluginRoot(): string {
   const electron = loadElectron()
@@ -53,11 +52,13 @@ function resolveBundledPluginRoot(): string {
 
 function ensureRegistry(): PluginRegistry {
   if (registry) return registry
-  const userRoot = defaultUserPluginRoot()
   registry = createPluginRegistry(
-    createAppPluginRegistryOptions(loadElectron().app.getPath('userData'), resolveBundledPluginRoot(), userRoot),
+    createAppPluginRegistryOptions(
+      loadElectron().app.getPath('userData'),
+      resolveBundledPluginRoot(),
+      defaultUserPluginRoot(),
+    ),
   )
-  configuredUserRoot = userRoot
   lastReport = registry.loadSync()
   return registry
 }
@@ -81,9 +82,9 @@ export function getPluginRegistry(): PluginRegistry {
 }
 
 /**
- * Re-scan the bundled and user plugin roots so a plugin installed (or removed)
- * while the app is running is reflected without a restart. Used by the
- * `plugins:install-folder` / `plugins:reload` IPC after a drop-in change.
+ * Re-scan the bundled and user plugin roots so a provider dropped into (or
+ * removed from) the user root while the app is running is reflected without a
+ * restart.
  */
 export function reloadPluginRegistry(): PluginRegistryLoadReport {
   const reg = ensureRegistry()
@@ -111,24 +112,17 @@ export function getConversationProviderById(id: string): LoadedConversationProvi
   return ensureRegistry().getConversationProvider(id)
 }
 
-export function getPluginRegistryUserRoot(): string {
-  ensureRegistry()
-  return configuredUserRoot ?? defaultUserPluginRoot()
-}
-
 // Test-only: lets unit tests substitute a registry built from a fixture root.
 export function __setPluginRegistryForTest(
   custom: PluginRegistry,
   report: PluginRegistryLoadReport,
-  userRoot?: string,
+  _userRoot?: string,
 ): void {
   registry = custom
   lastReport = report
-  configuredUserRoot = userRoot ?? defaultUserPluginRoot()
 }
 
 export function __resetPluginRegistryForTest(): void {
   registry = null
   lastReport = null
-  configuredUserRoot = null
 }

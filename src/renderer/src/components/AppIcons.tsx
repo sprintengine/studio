@@ -10,6 +10,19 @@ type IconProps = {
 
 const iconStroke = 1.7
 
+export function ChatGlyph({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M5 5.75h14a1.75 1.75 0 0 1 1.75 1.75v7a1.75 1.75 0 0 1-1.75 1.75H10l-3.75 3v-3H5A1.75 1.75 0 0 1 3.25 15.5v-8A1.75 1.75 0 0 1 5 5.75Z"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 // Resolve a workspace mode to its registered type definition, but only when the
 // owning module is enabled. Disabled or unknown modes (and shell-owned
 // 'standard') resolve to undefined so callers degrade to the generic/standard
@@ -102,6 +115,18 @@ export function WslMachineGlyph({ className }: IconProps) {
   )
 }
 
+// A scheduled agent: a clock face and nothing else, because what it names is a
+// time still to come. Not the history clock, whose rewind arrow means the
+// past. 16-grid, stroke 1.4; mirrored as design-system/glyphs/schedule.svg.
+export function ScheduleGlyph({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
+      <circle cx="8" cy="8" r="5.6" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M8 4.9V8l2.1 1.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 // ── Device identity ───────────────────────────────────────────────────────
 //
 // Spec: design-system/components/glyphs/component.md → "Device identity".
@@ -166,12 +191,12 @@ export function DevicePhoneGlyph({ className }: IconProps) {
 }
 
 // The permission-preset vocabulary (remote-sessions-ux / selector-menus-premium),
-// a set that reads at a glance and is drawn ONCE: a quiet dial
-// for the CLI's own default, a closed lock for Manual, a spark for Auto, an
-// open lock for Bypass. The chat composer's permission pill and the shared
-// preset menu both draw from here, so "asks before tools" is one lock
-// everywhere rather than a 14-grid twin in one file and a 16-grid twin in
-// another. 16-grid, `currentColor`, sized by the caller's `icon-*` step.
+// a set that reads at a glance and is drawn ONCE: a quiet dial for the CLI's
+// own default, a closed lock for Manual, a spark for Auto, an open lock for
+// Bypass. The chat composer's permission pill and the shared preset menu both
+// draw from here, so one preset is one glyph everywhere rather than a 14-grid
+// twin in one file and a 16-grid twin in another. 16-grid, `currentColor`,
+// sized by the caller's `icon-*` step.
 export function PresetDialGlyph({ className }: IconProps) {
   return (
     <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
@@ -181,6 +206,7 @@ export function PresetDialGlyph({ className }: IconProps) {
   )
 }
 
+// A closed shackle: the agent stops to ask before it changes anything.
 export function LockGlyph({ className }: IconProps) {
   return (
     <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
@@ -190,16 +216,7 @@ export function LockGlyph({ className }: IconProps) {
   )
 }
 
-// Open-shackle twin of LockGlyph: the agent is NOT stopping to ask.
-export function UnlockedGlyph({ className }: IconProps) {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
-      <rect x="3.5" y="7" width="9" height="6" rx="1.4" stroke="currentColor" strokeWidth="1.4" />
-      <path d="M10.5 7V5.4a2.5 2.5 0 0 0-4.9-.7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-    </svg>
-  )
-}
-
+// A spark: the agent carries on through what it can safely do, and asks for the rest.
 export function SparkGlyph({ className }: IconProps) {
   return (
     <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
@@ -210,6 +227,16 @@ export function SparkGlyph({ className }: IconProps) {
         strokeLinejoin="round"
       />
       <path d="M12.6 11.2l.6 1.5 1.5.6-1.5.6-.6 1.5-.6-1.5-1.5-.6 1.5-.6.6-1.5Z" fill="currentColor" />
+    </svg>
+  )
+}
+
+// An open shackle, the twin of LockGlyph: the agent is NOT stopping to ask.
+export function UnlockedGlyph({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
+      <rect x="3.5" y="7" width="9" height="6" rx="1.4" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M10.5 7V5.4a2.5 2.5 0 0 0-4.9-.7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
     </svg>
   )
 }
@@ -311,25 +338,6 @@ export function FolderTypeIcon({
   }
 
   return <ProjectFolderGlyph className={className} color={color} unfiled={unfiled} />
-}
-
-// Automations identity glyph: a schedule dial (the schedule trigger) wrapped
-// around a lightning bolt (the fired action) — "on a schedule, do work". Reads
-// at 16px in the sidebar.
-export function AutomationsWorkspaceTypeIcon({ className }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M19.5 12a7.5 7.5 0 1 1-3.4-6.28" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-      <path
-        d="M12.6 7.3 9 12.4h2.7l-.7 4 3.6-5.1h-2.7l.7-4z"
-        stroke="currentColor"
-        strokeWidth={iconStroke - 0.2}
-        strokeLinejoin="round"
-        fill="currentColor"
-        fillOpacity="0.18"
-      />
-    </svg>
-  )
 }
 
 function StandardWorkspaceTypeIcon({ className }: IconProps) {
@@ -622,6 +630,20 @@ export function DesignSystemSettingsIcon({ className }: IconProps) {
   )
 }
 
+// Four tiles identify additions to the product beyond chat (the rail's
+// Extensions door, an extension being made), drawn in the icon family's
+// 16-box round-stroke idiom.
+export function ExtensionsGlyph({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
+      <rect x="2.5" y="2.5" width="4.6" height="4.6" rx="1.1" stroke="currentColor" strokeWidth="1.4" />
+      <rect x="8.9" y="2.5" width="4.6" height="4.6" rx="1.1" stroke="currentColor" strokeWidth="1.4" />
+      <rect x="2.5" y="8.9" width="4.6" height="4.6" rx="1.1" stroke="currentColor" strokeWidth="1.4" />
+      <rect x="8.9" y="8.9" width="4.6" height="4.6" rx="1.1" stroke="currentColor" strokeWidth="1.4" />
+    </svg>
+  )
+}
+
 export function ModulesSettingsIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -633,11 +655,25 @@ export function ModulesSettingsIcon({ className }: IconProps) {
   )
 }
 
-export function MobileSettingsIcon({ className }: IconProps) {
+// A tray with a tick over it: the Settled chats tab holds the chats someone
+// called done — the tick is the row's own Settle mark, the tray is where it
+// went.
+export function SettledChatsSettingsIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect x="7" y="3" width="10" height="18" rx="2.5" stroke="currentColor" strokeWidth={iconStroke} />
-      <path d="M11 17.5h2" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      <path
+        d="M4 13.5h4.2l1.3 2.5h5l1.3-2.5H20v4.5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"
+        stroke="currentColor"
+        strokeWidth={iconStroke}
+        strokeLinejoin="round"
+      />
+      <path
+        d="M8.5 7.5l2.5 2.5 4.5-5"
+        stroke="currentColor"
+        strokeWidth={iconStroke}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }

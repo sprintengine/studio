@@ -2,10 +2,10 @@ import React from 'react'
 
 import type { RendererModule } from './renderer-host'
 
-// Lazy so the editor (Monaco) bundle only loads when its panel renders —
-// never, when the module is disabled. Monaco is one of the heaviest renderer
-// deps, so code-splitting it behind this module is the single biggest
-// dev-tools win.
+// Lazy so the editor panel's own code only loads when the panel renders —
+// never, when the module is disabled. Monaco is not behind this boundary: it is
+// loaded at boot (utils/monacoRuntime.ts), so the panel opens onto an editor
+// that is already there.
 const EditorPanel = React.lazy(() => import('../components/panels/EditorPanel'))
 
 // Dev Tools (file explorer + editor) as a renderer-only

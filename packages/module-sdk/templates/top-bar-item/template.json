@@ -1,0 +1,12 @@
+{
+  "id": "top-bar-item",
+  "title": "Top-bar control",
+  "summary": "A compact focus timer in the app's top bar.",
+  "permissions": [
+    "storage"
+  ],
+  "capabilities": [
+    "top-bar",
+    "storage"
+  ]
+}

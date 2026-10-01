@@ -1,13 +1,17 @@
 import React, { Suspense, lazy, useEffect, useState } from 'react'
 import type { AuxWindowKind } from '../../../../shared/electron-api'
+import { parseEditorRange, type EditorRange } from '../../../../shared/editor-reveal'
 import { useAppTheme } from '../../hooks/useAppTheme'
 import { writeAuxWindowBounds } from './auxWindowPlacement'
 import { InlineNotice, Spinner } from '../ui'
 
-// Monaco is heavy and must stay out of the eager boot chunk (enforced by
-// scripts/check-bundle-budget.mjs), so the diff viewer loads behind React.lazy
-// just like EditorPanel does in the workspace shell.
+// Each window body is only ever needed by the one kind of aux window that shows
+// it, and the workspace window shares this bundle without showing any of them,
+// so they load behind React.lazy just like EditorPanel does in the workspace
+// shell. Monaco itself is not behind this boundary: it is loaded at boot
+// (utils/monacoRuntime.ts), so these bodies arrive to an editor already there.
 const DiffViewerWindow = lazy(() => import('./DiffViewerWindow'))
+const CheckpointDiffWindow = lazy(() => import('./CheckpointDiffWindow'))
 const ExternalEditorWindow = lazy(() => import('./ExternalEditorWindow'))
 
 function AuxLoading() {
@@ -38,6 +42,26 @@ function AuxFailure({ message }: { message: string }) {
 // bounds per kind so the next open reuses the size/position.
 
 export type AuxWindowParams = Record<string, string>
+
+function parseRevealPaths(raw: string | undefined): string[] | null {
+  if (!raw) return null
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return Array.isArray(parsed) && parsed.every((entry) => typeof entry === 'string') ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function parseRevealRange(raw: string | undefined): EditorRange | null {
+  if (!raw) return null
+  try {
+    const parsed = parseEditorRange(JSON.parse(raw))
+    return parsed.ok ? parsed.value : null
+  } catch {
+    return null
+  }
+}
 
 function readInitialParams(): { kind: AuxWindowKind; params: AuxWindowParams } | null {
   const search = new URLSearchParams(window.location.search)
@@ -83,6 +107,12 @@ export default function AuxWindowApp() {
   }
 
   if (descriptor.kind === 'diff') {
+    if (params.checkpoint)
+      return (
+        <Suspense fallback={<AuxLoading />}>
+          <CheckpointDiffWindow request={params.checkpoint} />
+        </Suspense>
+      )
     const focusKind = params.scope === 'staged' ? 'staged' : params.scope === 'unstaged' ? 'unstaged' : null
     if (!params.repoRoot) {
       return <AuxFailure message="Missing repository for diff viewer." />
@@ -109,6 +139,10 @@ export default function AuxWindowApp() {
           focusKind={focusKind}
           changelistId={params.changelistId ?? null}
           workspaceId={params.workspaceId ?? null}
+          pathsFilter={parseRevealPaths(params.revealPaths)}
+          focusRange={parseRevealRange(params.revealRange)}
+          focusSide={params.revealSide === 'original' ? 'original' : 'modified'}
+          revealKey={params.revealKey ?? null}
         />
       </Suspense>
     )
@@ -118,7 +152,17 @@ export default function AuxWindowApp() {
   // per file (that would drop the other open tabs) — the incoming file + nonce
   // drive tab add/focus inside the component.
   const incoming = params.filePath
-    ? { filePath: params.filePath, fileName: params.fileName ?? params.filePath, workspaceId: params.workspaceId ?? '' }
+    ? {
+        filePath: params.filePath,
+        fileName: params.fileName ?? params.filePath,
+        workspaceId: params.workspaceId ?? '',
+        // An agent's reveal (editor.* tools): where to land, and whether to
+        // stay behind the tab the person is on.
+        revealRange: parseRevealRange(params.revealRange),
+        revealBackground: params.revealBackground === '1',
+        revealByAgent: params.revealByAgent === '1',
+        rootPath: params.rootPath ?? '',
+      }
     : null
   return (
     <Suspense fallback={<AuxLoading />}>

@@ -3,6 +3,7 @@
 
 import type { Workspace } from '../../../types/workspace'
 import { workspaceLastUserMessageAt } from '../../../utils/workspaceRecency'
+import { isMeshConversationPane } from '../../../../../shared/tailnet-mesh'
 
 export type WorkspaceManagerWorkspaceCacheEntry = {
   source: Workspace
@@ -27,10 +28,10 @@ export function workspaceManagerWorkspaceFieldsEqual(left: Workspace, right: Wor
     left.templateId === right.templateId &&
     // Not the layout itself: a tab click, a splitter drag and every tab
     // selection write a new layoutModel, and nothing the manager or the
-    // sidebar renders reads more of it than which fleet panes it holds.
+    // sidebar renders reads more of it than which mesh panes it holds.
     // Anything that needs the whole layout reads the store at the moment it
     // acts (the sidebar's cross-workspace drop, the terminal kill paths).
-    layoutFleetSignature(left) === layoutFleetSignature(right) &&
+    layoutMeshSignature(left) === layoutMeshSignature(right) &&
     left.worktreeState === right.worktreeState &&
     left.memory === right.memory &&
     left.editorState === right.editorState &&
@@ -67,24 +68,24 @@ export function workspaceManagerWorkspaceFieldsEqual(left: Workspace, right: Wor
 
 // Keyed by layout object: a layout is written whole and never mutated, so a
 // signature computed once holds for as long as that object lives.
-const fleetSignatureByLayout = new WeakMap<object, string>()
+const meshSignatureByLayout = new WeakMap<object, string>()
 
 /**
- * The part of a layout the sidebar renders: its fleet panes (the machine
+ * The part of a layout the sidebar renders: its mesh panes (the machine
  * names on the row, and which workspace a remote session is attached to), in
  * layout order. A layout change that leaves these alone is invisible to every
  * consumer of this projection.
  */
-export function layoutFleetSignature(workspace: Pick<Workspace, 'layoutModel'>): string {
+export function layoutMeshSignature(workspace: Pick<Workspace, 'layoutModel'>): string {
   const model = workspace.layoutModel as { layout?: unknown; borders?: unknown } | undefined
   if (!model || typeof model !== 'object') return ''
-  const cached = fleetSignatureByLayout.get(model)
+  const cached = meshSignatureByLayout.get(model)
   if (cached !== undefined) return cached
   const parts: string[] = []
   const walk = (node: unknown): void => {
     if (!node || typeof node !== 'object') return
     const record = node as { type?: unknown; component?: unknown; id?: unknown; config?: unknown; children?: unknown }
-    if (record.type === 'tab' && record.component === 'fleet-terminal') {
+    if (record.type === 'tab' && isMeshConversationPane(record.component)) {
       parts.push(JSON.stringify([record.id ?? null, record.config ?? null]))
     }
     if (Array.isArray(record.children)) for (const child of record.children) walk(child)
@@ -92,7 +93,7 @@ export function layoutFleetSignature(workspace: Pick<Workspace, 'layoutModel'>):
   walk(model.layout)
   if (Array.isArray(model.borders)) for (const border of model.borders) walk(border)
   const signature = parts.join('\n')
-  fleetSignatureByLayout.set(model, signature)
+  meshSignatureByLayout.set(model, signature)
   return signature
 }
 

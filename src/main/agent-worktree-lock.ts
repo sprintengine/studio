@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 
 import type { GitCommandResult } from './git'
 import { runGitCommand } from './git-utils'
+import { hostIdForPath, recordIntegrationWrite } from './integrations/ledger'
 
 /**
  * The on-disk "an agent is using this" mark on an agent worktree.
@@ -66,13 +67,26 @@ type RunGit = (cwd: string, args: string[]) => Promise<GitCommandResult>
 
 const defaultRunGit: RunGit = (cwd, args) => runGitCommand(cwd, args)
 
-export function lockAgentWorktree(
+export async function lockAgentWorktree(
   repoRoot: string,
   worktreePath: string,
   owner: string,
   runGit: RunGit = defaultRunGit,
 ): Promise<GitCommandResult> {
-  return runGit(repoRoot, ['worktree', 'lock', '--reason', agentWorktreeLockReason(owner), worktreePath])
+  const reason = agentWorktreeLockReason(owner)
+  const result = await runGit(repoRoot, ['worktree', 'lock', '--reason', reason, worktreePath])
+  // Listed so removing the app's integrations can release it: a lock outlives
+  // the app, and a locked worktree survives `git worktree prune`.
+  if (result.ok) {
+    recordIntegrationWrite({
+      kind: 'worktree-lock',
+      path: resolve(worktreePath),
+      marker: reason,
+      hostId: hostIdForPath(worktreePath),
+      repo: repoRoot,
+    })
+  }
+  return result
 }
 
 /** Puts a lock back exactly as it was, reason and all (after a removal that did not go through). */

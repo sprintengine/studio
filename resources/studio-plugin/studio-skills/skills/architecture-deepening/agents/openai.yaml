@@ -1,4 +1,0 @@
-interface:
-  display_name: "Architecture Deepening"
-  short_description: "Find deeper, more testable modules."
-  default_prompt: "Use $architecture-deepening to find focused architecture improvement candidates."

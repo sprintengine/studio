@@ -1,0 +1,32 @@
+{
+  "commands": [
+    {
+      "name": "compact",
+      "description": "Summarise the conversation so far to free context",
+      "argumentHint": "[instructions]",
+      "builtin": true
+    },
+    { "name": "context", "description": "Show how much context is in use", "argumentHint": "", "builtin": true },
+    { "name": "usage", "description": "Show plan usage and cost", "aliases": ["cost", "stats"], "builtin": true },
+    { "name": "init", "description": "Write a project instructions file", "builtin": true },
+    { "name": "review", "description": "Review a pull request", "argumentHint": "[pr-number]", "builtin": true },
+    { "name": "mcp", "description": "List the MCP servers in use", "builtin": true },
+    { "name": "simplify", "description": "Tidy the changed code", "builtin": true },
+    { "name": "clear", "description": "Start a new conversation", "aliases": ["reset", "new"], "builtin": true },
+    { "name": "model", "description": "Choose the model", "builtin": true },
+    { "name": "effort", "description": "Choose the reasoning effort", "builtin": true },
+    { "name": "color", "description": "Colour the prompt bar", "builtin": true },
+    { "name": "focus", "description": "Switch to the focus view", "builtin": true },
+    { "name": "doctor", "description": "Check the installation", "builtin": true },
+    { "name": "reload-plugins", "description": "Reload the plugins", "builtin": true },
+    { "name": "__internal-sync", "description": "Internal" },
+    { "name": "workflow-launch-exec", "description": "Internal", "builtin": true },
+    { "name": "agents", "description": "(removed) Ask for an agent in the conversation instead", "builtin": true },
+    { "name": "extra-usage", "description": "Renamed to /usage-credits", "builtin": true },
+    { "name": "changelog", "description": "Draft a changelog entry", "argumentHint": "[since]" },
+    { "name": "acme:deploy", "description": "Deploy to an environment", "argumentHint": "[env]" },
+    { "name": "release-notes", "description": "Write release notes", "aliases": ["acme:release-notes"] },
+    { "name": "acme:lint-rules", "description": "Explain the lint rules" }
+  ],
+  "skills": ["simplify", "acme:release-notes", "acme:lint-rules"]
+}

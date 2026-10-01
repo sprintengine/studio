@@ -12,16 +12,16 @@ import type {
   TailnetPushPayload,
   TailnetRemoteStatus,
 } from '../../shared/tailnet'
-import type { FleetEvent, TailnetForgetMachineResult } from '../../shared/tailnet-fleet'
+import type { MeshEvent, TailnetForgetMachineResult } from '../../shared/tailnet-mesh'
 import type { TailnetApprovePairRequestResult } from './tailnet/tailnet-service'
 import type { TailnetPeerScan } from '../../shared/tailnet-peers'
 import { readAutomationSettings, writeAutomationSettings } from './automation-settings'
-import { createGatewayAuditStore, type GatewayAuditStore } from './gateway-audit'
+import { createGatewayAuditStore, isAlwaysAudited, type GatewayAuditStore } from './gateway-audit'
 import { createMcpSocketServer } from './mcp-socket-server'
 import { isStudioGatewayMutation } from './studio-gateway-tools'
-import { createTailnetFleetService, type TailnetFleetService } from './tailnet/tailnet-fleet-service'
+import { createTailnetMeshService, type TailnetMeshService } from './tailnet/tailnet-mesh-service'
 import { createTailnetRemoteService, type TailnetRemoteService } from './tailnet/tailnet-service'
-import type { TerminalRemoteHost } from '../terminal-remote-attach'
+import type { ConversationGatewayHost } from './tailnet/tailnet-conversation-host'
 
 // Owns the always-on Studio MCP gateway lifecycle, local socket endpoint, and
 // discovery files external clients read to find it. The old enabled setting is
@@ -51,24 +51,21 @@ type AutomationServiceOptions = {
    * module enablement must be honored live.
    */
   resolveGatewayTools: () => McpToolRegistration[]
-  /**
-   * Watch-and-type access to this machine's terminals, for the tailnet
-   * listener's terminal WebSocket. The LOCAL socket never gets it:
-   * a local client already has the machine, and the terminal stream exists to
-   * cross a network. Absent leaves that route refusing with a stated reason.
-   */
-  resolveTerminalHost?: () => TerminalRemoteHost
+  resolveConversationHost?: () => ConversationGatewayHost
   /** Absolute path of the shipped stdio bridge script, when the app knows it. */
   resolveBridgeScriptPath?: () => string | null
   /**
    * The live-state push (remote-sessions-ux): tailnet listener/pairing/socket
-   * changes and fleet lifecycle, for broadcast to every window. Wired by the
+   * changes and mesh lifecycle, for broadcast to every window. Wired by the
    * app shell; absent in tests and headless embeddings, where nothing listens.
    */
   onTailnetEvent?: (payload: TailnetPushPayload) => void
-  /** Whether a window is open: the fleet's reachability timer only runs while one is. */
+  /**
+   * Whether an app window is visible and not minimized (the canvas worker never
+   * counts): the mesh's reachability timer only runs while one is.
+   */
   hasWindow?: () => boolean
-  onFleetEvent?: (event: FleetEvent) => void
+  onMeshEvent?: (event: MeshEvent) => void
   logDiagnostic?: (diagnostic: { level: 'warning'; title: string; message: string; details?: string }) => void
 }
 
@@ -86,8 +83,8 @@ export function createAutomationService(options: AutomationServiceOptions) {
   let tailnet: TailnetRemoteService | null = null
   // The outbound half. Independent of the listener above: driving
   // another machine does not require having opened your own door, and a build
-  // with remote control off can still be a Fleet client.
-  let fleet: TailnetFleetService | null = null
+  // with remote control off can still be a Mesh client.
+  let mesh: TailnetMeshService | null = null
 
   function loadSettings(): void {
     if (settingsLoaded) return
@@ -130,7 +127,7 @@ export function createAutomationService(options: AutomationServiceOptions) {
     // Reachability (phase 4): every paired machine is checked once at start
     // and on a timer from here on, so the chrome knows which machines answer
     // without a pane having to be opened on one.
-    fleetService().start()
+    meshService().start()
     return getStatus()
   }
 
@@ -165,26 +162,28 @@ export function createAutomationService(options: AutomationServiceOptions) {
       serverVersion: options.appVersion,
       resolveTools: options.resolveGatewayTools,
       isMutation: (tool) => isStudioGatewayMutation(tool, options.resolveGatewayTools),
-      terminals: options.resolveTerminalHost?.(),
+      conversations: options.resolveConversationHost?.(),
       onToolCall: ({ context, tool, args, durationMs, result, error }) => {
-        if (!isStudioGatewayMutation(tool, options.resolveGatewayTools)) return
+        // A token refused at the door is kept too, though nothing ran.
+        if (!isStudioGatewayMutation(tool, options.resolveGatewayTools) && !isAlwaysAudited(tool)) return
         auditStore().record({ connection: context.metadata, tool, args, durationMs, result, error })
       },
       onEvent: options.onTailnetEvent,
-      // The reverse half of a both-ways pairing lands in the fleet: the
+      // The reverse half of a both-ways pairing lands in the mesh: the
       // machine that just asked to drive this one can now be driven back.
       onReverseGrant: (input) => {
-        fleetService().adoptReverseGrant(input)
+        meshService().adoptReverseGrant(input)
       },
       log: (text) => warn('Tailnet remote control', text),
     })
     return tailnet
   }
 
-  function fleetService(): TailnetFleetService {
-    fleet ??= createTailnetFleetService({
+  function meshService(): TailnetMeshService {
+    mesh ??= createTailnetMeshService({
       resolveUserDataDir: options.resolveUserDataDir,
       resolvePeerName: (address) => tailnetService().resolvePeerName(address),
+      resolvePeerIdentity: (address) => tailnetService().resolvePeerIdentity(address),
       // Both-ways pairing (phase 6): the device this machine grants the one
       // it is asking to drive is minted on the listener's own store, so it is
       // listed, revocable, and audited like every other device here.
@@ -200,10 +199,10 @@ export function createAutomationService(options: AutomationServiceOptions) {
         return tailnetService().revokeDevice(deviceId).devices.length < before
       },
       hasWindow: options.hasWindow,
-      onEvent: options.onFleetEvent,
-      log: (text) => warn('Tailnet fleet', text),
+      onEvent: options.onMeshEvent,
+      log: (text) => warn('Tailnet mesh', text),
     })
-    return fleet
+    return mesh
   }
 
   async function startServer(): Promise<void> {
@@ -256,7 +255,7 @@ export function createAutomationService(options: AutomationServiceOptions) {
     // Outbound sockets first: they are attachments on OTHER machines' ptys, and
     // closing them politely is what stops a remote runtime narrating to a
     // viewer that has quit.
-    fleet?.shutdown()
+    mesh?.shutdown()
     await tailnet?.shutdown()
     await stopServer()
     // After both transports have stopped, so no mutation can queue a record
@@ -276,12 +275,12 @@ export function createAutomationService(options: AutomationServiceOptions) {
 
   // The change feed to paired devices. Only the tailnet listener has one; the
   // local socket's clients are agents on this machine, which read on demand.
-  function notifyTerminalsChanged(): void {
-    tailnet?.notifyTerminalsChanged()
-  }
-
   function notifyWorkspacesChanged(): void {
     tailnet?.notifyWorkspacesChanged()
+  }
+
+  function notifyConversationsChanged(): void {
+    tailnet?.notifyConversationsChanged()
   }
 
   /**
@@ -301,8 +300,8 @@ export function createAutomationService(options: AutomationServiceOptions) {
     setEnabled,
     shutdown,
     notifyToolsListChanged,
-    notifyTerminalsChanged,
     notifyWorkspacesChanged,
+    notifyConversationsChanged,
     getTailnetStatus: (): TailnetRemoteStatus => tailnetService().getStatus(),
     getTailnetLiveState: (): TailnetLiveState => tailnetService().getLiveState(),
     setTailnetEnabled: (next: boolean): Promise<TailnetRemoteStatus> => tailnetService().setEnabled(next),
@@ -317,11 +316,11 @@ export function createAutomationService(options: AutomationServiceOptions) {
      *
      * The only operation that spans both stores, which is why it is composed
      * here rather than in either of them: the inbound device lives on the
-     * listener's store, the outbound connection on the Fleet's, and a person
+     * listener's store, the outbound connection on the Mesh's, and a person
      * revoking a machine in Settings means both.
      */
     forgetTailnetMachine: (input: { deviceId?: unknown; connectionId?: unknown }): TailnetForgetMachineResult => ({
-      ...fleetService().forgetMachine(input),
+      ...meshService().forgetMachine(input),
       status: tailnetService().getStatus(),
     }),
     approveTailnetPairRequest: (input: {
@@ -333,8 +332,8 @@ export function createAutomationService(options: AutomationServiceOptions) {
     denyTailnetPairRequest: (id: string, via?: 'ipc' | 'tool'): TailnetRemoteStatus =>
       tailnetService().denyPairRequest(id, via),
     listTailnetPeers: (): Promise<TailnetPeerScan> => tailnetService().listPeers(),
-    /** The Fleet client: the machines this Studio drives. */
-    fleet: (): TailnetFleetService => fleetService(),
+    /** The Mesh client: the machines this Studio drives. */
+    mesh: (): TailnetMeshService => meshService(),
   }
 }
 

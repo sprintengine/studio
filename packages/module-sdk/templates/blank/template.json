@@ -1,0 +1,9 @@
+{
+  "id": "blank",
+  "title": "Blank",
+  "summary": "A command in the palette and nothing else: the smallest extension that runs.",
+  "permissions": [],
+  "capabilities": [
+    "command"
+  ]
+}

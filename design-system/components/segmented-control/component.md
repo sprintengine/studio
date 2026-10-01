@@ -20,12 +20,27 @@ you picked the wrong control.
 
 | Part | Class | Required |
 |---|---|---|
-| Group | `.ds-segmented-control` | yes — `role="radiogroup"` with an accessible name; owns the border, radius, and overflow clip |
+| Group (the track) | `.ds-segmented-control` | yes — `role="radiogroup"` with an accessible name; owns the height, the groove, the hairline and the radius |
 | Segment | `.ds-segmented-control-segment` | 2–4 — real `<button>`s with `role="radio"` |
+| Count | the [badge](../badge/component.md) count species, inside a segment after its label | no — see "Badged segment" |
 
-The group owns everything structural. Segments are separated by a single
-internal `border.subtle` hairline on each segment after the first — never a
-doubled border, never a gap.
+### Track and thumb (owner ruling 2026-10-01)
+
+The group is a **groove** set into the surface: `bg.well` (a tint of the ink,
+so it reads on a panel, a card or a popover alike), a `border.subtle`
+hairline, and `shadow.control-track`, light falling into it from above. It owns
+the ramp height and a `space.3xs` inset.
+
+The selected segment is a **raised thumb** standing out of the groove on
+`shadow.control-edge` and `gradient.control-sheen` over `bg.surface-raised` —
+the same step every bordered control in the system stands off the page. The
+thumb takes `radius.chip`, concentric inside the track's `radius.control`.
+Unselected segments are bare ink on the groove, with no separators: the thumb
+is what divides the strip.
+
+This replaced a strip of hairline-separated cells over one flat fill, where
+the chosen cell was a luminance step away from the rest and the whole thing read
+as a row of table cells rather than as a switch.
 
 ## Variants
 
@@ -35,24 +50,35 @@ doubled border, never a gap.
 - `ds-segmented-control--sm` — `size.control.xs` height, `font.size.micro`
   labels. The dense variant for an inline sub-control inside a compact
   popover; never the default on a form.
-- `ds-segmented-control--icon-only` (2026-09-09) — square `size.control.xs`
-  segments carrying a glyph at `icon.size.sm` instead of a word, and the label
+- `ds-segmented-control--icon-only` (2026-09-09) — a `size.control.xs` track
+  of square carrying a glyph at `icon.size.sm` instead of a word, and the label
   becomes the segment's `aria-label` **and** its tooltip. For a strip on a band
   that cannot spend width on labels: the diff window's side-by-side / unified
   toggle, which shares its row with the file stepper and the include counter.
   The square matches the `button --icon` items beside it in a
   [toolbar](../toolbar/component.md) band rather than standing a step taller.
   Every item must carry an icon.
+- **Badged segment** (owner ruling 2026-09-25) — a segment may carry the
+  badge component's count after its label, saying how much is waiting behind
+  that choice: the Agents switcher's "1 CLI update available" on the machine
+  that has it, and on no other. It trails the label inside the segment,
+  `space.xs` after it, rather than docking on the corner the way `--corner`
+  does, because a segment is a thumb inside a `space.3xs`-inset track and a
+  corner count would sit on the track's rim, reading as the strip's rather than
+  the segment's. Not on `--icon-only`: the square has no
+  room beside the glyph. Nothing at zero. The count is news, not a second
+  selection state — the selected fill stays the only thing that says which
+  segment is chosen.
 - **No accent variant.** The selected segment is a *selection*, and selection
-  is neutral: `bg.selected` with the label lifted to `text.primary`. An
+  is neutral: the raised thumb with the label lifted to `text.primary`. An
   accent-filled segment would spend the one solid accent on a state display.
 
 ## States
 
 | State | Treatment |
 |---|---|
-| Selected | `bg.selected`, label at `text.primary`. Exactly one, always. On `--icon-only` the glyph takes the ink lift; the fill is the same |
-| Unselected | `bg.surface`, label at `text.muted` |
+| Selected | The raised thumb — `bg.surface-raised`, `shadow.control-edge`, `gradient.control-sheen` — label at `text.primary`. Exactly one, always. On `--icon-only` the glyph takes the ink lift; the thumb is the same |
+| Unselected | No ground of its own — the groove shows through — label at `text.muted` |
 | Hover (unselected) | `bg.hover`, label lifts to `text.primary` |
 | Focus | `focus.ring` outline on the segment, on `:focus-visible` only |
 | Disabled segment | 45% opacity, `not-allowed`; skipped by arrow keys |
@@ -104,6 +130,16 @@ are separate steps.
 - The group needs a visible label beside it (see the `field` component's
   standalone label) or an `aria-label`; the segment labels name options, not
   the question.
+- **Which subject a settings page is about is a value it may set** (owner
+  ruling 2026-09-24). Settings ▸ Agents lists one machine's agent CLIs, and the
+  strip at its top picks the machine: the page, its sections and its controls
+  stay the same page, only the machine they read and write changes, so it is
+  not a tab strip in disguise. It shares the update channel's shape on
+  purpose — one of a few named options, every one worth seeing. Picking changes
+  nothing that is saved: arrowing across the strip asks each machine it lands
+  on for its CLIs, which is a read, so selection-follows-focus stays a cheap and
+  reversible choice. A page with a single subject draws no strip at all rather
+  than a strip of one.
 
 ## Accessibility
 
@@ -119,6 +155,11 @@ are separate steps.
   luminance step, not a hue.
 - Disabled segments stay in the DOM and visible: which options *exist* is
   information even when one is unavailable.
+- A badged segment names itself with the count in it ("This PC, 1 CLI update
+  available") as an explicit `aria-label`. The count is the badge's named live
+  region, so it keeps announcing a change on its own, and the explicit name
+  stops it from also landing in the segment's name-from-contents — the same
+  call a badged tab makes.
 - On `--icon-only`, the glyph is `aria-hidden` and the label moves to the
   segment's `aria-label`, so the accessible name is identical to the labelled
   variant's; the tooltip is the sighted user's version of that same string, and

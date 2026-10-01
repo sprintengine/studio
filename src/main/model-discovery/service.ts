@@ -125,6 +125,14 @@ function defaultModelDiscoveryCache(): ModelDiscoveryCache {
   return defaultCache
 }
 
+/**
+ * What each CLI last reported, from main's own cache: the list a paired
+ * device's model picker is built from, where there is no renderer copy to ask.
+ */
+export function readDiscoveredCliModelCatalogs(): Promise<Catalogs> {
+  return defaultModelDiscoveryCache().read()
+}
+
 function defaultListClis(): RegisteredCli[] {
   return listPluginRegistryEntries().map((entry) => ({
     id: entry.id,

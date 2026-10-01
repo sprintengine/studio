@@ -6,9 +6,8 @@ export { defaultAgent, defaultAgentExecution } from './agent-state'
 // Generic agent-session runtime contracts. These describe how the core
 // terminal runtime spawns, inventories, and reports exits for *any* system's
 // agent sessions. System-specific modules layer their own behavior on top via
-// the runtime's generic seams: a module's managed agents are identified by
-// `registerAgentIdNamespace` and the launch contribution's `session.managed`
-// tag, never by an enum member on the agent record.
+// the runtime's generic seams: an agent a module started is identified by the
+// record's `ownerModuleId`, never by an enum member on the agent record.
 
 // A live agent execution surfaced by the runtime inventory, tagged with the
 // owning system so a module can filter the inventory down to its own sessions.

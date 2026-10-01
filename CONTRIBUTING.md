@@ -9,7 +9,10 @@ By taking part you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 ## Getting set up
 
 You need **Node 22** (22.12 or later) and npm. The repository carries a
-`.nvmrc`, so `nvm use` picks the right version; CI reads the same file.
+`.nvmrc`, so `nvm use` picks the right version; CI reads the same file. Node 24
+works too. Odd-numbered releases (23, 25) are short-lived and are left out of
+`engines` on purpose: `npm ci` on one of them prints `EBADENGINE` warnings, and
+the fix is to switch to 22 or 24 rather than to widen the range.
 
 ```
 git clone https://github.com/sprintengine/studio.git
@@ -34,7 +37,7 @@ Python on your machine, and the app neither ships nor resolves one.
 To produce a build:
 
 ```
-npm run build         # compile main, preload and renderer, then check the bundle budget
+npm run build         # compile main, preload and renderer
 npm run dist:mac      # or dist:win / dist:linux — packages an installer
 ```
 
@@ -238,7 +241,7 @@ update channel, and repository enforcement settings.
 ## Licence and contribution terms
 
 The repository is licensed under the MIT License. See [LICENSE](LICENSE).
-`packages/module-sdk` and `packages/mobile-control-protocol` each carry their
+`packages/module-sdk` and `packages/conversation-protocol` each carry their
 own MIT licence file as well.
 
 When you contribute, you licence your contribution under MIT. You keep the

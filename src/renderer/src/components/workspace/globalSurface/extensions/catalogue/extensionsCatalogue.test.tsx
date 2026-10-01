@@ -1,4 +1,4 @@
-// The three catalogues, rendered: Plugins, Skills and Agent CLIs are the SAME
+// The catalogues, rendered: Plugins and Skills are the SAME
 // page (source-tabs ruling, 2026-09-05), so what this asserts is the sameness —
 // each view's title on the chrome row, Installed first in the tab row, one tab
 // per source after it, the plus with its two items, and one pager at the foot.
@@ -446,7 +446,7 @@ test('extensionsCatalogue', async () => {
       ok: true,
       bundledVersion: '1.0.0',
       installedVersion: '1.0.0',
-      skillDirNames: ['studio-backlog', 'studio-automations', 'studio-workspaces'],
+      skillDirNames: ['studio-backlog', 'studio-scheduled-agents', 'studio-workspaces'],
     }),
     workspaceSkillsList: async () => ({ ok: true, skills: [] }),
     skillsListInstalledPlugins: async () => ({ ok: true, plugins: [] }),
@@ -530,7 +530,7 @@ test('extensionsCatalogue', async () => {
     const { dispatchExtensionsSurfaceTarget, consumePendingExtensionsSurfaceTarget } =
       await import('../extensionsSurfaceTarget')
 
-    const openView = async (view: 'plugins' | 'skills' | 'agent-clis'): Promise<void> => {
+    const openView = async (view: 'plugins' | 'skills'): Promise<void> => {
       consumePendingExtensionsSurfaceTarget()
       await act(async () => {
         dispatchExtensionsSurfaceTarget({ view })
@@ -797,11 +797,11 @@ test('extensionsCatalogue', async () => {
     })
     await settle()
 
-    await run('the plus menu is a folder on this machine or a repository, and nothing else', () => {
+    await run('the plus menu names what each repository is: a skill source, or an extension', () => {
       const items = [...dom.window.document.querySelectorAll('[role="menu"] button')].map(
         (item) => item.textContent?.trim() ?? '',
       )
-      assert.deepEqual(items, ['Add from folder…', 'Add from GitHub…'])
+      assert.deepEqual(items, ['Add from folder…', 'Add skill source from GitHub…', 'Install extension from GitHub…'])
     })
 
     await run('Escape closes the menu', async () => {
@@ -809,6 +809,27 @@ test('extensionsCatalogue', async () => {
         dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
       })
       assert.equal(dom.window.document.querySelector('[role="menu"]'), null)
+    })
+
+    await run('"Install extension from GitHub…" opens the install dialog, not the skill-source one', async () => {
+      await act(async () => {
+        ;(container.querySelector('button[aria-label="Add source"]') as HTMLElement).click()
+      })
+      await settle()
+      const item = [...dom.window.document.querySelectorAll('[role="menu"] button')].find(
+        (candidate) => candidate.textContent?.trim() === 'Install extension from GitHub…',
+      ) as HTMLElement | undefined
+      await act(async () => {
+        item?.click()
+      })
+      await settle()
+      const dialog = dom.window.document.querySelector('[role="dialog"]')
+      assert.ok(dialog?.textContent?.includes('Install extension from GitHub'))
+      assert.ok(dialog?.querySelector('input[aria-label="Repository URL"]'))
+      await act(async () => {
+        ;(dialog?.querySelector('button[aria-label="Close"]') as HTMLElement | null)?.click()
+      })
+      await settle()
     })
 
     // ── Skills: the repository's folders are the groups ──────────────────────────
@@ -862,30 +883,22 @@ test('extensionsCatalogue', async () => {
       assert.equal(search?.getAttribute('aria-controls'), panel?.id)
     })
 
-    // ── Agent CLIs: the same shape, minus the plus ──────────────────────────────
+    // ── Agent CLIs left the door ────────────────────────────────────────────────
 
-    await openView('agent-clis')
-
-    await run('Agent CLIs is the same page with one source and no plus', () => {
-      assert.equal(title(), 'Agent CLIs')
-      assert.deepEqual(
-        tabNames(),
-        ['Installed', 'SprintEngine Studio'],
-        'a repository can hold no CLI, so listing every source would be tabs that can only read "none"',
-      )
-      assert.equal(
-        container.querySelector('button[aria-label="Add source"]'),
-        null,
-        'and the plus is withheld rather than offering a way in that leads nowhere',
-      )
-    })
-
-    await run("a conversation provider that shares a CLI's name is not an agent CLI row", () => {
-      const leaves = [...container.querySelectorAll('*')].filter(
-        (el) => el.children.length === 0 && (el.textContent ?? '').trim() === 'Claude Code',
-      )
-      assert.equal(leaves.length, 1, 'Claude Code is listed once: the terminal CLI, not the SDK provider beside it')
-      assert.ok(text().includes('Cursor'), 'a CLI the runtime catalogue knows is still listed')
+    await run('a link that still names the retired Agent CLIs view does not move the door', async () => {
+      // Settings ▸ Agents lists the CLIs now (owner ruling 2026-09-25). A stale
+      // target is ignored rather than landing on a view that is not there.
+      const before = title()
+      consumePendingExtensionsSurfaceTarget()
+      await act(async () => {
+        dispatchExtensionsSurfaceTarget({ view: 'agent-clis' } as unknown as Parameters<
+          typeof dispatchExtensionsSurfaceTarget
+        >[0])
+      })
+      await settle()
+      consumePendingExtensionsSurfaceTarget()
+      assert.equal(title(), before, 'the door stays on the view it was showing')
+      assert.equal(text().includes('Agent CLIs'), false, 'and nothing on it offers agent CLIs')
     })
 
     // ── The Installed tab ───────────────────────────────────────────────────────

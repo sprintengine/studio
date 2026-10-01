@@ -140,8 +140,9 @@ export class TerminalReplayBuffer {
   /**
    * Everything appended since stream offset `offset`, or null when some of it
    * has already been cut from the head (the caller then needs the whole window,
-   * resynced). `offset` must be one this buffer handed out — a chunk boundary —
-   * so the slice never starts inside a code point.
+   * resynced). `offset` must be one this buffer handed out — a chunk boundary,
+   * or a code point boundary inside one — so the slice never starts inside a
+   * code point.
    */
   readFrom(offset: number): string | null {
     if (offset < this.startOffset || offset > this.endOffset) return null

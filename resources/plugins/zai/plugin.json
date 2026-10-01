@@ -14,16 +14,31 @@
   },
   "permissionPresets": {
     "manual": {
-      "label": "Manual — ask before every action",
+      "$comment": "Claude Code's default mode: it asks before edits and commands. A chat adds a hook that asks before the commands it would otherwise judge read-only too; a terminal agent gets the CLI's own default mode.",
+      "label": "Manual",
+      "summary": "Asks before edits and commands.",
+      "description": "Claude Code’s asking mode: it asks before every edit and every command it does not already know to be safe. In a chat, every action that changes something or reaches out asks; reading and searching the workspace does not.",
       "args": ["--permission-mode", "default"]
     },
     "auto": {
-      "$comment": "Claude Code's auto mode: a second model (the classifier) reviews each action before it runs instead of the user. NOT workspace-scoped \u2014 the preset this replaced was labelled \"Auto-approve workspace edits\", which described Codex's sandbox rung and misdescribed this one. Reads and in-project edits skip the classifier; shell, network, out-of-project writes and subagent spawns are reviewed.",
-      "label": "Auto — the classifier reviews each action",
-      "args": ["--permission-mode", "auto"]
+      "$comment": "acceptEdits, not the classifier mode (`auto`) Claude Code's own Auto uses: the classifier is not offered on a third-party model endpoint, and there the CLI would start in its asking mode instead, so Auto would ask more than it does with acceptEdits.",
+      "label": "Accept edits",
+      "summary": "Edits go through; commands ask.",
+      "description": "Claude Code’s Accept edits mode: file edits in the workspace go through without asking, and commands ask first. Claude Code’s own auto mode is not offered on this model endpoint.",
+      "args": ["--permission-mode", "acceptEdits"]
+    },
+    "dontAsk": {
+      "$comment": "Claude Code's own Don't ask mode: it never asks, and refuses whatever the person's allow rules do not already cover. At the Manual level, since nothing outside those rules runs.",
+      "label": "Don’t ask",
+      "summary": "Never asks; refuses what your rules don’t allow.",
+      "description": "Claude Code’s Don’t ask mode: it never stops to ask, and turns down every tool call your own allow rules do not already cover.",
+      "level": "manual",
+      "args": ["--permission-mode", "dontAsk"]
     },
     "bypass": {
-      "label": "Bypass all approvals (dangerous)",
+      "label": "Bypass permissions",
+      "summary": "Skips every prompt. Trusted repos only.",
+      "description": "Claude Code’s Bypass permissions mode: no prompts at all. Use only in repositories and environments you trust.",
       "args": ["--permission-mode", "bypassPermissions"]
     }
   },
@@ -123,7 +138,10 @@
       {
         "event": "Notification",
         "phase": "awaiting_input",
-        "when": { "field": "notificationType", "oneOf": ["permission_prompt", "elicitation_dialog", "agent_needs_input"] }
+        "when": {
+          "field": "notificationType",
+          "oneOf": ["permission_prompt", "elicitation_dialog", "agent_needs_input"]
+        }
       },
       { "event": "Stop", "phase": "idle", "turnEnd": true },
       { "event": "SubagentStart", "phase": "tool_use", "background": "start" },

@@ -27,7 +27,9 @@ export type McpToolRegistration = {
    * one refused for want of that scope — is written to the gateway audit with
    * the calling device. Omitted or false means a read: advertised to every
    * paired device on the read scope and not audited. Declare it on anything
-   * that writes to disk, spawns a process, or reconfigures the machine.
+   * that writes to disk, spawns a process, or reconfigures the machine. A
+   * third-party module's tool that omits it is registered as mutating; only an
+   * explicit `false` makes it a read.
    */
   mutates?: boolean
   handler: (args: Record<string, unknown>, context?: McpConnectionContext) => Promise<McpToolResult>

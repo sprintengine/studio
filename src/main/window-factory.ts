@@ -5,6 +5,12 @@ import { applyGuestWebPreferences, type GuestWebPreferences } from './browser/gu
 import type { WindowMaterial } from '../shared/electron-api'
 import { sendWindowHidden, sendWindowPlacement, sendWindowState } from './ipc/window-ipc'
 import { getWindowCanvasColor, getWindowMaterial } from './window-material-store'
+import { appDocumentUrl, guardPrivilegedWindow } from './privileged-window-navigation'
+
+/** The one document every window made here may show; see privileged-window-navigation.ts. */
+function appDocument(): URL {
+  return appDocumentUrl(process.env['ELECTRON_RENDERER_URL'], join(__dirname, '../renderer/index.html'))
+}
 
 type CreateMainWindowOptions = {
   diagnosticsEnabled: boolean
@@ -35,7 +41,7 @@ const workspaceWindows = new Set<BrowserWindow>()
 
 // The window-level half of a material: vibrancy and a transparent background
 // for glass; no vibrancy and the theme's own opaque canvas colour for tinted
-// and solid. Tinted's gradient and glow are painted by the renderer as static
+// and solid. Tinted's washes are painted by the renderer as static
 // CSS over that opaque ground — the window itself is an ordinary opaque one,
 // which is what keeps it free on platforms with no vibrancy. The colour
 // matters for the frames before the renderer paints (creation, and a resize
@@ -250,10 +256,7 @@ export function createMainWindow({
     })
   }
 
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
-    return { action: 'deny' }
-  })
+  guardPrivilegedWindow(win.webContents, appDocument(), (url) => shell.openExternal(url))
 
   // Voice dictation captures the microphone via getUserMedia in the renderer.
   // Grant the media permission for this trusted first-party window (the OS still
@@ -315,10 +318,7 @@ export function createDiagnosticsWindow(): BrowserWindow {
     if (diagnosticsWindow === win) diagnosticsWindow = null
   })
 
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
-    return { action: 'deny' }
-  })
+  guardPrivilegedWindow(win.webContents, appDocument(), (url) => shell.openExternal(url))
 
   if (process.env['ELECTRON_RENDERER_URL']) {
     const url = new URL(process.env['ELECTRON_RENDERER_URL'])
@@ -363,6 +363,14 @@ type CreateAuxWindowOptions = {
   singletonKey: string
   params: Record<string, string>
   bounds?: { x: number; y: number; width: number; height: number } | null
+  /**
+   * Whether the window may take the keyboard. True (the default) for the
+   * person's own clicks: they asked for the window, so it comes forward. False
+   * for an agent's reveal, which must never take focus or raise a window: an
+   * open window is retargeted where it stands (a minimized one stays
+   * minimized), and a new one is shown inactive.
+   */
+  focus?: boolean
 }
 
 /** Is this window one this process opened as an aux window? The registry is
@@ -373,15 +381,15 @@ export function isAuxWindow(win: BrowserWindow): boolean {
   return false
 }
 
-export function openAuxWindow({ kind, singletonKey, params, bounds = null }: CreateAuxWindowOptions): {
+export function openAuxWindow({ kind, singletonKey, params, bounds = null, focus = true }: CreateAuxWindowOptions): {
   retargeted: boolean
 } {
   const registryKey = `${kind}:${singletonKey}`
   const existing = auxWindows.get(registryKey)
   if (existing && !existing.isDestroyed()) {
-    if (existing.isMinimized()) existing.restore()
+    if (focus && existing.isMinimized()) existing.restore()
     existing.webContents.send('aux:retarget', { kind, params })
-    existing.focus()
+    if (focus) existing.focus()
     return { retargeted: true }
   }
 
@@ -414,6 +422,10 @@ export function openAuxWindow({ kind, singletonKey, params, bounds = null }: Cre
   auxWindows.set(registryKey, win)
 
   win.on('ready-to-show', () => {
+    if (!focus) {
+      win.showInactive()
+      return
+    }
     win.show()
     win.focus()
   })
@@ -442,10 +454,7 @@ export function openAuxWindow({ kind, singletonKey, params, bounds = null }: Cre
   win.on('move', schedulePlacementUpdate)
   win.on('resize', schedulePlacementUpdate)
 
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
-    return { action: 'deny' }
-  })
+  guardPrivilegedWindow(win.webContents, appDocument(), (url) => shell.openExternal(url))
 
   const query: Record<string, string> = { aux: kind, ...params }
   if (process.env['ELECTRON_RENDERER_URL']) {
@@ -494,6 +503,11 @@ function normalizeWindowBounds(
 
 // Push a main→renderer event to every workspace window (the embedded browser's
 // open/viewport requests, which any window hosting the workspace may answer).
+/** The live workspace windows — never an aux window, the splash or the canvas worker. */
+export function listWorkspaceWindows(): BrowserWindow[] {
+  return [...workspaceWindows].filter((win) => !win.isDestroyed())
+}
+
 export function broadcastToWorkspaceWindows(channel: string, payload: unknown): void {
   for (const win of workspaceWindows) {
     if (!win.isDestroyed()) win.webContents.send(channel, payload)
