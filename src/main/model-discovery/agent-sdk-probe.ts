@@ -9,6 +9,7 @@
 // `opus[1m]`, `sonnet`) is a first-class id: the CLI resolves it to its current
 // model at launch, which is the reason to offer the alias at all. Its
 // `resolvedModel` is kept as a display hint only (see DiscoveredCliModel).
+import { isWslHostId } from '../../shared/execution-host'
 import { isAbsolute } from 'path'
 import type { ModelInfo, Options, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 
@@ -65,8 +66,9 @@ function defaultEnv(): Record<string, string> {
 }
 
 // An input stream with no turns in it. It ends when the probe is torn down, so
-// the SDK's reader is not left awaiting forever after close().
-function noTurns(signal: AbortSignal): AsyncIterable<SDKUserMessage> {
+// the SDK's reader is not left awaiting forever after close(). The command
+// probe (conversation-commands/claude.ts) asks its question the same way.
+export function noTurns(signal: AbortSignal): AsyncIterable<SDKUserMessage> {
   const ended = new Promise<void>((resolve) => {
     if (signal.aborted) resolve()
     else signal.addEventListener('abort', () => resolve(), { once: true })
@@ -79,10 +81,10 @@ function noTurns(signal: AbortSignal): AsyncIterable<SDKUserMessage> {
 }
 
 export async function probeAgentSdkModels(
-  context: Pick<CliModelProbeContext, 'binary' | 'useWsl' | 'timeoutMs' | 'displayName'>,
+  context: Pick<CliModelProbeContext, 'binary' | 'hostId' | 'timeoutMs' | 'displayName'>,
   deps: AgentSdkProbeDeps = {},
 ): Promise<DiscoveredCliModel[]> {
-  if (context.useWsl) {
+  if (isWslHostId(context.hostId)) {
     throw new CliModelProbeError(`${context.displayName} models cannot be listed under WSL yet.`)
   }
   if (!isAbsolute(context.binary)) {

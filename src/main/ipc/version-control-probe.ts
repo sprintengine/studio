@@ -16,12 +16,29 @@ export type VersionControlProbeDeps = {
   probeVersion(binary: VersionControlProviderId): Promise<BinaryVersionProbe>
   // The login gh's own auth resolves to, or null when gh is not authenticated.
   readGhLogin(): Promise<string | null>
+  // The other machines on this computer that run their own git (the enabled
+  // WSL machines on Windows), each with its own probe. Absent or empty on
+  // macOS and Linux, where this machine is the only one.
+  listGitMachines?(): Promise<Array<{ hostId: string; label: string; probeGit(): Promise<BinaryVersionProbe> }>>
 }
 
 export async function probeVersionControlProviders(
   deps: VersionControlProbeDeps,
 ): Promise<VersionControlProviderProbe[]> {
-  return Promise.all(VERSION_CONTROL_PROVIDER_IDS.map((id) => probeProvider(id, deps)))
+  const machines = (await deps.listGitMachines?.().catch(() => [])) ?? []
+  const [own, others] = await Promise.all([
+    Promise.all(VERSION_CONTROL_PROVIDER_IDS.map((id) => probeProvider(id, deps))),
+    Promise.all(
+      machines.map(async (machine): Promise<VersionControlProviderProbe> => {
+        const probe = await machine.probeGit().catch((): BinaryVersionProbe => ({ outcome: 'probe_failed' }))
+        const at = { hostId: machine.hostId, label: machine.label }
+        return probe.outcome === 'resolved'
+          ? { id: 'git', resolved: true, version: probe.version, machine: at }
+          : { id: 'git', resolved: false, reason: probe.outcome, machine: at }
+      }),
+    ),
+  ])
+  return [...own, ...others]
 }
 
 async function probeProvider(

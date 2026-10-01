@@ -12,10 +12,10 @@
 // - `not-in-registry` (a purely local install) makes no claim and draws
 //   nothing.
 //
-// The banner covers capability modules only. CLI plugins have NO staleness
-// detection (owner-pinned split — a CLI binary's "latest" belongs to its
-// vendor): their rows offer an Update action without ever claiming a newer
-// version exists, so cli-only registry entries are excluded here.
+// The banner covers extensions only. Agent CLIs have NO staleness detection
+// here (owner-pinned split — a CLI binary's "latest" belongs to its vendor):
+// their rows offer an Update action without ever claiming a newer version
+// exists, so the registry's inline-CLI entries are excluded here.
 
 import type { MarketplaceUpdateStatesResult } from '../../../../../shared/electron-api'
 import type { MarketplacePluginEntry } from '../../../../../shared/marketplace/manifest'
@@ -34,15 +34,11 @@ export type ManageUpdateBanner =
   | { kind: 'couldnt-check' }
   | { kind: 'updates'; updates: ManageUpdate[] }
 
-// Registry entries whose banner claim would violate the CLI split: provides
-// 'cli' and no 'module'. A bundle that carries both is module-shaped enough
-// to earn the banner.
+// Registry entries whose banner claim would violate the CLI split: the
+// inline-CLI lane, an agent CLI the app ships. No bundle provides 'cli' — an
+// extension cannot carry an agent CLI — so this is exactly that lane.
 export function cliOnlyRegistryIds(plugins: MarketplacePluginEntry[]): Set<string> {
-  return new Set(
-    plugins
-      .filter((plugin) => plugin.provides.includes('cli') && !plugin.provides.includes('module'))
-      .map((plugin) => plugin.id),
-  )
+  return new Set(plugins.filter((plugin) => plugin.provides.includes('cli')).map((plugin) => plugin.id))
 }
 
 export function deriveManageUpdateBanner(

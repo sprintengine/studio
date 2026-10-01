@@ -4,9 +4,9 @@
 // GitConflictResolverPanel). It mirrors the `code, kbd, pre, samp, .font-mono`
 // declaration in `src/renderer/src/assets/index.css`; keep the two in sync so
 // every mono surface in the app — chrome, code views, and terminals — renders
-// in the same typeface. The primary face is JetBrains Mono (loaded via the Google
-// Fonts @import in index.css); the rest are platform fallbacks for offline /
-// load-failure cases.
+// in the same typeface. The primary face is JetBrains Mono, bundled with the app
+// (the @fontsource imports at the top of index.css); the rest are platform
+// fallbacks for a face that fails to load.
 export const MONO_FONT_STACK =
   '"JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace'
 
@@ -19,8 +19,8 @@ export const waitForMonoFontReady = async (): Promise<void> => {
 // Monaco measures its font once per window, caches the widths, and draws the
 // caret and the selection by those cached widths rather than by the glyphs the
 // browser actually paints. A window that mounts an editor before JetBrains Mono
-// has arrived — a freshly opened pop-out editor or diff window, whose web font
-// is still downloading when the editor chunk is already there — measures a
+// has loaded — a freshly opened pop-out editor or diff window, whose font file
+// is still being read when the editor is already there — measures a
 // fallback face and keeps those numbers after the real face swaps in. Where the
 // fallback is Consolas (Windows) it is about 8% narrower, so by the twelfth
 // column a double-clicked word is highlighted a character to the left of where

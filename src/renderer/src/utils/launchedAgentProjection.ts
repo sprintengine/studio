@@ -22,13 +22,22 @@
 //     finalize; the tab and record it minted retire on the next tick because
 //     their source is gone (`retiredLaunchedAgents`).
 //
+// Main registers the agent in the workspace registry itself at launch, so the
+// record usually arrives here on the workspace-sync bus before the session tick
+// does. The projection then has nothing to create, but the tab still has to
+// appear and still has to retire with its session: `unrevealedLaunchedAgents`
+// is that half, for a record that arrived on the bus while this window was
+// running and has no tab here yet.
+//
 // It never overwrites an agent the renderer already holds, and never retires one
 // it did not create: a record the store owns may carry user edits (a renamed
 // agent, a changed runtime override) the launch-time snapshot knows nothing
 // about, and a user-created agent whose terminal exited keeps its tab.
 import type { TerminalSessionSnapshot } from '../../../shared/electron-api'
-import type { AgentLaunchRecord } from '../../../shared/agent-launch'
-import type { AgentState, WorkspaceId } from '../types/workspace'
+import { agentStateFromLaunchRecord } from '../../../shared/launched-agent-state'
+import type { AgentState, Workspace, WorkspaceId } from '../types/workspace'
+
+export { agentStateFromLaunchRecord }
 
 export type LaunchedAgentProjection = {
   workspaceId: WorkspaceId
@@ -98,6 +107,71 @@ export function markLaunchedAgentProjected(workspaceId: string, agentId: string)
 }
 
 /**
+ * Agents that arrived on the workspace-sync bus during THIS renderer session —
+ * created by an event, not by a snapshot. Renderer-session scoped for the same
+ * reason `projectedAgents` is: what a window loads with is the state it was
+ * left in, including a tab the person hid on purpose, and only an agent that
+ * turns up while the window watches is news to reveal.
+ */
+const arrivedAgents = new Set<string>()
+
+export function noteLaunchedAgentArrived(workspaceId: string, agentId: string): void {
+  arrivedAgents.add(projectionKey(workspaceId, agentId))
+}
+
+/**
+ * Live main-launched agents that arrived on the bus while this window ran and
+ * have no tab in their workspace yet — the agents main registered before this
+ * window saw their session. Revealing one is the same act as revealing a
+ * projection, and marking it projected is what lets it retire with its session.
+ *
+ * An agent the window loaded with is never a candidate, tab or no tab: its
+ * layout is what the person left it as, and a hidden tab stays hidden. A
+ * reload therefore reveals nothing and moves nobody into a workspace.
+ */
+export function unrevealedLaunchedAgents(input: {
+  sessions: ReadonlyArray<TerminalSessionSnapshot>
+  workspaces: ReadonlyArray<Pick<Workspace, 'id' | 'agents' | 'layoutModel'>>
+}): Array<{ workspaceId: WorkspaceId; agentId: string; name: string }> {
+  if (arrivedAgents.size === 0) return []
+  const revealed: Array<{ workspaceId: WorkspaceId; agentId: string; name: string }> = []
+  for (const session of input.sessions) {
+    if (session.kind !== 'agent' || !session.processAlive) continue
+    const record = session.agentRecord
+    if (!record || !session.workspaceId) continue
+    const key = projectionKey(session.workspaceId, record.agentId)
+    if (!arrivedAgents.has(key) || projectedAgents.has(key)) continue
+    const workspace = input.workspaces.find((candidate) => candidate.id === session.workspaceId)
+    const agent = workspace?.agents[record.agentId]
+    if (!workspace || !agent) continue
+    // Considered once: whether or not it needs a tab, it is no longer news.
+    arrivedAgents.delete(key)
+    if (layoutHasAgentTab(workspace.layoutModel, record.agentId)) continue
+    revealed.push({ workspaceId: workspace.id, agentId: record.agentId, name: agent.name || record.name })
+  }
+  return revealed
+}
+
+/** Whether a serialized FlexLayout model holds an agent tab for `agentId`, borders included. */
+export function layoutHasAgentTab(layoutModel: unknown, agentId: string): boolean {
+  const pending: unknown[] = [layoutModel]
+  while (pending.length > 0) {
+    const node = pending.pop()
+    if (!node || typeof node !== 'object') continue
+    if (Array.isArray(node)) {
+      pending.push(...node)
+      continue
+    }
+    const record = node as { type?: unknown; component?: unknown; config?: { agentId?: unknown } | null }
+    if (record.type === 'tab' && record.component === 'agent' && record.config?.agentId === agentId) return true
+    for (const value of Object.values(node)) {
+      if (value && typeof value === 'object') pending.push(value)
+    }
+  }
+  return false
+}
+
+/**
  * Projected agents whose session is gone: the renderer half of `agent.dispose`.
  * Run-finalize kills the terminal in main, and this is what drops the tab and
  * the record that were standing in for it. Forgets each key as it reports it, so
@@ -132,41 +206,5 @@ export function retiredLaunchedAgents(
 
 export function resetLaunchedAgentProjectionForTest(): void {
   projectedAgents.clear()
-}
-
-/**
- * The `AgentState` a launched session projects to.
- *
- * `cliHasLaunched`/`cliOnboardingPromptSent` are true because they are true:
- * main already launched the CLI and already delivered the startup prompt. Saying
- * otherwise would make the mounting terminal re-send a prompt the agent has
- * had — and, with `cliStartupPrompt` still set, treat this as live launch intent
- * and spawn a second process alongside the one it is looking at.
- */
-export function agentStateFromLaunchRecord(record: AgentLaunchRecord, session: TerminalSessionSnapshot): AgentState {
-  return {
-    id: record.agentId,
-    name: record.name,
-    status: 'idle',
-    execution: record.worktreePath
-      ? { mode: 'worktree', worktreeId: session.worktreeId ?? null, cwd: record.worktreePath }
-      : { mode: 'current_workspace', worktreeId: null, cwd: null },
-    messages: [],
-    streamBuffer: '',
-    runtimeKind: 'terminal',
-    cliSessionId: session.sessionId,
-    // The harness's own id, when its lifecycle hook has reported one yet. Absent
-    // right after launch and learned later; the launch-flag reconcile fills it in.
-    ...(session.cliSessionId ? { harnessSessionId: session.cliSessionId } : {}),
-    cliStartRequested: false,
-    cliRestartNonce: 0,
-    cliHasLaunched: true,
-    cliOnboardingPromptSent: true,
-    cliResumeAvailable: false,
-    cli: record.cli,
-    ...(record.cliModel ? { cliModel: record.cliModel } : {}),
-    cliPermissionPreset: record.cliPermissionPreset,
-    ...(record.connectorMcpSettings ? { connectorMcpSettings: record.connectorMcpSettings } : {}),
-    ...(record.spawnSkillId ? { spawnSkillId: record.spawnSkillId } : {}),
-  }
+  arrivedAgents.clear()
 }

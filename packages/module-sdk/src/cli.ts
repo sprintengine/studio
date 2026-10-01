@@ -3,6 +3,7 @@
 // capability module authors. Runs without repo access: everything it needs
 // ships in the @sprintengine/module-sdk tarball.
 //
+//   init             create an extension project from one of the templates
 //   keygen           generate an ed25519 signing keypair (private key PEM)
 //   pack             validate a module directory and assemble an installable copy
 //   sign             write a detached ed25519 signature into manifest.json
@@ -14,14 +15,18 @@
 //
 // sign/verify operate on the VALIDATED manifest shape (the same shape the app
 // verifies), and sign writes that normalized manifest back to disk so the
-// signed bytes on disk are exactly what the app checks.
+// signed bytes on disk are exactly what the app checks. sign also records the
+// digest of every file the module ships (`files`), so the signature covers the
+// code; the app trusts a module by its publisher key only when those match.
 
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
+import { checkHostApiCompatibility, HOST_API_VERSION } from './host-api.js'
 import { BUNDLED_MODULE_IDS, type CapabilityManifest } from './index.js'
 import { parseThirdPartyModuleManifest, type ThirdPartyManifestIssue } from './manifest-validate.js'
+import { computeModuleFileDigestsSync, moduleFileDigestIssuesSync } from './module-files.js'
 import {
   MARKETPLACE_COMPONENT_KINDS,
   parseMarketplacePluginAuthoringManifest,
@@ -35,7 +40,6 @@ import {
 } from './plugin-manifest.js'
 import {
   computeMarketplacePluginComponentsWithDigestsSync,
-  marketplaceAutomationPayloadIssuesSync,
   marketplaceComponentDigestMismatchIssuesSync,
 } from './plugin-component-digests.js'
 import { generateModuleSigningKeyPair, signManifest, verifyModuleSignature } from './signing.js'
@@ -43,6 +47,7 @@ import { generateModuleSigningKeyPair, signManifest, verifyModuleSignature } fro
 const USAGE = `sprintengine-module — pack, sign, and verify SprintEngine Studio capability modules
 
 Usage:
+  sprintengine-module init <dir> --template <id> [--id <module-id>] [--name <name>] [--sdk-tarball <file>] [--force]
   sprintengine-module keygen [--out <file>] [--force]
   sprintengine-module pack <module-dir> [--out <dir>] [--force] [--allow-reserved-id]
   sprintengine-module sign <module-dir> --key <private-key.pem>
@@ -52,6 +57,12 @@ Usage:
   sprintengine-module plugin sign <plugin-dir> --key <private-key.pem>
   sprintengine-module plugin verify <plugin-dir>
 
+init creates an extension project in <dir> from a template: the module, its
+build and dev-loop scripts, and the extension-builder skill for whichever agent
+works on it. --id defaults to the folder name, --name to the id title-cased;
+--sdk-tarball depends on a local SDK tarball instead of the npm release. Run it
+with an unknown --template to list the templates.
+
 keygen writes an ed25519 private key (PKCS#8 PEM) to --out
 (default module-signing.key). Keep it out of the module directory and out of
 version control; sign derives the public key from it.
@@ -60,15 +71,18 @@ pack validates <module-dir>/manifest.json and copies the module into --out
 (default packed/<id>) as an installable module directory. node_modules, .git,
 and key files (*.key, *.pem) are never copied.
 
-sign validates manifest.json, signs the normalized manifest with --key, and
-writes the normalized manifest including the signature back to manifest.json.
+sign validates manifest.json, records the sha256 of every file the module ships
+in its "files" field (everything pack copies, manifest.json aside), signs the
+normalized manifest with --key, and writes it back to manifest.json. Sign
+again after any change to the module's files.
 
-verify validates manifest.json and checks its signature exactly like
-SprintEngine Studio: exit 0 with the signer fingerprint when valid, exit 1 when
-unsigned, tampered, or invalid.
+verify validates manifest.json, checks its signature, and checks that the files
+pack would copy are exactly the ones "files" lists, byte for byte: exit 0 with
+the signer fingerprint when all of that holds, exit 1 when the module is
+unsigned, carries no "files", or was changed after signing.
 
-plugin scaffold creates plugin.json plus component placeholders for mcp, skills,
-module, cli, and automation by default. Pass --component repeatedly to scaffold
+plugin scaffold creates plugin.json plus component placeholders for mcp, skills
+and module by default. Pass --component repeatedly to scaffold
 only the kinds you want.
 
 plugin sign writes component file digests into the normalized plugin.json bundle
@@ -95,6 +109,11 @@ function readManifest(moduleDir: string): { manifestPath: string; manifest: Capa
   if (!result.ok) {
     fail(`Invalid module manifest at ${manifestPath}:`, result.issues)
   }
+  // The studio refuses a module built for a host API it does not provide, so
+  // the author hears it here rather than from a module that never loads.
+  const hostApi = checkHostApiCompatibility(result.manifest)
+  if (!hostApi.ok)
+    fail(`Invalid module manifest at ${manifestPath}:`, [{ path: 'engines.hostApi', message: hostApi.message }])
   return { manifestPath, manifest: result.manifest }
 }
 
@@ -162,12 +181,6 @@ function pluginComponentsFromKinds(kinds: MarketplaceComponentKind[], id: string
       case 'module':
         components.module = { path: 'module' }
         break
-      case 'cli':
-        components.cli = { path: 'cli' }
-        break
-      case 'automation':
-        components.automation = { path: 'automation/automation.json' }
-        break
     }
   }
   return components
@@ -226,11 +239,6 @@ function assertPluginComponentDigestsMatch(pluginDir: string, manifest: Marketpl
     blockedFileMessage: (path) => `component file "${path}" cannot be signed or packed.`,
   })
   if (issues.length > 0) fail(`Plugin component digests do not match ${pluginDir}:`, issues)
-}
-
-function assertPluginAutomationPayload(pluginDir: string, components: MarketplacePluginComponents): void {
-  const issues = marketplaceAutomationPayloadIssuesSync(pluginDir, components)
-  if (issues.length > 0) fail(`Plugin automation payload is not a valid automation definition in ${pluginDir}:`, issues)
 }
 
 function uniqueSiblingPath(parent: string, name: string): string {
@@ -306,6 +314,15 @@ function pack(args: string[]): void {
     fail(`Module entry files are missing in ${sourceDir}:`, missingEntries)
   }
 
+  // A pack whose files no longer match the signed digests would install as
+  // tampered; say so here, where re-signing is one command away.
+  if (manifest.files) {
+    const drift = moduleFileDigestIssuesSync(sourceDir, manifest.files, { walk: 'pack' })
+    if (drift.length > 0) {
+      fail(`Module files changed after signing in ${sourceDir}; run \`sprintengine-module sign\` again:`, drift)
+    }
+  }
+
   const outDir = resolve(values.out ?? join('packed', manifest.id))
   if (existsSync(outDir) && !values.force) {
     fail(`${outDir} already exists. Pass --force to overwrite it.`)
@@ -331,7 +348,11 @@ function pack(args: string[]): void {
   for (const name of skipped) {
     console.warn(`Skipped ${name}: key material is never packed into a module.`)
   }
-  const signedNote = manifest.signature ? 'signed' : 'UNSIGNED — run `sprintengine-module sign` before distributing'
+  const signedNote = !manifest.signature
+    ? 'UNSIGNED — run `sprintengine-module sign` before distributing'
+    : manifest.files
+      ? 'signed'
+      : 'signed WITHOUT file digests — run `sprintengine-module sign` again before distributing'
   console.log(`Packed ${manifest.id} (${signedNote}) to ${outDir}`)
 }
 
@@ -347,9 +368,23 @@ function signCommand(args: string[]): void {
   const keyPath = resolve(values.key)
   if (!existsSync(keyPath)) fail(`Signing key not found: ${keyPath}`)
 
-  const { manifestPath, manifest } = readManifest(resolve(moduleDir))
-  // Sign the validated manifest minus any prior signature (re-signing replaces it).
-  const { signature: _prior, ...unsigned } = manifest
+  const moduleRoot = resolve(moduleDir)
+  const { manifestPath, manifest } = readManifest(moduleRoot)
+  // The pack view: node_modules, .git and key files are left out here exactly
+  // as pack leaves them out, so the packed copy matches what was signed.
+  const digests = computeModuleFileDigestsSync(moduleRoot, { walk: 'pack' })
+  if (!digests.ok) fail(`Module files in ${moduleRoot} cannot be signed:`, digests.issues)
+  const unlistedEntries: ThirdPartyManifestIssue[] = []
+  for (const [key, relPath] of Object.entries(manifest.entry ?? {})) {
+    if (typeof relPath === 'string' && digests.files[relPath] === undefined) {
+      unlistedEntries.push({ path: `entry.${key}`, message: `declared file "${relPath}" is not in the module.` })
+    }
+  }
+  if (unlistedEntries.length > 0) fail(`Module entry files are missing in ${moduleRoot}:`, unlistedEntries)
+  // Sign the validated manifest minus any prior signature (re-signing replaces
+  // it), with the digests just taken in place of any earlier ones.
+  const { signature: _prior, files: _priorFiles, ...declared } = manifest
+  const unsigned: CapabilityManifest = { ...declared, files: digests.files }
   let signature
   try {
     signature = signManifest(unsigned, readFileSync(keyPath, 'utf8'))
@@ -359,7 +394,7 @@ function signCommand(args: string[]): void {
   const signed: CapabilityManifest = { ...unsigned, signature }
   writeFileSync(manifestPath, JSON.stringify(signed, null, 2) + '\n')
   const { fingerprint } = verifyModuleSignature(signed)
-  console.log(`Signed ${manifest.id}; wrote normalized manifest to ${manifestPath}`)
+  console.log(`Signed ${manifest.id} and ${Object.keys(digests.files).length} file(s); wrote ${manifestPath}`)
   console.log(`Signer fingerprint: ${fingerprint}`)
 }
 
@@ -378,7 +413,21 @@ function verifyCommand(args: string[]): void {
         'The app will refuse to trust it. Re-sign the module.',
     )
   }
-  console.log(`${manifest.id}: signature valid`)
+  if (!manifest.files) {
+    fail(
+      `${manifest.id} is signed, but its manifest carries no "files" digests, so the signature does not cover its ` +
+        'code and the app will not trust it by its publisher key. Sign it again with `sprintengine-module sign`.',
+    )
+  }
+  const drift = moduleFileDigestIssuesSync(resolve(moduleDir), manifest.files, { walk: 'pack' })
+  if (drift.length > 0) {
+    fail(
+      `${manifest.id} does not match the file digests its manifest signs (changed after signing?). ` +
+        'The app will refuse it as tampered. Sign it again with `sprintengine-module sign`.',
+      drift,
+    )
+  }
+  console.log(`${manifest.id}: signature valid; ${Object.keys(manifest.files).length} file(s) match`)
   console.log(`Signer fingerprint: ${fingerprint}`)
 }
 
@@ -456,54 +505,10 @@ function pluginScaffold(args: string[]): void {
       version: 1,
       defaultEnabled: false,
       permissions: ['network'],
+      engines: { hostApi: HOST_API_VERSION },
       entry: { main: 'main.cjs' },
     })
     writeFileSync(join(moduleDir, 'main.cjs'), 'exports.registerMain = () => {}\n')
-  }
-  if (components.cli) {
-    const cliDir = join(outDir, components.cli.path)
-    mkdirSync(cliDir, { recursive: true })
-    writeJson(join(cliDir, 'plugin.json'), {
-      kind: 'cli',
-      id: componentId(id, 'cli'),
-      displayName: `${displayName} CLI`,
-      version: 1,
-      binary: 'node',
-      permissionPresets: { default: { label: 'Default', args: [] } },
-      launch: { argv: ['node', 'index.js', { spreadIf: 'promptArgs' }] },
-      promptInjection: { mode: 'positional-arg' },
-      completion: { mode: 'process-exit' },
-      capabilities: {
-        resumeSession: false,
-        sessionIdFromCaller: false,
-        toolUse: false,
-        mcpServers: false,
-      },
-    })
-    writeFileSync(join(cliDir, 'index.js'), 'console.log("Replace this placeholder with your CLI integration.")\n')
-  }
-  if (components.automation) {
-    // Name, trigger and action only — the three keys the install path actually
-    // reads. A catalogue payload is not a whole definition: `catalogueDraftInput`
-    // (`automations/definition-write.ts`) strips `id`, `status` and
-    // `runInWorktree` and registers the automation `enabled`, because an
-    // automation the user just chose to add is one they want running. Scaffolding
-    // a key the front door deletes teaches an author to configure something they
-    // cannot configure. `autonomyDefault` is retired outright (2026-07-30): the
-    // report-don't-fix intent it used to carry belongs in the prompt, which says
-    // it more precisely, and permission is a `cliPermissionPreset` the user picks
-    // in the editor — never a value on this key, which never accepted one.
-    writeJson(join(outDir, components.automation.path), {
-      name: `${displayName} nightly`,
-      trigger: {
-        kind: 'schedule',
-        config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '03:00' }, timezone: 'UTC' },
-      },
-      action: {
-        kind: 'spawn-agent',
-        config: { prompt: 'Replace this placeholder with the work the automation should do each run.' },
-      },
-    })
   }
 
   console.log(`Scaffolded marketplace plugin ${id} at ${outDir}`)
@@ -528,7 +533,6 @@ function pluginPack(args: string[]): void {
     fail(`${manifest.id} has an INVALID signature. Re-sign the plugin before packing it.`)
   }
   assertPluginComponentDigestsMatch(sourceDir, manifest)
-  assertPluginAutomationPayload(sourceDir, manifest.components)
 
   const outDir = resolve(values.out ?? join('packed', manifest.id))
   if (existsSync(outDir) && !values.force) {
@@ -581,7 +585,6 @@ function pluginSign(args: string[]): void {
 
   const pluginRoot = resolve(pluginDir)
   const { manifestPath, manifest } = readPluginAuthoringManifest(pluginRoot)
-  assertPluginAutomationPayload(pluginRoot, manifest.components)
   const { signature: _prior, ...unsigned } = manifest
   const componentsWithDigests = computeMarketplacePluginComponentsWithDigestsSync(pluginRoot, unsigned.components, {
     blockedFileMessage: (path) => `component file "${path}" cannot be signed or packed.`,
@@ -631,7 +634,6 @@ function pluginVerify(args: string[]): void {
     )
   }
   assertPluginComponentDigestsMatch(sourceDir, manifest)
-  assertPluginAutomationPayload(sourceDir, manifest.components)
   console.log(`${manifest.id}: plugin signature valid`)
   console.log(`Signer fingerprint: ${fingerprint}`)
   console.log(`Registry entry "provides": ${JSON.stringify(providesForComponents(manifest.components))}`)
@@ -662,8 +664,59 @@ function pluginCommand(args: string[]): void {
   }
 }
 
+// The scaffolder is loaded only for `init`: it finds its templates relative to
+// its own file, which a bundle of this CLI need not preserve for the other
+// commands.
+async function init(args: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args,
+    options: {
+      template: { type: 'string' },
+      id: { type: 'string' },
+      name: { type: 'string' },
+      'sdk-tarball': { type: 'string' },
+      force: { type: 'boolean' },
+    },
+    allowPositionals: true,
+  })
+  const { listModuleTemplates, scaffoldModuleProject, sdkPackageVersion } = await import('./scaffold.js')
+  const templates = (): string =>
+    listModuleTemplates()
+      .map((template) => `  ${template.id.padEnd(20)} ${template.summary}`)
+      .join('\n')
+  const dir = positionals[0]
+  if (!dir) fail(`init requires a project directory.\n\n${USAGE}`)
+  if (!values.template) fail(`init requires --template <id>. The templates:\n${templates()}`)
+  const target = resolve(dir)
+  const id =
+    values.id ??
+    basename(target)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+  const tarball = values['sdk-tarball'] ? resolve(values['sdk-tarball']) : undefined
+  if (tarball && !existsSync(tarball)) fail(`SDK tarball not found: ${tarball}`)
+  const result = await scaffoldModuleProject({
+    dir: target,
+    templateId: values.template,
+    id,
+    displayName: values.name ?? displayNameFromId(id),
+    sdkVersion: sdkPackageVersion(),
+    ...(tarball ? { sdkTarballPath: tarball } : {}),
+    ...(values.force ? { force: true } : {}),
+  })
+  if (!result.ok) {
+    fail(result.code === 'unknown_template' ? `${result.message}\n\n${templates()}` : result.message)
+  }
+  console.log(`Created ${id} from the ${values.template} template in ${target} (${result.files.length} files).`)
+  console.log('Next: npm install, then npm run check; npm run dev:install side-loads it into Studio.')
+}
+
 const [command, ...rest] = process.argv.slice(2)
 switch (command) {
+  case 'init':
+    init(rest).catch((error: unknown) => fail(error instanceof Error ? error.message : String(error)))
+    break
   case 'keygen':
     keygen(rest)
     break

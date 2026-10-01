@@ -8,33 +8,21 @@
   "icon": "icon.svg",
   "binary": "kimi",
   "permissionPresets": {
-    "manual": {
-      "label": "Manual — Kimi prompts for approvals",
-      "args": []
-    },
-    "auto": {
-      "$comment": "Kimi's two flags read backwards from their names, and were mapped backwards here until a later fix. `kimi --help`: `-y, --yolo` is \"Auto-approve regular tool calls; the agent may still ask questions\", while `--auto` is \"Start in auto permission mode: fully autonomous, the agent will not ask questions\". `--auto` is therefore the MORE permissive of the two and belongs on the bypass rung.",
-      "label": "Auto — approves tool calls, may still ask",
-      "args": ["--yolo"]
-    },
     "bypass": {
-      "label": "Bypass all approvals (dangerous)",
+      "$comment": "Kimi's two flags read backwards from their names. `kimi --help`: `-y, --yolo` is \"Auto-approve regular tool calls; the agent may still ask questions\", while `--auto` is \"Start in auto permission mode: fully autonomous, the agent will not ask questions\". `--auto` is therefore the more permissive of the two, and the one that means bypass.",
+      "label": "Auto",
+      "summary": "Fully autonomous; never asks.",
+      "description": "Kimi Code’s auto permission mode (--auto): fully autonomous, it neither asks for approval nor asks questions. Use only in repositories you trust.",
       "args": ["--auto"]
     }
   },
   "modelSelection": {
     "args": ["--model", "{{model}}"],
-    "options": [
-      { "id": "kimi-k3", "label": "Kimi K3" }
-    ],
+    "options": [{ "id": "kimi-k3", "label": "Kimi K3" }],
     "allowCustomId": true
   },
   "launch": {
-    "argv": [
-      "{{binary}}",
-      { "spreadIf": "permissionArgs" },
-      { "spreadIf": "modelArgs" }
-    ]
+    "argv": ["{{binary}}", { "spreadIf": "permissionArgs" }, { "spreadIf": "modelArgs" }]
   },
   "resume": {
     "$comment": "Kimi Code documents -c/--continue (most recent session in cwd) and -S/--session [id]. Mirrors the OpenCode wiring: --continue as the base, the explicit session pair only when the caller has an id. Unverified end-to-end, so capabilities.resumeSession stays false until confirmed against a real install (the confirm-first discipline) — flipping it is a config-only change.",
@@ -49,12 +37,17 @@
     ]
   },
   "promptInjection": {
-    "$comment": "Kimi Code's -p/--prompt is a one-shot non-interactive run, and no positional interactive prompt argument is documented. Same discipline as Grok Build: the (?!) pattern never matches by design, so the prompt is delivered exactly once via the runtime's timeout fallback after the TUI has had timeoutMs to become ready. If a real install confirms `kimi \"prompt\"` starts an interactive session with the prompt, flip mode to positional-arg — config-only change.",
+    "$comment": "Verified 2026-09-24 against the installed Kimi Code 0.42.0: `kimi --help` documents no positional prompt and no prompt-file option (`-p/--prompt` is \"Run one prompt non-interactively and print the response\"), so the first message is typed into the TUI once it is up. Readiness is the composer's own status line, not bracketed paste: in a folder Kimi has not seen, it turns bracketed paste on (0.7 s in) for a \"Trust this folder?\" dialog whose selected choice is Trust, so an Enter sent on that signal would trust the folder for the person. The composer screen, reached once the folder is trusted, is the first to print `context: 0%`; the lifecycle hook cannot stand in, because Kimi creates its session (and fires SessionStart) only on the first message. With an isolated KIMI_CODE_HOME, a bracketed paste and Enter written once that line had appeared and output had been quiet for half a second was submitted (Kimi, signed out, answered that no model is set). A person who has not answered the trust dialog within timeoutMs gets nothing typed and is handed the message back instead; every new agent worktree is a folder Kimi has not seen, so a launch nobody is watching (an automation) always ends that way, with the message waiting for the next window.",
     "mode": "send-after-ready",
     "readiness": {
       "type": "output-match",
-      "pattern": "(?!)",
-      "timeoutMs": 8000
+      "pattern": "context: \\d+%",
+      "timeoutMs": 60000
+    },
+    "overflow": {
+      "$comment": "Kimi's startup auto-update can prompt before the composer, and an Enter there would answer it. The binary documents KIMI_CODE_NO_AUTO_UPDATE as disabling the check, the background install and the prompt; it is set only on a launch whose first message is typed in.",
+      "mode": "input",
+      "env": { "KIMI_CODE_NO_AUTO_UPDATE": "1" }
     }
   },
   "contextInjection": {

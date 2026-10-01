@@ -5,6 +5,8 @@ import { JSDOM } from 'jsdom'
 import { act, createElement, type ReactElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { detectComposerTrigger } from '../../../../shared/conversation/composerTrigger'
+import { bundledPermissionModes } from '../../../../../tests/permission-modes'
 
 import type {
   ConversationEvent,
@@ -25,13 +27,11 @@ import {
   attachmentRejection,
   base64ByteLength,
   buildModelGroups,
-  chatSkillTrigger,
   ComposerAttachmentStrip,
   ComposerContextMenu,
   composerSendAction,
   editingShortcut,
   dataTransferHasFiles,
-  filterModelGroups,
   deriveConversationTimelineRows,
   flattenToolEntries,
   formatAttachmentBytes,
@@ -46,9 +46,7 @@ import {
   MAX_ATTACHMENTS_PER_TURN,
   mergeQueuedTurn,
   parseOptionLabel,
-  permissionChangeScopeLabel,
-  permissionPresetLabel,
-  PermissionPresetPill,
+  queueComposerDraft,
   projectConversation,
   providerAcceptsImages,
   queuedTurnLabel,
@@ -244,6 +242,24 @@ test('AgentChatView', async () => {
   ])
   assert.equal(assistant(denied.entries, T1).status, 'failed')
   assert.equal(denied.lastError, 'approval_denied', 'a real failure surfaces an actionable error')
+  assert.equal(denied.lastErrorDetail, null, 'a failure without a message has no detail')
+
+  // --- a provider failure keeps its full message for the diagnostics log ----
+
+  const providerFailed = projectConversation([
+    ev('turn_started', { turnId: T1 }),
+    ev('turn_failed', {
+      turnId: T1,
+      reason: 'provider',
+      message: 'Failed to authenticate: OAuth session expired and could not be refreshed',
+    }),
+  ])
+  assert.equal(providerFailed.lastError, 'provider')
+  assert.equal(
+    providerFailed.lastErrorDetail,
+    'Failed to authenticate: OAuth session expired and could not be refreshed',
+    'the log gets the provider message, not only its short code',
+  )
 
   // --- interruption is not an error (explicit turnId variant) ---------------
 
@@ -329,7 +345,7 @@ test('AgentChatView', async () => {
   assert.equal(activeConversationStage(runningTool.entries, runningTool.activeTurn), 'tool')
   assert.equal(
     row(deriveConversationTimelineRows(runningTool.entries, runningTool.activeTurn), 'working').label,
-    'Calling search…',
+    'Searching…',
   )
 
   // --- reasoning rides the turn row, separate from prose ---------------------
@@ -739,6 +755,30 @@ test('AgentChatView', async () => {
   ])
   assert.equal(apiKeyAuth.apiKeySource, 'ANTHROPIC_API_KEY', 'latest reported source wins; cursor-only updates keep it')
 
+  // Transcripts written while the field was redacted replay `[redacted]`: that
+  // is no source at all, not an API key.
+  const redactedAuth = projectConversation([
+    ev('session_started'),
+    ev('session_updated', { providerSessionId: 'cli-1', apiKeySource: '[redacted]' }),
+  ])
+  assert.equal(redactedAuth.apiKeySource, null, 'a redacted source replayed from disk reports nothing')
+
+  // --- a provider's session notice rides session_updated until the next session ---
+
+  assert.equal(empty.sessionNotice, null)
+  const replaced = projectConversation([
+    ev('session_started'),
+    ev('session_updated', { providerSessionId: 'new-thread', notice: 'The previous thread could not be resumed.' }),
+    ev('session_updated', { providerSessionId: 'new-thread' }),
+  ])
+  assert.equal(replaced.sessionNotice, 'The previous thread could not be resumed.')
+  const restarted = projectConversation([
+    ev('session_started'),
+    ev('session_updated', { providerSessionId: 'new-thread', notice: 'The previous thread could not be resumed.' }),
+    ev('session_started'),
+  ])
+  assert.equal(restarted.sessionNotice, null, "a new session does not inherit the previous one's notice")
+
   // --- subagent lanes: parent-linked tool events nest under their Task lane ---
 
   const LANE_TURN = 'turn-lane'
@@ -940,14 +980,19 @@ test('AgentChatView', async () => {
   assert.ok(laneMarkup.includes('src/a.ts'), 'a live lane shows the steps running inside it')
   assert.equal(
     (laneMarkup.match(/aria-expanded="true"/g) ?? []).length,
-    3,
-    'the turn timeline and both live lanes mount expanded',
+    2,
+    'both live lanes mount expanded outside the settled work group',
   )
-  assert.ok(laneMarkup.includes('Working'), 'the turn header stays live while lanes run')
-  assert.equal((laneMarkup.match(/>running</g) ?? []).length, 4, 'running lanes and steps carry an accessible status')
+  assert.ok(laneMarkup.includes('aria-busy="true"'), 'the timeline stays live while lanes run')
+  assert.equal((laneMarkup.match(/>running</g) ?? []).length, 2, 'running steps carry an accessible status')
+  assert.equal(
+    (laneMarkup.match(/>Working · </g) ?? []).length,
+    2,
+    'a running lane says it is working in words, beside how long it has been',
+  )
 
-  // The same fan-out, finished: the turn counts every step including the ones
-  // that ran inside the lanes, and replayed lanes mount collapsed.
+  // The same fan-out, finished: the settled work folds behind one closed
+  // summary line, with no step count, and nothing inside it is on screen.
   const finishedFanOut = projectConversation([
     ...fanOutEvents,
     ev('tool_output', { turnId: LANE_TURN, toolCallId: 'b1', output: 'hits', parentToolUseId: 'lane-b' }),
@@ -962,8 +1007,9 @@ test('AgentChatView', async () => {
       live: false,
     }),
   )
-  assert.ok(doneLaneMarkup.includes('5 steps'), 'the turn header counts lane children as real steps')
-  assert.ok(doneLaneMarkup.includes('general-purpose agent'), 'a finished lane keeps its identity')
+  assert.ok(doneLaneMarkup.includes('Ran 2 agents'), 'the settled fan-out is summarised in one line')
+  assert.ok(!doneLaneMarkup.includes(' steps'), 'the summary does not count steps')
+  assert.ok(!doneLaneMarkup.includes('general-purpose agent'), 'settled lanes fold behind the closed summary')
   assert.ok(!doneLaneMarkup.includes('src/a.ts'), 'a finished lane replayed from history mounts collapsed')
   assert.ok(!doneLaneMarkup.includes('>running<'), 'nothing claims to be running once the fan-out is done')
 
@@ -1100,114 +1146,109 @@ test('AgentChatView', async () => {
   assert.ok(decisionsMarkup.includes('aria-expanded="false"'), 'a resolved batch mounts collapsed and is expandable')
   assert.ok(!decisionsMarkup.includes('src/a.ts'), 'the individual requests wait behind the expander')
 
-  // ── Tool-permission pill (1771) ──────────────────────────────────────────────
-  // The preset used to be start-time-only and the footer only ever said "Asks
-  // before tools". The pill has to name the preset actually in force, and say
-  // truthfully when a change bites.
-  assert.equal(permissionPresetLabel('manual'), 'Asks before tools')
-  assert.equal(permissionPresetLabel('auto'), 'Auto')
-  assert.equal(permissionPresetLabel('bypass'), 'Bypass permissions')
-  assert.equal(
-    permissionChangeScopeLabel(true),
-    'Applies from the next tool call.',
-    'a live session keeps its running turn; the new preset lands on the next tool',
-  )
-  assert.equal(
-    permissionChangeScopeLabel(false),
-    'Applies when the conversation starts.',
-    'with no session yet the preset is simply what the session will start on',
-  )
-
+  // ── Tool permissions ─────────────────────────────────────────────────────────
+  // A chat's preset is chosen on its engine picker's trailing row — the same
+  // footer control a terminal launch uses — not on a separate pill.
   // Which preset the pill reports (1809). The store used to be the only source,
   // so a session running on a different preset than the agent record rendered a
   // pill that misstated what the child would do on its next tool call.
-  const liveSession = (permissionPreset?: 'none' | 'manual' | 'auto' | 'bypass') =>
-    permissionPreset ? { permissionPreset } : {}
+  const liveSession = (permissionPreset?: 'none' | 'bypass') => (permissionPreset ? { permissionPreset } : {})
   assert.equal(
-    resolvePermissionPreset(liveSession('bypass'), 'manual'),
+    resolvePermissionPreset(liveSession('bypass'), 'none'),
     'bypass',
     'a live session running on Bypass is reported as Bypass, whatever the agent record says',
   )
   assert.equal(
-    resolvePermissionPreset(liveSession('manual'), 'bypass'),
-    'manual',
-    'the session wins in the safe direction too — the pill never overstates the child’s freedom',
+    resolvePermissionPreset(liveSession('none'), 'bypass'),
+    'none',
+    'the session wins in the other direction too — the pill never overstates the child’s freedom',
   )
   assert.equal(
-    resolvePermissionPreset(null, 'auto'),
-    'auto',
+    resolvePermissionPreset(null, 'none'),
+    'none',
     'with no session yet the agent record is what the next session will start on',
   )
   assert.equal(
-    resolvePermissionPreset(liveSession(), 'auto'),
-    'auto',
+    resolvePermissionPreset(liveSession(), 'none'),
+    'none',
     'a session that never recorded a preset falls through to the record, not past it',
   )
-  assert.equal(resolvePermissionPreset(null, undefined), 'manual', 'an agent record predating the field asks per tool')
+  assert.equal(
+    resolvePermissionPreset(null, undefined),
+    'auto',
+    'an agent record predating the field starts on the app’s spawn default',
+  )
 
-  const pillMarkup = (preset: 'none' | 'manual' | 'auto' | 'bypass'): string =>
+  const { PermissionFooter } = await import('../workspace/agentComposer/spawnFooter')
+  const { agentPermissionOptions } = await import('../workspace/agentComposer/agentSpawnShared')
+  const footerMarkup = (preset: 'none' | 'bypass' | 'auto', cli = 'claude-code', mode?: string): string =>
     renderToStaticMarkup(
-      createElement(PermissionPresetPill, {
+      createElement(PermissionFooter, {
+        options: agentPermissionOptions(bundledPermissionModes(cli)),
         preset,
-        live: true,
-        changing: false,
-        open: false,
-        onOpenChange: () => {},
-        onChange: () => {},
+        ...(mode ? { mode } : {}),
+        onSelect: () => {},
       }),
     )
 
-  const manualPill = pillMarkup('manual')
-  assert.ok(manualPill.includes('Asks before tools'), 'the pill names the current behavior at rest')
+  const defaultFooter = footerMarkup('none')
+  assert.ok(defaultFooter.includes('No flag'), 'the footer names the preset in force at rest')
   assert.ok(
-    // "menu", not "dialog", since remote-sessions-ux/selector-menus-premium:
-    // the surface is the spec's stacked menuitemradio rows now, and a popup of
-    // activatable items is announced as the menu it is.
-    manualPill.includes('aria-haspopup="menu"') && manualPill.includes('aria-expanded="false"'),
-    'the retired read-only chip is now a real disclosure control, announced as one',
+    defaultFooter.includes('aria-haspopup="menu"') && defaultFooter.includes('aria-expanded="false"'),
+    'it is a disclosure control over the preset rows, announced as one',
   )
-  assert.ok(!manualPill.includes('--tone-warn'), 'asking before tools is the quiet, unremarkable state')
+  assert.ok(!defaultFooter.includes('--tone-warn'), 'the CLI’s own default is the quiet, unremarkable state')
   assert.ok(
-    pillMarkup('bypass').includes('--tone-warn'),
-    'a conversation running without permission checks says so in the warn tone',
+    footerMarkup('bypass').includes('--tone-warn'),
+    'a chat running without permission checks says so in the warn tone',
+  )
+  assert.ok(footerMarkup('bypass', 'codex').includes('YOLO'), 'a Codex chat names bypass the way Codex does')
+  assert.ok(footerMarkup('auto', 'codex').includes('Auto-review'), 'and Auto, as Codex’s auto-review')
+  assert.ok(
+    footerMarkup('auto', 'claude-code', 'acceptEdits').includes('Accept edits'),
+    'a mode of the CLI’s own at a preset is named for itself, not for the preset',
   )
   assert.ok(
-    pillMarkup('auto').includes('Auto'),
-    'the middle preset is nameable too — the pill is never a two-state lie',
+    footerMarkup('auto', 'claude-code', 'workspace').includes('>Auto<'),
+    'a mode the CLI does not have reads as the preset’s own',
   )
 
   // The pill's rows (remote-sessions-ux / selector-menus-premium): roving
-  // tabIndex, one-line summaries, the Default chip on the CLI-default row, and
-  // the four glyphs drawn from AppIcons — not a paragraph per row and not a
-  // second lock drawing.
+  // tabIndex, one-line summaries, and the four glyphs drawn from AppIcons —
+  // not a paragraph per row (owner request 2026-09-30 for four presets).
   const { PermissionPresetMenuRows } = await import('../workspace/agentComposer/agentSpawnShared')
   const rowsMarkup = renderToStaticMarkup(
-    createElement(PermissionPresetMenuRows, { value: 'auto', onSelect: () => {} }),
+    createElement(PermissionPresetMenuRows, { value: 'bypass', onSelect: () => {} }),
   )
   assert.equal((rowsMarkup.match(/role="menuitemradio"/g) ?? []).length, 4, 'four preset rows')
   assert.equal((rowsMarkup.match(/tabindex="0"/g) ?? []).length, 1, 'exactly one tab stop: the checked row')
-  assert.ok(rowsMarkup.includes('No flag — the CLI decides.'), 'the CLI-default row carries a one-line summary')
-  assert.ok(!rowsMarkup.includes('Pro, Max and Team plans'), 'the paragraph stays in the tooltip, off the row')
   assert.ok(
-    rowsMarkup.includes('rounded-xs') && rowsMarkup.includes('>Default<'),
-    'the CLI-default row wears the shared Default chip',
+    rowsMarkup.indexOf('>Manual<') < rowsMarkup.indexOf('>Auto<') &&
+      rowsMarkup.indexOf('>Auto<') < rowsMarkup.indexOf('Bypass permissions') &&
+      rowsMarkup.indexOf('Bypass permissions') < rowsMarkup.indexOf('No flag'),
+    'strictest first, No flag last',
   )
-  const remoteRows = renderToStaticMarkup(
+  assert.ok(
+    rowsMarkup.includes('The CLI’s default — no permission flag is passed.'),
+    'the no-flag row carries a one-line summary',
+  )
+  assert.ok(!rowsMarkup.includes('That can mean asking'), 'the paragraph stays in the tooltip, off the row')
+  const unsupportedRows = renderToStaticMarkup(
     createElement(PermissionPresetMenuRows, {
-      value: 'auto',
+      value: 'none',
       onSelect: () => {},
-      disabledReasons: { none: 'Not available on a remote machine', bypass: 'Not available on a remote machine' },
+      disabledReasons: { bypass: 'This provider does not support this permission preset.' },
     }),
   )
   assert.equal(
-    (remoteRows.match(/ disabled=""/g) ?? []).length,
-    2,
-    'a remote target dims exactly the presets its gateway refuses',
+    (unsupportedRows.match(/ disabled=""/g) ?? []).length,
+    1,
+    'a provider dims exactly the preset it cannot run',
   )
   assert.equal(
-    (remoteRows.match(/Not available on a remote machine/g) ?? []).length,
-    2,
-    'each with its reason as the meta line',
+    (unsupportedRows.match(/does not support this permission preset/g) ?? []).length,
+    1,
+    'with its reason as the meta line',
   )
 
   // --- image attachments (D3/1774) -------------------------------------------
@@ -1462,10 +1503,10 @@ test('AgentChatView', async () => {
     ;(dom.window as unknown as Record<string, unknown>).api = priorApi
   }
 
-  // Attachments are live-only: the persisted user_message event carries text
-  // alone, so the bubble looks its images up from the local send that produced
-  // it. Without the localTurnId hand-off the thumbnails would blink out the
-  // instant the authoritative event replaced the optimistic entry.
+  // The persisted user_message event names its images by store reference, so
+  // while the local send is here the bubble keeps the images it staged. Without
+  // the localTurnId hand-off the thumbnails would blink out the instant the
+  // authoritative event replaced the optimistic entry.
   const IMG_TURN = 'turn-img'
   const withImages = projectConversation(
     [
@@ -1487,15 +1528,42 @@ test('AgentChatView', async () => {
     1,
     'the optimistic entry is still replaced, not duplicated',
   )
-  // A replayed transcript has no local send behind it, so it is text-only — the
-  // documented v1 scope, and it must not invent an empty attachments array.
+  // A replayed transcript has no local send behind it: a turn that recorded no
+  // images must not invent an empty attachments array, and one that did reads
+  // them back by reference.
   const replayed = projectConversation([
     ev('turn_started', { turnId: IMG_TURN }),
     ev('user_message', { turnId: IMG_TURN, text: 'what is this?', localTurnId: 'local-1' }),
   ])
   const replayedUser = replayed.entries.find((entry) => entry.kind === 'user')
   assert.ok(replayedUser && replayedUser.kind === 'user')
-  assert.equal(replayedUser.attachments, undefined, 'a replayed bubble carries no attachments')
+  assert.equal(replayedUser.attachments, undefined, 'a replayed bubble carries no live attachments')
+  assert.equal(replayedUser.storedAttachments, undefined, 'nor stored ones it never recorded')
+  const storedRef = {
+    id: 'img-1',
+    mediaType: 'image/png',
+    name: 'cat.png',
+    byteLength: 3,
+    ref: `${'a'.repeat(32)}/x.png`,
+  }
+  const recordedEvents = [
+    ev('turn_started', { turnId: IMG_TURN }),
+    ev('user_message', {
+      turnId: IMG_TURN,
+      text: 'what is this?',
+      localTurnId: 'local-1',
+      attachments: [storedRef, { id: 'broken' }],
+    }),
+  ]
+  const restored = projectConversation(recordedEvents).entries.find((entry) => entry.kind === 'user')
+  assert.ok(restored && restored.kind === 'user')
+  assert.deepEqual(restored.storedAttachments, [storedRef], 'a replayed bubble keeps its well-formed references')
+  const live = projectConversation(recordedEvents, [
+    { id: 'local-1', text: 'what is this?', attachments: staged },
+  ]).entries.find((entry) => entry.kind === 'user')
+  assert.ok(live && live.kind === 'user')
+  assert.deepEqual(live.attachments, staged, 'a live send still shows the images it has in memory')
+  assert.equal(live.storedAttachments, undefined, 'and does not read them back as well')
 
   // The spawn→session wiring lives inside store/window-bound code this DOM-less
   // test cannot mount, so it is pinned at the source. Both ends matter: a spawn
@@ -1512,7 +1580,12 @@ test('AgentChatView', async () => {
   assert.match(
     chatViewSource,
     /const permissionPreset = resolvePermissionPreset\(session, agent\?\.cliPermissionPreset\)/,
-    'the pill and the session start read one resolved preset, live session first',
+    'the live session supplies the exact requested preset',
+  )
+  assert.doesNotMatch(
+    chatViewSource,
+    /capabilities\.permissionPresets\[0\]/,
+    'unsupported manual approval cannot silently fall back to CLI-managed permissions',
   )
   assert.match(
     chatViewSource.slice(chatViewSource.indexOf('conversationSessionStart({')),
@@ -1525,15 +1598,22 @@ test('AgentChatView', async () => {
     'no start path in the chat view pins the preset to a literal',
   )
   assert.match(
-    workspaceManagerSource.slice(workspaceManagerSource.indexOf('conversationAgentRuntimePatch(providerId, modelId)')),
-    /^[\s\S]{0,600}?cliPermissionPreset: agentSpawnPermissionPreset,/,
-    'the conversation spawn stamps the composer’s picked preset like every CLI spawn',
+    workspaceManagerSource.slice(
+      workspaceManagerSource.indexOf('conversationAgentRuntimePatch(target.providerId, target.modelId)'),
+    ),
+    /^[\s\S]{0,600}?permissionPreset: resolveCliPermissionPreset\(confirm\.cli, agentSpawnPermissionPreset\),/,
+    'the chat spawn stamps the preset the picker showed for its CLI, like every CLI spawn',
   )
   // A refused change must never leave the pill claiming a preset the session is
   // not on: every failure branch of changePermissionPreset (bridge missing,
   // provider said no, threw) writes the old value back.
+  assert.match(
+    chatViewSource,
+    /const previous = \{ cliPermissionPreset: agent\?\.cliPermissionPreset, cliPermissionMode: agent\?\.cliPermissionMode \}/,
+    'the rollback holds the preset and the CLI’s own mode the record had',
+  )
   assert.equal(
-    (chatViewSource.match(/cliPermissionPreset: previous/g) ?? []).length,
+    (chatViewSource.match(/updateBinding\(previous\)/g) ?? []).length,
     3,
     'all three failure branches roll the optimistic write back',
   )
@@ -1560,25 +1640,53 @@ test('AgentChatView', async () => {
     'a recorded change is information; the error line stays for actual failures',
   )
 
+  // A message committed while the agent works waits in the queue, where it
+  // can be seen, sent now or taken back. Handing it to the running turn on
+  // Enter lost messages that turn never took in, so only "Send now" steers.
+  const submitSource = chatViewSource.slice(
+    chatViewSource.indexOf('const submitComposer = useCallback('),
+    chatViewSource.indexOf('const openComposerMenu = useCallback('),
+  )
+  assert.match(submitSource, /setQueuedTurn\(turn\)/, 'a busy submit queues the message')
+  assert.doesNotMatch(
+    submitSource,
+    /steerTurn\(|steerOnSend/,
+    'a busy submit never hands the message to the running turn',
+  )
+  assert.doesNotMatch(
+    chatViewSource,
+    /useEffect\(\(\) => \{\s*if \(queuedTurn === null[^}]*\}\s*if \(steer/,
+    'nothing steers a queued message without the person asking',
+  )
+
   // The composer's attach wiring is window/DOM-bound (FileReader, canvas, the
   // send IPC) and cannot be mounted here, so the ends that would silently drop a
   // staged image are pinned at the source.
   assert.match(
-    chatViewSource.slice(chatViewSource.indexOf('conversationSessionSendTurn({')),
+    chatViewSource.slice(chatViewSource.indexOf('transport.send({')),
     /^[\s\S]{0,400}?attachments: turnAttachments/,
     'the send IPC carries the staged attachments, not just the text',
   )
-  for (const handler of ['onPaste=', 'onDrop=', 'onDragOver=', 'type="file"']) {
+  for (const handler of ['onPaste=', 'onDrop:', 'onDragOver:', 'type="file"']) {
     assert.ok(chatViewSource.includes(handler), `the composer wires ${handler}`)
   }
-  assert.equal(
-    (chatViewSource.match(/imagesEnabled/g) ?? []).length >= 5,
-    true,
-    'every attach entry point (paste, drag, drop, picker) is gated on provider support',
+  assert.ok(
+    chatViewSource.includes('dropHandlers={fileDropHandlers}'),
+    'a file dropped anywhere on the chat lands in the composer, not only on the field',
   )
   assert.match(
-    chatViewSource.slice(chatViewSource.indexOf('mergeQueuedTurn(queuedTurn')),
-    /^[\s\S]{0,600}?dropped > 0\n/,
+    chatViewSource.slice(chatViewSource.indexOf("event.key === 'Backspace'")),
+    /selectionStart === 0[\s\S]*?selectionEnd === 0[\s\S]*?if \(attachments.length\) \{\s+event.preventDefault\(\)\s+setAttachments\(\(current\) => current.slice\(0, -1\)\)/,
+    'Backspace at the draft start removes the last staged image after other context chips',
+  )
+  assert.equal(
+    (chatViewSource.match(/imagesEnabled/g) ?? []).length >= 4,
+    true,
+    'every image attach entry point (paste, drop, picker) is gated on provider support',
+  )
+  assert.match(
+    chatViewSource.slice(chatViewSource.indexOf('queueComposerDraft(queuedTurn')),
+    /^[\s\S]{0,300}?setActionError\(queuedDropNotice\(dropped\)\)/,
     'a queue merge that hit the cap tells the user, instead of trimming in silence',
   )
 
@@ -1611,41 +1719,38 @@ test('AgentChatView', async () => {
     'the menu commits through the same submit path as Enter and the button',
   )
 
-  // The skill type-ahead's two doors: `/` opening an otherwise-empty draft, and
-  // `$` at the start of a word anywhere in it.
+  // Skills and files use the same caret-aware trigger detector. A selected
+  // range is removed without disturbing the remainder of the draft.
   assert.deepEqual(
-    chatSkillTrigger('/'),
-    { kind: 'slash', query: '', token: '/' },
+    detectComposerTrigger('/', 1),
+    { kind: 'slash', query: '', range: { start: 0, end: 1 } },
     'a bare slash opens the list unfiltered',
   )
-  assert.deepEqual(chatSkillTrigger('/back'), { kind: 'slash', query: 'back', token: '/back' })
-  assert.equal(chatSkillTrigger('/backlog triage'), null, 'a space commits the slash text as literal')
-  assert.equal(chatSkillTrigger('run /backlog'), null, 'a slash mid-draft is not a trigger')
   assert.deepEqual(
-    chatSkillTrigger('$'),
-    { kind: 'mention', query: '', token: '$' },
+    detectComposerTrigger('$', 1),
+    { kind: 'skill', query: '', range: { start: 0, end: 1 } },
     'a bare dollar opens the list unfiltered',
   )
   assert.deepEqual(
-    chatSkillTrigger('please run $back'),
-    { kind: 'mention', query: 'back', token: '$back' },
-    'a dollar starting a word anywhere in the draft is a mention, and the token is what a pick replaces',
+    detectComposerTrigger('please run $back', 16),
+    { kind: 'skill', query: 'back', range: { start: 11, end: 16 } },
+    'a dollar starting a word attaches a skill',
   )
-  assert.equal(chatSkillTrigger('costs US$40'), null, 'a dollar inside a word is money, not a mention')
-  assert.equal(chatSkillTrigger('please run $backlog on it'), null, 'a space ends the mention token')
-  assert.equal(chatSkillTrigger('hello'), null)
-  assert.equal(chatSkillTrigger(''), null)
+  assert.equal(detectComposerTrigger('costs US$40', 11), null, 'a dollar inside a word is money, not a mention')
+  assert.equal(detectComposerTrigger('please run $backlog on it', 24), null, 'a space ends the mention token')
+  assert.equal(detectComposerTrigger('hello', 5), null)
+  assert.equal(detectComposerTrigger('', 0), null)
 
   // The type-ahead is mounted inside the composer box, whose top edge anchors it,
   // and the same handler answers the shell's light dismiss and the field's Escape.
   assert.match(
-    chatViewSource.slice(chatViewSource.indexOf('{skillTrigger ? (')),
+    chatViewSource.slice(chatViewSource.indexOf('{contextPicker.picker}')),
     /^[\s\S]{0,900}?<ComposerAttachmentStrip/,
     'the skill type-ahead sits inside the composer box, ahead of the attachment strip',
   )
   assert.ok(
-    chatViewSource.includes('onDismiss={dismissSkillTrigger}'),
-    'a click outside the list dismisses the trigger',
+    chatViewSource.includes('contextPicker.handleKeyDown(event)'),
+    'the textarea forwards navigation and dismissal to the shared picker',
   )
 
   console.log('AgentChatView.test.ts: ok')
@@ -1667,6 +1772,7 @@ test('AgentChatView', async () => {
       providerType: 'model-provider',
       models: [],
       supportsDynamicModels: false,
+      credentialSource: 'api-key',
       adapter: { kind: 'declarative', execution: 'declarative', trust: 'not_required' },
       ...overrides,
     }
@@ -1676,6 +1782,7 @@ test('AgentChatView', async () => {
     id: 'claude-agent',
     displayName: 'Claude Code',
     providerType: 'agent-harness',
+    credentialSource: 'native',
     models: [{ id: 'opus', displayName: 'Opus' }],
   })
   const OPENROUTER = providerEntry({
@@ -1686,17 +1793,21 @@ test('AgentChatView', async () => {
   })
   const XAI = providerEntry({ id: 'xai', displayName: 'xAI', supportsDynamicModels: true, models: [] })
 
-  // The subscription provider sorts first so the user's own plan is never buried
-  // under metered lookalikes, and it is annotated as the subscription.
+  // Native credentials sort first so the user's existing CLI configuration is
+  // never silently displaced by app-managed API keys.
   {
     const groups = buildModelGroups([OPENROUTER, HARNESS, XAI], {}, {})
     assert.deepEqual(
       groups.map((group) => group.providerId),
       ['claude-agent', 'openrouter', 'xai'],
-      'the agent-harness (subscription) group sorts ahead of metered providers',
+      'the native-credentials group sorts ahead of app-managed API providers',
     )
-    assert.equal(groups[0]?.subscription, true)
-    assert.equal(groups[1]?.subscription, undefined, 'a metered provider is not annotated as a subscription')
+    assert.equal(groups[0]?.credentialSource, 'native')
+    assert.equal(
+      groups[1]?.credentialSource,
+      'api-key',
+      'app-managed API credentials remain distinct from native login',
+    )
   }
 
   // The headline 1772 case: a key-configured provider that is NOT the active one.
@@ -1736,6 +1847,17 @@ test('AgentChatView', async () => {
 
   // A static provider's seed IS its full catalog — key state must never blank it.
   {
+    const native = providerEntry({
+      id: 'native',
+      credentialSource: 'native',
+      supportsDynamicModels: true,
+      models: [{ id: 'native-model' }],
+    })
+    const local = providerEntry({ id: 'local', credentialSource: 'none', supportsDynamicModels: true })
+    assert.deepEqual(buildModelGroups([native], {}, { native: false })[0].models, native.models)
+    assert.equal(buildModelGroups([local], {}, { local: false })[0].emptyState, 'no-models')
+  }
+  {
     const staticProvider = providerEntry({ id: 'static', models: [{ id: 'only-model' }] })
     const groups = buildModelGroups([staticProvider], {}, { static: false })
     assert.deepEqual(
@@ -1760,79 +1882,6 @@ test('AgentChatView', async () => {
       'the live catalog replaces the seed',
     )
     assert.equal(groups[1]?.emptyState, 'no-models', 'the other provider keeps its own (empty) state')
-  }
-
-  // --- picker filtering: browsing keeps empty groups, search never hides a hit --
-  {
-    // openrouter: key state not fetched yet, so its seed is listed; xai: key
-    // configured but catalog empty, so it is a listed group with no models — the
-    // exact group the old filter used to drop.
-    const groups = buildModelGroups([HARNESS, OPENROUTER, XAI], {}, { xai: true })
-
-    // Browsing with no query: every group survives, empty states included.
-    assert.deepEqual(
-      filterModelGroups(groups, '', 'all').map((group) => group.providerId),
-      ['claude-agent', 'openrouter', 'xai'],
-      'a zero-model key-configured group is still listed while browsing',
-    )
-    // The chip narrows to one provider — including one with no models to show.
-    assert.deepEqual(
-      filterModelGroups(groups, '', 'xai').map((group) => group.providerId),
-      ['xai'],
-      'the provider chip reaches a group that has only an empty state',
-    )
-    // A query searches across providers, so the chip cannot hide a hit.
-    assert.deepEqual(
-      filterModelGroups(groups, 'seed-a', 'claude-agent').map((group) => group.providerId),
-      ['openrouter'],
-      'search looks past the active chip',
-    )
-    assert.deepEqual(
-      filterModelGroups(groups, 'seed-a', 'claude-agent')[0]?.models.map((model) => model.id),
-      ['seed-a'],
-      'a model-name query narrows the group to the matching models',
-    )
-    // Matching the provider name keeps the whole group, models unfiltered — this
-    // is what stops "claude" from hiding the subscription behind metered clones.
-    assert.deepEqual(
-      filterModelGroups(groups, 'claude', 'all').map((group) => group.providerId),
-      ['claude-agent'],
-      'a provider-name query keeps that provider group',
-    )
-    assert.deepEqual(
-      filterModelGroups(groups, 'claude', 'all')[0]?.models.map((model) => model.id),
-      ['opus'],
-    )
-    // A query that matches nothing drops the groups rather than listing empties.
-    assert.deepEqual(filterModelGroups(groups, 'nothing-matches-this', 'all'), [])
-  }
-
-  // The model picker's provider headers are the menu spec's GROUP LABEL — never
-  // bolder than the rows they head (remote-sessions-ux / selector-menus-premium;
-  // the reasoning selector is the conforming reference). A source pin, in this
-  // repo's literal-reading style: the header line consumes the shared class and
-  // carries no weight of its own, so a font-semibold regression cannot pass.
-  {
-    // From the repo root (how every source-reading suite here runs), not from
-    // import.meta.url — the bundle lives in node_modules/.cache.
-    const source = readFileSync('src/renderer/src/components/panels/agentChat/modelPicker.tsx', 'utf8')
-    const headerLine = source.split('\n').find((line) => line.includes('{group.providerLabel}'))
-    assert.ok(headerLine, 'the provider header still renders providerLabel')
-    const mapStart = source.indexOf('filtered.map((group)')
-    assert.ok(mapStart !== -1, 'the provider group map still exists')
-    // The FIRST providerLabel after the map is the header line (an earlier
-    // occurrence lives in the filter menu's label template).
-    const headerAt = source.indexOf('{group.providerLabel}', mapStart)
-    assert.ok(headerAt !== -1, 'the header renders providerLabel inside the map')
-    const headerRegion = source.slice(mapStart, headerAt)
-    assert.ok(
-      headerRegion.includes('MENU_GROUP_LABEL_CLASS'),
-      'the provider header row consumes MENU_GROUP_LABEL_CLASS',
-    )
-    assert.ok(
-      !headerRegion.includes('font-semibold'),
-      'the provider header carries no weight of its own — group labels never out-weigh their rows',
-    )
   }
 
   // ⌘⇧M / the palette's "Toggle Model Picker" answer with ONE view: the focused
@@ -1872,5 +1921,45 @@ test('AgentChatView', async () => {
     void offActiveNewer
   }
 
+  // The previous/next-turn shortcuts reach one view through the same responder.
+  {
+    const steps: number[] = []
+    const off = registerMountedChatView({
+      workspaceId: 'ws-active',
+      isFocused: () => true,
+      toggleModelPicker: () => undefined,
+      stepTurn: (direction) => steps.push(direction),
+    })
+    dispatchPanelCommandEvent('chat.turn.previous')
+    dispatchPanelCommandEvent('chat.turn.next')
+    assert.deepEqual(steps, [-1, 1], 'each chord steps the responding view once, in its direction')
+    off()
+  }
+
   console.log('AgentChatView.test.ts (model picker 1772): ok')
+})
+
+test('a draft folded into the queue keeps the queued message first and every attached context', () => {
+  const image = (id: string): ConversationImageAttachment => ({
+    id,
+    mediaType: 'image/png',
+    dataBase64: 'Zm9v',
+    byteLength: 3,
+  })
+  const first = queueComposerDraft(null, 'check the logs', [image('a')], { skillIds: ['review'], mentions: [] })
+  assert.deepEqual(first, {
+    turn: { text: 'check the logs', attachments: [image('a')], metadata: { skillIds: ['review'], mentions: [] } },
+    dropped: 0,
+  })
+  const mention = { kind: 'file' as const, path: 'src/app.ts' }
+  const second = queueComposerDraft(first.turn, 'then fix it', [image('b')], {
+    skillIds: ['review', 'tests'],
+    mentions: [mention],
+  })
+  assert.equal(second.turn.text, 'check the logs\nthen fix it')
+  assert.deepEqual(
+    second.turn.attachments.map((entry) => entry.id),
+    ['a', 'b'],
+  )
+  assert.deepEqual(second.turn.metadata, { skillIds: ['review', 'tests'], mentions: [mention] })
 })

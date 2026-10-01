@@ -33,7 +33,7 @@ a dependency and lazy-loaded. Nothing of the editor is reimplemented.
   package name is a technical identifier and may be named where the code needs
   it. Do not name any other whiteboard product or community project anywhere.
 - No real identities in fixtures (`/Users/dev/...`, `acme`, `dev@example.com`).
-- `npm run lint` (five design-system lints) and the bundle budget are gates.
+- `npm run lint` (five design-system lints) is a gate.
   Chrome written by us uses `components/ui` primitives and `--sem-*`/shell tokens
   only. No raw `<button>`/`<input>`, no hex literals, no `rounded-2xl`.
 - Tests are Vitest files asserting with `node:assert/strict`, colocated
@@ -438,7 +438,18 @@ The error, loading and not-yet-sized states fill the body with the kit
 
 ### 3.6 Build
 
-- `@excalidraw/excalidraw@0.18.1`; `overrides.mermaid: "~11.13.0"`.
+- `@excalidraw/excalidraw@0.18.1`; `overrides.mermaid: "~11.13.0"`. The pin
+  is load-bearing: from 11.14 Mermaid renders its SVG with element ids the
+  importer no longer finds, and every flowchart, class, ER and state definition
+  falls back to a single picture instead of shapes (sequence diagrams still
+  convert). Move it only together with an importer release that reads the new
+  ids, and check a flowchart import turns into shapes, not an image. It is
+  also why `npm audit` keeps reporting the Mermaid advisories fixed in 11.16.1:
+  there is no patched 11.13.
+- The other `overrides` entries under the two editor packages resolve pins
+  they carry to patched or React 19 releases — `nanoid`, the unused
+  `@mermaid-js/parser` 0.6 declaration, `@radix-ui/react-tabs` — and are safe
+  to drop once the editor ships with those versions itself.
 - `@excalidraw/mermaid-to-excalidraw@2.2.2` as a DIRECT dependency, at the
   version the editor package pins: the worker imports it by name, and a
   transitive dependency is not a contract.
@@ -448,15 +459,10 @@ The error, loading and not-yet-sized states fill the body with the kit
   without the CJK family. `window.EXCALIDRAW_ASSET_PATH` is an absolute URL set
   before the editor chunk evaluates; `window.EXCALIDRAW_EXPORT_SOURCE =
 'sprintengine-studio'`.
-- `scripts/check-bundle-budget.mjs`: forbid the editor's signature in the eager
-  chunk. The ceiling is not raised. The script no longer guesses the eager chunk
-  by filename — a third HTML entry made Rollup hoist ~227 KB of React into a
-  chunk `index.html` modulepreloads, and produced LAZY chunks also called
-  `index-*.js` (the Mermaid importer, ~1 MB). It now sums the entry script and
-  every `modulepreload` `index.html` actually lists, applies the same 2160 KB
-  ceiling to that sum, and runs the forbidden-signature scan over all of them:
-  1841 KB on this tree (1613 + 227). `scripts/measure-startup.mjs` reads the
-  same document, for the same reason.
+- The editor is reached only through the `React.lazy` in `CanvasTab.tsx`, so it
+  stays off the boot path until a board is opened. The build has no size gate;
+  `scripts/measure-startup.mjs` reports the boot cost from wall-clock numbers
+  when a change needs one.
 
 ### 3.7 Skill
 
@@ -510,7 +516,7 @@ project's working tree unless the person puts it there.
 
 | #   | Package                      | Owns                                                                                                                                                                                             | Depends on |
 | --- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- |
-| A   | Build foundation             | `package.json`, lockfile, `tsconfig.web.json`, `electron.vite.config.ts`, fonts step, asset-path bootstrap, bundle-budget signature                                                              | none       |
+| A   | Build foundation             | `package.json`, lockfile, `tsconfig.web.json`, `electron.vite.config.ts`, fonts step, asset-path bootstrap                                                                                       | none       |
 | B   | Shared contract + pure logic | `src/shared/canvas/**` with tests, `ElectronApi` additions, `src/main/canvas/canvas-service-types.ts`                                                                                            | none       |
 | C   | Main service                 | `src/main/canvas/**` (except the types file), `src/main/ipc/canvas-ipc.ts`, `src/preload/api/canvas.ts`, preload index, `register-core-ipc.ts`, `app-services.ts` wiring, worker window creation | A, B       |
 | D   | Pane tab                     | everything in 3.5 except the worker app                                                                                                                                                          | A, B       |
@@ -524,8 +530,7 @@ tests and `npm run typecheck`, and report what was verified and what was not.
 
 ## 5. Acceptance
 
-1. `npm run verify:app` and `npm run build` are green; the eager chunk stays
-   under the existing ceiling.
+1. `npm run verify:app` and `npm run build` are green.
 2. A person can open a Canvas tab, draw, close the app, reopen and find the
    drawing; the file in the app's board store is valid and opens in the
    stock editor, and an export of it into the repository is the same file.

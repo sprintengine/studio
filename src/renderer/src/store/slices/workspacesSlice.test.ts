@@ -55,7 +55,7 @@ test('workspacesSlice', async () => {
   }
   assert.equal(normalizeWorkspaceMode(legacyPersistedWorkspace.mode), 'future-plugin-mode')
   assert.equal(normalizeWorkspaceMode('  future-plugin-mode  '), '  future-plugin-mode  ')
-  assert.equal(normalizeWorkspaceMode('automations-host'), 'automations-host')
+  assert.equal(normalizeWorkspaceMode('weather-deck'), 'weather-deck')
   assert.equal(normalizeWorkspaceMode(''), 'standard')
   assert.equal(normalizeWorkspaceMode('   '), 'standard')
   assert.equal(normalizeWorkspaceMode(null), 'standard')
@@ -420,40 +420,6 @@ test('workspacesSlice', async () => {
     false,
   )
 
-  // The Automations host is one-per-project: a
-  // second create for the same folder (door or automation executor) reuses
-  // the existing host instead of minting a duplicate.
-  const firstHostId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
-    name: 'Automations',
-    folderPath: '/Users/example/automations',
-    mode: 'automations-host',
-  })
-  useWorkspaceStore.getState().setFolderMissing(firstHostId, true)
-  const reusedHostId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
-    name: 'Nightly reviewer',
-    folderPath: '/Users/example/automations/',
-    mode: 'automations-host',
-  })
-  state = useWorkspaceStore.getState()
-  assert.equal(reusedHostId, firstHostId, 'a same-folder automations-host create reuses the existing host')
-  assert.equal(state.workspaces.filter((workspace) => workspace.mode === 'automations-host').length, 1)
-  assert.equal(state.workspaces.find((workspace) => workspace.id === firstHostId)?.folderMissing, false)
-  assert.equal(
-    state.workspaces.find((workspace) => workspace.id === firstHostId)?.name,
-    'Automations',
-    "reuse keeps the existing host untouched — the second create's name never rebrands it",
-  )
-  assert.equal(state.activeWorkspaceId, firstHostId)
-  // A different folder still gets its own host.
-  const secondFolderHostId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
-    name: 'Automations',
-    folderPath: '/Users/example/other-project',
-    mode: 'automations-host',
-  })
-  assert.notEqual(secondFolderHostId, firstHostId)
-  useWorkspaceStore.getState().removeWorkspace(firstHostId)
-  useWorkspaceStore.getState().removeWorkspace(secondFolderHostId)
-
   // A second workspace in the same folder inserts directly above the first
   // (top of that folder's block), not at the global head and not at the tail.
   const blockFolder = '/Users/example/insert-order'
@@ -618,6 +584,7 @@ test('workspacesSlice', async () => {
     folderPath: '/repo/a',
     createdAt: 4000,
     isCurrentWindowTarget: false,
+    activate: true,
   })
   state = useWorkspaceStore.getState()
   assert.deepEqual(
@@ -647,6 +614,7 @@ test('workspacesSlice', async () => {
     folderPath: '/repo/a',
     createdAt: 4100,
     isCurrentWindowTarget: true,
+    activate: true,
   })
   state = useWorkspaceStore.getState()
   assert.equal(
@@ -668,6 +636,7 @@ test('workspacesSlice', async () => {
     folderPath: '/repo/.sprintengine-worktrees/b/chat-a1b2',
     createdAt: 4200,
     isCurrentWindowTarget: true,
+    activate: true,
   })
   state = useWorkspaceStore.getState()
   assert.deepEqual(
@@ -676,6 +645,22 @@ test('workspacesSlice', async () => {
     'a created worktree chat inserts at the head of the project it was cut from',
   )
 
+  // A scheduled run's chat is created in the background: it joins this
+  // window's list without taking the window from what the person is looking at.
+  useWorkspaceStore.getState().applyWorkspaceCreatedEvent({
+    workspace: driftWorkspace('repo-a-run', '/repo/a'),
+    windowId: 'primary',
+    folderPath: '/repo/a',
+    createdAt: 4300,
+    isCurrentWindowTarget: true,
+    activate: false,
+  })
+  state = useWorkspaceStore.getState()
+  const primaryAfterRun = state.workspaceWindows.find((windowState) => windowState.id === 'primary')
+  assert.ok(primaryAfterRun?.workspaceIds.includes('repo-a-run'), 'a background creation joins the window')
+  assert.equal(primaryAfterRun?.activeWorkspaceId, 'repo-b-worktree', 'the window keeps showing what it showed')
+  assert.equal(state.activeWorkspaceId, 'repo-b-worktree', 'the global active does not move to a background creation')
+
   // --- Open-in-new-chat seeding (addWorkspace `seedAgent`) ---------------------
 
   type SeededTab = { component?: unknown; name?: unknown; config?: Record<string, unknown> }
@@ -683,7 +668,7 @@ test('workspacesSlice', async () => {
     let found: SeededTab | undefined
     const visit = (node: { component?: unknown; children?: unknown[] } | undefined) => {
       if (!node || found) return
-      if (node.component === 'agent' || node.component === 'terminal' || node.component === 'fleet-terminal') {
+      if (node.component === 'agent' || node.component === 'terminal' || node.component === 'mesh-conversation') {
         found = node as SeededTab
         return
       }
@@ -769,39 +754,52 @@ test('workspacesSlice', async () => {
   assert.equal(firstTab({ layoutModel: swapped } as never)?.component, 'terminal')
   assert.equal(firstTab({ layoutModel: seedSource } as never)?.component, 'agent')
 
-  // The fleet seed (remote-sessions-ux / new-chat-on-a-remote-machine): the lone
-  // agent tab becomes a fleet-terminal pane onto a session on another machine —
-  // no local agent, the addFleetTerminalTab id convention so a later open
-  // focuses this pane instead of attaching twice.
+  // The remote conversation seed (remote-sessions-ux / new-chat-on-a-remote-machine):
+  // the lone agent tab becomes a chat pane onto a conversation on another
+  // machine — no local agent, and an id keyed on the remote workspace and agent
+  // so a later open focuses this pane instead of opening a second one.
   const remote = applySoloChatSeed(seedSource, {
     tabName: 'Air · Rook',
-    fleet: { connectionId: 'conn-1', machineName: 'Air', remoteSessionId: 'session two' },
+    meshConversation: {
+      connectionId: 'conn-1',
+      machineName: 'Air',
+      remoteWorkspaceId: 'ws two',
+      remoteAgentId: 'agent-2',
+      title: 'Rook',
+    },
   })
   const remoteTab = firstTab({ layoutModel: remote } as never) as
     { component?: string; id?: string; name?: string; config?: Record<string, unknown> } | undefined
-  assert.equal(remoteTab?.component, 'fleet-terminal')
-  assert.equal(remoteTab?.id, 'fleet-terminal:conn-1:session%20two')
+  assert.equal(remoteTab?.component, 'mesh-conversation')
+  assert.equal(remoteTab?.id, 'mesh-conversation:conn-1:ws%20two:agent-2')
   assert.equal(remoteTab?.name, 'Air · Rook')
-  assert.deepEqual(remoteTab?.config, { connectionId: 'conn-1', machineName: 'Air', remoteSessionId: 'session two' })
+  assert.deepEqual(remoteTab?.config, {
+    connectionId: 'conn-1',
+    machineName: 'Air',
+    remoteWorkspaceId: 'ws two',
+    remoteAgentId: 'agent-2',
+    remoteSessionId: 'conversation:ws two:agent-2',
+    title: 'Rook',
+  })
   assert.equal(
     firstTab({ layoutModel: seedSource } as never)?.component,
     'agent',
     'the source template is never mutated',
   )
 
-  // --- Explicit automations-host mode (T2) ------------------------------------
-  // An explicit non-standard `mode` is honored at creation so the automations
-  // executor can create the hidden background host.
-  const automationsHostId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
-    name: 'Automations Host',
+  // --- Explicit module-registered mode ----------------------------------------
+  // An explicit non-standard `mode` is honored at creation: it is the identity
+  // every mode-derived surface keys on.
+  const moduleTypeId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+    name: 'Weather deck',
     folderPath: '/Users/example/project',
-    mode: 'automations-host',
+    mode: 'weather-deck',
   })
   state = useWorkspaceStore.getState()
   assert.equal(
-    state.workspaces.find((workspace) => workspace.id === automationsHostId)?.mode,
-    'automations-host',
-    'an explicit automations-host mode wins over standard-derivation',
+    state.workspaces.find((workspace) => workspace.id === moduleTypeId)?.mode,
+    'weather-deck',
+    'an explicit module mode wins over standard-derivation',
   )
 
   // Omitting mode behaves exactly as today: standard-derivation is unchanged.
@@ -922,47 +920,18 @@ test('workspacesSlice', async () => {
     null,
     'addWorkspace clears the active surface (new-workspace path)',
   )
-  useWorkspaceStore.getState().openGlobalSurface('roadmap')
-  const hostReuseId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
-    folderPath: '/Users/example/door-chat',
-    mode: 'automations-host',
-  })
-  useWorkspaceStore.getState().openGlobalSurface('roadmap')
-  assert.equal(
-    useWorkspaceStore.getState().addWorkspace(standardTemplate, {
-      folderPath: '/Users/example/door-chat',
-      mode: 'automations-host',
-    }),
-    hostReuseId,
-    'a second host add for the folder reuses the existing workspace',
-  )
-  assert.equal(
-    useWorkspaceStore.getState().activeGlobalSurface,
-    null,
-    'addWorkspace clears the active surface (host reuse early-return)',
-  )
-  // A BACKGROUND create (the automation executor's hidden host) must leave an
+  // A BACKGROUND create (one made by code rather than a person) must leave an
   // open door alone — only operator-initiated creation dismisses the surface.
   useWorkspaceStore.getState().openGlobalSurface('roadmap')
   useWorkspaceStore.getState().addWorkspace(standardTemplate, {
-    name: 'Executor-created host',
-    folderPath: '/Users/example/executor-host',
+    name: 'Background create',
+    folderPath: '/Users/example/background',
     background: true,
   })
   assert.equal(
     useWorkspaceStore.getState().activeGlobalSurface,
     'roadmap',
     'a background create leaves the door the operator is reading untouched',
-  )
-  useWorkspaceStore.getState().addWorkspace(standardTemplate, {
-    folderPath: '/Users/example/door-chat',
-    mode: 'automations-host',
-    background: true,
-  })
-  assert.equal(
-    useWorkspaceStore.getState().activeGlobalSurface,
-    'roadmap',
-    'a background reuse early-return leaves it untouched as well',
   )
   useWorkspaceStore.getState().closeGlobalSurface()
 

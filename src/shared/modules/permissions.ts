@@ -27,13 +27,14 @@
 //   studio: `workspaceSyncDispatch`, filesystem mutation routes (`writefile`,
 //   create/rename/copy/delete), git mutations (stage/commit/push/branch/
 //   worktrees), backlog mutations, workspace backup writes.
-// - `ipc:agents` — launching and controlling agents and terminals:
-//   `terminalSpawn`/`terminalWrite`/`terminalKill` and terminal event streams,
-//   conversation provider sessions.
 // - `ipc:settings` — reading and changing studio settings and integrations:
 //   module enablement, third-party module install/trust, MCP catalog/sync,
 //   skill packs, the plugin registry, GitHub token, app
 //   updates, mobile bridge settings, voice transcription settings.
+//
+// Agents have no `ipc:*` tier: a module reaches them through its own chats
+// (`conversation:read` / `conversation:operate`) and companions
+// (`agents:companion`), never through the app's terminal APIs.
 //
 // Surfaces outside every tier (window controls, dialogs, clipboard, auth/
 // session, external-URL opening) are disclosed today only by the legacy broad
@@ -56,7 +57,6 @@ export type CapabilityPermission =
   | 'network'
   | 'ipc:workspace-read'
   | 'ipc:workspace-write'
-  | 'ipc:agents'
   | 'ipc:settings'
   | 'ipc:invoke'
   // Backlog-focused disclosure scopes. Finer-grained than the broad
@@ -65,23 +65,37 @@ export type CapabilityPermission =
   | 'backlog.read'
   | 'backlog.write'
   | 'backlog.link.open'
-  // Create and manage the module's own automations through the SDK's scoped
-  // Automations service. Disclosure-level like every other scope: the service
-  // does not runtime-check it.
-  | 'automations.manage'
+  // Create and manage the module's own scheduled agents through the SDK's
+  // scoped service. Disclosure-level like every other scope: the service does
+  // not runtime-check it.
+  | 'scheduled-agents.manage'
   // Attach workspace-bound background (companion) agents through the SDK's
   // Companion Agents service. Unlike the disclosure-only scopes above, the
   // companion service DOES check this one explicitly at attach time (there is no
   // shared runtime gate to inherit), so a module must declare it to attach.
   | 'agents:companion'
-  // Launch, prompt and stop the module's OWN agent terminals through the SDK's
-  // scoped agent-sessions service. Runtime-checked like `agents:companion`, and
-  // scoped further by agent-id namespace: a module reaches the sessions it
-  // started and named, never another module's and never the user's.
-  | 'agents:session'
   // Persist the module's own data through the SDK's scoped storage service
   // (host-placed: workspace sidecar `modules/<id>/` or per-user app data).
   | 'storage'
+  // Read the conversations the module started through the SDK's scoped
+  // conversation service: their live events, transcripts and list.
+  | 'conversation:read'
+  // Start, prompt, interrupt and stop the module's own conversations, and open
+  // a chat in the renderer (`RendererHost.openChat`). Implies read.
+  | 'conversation:operate'
+  // Run those conversations on `bypass`, where the agent asks before nothing.
+  // Without it a module's chats go no looser than `auto`, whatever it asks
+  // for; checked on every create and every preset switch.
+  | 'conversation:bypass'
+  // Store secrets the host sends only to origins the module named with them,
+  // never handing the value back to module code.
+  | 'secrets'
+  // Call the GitHub API with the user's sign-in; the host attaches the token
+  // and never hands it over.
+  | 'github'
+  // Contribute tools to the Studio MCP gateway (`MainHost.registerMcpTools`),
+  // which agents in any workspace can then call.
+  | 'mcp:tools'
   // Extensible: unknown scopes validate structurally but are flagged as unknown
   // so the consent UI can warn rather than silently grant something opaque.
   | (string & {})
@@ -94,16 +108,20 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'network',
   'ipc:workspace-read',
   'ipc:workspace-write',
-  'ipc:agents',
   'ipc:settings',
   'ipc:invoke',
   'backlog.read',
   'backlog.write',
   'backlog.link.open',
-  'automations.manage',
+  'scheduled-agents.manage',
   'agents:companion',
-  'agents:session',
   'storage',
+  'conversation:read',
+  'conversation:operate',
+  'conversation:bypass',
+  'secrets',
+  'github',
+  'mcp:tools',
 ]
 
 // Plain, sentence-case descriptions for the install/trust consent prompt.
@@ -117,16 +135,20 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   network: 'Make network requests',
   'ipc:workspace-read': "See workspace, window, git, and task state through the app's APIs",
   'ipc:workspace-write': "Create and change workspaces, files, and tasks through the app's APIs",
-  'ipc:agents': 'Launch and control agents and terminals',
   'ipc:settings': 'Read and change app settings and integrations',
   'ipc:invoke': "Call any of the app's internal APIs, including its own background code (broad scope)",
   'backlog.read': 'Read Backlog item details and source content',
   'backlog.write': 'Change Backlog item status, links, and metadata',
   'backlog.link.open': 'Open links and targets attached to Backlog items',
-  'automations.manage': 'Create and manage its own scheduled automations',
+  'scheduled-agents.manage': 'Schedule agents of its own that start a chat on a timer',
   'agents:companion': 'Run its own background agents inside the workspace',
-  'agents:session': 'Launch, prompt and stop its own agent terminals',
   storage: 'Save its own data in the workspace folder and app data',
+  'conversation:read': 'Read the chats it started, including everything the agent says in them',
+  'conversation:operate': 'Start chats with agents, send them messages, and stop them',
+  'conversation:bypass': 'Let the agents in its chats edit files and run commands without asking you first',
+  secrets: 'Store API keys and send them to the sites it names (the key is never shown back to the extension)',
+  github: 'Use your GitHub sign-in to call the GitHub API (the token is never shown to the extension)',
+  'mcp:tools': 'Add tools that agents in your workspaces can call',
 }
 
 export function isKnownCapabilityPermission(value: string): boolean {

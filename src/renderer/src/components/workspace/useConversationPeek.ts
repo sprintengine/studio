@@ -7,7 +7,7 @@ import type { ConversationPeek } from '../../../../shared/conversation-peek'
 // timings and one answer, and so neither shell reimplements the dwell.
 //
 // The main-process half owns everything about WHAT the answer is — which
-// runtimes have a transcript, what a `live` peek accumulated, how a message is
+// runtimes report prompts, which prompts were captured, how a message is
 // capped. This side asks once per open and renders exactly what came back.
 
 /**
@@ -27,14 +27,13 @@ const PEEK_DWELL_MS = 220
 const PEEK_CLOSE_GRACE_MS = 140
 
 /**
- * The two calls the preload exposes for this feature, typed here as optional.
- * They may be absent — an older main, a window that never got them — and every
+ * The call the preload exposes for this feature, typed here as optional.
+ * It may be absent — an older main, a window that never got them — and every
  * consumer treats absence as "the card says it cannot read the conversation"
  * rather than as an error, exactly the way the clipboard bridge is guarded.
  */
 type ConversationPeekApi = {
   readConversationPeek?: (sessionId: string) => Promise<ConversationPeek>
-  openConversationPeekAttachment?: (sessionId: string, attachmentId: string) => Promise<void>
 }
 
 function peekApi(): ConversationPeekApi {
@@ -74,8 +73,6 @@ export type ConversationPeekHover = {
   closeNow: () => void
   /** Pointer is resting on the card: cancel the pending close. */
   keepOpen: () => void
-  /** Open an attachment, or undefined when the preload has no opener. */
-  openAttachment: ((attachmentId: string) => void) | undefined
 }
 
 /**
@@ -89,13 +86,13 @@ export type ConversationPeekHover = {
  * exceptional: a sidebar row lists a chat's agents as sub-lines, and moving the
  * pointer from one to the next moves the card to that agent (one card per
  * agent, 2026-09-09). Which is why the answers below are keyed by session and
- * not cleared when it changes — sweeping back up the lines must not re-stream a
- * transcript that was read a moment ago.
+ * not cleared when it changes — sweeping back up the lines must not re-ask for
+ * an answer that arrived a moment ago.
  */
 export function useConversationPeek(sessionId: string | null): ConversationPeekHover {
   const [open, setOpen] = useState(false)
   // Answers keyed by session, so switching back to an agent already viewed is
-  // instant and never re-streams a transcript. A key present with a `null`
+  // instant and never asks main twice. A key present with a `null`
   // value is a read that finished with no answer — which is how `loading` can
   // be derived rather than raced (an effect runs after paint, so a card whose
   // loading flag waited for one painted its "not readable" arm for a frame).
@@ -207,21 +204,6 @@ export function useConversationPeek(sessionId: string | null): ConversationPeekH
     }
   }, [answers, open, sessionId])
 
-  const opener = peekApi().openConversationPeekAttachment
-  // Attachments belong to the message that carried them, so they are opened
-  // against THIS session — main armed them under that id, and asking under a
-  // sibling's would find nothing.
-  const openAttachment = useCallback(
-    (attachmentId: string) => {
-      if (!sessionId || typeof opener !== 'function') return
-      void opener(sessionId, attachmentId).catch(() => {
-        // The file moved, or the viewer refused it. Nothing to say on a hover
-        // surface that is about to close; the chip stays where it is.
-      })
-    },
-    [opener, sessionId],
-  )
-
   return {
     open: open && sessionId !== null,
     peek,
@@ -231,7 +213,6 @@ export function useConversationPeek(sessionId: string | null): ConversationPeekH
     closeSoon,
     closeNow,
     keepOpen,
-    openAttachment: typeof opener === 'function' ? openAttachment : undefined,
   }
 }
 

@@ -70,7 +70,7 @@ test('WorkspaceSidebar.liveRows', async () => {
       session('s1', 'w1', true),
       session('s2', 'w2', false),
     ],
-    onTerminalSessionsChanged: () => () => {},
+    onTerminalSessionsDelta: () => () => {},
     // This suite settles more microtask rounds than its siblings (the terminal
     // list, then the membership effect, then the sweep), which is long enough
     // for a lazily mounted nav entry to open its own subscription.
@@ -98,17 +98,39 @@ test('WorkspaceSidebar.liveRows', async () => {
     const workspace = (id: string, name: string, folderPath: string, extra?: Record<string, unknown>) =>
       ({ id, name, mode: 'standard', folderPath, ...extra }) as unknown as Workspace
 
-    // The pure rule, before the DOM: local live sessions and mounted fleet panes
+    // The pure rule, before the DOM: local live sessions and mounted mesh panes
     // are open terminals; nothing else is.
-    const fleetLayout = {
+    const meshLayout = {
       layout: {
         type: 'tabset',
         children: [
           {
             type: 'tab',
-            id: 'fleet-terminal:c1:s9',
-            component: 'fleet-terminal',
-            config: { machineName: 'Air', remoteSessionId: 's9', cli: 'codex' },
+            id: 'mesh-conversation:c1:rw9:agent-9',
+            component: 'mesh-conversation',
+            config: {
+              connectionId: 'c1',
+              machineName: 'Air',
+              remoteWorkspaceId: 'rw9',
+              remoteAgentId: 'agent-9',
+              remoteSessionId: 'conversation:rw9:agent-9',
+              title: 'Remote chat',
+            },
+          },
+        ],
+      },
+    }
+    // A remote terminal tab persisted by an older build is a stale tab: the
+    // layout draws "Panel unavailable" for it, and the row does not count it.
+    const staleLayout = {
+      layout: {
+        type: 'tabset',
+        children: [
+          {
+            type: 'tab',
+            id: 'mesh-terminal:c1:s9',
+            component: 'mesh-terminal',
+            config: { connectionId: 'c1', machineName: 'Air', remoteSessionId: 's9', cli: 'codex' },
           },
         ],
       },
@@ -121,13 +143,19 @@ test('WorkspaceSidebar.liveRows', async () => {
       'an exited session was filtered before the map was built',
     )
     assert.equal(
-      rowHasOpenTerminals(workspace('w3', 'c', '/p', { layoutModel: fleetLayout }), live),
+      rowHasOpenTerminals(workspace('w3', 'c', '/p', { layoutModel: meshLayout }), live),
       true,
-      'a mounted fleet pane is an open terminal',
+      'a mounted mesh pane is an open terminal',
     )
-    assert.deepEqual(rowOpenTerminals(workspace('w3', 'c', '/p', { layoutModel: fleetLayout }), live), [
-      { sessionId: 'fleet-terminal:c1:s9', cli: 'codex', remote: true },
+    assert.deepEqual(rowOpenTerminals(workspace('w3', 'c', '/p', { layoutModel: meshLayout }), live), [
+      { sessionId: 'mesh-conversation:c1:rw9:agent-9', remote: true },
     ])
+    assert.equal(
+      rowHasOpenTerminals(workspace('w4', 'd', '/p', { layoutModel: staleLayout }), live),
+      false,
+      'a stale mesh-terminal tab is not an open terminal',
+    )
+    assert.deepEqual(rowOpenTerminals(workspace('w4', 'd', '/p', { layoutModel: staleLayout }), live), [])
 
     const workspaces = [
       workspace('w1', 'Alpha', '/projA'),

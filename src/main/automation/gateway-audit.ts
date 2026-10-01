@@ -1,9 +1,28 @@
-import { appendFileSync, chmodSync, existsSync, mkdirSync, renameSync, statSync, unlinkSync } from 'fs'
+import { createWriteStream, type WriteStream } from 'fs'
+import { chmod, mkdir, rename, stat, unlink } from 'fs/promises'
 import { join } from 'path'
 
 import type { McpConnectionMetadata, McpToolResult } from './mcp-socket-server'
 
 export const STUDIO_GATEWAY_AUDIT_FILENAME = 'sprintengine-studio-mcp-audit.jsonl'
+
+/**
+ * A paired device's token presented from a tailnet node other than the one it
+ * was issued to, or from one whois could not name, and refused. Not a tool —
+ * nothing was called — but recorded as a refused call, with the device whose
+ * token it was, because a token turning up on the wrong machine is the event
+ * this log exists to show. `targets` names the route and the calling node.
+ */
+export const TAILNET_PEER_REFUSED_AUDIT_TOOL = 'tailnet.peer_refused'
+
+/**
+ * Whether a record is written whatever the tool classification says. The
+ * audit otherwise keeps mutations only; a refusal at the door is not one, and
+ * must be kept anyway.
+ */
+export function isAlwaysAudited(tool: string): boolean {
+  return tool === TAILNET_PEER_REFUSED_AUDIT_TOOL
+}
 
 const DEFAULT_MAX_BYTES = 2 * 1024 * 1024
 const DEFAULT_BACKUPS = 3
@@ -26,6 +45,10 @@ const SAFE_IDENTIFIER_KEYS = new Set([
   'numericId',
   'previousNumericId',
   'replacements',
+  // Who presented a refused token: the address the socket came from and the
+  // node whois named for it. Network identifiers, not content.
+  'peerAddress',
+  'peerNodeId',
 ])
 
 export type GatewayAuditRecord = {
@@ -40,6 +63,12 @@ export type GatewayAuditRecord = {
 }
 
 export type GatewayAuditStore = {
+  /**
+   * Queue one record. Returns at once: the line is built synchronously (so it
+   * describes the call as it was) and written behind any earlier ones, in order,
+   * through one open append stream. A failed write is logged, never thrown — an
+   * audit that cannot be written must not fail the mutation it describes.
+   */
   record(input: {
     connection: McpConnectionMetadata
     tool: string
@@ -48,6 +77,10 @@ export type GatewayAuditStore = {
     result?: McpToolResult
     error?: unknown
   }): void
+  /** Settles once every record queued so far is on disk. */
+  flush(): Promise<void>
+  /** Flush, then close the stream. A later record opens a new one. */
+  close(): Promise<void>
 }
 
 export function createGatewayAuditStore(options: {
@@ -61,12 +94,45 @@ export function createGatewayAuditStore(options: {
   const backups = Math.max(1, options.backups ?? DEFAULT_BACKUPS)
   const now = options.now ?? (() => new Date())
 
+  // One stream, opened on the first record and reopened after a rotation or a
+  // failure. `size` mirrors the file's length, so deciding to rotate costs no
+  // stat per line.
+  let open: { path: string; stream: WriteStream; size: number } | null = null
+  let queue: Promise<void> = Promise.resolve()
+
+  const closeStream = async (): Promise<void> => {
+    const current = open
+    open = null
+    if (current) await endStream(current.stream)
+  }
+
+  const writeLine = async (line: string): Promise<void> => {
+    const directory = options.resolveUserDataDir()
+    const path = join(directory, STUDIO_GATEWAY_AUDIT_FILENAME)
+    const bytes = Buffer.byteLength(line)
+    if (open && open.path !== path) await closeStream()
+    if (open && open.size + bytes > maxBytes) {
+      await closeStream()
+      await rotate(path, backups)
+    }
+    if (!open) {
+      await mkdir(directory, { recursive: true })
+      let size = await fileSize(path)
+      if (size > 0 && size + bytes > maxBytes) {
+        await rotate(path, backups)
+        size = 0
+      }
+      open = { path, stream: await openAppendStream(path), size }
+    }
+    const target = open
+    await writeToStream(target.stream, line)
+    target.size += bytes
+  }
+
   return {
     record(input): void {
+      let line: string
       try {
-        const directory = options.resolveUserDataDir()
-        mkdirSync(directory, { recursive: true })
-        const path = join(directory, STUDIO_GATEWAY_AUDIT_FILENAME)
         const code = errorCode(input.error, input.result)
         const record: GatewayAuditRecord = {
           timestamp: now().toISOString(),
@@ -82,15 +148,65 @@ export function createGatewayAuditStore(options: {
             ? {}
             : safeIdentifiers(input.result?.structuredContent ?? canonicalContent(input.result)),
         }
-        const line = `${JSON.stringify(record)}\n`
-        rotateIfNeeded(path, Buffer.byteLength(line), maxBytes, backups)
-        appendFileSync(path, line, { encoding: 'utf8', mode: 0o600 })
-        if (process.platform !== 'win32') chmodSync(path, 0o600)
+        line = `${JSON.stringify(record)}\n`
       } catch (error) {
         options.log?.(`Studio MCP mutation audit write failed: ${message(error)}`)
+        return
       }
+      queue = queue.then(() =>
+        writeLine(line).catch(async (error: unknown) => {
+          options.log?.(`Studio MCP mutation audit write failed: ${message(error)}`)
+          // Drop the stream: the next record reopens it rather than writing
+          // into one that has already failed.
+          await closeStream().catch(() => undefined)
+        }),
+      )
+    },
+    flush(): Promise<void> {
+      return queue
+    },
+    close(): Promise<void> {
+      queue = queue.then(() => closeStream().catch(() => undefined))
+      return queue
     },
   }
+}
+
+async function fileSize(path: string): Promise<number> {
+  try {
+    return (await stat(path)).size
+  } catch {
+    return 0
+  }
+}
+
+async function openAppendStream(path: string): Promise<WriteStream> {
+  const stream = createWriteStream(path, { flags: 'a', encoding: 'utf8', mode: 0o600 })
+  await new Promise<void>((resolve, reject) => {
+    stream.once('open', () => resolve())
+    stream.once('error', reject)
+  })
+  // `mode` applies only when the file is created; one that predates it is
+  // tightened here.
+  if (process.platform !== 'win32') await chmod(path, 0o600)
+  return stream
+}
+
+function writeToStream(stream: WriteStream, line: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    stream.write(line, (error) => (error ? reject(error) : resolve()))
+  })
+}
+
+function endStream(stream: WriteStream): Promise<void> {
+  return new Promise((resolve) => {
+    if (stream.destroyed) {
+      resolve()
+      return
+    }
+    stream.once('error', () => resolve())
+    stream.end(() => resolve())
+  })
 }
 
 function safeIdentifiers(value: unknown): Record<string, string | number | boolean> {
@@ -180,15 +296,12 @@ function firstText(result: McpToolResult | undefined): string {
   return first && first.type === 'text' ? first.text : ''
 }
 
-function rotateIfNeeded(path: string, incomingBytes: number, maxBytes: number, backups: number): void {
-  if (!existsSync(path) || statSync(path).size + incomingBytes <= maxBytes) return
-  const oldest = `${path}.${backups}`
-  if (existsSync(oldest)) unlinkSync(oldest)
+async function rotate(path: string, backups: number): Promise<void> {
+  await unlink(`${path}.${backups}`).catch(() => undefined)
   for (let index = backups - 1; index >= 1; index -= 1) {
-    const source = `${path}.${index}`
-    if (existsSync(source)) renameSync(source, `${path}.${index + 1}`)
+    await rename(`${path}.${index}`, `${path}.${index + 1}`).catch(() => undefined)
   }
-  renameSync(path, `${path}.1`)
+  await rename(path, `${path}.1`).catch(() => undefined)
 }
 
 function message(error: unknown): string {

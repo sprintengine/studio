@@ -7,10 +7,13 @@ import type {
   McpSettings,
   CliPermissionPreset,
   TerminalKind,
+  TerminalPromptUndelivered,
   TerminalSessionSnapshot,
   TerminalSpawnResult,
+  TerminalVisibilityOptions,
 } from '../../shared/electron-api'
 import type { AgentLaunchRecord } from '../../shared/agent-launch'
+import type { ExecutionHostId } from '../../shared/execution-host'
 
 export type TerminalSpawnPayload = {
   sessionId: string
@@ -29,6 +32,8 @@ export type TerminalSpawnPayload = {
   cliSessionId?: string
   kind?: TerminalKind
   workspaceId?: string
+  // The machine to run on; see TerminalSpawnMetadata.hostId.
+  hostId?: ExecutionHostId
   agentId?: string
   agentName?: string
   terminalId?: string
@@ -36,7 +41,7 @@ export type TerminalSpawnPayload = {
   worktreeId?: string
   worktreePath?: string
   cliPermissionPreset?: CliPermissionPreset
-  debugMode?: boolean
+  cliPermissionMode?: string
   cliModel?: string
   // Reasoning-effort level for CLIs declaring reasoningSelection; travels with
   // cliModel. Unset means the CLI's own default effort, with no flag passed.
@@ -52,9 +57,8 @@ export type TerminalSpawnPayload = {
   connectorLaunch?: boolean
   // Skill-at-spawn (the composer's "+ Skill" attachment): the builtin skill to
   // install into the working directory at spawn so the prefilled invocation
-  // resolves to a present skill. Generalizes the debug-skill install (which
-  // hardcodes 'debug'); best-effort, non-blocking, and carries none of the
-  // connector MCP coupling. Unset for ordinary spawns.
+  // resolves to a present skill. Best-effort, non-blocking, and carries none of
+  // the connector MCP coupling. Unset for ordinary spawns.
   spawnSkillId?: string
   // Set only by the main-process AgentLaunchService: the launch
   // decisions it made, retained on the session and surfaced on its snapshot so
@@ -75,16 +79,24 @@ type TerminalIpcDependencies = {
   resizeTerminal(sessionId: string, cols: number, rows: number): void
   getTerminalStatus(sessionId: string, sender?: WebContents): Promise<{ processAlive: boolean; suspended: boolean }>
   listTerminals(): TerminalSessionSnapshot[]
-  setTerminalVisible(sessionId: string, visible: boolean, sender?: WebContents): void
+  setTerminalVisible(
+    sessionId: string,
+    visible: boolean,
+    sender?: WebContents,
+    options?: TerminalVisibilityOptions,
+  ): void
   suspendTerminal(sessionId: string): void
   resumeTerminal(sender: WebContents, payload: TerminalSpawnPayload): Promise<TerminalSpawnResult>
   killTerminal(sessionId: string): void
   setIdleSuspendThresholdMs(value: unknown): void
   setKeepRecentTerminalsAlive(value: unknown): void
   setTerminalReapExempt(sessionId: string, exempt: boolean): void
+  ackTerminalOutput(sessionId: string, units: number, sender?: WebContents): void
+  takeUndeliveredPrompts(): TerminalPromptUndelivered[]
 }
 
 export function registerTerminalIpc(ipcMain: IpcMain, deps: TerminalIpcDependencies): void {
+  ipcMain.handle('terminal:take-undelivered-prompts', (): TerminalPromptUndelivered[] => deps.takeUndeliveredPrompts())
   ipcMain.handle('terminal:spawn', async (event, payload: TerminalSpawnPayload): Promise<TerminalSpawnResult> => {
     return deps.spawnTerminal(event.sender, payload)
   })
@@ -99,6 +111,16 @@ export function registerTerminalIpc(ipcMain: IpcMain, deps: TerminalIpcDependenc
     if (typeof sessionId !== 'string' || typeof data !== 'string') return
 
     deps.writeTerminal(sessionId, data)
+  })
+
+  // Flow control: the pane parsed this many UTF-16 units of the session's
+  // output (xterm's write callback). Fire-and-forget like write-fast; it is
+  // sent many times a second under load and nothing waits on an answer.
+  ipcMain.on('terminal:ack', (event, payload: unknown): void => {
+    if (!payload || typeof payload !== 'object') return
+    const { sessionId, units } = payload as { sessionId?: unknown; units?: unknown }
+    if (typeof sessionId !== 'string' || typeof units !== 'number' || !Number.isFinite(units) || units <= 0) return
+    deps.ackTerminalOutput(sessionId, units, event.sender)
   })
 
   ipcMain.handle(
@@ -124,8 +146,8 @@ export function registerTerminalIpc(ipcMain: IpcMain, deps: TerminalIpcDependenc
 
   ipcMain.handle(
     'terminal:set-visible',
-    (event, { sessionId, visible }: { sessionId: string; visible: boolean }): void => {
-      deps.setTerminalVisible(sessionId, visible, event.sender)
+    (event, { sessionId, visible, freshPane }: { sessionId: string; visible: boolean; freshPane?: boolean }): void => {
+      deps.setTerminalVisible(sessionId, visible, event.sender, freshPane === true ? { freshPane: true } : undefined)
     },
   )
 

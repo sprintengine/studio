@@ -1,4 +1,0 @@
-interface:
-  display_name: "Handoff"
-  short_description: "Create concise continuation handoffs."
-  default_prompt: "Use $handoff to prepare a concise continuation note."

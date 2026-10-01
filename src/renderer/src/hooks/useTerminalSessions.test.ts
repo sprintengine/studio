@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import type { TerminalSessionSnapshot } from '../../../shared/electron-api'
+import type { TerminalSessionSnapshot, TerminalSessionsDelta } from '../../../shared/electron-api'
 import { formatRelativeMs, formatRelativeMsAgo } from '../utils/relativeTime'
 import {
   deriveWorkspaceDisplayActivity,
@@ -16,7 +16,7 @@ import {
   tabRecencyLabel,
   workspaceTerminalAwaitingInput,
 } from './useTerminalSessions'
-import { createTerminalSessionsStore } from './terminalSessionsStore'
+import { createTerminalSessionsStore, type TerminalSessionsChange } from './terminalSessionsStore'
 import { test } from 'vitest'
 
 test('useTerminalSessions', async () => {
@@ -35,6 +35,8 @@ test('useTerminalSessions', async () => {
     assertTerminalTabRecencyUsesIdleTransition()
     assertAgentTabRecencyFallbackChain()
     await assertSharedStoreUsesOneUnderlyingSubscription()
+    await assertStoreAppliesDeltas()
+    await assertWorkspaceViewIsStableAcrossOtherWorkspaces()
     await assertSharedStoreDedupsSemanticUpdatesButKeepsLive()
     await assertSharedStoreHandlesDuplicateSubscriberCallbacks()
     await assertSharedStoreIgnoresDisconnectedInitialRefresh()
@@ -223,6 +225,25 @@ test('useTerminalSessions', async () => {
       ),
       'the same work spread over two files is a different ledger',
     )
+    // The prompt cache arrives on its own status-line refresh, often after the
+    // turn's end settled every other field, so it has to move the row itself.
+    const withCache = (promptCache: { ttl: '1h'; expiresAt: number | null; recacheTokens: number | null }) => [
+      session({ sessionId: 'a', activity: { kind: 'working', since: 1 }, lastOutputAt: 100, promptCache }),
+      base[1],
+    ]
+    const cache = { ttl: '1h' as const, expiresAt: 5_000, recacheTokens: 310_000 }
+    assert.notEqual(getTerminalSessionsSignature(base), getTerminalSessionsSignature(withCache(cache)))
+    assert.notEqual(
+      getTerminalSessionsSignature(withCache(cache)),
+      getTerminalSessionsSignature(withCache({ ...cache, expiresAt: 9_000 })),
+      'a cache warmed again re-renders',
+    )
+    assert.notEqual(
+      getTerminalSessionsSignature(withCache(cache)),
+      getTerminalSessionsSignature(withCache({ ...cache, recacheTokens: null })),
+      'a compaction re-renders',
+    )
+    assert.equal(getTerminalSessionsSignature(withCache(cache)), getTerminalSessionsSignature(withCache({ ...cache })))
     const withContext = (contextUsage: { usedPercentage: number; at: number } | null) => [
       session({ sessionId: 'a', activity: { kind: 'working', since: 1 }, lastOutputAt: 100, contextUsage }),
       base[1],
@@ -584,7 +605,7 @@ test('useTerminalSessions', async () => {
   // was killed — nothing in main revisits it, and the stall watch that would have
   // expired the phase is disarmed by the suspend. Observed live 2026-09-10: an
   // agent paused one second after launch sat at `starting`/`working` for 70
-  // minutes, and the sidebar drew its chat bold, with working dots and no idle
+  // minutes, and the sidebar drew its chat bold, with the working mark and no idle
   // clock, the whole time — the row claiming an agent that was not there.
   //
   // So every "is this working" reading is gated on the process being alive, the
@@ -714,10 +735,143 @@ test('useTerminalSessions', async () => {
     assert.equal(pickAgentTabRecency(null, null, null), null)
     assert.equal(tabRecencyLabel('persisted'), 'Last activity')
     assert.equal(tabRecencyLabel('exited'), 'Exited')
+    // A chat's recency is the time alone, with no word before it.
+    assert.equal(tabRecencyLabel('finished'), '')
+  }
+
+  /** A delta that carries these sessions whole, lists included. */
+  function upserts(sessions: TerminalSessionSnapshot[]): TerminalSessionsDelta {
+    return { upserts: sessions, removed: [] }
+  }
+
+  // The broadcast names only the sessions that changed, and leaves a session's
+  // file ledger and pull requests out unless they moved. The store has to
+  // keep what it has for everything the delta does not mention.
+  async function assertStoreAppliesDeltas(): Promise<void> {
+    let ipcListener: ((delta: TerminalSessionsDelta) => void) | null = null as
+      ((delta: TerminalSessionsDelta) => void) | null
+    const ledger = [{ path: '/Users/dev/app/src/a.ts', additions: 3, deletions: 1, edits: 1, lastEditedAt: 5 }]
+    const store = createTerminalSessionsStore(() => ({
+      terminalList: async () => [
+        session({ sessionId: 'session_a', workspaceId: 'ws_1', fileChanges: ledger }),
+        session({ sessionId: 'session_b', workspaceId: 'ws_2' }),
+      ],
+      onTerminalSessionsDelta: (listener) => {
+        ipcListener = listener
+        return () => {
+          ipcListener = null
+        }
+      },
+    }))
+    const changes: TerminalSessionsChange[] = []
+    let semanticNotifications = 0
+    const unsubscribeSemantic = store.subscribeSemantic(() => {
+      semanticNotifications += 1
+    })
+    const unsubscribeLive = store.subscribeLiveSnapshot((_sessions, change) => {
+      changes.push(change)
+    })
+    await flushPromises()
+    assert.equal(changes.at(-1)?.full, true, 'the first list is a full apply')
+    const before = store.getLiveSnapshot()
+    const sessionB = before.find((item) => item.sessionId === 'session_b')
+
+    // A's activity moved; its ledger did not, so the delta leaves it out.
+    const {
+      fileChanges: _omitted,
+      pullRequests: _alsoOmitted,
+      ...aWithoutLists
+    } = session({
+      sessionId: 'session_a',
+      workspaceId: 'ws_1',
+      activity: { kind: 'idle', since: 50 },
+    })
+    semanticNotifications = 0
+    ipcListener?.({ upserts: [aWithoutLists], removed: [] })
+    const after = store.getLiveSnapshot()
+    const sessionA = after.find((item) => item.sessionId === 'session_a')
+    assert.deepEqual(sessionA?.activity, { kind: 'idle', since: 50 }, 'the delta applied')
+    assert.deepEqual(sessionA?.fileChanges, ledger, 'a list the delta left out is kept, not emptied')
+    assert.equal(
+      after.find((item) => item.sessionId === 'session_b'),
+      sessionB,
+      'a session the delta did not mention is the same object',
+    )
+    assert.deepEqual(
+      changes.at(-1)?.upserted.map((item) => item.sessionId),
+      ['session_a'],
+      'consumers are told which sessions changed',
+    )
+    assert.equal(changes.at(-1)?.full, false)
+    assert.equal(changes.at(-1)?.semanticChanged, true)
+    assert.equal(semanticNotifications, 1)
+
+    // A session this window has never seen, delivered without its lists.
+    const { fileChanges: _c1, pullRequests: _c2, ...newcomer } = session({ sessionId: 'session_c' })
+    ipcListener?.({ upserts: [newcomer], removed: ['session_b'] })
+    const final = store.getLiveSnapshot()
+    assert.deepEqual(
+      final.map((item) => item.sessionId),
+      ['session_a', 'session_c'],
+    )
+    assert.deepEqual(final[1]?.fileChanges, [], 'an unseen session starts with empty lists')
+    assert.deepEqual(final[1]?.pullRequests, [])
+    assert.deepEqual(changes.at(-1)?.removed, ['session_b'])
+
+    // Output-only churn on one session is not semantic news.
+    semanticNotifications = 0
+    const { fileChanges: _d1, pullRequests: _d2, ...quiet } = { ...final[0]!, lastOutputAt: 9_999 }
+    ipcListener?.({ upserts: [quiet], removed: [] })
+    assert.equal(semanticNotifications, 0)
+    assert.equal(changes.at(-1)?.semanticChanged, false)
+
+    unsubscribeSemantic()
+    unsubscribeLive()
+  }
+
+  // A workspace's layout reads a view of the list narrowed to its own sessions,
+  // and must not rebuild when an agent in another workspace moves.
+  async function assertWorkspaceViewIsStableAcrossOtherWorkspaces(): Promise<void> {
+    let ipcListener: ((delta: TerminalSessionsDelta) => void) | null = null as
+      ((delta: TerminalSessionsDelta) => void) | null
+    const store = createTerminalSessionsStore(() => ({
+      terminalList: async () => [
+        session({ sessionId: 'session_1', workspaceId: 'ws_1' }),
+        session({ sessionId: 'session_2', workspaceId: 'ws_2' }),
+        { ...session({ sessionId: 'session_loose' }), workspaceId: undefined },
+      ],
+      onTerminalSessionsDelta: (listener) => {
+        ipcListener = listener
+        return () => {
+          ipcListener = null
+        }
+      },
+    }))
+    const unsubscribe = store.subscribeSemantic(() => undefined)
+    await flushPromises()
+    const first = store.getWorkspaceSemanticSnapshot('ws_1')
+    assert.deepEqual(
+      first.map((item) => item.sessionId),
+      ['session_1', 'session_loose'],
+      'a workspace sees its own sessions and those that name none',
+    )
+
+    ipcListener?.(
+      upserts([session({ sessionId: 'session_2', workspaceId: 'ws_2', activity: { kind: 'idle', since: 7 } })]),
+    )
+    assert.equal(store.getWorkspaceSemanticSnapshot('ws_1'), first, 'another workspace moving keeps the array')
+
+    ipcListener?.(
+      upserts([session({ sessionId: 'session_1', workspaceId: 'ws_1', activity: { kind: 'idle', since: 8 } })]),
+    )
+    const second = store.getWorkspaceSemanticSnapshot('ws_1')
+    assert.notEqual(second, first, 'its own session moving produces a new array')
+    assert.deepEqual(second[0]?.activity, { kind: 'idle', since: 8 })
+    unsubscribe()
   }
 
   async function assertSharedStoreUsesOneUnderlyingSubscription(): Promise<void> {
-    const ipcListeners = new Set<(sessions: TerminalSessionSnapshot[]) => void>()
+    const ipcListeners = new Set<(delta: TerminalSessionsDelta) => void>()
     let terminalListCalls = 0
     let unsubscribeCalls = 0
     const store = createTerminalSessionsStore(() => ({
@@ -725,7 +879,7 @@ test('useTerminalSessions', async () => {
         terminalListCalls += 1
         return [session({ sessionId: 'session_initial' })]
       },
-      onTerminalSessionsChanged: (listener) => {
+      onTerminalSessionsDelta: (listener) => {
         ipcListeners.add(listener)
         return () => {
           unsubscribeCalls += 1
@@ -752,13 +906,13 @@ test('useTerminalSessions', async () => {
   }
 
   async function assertSharedStoreDedupsSemanticUpdatesButKeepsLive(): Promise<void> {
-    let ipcListener: ((sessions: TerminalSessionSnapshot[]) => void) | null = null as
-      ((sessions: TerminalSessionSnapshot[]) => void) | null
+    let ipcListener: ((delta: TerminalSessionsDelta) => void) | null = null as
+      ((delta: TerminalSessionsDelta) => void) | null
     const store = createTerminalSessionsStore(() => ({
       terminalList: async () => [
         session({ sessionId: 'session_a', activity: { kind: 'idle', since: 1 }, lastOutputAt: 100 }),
       ],
-      onTerminalSessionsChanged: (listener) => {
+      onTerminalSessionsDelta: (listener) => {
         ipcListener = listener
         return () => {
           ipcListener = null
@@ -786,12 +940,16 @@ test('useTerminalSessions', async () => {
     semanticNotifications = 0
     liveNotifications = 0
     liveSnapshots.length = 0
-    ipcListener?.([session({ sessionId: 'session_a', activity: { kind: 'idle', since: 1 }, lastOutputAt: 999 })])
+    ipcListener?.(
+      upserts([session({ sessionId: 'session_a', activity: { kind: 'idle', since: 1 }, lastOutputAt: 999 })]),
+    )
     assert.equal(semanticNotifications, 0, 'semantic subscribers skip output-only churn')
     assert.equal(liveNotifications, 1, 'live subscribers receive output-only churn')
     assert.equal(liveSnapshots[0]?.[0]?.lastOutputAt, 999)
 
-    ipcListener?.([session({ sessionId: 'session_a', activity: { kind: 'working', since: 2 }, lastOutputAt: 1000 })])
+    ipcListener?.(
+      upserts([session({ sessionId: 'session_a', activity: { kind: 'working', since: 2 }, lastOutputAt: 1000 })]),
+    )
     assert.equal(semanticNotifications, 1, 'semantic subscribers receive lifecycle/activity changes')
     assert.equal(liveNotifications, 2)
 
@@ -800,26 +958,28 @@ test('useTerminalSessions', async () => {
     // peek head both read the semantic channel. Before this term the store's
     // `apply` early-returned here and the mark never appeared.
     semanticNotifications = 0
-    ipcListener?.([
-      session({
-        sessionId: 'session_a',
-        activity: { kind: 'working', since: 2 },
-        lastOutputAt: 1000,
-        pullRequests: [
-          {
-            url: 'https://github.com/acme/sprintengine/pull/418',
-            repoKey: 'github.com/acme/sprintengine',
-            repoName: 'sprintengine',
-            number: 418,
-            title: '',
-            state: 'open',
-            isDraft: false,
-            openedAt: 10,
-            stateAt: 20,
-          },
-        ],
-      }),
-    ])
+    ipcListener?.(
+      upserts([
+        session({
+          sessionId: 'session_a',
+          activity: { kind: 'working', since: 2 },
+          lastOutputAt: 1000,
+          pullRequests: [
+            {
+              url: 'https://github.com/acme/sprintengine/pull/418',
+              repoKey: 'github.com/acme/sprintengine',
+              repoName: 'sprintengine',
+              number: 418,
+              title: '',
+              state: 'open',
+              isDraft: false,
+              openedAt: 10,
+              stateAt: 20,
+            },
+          ],
+        }),
+      ]),
+    )
     assert.equal(semanticNotifications, 1, 'a pull request arriving is semantic news')
 
     unsubscribeSemantic()
@@ -828,12 +988,12 @@ test('useTerminalSessions', async () => {
   }
 
   async function assertSharedStoreHandlesDuplicateSubscriberCallbacks(): Promise<void> {
-    let ipcListener: ((sessions: TerminalSessionSnapshot[]) => void) | null = null as
-      ((sessions: TerminalSessionSnapshot[]) => void) | null
+    let ipcListener: ((delta: TerminalSessionsDelta) => void) | null = null as
+      ((delta: TerminalSessionsDelta) => void) | null
     let unsubscribeCalls = 0
     const store = createTerminalSessionsStore(() => ({
       terminalList: async () => [],
-      onTerminalSessionsChanged: (listener) => {
+      onTerminalSessionsDelta: (listener) => {
         ipcListener = listener
         return () => {
           unsubscribeCalls += 1
@@ -849,11 +1009,11 @@ test('useTerminalSessions', async () => {
     const unsubscribeSecond = store.subscribeSemantic(listener)
     await flushPromises()
 
-    ipcListener?.([session({ sessionId: 'session_duplicate_a' })])
+    ipcListener?.(upserts([session({ sessionId: 'session_duplicate_a' })]))
     assert.equal(calls, 2, 'the same callback subscribed twice represents two subscriptions')
 
     unsubscribeFirst()
-    ipcListener?.([session({ sessionId: 'session_duplicate_b' })])
+    ipcListener?.(upserts([session({ sessionId: 'session_duplicate_b' })]))
     assert.equal(calls, 3, 'unsubscribing one duplicate leaves the other active')
     assert.equal(unsubscribeCalls, 0)
 
@@ -868,7 +1028,7 @@ test('useTerminalSessions', async () => {
         new Promise<TerminalSessionSnapshot[]>((resolve) => {
           pendingTerminalLists.push(resolve)
         }),
-      onTerminalSessionsChanged: () => () => undefined,
+      onTerminalSessionsDelta: () => () => undefined,
     }))
 
     const unsubscribeFirst = store.subscribeSemantic(() => undefined)
@@ -1048,6 +1208,7 @@ test('useTerminalSessions', async () => {
       fileChanges: input.fileChanges ?? [],
       activeSubagents: input.activeSubagents ?? 0,
       contextUsage: input.contextUsage ?? null,
+      promptCache: input.promptCache ?? null,
       pullRequests: input.pullRequests,
       exitedAt: input.exitedAt ?? null,
       outputBufferLength: input.outputBufferLength ?? 0,

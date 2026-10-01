@@ -41,13 +41,14 @@ import { remoteGlyphState, remoteGlyphToneClass, remoteGlyphTooltip, useOpenRemo
 import { useTailnetPresence } from './topbar/useTailnetPresence'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
+import { ModuleContributionBoundary } from '../../modules/ModuleContributionBoundary'
 
 // The two title-bar popovers' bodies. Both hang off a glyph in this cluster and
 // neither is rendered until that glyph is pressed — the Remote list of machines
 // and pair-request cards, and the notification reports with their per-report
-// actions — so they are fetched at open time rather than carried through boot
-// (bundle-budget ratchet; same shape as the Settings surfaces in
-// WorkspaceManager). The glyphs themselves, and the state they wear, stay eager:
+// actions — so they are fetched at open time rather than evaluated before the
+// first paint (same shape as the Settings surfaces in WorkspaceManager). The
+// glyphs themselves, and the state they wear, stay eager:
 // `remoteGlyph.ts` holds that half.
 const RemotePopover = React.lazy(() => import('./topbar/RemotePopover').then((m) => ({ default: m.RemotePopover })))
 const NotificationsPopover = React.lazy(() =>
@@ -628,8 +629,8 @@ export function WorkspaceActions({
       {/* The Remote glyph (remote-sessions-ux / remote-glyph-topbar):
             presence for both directions of the tailnet — who is driving this
             machine, and the machines this Studio drives. Consciously
-            supersedes the Fleet "no rail glyph" ruling for the TOP BAR (epic
-            decision 5); commandRegistry's fleet comment records the same.
+            supersedes the Mesh "no rail glyph" ruling for the TOP BAR (epic
+            decision 5); commandRegistry's mesh comment records the same.
             Hidden while the feature is off and no machine is paired — absent,
             not present-but-empty. */}
       {remoteState.visible ? (
@@ -754,11 +755,19 @@ export function WorkspaceActions({
       {/* Module-contributed top-bar controls (registerTopBarItem): the mic
        * button and its siblings render here, in the communication cluster's
        * module slot. Enablement-filtered above, so a module toggle
-       * adds/removes its control live. */}
+       * adds/removes its control live. A control that crashes drops out of
+       * the bar rather than taking the bar with it. */}
       {moduleTopBarItems.map((item) => (
-        <React.Suspense key={item.id} fallback={null}>
-          <item.Component />
-        </React.Suspense>
+        <ModuleContributionBoundary
+          key={item.id}
+          moduleId={item.moduleId}
+          surface={`top-bar item "${item.id}"`}
+          variant="inline"
+        >
+          <React.Suspense fallback={null}>
+            <item.Component />
+          </React.Suspense>
+        </ModuleContributionBoundary>
       ))}
 
       {/* Account + Settings relocated to the sidebar bottom (SidebarAccountBar).

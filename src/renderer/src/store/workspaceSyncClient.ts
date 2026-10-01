@@ -81,6 +81,8 @@ export type WorkspaceCreatedApply = {
   folderPath: string | null
   createdAt: number
   isCurrentWindowTarget: boolean
+  /** False: the workspace joins its window without being brought to the front (a scheduled run). */
+  activate: boolean
 }
 
 export type AgentTerminalSessionApply = {
@@ -289,6 +291,7 @@ export function createWorkspaceSyncClient(deps: WorkspaceSyncClientDependencies)
           folderPath: event.payload.insert.folderPath,
           createdAt,
           isCurrentWindowTarget: event.payload.windowId === currentWindowId,
+          activate: event.payload.activate !== false,
         })
         break
       case 'agent_terminal.session_assigned':

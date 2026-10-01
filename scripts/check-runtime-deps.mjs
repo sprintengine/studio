@@ -18,13 +18,25 @@
 // Runs after `electron-vite build` (chained in the "build" script), because it
 // reads the bundles that build writes.
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
 
-const BUNDLES = ['out/main/index.js', 'out/preload/index.js', 'out/preload/browser-guest.js']
+// Every script in the two output folders, not a list of entry files: main is
+// split into chunks that load each other on demand, and an SDK imported only
+// from one of those chunks is as much a runtime dependency as one in index.js.
+const BUNDLE_DIRS = ['out/main', 'out/preload']
+
+function scriptsUnder(dir) {
+  return readdirSync(dir, { withFileTypes: true, recursive: true })
+    .filter((entry) => entry.isFile() && /\.[cm]?js$/.test(entry.name))
+    .map((entry) => join(entry.parentPath, entry.name))
+}
 
 const manifest = JSON.parse(readFileSync('package.json', 'utf8'))
 const dependencies = Object.keys(manifest.dependencies ?? {})
-const bundled = BUNDLES.map((file) => readFileSync(file, 'utf8')).join('\n')
+const bundled = BUNDLE_DIRS.flatMap(scriptsUnder)
+  .map((file) => readFileSync(file, 'utf8'))
+  .join('\n')
 
 function escapeForRegExp(text) {
   return text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')

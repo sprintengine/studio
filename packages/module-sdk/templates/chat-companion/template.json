@@ -1,0 +1,15 @@
+{
+  "id": "chat-companion",
+  "title": "Chat companion",
+  "summary": "Starts and follows chats of its own with the conversation API, and opens chat drafts with openChat.",
+  "permissions": [
+    "conversation:operate",
+    "ipc:invoke",
+    "ipc:workspace-read"
+  ],
+  "capabilities": [
+    "conversations",
+    "chat.open",
+    "global-surface"
+  ]
+}

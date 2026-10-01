@@ -106,7 +106,7 @@ export type SkillSourcesResult =
   | { ok: false; message: string }
 
 export type SkillAddSourceInput = {
-  /** `owner/name`, a github.com URL, or a /tree/<ref> deep link. */
+  /** `owner/name`, a repository URL on github.com or a self-hosted GitHub, or a /tree/<ref> deep link. */
   repo: string
   /** Re-scan a source already in the list instead of refusing it. */
   replace?: boolean

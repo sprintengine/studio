@@ -41,8 +41,8 @@
 // tests derive the same answers from the same code.
 //
 // The hash itself now lives in shared/project-hue.ts and this module
-// re-exports it. Main needs the same degrees — `terminal.list` carries a row's
-// hue to a paired phone — and a renderer module is not importable from there.
+// re-exports it, so a process other than the renderer derives the same
+// degrees — a renderer module is not importable from main.
 // What stays here is the part that is a screen's business: the stored override,
 // the picker's presets, and the CSS custom property. `folderIdentityKey` is now
 // the shared `normalizeFolderKey` under its old name, so the sidebar's grouping

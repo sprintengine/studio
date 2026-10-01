@@ -27,14 +27,13 @@ export type PluginAvailabilityResult =
 // withholds argv and a hand-written preview of the flags would drift the first
 // time a manifest changed. The prompt is never part of it: it is on screen a
 // line above, and re-rendering per keystroke would bury the flags.
-// No `debugMode`: it prepends a directive to the PROMPT and never touches a
-// flag, so on a prompt-free preview it has nothing to add — and rendering it
-// would put a multi-line directive in a one-line receipt.
 export type AgentLaunchPreviewInput = {
   cli: AgentCli
   cliModel?: string
   cliReasoning?: string
   cliPermissionPreset?: CliPermissionPreset
+  /** The CLI's own mode at that preset, when it is not the preset's own. */
+  cliPermissionMode?: string
   cliRuntime?: CliRuntimeSettings
 }
 
@@ -56,7 +55,3 @@ export type PluginDetectAvailabilityInput = {
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
   force?: boolean
 }
-
-export type PluginInstallResult =
-  | { ok: true; id: string; kind: 'cli' | 'provider'; displayName: string }
-  | { ok: false; message: string; issues?: Array<{ path: string; message: string }> }

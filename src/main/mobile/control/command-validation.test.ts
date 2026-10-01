@@ -5,19 +5,17 @@ import {
   mobileControlMinSupportedProtocolVersion,
   mobileControlProtocolVersion,
   mobileControlSupportedProtocolVersions,
-} from '../../../../packages/mobile-control-protocol/src/index'
+} from './protocol'
 import { test } from 'vitest'
 
 test('command-validation', async () => {
   // The desktop-side gate on a command that arrived from a phone.
   //
-  // It is a second implementation of the check in the protocol package
-  // (packages/mobile-control-protocol), deliberately — the shared one validates a
-  // payload, this one guards a dispatch — so the thing worth pinning is that the
-  // two agree about which phones exist. A command accepted by one and refused by
-  // the other is a phone that pairs and then cannot do anything, which is the
-  // failure the window was widened to avoid rather than one to introduce on the
-  // other side.
+  // The phone checks the same window on its side, so the thing worth pinning is
+  // that this gate agrees with `mobileControlSupportedProtocolVersions` about
+  // which phones exist. A command the phone sends and this desktop refuses is a
+  // phone that pairs and then cannot do anything, which is the failure the
+  // window was widened to avoid.
 
   function command(overrides: Record<string, unknown> = {}): Record<string, unknown> {
     return {

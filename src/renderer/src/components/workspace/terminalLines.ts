@@ -10,6 +10,7 @@ import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import { agentCheckoutOf, agentCheckoutProbePath } from './agentCheckout'
 import type { RemoteSessionRow } from './remoteBand/remoteSessionsModel'
 import { checkoutPathFor } from './useSidebarGitSummaries'
+import type { PromptCacheReading } from '../../../../shared/prompt-cache'
 
 // The sidebar row's terminal lines (sidebar-lists-every-terminal): one line
 // per live terminal under the row's title — its CLI mark (whose tooltip
@@ -314,6 +315,12 @@ export type TerminalLine = {
   idleSince: number | null
   /** Words for the idle time's sr-only sentence: "Idle", or "Paused" for a paused remote row. */
   idleLabel: string
+  /**
+   * The session's prompt cache, from its own status line: the line marks it in
+   * the last minutes before it goes cold. Absent for a line with no local
+   * session behind it (a remote pane, a paired machine's row).
+   */
+  promptCache?: PromptCacheReading | null
 }
 
 export type TerminalLinesWorkspace = Pick<
@@ -428,17 +435,18 @@ function lineOfSession(
     // one — but both draw nothing, which is what decision 3 asks for.
     pullRequests: session.pullRequests ?? [],
     ...recencyOf(session),
+    promptCache: session.promptCache ?? null,
   }
 }
 
 /**
- * A fleet pane the layout mounts from another machine: its checkout is on
+ * A mesh pane the layout mounts from another machine: its checkout is on
  * that machine's disk, so the only branch this side can name is the one a
  * remote-born workspace had stamped at its create; no ±lines are claimed.
  * No name either — the machine's name is the glyph's tooltip and accessible
  * name, never row text (owner ruling 2026-09-05), and the pane has no other.
  */
-function lineOfFleetPane(
+function lineOfMeshPane(
   workspace: TerminalLinesWorkspace,
   pane: { tabId: string; machineName: string; cli?: string },
 ): TerminalLine {
@@ -471,13 +479,11 @@ function lineOfFleetPane(
 }
 
 /**
- * One AGENT on a paired machine, as a line of its conversation's row.
+ * One chat agent on a paired machine, as the line of its conversation's row.
  *
- * The name is the agent's — "Gael Corry" — and it rides the line's mark
- * tooltip, exactly as a local agent's does. It used to be null because the
- * agent's name WAS the row title; now the row is titled with the conversation
- * and a chat running three agents over there draws three lines, each one
- * saying which agent it is (owner, 2026-09-11).
+ * The name rides the line's mark tooltip, exactly as a local agent's does.
+ * The conversation list carries no checkout reading — no branch, no diff, no
+ * file breakdown — so a remote line draws none rather than a confident zero.
  */
 export function lineOfRemoteRow(row: RemoteSessionRow): TerminalLine {
   return {
@@ -486,21 +492,15 @@ export function lineOfRemoteRow(row: RemoteSessionRow): TerminalLine {
     cli: row.cli,
     name: row.title,
     machineName: null,
-    branch: row.branch,
-    worktree: row.diffScope === 'worktree',
+    branch: null,
+    worktree: false,
     cwd: null,
     removed: false,
-    additions: row.additions,
-    deletions: row.deletions,
-    // A remote sends a git reading with no file count in it, and its pull
-    // requests are looked up where the checkout is — so a remote row never
-    // reaches the `landed` scope either. And with no file breakdown on the wire
-    // there is nothing for it to draw: the numbers a line shows are files now,
-    // so a remote row draws NOTHING rather than the lines it was sent. The wire
-    // shape can grow the counts later and the row starts drawing on its own.
+    additions: 0,
+    deletions: 0,
     changedFiles: 0,
     files: null,
-    diffScope: row.diffScope,
+    diffScope: 'folder',
     activeSubagents: 0,
     // A remote row's wire shape carries no pull requests: the lookup runs where
     // the checkout is, and that is the other machine.
@@ -510,7 +510,7 @@ export function lineOfRemoteRow(row: RemoteSessionRow): TerminalLine {
     needsInput: row.activity === 'needs-input',
     failed: false,
     idleSince: row.activity === 'working' ? null : row.since,
-    idleLabel: row.activity === 'paused' ? 'Paused' : 'Idle',
+    idleLabel: 'Idle',
   }
 }
 
@@ -532,7 +532,7 @@ function activityAt(line: TerminalLine, session?: TerminalSessionSnapshot): numb
 export function terminalLinesOf(input: {
   workspace: TerminalLinesWorkspace
   sessions: ReadonlyArray<TerminalSessionSnapshot>
-  fleetPanes: ReadonlyArray<{ tabId: string; machineName: string; cli?: string }>
+  meshPanes: ReadonlyArray<{ tabId: string; machineName: string; cli?: string }>
   summaries: Record<string, WorkspaceChangeSummary>
 }): { lines: TerminalLine[]; overflow: number } {
   const ranked = [
@@ -540,8 +540,8 @@ export function terminalLinesOf(input: {
       const line = lineOfSession(input.workspace, session, input.summaries)
       return { line, at: activityAt(line, session) }
     }),
-    ...input.fleetPanes.map((pane) => {
-      const line = lineOfFleetPane(input.workspace, pane)
+    ...input.meshPanes.map((pane) => {
+      const line = lineOfMeshPane(input.workspace, pane)
       return { line, at: activityAt(line) }
     }),
   ]

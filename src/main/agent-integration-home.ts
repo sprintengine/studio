@@ -29,14 +29,14 @@
 // launched the agent.
 
 import { existsSync } from 'node:fs'
-import { copyFile, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { copyFile, cp, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 
 import {
   materialiseStudioPluginInto,
   readStudioPluginTemplate,
   STUDIO_PLUGIN_ID,
-  STUDIO_SKILLS_PLUGIN_ID,
+  syncMaterialisedStudioSkills,
   type StudioPluginTokens,
 } from './skills/studio-plugin'
 
@@ -63,6 +63,20 @@ export const LAUNCH_STATUS_LINE_REL = join(STUDIO_PLUGIN_ID, 'hooks', 'status-li
 /** Written last, so a half-finished copy is never mistaken for a usable one. */
 const MARKER_FILE = '.installed.json'
 
+/**
+ * What the materialiser wrote, independent of the template's version.
+ *
+ * The marker is otherwise keyed on the plugin version alone, so a change to HOW
+ * the copy is written (not to what the template holds) would never reach a
+ * machine that already has this version's copy. Bump it whenever the copier's
+ * output changes. 2: `$comment` keys are stripped from every JSON file, which
+ * Claude Code reported as unknown keys at the end of each session. 3: no
+ * `studio-skills` bundle; one plugin per bundled skill under `launch-skills/`
+ * (a copy from layout 2 still holds the retired bundle, so it is rebuilt).
+ * 4: no `launch-skills/debug`, retired with Debug Mode.
+ */
+export const AGENT_INTEGRATION_LAYOUT = 4
+
 /** The version-keyed root. Sibling versions coexist; see `prune`. */
 export function agentIntegrationRoot(userDataDir: string, version: string): string {
   return resolve(userDataDir, AGENT_INTEGRATION_DIR, version)
@@ -77,25 +91,87 @@ export function agentIntegrationRoot(userDataDir: string, version: string): stri
  * passed as two flags loaded both. The `--help` text reads as though a
  * directory of plugins loads each child; it does not.
  *
- * `studio-skills` rides along as the second directory. The workflow skills the
- * app ships (debug, backlog, frontend-design and the rest) used to be copied
- * into `{{workspaceRoot}}/.claude/skills` at spawn so that a prefilled `/debug`
- * or `/backlog` resolved; a launch that carries this directory needs no copy,
- * and `ensureSkillInstalled` skips the write for exactly the CLIs that take it
- * (see `setLaunchDeliversBundledSkillsResolver`). The bare `/debug` still
- * resolves: Claude Code's skills reference documents that a plugin skill is
- * invoked by its bare name whenever no other command claims it, and by
- * `/studio-skills:debug` always.
+ * Every launch gets the app's own plugin and nothing else. A `studio-skills`
+ * directory used to ride along as a second flag, handing every Claude session
+ * nine workflow skills whatever it was for; it was removed on 2026-09-28. The
+ * bundled skill a prompt can invoke is passed only to the launch whose prompt
+ * invokes it (`launchSkillPluginDir`).
  */
 export function launchPluginDirs(root: string): string[] {
-  return [join(root, STUDIO_PLUGIN_ID), join(root, STUDIO_SKILLS_PLUGIN_ID)]
+  return [join(root, STUDIO_PLUGIN_ID)]
+}
+
+/** Where the one-skill plugins live inside a copy. */
+const LAUNCH_SKILLS_DIR = 'launch-skills'
+
+/**
+ * The plugin holding just `skillId`, which a launch adds as one more
+ * `--plugin-dir` when its prompt invokes that skill: a Backlog handoff's
+ * `/backlog <item>`. Nothing is written to the repository, and no other
+ * session sees the skill. The bare `/backlog` resolves: Claude
+ * Code invokes a plugin skill by its bare name whenever no other command
+ * claims it, exactly as it did from the retired bundle.
+ */
+export function launchSkillPluginDir(root: string, skillId: string): string {
+  return join(root, LAUNCH_SKILLS_DIR, skillId)
+}
+
+/** The plugin's name in its manifest: unique beside ours, and never the skill's own name. */
+function launchSkillPluginName(skillId: string): string {
+  return `sprintengine-${skillId}`
+}
+
+/**
+ * Write one plugin per skill directory under `sourceRoot` into `root`, and
+ * return them by skill id. Shared by this machine's copy and the one a WSL
+ * distribution is sent, so both hold the same bytes.
+ */
+export async function writeLaunchSkillPlugins(root: string, sourceRoot: string): Promise<Record<string, string>> {
+  const written: Record<string, string> = {}
+  const entries = await readdir(sourceRoot, { withFileTypes: true }).catch(() => [])
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !existsSync(join(sourceRoot, entry.name, 'SKILL.md'))) continue
+    const dir = launchSkillPluginDir(root, entry.name)
+    await rm(dir, { recursive: true, force: true })
+    await mkdir(join(dir, '.claude-plugin'), { recursive: true })
+    await writeFile(
+      join(dir, '.claude-plugin', 'plugin.json'),
+      `${JSON.stringify(
+        {
+          name: launchSkillPluginName(entry.name),
+          description: `The ${entry.name} skill, for the one SprintEngine Studio launch that invokes it.`,
+          version: '1.0.0',
+          author: { name: 'SprintEngine Studio' },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    )
+    await cp(join(sourceRoot, entry.name), join(dir, 'skills', entry.name), { recursive: true })
+    written[entry.name] = dir
+  }
+  return written
+}
+
+/** The one-skill plugins a finished copy holds, by skill id. */
+async function listLaunchSkillPlugins(root: string): Promise<Record<string, string>> {
+  const found: Record<string, string> = {}
+  const entries = await readdir(join(root, LAUNCH_SKILLS_DIR), { withFileTypes: true }).catch(() => [])
+  for (const entry of entries) {
+    const dir = launchSkillPluginDir(root, entry.name)
+    if (entry.isDirectory() && existsSync(join(dir, 'skills', entry.name, 'SKILL.md'))) found[entry.name] = dir
+  }
+  return found
 }
 
 export type AgentIntegrationHome = {
   /** The version-keyed marketplace root. */
   root: string
-  /** The `--plugin-dir` arguments for this launch. */
+  /** The `--plugin-dir` arguments every launch passes. */
   pluginDirs: string[]
+  /** One more `--plugin-dir` each, by skill id, for a launch whose prompt invokes that skill. */
+  skillPluginDirs: Record<string, string>
   version: string
 }
 
@@ -116,6 +192,18 @@ export type EnsureAgentIntegrationHomeOptions = {
   userDataDir: string
   /** The three build-and-moment values the template cannot carry. */
   tokens: Omit<StudioPluginTokens, 'agentStateReporterPath'>
+  /**
+   * The area skills the person opted into (shared/studio-area-skills.ts). The
+   * copy carries only these; a copy already on disk is brought in line, since
+   * it is written once per version and a choice must not wait for the next one.
+   */
+  enabledSkillDirs: readonly string[]
+  /**
+   * The bundled skills a launch can ask for (`resources/builtin-skills`), each
+   * written as a plugin of its own. Absent or null: none, and every launch that
+   * wants one falls back to the workspace install.
+   */
+  launchSkillsSourceRoot?: string | null
 }
 
 /**
@@ -144,8 +232,22 @@ export async function ensureAgentIntegrationHome(
   const { template } = read
 
   const root = agentIntegrationRoot(userDataDir, template.version)
-  const home: AgentIntegrationHome = { root, pluginDirs: launchPluginDirs(root), version: template.version }
-  if (await isUsable(root, template.version)) return { ok: true, home }
+  const home: AgentIntegrationHome = {
+    root,
+    pluginDirs: launchPluginDirs(root),
+    skillPluginDirs: {},
+    version: template.version,
+  }
+  if (await isUsable(root, template.version)) {
+    home.skillPluginDirs = await listLaunchSkillPlugins(root)
+    // Every call, not only a fresh copy's: a copy written by an earlier run
+    // carries whatever that run chose (and one from before the opt-in, every
+    // skill). Cheap on the settled path — a listing and nothing to do.
+    // Best-effort: a skill that could not be moved is worth strictly less than
+    // the bridge and the hook, which a failed home would cost every launch.
+    await syncMaterialisedStudioSkills({ template, root, skillDirs: options.enabledSkillDirs }).catch(() => undefined)
+    return { ok: true, home }
+  }
 
   const materialised = await materialiseStudioPluginInto({
     template,
@@ -154,6 +256,7 @@ export async function ensureAgentIntegrationHome(
     // The opposite of the workspace copy: this one IS the registration, so its
     // hook declaration is what makes agent state work at all.
     neuterHooks: false,
+    skillDirs: options.enabledSkillDirs,
   })
   if (!materialised.ok) return materialised
 
@@ -172,6 +275,13 @@ export async function ensureAgentIntegrationHome(
   const statusLineSourcePath = options.statusLineSourcePath
   if (statusLineSourcePath && existsSync(statusLineSourcePath)) {
     await copyFile(statusLineSourcePath, join(root, LAUNCH_STATUS_LINE_REL)).catch(() => undefined)
+  }
+
+  // Best-effort too: without them a launch that wants `/backlog` gets the
+  // workspace install instead, which is how the skill arrived before any of
+  // this.
+  if (options.launchSkillsSourceRoot) {
+    home.skillPluginDirs = await writeLaunchSkillPlugins(root, options.launchSkillsSourceRoot).catch(() => ({}))
   }
 
   await writeMarker(root, template.version)
@@ -203,7 +313,8 @@ async function isUsable(root: string, version: string): Promise<boolean> {
   try {
     const parsed: unknown = JSON.parse(raw)
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return false
-    return (parsed as Record<string, unknown>).version === version
+    const marker = parsed as Record<string, unknown>
+    return marker.version === version && marker.layout === AGENT_INTEGRATION_LAYOUT
   } catch {
     return false
   }
@@ -212,7 +323,7 @@ async function isUsable(root: string, version: string): Promise<boolean> {
 async function writeMarker(root: string, version: string): Promise<void> {
   const path = join(root, MARKER_FILE)
   const temp = `${path}.${process.pid}.tmp`
-  const body = `${JSON.stringify({ plugin: STUDIO_PLUGIN_ID, version, installedAt: new Date().toISOString() }, null, 2)}\n`
+  const body = `${JSON.stringify({ plugin: STUDIO_PLUGIN_ID, version, layout: AGENT_INTEGRATION_LAYOUT, installedAt: new Date().toISOString() }, null, 2)}\n`
   await writeFile(temp, body, 'utf8')
   await rename(temp, path)
 }

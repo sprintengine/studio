@@ -24,7 +24,7 @@ test('agent-config-import', async () => {
         listPlugins: () => [],
       }),
       mcpConfigService: {
-        sync(syncInput: McpSyncInput): McpSyncResult {
+        async sync(syncInput: McpSyncInput): Promise<McpSyncResult> {
           syncCalls.push(syncInput)
           return { ok: true, targets: [], issues: [] }
         },

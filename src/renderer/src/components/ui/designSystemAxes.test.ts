@@ -171,7 +171,10 @@ test('designSystemAxes', async () => {
       // `components/htmlArtifact` below — the same off-ramps at a new address,
       // not a win — and the wizard's own panes took the rest with them.
       // workspace 10 → 8, 2026-09-16: the unmounted AgentComposer panel was deleted.
-      'components/workspace': 8, // 2026-09-16: the in-tree Sprint Engine surfaces left the tree with their off-ramps
+      // 8 → 7: shared attachment chips now use the documented radius ramp.
+      // 7 → 6, 2026-10-01: the worktree switch took the raised chip's shell,
+      // and its bare `rounded` went with the box it drew by hand.
+      'components/workspace': 6, // 2026-09-16: the in-tree Sprint Engine surfaces left the tree with their off-ramps
       // 35 → 34, 2026-09-06: the retired plan door's plan column was deleted
       // with its door (a70ba0931).
       // 34 → 26, 2026-09-08: SwitchboardBoardPanel, SwitchboardWorkspacePanel and
@@ -226,7 +229,9 @@ test('designSystemAxes', async () => {
       // app's one toast region (remote-sessions-ux / toast-host-region).
       // 9 → 8, 2026-09-06: the retired plan door's backlog source was deleted
       // with its door (a70ba0931).
-      'components/panels': 6, // 2026-09-16: the in-tree Sprint Engine surfaces left the tree with their off-ramps
+      // 6 → 5, 2026-09-28: the chat's Jump to latest moved onto the ladder
+      // when the queued message began floating over the transcript.
+      'components/panels': 5,
       'components/ui': 1,
       'components/memory': 1,
       'components/auxWindows': 1,

@@ -99,6 +99,19 @@
         <span class="ds-slider-thumb" aria-hidden="true"></span>
       </div>
     </div>
+    <div class="demo-field">
+      <div class="demo-value"><span class="demo-value-axis" id="l-d">Contrast</span><span class="demo-value-name">160%</span></div>
+      <div class="ds-slider" role="slider" tabindex="0" aria-labelledby="l-d" aria-orientation="horizontal"
+           aria-valuemin="0" aria-valuemax="23" aria-valuenow="15" aria-valuetext="160%" style="--ds-slider-position: 0.6522">
+        <span class="ds-slider-track" aria-hidden="true">
+          <span class="ds-slider-fill"></span>
+          <span class="ds-slider-tick" data-stop="0" style="--ds-slider-tick: 0"></span>
+          <span class="ds-slider-tick" data-stop="3" style="--ds-slider-tick: 0.1304"></span>
+          <span class="ds-slider-tick" data-stop="23" data-reached="false" style="--ds-slider-tick: 1"></span>
+        </span>
+        <span class="ds-slider-thumb" aria-hidden="true"></span>
+      </div>
+    </div>
   </div>
 </div>
 <div class="demo-stage" data-mode="dark">
@@ -150,6 +163,19 @@
         <span class="ds-slider-thumb" aria-hidden="true"></span>
       </div>
     </div>
+    <div class="demo-field">
+      <div class="demo-value"><span class="demo-value-axis" id="d-d">Contrast</span><span class="demo-value-name">160%</span></div>
+      <div class="ds-slider" role="slider" tabindex="0" aria-labelledby="d-d" aria-orientation="horizontal"
+           aria-valuemin="0" aria-valuemax="23" aria-valuenow="15" aria-valuetext="160%" style="--ds-slider-position: 0.6522">
+        <span class="ds-slider-track" aria-hidden="true">
+          <span class="ds-slider-fill"></span>
+          <span class="ds-slider-tick" data-stop="0" style="--ds-slider-tick: 0"></span>
+          <span class="ds-slider-tick" data-stop="3" style="--ds-slider-tick: 0.1304"></span>
+          <span class="ds-slider-tick" data-stop="23" data-reached="false" style="--ds-slider-tick: 1"></span>
+        </span>
+        <span class="ds-slider-thumb" aria-hidden="true"></span>
+      </div>
+    </div>
   </div>
 </div>
 <script>
@@ -159,6 +185,8 @@
   const NAMES = {
     Reasoning: ['Auto', 'Low', 'Medium', 'High', 'Max'],
     Retention: ['7 days', '14 days', '30 days', '90 days'],
+    // A long ramp: twenty-four stops, of which only the ends and the default are ticks.
+    Contrast: Array.from({ length: 24 }, (_, i) => `${85 + i * 5}%`),
   }
   for (const slider of document.querySelectorAll('.ds-slider')) {
     const axis = document.getElementById(slider.getAttribute('aria-labelledby')).textContent
@@ -177,7 +205,9 @@
       slider.toggleAttribute('data-at-start', index === 0)
       if (index === 0) slider.setAttribute('data-at-start', 'true')
       ticks.forEach((tick, i) => {
-        if (i <= index) tick.removeAttribute('data-reached')
+        // A sparse set names the stop each tick marks; a full set is one per stop.
+        const stop = tick.dataset.stop === undefined ? i : Number(tick.dataset.stop)
+        if (stop <= index) tick.removeAttribute('data-reached')
         else tick.setAttribute('data-reached', 'false')
       })
       readout.textContent = names[index]

@@ -1,0 +1,14 @@
+{
+  "id": "panel",
+  "title": "Panel",
+  "summary": "A notes panel in a workspace of its own, saved in module app state.",
+  "permissions": [
+    "storage"
+  ],
+  "capabilities": [
+    "panel",
+    "workspace-type",
+    "command",
+    "storage"
+  ]
+}

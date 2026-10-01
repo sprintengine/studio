@@ -17,13 +17,14 @@ import { useSkillSources } from '../workspace/globalSurface/extensions/skills/us
 import { skillsTotal } from '../workspace/globalSurface/extensions/skills/skillsSurfaceModel'
 import type { SurfaceIconComponent } from '../../modules/renderer-host'
 import {
-  agentCliCountLine,
   designLibraryCountLine,
   EXTENSIONS_HOME_TILE_SUMMARIES,
   mcpServerCountLine,
   skillsCountLine,
 } from './extensionsHomeTiles'
 import { homeCardCount, homeCardGrid, newHomeCardSlugs } from './homeCards'
+import { StudioSkillSuggestion } from '../studioSkills/StudioSkillSuggestion'
+import { openBuildExtension } from './buildExtensionHost'
 
 // The Extensions home (the app rail's Extensions glyph, 2026-09-05): the page
 // the glyph opens, in the card region, with the Extensions drawer standing
@@ -160,17 +161,13 @@ function ExtensionsHomeTile({
  * opens cannot state different totals.
  *
  * Every read here is a mount read or a store subscription; nothing polls and
- * nothing re-fetches on render. Three of the five come free (MCP servers and
- * both CLI facts are in the workspace store, populated before any door opens);
- * the other two cost the same reads their own surface makes, once, on the way
- * in — which is the price of the page saying something true rather than
- * something decorative.
+ * nothing re-fetches on render. The MCP servers come free (they are in the
+ * workspace store, populated before any door opens); the other two cost the
+ * same reads their own surface makes, once, on the way in — which is the price
+ * of the page saying something true rather than something decorative.
  */
 function useExtensionsHomeCounts(): Readonly<Record<string, string | null>> {
   const mcpServers = useWorkspaceStore((s) => s.appSettings.mcp?.servers)
-  const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
-  const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
-  const cliVersionAdvisories = useWorkspaceStore((s) => s.cliVersionAdvisories)
   // App-level sources, so no workspace: `null` skips the per-workspace
   // installed read this page has no use for.
   //
@@ -185,13 +182,6 @@ function useExtensionsHomeCounts(): Readonly<Record<string, string | null>> {
 
   return useMemo(() => {
     const servers = Object.values(mcpServers ?? {})
-    const installedClis = Object.values(cliAvailability ?? {}).filter((entry) => entry?.installed)
-    const updates = Object.entries(cliVersionAdvisories ?? {}).filter(
-      ([cli, advisory]) =>
-        cliAvailability?.[cli as keyof typeof cliAvailability]?.installed &&
-        advisory?.status === 'behind_latest' &&
-        Boolean(advisory.latestVersion),
-    )
     // The Skills total is the Skills surface's own derivation (skillsTotal),
     // not a second sum: the same fact derived twice is a pair of numbers that
     // eventually disagree.
@@ -207,22 +197,8 @@ function useExtensionsHomeCounts(): Readonly<Record<string, string | null>> {
         sourceCount: skillTotals.sourceCount,
         skillCount: skillTotals.skillCount,
       }),
-      'agent-clis': agentCliCountLine({
-        ready: cliAvailabilityStatus === 'ready',
-        installed: installedClis.length,
-        updates: updates.length,
-      }),
     }
-  }, [
-    cliAvailability,
-    cliAvailabilityStatus,
-    cliVersionAdvisories,
-    designLibrary,
-    mcpServers,
-    skills.scans,
-    skills.sources,
-    skills.sourcesLoad,
-  ])
+  }, [designLibrary, mcpServers, skills.scans, skills.sources, skills.sourcesLoad])
 }
 
 /**
@@ -490,6 +466,12 @@ export default function ExtensionsHomeSurface(): JSX.Element {
       canGoBack={back.canGoBack}
     >
       <div className="flex h-full min-h-0 flex-col gap-6 overflow-y-auto px-5 py-4">
+        {/* The offer of the SDK's skill for every workspace, then the way to
+            build an extension of your own — above the cards and in every state
+            of the feed, because it is the one thing on this page that does not
+            depend on the network. */}
+        <StudioSkillSuggestion skillId="sprintengine-extension-builder" />
+        <BuildExtensionPlate onOpen={() => void openBuildExtension()} />
         {loading ? <CardGridSkeleton /> : null}
         {!loading && drawable > 0 ? (
           <CardGrid
@@ -602,5 +584,20 @@ export default function ExtensionsHomeSurface(): JSX.Element {
         </section>
       </div>
     </GlobalSurfaceShell>
+  )
+}
+
+/**
+ * The plate that opens "Build your own extension": the New chat door in
+ * extension mode. Always there, whatever the card feed says.
+ */
+function BuildExtensionPlate({ onOpen }: { onOpen: () => void }): JSX.Element {
+  return (
+    <CardButton variant="bordered" onClick={onOpen} className="px-4 py-3">
+      <span className="text-body font-semibold text-[color:var(--text-strong)]">Build your own extension</span>
+      <span className="mt-0.5 text-meta text-[color:var(--text-muted)]">
+        Describe it, and an agent builds it with you in a chat, with the SDK and the skill that teaches it.
+      </span>
+    </CardButton>
   )
 }

@@ -134,10 +134,10 @@ test('RemoteTailnetSettingsTab', async () => {
       bridge.listPeersCalls += 1
       return Promise.resolve({ tailscaleAvailable: true, unavailableReason: null, probedPort: 8471, peers: PEERS })
     },
-    fleetListConnections: () => Promise.resolve([]),
-    fleetGetLiveState: () => Promise.resolve({ revision: 0, attachments: [], requests: [], reachability: [] }),
+    meshListConnections: () => Promise.resolve([]),
+    meshGetLiveState: () => Promise.resolve({ revision: 0, attachments: [], requests: [], reachability: [] }),
     onTailnetEvent: () => () => {},
-    onFleetEvent: () => () => {},
+    onMeshEvent: () => () => {},
     clipboardWriteText: () => Promise.resolve(),
   }
 
@@ -233,10 +233,10 @@ test('RemoteTailnetSettingsTab', async () => {
     assert.match(text, /Granted scopes/)
     assert.match(text, /workspace:operate/)
     assert.match(text, /Not granted/)
-    assert.match(text, /terminal:observe/)
-    assert.match(text, /terminal:control/)
-    // The sentence the whole rebuild exists for.
-    assert.match(text, /can't see chats or terminals here/)
+    assert.match(text, /conversation:read/)
+    assert.match(text, /conversation:operate/)
+    // What the missing conversation scopes cost, in a sentence.
+    assert.match(text, /It can't see chats here\./)
 
     const grant = [...dom.window.document.body.querySelectorAll('button')].find(
       (button) => (button.textContent ?? '').trim() === 'Grant',
@@ -251,8 +251,8 @@ test('RemoteTailnetSettingsTab', async () => {
       'workspace:operate',
       'backlog:read',
       'backlog:operate',
-      'terminal:observe',
-      'terminal:control',
+      'conversation:read',
+      'conversation:operate',
     ])
     unmount()
   })
@@ -284,11 +284,11 @@ test('RemoteTailnetSettingsTab', async () => {
     assert.match(text, /Read only/)
     assert.match(text, /Standard/)
     // Every row, named for what it reveals.
-    assert.match(text, /Watch chats & terminals/)
-    assert.match(text, /Drive chats & terminals/)
-    assert.match(text, /Arbitrary shell on this machine/)
+    assert.match(text, /View conversations/)
+    assert.match(text, /Operate conversations/)
+    assert.doesNotMatch(text, /terminals/, 'no terminal rows')
     assert.equal(dialog?.querySelectorAll('input[type="checkbox"]').length, 6)
-    // Standard is the default preset, terminal:control included (owner ruling
+    // Standard is the default preset, every scope included (owner ruling
     // 2026-09-10) — so every box is ticked when the dialog opens.
     assert.equal(dialog?.querySelectorAll('input[type="checkbox"]:checked').length, 6)
 
@@ -303,8 +303,8 @@ test('RemoteTailnetSettingsTab', async () => {
       'workspace:operate',
       'backlog:read',
       'backlog:operate',
-      'terminal:observe',
-      'terminal:control',
+      'conversation:read',
+      'conversation:operate',
     ])
     unmount()
   })

@@ -1,9 +1,8 @@
 import type { LayoutTemplate, PreviewSlot } from '../../renderer/src/types/workspace'
-import { AUTOMATIONS_HOST_WORKSPACE_MODE, type WorkspaceMode } from '../workspace-mode'
 
 // Layout templates live in `shared` because main mints workspaces
-// now: a headless `workspace.create` — the gateway, an automation, the
-// scheduler, a phone — must produce a fully-formed record, and a workspace with
+// now: a headless `workspace.create` — the gateway, a scheduled agent's run,
+// a phone — must produce a fully-formed record, and a workspace with
 // no layout is not fully formed. They were always plain FlexLayout `IJsonModel`
 // data with a single type-only import, so this is a relocation, not a rewrite.
 // `src/renderer/src/layouts/templates.ts` re-exports them so existing renderer
@@ -57,9 +56,17 @@ export const EMPTY_CHAT_TEMPLATE: LayoutTemplate = {
   },
 }
 
+/**
+ * The template a New chat is minted from, and the id of its one agent tab. A
+ * chat main creates from it is the agent of that id, as one a window creates
+ * is, so the tab and the agent record agree from the first event.
+ */
+export const SOLO_CHAT_TEMPLATE_ID = 'solo'
+export const SOLO_CHAT_AGENT_ID = 'agent-1'
+
 export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
   {
-    id: 'solo',
+    id: SOLO_CHAT_TEMPLATE_ID,
     name: 'Solo',
     description: 'Single AI terminal for focused work.',
     previewSlots: [agent('Agent', 4, 4, 292, 102)],
@@ -68,7 +75,7 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
       borders: [],
       layout: {
         type: 'row',
-        children: [{ type: 'tabset', weight: 100, children: [agentTab('agent-1', 'Agent')] }],
+        children: [{ type: 'tabset', weight: 100, children: [agentTab(SOLO_CHAT_AGENT_ID, 'Agent')] }],
       },
     },
   },
@@ -236,68 +243,18 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
 // Headless template resolution
 // ---------------------------------------------------------------------------
 
-// The single-surface host layouts, as plain data. Their renderer registrations
-// (`automations-workspace-types.ts`,
-// `review/door/reviewsHostWorkspace.ts`) own the picker entry, icon, and
-// creation steps; the LAYOUT is duplicated nowhere — those modules import from
-// here so a host minted headlessly and a host minted from a window get the same
-// tabset, tab component, and strip visibility.
-
-const singleSurfaceLayout = (tab: Record<string, unknown>): LayoutTemplate['layout'] => ({
-  global: { tabSetEnableDrop: true, tabEnableClose: true },
-  borders: [],
-  layout: {
-    type: 'row',
-    children: [{ type: 'tabset', weight: 100, enableTabStrip: false, children: [tab] }],
-  },
-})
-
-export const AUTOMATIONS_HOST_TEMPLATE: LayoutTemplate = {
-  id: 'automations-mode',
-  name: 'Automations Mode',
-  description:
-    'Schedule agents on this project, watch run history, and manage triggers — with runs hosted as live terminals beside the control panel.',
-  previewSlots: [editor('Automations', 4, 4, 292, 102)],
-  layout: singleSurfaceLayout({
-    type: 'tab',
-    name: 'Automations',
-    component: 'automations-control-center',
-    enableClose: false,
-  }),
-}
-
-/** The template a workspace of this mode is minted from when none is named. */
-function defaultTemplateForWorkspaceMode(mode: WorkspaceMode | undefined): LayoutTemplate | null {
-  switch (mode) {
-    case AUTOMATIONS_HOST_WORKSPACE_MODE:
-      return AUTOMATIONS_HOST_TEMPLATE
-    default:
-      return null
-  }
-}
-
 /**
- * Resolve the layout a headless `workspace.create` mints from. The mode wins
- * over a caller-named template id: a caller that asks for an automations host
- * and a 'solo' template means the host, and minting the solo layout would
- * produce a host with no control centre in it.
+ * Resolve the layout a headless `workspace.create` mints from.
  *
  * An unknown template id falls back to the standard template rather than
  * failing — the id is a presentation choice, and refusing a workspace over it
  * would make the gateway brittle for callers that named a renderer-registered
  * module type main does not know about.
  */
-export function resolveHeadlessLayoutTemplate(input: {
-  templateId?: string | null
-  mode?: WorkspaceMode | null
-}): LayoutTemplate {
-  const byMode = defaultTemplateForWorkspaceMode(input.mode ?? undefined)
-  if (byMode) return byMode
+export function resolveHeadlessLayoutTemplate(input: { templateId?: string | null }): LayoutTemplate {
   const templateId = input.templateId?.trim()
   if (templateId) {
-    const named = [...LAYOUT_TEMPLATES, EMPTY_CHAT_TEMPLATE, AUTOMATIONS_HOST_TEMPLATE].find(
-      (template) => template.id === templateId,
-    )
+    const named = [...LAYOUT_TEMPLATES, EMPTY_CHAT_TEMPLATE].find((template) => template.id === templateId)
     if (named) return named
   }
   return DEFAULT_LAYOUT_TEMPLATE

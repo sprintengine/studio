@@ -48,7 +48,6 @@ export const CARD_KIND_STAMPS: Readonly<Record<HostedCardKind, string>> = {
   mcp: 'MCP server',
   skill: 'Skill',
   plugin: 'Plugin',
-  automation: 'Automation',
   showcase: 'Showcase',
 }
 
@@ -78,7 +77,6 @@ const CARD_KIND_ACTIONS: Readonly<Record<HostedCardKind, string>> = {
   mcp: 'Install',
   skill: 'Install',
   plugin: 'Install',
-  automation: 'Create',
   showcase: 'See it',
 }
 
@@ -87,7 +85,8 @@ const CARD_SURFACE_NAMES: Readonly<Record<CardSurfaceView, string>> = {
   home: 'Extensions',
   plugins: 'Plugins',
   skills: 'Skills',
-  'agent-clis': 'Agent CLIs',
+  // The retired Agent CLIs view: its card now opens Settings ▸ Agents.
+  'agent-clis': 'Agents settings',
 }
 
 /**

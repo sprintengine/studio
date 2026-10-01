@@ -20,6 +20,8 @@ export type InstalledSkillsInput = {
    * runs on this machine's own filesystem.
    */
   pathStyle?: 'wsl'
+  /** With `pathStyle: 'wsl'`, the machine (`wsl:<distro>`); absent is the default distribution. */
+  hostId?: import('./execution-host').ExecutionHostId
 }
 export type InstalledSkillsResult =
   { ok: true; skills: InstalledSkill[]; diagnostics: string[] } | { ok: false; message: string }

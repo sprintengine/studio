@@ -14,11 +14,13 @@ import {
   pluginAliases,
   scanPluginRenames,
   scanPlugins,
+  skillRepoWebUrl,
   unreadPluginChip,
   type ScanResult,
   type ScannedPlugin,
   type SkillHarness,
   type SkillSource,
+  isGithubDotComRepo,
 } from '../../../../../../../shared/skills'
 
 const HARNESS_LABEL: Record<SkillHarness, string> = {
@@ -188,10 +190,19 @@ export function findPlugin(scan: ScanResult, pluginId: string): ScannedPlugin | 
 /** Where a plugin's bytes can be read by a person: its homepage, else its repository. */
 export function pluginExternalUrl(plugin: ScannedPlugin, source: SkillSource): string | null {
   if (plugin.homepage) return plugin.homepage
-  if (plugin.origin.kind === 'linked') return plugin.origin.url || null
-  if (plugin.origin.kind === 'in-tree' && source.repo) {
+  if (plugin.origin.kind === 'linked') {
+    // An ssh clone address is not something a browser opens; the repository's
+    // page is.
+    if (/^https?:\/\//i.test(plugin.origin.url)) return plugin.origin.url
+    return plugin.origin.repo ? skillRepoWebUrl(plugin.origin.repo) : null
+  }
+  const page = plugin.origin.kind === 'in-tree' && source.repo ? skillRepoWebUrl(source.repo) : null
+  if (plugin.origin.kind === 'in-tree' && page) {
+    // A deep link only where its spelling is known; every other host gets the
+    // repository's page, which is always right.
+    if (!isGithubDotComRepo(source.repo)) return page
     const path = plugin.origin.path ? `/tree/${source.commitSha || 'HEAD'}/${plugin.origin.path}` : ''
-    return `https://github.com/${source.repo}${path}`
+    return `${page}${path}`
   }
   if (plugin.origin.kind === 'registry') return plugin.origin.sourceUrl || null
   return null

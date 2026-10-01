@@ -1,6 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'fs'
+import { mkdir, readFile, rmdir, stat, unlink } from 'fs/promises'
 import { homedir } from 'os'
 import { dirname, join } from 'path'
+
+import { withConfigFileLock, writeFileAtomically } from './config-file-write'
+import { isLauncherMcpServer } from './integrations/launcher'
+import { hostIdForPath, recordIntegrationWrite } from './integrations/ledger'
 
 // Lazy electron so the module is importable from node-only test bundles.
 function loadElectron(): typeof import('electron') {
@@ -23,14 +27,14 @@ import type { PluginManifest, PluginMcpConfigSpec } from '../shared/plugin-manif
 // to keep this module's public surface stable for existing callers.
 import { normalizeMcpClients, normalizeMcpServerConfig, normalizeServer } from '../shared/mcp/normalize-server'
 import { pluginIdForCli } from './agent-launch-render'
-import { commandOnPath } from './command-on-path'
+import { commandOnPathAsync } from './command-on-path'
 import { getPluginById } from './plugin-registry-instance'
 import { STUDIO_MCP_SERVER_ID } from '../shared/product-identity'
 
 export { normalizeMcpClients, normalizeMcpServerConfig }
 
-const MANAGED_START = '# >>> sprintengine mcp managed'
-const MANAGED_END = '# <<< sprintengine mcp managed'
+export const MANAGED_START = '# >>> sprintengine mcp managed'
+export const MANAGED_END = '# <<< sprintengine mcp managed'
 
 /**
  * The id the deleted in-tree Sprint Engine wrote its per-run HTTP server under.
@@ -44,9 +48,17 @@ export const RETIRED_SPRINTENGINE_MCP_SERVER_ID = 'sprintengine-sprintengine'
 
 export type PluginLookup = (id: string) => { manifest: PluginManifest } | undefined
 
+/**
+ * Every call is asynchronous and every write is conditional. A launch runs a
+ * sync against the workspace each time, often with a root on a slow or remote
+ * filesystem (`\\wsl$`, a network share), so none of it may block the main
+ * thread; and a config whose bytes would not change is left alone, because an
+ * unconditional rewrite of `.mcp.json` on every launch wakes every watcher on
+ * the workspace for nothing.
+ */
 export type McpConfigService = {
-  previewSync(input: McpSyncInput): McpSyncPreview
-  sync(input: McpSyncInput): McpSyncResult
+  previewSync(input: McpSyncInput): Promise<McpSyncPreview>
+  sync(input: McpSyncInput): Promise<McpSyncResult>
 }
 
 export type McpConfigServiceOptions = {
@@ -71,14 +83,14 @@ type SyncContext = {
   userDataDir: () => string
 }
 
-function syncMcpConfig(input: McpSyncInput, context: SyncContext): McpSyncResult {
+async function syncMcpConfig(input: McpSyncInput, context: SyncContext): Promise<McpSyncResult> {
   const settings = normalizeSettings(input.settings)
   const clients = normalizeMcpClients(input.clients)
   const issues: McpValidationIssue[] = []
   if (!settings.syncEnabled) {
     return { ok: true, targets: [], issues }
   }
-  if (!input.workspaceRoot || !existsSync(input.workspaceRoot)) {
+  if (!input.workspaceRoot || !(await pathExists(input.workspaceRoot))) {
     return { ok: false, message: 'Workspace root does not exist.', issues }
   }
 
@@ -87,7 +99,7 @@ function syncMcpConfig(input: McpSyncInput, context: SyncContext): McpSyncResult
     .filter((server) => clients.some((client) => server.clients.includes(client)))
 
   for (const server of activeServers) {
-    issues.push(...validateServer(server))
+    issues.push(...(await validateServer(server)))
   }
 
   const blocking = issues.find((issue) => issue.level === 'error')
@@ -138,7 +150,7 @@ function syncMcpConfig(input: McpSyncInput, context: SyncContext): McpSyncResult
       continue
     }
 
-    const formatTargets = syncForFormat({
+    const formatTargets = await syncForFormat({
       client,
       plugin: plugin.manifest,
       workspaceRoot: input.workspaceRoot,
@@ -187,13 +199,13 @@ function normalizeSettings(settings: McpSettings | undefined): McpSettings {
   }
 }
 
-function validateServer(server: McpServerConfig): McpValidationIssue[] {
+async function validateServer(server: McpServerConfig): Promise<McpValidationIssue[]> {
   const issues: McpValidationIssue[] = []
   if (server.transport === 'stdio') {
     const command = server.command?.trim()
     if (!command) {
       issues.push({ level: 'error', serverId: server.id, message: `${server.name} is missing a command.` })
-    } else if (!commandOnPath(command)) {
+    } else if (!(await commandOnPathAsync(command))) {
       issues.push({
         level: server.required ? 'error' : 'warning',
         serverId: server.id,
@@ -251,22 +263,22 @@ type SyncForFormatInput = {
   context: SyncContext
 }
 
-function syncForFormat(input: SyncForFormatInput): {
+async function syncForFormat(input: SyncForFormatInput): Promise<{
   targets: McpSyncTarget[]
   issues: McpValidationIssue[]
-} {
+}> {
   const format = input.plugin.mcpConfig!.format
   switch (format) {
     case 'codex': {
-      const result = syncCodex(input)
+      const result = await syncCodex(input)
       return { targets: [result.target], issues: result.issues }
     }
     case 'claude-code': {
-      const result = syncClaude(input)
+      const result = await syncClaude(input)
       return { targets: [result.target], issues: result.issues }
     }
     case 'opencode': {
-      const result = syncOpencode(input)
+      const result = await syncOpencode(input)
       return { targets: [result.target], issues: result.issues }
     }
     case 'generic': {
@@ -287,11 +299,11 @@ function syncForFormat(input: SyncForFormatInput): {
   }
 }
 
-function syncCodex(input: SyncForFormatInput): {
+async function syncCodex(input: SyncForFormatInput): Promise<{
   target: McpSyncTarget
   issues: McpValidationIssue[]
-} {
-  const { plugin, servers, knownServerIds, pruneUnlisted, workspaceRoot, write, context, client } = input
+}> {
+  const { plugin, servers, knownServerIds, workspaceRoot, write, context, client } = input
   const scope: McpScope = servers.some((server) => server.scope === 'user') ? 'user' : 'workspace'
   const resolved = resolveMcpConfigPath(plugin.mcpConfig!, scope, workspaceRoot, context.homeDir)
   const serverIds = servers.map((server) => server.id)
@@ -300,32 +312,44 @@ function syncCodex(input: SyncForFormatInput): {
   }
   const target = { client, path: resolved, serverIds }
   if (write && (servers.length > 0 || knownServerIds.length > 0)) {
-    const prepared = prepareWritableConfigFile(resolved, client)
-    if (!prepared.ok) return { target, issues: [prepared.issue] }
-    // Connector-scoped write: drop every [mcp_servers.*] table the repo committed
-    // outside our managed block (renderCodexManagedBlock only rewrites the managed
-    // block, which is the sole source of truth for the connector set). Keep none —
-    // even a bare table sharing the connector id, to avoid a duplicate section.
-    // Other codex config (model, profiles, …) is preserved.
-    const base = pruneUnlisted
-      ? removeCommittedCodexMcpServers(replaceManagedBlock(prepared.previous, ''))
-      : prepared.previous
-    writeFileSync(
-      resolved,
-      servers.length
-        ? replaceManagedBlock(base, renderCodexManagedBlock(servers))
-        : removeCodexManagedServers(base, knownServerIds),
-      'utf8',
-    )
+    return withConfigFileLock(resolved, () => writeCodexConfig(input, resolved, target))
   }
   return { target, issues: [] }
 }
 
-function syncClaude(input: SyncForFormatInput): {
+async function writeCodexConfig(
+  input: SyncForFormatInput,
+  resolved: string,
+  target: McpSyncTarget,
+): Promise<{ target: McpSyncTarget; issues: McpValidationIssue[] }> {
+  const { servers, knownServerIds, pruneUnlisted, client } = input
+  const prepared = await prepareWritableConfigFile(resolved, client)
+  if (!prepared.ok) return { target, issues: [prepared.issue] }
+  // Connector-scoped write: drop every [mcp_servers.*] table the repo committed
+  // outside our managed block (renderCodexManagedBlock only rewrites the managed
+  // block, which is the sole source of truth for the connector set). Keep none —
+  // even a bare table sharing the connector id, to avoid a duplicate section.
+  // Other codex config (model, profiles, …) is preserved.
+  const base = pruneUnlisted
+    ? removeCommittedCodexMcpServers(replaceManagedBlock(prepared.previous, ''))
+    : prepared.previous
+  const written = await writeIfChanged(
+    resolved,
+    prepared,
+    servers.length
+      ? replaceManagedBlock(base, renderCodexManagedBlock(servers))
+      : removeCodexManagedServers(base, knownServerIds),
+    client,
+  )
+  if (!written) recordGatewayWrite(input, resolved, CODEX_GATEWAY_MARKER, servers, prepared.existed)
+  return { target, issues: written ? [written] : [] }
+}
+
+async function syncClaude(input: SyncForFormatInput): Promise<{
   target: McpSyncTarget
   issues: McpValidationIssue[]
-} {
-  const { plugin, servers, knownServerIds, pruneUnlisted, workspaceRoot, write, context, client } = input
+}> {
+  const { plugin, servers, knownServerIds, workspaceRoot, write, context, client } = input
   const workspaceServers = servers.filter((server) => server.scope === 'workspace')
   const userServers = servers.filter((server) => server.scope === 'user')
   const issues = userServers.map((server): McpValidationIssue => ({
@@ -341,61 +365,72 @@ function syncClaude(input: SyncForFormatInput): {
       issues,
     }
   }
+  const target = { client, path, serverIds: workspaceServers.map((server) => server.id) }
   if (write && (workspaceServers.length > 0 || knownServerIds.length > 0)) {
-    const prepared = prepareWritableConfigFile(path, client)
-    if (!prepared.ok) {
-      return {
-        target: { client, path, serverIds: workspaceServers.map((server) => server.id) },
-        issues: [...issues, prepared.issue],
-      }
-    }
-    let existing: Record<string, unknown> = {}
-    if (prepared.existed) {
-      try {
-        existing = JSON.parse(prepared.previous) as Record<string, unknown>
-      } catch {
-        issues.push({
+    // Held across the write, the read-back and the approval so no other sync of
+    // this `.mcp.json` lands between writing the entry and verifying it.
+    const writeIssues = await withConfigFileLock(path, () => writeClaudeConfig(input, path, workspaceServers))
+    issues.push(...writeIssues)
+  }
+  return { target, issues }
+}
+
+async function writeClaudeConfig(
+  input: SyncForFormatInput,
+  path: string,
+  workspaceServers: McpServerConfig[],
+): Promise<McpValidationIssue[]> {
+  const { plugin, knownServerIds, pruneUnlisted, workspaceRoot, client } = input
+  const prepared = await prepareWritableConfigFile(path, client)
+  if (!prepared.ok) return [prepared.issue]
+  let existing: Record<string, unknown> = {}
+  if (prepared.existed) {
+    const parsed = parseJsonObject(prepared.previous)
+    if (!parsed) {
+      return [
+        {
           level: 'error',
           client,
-          message: `.mcp.json is not valid JSON. Fix it before syncing Claude MCPs.`,
-        })
-        return {
-          target: { client, path, serverIds: workspaceServers.map((server) => server.id) },
-          issues,
-        }
-      }
+          message: `${path} is not valid JSON. Fix it before syncing Claude MCPs.`,
+        },
+      ]
     }
-    const currentServers =
-      existing.mcpServers && typeof existing.mcpServers === 'object'
-        ? (existing.mcpServers as Record<string, unknown>)
-        : {}
-    // Connector-scoped write starts empty so any server the repo committed into
-    // the worktree .mcp.json is dropped, not merged; the normal path preserves
-    // the user's other servers and only replaces the ones we manage.
-    const nextServers: Record<string, unknown> = pruneUnlisted ? {} : { ...currentServers }
-    if (!pruneUnlisted) {
-      for (const serverId of knownServerIds) {
-        delete nextServers[serverId]
-      }
-    }
-    for (const server of workspaceServers) {
-      nextServers[server.id] = toClaudeServer(server)
-    }
-    writeFileSync(path, `${JSON.stringify({ ...existing, mcpServers: nextServers }, null, 2)}\n`, 'utf8')
-    if (plugin.binary === 'claude' && workspaceServers.some((server) => server.id === STUDIO_MCP_SERVER_ID)) {
-      const approvalIssue = enableStudioMcpForClaudeWorkspace(
-        workspaceRoot,
-        client,
-        path,
-        nextServers[STUDIO_MCP_SERVER_ID],
-      )
-      if (approvalIssue) issues.push(approvalIssue)
+    existing = parsed
+  }
+  const currentServers =
+    existing.mcpServers && typeof existing.mcpServers === 'object'
+      ? (existing.mcpServers as Record<string, unknown>)
+      : {}
+  // Connector-scoped write starts empty so any server the repo committed into
+  // the worktree .mcp.json is dropped, not merged; the normal path preserves
+  // the user's other servers and only replaces the ones we manage.
+  const nextServers: Record<string, unknown> = pruneUnlisted ? {} : { ...currentServers }
+  if (!pruneUnlisted) {
+    for (const serverId of knownServerIds) {
+      delete nextServers[serverId]
     }
   }
-  return {
-    target: { client, path, serverIds: workspaceServers.map((server) => server.id) },
-    issues,
+  for (const server of workspaceServers) {
+    nextServers[server.id] = toClaudeServer(server)
   }
+  const writeIssue = await writeIfChanged(
+    path,
+    prepared,
+    `${JSON.stringify({ ...existing, mcpServers: nextServers }, null, 2)}\n`,
+    client,
+  )
+  if (writeIssue) return [writeIssue]
+  recordGatewayWrite(input, path, CLAUDE_GATEWAY_MARKER, workspaceServers, prepared.existed)
+  if (plugin.binary === 'claude' && workspaceServers.some((server) => server.id === STUDIO_MCP_SERVER_ID)) {
+    const approvalIssue = await enableStudioMcpForClaudeWorkspace(
+      workspaceRoot,
+      client,
+      path,
+      nextServers[STUDIO_MCP_SERVER_ID],
+    )
+    if (approvalIssue) return [approvalIssue]
+  }
+  return []
 }
 
 // Claude records project MCP approval separately from `.mcp.json`. The Studio
@@ -407,17 +442,18 @@ function syncClaude(input: SyncForFormatInput): {
 // granted against content we did not just write: a repo-committed `.mcp.json`
 // squatting on our id would otherwise run an arbitrary command with no consent
 // prompt. Verify the on-disk entry byte-matches the managed config at grant
-// time; the sync path rewrites the entry on every launch, so drift is healed
-// and re-verified per launch (installer command-shape rule, not id-trust).
-function enableStudioMcpForClaudeWorkspace(
+// time; the sync path re-renders the entry on every launch and writes it back
+// whenever the file drifted from it, so drift is healed and re-verified per
+// launch (installer command-shape rule, not id-trust).
+async function enableStudioMcpForClaudeWorkspace(
   workspaceRoot: string,
   client: McpClientTarget,
   mcpJsonPath: string,
   expectedServer: unknown,
-): McpValidationIssue | null {
+): Promise<McpValidationIssue | null> {
   try {
-    const parsed = JSON.parse(readFileSync(mcpJsonPath, 'utf8')) as Record<string, unknown>
-    const servers = (parsed.mcpServers ?? {}) as Record<string, unknown>
+    const parsed = JSON.parse(await readFile(mcpJsonPath, 'utf8')) as Record<string, unknown> | null
+    const servers = (parsed?.mcpServers ?? {}) as Record<string, unknown>
     const onDisk = servers[STUDIO_MCP_SERVER_ID]
     if (JSON.stringify(onDisk) !== JSON.stringify(expectedServer)) {
       return {
@@ -436,19 +472,26 @@ function enableStudioMcpForClaudeWorkspace(
     }
   }
   const settingsPath = join(workspaceRoot, '.claude', 'settings.local.json')
-  const prepared = prepareWritableConfigFile(settingsPath, client)
+  return withConfigFileLock(settingsPath, () => approveStudioMcpInClaudeSettings(settingsPath, client))
+}
+
+async function approveStudioMcpInClaudeSettings(
+  settingsPath: string,
+  client: McpClientTarget,
+): Promise<McpValidationIssue | null> {
+  const prepared = await prepareWritableConfigFile(settingsPath, client)
   if (!prepared.ok) return prepared.issue
   let existing: Record<string, unknown> = {}
-  if (prepared.existed && prepared.previous.trim()) {
-    try {
-      existing = JSON.parse(prepared.previous) as Record<string, unknown>
-    } catch {
+  if (prepared.existed) {
+    const parsed = parseJsonObject(prepared.previous)
+    if (!parsed) {
       return {
         level: 'error',
         client,
         message: `${settingsPath} is not valid JSON. Fix it before syncing the required Studio MCP server.`,
       }
     }
+    existing = parsed
   }
   const strings = (value: unknown): string[] =>
     Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
@@ -462,15 +505,52 @@ function enableStudioMcpForClaudeWorkspace(
   }
   if (disabled.length > 0) next.disabledMcpjsonServers = disabled
   else delete next.disabledMcpjsonServers
-  writeFileSync(settingsPath, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
-  return null
+  const issue = await writeIfChanged(settingsPath, prepared, `${JSON.stringify(next, null, 2)}\n`, client)
+  if (!issue) {
+    recordIntegrationWrite({
+      kind: 'mcp-approval',
+      path: settingsPath,
+      marker: MCP_APPROVAL_MARKER,
+      hostId: hostIdForPath(settingsPath),
+      cli: client,
+      repo: dirname(dirname(settingsPath)),
+      createdFile: !prepared.existed,
+    })
+  }
+  return issue
 }
 
-function syncOpencode(input: SyncForFormatInput): {
+/** How the gateway is recognised in each format's file (see `isManagedStudioGatewayEntry`). */
+export const CLAUDE_GATEWAY_MARKER = `mcpServers.${STUDIO_MCP_SERVER_ID}`
+export const OPENCODE_GATEWAY_MARKER = `mcp.${STUDIO_MCP_SERVER_ID}`
+export const CODEX_GATEWAY_MARKER = `${MANAGED_START}#${STUDIO_MCP_SERVER_ID}`
+export const MCP_APPROVAL_MARKER = `enabledMcpjsonServers.${STUDIO_MCP_SERVER_ID}`
+
+/** Record the gateway in the integration ledger when this write carried it. */
+function recordGatewayWrite(
+  input: SyncForFormatInput,
+  path: string,
+  marker: string,
+  servers: readonly McpServerConfig[],
+  existed: boolean,
+): void {
+  if (!servers.some((server) => server.id === STUDIO_MCP_SERVER_ID)) return
+  recordIntegrationWrite({
+    kind: 'mcp-gateway',
+    path,
+    marker,
+    hostId: hostIdForPath(path),
+    cli: input.client,
+    repo: input.workspaceRoot,
+    createdFile: !existed,
+  })
+}
+
+async function syncOpencode(input: SyncForFormatInput): Promise<{
   target: McpSyncTarget
   issues: McpValidationIssue[]
-} {
-  const { plugin, servers, knownServerIds, pruneUnlisted, workspaceRoot, write, context, client } = input
+}> {
+  const { plugin, servers, knownServerIds, workspaceRoot, write, context, client } = input
   const issues: McpValidationIssue[] = []
   // OpenCode's `mcp` schema expresses local (stdio) and remote (HTTP) servers
   // only. Surface anything it cannot represent instead of writing a fake entry.
@@ -497,51 +577,60 @@ function syncOpencode(input: SyncForFormatInput): {
   }
 
   if (write && (writableServers.length > 0 || knownServerIds.length > 0)) {
-    const prepared = prepareWritableConfigFile(path, client)
-    if (!prepared.ok) {
-      return { target: { client, path, serverIds }, issues: [...issues, prepared.issue] }
-    }
-    // Nothing to add and no file to prune from: do not create an empty config.
-    if (!prepared.existed && writableServers.length === 0) {
-      return { target: { client, path, serverIds }, issues }
-    }
-    let existing: Record<string, unknown> = {}
-    if (prepared.existed && prepared.previous.trim()) {
-      try {
-        existing = JSON.parse(prepared.previous) as Record<string, unknown>
-      } catch {
-        issues.push({
+    const writeIssues = await withConfigFileLock(path, () => writeOpencodeConfig(input, path, writableServers))
+    issues.push(...writeIssues)
+  }
+  return { target: { client, path, serverIds }, issues }
+}
+
+async function writeOpencodeConfig(
+  input: SyncForFormatInput,
+  path: string,
+  writableServers: McpServerConfig[],
+): Promise<McpValidationIssue[]> {
+  const { knownServerIds, pruneUnlisted, client } = input
+  const prepared = await prepareWritableConfigFile(path, client)
+  if (!prepared.ok) return [prepared.issue]
+  // Nothing to add and no file to prune from: do not create an empty config.
+  if (!prepared.existed && writableServers.length === 0) return []
+  let existing: Record<string, unknown> = {}
+  if (prepared.existed) {
+    const parsed = parseJsonObject(prepared.previous)
+    if (!parsed) {
+      return [
+        {
           level: 'error',
           client,
           message: `opencode.json is not valid JSON. Fix it before syncing OpenCode MCPs.`,
-        })
-        return { target: { client, path, serverIds }, issues }
-      }
+        },
+      ]
     }
-    const currentServers =
-      existing.mcp && typeof existing.mcp === 'object' && !Array.isArray(existing.mcp)
-        ? (existing.mcp as Record<string, unknown>)
-        : {}
-    // Connector-scoped write drops any repo-committed server (start empty); the
-    // normal path keeps the user's servers and only replaces the managed ones.
-    const nextServers: Record<string, unknown> = pruneUnlisted ? {} : { ...currentServers }
-    if (!pruneUnlisted) {
-      for (const serverId of knownServerIds) {
-        delete nextServers[serverId]
-      }
-    }
-    for (const server of writableServers) {
-      nextServers[server.id] = toOpencodeServer(server)
-    }
-    const next: Record<string, unknown> = { ...existing }
-    if (Object.keys(nextServers).length) {
-      next.mcp = nextServers
-    } else {
-      delete next.mcp
-    }
-    writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
+    existing = parsed
   }
-  return { target: { client, path, serverIds }, issues }
+  const currentServers =
+    existing.mcp && typeof existing.mcp === 'object' && !Array.isArray(existing.mcp)
+      ? (existing.mcp as Record<string, unknown>)
+      : {}
+  // Connector-scoped write drops any repo-committed server (start empty); the
+  // normal path keeps the user's servers and only replaces the managed ones.
+  const nextServers: Record<string, unknown> = pruneUnlisted ? {} : { ...currentServers }
+  if (!pruneUnlisted) {
+    for (const serverId of knownServerIds) {
+      delete nextServers[serverId]
+    }
+  }
+  for (const server of writableServers) {
+    nextServers[server.id] = toOpencodeServer(server)
+  }
+  const next: Record<string, unknown> = { ...existing }
+  if (Object.keys(nextServers).length) {
+    next.mcp = nextServers
+  } else {
+    delete next.mcp
+  }
+  const writeIssue = await writeIfChanged(path, prepared, `${JSON.stringify(next, null, 2)}\n`, client)
+  if (!writeIssue) recordGatewayWrite(input, path, OPENCODE_GATEWAY_MARKER, writableServers, prepared.existed)
+  return writeIssue ? [writeIssue] : []
 }
 
 function toOpencodeServer(server: McpServerConfig): Record<string, unknown> {
@@ -581,13 +670,82 @@ function opencodeRemoteHeaders(server: McpServerConfig): Record<string, string> 
   return headers
 }
 
-type WritableConfigFileResult =
-  { ok: true; previous: string; existed: boolean } | { ok: false; issue: McpValidationIssue }
+type PreparedConfigFile = { ok: true; previous: string; existed: boolean }
+type WritableConfigFileResult = PreparedConfigFile | { ok: false; issue: McpValidationIssue }
 
-function prepareWritableConfigFile(path: string, client: McpClientTarget): WritableConfigFileResult {
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** `stat`, or null when nothing is there. Any other failure propagates. */
+async function statOrNull(path: string): Promise<Awaited<ReturnType<typeof stat>> | null> {
+  try {
+    return await stat(path)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') return null
+    throw error
+  }
+}
+
+// Every write below goes through `withConfigFileLock` and `writeFileAtomically`
+// (config-file-write.ts): see there for why.
+
+/**
+ * The file's JSON object, `{}` for a file with nothing in it, or null for
+ * anything else — a caller must refuse to write over what it cannot read.
+ */
+function parseJsonObject(text: string): Record<string, unknown> | null {
+  if (text.trim() === '') return {}
+  try {
+    const parsed: unknown = JSON.parse(text)
+    return isPlainRecord(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Write `content` unless the file already holds exactly those bytes. The
+ * comparison is against the text `prepareWritableConfigFile` just read, so it
+ * costs no second read. A failed write is reported, not thrown.
+ */
+async function writeIfChanged(
+  path: string,
+  prepared: PreparedConfigFile,
+  content: string,
+  client: McpClientTarget,
+): Promise<McpValidationIssue | null> {
+  if (prepared.existed && prepared.previous === content) return null
+  try {
+    await writeFileAtomically(path, content)
+    return null
+  } catch (error) {
+    return {
+      level: 'error',
+      client,
+      message: `Cannot write MCP config for ${client} at ${path}: ${error instanceof Error ? error.message : 'Unknown filesystem error.'}`,
+    }
+  }
+}
+
+/**
+ * How long to wait before reading an empty config a second time. A file that
+ * is empty on disk is most often one another program is rewriting in place
+ * right now; treating that moment as "no settings" and writing back would drop
+ * everything in it. A file still empty after the pause really is empty.
+ */
+const EMPTY_CONFIG_REREAD_MS = 50
+
+async function prepareWritableConfigFile(path: string, client: McpClientTarget): Promise<WritableConfigFileResult> {
   const directory = dirname(path)
   try {
-    if (existsSync(directory) && !statSync(directory).isDirectory()) {
+    const directoryStat = await statOrNull(directory)
+    if (directoryStat && !directoryStat.isDirectory()) {
       return {
         ok: false,
         issue: {
@@ -597,9 +755,10 @@ function prepareWritableConfigFile(path: string, client: McpClientTarget): Writa
         },
       }
     }
-    mkdirSync(directory, { recursive: true })
-    if (!existsSync(path)) return { ok: true, previous: '', existed: false }
-    if (statSync(path).isDirectory()) {
+    if (!directoryStat) await mkdir(directory, { recursive: true })
+    const fileStat = await statOrNull(path)
+    if (!fileStat) return { ok: true, previous: '', existed: false }
+    if (fileStat.isDirectory()) {
       return {
         ok: false,
         issue: {
@@ -609,7 +768,12 @@ function prepareWritableConfigFile(path: string, client: McpClientTarget): Writa
         },
       }
     }
-    return { ok: true, previous: readFileSync(path, 'utf8'), existed: true }
+    let previous = await readFile(path, 'utf8')
+    if (previous.trim() === '') {
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, EMPTY_CONFIG_REREAD_MS))
+      previous = await readFile(path, 'utf8')
+    }
+    return { ok: true, previous, existed: true }
   } catch (error) {
     return {
       ok: false,
@@ -629,7 +793,7 @@ function replaceManagedBlock(previous: string, block: string): string {
   return `${trimmed}${trimmed ? '\n\n' : ''}${block}\n`
 }
 
-function removeCodexManagedServers(previous: string, serverIds: string[]): string {
+export function removeCodexManagedServers(previous: string, serverIds: string[]): string {
   const ids = new Set(serverIds)
   if (ids.size === 0) return previous
   const pattern = new RegExp(`${escapeRegExp(MANAGED_START)}[\\s\\S]*?${escapeRegExp(MANAGED_END)}\\n?`, 'm')
@@ -797,14 +961,17 @@ const STUDIO_BRIDGE_SCRIPT_NAME = 'mcp-stdio-bridge.mjs'
  * would have created it. Best-effort: an unreadable or unparseable file is left
  * exactly as it is, and the returned list says what was changed.
  */
-export function removeManagedStudioGatewayFromClaudeWorkspace(workspaceRoot: string): string[] {
+export async function removeManagedStudioGatewayFromClaudeWorkspace(workspaceRoot: string): Promise<string[]> {
   const changed: string[] = []
   const root = workspaceRoot.trim()
   if (root === '') return changed
 
+  // Each file under its own lock, `.mcp.json` first: the order a sync takes
+  // them in, so this pass and a concurrent sync never interleave on either.
   const mcpJsonPath = join(root, '.mcp.json')
-  const mcpJson = readJsonObjectSync(mcpJsonPath)
-  if (mcpJson && isPlainRecord(mcpJson.mcpServers)) {
+  const mcpJsonChanged = await withConfigFileLock(mcpJsonPath, async () => {
+    const mcpJson = await readJsonObject(mcpJsonPath)
+    if (!mcpJson || !isPlainRecord(mcpJson.mcpServers)) return false
     const servers = { ...mcpJson.mcpServers }
     let touched = false
     if (isManagedStudioGatewayEntry(servers[STUDIO_MCP_SERVER_ID])) {
@@ -815,36 +982,41 @@ export function removeManagedStudioGatewayFromClaudeWorkspace(workspaceRoot: str
       delete servers[RETIRED_SPRINTENGINE_MCP_SERVER_ID]
       touched = true
     }
-    if (touched && writeOrRemoveJsonObjectSync(mcpJsonPath, { ...mcpJson, mcpServers: servers }, ['mcpServers'])) {
-      changed.push('.mcp.json')
-    }
-  }
+    return touched && (await writeOrRemoveJsonObject(mcpJsonPath, { ...mcpJson, mcpServers: servers }, ['mcpServers']))
+  })
+  if (mcpJsonChanged) changed.push('.mcp.json')
 
   const settingsPath = join(root, '.claude', 'settings.local.json')
-  const settings = readJsonObjectSync(settingsPath)
-  if (settings && Array.isArray(settings.enabledMcpjsonServers)) {
+  const settingsChanged = await withConfigFileLock(settingsPath, async () => {
+    const settings = await readJsonObject(settingsPath)
+    if (!settings || !Array.isArray(settings.enabledMcpjsonServers)) return false
     const enabled = settings.enabledMcpjsonServers as unknown[]
     const kept = enabled.filter((id) => id !== STUDIO_MCP_SERVER_ID && id !== RETIRED_SPRINTENGINE_MCP_SERVER_ID)
-    if (kept.length !== enabled.length) {
-      const next: Record<string, unknown> = { ...settings }
-      if (kept.length > 0) next.enabledMcpjsonServers = kept
-      else delete next.enabledMcpjsonServers
-      if (writeOrRemoveJsonObjectSync(settingsPath, next, [])) {
-        changed.push('.claude/settings.local.json')
-        // The directory too, when the app's file was all it held.
-        try {
-          rmdirSync(join(root, '.claude'))
-        } catch {
-          // Not empty, or not ours to remove: either way it stays.
-        }
-      }
+    if (kept.length === enabled.length) return false
+    const next: Record<string, unknown> = { ...settings }
+    if (kept.length > 0) next.enabledMcpjsonServers = kept
+    else delete next.enabledMcpjsonServers
+    if (!(await writeOrRemoveJsonObject(settingsPath, next, []))) return false
+    // The directory too, when the app's file was all it held.
+    try {
+      await rmdir(join(root, '.claude'))
+    } catch {
+      // Not empty, or not ours to remove: either way it stays.
     }
-  }
+    return true
+  })
+  if (settingsChanged) changed.push('.claude/settings.local.json')
   return changed
 }
 
-function isManagedStudioGatewayEntry(entry: unknown): boolean {
+/**
+ * Whether an MCP server entry is the app's gateway: the launcher's `mcp`
+ * target, or the older shape — the bundled bridge run by the app's own binary
+ * (`ELECTRON_RUN_AS_NODE`) or a distribution's pinned Node.
+ */
+export function isManagedStudioGatewayEntry(entry: unknown): boolean {
   if (!isPlainRecord(entry)) return false
+  if (isLauncherMcpServer(entry)) return true
   const args = Array.isArray(entry.args) ? entry.args : []
   const script = typeof args[0] === 'string' ? args[0].replace(/\\/g, '/') : ''
   const env = isPlainRecord(entry.env) ? entry.env : {}
@@ -855,10 +1027,9 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function readJsonObjectSync(path: string): Record<string, unknown> | null {
-  if (!existsSync(path)) return null
+async function readJsonObject(path: string): Promise<Record<string, unknown> | null> {
   try {
-    const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
+    const parsed: unknown = JSON.parse(await readFile(path, 'utf8'))
     return isPlainRecord(parsed) ? parsed : null
   } catch {
     return null
@@ -869,17 +1040,17 @@ function readJsonObjectSync(path: string): Record<string, unknown> | null {
  * Write `value`, or delete the file when nothing is left in it: no keys at all,
  * or only `emptyRecordKeys` holding empty objects. Returns whether it succeeded.
  */
-function writeOrRemoveJsonObjectSync(
+async function writeOrRemoveJsonObject(
   path: string,
   value: Record<string, unknown>,
   emptyRecordKeys: readonly string[],
-): boolean {
+): Promise<boolean> {
   const meaningful = Object.entries(value).filter(
     ([key, entry]) => !(emptyRecordKeys.includes(key) && isPlainRecord(entry) && Object.keys(entry).length === 0),
   )
   try {
-    if (meaningful.length === 0) unlinkSync(path)
-    else writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
+    if (meaningful.length === 0) await unlink(path)
+    else await writeFileAtomically(path, `${JSON.stringify(value, null, 2)}\n`)
     return true
   } catch {
     return false

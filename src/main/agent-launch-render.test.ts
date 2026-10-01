@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
 
-import { applyDebugDirective, debugDirectiveFor } from '../shared/debug-directive'
 import type { CliPermissionPreset } from '../shared/electron-api'
 import {
   argvToPosixShellCommand,
@@ -12,26 +11,14 @@ import {
   renderAgentLaunchArgv,
   renderAgentLaunchPreview,
   resolveCliRuntimeSettings,
-  resolveDebugSkillInvocation,
 } from './agent-launch-render'
-import { composeSpawnAgentPrompt } from './automations/actions/spawn-agent'
 import { createPluginRegistry } from './plugin-registry'
+import { declaredPermissionPresets, permissionRenderKey, resolvePermissionArgs } from './plugin-render'
 import { buildCodexLegacyNativeAgentLaunchPowerShellScript } from './terminal-launch'
 import { __resetPluginRegistryForTest, __setPluginRegistryForTest, getPluginById } from './plugin-registry-instance'
 import { test } from 'vitest'
 
 test('agent-launch-render', async () => {
-  // The directive names the workspace's own sidecar directory, so the expected
-  // text is derived the same way the launch derives it rather than pinned.
-  const DEBUG_DIRECTIVE = debugDirectiveFor()
-
-  // The CLI-native debug skill invocation each bundled manifest declares via
-  // skillIntegration.invocation.explicitTemplate, rendered for skillId "debug".
-  const DEBUG_INVOCATION: Record<'claude-code' | 'codex', string> = {
-    'claude-code': '/debug',
-    codex: 'Use $debug.',
-  }
-
   const BUNDLED_ROOT = join(process.cwd(), 'resources', 'plugins')
 
   async function main(): Promise<void> {
@@ -43,7 +30,8 @@ test('agent-launch-render', async () => {
       testClaudeCodeRenderWithRuntimeBinaryOverride()
       testLaunchExecutesProbedPathAndGuardFailsHard()
       testCodexRenderDefault()
-      testCodexRenderWithAutoWorkspace()
+      testCodexRenderWithBypass()
+      testEveryBundledCliRendersItsModes()
       testCodexRenderResume()
       testOpenCodeRenderDefault()
       testOpenCodeRenderWithBypassAndModel()
@@ -66,11 +54,6 @@ test('agent-launch-render', async () => {
       testBuildAgentShellCommandCodex()
       testRenderArgvIncludesBinaryAsFirstElement()
       testResolveCliRuntimeSettings()
-      testApplyDebugDirectiveHelper()
-      testResolveDebugSkillInvocation()
-      testDebugModeOrthogonality()
-      testDebugDirectiveReachesRenderedArgvAllPaths()
-      testCodexLegacyWindowsDebugInjection()
       testLaunchPreviewMatchesTheLaunchItPreviews()
       testLaunchPreviewCarriesEveryControlOnTheRow()
       testNoHostContextRendersNothingAnywhere()
@@ -230,20 +213,22 @@ test('agent-launch-render', async () => {
 
   function testResolveCliRuntimeSettings(): void {
     assert.deepEqual(
-      resolveCliRuntimeSettings('claude-code', { 'claude-code': { command: '/opt/claude/bin/claude', useWsl: true } }),
-      { command: '/opt/claude/bin/claude', useWsl: true },
-      'claude-code launch reads its plugin-id command/WSL override',
+      resolveCliRuntimeSettings('claude-code', {
+        'claude-code': { command: ' /opt/claude/bin/claude ', hostId: 'wsl:Ubuntu' },
+      }),
+      { command: '/opt/claude/bin/claude', hostId: 'wsl:Ubuntu' },
+      'claude-code launch reads its plugin-id command override and the machine it is for',
     )
     assert.deepEqual(
       resolveCliRuntimeSettings('claude-code', {
-        'claude-code': { command: '', useWsl: false },
+        'claude-code': { command: '' },
       }),
-      { command: '', useWsl: false },
+      { command: '' },
       'a blank claude-code command means manifest binary at render',
     )
     assert.deepEqual(
       resolveCliRuntimeSettings('codex', undefined),
-      { command: '', useWsl: false },
+      { command: '' },
       'no override resolves to a blank command (manifest binary at render)',
     )
   }
@@ -499,7 +484,7 @@ test('agent-launch-render', async () => {
     const out = renderAgentLaunchArgv({
       cli: 'claude-code',
       sessionId: 'sid_5',
-      cliRuntime: { command: '/opt/claude/bin/claude', useWsl: false },
+      cliRuntime: { command: '/opt/claude/bin/claude' },
     })
     assert.deepEqual(out.argv, ['/opt/claude/bin/claude', '--session-id', 'sid_5'])
     assert.equal(out.binary, '/opt/claude/bin/claude')
@@ -570,14 +555,92 @@ test('agent-launch-render', async () => {
     assert.deepEqual(out.argv, ['codex', 'fix the parser'])
   }
 
-  function testCodexRenderWithAutoWorkspace(): void {
+  function testCodexRenderWithBypass(): void {
     const out = renderAgentLaunchArgv({
       cli: 'codex',
       sessionId: 'sid_y',
       initialPrompt: 'fix it',
-      cliPermissionPreset: 'auto',
+      cliPermissionPreset: 'bypass',
     })
-    assert.deepEqual(out.argv, ['codex', '--ask-for-approval', 'never', '--sandbox', 'workspace-write', 'fix it'])
+    assert.deepEqual(out.argv, ['codex', '--dangerously-bypass-approvals-and-sandbox', 'fix it'])
+  }
+
+  // The four modes, for every bundled CLI: each is that CLI's own setting for
+  // it, and `none` is no permission flag at all. A mode a CLI has no setting
+  // for is not declared, renders no flag, and is not listed as one it takes.
+  function testEveryBundledCliRendersItsModes(): void {
+    // Claude Code against another model endpoint keeps acceptEdits for Auto:
+    // the classifier mode Claude Code's own Auto uses is not offered there.
+    const claudeEndpointModes = {
+      manual: ['--permission-mode', 'default'],
+      auto: ['--permission-mode', 'acceptEdits'],
+      bypass: ['--permission-mode', 'bypassPermissions'],
+    }
+    const modeArgs: Record<string, Partial<Record<'manual' | 'auto' | 'bypass', string[]>>> = {
+      'claude-code': { ...claudeEndpointModes, auto: ['--permission-mode', 'auto'] },
+      'kimi-claude': claudeEndpointModes,
+      zai: claudeEndpointModes,
+      codex: {
+        manual: ['--ask-for-approval', 'on-request', '--sandbox', 'read-only'],
+        auto: ['--approve-for-me'],
+        bypass: ['--dangerously-bypass-approvals-and-sandbox'],
+      },
+      cursor: { auto: ['--auto-review'], bypass: ['--force'] },
+      grok: {
+        manual: ['--permission-mode', 'default'],
+        auto: ['--permission-mode', 'auto'],
+        bypass: ['--always-approve', '--trust'],
+      },
+      // OpenCode is told Manual and Auto through its environment.
+      opencode: { manual: [], auto: [], bypass: ['--auto'] },
+      'kimi-code': { bypass: ['--auto'] },
+      muse: {},
+      'generic-shell': {},
+    }
+    for (const [cli, modes] of Object.entries(modeArgs)) {
+      const plugin = getPluginById(cli)
+      assert.ok(plugin, `bundled ${cli} is loaded`)
+      for (const mode of ['manual', 'auto', 'bypass'] as const)
+        assert.deepEqual(resolvePermissionArgs(plugin!.manifest, mode), modes[mode] ?? [], `${cli}: ${mode} flags`)
+      assert.deepEqual(resolvePermissionArgs(plugin!.manifest, 'none'), [], `${cli}: none passes no flag`)
+      assert.deepEqual(
+        declaredPermissionPresets(plugin!.manifest),
+        (['manual', 'none', 'auto', 'bypass'] as const).filter((mode) => mode === 'none' || mode in modes),
+        `${cli}: the modes it takes`,
+      )
+    }
+
+    // And through the launch itself: no flag between the binary and the prompt.
+    const none = renderAgentLaunchArgv({
+      cli: 'claude-code',
+      sessionId: 'sid_n',
+      initialPrompt: 'go',
+      cliPermissionPreset: 'none',
+    })
+    assert.deepEqual(none.argv, ['claude', '--session-id', 'sid_n', 'go'])
+
+    // Each CLI's other modes render their own flags at the preset they sit at.
+    // A mode at another preset, or one the CLI does not have, renders the
+    // preset's own: never nothing, never a flag the CLI lacks.
+    const ownModes: Array<[string, CliPermissionPreset, string, string[]]> = [
+      ['claude-code', 'auto', 'acceptEdits', ['--permission-mode', 'acceptEdits']],
+      ['claude-code', 'manual', 'dontAsk', ['--permission-mode', 'dontAsk']],
+      ['claude-code', 'bypass', 'acceptEdits', ['--permission-mode', 'bypassPermissions']],
+      ['claude-code', 'auto', 'workspace', ['--permission-mode', 'auto']],
+      ['codex', 'auto', 'workspace', ['--ask-for-approval', 'on-request', '--sandbox', 'workspace-write']],
+      ['grok', 'auto', 'acceptEdits', ['--permission-mode', 'acceptEdits']],
+      ['grok', 'manual', 'dontAsk', ['--permission-mode', 'dontAsk']],
+      ['zai', 'manual', 'dontAsk', ['--permission-mode', 'dontAsk']],
+      ['cursor', 'auto', 'acceptEdits', ['--auto-review']],
+    ]
+    for (const [cli, preset, mode, args] of ownModes) {
+      const manifest = getPluginById(cli)!.manifest
+      assert.deepEqual(
+        resolvePermissionArgs(manifest, permissionRenderKey(manifest, preset, mode)),
+        args,
+        `${cli}: ${mode} at ${preset}`,
+      )
+    }
   }
 
   function testCodexRenderResume(): void {
@@ -717,15 +780,21 @@ test('agent-launch-render', async () => {
       cli: 'claude-code',
       sessionId: 'sid_win',
       initialPrompt: 'do it',
-      cliPermissionPreset: 'auto',
+      cliPermissionPreset: 'bypass',
     })
     assert.equal(claude.argv[0], 'claude')
-    assert.deepEqual(claude.argv.slice(1), ['--permission-mode', 'auto', '--session-id', 'sid_win', 'do it'])
+    assert.deepEqual(claude.argv.slice(1), [
+      '--permission-mode',
+      'bypassPermissions',
+      '--session-id',
+      'sid_win',
+      'do it',
+    ])
 
     const claudeOverride = renderAgentLaunchArgv({
       cli: 'claude-code',
       sessionId: 'sid_win',
-      cliRuntime: { command: 'C:/tools/claude.exe', useWsl: false },
+      cliRuntime: { command: 'C:/tools/claude.exe' },
     })
     assert.equal(claudeOverride.argv[0], 'C:/tools/claude.exe')
     assert.equal(claudeOverride.binary, 'C:/tools/claude.exe')
@@ -736,11 +805,11 @@ test('agent-launch-render', async () => {
       cli: 'codex',
       sessionId: 'sid_y',
       initialPrompt: 'fix it',
-      cliPermissionPreset: 'auto',
+      cliPermissionPreset: 'bypass',
     })
     assert.equal(
       out,
-      `if ! command -v codex >/dev/null 2>&1; then echo 'Codex CLI was not found. Check the codex command in Settings.' >&2; exit 127; fi; codex --ask-for-approval never --sandbox workspace-write 'fix it'`,
+      `if ! command -v codex >/dev/null 2>&1; then echo 'Codex CLI was not found. Check the codex command in Settings.' >&2; exit 127; fi; codex --dangerously-bypass-approvals-and-sandbox 'fix it'`,
     )
 
     const resumeOut = buildAgentShellCommand({
@@ -797,7 +866,7 @@ test('agent-launch-render', async () => {
       renderAgentLaunchArgv({
         cli: 'claude-code',
         sessionId: 'sid_both',
-        cliRuntime: { command: 'claude', useWsl: false },
+        cliRuntime: { command: 'claude' },
         resolvedBinaryPath: '/opt/homebrew/bin/claude',
       }).binary,
       '/opt/homebrew/bin/claude',
@@ -808,132 +877,6 @@ test('agent-launch-render', async () => {
     const guardFailure = resolved.slice(0, resolved.indexOf('fi;') + 2)
     assert.ok(/exit 127;\s*fi$/.test(guardFailure), `guard must exit non-zero: ${guardFailure}`)
     assert.ok(!/else/.test(resolved), 'the guard no longer falls through to an else branch')
-  }
-
-  // Criterion: helper returns the prompt unchanged when off and prepends the
-  // directive when on — led by the CLI-native invocation when one is supplied.
-  // The pure helper has no plugin/registry deps.
-  function testApplyDebugDirectiveHelper(): void {
-    assert.equal(applyDebugDirective('do the thing', false), 'do the thing', 'off → byte-identical input')
-    assert.equal(
-      applyDebugDirective('do the thing', true),
-      `${DEBUG_DIRECTIVE}\n\ndo the thing`,
-      'on, no invocation → directive prepended ahead of the prompt',
-    )
-    assert.ok(applyDebugDirective('do the thing', true).startsWith(DEBUG_DIRECTIVE), 'directive is first')
-    assert.equal(applyDebugDirective('', true), DEBUG_DIRECTIVE, 'on with no prompt → directive only')
-    assert.equal(applyDebugDirective('', false), '', 'off with no prompt → empty')
-
-    // With a native invocation: it leads, then the directive, then the prompt.
-    assert.equal(
-      applyDebugDirective('do the thing', true, '/debug'),
-      `/debug\n\n${DEBUG_DIRECTIVE}\n\ndo the thing`,
-      'on with invocation → invocation, directive, prompt',
-    )
-    assert.equal(
-      applyDebugDirective('', true, '/debug'),
-      `/debug\n\n${DEBUG_DIRECTIVE}`,
-      'on with invocation and no prompt → invocation + directive only',
-    )
-    assert.equal(applyDebugDirective('x', false, '/debug'), 'x', 'off ignores the native invocation')
-  }
-
-  // Criterion: the debug skill invocation is resolved from each bundled manifest's
-  // skillIntegration.invocation.explicitTemplate, rendered for skillId "debug".
-  // CLIs without native skill support resolve to undefined (inline-directive
-  // fallback). Runs inside usingBundledRegistry so the real manifests are loaded.
-  function testResolveDebugSkillInvocation(): void {
-    const claude = getPluginById('claude-code')
-    const codex = getPluginById('codex')
-    assert.ok(claude && codex, 'bundled claude/codex plugins are loaded')
-    assert.equal(resolveDebugSkillInvocation(claude!), '/debug', 'claude resolves the native slash invocation')
-    assert.equal(resolveDebugSkillInvocation(codex!), 'Use $debug.', 'codex resolves the native mention invocation')
-
-    // Fallback: a CLI whose plugin does not natively support skills resolves no
-    // invocation, so Debug Mode falls back to the inline directive alone. The
-    // bundled generic-shell declares skillIntegration.support: 'unsupported'.
-    const generic = getPluginById('generic-shell')
-    assert.ok(generic, 'bundled generic-shell plugin is loaded')
-    assert.equal(
-      resolveDebugSkillInvocation(generic!),
-      undefined,
-      'a non-native CLI resolves no invocation (inline-directive fallback)',
-    )
-  }
-
-  // Orthogonality invariant: Debug Mode must change only the prompt token, never
-  // the permission/session/model argv, for every CLI × preset. The prompt is
-  // always the trailing argv element, so comparing argv.slice(0, -1) isolates the
-  // permission surface.
-  function testDebugModeOrthogonality(): void {
-    const presets: CliPermissionPreset[] = ['none', 'manual', 'auto', 'bypass']
-    const prompt = 'investigate the crash'
-    for (const cli of ['claude-code', 'codex'] as const) {
-      for (const preset of presets) {
-        const off = renderAgentLaunchArgv({
-          cli,
-          sessionId: 'sid_dbg',
-          initialPrompt: prompt,
-          cliPermissionPreset: preset,
-        })
-        const on = renderAgentLaunchArgv({
-          cli,
-          sessionId: 'sid_dbg',
-          initialPrompt: prompt,
-          cliPermissionPreset: preset,
-          debugMode: true,
-        })
-        assert.deepEqual(
-          on.argv.slice(0, -1),
-          off.argv.slice(0, -1),
-          `${cli}/${preset}: permission argv identical with debug on vs off`,
-        )
-        assert.equal(off.argv.at(-1), prompt, `${cli}/${preset}: debug-off prompt token unchanged`)
-        assert.equal(
-          on.argv.at(-1),
-          applyDebugDirective(prompt, true, DEBUG_INVOCATION[cli]),
-          `${cli}/${preset}: debug-on prompt token carries the native invocation + directive`,
-        )
-      }
-    }
-  }
-
-  // Criterion: the directive reaches the rendered prompt/argv for both spawn
-  // paths. Interactive and automations launches both compose an initial prompt and
-  // converge on renderAgentLaunchArgv (the launch boundary), so rendering each
-  // path's real prompt shape with debugMode proves the directive lands regardless
-  // of prompt content. buildAgentShellCommand covers the posix/wsl shell-string
-  // output the same boundary feeds.
-  function testDebugDirectiveReachesRenderedArgvAllPaths(): void {
-    const interactivePrompt = 'investigate the failing login test'
-    const automationsPrompt = composeSpawnAgentPrompt({
-      userPrompt: 'reproduce the timeout',
-      automationId: 'auto-1',
-      runId: 'run-1',
-    })
-    for (const path of [interactivePrompt, automationsPrompt]) {
-      for (const cli of ['claude-code', 'codex'] as const) {
-        const out = renderAgentLaunchArgv({ cli, sessionId: 'sid_path', initialPrompt: path, debugMode: true })
-        const promptToken = out.argv.at(-1) ?? ''
-        assert.ok(promptToken.startsWith(DEBUG_INVOCATION[cli]), `${cli}: native invocation leads for path prompt`)
-        assert.ok(promptToken.includes(DEBUG_DIRECTIVE), `${cli}: directive present after the invocation`)
-        assert.ok(promptToken.includes(path), `${cli}: original prompt preserved after the directive`)
-      }
-    }
-
-    const shell = buildAgentShellCommand({
-      cli: 'claude-code',
-      sessionId: 'sid_path',
-      initialPrompt: interactivePrompt,
-      cliPermissionPreset: 'bypass',
-      debugMode: true,
-    })
-    // Posix quoting single-quotes the whole prompt token and escapes the
-    // apostrophe in the directive, so assert on a quote-free fragment + the state
-    // file path rather than the raw directive string.
-    assert.ok(shell.includes('You are in DEBUG MODE.'), 'posix/wsl shell command embeds the directive')
-    assert.ok(shell.includes('.sprintengine/debug/'), 'directive state-file path reaches the shell command')
-    assert.ok(shell.includes('--permission-mode bypassPermissions'), 'permission flags unchanged in shell command')
   }
 
   // Decode the base64-wrapped `$arguments = @(...)` line that the Windows-native
@@ -953,7 +896,7 @@ test('agent-launch-render', async () => {
   // caught even when the shared renderer itself is correct.
   function testCodexLegacyWindowsReasoning(): void {
     const cwd = 'C:/work/repo'
-    const runtime = { command: '', useWsl: false }
+    const runtime = { command: '' }
     const script = (reasoning?: string): string[] =>
       decodeWindowsScriptArgs(
         buildCodexLegacyNativeAgentLaunchPowerShellScript(
@@ -962,42 +905,19 @@ test('agent-launch-render', async () => {
           cwd,
           'go',
           runtime,
-          'manual',
+          'none',
           'gpt-5.6-sol',
-          false,
           reasoning,
         ),
       )
 
     assert.deepEqual(
       script('high'),
-      [
-        '-C',
-        cwd,
-        '--ask-for-approval',
-        'on-request',
-        '--sandbox',
-        'read-only',
-        '--model',
-        'gpt-5.6-sol',
-        '-c',
-        'model_reasoning_effort="high"',
-        'go',
-      ],
+      ['-C', cwd, '--model', 'gpt-5.6-sol', '-c', 'model_reasoning_effort="high"', 'go'],
       'codex-legacy renders the effort flag after the model flag',
     )
     const baseline = script(undefined)
-    assert.deepEqual(baseline, [
-      '-C',
-      cwd,
-      '--ask-for-approval',
-      'on-request',
-      '--sandbox',
-      'read-only',
-      '--model',
-      'gpt-5.6-sol',
-      'go',
-    ])
+    assert.deepEqual(baseline, ['-C', cwd, '--model', 'gpt-5.6-sol', 'go'])
     for (const level of [undefined, '', 'medium', 'bogus']) {
       assert.deepEqual(script(level), baseline, `codex-legacy passes no effort flag for ${JSON.stringify(level)}`)
     }
@@ -1011,9 +931,8 @@ test('agent-launch-render', async () => {
           cwd,
           undefined,
           runtime,
-          'manual',
+          'none',
           'gpt-5.6-sol',
-          false,
           reasoning,
         ),
       )
@@ -1029,117 +948,6 @@ test('agent-launch-render', async () => {
     )
   }
 
-  // The Codex Windows-native path must carry the verbatim DEBUG_DIRECTIVE into the rendered script
-  // when debugMode is on, and (b) keep launch/permission args byte-identical with
-  // debug on vs off — the same orthogonality invariant the shared paths hold.
-  function testCodexLegacyWindowsDebugInjection(): void {
-    const presets: CliPermissionPreset[] = ['none', 'manual', 'auto', 'bypass']
-    const cwd = 'C:/work/repo'
-    const runtime = { command: '', useWsl: false }
-    const prompt = 'investigate the crash'
-
-    for (const preset of presets) {
-      const off = buildCodexLegacyNativeAgentLaunchPowerShellScript(
-        'sid_legacy',
-        false,
-        cwd,
-        prompt,
-        runtime,
-        preset,
-        'gpt-5-codex',
-        false,
-      )
-      const on = buildCodexLegacyNativeAgentLaunchPowerShellScript(
-        'sid_legacy',
-        false,
-        cwd,
-        prompt,
-        runtime,
-        preset,
-        'gpt-5-codex',
-        true,
-      )
-      const offArgs = decodeWindowsScriptArgs(off)
-      const onArgs = decodeWindowsScriptArgs(on)
-
-      // (b) Orthogonality: the prompt is the trailing arg on this path; everything
-      // ahead of it (permission flags, model, -C cwd) is identical on vs off.
-      assert.deepEqual(
-        onArgs.slice(0, -1),
-        offArgs.slice(0, -1),
-        `codex-legacy/${preset}: permission/launch args identical with debug on vs off`,
-      )
-      // The non-prompt portion of the script (command resolution, npm-shim block)
-      // must be byte-identical too — only the prompt base64 may differ.
-      assert.equal(
-        on.replace(/\$arguments = @\(.*\)/, '').replace(/\$env:SPRINTENGINE_LAUNCH_ARGS = .*\r\n/, ''),
-        off.replace(/\$arguments = @\(.*\)/, '').replace(/\$env:SPRINTENGINE_LAUNCH_ARGS = .*\r\n/, ''),
-        `codex-legacy/${preset}: script body outside $arguments unchanged by debug`,
-      )
-
-      // (a) Codex-native invocation leads, directive follows verbatim, ahead of
-      // the original prompt. Native quoting preserves the text verbatim.
-      assert.equal(offArgs.at(-1), prompt, `codex-legacy/${preset}: debug-off prompt arg unchanged`)
-      assert.ok(
-        onArgs.at(-1)?.startsWith(DEBUG_INVOCATION.codex),
-        `codex-legacy/${preset}: debug-on prompt arg leads with the codex-native invocation`,
-      )
-      assert.ok(
-        onArgs.at(-1)?.includes(DEBUG_DIRECTIVE),
-        `codex-legacy/${preset}: directive present after the invocation`,
-      )
-      assert.ok(
-        onArgs.at(-1)?.includes(prompt),
-        `codex-legacy/${preset}: original prompt preserved after the directive`,
-      )
-    }
-
-    // Resume carries no prompt arg on this path, so debug on vs off renders an
-    // identical script — the directive only rides an initial prompt.
-    const resumeOff = buildCodexLegacyNativeAgentLaunchPowerShellScript(
-      'sid_legacy',
-      true,
-      cwd,
-      undefined,
-      runtime,
-      'manual',
-      undefined,
-      false,
-    )
-    const resumeOn = buildCodexLegacyNativeAgentLaunchPowerShellScript(
-      'sid_legacy',
-      true,
-      cwd,
-      undefined,
-      runtime,
-      'manual',
-      undefined,
-      true,
-    )
-    assert.equal(resumeOn, resumeOff, 'codex-legacy resume: debug toggle is a no-op without an initial prompt')
-
-    // Debug on with no initial prompt still injects the codex invocation +
-    // directive as the sole prompt arg, matching
-    // applyDebugDirective('', true, 'Use $debug.').
-    const noPromptOn = buildCodexLegacyNativeAgentLaunchPowerShellScript(
-      'sid_legacy',
-      false,
-      cwd,
-      '',
-      runtime,
-      'manual',
-      undefined,
-      true,
-    )
-    // Newlines survive as newlines; the native command-line encoder owns quoting.
-    const expectedNoPrompt = applyDebugDirective('', true, DEBUG_INVOCATION.codex)
-    assert.equal(
-      decodeWindowsScriptArgs(noPromptOn).at(-1),
-      expectedNoPrompt,
-      'Codex with an empty prompt injects its invocation and directive verbatim',
-    )
-  }
-
   // The new-agent tab prints the invocation a spawn WOULD make. The
   // value of that line is entirely in it being true, so it is rendered through
   // renderAgentLaunchArgv — these two tests are the proof, and they fail the day
@@ -1148,7 +956,8 @@ test('agent-launch-render', async () => {
     const cases: Array<{ cli: 'claude-code' | 'codex' | 'opencode'; model?: string; preset?: CliPermissionPreset }> = [
       { cli: 'claude-code' },
       { cli: 'claude-code', preset: 'bypass', model: 'claude-opus-5' },
-      { cli: 'codex', preset: 'auto' },
+      { cli: 'codex', preset: 'bypass' },
+      { cli: 'codex', preset: 'none' },
       { cli: 'opencode', model: 'anthropic/claude-opus-5' },
     ]
 
@@ -1203,22 +1012,12 @@ test('agent-launch-render', async () => {
     })
     assert.notEqual(withModel.display, withReasoning.display, 'reasoning moves the line on a CLI that declares levels')
 
-    // Debug is a prompt directive, never a flag (the orthogonality invariant this
-    // file already pins), so the preview has no debug knob at all: with the prompt
-    // withheld, a debug launch and an ordinary one differ only in the prompt token.
-    const debugArgv = renderAgentLaunchArgv({ cli: 'claude-code', sessionId: 'preview', debugMode: true })
-    const plainArgv = renderAgentLaunchArgv({ cli: 'claude-code', sessionId: 'preview', debugMode: false })
-    assert.deepEqual(
-      debugArgv.argv.filter((token) => !token.includes(DEBUG_DIRECTIVE)),
-      plainArgv.argv,
-      'debug mode adds a prompt token and moves no flag — which is why the receipt omits it',
-    )
     assert.equal(base.display, renderAgentLaunchPreview({ cli: 'claude-code' }).display, 'the preview is stable')
 
     // The runtime override is what actually gets executed, so it is what shows.
     const overridden = renderAgentLaunchPreview({
       cli: 'claude-code',
-      cliRuntime: { command: '/opt/homebrew/bin/claude', useWsl: false },
+      cliRuntime: { command: '/opt/homebrew/bin/claude' },
     })
     assert.equal(overridden.binary, '/opt/homebrew/bin/claude', 'the receipt names the binary that will run')
   }

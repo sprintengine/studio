@@ -1,0 +1,207 @@
+// Three places decide whether a launch carries the app's own plugin copy: the
+// launch flag (`--plugin-dir`), the agent-state installer and the workspace
+// plugin installer. They must give one answer. When the workspace installer
+// read only "has the copy landed" while the launch also asked "does this
+// platform take it", Windows fell between them: the copy landed, the installer
+// took the workspace hook out, and the launch passed no flag, so Claude there
+// reported no agent state at all.
+
+import assert from 'node:assert/strict'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
+import { afterAll, beforeAll, test, vi } from 'vitest'
+
+import type { SkillHarness } from '../shared/skills'
+import { createPluginRegistry } from './plugin-registry'
+import { __resetPluginRegistryForTest, __setPluginRegistryForTest } from './plugin-registry-instance'
+import { createStudioPluginService } from './studio-plugin-service'
+import {
+  appLaunchPluginsActive,
+  cleanupTerminalStartupScript,
+  getShellLaunchConfig,
+  launchCarriesAppPluginsFor,
+  setLaunchPluginDirsResolver,
+  setLaunchSkillPluginDirsResolver,
+} from './terminal-launch'
+
+vi.mock('electron', () => import('../../tests/stubs/electron'))
+
+const PLUGIN_DIRS = ['C:\\Users\\dev\\AppData\\Roaming\\sprintengine-studio\\agent-integration\\1\\plugin']
+
+let temp = ''
+
+beforeAll(() => {
+  temp = mkdtempSync(join(tmpdir(), 'se-launch-plugins-'))
+  __resetPluginRegistryForTest()
+  const registry = createPluginRegistry({
+    bundledRoot: join(process.cwd(), 'resources', 'plugins'),
+    userRoot: join(temp, 'no-user-plugins'),
+  })
+  __setPluginRegistryForTest(registry, registry.loadSync())
+})
+
+afterAll(() => {
+  setLaunchPluginDirsResolver(null)
+  __resetPluginRegistryForTest()
+  rmSync(temp, { recursive: true, force: true })
+})
+
+function withPlatform<T>(platform: NodeJS.Platform, run: () => T): T {
+  const original = Object.getOwnPropertyDescriptor(process, 'platform')
+  Object.defineProperty(process, 'platform', { value: platform })
+  try {
+    return run()
+  } finally {
+    if (original) Object.defineProperty(process, 'platform', original)
+  }
+}
+
+test('on Windows the plugin copy is never active for launches, landed or not', () => {
+  assert.equal(appLaunchPluginsActive(PLUGIN_DIRS, 'win32'), false)
+  assert.equal(launchCarriesAppPluginsFor('claude-code', PLUGIN_DIRS, 'win32'), false)
+})
+
+test('elsewhere it is active once the copy has landed', () => {
+  assert.equal(appLaunchPluginsActive(['/Users/dev/plugin'], 'darwin'), true)
+  assert.equal(appLaunchPluginsActive([], 'darwin'), false, 'no copy yet: the workspace install still runs')
+  assert.equal(launchCarriesAppPluginsFor('claude-code', ['/Users/dev/plugin'], 'linux'), true)
+})
+
+test('a Windows launch passes no --plugin-dir, which is what the workspace installer is told', () => {
+  setLaunchPluginDirsResolver(() => PLUGIN_DIRS)
+  const cwd = join(temp, 'workspace-launch')
+  mkdirSync(cwd, { recursive: true })
+  const targets = [
+    { kind: 'windows' },
+    {
+      kind: 'wsl',
+      distro: 'Ubuntu',
+      env: {},
+      sessionDir: '/home/dev/.local/share/sprintengine-studio/sessions/abc123def456',
+      pidDir: '/run/user/1000/sprintengine/abc123def456/sessions',
+    },
+  ] as const
+  for (const target of targets) {
+    let config: ReturnType<typeof getShellLaunchConfig> | undefined
+    try {
+      config = withPlatform('win32', () =>
+        getShellLaunchConfig(
+          cwd,
+          'sid-plugins',
+          false,
+          'claude-code',
+          undefined,
+          { 'claude-code': { command: 'claude' } },
+          'none',
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          target,
+        ),
+      )
+    } catch (error) {
+      // The native branch refuses a POSIX temp dir as a Windows path; the
+      // flag decision under test is the WSL one there.
+      if (target.kind === 'windows' && /not available as a Windows path/u.test(String(error))) continue
+      throw error
+    }
+    // A WSL launch's script is handed to its helper to write inside the
+    // distribution; any other is a file here.
+    const hostScript = config.hostFiles?.find((file) => file.path === config.startupScriptPath)?.content
+    try {
+      const script = hostScript ?? readFileSync(config.startupScriptPath ?? '', 'utf8')
+      assert.doesNotMatch(script, /--plugin-dir/u, `host=${target.kind}`)
+    } finally {
+      if (!hostScript) cleanupTerminalStartupScript(config.startupScriptPath)
+    }
+  }
+  setLaunchPluginDirsResolver(null)
+})
+
+test('a launch is handed a bundled skill as one more --plugin-dir only when its prompt invokes it', () => {
+  const base = '/Users/dev/agent-integration/1/sprintengine-studio'
+  const backlogPlugin = '/Users/dev/agent-integration/1/launch-skills/backlog'
+  setLaunchPluginDirsResolver(() => [base])
+  setLaunchSkillPluginDirsResolver(() => ({ backlog: backlogPlugin }))
+  const cwd = join(temp, 'workspace-launch-skills')
+  mkdirSync(cwd, { recursive: true })
+  const launchText = (launchSkills?: string[]): string => {
+    const config = withPlatform('darwin', () =>
+      getShellLaunchConfig(
+        cwd,
+        `sid-skills-${launchSkills?.join('-') ?? 'none'}`,
+        false,
+        'claude-code',
+        undefined,
+        { 'claude-code': { command: 'claude' } },
+        'none',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { kind: 'posix' },
+        launchSkills ? { launchSkills } : {},
+      ),
+    )
+    try {
+      const script = config.startupScriptPath ? readFileSync(config.startupScriptPath, 'utf8') : ''
+      return `${script}\n${JSON.stringify(config.args)}\n${config.initialInput ?? ''}`
+    } finally {
+      cleanupTerminalStartupScript(config.startupScriptPath)
+    }
+  }
+  try {
+    const plain = launchText()
+    assert.match(plain, /--plugin-dir/u, 'every launch carries the studio plugin')
+    assert.equal(plain.includes(backlogPlugin), false, 'and no skill it did not ask for')
+    assert.equal(plain.includes('studio-skills'), false, 'and never the retired bundle')
+
+    const backlog = launchText(['backlog'])
+    assert.equal(backlog.includes(backlogPlugin), true, 'a Backlog handoff is handed the backlog skill')
+    // A skill this machine's copy does not hold adds nothing; that launch got
+    // the workspace install instead, which is what `ensureSkillInstalled` was
+    // told by the same map. `debug` is the one an older build would still ask for.
+    const retired = launchText(['debug'])
+    assert.equal(retired.includes('launch-skills'), false)
+  } finally {
+    setLaunchSkillPluginDirsResolver(null)
+    setLaunchPluginDirsResolver(null)
+  }
+})
+
+test('on Windows the workspace keeps its Claude hook when the plugin copy has landed', async () => {
+  const workspace = join(temp, 'workspace-install')
+  const userData = join(temp, 'userData')
+  mkdirSync(workspace, { recursive: true })
+  mkdirSync(userData, { recursive: true })
+  const reporter = join(temp, 'sprintengine-agent-state.mjs')
+  writeFileSync(reporter, '// reporter\n', 'utf8')
+  const service = createStudioPluginService({
+    resolveTemplateRoot: () => resolve(process.cwd(), 'resources', 'studio-plugin'),
+    resolveAgentStateReporterPath: () => reporter,
+    resolveBridgeScriptPath: () => join(temp, 'mcp-stdio-bridge.mjs'),
+    resolveNodeCommand: () => join(temp, 'Electron'),
+    resolveUserDataDir: () => userData,
+    resolveAgentStateSocketPath: () => join(userData, 'agent-state.sock'),
+    listHarnesses: async (): Promise<SkillHarness[]> => ['agents', 'claude'],
+    // Exactly what app-services wires, with the platform pinned to Windows.
+    resolveLaunchPluginsActive: () => appLaunchPluginsActive(PLUGIN_DIRS, 'win32'),
+  })
+  await service.ensureInstalledForRoots([workspace])
+  const record = service.installed(workspace)
+  assert.ok(record?.hookSettingsPath, 'the Claude hook is registered in the workspace')
+  assert.equal(existsSync(join(workspace, '.claude', 'settings.local.json')), true)
+  assert.equal(
+    existsSync(join(workspace, '.sprintengine', 'hooks', 'agent-state.mjs')),
+    false,
+    'the launcher runs the shipped reporter',
+  )
+})

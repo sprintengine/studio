@@ -8,9 +8,8 @@
 
 import type { ReactNode, JSX } from 'react'
 
-import type { CapabilityPermission } from '../../../../../shared/modules/permissions'
+import { ExtensionTrustReview, type ExtensionTrustReviewData } from '../../extensions/ExtensionTrustReview'
 import { GhostButton, InlineNotice, OutlineButton, PrimaryButton, Spinner, StatusDot } from '../../ui'
-import { TrustPrompt, type PluginTrust } from '../../settings/BrowseStorefront'
 import { COULDNT_CHECK_COPY, manageUpdateBannerCopy, type ManageUpdateBanner } from './extensionUpdates'
 
 // The in-flight state of the banner's update run. `busy` covers both the
@@ -21,9 +20,8 @@ export type ModuleUpdateFlow =
   | { status: 'busy'; label: string }
   | {
       status: 'needs-trust'
-      tier: PluginTrust['tier']
-      permissions: CapabilityPermission[]
-      files: string[] | null
+      review: ExtensionTrustReviewData
+      publisher?: { name: string; verified: boolean }
     }
 
 export type ModuleUpdateNotice = { tone: 'good' | 'warn' | 'error'; message: string }
@@ -99,7 +97,7 @@ export function ModuleUpdateBanner({
       {line}
       {flow.status === 'needs-trust' ? (
         <div className="space-y-2">
-          <TrustPrompt tier={flow.tier} permissions={flow.permissions} inlineServers={[]} files={flow.files} />
+          <ExtensionTrustReview {...flow.review} publisher={flow.publisher} />
           <div className="flex gap-2">
             <PrimaryButton size="sm" onClick={onTrustConfirm}>
               Trust and update

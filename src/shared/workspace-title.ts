@@ -45,6 +45,21 @@ export function isDefaultWorkspaceName(name: string, templateName?: string | nul
 }
 
 /**
+ * The name New chat gives a chat in a folder: "Chat", then "Chat 2", "Chat 3"
+ * and on, the first that none of the folder's workspaces holds. A shape
+ * `isDefaultWorkspaceName` reads as app-minted, so the first prompt names it.
+ */
+export function nextNewChatName(namesInFolder: Iterable<string>): string {
+  const taken = new Set(Array.from(namesInFolder, (name) => name.trim().toLowerCase()))
+  if (!taken.has('chat')) return 'Chat'
+  for (let index = 2; index < 1000; index += 1) {
+    const name = `Chat ${index}`
+    if (!taken.has(name.toLowerCase())) return name
+  }
+  return `Chat ${Date.now()}`
+}
+
+/**
  * Hard cap on a derived title. Sized to the sidebar row, which truncates around
  * here anyway — a longer title buys no information, only an ellipsis.
  */
@@ -132,7 +147,7 @@ function escapeRegExp(value: string): string {
  * The shapes an app-injected fragment takes inside a prompt, named once so the
  * two consumers cannot drift apart. `stripInjectedFragments` deletes all of
  * them; the conversation peek (`src/main/conversation-peek/text.ts`) deletes
- * some and turns the path-shaped ones into attachment chips — the same tokens
+ * some and shortens the path-shaped ones to their names — the same tokens
  * have to be recognised identically on both routes or a peek would quote a path
  * the title already knew was not part of the sentence.
  *

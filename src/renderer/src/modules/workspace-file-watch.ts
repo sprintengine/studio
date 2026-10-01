@@ -12,15 +12,19 @@
 //   a named cause, never a silent no-op;
 // - the resolved unsubscribe closure tears down the fs watcher.
 
+import { watchEventPaths } from '../../../shared/file-watch-event'
+
 export type WorkspaceFileWatchEvent = {
   relativePath: string
   /** File content after the change; null when the file does not exist. */
   content: string | null
 }
 
+type WatchPortEvent = { path?: string | null; paths?: string[]; overflow?: boolean }
+
 export type WorkspaceFileWatchPorts = {
   resolveFolderPath: (workspaceId: string) => string | null
-  watchPath: (path: string, cb: (event: { path?: string | null }) => void) => Promise<() => Promise<void> | void>
+  watchPath: (path: string, cb: (event: WatchPortEvent) => void) => Promise<() => Promise<void> | void>
   readFile: (path: string) => Promise<string>
   /** Injectable for tests; defaults to setTimeout/clearTimeout. */
   setTimer?: (cb: () => void, ms: number) => unknown
@@ -100,9 +104,12 @@ export function createWorkspaceFileWatcher(ports: WorkspaceFileWatchPorts): Work
         : false
     }
 
-    const onWatchEvent = (event: { path?: string | null }): void => {
+    const onWatchEvent = (event: WatchPortEvent): void => {
       if (disposed) return
-      if (!matchesWatchedFile(event.path)) return
+      // A burst names every path it touched; the watched file is one of them
+      // or it is not. A burst that names none is read as a possible change.
+      const paths = watchEventPaths({ path: event.path ?? null, paths: event.paths, overflow: event.overflow })
+      if (paths !== null && !paths.some((path) => matchesWatchedFile(path))) return
       if (debounce !== null) clearTimer(debounce)
       debounce = setTimer(() => {
         debounce = null

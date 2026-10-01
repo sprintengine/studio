@@ -1,0 +1,131 @@
+/* A card set into the reading flow: a translucent well rather than a raised
+ * fill, so it separates from whichever surface it sits on (the conversation
+ * canvas, a panel, a card) in both modes. */
+.ds-code-block {
+  border: 1px solid var(--sem-color-border-subtle);
+  border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-well);
+  color: var(--sem-syntax-foreground);
+  margin-block: var(--sem-space-lg);
+  overflow: hidden;
+}
+
+/* The header is chrome inside the same surface, set off from the source by a
+ * hairline. Its end padding is tighter than its start so the glyph buttons'
+ * own hit areas sit in the corner instead of floating in from it. */
+.ds-code-block__header {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  padding-block: var(--sem-space-3xs);
+  padding-inline: var(--sem-space-lg) var(--sem-space-2xs);
+  border-bottom: 1px solid var(--sem-color-border-subtle);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  line-height: var(--sem-font-line-tight);
+  color: var(--sem-color-text-muted);
+  user-select: none;
+}
+.ds-code-block__label {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  flex: 1;
+  min-width: 0;
+}
+.ds-code-block__glyph {
+  flex: none;
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+/* A filename is an identifier, so it takes the mono face; a language name is a
+ * word, so it keeps the UI face. */
+.ds-code-block__filename {
+  min-width: 0;
+  font-family: var(--sem-font-family-mono);
+}
+.ds-code-block__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-3xs);
+  flex: none;
+}
+/* The actions rest at a quiet ink — visible, never hover-only — and lift under
+ * the pointer and under keyboard focus. Glyphs sit at icon-xs in xs buttons. */
+.ds-code-block__actions .ds-button--icon {
+  color: var(--sem-color-text-subtle);
+}
+.ds-code-block__actions button:focus-visible {
+  color: var(--sem-color-text-default);
+}
+.ds-code-block__actions svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+
+/* Source. The type and leading live on the body rather than the <pre> so the
+ * fold's `lh` measures a line of code. */
+.ds-code-block__body {
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-body);
+  line-height: var(--sem-font-line-code);
+}
+.ds-code-block pre {
+  margin: 0;
+  padding: var(--sem-space-md) var(--sem-space-lg);
+  overflow-x: auto;
+  font: inherit;
+}
+.ds-code-block--wrap pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Edge fades on an unwrapped block, set by the host on exactly the edges that
+ * have code past them — an edge with nothing beyond it must not fade, or a
+ * complete line looks clipped. A mask rather than an overlay, so there is no
+ * element to select, copy or paint in the card's colour; its stops are an
+ * alpha channel (`black` = opaque), not ink. Static, so nothing to reduce
+ * under prefers-reduced-motion. */
+.ds-code-block pre[data-fade-start] {
+  mask-image: linear-gradient(to right, transparent, black var(--sem-space-3xl));
+}
+.ds-code-block pre[data-fade-end] {
+  mask-image: linear-gradient(to left, transparent, black var(--sem-space-3xl));
+}
+.ds-code-block pre[data-fade-start][data-fade-end] {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black var(--sem-space-3xl),
+    black calc(100% - var(--sem-space-3xl)),
+    transparent
+  );
+}
+
+/* A folded long block: the box is clipped to its first twelve lines (COLLAPSED_LINES
+ * in CodeBlock.tsx) and the last few fade out, so it reads as continuing rather
+ * than as ending. The source is all still in the DOM. */
+.ds-code-block__body[data-folded] {
+  max-height: calc(12lh + var(--sem-space-md));
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, black calc(100% - 3lh), transparent);
+}
+.ds-code-block__fold {
+  display: flex;
+  padding: var(--sem-space-3xs) var(--sem-space-2xs) var(--sem-space-2xs);
+}
+.ds-code-block__chevron {
+  flex: none;
+}
+.ds-code-block__chevron--open {
+  transform: rotate(180deg);
+}
+
+.ds-code-block__note {
+  padding: var(--sem-space-xs) var(--sem-space-lg);
+  border-top: 1px solid var(--sem-color-border-subtle);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
+}

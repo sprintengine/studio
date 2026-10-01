@@ -12,6 +12,7 @@ import {
   markTerminalFailed,
   listSessionFileChanges,
   materializeTerminalReplay,
+  readTerminalOutputSince,
   resyncTerminalReplayHead,
   MAX_SESSION_FILE_CHANGE_PATH_CHARS,
   MAX_SESSION_FILE_CHANGES,
@@ -30,6 +31,7 @@ import {
 import { MAX_AGENT_PROMPT_LENGTH } from './agent-state'
 import { MAX_LIVE_PEEK_PROMPTS } from './conversation-peek/service'
 import { createTerminalDiagnostics } from './terminal-diagnostics'
+import { TerminalReplayBuffer } from './terminal-replay-buffer'
 import {
   TERMINAL_RECENT_HISTORY_WINDOW_MS,
   TERMINAL_RECENT_REPLAY_BYTES,
@@ -50,6 +52,7 @@ test('terminal-session', async () => {
     assertActivityTransitionDiagnostics()
     assertRecentSessionsRetainExtendedReplay()
     assertColdSessionsCompactToStandardReplay()
+    assertOutputSinceACursorIsOnlyTheNewOutput()
     assertRecentInputKeepsSessionInExtendedReplayTier()
     assertColdSingleLargeChunkIsTrimmedNotDropped()
     assertCutReplayNeverStartsMidEscapeSequence()
@@ -58,6 +61,7 @@ test('terminal-session', async () => {
     assertVisibilityRecordingUpdatesRecency()
     assertStaleRuleExemptsVisibleSessionsWithLiveSender()
     assertStaleRuleUsesMostRecentUserSignal()
+    assertStaleRuleCountsFromTheLastMomentOnScreen()
     assertSuspendedSessionIsNotAlive()
     assertPlaceholderIdlesSinceTheTurnEnd()
     assertFileLedgerAccumulatesAndStaysBounded()
@@ -337,6 +341,23 @@ test('terminal-session', async () => {
     assert.equal(recordSessionStatusLine(session, { usedPercentage: 3 }, 400), true)
     assert.deepEqual(session.contextUsage, { usedPercentage: 3, at: 400 }, 'the next real reading replaces it')
 
+    // The prompt cache is news whenever it moves, and rides the snapshot. It
+    // is replaced WHOLE: right after a /compact the CLI reports the re-cache
+    // size as unknown, and the size before the compaction must not survive it.
+    const cache = { ttl: '1h' as const, expiresAt: 5_000_000, recacheTokens: 310_000 }
+    const cached = createSession({ startedAt: 0 })
+    assert.equal(recordSessionStatusLine(cached, { promptCache: cache }, 100), true, 'a first cache reading is news')
+    assert.deepEqual(getTerminalSnapshot(cached).promptCache, cache)
+    assert.equal(recordSessionStatusLine(cached, { promptCache: { ...cache } }, 200), false, 'the same cache is not')
+    assert.equal(recordSessionStatusLine(cached, { totalCostUsd: 2 }, 300), false)
+    assert.deepEqual(cached.promptCache, cache, 'a reading with no cache keeps the last one')
+    assert.equal(
+      recordSessionStatusLine(cached, { promptCache: { ttl: '1h', expiresAt: null, recacheTokens: null } }, 400),
+      true,
+    )
+    assert.deepEqual(cached.promptCache, { ttl: '1h', expiresAt: null, recacheTokens: null })
+    assert.equal(getTerminalSnapshot(createSession({ startedAt: 0 })).promptCache, null, 'none reported is null')
+
     // Out of order: a status-line process is spawned per refresh, so they can
     // finish in any order, and an older reading carries older facts.
     assert.equal(recordSessionStatusLine(session, { usedPercentage: 71, totalCostUsd: 0.1 }, 350), false)
@@ -446,6 +467,25 @@ test('terminal-session', async () => {
 
     assert.equal(session.lastInputAt, 225)
     assert.equal(session.lastOutputAt, 100)
+    // What the terminal sends on its own — focus in and out, answers to the
+    // CLI's queries — is input, but not typing: only typing can leave a draft.
+    recordTerminalInput(session, 230, 'hi')
+    assert.equal(session.lastKeyInputAt, 230)
+    for (const report of [
+      '\x1b[I',
+      '\x1b[O',
+      '\x1b[?1;2c',
+      '\x1b[>0;276;0c',
+      '\x1b[12;40R',
+      '\x1b[0n',
+      '\x1b[O\x1b[I',
+    ]) {
+      recordTerminalInput(session, 300, report)
+      assert.equal(session.lastKeyInputAt, 230, `${JSON.stringify(report)} is not typing`)
+    }
+    assert.equal(session.lastInputAt, 300, 'though it is still input')
+    recordTerminalInput(session, 310, '\x1b[A')
+    assert.equal(session.lastKeyInputAt, 310, 'an arrow key is a key')
     assert.deepEqual(session.activity, { kind: 'working', since: 100 })
   }
 
@@ -554,9 +594,36 @@ test('terminal-session', async () => {
       appendTerminalOutput(session, chunk, Date.now())
     }
 
-    assert.equal(session.outputBytes, TERMINAL_RECENT_REPLAY_BYTES)
+    assert.equal(session.output.retainedBytes, TERMINAL_RECENT_REPLAY_BYTES)
     assert.equal(getTerminalSnapshot(session).historyTier, 'recent')
     assert.equal(materializeTerminalReplay(session).length, TERMINAL_RECENT_REPLAY_BYTES)
+  }
+
+  function assertOutputSinceACursorIsOnlyTheNewOutput(): void {
+    const coldAt = Date.now() - TERMINAL_RECENT_HISTORY_WINDOW_MS - 1_000
+    const session = createSession({ startedAt: coldAt })
+    appendTerminalOutput(session, 'one\n', coldAt)
+    appendTerminalOutput(session, 'two\n', coldAt)
+    const all = readTerminalOutputSince(session, 0)
+    assert.deepEqual(all, { text: 'one\ntwo\n', cursor: 8, truncated: false })
+
+    appendTerminalOutput(session, 'thr', coldAt)
+    appendTerminalOutput(session, 'ee\n', coldAt)
+    assert.deepEqual(readTerminalOutputSince(session, all.cursor), { text: 'three\n', cursor: 14, truncated: false })
+    // A cursor inside a chunk is honoured to the character.
+    assert.equal(readTerminalOutputSince(session, 10).text, 'ree\n')
+    assert.deepEqual(readTerminalOutputSince(session, 14), { text: '', cursor: 14, truncated: false })
+
+    // Once eviction has dropped part of the gap, the reader gets what is still
+    // retained and is told it missed some.
+    const chunk = 'x'.repeat(TERMINAL_RECENT_REPLAY_BYTES)
+    appendTerminalOutput(session, chunk, coldAt)
+    appendTerminalOutput(session, 'tail', coldAt)
+    const late = readTerminalOutputSince(session, 14)
+    assert.equal(late.truncated, true)
+    assert.equal(late.cursor, 14 + chunk.length + 4)
+    assert.ok(late.text.endsWith('tail'))
+    assert.equal(late.text.length, session.output.retainedUnits)
   }
 
   function assertColdSessionsCompactToStandardReplay(): void {
@@ -570,7 +637,7 @@ test('terminal-session', async () => {
 
     const replay = materializeTerminalReplay(session)
     assert.equal(getTerminalSnapshot(session).historyTier, 'standard')
-    assert.equal(session.outputBytes, TERMINAL_STANDARD_REPLAY_BYTES)
+    assert.equal(session.output.retainedBytes, TERMINAL_STANDARD_REPLAY_BYTES)
     assert.equal(replay.length, TERMINAL_STANDARD_REPLAY_BYTES)
   }
 
@@ -582,7 +649,7 @@ test('terminal-session', async () => {
     appendTerminalOutput(session, 'i'.repeat(TERMINAL_RECENT_REPLAY_BYTES), coldAt)
 
     assert.equal(getTerminalSnapshot(session).historyTier, 'recent')
-    assert.equal(session.outputBytes, TERMINAL_RECENT_REPLAY_BYTES)
+    assert.equal(session.output.retainedBytes, TERMINAL_RECENT_REPLAY_BYTES)
   }
 
   function assertColdSingleLargeChunkIsTrimmedNotDropped(): void {
@@ -593,7 +660,7 @@ test('terminal-session', async () => {
 
     const replay = materializeTerminalReplay(session)
     assert.equal(replay.length, TERMINAL_STANDARD_REPLAY_BYTES)
-    assert.equal(session.outputBytes, TERMINAL_STANDARD_REPLAY_BYTES)
+    assert.equal(session.output.retainedBytes, TERMINAL_STANDARD_REPLAY_BYTES)
     assert.equal(replay, 'x'.repeat(TERMINAL_STANDARD_REPLAY_BYTES))
   }
 
@@ -642,7 +709,7 @@ test('terminal-session', async () => {
       }
     }
 
-    assert.equal(session.replayTruncated, true, 'the buffer really did evict')
+    assert.equal(session.output.truncated, true, 'the buffer really did evict')
     const replay = materializeTerminalReplay(session)
     assert.equal(replay.charCodeAt(0), 0x1b, 'the replay opens on an escape sequence, not the tail of one')
     assert.equal(
@@ -657,7 +724,7 @@ test('terminal-session', async () => {
   function assertUncutReplayIsHandedBackByteForByte(): void {
     const session = createSession({ startedAt: Date.now() })
     appendTerminalOutput(session, 'Welcome to the agent\nReady\n', Date.now())
-    assert.equal(session.replayTruncated, undefined, 'nothing was cut')
+    assert.equal(session.output.truncated, false, 'nothing was cut')
     assert.equal(
       materializeTerminalReplay(session),
       'Welcome to the agent\nReady\n',
@@ -672,7 +739,7 @@ test('terminal-session', async () => {
     appendTerminalOutput(session, 'n'.repeat(TERMINAL_RECENT_REPLAY_BYTES), Date.now())
 
     assert.equal(getTerminalSnapshot(session).historyTier, 'recent')
-    assert.equal(session.outputBytes, TERMINAL_RECENT_REPLAY_BYTES)
+    assert.equal(session.output.retainedBytes, TERMINAL_RECENT_REPLAY_BYTES)
   }
 
   function assertVisibilityRecordingUpdatesRecency(): void {
@@ -733,6 +800,39 @@ test('terminal-session', async () => {
     assert.equal(isTerminalSessionStale(session, 9_000 + STALE_TERMINAL_MAX_UNSEEN_MS + 1), true)
   }
 
+  // `visible` means painted now: a minimized or locked window reports its panes
+  // hidden. A terminal that sat on screen for days with no output must not be
+  // disposed the moment its window is minimized. The backstop counts from when
+  // it was last on screen, and a hide repeated while hidden is not a look.
+  function assertStaleRuleCountsFromTheLastMomentOnScreen(): void {
+    const startedAt = 1_000
+    const session = createSession({ startedAt, visible: false })
+    recordTerminalVisibility(session, true, 2_000)
+    const minimizedAt = startedAt + STALE_TERMINAL_MAX_UNSEEN_MS * 3
+    recordTerminalVisibility(session, false, minimizedAt)
+    assert.equal(
+      isTerminalSessionStale(session, minimizedAt + 60_000),
+      false,
+      'on screen until a minute ago: not stale, however old its last output',
+    )
+    assert.equal(isTerminalSessionStale(session, minimizedAt + STALE_TERMINAL_MAX_UNSEEN_MS + 1), true)
+
+    // Hidden, and told so again later (a window re-reporting its panes): the
+    // repeat is not time on screen.
+    recordTerminalVisibility(session, false, minimizedAt + STALE_TERMINAL_MAX_UNSEEN_MS)
+    assert.equal(isTerminalSessionStale(session, minimizedAt + STALE_TERMINAL_MAX_UNSEEN_MS + 1), true)
+
+    // A settled agent is never reaped by the backstop, however long unseen:
+    // disposing it deletes the sidecar that is the only copy of its history.
+    const longAfter = minimizedAt + STALE_TERMINAL_MAX_UNSEEN_MS * 10
+    const paused = createSession({ startedAt, visible: false })
+    paused.suspended = true
+    assert.equal(isTerminalSessionStale(paused, longAfter), false, 'a paused agent keeps its history')
+    const finished = createSession({ startedAt, visible: false })
+    finished.hasExited = true
+    assert.equal(isTerminalSessionStale(finished, longAfter), false, 'so does a finished one')
+  }
+
   // Freeze-the-view: a suspended session's pty is killed, so it reports not-alive
   // (un-bolds, drops out of resident memory, is not re-reaped) while staying a
   // resumable, painted session — distinct from exited/disposed.
@@ -775,11 +875,7 @@ test('terminal-session', async () => {
       isDisposed: false,
       idleTimer: input.idleTimer,
       activity: createInitialTerminalActivity(input.startedAt),
-      outputChunks: [],
-      outputChunkBytes: [],
-      outputChunkStart: 0,
-      outputBytes: 0,
-      outputLength: 0,
+      output: new TerminalReplayBuffer(),
       kind: 'agent',
       workspaceId: 'workspace_1',
       agentId: 'developer-1',

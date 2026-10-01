@@ -1,7 +1,7 @@
 // Extension marketplace bundle + registry contracts.
 //
 // A marketplace plugin is a thin bundle over primitives the studio already owns:
-// MCP configs, skill packs, capability modules, and agent CLI plugins. The
+// MCP configs, skill packs and capability modules. The
 // bundle manifest validator lives in the published SDK so authoring tools and
 // the app cannot drift on the signing-critical plugin.json shape, including
 // component file digests. This module re-exports that plugin contract and adds
@@ -28,9 +28,9 @@ export { canonicalManifestPayload } from '../../../packages/module-sdk/src/manif
 
 export {
   MARKETPLACE_COMPONENT_KINDS,
-  marketplaceAutomationPayloadIssues,
   parseMarketplacePluginAuthoringManifest,
   parseMarketplacePluginManifest,
+  retiredMarketplaceComponentIssue,
   validateMarketplacePluginAuthoringManifest,
   validateMarketplacePluginManifest,
   type MarketplaceComponentKind,
@@ -39,6 +39,15 @@ export {
   type MarketplacePluginComponents,
   type MarketplacePluginManifest,
 } from '../../../packages/module-sdk/src/plugin-manifest'
+
+// What a registry entry may say it provides: the kinds a bundle can carry,
+// plus `cli` for the inline-CLI lane — a first-party agent CLI the app already
+// ships, surfaced as catalogue content. `cli` is not a bundle component; an
+// extension can neither add an agent CLI nor replace one.
+export type MarketplaceProvidesKind = MarketplaceComponentKind | 'cli'
+const MARKETPLACE_PROVIDES_KINDS: readonly MarketplaceProvidesKind[] = Array.from(
+  new Set<MarketplaceProvidesKind>([...MARKETPLACE_COMPONENT_KINDS, 'cli']),
+)
 
 type MarketplacePublisher = {
   name: string
@@ -55,8 +64,8 @@ type MarketplaceInlineMcp = {
 // marketplace content. They ship no bytes: the referenced plugin
 // already lives in the app bundle (resources/plugins/<pluginId>), and the
 // install action executes that plugin's `install` spec through the CLI runtime
-// installer — never the bundle download flow. Third-party CLI plugins keep
-// using signed bundle entries (`source` + components.cli).
+// installer — never the bundle download flow. Agent CLIs ship with the app
+// only; a bundle entry cannot provide one.
 type MarketplaceInlineCli = {
   // Plugin-registry id of the bundled plugin (the pluginRegistryIdForCli
   // mapping captured at generation time — not assumed equal to the entry id).
@@ -113,7 +122,7 @@ export type MarketplacePluginEntry = {
   tags?: string[]
   icon: string
   latest: number
-  provides: MarketplaceComponentKind[]
+  provides: MarketplaceProvidesKind[]
   source?: string
   signature?: ModuleSignature
   mcp?: MarketplaceInlineMcp
@@ -139,7 +148,10 @@ export function isClaudeCodePluginEntry(entry: Pick<MarketplacePluginEntry, 'tag
 export type MarketplaceIndexResult =
   { ok: true; marketplace: MarketplaceIndex } | { ok: false; issues: MarketplaceManifestIssue[] }
 
-const COMPONENT_KIND_SET = new Set<string>(MARKETPLACE_COMPONENT_KINDS)
+const PROVIDES_KIND_SET = new Set<string>(MARKETPLACE_PROVIDES_KINDS)
+// Kinds a registry row once provided and this Studio no longer installs: the
+// automation starters, retired when automations became scheduled agents.
+const RETIRED_PROVIDES_KINDS = new Set<string>(['automation'])
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0 && !value.includes('\0')
@@ -311,7 +323,7 @@ function validateProvides(
   value: unknown,
   path: string,
   issues: MarketplaceManifestIssue[],
-): MarketplaceComponentKind[] | undefined {
+): MarketplaceProvidesKind[] | undefined {
   if (!Array.isArray(value)) {
     issues.push({ path, message: 'provides must be an array.' })
     return undefined
@@ -320,16 +332,16 @@ function validateProvides(
     issues.push({ path, message: 'provides must contain at least one component kind.' })
     return undefined
   }
-  const seen = new Set<MarketplaceComponentKind>()
+  const seen = new Set<MarketplaceProvidesKind>()
   value.forEach((entry, index) => {
-    if (typeof entry !== 'string' || !COMPONENT_KIND_SET.has(entry)) {
+    if (typeof entry !== 'string' || !PROVIDES_KIND_SET.has(entry)) {
       issues.push({
         path: `${path}[${index}]`,
-        message: `provides entries must be one of: ${MARKETPLACE_COMPONENT_KINDS.join(', ')}.`,
+        message: `provides entries must be one of: ${MARKETPLACE_PROVIDES_KINDS.join(', ')}.`,
       })
       return
     }
-    seen.add(entry as MarketplaceComponentKind)
+    seen.add(entry as MarketplaceProvidesKind)
   })
   return seen.size > 0 ? Array.from(seen) : undefined
 }
@@ -422,6 +434,12 @@ function validateMarketplaceEntry(
     issues.push({ path, message: 'marketplace plugin entry must be an object.' })
     return undefined
   }
+  // A row for a retired kind is left off the shelf rather than failing the
+  // index: a published registry that still lists one must not take every other
+  // row down with it.
+  if (Array.isArray(value.provides) && value.provides.some((kind) => RETIRED_PROVIDES_KINDS.has(String(kind)))) {
+    return undefined
+  }
   const startIssues = issues.length
 
   // signature is optional here; the SDK probe validates its shape when present.
@@ -479,6 +497,12 @@ function validateMarketplaceEntry(
       issues.push({ path: `${path}.source`, message: 'source is required and must be a non-empty string.' })
     } else {
       source = value.source.trim()
+    }
+    if (provides?.includes('cli')) {
+      issues.push({
+        path: `${path}.provides`,
+        message: 'bundle entries cannot provide cli: agent CLIs ship with the app.',
+      })
     }
   }
 

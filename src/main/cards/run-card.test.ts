@@ -195,7 +195,7 @@ test('run-card', async () => {
         return { ok: true, receipts: [] }
       },
       installMarketplaceEntry: async (input) => {
-        calls.push(`installMarketplaceEntry ${input.entry.id} trustGranted=${String(input.trustGranted ?? false)}`)
+        calls.push(`installMarketplaceEntry ${input.entry.id} granted=${String(Boolean(input.grant))}`)
         return {
           ok: true,
           id: input.entry.id,
@@ -680,7 +680,7 @@ test('run-card', async () => {
           mcpSyncEnabled: true,
           model: 'claude-opus-5',
           reasoning: 'high',
-          permissionPreset: 'auto',
+          permissionPreset: 'bypass',
         },
         deps,
       )
@@ -694,7 +694,7 @@ test('run-card', async () => {
           cli: 'claude-code',
           model: 'claude-opus-5',
           reasoning: 'high',
-          permissionPreset: 'auto',
+          permissionPreset: 'bypass',
         },
         'the chosen row comes back whole — the runtime the card required, and the three axes the person picked',
       )
@@ -715,13 +715,13 @@ test('run-card', async () => {
           mcpSyncEnabled: false,
           model: null,
           reasoning: null,
-          permissionPreset: 'manual',
+          permissionPreset: 'none',
         },
         deps,
       )
       assert.equal(result.chat?.cli, null, 'no require.cli is no override — the picked row is the runtime')
       assert.equal(result.chat?.model, null, 'and its own default model row is null, not a missing field')
-      assert.equal(result.chat?.permissionPreset, 'manual', 'the preset the row carried is the preset handed back')
+      assert.equal(result.chat?.permissionPreset, 'none', 'the preset the row carried is the preset handed back')
     }
 
     // --- install.module (G4) --------------------------------------------------
@@ -737,7 +737,7 @@ test('run-card', async () => {
       assert.deepEqual(calls, [
         'readMarketplaceRegistry',
         'listMarketplaceReceipts',
-        'installMarketplaceEntry review trustGranted=false',
+        'installMarketplaceEntry review granted=false',
       ])
       assert.equal(result.outcomes[0].status, 'done')
       // A module loads at app launch, so the outcome says what is left to do.
@@ -755,11 +755,7 @@ test('run-card', async () => {
       assert.equal(result.ok, true)
       assert.equal(result.outcomes[0].status, 'already')
       assert.equal(result.outcomes[0].message, 'Reviews is already installed.')
-      assert.equal(
-        calls.includes('installMarketplaceEntry review trustGranted=false'),
-        false,
-        'nothing was installed twice',
-      )
+      assert.equal(calls.includes('installMarketplaceEntry review granted=false'), false, 'nothing was installed twice')
     }
 
     // An id nothing in this build's registry carries is refused by name, and

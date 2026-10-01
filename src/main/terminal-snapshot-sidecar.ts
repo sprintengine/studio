@@ -1,5 +1,5 @@
-import { readdirSync, readFileSync, rmSync, statSync } from 'fs'
-import { mkdir, rename, rm, writeFile } from 'fs/promises'
+import { readdirSync, rmSync, statSync } from 'fs'
+import { mkdir, readFile, rename, rm, writeFile } from 'fs/promises'
 import type { ObservedCheckout } from '../shared/observed-checkout'
 import { join } from 'path'
 import type {
@@ -10,6 +10,7 @@ import type {
   SessionPrompt,
   TerminalKind,
 } from '../shared/electron-api'
+import type { PromptCacheReading } from '../shared/prompt-cache'
 
 // Durable freeze-the-view: per-terminal snapshot sidecars under
 // `<userData>/terminal-snapshots/<sessionId>.json`.
@@ -22,7 +23,7 @@ import type {
 //
 // - Written at suspend time (serialized snapshot) and at app quit (raw retained
 //   pty stream — cheap byte dump; the snapshot is rebuilt lazily on rehydrate).
-// - Read on the first terminal-status lookup after restart to materialize a
+// - Read (asynchronously) on the first terminal-status lookup after restart to materialize a
 //   suspended placeholder session, so the existing pause/replay/resume flow
 //   fires with zero renderer changes.
 // - Removed by disposeTerminal (dispose means gone — never rehydrated) and by
@@ -54,6 +55,10 @@ export type TerminalSnapshotSidecar = {
   // own). Carried onto the placeholder so resume targets the right conversation
   // even if the renderer's payload lacks it.
   cliSessionId?: string
+  // The machine the session ran on. A Claude `--resume <id>` transcript lives
+  // in that machine's home, so the resume after a restart must go back there.
+  // Read back through normalizeExecutionHostId — the file is untrusted input.
+  hostId?: string
   cwd?: string
   executionMode?: AgentExecutionMode
   worktreeId?: string
@@ -71,10 +76,11 @@ export type TerminalSnapshotSidecar = {
   // parseSessionFileChanges, since this file is untrusted input too.
   fileChanges?: SessionFileChange[]
   // What the person typed into this chat, oldest first, from the CLI's
-  // `UserPromptSubmit` hook. The conversation peek's only source for a runtime
-  // whose transcript this app cannot read (Codex, Grok, Kimi Code), and without
-  // it a parked one of those comes back claiming to have no messages. Bounded
-  // by MAX_LIVE_PEEK_PROMPTS on the way in; read back through
+  // `UserPromptSubmit` hook — the conversation peek's only source, so without
+  // it a parked chat comes back claiming to have no messages. An agent's list
+  // also lives in the agent prompt store, which outlasts this file; this copy
+  // covers the time before that store is read and sessions that are not an
+  // agent's. Bounded by MAX_LIVE_PEEK_PROMPTS on the way in; read back through
   // parseSessionPrompts, untrusted like everything else here.
   //
   // This is a person's verbatim typing, in plaintext under userData — which is
@@ -86,6 +92,10 @@ export type TerminalSnapshotSidecar = {
   // an app restart still says so. Read back through parseSessionContextUsage —
   // untrusted input like the rest of this file.
   contextUsage?: SessionContextUsage
+  // The prompt cache's last reading, so a parked session still goes cold on
+  // time and still says what resuming it re-caches. Read back through
+  // parsePromptCacheReading.
+  promptCache?: PromptCacheReading
   // Exactly one of these carries the painted content: `snapshot` is a
   // headless-xterm serialized screen (replays faithfully, incl. alt-screen
   // TUIs); `rawReplay` is the retained pty byte stream captured on the quit
@@ -95,7 +105,10 @@ export type TerminalSnapshotSidecar = {
 }
 
 export type TerminalSnapshotSidecarStore = {
-  read(sessionId: string): TerminalSnapshotSidecar | null
+  // Off the main thread: a sidecar is up to a few megabytes of JSON, and it is
+  // read while a person waits for a reopened workspace to paint. A write still
+  // queued is answered from memory.
+  read(sessionId: string): Promise<TerminalSnapshotSidecar | null>
   // Queue the write. It lands on disk off the main thread — a sidecar is up
   // to a few megabytes and used to be a synchronous write on the suspend,
   // self-exit and quit paths — but it is readable through `read` at once,
@@ -138,6 +151,31 @@ export function createTerminalSnapshotSidecarStore(options: {
   // session land in order and a remove runs after the write it follows.
   const pending = new Map<string, TerminalSnapshotSidecar>()
   const chains = new Map<string, Promise<void>>()
+  // Moves on every write and remove, so a read in flight can tell it raced one.
+  const generations = new Map<string, number>()
+  const bumpGeneration = (sessionId: string): void => {
+    generations.set(sessionId, (generations.get(sessionId) ?? 0) + 1)
+  }
+
+  const parseSidecar = (sessionId: string, raw: string): TerminalSnapshotSidecar | null => {
+    try {
+      const parsed = JSON.parse(raw) as Partial<TerminalSnapshotSidecar>
+      if (
+        parsed.version !== 1 ||
+        parsed.sessionId !== sessionId ||
+        typeof parsed.savedAt !== 'number' ||
+        typeof parsed.cols !== 'number' ||
+        typeof parsed.rows !== 'number' ||
+        (typeof parsed.snapshot !== 'string' && typeof parsed.rawReplay !== 'string')
+      ) {
+        throw new Error('malformed_terminal_snapshot_sidecar')
+      }
+      return parsed as TerminalSnapshotSidecar
+    } catch (error) {
+      warn('Terminal snapshot sidecar parse failed', error)
+      return null
+    }
+  }
 
   function chain(sessionId: string, task: () => Promise<void>, title: string): void {
     const next = (chains.get(sessionId) ?? Promise.resolve()).then(task).catch((error) => warn(title, error))
@@ -148,40 +186,33 @@ export function createTerminalSnapshotSidecarStore(options: {
   }
 
   return {
-    read(sessionId: string): TerminalSnapshotSidecar | null {
+    async read(sessionId: string): Promise<TerminalSnapshotSidecar | null> {
       if (!isSafeSessionId(sessionId)) return null
-      const queued = pending.get(sessionId)
-      if (queued) return queued
-      let raw: string
-      try {
-        raw = readFileSync(sidecarPath(sessionId), 'utf8')
-      } catch (error) {
-        const code = (error as NodeJS.ErrnoException | undefined)?.code
-        if (code !== 'ENOENT') warn('Terminal snapshot sidecar read failed', error)
-        return null
-      }
-      try {
-        const parsed = JSON.parse(raw) as Partial<TerminalSnapshotSidecar>
-        if (
-          parsed.version !== 1 ||
-          parsed.sessionId !== sessionId ||
-          typeof parsed.savedAt !== 'number' ||
-          typeof parsed.cols !== 'number' ||
-          typeof parsed.rows !== 'number' ||
-          (typeof parsed.snapshot !== 'string' && typeof parsed.rawReplay !== 'string')
-        ) {
-          throw new Error('malformed_terminal_snapshot_sidecar')
+      // A write or a remove that lands while the file is being read makes what
+      // was read stale — a dispose must not be undone by a read it raced — so
+      // the read starts over and answers from the newer state.
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const queued = pending.get(sessionId)
+        if (queued) return queued
+        const generation = generations.get(sessionId) ?? 0
+        let raw: string | null
+        try {
+          raw = await readFile(sidecarPath(sessionId), 'utf8')
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException | undefined)?.code
+          if (code !== 'ENOENT') warn('Terminal snapshot sidecar read failed', error)
+          raw = null
         }
-        return parsed as TerminalSnapshotSidecar
-      } catch (error) {
-        warn('Terminal snapshot sidecar parse failed', error)
-        return null
+        if ((generations.get(sessionId) ?? 0) !== generation) continue
+        return raw === null ? null : parseSidecar(sessionId, raw)
       }
+      return pending.get(sessionId) ?? null
     },
     write(sidecar: TerminalSnapshotSidecar): void {
       if (!isSafeSessionId(sidecar.sessionId)) return
       if (!sidecar.snapshot && !sidecar.rawReplay) return
       const { sessionId } = sidecar
+      bumpGeneration(sessionId)
       pending.set(sessionId, sidecar)
       chain(
         sessionId,
@@ -190,16 +221,27 @@ export function createTerminalSnapshotSidecarStore(options: {
           if (pending.get(sessionId) !== sidecar) return
           const path = sidecarPath(sessionId)
           const tmp = `${path}.tmp`
-          await mkdir(sidecarDir(), { recursive: true })
-          await writeFile(tmp, JSON.stringify(sidecar), { mode: 0o600 })
-          await rename(tmp, path)
-          if (pending.get(sessionId) === sidecar) pending.delete(sessionId)
+          try {
+            await mkdir(sidecarDir(), { recursive: true })
+            await writeFile(tmp, JSON.stringify(sidecar), { mode: 0o600 })
+            await rename(tmp, path)
+          } catch (error) {
+            // Nothing retries a failed write, so a disk that is full or gone
+            // would otherwise keep this multi-megabyte sidecar queued for the
+            // life of the app. The session still holds its screen in memory;
+            // what is lost is only the copy a restart would have reopened.
+            await rm(tmp, { force: true }).catch(() => undefined)
+            throw error
+          } finally {
+            if (pending.get(sessionId) === sidecar) pending.delete(sessionId)
+          }
         },
         'Terminal snapshot sidecar write failed',
       )
     },
     remove(sessionId: string): void {
       if (!isSafeSessionId(sessionId)) return
+      bumpGeneration(sessionId)
       pending.delete(sessionId)
       // Gone at once for a reader, and gone again after any write in flight,
       // so a queued sidecar cannot resurrect what dispose just removed.

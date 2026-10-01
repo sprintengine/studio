@@ -19,6 +19,9 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
+import { resolveWindowsProgramOnPath } from '../command-on-path'
+import { gitSafetyEnv } from '../git-run'
+
 const execFileAsync = promisify(execFile)
 
 /**
@@ -56,6 +59,13 @@ export interface GhRunOptions {
    * process table is what enforces it.
    */
   timeoutMs?: number
+  /**
+   * Variables gh must NOT see, removed from the child's environment and —
+   * because the login-shell fallback sources the person's rc files, which is
+   * exactly where a token export lives — unset again inside that shell before
+   * gh runs. Only fixed variable names belong here, never a value.
+   */
+  unsetEnv?: readonly string[]
 }
 
 export interface GhRunner {
@@ -71,6 +81,7 @@ export type GhSpawn = (
     cwd?: string
     maxBuffer: number
     windowsHide: boolean
+    env: NodeJS.ProcessEnv
     /** `execFile`'s own timeout: the child is signalled, not merely abandoned. */
     timeout?: number
     killSignal?: NodeJS.Signals
@@ -82,6 +93,8 @@ export type GhRunnerEnvironment = {
   /** `process.env.SHELL` by default; the login shell the PATH fallback runs through. */
   shell?: string | undefined
   platform?: NodeJS.Platform
+  /** Where `gh` is on Windows; {@link resolveWindowsProgramOnPath} by default. */
+  resolveWindowsProgram?: (name: string) => Promise<string | null>
 }
 
 // Default gh runner: a direct spawn, then — when the binary is not on PATH — a
@@ -95,14 +108,26 @@ export function createDefaultGhRunner(environment: GhRunnerEnvironment = {}): Gh
     ((file, args, options) => execFileAsync(file, args, options) as Promise<{ stdout: string; stderr: string }>)
   const shell = environment.shell !== undefined ? environment.shell : process.env.SHELL
   const platform = environment.platform ?? process.platform
+  const resolveWindowsProgram = environment.resolveWindowsProgram ?? ((name) => resolveWindowsProgramOnPath(name))
 
   const runDirect = async (args: string[], options: GhRunOptions): Promise<GhResult> => {
+    // On Windows a bare `gh` would be looked for in `cwd` — the repository —
+    // before PATH, so a `gh.exe` a repository ships would run in its place. The
+    // program is resolved on PATH and spawned by its full path instead, and a
+    // PATH with no `gh` on it is "not installed" rather than a bare-name spawn.
+    let file = 'gh'
+    if (platform === 'win32') {
+      const resolved = await resolveWindowsProgram('gh')
+      if (!resolved) return { found: false, code: -1, stdout: '', stderr: '' }
+      file = resolved
+    }
     try {
-      const { stdout, stderr } = await spawn('gh', args, {
+      const { stdout, stderr } = await spawn(file, args, {
         ...(options.cwd ? { cwd: options.cwd } : {}),
         ...spawnTimeout(options),
         maxBuffer: GH_MAX_BUFFER_BYTES,
         windowsHide: true,
+        env: ghEnv(options),
       })
       return { found: true, code: 0, stdout, stderr }
     } catch (error) {
@@ -110,7 +135,7 @@ export function createDefaultGhRunner(environment: GhRunnerEnvironment = {}): Gh
     }
   }
   const runViaShell = async (args: string[], options: GhRunOptions): Promise<GhResult | null> => {
-    const descriptor = buildShellGhDescriptor(args, shell, platform)
+    const descriptor = buildShellGhDescriptor(args, shell, platform, options.unsetEnv)
     if (!descriptor) return null
     try {
       const { stdout, stderr } = await spawn(descriptor.file, descriptor.args, {
@@ -118,6 +143,7 @@ export function createDefaultGhRunner(environment: GhRunnerEnvironment = {}): Gh
         ...spawnTimeout(options),
         maxBuffer: GH_MAX_BUFFER_BYTES,
         windowsHide: true,
+        env: ghEnv(options),
       })
       return { found: true, code: 0, stdout, stderr }
     } catch (error) {
@@ -136,6 +162,13 @@ export function createDefaultGhRunner(environment: GhRunnerEnvironment = {}): Gh
       return result.found && result.code === 0
     },
   }
+}
+
+/** The child's environment: the git-safe one, less anything the caller unset. */
+function ghEnv(options: GhRunOptions): NodeJS.ProcessEnv {
+  const env = gitSafetyEnv()
+  for (const name of options.unsetEnv ?? []) delete env[name]
+  return env
 }
 
 /** The kill terms for one call, or nothing at all when the caller set no bound. */
@@ -166,6 +199,7 @@ export function buildShellGhDescriptor(
   args: string[],
   shell: string | undefined,
   platform: NodeJS.Platform = process.platform,
+  unsetEnv: readonly string[] = [],
 ): { file: string; args: string[] } | null {
   if (platform !== 'darwin' && platform !== 'linux') return null
   const shellPath = shell?.trim()
@@ -173,7 +207,9 @@ export function buildShellGhDescriptor(
   const shellName = shellPath.split('/').pop()
   if (shellName !== 'zsh' && shellName !== 'bash') return null
   const command = ['gh', ...args].map(posixSingleQuote).join(' ')
-  return { file: shellPath, args: ['-ilc', command] }
+  const names = unsetEnv.filter((name) => /^[A-Z_][A-Z0-9_]*$/.test(name))
+  const unset = names.length > 0 ? `unset ${names.join(' ')}; ` : ''
+  return { file: shellPath, args: ['-ilc', `${unset}${command}`] }
 }
 
 function posixSingleQuote(value: string): string {

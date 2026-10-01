@@ -65,11 +65,25 @@ export type HostContextInput = {
     relativeRoot?: string
   }
   /**
-   * Sections a module contributed for this launch. Appended after the
-   * design-system and Knowledge Graph sections, in module registration order.
+   * The session can reach the app's `editor_*` tools: an agent launched with a
+   * workspace and an agent identity, which is what binds its gateway
+   * connection. Absent for a plain launch, whose document is unchanged.
    */
-  moduleSections?: Array<{ heading: string; body: string }>
+  editorTools?: boolean
 }
+
+/**
+ * Four lines, because a host-context document is read on every turn: when to
+ * reach for the editor tools instead of pasting paths, and the one answer an
+ * agent must not retry into. The tool descriptions and the studio-workspaces
+ * skill carry the rest.
+ */
+export const EDITOR_TOOLS_HOST_CONTEXT_SECTION = [
+  'To point the person at code, open it rather than pasting paths: `editor_open` with the files and line ranges you mean, or `editor_open_diff` for your changes (optionally `paths` and a `focus`).',
+  'They open in the app without taking focus. Add a one-line `note` saying why you are showing it.',
+  '`shown: "not_visible"` means no window shows this workspace; it opens when they switch to it — say so and do not retry.',
+  'Files outside the workspace you did not write come back `awaiting_owner`: the person decides whether to open them.',
+].join('\n')
 
 /**
  * The host-context document for this launch, or null when the host has nothing
@@ -95,11 +109,8 @@ export function buildHostContextDocument(input: HostContextInput): string | null
     sections.push(['## Knowledge graph', '', knowledgeLine].join('\n'))
   }
 
-  for (const section of input.moduleSections ?? []) {
-    const heading = section.heading.trim()
-    const body = section.body.trim()
-    if (!heading || !body) continue
-    sections.push([`## ${heading}`, '', body].join('\n'))
+  if (input.editorTools) {
+    sections.push(['## Showing files and diffs', '', EDITOR_TOOLS_HOST_CONTEXT_SECTION].join('\n'))
   }
 
   if (sections.length === 0) return null

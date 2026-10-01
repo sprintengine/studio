@@ -14,6 +14,7 @@ import {
   type XtermReplayProfile,
   type XtermReplayState,
 } from './xtermOutputQueue'
+import { composeResumeSwap, type ResumeHoldRelease, type ResumeHoldTimers } from './terminalResumeHold'
 import { test } from 'vitest'
 
 test('xtermOutputQueue', async () => {
@@ -31,10 +32,13 @@ test('xtermOutputQueue', async () => {
     assertEmptyReplayReleaseFlushesLiveOutput()
     assertDisposeCancelsRemainingReplayChunks()
     assertRevisibleReplayResetsBeforeReplayingButInitialDoesNot()
-    assertResumeSuppressionWithholdsUntilAltScreen()
-    assertResumeSuppressionFlushesOnExit()
-    assertResumeSuppressionRevealsOnTimeout()
+    assertResumeHoldSwapsTheFrozenViewInOneWrite()
+    assertResumeHoldReleasesOnExitWithoutSwapping()
+    assertResumeHoldAppendsForAFreshRelaunch()
     assertResumeRevealDefersWhileReplayDraining()
+    assertReplayDuringResumeHoldEndsTheHold()
+    assertWhenOutputWrittenWaitsForTheResumedFrameToBeParsed()
+    assertCapTrimNeverStartsInsideASurrogatePair()
     assertModalPauseWithholdsEveryChunkAndFlushesInOrder()
     assertModalPauseKeepsTheNewestWindowWhenTheCapIsHit()
     assertModalPauseStopsAfterTheInFlightWrite()
@@ -219,147 +223,150 @@ test('xtermOutputQueue', async () => {
     gate.handleReplay('first-window\n')
     assert.ok(!writes.includes('[reset]'), 'initial attach must not reset the terminal')
     assert.ok(writes.includes('first-window\n'))
+    assert.ok(!writes.some((write) => write.startsWith('\x1bc')), 'nor send it a full reset')
 
     // Revisible resync: a replay arrives with no preceding beginReplayWait, on a
     // terminal that has already revealed content. It must reset first, then write
-    // the new window exactly once.
+    // the new window exactly once — and the reset travels IN the first write
+    // (RIS), never as a separate `term.reset()` that paints an empty frame before
+    // the content arrives.
     const resetAt = writes.length
     gate.handleReplay('second-window\n')
     const afterResync = writes.slice(resetAt)
-    assert.ok(afterResync.includes('[reset]'), 'revisible resync must reset before replaying')
-    assert.equal(afterResync.indexOf('[reset]') < afterResync.indexOf('second-window\n'), true)
+    assert.ok(!afterResync.includes('[reset]'), 'no reset of its own: it would paint a blank frame')
+    assert.deepEqual(
+      afterResync.filter((write) => write !== '[scroll-bottom]'),
+      ['\x1bcsecond-window\n'],
+    )
     // The pre-hide window is not re-written after the reset.
     assert.ok(!afterResync.includes('first-window\n'))
     gate.dispose()
     queue.dispose()
   }
 
-  // Resume-suppression: on a freeze-the-view relaunch the gate must withhold the
-  // CLI's transitional boot output (focus-report echo, trust warning, shell
-  // fragments) until it re-enters its alt-screen TUI, then flush it in a single
-  // write — so the noise lands on the now-hidden normal buffer and never gets its
-  // own painted frame. The alt-screen scan runs on the concatenated hold buffer so
-  // a sequence split across PTY chunks is still detected.
-  function assertResumeSuppressionWithholdsUntilAltScreen(): void {
-    const writes: string[] = []
-    const queue = createXtermOutputQueue(createTerminal(writes), { recordWrite: () => {} })
-    const gate = createXtermReplayGate(createTerminal(writes), queue, {})
+  // A clock driven by hand for the resume hold, so a release happens when the
+  // test says so.
+  function createHoldClock(): { timers: ResumeHoldTimers; fireAll: () => void } {
+    const pending = new Map<number, () => void>()
+    let nextId = 1
+    return {
+      timers: {
+        set: (callback) => {
+          const id = nextId++
+          pending.set(id, callback)
+          return id
+        },
+        clear: (handle) => {
+          pending.delete(handle as number)
+        },
+      },
+      fireAll: () => {
+        while (pending.size > 0) {
+          const [id, callback] = [...pending.entries()][0]!
+          pending.delete(id)
+          callback()
+        }
+      },
+    }
+  }
 
-    // Boot output, in arrival order. The alt-screen enter (ESC[?1049h) is split
-    // across the last two chunks to exercise the concatenated-buffer scan.
-    const chunks = [
-      '\x1b[I', // focus-report echo
-      'Ignoring 10 permissions.allow entries...\n', // trust warning
-      '\x1b[?10', // alt-screen enter, first half
-      '49h\x1b[2Jrepainted-tui', // second half + repaint
-    ]
+  // Resume: the relaunched CLI's output is held while the frozen view stays up,
+  // then goes to the screen as ONE write that clears the frozen view and paints
+  // the CLI's first frame inside a synchronized update. Nothing is written
+  // before that, nothing is written twice, and live output flows after it.
+  function assertResumeHoldSwapsTheFrozenViewInOneWrite(): void {
+    const writes: string[] = []
+    const clock = createHoldClock()
+    const releases: ResumeHoldRelease[] = []
+    const queue = createXtermOutputQueue(createTerminal(writes), { recordWrite: () => {} })
+    const gate = createXtermReplayGate(createTerminal(writes), queue, {
+      resumeHoldTimers: clock.timers,
+      onResumeRelease: (release) => releases.push(release),
+    })
     const content = (): string[] => writes.filter((value) => value !== '[scroll-bottom]')
 
-    gate.armResumeSuppression()
-    gate.handleLiveData(chunks[0])
-    gate.handleLiveData(chunks[1])
-    gate.handleLiveData(chunks[2])
-    assert.deepEqual(content(), [], 'boot output is withheld until the alt-screen repaint')
+    gate.armResumeHold({ replaceFrozenView: true })
+    const chunks = ['\x1b[?2004h\x1b[c', 'banner\r\r\nhistory\r\r\n', '\u276f \r\r\n']
+    for (const chunk of chunks) gate.handleLiveData(chunk)
+    assert.deepEqual(content(), [], 'held while the frozen view stays up')
 
-    gate.handleLiveData(chunks[3]) // completes ESC[?1049h across chunks → reveal
-    // Everything held flushes in exactly one write, in order.
-    assert.deepEqual(content(), [chunks.join('')])
-    assert.equal(content().length, 1, 'held output is flushed as a single batched write')
+    clock.fireAll()
+    assert.deepEqual(content(), [composeResumeSwap(chunks.join(''))], 'one write: clear and frame together')
+    assert.equal(releases.length, 1)
+    assert.equal(releases[0]!.replaceFrozenView, true)
 
-    // After reveal, live data flows normally again.
     gate.handleLiveData('post-resume')
     assert.equal(content().at(-1), 'post-resume')
+    assert.equal(content().length, 2)
     gate.dispose()
     queue.dispose()
   }
 
-  // Fallback: if the relaunched process exits before painting an alt-screen, the
-  // withheld output must still be revealed (so a genuine boot error surfaces).
-  function assertResumeSuppressionFlushesOnExit(): void {
+  // A relaunch that dies during start-up leaves its error UNDER the frozen
+  // view: the exit lets go of the hold without clearing anything.
+  function assertResumeHoldReleasesOnExitWithoutSwapping(): void {
     const writes: string[] = []
+    const clock = createHoldClock()
     const queue = createXtermOutputQueue(createTerminal(writes), { recordWrite: () => {} })
-    const gate = createXtermReplayGate(createTerminal(writes), queue, {})
+    const gate = createXtermReplayGate(createTerminal(writes), queue, { resumeHoldTimers: clock.timers })
 
-    gate.armResumeSuppression()
+    gate.armResumeHold({ replaceFrozenView: true })
     gate.handleLiveData('boot error: command not found\n')
-    assert.deepEqual(writes, [], 'output is withheld while suppressing')
+    assert.deepEqual(writes, [], 'output is withheld while holding')
 
-    gate.flushResumeSuppression()
+    gate.releaseResumeHoldForExit()
     assert.deepEqual(writes, ['boot error: command not found\n'])
-
-    // Idempotent: a second flush after reveal is a no-op.
-    gate.flushResumeSuppression()
-    assert.deepEqual(writes, ['boot error: command not found\n'])
+    gate.releaseResumeHoldForExit()
+    clock.fireAll()
+    assert.deepEqual(writes, ['boot error: command not found\n'], 'released once')
     gate.dispose()
     queue.dispose()
   }
 
-  // Fallback: a CLI that never enters an alt-screen (plain shell) must still be
-  // revealed once the bounded timeout fires.
-  function assertResumeSuppressionRevealsOnTimeout(): void {
+  // A relaunch that starts fresh (the CLI cannot resume a conversation) has no
+  // copy of the history to replace the frozen one, so its output is written
+  // after the frozen view, unchanged.
+  function assertResumeHoldAppendsForAFreshRelaunch(): void {
     const writes: string[] = []
+    const clock = createHoldClock()
     const queue = createXtermOutputQueue(createTerminal(writes), { recordWrite: () => {} })
-    const gate = createXtermReplayGate(createTerminal(writes), queue, {})
+    const gate = createXtermReplayGate(createTerminal(writes), queue, { resumeHoldTimers: clock.timers })
 
-    const realSetTimeout = globalThis.setTimeout
-    const realClearTimeout = globalThis.clearTimeout
-    // A box (not a plain `let`) so control-flow analysis doesn't narrow the
-    // captured callback away across the stubbed-closure mutation.
-    const box: { cb: (() => void) | null } = { cb: null }
-    globalThis.setTimeout = ((callback: () => void) => {
-      box.cb = callback
-      return 1 as unknown as ReturnType<typeof setTimeout>
-    }) as typeof setTimeout
-    globalThis.clearTimeout = (() => {}) as typeof clearTimeout
-    try {
-      gate.armResumeSuppression(250)
-      gate.handleLiveData('plain shell prompt $ ')
-      assert.deepEqual(writes, [], 'output is withheld until the timeout fires')
-
-      assert.equal(typeof box.cb, 'function', 'arm scheduled a timeout')
-      box.cb?.()
-      assert.deepEqual(writes, ['plain shell prompt $ '])
-    } finally {
-      globalThis.setTimeout = realSetTimeout
-      globalThis.clearTimeout = realClearTimeout
-    }
+    gate.armResumeHold({ replaceFrozenView: false })
+    gate.handleLiveData('fresh prompt $ ')
+    clock.fireAll()
+    assert.deepEqual(writes, ['fresh prompt $ '])
     gate.dispose()
     queue.dispose()
   }
 
-  // If resume reveals while a snapshot replay is still draining (resume clicked
-  // over a frozen view mid-paint), the held boot output must NOT interleave with
-  // the remaining replay chunks — since it enters the alt-screen, a later chunk
-  // would corrupt the repaint. It is routed through liveBuffer and flushed in
-  // order only after the replay fully settles. Uses a manual terminal so the
-  // replay drain stays in flight across the reveal.
+  // If the hold lets go while a snapshot replay is still draining (resume
+  // clicked over a frozen view mid-paint), the swap must NOT interleave with the
+  // remaining replay chunks — its clear would land before the snapshot's tail.
+  // It is routed through liveBuffer and flushed in order only after the replay
+  // fully settles. Uses a manual terminal so the drain stays in flight.
   function assertResumeRevealDefersWhileReplayDraining(): void {
     const writes: string[] = []
+    const clock = createHoldClock()
     const manual = createManualTerminal(writes)
     const queue = createXtermOutputQueue(createTerminal(writes), { recordWrite: () => {} })
-    const gate = createXtermReplayGate(manual.term, queue, {})
+    const gate = createXtermReplayGate(manual.term, queue, { resumeHoldTimers: clock.timers })
 
-    // Start a multi-chunk replay; only the first chunk dispatches (callback held),
-    // so the gate stays in the `replaying` state.
     gate.beginReplayWait()
     const replay = `${'a'.repeat(REPLAY_CHUNK_CHARS - 1)}\n${'b'.repeat(REPLAY_CHUNK_CHARS - 1)}\n`
     gate.handleReplay(replay)
     assert.equal(writes.length, 1, 'replay is mid-drain (first chunk only)')
 
-    // Resume arms suppression and the relaunched CLI repaints its alt-screen while
-    // the snapshot is still draining.
-    gate.armResumeSuppression()
-    gate.handleLiveData('\x1b[Iboot-warning\x1b[?1049hrepaint')
-    // Held output is deferred, not written yet — the replay is still draining.
-    assert.equal(writes.length, 1, 'held boot output is deferred while replay drains')
+    gate.armResumeHold({ replaceFrozenView: true })
+    gate.handleLiveData('banner\r\nrepaint')
+    clock.fireAll()
+    assert.equal(writes.length, 1, 'the swap is deferred while the replay drains')
 
-    // Draining the rest of the replay settles it and then flushes the held buffer,
-    // strictly after the snapshot chunks and exactly once.
     manual.flushAll()
     const content = writes.filter((value) => value !== '[scroll-bottom]')
-    assert.equal(content.length, 3, 'two replay chunks then the held buffer')
+    assert.equal(content.length, 3, 'two replay chunks then the swap')
     assert.equal(content.slice(0, 2).join(''), replay)
-    assert.equal(content.at(-1), '\x1b[Iboot-warning\x1b[?1049hrepaint')
+    assert.equal(content.at(-1), composeResumeSwap('banner\r\nrepaint'))
     gate.dispose()
     queue.dispose()
   }
@@ -535,6 +542,98 @@ test('xtermOutputQueue', async () => {
     resetTerminalRepaintPauseForTests()
   }
 
+  // A replay that lands while a resume is being held is the resumed session's
+  // own stream (the pane was hidden before the relaunched CLI was sent
+  // anything, so main repainted it in full). It already holds what the hold
+  // kept: the hold ends, drops that, and the next live chunk is written as
+  // itself — not swapped in with a clear that erases the transcript just
+  // painted.
+  function assertReplayDuringResumeHoldEndsTheHold(): void {
+    const writes: string[] = []
+    const clock = createHoldClock()
+    const releases: ResumeHoldRelease[] = []
+    const queue = createXtermOutputQueue(createTerminal(writes), { recordWrite: () => {} })
+    const gate = createXtermReplayGate(createTerminal(writes), queue, {
+      resumeHoldTimers: clock.timers,
+      onResumeRelease: (release) => releases.push(release),
+    })
+    const content = (): string[] => writes.filter((value) => value !== '[scroll-bottom]')
+
+    gate.beginReplayWait()
+    gate.handleReplay('FROZEN SNAPSHOT\r\n')
+    gate.armResumeHold({ replaceFrozenView: true })
+    gate.handleLiveData('\x1b[?2004h')
+    gate.handleReplay('BANNER + WHOLE TRANSCRIPT\r\n')
+    assert.equal(releases.length, 1, 'the replay ended the hold')
+    assert.equal(releases[0]!.reason, 'replaced')
+    assert.equal(releases[0]!.data, '', 'and dropped what it held: the replay carries it')
+
+    gate.handleLiveData('\x1b[2K> x')
+    clock.fireAll()
+    assert.deepEqual(content(), ['FROZEN SNAPSHOT\r\n', '\x1bcBANNER + WHOLE TRANSCRIPT\r\n', '\x1b[2K> x'])
+    assert.equal(
+      content().some((write) => write.includes('\x1b[3J')),
+      false,
+      'nothing clears the transcript the replay painted',
+    )
+    gate.dispose()
+    queue.dispose()
+  }
+
+  // A paste held for a resuming agent goes once the relaunched CLI's first
+  // frame has been parsed — only then has xterm seen whether that CLI asked for
+  // bracketed paste. `whenOutputWritten` is how the pane waits for that.
+  function assertWhenOutputWrittenWaitsForTheResumedFrameToBeParsed(): void {
+    const writes: string[] = []
+    const manual = createManualTerminal(writes)
+    const clock = createHoldClock()
+    const order: string[] = []
+    const queue = createXtermOutputQueue(manual.term, { recordWrite: () => {} })
+    const gate = createXtermReplayGate(manual.term, queue, {
+      resumeHoldTimers: clock.timers,
+      onResumeRelease: () => gate.whenOutputWritten(() => order.push('written')),
+    })
+
+    gate.armResumeHold({ replaceFrozenView: true })
+    gate.handleLiveData('\x1b[?2004hbanner\r\n')
+    clock.fireAll()
+    assert.equal(writes.length, 1, 'the swap is handed to xterm')
+    assert.deepEqual(order.slice(), [], 'but not yet parsed')
+    manual.flushAll()
+    assert.deepEqual(order.slice(), ['written'], 'parsed: now the modes are the CLI’s')
+
+    // With nothing waiting, it runs at once.
+    gate.whenOutputWritten(() => order.push('idle'))
+    assert.deepEqual(order, ['written', 'idle'])
+    gate.dispose()
+    queue.dispose()
+  }
+
+  // Trimming the queue at its cap keeps the newest units, and must not begin
+  // on the second half of a surrogate pair: xterm would print the orphan as a
+  // replacement character right after the throttle notice.
+  function assertCapTrimNeverStartsInsideASurrogatePair(): void {
+    const banner = '\r\n[Terminal output throttled to keep the UI responsive]\r\n'
+    const pairs = Math.ceil(TERMINAL_RECENT_REPLAY_BYTES / 2) + 10
+    // One of the two lands the cut on a low surrogate, whichever parity the cap has.
+    for (const prefix of ['', 'b']) {
+      resetTerminalRepaintPauseForTests()
+      const writes: string[] = []
+      const queue = createXtermOutputQueue(createTerminal(writes), { recordWrite: () => {} })
+      const release = acquireTerminalRepaintPause({ label: 'test-modal' })
+      queue.enqueue('a')
+      queue.enqueue(prefix + '\u{1F600}'.repeat(pairs))
+      release()
+      const written = writes.join('')
+      assert.equal(written.startsWith(banner), true, 'the cap was hit')
+      const first = written.charCodeAt(banner.length)
+      assert.equal(first >= 0xdc00 && first <= 0xdfff, false, 'no orphaned low surrogate after the notice')
+      assert.equal(written.endsWith('\u{1F600}'), true)
+      queue.dispose()
+    }
+    resetTerminalRepaintPauseForTests()
+  }
+
   function createTerminal(writes: string[]): Terminal {
     return {
       write: (data: string, callback?: () => void) => {
@@ -584,5 +683,42 @@ test('xtermOutputQueue', async () => {
         return 1
       },
     } as Window & typeof globalThis
+  }
+})
+
+test('output drains without an animation frame when frames stop coming', () => {
+  // A compositor that has stopped producing frames (a locked screen with the
+  // display asleep) must not strand output in the queue until the cap starts
+  // discarding it.
+  const writes: string[] = []
+  const timers: Array<() => void> = []
+  const realWindow = globalThis.window
+  const realSetTimeout = globalThis.setTimeout
+  const realClearTimeout = globalThis.clearTimeout
+  globalThis.window = { requestAnimationFrame: () => 1 } as unknown as Window & typeof globalThis
+  globalThis.setTimeout = ((callback: () => void) => {
+    timers.push(callback)
+    return timers.length as unknown as ReturnType<typeof setTimeout>
+  }) as typeof setTimeout
+  globalThis.clearTimeout = (() => {}) as typeof clearTimeout
+  try {
+    const term = {
+      write: (data: string, callback?: () => void) => {
+        writes.push(data)
+        callback?.()
+      },
+    } as unknown as Terminal
+    const queue = createXtermOutputQueue(term, { recordWrite: () => {} })
+    queue.enqueue('line 1\r\n')
+    queue.enqueue('line 2\r\n')
+    assert.deepEqual(writes, [], 'waits for a frame first')
+    assert.equal(timers.length, 1, 'one fallback armed for the pending drain')
+    timers[0]!()
+    assert.deepEqual(writes, ['line 1\r\n', 'line 2\r\n'], 'the fallback drained in order')
+    queue.dispose()
+  } finally {
+    globalThis.window = realWindow
+    globalThis.setTimeout = realSetTimeout
+    globalThis.clearTimeout = realClearTimeout
   }
 })

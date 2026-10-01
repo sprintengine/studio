@@ -620,7 +620,7 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
     if (disposed) return
     const checkout = normalizeCheckout(input)
     if (!checkout) return
-    const key = `${normalizeComparablePath(checkout.gitRoot)} ${checkout.branch}`
+    const key = `${normalizeComparablePath(checkout.gitRoot)}\0${checkout.branch}`
     const hold = held.get(key)
     if (hold && now() - hold.at < LOOKUP_HOLD_MS) return
     const inFlight = lookupsInFlight.get(key)

@@ -48,7 +48,22 @@ export type SkillHarness = 'claude' | 'codex' | 'cursor' | 'gemini' | 'opencode'
  */
 export type SkillRepoTransport = 'git' | 'api'
 
-/** A place skills come from. `repo` is `owner/name` for github, '' otherwise. */
+// Where a repository source lives — its host, path and transport — is its own
+// module; these are re-exported so the one import every caller already has
+// keeps working.
+export {
+  DEFAULT_SKILL_REPO_HOST,
+  isGithubDotComRepo,
+  joinSkillRepo,
+  normalizeSkillRepoHost,
+  skillRepoCloneUrl,
+  skillRepoLabel,
+  skillRepoWebUrl,
+  splitSkillRepo,
+  type SkillRepoLocation,
+} from './skill-repo'
+
+/** A place skills come from. `repo` is where its repository lives (`./skill-repo.ts`), '' for any other kind. */
 export type SkillSource = {
   id: string
   kind: SkillSourceKind

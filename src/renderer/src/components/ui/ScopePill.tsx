@@ -1,4 +1,4 @@
-// Scope pill — one machine-readable scope name (`terminal:control`) shown as a
+// Scope pill — one machine-readable scope name (`conversation:operate`) shown as a
 // thing the reader can count and compare rather than as prose.
 //
 // Spec: design-system/components/scope-pill/component.md.

@@ -9,13 +9,37 @@
   "binary": "opencode",
   "permissionPresets": {
     "manual": {
-      "label": "Manual — OpenCode prompts for permissions",
-      "args": []
+      "$comment": "OpenCode takes no flag for this, but its configuration takes a permission rule set from OPENCODE_PERMISSION, merged over the person's own, and the last matching rule wins: the wildcard comes first and every tool OpenCode names follows it. Reads, searches and listings run; edits, commands, the web and anything outside the project ask. The same rule set a chat gets.",
+      "label": "Ask",
+      "summary": "Asks before edits and commands.",
+      "description": "OpenCode permission rules that ask before every edit, command and web request. Reading, searching and listing the project does not ask.",
+      "args": [],
+      "env": {
+        "OPENCODE_PERMISSION": "{\"*\":\"ask\",\"read\":\"allow\",\"glob\":\"allow\",\"grep\":\"allow\",\"list\":\"allow\",\"lsp\":\"allow\",\"todoread\":\"allow\",\"todowrite\":\"allow\",\"edit\":\"ask\",\"bash\":\"ask\",\"task\":\"ask\",\"webfetch\":\"ask\",\"websearch\":\"ask\",\"codesearch\":\"ask\",\"external_directory\":\"ask\"}"
+      }
+    },
+    "auto": {
+      "$comment": "The manual rule set with edits allowed.",
+      "label": "Allow edits",
+      "summary": "Edits go through; commands ask.",
+      "description": "OpenCode permission rules that let file edits in the project through and ask before commands, web requests and anything outside the project.",
+      "args": [],
+      "env": {
+        "OPENCODE_PERMISSION": "{\"*\":\"ask\",\"read\":\"allow\",\"glob\":\"allow\",\"grep\":\"allow\",\"list\":\"allow\",\"lsp\":\"allow\",\"todoread\":\"allow\",\"todowrite\":\"allow\",\"edit\":\"allow\",\"bash\":\"ask\",\"task\":\"ask\",\"webfetch\":\"ask\",\"websearch\":\"ask\",\"codesearch\":\"ask\",\"external_directory\":\"ask\"}"
+      }
     },
     "bypass": {
-      "$comment": "OpenCode has exactly ONE permission flag. `opencode --help` documents `--auto` (\"auto-approve permissions that are not explicitly denied (dangerous!)\") and nothing else \u2014 there is no `--dangerously-skip-permissions`, which is what this preset used to send. OpenCode's parser is not strict, so the unknown flag was silently dropped: choosing Bypass did nothing and the session kept prompting, with no error anywhere. No `auto` rung is declared on purpose \u2014 OpenCode has no supervised-autonomy mode distinct from this one, so an auto request degrades DOWN to manual, which is the honest answer.",
-      "label": "Bypass all approvals (dangerous)",
+      "$comment": "OpenCode has exactly ONE permission flag. `opencode --help` documents `--auto` (\"auto-approve permissions that are not explicitly denied (dangerous!)\") and nothing else — there is no `--dangerously-skip-permissions`, which is what this preset used to send. OpenCode's parser is not strict, so the unknown flag was silently dropped: choosing Bypass did nothing and the session kept prompting, with no error anywhere.",
+      "label": "Auto-approve",
+      "summary": "Approves everything not denied.",
+      "description": "OpenCode’s --auto: every permission your rules do not explicitly deny is approved. Use only in repositories you trust.",
       "args": ["--auto"]
+    },
+    "none": {
+      "label": "Your rules",
+      "summary": "Your OpenCode permission rules decide.",
+      "description": "Pass no permission rules, so your own OpenCode configuration decides what asks.",
+      "args": []
     }
   },
   "modelSelection": {
@@ -29,7 +53,8 @@
       "run",
       { "spreadIf": "permissionArgs" },
       { "spreadIf": "modelArgs" },
-      { "valueIf": "prompt", "value": "{{prompt}}" }
+      { "valueIf": "prompt", "value": "{{prompt}}" },
+      { "spreadIf": "promptOverflowArgs" }
     ]
   },
   "resume": {
@@ -42,11 +67,17 @@
       "--continue",
       { "valueIf": "sessionId", "value": "--session" },
       { "valueIf": "sessionId", "value": "{{sessionId}}" },
-      { "valueIf": "prompt", "value": "{{prompt}}" }
+      { "valueIf": "prompt", "value": "{{prompt}}" },
+      { "spreadIf": "promptOverflowArgs" }
     ]
   },
   "promptInjection": {
-    "mode": "positional-arg"
+    "mode": "positional-arg",
+    "overflow": {
+      "$comment": "`opencode run` is a one-shot command, not a TUI, so there is no composer to type an overflowed message into. `opencode run --help` (1.18.30) documents `-f, --file` (\"file(s) to attach to message\"), so a first message too long for the platform's command line is written to a file and attached, and `{{prompt}}` renders a one-line note naming it. The note comes first because -f is an array option: a positional after it would be read as another file. Not verified end to end: this machine has no provider credentials.",
+      "mode": "file",
+      "args": ["--file", "{{promptFile}}"]
+    }
   },
   "contextInjection": {
     "$comment": "OpenCode has no system-prompt flag; it merges OPENCODE_CONFIG_CONTENT (JSON) over the config it already loaded, and `instructions` is a list of instruction FILES. Verified against the installed binary, which reads process.env.OPENCODE_CONFIG_CONTENT and merges it last. Env rather than argv, so a resumed session is re-told for free. The path goes in as {{contextFileJson}} — a JSON string literal — because a Windows path's backslashes would otherwise be JSON escapes and the config would not parse. A user who already exports OPENCODE_CONFIG_CONTENT is merged with rather than clobbered — see mergeProviderLaunchEnv in terminal-launch.ts.",
@@ -101,7 +132,7 @@
   "detect": {
     "versionArgs": ["--version"]
   },
-  "package": {"npm": "opencode-ai", "brew": "opencode"},
+  "package": { "npm": "opencode-ai", "brew": "opencode" },
   "install": {
     "darwin": [
       {

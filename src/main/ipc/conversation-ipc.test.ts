@@ -12,6 +12,7 @@ import type {
   ConversationEvent,
   ConversationSendTurnInput,
   ConversationSessionActionResult,
+  ConversationSessionFrame,
   ConversationStartSessionResult,
 } from '../../shared/conversation-runtime'
 import { test } from 'vitest'
@@ -35,6 +36,7 @@ test('conversation-ipc', async () => {
     await testRegistersSessionChannelsAndEventSubscription()
     await testSendTurnValidatesImageAttachments()
     await testAttachmentLimitsAreTheSharedOnes()
+    await testSendTurnCarriesASteer()
     await testSetPermissionValidatesThePreset()
     await testFailureIsExplicit()
 
@@ -53,6 +55,7 @@ test('conversation-ipc', async () => {
           providerType: 'model-provider',
           models: [{ id: 'gpt-5' }],
           supportsDynamicModels: false,
+          credentialSource: 'api-key',
           adapter: { kind: 'declarative', execution: 'declarative', trust: 'not_required' },
         },
       ],
@@ -177,6 +180,14 @@ test('conversation-ipc', async () => {
         calls.push(`stop:${input.sessionId}`)
         return actionResult
       },
+      suspendSession: async (input) => {
+        calls.push(`suspend:${input.sessionId}`)
+        return actionResult
+      },
+      terminalHandoff: async (input) => {
+        calls.push(`terminal-handoff:${input.sessionId}`)
+        return { ok: true, workspaceId: 'workspace', agentId: 'agent-claude-code-abc123' }
+      },
       listSessions: () => ({ ok: true, sessions: [startResult.session] }),
       onEvent: (cb) => {
         runtimeListeners.push(cb)
@@ -207,6 +218,23 @@ test('conversation-ipc', async () => {
       permissionPreset: 'bypass',
     })
     await ipcMain.handlers.get('conversation:sessions:stop')?.(null, { sessionId: 'conv_1' })
+    await ipcMain.handlers.get('conversation:sessions:suspend')?.(null, { sessionId: 'conv_1' })
+    assert.deepEqual(await ipcMain.handlers.get('conversation:sessions:suspend')?.(null, {}), {
+      ok: false,
+      message: 'sessionId is required.',
+    })
+    assert.deepEqual(
+      await ipcMain.handlers.get('conversation:sessions:terminal-handoff')?.(null, { sessionId: 'conv_1' }),
+      {
+        ok: true,
+        workspaceId: 'workspace',
+        agentId: 'agent-claude-code-abc123',
+      },
+    )
+    assert.deepEqual(await ipcMain.handlers.get('conversation:sessions:terminal-handoff')?.(null, {}), {
+      ok: false,
+      message: 'sessionId is required.',
+    })
     assert.deepEqual(await ipcMain.handlers.get('conversation:sessions:list')?.(null, {}), {
       ok: true,
       sessions: [startResult.session],
@@ -258,11 +286,13 @@ test('conversation-ipc', async () => {
       'respond:conv_1:approval_1:true',
       'permission:conv_1:bypass',
       'stop:conv_1',
+      'suspend:conv_1',
+      'terminal-handoff:conv_1',
     ])
   }
 
-  // The set-permission boundary only accepts the three known presets, so an
-  // unknown value never reaches the runtime or the provider.
+  // The set-permission boundary accepts the two presets, reads a retired one
+  // from an older window as `none`, and keeps anything else from the runtime.
   async function testSetPermissionValidatesThePreset(): Promise<void> {
     const captured: string[] = []
     const ipcMain = createIpcMain()
@@ -280,20 +310,29 @@ test('conversation-ipc', async () => {
     const setPermission = ipcMain.handlers.get('conversation:sessions:set-permission')
     assert.ok(setPermission, 'conversation:sessions:set-permission should be registered')
 
-    assert.deepEqual(await setPermission?.(null, { sessionId: 'conv_1', permissionPreset: 'auto' }), {
+    assert.deepEqual(await setPermission?.(null, { sessionId: 'conv_1', permissionPreset: 'bypass' }), {
       ok: true,
-      session: { ...SENT_SESSION, permissionPreset: 'auto' },
+      session: { ...SENT_SESSION, permissionPreset: 'bypass' },
     })
-    assert.deepEqual(captured, ['auto'])
+    for (const [sent, preset] of [
+      ['manual', 'manual'],
+      ['auto', 'auto'],
+      ['default', 'manual'],
+    ] as const)
+      assert.deepEqual(await setPermission?.(null, { sessionId: 'conv_1', permissionPreset: sent }), {
+        ok: true,
+        session: { ...SENT_SESSION, permissionPreset: preset },
+      })
+    assert.deepEqual(captured, ['bypass', 'manual', 'auto', 'manual'])
 
-    const presetError = { ok: false, message: 'permissionPreset must be default, auto, or bypass.' }
+    const presetError = { ok: false, message: 'permissionPreset must be none or manual or auto or bypass.' }
     assert.deepEqual(await setPermission?.(null, { sessionId: 'conv_1', permissionPreset: 'yolo' }), presetError)
     assert.deepEqual(await setPermission?.(null, { sessionId: 'conv_1' }), presetError)
-    assert.deepEqual(await setPermission?.(null, { permissionPreset: 'manual' }), {
+    assert.deepEqual(await setPermission?.(null, { permissionPreset: 'none' }), {
       ok: false,
       message: 'sessionId is required.',
     })
-    assert.deepEqual(captured, ['auto'], 'no invalid preset reached the runtime')
+    assert.equal(captured.length, 4, 'no invalid preset reached the runtime')
   }
 
   // The send-turn boundary guards image attachments: valid images pass through
@@ -411,6 +450,32 @@ test('conversation-ipc', async () => {
     )
   }
 
+  // A steer crosses the boundary as a strict boolean; anything else is refused
+  // rather than read as truthy, and an ordinary send carries no flag at all.
+  async function testSendTurnCarriesASteer(): Promise<void> {
+    const captured: ConversationSendTurnInput[] = []
+    const ipcMain = createIpcMain()
+    registerConversationIpc(ipcMain as unknown as Parameters<typeof registerConversationIpc>[0], {
+      listProviders: async () => ({ ok: true, providers: [] }),
+      getSecretStatus: async () => ({ ok: false, message: 'unused' }),
+      setSecret: async () => ({ ok: false, message: 'unused' }),
+      clearSecret: async () => ({ ok: false, message: 'unused' }),
+      ...runtimeHandlerStubs(),
+      sendTurn: async (input) => {
+        captured.push(input)
+        return { ok: true, session: SENT_SESSION }
+      },
+    })
+    const sendTurn = ipcMain.handlers.get('conversation:sessions:send-turn')
+    await sendTurn?.(null, { sessionId: 'conv_1', message: 'use the other file', steer: true })
+    await sendTurn?.(null, { sessionId: 'conv_1', message: 'plain' })
+    assert.equal(captured[0]?.steer, true)
+    assert.equal('steer' in (captured[1] ?? {}), false)
+    const refused = (await sendTurn?.(null, { sessionId: 'conv_1', message: 'x', steer: 'yes' })) as { ok: boolean }
+    assert.equal(refused.ok, false)
+    assert.equal(captured.length, 2)
+  }
+
   // Well-formed base64 that decodes to exactly `bytes`: 4 chars per 3 bytes, with
   // '=' padding dropping the remainder. Derived rather than hardcoded so the byte
   // assertions stay exact if the ceiling moves.
@@ -435,6 +500,7 @@ test('conversation-ipc', async () => {
     isDestroyed(): boolean
     send(channel: string, payload: unknown): void
     once(channel: 'destroyed', listener: () => void): void
+    on(channel: 'did-navigate', listener: () => void): void
     removeListener(channel: 'destroyed', listener: () => void): void
     destroyedListenerCount(): number
   } {
@@ -445,6 +511,7 @@ test('conversation-ipc', async () => {
       once: (_channel, listener) => {
         destroyedListeners.add(listener)
       },
+      on: () => undefined,
       removeListener: (_channel, listener) => {
         destroyedListeners.delete(listener)
       },
@@ -509,4 +576,158 @@ test('conversation-ipc', async () => {
   })
 
   await suiteRun
+})
+
+type Handler = (event: unknown, ...args: unknown[]) => unknown
+
+function registerWithRuntimeListeners() {
+  const handlers = new Map<string, Handler>()
+  const listeners = new Set<(event: ConversationEvent) => void>()
+  const scoped = new Set<(frame: ConversationSessionFrame) => void>()
+  registerConversationIpc(
+    { handle: (channel: string, handler: Handler) => handlers.set(channel, handler) } as unknown as Parameters<
+      typeof registerConversationIpc
+    >[0],
+    {
+      listProviders: async () => ({ ok: true, providers: [] }),
+      getSecretStatus: async () => ({ ok: false, message: 'unused' }),
+      setSecret: async () => ({ ok: false, message: 'unused' }),
+      clearSecret: async () => ({ ok: false, message: 'unused' }),
+      listProviderModels: async () => ({ ok: true, models: [] }),
+      startSession: async () => ({ ok: false, message: 'unused' }),
+      sendTurn: async () => ({ ok: false, message: 'unused' }),
+      interrupt: async () => ({ ok: false, message: 'unused' }),
+      respondToRequest: async () => ({ ok: false, message: 'unused' }),
+      setPermission: async () => ({ ok: false, message: 'unused' }),
+      stopSession: async () => ({ ok: false, message: 'unused' }),
+      listSessions: () => ({ ok: true, sessions: [] }),
+      readTranscript: async () => ({ ok: false, message: 'unused' }),
+      onEvent: (listener) => {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      subscribe: (_input, listener) => {
+        scoped.add(listener)
+        return { dispose: () => scoped.delete(listener), ready: Promise.resolve() }
+      },
+    },
+  )
+  const sent: Array<{ channel: string; payload: unknown }> = []
+  const navigation = new Set<() => void>()
+  const sender = {
+    id: 7,
+    isDestroyed: () => false,
+    send: (channel: string, payload: unknown) => sent.push({ channel, payload }),
+    once: () => undefined,
+    on: (channel: string, listener: () => void) => {
+      if (channel === 'did-navigate') navigation.add(listener)
+    },
+    removeListener: () => undefined,
+  }
+  return {
+    handlers,
+    listeners,
+    scoped,
+    sent,
+    sender,
+    navigate: () => {
+      for (const listener of navigation) listener()
+    },
+    navigationListeners: () => navigation.size,
+  }
+}
+
+function conversationEvent(type: ConversationEvent['type'], payload?: Record<string, unknown>): ConversationEvent {
+  return {
+    id: `event_${type}`,
+    sessionId: 'conv_1',
+    workspaceId: 'workspace',
+    agentId: 'agent',
+    providerId: 'mock-provider',
+    modelId: 'mock-model',
+    type,
+    createdAt: 1,
+    ...(payload ? { payload } : {}),
+  }
+}
+
+test('the all-conversations channel carries lifecycle events and never the token stream', async () => {
+  const ipc = registerWithRuntimeListeners()
+  await ipc.handlers.get('conversation:events:subscribe')!({ sender: ipc.sender })
+  const publish = (event: ConversationEvent) => {
+    for (const listener of ipc.listeners) listener(event)
+  }
+  publish(conversationEvent('user_message', { turnId: 't', text: 'hi' }))
+  publish(conversationEvent('turn_started', { turnId: 't' }))
+  publish(conversationEvent('content_delta', { turnId: 't', text: 'Hel' }))
+  publish(conversationEvent('reasoning_delta', { turnId: 't', text: 'thinking' }))
+  publish(conversationEvent('tool_started', { turnId: 't', toolUseId: 'tool', name: 'Bash' }))
+  publish(conversationEvent('tool_output', { turnId: 't', toolUseId: 'tool', partial: true, output: 'line' }))
+  publish(conversationEvent('tool_output', { turnId: 't', toolUseId: 'tool', output: 'done' }))
+  publish(conversationEvent('subagent_status', { toolUseId: 'task', status: 'running' }))
+  publish(conversationEvent('turn_completed', { turnId: 't' }))
+  publish(conversationEvent('session_updated', { conversationTitle: 'Title' }))
+  assert.deepEqual(
+    ipc.sent.map(({ channel, payload }) => [channel, (payload as ConversationEvent).type]),
+    [
+      ['conversation:event', 'user_message'],
+      ['conversation:event', 'turn_started'],
+      ['conversation:event', 'tool_started'],
+      ['conversation:event', 'tool_output'],
+      ['conversation:event', 'subagent_status'],
+      ['conversation:event', 'turn_completed'],
+      ['conversation:event', 'session_updated'],
+    ],
+  )
+  assert.equal((ipc.sent[3]?.payload as ConversationEvent).payload?.output, 'done')
+})
+
+test('a reload ends the subscriptions the page it replaced held', async () => {
+  const ipc = registerWithRuntimeListeners()
+  const key = { workspaceRoot: '/workspace', workspaceId: 'workspace', agentId: 'agent' }
+  await ipc.handlers.get('conversation:events:subscribe')!({ sender: ipc.sender })
+  await ipc.handlers.get('conversation:session:subscribe')!({ sender: ipc.sender }, { subscriptionId: 'pane', key })
+  assert.equal(ipc.listeners.size, 1)
+  assert.equal(ipc.scoped.size, 1)
+  // One navigation listener per webContents, however many subscriptions it holds.
+  assert.equal(ipc.navigationListeners(), 1)
+
+  ipc.navigate()
+  assert.equal(ipc.listeners.size, 0)
+  assert.equal(ipc.scoped.size, 0)
+
+  // The reloaded page subscribes afresh and is served once.
+  await ipc.handlers.get('conversation:events:subscribe')!({ sender: ipc.sender })
+  await ipc.handlers.get('conversation:session:subscribe')!({ sender: ipc.sender }, { subscriptionId: 'pane', key })
+  assert.equal(ipc.listeners.size, 1)
+  assert.equal(ipc.scoped.size, 1)
+  assert.equal(ipc.navigationListeners(), 1)
+  for (const listener of ipc.listeners) listener(conversationEvent('turn_completed', { turnId: 't' }))
+  assert.equal(ipc.sent.length, 1)
+})
+
+test('what the renderer reads off the all-conversations channel all arrives, with its workspace', async () => {
+  const ipc = registerWithRuntimeListeners()
+  await ipc.handlers.get('conversation:events:subscribe')!({ sender: ipc.sender })
+  const needed: Array<[ConversationEvent['type'], Record<string, unknown>?]> = [
+    ['session_started'],
+    ['session_ready'],
+    ['session_updated', { providerSessionId: 'provider' }],
+    ['session_closed'],
+    ['user_message', { turnId: 't', text: 'hi' }],
+    ['turn_started', { turnId: 't' }],
+    ['approval_requested', { turnId: 't', requestId: 'r' }],
+    ['approval_resolved', { turnId: 't', requestId: 'r', approved: true }],
+    ['tool_output', { turnId: 't', toolUseId: 'tool', output: 'final' }],
+    ['turn_completed', { turnId: 't' }],
+    ['turn_failed', { turnId: 't', reason: 'interrupted' }],
+  ]
+  for (const [type, payload] of needed)
+    for (const listener of ipc.listeners) listener({ ...conversationEvent(type, payload), createdAt: 42 })
+  const received = ipc.sent.map(({ payload }) => payload as ConversationEvent)
+  assert.deepEqual(
+    received.map((event) => event.type),
+    needed.map(([type]) => type),
+  )
+  assert.ok(received.every((event) => event.workspaceId === 'workspace' && event.createdAt === 42))
 })

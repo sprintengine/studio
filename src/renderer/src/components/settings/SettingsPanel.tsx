@@ -6,17 +6,14 @@ import type { RegisteredSettingsSection } from '../../modules/renderer-host'
 import { AutomationServerSettings } from './AutomationServerSettings'
 import { ModuleSettingsSectionHost } from './ModuleSettingsSection'
 import AppThemePicker from './AppThemePicker'
+import { ChatAppearanceRows } from './ChatAppearanceRows'
+import { effectiveWindowMaterial, type WindowMaterial } from '../../types/appTheme'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { basename } from '../../utils/paths'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
-import { modelDiscoveryLine } from './modelDiscoveryLine'
-import type { DiscoveredCliModelCatalog } from '../../../../shared/cli-model-catalog'
 import { WorkspacePanel } from '../ui/WorkspacePanel'
 import {
-  type ActionResult,
-  ActionResultMessage,
-  CliProviderStateLine,
-  EmptyState,
+  Badge,
   GhostButton,
   IconButton,
   InlineNotice,
@@ -26,7 +23,6 @@ import {
   ProviderRow,
   ProviderStateId,
   RefreshIcon,
-  resolveCliProviderState,
   RowButton,
   SegmentedControl,
   Spinner,
@@ -34,11 +30,24 @@ import {
 } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { KeyboardShortcutsTab } from './KeyboardShortcutsTab'
-import MobileSettingsTab from './MobileSettingsTab'
 import { RemoteTailnetSettingsTab } from './RemoteTailnetSettingsTab'
 import { TextGenerationSettingsSection } from './TextGenerationSettingsSection'
 import { ModulesSettingsTab } from './ModulesSettingsTab'
 import { ProviderSettingsTab } from './ProviderSettingsTab'
+import { MachinesSettingsTab } from './MachinesSettingsTab'
+import { SettledChatsSettingsTab } from './SettledChatsSettingsTab'
+import { AgentClisSection, AgentsMachineSwitcher, useAgentCliRuns } from './AgentClisSection'
+import { ConversationApprovalSettings } from './ConversationApprovalSettings'
+import { StudioSkillsSettings } from './StudioSkillsSettings'
+import {
+  agentsMachines,
+  lastAgentsMachine,
+  rememberAgentsMachine,
+  resolveAgentsMachine,
+  useMachineCliAvailability,
+} from './agentsMachine'
+import { useExecutionHosts } from '../../hooks/useExecutionHosts'
+import { executionHostLabel, LOCAL_HOST_ID, type ExecutionHostId } from '../../../../shared/execution-host'
 import {
   MetaCell,
   SettingCard,
@@ -55,11 +64,8 @@ import {
 } from './versionControlProviders'
 import { ProjectKnowledgeList } from './ProjectKnowledgeList'
 import { DesignSystemSettings } from './DesignSystemSettings'
-import CliIcon from '../CliIcon'
-import { cliRuntimeForPlugin, orderInstalledPlugins } from '../workspace/newWorkspace/cliRuntimeOptions'
-import { CliInstallControl } from './CliInstallControl'
+import { orderInstalledPlugins } from '../workspace/newWorkspace/cliRuntimeOptions'
 import { AgentConfigAdoptionStatus } from '../onboarding/agentConfigAdoption'
-import SprintEngineFrond from '../brand/SprintEngineFrond'
 import {
   GeneralSettingsIcon,
   ProfileSettingsIcon,
@@ -72,18 +78,20 @@ import {
   KnowledgeGraphSettingsIcon,
   DesignSystemSettingsIcon,
   ModulesSettingsIcon,
-  MobileSettingsIcon,
   RemoteSettingsIcon,
-  FolderPlusIcon,
-  ReleaseNotesIcon,
+  MachinesSettingsIcon,
+  SettledChatsSettingsIcon,
 } from '../AppIcons'
 import { AccountAvatar } from '../workspace/AccountAvatar'
-import { hasPaidEntitlement, planDisplayTier } from '../workspace/accountEntitlements'
 import { GlobalSurfaceShell } from '../workspace/globalSurface/GlobalSurfaceShell'
 import { useSurfaceBackNav } from '../workspace/globalSurface/surfaceBackNav'
 import { getSettingDescriptor, type SettingDescriptor } from './settingsRegistry'
 import { TicketTrackersTab } from './TicketTrackersTab'
 import { UpdateChannelSettings } from './UpdateChannelSettings'
+import { AppVersionRow } from './AppVersionRow'
+import { useSettingsUpdateBadges } from './useSettingsUpdateBadges'
+import { subscribeAppUpdateState, useAppUpdateStore } from '../../store/appUpdateStore'
+import type { SettingsUpdateBadge } from '../../utils/settingsUpdateBadges'
 import { sourceUpdateCadenceLine, type SkillRepoTransport } from '../../../../shared/skills'
 
 interface Props {
@@ -91,6 +99,12 @@ interface Props {
   checkForUpdatesOnOpen?: boolean
   checkForUpdatesRequestId?: number
   initialTab?: string | null
+  /**
+   * Select this machine on the Agents tab — the opener's news is about it (a
+   * CLI update is This PC's). A new `requestId` is a new request, so a panel
+   * already open on another machine still moves.
+   */
+  agentsMachineRequest?: { hostId: ExecutionHostId; requestId: number }
   /**
    * `'panel'` (default) wraps the content in `WorkspacePanel` chrome.
    * `'overlay'` is how Settings actually opens (doors→modals, 2026-09-01): the
@@ -102,26 +116,25 @@ interface Props {
   chrome?: 'panel' | 'overlay' | 'door'
 }
 
-type UpdateAction = 'check' | 'download' | 'restart'
-
 type GitHubTokenUiStatus = Awaited<ReturnType<typeof window.api.getGitHubTokenStatus>>
 
-const EMPTY_USER_MODELS: string[] = []
 const EMPTY_PROJECT_KNOWLEDGE_ROOTS: Record<string, string | null> = {}
+const NO_UPDATE_BADGE_CLIS: ReadonlySet<string> = new Set()
 
 type SettingsTabId =
   | 'general'
   | 'profile'
   | 'appearance'
   | 'shortcuts'
+  | 'settled-chats'
   | 'modules'
   | 'github'
   | 'trackers'
   | 'agents'
   | 'providers'
+  | 'machines'
   | 'knowledge-graph'
   | 'design-system'
-  | 'mobile'
   | 'remote'
 
 // Line-weight rail glyph. Built-in tabs carry one from AppIcons; module sections
@@ -139,8 +152,14 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; icon: SettingsTabI
   { id: 'profile', label: 'Profile', icon: ProfileSettingsIcon },
   { id: 'appearance', label: 'Appearance', icon: AppearanceSettingsIcon },
   { id: 'shortcuts', label: 'Shortcuts', icon: ShortcutsSettingsIcon },
+  // The chats the sidebar no longer draws once they come to rest (owner,
+  // 2026-09-28): the Settled shelf moved here.
+  { id: 'settled-chats', label: 'Settled chats', icon: SettledChatsSettingsIcon },
   { id: 'agents', label: 'Agents', icon: AgentsSettingsIcon },
   { id: 'providers', label: 'Providers', icon: ProvidersSettingsIcon },
+  // Windows only: this PC and its WSL distributions, each a machine a
+  // workspace can run on (shared/execution-host.ts). Elsewhere there is one.
+  { id: 'machines', label: 'Machines', icon: MachinesSettingsIcon },
   // Covers both groups on the page (the VCS itself, then the hosting provider),
   // so the label is the subject rather than one of the two rows. The tab *id*
   // stays 'github' — it is a persisted deep-link target (menus, module routes).
@@ -149,7 +168,6 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; icon: SettingsTabI
   { id: 'knowledge-graph', label: 'Knowledge graph', icon: KnowledgeGraphSettingsIcon },
   { id: 'design-system', label: 'Design system', icon: DesignSystemSettingsIcon },
   { id: 'modules', label: 'Modules', icon: ModulesSettingsIcon },
-  { id: 'mobile', label: 'Mobile', icon: MobileSettingsIcon },
   { id: 'remote', label: 'Remote', icon: RemoteSettingsIcon },
 ]
 
@@ -158,10 +176,10 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; icon: SettingsTabI
 // restate the rail's own grouping. Module-contributed
 // sections render after these under the trailing 'extensions' group.
 const settingsTabGroups: Array<{ label: string; ids: SettingsTabId[] }> = [
-  { label: 'app', ids: ['general', 'profile', 'appearance', 'shortcuts'] },
-  { label: 'agents', ids: ['agents', 'providers'] },
+  { label: 'app', ids: ['general', 'profile', 'appearance', 'shortcuts', 'settled-chats'] },
+  { label: 'agents', ids: ['agents', 'providers', 'machines'] },
   { label: 'workspace', ids: ['github', 'trackers', 'knowledge-graph', 'design-system', 'modules'] },
-  { label: 'companion', ids: ['mobile', 'remote'] },
+  { label: 'companion', ids: ['remote'] },
 ]
 
 // A rail entry: a built-in tab, or a module-contributed section rendered after
@@ -191,14 +209,15 @@ function isSettingsTabId(value: unknown): value is SettingsTabId {
     value === 'profile' ||
     value === 'appearance' ||
     value === 'shortcuts' ||
+    value === 'settled-chats' ||
     value === 'modules' ||
     value === 'github' ||
     value === 'trackers' ||
     value === 'agents' ||
     value === 'providers' ||
+    value === 'machines' ||
     value === 'knowledge-graph' ||
     value === 'design-system' ||
-    value === 'mobile' ||
     value === 'remote'
   )
 }
@@ -212,6 +231,9 @@ function isSettingsTabId(value: unknown): value is SettingsTabId {
 // anywhere in the tree — so it aliased nothing to nothing.
 function resolveInitialSettingsTab(initialTab: string | null | undefined): string | null {
   if (initialTab === 'updates') return 'general'
+  // The Mobile tab paired a phone through the hosted relay, which was removed
+  // (owner ruling 2026-09-27). A phone pairs over the tailnet now, from Remote.
+  if (initialTab === 'mobile') return 'remote'
   // Voice dictation moved onto the module-contributed section path;
   // legacy deep-links (persisted routes) land on its section tab.
   if (initialTab === 'voice-dictation') return moduleSectionTabId('voice-dictation')
@@ -233,206 +255,6 @@ const MONO_FIELD = 'font-mono'
 // — 240px is the standard row measure. Passed with `fullWidth={false}` because
 // Tailwind resolves two width utilities by stylesheet order, not string order.
 const ROW_FIELD = 'w-60 max-w-full font-mono'
-
-// Was a local `MessageBlock` with its own four-tone `border-l-2` bar — the
-// reject-on-sight pattern, two tabs away from the `InlineNotice` this file
-// already imported. The kit's `ActionResultMessage` carries the
-// ruling now: a failure or a degraded state is a notice, everything else is
-// copy. `accent` and `neutral` folded into `info` on the way — there is no
-// success notice in this system.
-type SettingsActionMessage = ActionResult | null
-
-// Per-plugin custom model ids. The studio does not persist an app-level default
-// model (the CLI's own default is used when no per-surface override is set), so
-// this is purely the user-extended id list. Rendered only when the plugin
-// declares modelSelection with `allowCustomId` — without declared launch args a
-// model could not be passed, and terminal CLIs expose no live model catalog, so
-// this list is how new models are adopted between plugin updates. Rendered
-// inline inside the per-plugin configuration disclosure.
-// API-key entry for a CLI whose manifest declares `auth` (e.g. Z.AI). Reads and
-// writes through the shared credential store via the generic `credentialSecret*`
-// IPC — the same store the chat Providers tab uses. Mirrors the Providers tab's
-// masked/save/remove pattern; the value is write-only and never read back.
-function CliCredentialRow({ pluginId, displayName, label }: { pluginId: string; displayName: string; label: string }) {
-  const [status, setStatus] = useState<Awaited<ReturnType<typeof window.api.credentialSecretStatus>> | null>(null)
-  const [draft, setDraft] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [message, setMessage] = useState<string | null>(null)
-
-  useEffect(() => {
-    let active = true
-    void window.api.credentialSecretStatus({ id: pluginId }).then((result) => {
-      if (active) setStatus(result)
-    })
-    return () => {
-      active = false
-    }
-  }, [pluginId])
-
-  const configured = status?.ok === true && status.status.configured
-  const source = status?.ok === true ? status.status.source : 'none'
-  const persistence = status?.ok === true ? status.status.persistence : 'encrypted'
-  // Environment-sourced keys are owned outside the app; don't offer Remove.
-  const canClear = configured && source !== 'environment'
-  const inputId = `cli-credential-${pluginId}`
-
-  const save = async (): Promise<void> => {
-    const value = draft.trim()
-    if (!value || busy) return
-    setBusy(true)
-    setMessage(null)
-    const result = await window.api.credentialSecretSet({ id: pluginId, value })
-    setBusy(false)
-    if (result.ok) {
-      setStatus(result)
-      setDraft('')
-      setMessage('API key saved.')
-    } else {
-      setMessage(result.message)
-    }
-  }
-
-  const clear = async (): Promise<void> => {
-    if (busy) return
-    setBusy(true)
-    setMessage(null)
-    const result = await window.api.credentialSecretClear({ id: pluginId })
-    setBusy(false)
-    if (result.ok) {
-      setStatus(result)
-      setMessage('API key removed.')
-    } else {
-      setMessage(result.message)
-    }
-  }
-
-  return (
-    <div className="py-2.5 first:pt-0 last:pb-0">
-      <div className="text-body font-medium text-[color:var(--text-strong)]">{label}</div>
-      <div className="mt-2 space-y-1.5">
-        {configured ? (
-          <div className="flex items-center gap-2">
-            {/* The saved key is shown as the field it will be edited in, read-only
-                — not as a div wearing a copy of the field's chrome. The value IS
-                the mask, so the accessible name says what the dots mean. */}
-            <Input
-              readOnly
-              value="••••••••••••"
-              aria-label={`${displayName} API key is saved`}
-              size="md"
-              variant="well"
-              fullWidth={false}
-              className="min-w-0 flex-1 tracking-[0.3em] text-[color:var(--text-muted)]"
-            />
-            {canClear ? (
-              <GhostButton size="md" onClick={() => void clear()} disabled={busy} className="shrink-0">
-                {busy ? 'Removing…' : 'Remove'}
-              </GhostButton>
-            ) : null}
-          </div>
-        ) : (
-          <div className="flex items-center gap-2">
-            <label htmlFor={inputId} className="sr-only">
-              {displayName} API key
-            </label>
-            <Input
-              id={inputId}
-              type="password"
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault()
-                  void save()
-                }
-              }}
-              placeholder="Paste API key"
-              autoComplete="off"
-              disabled={busy}
-              size="md"
-              variant="well"
-              fullWidth={false}
-              className={`min-w-0 flex-1 ${MONO_FIELD}`}
-            />
-            <PrimaryButton size="md" onClick={() => void save()} disabled={busy || !draft.trim()} className="shrink-0">
-              {busy ? 'Saving…' : 'Save'}
-            </PrimaryButton>
-          </div>
-        )}
-        {configured && source === 'environment' ? (
-          <p className="text-meta leading-5 text-[color:var(--text-subtle)]">
-            Set from the environment. Remove it there to change it.
-          </p>
-        ) : configured && persistence === 'session' ? (
-          <p className="text-meta leading-5 text-[color:var(--tone-warn)]">
-            Stored for this session only — clears when the app quits.
-          </p>
-        ) : null}
-        <div aria-live="polite" className="text-meta leading-5 text-[color:var(--text-muted)] empty:hidden">
-          {message}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function PluginModelSettings({
-  displayName,
-  userModels,
-  onUserModelsChange,
-}: {
-  displayName: string
-  userModels: string[]
-  onUserModelsChange: (models: string[]) => void
-}) {
-  const [draftModel, setDraftModel] = useState('')
-  const addDraftModel = (): void => {
-    const model = draftModel.trim()
-    if (!model) return
-    if (!userModels.includes(model)) onUserModelsChange([...userModels, model])
-    setDraftModel('')
-  }
-  return (
-    <div className="py-2.5 first:pt-0 last:pb-0">
-      <div className="text-body font-medium text-[color:var(--text-strong)]">Custom model ids</div>
-      <div className="mt-2 space-y-1">
-        {userModels.map((model) => (
-          <div key={model} className="group -mx-1 flex h-control-md items-center gap-2 rounded-sm px-1">
-            <span className="min-w-0 flex-1 truncate font-mono text-body text-[color:var(--text-default)]">
-              {model}
-            </span>
-            <GhostButton
-              size="xs"
-              onClick={() => onUserModelsChange(userModels.filter((id) => id !== model))}
-              className="invisible focus-visible:visible group-focus-within:visible group-hover:visible"
-            >
-              Remove
-              <span className="sr-only">
-                {' '}
-                {model} from {displayName} models
-              </span>
-            </GhostButton>
-          </div>
-        ))}
-        <Input
-          value={draftModel}
-          aria-label={`Add a model id for ${displayName}`}
-          placeholder="Add model id and press Enter"
-          onChange={(event) => setDraftModel(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault()
-              addDraftModel()
-            }
-          }}
-          size="md"
-          variant="well"
-          className={MONO_FIELD}
-        />
-      </div>
-    </div>
-  )
-}
 
 function RegistrySwitchRow({
   descriptor,
@@ -539,14 +361,12 @@ function KeepRecentAliveField({ descriptor }: { descriptor: SettingDescriptor })
 function AgentCliBand({
   checkedAt,
   now,
-  addPending,
-  onAdd,
+  rechecking,
   onRecheck,
 }: {
   checkedAt: number | null
   now: number
-  addPending: boolean
-  onAdd: () => void
+  rechecking: boolean
   onRecheck: () => void
 }) {
   const freshness = formatRelativeMsAgo(checkedAt, now)
@@ -557,20 +377,15 @@ function AgentCliBand({
       meta={meta}
       actions={
         <>
-          <Tooltip content={addPending ? 'Installing a CLI from a folder' : 'Install a CLI from a folder'}>
-            <IconButton
-              aria-label={addPending ? 'Installing a CLI from a folder' : 'Install a CLI from a folder'}
-              disabled={addPending}
-              onClick={onAdd}
-            >
-              {/* The glyph reports the install, so a dimmed plus is never the
-                  only sign that something is happening. */}
-              {addPending ? <Spinner className="icon-sm" /> : <FolderPlusIcon className="icon-sm" />}
-            </IconButton>
-          </Tooltip>
           <Tooltip content="Re-check every CLI now">
-            <IconButton aria-label="Re-check every CLI now" onClick={onRecheck}>
-              <RefreshIcon />
+            <IconButton
+              aria-label={rechecking ? 'Re-checking every CLI' : 'Re-check every CLI now'}
+              disabled={rechecking}
+              onClick={onRecheck}
+            >
+              {/* Detection on every machine can take a few seconds, so the
+                  glyph says it is running rather than the button going quiet. */}
+              {rechecking ? <Spinner className="icon-sm" /> : <RefreshIcon />}
             </IconButton>
           </Tooltip>
         </>
@@ -661,6 +476,10 @@ function VersionControlStateLine({ view }: { view: VersionControlRowView }) {
 // and the state line carry health; nothing here pretends to carry enablement.
 export function VersionControlSections({ githubToken }: { githubToken: React.ReactNode }) {
   const [probes, setProbes] = useState<Partial<Record<VersionControlProviderId, VersionControlProviderProbe>>>({})
+  // Git on the other machines of this computer (the WSL machines turned on in
+  // Settings ▸ Machines), each its own row: a WSL workspace's git is its
+  // distribution's (owner decision 2026-09-24). Empty on macOS and Linux.
+  const [machineProbes, setMachineProbes] = useState<VersionControlProviderProbe[]>([])
   const [probeStatus, setProbeStatus] = useState<VersionControlProbeStatus>('loading')
   const [probeError, setProbeError] = useState<string | null>(null)
   const [checking, setChecking] = useState(false)
@@ -682,7 +501,8 @@ export function VersionControlSections({ githubToken }: { githubToken: React.Rea
       const results = await window.api.probeVersionControlProviders()
       // Replace rather than merge: a re-check is a fresh reading of the machine,
       // so a provider that disappeared must not keep its old version line.
-      setProbes(Object.fromEntries(results.map((result) => [result.id, result])))
+      setProbes(Object.fromEntries(results.filter((result) => !result.machine).map((result) => [result.id, result])))
+      setMachineProbes(results.filter((result) => result.machine))
       setProbeStatus('ready')
       setProbeError(null)
     } catch (error) {
@@ -743,21 +563,41 @@ export function VersionControlSections({ githubToken }: { githubToken: React.Rea
               // behind it, so git renders as a plain row rather than an empty
               // disclosure.
               const detail = spec.id === 'gh' ? githubToken : null
+              // One row per machine for git: this one, then each WSL machine.
+              const others = spec.id === 'git' ? machineProbes : []
               return (
-                <ProviderRow
-                  key={spec.id}
-                  as="li"
-                  surface="card"
-                  icon={<VersionControlMark monogram={spec.monogram} />}
-                  health={view.tone}
-                  name={spec.label}
-                  version={view.version}
-                  stateLine={<VersionControlStateLine view={view} />}
-                  expanded={expandedId === spec.id}
-                  onExpandedChange={(next) => setExpandedId(next ? spec.id : null)}
-                >
-                  {detail}
-                </ProviderRow>
+                <React.Fragment key={spec.id}>
+                  <ProviderRow
+                    as="li"
+                    surface="card"
+                    icon={<VersionControlMark monogram={spec.monogram} />}
+                    health={view.tone}
+                    name={others.length > 0 ? `${spec.label} — This PC (Windows)` : spec.label}
+                    version={view.version}
+                    stateLine={<VersionControlStateLine view={view} />}
+                    expanded={expandedId === spec.id}
+                    onExpandedChange={(next) => setExpandedId(next ? spec.id : null)}
+                  >
+                    {detail}
+                  </ProviderRow>
+                  {others.map((probe) => {
+                    // A distribution has no install command this app can name
+                    // (apt, dnf, pacman…), so a missing git names the binary.
+                    const machineView = resolveVersionControlRow(spec, probe, probeStatus, 'linux')
+                    return (
+                      <ProviderRow
+                        key={`${spec.id}:${probe.machine?.hostId}`}
+                        as="li"
+                        surface="card"
+                        icon={<VersionControlMark monogram={spec.monogram} />}
+                        health={machineView.tone}
+                        name={`${spec.label} — ${probe.machine?.label ?? ''}`}
+                        version={machineView.version}
+                        stateLine={<VersionControlStateLine view={machineView} />}
+                      />
+                    )
+                  })}
+                </React.Fragment>
               )
             })}
           </SettingCard>
@@ -767,40 +607,12 @@ export function VersionControlSections({ githubToken }: { githubToken: React.Rea
   )
 }
 
-// One CLI's model list: where the rows in its picker came from, with the one
-// manual trigger. The words come from modelDiscoveryLine; the clock is the
-// band's, so "checked 2m ago" ages with it. Refresh re-asks every installed CLI
-// past the freshness window, and the answer replaces each CLI's list.
-function CliModelsRow({
-  name,
-  catalog,
-  error,
-  now,
-  refreshing,
-  onRefresh,
-}: {
-  name: string
-  catalog: DiscoveredCliModelCatalog | undefined
-  error: string | null
-  now: number
-  refreshing: boolean
-  onRefresh: () => void
-}) {
-  return (
-    <SettingsRow label="Model list" help={modelDiscoveryLine({ name, catalog, error, now })}>
-      <OutlineButton size="xs" disabled={refreshing} onClick={onRefresh}>
-        {refreshing ? <Spinner className="icon-sm" /> : null}
-        Refresh
-      </OutlineButton>
-    </SettingsRow>
-  )
-}
-
 export default function SettingsPanel({
   onClose,
   checkForUpdatesOnOpen = false,
   checkForUpdatesRequestId,
   initialTab = null,
+  agentsMachineRequest,
   chrome = 'panel',
 }: Props) {
   const activeWorkspace = useWorkspaceStore(
@@ -811,29 +623,26 @@ export default function SettingsPanel({
   // the next cog press would reopen on the tab you left rather than the one you
   // asked for. Harmless in the other chromes, which never read it.
   const doorBack = useSurfaceBackNav(onClose)
+  // Settled chats' Open: the chat becomes the active one and Settings gets out
+  // of the way. `setActiveWorkspace` clears the routed surfaces itself; the
+  // explicit close is what clears the request that opened this modal, so the
+  // next cog press does not reopen on this tab.
+  const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace)
+  const openSettledChat = useCallback(
+    (id: string) => {
+      setActiveWorkspace(id)
+      onClose()
+    },
+    [setActiveWorkspace, onClose],
+  )
   const dialog = useConfirmDialog()
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
-  // What each CLI reported about its models: the list and the line on each
-  // CLI's row, and the answer to "does anything still offer this id?" when
-  // the user retires one of their own.
-  const cliModelCatalog = useWorkspaceStore((s) => s.appSettings.cliModelCatalog)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
-  const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
-  const pluginCatalogError = useWorkspaceStore((s) => s.pluginCatalogError)
-  const refreshPluginCatalog = useWorkspaceStore((s) => s.refreshPluginCatalog)
   const refreshCliAvailability = useWorkspaceStore((s) => s.refreshCliAvailability)
   // Session-scoped: adoption runs at the first workspace creation, and this is
   // where its outcome is reported. Null (and so silent) in every later session.
   const agentConfigAdoptionResult = useWorkspaceStore((s) => s.agentConfigAdoptionResult)
-  // Detection map shared with the deployment pickers — drives the at-a-glance
-  // status on every CLI row without a per-row probe.
-  const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
-  const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
-  const cliAvailabilityError = useWorkspaceStore((s) => s.cliAvailabilityError)
   const cliAvailabilityCheckedAt = useWorkspaceStore((s) => s.cliAvailabilityCheckedAt)
-  // Installed version against the registry's newest, per CLI. Main computes it
-  // hourly and on Re-check.
-  const cliVersionAdvisories = useWorkspaceStore((s) => s.cliVersionAdvisories)
   const refreshCliVersionAdvisories = useWorkspaceStore((s) => s.refreshCliVersionAdvisories)
   const checkCliVersions = useWorkspaceStore((s) => s.checkCliVersions)
   const setCheckCliVersions = useWorkspaceStore((s) => s.setCheckCliVersions)
@@ -847,8 +656,6 @@ export default function SettingsPanel({
   const setAuthState = useWorkspaceStore((s) => s.setAuthState)
   const [profileMessage, setProfileMessage] = useState<string | null>(null)
   const [profilePending, setProfilePending] = useState(false)
-  // The Mobile tab gates on the mobile-relay module; hide it when disabled.
-  const mobileRelayEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'mobile-relay'))
   const moduleEnablement = useWorkspaceStore((s) => s.appSettings.modules)
   // Module-contributed sections render after every built-in tab, in the
   // registry's stable order (order hint, then id). Disabling a module drops
@@ -859,7 +666,7 @@ export default function SettingsPanel({
   )
   const visibleSettingsTabs = useMemo(
     (): SettingsTabDescriptor[] => [
-      ...settingsTabs.filter((tab) => tab.id !== 'mobile' || mobileRelayEnabled),
+      ...settingsTabs.filter((tab) => tab.id !== 'machines' || window.api.platform === 'win32'),
       ...moduleSections.map((section) => ({
         id: moduleSectionTabId(section.id),
         label: section.label,
@@ -867,47 +674,19 @@ export default function SettingsPanel({
         moduleSection: section,
       })),
     ],
-    [mobileRelayEnabled, moduleSections],
+    [moduleSections],
   )
   const appearanceTheme = useWorkspaceStore((s) => s.appSettings.appearance.theme)
   const setAppearanceTheme = useWorkspaceStore((s) => s.setAppearanceTheme)
   const appearanceWindowMaterial = useWorkspaceStore((s) => s.appSettings.appearance.windowMaterial)
   const setAppearanceWindowMaterial = useWorkspaceStore((s) => s.setAppearanceWindowMaterial)
+  const agentCharacters = useWorkspaceStore((s) => s.appSettings.appearance.agentCharacters)
+  const setAppearanceAgentCharacters = useWorkspaceStore((s) => s.setAppearanceAgentCharacters)
+  const isMac = window.api.platform === 'darwin'
   const chatListView = useWorkspaceStore((s) => s.chatListView)
+  const openFilesInExternalWindow = useWorkspaceStore((s) => s.openFilesInExternalWindow)
+  const setOpenFilesInExternalWindow = useWorkspaceStore((s) => s.setOpenFilesInExternalWindow)
   const setChatListView = useWorkspaceStore((s) => s.setChatListView)
-  const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
-  const forgetCliModels = useWorkspaceStore((s) => s.forgetCliModels)
-  const setCliModelCatalog = useWorkspaceStore((s) => s.setCliModelCatalog)
-  // The last Refresh: whether one is running, and why each CLI's probe failed.
-  // A failed probe keeps the last good list (the answer carries no catalog for
-  // it), so only the line changes.
-  const [modelRefresh, setModelRefresh] = useState<{ running: boolean; errors: Record<string, string> }>({
-    running: false,
-    errors: {},
-  })
-  const refreshCliModels = useCallback(async () => {
-    const api = typeof window === 'undefined' ? null : window.api
-    if (typeof api?.cliModelsDiscover !== 'function') return
-    setModelRefresh((current) => ({ ...current, running: true }))
-    try {
-      const result = await api.cliModelsDiscover({
-        force: true,
-        cliRuntimes,
-        previous: useWorkspaceStore.getState().appSettings.cliModelCatalog,
-      })
-      const errors: Record<string, string> = {}
-      for (const entry of result.entries) {
-        if (entry.catalog) setCliModelCatalog(entry.cli, entry.catalog)
-        if (entry.error) errors[entry.cli] = entry.error
-      }
-      setModelRefresh({ running: false, errors })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      const errors: Record<string, string> = {}
-      for (const plugin of pluginCatalogEntries) errors[plugin.id] = message
-      setModelRefresh({ running: false, errors })
-    }
-  }, [cliRuntimes, pluginCatalogEntries, setCliModelCatalog])
   const keepRunningInBackground = useWorkspaceStore((s) => s.appSettings.keepRunningInBackground)
   const telemetryEnabled = useWorkspaceStore((s) => s.appSettings.telemetryEnabled)
   const setKeepRunningInBackground = useWorkspaceStore((s) => s.setKeepRunningInBackground)
@@ -919,8 +698,11 @@ export default function SettingsPanel({
   )
   const activeProjectRoot = activeKnowledgeConfig?.projectRoot ?? activeWorkspace?.folderPath ?? null
   const activeDesignSystemRoot = activeWorkspace?.folderPath ?? null
-  const isWindows = window.api.platform === 'win32'
-  const [updateState, setUpdateState] = useState<AppUpdateState | null>(null)
+  // The app update as main reports it, shared with the Settings badges
+  // (appUpdateStore) so the version row and the badge on General are one answer.
+  const updateState = useAppUpdateStore((s) => s.state)
+  const setUpdateState = useAppUpdateStore((s) => s.setState)
+  const updateBadges = useSettingsUpdateBadges()
   const [updateActionPending, setUpdateActionPending] = useState(false)
   const [githubTokenStatus, setGithubTokenStatus] = useState<GitHubTokenUiStatus | null>(null)
   // Which transport the skills service reads repositories over, because the
@@ -938,47 +720,6 @@ export default function SettingsPanel({
   const [activityInstalled, setActivityInstalled] = useState(false)
   const [activityPending, setActivityPending] = useState(false)
   const [activityMessage, setActivityMessage] = useState<string | null>(null)
-  const [cliInstallPending, setCliInstallPending] = useState(false)
-  const [cliInstallMessage, setCliInstallMessage] = useState<SettingsActionMessage>(null)
-  // Per-CLI Update runs (the version advisory's button). `running` while the
-  // command is in flight; afterwards the notice says what happened when the
-  // version did not move or the command failed. A clean success needs no
-  // notice: the row's version changes and the advisory goes away.
-  const [cliUpdateRuns, setCliUpdateRuns] = useState<
-    Record<string, { running: boolean; notice: { tone: 'warn' | 'error'; text: string } | null }>
-  >({})
-  const runCliUpdate = useCallback(
-    async (cli: AgentCli) => {
-      const api = window.api
-      if (typeof api.cliUpdate !== 'function') return
-      const runtime = cliRuntimeForPlugin(cli, cliRuntimes)
-      const before = cliAvailability[cli]?.version ?? null
-      setCliUpdateRuns((prev) => ({ ...prev, [cli]: { running: true, notice: null } }))
-      let notice: { tone: 'warn' | 'error'; text: string } | null = null
-      try {
-        const result = await api.cliUpdate(cli, runtime)
-        if (!result.ok) {
-          notice = { tone: 'error', text: result.error ?? 'The update did not finish.' }
-        } else if (result.version && before && result.version.trim() === before.trim()) {
-          notice = {
-            tone: 'warn',
-            text: `The update finished but the version is still ${before}. Run it in a terminal to see why.`,
-          }
-        }
-      } catch (error) {
-        notice = { tone: 'error', text: error instanceof Error ? error.message : String(error) }
-      }
-      setCliUpdateRuns((prev) => ({ ...prev, [cli]: { running: false, notice } }))
-      await refreshCliAvailability({ force: true, cliRuntimes })
-      void refreshCliVersionAdvisories({ force: true, cliRuntimes })
-    },
-    [cliAvailability, cliRuntimes, refreshCliAvailability, refreshCliVersionAdvisories],
-  )
-  // The CLI card whose detail panel is open (null = grid only). `installIntentId`
-  // marks a card whose Install button was pressed, so its detail opens straight
-  // into the install flow.
-  const [selectedCliId, setSelectedCliId] = useState<string | null>(null)
-  const [installIntentId, setInstallIntentId] = useState<string | null>(null)
   // Built-in tab ids plus `module-section:<id>` for contributed sections. An
   // initialTab may name either; unknown values fall back to the default tab.
   // (Deep-links to the folded MCPs / Skill packs / Extensions tabs are routed to
@@ -1019,6 +760,70 @@ export default function SettingsPanel({
     const tick = window.setInterval(() => setAgentsFreshnessNow(Date.now()), 30_000)
     return () => window.clearInterval(tick)
   }, [activeSettingsTab, cliAvailabilityCheckedAt])
+
+  // Which machine's agent CLIs the Agents tab lists (owner ruling 2026-09-24):
+  // this one, and each WSL distribution turned on in Settings ▸ Machines. One
+  // machine — every macOS and Linux install, and Windows with no distribution
+  // on — draws no switcher, and the tab is the one it always was. The pick is
+  // the window's last one while that machine is still offered, else this one.
+  // Listed only once the Agents tab is shown: on Windows the first listing can
+  // start WSL, and opening Settings on General should not.
+  const { listing: agentsHostListing } = useExecutionHosts({ enabled: activeSettingsTab === 'agents' })
+  const agentsMachineOptions = useMemo(
+    () => agentsMachines(agentsHostListing, executionHostLabel(LOCAL_HOST_ID, window.api.platform)),
+    [agentsHostListing],
+  )
+  const [pickedAgentsMachine, setPickedAgentsMachine] = useState<ExecutionHostId | null>(
+    () => agentsMachineRequest?.hostId ?? lastAgentsMachine(),
+  )
+  const agentsMachine = resolveAgentsMachine(agentsMachineOptions, pickedAgentsMachine)
+  const selectAgentsMachine = useCallback((id: ExecutionHostId) => {
+    rememberAgentsMachine(id)
+    setPickedAgentsMachine(id)
+  }, [])
+  // An opener that knows which machine its news is about (a CLI update toast,
+  // its bell row, a card that named the retired Agent CLIs view) selects it —
+  // on first mount through the state above, and on every later request here.
+  const agentsMachineRequestId = agentsMachineRequest?.requestId
+  const agentsMachineRequestHost = agentsMachineRequest?.hostId
+  useEffect(() => {
+    if (agentsMachineRequestId === undefined || !agentsMachineRequestHost) return
+    selectAgentsMachine(agentsMachineRequestHost)
+    // A machine request is always about the Agents tab, even when the panel was
+    // already open on the same `initialTab` and the person has since moved on.
+    setActiveSettingsTab('agents')
+  }, [agentsMachineRequestId, agentsMachineRequestHost, selectAgentsMachine])
+  const agentsCliIds = useMemo(() => installedPluginRows.map((plugin) => plugin.id), [installedPluginRows])
+  // A WSL machine is probed only while its list is on screen: asking starts a
+  // process inside the distribution.
+  const agentsMachineCli = useMachineCliAvailability(
+    activeSettingsTab === 'agents' ? agentsMachine.id : LOCAL_HOST_ID,
+    agentsCliIds,
+  )
+  const agentsOnWsl = agentsMachine.id !== LOCAL_HOST_ID
+  const agentCliRuns = useAgentCliRuns()
+  // Re-check is the one time after startup that detection runs again: main
+  // detects every CLI on every machine the switcher offers, then compares
+  // against the registry, and both lists read that answer back. The hourly
+  // check never detects, so a CLI installed or removed outside the app shows
+  // here once this is pressed.
+  const [agentsRechecking, setAgentsRechecking] = useState(false)
+  const reloadAgentsMachine = agentsMachineCli.reload
+  const recheckAgentClis = useCallback(async () => {
+    setAgentsRechecking(true)
+    try {
+      await refreshCliVersionAdvisories({ detect: true, ...(checkCliVersions ? { force: true } : {}) })
+      await refreshCliAvailability({ cliRuntimes })
+      reloadAgentsMachine()
+    } finally {
+      setAgentsRechecking(false)
+    }
+  }, [checkCliVersions, cliRuntimes, refreshCliAvailability, refreshCliVersionAdvisories, reloadAgentsMachine])
+  // A WSL machine's answer restarts the band's clock the way this machine's does.
+  const agentsMachineCheckedAt = agentsMachineCli.availability?.checkedAt ?? null
+  useEffect(() => {
+    if (agentsMachineCheckedAt !== null) setAgentsFreshnessNow(Date.now())
+  }, [agentsMachineCheckedAt])
 
   // If the active tab is no longer visible (e.g. the Mobile module was disabled
   // while its tab was active), fall back to the first visible tab so the panel
@@ -1143,17 +948,9 @@ export default function SettingsPanel({
     }
   }, [])
 
-  useEffect(() => {
-    let cancelled = false
-    void window.api.updateGetState().then((state) => {
-      if (!cancelled) setUpdateState(state)
-    })
-    const unsubscribe = window.api.onUpdateStateChanged((state) => setUpdateState(state))
-    return () => {
-      cancelled = true
-      unsubscribe()
-    }
-  }, [])
+  // The window's shell keeps the store current too; subscribing here as well is
+  // what a panel mounted on its own (tests, the door chrome) needs.
+  useEffect(() => subscribeAppUpdateState(), [])
 
   const checkForUpdates = useCallback(async () => {
     setUpdateActionPending(true)
@@ -1163,7 +960,7 @@ export default function SettingsPanel({
     } finally {
       setUpdateActionPending(false)
     }
-  }, [])
+  }, [setUpdateState])
 
   // Profile actions — thin wrappers over the same auth IPC the sidebar account
   // menu uses, kept local so the Settings panel needs no auth props threaded in.
@@ -1181,10 +978,10 @@ export default function SettingsPanel({
   }, [authState.selectedOrganization?.id])
 
   const onProfileRefresh = useCallback(async () => {
-    setProfileMessage('Checking access.')
+    setProfileMessage('Checking account.')
     setProfilePending(true)
     try {
-      setAuthState(await window.api.authRefreshEntitlements())
+      setAuthState(await window.api.authRefreshAccount())
       setProfileMessage(null)
     } catch (error) {
       setProfileMessage(error instanceof Error ? error.message : String(error))
@@ -1203,10 +1000,6 @@ export default function SettingsPanel({
     }
   }, [])
 
-  const onProfileUpgrade = useCallback(() => {
-    void window.api.authOpenUpgrade('sprintengine')
-  }, [])
-
   useEffect(() => {
     if (typeof checkForUpdatesRequestId === 'number') {
       if (lastUpdateRequestIdRef.current === checkForUpdatesRequestId) return
@@ -1220,7 +1013,10 @@ export default function SettingsPanel({
     void checkForUpdates()
   }, [checkForUpdates, checkForUpdatesOnOpen, checkForUpdatesRequestId])
 
-  const onUpdateChannelResult = useCallback((result: { state: AppUpdateState }) => setUpdateState(result.state), [])
+  const onUpdateChannelResult = useCallback(
+    (result: { state: AppUpdateState }) => setUpdateState(result.state),
+    [setUpdateState],
+  )
 
   const downloadUpdate = useCallback(async () => {
     setUpdateActionPending(true)
@@ -1230,12 +1026,26 @@ export default function SettingsPanel({
     } finally {
       setUpdateActionPending(false)
     }
-  }, [])
+  }, [setUpdateState])
 
+  // The press shows at once (the button goes busy before main is asked), and
+  // main's `installing` state keeps it busy until the app hands over.
   const restartToInstall = useCallback(async () => {
-    const result = await window.api.updateQuitAndInstall()
-    setUpdateState(result.state)
-  }, [])
+    setUpdateActionPending(true)
+    try {
+      const result = await window.api.updateQuitAndInstall()
+      setUpdateState(result.state)
+    } finally {
+      setUpdateActionPending(false)
+    }
+  }, [setUpdateState])
+
+  const setAutoDownload = useCallback(
+    async (enabled: boolean) => {
+      setUpdateState(await window.api.updateSetAutoDownload(enabled))
+    },
+    [setUpdateState],
+  )
 
   const saveGitHubToken = useCallback(async () => {
     const token = githubTokenDraft.trim()
@@ -1279,12 +1089,6 @@ export default function SettingsPanel({
     }
   }, [])
 
-  const nextUpdateAction: UpdateAction = updateState?.downloaded
-    ? 'restart'
-    : updateState?.status === 'available'
-      ? 'download'
-      : 'check'
-
   // Write-only token entry: render the input only when nothing is saved or the
   // user is replacing; a saved token reads as meta text plus Replace/Clear.
   const githubTokenInputVisible = githubTokenStatus !== null && (githubTokenEditing || !githubTokenStatus.configured)
@@ -1295,40 +1099,6 @@ export default function SettingsPanel({
   const keepRecentAliveDescriptor = getSettingDescriptor('terminal-keep-recent-alive')
   const backgroundModeDescriptor = getSettingDescriptor('keep-running-in-background')
   const telemetryDescriptor = getSettingDescriptor('telemetry-enabled')
-
-  const installCliFromFolder = useCallback(async () => {
-    if (typeof window.api.installPluginFolder !== 'function') {
-      setCliInstallMessage({ tone: 'warn', text: 'Installing CLI plugins is not supported by this build.' })
-      return
-    }
-    setCliInstallPending(true)
-    setCliInstallMessage(null)
-    try {
-      const folder = await window.api.openDir()
-      if (!folder) {
-        setCliInstallMessage(null)
-        return
-      }
-      const result = await window.api.installPluginFolder(folder)
-      if (!result.ok) {
-        const detail = result.issues?.length ? ` (${result.issues.map((issue) => issue.message).join('; ')})` : ''
-        setCliInstallMessage({ tone: 'error', text: `${result.message}${detail}` })
-        return
-      }
-      setCliInstallMessage({
-        tone: 'info',
-        text: `Installed "${result.displayName}". It's available to assign to agents now.`,
-      })
-      await refreshPluginCatalog()
-    } catch (error) {
-      setCliInstallMessage({
-        tone: 'error',
-        text: error instanceof Error ? error.message : 'CLI folder install failed.',
-      })
-    } finally {
-      setCliInstallPending(false)
-    }
-  }, [refreshPluginCatalog])
 
   const selectSettingsTab = useCallback((tabId: string) => {
     setActiveSettingsTab(tabId)
@@ -1400,6 +1170,7 @@ export default function SettingsPanel({
                 }}
                 tab={tab}
                 active={activeSettingsTab === tab.id}
+                badge={tab.id === 'general' ? updateBadges.general : tab.id === 'agents' ? updateBadges.agents : null}
                 onClick={() => selectSettingsTab(tab.id)}
                 onKeyDown={(event) => onSettingsTabKeyDown(event, tabIndexById.get(tab.id) ?? 0)}
               />
@@ -1459,22 +1230,56 @@ export default function SettingsPanel({
                   onChange={setChatListView}
                 />
               </SettingsRow>
-              {window.api.platform === 'darwin' ? (
-                <SettingsRow label="Window material" help="Glass frosts the sidebar and title bar.">
-                  {/* A value choice, so the kit's segmented control: one tab stop,
-                      arrow keys, and a neutral selected segment — not an
-                      aria-pressed pair painted with the accent. */}
-                  <SegmentedControl<'solid' | 'glass'>
-                    ariaLabel="Window material"
-                    items={[
-                      { value: 'solid', label: 'Solid' },
-                      { value: 'glass', label: 'Glass' },
-                    ]}
-                    value={appearanceWindowMaterial}
-                    onChange={setAppearanceWindowMaterial}
-                  />
-                </SettingsRow>
-              ) : null}
+              <ChatAppearanceRows />
+              {/* Where a file opens (owner ruling 2026-09-25). The editor
+                  window is the default: the file on its own, with a tree
+                  beside it that says where it lives. The in-app tab stays a
+                  choice, and this row is the only thing that changes it. */}
+              <SettingsRow
+                label="Open files in"
+                help="The editor window shows the file on its own, beside a file tree. In the app opens it as a tab next to your terminals."
+              >
+                <SegmentedControl<'window' | 'app'>
+                  ariaLabel="Open files in"
+                  items={[
+                    { value: 'window', label: 'Editor window' },
+                    { value: 'app', label: 'In the app' },
+                  ]}
+                  value={openFilesInExternalWindow ? 'window' : 'app'}
+                  onChange={(value) => setOpenFilesInExternalWindow(value === 'window')}
+                />
+              </SettingsRow>
+              <SettingsRow
+                label="Window material"
+                help={
+                  isMac
+                    ? 'Glass frosts the sidebar and title bar. Tinted gives them a faint wash of colour.'
+                    : 'Tinted gives the sidebar and title bar a faint wash of colour.'
+                }
+              >
+                {/* A value choice, so the kit's segmented control: one tab stop,
+                    arrow keys, and a neutral selected segment — not an
+                    aria-pressed pair painted with the accent. Glass needs the
+                    OS's vibrancy, so it is offered on macOS only, and the value
+                    shown is the material the window actually wears (a stored
+                    glass reads as tinted elsewhere). */}
+                <SegmentedControl<WindowMaterial>
+                  ariaLabel="Window material"
+                  items={[
+                    ...(isMac ? [{ value: 'glass' as const, label: 'Glass' }] : []),
+                    { value: 'tinted', label: 'Tinted' },
+                    { value: 'solid', label: 'Solid' },
+                  ]}
+                  value={effectiveWindowMaterial(appearanceWindowMaterial, window.api.platform)}
+                  onChange={setAppearanceWindowMaterial}
+                />
+              </SettingsRow>
+              <SettingToggle
+                label="Agent characters"
+                description="Draw each agent Claude sends off as a little character that moves while it works, and changes with the seasons."
+                enabled={agentCharacters}
+                onChange={setAppearanceAgentCharacters}
+              />
             </SettingCard>
           </section>
         </div>
@@ -1490,7 +1295,6 @@ export default function SettingsPanel({
             onSignIn={() => void onProfileSignIn()}
             onSignOut={() => void onProfileSignOut()}
             onRefresh={() => void onProfileRefresh()}
-            onUpgrade={onProfileUpgrade}
           />
         </div>
       ) : null}
@@ -1499,76 +1303,27 @@ export default function SettingsPanel({
         <div role="tabpanel" id="settings-panel-general" aria-labelledby="settings-tab-general">
           <SettingsPageHeader title="General" />
           {/* The version row: identity on the left, the one state-driven action
-              on the right. The update flow is a line (check → download →
-              restart), so only the current step's action renders. Checking is
-              a glyph; downloading and restarting are the primary action. */}
-          {/* No rule under this row any more: the card below brings its own
-              top border, and a hairline immediately above it was two rules
-              saying one boundary. The row's `pb-4` went with it — the gap to
-              the card is the card's own `mt-5`, so the two do not add up to a
-              step no other section spends. */}
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2.5">
-              <SprintEngineFrond tone="current" className="icon-md shrink-0" />
-              <div className="min-w-0">
-                <div className="text-body font-medium text-[color:var(--text-strong)]">
-                  SprintEngine Studio <span className="tabular-nums">{updateState?.version ?? '…'}</span>
-                </div>
-                <div
-                  className={`mt-0.5 text-body ${
-                    updateState?.status === 'error'
-                      ? 'text-[color:var(--tone-error)]'
-                      : 'text-[color:var(--text-muted)]'
-                  }`}
-                >
-                  {formatUpdateChannel(updateState?.channel)} · {formatUpdateStatus(updateState)}
-                </div>
-              </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-1.5">
-              <Tooltip content="Release notes">
-                <IconButton aria-label="Release notes" onClick={() => void window.api.updateOpenReleaseNotes()}>
-                  <ReleaseNotesIcon className="icon-sm" />
-                </IconButton>
-              </Tooltip>
-              {updateState && !updateState.packaged ? null : nextUpdateAction === 'restart' ? (
-                <PrimaryButton size="md" onClick={() => void restartToInstall()} disabled={updateActionPending}>
-                  Restart to install
-                </PrimaryButton>
-              ) : nextUpdateAction === 'download' ? (
-                <PrimaryButton
-                  size="md"
-                  onClick={() => void downloadUpdate()}
-                  disabled={updateActionPending || updateState?.status === 'downloading'}
-                >
-                  {updateState?.updateVersion ? `Download ${updateState.updateVersion}` : 'Download update'}
-                </PrimaryButton>
-              ) : (
-                <Tooltip content={updateState?.status === 'error' ? 'Retry check' : 'Check for updates'}>
-                  <IconButton
-                    aria-label={updateState?.status === 'error' ? 'Retry the update check' : 'Check for updates'}
-                    onClick={() => void checkForUpdates()}
-                    disabled={
-                      updateActionPending || updateState?.status === 'checking' || updateState?.status === 'downloading'
-                    }
-                  >
-                    {updateState?.status === 'checking' ? <Spinner className="icon-sm" /> : <RefreshIcon />}
-                  </IconButton>
-                </Tooltip>
-              )}
-            </div>
-          </div>
-          {updateState?.progress ? (
-            <div className="mt-3 h-1 overflow-hidden rounded-full bg-[color:var(--bg-active)]">
-              <div
-                className="h-full rounded-full bg-[color:var(--accent-primary)]"
-                style={{ width: `${Math.max(0, Math.min(100, updateState.progress.percent))}%` }}
-              />
-            </div>
-          ) : null}
+              on the right — check, then Download, then Restart to update —
+              with the download's progress under it (AppVersionRow). */}
+          <AppVersionRow
+            state={updateState}
+            pending={updateActionPending}
+            onCheck={() => void checkForUpdates()}
+            onDownload={() => void downloadUpdate()}
+            onRestart={() => void restartToInstall()}
+            onOpenReleaseNotes={() => void window.api.updateOpenReleaseNotes()}
+          />
 
           <SettingCard className="mt-5">
             <UpdateChannelSettings onResult={onUpdateChannelResult} />
+            {updateState ? (
+              <SettingToggle
+                label="Download updates automatically"
+                description="Off: Studio says when an update is out, and downloads it when you press Download."
+                enabled={updateState.autoDownload}
+                onChange={(enabled) => void setAutoDownload(enabled)}
+              />
+            ) : null}
             {backgroundModeDescriptor ? (
               <RegistrySwitchRow
                 descriptor={backgroundModeDescriptor}
@@ -1698,15 +1453,20 @@ export default function SettingsPanel({
       {activeSettingsTab === 'agents' ? (
         <div role="tabpanel" id="settings-panel-agents" aria-labelledby="settings-tab-agents" className="space-y-3">
           <AgentCliBand
-            checkedAt={cliAvailabilityCheckedAt}
+            checkedAt={agentsOnWsl ? (agentsMachineCli.availability?.checkedAt ?? null) : cliAvailabilityCheckedAt}
             now={agentsFreshnessNow}
-            addPending={cliInstallPending}
-            onAdd={() => void installCliFromFolder()}
-            onRecheck={() => {
-              void refreshCliAvailability({ force: true, cliRuntimes })
-              if (checkCliVersions) void refreshCliVersionAdvisories({ force: true, cliRuntimes })
-            }}
+            rechecking={agentsRechecking}
+            onRecheck={() => void recheckAgentClis()}
           />
+          <AgentsMachineSwitcher
+            machines={agentsMachineOptions}
+            value={agentsMachine.id}
+            onChange={selectAgentsMachine}
+            badges={updateBadges.machines}
+          />
+          {/* One switch for every machine: main compares each machine's
+              installed CLIs against the registry, and this turns all of it
+              off. */}
           <SettingCard>
             <SettingToggle
               label="Check for CLI updates"
@@ -1715,295 +1475,24 @@ export default function SettingsPanel({
               onChange={setCheckCliVersions}
             />
           </SettingCard>
-          <ActionResultMessage message={cliInstallMessage} />
           {/* First-run agent-config adoption. It runs silently at the first
               workspace creation — the user is never asked — so this line is the
               only place it is ever reported. Renders nothing unless an adoption
               actually ran this session, and says so plainly when it failed. */}
           <AgentConfigAdoptionStatus adoption={agentConfigAdoptionResult} />
-          {/* The batch availability probe failing is a different fact from a
-              plugin registry failure, and until now it was surfaced nowhere at
-              all: every row simply read "Not found". */}
-          {cliAvailabilityStatus === 'error' && cliAvailabilityError ? (
-            <InlineNotice tone="warn">{`Agent CLIs could not be checked: ${cliAvailabilityError}`}</InlineNotice>
-          ) : null}
+          <AgentClisSection
+            runs={agentCliRuns}
+            machine={agentsMachine}
+            machineAvailability={agentsMachineCli.availability}
+            onMachineReload={agentsMachineCli.reload}
+            showMachine={agentsMachineOptions.length > 1}
+            now={agentsFreshnessNow}
+            updateBadgeClis={updateBadges.clis[agentsMachine.id] ?? NO_UPDATE_BADGE_CLIS}
+          />
 
-          {pluginCatalogStatus === 'loading' && installedPluginRows.length === 0 ? (
-            <p className="text-body leading-5 text-[color:var(--text-muted)]">Loading…</p>
-          ) : pluginCatalogStatus === 'error' ? (
-            // The failure carries its own recovery, per the notice contract —
-            // a Retry parked below the message is a dead end with a button.
-            <InlineNotice
-              tone="error"
-              title="The plugin registry could not be loaded."
-              hint={pluginCatalogError ?? undefined}
-              action={
-                <OutlineButton size="md" onClick={() => void refreshPluginCatalog()}>
-                  Retry
-                </OutlineButton>
-              }
-            />
-          ) : installedPluginRows.length === 0 ? (
-            <EmptyState
-              density="list"
-              title="No agent plugins are installed."
-              action={
-                <OutlineButton size="md" onClick={() => void refreshPluginCatalog()}>
-                  Refresh
-                </OutlineButton>
-              }
-            />
-          ) : (
-            // The list card (setting-row → The list card, 2026-09-15): the
-            // section band with the count outside, one bordered surface, the
-            // rows full-bleed inside it — the shape the Remote tab's machines
-            // drew first. These rows sat loose under the switch card before,
-            // which made the page's one list the one thing on it with no edge.
-            <section className="space-y-2">
-              <SettingsSectionTitle count={installedPluginRows.length}>Agent CLIs</SettingsSectionTitle>
-              <SettingCard as="ul" ariaLabel="Agent CLIs">
-                {installedPluginRows.map((plugin) => {
-                  const override = cliRuntimeForPlugin(plugin.id, cliRuntimes)
-                  const declaredModels = plugin.modelSelection?.options ?? []
-                  // What the picker offers before the user's own ids: the CLI's
-                  // own list once it has answered, else the manifest seed
-                  // (cliRuntimeOptions.mergeModelCatalog).
-                  const discoveredCatalog = cliModelCatalog?.[plugin.id]
-                  const discoveredModels = discoveredCatalog?.models ?? []
-                  const listedModels =
-                    discoveredModels.length > 0
-                      ? discoveredModels.map((model) => ({ id: model.id, label: model.displayName }))
-                      : declaredModels
-                  const allowCustomModels = Boolean(plugin.modelSelection?.allowCustomId)
-                  const userModels = cliRuntimes?.[plugin.id]?.models ?? EMPTY_USER_MODELS
-                  const state = resolveCliProviderState(cliAvailability[plugin.id], cliAvailabilityStatus)
-                  const advisory = checkCliVersions ? cliVersionAdvisories[plugin.id] : undefined
-                  const behind = state.installed && advisory?.status === 'behind_latest' && !!advisory.latestVersion
-                  const updateRun = cliUpdateRuns[plugin.id]
-                  return (
-                    <ProviderRow
-                      key={plugin.id}
-                      as="li"
-                      surface="card"
-                      icon={<CliIcon cli={plugin.id} className="size-icon-lg text-[color:var(--text-default)]" />}
-                      // No health dot here either, and for the same reason it
-                      // left the Agent CLIs catalogue (owner, 2026-09-10): this
-                      // is the same list of CLIs, and nine identical green dots
-                      // down a column is a status idiom spent on a fact nobody
-                      // is scanning for. What a person is scanning for is the
-                      // one row that is behind — so that is what the mark says.
-                      badge={
-                        behind
-                          ? {
-                              count: 1,
-                              label: `${plugin.displayName} — update available: ${advisory.latestVersion}`,
-                            }
-                          : null
-                      }
-                      // A CLI this machine does not have recedes a step, so the
-                      // list reads as what is here first. Only a DEFINITIVE
-                      // absence: a probe that never answered is not absence, and
-                      // must not push a likely-installed CLI into the background.
-                      recessed={state.health === 'missing'}
-                      name={plugin.displayName}
-                      version={state.version}
-                      stateLine={
-                        <>
-                          <CliProviderStateLine
-                            state={state}
-                            binary={plugin.binary}
-                            useWsl={override.useWsl}
-                            // Deliberately not the reason: a failed batch probe
-                            // wipes every entry, so the reason is one fact for the
-                            // whole list and the section states it once below the
-                            // band rather than nine times down the rows.
-                            probeError={null}
-                          />
-                          {/* Provenance, only where it distinguishes: the retired
-                            card stamped "Built-in" on all nine bundled rows,
-                            which said nothing. A plugin the user installed from
-                            a folder is the one this list cannot otherwise
-                            explain. */}
-                          {plugin.source === 'bundled' ? null : ' · installed from a folder'}
-                          {/* The version advisory: the newest the
-                            registry publishes, and the command Update runs.
-                            Nothing here for a CLI that is current or unknown. */}
-                          {behind ? (
-                            <>
-                              {' · '}
-                              <span className="font-mono text-[color:var(--text-default)]">
-                                {advisory.latestVersion}
-                              </span>
-                              {updateRun?.running ? ' installing…' : ' available'}
-                            </>
-                          ) : null}
-                        </>
-                      }
-                      expanded={selectedCliId === plugin.id}
-                      onExpandedChange={(next) => {
-                        setInstallIntentId(null)
-                        setSelectedCliId(next ? plugin.id : null)
-                      }}
-                      // Install is offered only on a definitive negative probe. A
-                      // CLI whose probe never completed may well be installed, so
-                      // offering to install it would be a fake affordance — those
-                      // rows say so on their state line and route to Re-check.
-                      actions={
-                        state.health === 'missing' ? (
-                          <PrimaryButton
-                            size="xs"
-                            onClick={() => {
-                              setInstallIntentId(plugin.id)
-                              setSelectedCliId(plugin.id)
-                            }}
-                          >
-                            Install
-                          </PrimaryButton>
-                        ) : behind ? (
-                          <PrimaryButton
-                            size="xs"
-                            disabled={updateRun?.running === true}
-                            onClick={() => void runCliUpdate(plugin.id)}
-                          >
-                            {updateRun?.running ? <Spinner className="icon-sm" /> : null}
-                            Update
-                          </PrimaryButton>
-                        ) : null
-                      }
-                    >
-                      {/* The per-instance form, in place: the install/detect
-                        control, then how this CLI runs. The row above already
-                        carries name, version, and state, so the control drops
-                        its own name and status line rather than saying it
-                        twice. */}
-                      {updateRun?.notice ? (
-                        <InlineNotice
-                          tone={updateRun.notice.tone}
-                          title={`${plugin.displayName} did not update.`}
-                          hint={updateRun.notice.text}
-                        >
-                          {advisory?.updateCommand ? (
-                            <span className="font-mono text-[color:var(--text-default)]">
-                              {advisory.updateCommand.command}
-                            </span>
-                          ) : null}
-                        </InlineNotice>
-                      ) : null}
-                      <CliInstallControl
-                        cli={plugin.id}
-                        displayName={plugin.displayName}
-                        binary={plugin.binary}
-                        command={override.command}
-                        useWsl={override.useWsl}
-                        showName={false}
-                        showStatus={false}
-                        autoOpenInstall={installIntentId === plugin.id}
-                        onInstalled={(result) => {
-                          if (result.resolvedPath && !override.command) {
-                            setCliRuntime(plugin.id, { command: result.resolvedPath, useWsl: override.useWsl })
-                          }
-                          void refreshPluginCatalog()
-                          // Force-refresh availability so the freshly installed CLI
-                          // shows as detected on its row and in deployment pickers.
-                          void refreshCliAvailability({ force: true, cliRuntimes })
-                        }}
-                      />
-
-                      {listedModels.length > 0 ? (
-                        <div className="flex gap-2 text-body leading-5">
-                          <span className="shrink-0 text-[color:var(--text-muted)]">Models</span>
-                          <span className="min-w-0 font-mono text-[color:var(--text-default)]">
-                            {listedModels.map((model) => model.label ?? model.id).join(' · ')}
-                          </span>
-                        </div>
-                      ) : null}
-
-                      <div className="mt-2 divide-y divide-[color:var(--border-subtle)]">
-                        {plugin.modelSelection ? (
-                          <CliModelsRow
-                            name={plugin.displayName}
-                            catalog={discoveredCatalog}
-                            error={modelRefresh.errors[plugin.id] ?? null}
-                            now={agentsFreshnessNow}
-                            refreshing={modelRefresh.running}
-                            onRefresh={() => void refreshCliModels()}
-                          />
-                        ) : null}
-                        <SettingsRow
-                          label="Command override"
-                          help={
-                            <>
-                              Runs <span className="font-mono text-[color:var(--text-default)]">{plugin.binary}</span>{' '}
-                              when blank.
-                            </>
-                          }
-                          htmlFor={`cli-command-${plugin.id}`}
-                        >
-                          <Input
-                            id={`cli-command-${plugin.id}`}
-                            // Per-plugin accessible name so screen readers don't announce an
-                            // identical "Command override" for every CLI.
-                            aria-label={`${plugin.displayName} command override`}
-                            value={override.command}
-                            onChange={(event) =>
-                              setCliRuntime(plugin.id, { command: event.target.value, useWsl: override.useWsl })
-                            }
-                            placeholder={plugin.binary}
-                            size="md"
-                            variant="well"
-                            fullWidth={false}
-                            className={ROW_FIELD}
-                          />
-                        </SettingsRow>
-
-                        {isWindows && (
-                          <SettingToggle
-                            label={`Run ${plugin.displayName} through WSL`}
-                            enabled={override.useWsl}
-                            onChange={(enabled) =>
-                              setCliRuntime(plugin.id, { command: override.command, useWsl: enabled })
-                            }
-                          />
-                        )}
-
-                        {allowCustomModels ? (
-                          <PluginModelSettings
-                            displayName={plugin.displayName}
-                            userModels={userModels}
-                            onUserModelsChange={(models) => {
-                              setCliRuntime(plugin.id, { models })
-                              // Retiring an id must also retire it as a remembered
-                              // launch default, or every spawn surface that named
-                              // it keeps passing `--model <deleted id>` and the
-                              // agent dies on a model nothing offers. Only ids the
-                              // picker no longer lists are forgotten: an id the
-                              // CLI reported (or, before it has, the manifest
-                              // seeds) is still a real model, and the user only
-                              // removed their own copy.
-                              const remaining = new Set(models)
-                              const stillOffered = new Set(listedModels.map((option) => option.id))
-                              const retired = userModels.filter((id) => !remaining.has(id) && !stillOffered.has(id))
-                              if (retired.length > 0) forgetCliModels(plugin.id, retired)
-                            }}
-                          />
-                        ) : null}
-
-                        {plugin.auth ? (
-                          <CliCredentialRow
-                            pluginId={plugin.id}
-                            displayName={plugin.displayName}
-                            label={plugin.auth.label}
-                          />
-                        ) : null}
-                      </div>
-                    </ProviderRow>
-                  )
-                })}
-              </SettingCard>
-            </section>
-          )}
-
+          <StudioSkillsSettings />
           <TextGenerationSettingsSection />
+          <ConversationApprovalSettings />
 
           {idleSuspendDescriptor ? (
             // No top rule on the section: the card draws its own edge, and a
@@ -2028,6 +1517,15 @@ export default function SettingsPanel({
       ) : null}
 
       {activeSettingsTab === 'providers' ? <ProviderSettingsTab /> : null}
+      {activeSettingsTab === 'machines' ? (
+        <MachinesSettingsTab
+          onShowAgentClis={(id) => {
+            selectAgentsMachine(id)
+            setActiveSettingsTab('agents')
+            window.requestAnimationFrame(() => tabRefs.current.agents?.focus())
+          }}
+        />
+      ) : null}
 
       {activeSettingsTab === 'knowledge-graph' ? (
         <div
@@ -2096,9 +1594,9 @@ export default function SettingsPanel({
 
       {activeSettingsTab === 'shortcuts' ? <KeyboardShortcutsTab /> : null}
 
-      {activeSettingsTab === 'modules' ? <ModulesSettingsTab /> : null}
+      {activeSettingsTab === 'settled-chats' ? <SettledChatsSettingsTab onOpenChat={openSettledChat} /> : null}
 
-      {activeSettingsTab === 'mobile' && mobileRelayEnabled ? <MobileSettingsTab /> : null}
+      {activeSettingsTab === 'modules' ? <ModulesSettingsTab /> : null}
 
       {activeSettingsTab === 'remote' ? <RemoteTailnetSettingsTab /> : null}
 
@@ -2168,19 +1666,6 @@ export default function SettingsPanel({
   )
 }
 
-// Human plan label for the Profile meta grid ("Pro plan" / "Free plan" / a
-// non-active entitlement status). Presentation only: it reads the plan's name
-// to print it, and nothing may branch on what it returns.
-function profilePlanLabel(authState: SprintEngineAuthState): string {
-  const plan = authState.entitlements?.plan ?? null
-  if (!plan) return 'Free plan'
-  if (plan.status === 'active') {
-    const code = plan.code ? plan.code[0].toUpperCase() + plan.code.slice(1) : 'Pro'
-    return `${code} plan`
-  }
-  return plan.status ? plan.status[0].toUpperCase() + plan.status.slice(1) : 'Unknown'
-}
-
 // Profile tab body: a fuller account-management surface over the shared auth
 // projection. Drives the same auth IPC as the sidebar account popover; the two
 // coexist (quick glance vs. full management).
@@ -2191,7 +1676,6 @@ function ProfileSection({
   onSignIn,
   onSignOut,
   onRefresh,
-  onUpgrade,
 }: {
   authState: SprintEngineAuthState
   message: string | null
@@ -2199,12 +1683,11 @@ function ProfileSection({
   onSignIn: () => void
   onSignOut: () => void
   onRefresh: () => void
-  onUpgrade: () => void
 }) {
   if (!authState.authenticated) {
     return (
       <div className="space-y-2">
-        <SettingsRow label="Not signed in" help="Sign in to unlock Pro features.">
+        <SettingsRow label="Not signed in" help="Signing in is optional. Every feature works without an account.">
           <PrimaryButton size="md" onClick={onSignIn} disabled={pending || authState.status === 'checking'}>
             Sign in
           </PrimaryButton>
@@ -2214,15 +1697,9 @@ function ProfileSection({
     )
   }
 
-  // Two questions, deliberately not one: the Plan cell's tone is presentation
-  // (it colours the plan's own name), and the upgrade button is an access
-  // decision, which is asked of feature keys rather than the plan's name.
-  const planTone = planDisplayTier(authState) === 'pro' ? 'positive' : undefined
-  const offerUpgrade = !hasPaidEntitlement(authState)
   const name = authState.user?.displayName ?? authState.user?.email ?? 'Your account'
   const email = authState.user?.displayName ? authState.user?.email : null
   const orgName = authState.selectedOrganization?.name ?? null
-  const accessStale = Boolean(message) || authState.entitlementStatus !== 'fresh'
 
   return (
     <div className="space-y-5">
@@ -2238,21 +1715,17 @@ function ProfileSection({
         </div>
       </div>
 
-      <div className="grid gap-x-6 gap-y-3 border-t border-[color:var(--border-subtle)] pt-4 text-body sm:grid-cols-2">
-        <MetaCell label="Plan" value={profilePlanLabel(authState)} tone={planTone} />
-        {orgName ? <MetaCell label="Organization" value={orgName} /> : null}
-      </div>
+      {orgName ? (
+        <div className="grid gap-x-6 gap-y-3 border-t border-[color:var(--border-subtle)] pt-4 text-body sm:grid-cols-2">
+          <MetaCell label="Organization" value={orgName} />
+        </div>
+      ) : null}
 
       {message ? <p className="text-body leading-5 text-[color:var(--text-muted)]">{message}</p> : null}
 
       <div className="flex flex-wrap items-center gap-3 border-t border-[color:var(--border-subtle)] pt-4">
-        {offerUpgrade ? (
-          <PrimaryButton size="md" onClick={onUpgrade} disabled={pending}>
-            Upgrade to Pro
-          </PrimaryButton>
-        ) : null}
         <OutlineButton size="md" onClick={onRefresh} disabled={pending}>
-          {accessStale ? 'Check access again' : 'Refresh access'}
+          Refresh account
         </OutlineButton>
         <GhostButton size="md" onClick={onSignOut} disabled={pending} className="ml-auto">
           Sign out
@@ -2270,11 +1743,15 @@ const SettingsTabButton = React.forwardRef<
   {
     tab: SettingsTabDescriptor
     active: boolean
+    /** An update waiting on this tab (owner ruling 2026-09-25): General's app
+     *  update, Agents' CLI updates. Null or 0 draws nothing. */
+    badge?: SettingsUpdateBadge | null
     onClick: () => void
     onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => void
   }
->(function SettingsTabButton({ tab, active, onClick, onKeyDown }, ref) {
+>(function SettingsTabButton({ tab, active, badge, onClick, onKeyDown }, ref) {
   const Icon = tab.icon ?? tab.moduleSection?.icon
+  const shownBadge = badge && badge.count > 0 ? badge : null
   return (
     <RowButton
       ref={ref}
@@ -2289,6 +1766,10 @@ const SettingsTabButton = React.forwardRef<
       // its state as `aria-selected`, and two would be announced twice.
       aria-current={undefined}
       aria-controls={`settings-panel-${tab.id}`}
+      // A badged tab names itself, the way a badged tab in the strip does: the
+      // count is a named live region, and inside the button it would land in
+      // the name-from-contents as well. The explicit name says it once.
+      aria-label={shownBadge ? `${tab.label}, ${shownBadge.detail}` : undefined}
       tabIndex={active ? 0 : -1}
       onClick={onClick}
       onKeyDown={onKeyDown}
@@ -2300,50 +1781,19 @@ const SettingsTabButton = React.forwardRef<
         />
       ) : null}
       <span className="min-w-0 truncate">{tab.label}</span>
+      {shownBadge ? (
+        // Trailing the label, as an Extensions drawer row wears its count.
+        <span className="ml-auto flex shrink-0 pl-1">
+          <Badge tone={shownBadge.tone} count={shownBadge.count} max={99} ariaLabel={shownBadge.detail} />
+        </span>
+      ) : null}
     </RowButton>
   )
 })
-
-function formatUpdateChannel(channel: AppUpdateState['channel'] | undefined): string {
-  switch (channel) {
-    case 'stable':
-      return 'Stable'
-    case 'nightly':
-      return 'Nightly'
-    case 'dev':
-      return 'Development'
-    default:
-      return 'Unknown'
-  }
-}
 
 function formatGitHubTokenStatus(status: GitHubTokenUiStatus | null): string {
   if (!status) return 'Checking'
   if (status.source === 'settings') return 'Saved'
   if (status.source === 'environment') return 'Environment'
   return 'Not set'
-}
-
-// One clause after the channel on the version row: a state, never a sentence.
-function formatUpdateStatus(state: AppUpdateState | null): string {
-  if (!state) return 'loading'
-  if (!state.packaged) return 'unpackaged build'
-  switch (state.status) {
-    case 'checking':
-      return 'checking…'
-    case 'available':
-      return state.updateVersion ? `${state.updateVersion} available` : 'update available'
-    case 'downloading':
-      return state.progress ? `downloading ${Math.round(state.progress.percent)}%` : 'downloading…'
-    case 'downloaded':
-      return 'restart to install'
-    case 'not_available':
-      return 'up to date'
-    case 'error':
-      return state.errorMessage ?? 'check failed'
-    default:
-      return state.lastCheckedAt
-        ? `checked ${formatRelativeMsAgo(Date.parse(state.lastCheckedAt), Date.now()) || 'just now'}`
-        : 'not checked yet'
-  }
 }

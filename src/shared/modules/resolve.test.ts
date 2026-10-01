@@ -23,6 +23,7 @@ test('resolve', async () => {
     testIneligibleUntrusted()
     testIneligibleCascadesToDependents()
     testIneligibleInvalidSignature()
+    testIneligibleIncompatibleHostApi()
 
     console.log('module-resolve tests passed')
   }
@@ -70,6 +71,19 @@ test('resolve', async () => {
       result.errors.some((e) => e.id === 'tampered' && e.code === 'invalid_signature'),
       true,
     )
+  }
+
+  function testIneligibleIncompatibleHostApi(): void {
+    const result = resolveModuleEnablement(
+      [manifest('old-build', { source: 'third-party' })],
+      {},
+      { ineligible: { 'old-build': 'incompatible_host_api' } },
+    )
+    assert.deepEqual(result.order, [])
+    const error = result.errors.find((e) => e.id === 'old-build')
+    assert.equal(error?.code, 'incompatible_host_api')
+    assert.match(error?.message ?? '', /different host API/)
+    assert.doesNotMatch(error?.message ?? '', /not trusted/, 'trusting would not fix it, so it does not say so')
   }
 
   function testDefaultsAndExplicitDisable(): void {

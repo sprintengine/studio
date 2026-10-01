@@ -104,9 +104,9 @@
   top: var(--sem-space-2xs);
   bottom: var(--sem-space-2xs);
   width: var(--sem-space-3xs);
-  /* Fully rounded, as `status-dot` is: on a 2px bar a radius step and a pill
-     are the same stub, and matching the dot keeps one spelling for "a small
-     round mark". */
+  /* Fully rounded, as the count badge's pill is: on a 2px bar a radius step
+     and a pill are the same stub, and matching the pill keeps one spelling
+     for "a small round-ended mark". */
   border-radius: 999px;
   background: var(--sem-color-text-primary);
   pointer-events: none;
@@ -279,10 +279,11 @@
  * The two things a row can say on its own: an agent on it is waiting for the
  * person (`--needs-input`), or it finished while they were looking elsewhere
  * and they have not opened it since (`--finished`). Each takes the WHOLE row
- * — a tinted fill and the title in the tone's ink — because a dot or a chip
- * beside an otherwise quiet row is the weakest possible carrier for the one
- * state that actually wants the person to look (owner ruling 2026-09-04,
- * twice: first the needs-input dot, then the "Done" chip).
+ * — a tinted fill and the title in the tone's ink — because a status mark or
+ * a chip beside an otherwise quiet row is the weakest possible carrier for
+ * the one state that actually wants the person to look (owner ruling
+ * 2026-09-04, twice: first the needs-input dot — a mark the product no longer
+ * draws anywhere — then the "Done" chip).
  *
  * A FILL, and only a fill. The edge is selection's channel and status may not
  * borrow it (owner ruling 2026-09-05, reversing the ring these two carried).

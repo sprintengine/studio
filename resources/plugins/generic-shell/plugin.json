@@ -7,12 +7,7 @@
   "category": "Agent CLI",
   "icon": "icon.svg",
   "binary": "sh",
-  "permissionPresets": {
-    "manual": {
-      "label": "Manual",
-      "args": []
-    }
-  },
+  "permissionPresets": {},
   "launch": {
     "argv": ["{{binary}}"]
   },

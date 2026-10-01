@@ -40,16 +40,19 @@ export function SkillReader({
   source,
   skill,
   rail,
+  readFile,
 }: {
   source: SkillSource
   skill: ScannedSkill
   /** What the skill declares about itself, set above its file list in the rail. */
   rail?: React.ReactNode
+  /** Installed workspace copies share the reader without registering a source. */
+  readFile?: (path: string) => Promise<string>
 }): JSX.Element {
   const files = useMemo(() => orderSkillFiles(skill.files), [skill.files])
   const [activePath, setActivePath] = useState(() => defaultSkillFilePath(files))
   const active = files.find((file) => file.path === activePath) ?? files[0] ?? null
-  const { read, retry } = useSkillFile(source.id, skill.id, active?.path ?? '')
+  const { read, retry } = useSkillFile(source.id, skill.id, active?.path ?? '', readFile)
 
   // A link followed from three screens down would otherwise open the next file
   // already scrolled past its own beginning. Only when it is above the fold —
@@ -216,7 +219,12 @@ export function SkillDocument({
  * skill stays open — so walking SKILL.md → LOGIC.md → SKILL.md costs one read
  * per file, and opening a skill never reads more than the file being shown.
  */
-function useSkillFile(sourceId: string, skillId: string, path: string): { read: SkillFileRead; retry: () => void } {
+function useSkillFile(
+  sourceId: string,
+  skillId: string,
+  path: string,
+  readFile?: (path: string) => Promise<string>,
+): { read: SkillFileRead; retry: () => void } {
   const [read, setRead] = useState<SkillFileRead>({ status: 'loading' })
   const [nonce, setNonce] = useState(0)
   // Keyed by source AND skill, not by path alone: two skills both have a
@@ -232,14 +240,16 @@ function useSkillFile(sourceId: string, skillId: string, path: string): { read: 
       setRead({ status: 'ready', content: cached })
       return
     }
-    if (typeof window.api.skillsReadFile !== 'function') {
+    if (!readFile && typeof window.api.skillsReadFile !== 'function') {
       setRead({ status: 'error', message: MISSING_API_MESSAGE })
       return
     }
     let cancelled = false
     setRead({ status: 'loading' })
-    void window.api
-      .skillsReadFile({ sourceId, skillId, path })
+    const request = readFile
+      ? readFile(path).then((content) => ({ ok: true as const, content }))
+      : window.api.skillsReadFile({ sourceId, skillId, path })
+    void request
       .then((result) => {
         if (cancelled) return
         if (!result.ok) {
@@ -256,7 +266,7 @@ function useSkillFile(sourceId: string, skillId: string, path: string): { read: 
     return () => {
       cancelled = true
     }
-  }, [key, sourceId, skillId, path, nonce])
+  }, [key, sourceId, skillId, path, nonce, readFile])
 
   const retry = useCallback(() => {
     cache.current.delete(key)

@@ -6,6 +6,8 @@
 <title>Spinner</title>
 <link rel="stylesheet" href="../../foundations/tokens.css" />
 <link rel="stylesheet" href="component.css" />
+<!-- The overlay's mark is the status-dot component's working mark. -->
+<link rel="stylesheet" href="../status-dot/component.css" />
 <style>
   body {
     margin: 0;
@@ -66,11 +68,11 @@
     </span>
   </div>
 
-  <p class="demo-label">The loading overlay — a panel with no shape to promise yet: pulsing good dot, one sentence.</p>
+  <p class="demo-label">The loading overlay — a panel with no shape to promise yet: the working mark, one sentence.</p>
   <div class="demo-panel">
     <div class="ds-loading-overlay" role="status" aria-live="polite">
       <div class="ds-loading-overlay-body">
-        <span class="ds-loading-overlay-dot" aria-hidden="true"></span>
+        <span class="ds-status-dot ds-status-dot--working" aria-hidden="true"></span>
         <span class="ds-loading-overlay-label">Loading sessions…</span>
       </div>
     </div>
@@ -91,7 +93,7 @@
   <div class="demo-panel">
     <div class="ds-loading-overlay" role="status" aria-live="polite">
       <div class="ds-loading-overlay-body">
-        <span class="ds-loading-overlay-dot" aria-hidden="true"></span>
+        <span class="ds-status-dot ds-status-dot--working" aria-hidden="true"></span>
         <span class="ds-loading-overlay-label">Loading sessions…</span>
       </div>
     </div>

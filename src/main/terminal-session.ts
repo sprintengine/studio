@@ -16,14 +16,18 @@ import type {
   TerminalSessionSnapshot,
 } from '../shared/electron-api'
 import type { AgentLaunchRecord } from '../shared/agent-launch'
+import type { ExecutionHostId } from '../shared/execution-host'
 import type { AgentStateFrameStatusLine } from './agent-state'
+import { samePromptCacheReading, type PromptCacheReading } from '../shared/prompt-cache'
+import type { DeferredPromptDelivery } from './deferred-prompt-delivery'
 import { isValidFileChangePath, MAX_AGENT_PROMPT_LENGTH, MAX_FILE_CHANGE_COUNT } from './agent-state'
 import { MAX_LIVE_PEEK_PROMPTS } from './conversation-peek/service'
 import {
   getTerminalHistoryTier,
   getTerminalReplayLimitBytes,
-  TERMINAL_STANDARD_REPLAY_BYTES,
+  TERMINAL_RECENT_REPLAY_BYTES,
 } from '../shared/terminal-history'
+import { TerminalReplayBuffer } from './terminal-replay-buffer'
 
 export type TerminalSize = {
   cols: number
@@ -38,6 +42,10 @@ type FailedTerminalSessionInput = {
   exitCode?: number
   kind?: TerminalKind
   pathStyle?: TerminalPathStyle
+  // The machine the session runs on (see shared/execution-host.ts). A resume
+  // reads it before anything else, so a CLI's transcript is always looked for
+  // in the home it was written to.
+  hostId?: ExecutionHostId
   workspaceId?: string
   agentId?: string
   agentName?: string
@@ -73,13 +81,11 @@ export type TerminalSession = {
   // dispose sweeps skip this session entirely. Session-scoped; set over IPC from
   // the terminal's lock control.
   reapExempt?: boolean
-  /**
-   * A module owns this session's lifetime (launch contribution `session.managed`).
-   * The idle reaper excludes it from the recency floor that protects the user's
-   * own agents. Distinct from `reapExempt`, which is the user's lock control.
-   */
-  managed?: boolean
   idleTimer?: ReturnType<typeof setTimeout>
+  // When a plain terminal's working bolding should lapse to idle. Output moves
+  // the deadline; the timer is only re-armed when it fires early, instead of
+  // being cleared and set again for every chunk.
+  idleDeadline?: number
   // Watches a hook-reported working phase for a stall: a `tool_use`/`thinking`
   // agent that goes silent (no follow-up frame and no output) past the threshold
   // is flipped to an inferred `stalled` phase. See scheduleAgentStallCheck.
@@ -95,34 +101,20 @@ export type TerminalSession = {
   // I working on here?") and names a new chat after its first real prompt.
   // Absent for plain terminals, for hookless CLIs, and until the first prompt.
   lastPrompt?: SessionPrompt
-  // Every prompt this session has been sent since it launched, oldest first and
-  // bounded (see rememberSessionPrompt). This is the conversation peek's LIVE
-  // fallback: Codex, Grok and Kimi Code report `UserPromptSubmit` but hand us no
-  // transcript, so without this the card for one of them could only ever show
-  // the single most recent thing said.
+  // The prompts this chat has been sent, oldest first and bounded (see
+  // rememberSessionPrompt). This is the conversation peek's only source: the
+  // peek never reads a CLI's own transcript (owner ruling 2026-09-24).
   //
-  // Persisted with the snapshot sidecar, and nowhere else — never the workspace
-  // registry, never a log. That reverses the original decision to keep prompts
-  // out of every file the app writes (the app that writes none cannot leak
-  // any), and the reason is that the alternative was worse: a Codex chat is a
-  // runtime with no transcript we can read, so on the far side of a restart the
-  // card for one could only say it had no messages — about a chat whose own
-  // title was its first prompt. The sidecar is the narrowest home for them: one
-  // file per parked chat under userData, mode 0600, deleted on dispose and
-  // swept at 30 days, holding a painted screen that already shows this text.
+  // Written to disk in two places, both under userData and mode 0600: the
+  // snapshot sidecar, beside a painted screen that already shows this text, and
+  // for an agent the agent prompt store (agent-prompt-store.ts), which outlives
+  // the sidecar's 30-day sweep so a chat still in the sidebar keeps its card.
+  // Never the workspace registry, never a log.
   peekPrompts?: SessionPrompt[]
-  // Whether the retained replay has ever had its head cut off — a chunk evicted
-  // past the byte budget, or an oversized chunk trimmed. Sticky, because
-  // compaction renumbers the chunk list and `outputChunkStart` goes back to 0
-  // while the cut stays made. It is what licenses the resync in
-  // {@link materializeTerminalReplay}: an untouched buffer starts where the CLI
-  // started and must be replayed byte for byte.
-  replayTruncated?: boolean
-  // The CLI's own transcript, as its turn-end hook last reported it. Retained so
-  // the conversation peek can read the whole history on a hover instead of only
-  // what this app happened to watch go by. UNTRUSTED — a path chosen by the hook
-  // reporter — so containment belongs to the reader (conversation-peek/transcript.ts).
-  transcriptPath?: string
+  // Set once this session's prompts have been reconciled with its agent's
+  // stored list (terminal-runtime.ts, reinflateSessionPrompts), and settled
+  // when that is done. Never persisted.
+  peekPromptsReinflated?: Promise<void>
   // When the agent's last turn ended (hook-reported Stop). Stamped in
   // ingestAgentStateFrame, carried across resume and through the snapshot
   // sidecar; never overwritten by suspend/exit. See the snapshot field.
@@ -177,25 +169,56 @@ export type TerminalSession = {
   // session as unknown would lose the number a person was watching seconds
   // before the next real reading replaces it.
   contextUsage?: SessionContextUsage
+  // When something was last TYPED or pasted into this session — `lastInputAt`
+  // without the focus reports and query answers the terminal sends on its own.
+  // What says a draft may be sitting at the prompt (terminalCompactBlocker):
+  // switching windows is not typing.
+  lastKeyInputAt?: number
+  // The main conversation's prompt cache, from the same status line: its
+  // lifetime, when it goes cold, and what a cold resume re-caches. Replaced
+  // WHOLE by each reading that carries one — its nulls are facts — and kept
+  // when a reading carries none, as the context percentage is.
+  promptCache?: PromptCacheReading
   // Background work the agent still owns — subagents started and not yet
   // stopped, per the manifest's `background` events. A turn end that arrives
   // while this is above zero is held as working (agent-state.ts,
   // holdTurnEndForBackgroundWork). Reset on a session start and on a stall.
   backgroundWork?: number
-  outputChunks: string[]
-  outputChunkBytes: number[]
-  outputChunkStart: number
-  outputBytes: number
-  outputLength: number
+  // When the newest background stop that closed nothing was stamped; a start
+  // stamped at or before it is not counted (agent-state.ts,
+  // `backgroundStartAlreadyClosed`).
+  unmatchedBackgroundStopAt?: number
+  // The retained pty stream, as UTF-8 bytes (terminal-replay-buffer.ts). Its
+  // `truncated` flag is what licenses the head resync in
+  // {@link materializeTerminalReplay}: an untouched buffer starts where the CLI
+  // started and must be replayed byte for byte.
+  //
+  // Emptied once a suspend has a faithful snapshot of the screen, and on
+  // dispose: a paused agent's frozen view is `replaySnapshot` alone.
+  output: TerminalReplayBuffer
   // Faithful screen snapshot captured at suspend: the retained output stream is
   // rendered once through a headless terminal and serialized, so reopening a
   // paused agent repaints its last screen (including alternate-screen TUI state)
-  // without a live process. Preferred over the raw `outputChunks` replay when
-  // present; absent for live sessions and cleared on resume. See
-  // terminal-replay-snapshot.ts.
+  // without a live process. Preferred over the raw replay when present; absent
+  // for live sessions and cleared on resume. See terminal-replay-snapshot.ts.
   replaySnapshot?: string
+  // Bumped on every fold into `fileChanges`, so the sessions broadcast can tell
+  // whether the ledger moved since it last sent it without comparing the list.
+  fileChangesVersion?: number
+  // How far into the output stream (`output.endOffset` terms) the renderer's
+  // xterm has been sent, and to which window. Revealing a hidden pane sends
+  // only what lies past it when that is still retained, instead of resetting
+  // the pane and replaying the whole window.
+  rendererDeliveredOffset?: number
+  rendererDeliveredTo?: WebContents
   kind: TerminalKind
   pathStyle?: TerminalPathStyle
+  // The machine the session runs on (see shared/execution-host.ts). A resume
+  // reads it before anything else, so a CLI's transcript is always looked for
+  // in the home it was written to.
+  hostId?: ExecutionHostId
+  // This pty's hold on its machine (see `retainSessionHost`); cleared on release.
+  hostLease?: string
   workspaceId?: string
   agentId?: string
   // Display name from spawn metadata, surfaced on the snapshot so the session
@@ -229,6 +252,10 @@ export type TerminalSession = {
   lastOutputAt: number | null
   lastInputAt: number | null
   lastVisibleAt: number | null
+  // The last moment this session was painted in a pane someone could see:
+  // stamped while it is shown and when it stops being shown, never by a hide
+  // repeated while it was already hidden. See `isTerminalSessionStale`.
+  lastOnScreenAt?: number
   pendingResize?: TerminalSize
   // Last dimensions actually applied to the pty. A reveal/tab-switch re-fits to
   // the SAME size; resizing the pty then makes the alt-screen TUI repaint, and
@@ -247,9 +274,23 @@ export type TerminalSession = {
    * on every launch and resume, so nothing outlives the pty.
    */
   hostContextPath?: string
+  /**
+   * Where the launch wrote a first message too long for the command line, for
+   * a CLI that reads it from a file. Reaped with the host-context document.
+   */
+  launchPromptPath?: string
+  /**
+   * A first message too long for the command line, still to be typed into the
+   * CLI once it is ready (`deferred-prompt-delivery.ts`). Fed the session's
+   * output and hook frames; settles once, delivered or abandoned.
+   */
+  deferredPrompt?: DeferredPromptDelivery
+  /**
+   * A WSL agent launch's MCP channel token (`ExecutionHost.issueChannelToken`),
+   * revoked with the session so a bridge outliving it cannot open a channel.
+   */
+  channelToken?: string
 }
-
-const TERMINAL_REPLAY_COMPACT_THRESHOLD = 1024
 
 // Working/idle bolding for PLAIN terminals only: agent sessions' activity is
 // bridged from their hook-reported phases (ingestAgentStateFrame), never from
@@ -320,20 +361,33 @@ export function transitionTerminalActivity(session: TerminalSession, next: Sessi
   return true
 }
 
-export function recordTerminalInput(session: TerminalSession, at = Date.now()): void {
+export function recordTerminalInput(session: TerminalSession, at = Date.now(), data?: string): void {
   session.lastInputAt = at
+  if (data !== undefined && !isTerminalReport(data)) session.lastKeyInputAt = at
+}
+
+// What the terminal sends on its own rather than on a keystroke: focus in and
+// out (`CSI I` / `CSI O`, which Claude Code turns on), and its answers to the
+// CLI's queries — device attributes (`CSI ? … c`, `CSI > … c`), status
+// (`CSI … n`) and the cursor position (`CSI row ; col R`). Several can arrive
+// in one write.
+const TERMINAL_REPORT = /^(?:\x1b\[[\d;?>]*[IOcnR])+$/
+
+function isTerminalReport(data: string): boolean {
+  return TERMINAL_REPORT.test(data)
 }
 
 // Visibility recency feeds the stale-terminal sweep. Both transitions count as
 // "the user looked at this": becoming visible marks the view starting, and
 // becoming hidden marks the moment the user navigated away.
 export function recordTerminalVisibility(session: TerminalSession, visible: boolean, at = Date.now()): void {
+  if (visible || session.visible) session.lastOnScreenAt = at
   session.visible = visible
   session.lastVisibleAt = at
 }
 
-// A terminal with no mounted view (the separate visible guard below), no input,
-// and no output for this long is reaped by the main-process sweep.
+// A terminal nobody has seen on screen, typed into, or had output from for
+// this long is reaped by the main-process sweep.
 export const STALE_TERMINAL_MAX_UNSEEN_MS = 24 * 60 * 60 * 1000
 
 // "When real activity last happened on this terminal": the spawn moment plus the
@@ -341,10 +395,26 @@ export const STALE_TERMINAL_MAX_UNSEEN_MS = 24 * 60 * 60 * 1000
 // opening a workspace or clicking a tab marks a terminal visible, and counting
 // that would reset the idle clock every time the user just *looked*. Idle reaping
 // must key off real interaction (typing) and real work (output), not attention.
-// lastVisibleAt is still recorded for the snapshot/diagnostics, and the
-// currently-on-screen guard lives separately in isTerminalSessionStale.
+// lastVisibleAt is still recorded for the snapshot/diagnostics; the stale
+// backstop adds on-screen time separately, in isTerminalSessionStale.
 export function getTerminalLastSeenAt(session: TerminalSession): number {
   return Math.max(session.startedAt, session.lastInputAt ?? 0, session.lastOutputAt ?? 0)
+}
+
+/**
+ * The start of the stretch the stale backstop measures: the later of the last
+ * real activity and the last moment the session was on screen.
+ *
+ * `visible` alone cannot be the guard any more, because it now means
+ * "painted": a minimized or locked window and an inactive workspace all report
+ * their panes hidden, and a live terminal whose last output was days ago
+ * would be disposed at the first sweep after its window was minimized.
+ * Counting from when it was last shown reaps only what nobody has looked at
+ * for the whole window. (Settled agents are not reaped at all; see
+ * `isTerminalSessionStale`.)
+ */
+export function getTerminalUnseenSince(session: TerminalSession): number {
+  return Math.max(getTerminalLastSeenAt(session), session.lastOnScreenAt ?? 0)
 }
 
 export function isTerminalSessionStale(
@@ -353,10 +423,17 @@ export function isTerminalSessionStale(
   maxUnseenMs = STALE_TERMINAL_MAX_UNSEEN_MS,
 ): boolean {
   if (session.isDisposed) return false
-  // A session with a mounted TerminalView is on screen somewhere; only treat
-  // the visible flag as live while its window still exists.
+  // A settled agent — paused, or finished on its own — is never reaped here.
+  // Its process is already gone and its raw stream already released, so
+  // disposing it would free a rendered screen of a few megabytes at most, and
+  // would delete the sidecar that is the only copy of its history a restart
+  // can reopen. Its tab closing, or the agent being deleted, is what ends it;
+  // the sidecar's own TTL bounds the disk.
+  if (session.kind === 'agent' && (session.suspended || session.hasExited)) return false
+  // A session painted in a pane right now is on screen; only trust the flag
+  // while its window still exists.
   if (session.visible && !session.sender.isDestroyed()) return false
-  return now - getTerminalLastSeenAt(session) > maxUnseenMs
+  return now - getTerminalUnseenSince(session) > maxUnseenMs
 }
 
 export function markTerminalExited(session: TerminalSession, exitCode: number, at = Date.now()): void {
@@ -395,13 +472,10 @@ export function createFailedTerminalSession(input: FailedTerminalSessionInput): 
     },
     // Lifecycle stamp, not inference: a retained failure IS the failed phase.
     ...(kind === 'agent' ? { agentState: { phase: 'failed' as const, since: at, source: 'lifecycle' as const } } : {}),
-    outputChunks: [],
-    outputChunkBytes: [],
-    outputChunkStart: 0,
-    outputBytes: 0,
-    outputLength: 0,
+    output: new TerminalReplayBuffer(),
     kind: input.kind ?? 'agent',
     pathStyle: input.pathStyle,
+    hostId: input.hostId,
     workspaceId: input.workspaceId,
     agentId: input.agentId,
     agentName: input.agentName,
@@ -436,6 +510,9 @@ type SuspendedPlaceholderSessionInput = {
   terminalId?: string
   cli?: AgentCli
   cliSessionId?: string
+  // The machine it ran on, so the resume that replaces this placeholder
+  // relaunches there.
+  hostId?: ExecutionHostId
   cwd?: string
   executionMode?: AgentExecutionMode
   worktreeId?: string
@@ -447,8 +524,10 @@ type SuspendedPlaceholderSessionInput = {
   // The context reading the sidecar persisted, so a parked chat still says how
   // full it was.
   contextUsage?: SessionContextUsage
+  // And its prompt cache, so a parked chat still goes cold on time.
+  promptCache?: PromptCacheReading
   // The prompts the sidecar persisted, oldest first, so the conversation peek
-  // for a transcript-less runtime survives the restart along with the screen.
+  // for a parked chat survives the restart along with the screen.
   peekPrompts?: SessionPrompt[]
   replaySnapshot?: string
   // Raw retained pty stream, used only when no serialized snapshot could be
@@ -492,11 +571,7 @@ export function createSuspendedPlaceholderSession(input: SuspendedPlaceholderSes
         }
       : {}),
     lastTurnEndedAt: input.lastTurnEndedAt ?? null,
-    outputChunks: [],
-    outputChunkBytes: [],
-    outputChunkStart: 0,
-    outputBytes: 0,
-    outputLength: 0,
+    output: new TerminalReplayBuffer(),
     replaySnapshot: input.replaySnapshot,
     kind: input.kind ?? 'agent',
     workspaceId: input.workspaceId,
@@ -504,6 +579,7 @@ export function createSuspendedPlaceholderSession(input: SuspendedPlaceholderSes
     terminalId: input.terminalId,
     cliSessionId: input.cliSessionId,
     cli: input.cli,
+    hostId: input.hostId,
     cwd: input.cwd,
     executionMode: input.executionMode,
     worktreeId: input.worktreeId,
@@ -511,6 +587,7 @@ export function createSuspendedPlaceholderSession(input: SuspendedPlaceholderSes
     observedCheckout: input.observedCheckout,
     fileChanges: input.fileChanges,
     contextUsage: input.contextUsage,
+    promptCache: input.promptCache,
     ...(input.peekPrompts?.length
       ? { peekPrompts: input.peekPrompts, lastPrompt: input.peekPrompts[input.peekPrompts.length - 1] }
       : {}),
@@ -536,39 +613,25 @@ export function createSuspendedPlaceholderSession(input: SuspendedPlaceholderSes
 // must keep the painted buffer complete while never bumping recency/liveness —
 // otherwise opening a workspace makes its agents look "active" and reorders the
 // sidebar. The repaint window is set in `safeResizeTerminal`.
+//
+// Returns the chunk's UTF-8 byte length, measured once here and handed on to
+// the output batcher rather than measured again at every step.
+//
+// The budget is always the recent tier's. The tier is decided by the newest of
+// the session's activity stamps, and a chunk arriving now IS activity now, so
+// a session receiving output is by definition inside the recent window; this
+// used to be worked out by copying the whole session per chunk to ask. The
+// standard tier only applies to a session that has gone quiet, and it is
+// applied when that session is next read (compactTerminalReplayToLimit).
 export function appendTerminalOutput(
   session: TerminalSession,
   data: string,
   at = Date.now(),
   markAsRealOutput = true,
-): void {
-  const replayLimitBytes = getTerminalReplayLimitBytes({ ...session, lastOutputAt: at }, at)
-  const chunk = trimTerminalChunkToReplayLimit(data, replayLimitBytes)
-  session.outputChunks.push(chunk.data)
-  session.outputChunkBytes.push(chunk.bytes)
-  session.outputBytes += chunk.bytes
-  session.outputLength += chunk.data.length
+): number {
+  const bytes = session.output.append(data, TERMINAL_RECENT_REPLAY_BYTES)
   if (markAsRealOutput) session.lastOutputAt = at
-
-  if (chunk.bytes !== Buffer.byteLength(data)) session.replayTruncated = true
-
-  while (session.outputBytes > replayLimitBytes && session.outputChunkStart < session.outputChunks.length) {
-    const removed = session.outputChunks[session.outputChunkStart]
-    const removedBytes = session.outputChunkBytes[session.outputChunkStart] ?? 0
-    session.outputChunkStart += 1
-    session.outputBytes -= removedBytes
-    session.outputLength -= removed?.length ?? 0
-    session.replayTruncated = true
-  }
-
-  if (
-    session.outputChunkStart >= TERMINAL_REPLAY_COMPACT_THRESHOLD &&
-    session.outputChunkStart > session.outputChunks.length / 2
-  ) {
-    session.outputChunks.splice(0, session.outputChunkStart)
-    session.outputChunkBytes.splice(0, session.outputChunkStart)
-    session.outputChunkStart = 0
-  }
+  return bytes
 }
 
 /**
@@ -584,7 +647,7 @@ const REPLAY_RESYNC_WINDOW_BYTES = 8 * 1024
 /**
  * `text` from the first point a terminal can safely start reading it.
  *
- * Only ever called on a replay whose head was CUT (see `replayTruncated`), and
+ * Only ever called on a replay whose head was CUT (see `output.truncated`), and
  * that cut is the whole problem: chunks are pty read boundaries, not escape
  * sequence boundaries, so dropping the oldest ones routinely leaves the window
  * starting in the middle of one. xterm has no introducer to match, so it prints
@@ -614,12 +677,62 @@ export function resyncTerminalReplayHead(text: string): string {
   return text
 }
 
+/**
+ * The retained output appended after `cursor` (a value of
+ * `output.appendedUnits` from an earlier read — UTF-16 units, as the text is
+ * measured), plus the cursor to pass next time. Only the newest bytes that can
+ * cover the gap are decoded, so a caller polling a busy session pays for what
+ * is new rather than for the whole scrollback on every poll. When eviction has
+ * already dropped part of the gap, what is still retained is returned and
+ * `truncated` says so.
+ */
+export function readTerminalOutputSince(
+  session: TerminalSession,
+  cursor: number,
+): { text: string; cursor: number; truncated: boolean } {
+  const output = session.output
+  const end = output.appendedUnits
+  const retainedFrom = end - output.retainedUnits
+  const from = Math.max(0, cursor, retainedFrom)
+  const wanted = end - from
+  if (wanted <= 0) return { text: '', cursor: end, truncated: false }
+  // No UTF-16 unit takes more than three UTF-8 bytes, so the newest
+  // `wanted * 3` bytes always hold the `wanted` units asked for.
+  const { text } = output.tail(wanted * 3)
+  return { text: text.slice(text.length - wanted), cursor: end, truncated: cursor < retainedFrom }
+}
+
 export function materializeTerminalReplay(session: TerminalSession): string {
   compactTerminalReplayToLimit(session)
-  const replay = session.outputChunks.slice(session.outputChunkStart).join('')
+  const replay = session.output.materialize()
   // A buffer that has never been cut is replayed byte for byte: its head is
   // where the CLI itself started, and resyncing would eat the banner.
-  return session.replayTruncated ? resyncTerminalReplayHead(replay) : replay
+  return session.output.truncated ? resyncTerminalReplayHead(replay) : replay
+}
+
+/**
+ * Let go of the retained stream. The painted screen a paused agent reopens on is
+ * its `replaySnapshot`, so once that exists the raw bytes behind it are several
+ * megabytes of nothing anyone will read.
+ */
+export function releaseTerminalOutput(session: TerminalSession): void {
+  session.output.clear()
+}
+
+/**
+ * Everything a SETTLED session held for its views: the stream, the painted
+ * screen, the ledger, the prompts. Called when a session is disposed, so the
+ * memory goes at once rather than whenever the last closure holding the
+ * session object (a pty exit handler, a pending git resolution) lets go.
+ */
+export function releaseSettledTerminalSession(session: TerminalSession): void {
+  session.output.clear()
+  session.replaySnapshot = undefined
+  session.fileChanges = undefined
+  session.foldedFileChanges = undefined
+  session.peekPrompts = undefined
+  session.statusLine = undefined
+  session.rendererDeliveredTo = undefined
 }
 
 // What one session's ledger is allowed to cost. It rides every snapshot
@@ -752,6 +865,7 @@ export function recordSessionFileChange(
     lastEditedAt: Math.max(existing?.lastEditedAt ?? 0, at),
   })
   evictOldestFileChangesPastBudget(ledger)
+  session.fileChangesVersion = (session.fileChangesVersion ?? 0) + 1
   return true
 }
 
@@ -786,7 +900,7 @@ export function setSessionPullRequestReader(reader: SessionPullRequestReader | n
   readSessionPullRequests = reader
 }
 
-function listSessionPullRequests(session: TerminalSession): BranchPullRequest[] {
+export function listSessionPullRequests(session: TerminalSession): BranchPullRequest[] {
   if (!readSessionPullRequests) return []
   try {
     return readSessionPullRequests(session)
@@ -880,6 +994,7 @@ export type SessionStatusLine = {
   linesRemoved?: number
   model?: string
   sessionName?: string
+  promptCache?: PromptCacheReading
   // When the reading that produced this state arrived. Also the ordering guard:
   // a status line refreshes several times a turn and its frames can be
   // delivered out of order.
@@ -920,11 +1035,17 @@ export function recordSessionStatusLine(
   if (previous && previous.at > at) return false
   session.statusLine = { ...previous, ...reading, at }
 
+  let changed = false
+  if (reading.promptCache && !samePromptCacheReading(session.promptCache, reading.promptCache)) {
+    session.promptCache = reading.promptCache
+    changed = true
+  }
   const usedPercentage = reading.usedPercentage
-  if (usedPercentage === undefined) return false
-  if (session.contextUsage?.usedPercentage === usedPercentage) return false
-  session.contextUsage = { usedPercentage, at }
-  return true
+  if (usedPercentage !== undefined && session.contextUsage?.usedPercentage !== usedPercentage) {
+    session.contextUsage = { usedPercentage, at }
+    changed = true
+  }
+  return changed
 }
 
 /**
@@ -945,13 +1066,23 @@ export function parseSessionContextUsage(raw: unknown, now = Date.now()): Sessio
   return { usedPercentage: Math.round(usedPercentage), at: Math.min(Math.floor(at), now) }
 }
 
-export function getTerminalSnapshot(session: TerminalSession): TerminalSessionSnapshot {
+/**
+ * A session snapshot without its two lists — the file ledger (up to 500
+ * entries) and the pull request marks. The sessions broadcast sends this for
+ * every session that changed and adds a list only when that list itself moved;
+ * {@link getTerminalSnapshot} is the whole thing, for `terminal:list` and the
+ * remote transports.
+ */
+export type TerminalSessionSnapshotBase = Omit<TerminalSessionSnapshot, 'fileChanges' | 'pullRequests'>
+
+export function getTerminalSnapshotBase(session: TerminalSession): TerminalSessionSnapshotBase {
   compactTerminalReplayToLimit(session)
   return {
     sessionId: session.sessionId,
     processAlive: isTerminalProcessAlive(session),
     kind: session.kind,
     pathStyle: session.pathStyle,
+    ...(session.hostId ? { hostId: session.hostId } : {}),
     workspaceId: session.workspaceId,
     agentId: session.agentId,
     agentName: session.agentName,
@@ -979,78 +1110,39 @@ export function getTerminalSnapshot(session: TerminalSession): TerminalSessionSn
     // plain terminals carry none.
     agentState: session.agentState,
     lastPrompt: session.lastPrompt,
-    // What this agent has edited, newest first, and how many subagents it still
-    // owns. Both are hook truth; a session with no hooks reports an empty
-    // ledger and zero, never absence.
-    fileChanges: listSessionFileChanges(session),
-    // Where this conversation's work went, newest first. Empty until its
-    // checkout resolves and GitHub has actually been asked — the app draws a
-    // mark only for a pull request it definitely has.
-    pullRequests: listSessionPullRequests(session),
     activeSubagents: session.backgroundWork ?? 0,
     // The status-line forwarder's reading, or null for a session whose CLI has
     // no status line and for one that has not made an API call yet.
     contextUsage: session.contextUsage ?? null,
+    promptCache: session.promptCache ?? null,
+    lastKeyInputAt: session.lastKeyInputAt ?? null,
     lastTurnEndedAt: session.lastTurnEndedAt ?? null,
     exitedAt: session.exitedAt,
-    outputBufferLength: session.outputLength,
-    retainedOutputBytes: session.outputBytes,
+    outputBufferLength: session.output.retainedUnits,
+    retainedOutputBytes: session.output.retainedBytes,
     historyTier: getTerminalHistoryTier(session),
     replayLimitBytes: getTerminalReplayLimitBytes(session),
   }
 }
 
-function compactTerminalReplayToLimit(session: TerminalSession, now = Date.now()): void {
-  const replayLimitBytes = getTerminalReplayLimitBytes(session, now)
-  while (session.outputBytes > replayLimitBytes && session.outputChunks.length - session.outputChunkStart > 1) {
-    const removed = session.outputChunks[session.outputChunkStart]
-    const removedBytes = session.outputChunkBytes[session.outputChunkStart] ?? 0
-    session.outputChunkStart += 1
-    session.outputBytes -= removedBytes
-    session.outputLength -= removed?.length ?? 0
-    session.replayTruncated = true
-  }
-
-  if (session.outputBytes > replayLimitBytes && session.outputChunks.length - session.outputChunkStart === 1) {
-    const index = session.outputChunkStart
-    const chunk = session.outputChunks[index] ?? ''
-    const trimmed = trimTerminalChunkToReplayLimit(chunk, replayLimitBytes)
-    session.outputChunks[index] = trimmed.data
-    session.outputChunkBytes[index] = trimmed.bytes
-    session.outputBytes = trimmed.bytes
-    session.outputLength = trimmed.data.length
-    session.replayTruncated = true
-  }
-
-  if (
-    session.outputChunkStart >= TERMINAL_REPLAY_COMPACT_THRESHOLD &&
-    session.outputChunkStart > session.outputChunks.length / 2
-  ) {
-    session.outputChunks.splice(0, session.outputChunkStart)
-    session.outputChunkBytes.splice(0, session.outputChunkStart)
-    session.outputChunkStart = 0
+export function getTerminalSnapshot(session: TerminalSession): TerminalSessionSnapshot {
+  return {
+    ...getTerminalSnapshotBase(session),
+    // What this agent has edited, newest first. Hook truth; a session with no
+    // hooks reports an empty ledger, never absence.
+    fileChanges: listSessionFileChanges(session),
+    // Where this conversation's work went, newest first. Empty until its
+    // checkout resolves and GitHub has actually been asked — the app draws a
+    // mark only for a pull request it definitely has.
+    pullRequests: listSessionPullRequests(session),
   }
 }
 
-function trimTerminalChunkToReplayLimit(
-  data: string,
-  replayLimitBytes = TERMINAL_STANDARD_REPLAY_BYTES,
-): { data: string; bytes: number } {
-  const bytes = Buffer.byteLength(data)
-  if (bytes <= replayLimitBytes) return { data, bytes }
-
-  const buffer = Buffer.from(data)
-  // Past any continuation byte the cut landed on: `toString('utf8')` renders a
-  // half-eaten codepoint as U+FFFD, and the head of a replay is the one place
-  // that shows. Bounded by 3 — the longest UTF-8 tail there is.
-  let offset = bytes - replayLimitBytes
-  while (offset < bytes && (buffer[offset] & 0xc0) === 0x80) offset += 1
-  const trimmed = buffer.subarray(offset).toString('utf8')
-
-  return {
-    data: trimmed,
-    bytes: Buffer.byteLength(trimmed),
-  }
+// A session that has gone quiet for a day drops to the standard tier's budget
+// the next time anything reads it.
+function compactTerminalReplayToLimit(session: TerminalSession, now = Date.now()): void {
+  const limit = getTerminalReplayLimitBytes(session, now)
+  if (session.output.retainedBytes > limit) session.output.evict(limit)
 }
 
 function sessionActivitiesEqual(first: SessionActivity, second: SessionActivity): boolean {

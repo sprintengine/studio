@@ -120,6 +120,14 @@ test('terminalDrop', async () => {
     "'/mnt/c/other/image.png'",
   )
 
+  // A session with no recorded style, sitting on a bare drive root, is a WSL
+  // shell: the shared mount check reads `/mnt/c` as the C: drive, so a file on
+  // it drops as a path relative to that root rather than as `C:/…`.
+  assert.equal(
+    formatDroppedPathsForTerminal(payload('C:\\other\\image.png'), session({ cwd: '/mnt/c' })),
+    "'other/image.png'",
+  )
+
   assert.equal(
     formatDroppedPathsForTerminal(
       {

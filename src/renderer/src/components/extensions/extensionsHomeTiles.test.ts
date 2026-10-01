@@ -9,7 +9,6 @@ import assert from 'node:assert/strict'
 // rather than template strings at the call site: a count nobody has measured is
 // ABSENT, and a count that really is nothing is WORDS.
 import {
-  agentCliCountLine,
   designLibraryCountLine,
   EXTENSIONS_HOME_TILE_SUMMARIES,
   mcpServerCountLine,
@@ -24,7 +23,6 @@ test('extensionsHomeTiles', async () => {
   // acts on it — the whole point of the ruling's "live count" is that it is live.
   assert.equal(designLibraryCountLine({ ready: false, count: 3 }), null)
   assert.equal(skillsCountLine({ ready: false, sourceCount: 3, skillCount: 41 }), null)
-  assert.equal(agentCliCountLine({ ready: false, installed: 3, updates: 2 }), null)
 
   // ── A real zero is a word ────────────────────────────────────────────────────
   // What a fresh profile sees. "0 installed" reads as a counter that has not
@@ -32,12 +30,10 @@ test('extensionsHomeTiles', async () => {
   assert.equal(designLibraryCountLine({ ready: true, count: 0 }), 'None in the library')
   assert.equal(mcpServerCountLine(0), 'None on this machine')
   assert.equal(skillsCountLine({ ready: true, sourceCount: 0, skillCount: 0 }), 'No sources')
-  assert.equal(agentCliCountLine({ ready: true, installed: 0, updates: 0 }), 'None installed')
   for (const line of [
     designLibraryCountLine({ ready: true, count: 0 }),
     mcpServerCountLine(0),
     skillsCountLine({ ready: true, sourceCount: 0, skillCount: 0 }),
-    agentCliCountLine({ ready: true, installed: 0, updates: 0 }),
   ]) {
     assert.ok(line && !line.includes('0'), `a zero count is words, not a digit: ${line}`)
   }
@@ -51,23 +47,14 @@ test('extensionsHomeTiles', async () => {
   // missing rather than the sources.
   assert.equal(skillsCountLine({ ready: true, sourceCount: 2, skillCount: 0 }), 'No skills')
 
-  // ── Updates are news, and news is only reported when there is some ───────────
-  // "· 0 updates" is a reassurance nobody asked for on a line that exists to
-  // carry news; and with version checking switched off the advisory map is empty,
-  // which reaches here as `updates: 0` — the app has not looked, so it must not
-  // say "none".
-  assert.equal(agentCliCountLine({ ready: true, installed: 3, updates: 0 }), '3 installed')
-  assert.equal(agentCliCountLine({ ready: true, installed: 3, updates: 2 }), '3 installed · 2 updates')
-  assert.equal(agentCliCountLine({ ready: true, installed: 3, updates: 1 }), '3 installed · 1 update')
-
   // ── Every tile the ruling named has its sentence ─────────────────────────────
   // The ids are the drawer rows' own ids (a view's where the row is a view), so
   // this list drifting from the drawer is a missing summary rather than a wrong
   // one landing on the wrong tile.
   assert.deepEqual(
     Object.keys(EXTENSIONS_HOME_TILE_SUMMARIES),
-    ['design', 'plugins', 'skills', 'agent-clis'],
-    'the ruling’s four parts, in the ruling’s order',
+    ['design', 'plugins', 'skills'],
+    'the ruling’s three parts, in the ruling’s order — Agent CLIs live in Settings ▸ Agents (2026-09-25)',
   )
   for (const [id, summary] of Object.entries(EXTENSIONS_HOME_TILE_SUMMARIES)) {
     assert.ok(summary.length > 0 && !summary.endsWith('.'), `${id}: one line, not a sentence`)

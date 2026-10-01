@@ -26,12 +26,31 @@ module.exports = __toCommonJS(main_exports);
 var import_os2 = require("os");
 var import_electron = require("electron");
 
+// node_modules/@sprintengine/module-sdk/dist/conversation.js
+var conversationModuleServiceToken = {
+  key: "conversation.module-service"
+};
+function getConversationService(host) {
+  const registry = host.requireService(conversationModuleServiceToken);
+  const moduleId = host.moduleId;
+  return {
+    create: (input) => registry.create(moduleId, input),
+    send: (ref, input) => registry.send(moduleId, ref, input),
+    interrupt: (ref) => registry.interrupt(moduleId, ref),
+    respondToApproval: (ref, input) => registry.respondToApproval(moduleId, ref, input),
+    stop: (ref) => registry.stop(moduleId, ref),
+    subscribe: (ref, cb) => registry.subscribe(moduleId, ref, cb),
+    transcript: (ref) => registry.transcript(moduleId, ref),
+    list: (filter) => registry.list(moduleId, filter),
+    watch: (filter, cb) => registry.watch(moduleId, filter, cb)
+  };
+}
+
 // node_modules/@sprintengine/module-sdk/dist/plugin-manifest.js
 var MARKETPLACE_COMPONENT_KINDS = [
   "mcp",
   "skills",
   "module",
-  "cli",
   "automation"
 ];
 var COMPONENT_KIND_SET = new Set(MARKETPLACE_COMPONENT_KINDS);
@@ -45,19 +64,6 @@ var WorkspaceContextToken = createServiceToken("core.workspace-context");
 var automationsProviderRegistryToken = createServiceToken("automations.provider-registry");
 var automationsModuleServiceToken = createServiceToken("automations.module-service");
 var companionAgentsModuleServiceToken = createServiceToken("companion-agents.module-service");
-var agentSessionsModuleServiceToken = createServiceToken("agent-sessions.module-service");
-function getAgentSessionService(host) {
-  const registry = host.requireService(agentSessionsModuleServiceToken);
-  const moduleId = host.moduleId;
-  return {
-    spawn: (request) => registry.spawn(moduleId, request),
-    send: (sessionId, text) => registry.send(moduleId, sessionId, text),
-    kill: (sessionId) => registry.kill(moduleId, sessionId),
-    setReapExempt: (sessionId, exempt) => registry.setReapExempt(moduleId, sessionId, exempt),
-    onExit: (listener) => registry.onExit(moduleId, listener),
-    list: () => registry.list(moduleId)
-  };
-}
 var moduleStorageToken = createServiceToken("core.module-storage");
 
 // src/main/brief-run-service.ts
@@ -682,14 +688,25 @@ function removeLineEndingWarnings(output) {
 function gitEnv(overrides) {
   return { ...process.env, LC_ALL: "C", ...overrides };
 }
-async function runGit(cwd, args) {
-  const { stdout } = await execFileAsync("git", ["-C", cwd, ...args], {
-    encoding: "utf8",
-    maxBuffer: 20 * 1024 * 1024,
-    windowsHide: true,
-    env: gitEnv()
-  });
-  return stdout;
+var GIT_TIMEOUT_MS = 6e4;
+async function runGit(cwd, args, options = {}) {
+  const timeoutMs = options.timeoutMs ?? GIT_TIMEOUT_MS;
+  try {
+    const { stdout } = await execFileAsync("git", ["-C", cwd, ...args], {
+      encoding: "utf8",
+      maxBuffer: 20 * 1024 * 1024,
+      windowsHide: true,
+      env: gitEnv({ GIT_TERMINAL_PROMPT: "0" }),
+      timeout: timeoutMs,
+      killSignal: "SIGTERM"
+    });
+    return stdout;
+  } catch (error) {
+    if (error.killed) {
+      throw new Error(`git ${args[0] ?? ""} took longer than ${Math.round(timeoutMs / 1e3)}s and was stopped.`);
+    }
+    throw error;
+  }
 }
 async function runGitCommand(cwd, args, envOverrides) {
   try {
@@ -697,7 +714,9 @@ async function runGitCommand(cwd, args, envOverrides) {
       encoding: "utf8",
       maxBuffer: 20 * 1024 * 1024,
       windowsHide: true,
-      env: gitEnv(envOverrides)
+      env: gitEnv({ GIT_TERMINAL_PROMPT: "0", ...envOverrides }),
+      timeout: GIT_TIMEOUT_MS,
+      killSignal: "SIGTERM"
     });
     return { ok: true, stdout, stderr: removeLineEndingWarnings(stderr), message: null };
   } catch (error) {
@@ -1139,7 +1158,7 @@ function createReviewChangeSetService() {
 }
 function reviewChangeSetDir(workspaceRoot, workspaceId) {
   if (!workspaceRoot) throw new Error("Review change set requires a workspace root.");
-  if (!/^[A-Za-z0-9._-]+$/.test(workspaceId)) {
+  if (typeof workspaceId !== "string" || !/^[A-Za-z0-9._-]+$/.test(workspaceId) || /^\.+$/.test(workspaceId)) {
     throw new Error(`Invalid workspace id for review storage: ${JSON.stringify(workspaceId)}.`);
   }
   return (0, import_path2.join)(workspaceRoot, ".sprintengine", "review", workspaceId);
@@ -1182,7 +1201,13 @@ var branchProvider = {
     const { repoRoot, baseRef, headRef } = input;
     const baseSha = await resolveSha(repoRoot, baseRef);
     const headSha = await resolveSha(repoRoot, headRef);
-    const diffText = await runGit(repoRoot, ["diff", "--patch", "--find-renames", `${baseRef}...${headRef}`]);
+    const diffText = await runGit(repoRoot, [
+      "diff",
+      "--patch",
+      "--find-renames",
+      "--end-of-options",
+      `${baseRef}...${headRef}`
+    ]);
     assertPatchSize(diffText);
     const parsed = parsePatch(diffText);
     if (!parsed.ok) throw new Error(parsed.error);
@@ -1244,7 +1269,7 @@ async function deriveProbe(provider, input) {
 }
 async function resolveSha(repoRoot, ref) {
   try {
-    return (await runGit(repoRoot, ["rev-parse", "--verify", `${ref}^{commit}`])).trim();
+    return (await runGit(repoRoot, ["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`])).trim();
   } catch {
     throw new Error(`Couldn't find "${ref}" in this repository.`);
   }
@@ -1398,6 +1423,8 @@ function createReviewGatewayTools(backends) {
   }
   const reviewListPending = {
     name: "review_list_pending",
+    // A read: the gateway advertises it on the read scope and does not audit it.
+    mutates: false,
     description: "List the reviews across the projects open in this app. Each entry is addressed by {reviewId, projectRoot} and reports its change source and whether a walkthrough (brief) already exists \u2014 an incremental re-run target.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     handler: async () => {
@@ -1414,6 +1441,8 @@ function createReviewGatewayTools(backends) {
   };
   const reviewGetChangeset = {
     name: "review_get_changeset",
+    // A read: the gateway advertises it on the read scope and does not audit it.
+    mutates: false,
     description: "Read the normalised change set for a review: files, per-file hunks, base/head refs and SHAs, and the source kind. Returned in full (no silent truncation); the source's absolute repository path is stripped so no machine path leaks.",
     inputSchema: REVIEW_TARGET_SCHEMA,
     handler: async (args) => {
@@ -1431,6 +1460,8 @@ function createReviewGatewayTools(backends) {
   };
   const reviewGetBrief = {
     name: "review_get_brief",
+    // A read: the gateway advertises it on the read scope and does not audit it.
+    mutates: false,
     description: "Read the current walkthrough (brief) for a review, or null when none exists yet or the stored one is unusable. Use it to carry unchanged steps across an incremental re-run.",
     inputSchema: REVIEW_TARGET_SCHEMA,
     handler: async (args) => {
@@ -1496,8 +1527,45 @@ function reviewInvalid(code, message, errors) {
   };
 }
 
-// src/main/guide-terminal-service.ts
+// src/main/guide-chat-ref-store.ts
+var import_promises4 = require("fs/promises");
 var import_path5 = require("path");
+var import_crypto3 = require("crypto");
+var GUIDE_FILE = "guide.json";
+function createFileGuideChatRefStore() {
+  return {
+    async read(projectRoot, reviewId) {
+      let raw;
+      try {
+        raw = await (0, import_promises4.readFile)((0, import_path5.join)(reviewChangeSetDir(projectRoot, reviewId), GUIDE_FILE), "utf-8");
+      } catch {
+        return null;
+      }
+      try {
+        return parseGuideChatRef(JSON.parse(raw));
+      } catch {
+        return null;
+      }
+    },
+    async write(projectRoot, reviewId, ref) {
+      const dir = reviewChangeSetDir(projectRoot, reviewId);
+      await (0, import_promises4.mkdir)(dir, { recursive: true });
+      const temp = (0, import_path5.join)(dir, `.${GUIDE_FILE}.${(0, import_crypto3.randomUUID)()}.tmp`);
+      await (0, import_promises4.writeFile)(temp, `${JSON.stringify({ workspaceId: ref.workspaceId, agentId: ref.agentId }, null, 2)}
+`, "utf-8");
+      await (0, import_promises4.rename)(temp, (0, import_path5.join)(dir, GUIDE_FILE));
+    }
+  };
+}
+function parseGuideChatRef(value) {
+  if (typeof value !== "object" || value === null) return null;
+  const { workspaceId, agentId } = value;
+  if (typeof workspaceId !== "string" || !workspaceId || typeof agentId !== "string" || !agentId) return null;
+  return { workspaceId, agentId };
+}
+
+// src/main/guide-chat-service.ts
+var import_path6 = require("path");
 
 // src/main/guide-run-registry.ts
 var TERMINAL_PHASES = /* @__PURE__ */ new Set(["done", "failed"]);
@@ -1548,252 +1616,211 @@ var GuideRunRegistry = class {
 };
 var guideRunRegistry = new GuideRunRegistry();
 
-// src/main/guide-terminal-service.ts
+// src/main/guide-chat-service.ts
 var REVIEW_GUIDE_SKILL_ID = "review-guide";
-var REVIEW_GUIDE_AGENT_NAME = "Review guide";
-var REVIEW_GUIDE_AGENT_PREFIX = "review-guide-";
-var REVIEW_GUIDE_ROLE = "review-guide";
-var REVIEW_GUIDE_SKILL_FILE = `.agents/skills/${REVIEW_GUIDE_SKILL_ID}/SKILL.md`;
+var REVIEW_GUIDE_CHAT_NAME = "Review guide";
+var REVIEW_GUIDE_PERMISSION_PRESET = "none";
 var REVIEW_ID_PATTERN2 = /^[A-Za-z0-9._-]+$/;
-var ENDED_WITHOUT_BRIEF_DETAIL = "The guide session ended without delivering a walkthrough \u2014 its terminal has the details.";
+function isAddressableReviewId(reviewId) {
+  return typeof reviewId === "string" && REVIEW_ID_PATTERN2.test(reviewId) && !/^\.+$/.test(reviewId);
+}
+var ENDED_WITHOUT_BRIEF_DETAIL = "The guide finished without delivering a walkthrough \u2014 its chat has the details.";
+var CLOSED_DETAIL = "The guide\u2019s chat closed before it delivered a walkthrough.";
 var STOPPED_DETAIL = "You stopped the guide.";
 var NO_WORKSPACE_DETAIL = "Open the project to run the guide.";
-function reviewGuideAgentId(reviewId) {
-  return `${REVIEW_GUIDE_AGENT_PREFIX}${reviewId}`;
-}
-var ReviewGuideTerminalService = class {
+var ReviewGuideChatService = class {
   deps;
-  agents;
+  conversations;
   guideRuns;
-  // At most ONE open run per review, so starting a run replaces (and thereby
-  // clears) whatever the review had before — no record accumulates. The entry
-  // remembers the terminal's EXECUTION id, which is unique per pty unlike the
-  // deliberately stable agent id, so a replaced terminal's exit is recognised
-  // as belonging to a run that is over and can never fail its successor.
+  // Each review's guide chat, once this process has started or found it.
+  chats = /* @__PURE__ */ new Map();
+  // At most ONE open run per review. The recorder is what a phase belongs to,
+  // so a replaced run can never report on the one that replaced it.
   inFlight = /* @__PURE__ */ new Map();
-  // The CLI-native skill invocation the host reported for a review's guide
-  // (`/review-guide` on Claude, `Use $review-guide.` on Codex). A spawn only
-  // learns it in its RESULT — by which time the opening prompt has been
-  // delivered — so the opening turn leads with the skill FILE and every later
-  // turn into that same terminal leads with the invocation. See SDK-FINDINGS.
-  skillInvocations = /* @__PURE__ */ new Map();
-  stopWatchdog;
   constructor(deps) {
     this.deps = deps;
-    this.agents = deps.agents;
+    this.conversations = deps.conversations;
     this.guideRuns = deps.guideRuns ?? guideRunRegistry;
-    this.stopWatchdog = this.agents.onExit((event) => this.onAgentExit(event));
   }
-  // Release the exit listener. Called when the module tears down, so an
+  // Drop every event subscription. Called when the module tears down, so an
   // uninstall/reload cycle never leaves a listener pointed at a dead service.
   dispose() {
-    this.stopWatchdog();
+    for (const chat of this.chats.values()) chat.unsubscribe();
+    this.chats.clear();
+    this.inFlight.clear();
   }
-  // Start (or join) the guide run for a review. One guide terminal per review:
-  // a live terminal receives the new prompt, otherwise one is spawned. A start
-  // against a run already in flight reports that run instead of interrupting it,
-  // unless the caller asked for a restart (the freshness re-run does).
+  // Start (or join) the guide run for a review. One guide chat per review: an
+  // existing chat takes the new prompt as a turn, otherwise one is started. A
+  // start against a run already in flight reports that run instead of
+  // interrupting it, unless the caller asked for a restart.
   async startRun(input) {
     const { reviewId, depth, affectedStepIds, restart } = input;
     const invalid = validateTarget(input);
     if (invalid) return { ok: false, error: invalid };
     const live = this.guideRuns.status(reviewId);
     if (live?.running && !restart) {
-      const joined = this.currentHandle(reviewId);
-      if (joined) return { ok: true, joined: true, status: live, guide: joined };
+      const joined = await this.findChat(reviewId, input.projectRoot);
+      if (joined) return { ok: true, joined: true, status: live, guide: handleOf(joined) };
     }
     const recorder = this.guideRuns.begin(reviewId);
     if (input.workspaceId.trim().length === 0) return this.fail(recorder, reviewId, NO_WORKSPACE_DETAIL);
-    const projectRoot = (0, import_path5.resolve)(input.projectRoot);
-    const prompt = this.buildRunPrompt({ reviewId, projectRoot, depth, affectedStepIds });
+    const projectRoot = (0, import_path6.resolve)(input.projectRoot);
+    const prompt = buildRunPrompt({ reviewId, projectRoot, depth, affectedStepIds });
     this.emitPhase(recorder, reviewId, "reading");
-    const delivered = await this.deliver(input, prompt);
-    if (!delivered.ok) return this.fail(recorder, reviewId, delivered.error);
-    this.agents.setReapExempt(delivered.guide.sessionId, true);
-    this.inFlight.set(reviewId, { executionId: delivered.executionId, recorder });
-    this.emitPhase(recorder, reviewId, "grouping");
-    return { ok: true, guide: delivered.guide, reused: delivered.reused };
+    const replaced = this.inFlight.get(reviewId);
+    const run = { recorder, heard: true };
+    if (replaced && restart) {
+      const chat = this.chats.get(reviewId);
+      if (chat) {
+        run.heard = false;
+        this.inFlight.delete(reviewId);
+        await this.conversations.interrupt(chat.ref).catch(() => void 0);
+      }
+    }
+    this.inFlight.set(reviewId, run);
+    const delivered = await this.deliver({ ...input, projectRoot }, prompt, (error) => {
+      if (this.inFlight.get(reviewId) !== run) return;
+      this.inFlight.delete(reviewId);
+      this.emitPhase(recorder, reviewId, "failed", error);
+    });
+    if (!delivered.ok) {
+      if (this.inFlight.get(reviewId) === run) this.inFlight.delete(reviewId);
+      return this.fail(recorder, reviewId, delivered.error);
+    }
+    if (this.inFlight.get(reviewId) === run) this.emitPhase(recorder, reviewId, "grouping");
+    return { ok: true, guide: handleOf(delivered.chat), reused: delivered.reused };
   }
-  // "Ask the guide": send one question to the review's guide terminal, spawning
-  // it when none is live. The answer is read in the terminal — that is the point
-  // of the redesign — so this reports only where to look, never a reply. Asking
-  // is not a run: it records no phase and never touches an in-flight walkthrough.
+  // "Ask the guide": one question as a turn in the review's guide chat,
+  // starting the chat when there is none. The answer is read in the chat, so
+  // this reports only where to look. Asking is not a run: it records no phase
+  // and never touches an in-flight walkthrough.
   async ask(input) {
     const { reviewId, question } = input;
     const invalid = validateTarget(input);
     if (invalid) return { ok: false, error: invalid };
     if (input.workspaceId.trim().length === 0) return { ok: false, error: NO_WORKSPACE_DETAIL };
     if (question.trim().length === 0) return { ok: false, error: "Ask the guide a question first." };
-    const projectRoot = (0, import_path5.resolve)(input.projectRoot);
-    const prompt = this.buildAskPrompt({ reviewId, projectRoot, question: question.trim() });
-    const delivered = await this.deliver(input, prompt);
+    const projectRoot = (0, import_path6.resolve)(input.projectRoot);
+    const prompt = buildAskPrompt({ reviewId, projectRoot, question: question.trim() });
+    const delivered = await this.deliver({ ...input, projectRoot }, prompt, (error) => {
+      this.deps.warn?.(`[review] the guide did not take the question for ${reviewId}: ${error}`);
+    });
     if (!delivered.ok) return { ok: false, error: delivered.error };
-    return { ok: true, guide: delivered.guide };
+    return { ok: true, guide: handleOf(delivered.chat) };
   }
-  // The reviewer stopped the run. Kill the guide's terminal and record the stop
-  // as this run's terminal phase, so the panel shows why it ended and the
-  // watchdog stays silent for the exit it is about to see.
-  stop(reviewId) {
-    const sessionId = this.findGuideSession(reviewId)?.sessionId;
-    const entry = this.inFlight.get(reviewId);
+  // The reviewer stopped the run: record the stop as this run's terminal phase
+  // first (so the interrupted turn's end is not read as a failure of its own),
+  // then interrupt the guide's turn. The chat stays — it is the record of what
+  // the guide did, and the reviewer can pick it up there.
+  async stop(reviewId) {
+    const run = this.inFlight.get(reviewId);
     this.inFlight.delete(reviewId);
-    if (entry) this.emitPhase(entry.recorder, reviewId, "failed", STOPPED_DETAIL);
+    if (run) this.emitPhase(run.recorder, reviewId, "failed", STOPPED_DETAIL);
     else if (this.guideRuns.status(reviewId)?.running) {
       this.guideRuns.record(reviewId, "failed", STOPPED_DETAIL);
       this.deps.emit({ workspaceId: reviewId, phase: "failed", detail: STOPPED_DETAIL });
     }
-    if (!sessionId) return;
-    this.agents.setReapExempt(sessionId, false);
-    this.agents.kill(sessionId);
+    const chat = this.chats.get(reviewId);
+    if (chat) await this.conversations.interrupt(chat.ref).catch(() => void 0);
   }
   // The run ended by delivering: `review_submit_brief` landed and the gateway's
-  // sink calls this. The terminal is still alive and the reviewer may never open
-  // it, so without this the pty stays exempt from the idle reaper for the rest
-  // of the app session — one unsuspendable agent process retained per reviewed
-  // change. The in-flight record goes with it: the run is over, so a later
-  // stop() must not overwrite the delivered `done` with a failure.
-  clearReapExempt(reviewId) {
+  // sink calls this, so the turn ending afterwards is not read as a failure and
+  // a later stop() cannot overwrite the delivered `done`.
+  runDelivered(reviewId) {
     this.inFlight.delete(reviewId);
-    const sessionId = this.findGuideSession(reviewId)?.sessionId;
-    if (sessionId) this.agents.setReapExempt(sessionId, false);
   }
-  // The watchdog. A guide terminal that ends without a brief failed, whatever
-  // the reason — a crashed CLI, a closed tab, an agent that gave up. The
-  // registry, not this map, decides whether the run is still open: a brief that
-  // landed through review_submit_brief already closed it, and the terminal
-  // exiting afterwards is just the CLI quitting.
-  //
-  // Correlation is by EXECUTION id, never the agent id: disposing a dead
-  // terminal fires its exit after its replacement has already started, and the
-  // two share an agent id by design.
-  onAgentExit(event) {
-    const found = [...this.inFlight].find(([, entry2]) => entry2.executionId === event.executionId);
-    if (!found) return;
-    const [reviewId, entry] = found;
-    this.inFlight.delete(reviewId);
-    const sessionId = this.findGuideSession(reviewId)?.sessionId;
-    if (sessionId) this.agents.setReapExempt(sessionId, false);
-    if (!this.guideRuns.status(reviewId)?.running) return;
-    this.emitPhase(entry.recorder, reviewId, "failed", ENDED_WITHOUT_BRIEF_DETAIL);
+  // The guide chat this process knows for a review, for the status IPC.
+  knownChat(reviewId) {
+    const chat = this.chats.get(reviewId);
+    return chat && this.stillOwned(chat.ref) ? handleOf(chat) : null;
   }
-  // Deliver a prompt to the guide: paste it into the live terminal, or spawn one
-  // with the prompt as its opening turn.
-  //
-  // A live session takes `send` rather than a `reuseLive` spawn, because only
-  // that path can lead the prompt with the CLI-native skill invocation this
-  // review's spawn already reported.
-  async deliver(input, prompt) {
+  // Deliver a prompt to the guide: a turn in its chat, or a new chat with the
+  // prompt as its opening turn. A turn is answered only when it ends, so the
+  // send is not awaited; a refused one reaches `onRefused` instead.
+  async deliver(input, prompt, onRefused) {
     const { reviewId } = input;
-    const liveSession = this.findGuideSession(reviewId);
-    if (liveSession?.isLive && !liveSession.suspended && liveSession.executionId) {
-      const lead = this.skillInvocations.get(reviewId);
-      const sent = await this.agents.send(liveSession.sessionId, lead ? `${lead}
-
-${prompt}` : prompt);
-      if (!sent.ok) {
-        return { ok: false, error: sent.message ?? "Could not deliver the prompt to the guide terminal." };
-      }
-      return {
-        ok: true,
-        reused: true,
-        executionId: liveSession.executionId,
-        guide: {
-          workspaceId: liveSession.workspaceId ?? input.workspaceId,
-          agentId: liveSession.agentId ?? reviewGuideAgentId(reviewId),
-          sessionId: liveSession.sessionId,
-          cli: liveSession.cli ?? ""
-        }
-      };
+    const existing = await this.findChat(reviewId, input.projectRoot);
+    if (existing) {
+      void this.conversations.send(existing.ref, { message: prompt }).then((sent) => {
+        if (!sent.ok) onRefused(sent.message);
+      }).catch((error) => onRefused(messageOf2(error)));
+      return { ok: true, chat: existing, reused: true };
     }
-    const spawned = await this.agents.spawn({
+    const created = await this.conversations.create({
       workspaceId: input.workspaceId,
-      cwd: (0, import_path5.resolve)(input.projectRoot),
-      prompt: `${this.fallbackSkillLead()}
-
-${prompt}`,
-      skill: { id: REVIEW_GUIDE_SKILL_ID },
-      agentIdPrefix: REVIEW_GUIDE_AGENT_PREFIX,
-      agentIdKey: reviewId,
-      // The guide reads the change, the surrounding code, and the knowledge
-      // graph, then calls the review tools — unattended. On the default preset
-      // it stalls at the first approval prompt with nobody watching.
-      permissionPreset: "bypass",
-      label: REVIEW_GUIDE_AGENT_NAME,
-      role: REVIEW_GUIDE_ROLE,
-      reuseLive: true,
+      prompt,
+      skills: [REVIEW_GUIDE_SKILL_ID],
+      permissionPreset: REVIEW_GUIDE_PERMISSION_PRESET,
+      name: REVIEW_GUIDE_CHAT_NAME,
       ...input.cli?.trim() ? { cli: input.cli.trim() } : {},
-      ...input.cliModel?.trim() ? { cliModel: input.cliModel.trim() } : {}
+      ...input.cliModel?.trim() ? { model: input.cliModel.trim() } : {}
+    }).catch((error) => ({ ok: false, code: "runtime_refused", message: messageOf2(error) }));
+    if (!created.ok) return { ok: false, error: created.message };
+    const ref = { workspaceId: created.conversation.workspaceId, agentId: created.conversation.agentId };
+    const chat = this.adopt(reviewId, ref, created.conversation.cli);
+    await this.deps.refs?.write(input.projectRoot, reviewId, ref).catch((error) => {
+      this.deps.warn?.(`[review] could not remember the guide chat for ${reviewId}: ${messageOf2(error)}`);
     });
-    if (!spawned.ok) return { ok: false, error: spawned.message };
-    if (spawned.skillInvocation) this.skillInvocations.set(reviewId, spawned.skillInvocation);
-    else this.skillInvocations.delete(reviewId);
-    return {
-      ok: true,
-      reused: spawned.reused,
-      executionId: spawned.executionId,
-      guide: {
-        workspaceId: spawned.workspaceId,
-        agentId: spawned.agentId,
-        sessionId: spawned.sessionId,
-        cli: spawned.cli
-      }
-    };
+    return { ok: true, chat, reused: false };
   }
-  // This review's guide terminal, live or retained, found by AGENT id — the one
-  // identity that is stable across spawns now that session ids are minted. The
-  // host filters `list()` to this module's own agent-id namespaces, so nothing
-  // here can see another module's agents or the reviewer's own.
-  findGuideSession(reviewId) {
-    const agentId = reviewGuideAgentId(reviewId);
-    return this.agents.list().find((session) => session.agentId === agentId);
+  // This review's guide chat: the one this process holds, else the one
+  // remembered beside the review — either only while the host still lists it
+  // as this module's (a closed workspace's chat is not one to send to).
+  async findChat(reviewId, projectRoot) {
+    const held = this.chats.get(reviewId);
+    if (held) {
+      if (this.stillOwned(held.ref)) return held;
+      held.unsubscribe();
+      this.chats.delete(reviewId);
+    }
+    const remembered = await this.deps.refs?.read((0, import_path6.resolve)(projectRoot), reviewId).catch(() => null);
+    if (!remembered) return null;
+    const summary = this.ownedSummary(remembered);
+    return summary ? this.adopt(reviewId, remembered, summary.cli) : null;
   }
-  // The join prompt carries ONLY run coordinates. Every word about what a
-  // walkthrough is and how to build one lives in the skill.
-  buildRunPrompt(input) {
-    const refresh = input.affectedStepIds?.length ? [`Refresh: regenerate only these steps, carry the rest over verbatim: ${input.affectedStepIds.join(", ")}`] : [];
-    return [
-      "You are the Review guide for this review. Build its walkthrough and deliver it with review_submit_brief.",
-      "",
-      `Review: ${input.reviewId}`,
-      `Project root: ${input.projectRoot}`,
-      `Depth: ${input.depth}`,
-      ...refresh
-    ].join("\n");
+  ownedSummary(ref) {
+    return this.conversations.list({ workspaceId: ref.workspaceId }).find((conversation) => conversation.agentId === ref.agentId) ?? null;
   }
-  buildAskPrompt(input) {
-    return [
-      "You are the Review guide for this review. This is a question from the reviewer, not a request for a",
-      "walkthrough: answer it in this terminal and submit nothing.",
-      "",
-      `Review: ${input.reviewId}`,
-      `Project root: ${input.projectRoot}`,
-      "",
-      `Question: ${input.question}`
-    ].join("\n");
+  stillOwned(ref) {
+    return this.ownedSummary(ref) !== null;
   }
-  // How the guide gets its instructions on the opening turn. The host installs
-  // the skill into the project before the CLI starts, so pointing at the
-  // harness-neutral file works under every CLI — including the ones whose
-  // plugin declares no native skill form. The craft text reaches the agent from
-  // the skill and is never restated here.
-  fallbackSkillLead() {
-    return `Read ${REVIEW_GUIDE_SKILL_FILE} and follow it for this whole session.`;
+  adopt(reviewId, ref, cli) {
+    this.chats.get(reviewId)?.unsubscribe();
+    let unsubscribe = () => void 0;
+    try {
+      unsubscribe = this.conversations.subscribe(ref, (event) => this.onEvent(reviewId, event));
+    } catch (error) {
+      this.deps.warn?.(`[review] cannot follow the guide chat for ${reviewId}: ${messageOf2(error)}`);
+    }
+    const chat = { ref, cli, unsubscribe };
+    this.chats.set(reviewId, chat);
+    return chat;
   }
-  // The terminal a joinable run is running in, or null when nothing is live
-  // under this review's guide id.
-  currentHandle(reviewId) {
-    const session = this.findGuideSession(reviewId);
-    if (!session?.isLive) return null;
-    return {
-      workspaceId: session.workspaceId ?? "",
-      agentId: session.agentId ?? reviewGuideAgentId(reviewId),
-      sessionId: session.sessionId,
-      cli: session.cli ?? ""
-    };
+  // The watchdog. A run ends when the guide's turn ends without a brief, when
+  // the turn fails, or when the chat's session closes. The registry, not this
+  // map, decides whether the run is still open: a brief that landed through
+  // review_submit_brief already closed it. A turn a steer closed carries on as
+  // the next one, so it is not an end.
+  onEvent(reviewId, event) {
+    const run = this.inFlight.get(reviewId);
+    if (!run) return;
+    if (event.type === "user_message" || event.type === "turn_started") {
+      run.heard = true;
+      return;
+    }
+    if (event.type === "turn_completed" && event.payload?.steered === true) return;
+    if (event.type === "turn_completed" || event.type === "turn_failed") {
+      if (!run.heard) return;
+    } else if (event.type !== "session_closed") return;
+    this.inFlight.delete(reviewId);
+    if (!this.guideRuns.status(reviewId)?.running) return;
+    const reported = typeof event.payload?.message === "string" ? event.payload.message.trim() : "";
+    const detail = event.type === "turn_completed" ? ENDED_WITHOUT_BRIEF_DETAIL : event.type === "session_closed" ? CLOSED_DETAIL : reported || ENDED_WITHOUT_BRIEF_DETAIL;
+    this.emitPhase(run.recorder, reviewId, "failed", detail);
   }
-  // Both sinks, one decision: the registry (which outlives the renderer) and the
-  // live event channel. A run the registry has already replaced goes silent on
-  // both, so a dying run never reports on the one that replaced it.
+  // Both sinks, one decision: the registry (which outlives the renderer) and
+  // the live event channel. A run the registry has already replaced goes silent
+  // on both.
   emitPhase(recorder, reviewId, phase, detail) {
     if (!recorder.record(phase, detail)) return;
     this.deps.emit(detail ? { workspaceId: reviewId, phase, detail } : { workspaceId: reviewId, phase });
@@ -1803,25 +1830,49 @@ ${prompt}`,
     return { ok: false, error };
   }
 };
-function createReviewGuideTerminalService(deps) {
-  return new ReviewGuideTerminalService(deps);
+function createReviewGuideChatService(deps) {
+  return new ReviewGuideChatService(deps);
 }
 function recordGuideRunEvent(event, registry = guideRunRegistry) {
   registry.record(event.workspaceId, event.phase, event.detail);
 }
+function buildRunPrompt(input) {
+  const refresh = input.affectedStepIds?.length ? [`Refresh: regenerate only these steps, carry the rest over verbatim: ${input.affectedStepIds.join(", ")}`] : [];
+  return [
+    "You are the Review guide for this review. Build its walkthrough and deliver it with review_submit_brief.",
+    "",
+    `Review: ${input.reviewId}`,
+    `Project root: ${input.projectRoot}`,
+    `Depth: ${input.depth}`,
+    ...refresh
+  ].join("\n");
+}
+function buildAskPrompt(input) {
+  return [
+    "You are the Review guide for this review. This is a question from the reviewer, not a request for a",
+    "walkthrough: answer it in this chat and submit nothing.",
+    "",
+    `Review: ${input.reviewId}`,
+    `Project root: ${input.projectRoot}`,
+    "",
+    `Question: ${input.question}`
+  ].join("\n");
+}
+function handleOf(chat) {
+  return { workspaceId: chat.ref.workspaceId, agentId: chat.ref.agentId, cli: chat.cli };
+}
 function validateTarget(input) {
-  if (typeof input.reviewId !== "string" || !REVIEW_ID_PATTERN2.test(input.reviewId)) {
-    return "That review id is not a review this app can address.";
-  }
-  if (typeof input.projectRoot !== "string" || input.projectRoot.trim().length === 0) {
-    return NO_WORKSPACE_DETAIL;
-  }
+  if (!isAddressableReviewId(input.reviewId)) return "That review id is not a review this app can address.";
+  if (typeof input.projectRoot !== "string" || input.projectRoot.trim().length === 0) return NO_WORKSPACE_DETAIL;
   return null;
+}
+function messageOf2(error) {
+  return error instanceof Error ? error.message : String(error);
 }
 
 // src/main/review-ipc.ts
-var import_promises6 = require("fs/promises");
-var import_path8 = require("path");
+var import_promises7 = require("fs/promises");
+var import_path9 = require("path");
 
 // src/shared/ipc.ts
 var REVIEW_CHANNELS = {
@@ -1843,14 +1894,14 @@ var REVIEW_CHANNELS = {
 };
 
 // src/main/review-state-store.ts
-var import_promises4 = require("fs/promises");
-var import_crypto3 = require("crypto");
-var import_path6 = require("path");
+var import_promises5 = require("fs/promises");
+var import_crypto4 = require("crypto");
+var import_path7 = require("path");
 var STATE_FILE = "state.json";
 async function readReviewState(reviewDir) {
   let raw;
   try {
-    raw = await (0, import_promises4.readFile)((0, import_path6.join)(reviewDir, STATE_FILE), "utf-8");
+    raw = await (0, import_promises5.readFile)((0, import_path7.join)(reviewDir, STATE_FILE), "utf-8");
   } catch (error) {
     if (error?.code === "ENOENT") return { ok: true, state: null };
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -1870,16 +1921,16 @@ async function writeReviewState(reviewDir, state) {
   if (!validation.ok) {
     throw new Error(`Refusing to persist an invalid review state: ${validation.errors[0]}`);
   }
-  await (0, import_promises4.mkdir)(reviewDir, { recursive: true });
-  const finalPath = (0, import_path6.join)(reviewDir, STATE_FILE);
-  const tempPath = (0, import_path6.join)(reviewDir, `.${STATE_FILE}.${(0, import_crypto3.randomUUID)()}.tmp`);
+  await (0, import_promises5.mkdir)(reviewDir, { recursive: true });
+  const finalPath = (0, import_path7.join)(reviewDir, STATE_FILE);
+  const tempPath = (0, import_path7.join)(reviewDir, `.${STATE_FILE}.${(0, import_crypto4.randomUUID)()}.tmp`);
   const data = `${JSON.stringify(validation.value, null, 2)}
 `;
   try {
-    await (0, import_promises4.writeFile)(tempPath, data, "utf-8");
-    await (0, import_promises4.rename)(tempPath, finalPath);
+    await (0, import_promises5.writeFile)(tempPath, data, "utf-8");
+    await (0, import_promises5.rename)(tempPath, finalPath);
   } catch (error) {
-    await (0, import_promises4.unlink)(tempPath).catch(() => {
+    await (0, import_promises5.unlink)(tempPath).catch(() => {
     });
     throw error;
   }
@@ -1951,7 +2002,7 @@ ${meta.headSha}`
         if (error instanceof ProbeTimeout || isAbortLike(error)) {
           return { ok: true, title: `${parsed.owner}/${parsed.repo} #${parsed.number}` };
         }
-        return { ok: false, error: messageOf2(error) };
+        return { ok: false, error: messageOf3(error) };
       }
     }
   };
@@ -2101,12 +2152,12 @@ function assertDiffSize(diff) {
   }
 }
 function withTimeout(promise, ms) {
-  return new Promise((resolve3, reject) => {
+  return new Promise((resolve4, reject) => {
     const timer = setTimeout(() => reject(new ProbeTimeout()), ms);
     promise.then(
       (value) => {
         clearTimeout(timer);
-        resolve3(value);
+        resolve4(value);
       },
       (error) => {
         clearTimeout(timer);
@@ -2138,7 +2189,7 @@ function unexpectedPayload() {
 function lowerFirst(text) {
   return text.length > 0 ? text[0].toLowerCase() + text.slice(1) : text;
 }
-function messageOf2(error) {
+function messageOf3(error) {
   return error instanceof Error ? error.message : String(error);
 }
 function isAbortLike(error) {
@@ -2210,9 +2261,9 @@ var githubPrProvider = createGithubPrProvider(defaultDeps());
 registerReviewSourceProvider("pull-request", githubPrProvider);
 
 // src/main/providers/github-review-sync.ts
-var import_promises5 = require("fs/promises");
+var import_promises6 = require("fs/promises");
 var import_os = require("os");
-var import_path7 = require("path");
+var import_path8 = require("path");
 var JSON_ACCEPT2 = "application/vnd.github+json";
 var DIFF_ACCEPT2 = "application/vnd.github.v3.diff";
 var API_VERSION2 = "2022-11-28";
@@ -2485,15 +2536,15 @@ ${resolved.side}
 ${resolved.endLine}`;
 }
 async function ghPostJson(apiPath, body, pr, deps) {
-  const dir = await (0, import_promises5.mkdtemp)((0, import_path7.join)((0, import_os.tmpdir)(), "review-post-"));
-  const file = (0, import_path7.join)(dir, "body.json");
+  const dir = await (0, import_promises6.mkdtemp)((0, import_path8.join)((0, import_os.tmpdir)(), "review-post-"));
+  const file = (0, import_path8.join)(dir, "body.json");
   try {
-    await (0, import_promises5.writeFile)(file, body, "utf-8");
+    await (0, import_promises6.writeFile)(file, body, "utf-8");
     const result = await deps.gh.run(["api", ...ghApiHost(pr), apiPath, "--method", "POST", "--input", file]);
     if (result.code !== 0) throw new HttpError(ghErrorMessage(result.stderr), ghStatus(result.stderr));
     return safeJson(result.stdout) ?? {};
   } finally {
-    await (0, import_promises5.rm)(dir, { recursive: true, force: true }).catch(() => {
+    await (0, import_promises6.rm)(dir, { recursive: true, force: true }).catch(() => {
     });
   }
 }
@@ -2588,7 +2639,7 @@ var BRIEF_FILE2 = "brief.json";
 async function readBrief(targetDir) {
   let raw;
   try {
-    raw = await (0, import_promises6.readFile)((0, import_path8.join)(targetDir, BRIEF_FILE2), "utf-8");
+    raw = await (0, import_promises7.readFile)((0, import_path9.join)(targetDir, BRIEF_FILE2), "utf-8");
   } catch (error) {
     if (error?.code === "ENOENT") return { ok: true, brief: null };
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -2606,50 +2657,99 @@ async function readBrief(targetDir) {
 function failure(error) {
   return { ok: false, error: error instanceof Error ? error.message : String(error) };
 }
-function registerReviewIpc(host, { changeSetService, guideTerminals, isUserWindowSender, reviewSyncDeps, guideRuns }) {
+var PROJECT_NOT_OPEN = "That project is not open in this app; open it, then try again.";
+var ProjectNotOpenError = class extends Error {
+  constructor() {
+    super(PROJECT_NOT_OPEN);
+  }
+};
+function registerReviewIpc(host, {
+  changeSetService,
+  guide,
+  listOpenProjectRoots,
+  ensureReviewSkills,
+  isUserWindowSender,
+  reviewSyncDeps,
+  guideRuns
+}) {
   const guideRunState = guideRuns ?? guideRunRegistry;
-  host.registerIpc(REVIEW_CHANNELS.detectSource, (_event, payload) => {
-    return changeSetService.detect(payload);
+  async function openRoots() {
+    const roots = await listOpenProjectRoots().catch(() => []);
+    return roots.filter((root) => typeof root === "string" && root.length > 0).map((root) => (0, import_path9.resolve)(root));
+  }
+  async function requireOpenRoot(candidate) {
+    if (typeof candidate !== "string" || candidate.trim().length === 0) throw new ProjectNotOpenError();
+    const normalized = (0, import_path9.resolve)(candidate);
+    if (!(await openRoots()).includes(normalized)) throw new ProjectNotOpenError();
+    return normalized;
+  }
+  async function requireTarget(target) {
+    const { workspaceRoot, workspaceId } = target ?? {};
+    return { workspaceRoot: await requireOpenRoot(workspaceRoot), workspaceId: String(workspaceId ?? "") };
+  }
+  async function requireSource(input) {
+    const source = input;
+    if (source?.kind === "branch") return { ...source, repoRoot: await requireOpenRoot(source.repoRoot) };
+    return source;
+  }
+  const skillsInstalled = /* @__PURE__ */ new Set();
+  function installReviewSkills(projectRoot) {
+    if (!ensureReviewSkills || skillsInstalled.has(projectRoot)) return;
+    skillsInstalled.add(projectRoot);
+    void ensureReviewSkills(projectRoot).catch(() => skillsInstalled.delete(projectRoot));
+  }
+  host.registerIpc(REVIEW_CHANNELS.detectSource, async (_event, payload) => {
+    let source;
+    try {
+      source = await requireSource(payload);
+    } catch (error) {
+      return failure(error);
+    }
+    return changeSetService.detect(source);
   });
   host.registerIpc(REVIEW_CHANNELS.ingestSource, async (_event, raw) => {
-    const { input, target } = raw;
+    const { input, target } = raw ?? {};
     try {
+      const review = await requireTarget(target);
       const changeset = await changeSetService.ingest(
-        input,
-        reviewChangeSetDir(target.workspaceRoot, target.workspaceId)
+        await requireSource(input),
+        reviewChangeSetDir(review.workspaceRoot, review.workspaceId)
       );
+      installReviewSkills(review.workspaceRoot);
       return { ok: true, changeset };
     } catch (error) {
       return failure(error);
     }
   });
   host.registerIpc(REVIEW_CHANNELS.readChangeset, async (_event, raw) => {
-    const target = raw;
     try {
+      const target = await requireTarget(raw);
+      installReviewSkills(target.workspaceRoot);
       return await changeSetService.read(reviewChangeSetDir(target.workspaceRoot, target.workspaceId));
     } catch (error) {
       return failure(error);
     }
   });
   host.registerIpc(REVIEW_CHANNELS.readBrief, async (_event, raw) => {
-    const target = raw;
     try {
+      const target = await requireTarget(raw);
       return await readBrief(reviewChangeSetDir(target.workspaceRoot, target.workspaceId));
     } catch (error) {
       return failure(error);
     }
   });
   host.registerIpc(REVIEW_CHANNELS.readState, async (_event, raw) => {
-    const target = raw;
     try {
+      const target = await requireTarget(raw);
       return await readReviewState(reviewChangeSetDir(target.workspaceRoot, target.workspaceId));
     } catch (error) {
       return failure(error);
     }
   });
   host.registerIpc(REVIEW_CHANNELS.writeState, async (_event, raw) => {
-    const { target, state } = raw;
+    const { target: named, state } = raw ?? {};
     try {
+      const target = await requireTarget(named);
       await writeReviewState(reviewChangeSetDir(target.workspaceRoot, target.workspaceId), state);
       return { ok: true };
     } catch (error) {
@@ -2659,7 +2759,11 @@ function registerReviewIpc(host, { changeSetService, guideTerminals, isUserWindo
   host.registerIpc(REVIEW_CHANNELS.list, async (_event, raw) => {
     const { roots } = raw ?? {};
     try {
-      return { ok: true, reviews: await enumerateReviews(Array.isArray(roots) ? roots : []) };
+      const open = await openRoots();
+      const named = (Array.isArray(roots) ? roots : []).filter(
+        (root) => typeof root === "string" && open.includes((0, import_path9.resolve)(root))
+      );
+      return { ok: true, reviews: await enumerateReviews(named) };
     } catch (error) {
       return failure(error);
     }
@@ -2667,9 +2771,12 @@ function registerReviewIpc(host, { changeSetService, guideTerminals, isUserWindo
   host.registerIpc(REVIEW_CHANNELS.matchPrProject, async (_event, raw) => {
     const { url, roots } = raw ?? {};
     try {
+      const open = await openRoots();
       const matches = await matchPrProjectRoots(
         typeof url === "string" ? url : "",
-        Array.isArray(roots) ? roots : []
+        (Array.isArray(roots) ? roots : []).filter(
+          (root) => typeof root === "string" && open.includes((0, import_path9.resolve)(root))
+        )
       );
       return { ok: true, matches };
     } catch (error) {
@@ -2678,7 +2785,7 @@ function registerReviewIpc(host, { changeSetService, guideTerminals, isUserWindo
   });
   host.registerIpc(REVIEW_CHANNELS.probeChangeset, async (_event, raw) => {
     try {
-      return { ok: true, changeset: await changeSetService.build(raw) };
+      return { ok: true, changeset: await changeSetService.build(await requireSource(raw)) };
     } catch (error) {
       return failure(error);
     }
@@ -2689,17 +2796,23 @@ function registerReviewIpc(host, { changeSetService, guideTerminals, isUserWindo
       return { ok: false, error: "Choose a project before picking branches." };
     }
     try {
-      const { current, branches } = await listGitBranches(projectRoot);
+      const { current, branches } = await listGitBranches(await requireOpenRoot(projectRoot));
       return { ok: true, current, branches };
     } catch (error) {
       return failure(error);
     }
   });
   host.registerIpc(REVIEW_CHANNELS.startBriefRun, async (_event, raw) => {
-    const input = raw;
-    const result = await guideTerminals.startRun({
+    const input = raw ?? {};
+    let projectRoot;
+    try {
+      projectRoot = await requireOpenRoot(input.workspaceRoot);
+    } catch (error) {
+      return { ok: false, reason: "guide-error", errors: [failure(error).error] };
+    }
+    const result = await guide.startRun({
       reviewId: input.reviewId,
-      projectRoot: input.workspaceRoot,
+      projectRoot,
       workspaceId: input.workspaceId,
       depth: input.depth,
       ...input.affectedStepIds ? { affectedStepIds: input.affectedStepIds } : {},
@@ -2711,20 +2824,27 @@ function registerReviewIpc(host, { changeSetService, guideTerminals, isUserWindo
     if ("joined" in result) return { ok: true, joined: true, status: result.status, guide: result.guide };
     return { ok: true, guide: result.guide };
   });
-  host.registerIpc(REVIEW_CHANNELS.stopBriefRun, (_event, raw) => {
-    const target = raw;
-    guideTerminals.stop(target.workspaceId);
+  host.registerIpc(REVIEW_CHANNELS.stopBriefRun, async (_event, raw) => {
+    const target = raw ?? {};
+    await guide.stop(String(target.workspaceId ?? ""));
     return { ok: true };
   });
   host.registerIpc(REVIEW_CHANNELS.briefRunStatus, (_event, raw) => {
-    const target = raw;
-    return { ok: true, status: guideRunState.status(target.workspaceId) };
+    const target = raw ?? {};
+    const reviewId = String(target.workspaceId ?? "");
+    return { ok: true, status: guideRunState.status(reviewId), guide: guide.knownChat(reviewId) };
   });
   host.registerIpc(REVIEW_CHANNELS.askGuide, async (_event, raw) => {
-    const input = raw;
-    const result = await guideTerminals.ask({
+    const input = raw ?? {};
+    let projectRoot;
+    try {
+      projectRoot = await requireOpenRoot(input.workspaceRoot);
+    } catch (error) {
+      return failure(error);
+    }
+    const result = await guide.ask({
       reviewId: input.reviewId,
-      projectRoot: input.workspaceRoot,
+      projectRoot,
       workspaceId: input.workspaceId,
       question: input.message,
       ...input.cli ? { cli: input.cli } : {},
@@ -2736,11 +2856,10 @@ function registerReviewIpc(host, { changeSetService, guideTerminals, isUserWindo
     if (!isUserWindowSender || !isUserWindowSender(event)) {
       return { ok: false, error: "Posting a review must be initiated from the review window." };
     }
-    const input = raw;
+    const input = raw ?? {};
     try {
-      const read = await changeSetService.read(
-        reviewChangeSetDir(input.target.workspaceRoot, input.target.workspaceId)
-      );
+      const target = await requireTarget(input.target);
+      const read = await changeSetService.read(reviewChangeSetDir(target.workspaceRoot, target.workspaceId));
       if (!read.ok) return { ok: false, error: read.error };
       if (!read.changeset) return { ok: false, error: "There is no review to post yet." };
       return await postReview(read.changeset, input.comments, reviewSyncDeps ?? defaultReviewSyncDeps());
@@ -2752,7 +2871,7 @@ function registerReviewIpc(host, { changeSetService, guideTerminals, isUserWindo
 
 // src/main/tokens.ts
 var ReviewChangeSetServiceToken = createServiceToken("review.change-set-service");
-var ReviewGuideTerminalServiceToken = createServiceToken("review.guide-terminal-service");
+var ReviewGuideChatServiceToken = createServiceToken("review.guide-chat-service");
 
 // src/main.ts
 var STUDIO_REVIEW_SKILL_ID = "studio-review";
@@ -2764,30 +2883,44 @@ var registerMain = (host) => {
   const emit = (event) => {
     host.emit(BRIEF_RUN_EVENT_TOPIC, event);
   };
-  const guideTerminals = host.provideService(
-    ReviewGuideTerminalServiceToken,
-    () => createReviewGuideTerminalService({ agents: getAgentSessionService(host), emit })
+  const guide = host.provideService(
+    ReviewGuideChatServiceToken,
+    () => createReviewGuideChatService({
+      conversations: lazyConversations(host),
+      emit,
+      refs: createFileGuideChatRefStore(),
+      warn: (message) => console.warn(message)
+    })
   );
-  host.onShutdown(() => guideTerminals.dispose());
+  host.onShutdown(() => guide.dispose());
   host.registerMcpTools(
     createReviewGatewayTools({
       listOpenProjectRoots: () => openProjectRoots(host),
       homeDir: () => (0, import_os2.homedir)(),
       emitBriefRunEvent: (event) => {
         recordGuideRunEvent(event);
-        if (event.phase === "done") guideTerminals.clearReapExempt(event.workspaceId);
+        if (event.phase === "done") guide.runDelivered(event.workspaceId);
         host.emit(BRIEF_RUN_EVENT_TOPIC, event);
       }
     })
   );
   registerReviewIpc(host, {
     changeSetService,
-    guideTerminals,
+    guide,
+    listOpenProjectRoots: () => openProjectRoots(host),
+    // Lazy: a project gets the review tool contract when a
+    // review there is first opened or created, not because it happened to be
+    // open when the app started.
+    ensureReviewSkills: async (projectRoot) => {
+      const result = await host.ensureSkillInstalled(projectRoot, STUDIO_REVIEW_SKILL_ID);
+      if (!result.ok) console.warn(`[review] ${STUDIO_REVIEW_SKILL_ID} not installed: ${result.status}`);
+    },
     // Posting a review is human-outward; allow it only when the invocation
-    // resolves to a real application window. The guide runs in a terminal with
-    // no renderer, so it can never satisfy this (or reach an IPC handler). The
-    // SDK types the raw event `unknown` to stay Electron-free, so the cast to
-    // Electron's own event type happens here, at the one edge that needs it.
+    // resolves to a real application window. The guide runs in a chat with no
+    // renderer of its own, so it can never satisfy this (or reach an IPC
+    // handler). The SDK types the raw event `unknown` to stay Electron-free, so
+    // the cast to Electron's own event type happens here, at the one edge that
+    // needs it.
     isUserWindowSender: (event) => import_electron.BrowserWindow.fromWebContents(event.sender) !== null
   });
   host.registerSkills([
@@ -2795,27 +2928,15 @@ var registerMain = (host) => {
       id: REVIEW_GUIDE_SKILL_ID,
       sourceDir: "skills/review-guide",
       targetPolicy: "all-native",
-      description: "Build the walkthrough a human reviewer reads before reviewing a code change, and answer their questions about that change. Use when a terminal is started as the Review guide for a review, when asked to prepare or refresh a review walkthrough, or when a reviewer asks a question about the change under review."
+      description: "Build the walkthrough a human reviewer reads before reviewing a code change, and answer their questions about that change. Use when a chat is started as the Review guide for a review, when asked to prepare or refresh a review walkthrough, or when a reviewer asks a question about the change under review."
     },
     {
       id: STUDIO_REVIEW_SKILL_ID,
       sourceDir: "skills/studio-review",
       targetPolicy: "all-native",
-      description: "Read and write SprintEngine Studio code reviews through the review_* tools - list pending reviews, read a review's change set, read the current walkthrough, and submit a new one. Use when a terminal is started as the Review guide for a review, when asked to prepare, refresh or re-run a review walkthrough or brief, when asked which reviews are waiting, or when a reviewer asks a question about the change under review."
+      description: "Read and write SprintEngine Studio code reviews through the review_* tools - list pending reviews, read a review's change set, read the current walkthrough, and submit a new one. Use when a chat is started as the Review guide for a review, when asked to prepare, refresh or re-run a review walkthrough or brief, when asked which reviews are waiting, or when a reviewer asks a question about the change under review."
     }
   ]);
-  host.onStartup(async () => {
-    for (const root of await openProjectRoots(host)) {
-      try {
-        const result = await host.ensureSkillInstalled(root, STUDIO_REVIEW_SKILL_ID);
-        if (!result.ok) {
-          console.warn(`[review] ${STUDIO_REVIEW_SKILL_ID} not installed in ${root}: ${result.status}`);
-        }
-      } catch (error) {
-        console.warn(`[review] ${STUDIO_REVIEW_SKILL_ID} install failed in ${root}:`, error);
-      }
-    }
-  });
 };
 async function openProjectRoots(host) {
   try {
@@ -2825,6 +2946,30 @@ async function openProjectRoots(host) {
     console.warn("[review] could not read the open workspaces:", error);
     return [];
   }
+}
+function lazyConversations(host) {
+  let service = null;
+  const resolve4 = () => {
+    if (service) return service;
+    if (!host.supports("conversations")) {
+      throw new Error("This version of SprintEngine Studio cannot run the guide as a chat.");
+    }
+    service = getConversationService(host);
+    return service;
+  };
+  return {
+    create: async (input) => resolve4().create(input),
+    send: async (ref, input) => resolve4().send(ref, input),
+    interrupt: async (ref) => resolve4().interrupt(ref),
+    subscribe: (ref, cb) => resolve4().subscribe(ref, cb),
+    list: (filter) => {
+      try {
+        return resolve4().list(filter);
+      } catch {
+        return [];
+      }
+    }
+  };
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {

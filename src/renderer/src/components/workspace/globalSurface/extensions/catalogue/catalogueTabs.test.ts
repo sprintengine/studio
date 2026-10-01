@@ -213,21 +213,6 @@ test('catalogueTabs', async () => {
     assert.equal(tabs[0].updateAvailable, false, 'Installed is not a source and cannot be behind one')
   })
 
-  run('Agent CLIs list the app’s catalogue alone', () => {
-    // A source's scan yields plugins, skills and MCP servers — never a CLI — so
-    // every added repository would be a tab that can only ever read "none".
-    const tabs = deriveCatalogueTabs({
-      kind: 'agent-clis',
-      sources: [APP, ACME, FOLDER],
-      installedCount: 2,
-      counts: { builtin: { status: 'ready', count: 12 } },
-    })
-    assert.deepEqual(
-      tabs.map((tab) => tab.id),
-      [INSTALLED_TAB_ID, STUDIO_SKILL_SOURCE_ID],
-    )
-  })
-
   run('a removed source does not leave the surface on a tab that is gone', () => {
     const tabs = deriveCatalogueTabs({ kind: 'skills', sources: [APP], installedCount: 0, counts: {} })
     assert.equal(
@@ -359,7 +344,7 @@ test('catalogueTabs', async () => {
 
   run('Installed takes a count only where a caller has one to give', () => {
     const tabs = deriveCatalogueTabs({
-      kind: 'agent-clis',
+      kind: 'plugins',
       sources: [APP],
       installedCount: null,
       counts: { [STUDIO_SKILL_SOURCE_ID]: { status: 'ready', count: 10 } },

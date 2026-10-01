@@ -78,6 +78,20 @@ export const COMMAND_REGISTRY = [
     defaultKeybindings: ['Primary+N'],
     handlerPath: { kind: 'workspace-manager', handler: 'openNewChatPanel()' },
   }),
+  command({
+    id: 'chat.newConversation',
+    title: 'New Conversation',
+    category: 'workspace',
+    scopes: ['global'],
+    handlerPath: { kind: 'workspace-manager', handler: 'openNewChatPanel(undefined, null, { kind: "conversation" })' },
+  }),
+  command({
+    id: 'chat.newTerminalAgent',
+    title: 'New Terminal Agent',
+    category: 'workspace',
+    scopes: ['global'],
+    handlerPath: { kind: 'workspace-manager', handler: 'openNewChatPanel(undefined, null, { kind: "general" })' },
+  }),
   // The chat composer's model picker (remote-sessions-ux / selector-menus-
   // premium). Works from inside the
   // composer's textarea — that is where a person is when they want to change
@@ -93,6 +107,65 @@ export const COMMAND_REGISTRY = [
     availability: ['activeWorkspace'],
     allowInEditableTarget: true,
     handlerPath: { kind: 'panel-event', eventId: 'chat.modelPicker.toggle' },
+  }),
+  command({
+    id: 'chat.effort.cycle',
+    title: 'Cycle reasoning effort',
+    category: 'panel',
+    scopes: ['workspace'],
+    defaultKeybindings: [],
+    availability: ['activeWorkspace'],
+    allowInEditableTarget: true,
+    handlerPath: { kind: 'panel-event', eventId: 'chat.effort.cycle' },
+  }),
+  // Resume in terminal: the focused chat's conversation carried on by a
+  // terminal agent running the CLI's own resume.
+  command({
+    id: 'chat.resumeInTerminal',
+    title: 'Continue Chat in Terminal',
+    category: 'panel',
+    scopes: ['workspace'],
+    defaultKeybindings: [],
+    availability: ['activeWorkspace'],
+    handlerPath: { kind: 'panel-event', eventId: 'chat.resumeInTerminal' },
+  }),
+  // Step through a conversation one prompt at a time — the chat's reading of
+  // what `terminal.promptPrevious` / `terminal.promptNext` do in a shell, so it
+  // takes the same chords. The terminal's pair sits on the more specific
+  // `terminal` scope and wins inside a terminal; here, in an editable target
+  // (the composer), ⌘⇧↑/↓ stays the text field's select-to-start/end.
+  command({
+    id: 'chat.turn.previous',
+    title: 'Jump to Previous Turn',
+    category: 'panel',
+    scopes: ['workspace'],
+    defaultKeybindings: ['Primary+Shift+ArrowUp'],
+    availability: ['activeWorkspace'],
+    handlerPath: { kind: 'panel-event', eventId: 'chat.turn.previous' },
+  }),
+  command({
+    id: 'chat.turn.next',
+    title: 'Jump to Next Turn',
+    category: 'panel',
+    scopes: ['workspace'],
+    defaultKeybindings: ['Primary+Shift+ArrowDown'],
+    availability: ['activeWorkspace'],
+    handlerPath: { kind: 'panel-event', eventId: 'chat.turn.next' },
+  }),
+  // Quote what is selected in a conversation's transcript into its composer,
+  // as the selection toolbar's Quote does. `>` is markdown's quote marker and
+  // what the chord inserts, and on a US layout ⌘⇧. is ⌘> — the physical key is
+  // what the dispatcher matches, so the chord is written unshifted. Outside
+  // editable targets only: the selection it acts on is in the transcript, and
+  // focus is there with it.
+  command({
+    id: 'chat.quoteSelection',
+    title: 'Quote Selection in Reply',
+    category: 'panel',
+    scopes: ['workspace'],
+    defaultKeybindings: ['Primary+Shift+.'],
+    availability: ['activeWorkspace'],
+    handlerPath: { kind: 'panel-event', eventId: 'chat.quoteSelection' },
   }),
   command({
     id: 'workspace.close',
@@ -287,6 +360,17 @@ export const COMMAND_REGISTRY = [
     defaultKeybindings: ['Primary+Shift+G'],
     availability: ['activeWorkspace'],
     handlerPath: { kind: 'app-menu', command: 'panel.git.toggle' },
+  }),
+  // The Agents list is a pane tab like Git: showing → close it, behind → bring
+  // it forward, absent → open it. Unbound, like Canvas; the palette, the pane's
+  // "+" menu and a chat's own agent lanes open it.
+  command({
+    id: 'panel.agents.toggle',
+    title: 'Toggle Agents',
+    category: 'panel',
+    scopes: ['workspace'],
+    availability: ['activeWorkspace'],
+    handlerPath: { kind: 'workspace-manager', handler: "togglePaneKind(windowActiveWorkspaceId, 'agents')" },
   }),
   // Canvas is a pane tab like Files and Git, so its toggle reads the same way:
   // showing → close it, present but behind → bring it forward, absent → open

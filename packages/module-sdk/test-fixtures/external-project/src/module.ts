@@ -1,21 +1,23 @@
 // An external author's module, compiled against the packed SDK tarball only.
 // Exercises the v1 surface: manifest shape, entry.main registration (IPC,
-// service token, sidecar, notification), and entry.renderer registration
-// (panel, workspace type, Backlog action, command, settings section).
+// service token, sidecar, notification, chat conversations, brokered
+// credentials), and entry.renderer registration (panel, workspace type,
+// Backlog action, command, settings section, opening a chat).
 
 import { createElement, lazy, useEffect, useState } from 'react'
 
 import {
+  HOST_API_VERSION,
+  checkHostApiCompatibility,
   createServiceToken,
-  getAutomationsService,
   getCompanionAgentsService,
+  getConversationService,
+  getGitHubService,
   getModuleStorage,
+  getScheduledAgentsService,
+  getSecretsService,
   hasFileDropData,
   readFileDropPayload,
-  registerAutomationAction,
-  registerAutomationTrigger,
-  type AutomationActionProvider,
-  type AutomationTriggerProvider,
   type BacklogItemAction,
   type FileAction,
   type NotificationActionProvider,
@@ -24,8 +26,8 @@ import {
   type GlobalSurfaceDefinition,
   type McpToolRegistration,
   type ModuleCommandDefinition,
+  type ModuleConversationEvent,
   type ModuleWorkspaceView,
-  type AgentIdNamespaceDefinition,
   type RegisterMain,
   type RegisterRenderer,
   type SidebarNavEntryDefinition,
@@ -49,51 +51,43 @@ export const manifest: CapabilityManifest = {
   summary: 'Forecast panel and quick-check command.',
   defaultEnabled: true,
   source: 'third-party',
+  engines: { hostApi: HOST_API_VERSION },
   permissions: [
     'network',
     'ipc:workspace-read',
     'ipc:invoke',
-    'ipc:agents',
-    'automations.manage',
+    'mcp:tools',
+    'scheduled-agents.manage',
     'backlog.read',
     'agents:companion',
+    'conversation:operate',
+    'secrets',
+    'github',
     'storage',
     'process:spawn',
   ],
-  dependsOn: ['automations', 'agent-runtime'],
+  dependsOn: ['scheduled-agents', 'agent-runtime'],
   entry: {
     main: 'dist/main.cjs',
     renderer: 'dist/renderer.mjs',
   },
 }
 
+// The same check the host runs before it loads the module.
+const hostApiCheck = checkHostApiCompatibility(manifest)
+if (!hostApiCheck.ok) throw new Error(`${hostApiCheck.code}: ${hostApiCheck.message}`)
+
 const forecastService = createServiceToken<{ refresh(): Promise<void> }>('weather-deck.forecast')
 
-const forecastTrigger: AutomationTriggerProvider = {
-  kind: 'weather-deck.forecast-ready',
-  label: 'Forecast ready',
-  glyph: 'clock',
-  summary: 'When a watched city forecast updates',
-  pairsWith: { actionKind: 'weather-deck.refresh-forecast', defaultDisableAfterRun: true },
-  configSchema: {
-    type: 'object',
-    properties: {
-      city: { type: 'string' },
-    },
-  },
-  subscribe: () => () => undefined,
-  poll: async () => ({
-    ok: true,
-    events: [],
-  }),
-}
-
-// An agent-reachable MCP tool on the Studio gateway (declares `ipc:agents`).
+// An agent-reachable MCP tool on the Studio gateway (declares `mcp:tools`).
 // Availability follows the module's enablement live: while Weather Deck is
-// disabled the tool stays listed and answers an actionable enable error.
+// disabled the tool stays listed and answers an actionable enable error. It
+// only reads, so it says so: an installed module's tool otherwise counts as
+// changing state.
 const forecastTool: McpToolRegistration = {
   name: 'weather_deck_forecast',
   description: 'Read the current forecast for a city.',
+  mutates: false,
   inputSchema: {
     type: 'object',
     properties: {
@@ -119,30 +113,20 @@ const forecastTool: McpToolRegistration = {
   },
 }
 
-const forecastAction: AutomationActionProvider = {
-  kind: 'weather-deck.refresh-forecast',
-  label: 'Refresh forecast',
-  glyph: 'clock',
-  summary: 'Pull the latest forecast for the watched city',
-  configSchema: {
-    type: 'object',
-    properties: {
-      city: { type: 'string' },
-    },
-  },
-  run: async (_config, context) => {
-    context.reportProgress({ summary: 'Forecast refresh started.' })
-    return { status: 'completed', summary: 'Forecast refreshed.' }
-  },
-}
-
 export const registerMain: RegisterMain = (host) => {
   host.provideService(forecastService, () => ({
     refresh: async () => undefined,
   }))
-  registerAutomationTrigger(host, forecastTrigger)
-  registerAutomationAction(host, forecastAction)
   host.registerMcpTools([forecastTool])
+  // The skill the forecaster chats and the scheduled refresh invoke.
+  host.registerSkills([
+    {
+      id: 'weather-deck-forecast',
+      sourceDir: 'skills/weather-deck-forecast',
+      targetPolicy: 'all-native',
+      description: 'Summarize the forecast for the workspace city.',
+    },
+  ])
   host.registerIpc('weather-deck:forecast', async (_event, city: unknown) => {
     if (typeof city !== 'string' || city.trim().length === 0) {
       throw new Error('weather-deck:forecast requires a city name.')
@@ -180,33 +164,30 @@ export const registerMain: RegisterMain = (host) => {
     if (!roundTrip.ok) throw new Error(`${roundTrip.code}: ${roundTrip.message}`)
     return { found: roundTrip.found, value: roundTrip.value }
   })
-  // Owned-automation CRUD through the scoped service. Idempotent via the fixed
-  // id: a second call finds the existing record in list() and skips creation.
-  host.registerIpc('weather-deck:setup-refresh-automation', async (_event, workspaceRoot: unknown) => {
-    if (typeof workspaceRoot !== 'string' || workspaceRoot.trim().length === 0) {
-      throw new Error('weather-deck:setup-refresh-automation requires a workspace root.')
+  // A scheduled agent the module owns, through the scoped service: a morning
+  // chat that refreshes the forecast notes with the module's skill. Idempotent:
+  // a second call finds the one it made in list() and makes no other.
+  host.registerIpc('weather-deck:schedule-refresh', async (_event, folderPath: unknown) => {
+    if (typeof folderPath !== 'string' || folderPath.trim().length === 0) {
+      throw new Error('weather-deck:schedule-refresh requires a project folder.')
     }
-    const automations = getAutomationsService(host)
-    const existing = await automations.list({ workspaceRoot })
-    if (!existing.ok) throw new Error(`${existing.code}: ${existing.message}`)
-    if (existing.automations.some((definition) => definition.id === 'weather-deck-refresh')) {
-      return { created: false }
-    }
-    const created = await automations.create({
-      workspaceRoot,
-      draft: {
-        id: 'weather-deck-refresh',
-        name: 'Weather Deck: refresh forecast',
-        status: 'paused',
-        trigger: {
-          kind: 'schedule',
-          config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '09:00' }, timezone: 'UTC' },
-        },
-        action: { kind: 'weather-deck.refresh-forecast', config: { city: 'Dublin' } },
-      },
+    const scheduled = getScheduledAgentsService(host)
+    const existing = (await scheduled.list()).find((agent) => agent.folderPath === folderPath)
+    if (existing) return { created: false, id: existing.id }
+    const created = await scheduled.create({
+      prompt: 'Refresh the forecast notes for the watched city.',
+      schedule: { cron: '0 9 * * *', timezone: 'UTC' },
+      folderPath,
+      hostId: null,
+      cli: 'claude-code',
+      cliModel: 'sonnet',
+      permissionPreset: null,
+      skills: [{ id: 'weather-deck-forecast', name: 'Weather Deck forecast' }],
+      mcpServers: [],
+      worktree: null,
     })
-    if (!created.ok) throw new Error(`${created.code}: ${created.message}`)
-    return { created: true, automationId: created.automation.id }
+    if (!created.ok) throw new Error(created.message)
+    return { created: true, id: created.agent.id }
   })
   // Cross-surface briefing (seam proof): ONE channel that composes workspace
   // context resolution with a scoped storage round-trip — the resolved view's
@@ -270,12 +251,66 @@ export const registerMain: RegisterMain = (host) => {
     return outlook
   })
   host.registerIpc('weather-deck:read-outlook', async () => ({ city: 'Dublin', summary: 'clear', refreshedAt: 0 }))
+  // A chat conversation this module starts and drives: create, follow its
+  // events, send a steer, read the transcript back. Only this module's own
+  // conversations are reachable; the host says whether chats exist at all.
+  host.registerIpc('weather-deck:ask-forecaster', async (_event, workspaceId: unknown) => {
+    if (typeof workspaceId !== 'string' || workspaceId.trim().length === 0) {
+      throw new Error('weather-deck:ask-forecaster requires a workspace id.')
+    }
+    if (!host.supports('conversations')) return { ok: false as const, reason: 'chats are unavailable' }
+    const conversations = getConversationService(host)
+    const created = await conversations.create({
+      workspaceId,
+      prompt: "Summarize today's forecast for the workspace city.",
+      skills: ['weather-deck-forecast'],
+      name: 'Forecaster',
+    })
+    if (!created.ok) return { ok: false as const, reason: `${created.code}: ${created.message}` }
+    const ref = { workspaceId, agentId: created.conversation.agentId }
+    const seen: ModuleConversationEvent[] = []
+    const off = conversations.subscribe(ref, (event) => {
+      seen.push(event)
+      if (event.type === 'approval_requested' && typeof event.payload?.requestId === 'string') {
+        void conversations.respondToApproval(ref, { requestId: event.payload.requestId, approved: false })
+      }
+    })
+    const steered = await conversations.send(ref, { message: 'Keep it to one line.', steer: true })
+    if (!steered.ok && steered.code === 'not_owned') throw new Error(steered.message)
+    const transcript = await conversations.transcript(ref)
+    off()
+    return {
+      ok: true as const,
+      sessionId: created.conversation.sessionId,
+      events: transcript.ok ? transcript.events.length : seen.length,
+      open: conversations.list({ workspaceId }).length,
+    }
+  })
+  // Brokered credentials: the forecast API key goes to the one origin it was
+  // stored for, and the GitHub call rides the user's sign-in. Neither the key
+  // nor the token is ever in this module's hands.
+  host.registerIpc('weather-deck:save-api-key', async (_event, key: unknown) => {
+    if (typeof key !== 'string' || key.length === 0) throw new Error('weather-deck:save-api-key requires a key.')
+    return getSecretsService(host).set('forecast-api', key, { allowedOrigins: ['https://api.example.com'] })
+  })
+  host.registerIpc('weather-deck:fetch-forecast', async (_event, city: unknown) => {
+    const secrets = getSecretsService(host)
+    if (!(await secrets.has('forecast-api'))) return { ok: false as const, code: 'not_set' as const }
+    const response = await secrets.fetchWithSecret(
+      'forecast-api',
+      `https://api.example.com/forecast?city=${encodeURIComponent(String(city))}`,
+      { placement: { header: 'Authorization', scheme: 'Bearer' }, timeoutMs: 10_000 },
+    )
+    return response.ok ? { ok: true as const, body: response.body } : { ok: false as const, code: response.code }
+  })
+  host.registerIpc('weather-deck:forecast-issues', async () => {
+    const github = getGitHubService(host)
+    const status = await github.status()
+    if (!status.signedIn) return 0
+    const issues = await github.request({ route: '/repos/acme/weather/issues', params: { state: 'open' } })
+    return issues.ok && Array.isArray(issues.data) ? issues.data.length : 0
+  })
   host.registerSidecar({ id: 'weather-deck-poller', kind: 'process', description: 'Background forecast poller.' })
-  host.registerLaunchContribution((launch) => ({
-    env: { WEATHER_DECK_ROOT: launch.workspaceRoot },
-    pathEntries: ['/Users/dev/weather-deck/bin'],
-    hostContext: [{ heading: 'Weather Deck', body: 'Forecasts are available via weather_deck_forecast.' }],
-  }))
   host.onStartup(() => {
     host.notify({ severity: 'info', title: 'Weather Deck ready' })
   })
@@ -291,7 +326,7 @@ function createForecastPanel(host: Parameters<RegisterRenderer>[0]): WorkspacePa
     const [backlogCount, setBacklogCount] = useState<number | null>(null)
     const [backlogUnavailable, setBacklogUnavailable] = useState(false)
     const [workspace, setWorkspace] = useState<ModuleWorkspaceView | null>(null)
-    const [liveAgents, setLiveAgents] = useState(0)
+    const [chatRuntimes, setChatRuntimes] = useState(0)
     const [briefingCount, setBriefingCount] = useState(0)
     const [outlook, setOutlook] = useState<string | null>(null)
     useEffect(() => {
@@ -367,17 +402,12 @@ function createForecastPanel(host: Parameters<RegisterRenderer>[0]): WorkspacePa
       }
     }, [workspaceId])
     useEffect(() => {
-      // Live runtime surfaces: session observation (snapshot + change) and a
-      // workspace-relative file watch — resolved against the effective
+      // Live runtime surfaces: the chat runtimes a forecaster could run on,
+      // and a workspace-relative file watch — resolved against the effective
       // working root (getWorkingRoot), so a worktree-backed workspace
-      // watches the worktree — both torn down on unmount.
-      let offSessions: (() => void) | undefined
-      try {
-        offSessions = host.watchAgentSessions(workspaceId, (sessions) => {
-          setLiveAgents(sessions.filter((session) => session.isLive).length)
-        })
-      } catch {
-        // Session source unavailable (early boot, module disabled) — stay 0.
+      // watches the worktree — torn down on unmount.
+      if (host.supports('chat.open')) {
+        setChatRuntimes(host.listChatRuntimes().filter((runtime) => runtime.available).length)
       }
       void host.getWorkingRoot(workspaceId).catch(() => null)
       let offFile: (() => void) | undefined
@@ -388,7 +418,6 @@ function createForecastPanel(host: Parameters<RegisterRenderer>[0]): WorkspacePa
         })
         .catch(() => undefined)
       return () => {
-        offSessions?.()
         offFile?.()
       }
     }, [workspaceId])
@@ -466,7 +495,7 @@ function createForecastPanel(host: Parameters<RegisterRenderer>[0]): WorkspacePa
         ? 'Backlog unavailable'
         : backlogCount === null
           ? 'Loading backlog…'
-          : `${backlogCount} backlog items${workspace?.folderPath ? ` in ${workspace.folderPath}` : ''} · ${liveAgents} live agents · briefing #${briefingCount}${outlook ? ` · ${outlook}` : ''}`,
+          : `${backlogCount} backlog items${workspace?.folderPath ? ` in ${workspace.folderPath}` : ''} · ${chatRuntimes} chat runtimes · briefing #${briefingCount}${outlook ? ` · ${outlook}` : ''}`,
     )
   }
 }
@@ -635,14 +664,6 @@ function quickCheck(host: Parameters<RegisterRenderer>[0]): ModuleCommandDefinit
 // (registerTopBarItem, below). The door and its surface share an id;
 // the surface is lazy, proving the published Component type accepts
 // React.lazy() the same way SidebarNavEntryComponent does.
-// The agent ids this module owns. Its forecaster agents are spawned
-// outside any window's knowledge, so no workspace row claims their sessions; the
-// prefix is how the shell knows whose they are and what to call them.
-const forecasterAgents: AgentIdNamespaceDefinition = {
-  prefix: 'weather-deck-forecaster-',
-  label: 'Weather Deck',
-}
-
 const outlookDoor: SidebarNavEntryDefinition = {
   id: 'weather-deck-outlook',
   order: 71,
@@ -658,7 +679,6 @@ const outlookSurface: GlobalSurfaceDefinition = {
 }
 
 export const registerRenderer: RegisterRenderer = (host) => {
-  host.registerAgentIdNamespace(forecasterAgents)
   host.registerSidebarNavEntry(outlookDoor)
   host.registerGlobalSurface(outlookSurface)
   host.registerPanel('weather-deck.forecast', createForecastPanel(host))
@@ -675,22 +695,27 @@ export const registerRenderer: RegisterRenderer = (host) => {
     subscribe: () => () => undefined,
   } satisfies DoorBadgeContribution)
   host.registerCommand(quickCheck(host))
-  // Agent spawn through the app's SHARED session runtime; structured result,
-  // runtime picked from the published availability-filtered catalog.
+  // Open a chat with the prompt as a draft the user reads and sends; the
+  // runtime is the user's last choice when it is available on this machine.
   host.registerCommand({
-    id: 'spawn.forecaster',
-    title: 'Weather: Spawn forecaster agent',
+    id: 'open.forecaster',
+    title: 'Weather: Ask the forecaster',
     category: 'Weather Deck',
     scopes: ['panel:weather-deck'],
     run: async () => {
-      const runtimes = host.listAgentRuntimes()
-      const result = await host.spawnAgent({
+      const runtime = host.listChatRuntimes().find((option) => option.lastSelected && option.available)
+      const result = await host.openChat({
         workspaceId: 'active',
-        name: 'Forecaster',
-        cli: runtimes[0]?.id,
+        cli: runtime?.id,
+        model: runtime?.models[0]?.id,
         prompt: "Summarize today's forecast for the workspace city.",
+        skills: ['weather-deck-forecast'],
       })
-      if (!result.ok) console.error('[weather-deck] spawn failed:', result.code, result.message)
+      if (!result.ok) {
+        console.error('[weather-deck] open chat failed:', result.code, result.message)
+        return
+      }
+      host.focusTab({ workspaceId: 'active', kind: 'chat', id: result.agentId })
     },
   })
   // Workspace-gated command: `panel:weather-deck` is derived by the shell

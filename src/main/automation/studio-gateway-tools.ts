@@ -1,8 +1,14 @@
 import { BROWSER_MUTATION_TOOL_NAMES } from './browser-tools'
 import { CANVAS_MUTATION_TOOL_NAMES } from './canvas-tools'
+import { EDITOR_MUTATION_TOOL_NAMES } from './editor-tools'
 import type { McpToolContribution } from '../module-host/main-host'
+import { CONVERSATION_MUTATION_TOOL_NAMES } from './conversation-tools'
+import { CONVERSATION_COMMAND_TOOL_NAMES } from './tailnet/tailnet-conversation-stream'
 import { TAILNET_MUTATION_TOOL_NAMES } from './tailnet/tailnet-tools'
-import { toolError, type McpToolRegistration } from '../../shared/modules/mcp-tools'
+import { TOUR_MUTATION_TOOL_NAMES } from './tour-tools'
+import type { CliPermissionPreset } from '../../shared/cli-permission-preset'
+import { toolError, type McpConnectionContext, type McpToolRegistration } from '../../shared/modules/mcp-tools'
+import { runAsModuleToolCall } from '../module-host/module-tool-caller'
 
 const APP_MUTATION_TOOLS = new Set([
   ...BROWSER_MUTATION_TOOL_NAMES,
@@ -11,28 +17,44 @@ const APP_MUTATION_TOOLS = new Set([
   // `canvas.describe`, `canvas.find`, `canvas.list` and `canvas.screenshot`
   // only look, and stay on the read scope.
   ...CANVAS_MUTATION_TOOL_NAMES,
+  // Putting a file or a diff in front of the person changes their screen, so
+  // `editor.open` and `editor.open_diff` are audited and need
+  // `workspace:operate` from a paired device. `editor.state` only looks.
+  ...EDITOR_MUTATION_TOOL_NAMES,
   'agent.launch',
-  'automation.create',
-  'automation.run',
+  'schedule.create',
+  'schedule.delete',
+  'schedule.run',
   'backlog.assign',
   'backlog.repair',
   'backlog.update',
   'backlog.work',
+  // A paired device's commands on a conversation socket: send, stop, answer,
+  // approve, change the permission preset or the model. They are not MCP tools, but they
+  // act on this machine for a remote device exactly as one does, so each
+  // attempt lands in the same audit with the device that made it.
+  ...CONVERSATION_COMMAND_TOOL_NAMES,
+  // Starting a chat on this machine, on the same `conversation:operate` grant
+  // as the commands above, and audited with the device that asked.
+  ...CONVERSATION_MUTATION_TOOL_NAMES,
   // Configuring who may drive this machine. Classified as mutations so every
   // one of them is audited — minting a pairing code is the most consequential
   // write on this surface. The tailnet listener never serves them at all
-  // (`isLocalOnlyGatewayTool`), so unlike every other entry here their scope
-  // mapping is never consulted.
+  // (`localOnlyGatewayToolReason`), so unlike every other entry here their
+  // scope mapping is never consulted.
   ...TAILNET_MUTATION_TOOL_NAMES,
-  // Opening a terminal on this machine. Classified here and nowhere
-  // else: the tailnet scope mapping reads this same classification, so being a
-  // mutation is what makes `terminal.create` require `terminal:control` rather
-  // than the watch-only `terminal:observe` — and what makes every attempt,
-  // including a refused one, land in the audit with the device that made it.
+  // Starting an agent terminal on this machine, the same act as `agent.launch`
+  // above, so it lands in the same audit. It is served on the local socket
+  // only (`localOnlyGatewayToolReason`); a paired device that asks anyway is
+  // refused, and being a mutation is what puts that attempt in the audit with
+  // the device that made it.
   'terminal.create',
+  // Diff tours: each one writes a tour file in the app's data folder, docks a
+  // tab in the person's window, or types a question into an agent's terminal
+  // on the owner's behalf. `tour.status` only reads.
+  ...TOUR_MUTATION_TOOL_NAMES,
   'workspace.create',
-  // The mobile companion's command envelope over the gateway
-  // (tailnet-mobile-transport). A mutation for both of its consequences: a
+  // The mobile companion's command envelope over the gateway. A mutation for both of its consequences: a
   // paired phone needs `workspace:operate` to drive it, and every dispatch —
   // including a refused one — lands in the audit with the device identity.
   // `workspace.snapshot` deliberately is NOT here: it is the phone's read
@@ -52,6 +74,12 @@ export function createStudioGatewayTools(options: {
   resolveModuleTools: () => ReadonlyArray<McpToolContribution>
   /** Live enablement of a contributing module; resolved per call, never captured. */
   isModuleEnabled: (moduleId: string) => boolean
+  /**
+   * The calling agent's launch ceiling (launch-permission-cap.ts), which a
+   * module tool's handler runs under: an agent the module starts during the
+   * call is held to it. Absent, module tools run uncapped.
+   */
+  callerPermissionCeiling?: (context: McpConnectionContext | undefined) => CliPermissionPreset | null
   warn?: (message: string) => void
 }): () => McpToolRegistration[] {
   const coreNames = new Set<string>()
@@ -85,7 +113,7 @@ export function createStudioGatewayTools(options: {
         continue
       }
       names.add(registration.name)
-      merged.push(gateOnModuleEnablement(contribution, options.isModuleEnabled))
+      merged.push(gateOnModuleEnablement(contribution, options.isModuleEnabled, options.callerPermissionCeiling))
     }
     return merged
   }
@@ -95,16 +123,22 @@ export function createStudioGatewayTools(options: {
 // tool keeps being advertised so an agent learns the capability exists, and a
 // call while the owner is disabled answers one plain, actionable sentence as a
 // normal MCP tool result — never a protocol error, never the orphaned handler.
+//
+// An enabled module's handler runs as its caller (module-tool-caller.ts), so a
+// chat it starts for a capped agent is no looser than that agent.
 function gateOnModuleEnablement(
   contribution: McpToolContribution,
   isModuleEnabled: (moduleId: string) => boolean,
+  callerPermissionCeiling: ((context: McpConnectionContext | undefined) => CliPermissionPreset | null) | undefined,
 ): McpToolRegistration {
   const { moduleId, moduleDisplayName, registration } = contribution
   return {
     ...registration,
     handler: async (args, context) =>
       isModuleEnabled(moduleId)
-        ? registration.handler(args, context)
+        ? runAsModuleToolCall({ permissionCeiling: callerPermissionCeiling?.(context) ?? null }, () =>
+            registration.handler(args, context),
+          )
         : toolError(
             `${moduleId}_module_disabled`,
             `The ${moduleDisplayName} module is disabled. Enable it in Settings → Modules to use ${moduleId} tools.`,

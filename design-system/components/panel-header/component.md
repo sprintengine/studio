@@ -65,8 +65,9 @@ both — two counts that could disagree are the defect the principles name.
 panel, using the consumer's identity color channel (`--ds-panel-header-identity`
 — the app supplies its per-tool value; there is no `sem.*` token for tool
 identity, deliberately). It never pulses, never changes tone, and the rest of
-the panel stays accent-neutral around it. Status belongs to rows and status
-dots, not to the header.
+the panel stays accent-neutral around it. Status belongs to rows and their
+status marks, not to the header — and a status is never a dot (owner ruling
+2026-09-28), which is what keeps this one reading as identity.
 
 **The progress hairline is earned.** Attach it only when the panel has a
 canonical completion metric (done of total). It is not decoration, not a

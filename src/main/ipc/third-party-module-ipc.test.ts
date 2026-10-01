@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 
+import { HOST_API_VERSION } from '../../shared/modules/host-api'
 import type { CapabilityManifest } from '../../shared/modules/manifest'
 import {
   readThirdPartyMainLaunchSnapshot,
@@ -16,6 +17,7 @@ test('third-party-module-ipc', async () => {
     testExpectedToLoadUsesEnablementOverrides()
     testCurrentBlockedStateWinsOverStaleLaunchError()
     testLaunchErrorsAreSanitized()
+    testHostApiMismatchIsSaidBeforeTrust()
 
     console.log('third-party-module-ipc tests passed')
   }
@@ -177,11 +179,42 @@ test('third-party-module-ipc', async () => {
     )
   }
 
+  // A module built for a host API this app does not provide loads neither
+  // entry, and trusting it would not help: the row says why, even for a
+  // trusted renderer-only module, whose renderer line alone used to say nothing.
+  function testHostApiMismatchIsSaidBeforeTrust(): void {
+    const snapshot: ThirdPartyMainLaunchSnapshot = { loaded: new Set(), manifestOnly: new Set(), errors: new Map() }
+    const tooNew = toThirdPartyModuleView(
+      installedModule({ id: 'future', trust: 'trusted', main: 'main.cjs', hostApi: HOST_API_VERSION + 1 }),
+      snapshot,
+    ).launch
+    assert.equal(tooNew.status, 'blocked_host_api')
+    assert.equal(tooNew.expectedToLoad, false)
+    assert.match(tooNew.message ?? '', /host API/i)
+
+    const rendererOnly = installedModule({ id: 'renderer-only', trust: 'trusted', hostApi: HOST_API_VERSION + 1 })
+    rendererOnly.manifest.entry = { renderer: 'dist/renderer.mjs' }
+    assert.equal(toThirdPartyModuleView(rendererOnly, snapshot).launch.status, 'blocked_host_api')
+
+    // An unsigned one still says it is built for another host API: trusting
+    // it is not the step that would make it load.
+    assert.equal(
+      toThirdPartyModuleView(installedModule({ id: 'u', trust: 'unsigned', hostApi: 0 }), snapshot).launch.status,
+      'blocked_host_api',
+    )
+    // A tampered module keeps its own, louder, reason.
+    assert.equal(
+      toThirdPartyModuleView(installedModule({ id: 'bad', trust: 'invalid', hostApi: 99 }), snapshot).launch.status,
+      'blocked_invalid',
+    )
+  }
+
   function installedModule(options: {
     id: string
     trust: InstalledModule['trust']['status']
     main?: string
     defaultEnabled?: boolean
+    hostApi?: number
   }): InstalledModule {
     const manifest: CapabilityManifest = {
       id: options.id,
@@ -189,6 +222,7 @@ test('third-party-module-ipc', async () => {
       version: 1,
       defaultEnabled: options.defaultEnabled ?? true,
       source: 'third-party',
+      engines: { hostApi: options.hostApi ?? HOST_API_VERSION },
     }
     if (options.main) manifest.entry = { main: options.main }
     return {

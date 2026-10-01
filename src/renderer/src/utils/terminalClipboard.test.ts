@@ -39,10 +39,13 @@ test('terminalClipboard', async () => {
 
     const dispose = bindTerminalClipboardHandlers({
       container,
-      sessionId: 'terminal-test',
       focusTerminal: () => {},
       recordKeydown: () => {},
       term: {
+        // Text reaches the pane through xterm, which brackets it (see pasteText).
+        paste: (text: string) => {
+          writes.push(text)
+        },
         getSelection: () => selection,
         hasSelection: () => Boolean(selection),
         clearSelection: () => {
@@ -95,10 +98,12 @@ test('terminalClipboard', async () => {
 
     const dispose = bindTerminalClipboardHandlers({
       container,
-      sessionId: 'terminal-test',
       focusTerminal: () => {},
       recordKeydown: () => {},
       term: {
+        paste: () => {
+          writes += 1
+        },
         getSelection: () => selection,
         hasSelection: () => Boolean(selection),
         clearSelection: () => {
@@ -139,10 +144,13 @@ test('terminalClipboard', async () => {
 
     const dispose = bindTerminalClipboardHandlers({
       container,
-      sessionId: 'terminal-test',
       focusTerminal: () => {},
       recordKeydown: () => {},
       term: {
+        // Text reaches the pane through xterm, which brackets it (see pasteText).
+        paste: (text: string) => {
+          writes.push(text)
+        },
         getSelection: () => '',
         hasSelection: () => false,
         clearSelection: () => {},
@@ -182,10 +190,13 @@ test('terminalClipboard', async () => {
 
     const dispose = bindTerminalClipboardHandlers({
       container,
-      sessionId: 'terminal-test',
       focusTerminal: () => {},
       recordKeydown: () => {},
       term: {
+        // Text reaches the pane through xterm, which brackets it (see pasteText).
+        paste: (text: string) => {
+          writes.push(text)
+        },
         getSelection: () => 'stale selection',
         hasSelection: () => true,
         clearSelection: () => {
@@ -237,10 +248,13 @@ test('terminalClipboard', async () => {
 
     const dispose = bindTerminalClipboardHandlers({
       container,
-      sessionId: 'terminal-test',
       focusTerminal: () => {},
       recordKeydown: () => {},
       term: {
+        // Text reaches the pane through xterm, which brackets it (see pasteText).
+        paste: (text: string) => {
+          writes.push(text)
+        },
         getSelection: () => selection,
         hasSelection: () => Boolean(selection),
         clearSelection: () => {
@@ -274,10 +288,13 @@ test('terminalClipboard', async () => {
   }
 
   // An image-only clipboard has no text to send, so Ctrl+V used to do nothing in
-  // a Claude Code pane on Windows. It now sends the CLI's own image-paste key.
+  // a Claude Code pane on Windows. It now sends the CLI's own image-paste key,
+  // as typed input through xterm — the pane's own input path, so a paused agent
+  // resumes on it — never straight to the pty.
   async function testImageOnlyPasteSendsTheCliImagePasteKey(): Promise<void> {
     const container = new EventTarget() as HTMLElement
     const writes: string[] = []
+    const ptyWrites: string[] = []
 
     Object.defineProperty(globalThis, 'window', {
       configurable: true,
@@ -286,7 +303,7 @@ test('terminalClipboard', async () => {
           clipboardWriteText: async () => {},
           clipboardReadText: async () => '',
           terminalWrite: async (_sessionId: string, text: string) => {
-            writes.push(text)
+            ptyWrites.push(text)
           },
         },
       },
@@ -295,9 +312,18 @@ test('terminalClipboard', async () => {
     let key: string | null = 'v'
     const dispose = bindTerminalClipboardHandlers({
       container,
-      sessionId: 'terminal-test',
       focusTerminal: () => {},
-      term: { getSelection: () => '', clearSelection: () => {} } as any,
+      term: {
+        getSelection: () => '',
+        clearSelection: () => {},
+        paste: (text: string) => {
+          writes.push(text)
+        },
+        input: (data: string, wasUserInput?: boolean) => {
+          assert.equal(wasUserInput, true, 'the key counts as the user typing it')
+          writes.push(data)
+        },
+      } as any,
       imagePasteKey: () => key,
     })
 
@@ -305,6 +331,7 @@ test('terminalClipboard', async () => {
     container.dispatchEvent(imagePaste)
     assert.equal(imagePaste.defaultPrevented, true)
     assert.deepEqual(writes, ['v'])
+    assert.deepEqual(ptyWrites, [], 'nothing reaches the pty around xterm')
 
     // Text on the clipboard still pastes as text, image or not.
     container.dispatchEvent(pasteEvent({ text: 'words', imageType: 'image/png' }))
@@ -339,4 +366,90 @@ test('terminalClipboard', async () => {
     .then(testClaudeImagePasteKeyIsNativeWindowsClaudeOnly)
 
   await suiteRun
+})
+
+// Text pastes through xterm's own `paste`, which converts newlines and adds
+// the bracketed-paste markers when the CLI in the pane has asked for them.
+// Writing the text to the pty directly skipped both, so an agent CLI read a
+// multi-line paste as keystrokes and submitted at the first newline.
+test('pasted text goes through xterm, never straight to the pty', async () => {
+  const container = new EventTarget() as HTMLElement
+  const pasted: string[] = []
+  const ptyWrites: string[] = []
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      api: {
+        clipboardWriteText: async () => {},
+        clipboardReadText: async () => '',
+        terminalWrite: async (_sessionId: string, text: string) => {
+          ptyWrites.push(text)
+        },
+      },
+    },
+  })
+  const dispose = bindTerminalClipboardHandlers({
+    container,
+    focusTerminal: () => {},
+    term: {
+      getSelection: () => '',
+      clearSelection: () => {},
+      paste: (text: string) => {
+        pasted.push(text)
+      },
+    } as never,
+  })
+  const event = new Event('paste', { bubbles: true, cancelable: true }) as ClipboardEvent
+  Object.defineProperty(event, 'clipboardData', {
+    value: { getData: (type: string) => (type === 'text/plain' ? 'line one\nline two\r\n' : ''), items: [] },
+  })
+  container.dispatchEvent(event)
+  await Promise.resolve()
+
+  assert.equal(event.defaultPrevented, true)
+  assert.deepEqual(pasted, ['line one\nline two\r\n'], 'handed to xterm as the clipboard holds it')
+  assert.deepEqual(ptyWrites, [], 'nothing reaches the pty around xterm')
+  dispose()
+})
+
+// A pane that holds pastes for a while (a paused agent resuming) passes its
+// own paste, and every paste reaches it — including the one xterm would
+// otherwise take from its own textarea, which this listener gets to first.
+test('a pane paste override receives the paste instead of xterm', async () => {
+  const container = new EventTarget() as HTMLElement
+  const overridden: string[] = []
+  const pasted: string[] = []
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: { api: { clipboardWriteText: async () => {}, clipboardReadText: async () => '' } },
+  })
+  const dispose = bindTerminalClipboardHandlers({
+    container,
+    focusTerminal: () => {},
+    paste: (text) => overridden.push(text),
+    term: {
+      getSelection: () => '',
+      clearSelection: () => {},
+      paste: (text: string) => {
+        pasted.push(text)
+      },
+    } as never,
+  })
+  const event = new Event('paste', { bubbles: true, cancelable: true }) as ClipboardEvent
+  Object.defineProperty(event, 'clipboardData', {
+    value: { getData: (type: string) => (type === 'text/plain' ? 'held text' : ''), items: [] },
+  })
+  let propagated = true
+  const stop = event.stopPropagation.bind(event)
+  event.stopPropagation = () => {
+    propagated = false
+    stop()
+  }
+  container.dispatchEvent(event)
+  await Promise.resolve()
+
+  assert.deepEqual(overridden, ['held text'])
+  assert.deepEqual(pasted, [], 'xterm is not handed the paste as well')
+  assert.equal(propagated, false, 'the event does not go on to the textarea xterm pastes from')
+  dispose()
 })

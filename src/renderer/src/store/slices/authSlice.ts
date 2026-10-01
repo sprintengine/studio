@@ -5,12 +5,8 @@ export const defaultAuthState = (): SprintEngineAuthState => ({
   authenticated: false,
   user: null,
   selectedOrganization: null,
-  entitlements: null,
   status: 'checking',
-  entitlementStatus: 'missing',
   message: null,
-  lastRefreshAt: null,
-  graceExpiresAt: null,
 })
 
 interface AuthSliceState {

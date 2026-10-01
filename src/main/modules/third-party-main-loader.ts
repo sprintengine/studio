@@ -1,10 +1,10 @@
 import { createRequire } from 'node:module'
 
-import type { ModuleResolutionErrorCode } from '../../shared/modules/manifest'
+import type { ModuleFileDigests, ModuleResolutionErrorCode } from '../../shared/modules/manifest'
 import type { CapabilityModule, MainModuleLoadError, MainModuleLoadReport } from '../module-host/load-modules'
 import type { MainHost } from '../module-host/main-host'
 import { resolveContainedEntry, sanitizeEntryMessage } from './entry-containment'
-import { isLoadEligible } from './module-signature'
+import { isLoadEligible, moduleFileDigestIssuesSync } from './module-signature'
 import type { InstalledModule, ModuleRejection } from './user-module-registry'
 
 type ThirdPartyMainLoadDiagnostics = {
@@ -97,31 +97,56 @@ function createThirdPartyMainModule(installed: InstalledModule): CapabilityModul
     return { manifest: installed.manifest }
   }
 
+  const verifiedFiles = installed.trust.verifiedFiles
   return {
     manifest: installed.manifest,
-    registerMain: (host) => {
-      loadTrustedEntry(installed.moduleRoot, entryMain, host)
-    },
+    registerMain: (host) => loadTrustedEntry(installed.moduleRoot, entryMain, verifiedFiles, host),
   }
 }
 
-function loadTrustedEntry(moduleRoot: string, entryMain: string, host: MainHost): void {
+// Trust was decided over the files as discovery found them, and registerMain
+// runs later. The whole module folder is held to those digests again here,
+// synchronously and immediately before require(), so a file swapped in between
+// — the entry or anything it loads from its own folder — is refused rather
+// than run. require() reads the entry from disk once more after this check;
+// loading from the very bytes hashed would mean compiling through Node's
+// private module internals, so the window left is the one between this
+// synchronous check and require's own read, in the same tick.
+function loadTrustedEntry(
+  moduleRoot: string,
+  entryMain: string,
+  verifiedFiles: ModuleFileDigests | undefined,
+  host: MainHost,
+): void | Promise<void> {
   const entryPath = resolveContainedEntry(moduleRoot, entryMain, 'entry.main')
+  if (!verifiedFiles || verifiedFiles[entryMain] === undefined) {
+    throw new Error('entry.main is not among the module files that were verified.')
+  }
+  const changed = moduleFileDigestIssuesSync(moduleRoot, verifiedFiles, { label: 'digests verified at discovery' })
+  if (changed.length > 0) {
+    throw new Error(
+      `Module files changed after they were verified, so entry.main was not loaded: ${changed
+        .map((issue) => `${issue.path}: ${issue.message}`)
+        .join('; ')}`,
+    )
+  }
   const entryModule = createRequire(`${entryPath}.loader.cjs`)(entryPath) as ThirdPartyMainExport
   const registerMain = resolveRegisterMain(entryModule)
-  registerMain(host)
+  // Returned, not dropped: an async registerMain's promise is what the loader
+  // races against its timeout.
+  return registerMain(host)
 }
 
-function resolveRegisterMain(entryModule: ThirdPartyMainExport): (host: MainHost) => void {
+function resolveRegisterMain(entryModule: ThirdPartyMainExport): (host: MainHost) => void | Promise<void> {
   if (typeof entryModule.registerMain === 'function') {
-    return entryModule.registerMain as (host: MainHost) => void
+    return entryModule.registerMain as (host: MainHost) => void | Promise<void>
   }
   if (
     entryModule.default &&
     typeof entryModule.default === 'object' &&
     typeof (entryModule.default as { registerMain?: unknown }).registerMain === 'function'
   ) {
-    return (entryModule.default as { registerMain: (host: MainHost) => void }).registerMain
+    return (entryModule.default as { registerMain: (host: MainHost) => void | Promise<void> }).registerMain
   }
   throw new Error('entry.main must export a callable registerMain(host).')
 }

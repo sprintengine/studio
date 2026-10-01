@@ -269,27 +269,6 @@ export function addAgentTabTiled(
   const model = models.get(workspaceId)
   if (!model) return false
 
-  // Single-surface control layouts (the Automations control center): agent
-  // terminals must never stack into the control panel's tabset.
-  // Share a right-hand "terminals" tabset with plain terminals when one exists;
-  // otherwise dock a fresh tabset on the right edge of the root so the control
-  // panel keeps its real estate and "Open agent" reveals the agent on the right.
-  if (modelDocksAgentsRight(model)) {
-    const terminalHost = firstTerminalLikeTabset(model)
-    if (terminalHost) {
-      model.doAction(
-        Actions.addNode(agentTabNode(agentId, name, config), terminalHost.getId(), DockLocation.CENTER, -1, select),
-      )
-      window.setTimeout(() => clearAgentSpawnFlash(model, agentId), AGENT_TAB_SPAWN_FLASH_CLEAR_MS)
-      return true
-    }
-    model.doAction(
-      Actions.addNode(agentTabNode(agentId, name, config), rootRowId(model), DockLocation.RIGHT, -1, select),
-    )
-    window.setTimeout(() => clearAgentSpawnFlash(model, agentId), AGENT_TAB_SPAWN_FLASH_CLEAR_MS)
-    return true
-  }
-
   // Tile beside real content, never inside the sidebar's nav pane. With only the
   // nav pane present, dock a fresh agent column on the RIGHT edge of the root so
   // the agent opens to the right of the open Files/Git/Backlog panel.
@@ -464,10 +443,7 @@ function firstTerminalTabset(model: Model): TabSetNode | null {
   return found
 }
 
-// Returns the first tabset hosting an agent or terminal tab that does NOT also
-// host a control panel. Lets agent terminals and plain terminals share a
-// right-hand "terminals" panel in a control layout without ever stacking into
-// the control panel's tabset.
+// Returns the first tabset hosting an agent or terminal tab.
 function firstTerminalLikeTabset(model: Model): TabSetNode | null {
   let found: TabSetNode | null = null
   model.visitNodes((node) => {
@@ -476,12 +452,7 @@ function firstTerminalLikeTabset(model: Model): TabSetNode | null {
     const component = node.getComponent()
     if (component !== 'agent' && component !== 'terminal') return
     const parent = node.getParent()
-    if (!(parent instanceof TabSetNode)) return
-    const hostsControlPanel = parent
-      .getChildren()
-      .some((child) => child instanceof TabNode && AGENT_DOCK_RIGHT_COMPONENTS.has(child.getComponent() ?? ''))
-    if (hostsControlPanel) return
-    found = parent
+    if (parent instanceof TabSetNode) found = parent
   })
   return found
 }
@@ -512,46 +483,29 @@ function firstEditorSurfaceTabset(model: Model): TabSetNode | null {
   return targetTabset
 }
 
-function addEditorSurfaceNode(model: Model, tabJson: Record<string, unknown>): boolean {
+function addEditorSurfaceNode(model: Model, tabJson: Record<string, unknown>, select = true): boolean {
   const editorTabset = firstEditorSurfaceTabset(model)
   if (editorTabset) {
-    model.doAction(Actions.addNode(tabJson, editorTabset.getId(), DockLocation.CENTER, -1, true))
+    model.doAction(Actions.addNode(tabJson, editorTabset.getId(), DockLocation.CENTER, -1, select))
     return true
   }
 
   const navTabset = findRailTabset(model, 'left')
   if (navTabset) {
-    model.doAction(Actions.addNode(tabJson, navTabset.getId(), DockLocation.RIGHT, -1, true))
+    model.doAction(Actions.addNode(tabJson, navTabset.getId(), DockLocation.RIGHT, -1, select))
     return true
   }
 
   const terminalHost = firstTerminalLikeTabset(model)
   if (terminalHost) {
-    model.doAction(Actions.addNode(tabJson, terminalHost.getId(), DockLocation.LEFT, -1, true))
+    model.doAction(Actions.addNode(tabJson, terminalHost.getId(), DockLocation.LEFT, -1, select))
     return true
   }
 
   const target = model.getActiveTabset() ?? firstTabset(model)
   if (!target) return false
-  model.doAction(Actions.addNode(tabJson, target.getId(), DockLocation.CENTER, -1, true))
+  model.doAction(Actions.addNode(tabJson, target.getId(), DockLocation.CENTER, -1, select))
   return true
-}
-
-// Single-surface control layouts whose control panel owns a non-closeable tab in
-// a tab-strip-hidden tabset: agent run terminals must dock into a right-hand
-// terminals tabset instead of stacking (invisibly) into the control tabset. The
-// Automations control center follows this pattern.
-const AGENT_DOCK_RIGHT_COMPONENTS = new Set<string>(['automations-control-center'])
-
-function modelDocksAgentsRight(model: Model): boolean {
-  let found = false
-  model.visitNodes((node) => {
-    if (found) return
-    if (node instanceof TabNode && AGENT_DOCK_RIGHT_COMPONENTS.has(node.getComponent() ?? '')) {
-      found = true
-    }
-  })
-  return found
 }
 
 function terminalTabJson(terminalId: string, name: string) {
@@ -596,19 +550,6 @@ export function addNewAgentTab(workspaceId: string, agentName: string, hostTabse
     name: agentName,
     component: NEW_AGENT_TAB_COMPONENT,
     config: { agentName },
-  }
-
-  // The Automations layout docks agents into its right-hand terminal column;
-  // the "+" is not offered there today, but the helper follows
-  // the same policy so it cannot strand a tab inside a control panel's tabset.
-  if (modelDocksAgentsRight(model)) {
-    const terminalHost = firstTerminalLikeTabset(model)
-    model.doAction(
-      terminalHost
-        ? Actions.addNode(tabJson, terminalHost.getId(), DockLocation.CENTER, -1, true)
-        : Actions.addNode(tabJson, rootRowId(model), DockLocation.RIGHT, -1, true),
-    )
-    return tabId
   }
 
   const targetTabset = resolveNewAgentHostTabset(model, hostTabsetId)
@@ -699,26 +640,13 @@ export function removeNewAgentTab(workspaceId: string, tabId: string): boolean {
 }
 
 // Places a new terminal tab in the layout. Stacks into an existing terminal
-// tabset when one exists so multiple terminals share a tab strip. In a control
-// layout the right-hand "terminals" tabset is shared with agent terminals —
-// plain terminals stack into it (or dock a fresh tabset on the right edge of
-// the root) so the control panel stays visible; everywhere else the active
-// tabset is used.
+// tabset when one exists so multiple terminals share a tab strip; otherwise the
+// active tabset is used.
 export function addTerminalTab(workspaceId: string, terminalId: string, name = 'Terminal'): boolean {
   const model = models.get(workspaceId)
   if (!model) return false
 
   const tabJson = terminalTabJson(terminalId, name)
-
-  if (modelDocksAgentsRight(model)) {
-    const terminalHost = firstTerminalLikeTabset(model)
-    if (terminalHost) {
-      model.doAction(Actions.addNode(tabJson, terminalHost.getId(), DockLocation.CENTER, -1, true))
-      return true
-    }
-    model.doAction(Actions.addNode(tabJson, rootRowId(model), DockLocation.RIGHT, -1, true))
-    return true
-  }
 
   const existingTerminalTabset = firstTerminalTabset(model)
   if (existingTerminalTabset) {
@@ -838,9 +766,17 @@ export function removeFileTabsForPath(workspaceId: string, path: string): boolea
   return tabIds.length > 0
 }
 
-export function focusOrAddFileTab(workspaceId: string, filePath: string, name: string): boolean {
+export function focusOrAddFileTab(
+  workspaceId: string,
+  filePath: string,
+  name: string,
+  // `select: false` adds (or leaves) the tab behind the current one: an agent's
+  // reveal while the person is typing must not swap the file under the cursor.
+  options: { select?: boolean } = {},
+): boolean {
   const model = models.get(workspaceId)
   if (!model) return false
+  const select = options.select !== false
 
   let targetTabId: string | null = null
   model.visitNodes((node) => {
@@ -853,18 +789,22 @@ export function focusOrAddFileTab(workspaceId: string, filePath: string, name: s
     if (node instanceof TabNode && node.getName() !== name) {
       model.doAction(Actions.renameTab(targetTabId, name))
     }
-    model.doAction(Actions.selectTab(targetTabId))
+    if (select) model.doAction(Actions.selectTab(targetTabId))
     return true
   }
 
-  return addEditorSurfaceNode(model, {
-    type: 'tab',
-    id: fileTabId(filePath),
-    name,
-    component: 'file-editor',
-    enableClose: true,
-    config: { filePath },
-  })
+  return addEditorSurfaceNode(
+    model,
+    {
+      type: 'tab',
+      id: fileTabId(filePath),
+      name,
+      component: 'file-editor',
+      enableClose: true,
+      config: { filePath },
+    },
+    select,
+  )
 }
 
 function gitConflictTabId(repoRoot: string, filePath: string): string {

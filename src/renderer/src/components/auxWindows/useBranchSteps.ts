@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { selectedEntry, stripEntriesFrom } from './branchSteps'
+import { isWindowVisible, onWindowVisibilityChange } from '../../utils/windowActivity'
 import type { BranchStepDiff, BranchStepSelection, BranchStepsSnapshot } from '../../../../shared/electron-api'
 
 /**
@@ -17,9 +18,10 @@ import type { BranchStepDiff, BranchStepSelection, BranchStepsSnapshot } from '.
  * and no HEAD, so on a CLEAN tree a rebase, a `commit --amend` and a
  * `git checkout other-branch` all leave its signature identical — and a review
  * confirmed the strip then kept the previous branch's chips indefinitely, still
- * clickable, because the reflog keeps the objects. So a slow interval backs the
- * snapshot up. It is affordable because listing steps reads branch FACTS and no
- * diff (`readBranchFacts`), and it only runs while the tab is showing.
+ * clickable, because the reflog keeps the objects. So main's git-directory
+ * watch backs the snapshot up: every one of those moves rewrites HEAD or a ref,
+ * and main says so (`watchGitCheckout`, git-repo-watch.ts). It used to be a
+ * ten-second interval, which re-read the strip whether or not anything moved.
  */
 export type BranchStepsState = {
   snapshot: BranchStepsSnapshot | null
@@ -31,10 +33,15 @@ export type BranchStepsState = {
 
 const SPAN: BranchStepSelection = { kind: 'span' }
 
-/** How often the interval trigger described above re-reads the strip. */
-const REFRESH_MS = 10_000
-
-export function useBranchSteps(repoRoot: string | null, enabled: boolean, revision: unknown): BranchStepsState {
+export function useBranchSteps(
+  repoRoot: string | null,
+  enabled: boolean,
+  revision: unknown,
+  // A step someone outside the strip asked for — an agent's editor.open_diff
+  // naming the branch, the uncommitted tail or one commit. Applied once per
+  // `key`, after which the strip is the person's again.
+  requested: { selection: BranchStepSelection; key: string } | null = null,
+): BranchStepsState {
   const [snapshot, setSnapshot] = useState<BranchStepsSnapshot | null>(null)
   const [diff, setDiff] = useState<BranchStepDiff | null>(null)
   const [selection, setSelection] = useState<BranchStepSelection>(SPAN)
@@ -46,8 +53,17 @@ export function useBranchSteps(repoRoot: string | null, enabled: boolean, revisi
       return
     }
     let cancelled = false
+    // A read skipped while the window could not be seen runs when it is shown
+    // again, so a ref that moved in the meantime is not missed until the next
+    // change. The window-activity signal, not `document.hidden`, which macOS
+    // leaves false for a minimized window.
+    let missed = false
     const read = async (): Promise<void> => {
-      if (document.hidden) return
+      if (!isWindowVisible()) {
+        missed = true
+        return
+      }
+      missed = false
       try {
         const next = await window.api.getBranchSteps(repoRoot)
         if (!cancelled) setSnapshot(next)
@@ -57,10 +73,19 @@ export function useBranchSteps(repoRoot: string | null, enabled: boolean, revisi
       }
     }
     void read()
-    const timer = window.setInterval(() => void read(), REFRESH_MS)
+    const stopWatching =
+      typeof window.api.watchGitCheckout === 'function'
+        ? window.api.watchGitCheckout(repoRoot, (change) => {
+            if (change.kinds.includes('refs')) void read()
+          })
+        : null
+    const stopVisibility = onWindowVisibilityChange((visible) => {
+      if (visible && missed) void read()
+    })
     return () => {
       cancelled = true
-      window.clearInterval(timer)
+      stopWatching?.()
+      stopVisibility()
     }
   }, [repoRoot, enabled, revision])
 
@@ -71,6 +96,15 @@ export function useBranchSteps(repoRoot: string | null, enabled: boolean, revisi
     setSnapshot(null)
     setSelection(SPAN)
   }, [repoRoot])
+
+  // After the repo reset above, so a request that arrives with a new repository
+  // is not immediately undone by it.
+  const requestedKey = requested?.key ?? null
+  const requestedRef = useRef(requested)
+  requestedRef.current = requested
+  useEffect(() => {
+    if (requestedKey && requestedRef.current) setSelection(requestedRef.current.selection)
+  }, [requestedKey, repoRoot])
 
   // A selection can stop existing under us — a rebase drops the hash a person
   // had open. Resolving through the strip's own entries means the surface falls

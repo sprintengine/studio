@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tour callout</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<link rel="stylesheet" href="../button/component.css" />
+<link rel="stylesheet" href="../input/component.css" />
+<link rel="stylesheet" href="../micro-chip/component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  /* A stand-in for the diff editor: numbered lines of code, the step's lines
+     marked, the rest dimmed, and the callout in the gap under them. */
+  .demo-code {
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+    font-family: var(--sem-font-family-mono);
+    font-size: var(--sem-font-size-meta);
+    line-height: var(--sem-font-line-default);
+    overflow: hidden;
+  }
+  .demo-line {
+    display: flex;
+    gap: var(--sem-space-lg);
+    padding: 0 var(--sem-space-md);
+  }
+  .demo-line > .num {
+    width: 2ch;
+    text-align: right;
+    color: var(--sem-color-text-subtle);
+    font-variant-numeric: tabular-nums;
+  }
+  .demo-line > .text {
+    white-space: pre;
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — a step on three lines of the new side, the rest set back, the callout in the code.</p>
+  <div class="demo-code ds-tour-host ds-tour-host--dimmed">
+    <div class="demo-line"><span class="num">18</span><span class="text ds-tour-dim">  for (let attempt = 0; attempt &lt; options.attempts; attempt += 1) {</span></div>
+    <div class="demo-line"><span class="num">19</span><span class="text ds-tour-dim">    try {</span></div>
+    <div class="demo-line ds-tour-step-line ds-tour-step-rail"><span class="num">20</span><span class="text">      lastError = error</span></div>
+    <div class="demo-line ds-tour-step-line ds-tour-step-rail"><span class="num">21</span><span class="text">      if (options.shouldRetry &amp;&amp; !options.shouldRetry(error)) break</span></div>
+    <div class="demo-line ds-tour-step-line ds-tour-step-rail"><span class="num">22</span><span class="text">      if (attempt &lt; options.attempts - 1) await sleep(backoffDelay(attempt, options))</span></div>
+    <div class="ds-tour-callout-frame" data-visible="true">
+      <section class="ds-tour-callout" aria-label="Step 2 of 5: Stop early on permanent failures">
+        <header class="ds-tour-callout-head">
+          <span class="ds-tour-callout-index">2/5</span>
+          <h3 class="ds-tour-callout-title">Stop early on permanent failures</h3>
+          <span class="ds-micro-chip">Caveat</span>
+        </header>
+        <p class="ds-tour-callout-location">src/queue/retry.ts L20–22 (new)</p>
+        <div class="ds-tour-callout-body">
+          <p>A job that throws <code>PermanentJobError</code> is not retried at all — waiting cannot fix a bad payload. The last attempt no longer sleeps before giving up.</p>
+        </div>
+        <div class="ds-tour-callout-ask">
+          <input class="ds-input" placeholder="Ask about this…" aria-label="Ask about step 2" />
+          <button type="button" class="ds-button ds-button--outline">Ask</button>
+        </div>
+      </section>
+    </div>
+    <div class="demo-line"><span class="num">23</span><span class="text ds-tour-dim">    }</span></div>
+    <div class="demo-line"><span class="num">24</span><span class="text ds-tour-dim">  }</span></div>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same step from the same tokens.</p>
+  <div class="demo-code ds-tour-host ds-tour-host--dimmed">
+    <div class="demo-line"><span class="num">19</span><span class="text ds-tour-dim">    try {</span></div>
+    <div class="demo-line ds-tour-step-line ds-tour-step-rail"><span class="num">20</span><span class="text">      lastError = error</span></div>
+    <div class="demo-line ds-tour-step-line ds-tour-step-rail"><span class="num">21</span><span class="text">      if (options.shouldRetry &amp;&amp; !options.shouldRetry(error)) break</span></div>
+    <div class="ds-tour-callout-frame" data-visible="true">
+      <section class="ds-tour-callout" aria-label="Step 2 of 5: Stop early on permanent failures">
+        <header class="ds-tour-callout-head">
+          <span class="ds-tour-callout-index">2/5</span>
+          <h3 class="ds-tour-callout-title">Stop early on permanent failures</h3>
+        </header>
+        <p class="ds-tour-callout-location">src/queue/retry.ts L20–21 (new)</p>
+        <div class="ds-tour-callout-body">
+          <p>Waiting cannot fix a bad payload, so a permanent failure ends the loop at once.</p>
+        </div>
+        <div class="ds-tour-callout-ask">
+          <input class="ds-input" placeholder="Ask about this…" aria-label="Ask about step 2" />
+          <button type="button" class="ds-button ds-button--outline">Ask</button>
+        </div>
+      </section>
+    </div>
+    <div class="demo-line"><span class="num">22</span><span class="text ds-tour-dim">    }</span></div>
+  </div>
+</div>
+</body>
+</html>

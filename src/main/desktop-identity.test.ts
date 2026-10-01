@@ -164,14 +164,14 @@ test('desktop-identity', async () => {
         baseUrl: 'https://auth.example',
         clientId: 'sprintengine-desktop',
         product: 'sprintengine',
-        scope: 'openid profile entitlements:read relay:desktop',
+        scope: 'openid profile relay:desktop',
       }),
     )
     assert.equal(multiauthUrl.origin + multiauthUrl.pathname, 'https://auth.example/')
     assert.equal(multiauthUrl.searchParams.get('returnTo'), 'desktop')
     assert.equal(multiauthUrl.searchParams.get('client_id'), 'sprintengine-desktop')
     assert.equal(multiauthUrl.searchParams.get('organization_id'), 'org_1')
-    assert.equal(multiauthUrl.searchParams.get('scope'), 'openid profile entitlements:read relay:desktop')
+    assert.equal(multiauthUrl.searchParams.get('scope'), 'openid profile relay:desktop')
   }
 
   function tokenRequestsSpeakEachIssuersDialect(): void {

@@ -35,6 +35,8 @@ import {
   type ExtensionSkillRow,
   type ExtensionSourceRow,
 } from '../palette/extensionsProvider'
+import { createConversationHistoryProvider } from '../palette/conversationHistoryProvider'
+import { createBuildExtensionPaletteProvider } from '../extensions/buildExtensionPaletteProvider'
 import {
   decidePaletteTarget,
   handSkillToAgent,
@@ -61,7 +63,7 @@ import { getExtensionsSurfaceHost } from '../workspace/globalSurface/extensions/
 import { dispatchExtensionsSurfaceTarget } from '../workspace/globalSurface/extensions/extensionsSurfaceTarget'
 import { showToast } from '../../store/toastStore'
 import { dispatchPanelCommandEvent } from '../../utils/panelCommands'
-import { AgentWorkingDots } from './AgentWorkingDots'
+import { WorkingMark } from './WorkingMark'
 import { ExtensionIcon } from './ExtensionIcon'
 import { FileTypeGlyph } from './FileTypeGlyph'
 import { TruncatedText } from './index'
@@ -252,7 +254,11 @@ export default function CommandPalette({
   // panel takes the field's arrows and Enter first and names its active row.
   const skillsPanelRef = useRef<InstalledSkillsPanelHandle>(null)
   const [skillsActiveOptionId, setSkillsActiveOptionId] = useState<string | undefined>(undefined)
-  const { setActiveWorkspaceForWindow, setActiveFile, openExtensionsSurface } = useWorkspaceStore()
+  // One selector per action, never the whole store: destructuring
+  // `useWorkspaceStore()` subscribed the open palette to every store write.
+  const setActiveWorkspaceForWindow = useWorkspaceStore((state) => state.setActiveWorkspaceForWindow)
+  const setActiveFile = useWorkspaceStore((state) => state.setActiveFile)
+  const openExtensionsSurface = useWorkspaceStore((state) => state.openExtensionsSurface)
   const keybindingSettings = useWorkspaceStore((state) => state.appSettings.keybindings)
   const moduleEnablement = useWorkspaceStore((state) => state.appSettings.modules)
   const keybindingPlatform = platformKeybindingsFromApiPlatform(window.api.platform)
@@ -470,6 +476,22 @@ export default function CommandPalette({
               onClose()
             },
           },
+          // The agents the focused chat sent off to work: running, finished,
+          // and each one's own steps.
+          ...(panelCommandEnabled('panel.agents.toggle')
+            ? [
+                {
+                  id: 'panel.agents.toggle',
+                  label: 'Toggle Agents',
+                  searchLabel: 'Agents',
+                  shortcut: shortcutFor('panel.agents.toggle'),
+                  run: () => {
+                    onRunCommand('panel.agents.toggle')
+                    onClose()
+                  },
+                },
+              ]
+            : []),
           // Canvas has no rail glyph either, so this row and the pane's "+"
           // menu are its entry points. Availability-gated the same way, and run
           // through the shell rather than `togglePaneKind` directly: the
@@ -545,8 +567,7 @@ export default function CommandPalette({
       // Agents & workspaces — the switch targets that absorb the sidebar's
       // former "Search workspaces" box. Rail-hidden workspaces are never a switch
       // target: the palette mirrors the rail/hotkey navigation surfaces exactly,
-      // so the background Automations host and any module's own hidden
-      // workspaces stay out. Those are found on the owning door, which lists them across
+      // so any module's own hidden workspaces stay out. Those are found on the owning door, which lists them across
       // every project — including the historical ones no workspace holds. The
       // folder path rides `description` so typing a path filters here too,
       // preserving the sidebar's path matching.
@@ -1057,15 +1078,23 @@ export default function CommandPalette({
   // popping the chip also lifts or reapplies the per-group cap, and a new array
   // is how the runner is told to ask again. The provider objects are unchanged,
   // so a warm already done is not repeated.
+  const conversationHistoryProvider = useMemo(
+    () => createConversationHistoryProvider(),
+    [activeFolderPath, activeWorkspaceId],
+  )
+  // "Build your own extension", among the Extensions rows: it opens the New
+  // chat door in extension mode.
+  const buildExtensionProvider = useMemo(() => createBuildExtensionPaletteProvider(), [])
   const providers = useMemo(() => {
     const active: PaletteResultProvider[] = []
     // Installed inventory owns Skills; catalogue providers run in All only.
     if (scope === 'skills') return active
     if (groupInScope('skills', scope)) active.push(skillsProvider)
-    if (groupInScope('extensions', scope)) active.push(extensionsProvider)
+    if (groupInScope('extensions', scope)) active.push(extensionsProvider, buildExtensionProvider)
     if (groupInScope('files', scope) || groupInScope('content', scope)) active.push(diskProvider)
+    if (groupInScope('agents', scope)) active.push(conversationHistoryProvider)
     return active
-  }, [skillsProvider, extensionsProvider, diskProvider, scope])
+  }, [skillsProvider, extensionsProvider, buildExtensionProvider, diskProvider, conversationHistoryProvider, scope])
   const providerContext = useMemo(
     (): PaletteProviderContext => ({
       workspaceRoot: activeFolderPath,
@@ -1370,19 +1399,19 @@ export default function CommandPalette({
               )}
               {/* The one part of the palette that is not a search and not
                 instant — an install-and-use round trip — says so at the top of
-                the list, with the kit's working dots (liveness: alive right
+                the list, with the kit's working mark (liveness: alive right
                 now, for an unknown duration). Never beside the query: a note
                 on the field's own line read as part of what was typed. */}
               {actionBusy && (
                 <p role="status" className="flex items-center gap-2 px-4 py-2 text-meta text-[color:var(--text-muted)]">
                   Working
-                  <AgentWorkingDots label="Working" />
+                  <WorkingMark label="Working" />
                 </p>
               )}
               {visible.length === 0 ? (
                 // "No results" is only true once the search that would have
                 // produced them has finished; a failure says what failed instead.
-                // A search in flight is the working dots, not a static ellipsis:
+                // A search in flight is the working mark, not a static ellipsis:
                 // the marker the system already uses for "alive right now".
                 <p
                   role={provided.loading ? 'status' : undefined}
@@ -1393,7 +1422,7 @@ export default function CommandPalette({
                   ) : provided.loading ? (
                     <>
                       Searching
-                      <AgentWorkingDots label="Searching" />
+                      <WorkingMark label="Searching" />
                     </>
                   ) : (
                     'No results'

@@ -5,8 +5,7 @@
     "src/**/*.tsx",
     "src/**/*.d.ts",
     "packages/module-sdk/src/**/*.ts",
-    "packages/mobile-control-protocol/src/**/*.ts",
-    "packages/mobile-control-protocol/test/**/*.ts",
+    "packages/conversation-protocol/src/**/*.ts",
     "tests/**/*.ts",
     "vitest.config.ts"
   ],

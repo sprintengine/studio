@@ -1,9 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import {
   colorSchemeForResolvedTheme,
+  DEFAULT_CHAT_CONTRAST,
+  effectiveWindowMaterial,
   LIGHT_SURFACE_THEMES,
+  normalizeChatContrast,
   type AppTheme,
+  type ChatWidth,
   type ColorScheme,
   type ResolvedAppTheme,
   type WindowMaterial,
@@ -47,24 +51,72 @@ function applyTheme(resolved: ResolvedAppTheme): void {
   // launch matching the app surface (e.g. Claude Code's --settings theme).
   // Best-effort: the API is absent in non-Electron/test contexts.
   void window.api?.setColorScheme?.(colorSchemeForResolvedTheme(resolved))
+  // An opaque window's background colour is the theme's canvas, so a theme
+  // change re-pushes the material with the new colour.
+  pushWindowMaterial(useWorkspaceStore.getState().appSettings.appearance.windowMaterial)
+}
+
+// The active theme's canvas (`--bg-app`) as `#rrggbb` — the colour main paints
+// an opaque window before the renderer has drawn, so a new window or a resize
+// that outruns the renderer shows the theme's own ground rather than a fixed
+// dark one. Undefined when the value is not a plain opaque hex (main then
+// keeps the colour it already has).
+function themeCanvasColor(): string | undefined {
+  if (typeof document === 'undefined' || typeof getComputedStyle !== 'function') return undefined
+  const value = getComputedStyle(document.documentElement).getPropertyValue('--bg-app').trim()
+  return /^#[0-9a-f]{6}$/i.test(value) ? value : undefined
+}
+
+function pushWindowMaterial(material: WindowMaterial): void {
+  const effective = effectiveWindowMaterial(material, window.api?.platform)
+  // Mirror to main: persists for pre-boot application on the next launch and
+  // re-applies the window-level material to live windows. Best-effort outside
+  // Electron.
+  void window.api?.setWindowMaterial?.(effective, effective === 'glass' ? undefined : themeCanvasColor())
 }
 
 function applyWindowMaterial(material: WindowMaterial): void {
   if (typeof document === 'undefined') return
-  // Glass is macOS-only; collapse to solid elsewhere so a synced/copied
+  // Glass is macOS-only and resolves to tinted elsewhere, so a synced/copied
   // profile can never leave a translucent canvas over a non-vibrant window.
-  const active = material === 'glass' && window.api?.platform === 'darwin'
-  if (active) {
-    document.documentElement.setAttribute('data-window-material', 'glass')
+  const effective = effectiveWindowMaterial(material, window.api?.platform)
+  if (effective === 'solid') {
+    document.documentElement.removeAttribute('data-window-material')
+  } else {
+    document.documentElement.setAttribute('data-window-material', effective)
+  }
+  if (effective === 'glass') {
     // The boot script's opaque pre-paint on <html> would sit in front of the
     // window vibrancy; clear it so the frost shows (body carries the tint).
     document.documentElement.style.backgroundColor = ''
-  } else {
-    document.documentElement.removeAttribute('data-window-material')
   }
-  // Mirror to main: persists for pre-boot application on the next launch and
-  // re-applies vibrancy to live windows. Best-effort outside Electron.
-  void window.api?.setWindowMaterial?.(active ? 'glass' : 'solid')
+  pushWindowMaterial(material)
+}
+
+/**
+ * The chat's two appearance settings, on <html> like the theme: the chat reads
+ * them through CSS (the chat rules in assets/index.css), so every chat pane —
+ * local or a paired machine's — follows without a prop, and live.
+ *
+ * `data-chat-width` selects the column cap. Contrast is a number, not a
+ * choice, so it travels as two percentages: how much of each ink to keep
+ * against the background (under 100) and how far to push it past the theme's
+ * strongest ink (over 100). Half the distance at the top of the ramp, not all
+ * of it, so a heading still sits a step above body text at 200. At the
+ * default nothing is set at all, and the chat's inks are the theme's own.
+ */
+export function applyChatAppearance(root: HTMLElement, contrast: number, width: ChatWidth): void {
+  root.setAttribute('data-chat-width', width)
+  const value = normalizeChatContrast(contrast)
+  if (value === DEFAULT_CHAT_CONTRAST) {
+    root.removeAttribute('data-chat-contrast')
+    root.style.removeProperty('--chat-contrast-keep')
+    root.style.removeProperty('--chat-contrast-boost')
+    return
+  }
+  root.setAttribute('data-chat-contrast', value < DEFAULT_CHAT_CONTRAST ? 'lower' : 'higher')
+  root.style.setProperty('--chat-contrast-keep', `${Math.min(value, 100)}%`)
+  root.style.setProperty('--chat-contrast-boost', `${Math.max(value - 100, 0) / 2}%`)
 }
 
 // Drives the <html data-theme="…"> attribute from the persisted preference.
@@ -74,10 +126,19 @@ function applyWindowMaterial(material: WindowMaterial): void {
 export function useAppTheme(): void {
   const theme = useWorkspaceStore((s) => s.appSettings.appearance.theme)
   const windowMaterial = useWorkspaceStore((s) => s.appSettings.appearance.windowMaterial)
+  const chatContrast = useWorkspaceStore((s) => s.appSettings.appearance.chatContrast)
+  const chatWidth = useWorkspaceStore((s) => s.appSettings.appearance.chatWidth)
 
   useEffect(() => {
     applyWindowMaterial(windowMaterial)
   }, [windowMaterial])
+
+  // Before paint, as the boot script in index.html stamps them before the
+  // first one: a chat must not draw a frame at the old width or contrast.
+  useLayoutEffect(() => {
+    if (typeof document === 'undefined') return
+    applyChatAppearance(document.documentElement, chatContrast, chatWidth)
+  }, [chatContrast, chatWidth])
 
   useEffect(() => {
     applyTheme(resolveTheme(theme))

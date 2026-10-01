@@ -1,20 +1,19 @@
 // storefrontView — pure, DOM-free helpers for the marketplace plugin surfaces
 // (`BrowseStorefront.tsx`, the Connectors inventory).
 
-import type { MarketplaceComponentKind } from '../../../../shared/marketplace/manifest'
+import type { MarketplaceProvidesKind } from '../../../../shared/marketplace/manifest'
 
-// Sentence-case labels for the component kinds a plugin bundles. Mirrors the
+// Sentence-case labels for what a registry entry provides. Mirrors the
 // installed-inventory kind labels so the same primitive reads the same way on
-// both surfaces.
-const COMPONENT_KIND_LABEL: Record<MarketplaceComponentKind, string> = {
+// both surfaces. `cli` is the inline-CLI lane: an agent CLI the app ships.
+const COMPONENT_KIND_LABEL: Record<MarketplaceProvidesKind, string> = {
   mcp: 'MCP server',
   skills: 'Skill pack',
   module: 'Module',
   cli: 'Agent CLI',
-  automation: 'Automation',
 }
 
-export function componentKindLabels(provides: MarketplaceComponentKind[]): string[] {
+export function componentKindLabels(provides: readonly MarketplaceProvidesKind[]): string[] {
   return provides.map((kind) => COMPONENT_KIND_LABEL[kind])
 }
 

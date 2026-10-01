@@ -26,7 +26,7 @@ Three stops is the floor.
 | Root | `.ds-slider` | yes — `role="slider"`, `tabindex="0"`, `aria-valuemin` / `aria-valuemax` / `aria-valuenow` / `aria-valuetext`, and a name |
 | Track | `.ds-slider-track` | yes — `aria-hidden`; owns the groove and its hairline |
 | Fill | `.ds-slider-fill` | yes — inside the track, from the leading end to the thumb's centre |
-| Tick | `.ds-slider-tick` | one per stop — `aria-hidden`, positioned inside the track |
+| Tick | `.ds-slider-tick` | one per marked stop (every stop unless the ramp is long, see Ticks) — `aria-hidden`, positioned inside the track |
 | Thumb | `.ds-slider-thumb` | yes — `aria-hidden`, a sibling of the track, positioned against the root |
 
 Two custom properties carry the state, set by the consumer as inline styles
@@ -49,6 +49,19 @@ control** — a position alone does not tell anyone what they just picked, and
 ## Variants
 
 None. One height, one thumb, one accent.
+
+## Ticks
+
+By default every stop is a tick, because on a ramp of three to eight named
+stops the ticks are how a person counts what is there. On a long ramp — a
+percentage in steps of five, twenty-odd stops — a tick per stop runs together
+into a dotted line that reads as a defect in the groove and marks nothing. A
+long ramp therefore marks only the stops worth finding by eye: its ends and its
+default, or no ticks at all. The stops are unchanged either way; the keys and
+the pointer still snap to every one, and the value name beside the control
+still says which one was picked. A marked tick is placed at its stop's own
+fraction of the ramp, so a sparse set stays in the same coordinate space as the
+fill and the thumb.
 
 A continuous variant is a rejected idea, not a missing one: a value with no
 named stops has nothing to put in the value line above the control, and the
@@ -107,6 +120,7 @@ the 8px groove — a 6px-tall hit area is a control that has to be aimed at.
 ## Usage
 
 - Three stops or more. Two is a switch; one is a label.
+- Past about a dozen stops, mark only the ends and the default (see Ticks).
 - The value's name goes next to the control, in the consumer's own type. Stop
   labels *under* the track are a rejected layout: they cannot fit past four
   short words, and they force a truncation the position was supposed to avoid.

@@ -1,5 +1,5 @@
 import type { TailnetPushPayload } from '../shared/tailnet'
-import type { FleetEvent } from '../shared/tailnet-fleet'
+import type { MeshEvent } from '../shared/tailnet-mesh'
 
 // OS notifications for pairing and reachability (pair-from-the-scan-and-
 // stay-paired, phase 3): the app's first use of the system notification
@@ -34,7 +34,7 @@ export type TailnetNotifierOptions = {
 
 export type TailnetNotifier = {
   onTailnetEvent(payload: TailnetPushPayload): void
-  onFleetEvent(event: FleetEvent): void
+  onMeshEvent(event: MeshEvent): void
 }
 
 export function createTailnetNotifier(options: TailnetNotifierOptions): TailnetNotifier {
@@ -53,7 +53,7 @@ export function createTailnetNotifier(options: TailnetNotifierOptions): TailnetN
     onTailnetEvent(payload): void {
       deliver(tailnetNotice(payload))
     },
-    onFleetEvent(event): void {
+    onMeshEvent(event): void {
       if (event.kind === 'machine-reachability') {
         // Reachable again clears the memory, so the NEXT revocation is news.
         if (event.reachable) {
@@ -64,7 +64,7 @@ export function createTailnetNotifier(options: TailnetNotifierOptions): TailnetN
         revokedAnnounced.add(event.connectionId)
       }
       if (event.kind === 'machine-forgotten') revokedAnnounced.delete(event.connectionId)
-      deliver(fleetNotice(event))
+      deliver(meshNotice(event))
     },
   }
 }
@@ -82,7 +82,7 @@ export function tailnetNotice(payload: TailnetPushPayload): TailnetNotice | null
 }
 
 /** What an outbound event says, or null when it is not worth a system banner. */
-export function fleetNotice(event: FleetEvent): TailnetNotice | null {
+export function meshNotice(event: MeshEvent): TailnetNotice | null {
   if (event.kind === 'pair-request') {
     const key = `pair-request:${event.request.requestId}`
     const machine = event.request.machineName
@@ -92,8 +92,8 @@ export function fleetNotice(event: FleetEvent): TailnetNotice | null {
           key,
           title: `Paired with ${machine}`,
           body: event.request.reverseOffered
-            ? 'Both ways. Its workspaces and terminals are in the Fleet, and it can open this device.'
-            : 'Its workspaces and terminals are in the Fleet.',
+            ? 'Both ways. Its workspaces and chats are in the Mesh, and it can open this device.'
+            : 'Its workspaces and chats are in the Mesh.',
         }
       case 'denied':
         return { key, title: `${machine} declined`, body: 'Someone there said no. Ask again when it suits.' }

@@ -4,6 +4,7 @@ import {
   buildAgentCliCatalog,
   buildCliRuntimeOptions,
   cliRuntimeForPlugin,
+  conversationCliRuntimesFor,
   filterCatalogByAvailability,
   installableCliSummary,
   isAgentCliAvailable,
@@ -72,8 +73,8 @@ test('cliRuntimeOptions', async () => {
 
   assert.deepEqual(
     buildAgentCliCatalog(null, {
-      opencode: { command: 'opencode', useWsl: false },
-      codex: { command: 'codex-next', useWsl: true },
+      opencode: { command: 'opencode' },
+      codex: { command: 'codex-next' },
     }).map(({ value, label }) => ({ value, label })),
     [
       { value: 'codex', label: 'Codex' },
@@ -84,7 +85,7 @@ test('cliRuntimeOptions', async () => {
   )
   assert.ok(
     buildAgentCliCatalog(null, {
-      codex: { command: 'codex-next', useWsl: true, models: ['custom-codex'] },
+      codex: { command: 'codex-next', models: ['custom-codex'] },
     })
       .find((option) => option.value === 'codex')
       ?.modelSelection?.options.some((model) => model.id === 'custom-codex'),
@@ -167,8 +168,8 @@ test('cliRuntimeOptions', async () => {
   // cliRuntimes key cannot leak it into the loading/error fallback catalog.
   assert.deepEqual(
     buildAgentCliCatalog(null, {
-      muse: { command: 'muse', useWsl: false },
-      'generic-shell': { command: 'sh', useWsl: false },
+      muse: { command: 'muse' },
+      'generic-shell': { command: 'sh' },
     }).map(({ value }) => value),
     ['codex', 'claude-code', 'opencode'],
     'hidden ids never leak into the legacy fallback catalog via cliRuntimes keys',
@@ -193,9 +194,10 @@ test('cliRuntimeOptions', async () => {
     'ready status surfaces installed plugins (incl. opencode) before user entries',
   )
   assert.deepEqual(
-    selectAgentCliCatalog('loading', plugins, { opencode: { command: 'opencode', useWsl: false } }).map(
-      ({ value, label }) => ({ value, label }),
-    ),
+    selectAgentCliCatalog('loading', plugins, { opencode: { command: 'opencode' } }).map(({ value, label }) => ({
+      value,
+      label,
+    })),
     [
       { value: 'codex', label: 'Codex' },
       { value: 'claude-code', label: 'Claude Code' },
@@ -221,24 +223,17 @@ test('cliRuntimeOptions', async () => {
   // loading/error fallback catalog — both catalog paths apply the picker hidden
   // set, so the automation editor's fail-closed cli check never sees it as valid.
   assert.deepEqual(
-    selectAgentCliCatalog('loading', plugins, { 'generic-shell': { command: 'sh', useWsl: false } }).map(
-      (option) => option.value,
-    ),
+    selectAgentCliCatalog('loading', plugins, { 'generic-shell': { command: 'sh' } }).map((option) => option.value),
     ['codex', 'claude-code', 'opencode'],
     'loading fallback drops a configured generic-shell runtime key (hidden id)',
   )
   assert.deepEqual(
-    selectAgentCliCatalog('error', null, { 'generic-shell': { command: 'sh', useWsl: false } }).map(
-      (option) => option.value,
-    ),
+    selectAgentCliCatalog('error', null, { 'generic-shell': { command: 'sh' } }).map((option) => option.value),
     ['codex', 'claude-code', 'opencode'],
     'error fallback drops a configured generic-shell runtime key (hidden id)',
   )
   assert.equal(
-    isAgentCliAvailable(
-      'generic-shell',
-      selectAgentCliCatalog('error', null, { 'generic-shell': { command: 'sh', useWsl: false } }),
-    ),
+    isAgentCliAvailable('generic-shell', selectAgentCliCatalog('error', null, { 'generic-shell': { command: 'sh' } })),
     false,
     'generic-shell is unavailable in the fallback catalog even when configured as a runtime',
   )
@@ -258,20 +253,20 @@ test('cliRuntimeOptions', async () => {
 
   // cliRuntimeForPlugin: direct plugin-id overrides only.
   assert.deepEqual(
-    cliRuntimeForPlugin('codex', { codex: { command: 'codex-next', useWsl: true } }),
-    { command: 'codex-next', useWsl: true },
+    cliRuntimeForPlugin('codex', { codex: { command: 'codex-next' } }),
+    { command: 'codex-next' },
     'direct plugin-id override is used as-is',
   )
   assert.deepEqual(
     cliRuntimeForPlugin('claude-code', {
-      'claude-code': { command: '', useWsl: false },
+      'claude-code': { command: '' },
     }),
-    { command: '', useWsl: false },
+    { command: '' },
     'an explicit blank command on the plugin-id key means manifest binary',
   )
   assert.deepEqual(
     cliRuntimeForPlugin('opencode', undefined),
-    { command: '', useWsl: false },
+    { command: '' },
     'unknown plugin with no override reads as blank command',
   )
 
@@ -320,8 +315,8 @@ test('cliRuntimeOptions', async () => {
     cliEntry({ id: 'aider', displayName: 'Aider', source: 'user', version: 1, binary: 'aider' }),
   ]
   const modelCatalog = buildAgentCliCatalog(modelPlugins, {
-    'claude-code': { command: '', useWsl: false, models: [' opus ', 'haiku', 'haiku'] },
-    aider: { command: '', useWsl: false, models: ['some/model'] },
+    'claude-code': { command: '', models: [' opus ', 'haiku', 'haiku'] },
+    aider: { command: '', models: ['some/model'] },
   })
   assert.deepEqual(
     modelCatalog.find((option) => option.value === 'claude-code')?.modelSelection,
@@ -572,7 +567,7 @@ const mergePlugins: PluginCatalogEntry[] = [
     },
   }),
 ]
-const userClaudeModels = { 'claude-code': { command: '', useWsl: false, models: ['claude-opus-5-5'] } }
+const userClaudeModels = { 'claude-code': { command: '', models: ['claude-opus-5-5'] } }
 const MERGE_NOW = Date.parse('2026-09-22T12:00:00Z')
 const daysBefore = (days: number): string => new Date(MERGE_NOW - days * 24 * 60 * 60 * 1000).toISOString()
 
@@ -640,7 +635,7 @@ test('an id the CLI stops listing disappears on the next refresh', () => {
 
 test('a user id survives every refresh and follows the CLI rows once', () => {
   const rows = claudeRows(probe([{ id: 'claude-opus-5-5', displayName: 'Opus 5.5' }, { id: 'sonnet' }]), {
-    'claude-code': { command: '', useWsl: false, models: ['claude-opus-5-5', ' my-model ', 'my-model'] },
+    'claude-code': { command: '', models: ['claude-opus-5-5', ' my-model ', 'my-model'] },
   })
   assert.deepEqual(rows, [
     { id: 'claude-opus-5-5', label: 'Opus 5.5', origin: 'user' },
@@ -709,15 +704,14 @@ test('a CLI with no declared modelSelection surfaces no model UI even when disco
 
 // Every surface that renders a model picker must hand the merge what the CLIs
 // reported, or it offers the manifest seed while the others offer the CLI's own
-// list: the New chat composer (and the hosts that borrow its catalog) and the
-// automation editor's model field did exactly that. Read from source because the
-// defect is a missing argument, invisible to the merge's own tests.
+// list: the New chat composer (and the hosts that borrow its catalog) once did
+// exactly that. Read from source because the defect is a missing argument,
+// invisible to the merge's own tests.
 test('every model-picker surface passes the discovered catalog to the merge', async () => {
   const { readFileSync } = await import('node:fs')
   const { join } = await import('node:path')
   const surfaces = [
     'src/renderer/src/components/workspace/agentComposer/useAgentComposer.ts',
-    'src/renderer/src/components/panels/AutomationsPanel/AutomationEditor.tsx',
     'src/renderer/src/components/workspace/WorkspaceManager.tsx',
     'src/renderer/src/components/settings/TextGenerationSettingsSection.tsx',
     'src/renderer/src/modules/index.ts',
@@ -738,4 +732,36 @@ test('every model-picker surface passes the discovered catalog to the merge', as
     }
     assert.match(source.slice(start, end), /cliModelCatalog/, `${file} passes cliModelCatalog to the merge`)
   }
+})
+
+test("a chat in a WSL workspace runs that machine's CLI, whichever chat CLI it is", () => {
+  const cliRuntimes = {
+    'claude-code': { command: 'C:\\tools\\claude.exe', models: ['opus'] },
+    codex: { command: 'codex' },
+    'kimi-code': { command: 'kimi' },
+  }
+  const hosts = {
+    'wsl:Ubuntu': {
+      enabled: true,
+      cliCommands: { 'claude-code': '/opt/claude/bin/claude', cursor: '/home/dev/.local/bin/cursor-agent' },
+    },
+  }
+  assert.equal(conversationCliRuntimesFor(cliRuntimes, 'local', hosts as never), cliRuntimes)
+  assert.equal(conversationCliRuntimesFor(cliRuntimes, undefined, hosts as never), cliRuntimes)
+  assert.deepEqual(conversationCliRuntimesFor(cliRuntimes, 'wsl:Ubuntu', hosts as never), {
+    'claude-code': { command: '/opt/claude/bin/claude', models: ['opus'], hostId: 'wsl:Ubuntu' },
+    // This PC's command does not go with it: the distribution's PATH finds `codex`.
+    codex: { command: '', hostId: 'wsl:Ubuntu' },
+    cursor: { command: '/home/dev/.local/bin/cursor-agent', hostId: 'wsl:Ubuntu' },
+    opencode: { command: '', hostId: 'wsl:Ubuntu' },
+    grok: { command: '', hostId: 'wsl:Ubuntu' },
+    // A CLI with no chat runtime is a terminal's business, and left alone.
+    'kimi-code': { command: 'kimi' },
+  })
+  // No override on that machine: its own PATH finds `claude`.
+  assert.deepEqual(conversationCliRuntimesFor(cliRuntimes, 'wsl:Debian', hosts as never)?.['claude-code'], {
+    command: '',
+    models: ['opus'],
+    hostId: 'wsl:Debian',
+  })
 })

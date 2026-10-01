@@ -21,7 +21,7 @@ test('text-generation-service', async () => {
       installed: true,
       version: '1.0.0',
       resolvedPath: cli === 'claude-code' ? '/bin/claude' : '/bin/codex',
-      useWsl: false,
+      hostId: 'local',
       error: null,
       ...overrides,
     }

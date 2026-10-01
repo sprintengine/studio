@@ -59,8 +59,7 @@ export function moduleLabelForModuleId(moduleId: string): string {
  *    its own dead placeholder, which is the grid of blanks the rule exists to
  *    prevent. The module is on the machine, so the remedy is a toggle.
  *
- * `standard` is the shell's own mode and a bundled hidden host (the Automations
- * host) is a background container nobody opens, so neither can be absent.
+ * `standard` is the shell's own mode, so it can never be absent.
  *
  * Pure and dependency-injected so the rule is asserted without a renderer host.
  */
@@ -70,14 +69,12 @@ export type WorkspaceModuleAbsence =
 export function workspaceModuleAbsence(
   mode: string,
   deps: {
-    isBundledHiddenMode: (mode: string) => boolean
     /** The module that registered this workspace type, or undefined when none did. */
     workspaceTypeModuleId: (mode: string) => string | undefined
     isModuleEnabled: (moduleId: string) => boolean
   },
 ): WorkspaceModuleAbsence {
   if (mode === 'standard') return null
-  if (deps.isBundledHiddenMode(mode)) return null
   const moduleId = deps.workspaceTypeModuleId(mode)
   if (!moduleId) return { kind: 'not-installed', label: moduleLabelForMode(mode) }
   if (deps.isModuleEnabled(moduleId)) return null
@@ -235,7 +232,7 @@ function DoorModuleInstallControls({
     setFlow({ status: 'verifying' })
     let verify
     try {
-      verify = await window.api.verifyMarketplacePlugin(entry)
+      verify = await window.api.verifyMarketplacePlugin({ id: entry.id })
     } catch (error) {
       setFlow({ status: 'error', message: error instanceof Error ? error.message : 'Could not verify this extension.' })
       return
@@ -258,12 +255,13 @@ function DoorModuleInstallControls({
       return
     }
     setFlow({ status: 'installing' })
+    const trustToken = outcome.trustToken
     try {
       // No workspace: a module installs into the user module root, and this
       // door may be open with no project at all.
       const { installAndActivateRendererModules } = await import('../../modules')
       const result = await installAndActivateRendererModules(() =>
-        window.api.installMarketplacePluginFromRegistry({ entry }),
+        window.api.installMarketplacePluginFromRegistry({ id: entry.id, ...(trustToken ? { trustToken } : {}) }),
       )
       setFlow(summarizeInstallResult(result))
     } catch (error) {

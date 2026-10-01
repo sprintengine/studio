@@ -20,6 +20,14 @@ import { createWorkspaceSyncService } from '../workspace-sync-service'
 import { createFakeIpcMain } from '../module-host/ipc-main-fake.test-helper'
 import { loadMainModules, type CapabilityModule } from '../module-host/load-modules'
 import { createAutomationTools, type AutomationBackends } from './automation-tools'
+import { createAgentLaunchService } from '../agent-launch-service'
+import { resolvePermissionArgs } from '../plugin-render'
+import type { TerminalSpawnPayload } from '../ipc/terminal-ipc'
+import {
+  emptyAgentLaunchSettings,
+  resolveAgentSpawnPermissionPreset,
+  type AgentLaunchSettings,
+} from '../../shared/launch-settings'
 import { createGatewayAuditStore, STUDIO_GATEWAY_AUDIT_FILENAME } from './gateway-audit'
 import { createStudioGatewayTools, isStudioGatewayMutation } from './studio-gateway-tools'
 import { requiredScopeForTool } from './tailnet/tailnet-scopes'
@@ -27,7 +35,7 @@ import { DEFAULT_MCP_PROTOCOL_VERSION, SUPPORTED_MCP_PROTOCOL_VERSIONS } from '.
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type { TerminalSessionSnapshot } from '../../shared/electron-api'
 import type { AgentLaunchRequest } from '../../shared/agent-launch'
-import type { LoadedPlugin } from '../../shared/plugin-manifest'
+import type { LoadedPlugin, PluginManifest } from '../../shared/plugin-manifest'
 import type { MarketplaceRegistryReadInput } from '../../shared/electron-api'
 import type { MarketplaceComponentKind } from '../../shared/marketplace/manifest'
 import type { CapabilityManifest, ThirdPartyModuleView } from '../../shared/modules/manifest'
@@ -37,6 +45,12 @@ import {
   type ModuleRegistrySnapshot,
 } from '../../shared/modules/registry-snapshot'
 import type { Workspace } from '../../renderer/src/types/workspace'
+import type {
+  ScheduledAgentLastRun,
+  ScheduledAgentView,
+  ScheduledAgentWriteResult,
+} from '../../shared/scheduled-agents'
+import type { ScheduledAgentsService } from '../scheduled-agents/service'
 import { test } from 'vitest'
 
 test('automation', async () => {
@@ -86,15 +100,12 @@ test('automation', async () => {
     sessions?: TerminalSessionSnapshot[]
     createWorkspace?: AutomationBackends['createWorkspace']
     launchAgent?: AutomationBackends['launchAgent']
-    getAgentSpawnPermissionDefault?: AutomationBackends['getAgentSpawnPermissionDefault']
     /** The CLI this machine would spawn under; the harness's stub session reports it. */
     defaultCli?: string
     listBacklogItems?: AutomationBackends['listBacklogItems']
     readBacklogItem?: AutomationBackends['readBacklogItem']
-    listAutomationDefinitions?: AutomationBackends['listAutomationDefinitions']
-    listAutomationRuns?: AutomationBackends['listAutomationRuns']
     backlogWrite?: Partial<AutomationBackends['backlogWrite']>
-    getAutomationsFrontDoor?: AutomationBackends['getAutomationsFrontDoor']
+    getScheduledAgents?: AutomationBackends['getScheduledAgents']
     mobileControl?: AutomationBackends['mobileControl']
     createAgentWorktree?: AutomationBackends['createAgentWorktree']
     readWorkspaceCheckout?: AutomationBackends['readWorkspaceCheckout']
@@ -132,9 +143,9 @@ test('automation', async () => {
       launchAgent:
         overrides.launchAgent ??
         (async () => ({ ok: false, code: 'no_launch_service', message: 'no launch service in test' })),
-      // A machine where nobody has chosen a preset yet — the honest starting
-      // state, so a case that depends on a default has to say so.
-      getAgentSpawnPermissionDefault: overrides.getAgentSpawnPermissionDefault ?? (() => null),
+      // Every agent on bypass, as the owner runs them: the suites here are about
+      // what a launch does, and launch-permission-cap.test.ts about the cap.
+      resolveAgentPermissionPreset: () => 'bypass',
       // Default: the mobile lane is unwired. A test that exercises the mobile
       // tools stubs this; anything else that reaches it fails loudly.
       mobileControl: overrides.mobileControl ?? {
@@ -149,8 +160,6 @@ test('automation', async () => {
       readBacklogItem:
         overrides.readBacklogItem ??
         (async (_root, relativePath) => ({ ok: false, message: `no item ${relativePath}` })),
-      listAutomationDefinitions: overrides.listAutomationDefinitions ?? (async () => ({ ok: true, values: [] })),
-      listAutomationRuns: overrides.listAutomationRuns ?? (async () => ({ ok: true, values: [] })),
       backlogWrite: {
         updateStatus: unexpectedCall('updateStatus'),
         updateType: unexpectedCall('updateType'),
@@ -161,7 +170,8 @@ test('automation', async () => {
         repairIntegrity: unexpectedCall('repairIntegrity'),
         ...overrides.backlogWrite,
       },
-      getAutomationsFrontDoor: overrides.getAutomationsFrontDoor ?? (() => null),
+      getScheduledAgents: overrides.getScheduledAgents ?? (() => null),
+      defaultChatCli: () => 'claude-code',
       createAgentWorktree:
         overrides.createAgentWorktree ??
         (async ({ workspaceRoot, name }) => ({
@@ -238,7 +248,14 @@ test('automation', async () => {
         resolveBridgeScriptPath: () => BRIDGE_SCRIPT,
         resolveGatewayTools: () => [],
       })
-      const started = await service.initialize()
+      // Nothing to wait for in a host that never starts the gateway.
+      await service.whenGatewayReady()
+      // Boot starts the gateway without awaiting it; a launch waits on
+      // `whenGatewayReady`, and by then the socket is listening.
+      const initializing = service.initialize()
+      await service.whenGatewayReady()
+      assert.equal(service.getStatus().running, true, 'the gateway is listening once a launch may proceed')
+      const started = await initializing
       assert.equal(started.enabled, true)
       assert.equal(started.running, true)
       assert.equal(existsSync(join(dir, STUDIO_MCP_SERVER_INFO_FILENAME)), true)
@@ -271,10 +288,6 @@ test('automation', async () => {
     assert.deepEqual(tools.map((registration) => registration.name).sort(), [
       'agent.launch',
       'agent.status',
-      'automation.create',
-      'automation.list',
-      'automation.run',
-      'automation.runs',
       'backlog.assign',
       'backlog.list',
       'backlog.read',
@@ -285,6 +298,10 @@ test('automation', async () => {
       'marketplace.list',
       'module.list',
       'module.status',
+      'schedule.create',
+      'schedule.delete',
+      'schedule.list',
+      'schedule.run',
       'terminal.create',
       'terminal.list',
       'workspace.checkout',
@@ -296,7 +313,7 @@ test('automation', async () => {
     ])
   }
 
-  // The list a remote client reads before attaching to one of these.
+  // The list an agent or MCP client on this machine reads to see what runs.
   // It reports liveness honestly — a paused agent is not running but is not gone
   // — and carries the hook-reported phase with its provenance, so a caller can
   // tell an authoritative "waiting for you" from an output-timing guess.
@@ -385,7 +402,7 @@ test('automation', async () => {
     assert.equal(listed[1].workspaceName, null, 'an unknown workspace id reads as no name, never a guess')
     // Git facts are read for RUNNING sessions only: a paused or exited chat gets
     // null rather than the checkout's present numbers (the sidebar's own rule),
-    // and a network read never fans git out to every checkout ever held.
+    // and a list never fans git out to every checkout ever held.
     assert.equal(listed[1].git, null, 'a paused session carries no git line')
     assert.deepEqual(listed[0].agentState, { phase: 'awaiting_input', source: 'hook', since: 21 })
     // Paused is its own answer: not running, not gone.
@@ -407,12 +424,12 @@ test('automation', async () => {
     assert.equal((refused.structuredContent as { error: { code: string } }).error.code, 'invalid_kind')
   }
 
-  // The facts a remote row needs to say what the sidebar says. Every one is
-  // additive and null/zero when unknown, so a client built before them reads the
-  // row unchanged — which is why they are asserted as VALUES here rather than by
-  // shape: `lastTurnEndedAt` in particular was read by the phone for a whole epic
-  // while this projection never sent it, and a shape assertion would not have
-  // caught that.
+  // The facts a row needs to say what the sidebar says. Every one is additive
+  // and null/zero when unknown, so a caller built before them reads the row
+  // unchanged — which is why they are asserted as VALUES here rather than by
+  // shape: `lastTurnEndedAt` in particular was read by a client for a whole
+  // epic while this projection never sent it, and a shape assertion would not
+  // have caught that.
   async function testTerminalListCarriesTheRowsProjectAndConversationFacts(): Promise<void> {
     const sessions = [
       {
@@ -485,7 +502,7 @@ test('automation', async () => {
       }
     ).terminals
 
-    // The field the phone has been reading and never receiving.
+    // The field a client once read and never received.
     assert.equal(listed[0].lastTurnEndedAt, 44, 'a finished turn reports when it finished')
     assert.equal(listed[1].lastTurnEndedAt, null, 'a shell that never took a turn says null, not zero')
 
@@ -496,7 +513,7 @@ test('automation', async () => {
     assert.equal(listed[1].activeSubagents, 0, 'no subagents is zero, so a caller can count without a guard')
 
     // The hue is the shared hash of the REPOSITORY key, so this row is the same
-    // degree on the phone, on this desktop, and on a paired machine's clone.
+    // degree in this list as in the desktop's own sidebar.
     assert.equal(listed[0].projectHue, projectHue('repo:github.com/acme/sprintengine'))
     assert.equal(listed[1].projectHue, null, 'a chat with no folder is not a project and wears no colour')
 
@@ -690,6 +707,19 @@ test('automation', async () => {
             lastInputAt: null,
             lastVisibleAt: null,
             activity: { kind: 'idle', since: 1 },
+            // The record the launch service mints: an unnamed preset resolved
+            // through the same function it uses, on a machine nobody has
+            // configured.
+            agentRecord: {
+              agentId,
+              name: 'Scout',
+              cli: request.cli ?? overrides.defaultCli ?? 'claude-code',
+              cliPermissionPreset: resolveAgentSpawnPermissionPreset(
+                emptyAgentLaunchSettings(),
+                request.cli ?? overrides.defaultCli ?? 'claude-code',
+                request.permissionPreset,
+              ),
+            },
           } as never)
           return {
             ok: true,
@@ -705,15 +735,17 @@ test('automation', async () => {
   }
 
   async function testAgentLaunchWidensConfigAndIsolation(): Promise<void> {
-    // bypass is refused at the boundary with its own code — never delegated.
-    const bypass = launchHarness()
-    const refused = await tool(bypass.tools, 'agent.launch').handler({
-      workspaceId: 'ws-1',
-      permissionPreset: 'bypass',
-    })
-    assert.equal(refused.isError, true)
-    assert.equal((refused.structuredContent as { error: { code: string } }).error.code, 'permission_preset_not_allowed')
-    assert.equal(bypass.requests.length, 0, 'a refused preset never reaches the launch service')
+    // bypass is a preset like any other here (owner ruling 2026-09-27), and its
+    // pre-rename spelling means the same thing.
+    for (const spelling of ['bypass', 'bypass_all']) {
+      const bypass = launchHarness()
+      const accepted = await tool(bypass.tools, 'agent.launch').handler({
+        workspaceId: 'ws-1',
+        permissionPreset: spelling,
+      })
+      assert.equal(accepted.isError, undefined, JSON.stringify(accepted.structuredContent))
+      assert.equal(bypass.requests[0].permissionPreset, 'bypass', `${spelling} launches as bypass`)
+    }
 
     // An out-of-vocabulary preset is a plain invalid_arguments failure.
     const badPreset = await tool(launchHarness().tools, 'agent.launch').handler({
@@ -730,13 +762,30 @@ test('automation', async () => {
       name: 'Scout',
       prompt: 'go',
       cliModel: 'opus',
-      permissionPreset: 'auto',
+      permissionPreset: 'none',
     })
     assert.equal(okConfig.isError, undefined, JSON.stringify(okConfig.structuredContent))
     assert.equal(configured.worktreeCalls.length, 0, 'no worktree requested ⇒ createAgentWorktree not called')
     const req = configured.requests[0]
     assert.equal(req.cliModel, 'opus')
-    assert.equal(req.permissionPreset, 'auto')
+    assert.equal(req.permissionPreset, 'none')
+
+    // Manual and Auto launch as themselves, and a caller written before the
+    // preset rename still gets what its spelling meant.
+    for (const [spelled, preset] of [
+      ['manual', 'manual'],
+      ['auto', 'auto'],
+      ['default', 'manual'],
+      ['auto_workspace', 'auto'],
+    ] as const) {
+      const older = launchHarness()
+      const answered = await tool(older.tools, 'agent.launch').handler({
+        workspaceId: 'ws-1',
+        permissionPreset: spelled,
+      })
+      assert.equal(answered.isError, undefined, JSON.stringify(answered.structuredContent))
+      assert.equal(older.requests[0].permissionPreset, preset, `${spelled} launches as ${preset}`)
+    }
     assert.equal(req.worktreePath, undefined)
     assert.equal((okConfig.structuredContent as { worktreePath?: string }).worktreePath, undefined)
 
@@ -842,10 +891,9 @@ test('automation', async () => {
     assert.match(JSON.stringify(created.structuredContent), /registry_commit_failed/)
   }
 
-  // Opening a terminal on THIS machine from wherever the call came from.
-  // The session id is the deliverable — the caller attaches to it immediately —
-  // and the workspace can be named without an id, because the terminal scope tier
-  // is granted separately from the one that may call workspace.list.
+  // Opening an agent terminal on this machine for a local caller. The session
+  // id is the deliverable — the caller follows the session it just opened — and
+  // the workspace can be named the way the person names it, without an id.
   async function testTerminalCreateSpawnsAndReturnsTheAttachableSession(): Promise<void> {
     const byId = launchHarness()
     const created = await tool(byId.tools, 'terminal.create').handler({ workspaceId: 'ws-1', prompt: 'go' })
@@ -857,7 +905,7 @@ test('automation', async () => {
       permissionPreset: string
       terminal: { sessionId: string; kind: string; processAlive: boolean; cli: string | null }
     }
-    assert.equal(payload.sessionId, 'sess-1', 'the caller gets the session id to attach to, not a search hint')
+    assert.equal(payload.sessionId, 'sess-1', 'the caller gets the session id, not a search hint')
     assert.equal(payload.workspaceId, 'ws-1')
     assert.equal(payload.terminal.sessionId, 'sess-1')
     assert.equal(payload.terminal.processAlive, true, 'success is a live session, not a launch call returning')
@@ -868,8 +916,7 @@ test('automation', async () => {
     assert.equal(byId.requests[0].worktreePath, undefined)
     assert.equal(byId.requests[0].connectorId, undefined)
 
-    // A workspace named rather than identified — the path a device holding only
-    // the terminal scopes has to use, since workspace.list is closed to it.
+    // A workspace named rather than identified.
     const byName = launchHarness()
     const named = await tool(byName.tools, 'terminal.create').handler({ workspaceName: 'workspace ws-1' })
     assert.equal(named.isError, undefined, JSON.stringify(named.structuredContent))
@@ -901,9 +948,6 @@ test('automation', async () => {
     assert.match(JSON.stringify(ambiguous.structuredContent), /ws-right/)
   }
 
-  // The acceptance the item states about defaults: this machine's own settings
-  // decide the CLI and the preset unless the caller names them — with the one
-  // exception that `bypass` never crosses this surface, inherited or asked for.
   // workspace.checkout (checkout-and-branch-on-remote-create): the read a
   // paired Studio makes before choosing where a remote chat runs. It projects
   // the backend's facts under the workspace id, and answers a folderless or
@@ -961,11 +1005,10 @@ test('automation', async () => {
     )
   }
 
+  // This machine's own settings decide the CLI and the preset unless the caller
+  // names them, the same as a launch from the desktop would.
   async function testTerminalCreateTakesThisMachinesLaunchDefaults(): Promise<void> {
-    const inherited = launchHarness({
-      defaultCli: 'codex',
-      getAgentSpawnPermissionDefault: () => 'auto',
-    })
+    const inherited = launchHarness({ defaultCli: 'codex' })
     const ok = await tool(inherited.tools, 'terminal.create').handler({ workspaceId: 'ws-1' })
     assert.equal(ok.isError, undefined, JSON.stringify(ok.structuredContent))
     assert.equal(
@@ -973,44 +1016,35 @@ test('automation', async () => {
       undefined,
       'an unnamed CLI is left to the launch service, which reads the same settings store',
     )
-    assert.equal(inherited.requests[0].permissionPreset, 'auto', "this machine's preset, not a hardcoded one")
+    // An unnamed preset is left to the launch service too, and the answer
+    // reports what it resolved: this machine's spawn default, `auto`.
+    assert.equal(inherited.requests[0].permissionPreset, undefined, 'an unnamed preset is not floored here')
     assert.equal((ok.structuredContent as { permissionPreset: string }).permissionPreset, 'auto')
     // The CLI reported is the one the session actually spawned under.
     assert.equal((ok.structuredContent as { terminal: { cli: string } }).terminal.cli, 'codex')
 
-    // An explicit choice overrides the machine default.
-    const overridden = launchHarness({
-      defaultCli: 'codex',
-      getAgentSpawnPermissionDefault: () => 'auto',
-    })
-    await tool(overridden.tools, 'terminal.create').handler({
+    // An explicit CLI and preset are forwarded.
+    const overridden = launchHarness({ defaultCli: 'codex' })
+    const named = await tool(overridden.tools, 'terminal.create').handler({
       workspaceId: 'ws-1',
       cli: 'claude-code',
-      permissionPreset: 'manual',
+      permissionPreset: 'none',
     })
     assert.equal(overridden.requests[0].cli, 'claude-code')
-    assert.equal(overridden.requests[0].permissionPreset, 'manual')
+    assert.equal(overridden.requests[0].permissionPreset, 'none')
+    assert.equal((named.structuredContent as { permissionPreset: string }).permissionPreset, 'none')
 
-    // Asked for: refused with its own code, and nothing is spawned.
-    const asked = launchHarness()
-    const refused = await tool(asked.tools, 'terminal.create').handler({
-      workspaceId: 'ws-1',
-      permissionPreset: 'bypass',
-    })
-    assert.equal(refused.isError, true)
-    assert.equal((refused.structuredContent as { error: { code: string } }).error.code, 'permission_preset_not_allowed')
-    assert.equal(asked.requests.length, 0, 'a refused preset never reaches the launch service')
-
-    // Inherited: clamped to the most restrictive preset rather than refused — the
-    // caller cannot fix this machine's setting — and the answer says which preset
-    // actually applied, so the clamp is visible rather than silent.
-    const clamped = launchHarness({
-      getAgentSpawnPermissionDefault: () => 'bypass',
-    })
-    const spawned = await tool(clamped.tools, 'terminal.create').handler({ workspaceId: 'ws-1' })
-    assert.equal(spawned.isError, undefined, JSON.stringify(spawned.structuredContent))
-    assert.equal(clamped.requests[0].permissionPreset, 'manual')
-    assert.equal((spawned.structuredContent as { permissionPreset: string }).permissionPreset, 'manual')
+    // Asked for by either spelling: bypass is forwarded and reported.
+    for (const spelling of ['bypass', 'bypass_all']) {
+      const asked = launchHarness()
+      const accepted = await tool(asked.tools, 'terminal.create').handler({
+        workspaceId: 'ws-1',
+        permissionPreset: spelling,
+      })
+      assert.equal(accepted.isError, undefined, JSON.stringify(accepted.structuredContent))
+      assert.equal(asked.requests[0].permissionPreset, 'bypass', `${spelling} launches as bypass`)
+      assert.equal((accepted.structuredContent as { permissionPreset: string }).permissionPreset, 'bypass')
+    }
 
     // A launch failure is reported as itself, never as a created terminal.
     const broken = launchHarness({
@@ -1596,10 +1630,6 @@ test('automation', async () => {
             ],
           }
         },
-        listAutomationDefinitions: async (root) => {
-          seenRoots.push(root)
-          return { ok: true, values: [] }
-        },
       }),
     )
 
@@ -1613,15 +1643,13 @@ test('automation', async () => {
       ],
     })
 
-    const automations = await tool(tools, 'automation.list').handler({ workspaceId: 'ws-1' })
-    assert.deepEqual(automations.structuredContent, { automations: [] })
-    assert.deepEqual(seenRoots, ['/tmp/project-a', '/tmp/project-a'], 'both tools resolve the snapshot folderPath')
+    assert.deepEqual(seenRoots, ['/tmp/project-a'], 'the tool resolves the snapshot folderPath')
 
     // An explicit projectRoot addresses any folder directly — external callers
     // are not gated on the app's workspace registry.
     const external = await tool(tools, 'backlog.list').handler({ projectRoot: '/tmp/external-clone' })
     assert.equal(external.isError, undefined, 'projectRoot works without any connection identity')
-    assert.equal(seenRoots[2], '/tmp/external-clone')
+    assert.equal(seenRoots[1], '/tmp/external-clone')
 
     const relative = await tool(tools, 'backlog.list').handler({ projectRoot: 'not/absolute' })
     assert.equal((relative.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
@@ -1636,9 +1664,13 @@ test('automation', async () => {
     // connected from it — the connection itself is the liveness proof.
     const routing = await tool(tools, 'backlog.list').handler({}, agentContext('ws-routing'))
     assert.equal(routing.isError, undefined, 'a connected agent may use its restored folder route')
-    assert.equal(seenRoots[3], '/tmp/stale')
+    assert.equal(seenRoots[2], '/tmp/stale')
 
-    const folderless = await tool(tools, 'automation.list').handler({ workspaceId: 'ws-folderless' })
+    const folderless = await tool(tools, 'schedule.create').handler({
+      workspaceId: 'ws-folderless',
+      prompt: 'tidy up',
+      cron: '0 9 * * *',
+    })
     assert.equal((folderless.structuredContent as { error: { code: string } }).error.code, 'workspace_without_folder')
   }
 
@@ -1956,21 +1988,28 @@ test('automation', async () => {
     assert.equal(missing.requests.length, 0)
   }
 
-  async function testBacklogWorkPresetGuardAndPostLaunchLinkFailure(): Promise<void> {
-    // bypass is refused at the boundary — before any read or launch.
-    const bypass = launchHarness({
-      readBacklogItem: async (_root, relativePath) => ({
-        ok: true,
-        item: { relativePath, title: 'T', isEpic: false, status: 'ready' },
-        body: '',
-      }),
+  async function testBacklogWorkPresetsAndPostLaunchLinkFailure(): Promise<void> {
+    // bypass launches the item's agent like any other preset, and an omitted
+    // one is left to the launch service's own resolution.
+    const readyItem: BackendsOverrides['readBacklogItem'] = async (_root, relativePath) => ({
+      ok: true,
+      item: { relativePath, title: 'T', isEpic: false, status: 'ready' },
+      body: '',
     })
-    const refused = await tool(bypass.tools, 'backlog.work').handler(
+    const linked: BackendsOverrides = {
+      readBacklogItem: readyItem,
+      backlogWrite: { addOrUpdateLink: async () => ({ ok: true, store: { schemaVersion: 1, items: [] } }) },
+    }
+    const bypass = launchHarness(linked)
+    const accepted = await tool(bypass.tools, 'backlog.work').handler(
       { path: 'backlog/example.md', permissionPreset: 'bypass' },
       agentContext('ws-1'),
     )
-    assert.equal((refused.structuredContent as { error: { code: string } }).error.code, 'permission_preset_not_allowed')
-    assert.equal(bypass.requests.length, 0, 'a refused preset never launches')
+    assert.equal(accepted.isError, undefined, JSON.stringify(accepted.structuredContent))
+    assert.equal(bypass.requests[0].permissionPreset, 'bypass')
+    const omitted = launchHarness(linked)
+    await tool(omitted.tools, 'backlog.work').handler({ path: 'backlog/example.md' }, agentContext('ws-1'))
+    assert.equal(omitted.requests[0].permissionPreset, undefined, 'an unnamed preset is not floored here')
 
     // A link-write failure AFTER a confirmed launch is not overall failure: the
     // agent is already running, so the tool returns ok + assigned:false + warning.
@@ -2002,271 +2041,373 @@ test('automation', async () => {
     assert.equal(linkFail.requests.length, 1, 'the agent was launched exactly once')
   }
 
-  async function testAutomationMutationToolsGateOnPresetAndModule(): Promise<void> {
-    const created: unknown[] = []
-    const ran: unknown[] = []
-    const withFrontDoor = createAutomationTools(
+  // A fake of the scheduled agents service: it records what the tools hand it
+  // and answers as `answers` says. Validation is the service's, not the tools'.
+  function fakeScheduledAgents(
+    answers: {
+      create?: (input: unknown) => ScheduledAgentWriteResult
+      runNow?: (id: string) => { ok: true; run: ScheduledAgentLastRun } | { ok: false; message: string }
+    } = {},
+  ) {
+    const calls = { created: [] as unknown[], ran: [] as string[], removed: [] as string[] }
+    const agents: ScheduledAgentView[] = [scheduledAgentView({ id: 'sa-1' })]
+    const service = {
+      list: () => agents,
+      get: (id: string) => agents.find((agent) => agent.id === id) ?? null,
+      create: async (input: unknown): Promise<ScheduledAgentWriteResult> => {
+        calls.created.push(input)
+        return answers.create?.(input) ?? { ok: true, agent: scheduledAgentView({ id: 'sa-2' }) }
+      },
+      remove: async (id: string) => {
+        calls.removed.push(id)
+        return agents.some((agent) => agent.id === id)
+          ? ({ ok: true } as const)
+          : ({ ok: false, message: `No scheduled agent "${id}".` } as const)
+      },
+      runNow: async (id: string) => {
+        calls.ran.push(id)
+        return answers.runNow?.(id) ?? { ok: true as const, run: { at: 0, ok: true as const, workspaceId: 'ws-run' } }
+      },
+    } as unknown as ScheduledAgentsService
+    return { service, calls }
+  }
+
+  function scheduledAgentView(fields: Partial<ScheduledAgentView>): ScheduledAgentView {
+    return {
+      id: 'sa-1',
+      prompt: 'Triage new issues',
+      schedule: { cron: '0 21 * * 0', timezone: 'UTC' },
+      folderPath: '/tmp/project-a',
+      hostId: null,
+      cli: 'claude-code',
+      cliModel: null,
+      permissionPreset: null,
+      skills: [],
+      mcpServers: [],
+      worktree: null,
+      ownerModuleId: null,
+      createdAt: 0,
+      updatedAt: 0,
+      lastRun: null,
+      lastFailureSeenAt: null,
+      nextRunAt: Date.UTC(2026, 9, 4, 21, 0),
+      ...fields,
+    }
+  }
+
+  async function testScheduleToolsDriveTheScheduledAgentsService(): Promise<void> {
+    const { service, calls } = fakeScheduledAgents()
+    const tools = createAutomationTools(
       backendsOf({
-        workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
-        getAutomationsFrontDoor: () => ({
-          createDefinition: async (input) => {
-            created.push(input)
-            return { ok: true, value: { id: 'auto-1', name: 'Nightly' } as never }
-          },
-          // No MCP tool edits a definition (create + run only), so an update here
-          // would mean the surface grew: refuse rather than fake a success.
-          updateDefinition: async () => ({
-            ok: false,
-            code: 'not_stubbed',
-            message: 'No automation tool updates definitions.',
-          }),
-          // Nor does any MCP tool install a marketplace automation — that is the
-          // marketplace install path's door, reached from the app, not from a tool.
-          installCatalogueDefinition: async () => ({
-            ok: false,
-            code: 'not_stubbed',
-            message: 'No automation tool installs catalogue automations.',
-          }),
-          runNow: async (input) => {
-            ran.push(input)
-            return { ok: true, value: { definition: { id: 'auto-1' }, run: { runId: 'run-1' } } as never }
-          },
-        }),
+        workspaces: [
+          testWorkspace('ws-1', { folderPath: '/tmp/project-a' }),
+          testWorkspace('ws-tree', {
+            folderPath: '/tmp/project-a/.worktrees/fix',
+            worktree: { branch: 'agent/fix', baseRef: 'HEAD', repoRoot: '/tmp/project-a' },
+            hostId: 'wsl:Ubuntu',
+          } as Partial<Workspace>),
+        ],
+        getScheduledAgents: () => service,
       }),
     )
 
-    const definition = {
-      name: 'Nightly',
-      trigger: { kind: 'schedule', config: { cadence: 'daily' } },
-      action: { kind: 'spawn-agent', config: { prompt: 'do it', permissionPreset: 'auto' } },
-    }
-    const ok = await tool(withFrontDoor, 'automation.create').handler({ workspaceId: 'ws-1', definition })
-    assert.equal(ok.isError, undefined)
-    assert.deepEqual(created, [{ workspaceRoot: '/tmp/project-a', definition }])
-    assert.deepEqual(ok.structuredContent, { automation: { id: 'auto-1', name: 'Nightly' } })
+    // The list says each schedule in words and its next run as an instant.
+    const listed = await tool(tools, 'schedule.list').handler({})
+    const first = (listed.structuredContent as { scheduledAgents: Array<Record<string, unknown>> }).scheduledAgents[0]!
+    assert.equal(first.scheduleWords, 'Every Sunday at 9:00 PM')
+    assert.equal(first.nextRunAt, '2026-10-04T21:00:00.000Z')
 
-    const okRun = await tool(withFrontDoor, 'automation.run').handler({ workspaceId: 'ws-1', automationId: 'auto-1' })
-    assert.deepEqual(ran, [{ workspaceRoot: '/tmp/project-a', automationId: 'auto-1' }])
-    assert.deepEqual(okRun.structuredContent, { definition: { id: 'auto-1' }, run: { runId: 'run-1' } })
-
-    // bypass is refused before the front door ever sees the draft.
-    const bypass = await tool(withFrontDoor, 'automation.create').handler({
+    // A create is a draft for the service: the workspace's project and machine,
+    // the last-picked CLI when none is named, and this computer's zone.
+    const created = await tool(tools, 'schedule.create').handler({
       workspaceId: 'ws-1',
-      definition: {
-        ...definition,
-        action: { kind: 'spawn-agent', config: { prompt: 'do it', permissionPreset: 'bypass' } },
-      },
+      prompt: 'Triage new issues',
+      cron: '0 9 * * 1-5',
+      worktree: true,
+      skills: ['gh-triage'],
     })
-    assert.equal(bypass.isError, true)
-    assert.equal((bypass.structuredContent as { error: { code: string } }).error.code, 'permission_preset_not_allowed')
-    assert.equal(created.length, 1, 'the refused draft never reached the front door')
+    assert.equal(created.isError, undefined, JSON.stringify(created.structuredContent))
+    const draft = calls.created[0] as Record<string, unknown>
+    assert.equal(draft.prompt, 'Triage new issues')
+    assert.equal((draft.schedule as { cron: string }).cron, '0 9 * * 1-5')
+    assert.equal((draft.schedule as { timezone: string }).timezone, Intl.DateTimeFormat().resolvedOptions().timeZone)
+    assert.equal(draft.folderPath, '/tmp/project-a')
+    assert.equal(draft.hostId, null)
+    assert.equal(draft.cli, 'claude-code')
+    assert.equal(draft.permissionPreset, null, 'an omitted preset follows the choice at run time')
+    assert.deepEqual(draft.worktree, { name: '' })
+    assert.deepEqual(draft.skills, [{ id: 'gh-triage', name: 'gh-triage' }])
+
+    // A workspace on a worktree schedules into its project, on its machine.
+    await tool(tools, 'schedule.create').handler({
+      workspaceId: 'ws-tree',
+      prompt: 'x',
+      cron: '@daily',
+      timezone: 'UTC',
+    })
+    const fromTree = calls.created[1] as Record<string, unknown>
+    assert.equal(fromTree.folderPath, '/tmp/project-a')
+    assert.equal(fromTree.hostId, 'wsl:Ubuntu')
+    assert.equal((fromTree.schedule as { timezone: string }).timezone, 'UTC')
+
+    const ran = await tool(tools, 'schedule.run').handler({ id: 'sa-1' })
+    assert.deepEqual(ran.structuredContent, { workspaceId: 'ws-run' })
+    assert.deepEqual(calls.ran, ['sa-1'])
+
+    const removed = await tool(tools, 'schedule.delete').handler({ id: 'sa-1' })
+    assert.deepEqual(removed.structuredContent, { removed: 'sa-1' })
+    const unknown = await tool(tools, 'schedule.delete').handler({ id: 'nope' })
+    assert.equal((unknown.structuredContent as { error: { code: string } }).error.code, 'unknown_scheduled_agent')
 
     // Module disabled/not loaded ⇒ explicit failure, never buffering.
     const withoutModule = createAutomationTools(
       backendsOf({ workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })] }),
     )
     for (const [name, args] of [
-      ['automation.create', { workspaceId: 'ws-1', definition }],
-      ['automation.run', { workspaceId: 'ws-1', automationId: 'auto-1' }],
+      ['schedule.list', {}],
+      ['schedule.create', { workspaceId: 'ws-1', prompt: 'x', cron: '0 9 * * *' }],
+      ['schedule.delete', { id: 'sa-1' }],
+      ['schedule.run', { id: 'sa-1' }],
     ] as const) {
       const result = await tool(withoutModule, name).handler(args as Record<string, unknown>)
       assert.equal(result.isError, true)
       assert.equal(
         (result.structuredContent as { error: { code: string } }).error.code,
-        'automations_module_unavailable',
+        'scheduled_agents_unavailable',
+        name,
       )
     }
   }
 
-  // Automations spawn their agents in bypass by default (an unattended run cannot
-  // answer a permission prompt), and that default is resolved in the spawn-agent
-  // action. It changes nothing here: an EXTERNAL caller still gets exactly two
-  // presets and cannot grant itself bypass. This pins the boundary so the default
-  // is never read as permission to widen it.
-  async function testBypassStaysRefusedAtTheExternalToolBoundary(): Promise<void> {
-    const created: unknown[] = []
+  // A chat a schedule started may list the schedules but not make, remove or
+  // fire one, so no run can start a chain of runs. Any other chat, and a
+  // caller with no identity, keeps every tool.
+  async function testAScheduledRunsChatMayNotChangeSchedules(): Promise<void> {
+    const { service, calls } = fakeScheduledAgents()
+    const tools = createAutomationTools(
+      backendsOf({
+        workspaces: [
+          testWorkspace('ws-1', { folderPath: '/tmp/project-a' }),
+          testWorkspace('ws-run', { folderPath: '/tmp/project-a', scheduledAgentId: 'sa-1' }),
+        ],
+        getScheduledAgents: () => service,
+      }),
+    )
+    const fromRun = agentContext('ws-run')
+    const listed = await tool(tools, 'schedule.list').handler({}, fromRun)
+    assert.equal(listed.isError, undefined, 'a run may still read the schedules')
+    for (const [name, args] of [
+      ['schedule.create', { workspaceId: 'ws-1', prompt: 'x', cron: '0 9 * * *' }],
+      ['schedule.delete', { id: 'sa-1' }],
+      ['schedule.run', { id: 'sa-1' }],
+    ] as const) {
+      const result = await tool(tools, name).handler(args as Record<string, unknown>, fromRun)
+      const error = (result.structuredContent as { error: { code: string; message: string } }).error
+      assert.equal(error.code, 'scheduled_run_refused', name)
+      assert.match(error.message, /started by a scheduled agent/u, name)
+    }
+    assert.deepEqual(calls, { created: [], ran: [], removed: [] }, 'nothing reached the service')
+
+    // The same calls from an ordinary chat, and from a caller that named no chat, go through.
+    for (const context of [agentContext('ws-1'), undefined]) {
+      const created = await tool(tools, 'schedule.create').handler(
+        { workspaceId: 'ws-1', prompt: 'x', cron: '0 9 * * *' },
+        context,
+      )
+      assert.equal(created.isError, undefined, JSON.stringify(created.structuredContent))
+      const ran = await tool(tools, 'schedule.run').handler({ id: 'sa-1' }, context)
+      assert.equal(ran.isError, undefined, JSON.stringify(ran.structuredContent))
+      const removed = await tool(tools, 'schedule.delete').handler({ id: 'sa-1' }, context)
+      assert.equal(removed.isError, undefined, JSON.stringify(removed.structuredContent))
+    }
+  }
+
+  // Every surface may spawn in bypass (owner ruling 2026-09-27): an external
+  // caller gets the same two presets a person at the launcher does, and an
+  // omitted one means what it means there. This pins that the tool boundary
+  // neither refuses bypass nor quietly floors an omission to `none`.
+  async function testBothPresetsAreOpenAtTheExternalToolBoundary(): Promise<void> {
+    const { service, calls } = fakeScheduledAgents()
     const tools = createAutomationTools(
       backendsOf({
         workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
-        getAutomationsFrontDoor: () => ({
-          createDefinition: async (input) => {
-            created.push(input)
-            return { ok: true, value: { id: 'auto-1', name: 'Nightly' } as never }
-          },
-          updateDefinition: async () => ({
-            ok: false,
-            code: 'not_stubbed',
-            message: 'No automation tool updates definitions.',
-          }),
-          // Nor does any MCP tool install a marketplace automation — that is the
-          // marketplace install path's door, reached from the app, not from a tool.
-          installCatalogueDefinition: async () => ({
-            ok: false,
-            code: 'not_stubbed',
-            message: 'No automation tool installs catalogue automations.',
-          }),
-          runNow: async () => ({ ok: false, code: 'not_stubbed', message: 'Not exercised here.' }),
-        }),
+        getScheduledAgents: () => service,
       }),
     )
 
-    // The advertised vocabulary is the boundary: two members, bypass absent,
-    // on every tool that launches an agent.
-    for (const name of ['agent.launch', 'backlog.work'] as const) {
-      const properties = tool(tools, name).inputSchema.properties as Record<string, { enum?: unknown }>
+    // The advertised vocabulary is exactly the four presets, on every tool that
+    // launches an agent, and the text says what an omission means.
+    for (const name of ['agent.launch', 'backlog.work', 'terminal.create'] as const) {
+      const properties = tool(tools, name).inputSchema.properties as Record<
+        string,
+        { enum?: unknown; description?: string }
+      >
       assert.deepEqual(
         properties.permissionPreset?.enum,
-        ['manual', 'auto'],
-        `${name} advertises exactly the two allowed presets`,
+        ['none', 'manual', 'auto', 'bypass'],
+        `${name} advertises every preset`,
+      )
+      assert.match(
+        properties.permissionPreset?.description ?? '',
+        /Omitted, the launch takes the preset chosen for that CLI on this machine, else the app default "auto"/,
+        `${name} says what an omitted preset resolves to`,
+      )
+      // The one refusal it names is an agent of this app asking above its own
+      // preset (launch-permission-cap.test.ts); nobody else is refused one.
+      assert.match(
+        properties.permissionPreset?.description ?? '',
+        /Called by an agent of this app, the launch runs no looser than that agent's own preset: a looser one is refused/,
+        `${name} refuses a preset only to an agent above its own`,
       )
     }
 
-    // And the refusals say what was refused and who can set it — a caller can act
-    // on the message without reading the code.
-    const launchRefusal = await tool(tools, 'agent.launch').handler({ workspaceId: 'ws-1', permissionPreset: 'bypass' })
-    const createRefusal = await tool(tools, 'automation.create').handler({
-      workspaceId: 'ws-1',
-      definition: {
-        name: 'Nightly',
-        trigger: { kind: 'schedule', config: { cadence: 'daily' } },
-        action: { kind: 'spawn-agent', config: { prompt: 'do it', permissionPreset: 'bypass' } },
-      },
-    })
-    for (const [surface, refusal] of [
-      ['agent.launch', launchRefusal],
-      ['automation.create', createRefusal],
-    ] as const) {
-      const error = (refusal.structuredContent as { error: { code: string; message: string } }).error
-      assert.equal(refusal.isError, true, `${surface} refuses bypass`)
-      assert.equal(error.code, 'permission_preset_not_allowed', `${surface} refuses with its own code`)
-      assert.match(error.message, /bypass/, `${surface} names the refused preset`)
-      assert.match(error.message, /person can set that preset/, `${surface} says who can set it instead`)
-    }
-    assert.deepEqual(created, [], 'a refused draft never reaches the create pipeline')
-
-    // Refusing the literal string is not the boundary — the boundary is the preset
-    // the run ACTUALLY gets. Omitting the key resolves to the unattended default on
-    // an agent-backed action, and the renderer fills an omitted launch preset from
-    // the user's last spawn choice (which ships as bypass), so both surfaces
-    // must resolve rather than read.
-    const omittedCreate = await tool(tools, 'automation.create').handler({
-      workspaceId: 'ws-1',
-      definition: {
-        name: 'Nightly',
-        trigger: { kind: 'schedule', config: { cadence: 'daily' } },
-        action: { kind: 'spawn-agent', config: { prompt: 'do it' } },
-      },
-    })
-    assert.equal(omittedCreate.isError, true, 'an agent-backed draft that names no preset is refused')
-    assert.equal(
-      (omittedCreate.structuredContent as { error: { code: string } }).error.code,
-      'permission_preset_not_allowed',
-      'omission is refused as a preset problem, not a validation problem',
-    )
-    assert.deepEqual(created, [], 'the preset-less draft never reaches the create pipeline either')
-
-    // A non-agent action has no preset to resolve and must stay creatable.
-    const webhookCreate = await tool(tools, 'automation.create').handler({
-      workspaceId: 'ws-1',
-      definition: {
-        name: 'Ping',
-        trigger: { kind: 'schedule', config: { cadence: 'daily' } },
-        action: { kind: 'http-post', config: { url: 'https://example.invalid/hook' } },
-      },
-    })
-    assert.equal(webhookCreate.isError, undefined, 'a non-agent action is unaffected by the preset gate')
-    assert.equal(created.length, 1, 'the non-agent draft reaches the create pipeline')
-
-    // The pre-rename spelling of bypass is the SAME preset, so it must hit the
-    // same ceiling. Comparing the raw string let `bypass_all` through here and be
-    // normalized to `bypass` downstream — an unattended agent nobody consented to
-    // (backlog/2026-09-06-automation-create-misses-the-legacy-bypass-spelling.md).
-    const legacyBypass = await tool(tools, 'automation.create').handler({
-      workspaceId: 'ws-1',
-      definition: {
-        name: 'Nightly',
-        trigger: { kind: 'schedule', config: { cadence: 'daily' } },
-        action: { kind: 'spawn-agent', config: { prompt: 'do it', permissionPreset: 'bypass_all' } },
-      },
-    })
-    assert.equal(legacyBypass.isError, true, 'the legacy spelling of bypass is refused too')
-    assert.equal(
-      (legacyBypass.structuredContent as { error: { code: string } }).error.code,
-      'permission_preset_not_allowed',
-    )
-    assert.equal(created.length, 1, 'the legacy-bypass draft never reaches the create pipeline')
-
-    // An explicitly-named allowed preset still passes through verbatim. `default`
-    // is the legacy spelling of `manual`, which is allowed here — only bypass is
-    // refused — so it stays accepted for definitions written before the rename.
-    for (const preset of ['default', 'auto'] as const) {
-      const allowed = await tool(tools, 'automation.create').handler({
+    // Every preset, and every retired spelling of one, is stored as the preset
+    // it means; a schedule that names none follows the choice at run time.
+    const spellings = ['bypass', 'bypass_all', 'none', 'manual', 'default', 'auto', 'auto_workspace']
+    for (const preset of spellings) {
+      const answer = await tool(tools, 'schedule.create').handler({
         workspaceId: 'ws-1',
-        definition: {
-          name: 'Nightly',
-          trigger: { kind: 'schedule', config: { cadence: 'daily' } },
-          action: { kind: 'spawn-agent', config: { prompt: 'do it', permissionPreset: preset } },
-        },
+        prompt: 'do it',
+        cron: '0 9 * * *',
+        permissionPreset: preset,
       })
-      assert.equal(allowed.isError, undefined, `an explicit "${preset}" automation is created`)
+      assert.equal(answer.isError, undefined, `an explicit "${preset}" scheduled agent is created`)
     }
-
-    // agent.launch never forwards an absent preset to the renderer's own default.
-    const omittedLaunch = launchHarness()
-    const launched = await tool(omittedLaunch.tools, 'agent.launch').handler({ workspaceId: 'ws-1', prompt: 'go' })
-    assert.equal(launched.isError, undefined, JSON.stringify(launched.structuredContent))
-    const launchRequest = omittedLaunch.requests[0]
-    assert.equal(
-      launchRequest.permissionPreset,
-      'manual',
-      'an omitted launch preset is pinned to the most restrictive allowed value, not left for the renderer to fill',
+    const omitted = await tool(tools, 'schedule.create').handler({
+      workspaceId: 'ws-1',
+      prompt: 'do it',
+      cron: '0 9 * * *',
+    })
+    assert.equal(omitted.isError, undefined, 'a scheduled agent that names no preset is created')
+    assert.deepEqual(
+      calls.created.map((input) => (input as { permissionPreset: string | null }).permissionPreset),
+      ['bypass', 'bypass', 'none', 'manual', 'manual', 'auto', 'auto', null],
+      'each preset is stored as the preset it means',
     )
+    const unreadable = await tool(tools, 'schedule.create').handler({
+      workspaceId: 'ws-1',
+      prompt: 'do it',
+      cron: '0 9 * * *',
+      permissionPreset: 'root',
+    })
+    assert.equal((unreadable.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
   }
 
-  async function testAutomationMutationToolsPassPipelineFailuresThrough(): Promise<void> {
+  // The acceptance the owner ruling states, end to end through the real launch
+  // service: a preset nobody named resolves exactly as it would at the desktop
+  // launcher — the person's choice for the CLI, else the app default — and the
+  // resolved preset is what renders the CLI's flag.
+  async function testAnOmittedPresetResolvesLikeTheDesktopLauncher(): Promise<void> {
+    const claudeManifest = JSON.parse(
+      readFileSync(new URL('../../../resources/plugins/claude-code/plugin.json', import.meta.url), 'utf8'),
+    ) as PluginManifest
+    const launchWith = async (settings: AgentLaunchSettings, tool_: string, args: Record<string, unknown>) => {
+      const workspace = testWorkspace('ws-1', { folderPath: '/tmp/project-a' })
+      const sessions: TerminalSessionSnapshot[] = []
+      const spawns: TerminalSpawnPayload[] = []
+      const service = createAgentLaunchService({
+        listWorkspaces: () => [{ id: 'ws-1', mode: 'standard', folderPath: '/tmp/project-a', agents: {} }],
+        getLaunchSettings: () => settings,
+        terminal: {
+          list: () => sessions,
+          spawn: async (payload) => {
+            spawns.push(payload)
+            sessions.push({
+              sessionId: payload.sessionId,
+              kind: 'agent',
+              workspaceId: 'ws-1',
+              agentId: payload.agentId,
+              cli: payload.cli,
+              processAlive: true,
+              suspended: false,
+              visible: false,
+              startedAt: 1,
+              lastOutputAt: 1,
+              lastInputAt: null,
+              lastVisibleAt: null,
+              activity: { kind: 'idle', since: 1 },
+              agentRecord: payload.agentRecord,
+            } as never)
+            return { ok: true, sessionId: payload.sessionId }
+          },
+          kill: () => undefined,
+        },
+        newSessionId: () => 'sess-real',
+        newAgentSuffix: () => 'abc123',
+      })
+      const tools = createAutomationTools({
+        ...backendsOf({ workspaces: [workspace], sessions }),
+        getWorkspaceSyncSnapshot: () => snapshotOf([workspace]),
+        listTerminalSessions: () => sessions,
+        launchAgent: (request) => service.launch(request),
+      })
+      const answer = await tool(tools, tool_).handler({ workspaceId: 'ws-1', cli: 'claude-code', ...args })
+      assert.equal(answer.isError, undefined, JSON.stringify(answer.structuredContent))
+      assert.equal(spawns.length, 1)
+      return { answer, preset: spawns[0]!.cliPermissionPreset }
+    }
+    const bypassFlag = ['--permission-mode', 'bypassPermissions']
+
+    // A machine nobody chose on: an omitted preset launches with the CLI's own
+    // auto mode (owner request 2026-10-01), on every launching tool.
+    for (const name of ['agent.launch', 'terminal.create']) {
+      const { preset } = await launchWith(emptyAgentLaunchSettings(), name, {})
+      assert.equal(preset, 'auto', `${name}: the app default reaches the spawn`)
+      assert.deepEqual(
+        resolvePermissionArgs(claudeManifest, preset),
+        ['--permission-mode', 'auto'],
+        `${name}: with Claude Code's auto mode`,
+      )
+    }
+    // A person who chose Bypass for the CLI keeps it.
+    const chosenBypass = { ...emptyAgentLaunchSettings(), cliPermissionPresets: { 'claude-code': 'bypass' as const } }
+    assert.deepEqual(
+      resolvePermissionArgs(claudeManifest, (await launchWith(chosenBypass, 'agent.launch', {})).preset),
+      bypassFlag,
+    )
+
+    // A person who chose `none` for this CLI: the same omitted preset passes no
+    // flag, and terminal.create reports what was resolved.
+    const chosenNone = { ...emptyAgentLaunchSettings(), cliPermissionPresets: { 'claude-code': 'none' as const } }
+    const { answer, preset } = await launchWith(chosenNone, 'terminal.create', {})
+    assert.equal(preset, 'none', "the person's choice for the CLI wins over the app default")
+    assert.deepEqual(resolvePermissionArgs(claudeManifest, preset), [], 'and no permission flag is passed')
+    assert.equal((answer.structuredContent as { permissionPreset: string }).permissionPreset, 'none')
+
+    // A caller that names bypass gets it even where the person chose none: the
+    // caller's own value comes first, as it does at the launcher.
+    const named = await launchWith(chosenNone, 'agent.launch', { permissionPreset: 'bypass' })
+    assert.deepEqual(resolvePermissionArgs(claudeManifest, named.preset), bypassFlag)
+  }
+
+  async function testScheduleToolsPassServiceFailuresThrough(): Promise<void> {
+    const { service } = fakeScheduledAgents({
+      create: () => ({ ok: false, message: 'Hour 25 doesn’t exist — use 0–23.' }),
+      runNow: () => ({ ok: true, run: { at: 0, ok: false, message: 'not a git repository' } }),
+    })
     const tools = createAutomationTools(
       backendsOf({
         workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
-        getAutomationsFrontDoor: () => ({
-          createDefinition: async () => ({
-            ok: false,
-            code: 'workspace_root_untrusted',
-            message: 'Folder is not an open workspace.',
-          }),
-          updateDefinition: async () => ({
-            ok: false,
-            code: 'not_stubbed',
-            message: 'No automation tool updates definitions.',
-          }),
-          // Nor does any MCP tool install a marketplace automation — that is the
-          // marketplace install path's door, reached from the app, not from a tool.
-          installCatalogueDefinition: async () => ({
-            ok: false,
-            code: 'not_stubbed',
-            message: 'No automation tool installs catalogue automations.',
-          }),
-          runNow: async () => ({
-            ok: false,
-            code: 'unsupported_trigger',
-            message: 'Run now needs a schedule trigger.',
-          }),
-        }),
+        getScheduledAgents: () => service,
       }),
     )
-    const created = await tool(tools, 'automation.create').handler({
+    const created = await tool(tools, 'schedule.create').handler({
       workspaceId: 'ws-1',
-      // An explicit allowed preset, so the draft clears the preset gate and the
-      // pipeline's own failure is what surfaces.
-      definition: {
-        name: 'X',
-        trigger: { kind: 'schedule', config: {} },
-        action: { kind: 'spawn-agent', config: { permissionPreset: 'auto' } },
-      },
+      prompt: 'x',
+      cron: '0 25 * * *',
     })
-    assert.equal((created.structuredContent as { error: { code: string } }).error.code, 'workspace_root_untrusted')
+    const createError = (created.structuredContent as { error: { code: string; message: string } }).error
+    assert.equal(createError.code, 'scheduled_agent_invalid')
+    assert.match(createError.message, /Hour 25/)
 
-    const ran = await tool(tools, 'automation.run').handler({ workspaceId: 'ws-1', automationId: 'auto-1' })
-    assert.equal((ran.structuredContent as { error: { code: string } }).error.code, 'unsupported_trigger')
+    // A run that could not start says why, rather than reporting a chat.
+    const ran = await tool(tools, 'schedule.run').handler({ id: 'sa-1' })
+    const runError = (ran.structuredContent as { error: { code: string; message: string } }).error
+    assert.equal(runError.code, 'scheduled_agent_run_failed')
+    assert.match(runError.message, /not a git repository/)
+
+    const unknown = await tool(tools, 'schedule.run').handler({ id: 'nope' })
+    assert.equal((unknown.structuredContent as { error: { code: string } }).error.code, 'unknown_scheduled_agent')
   }
 
   // `cli` and `cliModel` were blind strings until an agent could
@@ -2278,7 +2419,7 @@ test('automation', async () => {
         displayName: id === 'claude-code' ? 'Claude Code' : id,
         version: 1,
         binary: id === 'claude-code' ? 'claude' : id,
-        permissionPresets: { default: {}, bypass: {} },
+        permissionPresets: { bypass: { label: 'Bypass', args: ['--skip-prompts'] } },
         launch: { args: [] },
         promptInjection: { mode: 'argv' },
         completion: { mode: 'exit' },
@@ -2306,7 +2447,8 @@ test('automation', async () => {
         } as never),
         // A CLI that declares neither: it must still be listed, with the honest
         // empty answer — "no model may be passed" is not the same as "unlisted".
-        plugin('plain-cli'),
+        // It also names only a manual setting, so it honours that and `none`.
+        plugin('plain-cli', { permissionPresets: { manual: { label: 'Manual', args: ['--ask'] } } }),
         // Hooks-only selectability: a spec-less CLI stays LISTED (marked, not
         // omitted, so a remote caller holding a stale id learns why it is
         // refused) but flagged agentSelectable: false.
@@ -2334,7 +2476,8 @@ test('automation', async () => {
     assert.equal(clis[0].allowCustomModelId, true)
     assert.deepEqual(clis[0].reasoningLevels, [{ id: 'medium' }, { id: 'high', label: 'High' }])
     assert.equal(clis[0].defaultReasoningLevel, 'medium')
-    assert.deepEqual(clis[0].permissionPresets, ['default', 'bypass'])
+    assert.deepEqual(clis[0].permissionPresets, ['none', 'bypass'])
+    assert.deepEqual(clis[1].permissionPresets, ['manual', 'none'], 'only the presets it names, and none')
     assert.equal(clis[1].supportsModelSelection, false)
     assert.deepEqual(clis[1].models, [])
     assert.equal(clis[1].allowCustomModelId, false)
@@ -2361,10 +2504,6 @@ test('automation', async () => {
           ok: false,
           message: 'Backlog item backlog/gone.md does not exist in this workspace.',
         }),
-        listAutomationRuns: async () => ({
-          ok: false,
-          errors: [{ code: 'io_error', message: 'runs folder unreadable' } as never],
-        }),
       }),
     )
 
@@ -2374,14 +2513,8 @@ test('automation', async () => {
     assert.equal(readError.code, 'backlog_read_failed')
     assert.match(readError.message, /does not exist/)
 
-    const runs = await tool(tools, 'automation.runs').handler({ workspaceId: 'ws-1', automationId: 'auto-1' })
-    assert.equal(runs.isError, true)
-    const runsError = (runs.structuredContent as { error: { code: string; message: string } }).error
-    assert.equal(runsError.code, 'automations_unavailable')
-    assert.match(runsError.message, /runs folder unreadable/)
-
     // Missing/blank arguments stay explicit invalid_arguments failures.
-    const missing = await tool(tools, 'automation.runs').handler({ workspaceId: 'ws-1' })
+    const missing = await tool(tools, 'backlog.read').handler({}, agentContext('ws-1'))
     assert.equal((missing.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
   }
 
@@ -2493,6 +2626,7 @@ test('automation', async () => {
         summary: 'test module',
         defaultEnabled: true,
         source: 'third-party',
+        permissions: ['mcp:tools'],
       },
       registerMain: (host) => host.registerMcpTools(tools),
     })
@@ -2578,6 +2712,7 @@ test('automation', async () => {
         summary: 'fixture module',
         defaultEnabled: true,
         source: 'third-party',
+        permissions: ['mcp:tools'],
       },
       registerMain: (host) => host.registerMcpTools([forecastTool]),
     }
@@ -2713,6 +2848,7 @@ test('automation', async () => {
           },
         })
       }
+      await store.flush()
       const path = join(dir, STUDIO_GATEWAY_AUDIT_FILENAME)
       assert.equal(existsSync(path), true)
       assert.equal(existsSync(`${path}.1`), true, 'bounded log rotates before unbounded growth')
@@ -2929,6 +3065,7 @@ test('automation', async () => {
       summary: 'fixture module',
       defaultEnabled: true,
       source: 'third-party' as const,
+      permissions: ['mcp:tools' as const],
     }
     const fixtureModule: CapabilityModule = { manifest, registerMain: (host) => host.registerMcpTools([forecastTool]) }
     const { kernel } = loadMainModules({ ipcMain: createFakeIpcMain().ipcMain, modules: [fixtureModule] })
@@ -3210,7 +3347,7 @@ test('automation', async () => {
     )
   }
 
-  // ── Mobile companion over the gateway (tailnet-mobile-transport) ───────────
+  // ── Mobile companion over the gateway ──────────────────────────────────────
 
   async function testMobileSnapshotToolServesTheCompanionReadModel(): Promise<void> {
     const reads: Array<{ include?: string[]; knownSnapshotVersion?: string }> = []
@@ -3224,7 +3361,7 @@ test('automation', async () => {
             }
             return {
               unchanged: false as const,
-              snapshot: { protocolVersion: 4, snapshotVersion: 'snap_current', backlog: [], automations: [] },
+              snapshot: { protocolVersion: 4, snapshotVersion: 'snap_current', backlog: [] },
             }
           },
           dispatchCommand: async () => {
@@ -3234,6 +3371,9 @@ test('automation', async () => {
       }),
     )
 
+    // Phones built before automations left the wire ask for them on every read.
+    // The retired name is accepted and forwarded, and the bridge serves nothing
+    // for it, rather than failing every read those phones make.
     const full = await tool(tools, 'workspace.snapshot').handler({ include: ['automations', 'backlog'] })
     assert.equal(full.isError, undefined)
     const fullBody = full.structuredContent as { unchanged: boolean; snapshot: { snapshotVersion: string } }
@@ -3338,10 +3478,12 @@ test('automation', async () => {
     testBacklogAssignBuildsTheCanonicalLink,
     testBacklogWorkHandsItemToAgent,
     testBacklogWorkFallsBackAndRefusesFinishedItems,
-    testBacklogWorkPresetGuardAndPostLaunchLinkFailure,
-    testAutomationMutationToolsGateOnPresetAndModule,
-    testBypassStaysRefusedAtTheExternalToolBoundary,
-    testAutomationMutationToolsPassPipelineFailuresThrough,
+    testBacklogWorkPresetsAndPostLaunchLinkFailure,
+    testScheduleToolsDriveTheScheduledAgentsService,
+    testAScheduledRunsChatMayNotChangeSchedules,
+    testBothPresetsAreOpenAtTheExternalToolBoundary,
+    testAnOmittedPresetResolvesLikeTheDesktopLauncher,
+    testScheduleToolsPassServiceFailuresThrough,
     testAgentLaunchWidensConfigAndIsolation,
     testTerminalCreateSpawnsAndReturnsTheAttachableSession,
     testTerminalCreateTakesThisMachinesLaunchDefaults,

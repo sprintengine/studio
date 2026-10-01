@@ -114,11 +114,6 @@ test('catalogueLanding', async () => {
       sourceId: HUB.id,
       itemId: null,
     })
-    assert.equal(
-      landingFromTarget({ view: 'agent-clis', sourceId: HUB.id, pluginId: 'x' }),
-      null,
-      'Agent CLIs has no source tabs to land on',
-    )
   })
 
   run('a target names a place when it names a tab, a plugin or a skill — a bare view does not', () => {

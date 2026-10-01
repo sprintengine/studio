@@ -88,9 +88,12 @@ export function createMcpDispatcher(options: {
   return {
     async dispatch(method, params, context, gate): Promise<McpDispatchOutcome> {
       switch (method) {
-        case 'sprintengine.studio/connect':
-          context.metadata = applyDeclaredConnectionMetadata(context.metadata, params)
+        case 'sprintengine.studio/connect': {
+          const declared = applyDeclaredConnectionMetadata(context.metadata, params)
+          if (!declared.ok) return { kind: 'error', code: JSONRPC_INVALID_REQUEST, errorMessage: declared.message }
+          context.metadata = declared.metadata
           return { kind: 'no_response' }
+        }
         case 'initialize': {
           // Negotiate, never echo: a client asking for a version we do not
           // implement is answered with the newest one we do (shared/mcp/protocol).
@@ -164,11 +167,21 @@ export function createMcpDispatcher(options: {
  * and its device fields survive whatever the client declares — otherwise a
  * remote caller could dress itself up as a trusted local Studio agent in the
  * audit log by sending one notification.
+ *
+ * And a declared agent stays that agent. An agent's launches are capped at its
+ * own permission preset (launch-permission-cap.ts), so a connection that could
+ * re-declare itself as another agent, or as no agent at all, could shed the
+ * cap with one more frame. The bridge declares once per connection and a
+ * reconnect is a new connection, so nothing legitimate changes the agent or
+ * workspace mid-connection; the name and CLI may still be re-stated. This
+ * guards the frames an agent can reach through its own tools; a caller with a
+ * shell can open a fresh socket and declare anything, which is why the cap
+ * rests on an agent on `none` having to ask before it runs one.
  */
 function applyDeclaredConnectionMetadata(
   established: McpConnectionMetadata,
   params: Record<string, unknown>,
-): McpConnectionMetadata {
+): { ok: true; metadata: McpConnectionMetadata } | { ok: false; message: string } {
   const text = (key: string): string | undefined => {
     const value = params[key]
     return typeof value === 'string' && value.trim() ? value.trim().slice(0, 256) : undefined
@@ -181,13 +194,27 @@ function applyDeclaredConnectionMetadata(
     agentName: text('agentName'),
     cliId: text('cliId'),
   }
-  if (established.kind !== 'remote-tailnet') return declared
+  if (
+    established.kind === 'studio-agent' &&
+    (declared.agentId !== established.agentId || declared.workspaceId !== established.workspaceId)
+  ) {
+    return {
+      ok: false,
+      message:
+        `This connection is agent "${established.agentId}" and cannot re-declare itself as another agent, ` +
+        'another workspace, or no agent at all.',
+    }
+  }
+  if (established.kind !== 'remote-tailnet') return { ok: true, metadata: declared }
   return {
-    ...declared,
-    kind: 'remote-tailnet',
-    deviceId: established.deviceId,
-    deviceName: established.deviceName,
-    peerNode: established.peerNode,
+    ok: true,
+    metadata: {
+      ...declared,
+      kind: 'remote-tailnet',
+      deviceId: established.deviceId,
+      deviceName: established.deviceName,
+      peerNode: established.peerNode,
+    },
   }
 }
 

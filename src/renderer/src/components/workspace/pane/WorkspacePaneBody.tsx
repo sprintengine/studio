@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useCallback, useMemo } from 'react'
 
 import { getRendererHost, selectModuleEnabled } from '../../../modules'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
@@ -21,19 +21,23 @@ import { FLOATING_PAGE_INSET, FloatingPlayerChrome, useFloatRect } from './Float
 
 const FileExplorer = React.lazy(() => import('../../panels/FileExplorer'))
 const PlainTerminalPanel = React.lazy(() => import('../../panels/PlainTerminalPanel'))
-// Monaco rides with the diff viewer; lazy so a pane without a Diff tab never
-// pays for it.
+// The diff viewer's own UI (Monaco itself is loaded at boot, see
+// utils/monacoRuntime.ts); lazy so a pane without a Diff tab never evaluates it.
 const DiffViewer = React.lazy(() =>
   import('../../auxWindows/DiffViewer').then((module) => ({ default: module.DiffViewer })),
 )
 const BrowserTab = React.lazy(() => import('./browser/BrowserTab').then((module) => ({ default: module.BrowserTab })))
 // The canvas editor is the heaviest dependency in the tree, and this is the
-// boundary that keeps it out of the boot chunk (scripts/check-bundle-budget.mjs
-// fails the build if its signature reaches there). A local lazy const rather
+// boundary that keeps it off the boot path: nothing is drawn on a board until a
+// Canvas tab is on screen, so its evaluation waits for one. A local lazy const rather
 // than a host-registered panel because the tab needs the tab RECORD — which
 // board it is on — and whether it is the one on screen, and a host panel is
 // handed neither; the same split dev-tools makes for its explorer.
 const CanvasTab = React.lazy(() => import('./canvas/CanvasTab').then((module) => ({ default: module.CanvasTab })))
+const AgentsTab = React.lazy(() => import('./agents/AgentsTab').then((module) => ({ default: module.AgentsTab })))
+const DocumentTab = React.lazy(() =>
+  import('./document/DocumentTab').then((module) => ({ default: module.DocumentTab })),
+)
 
 // An inactive layer is normally `invisible`; a browser layer is parked
 // offscreen instead. Electron blanks a `visibility:hidden` guest for good on
@@ -84,11 +88,13 @@ function PaneDiffTab({
   workspaceId,
   repoRoot,
   tab,
+  active,
   onDiffCountChange,
 }: {
   workspaceId: string
   repoRoot: string
   tab: WorkspacePaneTab
+  active: boolean
   onDiffCountChange?: (count: number | null) => void
 }) {
   const lastActiveAgentId = useWorkspaceStore(
@@ -101,6 +107,43 @@ function PaneDiffTab({
   // a Git row exactly the diff it was before.
   const { changelists } = useChangelists(wantsDefault ? repoRoot : null)
   const changelistId = asked ?? (wantsDefault ? defaultDiffChangelistId({ lastActiveAgentId }, changelists) : null)
+  // Diff tours. The tab keeps what the viewer has open (so a tab switch does
+  // not lose a playing tour) and a tour an agent has offered; the viewer tells
+  // it when either changes.
+  const tourCurrent = tab.diff?.tour ?? null
+  const tourOffer = tab.diff?.tourOffer ?? null
+  const tourHost = useMemo(
+    () => ({ current: tourCurrent, offer: tourOffer }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tourCurrent?.id, tourCurrent?.playing, tourOffer],
+  )
+  const writeTourFields = useCallback(
+    (patch: (diff: NonNullable<WorkspacePaneTab['diff']>) => NonNullable<WorkspacePaneTab['diff']>) => {
+      const store = useWorkspaceStore.getState()
+      const current = store.workspaces.find((w) => w.id === workspaceId)?.paneState?.tabs.find((t) => t.id === tab.id)
+      if (!current?.diff) return
+      const next = patch(current.diff)
+      if (JSON.stringify(next) === JSON.stringify(current.diff)) return
+      store.updatePaneTab(workspaceId, tab.id, { diff: next })
+    },
+    [workspaceId, tab.id],
+  )
+  const takeOffer = useCallback(
+    () =>
+      writeTourFields((diff) => {
+        const { tourOffer: _taken, ...rest } = diff
+        return rest
+      }),
+    [writeTourFields],
+  )
+  const keepCurrent = useCallback(
+    (current: { id: string; playing: boolean } | null) =>
+      writeTourFields((diff) => {
+        const { tour: _previous, ...rest } = diff
+        return current ? { ...rest, tour: current } : rest
+      }),
+    [writeTourFields],
+  )
 
   return (
     <DiffViewer
@@ -124,6 +167,17 @@ function PaneDiffTab({
       // The pane is the only host with a branch to step through; the aux
       // window opens on one file of the working tree.
       branchSteps
+      // An agent's editor.open_diff: its narrowing, the step it named, and the
+      // lines to land on. Absent for every diff a person opens.
+      pathsFilter={tab.diff?.reveal?.paths ?? null}
+      focusStep={tab.diff?.reveal?.step ?? null}
+      focusRange={tab.diff?.reveal?.range ?? null}
+      focusSide={tab.diff?.reveal?.side ?? 'modified'}
+      revealKey={tab.diff?.reveal?.key ?? null}
+      tourHost={tourHost}
+      onTourOfferTaken={takeOffer}
+      onTourCurrentChange={keepCurrent}
+      visible={active}
     />
   )
 }
@@ -186,6 +240,10 @@ function PaneTabPanel({ workspaceId, tab, active, onDiffCountChange }: PaneTabPa
       ) : (
         <PaneUnavailable />
       )
+    case 'document':
+      return <DocumentTab tab={tab} active={active} />
+    case 'agents':
+      return <AgentsTab workspaceId={workspaceId} active={active} />
     case 'diff': {
       // The opener's repository wins: the Git panel can be showing a worktree
       // scope that is not the workspace's own checkout, and re-deriving one
@@ -194,7 +252,13 @@ function PaneTabPanel({ workspaceId, tab, active, onDiffCountChange }: PaneTabPa
       // own + menu, which names no repository at all.
       const repoRoot = tab.diff?.repoRoot ?? diffRepoRoot
       return repoRoot && selectModuleEnabled(moduleOverrides, 'git') ? (
-        <PaneDiffTab workspaceId={workspaceId} repoRoot={repoRoot} tab={tab} onDiffCountChange={onDiffCountChange} />
+        <PaneDiffTab
+          workspaceId={workspaceId}
+          repoRoot={repoRoot}
+          tab={tab}
+          active={active}
+          onDiffCountChange={onDiffCountChange}
+        />
       ) : (
         <PaneUnavailable />
       )
@@ -211,6 +275,12 @@ type WorkspacePaneBodyProps = {
   activeTabId: string | null
   /** The tab the strip has selected, visible or not; decides which panel is the front one. */
   selectedTabId: string | null
+  /**
+   * The pane is closed. Its column is zero wide, but stays interactive while a
+   * tab floats, so it is not `inert` and nothing else tells the idle-animation
+   * pause (assets/index.css) that the docked layers are out of sight.
+   */
+  collapsed?: boolean
   onDiffCountChange?: (count: number | null) => void
 }
 
@@ -219,6 +289,7 @@ export function WorkspacePaneBody({
   tabs,
   activeTabId,
   selectedTabId,
+  collapsed = false,
   onDiffCountChange,
 }: WorkspacePaneBodyProps) {
   const floatingTab = tabs.find((tab) => tab.floating && tab.kind === 'browser') ?? null
@@ -279,6 +350,10 @@ export function WorkspacePaneBody({
             // field and buttons out of the tab order (the invisible ones are
             // unfocusable already).
             {...(offscreen ? ({ inert: '' } as Record<string, string>) : {})}
+            // A docked layer in a closed pane is clipped to nothing: its
+            // animations hold still. The floating player is on screen and is
+            // the one layer left running.
+            {...(collapsed && !floating ? { 'data-pane-collapsed': '' } : {})}
           >
             {floating ? <FloatingPlayerChrome workspaceId={workspaceId} tab={tab} rect={floatRect} /> : null}
             <React.Suspense fallback={<SuspenseFallback label="Loading pane" />}>

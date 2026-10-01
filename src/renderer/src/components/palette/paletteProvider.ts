@@ -132,7 +132,11 @@ export interface PaletteResultProvider {
    * runner asks again on its own when the whole warm settles.
    */
   warm?: (context: PaletteProviderContext, refresh: () => void) => void | Promise<void>
-  load: (query: string, context: PaletteProviderContext) => PaletteCommand[] | Promise<PaletteCommand[]>
+  load: (
+    query: string,
+    context: PaletteProviderContext,
+    publish?: (commands: PaletteCommand[]) => void,
+  ) => PaletteCommand[] | Promise<PaletteCommand[]>
   /** Below this many characters the provider is not asked at all. Default 0. */
   minQueryLength?: number
   /** Wait for a pause before asking. Default 0 — an in-memory filter needs none. */
@@ -246,7 +250,9 @@ export function usePaletteProviders(
         started.push(provider)
         let pending = false
         try {
-          const produced = provider.load(trimmed, contextRef.current)
+          const produced = provider.load(trimmed, contextRef.current, (commands) => {
+            put(provider.id, () => ({ commands, loading: true, error: null }))
+          })
           if (Array.isArray(produced)) {
             put(provider.id, () => ({ commands: produced, loading: false, error: null }))
           } else {

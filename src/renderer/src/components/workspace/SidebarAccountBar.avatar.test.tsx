@@ -49,7 +49,7 @@ test('SidebarAccountBar.avatar', async () => {
     addListener: () => {},
     removeListener: () => {},
   })) as unknown as typeof dom.window.matchMedia
-  domWindow.api = { authOpenUpgrade: async () => ({ opened: true, url: '' }) }
+  domWindow.api = {}
 
   const PHOTO = 'data:image/png;base64,iVBORw0KGgo='
 
@@ -58,26 +58,8 @@ test('SidebarAccountBar.avatar', async () => {
       authenticated,
       user,
       selectedOrganization: null,
-      entitlements: authenticated
-        ? {
-            userId: 'u1',
-            organizationId: 'o1',
-            product: 'sprintengine',
-            roles: [],
-            features: { 'sprintengine.sprintengine': true },
-            limits: {},
-            sources: {},
-            plan: { code: 'free', status: 'active' },
-            issuedAt: '2026-08-01T00:00:00.000Z',
-            expiresAt: '2026-08-04T00:00:00.000Z',
-            schemaVersion: 1,
-          }
-        : null,
       status: authenticated ? 'signed_in' : 'signed_out',
-      entitlementStatus: authenticated ? 'fresh' : 'missing',
       message: null,
-      lastRefreshAt: null,
-      graceExpiresAt: null,
     }
   }
 

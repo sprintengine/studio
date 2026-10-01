@@ -108,7 +108,6 @@ function context(outcome: ArgvRunOutcome, calls: string[][] = []): CliModelProbe
     cli: 'codex',
     displayName: 'Codex',
     binary: '/Users/dev/.local/bin/codex',
-    useWsl: false,
     timeoutMs: 20_000,
     runArgv: async (args) => {
       calls.push(args)

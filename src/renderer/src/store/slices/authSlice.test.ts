@@ -20,29 +20,8 @@ test('authSlice', async () => {
         slug: 'example-org',
         type: 'team',
       },
-      entitlements: {
-        userId: 'user-1',
-        organizationId: 'org-1',
-        product: 'sprintengine',
-        roles: ['owner'],
-        plan: {
-          code: 'pro',
-          status: 'active',
-        },
-        features: {
-          sprintEngine: true,
-        },
-        limits: {},
-        sources: {},
-        issuedAt: '2026-05-19T09:00:00.000Z',
-        expiresAt: '2026-06-19T09:00:00.000Z',
-        schemaVersion: 1,
-      },
       status: 'signed_in',
-      entitlementStatus: 'fresh',
       message: 'Signed in',
-      lastRefreshAt: '2026-05-19T10:00:00.000Z',
-      graceExpiresAt: null,
     }
   }
 
@@ -50,12 +29,8 @@ test('authSlice', async () => {
     authenticated: false,
     user: null,
     selectedOrganization: null,
-    entitlements: null,
     status: 'checking',
-    entitlementStatus: 'missing',
     message: null,
-    lastRefreshAt: null,
-    graceExpiresAt: null,
   }
 
   assert.deepEqual(defaultAuthState(), expectedDefaultAuthState)

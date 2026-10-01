@@ -8,7 +8,7 @@ import type { BranchPullRequest } from '../../shared/git/pull-request'
  * sure what you know about its branch is fresh".
  *
  * It returns no pull requests. The answer travels the way every other fact
- * about a session does — a `terminal:sessions-changed` snapshot carrying the
+ * about a session does — a `terminal:sessions-delta` snapshot carrying the
  * session's `pullRequests` — so there is exactly one path into the renderer and
  * no second copy of the record living in a promise result.
  *
@@ -27,7 +27,7 @@ import type { BranchPullRequest } from '../../shared/git/pull-request'
  * The SECOND channel, and the reason it exists (owner, 2026-09-10).
  *
  * Everything above is about a session, and a session's marks reach the renderer
- * on the `terminal:sessions-changed` snapshot — one path, no second copy. That
+ * on the `terminal:sessions-delta` snapshot — one path, no second copy. That
  * path can only carry what is running. The rows this channel serves are the ones
  * with nothing running in them: a chat whose agents have all finished still has
  * pull requests, and until now nothing could tell it so.

@@ -50,7 +50,7 @@ test('WorkspaceSidebar.rowEmphasis', async () => {
     platform: 'darwin',
     detectProjectLogo: async () => null,
     terminalList: async () => [],
-    onTerminalSessionsChanged: () => () => {},
+    onTerminalSessionsDelta: () => () => {},
     getWorkspaceChangeSummary: async () => null,
     terminalKill: async () => {},
   }

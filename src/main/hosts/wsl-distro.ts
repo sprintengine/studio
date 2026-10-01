@@ -1,0 +1,323 @@
+// =============================================================================
+// Talking to a WSL distribution from the Windows side
+//
+// Three rules hold for everything this app asks WSL to run:
+//
+//   - Name the distribution. `wsl.exe` without `-d` lands in whatever is the
+//     default at that moment, so a workspace inside a second distribution was
+//     opened in the wrong file system, and a probe could read one distribution
+//     while the agent ran in another. The distribution comes from the folder
+//     when the folder names one (`\\wsl.localhost\<distro>\…`), and otherwise
+//     from `wsl.exe --list --verbose`, read once and cached.
+//   - Send scripts on stdin. `wsl.exe` rebuilds the Linux command line from
+//     the Windows one and does not keep quoting intact, so `-e sh -c '<script>'`
+//     arrives mangled whenever the script holds quotes or `$`. Every script
+//     goes to `--exec sh -s` as bytes instead.
+//   - Start in the Linux home. A `wsl.exe` started from a Windows process
+//     inherits a working directory on the Windows drive, and anything run
+//     there goes through the drive mount, which is slow enough to stall a
+//     probe for seconds. `--cd ~` keeps every probe on the Linux file system.
+// =============================================================================
+
+import { basename } from 'node:path'
+
+import { distroOfUncPath } from '../../shared/host-paths'
+import { runSpawnDescriptor, type RunOutcome, type SpawnDescriptor } from '../process-run'
+
+export type WslDistro = { name: string; isDefault: boolean; state: string; version: number | null }
+
+// Distribution names are letters, digits, `.`, `_` and `-` (WSL refuses others
+// at import). Anything else read from the list is not passed to `-d`.
+const DISTRO_NAME = /^[A-Za-z0-9._-]+$/u
+
+export function isValidWslDistroName(name: string): boolean {
+  return DISTRO_NAME.test(name)
+}
+
+/**
+ * `wsl.exe`'s own output as text. Its messages and `--list` are UTF-16LE unless
+ * `WSL_UTF8=1` is set, and a UTF-8 decode of UTF-16 reads as the right letters
+ * with a NUL between each, which no parser matches.
+ */
+export function decodeWslOutput(bytes: Buffer): string {
+  if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) return bytes.subarray(2).toString('utf16le')
+  // Without a byte order mark, ASCII text in UTF-16LE has a zero in every odd
+  // byte. Sample the start rather than trusting one byte.
+  const sample = bytes.subarray(0, Math.min(bytes.length, 64))
+  let zeros = 0
+  for (let index = 1; index < sample.length; index += 2) if (sample[index] === 0) zeros += 1
+  if (sample.length >= 2 && zeros >= Math.floor(sample.length / 2) * 0.6) return bytes.toString('utf16le')
+  return bytes.toString('utf8')
+}
+
+/**
+ * The rows of `wsl.exe --list --verbose`:
+ *
+ *     NAME            STATE           VERSION
+ *   * Ubuntu          Running         2
+ *     Debian          Stopped         2
+ *
+ * The header is localised, so it is skipped by shape (its last column is not a
+ * number) rather than by its words. The same goes for the message printed when
+ * no distribution is installed.
+ */
+export function parseWslListVerbose(text: string): WslDistro[] {
+  const distros: WslDistro[] = []
+  for (const raw of text.replace(/\0/g, '').split(/\r?\n/u)) {
+    const match = /^\s*(\*)?\s*(\S+)\s+(\S+)\s+(\d+)\s*$/u.exec(raw)
+    if (!match || !isValidWslDistroName(match[2])) continue
+    distros.push({ name: match[2], isDefault: match[1] === '*', state: match[3], version: Number(match[4]) })
+  }
+  return distros
+}
+
+// ── The default distribution ─────────────────────────────────────────────────
+
+// Listing is cheap (it does not boot the VM) but it is still a process start
+// on Windows, so an answer is kept for a while. A failure is retried sooner:
+// it is usually WSL still installing or updating.
+const DEFAULT_DISTRO_TTL_MS = 10 * 60_000
+const DEFAULT_DISTRO_FAILURE_TTL_MS = 30_000
+const LIST_TIMEOUT_MS = 10_000
+
+type DistroCache = { value: string | null; expiresAt: number }
+let defaultDistroCache: DistroCache | null = null
+let defaultDistroInFlight: Promise<string | null> | null = null
+
+export type WslListRunner = () => Promise<string | null>
+
+async function runWslList(): Promise<string | null> {
+  const outcome = await runSpawnDescriptor(
+    { file: 'wsl.exe', args: ['--list', '--verbose'] },
+    { timeoutMs: LIST_TIMEOUT_MS, decodeStdout: decodeWslOutput, decodeStderr: decodeWslOutput },
+  )
+  return outcome.code === 0 && !outcome.timedOut ? outcome.stdout : null
+}
+
+/**
+ * The default distribution's name, or null when WSL is missing, has none, or
+ * could not be asked. Callers that get null run `wsl.exe` without `-d`, which
+ * is the default distribution by definition — the name only makes the choice
+ * explicit and stable while the default is changed underneath.
+ */
+export async function resolveDefaultWslDistro(
+  deps: { runList?: WslListRunner; now?: () => number } = {},
+): Promise<string | null> {
+  const now = deps.now ?? Date.now
+  if (defaultDistroCache && defaultDistroCache.expiresAt > now()) return defaultDistroCache.value
+  if (defaultDistroInFlight) return defaultDistroInFlight
+  const runList = deps.runList ?? runWslList
+  const lookup = (async () => {
+    const text = await runList().catch(() => null)
+    const value = text === null ? null : (parseWslListVerbose(text).find((distro) => distro.isDefault)?.name ?? null)
+    defaultDistroCache = {
+      value,
+      expiresAt: now() + (value ? DEFAULT_DISTRO_TTL_MS : DEFAULT_DISTRO_FAILURE_TTL_MS),
+    }
+    return value
+  })()
+  defaultDistroInFlight = lookup
+  try {
+    return await lookup
+  } finally {
+    if (defaultDistroInFlight === lookup) defaultDistroInFlight = null
+  }
+}
+
+/**
+ * The last default distribution read, without asking again. For the launch,
+ * which builds its command synchronously; `primeDefaultWslDistro` fills it at
+ * startup on Windows. Null until then, which launches without `-d`.
+ */
+export function knownDefaultWslDistro(): string | null {
+  return defaultDistroCache?.value ?? null
+}
+
+// ── Every distribution ──────────────────────────────────────────────────────
+
+/**
+ * What `wsl.exe --list --verbose` said, or why it could not be asked. `null`
+ * distros means WSL did not answer (not installed, or broken), which Settings
+ * says in words rather than showing an empty list.
+ */
+export type WslListing = { distros: WslDistro[] | null; at: number }
+
+let listingCache: WslListing | null = null
+let listingInFlight: Promise<WslListing> | null = null
+
+/**
+ * Every installed distribution, with its state and version. Read on demand —
+ * Settings opening, the machine list being asked for, a launch that named a
+ * distribution nobody had listed yet — and never on window focus. `force`
+ * reads again; otherwise the last answer stands for as long as the default
+ * distribution's does. Reading also refreshes the cached default.
+ */
+export async function listWslDistros(
+  deps: { runList?: WslListRunner; now?: () => number; force?: boolean } = {},
+): Promise<WslListing> {
+  const now = deps.now ?? Date.now
+  if (!deps.force && listingCache) {
+    const ttl = listingCache.distros ? DEFAULT_DISTRO_TTL_MS : DEFAULT_DISTRO_FAILURE_TTL_MS
+    if (now() - listingCache.at < ttl) return listingCache
+  }
+  if (listingInFlight) return listingInFlight
+  const runList = deps.runList ?? runWslList
+  const read = (async () => {
+    const text = await runList().catch(() => null)
+    const distros = text === null ? null : parseWslListVerbose(text)
+    const listing: WslListing = { distros, at: now() }
+    listingCache = listing
+    if (distros) {
+      const value = distros.find((distro) => distro.isDefault)?.name ?? null
+      defaultDistroCache = {
+        value,
+        expiresAt: now() + (value ? DEFAULT_DISTRO_TTL_MS : DEFAULT_DISTRO_FAILURE_TTL_MS),
+      }
+    }
+    return listing
+  })()
+  listingInFlight = read
+  try {
+    return await read
+  } finally {
+    if (listingInFlight === read) listingInFlight = null
+  }
+}
+
+/** The last listing read, without asking again; null before the first. */
+export function knownWslListing(): WslListing | null {
+  return listingCache
+}
+
+/** Starts the default-distribution lookup in the background (Windows only). */
+export function primeDefaultWslDistro(platform: NodeJS.Platform = process.platform): void {
+  if (platform !== 'win32') return
+  void resolveDefaultWslDistro().catch(() => null)
+}
+
+/** The distribution a WSL process for `cwd` runs in, as far as is known now. */
+export function wslDistroForPath(cwd: string | undefined): string | null {
+  const fromPath = cwd ? distroOfUncPath(cwd) : null
+  if (fromPath && isValidWslDistroName(fromPath)) return fromPath
+  return knownDefaultWslDistro()
+}
+
+/** `wslDistroForPath`, asking WSL for the default when it is not known yet. */
+export async function resolveWslDistroForPath(
+  cwd: string | undefined,
+  deps: { runList?: WslListRunner } = {},
+): Promise<string | null> {
+  const fromPath = cwd ? distroOfUncPath(cwd) : null
+  if (fromPath && isValidWslDistroName(fromPath)) return fromPath
+  return resolveDefaultWslDistro(deps)
+}
+
+/** `-d <distro>`, or nothing when the distribution is not known. */
+export function wslDistroArgs(distro: string | null | undefined): string[] {
+  return distro && isValidWslDistroName(distro) ? ['-d', distro] : []
+}
+
+// Test seams.
+export function __setDefaultWslDistroForTest(value: string | null, ttlMs = DEFAULT_DISTRO_TTL_MS): void {
+  defaultDistroCache = { value, expiresAt: Date.now() + ttlMs }
+  defaultDistroInFlight = null
+}
+
+export function __resetWslHostForTest(): void {
+  defaultDistroCache = null
+  defaultDistroInFlight = null
+  listingCache = null
+  listingInFlight = null
+}
+
+// ── Scripts ─────────────────────────────────────────────────────────────────
+
+/**
+ * Runs `script` with `sh` inside `distro`, fed on stdin, starting in the Linux
+ * home.
+ */
+export function wslScriptDescriptor(distro: string | null | undefined, script: string): SpawnDescriptor {
+  return {
+    file: 'wsl.exe',
+    args: [...wslDistroArgs(distro), '--cd', '~', '--exec', 'sh', '-s'],
+    stdin: script.endsWith('\n') ? script : `${script}\n`,
+  }
+}
+
+const LOGIN_SCRIPT_END = '__SPRINTENGINE_LOGIN_SCRIPT_END__'
+
+/**
+ * `body` run by a login `bash`, for scripts that need what the person's profile
+ * sets up: the `PATH` their CLIs are installed on, a `CLAUDE_CONFIG_DIR`. The
+ * body reaches bash as a quoted here-document, so nothing in it is expanded by
+ * the `sh` that starts bash. Anything the body runs that could read stdin must
+ * redirect it (`</dev/null`), or it would read the rest of the script.
+ */
+export function wslLoginScript(body: string): string {
+  return `exec bash -l <<'${LOGIN_SCRIPT_END}'\n${body}\n${LOGIN_SCRIPT_END}\n`
+}
+
+// `timeoutMs` null is no deadline: a git write runs the repository's hooks,
+// and killing it part-way leaves an `index.lock` behind.
+export type WslScriptRunner = (
+  distro: string | null,
+  script: string,
+  options: { timeoutMs: number | null },
+) => Promise<RunOutcome>
+
+/**
+ * Runs a script in a distribution through `wsl.exe`, with a deadline. What
+ * the script prints is UTF-8, but a failure of `wsl.exe` itself (no such
+ * distribution, WSL not installed) is printed as UTF-16LE; both streams are
+ * decoded for either.
+ */
+export const runWslScript: WslScriptRunner = (distro, script, options) =>
+  runSpawnDescriptor(wslScriptDescriptor(distro, script), {
+    decodeStdout: decodeWslOutput,
+    decodeStderr: decodeWslOutput,
+    ...(options.timeoutMs === null ? {} : { timeoutMs: options.timeoutMs }),
+  })
+
+// ── Session root pids ───────────────────────────────────────────────────────
+//
+// For a WSL terminal the pty's pid is the Windows `wsl.exe`, which means
+// nothing inside the distribution. The startup script therefore records the
+// Linux pid of the shell it runs in (`$$`), which stays the same through the
+// script's final `exec bash -li`, and every CLI the script starts is its
+// child. A probe reads that file to find the subtree to inspect.
+//
+// The file is named after the startup script, which is unique per launch, so
+// a relaunch never reads a pid from the session it replaced. It goes into the
+// directory the helper made for it beside its sockets (`pidDir` in its hello:
+// under `$XDG_RUNTIME_DIR`, or a `/tmp` directory it checked is its own), never
+// a shared one another user could have created first.
+
+/** The pid-file key for a launch, from its startup script's file name. */
+export function wslSessionPidKey(startupScriptPath: string | undefined): string | null {
+  if (!startupScriptPath) return null
+  const name = basename(startupScriptPath.replace(/\\/g, '/')).replace(/\.[^.]+$/u, '')
+  return /^[A-Za-z0-9._-]+$/u.test(name) ? name : null
+}
+
+/**
+ * The startup-script line that records the shell's pid. One line, so it can be
+ * joined into the `; `-separated script, and silent on failure: a session that
+ * could not write its pid is held by the reaper, never broken.
+ *
+ * The directory is written into only while it is a real directory (not a
+ * link) that this user owns; it is not created here, because creating it
+ * inside a parent someone else controls is exactly what the check is for.
+ */
+export function wslSessionPidFileCommand(pidDir: string, key: string): string {
+  if (!/^[A-Za-z0-9._-]+$/u.test(key)) return ''
+  const dir = `'${pidDir.replace(/'/g, `'"'"'`)}'`
+  // The pid and its start time (field 22 of /proc/<pid>/stat, counted after
+  // the command name). The script's last line `exec`s the terminal's shell,
+  // which keeps the pid but replaces the command line, so the start time is
+  // what tells this shell from a later process that was handed the same pid.
+  const started = `$(sed 's/.*) //' /proc/$$/stat 2>/dev/null | cut -d' ' -f20)`
+  return (
+    `(d=${dir}; umask 077 && [ -d "$d" ] && [ ! -L "$d" ] && [ -O "$d" ] && ` +
+    `printf '%s %s\\n' "$$" "${started}" > "$d/${key}.pid") 2>/dev/null`
+  )
+}

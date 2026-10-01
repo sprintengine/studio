@@ -132,8 +132,8 @@ export function SurfaceCanvasState(props: SurfaceCanvasStateProps): JSX.Element 
 // ── GlobalSurfaceErrorBoundary ───────────────────────────────────────────────
 // The boundary itself moved to `surfaceErrorBoundary.tsx` — it is the ONE piece
 // of this module the shell must hold before any door opens, and importing it
-// from here dragged the rail, its filter menu and its search input into the
-// eager boot chunk (bundle-budget ratchet). Re-exported so every existing
+// from here dragged the rail, its filter menu and its search input into what
+// boot evaluates before the first paint. Re-exported so every existing
 // importer, and the door tests, still name this module.
 export { GlobalSurfaceErrorBoundary } from './surfaceErrorBoundary'
 
@@ -189,7 +189,7 @@ export interface SurfaceRailRow {
 
   /** The line ABOVE the title: a small mark, the name of the place the row
    *  belongs to (its project), and a trailing seat that holds the row's clock
-   *  — the working dots and how long, or how long since it rested. The one
+   *  — the working mark and how long, or how long since it rested. The one
    *  line that is the same shape on every row, which is what lets the eye
    *  find the clock without reading the row. */
   context?: { icon?: React.ReactNode; label: string; seat?: React.ReactNode }

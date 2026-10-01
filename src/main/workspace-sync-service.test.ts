@@ -307,8 +307,8 @@ test('workspace-sync-service', async () => {
 
     // The snapshot is cloned once per registry mutation, not once per read: two
     // reads of an unchanged registry are the same object, and a mutation hands
-    // back a new one. This is what keeps a remote `terminal.list` — one name
-    // lookup per session — from cloning the whole registry per row.
+    // back a new one. This is what keeps a caller that looks up one workspace
+    // per row of a long list from cloning the whole registry per row.
     const cachedA = service.getSnapshot()
     const cachedB = service.getSnapshot()
     assert.equal(cachedA, cachedB, 'an unchanged registry serves the same snapshot object')

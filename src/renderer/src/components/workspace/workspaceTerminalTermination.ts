@@ -1,5 +1,6 @@
 import { paneTerminalSessionId } from './pane/paneTerminals'
 import type { Workspace } from '../../types/workspace'
+import { useWorkspaceStore } from '../../store/workspaceStore'
 
 type LayoutSessionNode = {
   component?: string
@@ -17,8 +18,15 @@ type LayoutSessionNode = {
  *
  * One collector, so the paths that stop a workspace running cannot drift about
  * what "this workspace's terminals" means.
+ *
+ * The store's copy wins over the one passed in. Callers hand over the row they
+ * rendered, and the sidebar renders from a projection that does not move for a
+ * layout or agent change alone, so the passed copy can miss a tab opened since.
+ * A tab missed here is a pty left running. The passed copy stands in once the
+ * workspace has left the store (Close removes it before its kills settle).
  */
-export function workspaceTerminalSessionIds(workspace: Workspace): string[] {
+export function workspaceTerminalSessionIds(passed: Workspace): string[] {
+  const workspace = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === passed.id) ?? passed
   const sessionIds = new Set<string>()
 
   Object.values(workspace.agents ?? {}).forEach((agent) => {
@@ -73,9 +81,40 @@ export function workspaceTerminalSessionIds(workspace: Workspace): string[] {
  * settling is driven from the sidebar.
  */
 export async function terminateWorkspaceTerminals(workspace: Workspace): Promise<void> {
-  await Promise.all(
-    workspaceTerminalSessionIds(workspace).map((sessionId) => window.api.terminalKill(sessionId).catch(() => {})),
-  )
+  await Promise.all([
+    ...workspaceTerminalSessionIds(workspace).map((sessionId) => window.api.terminalKill(sessionId).catch(() => {})),
+    suspendWorkspaceConversations(workspace),
+  ])
+}
+
+/**
+ * End the child process of every chat agent the workspace holds. A chat agent
+ * has no pty, so neither `terminalKill` nor `terminalSuspend` reaches it: main
+ * owns the process, and its sessions are asked for rather than collected from
+ * the record. A session belongs here when its agent is one of the workspace's,
+ * or when it was started under the workspace's id.
+ *
+ * Suspended, not stopped, for Settle and Close alike: a stopped session refuses
+ * every later turn, and a settled chat can be un-settled and typed into. The
+ * session keeps its resume cursor, so the next message respawns the agent on
+ * the same conversation. A running turn is interrupted: the person put the
+ * chat away. Failures are absorbed like the pty kills'.
+ */
+async function suspendWorkspaceConversations(passed: Workspace): Promise<void> {
+  const workspace = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === passed.id) ?? passed
+  try {
+    const listed = await window.api.conversationSessionsList()
+    if (!listed.ok) return
+    const agentIds = new Set(Object.keys(workspace.agents ?? {}))
+    await Promise.all(
+      listed.sessions
+        .filter((session) => session.status !== 'stopped')
+        .filter((session) => session.workspaceId === workspace.id || agentIds.has(session.agentId))
+        .map((session) => window.api.conversationSessionSuspend({ sessionId: session.sessionId }).catch(() => {})),
+    )
+  } catch {
+    // Main unreachable: nothing to suspend through, and the gesture goes on.
+  }
 }
 
 /**
@@ -103,7 +142,8 @@ export async function terminateWorkspaceTerminals(workspace: Workspace): Promise
  * row out of the way.
  */
 export async function suspendWorkspaceTerminals(workspace: Workspace): Promise<void> {
-  await Promise.all(
-    workspaceTerminalSessionIds(workspace).map((sessionId) => window.api.terminalSuspend(sessionId).catch(() => {})),
-  )
+  await Promise.all([
+    ...workspaceTerminalSessionIds(workspace).map((sessionId) => window.api.terminalSuspend(sessionId).catch(() => {})),
+    suspendWorkspaceConversations(workspace),
+  ])
 }

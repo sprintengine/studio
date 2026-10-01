@@ -41,7 +41,7 @@ export function createFakeLaunchSettingsMain(initial: AgentLaunchSettings | null
 
   function commit(settings: AgentLaunchSettings): AgentLaunchSettingsRecord {
     record = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       revision: (record?.revision ?? 0) + 1,
       settings,
       changedAt: 0,

@@ -1,7 +1,32 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
 import type * as Monaco from 'monaco-editor'
-import { configureMonacoLanguages, PATCH_LANGUAGE_ID } from './patchLanguage'
+import { configureMonacoLanguages, PATCH_LANGUAGE_ID, quietTypeScriptSemanticDiagnostics } from './patchLanguage'
+
+test('TypeScript and JavaScript keep syntax errors and drop semantic ones', () => {
+  const calls: Array<{ which: string; options: unknown }> = []
+  const defaults = (which: string) => ({ setDiagnosticsOptions: (options: unknown) => calls.push({ which, options }) })
+  quietTypeScriptSemanticDiagnostics({
+    typescript: { typescriptDefaults: defaults('ts'), javascriptDefaults: defaults('js') },
+    languages: {},
+  } as unknown as typeof Monaco)
+  assert.deepEqual(calls, [
+    { which: 'ts', options: { noSemanticValidation: true, noSyntaxValidation: false } },
+    { which: 'js', options: { noSemanticValidation: true, noSyntaxValidation: false } },
+  ])
+
+  calls.length = 0
+  quietTypeScriptSemanticDiagnostics({
+    languages: { typescript: { typescriptDefaults: defaults('legacy-ts') } },
+  } as unknown as typeof Monaco)
+  assert.deepEqual(
+    calls.map((call) => call.which),
+    ['legacy-ts'],
+    'the older namespace is honoured too',
+  )
+
+  assert.doesNotThrow(() => quietTypeScriptSemanticDiagnostics({ languages: {} } as unknown as typeof Monaco))
+})
 
 test('configureMonacoLanguages registers patch and diff files with a tokenizer', () => {
   const registrations: Monaco.languages.ILanguageExtensionPoint[] = []

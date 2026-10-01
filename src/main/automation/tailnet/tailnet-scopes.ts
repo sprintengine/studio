@@ -6,20 +6,46 @@ import type { TailnetScope } from '../../../shared/tailnet'
 // gateway knows.
 
 /**
- * Tools that exist on the local socket only and are never served to a paired
- * device, whatever its scopes.
+ * Tools that start an agent in a terminal on this machine.
+ *
+ * Terminals stopped crossing the tailnet on 2026-09-29: a paired device can
+ * neither watch nor type into one, so a terminal it started would be a process
+ * it could not see, answer or stop. What a paired device starts is a chat
+ * (`conversation.create`), which it can follow. These stay on the local
+ * socket, where the agents that call them can see the
+ * terminals they start. The rest of the `terminal.*` family is local-only by
+ * its prefix, below.
+ */
+const TERMINAL_LAUNCH_TOOLS: ReadonlySet<string> = new Set(['terminal.create', 'agent.launch', 'backlog.work'])
+
+/**
+ * Why a tool is served on the local socket only and never to a paired device,
+ * whatever its scopes — or null for a tool the tailnet may serve.
  *
  * The `tailnet.*` family configures who may drive this machine. A device that
  * could call it could mint a pairing code granting scopes wider than its own,
  * and revoking the device it came in on would not take those away — one grant
  * manufacturing the next is not something a scope can express, so the family
  * sits outside the scope vocabulary entirely rather than behind a very wide one.
- *
  * A prefix rule rather than a list: a tool added to the family later is
  * local-only by default, which is the direction a mistake here should fail.
+ *
+ * The terminal tools are the other kind: not dangerous to name in a grant,
+ * just of no use to anyone who cannot see a terminal. The `terminal.*` family
+ * is a prefix rule for the same reason the `tailnet.*` one is; the launchers
+ * outside it are named.
  */
-export function isLocalOnlyGatewayTool(toolName: string): boolean {
-  return toolName.startsWith('tailnet.')
+export function localOnlyGatewayToolReason(toolName: string): string | null {
+  if (toolName.startsWith('tailnet.')) {
+    return `"${toolName}" configures who may drive this machine and is served only on its owner-only local socket, never over the tailnet. Run it from an agent on that machine.`
+  }
+  if (TERMINAL_LAUNCH_TOOLS.has(toolName)) {
+    return `"${toolName}" starts an agent in a terminal on this machine, and terminals are not served over the tailnet. Start a chat agent with conversation.create instead, or run it from an agent on that machine.`
+  }
+  if (toolName.startsWith('terminal.')) {
+    return `"${toolName}" reads the terminals on this machine, and terminals are not served over the tailnet. A paired device follows this machine's chats instead; run it from an agent on that machine.`
+  }
+  return null
 }
 
 /**
@@ -32,18 +58,16 @@ export function isLocalOnlyGatewayTool(toolName: string): boolean {
  *
  * `workspace` is the deliberate catch-all for the app-wide families
  * (`workspace.*`, `agent.*`, `cli.*`, `module.*`, `marketplace.*`,
- * `automation.*`, `review_*`) and for any tool this mapping has not been taught.
+ * `schedule.*`, `editor.*`, `review_*`) and for any tool this mapping has not
+ * been taught. `editor.open` and `editor.open_diff` change what is on the
+ * person's screen, so they are mutations and need `workspace:operate`.
  * Unknown does not mean unrestricted: an unmapped mutation still requires
  * `workspace:operate`, so a device without it is refused rather than served.
  *
- * `terminal.*` is the one family whose scopes are not named read/operate — the
- * tier is about watching versus typing, not reading versus mutating — so it is
- * mapped by name rather than by the suffix rule.
- *
- * `tailnet.*` never reaches this function: it is refused as local-only first.
+ * A local-only tool never reaches this function: it is refused first.
  */
 export function requiredScopeForTool(toolName: string, isMutation: boolean): TailnetScope {
-  if (toolName.startsWith('terminal.')) return isMutation ? 'terminal:control' : 'terminal:observe'
+  if (toolName.startsWith('conversation.')) return isMutation ? 'conversation:operate' : 'conversation:read'
   return `${toolFamily(toolName)}:${isMutation ? 'operate' : 'read'}` as TailnetScope
 }
 

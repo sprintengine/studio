@@ -1,0 +1,186 @@
+/* Tour strip — the band a diff tour plays under, and its two disclosures: the
+ * step list and the card a tour waits behind until Start
+ * (src/renderer/src/components/ui/TourStrip.tsx, ui/TourStepList.tsx).
+ *
+ * The pager, the switch, the chip and the buttons inside it are their own
+ * components; this file draws only what is the strip's: the band, its title,
+ * the progress edge, the step list's rows and the ready card. */
+
+.ds-tour-strip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  height: var(--sem-size-control-lg);
+  padding: 0 var(--sem-space-lg);
+  background: var(--sem-color-bg-surface);
+  font-family: var(--sem-font-family-ui);
+}
+
+.ds-tour-strip-mark {
+  flex: none;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-tour-strip-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-medium);
+  letter-spacing: var(--sem-font-tracking-tight);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-tour-strip-position {
+  flex: none;
+  font-size: var(--sem-font-size-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--sem-color-text-muted);
+}
+
+.ds-tour-strip-spacer {
+  flex: 1;
+}
+
+.ds-tour-strip-follow {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
+  white-space: nowrap;
+}
+
+/* The band's bottom edge, drawn as the tour. 2px where a hairline would sit:
+ * it carries a position, which a hairline cannot. ds-lint-allow: the edge's
+ * thickness is structure the space scale does not describe. */
+.ds-tour-strip-progress {
+  position: absolute;
+  inset: auto 0 0;
+  display: flex;
+  gap: 1px; /* ds-lint-allow: a hairline between segments, not rhythm */
+  height: 2px; /* ds-lint-allow: progress edge thickness, not spacing */
+}
+
+.ds-tour-strip-progress > span {
+  flex: 1;
+  background: var(--sem-color-border-subtle);
+}
+
+.ds-tour-strip-progress > [data-mark='visited'] {
+  background: var(--sem-color-text-subtle);
+}
+
+.ds-tour-strip-progress > [data-mark='current'] {
+  background: var(--sem-color-text-primary);
+}
+
+/* ── Step list ─────────────────────────────────────────────────────────── */
+
+.ds-tour-step-list {
+  display: flex;
+  flex-direction: column;
+  width: 15rem;
+  padding: var(--sem-space-2xs) 0;
+  border-right: 1px solid var(--sem-color-border-subtle);
+  background: var(--sem-color-bg-surface);
+  font-family: var(--sem-font-family-ui);
+}
+
+.ds-tour-step {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sem-space-sm);
+  padding: var(--sem-space-xs) var(--sem-space-lg);
+  color: var(--sem-color-text-default);
+}
+
+.ds-tour-step:hover {
+  background: var(--sem-color-bg-hover);
+}
+
+.ds-tour-step[aria-current='true'] {
+  background: var(--sem-color-bg-selected);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-tour-step-number {
+  flex: none;
+  width: 20px; /* ds-lint-allow: a slot two digits right-align in, not rhythm */
+  text-align: right;
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-tour-step-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  font-size: var(--sem-font-size-body);
+}
+
+.ds-tour-step-file {
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-tour-step-mark {
+  flex: none;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-tour-step-mark--moved {
+  color: var(--sem-color-status-warn);
+}
+
+/* ── Ready card ────────────────────────────────────────────────────────── */
+
+.ds-tour-ready {
+  width: 100%;
+  max-width: 28rem;
+  padding: var(--sem-space-2xl);
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-shell);
+  background: var(--sem-color-bg-surface-raised);
+  font-family: var(--sem-font-family-ui);
+  color: var(--sem-color-text-default);
+}
+
+.ds-tour-ready-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
+}
+
+.ds-tour-ready-title {
+  margin: var(--sem-space-sm) 0 0;
+  font-size: var(--sem-font-size-title);
+  font-weight: var(--sem-font-weight-medium);
+  letter-spacing: var(--sem-font-tracking-tight);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-tour-ready-meta {
+  margin: var(--sem-space-2xs) 0 0;
+  font-size: var(--sem-font-size-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--sem-color-text-muted);
+}
+
+.ds-tour-ready-actions {
+  display: flex;
+  gap: var(--sem-space-sm);
+  margin-top: var(--sem-space-xl);
+}

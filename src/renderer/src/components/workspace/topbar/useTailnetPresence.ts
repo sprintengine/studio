@@ -1,17 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useSyncExternalStore } from 'react'
 
 import type { TailnetLiveState, TailnetRemoteStatus } from '../../../../../shared/tailnet'
-import type {
-  FleetConnection,
-  FleetLiveAttachment,
-  FleetMachineReachability,
-  FleetPairRequestView,
-} from '../../../../../shared/tailnet-fleet'
+import type { MeshConnection, MeshMachineReachability, MeshPairRequestView } from '../../../../../shared/tailnet-mesh'
 
 // The Remote glyph's one data source (remote-sessions-ux /
-// remote-glyph-topbar): the pushed tailnet payloads plus the fleet's
+// remote-glyph-topbar): the pushed tailnet payloads plus the mesh's
 // broadcast lifecycle, folded into render-ready presence. No polling — the
 // initial reads seed it and every later change arrives as an event.
+//
+// One store per window, however many components ask. The top bar and the
+// Remote band (and Settings, when open) each used to run their own copy:
+// a set of initial reads and a subscription to both channels apiece, each
+// folding every event. The store starts with its first subscriber and stops
+// with its last.
 //
 // Every fold is ordered by the main-side `revision`: a pushed payload older than the
 // last one applied is dropped, and so is an initial read that resolves AFTER
@@ -22,25 +23,33 @@ export type TailnetPresence = {
   /** Null until the first read lands; the glyph stays absent until it has. */
   status: TailnetRemoteStatus | null
   live: TailnetLiveState
-  fleet: FleetConnection[]
-  /** Every outbound attachment main holds, by attachId — a pane is a link, a session is not. */
-  fleetAttachments: ReadonlyMap<string, FleetLiveAttachment>
-  /** connectionId → remote session ids with a LIVE attachment in this app. Derived from `fleetAttachments`. */
-  fleetLiveSessions: ReadonlyMap<string, ReadonlySet<string>>
+  mesh: MeshConnection[]
   /** Requests this machine made that are still waiting to be answered (phase 3). Main owns the wait. */
-  fleetRequests: readonly FleetPairRequestView[]
+  meshRequests: readonly MeshPairRequestView[]
   /** connectionId → main's last reachability answer for that machine (phase 4). */
-  fleetReachability: ReadonlyMap<string, FleetMachineReachability>
+  meshReachability: ReadonlyMap<string, MeshMachineReachability>
   /**
    * connectionId → the last change that machine pushed (the change feed,
    * 2026-09-05). A surface showing that machine re-reads when this moves;
-   * `revision` is the fleet's own stamp, so a consumer can tell a new push
+   * `revision` is the mesh's own stamp, so a consumer can tell a new push
    * from a re-render.
    */
-  fleetRemoteChanges: ReadonlyMap<string, FleetRemoteChange>
+  meshRemoteChanges: ReadonlyMap<string, MeshRemoteChange>
 }
 
-type FleetRemoteChange = { what: 'terminals' | 'workspaces'; revision: number; at: number }
+type MeshChangeKind = 'workspaces' | 'conversations'
+type MeshRemoteChange = {
+  /** The kind the latest push named. */
+  what: MeshChangeKind
+  revision: number
+  at: number
+  /**
+   * The mesh revision of the latest push of each kind. Pushes of both kinds
+   * can land between two renders; a reader that re-reads by kind compares
+   * these rather than `what`, so neither is lost.
+   */
+  revisions: Partial<Record<MeshChangeKind, number>>
+}
 
 const EMPTY_LIVE_STATE: TailnetLiveState = { revision: 0, devices: [] }
 
@@ -49,205 +58,172 @@ function hasTailnetPresenceBridge(api: Partial<Window['api']> | undefined): bool
   return (
     !!api &&
     typeof api.onTailnetEvent === 'function' &&
-    typeof api.onFleetEvent === 'function' &&
+    typeof api.onMeshEvent === 'function' &&
     typeof api.tailnetGetStatus === 'function' &&
     typeof api.tailnetGetLiveState === 'function' &&
-    typeof api.fleetListConnections === 'function' &&
-    typeof api.fleetGetLiveState === 'function'
+    typeof api.meshListConnections === 'function' &&
+    typeof api.meshGetLiveState === 'function'
   )
 }
 
-/** Live sessions per connection, from the attachments held. Only `live` counts — connecting, reconnecting, and offline are a pane hoping. */
-export function fleetLiveSessionsOf(
-  attachments: ReadonlyMap<string, FleetLiveAttachment>,
-): ReadonlyMap<string, ReadonlySet<string>> {
-  const next = new Map<string, Set<string>>()
-  for (const attachment of attachments.values()) {
-    if (attachment.state !== 'live') continue
-    const sessions = next.get(attachment.connectionId) ?? new Set<string>()
-    sessions.add(attachment.sessionId)
-    next.set(attachment.connectionId, sessions)
-  }
-  return next
-}
-
-/**
- * The terminal sessions a paired device is looking at right now.
- *
- * The gateway already announces every terminal attach and detach with its
- * session id (`onActivity`, kind `terminal`), and the service already folds
- * that into `attachedTerminalSessions` per device — so "is a phone watching
- * this agent" is a set membership, not new plumbing.
- *
- * A Set rather than the device list, because the caller is a tab render that
- * asks the question once per agent: a scan of every device's array per tab is
- * the same answer computed n times.
- */
-export function useRemoteAttachedSessions(): ReadonlySet<string> {
-  const presence = useTailnetPresence()
-  return useMemo(() => {
-    const sessions = new Set<string>()
-    for (const device of presence.live.devices) {
-      for (const sessionId of device.attachedTerminalSessions) sessions.add(sessionId)
-    }
-    return sessions
-  }, [presence.live])
-}
-
 export function useTailnetPresence(): TailnetPresence {
-  const [status, setStatus] = useState<TailnetRemoteStatus | null>(null)
-  const [live, setLive] = useState<TailnetLiveState>(EMPTY_LIVE_STATE)
-  const [fleet, setFleet] = useState<FleetConnection[]>([])
-  const [fleetAttachments, setFleetAttachments] = useState<ReadonlyMap<string, FleetLiveAttachment>>(new Map())
-  const [fleetRequests, setFleetRequests] = useState<readonly FleetPairRequestView[]>([])
-  const [fleetReachability, setFleetReachability] = useState<ReadonlyMap<string, FleetMachineReachability>>(new Map())
-  const [fleetRemoteChanges, setFleetRemoteChanges] = useState<ReadonlyMap<string, FleetRemoteChange>>(new Map())
-  // The newest revision applied on each channel. Refs, not state: they gate
-  // what becomes state and must be read synchronously inside callbacks.
-  const tailnetRevision = useRef(0)
-  const fleetRevision = useRef(0)
-  // Whether a PUSHED payload has set status. The initial live-state read also
-  // advances `tailnetRevision`, and status carries no revision of its own, so
-  // the status read must yield only to a push — never to its sibling read
-  // resolving first, which would leave status null on a quiet system.
-  const statusPushed = useRef(false)
+  return useSyncExternalStore(subscribePresence, readPresence, readPresence)
+}
 
-  useEffect(() => {
-    // A host without the complete tailnet/fleet bridge (partial test
-    // harnesses, narrower preloads) gets a quiet, absent glyph rather than a
-    // mount-time throw inside React's commit — and the guard covers EVERY
-    // function called below, not just the subscriptions.
-    if (!hasTailnetPresenceBridge(window.api)) return
-    let cancelled = false
+// ── The store ───────────────────────────────────────────────────────────────
+
+const INITIAL_PRESENCE: TailnetPresence = {
+  status: null,
+  live: EMPTY_LIVE_STATE,
+  mesh: [],
+  meshRequests: [],
+  meshReachability: new Map(),
+  meshRemoteChanges: new Map(),
+}
+
+let presence: TailnetPresence = INITIAL_PRESENCE
+const presenceListeners = new Set<() => void>()
+let stopPresence: (() => void) | null = null
+// The newest revision applied on each channel. They gate what becomes state
+// and must be read synchronously inside the callbacks.
+let tailnetRevision = 0
+let meshRevision = 0
+// Whether a PUSHED payload has set status. The initial live-state read also
+// advances `tailnetRevision`, and status carries no revision of its own, so
+// the status read must yield only to a push — never to its sibling read
+// resolving first, which would leave status null on a quiet system.
+let statusPushed = false
+
+const readPresence = (): TailnetPresence => presence
+
+function updatePresence(update: (current: TailnetPresence) => Partial<TailnetPresence> | null): void {
+  const patch = update(presence)
+  if (!patch) return
+  presence = { ...presence, ...patch }
+  for (const listener of [...presenceListeners]) listener()
+}
+
+function subscribePresence(listener: () => void): () => void {
+  presenceListeners.add(listener)
+  if (presenceListeners.size === 1) stopPresence = startPresence()
+  return () => {
+    presenceListeners.delete(listener)
+    if (presenceListeners.size > 0) return
+    stopPresence?.()
+    stopPresence = null
+    // The next first subscriber starts from nothing and reads everything
+    // again: nothing was listening, so nothing here can be trusted as current.
+    presence = INITIAL_PRESENCE
+    tailnetRevision = 0
+    meshRevision = 0
+    statusPushed = false
+  }
+}
+
+function startPresence(): (() => void) | null {
+  // A host without the complete tailnet/mesh bridge (partial test harnesses,
+  // narrower preloads) gets a quiet, absent glyph rather than a throw — and
+  // the guard covers EVERY function called below, not just the subscriptions.
+  if (typeof window === 'undefined' || !hasTailnetPresenceBridge(window.api)) return null
+  let cancelled = false
+  const readConnections = (): void => {
     void window.api
-      .tailnetGetStatus()
-      .then((initial) => {
-        // Every push carries a fresher status, so a push already applied
-        // outranks this read; the live-state read does not.
-        if (!cancelled && !statusPushed.current) setStatus(initial)
-      })
-      .catch(() => {})
-    void window.api
-      .tailnetGetLiveState()
-      .then((initial) => {
-        if (cancelled || initial.revision < tailnetRevision.current) return
-        tailnetRevision.current = initial.revision
-        setLive(initial)
-      })
-      .catch(() => {})
-    void window.api
-      .fleetListConnections()
+      .meshListConnections()
       .then((connections) => {
-        if (!cancelled) setFleet(connections)
+        if (!cancelled) updatePresence(() => ({ mesh: connections }))
       })
       .catch(() => {})
-    void window.api
-      .fleetGetLiveState()
-      .then((initial) => {
-        if (cancelled || initial.revision < fleetRevision.current) return
-        fleetRevision.current = initial.revision
-        setFleetAttachments(new Map(initial.attachments.map((attachment) => [attachment.attachId, attachment])))
+  }
+  void window.api
+    .tailnetGetStatus()
+    .then((initial) => {
+      // Every push carries a fresher status, so a push already applied
+      // outranks this read; the live-state read does not.
+      if (!cancelled && !statusPushed) updatePresence(() => ({ status: initial }))
+    })
+    .catch(() => {})
+  void window.api
+    .tailnetGetLiveState()
+    .then((initial) => {
+      if (cancelled || initial.revision < tailnetRevision) return
+      tailnetRevision = initial.revision
+      updatePresence(() => ({ live: initial }))
+    })
+    .catch(() => {})
+  readConnections()
+  void window.api
+    .meshGetLiveState()
+    .then((initial) => {
+      if (cancelled || initial.revision < meshRevision) return
+      meshRevision = initial.revision
+      updatePresence(() => ({
         // Tolerant of a main that predates these fields (a partial bridge in
         // a test): an absent list is an empty one, not a throw at mount.
-        setFleetRequests(initial.requests ?? [])
-        setFleetReachability(new Map((initial.reachability ?? []).map((entry) => [entry.connectionId, entry])))
-      })
-      .catch(() => {})
+        meshRequests: initial.requests ?? [],
+        meshReachability: new Map((initial.reachability ?? []).map((entry) => [entry.connectionId, entry])),
+      }))
+    })
+    .catch(() => {})
 
-    const offTailnet = window.api.onTailnetEvent((payload) => {
-      if (payload.revision < tailnetRevision.current) return
-      tailnetRevision.current = payload.revision
-      statusPushed.current = true
-      setStatus(payload.status)
-      setLive(payload.live)
-    })
-    const offFleet = window.api.onFleetEvent((event) => {
-      if (event.revision < fleetRevision.current) return
-      fleetRevision.current = event.revision
-      if (event.kind === 'machine-paired' || event.kind === 'machine-forgotten') {
-        void window.api
-          .fleetListConnections()
-          .then((connections) => {
-            if (!cancelled) setFleet(connections)
-          })
-          .catch(() => {})
-        if (event.kind === 'machine-forgotten') {
-          setFleetAttachments((current) => {
-            const next = new Map(current)
-            for (const [attachId, attachment] of current) {
-              if (attachment.connectionId === event.connectionId) next.delete(attachId)
-            }
-            return next.size === current.size ? current : next
-          })
-          setFleetReachability((current) => {
-            if (!current.has(event.connectionId)) return current
-            const next = new Map(current)
-            next.delete(event.connectionId)
-            return next
-          })
-          setFleetRemoteChanges((current) => {
-            if (!current.has(event.connectionId)) return current
-            const next = new Map(current)
-            next.delete(event.connectionId)
-            return next
-          })
-        }
-        return
-      }
-      if (event.kind === 'pair-request') {
-        // Only `waiting` is a request to show; every other phase ends it.
-        setFleetRequests((current) => {
-          const rest = current.filter((entry) => entry.requestId !== event.request.requestId)
-          return event.phase === 'waiting' ? [...rest, event.request] : rest
+  const offTailnet = window.api.onTailnetEvent((payload) => {
+    if (payload.revision < tailnetRevision) return
+    tailnetRevision = payload.revision
+    statusPushed = true
+    updatePresence(() => ({ status: payload.status, live: payload.live }))
+  })
+  const offMesh = window.api.onMeshEvent((event) => {
+    if (event.revision < meshRevision) return
+    meshRevision = event.revision
+    if (event.kind === 'machine-paired' || event.kind === 'machine-forgotten') {
+      readConnections()
+      if (event.kind === 'machine-forgotten') {
+        updatePresence((current) => {
+          const meshReachability = new Map(current.meshReachability)
+          meshReachability.delete(event.connectionId)
+          const meshRemoteChanges = new Map(current.meshRemoteChanges)
+          meshRemoteChanges.delete(event.connectionId)
+          return {
+            meshReachability:
+              meshReachability.size === current.meshReachability.size ? current.meshReachability : meshReachability,
+            meshRemoteChanges:
+              meshRemoteChanges.size === current.meshRemoteChanges.size ? current.meshRemoteChanges : meshRemoteChanges,
+          }
         })
-        return
       }
-      if (event.kind === 'machine-reachability') {
-        setFleetReachability((current) => {
-          const { kind: _kind, revision: _revision, ...entry } = event
-          const next = new Map(current)
-          next.set(entry.connectionId, entry)
-          return next
-        })
-        return
-      }
-      if (event.kind === 'remote-changed') {
-        setFleetRemoteChanges((current) => {
-          const next = new Map(current)
-          next.set(event.connectionId, { what: event.what, revision: event.revision, at: Date.now() })
-          return next
-        })
-        return
-      }
-      // Keyed by attachId: two panes on one session are two links, and one
-      // closing must not retract the other's "live".
-      setFleetAttachments((current) => {
-        const next = new Map(current)
-        if (event.state === 'closed') {
-          if (!next.delete(event.attachId)) return current
-          return next
-        }
-        const { kind: _kind, revision: _revision, ...attachment } = event
-        next.set(event.attachId, attachment)
-        return next
-      })
-    })
-    return () => {
-      cancelled = true
-      offTailnet()
-      offFleet()
+      return
     }
-  }, [])
-
-  const fleetLiveSessions = useMemo(() => fleetLiveSessionsOf(fleetAttachments), [fleetAttachments])
-  return {
-    status,
-    live,
-    fleet,
-    fleetAttachments,
-    fleetLiveSessions,
-    fleetRequests,
-    fleetReachability,
-    fleetRemoteChanges,
+    if (event.kind === 'pair-request') {
+      // Only `waiting` is a request to show; every other phase ends it.
+      updatePresence((current) => {
+        const rest = current.meshRequests.filter((entry) => entry.requestId !== event.request.requestId)
+        return { meshRequests: event.phase === 'waiting' ? [...rest, event.request] : rest }
+      })
+      return
+    }
+    if (event.kind === 'machine-reachability') {
+      updatePresence((current) => {
+        const { kind: _kind, revision: _revision, ...entry } = event
+        const meshReachability = new Map(current.meshReachability)
+        meshReachability.set(entry.connectionId, entry)
+        return { meshReachability }
+      })
+      return
+    }
+    updatePresence((current) => {
+      const meshRemoteChanges = new Map(current.meshRemoteChanges)
+      const previous = current.meshRemoteChanges.get(event.connectionId)
+      meshRemoteChanges.set(event.connectionId, {
+        what: event.what,
+        revision: event.revision,
+        at: Date.now(),
+        revisions: { ...previous?.revisions, [event.what]: event.revision },
+      })
+      return { meshRemoteChanges }
+    })
+  })
+  return () => {
+    cancelled = true
+    offTailnet()
+    offMesh()
   }
 }

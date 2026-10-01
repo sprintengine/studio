@@ -97,3 +97,61 @@
   font-size: var(--sem-font-size-micro);
   font-variant-numeric: tabular-nums;
 }
+
+/* ── Resizable ───────────────────────────────────────────────────────────
+ * The person owns the width: the host writes it in pixels, inside the rails
+ * it declares, and the pane is positioned for the handle on its inner edge.
+ * The handle straddles the hairline — half over the pane, half over its
+ * neighbour — so it is easy to find without widening either. */
+.ds-side-pane--resizable {
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.ds-side-pane-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: var(--sem-z-pane);
+  width: var(--sem-space-xs);
+  cursor: col-resize;
+}
+
+.ds-side-pane--left .ds-side-pane-resize-handle {
+  right: 0;
+  transform: translateX(50%);
+}
+
+.ds-side-pane--right .ds-side-pane-resize-handle {
+  left: 0;
+  transform: translateX(-50%);
+}
+
+.ds-side-pane-resize-handle:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+/* The guideline: the accent over the hairline, only when the edge is being
+ * pointed at, focused or dragged. At rest the hairline alone says "edge". */
+.ds-side-pane-resize-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--sem-color-accent-primary);
+  opacity: 0;
+  transition: opacity var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+  pointer-events: none;
+}
+
+.ds-side-pane-resize-handle:hover .ds-side-pane-resize-line {
+  opacity: 0.6;
+}
+
+.ds-side-pane-resize-handle:focus-visible .ds-side-pane-resize-line,
+.ds-side-pane-resize-handle--active .ds-side-pane-resize-line {
+  opacity: 1;
+}

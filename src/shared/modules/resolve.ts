@@ -5,6 +5,7 @@ import type {
   ModuleResolutionError,
   ModuleResolutionErrorCode,
 } from './manifest'
+import { HOST_API_VERSION } from './host-api'
 
 export type ModuleResolutionOptions = {
   /**
@@ -66,20 +67,14 @@ export function resolveModuleEnablement(
     accepted.add(id)
   }
 
-  // 3b. Drop modules the caller marked ineligible (untrusted / invalid-signature
-  //     third-party). Done before dependency validation so a dependent of an
-  //     ineligible module cascades to disabled_dependency below.
+  // 3b. Drop modules the caller marked ineligible (untrusted, invalid-signature
+  //     or host-API-incompatible third-party). Done before dependency
+  //     validation so a dependent of an ineligible module cascades to
+  //     disabled_dependency below.
   for (const id of [...accepted]) {
     const reason = ineligible[id]
     if (!reason) continue
-    errors.push({
-      id,
-      code: reason,
-      message:
-        reason === 'invalid_signature'
-          ? `Module "${id}" has an invalid signature and will not load.`
-          : `Module "${id}" is not trusted yet; trust it in Settings → Modules to enable.`,
-    })
+    errors.push({ id, code: reason, message: ineligibleMessage(id, reason) })
     accepted.delete(id)
   }
 
@@ -152,5 +147,19 @@ export function resolveModuleEnablement(
     order: order.filter((id) => accepted.has(id)),
     disabled,
     errors,
+  }
+}
+
+// Each reason says what the user can do about it: trusting fixes an untrusted
+// module, nothing the user does fixes a tampered one, and an incompatible one
+// needs a different build of the module or of the app.
+function ineligibleMessage(id: string, reason: ModuleResolutionErrorCode): string {
+  switch (reason) {
+    case 'invalid_signature':
+      return `Module "${id}" has an invalid signature and will not load.`
+    case 'incompatible_host_api':
+      return `Module "${id}" was built for a different host API than this app provides (${HOST_API_VERSION}); update the module or the app to enable it.`
+    default:
+      return `Module "${id}" is not trusted yet; trust it in Settings → Modules to enable.`
   }
 }

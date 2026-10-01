@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Working edge</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sem-space-xl);
+  }
+  .demo-label {
+    margin: 0;
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  /* A terminal-like surface whose content stays readable under the edge. */
+  .demo-surface {
+    position: relative;
+    max-width: 420px;
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+    padding: var(--sem-space-lg);
+    font-family: var(--sem-font-family-mono);
+    font-size: var(--sem-font-size-meta);
+    line-height: var(--sem-font-line-default);
+    color: var(--sem-color-text-muted);
+  }
+  .demo-surface p {
+    margin: 0;
+  }
+  .demo-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — a paused terminal resuming: the output stays readable while the light laps the edge.</p>
+  <div class="demo-surface">
+    <p>❯ run the migration against staging</p>
+    <p>⏺ Migration applied: 14 tables, 0 errors.</p>
+    <p>❯ </p>
+    <div class="ds-working-edge" aria-hidden="true"></div>
+    <span class="demo-sr" role="status">Resuming agent</span>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — same tokens; the accent head and soft tail come from the same semantic ramp.</p>
+  <div class="demo-surface">
+    <p>❯ run the migration against staging</p>
+    <p>⏺ Migration applied: 14 tables, 0 errors.</p>
+    <p>❯ </p>
+    <div class="ds-working-edge" aria-hidden="true"></div>
+    <span class="demo-sr" role="status">Resuming agent</span>
+  </div>
+</div>
+</body>
+</html>

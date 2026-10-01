@@ -3,8 +3,14 @@ import { join } from 'path'
 import { guestPreloadPath } from './browser/browser-manager'
 import { applyGuestWebPreferences, type GuestWebPreferences } from './browser/guest-policy'
 import type { WindowMaterial } from '../shared/electron-api'
-import { sendWindowPlacement, sendWindowState } from './ipc/window-ipc'
-import { getWindowMaterial } from './window-material-store'
+import { sendWindowHidden, sendWindowPlacement, sendWindowState } from './ipc/window-ipc'
+import { getWindowCanvasColor, getWindowMaterial } from './window-material-store'
+import { appDocumentUrl, guardPrivilegedWindow } from './privileged-window-navigation'
+
+/** The one document every window made here may show; see privileged-window-navigation.ts. */
+function appDocument(): URL {
+  return appDocumentUrl(process.env['ELECTRON_RENDERER_URL'], join(__dirname, '../renderer/index.html'))
+}
 
 type CreateMainWindowOptions = {
   diagnosticsEnabled: boolean
@@ -30,10 +36,25 @@ let appQuitInProgress = false
 let detachedRestorePending = true
 
 // Workspace (main-shell) windows only — aux/diagnostics windows never frost.
-// The material IPC re-applies vibrancy live to every member on change.
+// The material IPC re-applies the material live to every member on change.
 const workspaceWindows = new Set<BrowserWindow>()
 
-const SOLID_BACKGROUND_COLOR = '#09090b'
+// The window-level half of a material: vibrancy and a transparent background
+// for glass; no vibrancy and the theme's own opaque canvas colour for tinted
+// and solid. Tinted's washes are painted by the renderer as static
+// CSS over that opaque ground — the window itself is an ordinary opaque one,
+// which is what keeps it free on platforms with no vibrancy. The colour
+// matters for the frames before the renderer paints (creation, and a resize
+// that outruns it): it is the theme's canvas, so a light theme never flashes
+// a dark ground.
+function materialWindowOptions(
+  material: WindowMaterial,
+  canvasColor: string,
+): { vibrancy?: 'under-window'; backgroundColor: string } {
+  return material === 'glass'
+    ? { vibrancy: 'under-window', backgroundColor: '#00000000' }
+    : { backgroundColor: canvasColor }
+}
 
 // macOS vibrancy for the glass window material. The OS composites the blur
 // from the desktop BEHIND the window (never from our own content), so this is
@@ -41,12 +62,14 @@ const SOLID_BACKGROUND_COLOR = '#09090b'
 // backdrop-filter, which stays banned (see .overlay-scrim in index.css).
 // Which regions read as glass is the renderer's call via the
 // data-window-material attribute; everything painted opaque stays opaque.
-export function applyWindowMaterialToWorkspaceWindows(material: WindowMaterial): void {
-  if (process.platform !== 'darwin') return
+// The opaque materials re-apply on every platform: their background colour
+// follows the theme, so a theme change re-pushes it.
+export function applyWindowMaterialToWorkspaceWindows(material: WindowMaterial, canvasColor: string): void {
+  const options = materialWindowOptions(material, canvasColor)
   for (const win of workspaceWindows) {
     if (win.isDestroyed()) continue
-    win.setVibrancy(material === 'glass' ? 'under-window' : null)
-    win.setBackgroundColor(material === 'glass' ? '#00000000' : SOLID_BACKGROUND_COLOR)
+    if (process.platform === 'darwin') win.setVibrancy(options.vibrancy ?? null)
+    win.setBackgroundColor(options.backgroundColor)
   }
 }
 
@@ -91,10 +114,11 @@ export function createMainWindow({
   const restoreDetached = windowId === 'primary' && detachedRestorePending
   if (windowId === 'primary') detachedRestorePending = false
   // Applied at creation (not post-boot) so a glass-persisted profile paints
-  // frosted chrome from the first frame; getWindowMaterial() is 'solid'
-  // everywhere but macOS. The renderer boot script stamps the matching
-  // data-window-material attribute just as synchronously.
-  const glass = getWindowMaterial() === 'glass'
+  // frosted chrome from the first frame, and an opaque one its theme's canvas;
+  // getWindowMaterial() never answers 'glass' off macOS. The renderer boot
+  // script stamps the matching data-window-material attribute just as
+  // synchronously.
+  const materialOptions = materialWindowOptions(getWindowMaterial(), getWindowCanvasColor())
   const safeBounds = normalizeWindowBounds(bounds)
   const win = new BrowserWindow({
     width: safeBounds?.width ?? 1400,
@@ -116,19 +140,41 @@ export function createMainWindow({
           trafficLightPosition: { x: 12, y: 11 },
         }),
     autoHideMenuBar: process.platform !== 'darwin',
-    ...(glass
-      ? { vibrancy: 'under-window' as const, backgroundColor: '#00000000' }
-      : { backgroundColor: SOLID_BACKGROUND_COLOR }),
+    ...materialOptions,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
-      // Workspace windows host terminal views, projection polling and session
-      // reconcile passes. A locked screen occludes the window and Chromium
-      // background-throttles its timers to ~1/min, which stalled those views
-      // mid-work. The window's periodic work already quiesces when idle
-      // (registered pollers unregister), so disabling throttling does not burn
-      // CPU on dormant workspaces.
-      backgroundThrottling: false,
+      // Background throttling stays ON (Electron's default), deliberately.
+      //
+      // It was switched off when sprint auto-run was moved into main, because
+      // a locked screen occludes the window and Chromium then throttled what was
+      // left in the renderer: the scheduler's leftover reconcile passes, and the
+      // terminal views. The first of those is gone. The second is the one that
+      // mattered: a terminal view drains incoming pty output on animation
+      // frames, an occluded window gets none, so output piled up in the view's
+      // queue until the queue's cap started discarding the oldest of it — and
+      // the person unlocked their screen to a pane that had skipped part of what
+      // the agent did.
+      //
+      // Switching throttling off fixed that by never letting the window rest,
+      // which also switched off the Page Visibility API: `document.hidden` stayed
+      // false on a minimized, covered or locked window, so every "pause while
+      // hidden" guard in the renderer was dead and the ambient animations kept
+      // compositing frames nobody could see.
+      //
+      // Terminal liveness is now kept a different way. When the window is hidden
+      // (the page says so, or main does: `sendWindowHidden`) it reports its
+      // terminals hidden to main (WorkspaceManager, via the same
+      // `terminalSetVisible` a layer switch uses), and main stops forwarding their
+      // output and keeps it in each session's retained stream. Main is not
+      // throttled and a hidden pane is never waited on for acknowledgements, so
+      // the agent keeps its full speed and nothing is lost; when the window is
+      // visible again it reports them visible and main sends each pane only the
+      // bytes it missed. The agents themselves never depended on the renderer:
+      // their ptys, hooks, attention and scheduling all live in main.
+      // The browser pane's <webview> guest is its own page with its own
+      // throttling, and is unaffected either way.
+      backgroundThrottling: true,
       // The workspace pane's browser tab is a <webview> guest (browser-pane
       // epic, decision 1). Only workspace windows host one; see
       // `will-attach-webview` below for what a guest may be.
@@ -169,6 +215,12 @@ export function createMainWindow({
   })
   win.on('enter-full-screen', () => sendWindowState(win))
   win.on('leave-full-screen', () => sendWindowState(win))
+  // Out of sight or back: what lets a hidden window stop feeding its
+  // terminals where the page cannot tell it is hidden (sendWindowHidden).
+  win.on('minimize', () => sendWindowHidden(win))
+  win.on('restore', () => sendWindowHidden(win))
+  win.on('hide', () => sendWindowHidden(win))
+  win.on('show', () => sendWindowHidden(win))
   const schedulePlacementUpdate = createPlacementUpdateScheduler(win)
   win.on('move', schedulePlacementUpdate)
   win.on('resize', schedulePlacementUpdate)
@@ -204,10 +256,7 @@ export function createMainWindow({
     })
   }
 
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
-    return { action: 'deny' }
-  })
+  guardPrivilegedWindow(win.webContents, appDocument(), (url) => shell.openExternal(url))
 
   // Voice dictation captures the microphone via getUserMedia in the renderer.
   // Grant the media permission for this trusted first-party window (the OS still
@@ -269,10 +318,7 @@ export function createDiagnosticsWindow(): BrowserWindow {
     if (diagnosticsWindow === win) diagnosticsWindow = null
   })
 
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
-    return { action: 'deny' }
-  })
+  guardPrivilegedWindow(win.webContents, appDocument(), (url) => shell.openExternal(url))
 
   if (process.env['ELECTRON_RENDERER_URL']) {
     const url = new URL(process.env['ELECTRON_RENDERER_URL'])
@@ -317,6 +363,14 @@ type CreateAuxWindowOptions = {
   singletonKey: string
   params: Record<string, string>
   bounds?: { x: number; y: number; width: number; height: number } | null
+  /**
+   * Whether the window may take the keyboard. True (the default) for the
+   * person's own clicks: they asked for the window, so it comes forward. False
+   * for an agent's reveal, which must never take focus or raise a window: an
+   * open window is retargeted where it stands (a minimized one stays
+   * minimized), and a new one is shown inactive.
+   */
+  focus?: boolean
 }
 
 /** Is this window one this process opened as an aux window? The registry is
@@ -327,15 +381,15 @@ export function isAuxWindow(win: BrowserWindow): boolean {
   return false
 }
 
-export function openAuxWindow({ kind, singletonKey, params, bounds = null }: CreateAuxWindowOptions): {
+export function openAuxWindow({ kind, singletonKey, params, bounds = null, focus = true }: CreateAuxWindowOptions): {
   retargeted: boolean
 } {
   const registryKey = `${kind}:${singletonKey}`
   const existing = auxWindows.get(registryKey)
   if (existing && !existing.isDestroyed()) {
-    if (existing.isMinimized()) existing.restore()
+    if (focus && existing.isMinimized()) existing.restore()
     existing.webContents.send('aux:retarget', { kind, params })
-    existing.focus()
+    if (focus) existing.focus()
     return { retargeted: true }
   }
 
@@ -359,18 +413,19 @@ export function openAuxWindow({ kind, singletonKey, params, bounds = null }: Cre
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
-      // Workspace windows host terminal views, projection polling and session
-      // reconcile passes. A locked screen occludes the window and Chromium
-      // background-throttles its timers to ~1/min, which stalled those views
-      // mid-work. The window's periodic work already quiesces when idle
-      // (registered pollers unregister), so disabling throttling does not burn
-      // CPU on dormant workspaces.
-      backgroundThrottling: false,
+      // A diff or editor window hosts no terminal and no background work, so it
+      // has no reason to keep painting while hidden. See the workspace window
+      // above for why throttling is on there too.
+      backgroundThrottling: true,
     },
   })
   auxWindows.set(registryKey, win)
 
   win.on('ready-to-show', () => {
+    if (!focus) {
+      win.showInactive()
+      return
+    }
     win.show()
     win.focus()
   })
@@ -399,10 +454,7 @@ export function openAuxWindow({ kind, singletonKey, params, bounds = null }: Cre
   win.on('move', schedulePlacementUpdate)
   win.on('resize', schedulePlacementUpdate)
 
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
-    return { action: 'deny' }
-  })
+  guardPrivilegedWindow(win.webContents, appDocument(), (url) => shell.openExternal(url))
 
   const query: Record<string, string> = { aux: kind, ...params }
   if (process.env['ELECTRON_RENDERER_URL']) {
@@ -451,6 +503,11 @@ function normalizeWindowBounds(
 
 // Push a main→renderer event to every workspace window (the embedded browser's
 // open/viewport requests, which any window hosting the workspace may answer).
+/** The live workspace windows — never an aux window, the splash or the canvas worker. */
+export function listWorkspaceWindows(): BrowserWindow[] {
+  return [...workspaceWindows].filter((win) => !win.isDestroyed())
+}
+
 export function broadcastToWorkspaceWindows(channel: string, payload: unknown): void {
   for (const win of workspaceWindows) {
     if (!win.isDestroyed()) win.webContents.send(channel, payload)

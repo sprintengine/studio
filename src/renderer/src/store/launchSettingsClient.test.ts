@@ -22,12 +22,13 @@ const { APP_SETTINGS_STORAGE_KEY, WORKSPACE_STORE_VERSION } = await import('./sl
 
 const legacyAppSettings = {
   cliRuntimes: {
-    codex: { command: '/Users/dev/bin/codex', useWsl: false },
+    codex: { command: '/Users/dev/bin/codex' },
     'claude-code': { command: 'claude', useWsl: true, models: ['opus-custom'] },
   },
   mcp: { syncEnabled: true, servers: {} },
   projectKnowledgeRoots: { '/Users/dev/repo': 'docs' },
   lastSelectedCli: 'codex',
+  // Written before the two-mode change: it reaches main as `none`.
   lastAgentSpawnPermissionPreset: 'manual',
   keepRunningInBackground: true,
 }
@@ -98,7 +99,7 @@ test('boot reads main, offers the localStorage values once, and adopts main reco
   assert.ok(offer)
   assert.deepEqual(Object.keys(offer).sort(), [...LAUNCH_SETTINGS_KEYS].sort(), 'the offer carries every launch input')
   assert.equal(offer.lastSelectedCli, 'codex')
-  assert.equal(offer.lastAgentSpawnPermissionPreset, 'manual')
+  assert.equal(offer.lastAgentSpawnPermissionPreset, 'manual', 'a stored Manual is offered as itself')
   assert.equal(offer.cliRuntimes.codex?.command, '/Users/dev/bin/codex')
   assert.deepEqual(offer.cliRuntimes['claude-code']?.models, ['opus-custom'])
   assert.equal(offer.mcp.syncEnabled, true)
@@ -110,7 +111,10 @@ test('boot reads main, offers the localStorage values once, and adopts main reco
   assert.equal(fields.lastSelectedCli, 'codex')
   assert.equal(fields.lastAgentSpawnPermissionPreset, 'manual')
   assert.equal(fields.cliRuntimes.codex?.command, '/Users/dev/bin/codex')
-  assert.equal(fields.cliRuntimes['claude-code']?.useWsl, true)
+  // The retired per-CLI WSL switch a legacy copy still carries does not ride
+  // into main: a WSL distribution is a machine with its own settings now.
+  assert.equal('useWsl' in (fields.cliRuntimes['claude-code'] ?? {}), false)
+  assert.deepEqual(fields.cliRuntimes['claude-code']?.models, ['opus-custom'])
 })
 
 test('once main holds a record the envelope is stripped of the launch fields and nothing else', () => {
@@ -139,39 +143,53 @@ test('every launch setter round-trips through main, and main answer is what the 
   const before = fakeMain.calls.update.length
 
   state().setCliRuntime('codex', { command: '/Users/dev/.local/bin/codex' })
-  state().setCliRuntime('grok', { useWsl: true })
+  state().setCliRuntime('grok', { models: ['grok-5'] })
   state().setMcpSyncEnabled(false)
   state().upsertMcpServer(server('docs'))
   state().upsertMcpServer(server('search'))
   state().refreshMcpServersFromSource([{ ...server('docs'), name: 'Docs (refreshed)' }])
   state().removeMcpServer('search')
   state().setLastSelectedCli('claude-code')
-  state().setLastAgentSpawnPermissionPreset('auto')
+  state().setLastAgentSpawnPermissionPreset('bypass')
   state().setProjectKnowledgeRoot('/Users/dev/other', 'notes')
   state().setProjectKnowledgeRoot('/Users/dev/repo', null)
+  state().setHostSettings('wsl:Ubuntu', { enabled: true, cliCommands: { codex: '/home/dev/bin/codex' }, env: {} })
+  state().setCliPermissionPreset('codex', 'none')
   await settleIpc()
 
-  assert.equal(fakeMain.calls.update.length - before, 11, 'one patch per setter call')
+  assert.equal(fakeMain.calls.update.length - before, 13, 'one patch per setter call')
   const patches = fakeMain.calls.update.slice(before)
   assert.deepEqual(patches[0], {
-    cliRuntimes: { codex: { command: '/Users/dev/.local/bin/codex', useWsl: false } },
+    cliRuntimes: { codex: { command: '/Users/dev/.local/bin/codex' } },
   })
-  assert.deepEqual(patches[1], { cliRuntimes: { grok: { command: '', useWsl: true } } })
+  assert.deepEqual(patches[1], { cliRuntimes: { grok: { command: '', models: ['grok-5'] } } })
   assert.deepEqual(patches[2], { mcp: { syncEnabled: false } })
   assert.deepEqual(patches[6], { mcp: { syncEnabled: true, servers: { search: null } } })
   assert.deepEqual(patches[7], { lastSelectedCli: 'claude-code' })
-  assert.deepEqual(patches[8], { lastAgentSpawnPermissionPreset: 'auto' })
+  assert.deepEqual(patches[8], { lastAgentSpawnPermissionPreset: 'bypass' })
   assert.deepEqual(patches[10], { projectKnowledgeRoots: { '/Users/dev/repo': null } })
+  assert.deepEqual(patches[11], {
+    hosts: { 'wsl:Ubuntu': { enabled: true, cliCommands: { codex: '/home/dev/bin/codex' }, env: {} } },
+  })
+  assert.deepEqual(
+    patches[12],
+    { cliPermissionPresets: { codex: 'none' }, cliPermissionModes: { codex: null } },
+    'only the CLI that changed, its own mode going with its preset',
+  )
 
   const settings = mainRecord().settings
   assert.equal(settings.cliRuntimes.codex?.command, '/Users/dev/.local/bin/codex')
-  assert.deepEqual(settings.cliRuntimes.grok, { command: '', useWsl: true })
+  assert.deepEqual(settings.cliRuntimes.grok, { command: '', models: ['grok-5'] })
+  assert.deepEqual(settings.hosts['wsl:Ubuntu']?.cliCommands, { codex: '/home/dev/bin/codex' })
+  assert.equal(useWorkspaceStore.getState().appSettings.hosts?.['wsl:Ubuntu']?.enabled, true)
   assert.deepEqual(settings.cliRuntimes['claude-code']?.models, ['opus-custom'], 'untouched CLIs keep their entry')
   assert.equal(settings.mcp.syncEnabled, true, 'removing a server turns sync back on, as it always did')
   assert.deepEqual(Object.keys(settings.mcp.servers), ['docs'])
   assert.equal(settings.mcp.servers.docs?.name, 'Docs (refreshed)')
   assert.equal(settings.lastSelectedCli, 'claude-code')
-  assert.equal(settings.lastAgentSpawnPermissionPreset, 'auto')
+  assert.equal(settings.lastAgentSpawnPermissionPreset, 'bypass')
+  assert.deepEqual(settings.cliPermissionPresets, { codex: 'none' })
+  assert.deepEqual(useWorkspaceStore.getState().appSettings.cliPermissionPresets, { codex: 'none' })
   assert.deepEqual(settings.projectKnowledgeRoots, { '/Users/dev/other': 'notes' })
 
   // The store is main's record read through the hydration normalizers.
@@ -181,7 +199,7 @@ test('every launch setter round-trips through main, and main answer is what the 
   assert.deepEqual(Object.keys(fields.mcp.servers), ['docs'])
   assert.equal(fields.mcp.syncEnabled, true)
   assert.equal(fields.lastSelectedCli, 'claude-code')
-  assert.equal(fields.lastAgentSpawnPermissionPreset, 'auto')
+  assert.equal(fields.lastAgentSpawnPermissionPreset, 'bypass')
   assert.deepEqual(fields.projectKnowledgeRoots, settings.projectKnowledgeRoots)
 
   assertEnvelopeCarriesNoLaunchFields('after every launch setter')
@@ -211,10 +229,13 @@ test('store writes that touch no launch setting send nothing to main', async () 
 test('client: nothing is adopted while an update is in flight, then the newest record is', async () => {
   const main = createFakeLaunchSettingsMain({
     cliRuntimes: {},
+    hosts: {},
     mcp: { syncEnabled: false, servers: {} },
     projectKnowledgeRoots: {},
     lastSelectedCli: 'codex',
     lastAgentSpawnPermissionPreset: null,
+    cliPermissionPresets: {},
+    cliPermissionModes: {},
   })
   const applied: Array<string | null> = []
   const client = createLaunchSettingsClient()
@@ -223,10 +244,13 @@ test('client: nothing is adopted while an update is in flight, then the newest r
     apply: (settings) => applied.push(settings.lastSelectedCli),
     legacyOffer: () => ({
       cliRuntimes: {},
+      hosts: {},
       mcp: { syncEnabled: false, servers: {} },
       projectKnowledgeRoots: {},
       lastSelectedCli: 'ignored',
       lastAgentSpawnPermissionPreset: null,
+      cliPermissionPresets: {},
+      cliPermissionModes: {},
     }),
     onLegacySettled: () => applied.push('settled'),
   })
@@ -236,7 +260,7 @@ test('client: nothing is adopted while an update is in flight, then the newest r
 
   client.update({ lastSelectedCli: 'gemini' })
   client.update({ lastSelectedCli: 'grok' })
-  main.externalUpdate({ lastAgentSpawnPermissionPreset: 'auto' })
+  main.externalUpdate({ lastAgentSpawnPermissionPreset: 'bypass' })
   assert.deepEqual(applied, ['settled', 'codex'], 'a broadcast waits for this window updates to settle')
   await settleIpc()
   assert.deepEqual(applied, ['settled', 'codex', 'grok'], 'one adoption, of the newest record')
@@ -261,10 +285,13 @@ test('client: a main that does not answer the boot read leaves the legacy values
   const client = createLaunchSettingsClient()
   const legacy = {
     cliRuntimes: {},
+    hosts: {},
     mcp: { syncEnabled: false, servers: {} },
     projectKnowledgeRoots: {},
     lastSelectedCli: 'codex',
     lastAgentSpawnPermissionPreset: null,
+    cliPermissionPresets: {},
+    cliPermissionModes: {},
   }
   const warn = console.warn
   console.warn = () => undefined

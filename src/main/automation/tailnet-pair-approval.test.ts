@@ -6,7 +6,7 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { hashSecret } from '../mobile/bridge/crypto'
+import { hashSecret } from './tailnet/secret-hash'
 import { toolSuccess, type McpToolRegistration } from '../../shared/modules/mcp-tools'
 import { SUPPORTED_MCP_PROTOCOL_VERSIONS } from '../../shared/mcp/protocol'
 import { TAILNET_PAIR_REQUEST_PATH } from './tailnet/tailnet-routes'
@@ -46,10 +46,10 @@ test('tailnet-pair-approval', async () => {
   function testTools(): McpToolRegistration[] {
     return [
       {
-        name: 'terminal.list',
+        name: 'workspace.list',
         description: 'Test tool',
         inputSchema: { type: 'object', properties: {} },
-        handler: async () => toolSuccess({ sessions: [] }),
+        handler: async () => toolSuccess({ workspaces: [] }),
       },
     ]
   }
@@ -145,7 +145,7 @@ test('tailnet-pair-approval', async () => {
     return { secret, hash: hashSecret(secret) }
   }
 
-  check('a machine asks, a person allows it with the terminal tier, and the token drives the gateway', async () => {
+  check('a machine asks, a person allows it with the scopes they chose, and the token drives the gateway', async () => {
     const harness = await startListener()
     try {
       const credential = askingCredential()
@@ -177,7 +177,7 @@ test('tailnet-pair-approval', async () => {
 
       const approved = harness.service.approvePairRequest({
         id: requestId,
-        scopes: ['workspace:read', 'terminal:control'],
+        scopes: ['workspace:read', 'conversation:operate'],
         // Typed from the asker's screen (phase 2): the digits the ask answered with.
         code: asked.body.comparisonCode as string,
       })
@@ -193,8 +193,8 @@ test('tailnet-pair-approval', async () => {
       assert.ok(deviceToken, 'the device token comes back to the asker')
       assert.deepEqual(
         collected.body.scopes,
-        ['workspace:read', 'terminal:control'],
-        'the grant is the one the approver chose, including the terminal tier',
+        ['workspace:read', 'conversation:operate'],
+        'the grant is the one the approver chose',
       )
 
       // And it actually works: the whole point is a device that can now drive this machine.

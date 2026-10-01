@@ -120,7 +120,7 @@ async function adoptAgentConfig(
   if (selectedMcpServers.length > 0) {
     const settings = buildAdoptedMcpSettings(selectedMcpServers, warnings)
     const clients = normalizeMcpClients(Object.values(settings.servers).flatMap((server) => server.clients))
-    const syncResult = options.mcpConfigService.sync({ workspaceRoot, settings, clients })
+    const syncResult = await options.mcpConfigService.sync({ workspaceRoot, settings, clients })
     if (!syncResult.ok) {
       return {
         ok: false,

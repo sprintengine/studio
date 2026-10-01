@@ -2,13 +2,15 @@ import { Terminal } from '@xterm/headless'
 import { SerializeAddon } from '@xterm/addon-serialize'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 
+import { TERMINAL_RECENT_SCROLLBACK_LINES } from '../shared/terminal-history'
 import { TERMINAL_CELL_GEOMETRY_OPTIONS, TERMINAL_UNICODE_VERSION } from '../shared/terminal-options'
+import { resyncTerminalReplayHead } from './terminal-session'
 
 // Blank-screen fix for suspended agent terminals.
 //
 // Agent CLIs (Claude, Codex) paint full-screen TUIs on the terminal ALTERNATE
 // screen buffer. When we suspend a terminal we kill its process to reclaim RAM,
-// but the only thing we retain is the raw PTY byte stream (`outputChunks`).
+// but the only thing we retain is the raw PTY byte stream (`output`).
 // Replaying that raw stream into a fresh xterm does NOT faithfully reconstruct
 // the TUI: buffer compaction can drop the `DECSET 1049` "enter alt-screen"
 // sequence, `term.reset()` clears alt-screen mode on re-reveal, and — because the
@@ -26,10 +28,14 @@ import { TERMINAL_CELL_GEOMETRY_OPTIONS, TERMINAL_UNICODE_VERSION } from '../sha
 // back to the existing raw-stream replay — this is strictly additive and can
 // never make a suspended terminal worse than today's behavior.
 
-// Bound how much scrollback the serialized snapshot carries. The snapshot's job
-// is to repaint the last screen faithfully; deep scrollback is already covered by
-// the raw replay if needed. Keeps the serialized payload small.
-const SNAPSHOT_SCROLLBACK_ROWS = 1000
+// How much scrollback the serialized snapshot carries: as much as a live pane
+// keeps. Once the snapshot exists the raw stream behind it is released, so the
+// snapshot is the ONLY history a paused or finished agent has left — its pane,
+// `readTerminalOutput`, and the sidecar a restart reopens all read it. A
+// shallower snapshot would silently cut a finished agent's history down to its
+// last screenful or so. It is plain serialized text, a couple of megabytes at
+// the most, which is well under what the raw stream it replaces held.
+const SNAPSHOT_SCROLLBACK_ROWS = TERMINAL_RECENT_SCROLLBACK_LINES
 
 // Guard against a pathological stream hanging the (async, off-critical-path)
 // suspend render — but scale with payload size: an agent TUI's retained stream
@@ -46,16 +52,72 @@ function snapshotRenderTimeoutMs(dataLength: number): number {
   return Math.min(SNAPSHOT_RENDER_MAX_TIMEOUT_MS, Math.round(scaled))
 }
 
+/**
+ * How much of the stream a render reads when the stream ends on the alternate
+ * screen: its newest 512K UTF-16 units.
+ *
+ * The render runs on the main thread (sliced by xterm's own write scheduler,
+ * but main-thread CPU all the same), once per settled terminal and again for
+ * every quit-path sidecar a restart reopens, and the retained stream can be
+ * 2.5 MB. A full-screen TUI's pane shows its alternate screen and nothing else
+ * — the normal buffer under it cannot be scrolled to — so its snapshot only
+ * needs the frames that paint the last screen, and the newest half megabyte
+ * holds many of those. A stream on the normal buffer is read whole: its
+ * scrollback is the history people scroll back through, and the pane it
+ * replaces held all of it.
+ */
+export const SNAPSHOT_RENDER_TAIL_UNITS = 512 * 1024
+
 export async function buildReplaySnapshot(data: string, cols: number, rows: number): Promise<string | null> {
   if (!data) return null
   const safeCols = Math.max(Number.isFinite(cols) ? Math.floor(cols) : 80, 20)
   const safeRows = Math.max(Number.isFinite(rows) ? Math.floor(rows) : 24, 8)
   try {
-    return await renderAndSerialize(data, safeCols, safeRows)
+    const text = endsOnAlternateScreen(data) ? snapshotRenderTail(data).text : data
+    return await renderAndSerialize(text, safeCols, safeRows)
   } catch {
     // Headless render / serialize failed — let the caller use the raw replay.
     return null
   }
+}
+
+// Alternate-screen switches (DECSET/DECRST 1049, 1047, 47).
+const ALT_SCREEN_ENTER = ['\x1b[?1049h', '\x1b[?1047h', '\x1b[?47h']
+const ALT_SCREEN_EXIT = ['\x1b[?1049l', '\x1b[?1047l', '\x1b[?47l']
+
+function lastAlternateScreenEnter(data: string): number {
+  return Math.max(...ALT_SCREEN_ENTER.map((sequence) => data.lastIndexOf(sequence)))
+}
+
+function lastAlternateScreenExit(data: string): number {
+  return Math.max(...ALT_SCREEN_EXIT.map((sequence) => data.lastIndexOf(sequence)))
+}
+
+/** Whether the stream leaves the terminal on the alternate screen. */
+function endsOnAlternateScreen(data: string): boolean {
+  return lastAlternateScreenEnter(data) > lastAlternateScreenExit(data)
+}
+
+/**
+ * The newest SNAPSHOT_RENDER_TAIL_UNITS of the stream, made safe to start
+ * reading: resynced past any escape sequence the cut landed in, and — when the
+ * stream is on the alternate screen but the switch that put it there fell
+ * before the cut — re-entered into it, or a full-screen TUI would be painted
+ * onto the normal buffer and serialized as scrollback.
+ */
+export function snapshotRenderTail(data: string): { text: string; cut: boolean } {
+  if (data.length <= SNAPSHOT_RENDER_TAIL_UNITS) return { text: data, cut: false }
+  let start = data.length - SNAPSHOT_RENDER_TAIL_UNITS
+  // Never begin on the second half of a surrogate pair.
+  const first = data.charCodeAt(start)
+  if (first >= 0xdc00 && first <= 0xdfff) start += 1
+  let text = resyncTerminalReplayHead(data.slice(start))
+  const lastEnter = lastAlternateScreenEnter(data)
+  if (lastEnter > lastAlternateScreenExit(data) && lastEnter < start) {
+    const sequence = ALT_SCREEN_ENTER.find((candidate) => data.startsWith(candidate, lastEnter)) ?? ALT_SCREEN_ENTER[0]
+    text = `${sequence}${text}`
+  }
+  return { text, cut: true }
 }
 
 function renderAndSerialize(data: string, cols: number, rows: number): Promise<string | null> {
@@ -80,8 +142,7 @@ function renderAndSerialize(data: string, cols: number, rows: number): Promise<s
       ...TERMINAL_CELL_GEOMETRY_OPTIONS,
       cols,
       rows,
-      // Deliberately NOT the panes' scrollback: this snapshot exists to repaint
-      // the last screen, and deep history is already covered by the raw replay.
+      // The panes' scrollback: see SNAPSHOT_SCROLLBACK_ROWS.
       scrollback: SNAPSHOT_SCROLLBACK_ROWS,
     })
     // The panes' width table, applied before a byte is written. Under xterm's

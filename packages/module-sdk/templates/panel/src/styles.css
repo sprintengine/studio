@@ -1,0 +1,18 @@
+/* The module's own stylesheet. Studio's Tailwind build never sees this
+   project, so utility classes written here would compile to nothing: style
+   with plain CSS against the theme tokens (THEME_TOKENS in the SDK), which
+   re-skin with every theme. Prefix every selector with the module id. */
+
+.{{id}}-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-surface);
+  color: var(--text-default);
+}
+
+.{{id}}-panel__text {
+  flex: 1;
+  margin: 12px;
+  min-height: 0;
+}

@@ -31,7 +31,6 @@ const ROWS = JSON.parse(
 
 const CONTEXT = {
   binary: '/Users/dev/.local/bin/claude',
-  useWsl: false,
   timeoutMs: 20_000,
   displayName: 'Claude Code',
 }
@@ -116,7 +115,7 @@ test('an SDK failure, a WSL runtime and an unresolved path are sentences', async
       error.message === 'Claude Code did not list its models: Claude Code process exited with code 1',
   )
   assert.equal(session.closed, 1)
-  await assert.rejects(probeAgentSdkModels({ ...CONTEXT, useWsl: true }, deps), CliModelProbeError)
+  await assert.rejects(probeAgentSdkModels({ ...CONTEXT, hostId: 'wsl:Ubuntu' }, deps), CliModelProbeError)
   await assert.rejects(probeAgentSdkModels({ ...CONTEXT, binary: 'claude' }, deps), CliModelProbeError)
 })
 

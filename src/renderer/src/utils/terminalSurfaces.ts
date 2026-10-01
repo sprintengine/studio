@@ -1,28 +1,23 @@
 /**
- * Which pane a terminal is, and therefore what it is allowed to resolve.
+ * Which pane a terminal is, and therefore which roots a path printed in it is
+ * resolved against.
  *
  * A leaf module on purpose. `createStudioTerminal.ts` owns the xterm instance
  * and imports `@xterm/xterm` (and its stylesheet) as VALUES, which a plain Node
- * test cannot load; the surface rule has to be reachable from
- * `terminalOscLinks.ts` — the gate every printed URI goes through — and from
- * that gate's tests. So the type and the one function that reads it live here,
+ * test cannot load, so the type and the one function that reads it live here,
  * and `createStudioTerminal` re-exports them for the panes that already import
  * them from there.
  */
 
 /**
- * The fleet case carries no roots and this is load-bearing, not an omission: a
- * fleet pane is attached to a terminal on ANOTHER machine, so a path printed in
- * it names a file in that machine's filesystem. Resolving it here would open
- * whatever local file happens to sit at the same path — the same words, a
- * different file, with no way for the user to tell. Making the roots absent
- * from the type is how that stays true when someone later adds link handling
- * without reading this comment.
+ * Every pane is a terminal on THIS machine. A terminal on another machine used
+ * to be a third surface with no roots at all, so that a path printed there was
+ * never opened as a local file of the same name; terminals stopped crossing the
+ * tailnet on 2026-09-29, and a surface for one should come back with that rule.
  */
 export type TerminalSurface =
   | { kind: 'agent'; workspaceRoot: string | null; executionRoot: string | null }
   | { kind: 'shell'; workspaceRoot: string | null }
-  | { kind: 'fleet' }
 
 /** The roots a relative path printed in a pane may be resolved against. */
 export type TerminalLinkRoots = {
@@ -32,18 +27,15 @@ export type TerminalLinkRoots = {
 }
 
 /**
- * The roots for a surface, or `null` when the surface must never resolve a
- * local path at all. `null` is not "no roots known" — a pane with no roots
- * known is `{ workspaceRoot: null, executionRoot: null }`, which reports a
- * counted drop (see `terminalFileLinks.ts`). `null` means "do not ask".
+ * The roots for a surface. A pane with no roots known is
+ * `{ workspaceRoot: null, executionRoot: null }`, which reports a counted drop
+ * (see `terminalFileLinks.ts`).
  */
-export function terminalSurfaceLinkRoots(surface: TerminalSurface): TerminalLinkRoots | null {
+export function terminalSurfaceLinkRoots(surface: TerminalSurface): TerminalLinkRoots {
   switch (surface.kind) {
     case 'agent':
       return { workspaceRoot: surface.workspaceRoot, executionRoot: surface.executionRoot }
     case 'shell':
       return { workspaceRoot: surface.workspaceRoot, executionRoot: null }
-    case 'fleet':
-      return null
   }
 }

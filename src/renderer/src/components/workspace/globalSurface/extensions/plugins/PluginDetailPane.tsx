@@ -18,6 +18,7 @@ import {
   type SkillHarness,
   type SkillSource,
   type SourceShape,
+  skillRepoLabel,
 } from '../../../../../../../shared/skills'
 import {
   DefinitionList,
@@ -476,16 +477,16 @@ function describeOrigin(plugin: ScannedPlugin, source: SkillSource, shape: Sourc
   if (origin.kind === 'linked') {
     return (
       <span>
-        <span className="font-mono">{origin.repo || origin.url}</span>
+        <span className="font-mono">{origin.repo ? skillRepoLabel(origin.repo) : origin.url}</span>
         {origin.path ? <span className="font-mono">{` · ${origin.path}`}</span> : null}
-        {origin.repo === '' ? ' · hosted outside GitHub' : ''}
+        {origin.repo === '' ? ' · hosted where this app does not read' : ''}
       </span>
     )
   }
   if (origin.kind === 'registry') return 'SprintEngine marketplace'
   return (
     <span>
-      {source.repo ? <span className="font-mono">{source.repo}</span> : source.name}
+      {source.repo ? <span className="font-mono">{skillRepoLabel(source.repo)}</span> : source.name}
       {origin.path ? <span className="font-mono">{` · ${origin.path}`}</span> : null}
       {` · ${SOURCE_SHAPE_LABEL[shape]}`}
     </span>

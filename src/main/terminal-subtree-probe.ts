@@ -18,12 +18,18 @@
 //      ~0% CPU and holds no port, but killing the CLI still kills it. MCP
 //      helpers never match it, so idle sessions stay reapable.
 //
-// Pure core (testable without spawning); the OS reads (`ps`, `lsof`) are
-// injected. Runs once per sweep over the small set of reap candidates, not per
-// process, so the cost is two subprocesses regardless of candidate count. Any
-// failure resolves to "live" (keep the terminal alive) — never the reverse.
+// Pure core (testable without spawning); the OS reads (`ps`, `lsof`, and on
+// Windows one PowerShell) are injected. A WSL session is read by its
+// distribution's helper from /proc instead (`resources/wsl-helper/lib/proc.mjs`
+// applies the same rule), reached through `WslHost.probeSubtrees`. Runs
+// once per sweep over the small set of reap candidates, not per process, so
+// the cost is a fixed handful of subprocesses regardless of candidate count.
+// Any failure resolves to "live" (keep the terminal alive) — never the reverse.
 
 import { execFile } from 'node:child_process'
+
+import { runSpawnDescriptor, type RunOutcome } from './process-run'
+import { killProcessTree } from './process-tree-kill'
 
 // A subtree process above this CPU share counts as "doing work" → keep alive.
 // High enough to ignore idle MCP/helper jitter, low enough to catch a build.
@@ -120,7 +126,7 @@ function execFileTextOrNull(command: string, args: string[]): Promise<string | n
   })
 }
 
-export type SubtreeProbeDeps = {
+export type SubtreeProbeDeps = HostProbeDeps & {
   platform?: NodeJS.Platform
   runPs?: () => Promise<string | null>
   runLsofListening?: () => Promise<string | null>
@@ -194,16 +200,36 @@ export function matchCliSessionPids(psOutput: string, cliSessionId: string): num
  * fire-and-forget it right after the kill; a clean exit means the ps sweep
  * finds nothing and this is a no-op. Returns the pids it killed (for tests
  * and audit).
+ *
+ * `host` says where the session ran. On Windows a native session's survivors
+ * are found by command line through CIM and ended with their trees. A WSL
+ * session's are killed inside its distribution by its helper
+ * (`WslHost.killSessionSurvivors`), never here.
  */
 export async function killCliSessionSurvivors(
   cliSessionId: string,
-  deps: SubtreeProbeDeps & { delayMs?: number; kill?: (pid: number, signal: NodeJS.Signals) => void } = {},
+  deps: SubtreeProbeDeps & {
+    delayMs?: number
+    kill?: (pid: number, signal: NodeJS.Signals) => void
+    killTree?: (pid: number) => void
+    host?: HostSurvivorTarget
+  } = {},
 ): Promise<number[]> {
   if (!cliSessionId) return []
   const platform = deps.platform ?? process.platform
-  if (platform !== 'darwin' && platform !== 'linux') return []
+  const style = deps.host?.pathStyle ?? (platform === 'win32' ? 'windows' : 'posix')
+  if (style === 'wsl') return []
+  const onWindows = style === 'windows'
+  if (onWindows ? platform !== 'win32' : platform !== 'darwin' && platform !== 'linux') return []
   const delayMs = deps.delayMs ?? 2_000
   if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs))
+  if (onWindows) {
+    try {
+      return await killWindowsSurvivors(cliSessionId, deps)
+    } catch {
+      return []
+    }
+  }
   const runPs = deps.runPs ?? (() => execFileTextOrNull('ps', ['-axo', 'pid=,ppid=,pcpu=,args=']))
   const psOut = await runPs()
   if (psOut === null) return [] // undetermined — never kill on a failed read
@@ -215,6 +241,188 @@ export async function killCliSessionSurvivors(
       killed.push(pid)
     } catch {
       // Already gone between the ps read and the kill — the goal state.
+    }
+  }
+  return killed
+}
+
+// =============================================================================
+// Native Windows sessions
+//
+// A native Windows pty runs PowerShell, and Windows has no `ps` or `lsof`, so
+// a sweep reads it with one PowerShell that lists every process with its
+// parent and command line (CIM `Win32_Process`), the pids holding a listening
+// TCP socket (`Get-NetTCPConnection`), and CPU from two samples of each
+// process's processor time half a second apart. That feeds the same
+// `subtreeLiveReason`. As everywhere in this file, a read
+// that failed, or a session whose root cannot be found, is undetermined —
+// held, never reaped.
+// =============================================================================
+
+// How long a sweep waits on a Windows-side read. The sweep runs every three
+// minutes and a held session is simply asked again next time.
+const HOST_PROBE_TIMEOUT_MS = 15_000
+
+export type HostRunner = (script: string, options: { timeoutMs: number }) => Promise<RunOutcome>
+
+export type HostProbeDeps = {
+  // Runs a PowerShell script (native Windows reads).
+  runPowerShell?: HostRunner
+}
+
+function defaultRunPowerShell(script: string, options: { timeoutMs: number }): Promise<RunOutcome> {
+  return runSpawnDescriptor(
+    {
+      file: 'powershell.exe',
+      args: [
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-EncodedCommand',
+        Buffer.from(script, 'utf16le').toString('base64'),
+      ],
+    },
+    { timeoutMs: options.timeoutMs },
+  )
+}
+
+function outcomeText(outcome: RunOutcome): string | null {
+  return outcome.timedOut || outcome.code !== 0 ? null : outcome.stdout
+}
+
+// ── Native Windows ───────────────────────────────────────────────────────────
+
+/**
+ * One PowerShell read of every process (pid, parent, command line, CPU) and
+ * every pid holding a listening TCP socket, as JSON.
+ *
+ * CPU is the processor time each process used between two samples at least
+ * half a second apart, as a percentage of one core — the same scale `ps`
+ * reports. The performance-counter classes would give it directly but can take
+ * seconds to answer; two reads of `TotalProcessorTime` do not.
+ */
+export const WINDOWS_SUBTREE_PROBE_SCRIPT = [
+  `$ErrorActionPreference = 'Stop'`,
+  `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8`,
+  `$clock = [System.Diagnostics.Stopwatch]::StartNew()`,
+  `$before = @{}`,
+  `foreach ($p in [System.Diagnostics.Process]::GetProcesses()) { try { $before[[int]$p.Id] = $p.TotalProcessorTime.Ticks } catch {} }`,
+  `$rows = @(Get-CimInstance -ClassName Win32_Process -Property ProcessId, ParentProcessId, CommandLine)`,
+  `$listeningOk = $true`,
+  `try { $listening = @(Get-NetTCPConnection -State Listen -ErrorAction Stop | ForEach-Object { [int]$_.OwningProcess } | Sort-Object -Unique) }`,
+  `catch { $listening = @(); $listeningOk = $false }`,
+  `$wait = 5000000 - $clock.Elapsed.Ticks`,
+  `if ($wait -gt 0) { Start-Sleep -Milliseconds ([int]($wait / 10000)) }`,
+  `$elapsed = [double]$clock.Elapsed.Ticks`,
+  `$cpu = @{}`,
+  `foreach ($p in [System.Diagnostics.Process]::GetProcesses()) { try { $id = [int]$p.Id; if ($before.ContainsKey($id)) { $cpu[$id] = [Math]::Round(100.0 * ($p.TotalProcessorTime.Ticks - $before[$id]) / $elapsed, 1) } } catch {} }`,
+  `$processes = @($rows | ForEach-Object { $id = [int]$_.ProcessId; [pscustomobject]@{ pid = $id; ppid = [int]$_.ParentProcessId; cpu = $(if ($cpu.ContainsKey($id)) { $cpu[$id] } else { 0 }); cmd = [string]$_.CommandLine } })`,
+  `ConvertTo-Json -Compress -Depth 4 -InputObject ([pscustomobject]@{ listeningOk = $listeningOk; listening = $listening; processes = $processes })`,
+].join('\n')
+
+export type WindowsSubtreeSnapshot = { procs: ProcRow[]; listening: Set<number> }
+
+function asArray(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value
+  return value === undefined || value === null ? [] : [value]
+}
+
+/**
+ * The PowerShell read as process rows, or null when it failed or its listening
+ * read did. Command lines get forward slashes, so a Claude tool shell's
+ * snapshot path (`.claude\shell-snapshots\…`) matches the same signature as
+ * on macOS and Linux.
+ */
+export function parseCimProcessJson(stdout: string): WindowsSubtreeSnapshot | null {
+  let data: unknown
+  try {
+    data = JSON.parse(stdout.trim())
+  } catch {
+    return null
+  }
+  if (!data || typeof data !== 'object') return null
+  const record = data as { listeningOk?: unknown; listening?: unknown; processes?: unknown }
+  if (record.listeningOk !== true) return null
+  const procs: ProcRow[] = []
+  for (const raw of asArray(record.processes)) {
+    const row = raw as { pid?: unknown; ppid?: unknown; cpu?: unknown; cmd?: unknown } | null
+    if (!row || typeof row.pid !== 'number' || typeof row.ppid !== 'number') continue
+    procs.push({
+      pid: row.pid,
+      ppid: row.ppid,
+      cpuPercent: typeof row.cpu === 'number' && Number.isFinite(row.cpu) ? row.cpu : 0,
+      command: typeof row.cmd === 'string' ? row.cmd.replace(/\\/g, '/') : '',
+    })
+  }
+  if (procs.length === 0) return null
+  const listening = new Set<number>()
+  for (const pid of asArray(record.listening)) if (typeof pid === 'number' && pid > 0) listening.add(pid)
+  return { procs, listening }
+}
+
+/** Live-work verdicts for native Windows sessions, by pty root pid. */
+export async function probeWindowsSubtrees(
+  rootPids: readonly number[],
+  deps: HostProbeDeps = {},
+): Promise<Map<number, SubtreeLiveReason | null>> {
+  const result = new Map<number, SubtreeLiveReason | null>()
+  if (rootPids.length === 0) return result
+  const run = deps.runPowerShell ?? defaultRunPowerShell
+  try {
+    const text = outcomeText(await run(WINDOWS_SUBTREE_PROBE_SCRIPT, { timeoutMs: HOST_PROBE_TIMEOUT_MS }))
+    const snapshot = text === null ? null : parseCimProcessJson(text)
+    if (!snapshot) return result
+    const alive = new Set(snapshot.procs.map((proc) => proc.pid))
+    for (const rootPid of rootPids) {
+      if (!alive.has(rootPid)) continue
+      result.set(rootPid, subtreeLiveReason(rootPid, snapshot.procs, snapshot.listening))
+    }
+  } catch {
+    return new Map()
+  }
+  return result
+}
+
+// ── Survivors on native Windows ──────────────────────────────────────────────
+
+/**
+ * The PowerShell that lists every process whose command line carries
+ * `--session-id <id>`, one pid per line. CIM is the one place Windows keeps
+ * another process's command line.
+ */
+export function buildWindowsSurvivorQueryScript(cliSessionId: string): string {
+  const needle = `--session-id ${cliSessionId}`.replace(/'/g, "''")
+  return [
+    `$ErrorActionPreference = 'Stop'`,
+    `$needle = '${needle}'`,
+    `Get-CimInstance -ClassName Win32_Process -Property ProcessId, CommandLine | Where-Object { $_.CommandLine -and $_.CommandLine.Contains($needle) -and $_.ProcessId -ne $PID } | ForEach-Object { [string]$_.ProcessId }`,
+  ].join('\n')
+}
+
+export type HostSurvivorTarget = {
+  pathStyle?: 'posix' | 'windows' | 'wsl'
+}
+
+async function killWindowsSurvivors(
+  cliSessionId: string,
+  deps: HostProbeDeps & { killTree?: (pid: number) => void },
+): Promise<number[]> {
+  const run = deps.runPowerShell ?? defaultRunPowerShell
+  const text = outcomeText(
+    await run(buildWindowsSurvivorQueryScript(cliSessionId), { timeoutMs: HOST_PROBE_TIMEOUT_MS }),
+  )
+  if (text === null) return [] // never kill on a failed read
+  const killTree = deps.killTree ?? ((pid: number) => killProcessTree({ pid, kill: () => true }, { platform: 'win32' }))
+  const killed: number[] = []
+  for (const line of text.split(/\r?\n/u)) {
+    const pid = Number(line.trim())
+    if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) continue
+    try {
+      killTree(pid)
+      killed.push(pid)
+    } catch {
+      // Already gone.
     }
   }
   return killed

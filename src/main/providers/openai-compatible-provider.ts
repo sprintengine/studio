@@ -5,7 +5,7 @@ import type {
   ConversationProviderAdapter,
   MockAdapterSessionInput,
   MockAdapterTurnInput,
-} from './mock-conversation-provider'
+} from './conversation-provider-adapter'
 
 export type ProviderSecretResolver = (
   providerId: string,
@@ -31,6 +31,22 @@ export function createOpenAiCompatibleProvider(options: OpenAiCompatibleProvider
   const fetchImpl = options.fetch ?? fetch
   return {
     id: 'openai-compatible-api',
+    displayName: 'OpenAI-compatible API',
+    capabilities: {
+      tools: false,
+      approvals: false,
+      questions: false,
+      planMode: false,
+      images: false,
+      skills: 'context',
+      reasoningEfforts: null,
+      interrupt: true,
+      resume: false,
+      subagents: false,
+      cost: false,
+      contextMeter: false,
+      liveModelSwitch: false,
+    },
     listModels: () => [],
     startSession(input) {
       return [event(input, 'session_started'), event(input, 'session_ready')]

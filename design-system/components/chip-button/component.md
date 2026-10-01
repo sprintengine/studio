@@ -29,7 +29,7 @@ they appear alone, in unlike company, and in numbers the bar could not hold.
 | Chip | `.ds-chip-button` | yes — a `<button>` |
 | Variant | `--outline` / `--overlay` | no |
 | Tone | `--warn` / `--error` | no |
-| Leading mark | — | no — a colour dot, a glyph, sized by the caller |
+| Leading mark | — | no — an identity colour dot or a glyph, sized by the caller. Never a status mark: the tone tints say the chip's state |
 | Label | — | yes, `font.size.micro`, sentence case |
 
 `font.size.micro` and no lower. A chip is a label *about* the thing beside it,
@@ -47,6 +47,56 @@ and it must not outweigh what it qualifies.
   reads as a small floating surface rather than as part of what is underneath.
   Still **no shadow**: the elevation ramp is for surfaces a person opened, not
   for chrome that was always there.
+
+### Raised (owner ruling 2026-10-01)
+
+**`--raised`** is a chip that is a **control in a toolbar row** rather than a
+label inside a line: the composer's model, skills & MCPs, permissions, worktree
+and ⋯ triggers, and the project and machine pickers on the launch row. Those
+had been `--outline` and ghost chips at `radius.chip` on their line box, and
+beside the composer's raised buttons they read as squarer, shorter and flatter
+than everything they shared a row with.
+
+It wears the outline button's shell exactly: `size.control.xs`,
+`radius.control`, the `border.default` hairline, and the control elevation —
+`shadow.control-edge` (a lit top lip over a shallow drop) with
+`gradient.control-sheen` across the face. It keeps everything that makes it a
+chip rather than a button: the tones, the identity tint, and the thrown states.
+
+It is the **one chip variant that is not content-height**, and that is the whole
+reason it is a variant rather than a re-skin of `--outline`: a toolbar row has
+already decided it is a row of controls, so riding a line box there is the
+defect, not the virtue. A chip inside a sentence, a card's meta line or a
+canvas HUD stays on one of the three inline variants.
+
+A composite that has to wear the same box without being one button — the
+worktree switch is a glyph button and a name field in one bordered box — takes
+the shell from the shipped primitive's `RAISED_CHIP_SHELL` export rather than
+spelling it, so it cannot drift a pixel from the chips beside it.
+
+### Folding a raised row (owner ruling 2026-10-01)
+
+A row of raised chips has a width budget, and a squashed panel used to answer
+it by wrapping onto a second line or crushing every chip to a sliver. Below the
+row's own budget its **secondary** chips fold behind one more `--raised` chip
+carrying a chevron that points the way its popover opens; the popover holds the
+same controls, stacked. The **essential** controls never fold: the model
+picker, the send or start action, and anything a launch cannot start without.
+
+- **Measured against the row, not the window.** The same panel width is a
+  different budget depending on what sits beside the panel.
+- **Nothing is dropped.** A control that disappears is a missing feature at
+  that size.
+- **Mounted once.** Folded controls move into the popover rather than being
+  hidden in place, so there are never two focus targets or two accessible names
+  for one control.
+- **A chevron, not ⋯,** because a launch row may already carry a ⋯ of its own,
+  and two identical glyphs side by side read as one door.
+- **A standing warning survives the fold.** If a folded chip carries the warn
+  tone (permissions bypassed), the chevron takes the same tint.
+
+Shipped as `FoldedControls` and `useMeasuredFold` in
+`src/renderer/src/components/ui/FoldedControls.tsx`.
 
 The edge, where a variant has one, is present **at rest and held through every
 state**. A border that appeared when the chip was thrown would resize the row it
@@ -66,8 +116,8 @@ sits in.
 The tone tints are the one narrow exception to "status is never a pill". The
 condition is that the chip **is the control that sets the state** — the person
 turned bypass on, and the chip is where they turn it off. A chip that merely
-*reports* a state, beside a row that also carries a dot, is the badge/dot
-collision the system rejects on sight.
+*reports* a state, beside a row that also carries a status mark, is the
+two-idioms collision the system rejects on sight.
 
 ## Identity tint
 
@@ -91,7 +141,7 @@ over it while it lasts — the same ordering the file tree's row washes follow.
 | Thrown | `bg.selected` (neutral tones) or the tone's soft tint, held through hover |
 | Focus-visible | The shared ring |
 | Disabled | 45% opacity, `not-allowed` |
-| Pressed | `scale(0.97)` — flat controls press by scale |
+| Pressed | `scale(0.97)` — flat controls press by scale. `--raised` presses like an elevated button instead: `shadow.control-pressed` replaces the edge and the sheen drops, with no scale |
 
 ## Accessibility
 
@@ -123,4 +173,5 @@ way.
 ## Shipped implementation
 
 `src/renderer/src/components/ui/ChipButton.tsx`, exporting `ChipButton` with
-`variant`, `tone`, `pressed`, `selected` and `tint`.
+`variant`, `tone`, `pressed`, `selected` and `tint`, and `RAISED_CHIP_SHELL` —
+the `--raised` box for a composite that has to wear it.

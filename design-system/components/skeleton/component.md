@@ -55,8 +55,8 @@ terminal ground, `pointer-events: none`, with one `role="status"` sentence
 ## Usage
 
 - Match the real content's geometry: a 13px body line gets a body-height
-  block at partial width, a 6px dot gets a dot. Uniform full-width slabs read
-  as a wireframe, not a promise.
+  block at partial width, a 13px leading status mark gets a 13px round block.
+  Uniform full-width slabs read as a wireframe, not a promise.
 - Vary ghost line widths the way real content varies, and **fix** the widths —
   a re-render must not reshuffle the placeholder.
 - Skeleton the first screenful only. Content below the fold loads behind the

@@ -8,7 +8,10 @@
 // what a valid signature is.
 //
 // The signature is a detached ed25519 signature over canonicalManifestPayload
-// (the validated manifest minus its `signature` field, sorted-key JSON).
+// (the validated manifest minus its `signature` field, sorted-key JSON). A
+// manifest signed by `sprintengine-module sign` carries `files`, the digest of
+// every file the module ships, so the signature covers the code as well as the
+// declaration; the digest walk is re-exported here from module-files.ts.
 // Public API uses only strings (PEM / base64) so the published declaration
 // surface carries no Node type dependency.
 
@@ -16,6 +19,14 @@ import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sig
 
 import type { ModuleSignature } from './index.js'
 import { canonicalManifestPayload } from './manifest-validate.js'
+
+export {
+  computeModuleFileDigestsSync,
+  moduleFileDigestIssuesSync,
+  type ModuleFileDigestOptions,
+  type ModuleFileDigestsResult,
+  type ModuleFileWalk,
+} from './module-files.js'
 
 /** The minimum a manifest needs for signature work; full manifests satisfy it. */
 export type SignedManifest = {
@@ -25,10 +36,11 @@ export type SignedManifest = {
 
 // A content fingerprint of the manifest's security-relevant declaration
 // (everything except the signature itself): id, version, permissions, entry,
-// deps. The app records trust against this so a changed declaration voids
-// trust. NOTE: this covers the declared manifest, not the entry bundle bytes —
-// full content integrity (hashing the code) must land before third-party code
-// is ever executed.
+// deps, and `files` when the manifest has it. The fingerprint covers code bytes
+// only through `files`; a manifest without them fingerprints the declaration
+// alone, which is why the app binds a trust grant to this fingerprint taken
+// over the manifest WITH the digests of the files actually on disk (see
+// moduleContentFingerprint in the app's module-signature.ts).
 export function manifestFingerprint(manifest: SignedManifest): string {
   return createHash('sha256').update(canonicalManifestPayload(manifest)).digest('hex')
 }

@@ -15,7 +15,6 @@ import { join } from 'node:path'
 import { createWorkspaceRegistryStore } from './workspace-registry-store'
 import { createWorkspaceRegistryService } from './workspace-registry-service'
 import { createWorkspaceSyncService } from './workspace-sync-service'
-import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../shared/workspace-mode'
 import type { WorkspaceSyncCommand, WorkspaceSyncEvent } from '../shared/workspace-sync'
 
 const WINDOW_A = 'primary'
@@ -158,28 +157,6 @@ test('case 4: two windows editing one agent resolve by configEditedAt', () => {
     )
     assert.equal(removal.ok, true)
     assert.equal(h.registry.getRecord(workspaceId)!.agents['agent-1'], undefined)
-  } finally {
-    h.cleanup()
-  }
-})
-
-test('case 5: two windows both requesting one folder’s host get the same id', () => {
-  const h = harness()
-  try {
-    // This is the class of bug the renderer-side set()-scoped check could only
-    // prevent WITHIN one window. Main's single writer prevents it across them.
-    const fromA = h.sync.createWorkspace(
-      { folderPath: '/repo', mode: AUTOMATIONS_HOST_WORKSPACE_MODE, windowId: WINDOW_A },
-      'ui',
-    )
-    const fromB = h.sync.createWorkspace(
-      { folderPath: '/repo', mode: AUTOMATIONS_HOST_WORKSPACE_MODE, windowId: WINDOW_B },
-      'ui',
-    )
-    assert.ok(fromA.ok && fromB.ok)
-    assert.equal(fromB.result.workspace.id, fromA.result.workspace.id)
-    assert.equal(h.registry.getRecords().length, 1)
-    assert.equal(h.announced.length, 1, 'the reuse did not mint or announce a second workspace')
   } finally {
     h.cleanup()
   }

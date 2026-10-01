@@ -1,3 +1,5 @@
+import type { EditorRange } from '../../../shared/editor-reveal'
+import type { BranchStepSelection } from '../../../shared/electron-api'
 import type { IJsonModel } from 'flexlayout-react'
 import type { BrowserViewport } from '../../../shared/browser-devices'
 import type { CliPermissionPreset } from '../../../shared/cli-permission-preset'
@@ -24,17 +26,15 @@ export type WorkspaceId = string
 export type WorkspaceWindowId = string
 export const STANDARD_WORKSPACE_MODE = 'standard'
 
-export type BundledWorkspaceMode = typeof STANDARD_WORKSPACE_MODE | typeof AUTOMATIONS_HOST_WORKSPACE_MODE
+export type BundledWorkspaceMode = typeof STANDARD_WORKSPACE_MODE
 
 // Lifted to the shared layer so shared contracts can name the mode without
 // importing the renderer; `STANDARD_WORKSPACE_MODE` is its `'standard'` member.
-// The remaining bundled rail-hidden mode (automations-host) lives there too,
-// beside `isModeHiddenFromRail`. Module-registered types that hide from the
-// rail set `WorkspaceTypeDefinition.hiddenFromRail` instead. Imported here
-// (so this module's own references resolve) and re-exported so every existing
-// import site keeps resolving here.
-import { AUTOMATIONS_HOST_WORKSPACE_MODE, type WorkspaceMode } from '../../../shared/workspace-mode'
-export { AUTOMATIONS_HOST_WORKSPACE_MODE }
+// Module-registered types that hide from the rail set
+// `WorkspaceTypeDefinition.hiddenFromRail`. Imported here (so this module's own
+// references resolve) and re-exported so every existing import site keeps
+// resolving here.
+import type { WorkspaceMode } from '../../../shared/workspace-mode'
 export type { WorkspaceMode }
 
 export type HighlightColor = 'red' | 'orange' | 'amber' | 'green' | 'blue' | 'purple' | 'pink'
@@ -84,8 +84,9 @@ export type LayoutTemplate = {
 type WorktreeEntryStatus = 'available' | 'assigned' | 'missing' | 'removing' | 'error'
 
 export type CliRuntimeSettings = {
+  // The command on THIS machine. A WSL machine keeps its own commands in the
+  // launch settings' `hosts` (Settings ▸ Machines).
   command: string
-  useWsl: boolean
   // User-added model ids for this CLI, merged with the plugin manifest's seed
   // options in pickers. Mirrors the shared electron-api type.
   models?: string[]
@@ -261,12 +262,24 @@ export type NewChatAgentChoice = { kind: 'general' } | { kind: 'terminal' } | { 
 export type AppSettings = {
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>
   /**
+   * Per-machine settings for the machines this computer offers besides itself
+   * (the WSL distributions on Windows), keyed by host id: whether each is a
+   * machine for new chats, its own CLI commands, environment and shell. A read
+   * model of main's launch settings, like `cliRuntimes`.
+   */
+  hosts?: Partial<
+    Record<
+      import('../../../shared/execution-host').ExecutionHostId,
+      import('../../../shared/execution-host').ExecutionHostSettings
+    >
+  >
+  /**
    * What each agent CLI last reported about its own models, keyed by plugin id.
    * A sibling of `cliRuntimes[id].models`, never the same store: that list is
    * the user's own escape hatch and must survive a refresh, while this one is
    * replaced wholesale every time the CLI is re-probed. No code path writes
    * both. Pickers show this, else the manifest seed, then the user's list
-   * (mergeModelCatalog); absent means "never probed", and an entry with no
+   * (mergeCliModelCatalog); absent means "never probed", and an entry with no
    * models means "probed and the CLI listed nothing", which the picker shows
    * as the seed.
    */
@@ -311,6 +324,20 @@ export type AppSettings = {
    */
   lastFolderOpenTarget: FolderOpenTargetId | null
   lastAgentSpawnPermissionPreset: CliPermissionPreset
+  /**
+   * The preset a spawn on each CLI launches with, keyed by CLI id: what the
+   * spawn footer's picker last chose for that runtime. A CLI with no entry
+   * reads `lastAgentSpawnPermissionPreset`. A read model of main's launch
+   * settings, like `cliRuntimes`, so every window and a launch with no window
+   * open read the same choice.
+   */
+  cliPermissionPresets?: Partial<Record<AgentCli, CliPermissionPreset>>
+  /**
+   * The CLI's own mode chosen with that preset, keyed by CLI id, for a choice
+   * that is not the preset's own mode (Claude Code's Accept edits). Read only
+   * beside the CLI's `cliPermissionPresets` entry. A read model of main's.
+   */
+  cliPermissionModes?: Partial<Record<AgentCli, string>>
   /**
    * The model (and reasoning-effort level) an agent spawn last ran on, stored
    * with the CLI it was picked for so a later CLI switch cannot leak a stale
@@ -448,17 +475,7 @@ export type AgentConfigAdoptionResult =
 
 export type DiagnosticLevel = 'info' | 'warning' | 'error'
 export type DiagnosticSource =
-  | 'agents'
-  | 'auth'
-  | 'automations'
-  | 'cli'
-  | 'filesystem'
-  | 'marketplace'
-  | 'models'
-  | 'terminal'
-  | 'update'
-  | 'voice'
-  | 'workspace'
+  'agents' | 'auth' | 'cli' | 'filesystem' | 'marketplace' | 'models' | 'terminal' | 'update' | 'voice' | 'workspace'
 
 // A typed, serializable deep-focus target for a notification's Open action. The
 // shell treats it as opaque (it only knows how to reveal the workspace); the
@@ -483,13 +500,21 @@ export type DiagnosticLogInput = {
   navigationTarget?: NotificationNavigationTarget
   /**
    * The Extensions drawer row this news belongs to (`ExtensionsDrawerRowId`:
-   * design, plugins, skills, agent-clis), when the emitter
+   * design, plugins, skills), when the emitter
    * knows. Absent, the row is read off `source` (`extensionsRowOfNotification`).
    * A string rather than the row type because this shape is shared with the
    * main process and persists to localStorage; unknown values fall back to the
    * source rule.
    */
   extensionsRow?: string
+  /**
+   * A message the person wrote that never reached its agent CLI, kept so the
+   * row can give it back (Copy message). Only the undelivered-first-message
+   * notice sets it, and that notice goes straight to the bell rather than
+   * through the diagnostics log: the text lives in the bell's own stored list,
+   * like every other row, and is never written to a log file.
+   */
+  returnedPrompt?: string
 }
 
 export type DiagnosticLogEntry = DiagnosticLogInput & {
@@ -585,7 +610,8 @@ export type WorkspaceGitPanelState = {
 // Backlog. Tabs are a plain per-workspace record rather than a FlexLayout
 // tabset because the pane mixes kinds FlexLayout used to scatter across two
 // exclusive rails.
-export type WorkspacePaneTabKind = 'browser' | 'terminal' | 'files' | 'diff' | 'git' | 'backlog' | 'canvas'
+export type WorkspacePaneTabKind =
+  'browser' | 'terminal' | 'files' | 'diff' | 'git' | 'backlog' | 'canvas' | 'document' | 'agents'
 
 export type WorkspacePaneTab = {
   id: string
@@ -611,12 +637,36 @@ export type WorkspacePaneTab = {
     focusKind: 'staged' | 'unstaged' | null
     /** Filter the viewer to one changelist (`agent:<agentId>`); absent = all. */
     changelistId?: string
+    /**
+     * An agent's reveal (editor.open_diff), session-only — the normalizer
+     * drops these on restore. `reveal.key` is new per request, so the same
+     * narrowing or range can be asked for twice.
+     */
+    reveal?: {
+      key: string
+      paths?: string[]
+      step?: BranchStepSelection
+      range?: EditorRange
+      side?: 'modified' | 'original'
+    }
+    /**
+     * Diff tours. `tour` is the tour the viewer has open and whether it was
+     * playing, so switching tabs does not lose it; `tourOffer` is a tour an
+     * agent has just written (`tour.create`) and the owner has not yet seen —
+     * the tab's "tour ready" mark.
+     */
+    tour?: { id: string; playing: boolean }
+    tourOffer?: string
   }
   // Canvas only: the board the tab is drawing on, project-relative and
   // normalized (`normalizeCanvasPath`). Absent is a real state, not a broken
   // one — that tab shows the board picker. A workspace holds at most one tab
   // per board, so this doubles as the tab's identity for the opener.
   canvas?: { path: string }
+  // Document only: the markdown file the tab reads, absolute. Required — a
+  // document tab is always opened ON something (a plan an agent proposed), so
+  // the normalizer drops one without it. One tab per file, like Canvas.
+  document?: { path: string }
   // Browser only: the device toolbar's viewport; absent means fill.
   viewport?: BrowserViewport
   // Browser only: where the floating player sits, in viewport pixels. Persisted
@@ -672,7 +722,7 @@ export type WorkspaceWorktree = {
 export type WorkspaceModuleStateBag = Record<string, unknown>
 
 export type WorkspaceRemoteOrigin = {
-  // The paired machine (fleet connection id) the workspace was created on.
+  // The paired machine (mesh connection id) the workspace was created on.
   connectionId: string
   machineName: string
   // The remote gateway's workspace: its id, display name, and folder there.
@@ -684,7 +734,7 @@ export type WorkspaceRemoteOrigin = {
    * (remote-band-in-the-sidebar): how the sidebar's Remote band knows that a
    * session the machine lists is THIS row, and focuses it rather than opening
    * a second attachment. Absent on rows born before the band existed, which
-   * the band matches by the fleet pane still in their layout instead.
+   * the band matches by the mesh pane still in their layout instead.
    */
   sessionId?: string
   /**
@@ -717,10 +767,22 @@ export type Workspace = {
   // Where a remote-born workspace's code and agent actually live
   // (remote-sessions-ux / new-chat-on-a-remote-machine). Set once at creation
   // for a chat started on a paired machine; the sidebar groups and badges by
-  // it, so the row keeps its provenance even after its fleet pane closes.
+  // it, so the row keeps its provenance even after its mesh pane closes.
   // Absent for every local workspace — local is the unmarked default.
   remoteOrigin?: WorkspaceRemoteOrigin | null
+  // The machine on this computer the workspace runs on (shared/execution-host):
+  // absent or `local` is this machine; `wsl:<distro>` is a WSL distribution,
+  // where its agents, terminals and git all run. Set when the workspace is
+  // created and never changed after — a chat does not move machines.
+  hostId?: import('../../../shared/execution-host').ExecutionHostId | null
   worktree?: WorkspaceWorktree | null
+  // The scheduled agent whose run started this chat (shared/scheduled-agents).
+  // Set once, by main, when a run's workspace is created, and never changed:
+  // the chat is otherwise an ordinary chat, and this is how the sidebar marks
+  // it, the schedule's editor lists it, and a run is kept from starting while
+  // the one before it is still working. Absent on every chat a person or an
+  // agent started, which is the unmarked default.
+  scheduledAgentId?: string | null
   templateId: string
   layoutModel: IJsonModel
   agents: Record<AgentId, AgentState>

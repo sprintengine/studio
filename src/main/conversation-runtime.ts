@@ -1,10 +1,21 @@
-import { mkdir, stat, appendFile, readFile } from 'fs/promises'
-import { join } from 'path'
+import { stat } from 'fs/promises'
+import {
+  MAX_CONVERSATION_METADATA_BYTES,
+  readConversationStorage,
+  removeConversationStorage,
+  writeConversationStorage,
+} from './conversation-persistence'
 
 import type {
+  ConversationAttachmentResult,
+  ConversationPlanDocumentInput,
+  ConversationPlanDocumentResult,
   ConversationCliRuntimeOverrides,
+  ConversationPageResult,
   ConversationEvent,
+  ConversationImageAttachment,
   ConversationInterruptInput,
+  ConversationMcpServer,
   ConversationPermissionPreset,
   ConversationListSessionsInput,
   ConversationListSessionsResult,
@@ -12,36 +23,128 @@ import type {
   ConversationSendTurnInput,
   ConversationSessionActionResult,
   ConversationSessionSummary,
+  ConversationSkillRef,
+  ConversationSubagentStatusPayload,
+  ConversationSetModelInput,
   ConversationSetPermissionInput,
   ConversationStartSessionInput,
   ConversationStartSessionResult,
   ConversationStopSessionInput,
+  ConversationSuspendSessionInput,
+  ConversationTerminalHandoffInput,
   ConversationTranscriptInput,
   ConversationTranscriptResult,
+  ConversationToolDetailInput,
+  ConversationToolDetailResult,
+  ConversationToolDetail,
+  ConversationJsonValue,
+  ConversationTurnDiffInput,
+  ConversationTurnDiffResult,
+  ConversationRevertInput,
+  ConversationRevertResult,
+  ConversationRewindInput,
+  ConversationRewindResult,
 } from '../shared/conversation-runtime'
+import { distroOfHostId, type ExecutionHostId } from '../shared/execution-host'
+import { wslInputInRootSpelling } from '../shared/host-paths'
+import { inferConversationToolKind } from '../shared/conversation/toolKind'
+import { isTurnlessSubagentStep, readSubagentStatus } from '../shared/conversation/subagents'
+import {
+  readToolDetail,
+  writeToolDetail,
+  redactConversationValue,
+  ToolOutputStream,
+  toolOutputStreamPath,
+  TOOL_PREVIEW_CHARS,
+} from './conversation-tool-details'
+import {
+  createConversationSkillsResolver,
+  type ConversationSkillsResolver,
+  type ResolvedConversationSkills,
+} from './conversation-skills'
+import { resolveConversationMentions } from './conversation-mentions'
+import { ConversationCheckpoints } from './conversation-checkpoints'
+import { ConversationIndex } from './conversation-index'
+import type {
+  ConversationWorkspaceKey,
+  ConversationSearchInput,
+  ConversationSearchHit,
+  ConversationRenameInput,
+} from '../shared/conversation-index'
+import { presentToolItem } from '../shared/conversation/presentation'
+import { applyPromptCacheEvent } from '../shared/prompt-cache'
+import { ConversationApprovalRuleStore } from './conversation-approval-rules'
+import { ConversationAttachmentStore } from './conversation-attachment-store'
+import { ConversationPlanStore } from './conversation-plan-store'
+import { approvalRememberLabels, approvalRuleCandidate } from '../shared/conversation/approvalRules'
+import {
+  permissionFallbackNotice,
+  permissionModeAllows,
+  permissionModeApprovalLabel,
+  type PermissionModeRequest,
+} from '../shared/conversation/permissionModes'
 import { getConversationProviderById } from './plugin-registry-instance'
 import { ProviderSecretStore } from './secret-store'
 import { clampSuspendIdleAfterMs, DEFAULT_SUSPEND_IDLE_AFTER_MS } from './terminal-reap-policy'
 import type { TerminalRootInfo } from './workspace-memory'
+import type { PowerActivity } from './power-activity'
 import {
-  createMockConversationProvider,
   type ConversationMessage,
   type ConversationProviderAdapter,
+  type MockAdapterTurnInput,
+  type ConversationProviderCursor,
   type ConversationProviderEventStream,
-} from './providers/mock-conversation-provider'
+} from './providers/conversation-provider-adapter'
+import { createMockConversationProvider } from './providers/mock-conversation-provider'
 import { createOpenAiCompatibleProvider } from './providers/openai-compatible-provider'
 import { CLAUDE_AGENT_PROVIDER_ID, createClaudeAgentProvider } from './providers/claude-agent-provider'
+import { createCodexConversationProvider } from './providers/codex-conversation-provider'
+import { ACP_PROFILES, createAcpConversationProvider } from './providers/acp-conversation-provider'
+import { leadingCommandFor } from './conversation-commands/leading-command'
+import { cliForConversationProvider } from '../shared/conversation-harness'
 import { workspaceSidecarPath } from './workspace-sidecar'
+import {
+  ConversationEventLog,
+  type ConversationAppendOutcome,
+  type ConversationEventLogOptions,
+} from './conversation-event-log'
+import {
+  ConversationTranscriptReader,
+  DEFAULT_TRANSCRIPT_LIMITS,
+  type ConversationTranscriptLimits,
+  type TranscriptSyncResult,
+} from './conversation-transcript-reader'
+
+/** What a terminal needs to resume a chat's CLI session (`terminalHandoffTarget`). */
+export type ConversationTerminalHandoffTarget = {
+  workspaceId: string
+  agentId: string
+  providerId: string
+  modelId: string
+  /** Where the chat runs: its worktree, else the workspace folder. The CLI keys its sessions by it. */
+  workspaceRoot: string
+  /** The CLI's own session id: Claude's session, Codex's thread. */
+  providerSessionId: string
+  permissionPreset?: ConversationPermissionPreset
+  permissionMode?: string
+  cliRuntimes?: ConversationCliRuntimeOverrides
+}
 
 type RuntimeSession = ConversationSessionSummary & {
+  // Spawned agents still running, by spawning tool call.
+  runningSubagents: Map<string, ConversationSubagentStatusPayload>
   workspaceRoot: string
+  fileScope: string
   activeTurnId: string | null
   pendingRequestId: string | null
   activeTurnAbort: AbortController | null
   canceledTurnIds: Set<string>
   // Completed turns only, in send order, so each new turn carries prior context.
   // A failed/interrupted turn is not recorded, so a retry re-sends cleanly.
-  history: ConversationMessage[]
+  // Kept for a stateless session only, which replays it every turn, and
+  // dropped while it rests (null), to be read back from the transcript by the
+  // next send. A stateful provider owns its history.
+  history: ConversationMessage[] | null
   // True when the provider adapter owns history/resume (sessions: 'stateful').
   // Stateful sessions never replay history and resolve approvals mid-turn.
   stateful: boolean
@@ -55,38 +158,157 @@ type RuntimeSession = ConversationSessionSummary & {
   // Serializes continuation-channel events (post-`result` turns the provider
   // opens outside a sendTurn) so their persistence and broadcast stay ordered.
   continuationTail: Promise<void>
+  checkpointTurnSeq: number | null
+  checkpointCapture: Promise<void> | null
+  checkpointCaptured: boolean
+  revertedNote?: string
+  // Skills attached to a message that opened with a slash command. The CLI
+  // runs that message as the command, so they wait here and go with the next
+  // message that is not one, exactly once.
+  pendingSkills?: ConversationSkillRef[]
+  approvalRequests: Map<string, PermissionModeRequest>
+  automaticApprovals: Map<string, string>
+  // Requests an answer has been sent for, by the person, a remembered rule or
+  // the chat's mode, whose resolution the provider has not reported yet. A
+  // second answer to one of them is refused, so a mode switch that sweeps the
+  // waiting requests never answers, or labels, one the person just answered.
+  answeredApprovals: Set<string>
+  // Requests whose `approval_requested` is still being decided on (a
+  // remembered rule is being looked up) and has not been published. The mode
+  // is read again once that is done, so a switch meanwhile leaves them to it
+  // rather than resolving a request no client has been shown yet.
+  unpublishedApprovals: Set<string>
   cliRuntimes?: ConversationCliRuntimeOverrides
   permissionPreset?: ConversationPermissionPreset
+  permissionChangeTail?: Promise<ConversationSessionActionResult>
+  modelChangeTail?: Promise<ConversationSessionActionResult>
   allowedTools?: string[]
+  // Handed to the adapter at start and never reported: a server's env and
+  // headers can carry the person's tokens.
+  mcpServers?: ConversationMcpServer[]
+  // Detail files of tools still open in this session, closed when a turn ends.
+  toolDetailPaths: Set<string>
+  // The provider stream of the turn a send is running, once the provider has
+  // been handed it; see ProviderTurn.
+  providerTurn: ProviderTurn | null
+}
+
+/**
+ * One provider stream: a send's, or a continuation the agent carried on with
+ * by itself. Its events carry `streamTurnId`, the turn it was sent (or opened)
+ * as, and count toward `turnId`: the same turn until a steer ends it where the
+ * steered message lands and opens the next, after which the stream's
+ * remaining events are that turn's. `finished` once the stream's own end has
+ * been written; `ended` settles, through `settle`, when the stream closes.
+ */
+type ProviderTurn = {
+  streamTurnId: string
+  turnId: string
+  finished: boolean
+  continuation: boolean
+  ended: Promise<ConversationSessionActionResult>
+  settle: (result: ConversationSessionActionResult) => void
+}
+
+function openProviderTurn(turnId: string, continuation: boolean): ProviderTurn {
+  let settle: (result: ConversationSessionActionResult) => void = () => undefined
+  const ended = new Promise<ConversationSessionActionResult>((resolve) => (settle = resolve))
+  return { streamTurnId: turnId, turnId, finished: false, continuation, ended, settle }
 }
 
 type ConversationRuntimeOptions = {
+  approvalRules?: ConversationApprovalRuleStore
+  attachmentStore?: ConversationAttachmentStore
+  planStore?: ConversationPlanStore
+  resolveSkills?: ConversationSkillsResolver
   adapters?: ConversationProviderAdapter[]
   secretStore?: Pick<ProviderSecretStore, 'getStatus'> & Partial<Pick<ProviderSecretStore, 'resolveSecret'>>
   getProviderById?: typeof getConversationProviderById
   stat?: typeof stat
-  mkdir?: typeof mkdir
-  appendFile?: typeof appendFile
-  readFile?: typeof readFile
+  // How transcript lines reach disk; tests shorten the delta flush or stub the
+  // stream. Defaults to one append stream per transcript file.
+  eventLog?: ConversationEventLogOptions
+  // Read budgets for transcripts; tests shrink them to exercise long chats.
+  transcriptLimits?: Partial<ConversationTranscriptLimits>
   now?: () => number
   randomId?: () => string
-  prepareStudioMcp?: (input: {
-    workspaceRoot: string
-    workspaceId: string
-    agentId: string
-  }) => Promise<{ ok: true } | { ok: false; message: string }>
+  // Least time between two running previews of one tool's output; tests shorten it.
+  toolPreviewIntervalMs?: number
+  // The app's own MCP gateway for a Claude chat, on the machine its `claude`
+  // runs on (a WSL host's, or this one's). Null leaves it out; the chat runs
+  // without Studio's tools rather than not at all.
+  resolveStudioMcpServer?: (input: { hostId?: ExecutionHostId }) => Promise<ConversationMcpServer | null>
 }
 
 type ConversationRuntimeListener = (event: ConversationEvent) => void
+/** `lost`: highest sequence number published but not written; `recorded`: highest one on disk as such. */
+type NonDurableLog = { root: string; lost: number; recorded: number; recording: boolean }
+/** One running tool's preview cadence: when the last went out, what it showed, and the one waiting. */
+type ToolPreviewThrottle = {
+  session: RuntimeSession
+  sentAt: number
+  shown: string | null
+  held: { event: ConversationEvent; options: EmitOptions } | null
+  timer: NodeJS.Timeout | null
+}
+type EmitOptions = { turnId?: string; allowCanceledTurnId?: string | null; prepared?: boolean }
+/**
+ * What a provider stream's emitted events came to, counted as they go by. A
+ * long agentic turn is tens of thousands of deltas and tool outputs, and the
+ * turn's end needs only these.
+ */
+type EmittedSummary = {
+  approvalsRequested: number
+  approvalsResolved: number
+  completed: boolean
+  failed: boolean
+  // The reply's text, gathered only when asked for (a stateless session's history).
+  text: string
+}
+
+/**
+ * A running tool's preview is a tail of up to {@link TOOL_PREVIEW_CHARS} of its
+ * output, and every one that is published is also a transcript line, because
+ * a client may hold its sequence number. At the log's own cadence a ten-minute
+ * build left megabytes of near-identical previews, crowding a reconnecting
+ * client out of its catch-up budget. The first preview goes out at once, then
+ * at most one every this long, and only when it changed; the full output is in
+ * the tool's detail file and its final event regardless.
+ */
+const DEFAULT_TOOL_PREVIEW_INTERVAL_MS = 5_000
+
+const UNSAVED_NOTICE =
+  'This conversation could not be saved to disk. It carries on here, but messages from now on may be missing after the app restarts.'
 
 // Cap on how many persisted events a transcript replay returns to the
 // renderer; the JSONL on disk keeps everything.
 const MAX_TRANSCRIPT_REPLAY_EVENTS = 2000
 
+// Stateful adapters that never read `fallbackHistory`: Claude Code resumes
+// its own session and has no use for the conversation replayed as text. The
+// history is up to a page of transcript, so it is not built for them.
+const ADAPTERS_WITHOUT_FALLBACK_HISTORY: ReadonlySet<string> = new Set([CLAUDE_AGENT_PROVIDER_ID])
+
+// How much of a chat's end the hover card reads for its newest turn. A turn
+// longer than this shows its newest part; the card draws a few hundred
+// characters of it either way.
+const PEEK_TURN_BYTES = 256 * 1024
+
+// How far back a picture request from a paired device looks for the step
+// that made the picture. The host keeps what it found, so only the first
+// request for a step pays for the scan.
+const TOOL_CALL_SCAN_BYTES = 32 * 1024 * 1024
+
 // Same cadence as the terminal runtime's stale-terminal sweep: often enough
 // that an idle child process does not outlive the threshold by much, rare
 // enough to be free.
 const IDLE_SWEEP_INTERVAL_MS = 3 * 60 * 1000
+
+// How often opening a conversation also expires a workspace's old checkpoint
+// refs. A conversation's refs expire after it has been idle for 30 days, so
+// looking once a day loses nothing, and each look lists every thread and
+// every checkpoint ref of the repository.
+const CHECKPOINT_EXPIRY_INTERVAL_MS = 24 * 60 * 60 * 1000
 
 export class ConversationRuntime {
   private readonly adapters = new Map<string, ConversationProviderAdapter>()
@@ -94,20 +316,60 @@ export class ConversationRuntime {
     Partial<Pick<ProviderSecretStore, 'resolveSecret'>>
   private readonly getProviderById: typeof getConversationProviderById
   private readonly stat: typeof stat
-  private readonly mkdir: typeof mkdir
-  private readonly appendFile: typeof appendFile
-  private readonly readFile: typeof readFile
+  private readonly eventLog: ConversationEventLog
+  private readonly threadIndex: ConversationIndex
+  private readonly transcripts: ConversationTranscriptReader
+  private readonly transcriptLimits: ConversationTranscriptLimits
   private readonly now: () => number
   private readonly randomId: () => string
-  private readonly prepareStudioMcp?: ConversationRuntimeOptions['prepareStudioMcp']
+  private readonly resolveSkills: ConversationSkillsResolver
+  private readonly checkpoints = new ConversationCheckpoints()
+  private readonly approvalRules: ConversationApprovalRuleStore
+  private readonly attachmentStore: ConversationAttachmentStore
+  private readonly planStore: ConversationPlanStore
   private readonly sessions = new Map<string, RuntimeSession>()
+  private readonly deletingTranscripts = new Set<string>()
+  private readonly startingTranscripts = new Set<string>()
+  private readonly revertingScopes = new Set<string>()
+  // Sessions whose CLI session is being handed to a terminal; a send waits for
+  // the terminal rather than respawning the child it was just stopped in.
+  private readonly terminalHandoffs = new Set<string>()
+  // Transcripts being taken back to an earlier message; a send waits for it.
+  private readonly rewindingTranscripts = new Set<string>()
+  private readonly sequenceInitializations = new Map<string, Promise<void>>()
   private readonly listeners = new Set<ConversationRuntimeListener>()
+  private readonly sequences = new Map<string, number>()
+  // When each workspace's checkpoint refs were last expired this run.
+  private readonly checkpointsExpiredAt = new Map<string, number>()
+  // Housekeeping that must not delay the caller but must finish before shutdown.
+  private readonly background = new Set<Promise<unknown>>()
+  // The index refresh a finished turn runs in the background, per transcript,
+  // so stopping or settling the chat can wait for it: a refresh that landed
+  // after the workspace was closed or deleted would write its folder back.
+  private readonly indexRefreshes = new Map<string, Promise<unknown>>()
+  private readonly emissionTails = new Map<string, Promise<unknown>>()
+  private readonly receipts = new Map<string, Promise<Map<string, ConversationSessionActionResult>>>()
+  private readonly pendingCommands = new Map<string, Promise<ConversationSessionActionResult>>()
+  private readonly receiptWrites = new Map<string, Promise<void>>()
+  // Transcripts with a write that failed this run: a sequence number was
+  // published that is not on disk, so they never serve incremental catch-up.
+  // The highest such number is also recorded beside the transcript, so the
+  // next run numbers above it rather than reusing numbers a client has seen.
+  private readonly nonDurableLogs = new Map<string, NonDurableLog>()
+  // Per tool detail path: the detail being built, its streamed output, and
+  // the write in flight.
+  private readonly toolDetails = new Map<string, ConversationToolDetail>()
+  private readonly toolStreams = new Map<string, ToolOutputStream>()
+  private readonly toolDetailWrites = new Map<string, Promise<void>>()
+  private readonly toolPreviews = new Map<string, ToolPreviewThrottle>()
+  private readonly toolPreviewIntervalMs: number
   private eventSequence = 0
   // Event ids must stay unique across app restarts: the persisted transcript
   // is replayed into the renderer, which dedupes live pushes against it by id.
   private readonly eventEpoch: string
   private idleThresholdMs = DEFAULT_SUSPEND_IDLE_AFTER_MS
   private idleSweepTimer: NodeJS.Timeout | null = null
+  private idleSweepActivity: (() => void) | null = null
 
   constructor(options: ConversationRuntimeOptions = {}) {
     this.secretStore = options.secretStore ?? new ProviderSecretStore()
@@ -118,18 +380,39 @@ export class ConversationRuntime {
         getProviderById: this.getProviderById,
         resolveSecret: (providerId) => this.resolveSecret(providerId),
       }),
-      createClaudeAgentProvider(),
+      createClaudeAgentProvider({
+        ...(options.resolveStudioMcpServer ? { resolveStudioMcpServer: options.resolveStudioMcpServer } : {}),
+      }),
+      createCodexConversationProvider(),
+      ...ACP_PROFILES.map((profile) => createAcpConversationProvider(profile)),
     ]
     for (const adapter of options.adapters ?? defaultAdapters) {
       this.adapters.set(adapter.id, adapter)
     }
     this.stat = options.stat ?? stat
-    this.mkdir = options.mkdir ?? mkdir
-    this.appendFile = options.appendFile ?? appendFile
-    this.readFile = options.readFile ?? readFile
+    this.eventLog = new ConversationEventLog({
+      onError: (filePath, error) => {
+        console.warn(
+          `[conversation-runtime] transcript write failed for ${filePath}:`,
+          error instanceof Error ? error.message : error,
+        )
+      },
+      ...options.eventLog,
+    })
+    this.transcriptLimits = { ...DEFAULT_TRANSCRIPT_LIMITS, ...options.transcriptLimits }
+    this.transcripts = new ConversationTranscriptReader(this.transcriptLimits)
+    this.threadIndex = new ConversationIndex({
+      flush: (path) => this.eventLog.flush(path),
+      close: (path) => this.eventLog.close(path),
+      maxTranscriptBytes: this.transcriptLimits.fullReadBytes,
+    })
     this.now = options.now ?? Date.now
+    this.toolPreviewIntervalMs = options.toolPreviewIntervalMs ?? DEFAULT_TOOL_PREVIEW_INTERVAL_MS
     this.randomId = options.randomId ?? (() => Math.random().toString(36).slice(2, 10))
-    this.prepareStudioMcp = options.prepareStudioMcp
+    this.resolveSkills = options.resolveSkills ?? createConversationSkillsResolver()
+    this.approvalRules = options.approvalRules ?? new ConversationApprovalRuleStore()
+    this.attachmentStore = options.attachmentStore ?? new ConversationAttachmentStore()
+    this.planStore = options.planStore ?? new ConversationPlanStore()
     // Startup-time epoch (not randomId — tests inject deterministic id
     // sequences that must not be consumed by construction).
     this.eventEpoch = this.now().toString(36)
@@ -139,20 +422,122 @@ export class ConversationRuntime {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
   }
+  getProviderCapabilities(providerId: string) {
+    return this.getAdapterForProviderId(providerId)?.capabilities
+  }
+  getNativeProviderModels(providerId: string) {
+    const adapter = this.getAdapterForProviderId(providerId)
+    return adapter?.sessions === 'stateful'
+      ? adapter.listModels().map((id) => ({ id, displayName: id === 'default' ? 'CLI default' : id }))
+      : undefined
+  }
 
   async startSession(input: ConversationStartSessionInput): Promise<ConversationStartSessionResult> {
+    if (!input.workspaceRoot?.trim() || !input.workspaceId?.trim() || !input.agentId?.trim())
+      return { ok: false, message: 'Conversation identity is required.' }
+    const path = this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId)
+    // A rewind writes the marker the next start forks from; a start that read
+    // the cursor before it would resume the whole session and undo the rewind.
+    if (this.deletingTranscripts.has(path) || this.startingTranscripts.has(path) || this.rewindingTranscripts.has(path))
+      return { ok: false, message: 'Conversation lifecycle operation is already in progress.' }
+    this.startingTranscripts.add(path)
+    try {
+      return (await this.adoptLiveSession(input, path)) ?? (await this.startSessionNow(input))
+    } finally {
+      this.startingTranscripts.delete(path)
+    }
+  }
+
+  /**
+   * One session per chat: the chat's live session, when it has one, rather
+   * than a second. A chat view keeps its session in component state, so a
+   * remount (a tab moved or reopened, a row snoozed and woken, a window
+   * reloaded) asks again for a chat main is still holding, as does a paired
+   * device. A second session beside the first was a second agent on the
+   * sidebar row with only one tab behind it, and a second CLI child resuming
+   * the same provider session. A model or preset asked for that differs is
+   * switched to on the live session; one its provider cannot switch, or a
+   * different provider or runtime, retires the idle session, and a failed one
+   * gives way, so a fresh one starts (`startSessionNow` clears what the chat
+   * left behind). A busy session is adopted as it is, so the work it is doing
+   * is never cut short.
+   */
+  private async adoptLiveSession(
+    input: ConversationStartSessionInput,
+    path: string,
+  ): Promise<ConversationStartSessionResult | null> {
+    const existing = this.liveSessionFor(path)
+    if (!existing) return null
+    if (isSessionBusy(existing)) return { ok: true, session: this.toSummary(existing) }
+    if (existing.status === 'failed') return null
+    const sameProcess =
+      existing.providerId === input.providerId.trim() &&
+      JSON.stringify(existing.cliRuntimes ?? null) === JSON.stringify(input.cliRuntimes ?? null) &&
+      JSON.stringify(existing.allowedTools ?? null) === JSON.stringify(input.allowedTools ?? null) &&
+      JSON.stringify(existing.mcpServers ?? null) === JSON.stringify(input.mcpServers ?? null)
+    if (sameProcess) {
+      const modelId = input.modelId.trim()
+      const model =
+        modelId && modelId !== existing.modelId
+          ? await this.setModel({ sessionId: existing.sessionId, modelId })
+          : { ok: true }
+      const preset =
+        model.ok &&
+        input.permissionPreset !== undefined &&
+        (input.permissionPreset !== existing.permissionPreset || input.permissionMode !== existing.permissionMode)
+          ? await this.setPermission({
+              sessionId: existing.sessionId,
+              permissionPreset: input.permissionPreset,
+              ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
+            })
+          : model
+      if (preset.ok && existing.status !== 'stopped') return { ok: true, session: this.toSummary(existing) }
+    }
+    if (existing.status !== 'stopped' && !isSessionBusy(existing))
+      await this.stopSession({ sessionId: existing.sessionId })
+    return null
+  }
+
+  /** The newest session of a transcript that is not stopped. */
+  private liveSessionFor(path: string): RuntimeSession | undefined {
+    let live: RuntimeSession | undefined
+    for (const session of this.sessions.values())
+      if (
+        session.status !== 'stopped' &&
+        this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId) === path
+      )
+        live = session
+    return live
+  }
+
+  private async startSessionNow(input: ConversationStartSessionInput): Promise<ConversationStartSessionResult> {
+    // A live session on the same footing was adopted (`adoptLiveSession`);
+    // anything else this chat left behind — stopped, failed, or retired —
+    // gives way to the new one.
+    const previous = Array.from(this.sessions.values()).filter(
+      (session) => session.workspaceId === input.workspaceId.trim() && session.agentId === input.agentId.trim(),
+    )
     const validation = await this.validateStartInput(input)
     if (!validation.ok) {
       return { ok: false, message: validation.message }
     }
-    if (input.providerId === CLAUDE_AGENT_PROVIDER_ID && this.prepareStudioMcp) {
-      const prepared = await this.prepareStudioMcp(input)
-      if (!prepared.ok) return prepared
+    if (input.mcpServers?.length && !validation.adapter.acceptsMcpServers) {
+      const provider = validation.adapter.displayName ?? input.providerId
+      return {
+        ok: false,
+        message: `A ${provider} chat cannot be started with MCP servers of its own, so it cannot run with ${input.mcpServers.map((server) => `"${server.name || server.id}"`).join(', ')}. Choose a CLI whose chats can: Claude Code, Codex, or an ACP agent.`,
+      }
+    }
+    for (const stale of previous) {
+      if (stale.status !== 'stopped') await this.stopSession({ sessionId: stale.sessionId })
+      this.sessions.delete(stale.sessionId)
     }
 
     const sessionId = `conv_${this.randomId()}`
     const now = this.now()
     const stateful = validation.adapter.sessions === 'stateful'
+    const fileScope = await this.checkpoints.fileScope(input.workspaceRoot)
+    if (this.revertingScopes.has(fileScope)) return { ok: false, message: 'Workspace files are being reverted.' }
     const session: RuntimeSession = {
       sessionId,
       workspaceId: input.workspaceId.trim(),
@@ -160,49 +545,162 @@ export class ConversationRuntime {
       providerId: input.providerId.trim(),
       modelId: input.modelId.trim(),
       status: 'starting',
+      phase: 'starting',
+      displayName: validation.adapter.displayName ?? input.providerId,
+      capabilities: validation.adapter.capabilities
+        ? {
+            ...validation.adapter.capabilities,
+            checkpoints:
+              validation.adapter.capabilities.tools && (await this.checkpoints.available(input.workspaceRoot)),
+          }
+        : undefined,
       createdAt: now,
       updatedAt: now,
       workspaceRoot: input.workspaceRoot,
+      fileScope,
       activeTurnId: null,
       pendingRequestId: null,
       activeTurnAbort: null,
       canceledTurnIds: new Set(),
-      history: [],
+      history: null,
       stateful,
       turnLockRequestId: null,
       pendingApprovalRequestIds: new Set(),
       continuationTail: Promise.resolve(),
+      checkpointTurnSeq: null,
+      checkpointCapture: null,
+      checkpointCaptured: false,
+      approvalRequests: new Map(),
+      automaticApprovals: new Map(),
+      answeredApprovals: new Set(),
+      unpublishedApprovals: new Set(),
       cliRuntimes: input.cliRuntimes,
       permissionPreset: input.permissionPreset,
+      ...(input.permissionPreset && input.permissionMode ? { permissionMode: input.permissionMode } : {}),
       allowedTools: input.allowedTools,
+      ...(input.mcpServers?.length ? { mcpServers: input.mcpServers } : {}),
+      toolDetailPaths: new Set(),
+      runningSubagents: new Map(),
+      providerTurn: null,
     }
+    await this.initializeSequence(input)
+    const previousTranscript = await this.readRecentTranscript(input)
+    let fallbackHistory: ConversationMessage[] | undefined
+    if (previousTranscript) {
+      const first = await this.transcripts
+        .findFirst(
+          input.workspaceRoot,
+          this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId),
+          isWordedUserMessage,
+        )
+        .catch(() => undefined)
+      if (first) this.updateExcerpts(session, first)
+      for (const event of previousTranscript) this.updateExcerpts(session, event)
+      if (!stateful) session.history = completedHistory(previousTranscript)
+      else if (!ADAPTERS_WITHOUT_FALLBACK_HISTORY.has(validation.adapter.id))
+        fallbackHistory = completedHistory(previousTranscript)
+    }
+    if (this.revertingScopes.has(fileScope)) return { ok: false, message: 'Workspace files are being reverted.' }
     this.sessions.set(sessionId, session)
 
     // Stateful providers resume their own durable session; the latest cursor
     // lives in the JSONL transcript this runtime already writes.
-    const resumeSessionId = stateful
-      ? await this.readResumeCursor(session.workspaceRoot, session.workspaceId, session.agentId)
+    const resume = stateful
+      ? await this.readResumeCursor(session.workspaceRoot, session.workspaceId, session.agentId, session.providerId)
       : undefined
-    await this.emitAll(
-      session,
-      validation.adapter.startSession({
-        ...session,
-        resumeSessionId,
-        // Continuation channel: the adapter opens a mirror turn here when its
-        // child resumes after a `result` (background subagents completing).
-        onSessionEvent: (event) => this.enqueueContinuationEvent(session, event),
-      }),
-    )
-    session.status = 'ready'
-    session.updatedAt = this.now()
-    return { ok: true, session: this.toSummary(session) }
+    const start = () =>
+      this.emitAll(
+        session,
+        validation.adapter.startSession({
+          ...session,
+          resumeSessionId: resume?.sessionId,
+          ...(resume?.at ? { resumeSessionAt: resume.at } : {}),
+          ...(session.history ? { fallbackHistory: session.history } : fallbackHistory ? { fallbackHistory } : {}),
+          // Continuation channel: the adapter opens a mirror turn here when its
+          // child resumes after a `result` (background subagents completing).
+          onSessionEvent: (event) => this.enqueueContinuationEvent(session, event),
+          onBeforeTool: (name) => this.captureBeforeTool(session, name),
+        }),
+      )
+    try {
+      // A runtime that will not start under the chat's permission mode (a flag
+      // its CLI no longer takes, a mode it refuses) is started again with no
+      // permission setting rather than leaving the person with no chat, and
+      // the chat says so. Only when that start works: a runtime that fails
+      // either way reports its first failure, and keeps the mode it was given.
+      let fellBack: string | null = null
+      try {
+        await start()
+      } catch (error) {
+        const preset = session.permissionPreset
+        const mode = session.permissionMode
+        if (!preset || preset === 'none' || this.sessions.get(sessionId) !== session) throw error
+        validation.adapter.disposeChildProcess?.(sessionId)
+        session.permissionPreset = 'none'
+        delete session.permissionMode
+        try {
+          await start()
+        } catch {
+          session.permissionPreset = preset
+          if (mode) session.permissionMode = mode
+          throw error
+        }
+        fellBack = permissionFallbackNotice(
+          session.displayName ?? session.providerId,
+          preset,
+          error instanceof Error ? error.message : String(error),
+        )
+      }
+      if (fellBack)
+        await this.emit(
+          session,
+          this.eventForSession(session, 'session_updated', { permissionPreset: 'none', notice: fellBack }),
+          {},
+        )
+      // Agents the transcript left running belonged to a process that is gone.
+      for (const agent of Array.from(session.runningSubagents.values()))
+        await this.emit(
+          session,
+          this.eventForSession(session, 'subagent_status', {
+            ...agent,
+            status: 'stopped',
+            error: 'The agent stopped when the conversation closed.',
+          }),
+          {},
+        )
+      session.status = 'ready'
+      session.phase = 'idle'
+      session.updatedAt = this.now()
+      return { ok: true, session: this.toSummary(session) }
+    } catch (error) {
+      this.sessions.delete(sessionId)
+      validation.adapter.disposeChildProcess?.(sessionId)
+      return { ok: false, message: error instanceof Error ? error.message : 'Conversation could not start.' }
+    }
   }
 
-  async sendTurn(input: ConversationSendTurnInput): Promise<ConversationSessionActionResult> {
+  async sendTurn(
+    input: ConversationSendTurnInput & { sourceCommandId?: string },
+  ): Promise<ConversationSessionActionResult> {
+    if (input.commandId)
+      return this.runCommand(input.sessionId, input.commandId, () =>
+        this.sendTurn({ ...input, sourceCommandId: input.commandId, commandId: undefined }),
+      )
     const session = this.sessions.get(input.sessionId)
     if (!session) return { ok: false, message: 'Conversation session is invalid.' }
+    if (this.revertingScopes.has(session.fileScope))
+      return { ok: false, message: 'Workspace files are being reverted.' }
+    if (this.deletingTranscripts.has(this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)))
+      return { ok: false, message: 'Conversation is being deleted.' }
+    if (this.rewindingTranscripts.has(this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)))
+      return { ok: false, message: 'Conversation is going back to an earlier message.' }
+    // A message queued behind the turn a handoff stopped goes out the moment
+    // that turn ends; sent now, it would respawn the chat's child beside the
+    // terminal opening the same CLI session.
+    if (this.terminalHandoffs.has(session.sessionId))
+      return { ok: false, message: 'This conversation is moving to a terminal, so the message was not sent.' }
     if (session.status === 'stopped') return { ok: false, message: 'Conversation session is stopped.' }
-    if (isSessionBusy(session)) {
+    if (isSessionBusy(session) && !input.steer) {
       return {
         ok: false,
         message: session.pendingRequestId
@@ -213,10 +711,89 @@ export class ConversationRuntime {
     const message = input.message.trim()
     const attachments = input.attachments ?? []
     // A turn needs some payload: either text or at least one image attachment.
-    if (!message && attachments.length === 0) return { ok: false, message: 'Conversation turn message is required.' }
+    if (!message && attachments.length === 0 && !input.mentions?.length && !input.skills?.length)
+      return { ok: false, message: 'Conversation turn message is required.' }
 
     const adapter = this.getAdapterForProviderId(session.providerId)
     if (!adapter) return { ok: false, message: 'Conversation provider is unavailable.' }
+    const steerRefused = isSessionBusy(session) ? steerRefusal(session, adapter) : null
+    if (steerRefused) return { ok: false, message: steerRefused }
+
+    if (input.mode === 'plan' && !session.capabilities?.planMode)
+      return { ok: false, message: 'This provider does not support plan mode.' }
+
+    // A message that opens with a slash command is run by the CLI, which reads
+    // everything after the name as its arguments: skill text would push the
+    // command into prose ahead of it or into its arguments after it. So that
+    // turn goes without its skills, and they wait on the session for the next
+    // message that is not a command. Only a stateful provider is a CLI that
+    // runs commands; any other takes `/word` as prose, and its skills ride as a
+    // system message beside the text rather than in it.
+    const opensWithCommand =
+      session.stateful &&
+      leadingCommandFor(message, {
+        cli: cliForConversationProvider(session.providerId),
+        cwd: session.workspaceRoot,
+      }) !== null
+    const turnSkills = opensWithCommand ? [] : [...(session.pendingSkills ?? []), ...(input.skills ?? [])]
+    let skills: ResolvedConversationSkills
+    let mentions: Awaited<ReturnType<typeof resolveConversationMentions>>
+    try {
+      skills = await this.resolveSkills({
+        workspaceRoot: session.workspaceRoot,
+        skills: turnSkills,
+        mode: adapter.capabilities?.skills ?? 'none',
+      })
+      mentions = await resolveConversationMentions({
+        workspaceRoot: session.workspaceRoot,
+        mentions: input.mentions ?? [],
+        atMentions: session.capabilities?.atMentions === true,
+        tools: session.capabilities?.tools === true,
+      })
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : 'Attached skills could not be loaded.' }
+    }
+    // Resolving a skill may await disk or installation; another send can take
+    // the session while that happens, so acquire the turn only after rechecking.
+    if (
+      this.sessions.get(input.sessionId)?.status === 'stopped' ||
+      this.sessions.get(input.sessionId) !== session ||
+      this.revertingScopes.has(session.fileScope) ||
+      this.deletingTranscripts.has(this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)) ||
+      this.rewindingTranscripts.has(this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId))
+    )
+      return { ok: false, message: 'Conversation is no longer available.' }
+    // A steer is sent only over a turn that is still open; a send made as a
+    // steer over a turn that has since ended is an ordinary send.
+    if (isSessionBusy(session) && !input.steer)
+      return { ok: false, message: 'Conversation turn is already in progress.' }
+    // The resolver keeps one of each skill, so a skill attached again is sent once.
+    if (opensWithCommand) {
+      if (input.skills?.length) session.pendingSkills = [...(session.pendingSkills ?? []), ...input.skills]
+    } else session.pendingSkills = undefined
+    // What the provider is handed: stateful providers own their history, so
+    // they get the message with the skill context it needs; others get the
+    // history below as well. A command turn goes without the reverted-files
+    // note for the reason above; the note stays with the session and rides
+    // every later turn.
+    const providerMessage = [
+      session.stateful && !opensWithCommand ? skills.context : undefined,
+      opensWithCommand ? undefined : session.revertedNote,
+      message,
+      mentions.context,
+    ]
+      .filter(Boolean)
+      .join('\n\n')
+    if (input.steer && isSessionBusy(session))
+      return this.steerRunningTurn(session, adapter, {
+        message,
+        providerMessage,
+        attachments,
+        localTurnId: input.localTurnId,
+        sourceCommandId: input.sourceCommandId,
+        skillIds: skills.ids,
+        mentionRefs: mentions.refs,
+      })
 
     const turnId = `turn_${this.randomId()}`
     const requestId = `approval_${this.randomId()}`
@@ -226,69 +803,387 @@ export class ConversationRuntime {
     session.turnLockRequestId = requestId
     session.activeTurnAbort = turnAbort
     session.status = 'active'
+    session.phase = 'running'
     session.updatedAt = this.now()
-    // Persist the user's side of the exchange so the JSONL transcript replays
-    // as a complete conversation after a restart.
-    await this.emit(
-      session,
-      this.eventForSession(session, 'user_message', {
-        turnId,
-        text: message,
-        ...(input.localTurnId ? { localTurnId: input.localTurnId } : {}),
-      }),
-      { turnId },
+    session.turnStartedAt = session.updatedAt
+    // The provider starts the child again for this turn if it had rested.
+    session.resting = undefined
+    session.checkpointTurnSeq = null
+    session.checkpointCapture = null
+    session.checkpointCaptured = false
+    const providerTurn = openProviderTurn(turnId, false)
+    const result = await (async (): Promise<ConversationSessionActionResult> => {
+      // Persist the user's side of the exchange so the JSONL transcript replays
+      // as a complete conversation after a restart.
+      try {
+        const storedAttachments = await this.saveAttachments(session, attachments)
+        await this.emit(
+          session,
+          this.eventForSession(session, 'user_message', {
+            turnId,
+            text: message,
+            ...(storedAttachments.length ? { attachments: storedAttachments } : {}),
+            ...(input.localTurnId ? { localTurnId: input.localTurnId } : {}),
+            ...(input.sourceCommandId ? { commandId: input.sourceCommandId } : {}),
+            ...(skills.ids.length ? { skills: skills.ids } : {}),
+            ...(mentions.refs.length ? { mentions: mentions.refs } : {}),
+          }),
+          { turnId },
+        )
+        // The model sees prior completed turns plus this message, so it has memory.
+        // Stateful providers own their history natively — replaying ours would
+        // duplicate context and defeat resume, so they get only the new message.
+        if (!session.stateful && !session.history) session.history = await this.readHistory(session)
+        const messages: ConversationMessage[] | undefined = session.stateful
+          ? undefined
+          : [
+              ...(skills.context ? [{ role: 'system' as const, content: skills.context }] : []),
+              ...(session.revertedNote ? [{ role: 'system' as const, content: session.revertedNote }] : []),
+              ...(session.history ?? []),
+              { role: 'user', content: [message, mentions.context].filter(Boolean).join('\n\n') },
+            ]
+        // From here a steer can join this turn: the provider is being handed it.
+        if (session.activeTurnId === turnId) session.providerTurn = providerTurn
+        // Attachments are carried live into the turn call; only vision-capable
+        // adapters read them. The model's history stays text-only: a later turn
+        // does not re-send earlier images, and the transcript keeps references
+        // for the bubbles, not the bytes.
+        const emitted = await this.emitAll(
+          session,
+          this.turnWithoutFlagOnFailure(session, adapter, {
+            ...session,
+            turnId,
+            requestId,
+            message: providerMessage,
+            skills: skills.ids,
+            reasoningEffort: input.reasoningEffort,
+            mode: input.mode,
+            ...(attachments.length > 0 ? { attachments } : {}),
+            messages,
+            signal: turnAbort.signal,
+          }),
+          { turnId, collectText: !session.stateful },
+        )
+        // A steer may have moved the stream on to a later turn; the stream's
+        // end is that turn's.
+        const ownTurnId = providerTurn.turnId
+        const currentSession = this.sessions.get(input.sessionId)
+        if (
+          currentSession &&
+          currentSession.status !== 'stopped' &&
+          currentSession.activeTurnId === ownTurnId &&
+          !currentSession.canceledTurnIds.has(ownTurnId)
+        ) {
+          this.applyTurnState(currentSession, emitted, requestId)
+          currentSession.activeTurnAbort = null
+          // Record only a cleanly completed turn (no failure) into history, so a
+          // failed turn leaves history untouched and a retry re-sends without
+          // duplicating the user message. Stateful providers keep their own.
+          if (!currentSession.stateful && emitted.completed && !emitted.failed) {
+            // Dropped while the send ran (the chat was settled): the next send
+            // reads it back from the transcript, this turn included.
+            currentSession.history?.push({ role: 'user', content: message })
+            if (emitted.text) currentSession.history?.push({ role: 'assistant', content: emitted.text })
+          }
+        }
+        return { ok: true, session: this.toSummary(currentSession ?? session) }
+      } catch (error) {
+        return this.failTurn(session, error)
+      }
+    })()
+    if (session.providerTurn === providerTurn) session.providerTurn = null
+    providerTurn.settle(result)
+    return result
+  }
+
+  /**
+   * A turn whose runtime fails before it does anything, under a permission mode
+   * that passes the CLI a setting, is sent again with no permission setting:
+   * the child a runtime starts for a turn (Claude Code's first message, a
+   * relaunch after a mode change) or the turn itself (Codex's approval policy)
+   * is where a setting the CLI no longer takes shows up. The retry's events
+   * replace the failed attempt's, and the chat says why its mode is No flag
+   * now. A retry that fails too puts the mode back and the first failure
+   * stands, as it would have without the retry: that was not the setting.
+   */
+  private async *turnWithoutFlagOnFailure(
+    session: RuntimeSession,
+    adapter: ConversationProviderAdapter,
+    input: MockAdapterTurnInput,
+  ): AsyncIterable<ConversationEvent> {
+    const preset = session.permissionPreset
+    const mode = session.permissionMode
+    const first = eventIterator(await adapter.sendTurn(input))
+    if (!preset || preset === 'none' || !adapter.setPermissionPreset) {
+      for (let next = await first.next(); !next.done; next = await first.next()) yield next.value
+      return
+    }
+    // Everything goes out as it arrives; only a failure that comes before the
+    // turn has done anything is held, until the retry says whose it was.
+    let failure: ConversationEvent | null = null
+    let started = false
+    for (let next = await first.next(); !next.done; next = await first.next()) {
+      if (!started && next.value.type === 'turn_failed' && !input.signal?.aborted) {
+        failure = next.value
+        break
+      }
+      if (!TURN_OPENING_EVENTS.has(next.value.type)) started = true
+      yield next.value
+    }
+    if (!failure) return
+    await first.return?.()
+    const noFlag = await adapter
+      .setPermissionPreset({ ...session, permissionPreset: 'none', permissionMode: undefined })
+      .catch((): { ok: false } => ({ ok: false }))
+    if (!noFlag.ok) {
+      yield failure
+      return
+    }
+    session.permissionPreset = 'none'
+    delete session.permissionMode
+    const notice = () =>
+      this.eventForSession(session, 'session_updated', {
+        permissionPreset: 'none',
+        notice: permissionFallbackNotice(session.displayName ?? session.providerId, preset, readTurnFailure(failure)),
+      })
+    const retry = eventIterator(await adapter.sendTurn({ ...input, permissionPreset: 'none' }))
+    let retried = false
+    for (let next = await retry.next(); !next.done; next = await retry.next()) {
+      const event = next.value
+      if (!retried && event.type === 'turn_failed') {
+        await retry.return?.()
+        await adapter
+          .setPermissionPreset({ ...session, permissionPreset: preset, permissionMode: mode })
+          .catch(() => undefined)
+        session.permissionPreset = preset
+        if (mode) session.permissionMode = mode
+        yield failure
+        return
+      }
+      // The turn opened with the first attempt; the retry carries it on.
+      if (event.type === 'turn_started') continue
+      if (!retried && !TURN_OPENING_EVENTS.has(event.type)) {
+        retried = true
+        yield notice()
+      }
+      yield event
+    }
+    if (!retried) yield notice()
+  }
+
+  /**
+   * Hand a message to the turn that is running (a steer), where the provider
+   * takes one. The provider keeps the one stream it is running; no second
+   * turn is started there. Here the running turn ends where the message
+   * lands — its reply so far stays above the message — and the message opens
+   * the next turn, which every event of that stream counts toward from then
+   * on: the rest of the reply, tool results, approvals and the stream's own
+   * end with its cost. The handover runs in the transcript's emission order,
+   * so each event the stream produced before it is the old turn's and each
+   * one after it the new turn's, an approval card included. Settles when the
+   * stream does, as the send it continues does.
+   */
+  private async steerRunningTurn(
+    session: RuntimeSession,
+    adapter: ConversationProviderAdapter,
+    input: {
+      message: string
+      providerMessage: string
+      attachments: ConversationImageAttachment[]
+      localTurnId?: string
+      sourceCommandId?: string
+      skillIds: string[]
+      mentionRefs: Awaited<ReturnType<typeof resolveConversationMentions>>['refs']
+    },
+  ): Promise<ConversationSessionActionResult> {
+    const path = this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)
+    const turnId = `turn_${this.randomId()}`
+    // What the agent carried on with has already said goes out ahead of the
+    // steer, not under the turn it opens. Waited on before joining the
+    // emission queue: those events are written through it.
+    await session.continuationTail.catch(() => undefined)
+    const handover = (this.emissionTails.get(path) ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(async (): Promise<ProviderTurn | string> => {
+        const refused =
+          session.status === 'stopped' || this.sessions.get(session.sessionId) !== session
+            ? 'Conversation is no longer available.'
+            : steerRefusal(session, adapter)
+        if (refused) return refused
+        const running = session.providerTurn!
+        const delivered = await adapter.steer!({
+          ...session,
+          turnId: running.streamTurnId,
+          message: input.providerMessage,
+          ...(input.attachments.length > 0 ? { attachments: input.attachments } : {}),
+        })
+        if (!delivered.ok) return delivered.message
+        const storedAttachments = await this.saveAttachments(session, input.attachments)
+        // The work since the running turn's first file change is one change,
+        // under that turn's number; a turn with none yet takes the new one.
+        const checkpointTurnSeq = session.checkpointCapture ? session.checkpointTurnSeq : null
+        await this.emitNow(
+          session,
+          this.eventForSession(session, 'turn_completed', {
+            turnId: running.turnId,
+            steered: true,
+            ...(delivered.providerCursor ? { providerCursor: delivered.providerCursor } : {}),
+          }),
+          { turnId: running.turnId },
+        )
+        running.turnId = turnId
+        session.activeTurnId = turnId
+        session.updatedAt = this.now()
+        await this.emitNow(
+          session,
+          this.eventForSession(session, 'user_message', {
+            turnId,
+            text: input.message,
+            ...(storedAttachments.length ? { attachments: storedAttachments } : {}),
+            ...(input.localTurnId ? { localTurnId: input.localTurnId } : {}),
+            ...(input.sourceCommandId ? { commandId: input.sourceCommandId } : {}),
+            ...(input.skillIds.length ? { skills: input.skillIds } : {}),
+            ...(input.mentionRefs.length ? { mentions: input.mentionRefs } : {}),
+          }),
+          { turnId },
+        )
+        await this.emitNow(session, this.eventForSession(session, 'turn_started', { turnId }), { turnId })
+        if (checkpointTurnSeq !== null) session.checkpointTurnSeq = checkpointTurnSeq
+        return running
+      })
+    this.emissionTails.set(path, handover)
+    let outcome: ProviderTurn | string
+    try {
+      outcome = await handover
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : 'The message could not be delivered.' }
+    }
+    if (typeof outcome === 'string') return { ok: false, message: outcome }
+    return outcome.ended
+  }
+
+  // Keep a turn's attached images in the attachment store; the event names
+  // them by reference. One that cannot be kept costs its thumbnail after a
+  // restart, never the turn.
+  private saveAttachments(session: RuntimeSession, attachments: ConversationImageAttachment[]) {
+    return this.attachmentStore.save(session, attachments).catch((error: unknown) => {
+      console.warn(
+        '[conversation-runtime] attached images were not kept:',
+        error instanceof Error ? error.message : error,
+      )
+      return []
+    })
+  }
+
+  private async failTurn(session: RuntimeSession, error: unknown): Promise<ConversationSessionActionResult> {
+    const turnId = session.activeTurnId
+    session.activeTurnAbort?.abort()
+    this.closeContinuation(session)
+    session.activeTurnId = null
+    session.pendingRequestId = null
+    session.turnLockRequestId = null
+    session.pendingApprovalRequestIds.clear()
+    session.activeTurnAbort = null
+    session.status = 'failed'
+    session.phase = 'failed'
+    session.updatedAt = this.now()
+    const message = error instanceof Error ? error.message : 'Conversation turn failed.'
+    const event = this.eventForSession(session, 'turn_failed', { turnId, reason: 'runtime', message })
+    try {
+      const stamped = await this.emit(session, event, { allowCanceledTurnId: turnId })
+      if (stamped) return { ok: false, message, event: stamped }
+    } catch {
+      // The transcript could not take it. Subscribers drop an event with no
+      // sequence number, so it gets the next one; the log can no longer vouch
+      // for its numbering, which sends its reconnects to a full snapshot.
+      const path = this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)
+      event.id = `conv_evt_${this.eventEpoch}_${++this.eventSequence}`
+      event.seq = (this.sequences.get(path) ?? 0) + 1
+      event.createdAt = this.now()
+      this.sequences.set(path, event.seq)
+      this.markNonDurable(session.workspaceRoot, path, event.seq)
+      this.notify(event)
+    }
+    return { ok: false, message, event }
+  }
+
+  /**
+   * Hand a persisted event to listeners. A superseded tool preview is not
+   * published at all; the one that replaced it follows. A failed write is
+   * still published — the live chat must not stall on a broken disk — but the
+   * log can no longer vouch for its sequence numbers, so catch-up on it falls
+   * back to a full snapshot until the process restarts.
+   */
+  private publish(root: string, path: string, event: ConversationEvent, outcome: ConversationAppendOutcome): void {
+    if (outcome === 'superseded') return
+    if (outcome === 'failed') {
+      // The first loss of the run is said once, on the event that was lost, so
+      // the person knows before a restart shows a gap.
+      if (!this.nonDurableLogs.has(path)) event = { ...event, payload: { ...event.payload, notice: UNSAVED_NOTICE } }
+      this.markNonDurable(root, path, event.seq ?? 0)
+    }
+    // The disk took a write again: record a lost number the first attempt could not.
+    else if (this.nonDurableLogs.has(path)) this.recordLostSequence(path)
+    this.notify(event)
+  }
+
+  private markNonDurable(root: string, path: string, seq: number): void {
+    const log = this.nonDurableLogs.get(path) ?? { root, lost: 0, recorded: 0, recording: false }
+    log.lost = Math.max(log.lost, seq)
+    this.nonDurableLogs.set(path, log)
+    this.recordLostSequence(path)
+  }
+
+  /**
+   * Keep the highest published-but-unwritten sequence number on disk. Without
+   * it a restart would resume numbering from the end of the file, reissue
+   * numbers a client already holds under the same log generation, and that
+   * client's catch-up would skip the new events carrying them.
+   */
+  private recordLostSequence(path: string): void {
+    const log = this.nonDurableLogs.get(path)
+    if (!log || log.recording || log.recorded >= log.lost) return
+    log.recording = true
+    const target = log.lost
+    this.runInBackground(
+      writeConversationStorage(log.root, lostSequencePath(path), JSON.stringify({ seq: target })).then(
+        () => {
+          log.recording = false
+          log.recorded = Math.max(log.recorded, target)
+          this.recordLostSequence(path)
+        },
+        () => {
+          // Still failing: the next successful append or failure tries again.
+          log.recording = false
+        },
+      ),
     )
-    // The model sees prior completed turns plus this message, so it has memory.
-    // Stateful providers own their history natively — replaying ours would
-    // duplicate context and defeat resume, so they get only the new message.
-    const messages: ConversationMessage[] | undefined = session.stateful
-      ? undefined
-      : [...session.history, { role: 'user', content: message }]
-    // Attachments are carried live into the turn call; only vision-capable
-    // adapters read them. They are not persisted into history (v1 is
-    // live-only), so history and JSONL replay stay text-only.
-    const events = await this.emitAll(
-      session,
-      adapter.sendTurn({
-        ...session,
-        turnId,
-        requestId,
-        message,
-        ...(attachments.length > 0 ? { attachments } : {}),
-        messages,
-        signal: turnAbort.signal,
-      }),
-      { turnId },
-    )
-    const currentSession = this.sessions.get(input.sessionId)
-    if (
-      currentSession &&
-      currentSession.status !== 'stopped' &&
-      currentSession.activeTurnId === turnId &&
-      !currentSession.canceledTurnIds.has(turnId)
-    ) {
-      this.applyTurnState(currentSession, events, requestId)
-      currentSession.activeTurnAbort = null
-      // Record only a cleanly completed turn (no failure) into history, so a
-      // failed turn leaves history untouched and a retry re-sends without
-      // duplicating the user message. Stateful providers keep their own.
-      const completed =
-        !currentSession.stateful &&
-        events.some((event) => event.type === 'turn_completed') &&
-        !events.some((event) => event.type === 'turn_failed')
-      if (completed) {
-        currentSession.history.push({ role: 'user', content: message })
-        const assistantText = events
-          .filter((event) => event.type === 'content_delta')
-          .map((event) => (typeof event.payload?.text === 'string' ? event.payload.text : ''))
-          .join('')
-        if (assistantText) currentSession.history.push({ role: 'assistant', content: assistantText })
+  }
+
+  private async readLostSequence(root: string, path: string): Promise<number> {
+    try {
+      const seq = JSON.parse((await readConversationStorage(root, lostSequencePath(path), 1024)).toString('utf8'))?.seq
+      return Number.isSafeInteger(seq) && seq > 0 ? seq : 0
+    } catch {
+      return 0
+    }
+  }
+
+  private notify(event: ConversationEvent): void {
+    for (const listener of this.listeners) {
+      try {
+        listener(event)
+      } catch {
+        this.listeners.delete(listener)
       }
     }
-    return { ok: true, session: this.toSummary(currentSession ?? session) }
   }
 
   async respondToRequest(input: ConversationRespondToRequestInput): Promise<ConversationSessionActionResult> {
+    if (input.commandId)
+      return this.runCommand(input.sessionId, input.commandId, () =>
+        this.respondToRequest({ ...input, commandId: undefined }),
+      )
     const session = this.sessions.get(input.sessionId)
     if (!session) return { ok: false, message: 'Conversation session is invalid.' }
     const requestIsPending =
@@ -296,25 +1191,66 @@ export class ConversationRuntime {
     if (!session.activeTurnId || !requestIsPending) {
       return { ok: false, message: 'Conversation approval request is invalid.' }
     }
+    if (session.answeredApprovals.has(input.requestId))
+      return { ok: false, message: 'This request has already been answered.' }
     const adapter = this.getAdapterForProviderId(session.providerId)
     if (!adapter) return { ok: false, message: 'Conversation provider is unavailable.' }
 
-    await this.emitAll(
-      session,
-      adapter.resolveApproval({
-        ...session,
-        turnId: session.activeTurnId,
-        requestId: input.requestId,
-        approved: input.approved,
-        answers: input.answers,
-      }),
-    )
+    session.answeredApprovals.add(input.requestId)
+    if (input.approved && (input.decision === 'conversation' || input.decision === 'always')) {
+      const request = session.approvalRequests.get(input.requestId)
+      if (!request || (request.requestKind && request.requestKind !== 'tool')) {
+        session.answeredApprovals.delete(input.requestId)
+        return { ok: false, message: 'This request can only be allowed once.' }
+      }
+      try {
+        await this.approvalRules.remember(session.workspaceRoot, session.sessionId, request, input.decision)
+      } catch (error) {
+        session.answeredApprovals.delete(input.requestId)
+        return { ok: false, message: error instanceof Error ? error.message : 'Permission rule could not be saved.' }
+      }
+    }
+
+    let emitted: EmittedSummary
+    try {
+      emitted = await this.emitAll(
+        session,
+        adapter.resolveApproval({
+          ...session,
+          turnId: session.activeTurnId,
+          requestId: input.requestId,
+          approved: input.decision === 'deny' ? false : input.approved,
+          answers: input.answers,
+        }),
+      )
+    } catch (error) {
+      session.answeredApprovals.delete(input.requestId)
+      throw error
+    }
+    // A stateful adapter that ended the turn in answering (the provider that
+    // asked is gone): the session is settled here as a stop settles it.
+    // Marking it active again, as the branch below does for a turn that goes
+    // on, locked the chat behind a turn nothing was running — no Send, and a
+    // Stop with nothing to stop.
+    if (session.stateful && (emitted.failed || emitted.completed)) {
+      session.activeTurnId = null
+      session.pendingRequestId = null
+      session.turnLockRequestId = null
+      session.activeTurnAbort = null
+      session.status = 'ready'
+      session.updatedAt = this.now()
+      return { ok: true, session: this.toSummary(session) }
+    }
     if (session.stateful) {
       // The turn is still streaming inside the adapter (the approval resolved
       // a mid-turn permission callback); restore the turn lock and let the
       // in-flight sendTurn stream carry the resolution + remaining events.
-      session.pendingRequestId = session.turnLockRequestId
-      session.status = 'active'
+      // Other requests still open keep the session waiting on them.
+      // This request counts as answered even before the adapter's stream
+      // carries its resolution.
+      const remaining = Array.from(session.pendingApprovalRequestIds).filter((id) => id !== input.requestId)
+      session.pendingRequestId = remaining.at(-1) ?? session.turnLockRequestId
+      session.status = remaining.length > 0 ? 'awaiting_approval' : 'active'
       session.updatedAt = this.now()
       return { ok: true, session: this.toSummary(session) }
     }
@@ -333,22 +1269,123 @@ export class ConversationRuntime {
   // running returns a `notice` — the change is recorded, and the sentence says
   // plainly when it starts applying.
   async setPermission(input: ConversationSetPermissionInput): Promise<ConversationSessionActionResult> {
+    if (input.commandId)
+      return this.runCommand(input.sessionId, input.commandId, () =>
+        this.setPermission({ ...input, commandId: undefined }),
+      )
     const session = this.sessions.get(input.sessionId)
     if (!session) return { ok: false, message: 'Conversation session is invalid.' }
+    const pending = (session.permissionChangeTail ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(() => this.applyPermission(session, input))
+    session.permissionChangeTail = pending
+    return pending
+  }
+
+  private async applyPermission(
+    session: RuntimeSession,
+    input: ConversationSetPermissionInput,
+  ): Promise<ConversationSessionActionResult> {
     if (session.status === 'stopped') return { ok: false, message: 'Conversation session is stopped.' }
     const adapter = this.getAdapterForProviderId(session.providerId)
     if (!adapter) return { ok: false, message: 'Conversation provider is unavailable.' }
     if (!adapter.setPermissionPreset) {
       return { ok: false, message: 'This conversation provider cannot change tool permissions mid-conversation.' }
     }
-    const applied = await adapter.setPermissionPreset({ ...session, permissionPreset: input.permissionPreset })
+    const applied = await adapter.setPermissionPreset({
+      ...session,
+      permissionPreset: input.permissionPreset,
+      permissionMode: input.permissionMode,
+    })
     if (!applied.ok) return { ok: false, message: applied.message }
     session.permissionPreset = input.permissionPreset
+    if (input.permissionMode) session.permissionMode = input.permissionMode
+    else delete session.permissionMode
     session.updatedAt = this.now()
+    this.answerWaitingApprovalsByMode(session)
+    return { ok: true, session: this.toSummary(session), ...(applied.notice ? { notice: applied.notice } : {}) }
+  }
+
+  // The input approval checks place a request by. An agent running in WSL names
+  // files the Linux way and the workspace root is a Windows path, so its paths
+  // are respelled as the root spells them first — or every file in the
+  // workspace reads as outside it, and Auto and "always allow" answer nothing.
+  // Only for a session whose agent the provider runs in WSL; the event the
+  // person sees and the answer the agent gets keep the input as it was sent.
+  private approvalCheckInput(session: RuntimeSession, input: unknown): unknown {
+    const cli = this.getAdapterForProviderId(session.providerId)?.executionHostCli
+    const distro = cli ? distroOfHostId(session.cliRuntimes?.[cli]?.hostId) : null
+    return distro ? wslInputInRootSpelling(input, session.workspaceRoot, distro) : input
+  }
+
+  // A mode chosen while requests wait answers the ones it covers, as it would
+  // have had it been in force when they were asked; the rest keep waiting for
+  // the person. One already answered (a click an instant before the switch,
+  // "Allow and switch") is left to that answer. Nothing is ever denied here.
+  private answerWaitingApprovalsByMode(session: RuntimeSession): void {
+    const mode = session.permissionPreset
+    for (const requestId of Array.from(session.pendingApprovalRequestIds)) {
+      if (session.answeredApprovals.has(requestId) || session.unpublishedApprovals.has(requestId)) continue
+      const request = session.approvalRequests.get(requestId)
+      if (!request || !permissionModeAllows(mode, request, session.workspaceRoot)) continue
+      const label = permissionModeApprovalLabel(mode!)
+      session.automaticApprovals.set(requestId, label)
+      // An answer that did not go through leaves no label behind to be pinned
+      // on whatever answers the request next.
+      const unlabel = () => {
+        if (session.automaticApprovals.get(requestId) === label) session.automaticApprovals.delete(requestId)
+      }
+      void this.respondToRequest({ sessionId: session.sessionId, requestId, approved: true, decision: 'once' }).then(
+        (answered) => {
+          if (!answered.ok) unlabel()
+        },
+        unlabel,
+      )
+    }
+  }
+
+  // Switch a running conversation to another model of the same provider. The
+  // adapter records it (and pushes it into a live provider session where it
+  // can); only then does the session take it, and a `session_updated` event
+  // carrying the new model is written so the transcript, the thread index, a
+  // resume and a remote list all name the model the conversation is now on.
+  // Gated on the adapter declaring `liveModelSwitch`, never on its id.
+  async setModel(input: ConversationSetModelInput): Promise<ConversationSessionActionResult> {
+    if (input.commandId)
+      return this.runCommand(input.sessionId, input.commandId, () => this.setModel({ ...input, commandId: undefined }))
+    const session = this.sessions.get(input.sessionId)
+    if (!session) return { ok: false, message: 'Conversation session is invalid.' }
+    const pending = (session.modelChangeTail ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(() => this.applyModel(session, input))
+    session.modelChangeTail = pending
+    return pending
+  }
+
+  private async applyModel(
+    session: RuntimeSession,
+    input: ConversationSetModelInput,
+  ): Promise<ConversationSessionActionResult> {
+    const modelId = input.modelId.trim()
+    if (!modelId) return { ok: false, message: 'Conversation model is invalid.' }
+    if (session.status === 'stopped') return { ok: false, message: 'Conversation session is stopped.' }
+    if (modelId === session.modelId) return { ok: true, session: this.toSummary(session) }
+    const adapter = this.getAdapterForProviderId(session.providerId)
+    if (!adapter) return { ok: false, message: 'Conversation provider is unavailable.' }
+    if (!adapter.setModel || session.capabilities?.liveModelSwitch !== true) {
+      return { ok: false, message: 'This conversation provider cannot change models mid-conversation.' }
+    }
+    const applied = await adapter.setModel({ ...session, nextModelId: modelId })
+    if (!applied.ok) return { ok: false, message: applied.message }
+    session.modelId = modelId
+    session.updatedAt = this.now()
+    await this.emit(session, this.eventForSession(session, 'session_updated', { modelId }))
     return { ok: true, session: this.toSummary(session), ...(applied.notice ? { notice: applied.notice } : {}) }
   }
 
   async interrupt(input: ConversationInterruptInput): Promise<ConversationSessionActionResult> {
+    if (input.commandId)
+      return this.runCommand(input.sessionId, input.commandId, () => this.interrupt({ ...input, commandId: undefined }))
     const session = this.sessions.get(input.sessionId)
     if (!session) return { ok: false, message: 'Conversation session is invalid.' }
     if (!session.activeTurnId) return { ok: false, message: 'Conversation session has no active turn.' }
@@ -357,7 +1394,17 @@ export class ConversationRuntime {
 
     const turnId = session.activeTurnId
     if (turnId) this.cancelActiveTurn(session)
-    await this.emitAll(session, adapter.interrupt(session), { allowCanceledTurnId: turnId })
+    const emitted = await this.emitAll(session, adapter.interrupt(session), { allowCanceledTurnId: turnId })
+    if (!emitted.failed && !emitted.completed)
+      await this.emit(
+        session,
+        this.eventForSession(session, 'turn_failed', {
+          turnId,
+          reason: 'interrupted',
+          message: 'Conversation interrupted.',
+        }),
+        { allowCanceledTurnId: turnId },
+      )
     session.activeTurnId = null
     session.pendingRequestId = null
     session.turnLockRequestId = null
@@ -388,14 +1435,167 @@ export class ConversationRuntime {
       )
     }
     await this.emitAll(session, adapter.stopSession(session), { allowCanceledTurnId: turnId })
+    // A child still being spawned when the stop came is cancelled, not left behind.
+    adapter.disposeChildProcess?.(session.sessionId)
+    const path = this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)
+    await this.eventLog.close(path)
+    await this.indexRefreshes.get(path)
+    await this.closeToolStreams(session)
     session.activeTurnId = null
     session.pendingRequestId = null
     session.turnLockRequestId = null
     session.pendingApprovalRequestIds.clear()
     session.activeTurnAbort = null
     session.status = 'stopped'
+    this.approvalRules.dropSession(session.sessionId)
+    session.approvalRequests.clear()
+    session.automaticApprovals.clear()
+    session.answeredApprovals.clear()
+    // Kept only to be listed until the chat's next session supersedes it, so
+    // it holds nothing a turn would need.
+    session.history = null
+    session.canceledTurnIds.clear()
+    session.runningSubagents.clear()
+    session.backgroundAgents = 0
+    session.pendingSkills = undefined
     session.updatedAt = this.now()
+    this.releaseTranscript(session)
     return { ok: true, session: this.toSummary(session) }
+  }
+
+  // Settle and Snooze: whatever the session is doing ends now. A running turn
+  // is interrupted and the child process disposed, as the idle sweep does, so
+  // the session and its resume cursor stay and the next message respawns the
+  // child. Not `stopSession`: a stopped session refuses every later turn, and
+  // a settled chat can be un-settled and typed into.
+  async suspendSession(input: ConversationSuspendSessionInput): Promise<ConversationSessionActionResult> {
+    const session = this.sessions.get(input.sessionId)
+    if (!session) return { ok: false, message: 'Conversation session is invalid.' }
+    if (session.status === 'stopped') return { ok: true, session: this.toSummary(session) }
+    if (session.activeTurnId) {
+      const interrupted = await this.interrupt({ sessionId: session.sessionId })
+      if (!interrupted.ok) return interrupted
+    }
+    // Also while the session is still starting, or a send is spawning its
+    // child: disposing cancels a spawn in flight, which would otherwise leave
+    // a child running that nothing is waiting for.
+    // Forced: Settle and Snooze end the child even while an agent it spawned
+    // is working, which the idle sweep never does.
+    if (this.getAdapterForProviderId(session.providerId)?.disposeChildProcess?.(session.sessionId, { force: true }))
+      // No child is left to send events for a turn it was told to cancel.
+      session.canceledTurnIds.clear()
+    const path = this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)
+    void this.eventLog.close(path)
+    await this.indexRefreshes.get(path)
+    // A settled chat drops what it holds, as a settled terminal agent does; a
+    // send after it is woken reads back what it needs.
+    if (!isSessionBusy(session)) {
+      session.history = null
+      session.approvalRequests.clear()
+      session.automaticApprovals.clear()
+      session.answeredApprovals.clear()
+    }
+    this.releaseTranscript(session)
+    this.markResting(session)
+    return { ok: true, session: this.toSummary(session) }
+  }
+
+  // Resume in terminal, the chat's half: what a terminal needs to take this
+  // chat's CLI session over. A running turn or agent does not refuse it: the
+  // caller stops those (`stopForTerminalHandoff`) before the terminal starts,
+  // since the terminal and the chat's child would both write to the one
+  // session. Everything that does refuse is checked here first, so a handoff
+  // that cannot happen never stops anything.
+  async terminalHandoffTarget(
+    input: ConversationTerminalHandoffInput,
+  ): Promise<{ ok: true; target: ConversationTerminalHandoffTarget } | { ok: false; message: string }> {
+    const session = this.sessions.get(input.sessionId)
+    if (!session) return { ok: false, message: 'Conversation session is invalid.' }
+    if (!session.stateful)
+      return { ok: false, message: 'This chat has no CLI session behind it for a terminal to resume.' }
+    // Still opening, it has no settled CLI session to hand over yet.
+    if (session.status === 'starting')
+      return { ok: false, message: 'The chat is still starting. Try again in a moment.' }
+    const cursor = await this.readResumeCursor(
+      session.workspaceRoot,
+      session.workspaceId,
+      session.agentId,
+      session.providerId,
+    )
+    // A turn that is running reports where the CLI session stands once it
+    // reaches the CLI: its first turn names the session, and the turn after
+    // Edit from here names the fork. Until then there is nothing to hand over.
+    if (isSessionBusy(session) && (!cursor?.sessionId || cursor.at))
+      return { ok: false, message: 'The agent has not opened its CLI session yet. Try again in a moment.' }
+    if (!cursor?.sessionId) return { ok: false, message: 'This chat has no CLI session yet. Send it a message first.' }
+    // After Edit from here the chat's next turn forks the CLI session at an
+    // earlier point. A terminal resuming the id would load the turns the
+    // person edited away.
+    if (cursor.at)
+      return {
+        ok: false,
+        message:
+          'This chat was taken back to an earlier message. Send it a message first, so a terminal resumes it from where it now stands.',
+      }
+    return {
+      ok: true,
+      target: {
+        workspaceId: session.workspaceId,
+        agentId: session.agentId,
+        providerId: session.providerId,
+        modelId: session.modelId,
+        workspaceRoot: session.workspaceRoot,
+        providerSessionId: cursor.sessionId,
+        ...(session.permissionPreset ? { permissionPreset: session.permissionPreset } : {}),
+        ...(session.permissionPreset && session.permissionMode ? { permissionMode: session.permissionMode } : {}),
+        ...(session.cliRuntimes ? { cliRuntimes: session.cliRuntimes } : {}),
+      },
+    }
+  }
+
+  // Resume in terminal, when the chat is still working: the agent is stopped
+  // first, by the composer's Stop (`interrupt`), which answers no to whatever
+  // card it was waiting on, and once that has settled the chat is suspended,
+  // so its child is gone before the terminal opens the session. Agents the
+  // chat started live in that child and end with it; their cards are closed
+  // here rather than left showing agents nothing is running. Until
+  // `endTerminalHandoff`, a send is refused (see `sendTurn`).
+  async stopForTerminalHandoff(
+    input: ConversationTerminalHandoffInput,
+  ): Promise<{ ok: true; stopped: { turn: boolean; agents: number } } | { ok: false; message: string }> {
+    const session = this.sessions.get(input.sessionId)
+    if (!session) return { ok: false, message: 'Conversation session is invalid.' }
+    this.terminalHandoffs.add(session.sessionId)
+    const turn = isSessionBusy(session)
+    if (session.activeTurnId) {
+      const interrupted = await this.interrupt({ sessionId: session.sessionId })
+      // The turn can end by itself while it is being stopped; that is no failure.
+      if (!interrupted.ok && session.activeTurnId) return interrupted
+    }
+    const suspended = await this.suspendSession({ sessionId: session.sessionId })
+    if (!suspended.ok) return suspended
+    const agents = Array.from(session.runningSubagents.values())
+    for (const agent of agents)
+      await this.emit(
+        session,
+        this.eventForSession(session, 'subagent_status', {
+          ...agent,
+          status: 'stopped',
+          error: 'The agent stopped when the conversation moved to a terminal.',
+        }),
+      )
+    return { ok: true, stopped: { turn, agents: agents.length } }
+  }
+
+  endTerminalHandoff(input: ConversationTerminalHandoffInput): void {
+    this.terminalHandoffs.delete(input.sessionId)
+  }
+
+  // Tell the chat where its conversation went, in its own tray.
+  async noteTerminalHandoff(input: { sessionId: string; notice: string }): Promise<void> {
+    const session = this.sessions.get(input.sessionId)
+    if (!session) return
+    await this.emit(session, this.eventForSession(session, 'session_updated', { notice: input.notice }))
   }
 
   listSessions(input: ConversationListSessionsInput = {}): ConversationListSessionsResult {
@@ -412,7 +1612,31 @@ export class ConversationRuntime {
     this.idleThresholdMs = clampSuspendIdleAfterMs(value)
   }
 
-  startIdleSweep(): void {
+  /**
+   * Sweep for idle children every few minutes. With the machine's activity it
+   * rests while the machine sleeps, as the app's other pollers do, and picks
+   * up again on waking: nothing on a sleeping machine is worth a wakeup.
+   */
+  startIdleSweep(activity?: Pick<PowerActivity, 'isSuspended' | 'onSuspend' | 'onResume'>): void {
+    if (activity && !this.idleSweepActivity) {
+      const disposers = [
+        activity.onSuspend(() => this.clearIdleSweepTimer()),
+        activity.onResume(() => this.armIdleSweepTimer()),
+      ]
+      this.idleSweepActivity = () => {
+        for (const dispose of disposers) dispose()
+      }
+    }
+    if (!activity?.isSuspended()) this.armIdleSweepTimer()
+  }
+
+  stopIdleSweep(): void {
+    this.idleSweepActivity?.()
+    this.idleSweepActivity = null
+    this.clearIdleSweepTimer()
+  }
+
+  private armIdleSweepTimer(): void {
     if (this.idleSweepTimer) return
     this.idleSweepTimer = setInterval(() => {
       this.sweepIdleSessions()
@@ -420,7 +1644,7 @@ export class ConversationRuntime {
     this.idleSweepTimer.unref?.()
   }
 
-  stopIdleSweep(): void {
+  private clearIdleSweepTimer(): void {
     if (!this.idleSweepTimer) return
     clearInterval(this.idleSweepTimer)
     this.idleSweepTimer = null
@@ -428,18 +1652,42 @@ export class ConversationRuntime {
 
   // Dispose the child process of every idle stateful session, keeping the
   // session (and its resume cursor) so the next turn transparently respawns.
-  // Never disposes mid-turn or while an approval/question card is pending.
+  // Never disposes mid-turn, while an approval/question card is pending, or
+  // while an agent the chat spawned is still running: a background agent
+  // outlives the turn that launched it and reports without moving
+  // `updatedAt`, and it lives in the child this would end.
   sweepIdleSessions(now: number = this.now()): string[] {
     const disposed: string[] = []
     for (const session of this.sessions.values()) {
+      if (isSessionBusy(session) || session.runningSubagents.size > 0) continue
+      if (now - session.updatedAt < this.idleThresholdMs) continue
+      // An idle chat does not hold a file handle open for the rest of the run;
+      // its next event reopens the stream.
+      void this.eventLog.close(this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId))
       if (!session.stateful) continue
       if (session.status !== 'ready' && session.status !== 'failed') continue
-      if (isSessionBusy(session)) continue
-      if (now - session.updatedAt < this.idleThresholdMs) continue
       const adapter = this.getAdapterForProviderId(session.providerId)
-      if (adapter?.disposeChildProcess?.(session.sessionId)) disposed.push(session.sessionId)
+      if (adapter?.disposeChildProcess?.(session.sessionId)) {
+        disposed.push(session.sessionId)
+        this.markResting(session)
+      }
     }
     return disposed
+  }
+
+  /**
+   * The session's child is gone and the session stays: its summary says so,
+   * and every window's session list is told to read it again. Nothing is
+   * written to the transcript, since nothing happened in the chat; the event
+   * has no sequence number, so a chat reading its own events drops it.
+   */
+  private markResting(session: RuntimeSession): void {
+    if (session.resting || session.status === 'stopped') return
+    session.resting = true
+    const event = this.eventForSession(session, 'session_updated', { resting: true })
+    event.id = `conv_evt_${this.eventEpoch}_${++this.eventSequence}`
+    event.createdAt = this.now()
+    this.notify(event)
   }
 
   // Live child processes across all adapters, shaped like terminal roots so
@@ -449,6 +1697,9 @@ export class ConversationRuntime {
     for (const adapter of this.adapters.values()) {
       for (const live of adapter.listLiveSessions?.() ?? []) {
         if (!live.childPid) continue
+        // The CLI the chat runs, for the process tree and memory attribution;
+        // an adapter id names no CLI.
+        const providerId = this.sessions.get(live.sessionId)?.providerId ?? adapter.id
         roots.push({
           sessionId: live.sessionId,
           rootPid: live.childPid,
@@ -456,7 +1707,7 @@ export class ConversationRuntime {
           agentId: live.agentId || null,
           terminalId: null,
           kind: 'agent',
-          cli: 'claude-code',
+          cli: cliForConversationProvider(providerId),
           activityKind: live.turnActive ? 'working' : 'idle',
           processAlive: true,
           startedAt: live.spawnedAt ?? live.lastActivityAt,
@@ -468,6 +1719,16 @@ export class ConversationRuntime {
 
   // App-quit disposal: stop every live session so no headless child outlives
   // the app. Sessions keep their resume cursors in the JSONL transcripts.
+  /**
+   * Put every chat's buffered transcript on disk without stopping anything.
+   * The first thing quit does for chats: the streamed text is what a person
+   * would miss, and stopping each session (the rest of `shutdown`) can take
+   * longer than a quit that is being cut short allows.
+   */
+  async flushTranscripts(): Promise<void> {
+    await this.eventLog.flush()
+  }
+
   async shutdown(): Promise<void> {
     this.stopIdleSweep()
     for (const session of Array.from(this.sessions.values())) {
@@ -478,9 +1739,19 @@ export class ConversationRuntime {
         // Best-effort: adapter disposeAll below is the backstop.
       }
     }
-    for (const adapter of this.adapters.values()) {
-      adapter.disposeAll?.()
-    }
+    await Promise.allSettled(Array.from(this.adapters.values(), async (adapter) => adapter.disposeAll?.()))
+    this.dropToolPreviews()
+    // Housekeeping can queue more of itself as it settles (a lost sequence
+    // number recorded again after a newer one), so drain until none is left.
+    while (this.background.size) await Promise.allSettled(this.background)
+    await this.eventLog.closeAll()
+    // The last writes can fail as they flush, and record their loss.
+    while (this.background.size) await Promise.allSettled(this.background)
+  }
+
+  private runInBackground(task: Promise<unknown>): void {
+    const tracked = task.catch(() => undefined).finally(() => this.background.delete(tracked))
+    this.background.add(tracked)
   }
 
   private async validateStartInput(
@@ -556,44 +1827,401 @@ export class ConversationRuntime {
     if (!turnId) return
     session.canceledTurnIds.add(turnId)
     session.activeTurnAbort?.abort()
+    // A send's stream settles when the send returns; a continuation's has no
+    // send to return, and its adapter may end it without another event.
+    this.closeContinuation(session)
+  }
+
+  private closeContinuation(session: RuntimeSession): void {
+    const running = session.providerTurn
+    if (!running?.continuation) return
+    session.providerTurn = null
+    running.settle({ ok: true, session: this.toSummary(session) })
   }
 
   private async emitAll(
     session: RuntimeSession,
     events: ConversationProviderEventStream,
-    options: { turnId?: string; allowCanceledTurnId?: string | null } = {},
-  ): Promise<ConversationEvent[]> {
-    const emitted: ConversationEvent[] = []
+    options: { turnId?: string; allowCanceledTurnId?: string | null; collectText?: boolean } = {},
+  ): Promise<EmittedSummary> {
+    const { collectText, ...emitOptions } = options
+    const emitted: EmittedSummary = {
+      approvalsRequested: 0,
+      approvalsResolved: 0,
+      completed: false,
+      failed: false,
+      text: '',
+    }
+    const count = (stamped: ConversationEvent | null): void => {
+      if (stamped?.type === 'approval_requested') emitted.approvalsRequested++
+      else if (stamped?.type === 'approval_resolved') emitted.approvalsResolved++
+      else if (stamped?.type === 'turn_completed') emitted.completed = true
+      else if (stamped?.type === 'turn_failed') emitted.failed = true
+      else if (collectText && stamped?.type === 'content_delta' && typeof stamped.payload?.text === 'string')
+        emitted.text += stamped.payload.text
+    }
     const resolved = await events
     if (isAsyncIterable(resolved)) {
-      for await (const event of resolved) {
-        const stamped = await this.emit(session, event, options)
-        if (stamped) emitted.push(stamped)
-      }
+      for await (const event of resolved) count(await this.emit(session, event, emitOptions))
       return emitted
     }
-    for (const event of resolved) {
-      const stamped = await this.emit(session, event, options)
-      if (stamped) emitted.push(stamped)
-    }
+    for (const event of resolved) count(await this.emit(session, event, emitOptions))
     return emitted
   }
 
   private async emit(
     session: RuntimeSession,
     event: ConversationEvent,
-    options: { turnId?: string; allowCanceledTurnId?: string | null } = {},
+    options: EmitOptions = {},
   ): Promise<ConversationEvent | null> {
+    const path = this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)
+    const result = (this.emissionTails.get(path) ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(() => this.emitNow(session, event, options))
+    this.emissionTails.set(path, result)
+    return result
+  }
+
+  private async emitNow(
+    session: RuntimeSession,
+    event: ConversationEvent,
+    options: EmitOptions,
+  ): Promise<ConversationEvent | null> {
+    // A provider stream a steer moved on: what it still sends as the turn it
+    // was sent for is the turn the steer opened.
+    const moved = session.providerTurn
+    if (moved && moved.turnId !== moved.streamTurnId) {
+      const payloadTurnId = typeof event.payload?.turnId === 'string' ? event.payload.turnId : undefined
+      if ((payloadTurnId ?? options.turnId) === moved.streamTurnId) {
+        if (payloadTurnId) event = { ...event, payload: { ...event.payload, turnId: moved.turnId } }
+        options = { ...options, turnId: moved.turnId }
+      }
+    }
     if (this.shouldSuppressEvent(session, event, options)) return null
+    // A turn a steer ended goes on as the next one: its tools keep running, its
+    // cards stay open, and nothing is settled until the stream really ends.
+    const steered = event.type === 'turn_completed' && event.payload?.steered === true
+    const ends = (event.type === 'turn_completed' || event.type === 'turn_failed') && !steered
+    const eventTurnId = typeof event.payload?.turnId === 'string' ? event.payload.turnId : options.turnId
+    if (ends && session.providerTurn && eventTurnId === session.providerTurn.turnId)
+      session.providerTurn.finished = true
+    // A preview still waiting when its turn ends is the newest output of a
+    // tool that never sent a final one: it goes out ahead of the turn's end.
+    if (ends) await this.flushToolPreviews(session)
+    const path = this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)
+    // Preparing stores the output in the tool's detail file, so it happens for
+    // every event, including a preview that is then held back.
+    const prepared = options.prepared ? event : await this.prepareToolEvent(session, event)
+    if (!options.prepared && this.holdToolPreview(session, prepared, options)) return null
     const stamped: ConversationEvent = {
-      ...event,
+      ...prepared,
       id: `conv_evt_${this.eventEpoch}_${++this.eventSequence}`,
+      seq: (this.sequences.get(path) ?? 0) + 1,
       createdAt: this.now(),
     }
+    this.sequences.set(path, stamped.seq!)
+    if (stamped.type === 'user_message' || (stamped.type === 'turn_started' && session.checkpointTurnSeq === null))
+      session.checkpointTurnSeq = stamped.seq!
+    if (stamped.type === 'tool_started')
+      await this.captureBeforeTool(session, String(stamped.payload?.name ?? stamped.payload?.tool ?? ''))
+    if (ends && session.checkpointCaptured && session.checkpointTurnSeq) {
+      const checkpoint = await this.checkpoints.capture(session, session.checkpointTurnSeq, 'post')
+      stamped.payload = {
+        ...stamped.payload,
+        checkpointTurnSeq: session.checkpointTurnSeq,
+        checkpointAvailable: checkpoint.ok,
+      }
+      if (checkpoint.ok) {
+        const diff = await this.checkpoints.getTurnDiff({ key: session, turnSeq: session.checkpointTurnSeq })
+        if (diff.ok)
+          stamped.payload.checkpointSummary = {
+            files: diff.diff.files.length,
+            addedLines: diff.diff.files.reduce((sum, file) => sum + file.addedLines, 0),
+            removedLines: diff.diff.files.reduce((sum, file) => sum + file.removedLines, 0),
+          }
+      }
+    }
     this.trackStatefulSessionEvent(session, stamped)
-    await this.persistEvent(session, stamped)
-    for (const listener of this.listeners) listener(stamped)
+    let automaticRequestId: string | undefined
+    if (stamped.type === 'approval_requested' && typeof stamped.payload?.requestId === 'string') {
+      const request: PermissionModeRequest = {
+        action: String(stamped.payload.action ?? ''),
+        input: this.approvalCheckInput(session, stamped.payload.input),
+        toolKind: stamped.payload.toolKind as PermissionModeRequest['toolKind'],
+        requestKind: String(stamped.payload.kind ?? 'tool'),
+        defaultToNo: stamped.payload.defaultToNo === true,
+        suppressAlwaysAllowRule: stamped.payload.suppressAlwaysAllowRule === true,
+        mustAsk: stamped.payload.mustAsk === true,
+      }
+      const requestId = stamped.payload.requestId
+      session.approvalRequests.set(requestId, request)
+      // Whether "allow for this conversation" can be remembered, in the words
+      // this app's own menu uses: a client on another machine has no
+      // workspace root to work either out from.
+      if (request.requestKind === 'tool') {
+        const candidate = approvalRuleCandidate(request, session.workspaceRoot)
+        stamped.payload = {
+          ...stamped.payload,
+          rememberable: candidate !== null,
+          ...(candidate ? { rememberLabel: approvalRememberLabels(candidate).conversation } : {}),
+        }
+      }
+      // Decide whether a human is needed before publication, so remembered
+      // grants never briefly trigger OS attention.
+      // Resolution starts only after this request has persisted and published.
+      // A remembered rule first, then the chat's permission mode: a request
+      // either one answers never reaches the person.
+      session.unpublishedApprovals.add(requestId)
+      const rule = await this.approvalRules
+        .match(session.workspaceRoot, session.sessionId, request)
+        .catch(() => null)
+        .finally(() => session.unpublishedApprovals.delete(requestId))
+      const mode = session.permissionPreset
+      const label =
+        rule?.label ??
+        (permissionModeAllows(mode, request, session.workspaceRoot) ? permissionModeApprovalLabel(mode!) : null)
+      if (
+        label &&
+        session.approvalRequests.has(requestId) &&
+        !session.answeredApprovals.has(requestId) &&
+        session.status !== 'stopped'
+      ) {
+        session.automaticApprovals.set(requestId, label)
+        stamped.payload = { ...stamped.payload, autoApproved: true, ruleLabel: label }
+        automaticRequestId = requestId
+      }
+    } else if (stamped.type === 'approval_resolved' && typeof stamped.payload?.requestId === 'string') {
+      const requestId = stamped.payload.requestId
+      const ruleLabel = session.automaticApprovals.get(requestId)
+      if (ruleLabel) stamped.payload = { ...stamped.payload, autoApproved: true, ruleLabel }
+      session.approvalRequests.delete(requestId)
+      session.automaticApprovals.delete(requestId)
+    }
+    this.updateExcerpts(session, stamped)
+    // Streamed events join the transcript's write batch and are published when
+    // it lands, without holding the emission queue for the disk: the next token
+    // is stamped while this one waits. Batches resolve in order and each
+    // publication is registered before the next event is stamped, so listeners
+    // still see sequence order.
+    if (isStreamedEvent(stamped)) {
+      this.persistEvent(session, stamped).then(
+        (outcome) => this.publish(session.workspaceRoot, path, stamped, outcome),
+        () => undefined,
+      )
+      return stamped
+    }
+    const outcome = await this.persistEvent(session, stamped)
+    if (ends) await this.closeToolStreams(session)
+    // Publish status at the same boundary as the terminal notification, after
+    // persistence. Pollers and event-driven consumers must observe one state.
+    if (session.status !== 'stopped' && ends) {
+      session.status = stamped.type === 'turn_completed' ? 'ready' : 'failed'
+      session.updatedAt = this.now()
+    }
+    this.publish(session.workspaceRoot, path, stamped, outcome)
+    // The thread index is a cache, and a listing brings a stale row up to date
+    // itself: refreshing it after the turn's end is out never holds that end,
+    // or the events queued behind it, back from the chat.
+    if (ends && stamped.type === 'turn_completed' && session.status !== 'stopped') {
+      const refresh = this.threadIndex
+        .refresh(session)
+        .catch(() => undefined)
+        .finally(() => {
+          if (this.indexRefreshes.get(path) === refresh) this.indexRefreshes.delete(path)
+        })
+      this.indexRefreshes.set(path, refresh)
+      this.runInBackground(refresh)
+    }
+    if (automaticRequestId)
+      void this.respondToRequest({
+        sessionId: session.sessionId,
+        requestId: automaticRequestId,
+        approved: true,
+        decision: 'once',
+      }).catch(() => undefined)
     return stamped
+  }
+
+  private updateExcerpts(session: RuntimeSession, event: ConversationEvent): void {
+    // The prompt cache, from the requests the provider saw start (and reset by
+    // a compaction) — the same fold the chat's own projection makes.
+    const promptCache = applyPromptCacheEvent(session.promptCache ?? null, event)
+    if (promptCache) session.promptCache = promptCache
+    if ((event.type === 'session_started' || event.type === 'session_updated') && event.payload?.capabilities)
+      session.capabilities = {
+        ...session.capabilities,
+        ...(event.payload.capabilities as import('../shared/conversation-runtime').ConversationCapabilities),
+      }
+    if (event.type === 'session_updated' && typeof event.payload?.revertedAfterSeq === 'number')
+      session.revertedNote = `Files were ${event.payload.undo ? 'restored from the undo checkpoint' : `reverted to before conversation turn ${event.payload.revertedAfterSeq}`}. Inspect the current files before continuing; later transcript messages describe the previous file state.`
+    // A background agent's step between turns is not what the conversation is
+    // doing: it would name a tool while the conversation sits idle.
+    const ownStep = !isTurnlessSubagentStep(event)
+    if (ownStep && event.type === 'tool_started')
+      session.currentToolTitle = presentToolItem({
+        kind: event.payload?.kind as import('../shared/conversation-runtime').ConversationToolKind,
+        name: String(event.payload?.name ?? event.payload?.tool ?? ''),
+        input: event.payload?.input as ConversationJsonValue | undefined,
+        status: 'running',
+      }).title
+    // Streamed output (`partial`) arrives while the tool is still running.
+    else if (
+      (ownStep && event.type === 'tool_output' && event.payload?.partial !== true) ||
+      (event.type === 'turn_completed' && event.payload?.steered !== true) ||
+      event.type === 'turn_failed'
+    )
+      session.currentToolTitle = undefined
+    // A steered turn's end is not the session's: the work goes on.
+    if (event.type === 'turn_completed' && event.payload?.steered === true) return
+    // When the last turn ended, read off the event rather than the clock so
+    // the transcript replay on resume restores the true time, not the resume.
+    if (event.type === 'turn_completed' || event.type === 'turn_failed') session.lastTurnEndedAt = event.createdAt
+    if (event.type === 'turn_completed') session.phase = 'completed'
+    else if (event.type === 'turn_failed') session.phase = 'failed'
+    else if (event.type === 'approval_resolved' && session.pendingApprovalRequestIds.size > 0) {
+      // Another card is still up: the turn is still waiting on a person.
+      const remaining = session.approvalRequests.get(Array.from(session.pendingApprovalRequestIds).at(-1)!)
+      session.phase = remaining?.requestKind === 'question' ? 'waiting_for_input' : 'waiting_for_approval'
+    } else if (event.type === 'turn_started' || event.type === 'user_message' || event.type === 'approval_resolved')
+      session.phase = 'running'
+    else if (event.type === 'approval_requested')
+      session.phase = event.payload?.kind === 'question' ? 'waiting_for_input' : 'waiting_for_approval'
+    if (event.type === 'subagent_status') {
+      const status = readSubagentStatus(event.payload)
+      if (status?.status === 'running')
+        session.runningSubagents.set(status.toolUseId, {
+          ...session.runningSubagents.get(status.toolUseId),
+          ...status,
+        })
+      else if (status) session.runningSubagents.delete(status.toolUseId)
+      session.backgroundAgents = Array.from(session.runningSubagents.values()).filter(
+        (agent) => agent.background,
+      ).length
+    }
+    // Read off the event, as the turn's end is, so a resume restores it. An
+    // image-only message is the person's input too.
+    if (event.type === 'user_message' && event.createdAt > 0)
+      session.lastUserMessageAt = Math.max(session.lastUserMessageAt ?? 0, event.createdAt)
+    if (event.type === 'user_message' && typeof event.payload?.text === 'string') {
+      // An image-only turn carries no text, and an empty excerpt would pin the
+      // chat's "first message" to nothing: the first turn with words keeps it.
+      if (!session.firstUserText && event.payload.text.trim()) session.firstUserText = event.payload.text.slice(0, 240)
+      session.lastUserText = event.payload.text.slice(0, 240)
+      session.lastAssistantText = ''
+    } else if (event.type === 'content_delta' && typeof event.payload?.text === 'string') {
+      session.lastAssistantText = ((session.lastAssistantText ?? '') + event.payload.text).slice(0, 240)
+    }
+  }
+
+  private runCommand(
+    sessionId: string,
+    commandId: string,
+    action: () => Promise<ConversationSessionActionResult>,
+  ): Promise<ConversationSessionActionResult> {
+    const session = this.sessions.get(sessionId)
+    if (!session) return Promise.resolve({ ok: false, message: 'Conversation session is invalid.' })
+    const path = this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId).replace(
+      /\.jsonl$/,
+      '.receipts.json',
+    )
+    const key = `${path}:${commandId}`
+    const pending = this.pendingCommands.get(key)
+    if (pending) return pending
+    const result = (async (): Promise<ConversationSessionActionResult> => {
+      let receipts: Map<string, ConversationSessionActionResult>
+      try {
+        receipts = await this.loadReceipts(session.workspaceRoot, path)
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : 'Command receipts are unavailable.' }
+      }
+      const prior = receipts.get(commandId)
+      if (prior) return prior
+      const persist = async () => {
+        while (receipts.size > 256) receipts.delete(receipts.keys().next().value!)
+        const serialized = JSON.stringify(Array.from(receipts))
+        const write = (this.receiptWrites.get(path) ?? Promise.resolve())
+          .catch(() => undefined)
+          .then(() => writeConversationStorage(session.workspaceRoot, path, serialized))
+        this.receiptWrites.set(path, write)
+        await write
+      }
+      // Write the intent before an adapter can do work. If the process dies
+      // before completion, replay this uncertainty instead of executing twice.
+      receipts.set(commandId, {
+        ok: false,
+        message:
+          'This command started before the connection was interrupted. Check the conversation before sending a new command.',
+      })
+      try {
+        await persist()
+      } catch (error) {
+        // Nothing ran: a retry may execute it.
+        receipts.delete(commandId)
+        return { ok: false, message: error instanceof Error ? error.message : 'Command could not be recorded.' }
+      }
+      // A command that throws has still finished, so its failure is its result:
+      // a retry is answered with it rather than with the crash-era uncertainty.
+      let receipt: ConversationSessionActionResult
+      try {
+        receipt = JSON.parse(JSON.stringify(await action())) as ConversationSessionActionResult
+      } catch (error) {
+        receipt = { ok: false, message: error instanceof Error ? error.message : 'Conversation command failed.' }
+      }
+      receipts.set(commandId, receipt)
+      await persist().catch(() => undefined)
+      return receipt
+    })()
+    this.pendingCommands.set(key, result)
+    void result.finally(() => this.pendingCommands.delete(key)).catch(() => undefined)
+    return result
+  }
+
+  /**
+   * The receipts for one conversation, read once per run. A failed read is not
+   * remembered, so the next command tries again instead of every command
+   * failing until restart. A receipts file that does not parse is moved aside
+   * and replaced by an empty one: losing old receipts only means a very late
+   * retry could run again, while refusing every command locks the chat.
+   */
+  private loadReceipts(root: string, path: string): Promise<Map<string, ConversationSessionActionResult>> {
+    const cached = this.receipts.get(path)
+    if (cached) return cached
+    const loading = (async () => {
+      let raw: Buffer
+      try {
+        raw = await readConversationStorage(root, path, MAX_CONVERSATION_METADATA_BYTES)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+          return new Map<string, ConversationSessionActionResult>()
+        throw error
+      }
+      try {
+        const entries = JSON.parse(raw.toString('utf8')) as unknown
+        if (
+          Array.isArray(entries) &&
+          entries.every(
+            (entry) =>
+              Array.isArray(entry) &&
+              entry.length === 2 &&
+              typeof entry[0] === 'string' &&
+              entry[1] &&
+              typeof entry[1] === 'object' &&
+              typeof entry[1].ok === 'boolean',
+          )
+        )
+          return new Map<string, ConversationSessionActionResult>(entries)
+      } catch {
+        // Quarantined below.
+      }
+      console.warn(`[conversation-runtime] command receipts at ${path} are corrupt; moved aside`)
+      await writeConversationStorage(root, `${path}.corrupt`, raw.toString('utf8')).catch(() => undefined)
+      return new Map<string, ConversationSessionActionResult>()
+    })()
+    this.receipts.set(path, loading)
+    loading.catch(() => {
+      if (this.receipts.get(path) === loading) this.receipts.delete(path)
+    })
+    return loading
   }
 
   // Stateful adapters surface approvals mid-stream (the provider turn blocks
@@ -612,7 +2240,10 @@ export class ConversationRuntime {
       }
     } else if (event.type === 'approval_resolved') {
       const requestId = typeof event.payload?.requestId === 'string' ? event.payload.requestId : null
-      if (requestId) session.pendingApprovalRequestIds.delete(requestId)
+      if (requestId) {
+        session.pendingApprovalRequestIds.delete(requestId)
+        session.answeredApprovals.delete(requestId)
+      }
       const remaining = Array.from(session.pendingApprovalRequestIds)
       if (remaining.length > 0) {
         session.pendingRequestId = remaining[remaining.length - 1]
@@ -622,8 +2253,9 @@ export class ConversationRuntime {
         if (session.status === 'awaiting_approval') session.status = 'active'
       }
       session.updatedAt = this.now()
-    } else if (event.type === 'turn_failed' || event.type === 'turn_completed') {
+    } else if (event.type === 'turn_failed' || (event.type === 'turn_completed' && event.payload?.steered !== true)) {
       session.pendingApprovalRequestIds.clear()
+      session.answeredApprovals.clear()
     }
   }
 
@@ -636,11 +2268,18 @@ export class ConversationRuntime {
     session.continuationTail = session.continuationTail
       .catch(() => undefined)
       .then(() => this.processContinuationEvent(session, event))
+      .catch(async (error) => {
+        await this.failTurn(session, error)
+      })
   }
 
   private async processContinuationEvent(session: RuntimeSession, event: ConversationEvent): Promise<void> {
     if (session.status === 'stopped') return
-    const turnId = typeof event.payload?.turnId === 'string' ? event.payload.turnId : null
+    const streamTurnId = typeof event.payload?.turnId === 'string' ? event.payload.turnId : null
+    // A steer may have moved the continuation on to a later turn; its events
+    // are that turn's (emitNow restamps them).
+    const continuing = streamTurnId && session.providerTurn?.streamTurnId === streamTurnId ? session.providerTurn : null
+    const turnId = continuing ? continuing.turnId : streamTurnId
     if (turnId && session.canceledTurnIds.has(turnId)) return
     // First sight of a continuation turn: open a mirror in session state so its
     // events survive suppression and its approvals track through the normal
@@ -658,14 +2297,23 @@ export class ConversationRuntime {
       session.pendingRequestId = null
       session.pendingApprovalRequestIds.clear()
       session.status = 'active'
+      session.checkpointTurnSeq = null
+      session.checkpointCapture = null
+      session.checkpointCaptured = false
       session.updatedAt = this.now()
+      session.turnStartedAt = session.updatedAt
+      // Only a live child carries on by itself.
+      session.resting = undefined
+      // From here a steer can join it, as it joins a send's turn.
+      session.providerTurn = openProviderTurn(turnId, true)
     }
-    await this.emit(session, event, turnId ? { turnId } : {})
-    if (
-      turnId &&
-      session.activeTurnId === turnId &&
-      (event.type === 'turn_completed' || event.type === 'turn_failed')
-    ) {
+    await this.emit(session, event, streamTurnId ? { turnId: streamTurnId } : {})
+    // Looked up again: a steer can have landed while the event waited its turn to be written.
+    const stream = streamTurnId && session.providerTurn?.streamTurnId === streamTurnId ? session.providerTurn : null
+    const ownTurnId = stream ? stream.turnId : streamTurnId
+    const ends = event.type === 'turn_completed' || event.type === 'turn_failed'
+    if (ends && stream) this.closeContinuation(session)
+    if (ownTurnId && session.activeTurnId === ownTurnId && ends) {
       session.activeTurnId = null
       session.activeTurnAbort = null
       session.turnLockRequestId = null
@@ -708,13 +2356,12 @@ export class ConversationRuntime {
     }
   }
 
-  private applyTurnState(session: RuntimeSession, events: ConversationEvent[], requestId: string): void {
+  private applyTurnState(session: RuntimeSession, emitted: EmittedSummary, requestId: string): void {
     // A terminal event always wins: a dead turn cannot keep an approval
     // pending (e.g. the provider child crashed while a card was up — leaving
     // the session in awaiting_approval would wedge it forever, since the
     // adapter-side permission no longer exists to resolve).
-    const failed = events.some((event) => event.type === 'turn_failed')
-    const completed = events.some((event) => event.type === 'turn_completed')
+    const { failed, completed } = emitted
     if (failed || completed) {
       session.pendingRequestId = null
       session.pendingApprovalRequestIds.clear()
@@ -727,9 +2374,7 @@ export class ConversationRuntime {
     // An approval is pending at end-of-stream only when a request was never
     // resolved. Stateless turns end their stream at the request; stateful
     // turns resolve requests mid-stream and keep going.
-    const requested = events.filter((event) => event.type === 'approval_requested').length
-    const resolved = events.filter((event) => event.type === 'approval_resolved').length
-    if (requested > resolved) {
+    if (emitted.approvalsRequested > emitted.approvalsResolved) {
       session.pendingRequestId = session.stateful ? session.pendingRequestId : requestId
       session.status = 'awaiting_approval'
     } else {
@@ -739,14 +2384,439 @@ export class ConversationRuntime {
     session.updatedAt = this.now()
   }
 
-  private async persistEvent(session: RuntimeSession, event: ConversationEvent): Promise<void> {
-    const dir = workspaceSidecarPath(session.workspaceRoot, 'conversations', safeSegment(session.workspaceId))
-    await this.mkdir(dir, { recursive: true })
-    await this.appendFile(
-      join(dir, `${safeSegment(session.agentId)}.jsonl`),
-      `${JSON.stringify(redactEvent(event))}\n`,
-      'utf-8',
+  private persistEvent(session: RuntimeSession, event: ConversationEvent): Promise<ConversationAppendOutcome> {
+    return this.eventLog.append(
+      this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId),
+      redactEvent(event),
+      session.workspaceRoot,
     )
+  }
+
+  private toolDetailPath(input: ConversationToolDetailInput): string {
+    return workspaceSidecarPath(
+      input.workspaceRoot,
+      'conversations',
+      safeSegment(input.workspaceId),
+      `${safeSegment(input.agentId)}.tools`,
+      `${safeSegment(input.toolUseId)}.json`,
+    )
+  }
+
+  async getToolDetail(input: ConversationToolDetailInput): Promise<ConversationToolDetailResult> {
+    if (
+      !input.workspaceRoot?.trim() ||
+      !input.workspaceId?.trim() ||
+      !input.agentId?.trim() ||
+      !input.toolUseId?.trim()
+    ) {
+      return { ok: false, code: 'invalid_input', message: 'Conversation and tool identity are required.' }
+    }
+    const path = this.toolDetailPath(input)
+    // A detail asked for mid-stream includes every chunk published so far.
+    await this.toolStreams.get(path)?.settled()
+    await this.toolDetailWrites.get(path)?.catch(() => undefined)
+    return readToolDetail(input.workspaceRoot, path)
+  }
+
+  /**
+   * The tool call a transcript recorded under one id, as its newest
+   * `tool_started` says: a step can be announced again once more is known (a
+   * generated picture's path arrives with its completion), and the last word
+   * is the one that stands. Null when the transcript has no such call.
+   */
+  async findToolCall(
+    input: ConversationToolDetailInput,
+  ): Promise<{ name: string; kind: unknown; input: ConversationJsonValue | undefined } | null> {
+    if (
+      !input.workspaceRoot?.trim() ||
+      !input.workspaceId?.trim() ||
+      !input.agentId?.trim() ||
+      !input.toolUseId?.trim()
+    )
+      return null
+    const path = this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId)
+    try {
+      await this.eventLog.flush(path)
+      const event = await this.transcripts.findLast(
+        input.workspaceRoot,
+        path,
+        (candidate) => candidate.type === 'tool_started' && candidate.payload?.toolUseId === input.toolUseId,
+        // A paired device asks for a step it was shown, so it is recent; a
+        // miss past this reads as an unknown step rather than scanning the
+        // whole transcript on every request.
+        TOOL_CALL_SCAN_BYTES,
+      )
+      if (!event?.payload) return null
+      const name = event.payload.name ?? event.payload.tool
+      return {
+        name: typeof name === 'string' ? name : '',
+        kind: event.payload.kind,
+        input: event.payload.input as ConversationJsonValue | undefined,
+      }
+    } catch {
+      return null
+    }
+  }
+
+  /** The bytes of an image a turn carried, by the reference its `user_message` recorded. */
+  readAttachment(ref: unknown): Promise<ConversationAttachmentResult> {
+    return this.attachmentStore.read(ref)
+  }
+
+  /** A proposed plan as a file the workspace pane can open (conversation-plan-store). */
+  planDocument(input: ConversationPlanDocumentInput): Promise<ConversationPlanDocumentResult> {
+    return this.planStore.document(input)
+  }
+
+  /** Explicit deletion removes the paired detail store as well as the transcript. */
+  async listThreads(input: ConversationWorkspaceKey) {
+    // The index flushes each transcript of the workspace before it reads it,
+    // so chats in other workspaces keep their write batches.
+    try {
+      return { ok: true as const, threads: await this.threadIndex.list(input) }
+    } catch (error) {
+      return { ok: false as const, message: String(error) }
+    }
+  }
+
+  async searchThreads(
+    input: ConversationSearchInput,
+    options: { signal?: AbortSignal; onBatch?: (hits: ConversationSearchHit[]) => void } = {},
+  ) {
+    try {
+      return { ok: true as const, hits: await this.threadIndex.search(input, options) }
+    } catch (error) {
+      return { ok: false as const, message: String(error) }
+    }
+  }
+
+  async renameThread(input: ConversationRenameInput, titleSource: 'user' | 'generated' = 'user') {
+    if (this.deletingTranscripts.has(this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId)))
+      return { ok: false as const, message: 'Conversation is being deleted.' }
+    const title = input.title.trim().slice(0, 200)
+    if (!title) return { ok: false as const, message: 'A conversation title is required.' }
+    try {
+      const threads = await this.threadIndex.list(input)
+      const thread = threads.find((entry) => entry.agentId === input.agentId)
+      if (!thread) return { ok: false as const, message: 'Conversation was not found.' }
+      if (titleSource === 'generated' && thread.titleSource === 'user') return { ok: true as const }
+      const path = this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId)
+      const pending = (this.emissionTails.get(path) ?? Promise.resolve())
+        .catch(() => undefined)
+        .then(async () => {
+          const previous = (await this.transcripts.tail(input.workspaceRoot, path, { events: 1 })).at(-1)
+          if (!previous) throw new Error('Conversation was not found.')
+          // The source event is authoritative even if another rename raced the index lookup.
+          if (
+            titleSource === 'generated' &&
+            (await this.transcripts.findLast(
+              input.workspaceRoot,
+              path,
+              (event) => event.payload?.titleSource === 'user',
+            ))
+          )
+            return
+          const event: ConversationEvent = {
+            ...previous,
+            id: `conv_evt_${this.eventEpoch}_${++this.eventSequence}`,
+            seq: Math.max(this.sequences.get(path) ?? 0, previous.seq ?? 0) + 1,
+            createdAt: this.now(),
+            type: 'session_updated',
+            payload: { conversationTitle: title, titleSource },
+          }
+          this.sequences.set(path, event.seq!)
+          this.publish(input.workspaceRoot, path, event, await this.eventLog.append(path, event, input.workspaceRoot))
+        })
+      this.emissionTails.set(path, pending)
+      await pending
+      await this.threadIndex.refresh(input)
+      return { ok: true as const }
+    } catch (error) {
+      return { ok: false as const, message: String(error) }
+    }
+  }
+
+  async deleteTranscript(input: ConversationTranscriptInput): Promise<ConversationTranscriptResult> {
+    if (!input.workspaceRoot?.trim() || !input.workspaceId?.trim() || !input.agentId?.trim())
+      return { ok: false, message: 'Conversation identity is required.' }
+    const path = this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId)
+    const fileScope = await this.checkpoints.fileScope(input.workspaceRoot)
+    if (this.revertingScopes.has(fileScope)) return { ok: false, message: 'Workspace files are being reverted.' }
+    if (this.deletingTranscripts.has(path) || this.startingTranscripts.has(path))
+      return { ok: false, message: 'Conversation lifecycle operation is already in progress.' }
+    const matching = Array.from(this.sessions.values()).filter(
+      (session) =>
+        session.workspaceRoot === input.workspaceRoot &&
+        session.workspaceId === input.workspaceId &&
+        session.agentId === input.agentId,
+    )
+    if (matching.some((session) => isSessionBusy(session) || session.status === 'starting'))
+      return { ok: false, message: 'Stop the active conversation turn before deleting it.' }
+    this.deletingTranscripts.add(path)
+    try {
+      for (const session of matching)
+        if (session.status !== 'stopped') await this.stopSession({ sessionId: session.sessionId })
+      await this.emissionTails.get(path)
+      for (const session of matching) await session.continuationTail
+      await this.threadIndex.delete(input)
+      await this.checkpoints.deleteConversation(input)
+      await this.attachmentStore.deleteConversation(input)
+      await this.planStore.deleteConversation(input)
+      const receiptsPath = path.replace(/\.jsonl$/, '.receipts.json')
+      await this.receiptWrites.get(receiptsPath)
+      await removeConversationStorage(input.workspaceRoot, receiptsPath)
+      await removeConversationStorage(input.workspaceRoot, `${receiptsPath}.corrupt`)
+      await removeConversationStorage(input.workspaceRoot, lostSequencePath(path))
+      this.receipts.delete(receiptsPath)
+      this.transcripts.forget(path)
+      this.nonDurableLogs.delete(path)
+      this.sequences.delete(path)
+      this.emissionTails.delete(path)
+      for (const session of matching) this.sessions.delete(session.sessionId)
+      return { ok: true, events: [] }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) }
+    } finally {
+      this.deletingTranscripts.delete(path)
+    }
+  }
+
+  /**
+   * Store a tool event's full input or output in its detail file and leave the
+   * transcript event a bounded preview. Partial output never blocks the
+   * emission queue on the detail file: appended text goes to the tool's output
+   * file and replaced output is rewritten in the background, in order per
+   * tool. The final output waits for all of it, so a finished tool's detail is
+   * complete by the time its event is published.
+   */
+  private async prepareToolEvent(session: RuntimeSession, event: ConversationEvent): Promise<ConversationEvent> {
+    if (event.type !== 'tool_started' && event.type !== 'tool_output') return event
+    const payload = redactConversationValue({ ...event.payload })
+    const toolUseId =
+      typeof payload.toolUseId === 'string'
+        ? payload.toolUseId
+        : typeof payload.toolCallId === 'string'
+          ? payload.toolCallId
+          : undefined
+    const append = payload.outputMode === 'append'
+    delete payload.outputMode
+    if (!toolUseId) return { ...event, payload }
+    payload.toolUseId = toolUseId
+    const path = this.toolDetailPath({ ...session, toolUseId })
+    if (event.type === 'tool_started') {
+      const previous = await readToolDetail(session.workspaceRoot, path)
+      const detail: ConversationToolDetail = previous.ok
+        ? previous.detail
+        : { input: {}, output: '', status: 'ok', clipped: false }
+      const name =
+        typeof payload.name === 'string' ? payload.name : typeof payload.tool === 'string' ? payload.tool : ''
+      payload.name = name
+      payload.kind = payload.kind ?? inferConversationToolKind(name)
+      detail.input = (payload.input ?? {}) as ConversationJsonValue
+      if (Buffer.byteLength(JSON.stringify(detail.input)) > 64 * 1024) {
+        payload.input = {}
+        payload.inputTruncated = true
+      }
+      this.toolDetails.set(path, detail)
+      session.toolDetailPaths.add(path)
+      await this.queueToolDetailWrite(session, path, detail)
+      return { ...event, payload }
+    }
+
+    const partial = payload.partial === true
+    const output = (payload.output ?? payload.preview ?? '') as ConversationJsonValue
+    const text = typeof output === 'string' ? output : JSON.stringify(output)
+    let stream = this.toolStreams.get(path)
+    if (append && !stream) {
+      stream = new ToolOutputStream(session.workspaceRoot, toolOutputStreamPath(path))
+      this.toolStreams.set(path, stream)
+      session.toolDetailPaths.add(path)
+    }
+    const mime = typeof payload.mime === 'string' ? payload.mime : undefined
+    const binary = mime !== undefined && !/^(text\/|application\/(json|xml))/.test(mime)
+    let totalBytes: number
+    if (append) {
+      stream!.append(text)
+      payload.preview = binary ? '' : stream!.tail
+      payload.truncated = binary || stream!.chars > TOOL_PREVIEW_CHARS
+      totalBytes = stream!.totalBytes
+    } else {
+      // Output that streamed is read from its end, where the new lines are;
+      // a one-shot result (a file read) from its beginning.
+      const streamed = partial || stream !== undefined
+      payload.preview = binary ? '' : streamed ? text.slice(-TOOL_PREVIEW_CHARS) : text.slice(0, TOOL_PREVIEW_CHARS)
+      payload.truncated = binary || text.length > TOOL_PREVIEW_CHARS
+      totalBytes = Buffer.byteLength(text)
+    }
+    if (typeof payload.totalBytes === 'number') totalBytes = Math.max(totalBytes, payload.totalBytes)
+    const status =
+      payload.status === 'declined' || payload.status === 'stopped' || payload.status === 'error'
+        ? payload.status
+        : payload.isError
+          ? 'error'
+          : 'ok'
+    payload.output = payload.preview
+    payload.totalBytes = totalBytes
+    payload.status = status
+
+    if (partial && append) return { ...event, payload }
+    const known = this.toolDetails.get(path)
+    const detail: ConversationToolDetail = known ?? {
+      input: {},
+      output: '',
+      status: 'ok' as const,
+      clipped: false,
+    }
+    detail.status = status
+    detail.totalBytes = totalBytes
+    if (payload.clipped === true) detail.clipped = true
+    if (typeof payload.exitCode === 'number') detail.exitCode = payload.exitCode
+    if (mime !== undefined) detail.mime = mime
+    if (append) detail.output = ''
+    else detail.output = binary ? '' : output
+    if (partial) {
+      // Replaced output mid-stream: the latest version, written behind the queue.
+      this.toolDetails.set(path, detail)
+      // The cached detail itself: a later write serializes the latest output,
+      // and an input merged from disk by the first write stays for the rest.
+      void this.queueToolDetailWrite(session, path, detail, !known)
+      return { ...event, payload }
+    }
+    this.toolDetails.delete(path)
+    this.toolStreams.delete(path)
+    if (stream) {
+      await stream.finish()
+      if (stream.clipped) detail.clipped = true
+      // A final output that carries everything supersedes what streamed.
+      if (!append) await removeConversationStorage(session.workspaceRoot, stream.path).catch(() => undefined)
+    }
+    await this.queueToolDetailWrite(session, path, detail, !known)
+    session.toolDetailPaths.delete(path)
+    return { ...event, payload }
+  }
+
+  /**
+   * Write a detail file behind any earlier write for the same tool. A detail
+   * whose input was never seen this run (the tool started before a restart)
+   * keeps the input already on disk.
+   */
+  private queueToolDetailWrite(
+    session: RuntimeSession,
+    path: string,
+    detail: ConversationToolDetail,
+    mergeInput = false,
+  ): Promise<void> {
+    const write = (this.toolDetailWrites.get(path) ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(async () => {
+        if (mergeInput) {
+          const previous = await readToolDetail(session.workspaceRoot, path)
+          if (previous.ok) detail.input = previous.detail.input
+        }
+        await writeToolDetail(session.workspaceRoot, path, detail)
+      })
+    this.toolDetailWrites.set(path, write)
+    void write
+      .finally(() => {
+        if (this.toolDetailWrites.get(path) === write) this.toolDetailWrites.delete(path)
+      })
+      .catch(() => undefined)
+    return write
+  }
+
+  /** Close the output files of tools a turn left unfinished. */
+  /**
+   * Hold a running tool's preview back when one went out less than the
+   * preview interval ago, keeping only the latest for when it has passed; drop
+   * one that shows nothing new. True when the event is not to be emitted now.
+   * A final output ends the tool's throttle and always goes out.
+   */
+  private holdToolPreview(session: RuntimeSession, event: ConversationEvent, options: EmitOptions): boolean {
+    const toolUseId = event.type === 'tool_output' ? event.payload?.toolUseId : undefined
+    if (typeof toolUseId !== 'string') return false
+    const key = `${session.sessionId}\0${toolUseId}`
+    const throttle = this.toolPreviews.get(key)
+    if (event.payload?.partial !== true) {
+      if (throttle?.timer) clearTimeout(throttle.timer)
+      this.toolPreviews.delete(key)
+      return false
+    }
+    const shown = `${String(event.payload.totalBytes ?? '')}:${String(event.payload.preview ?? '')}`
+    const now = Date.now()
+    if (!throttle) {
+      this.toolPreviews.set(key, { session, sentAt: now, shown, held: null, timer: null })
+      return false
+    }
+    if (shown === throttle.shown) {
+      throttle.held = null
+      return true
+    }
+    const wait = throttle.sentAt + this.toolPreviewIntervalMs - now
+    if (wait <= 0 && !throttle.timer) {
+      throttle.sentAt = now
+      throttle.shown = shown
+      return false
+    }
+    throttle.held = { event, options }
+    if (!throttle.timer) {
+      throttle.timer = setTimeout(() => this.releaseToolPreview(key), Math.max(0, wait))
+      throttle.timer.unref?.()
+    }
+    return true
+  }
+
+  private releaseToolPreview(key: string): void {
+    const throttle = this.toolPreviews.get(key)
+    if (!throttle) return
+    throttle.timer = null
+    if (throttle.session.status === 'stopped') {
+      this.toolPreviews.delete(key)
+      return
+    }
+    if (!throttle.held) return
+    // Decide in the emission queue, not here: the tool's final output may
+    // already be queued ahead of this preview, and a preview released after
+    // it would show stale output over the finished tool.
+    const session = throttle.session
+    const path = this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)
+    const release = (this.emissionTails.get(path) ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(() => {
+        const held = throttle.held
+        if (this.toolPreviews.get(key) !== throttle || !held || session.status === 'stopped') return null
+        throttle.held = null
+        throttle.sentAt = Date.now()
+        throttle.shown = `${String(held.event.payload?.totalBytes ?? '')}:${String(held.event.payload?.preview ?? '')}`
+        return this.emitNow(session, held.event, { ...held.options, prepared: true })
+      })
+    this.emissionTails.set(path, release)
+    this.runInBackground(release)
+  }
+
+  /** Emit a session's waiting previews now, from inside the emission queue, and end their throttles. */
+  private async flushToolPreviews(session: RuntimeSession): Promise<void> {
+    for (const [key, throttle] of Array.from(this.toolPreviews)) {
+      if (throttle.session !== session) continue
+      if (throttle.timer) clearTimeout(throttle.timer)
+      this.toolPreviews.delete(key)
+      if (throttle.held) await this.emitNow(session, throttle.held.event, { ...throttle.held.options, prepared: true })
+    }
+  }
+
+  private dropToolPreviews(): void {
+    for (const throttle of this.toolPreviews.values()) if (throttle.timer) clearTimeout(throttle.timer)
+    this.toolPreviews.clear()
+  }
+
+  private async closeToolStreams(session: RuntimeSession): Promise<void> {
+    for (const path of Array.from(session.toolDetailPaths)) {
+      const stream = this.toolStreams.get(path)
+      this.toolStreams.delete(path)
+      this.toolDetails.delete(path)
+      session.toolDetailPaths.delete(path)
+      await stream?.finish().catch(() => undefined)
+      await this.toolDetailWrites.get(path)?.catch(() => undefined)
+    }
   }
 
   private transcriptPath(workspaceRoot: string, workspaceId: string, agentId: string): string {
@@ -759,51 +2829,495 @@ export class ConversationRuntime {
   }
 
   // Replay the persisted transcript for one agent, bounded to the most recent
-  // events so a long-lived chat cannot flood the renderer.
-  async readTranscript(input: ConversationTranscriptInput): Promise<ConversationTranscriptResult> {
+  // events so a long-lived chat cannot flood the renderer. `all` lifts the
+  // event count but not the byte budget: a transcript longer than that comes
+  // back as its newest part rather than as an error.
+  async readTranscript(
+    input: ConversationTranscriptInput,
+    options: { all?: boolean; closeOpenTurns?: boolean; maxBytes?: number } = {},
+  ): Promise<ConversationTranscriptResult> {
     if (!input.workspaceRoot?.trim() || !input.workspaceId?.trim() || !input.agentId?.trim()) {
       return { ok: false, message: 'Conversation transcript request is invalid.' }
     }
-    let raw: string
+    const filePath = this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId)
+    // Buffered deltas first, so a reload mid-stream sees everything emitted.
+    await this.eventLog.flush(filePath)
+    let bounded: ConversationEvent[]
     try {
-      raw = (await this.readFile(
-        this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId),
-        'utf-8',
-      )) as string
-    } catch {
-      return { ok: true, events: [] }
+      bounded = await this.transcripts.tail(input.workspaceRoot, filePath, {
+        events: options.all ? undefined : MAX_TRANSCRIPT_REPLAY_EVENTS,
+        bytes: options.maxBytes,
+      })
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : 'Conversation transcript is unavailable.' }
     }
-    const events: ConversationEvent[] = []
-    for (const line of raw.split('\n')) {
-      const trimmed = line.trim()
-      if (!trimmed) continue
-      try {
-        const parsed = JSON.parse(trimmed) as ConversationEvent
-        if (parsed && typeof parsed.type === 'string') events.push(parsed)
-      } catch {
-        // Skip torn/corrupt lines (e.g. a crash mid-append).
+    const live = Array.from(this.sessions.values()).some(
+      (session) =>
+        session.workspaceRoot === input.workspaceRoot &&
+        session.workspaceId === input.workspaceId &&
+        session.agentId === input.agentId &&
+        session.status !== 'stopped',
+    )
+    return {
+      ok: true,
+      events: [
+        ...bounded,
+        ...(options.closeOpenTurns !== false && !live ? syntheticTurnClosures(bounded, bounded.at(-1)?.seq ?? 0) : []),
+      ],
+    }
+  }
+
+  /**
+   * The end of a chat as stored, bounded like a page (a model's context holds
+   * far less than a long transcript): what a session's excerpts, and the
+   * history a provider replays, are rebuilt from. Merged deltas stay merged;
+   * both only fold their text. Null when the transcript cannot be read.
+   */
+  private async readRecentTranscript(input: ConversationTranscriptInput): Promise<ConversationEvent[] | null> {
+    const path = this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId)
+    await this.eventLog.flush(path)
+    try {
+      return await this.transcripts.tail(input.workspaceRoot, path, {
+        bytes: this.transcriptLimits.pageBytes,
+        compact: true,
+      })
+    } catch {
+      return null
+    }
+  }
+
+  private async readHistory(session: RuntimeSession): Promise<ConversationMessage[]> {
+    return completedHistory((await this.readRecentTranscript(session)) ?? [])
+  }
+
+  /**
+   * Let go of what this run keeps for a transcript between writes: its cached
+   * page offsets and, once the writes queued for it have settled, the tail of
+   * its emission queue, which holds its last event. With no live session left
+   * on it, its command receipts go too; a later command reads them back from
+   * disk. Its sequence number stays: a session starting on it may already
+   * have read it.
+   */
+  private releaseTranscript(session: RuntimeSession): void {
+    const path = this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)
+    const receiptsPath = path.replace(/\.jsonl$/, '.receipts.json')
+    this.transcripts.forget(path)
+    const tail = this.emissionTails.get(path)
+    const receiptWrite = this.receiptWrites.get(receiptsPath)
+    this.runInBackground(
+      Promise.allSettled([tail, receiptWrite, session.continuationTail]).then(() => {
+        if (this.emissionTails.get(path) === tail) this.emissionTails.delete(path)
+        const live = this.liveSessionFor(path) !== undefined
+        const commandPending = Array.from(this.pendingCommands.keys()).some((key) => key.startsWith(`${receiptsPath}:`))
+        if (!commandPending && this.receiptWrites.get(receiptsPath) === receiptWrite) {
+          this.receiptWrites.delete(receiptsPath)
+          if (!live) this.receipts.delete(receiptsPath)
+        }
+      }),
+    )
+  }
+
+  /**
+   * What the hover card over a chat shows, read from the transcript's two
+   * ends: the first message with words, and the newest turn within a small
+   * budget. The chat between is never read, however long it has run.
+   */
+  async readPeekTranscript(input: ConversationTranscriptInput): Promise<ConversationEvent[]> {
+    const path = this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId)
+    await this.eventLog.flush(path)
+    const [first, latest] = await Promise.all([
+      this.transcripts.findFirst(input.workspaceRoot, path, isWordedUserMessage),
+      this.transcripts.lastTurn(input.workspaceRoot, path, PEEK_TURN_BYTES),
+    ])
+    return first && !latest.some((event) => event.id === first.id) ? [first, ...latest] : latest
+  }
+
+  /**
+   * What a subscriber needs to join: the events after its cursor when the
+   * cursor provably belongs to this log, otherwise a snapshot of the last
+   * turns. Only published events are ever on disk ahead of a reader, so
+   * nothing read here can be missing from, or repeated by, the live stream a
+   * subscriber attached before calling this.
+   */
+  async readConversationSync(
+    key: ConversationTranscriptInput,
+    input: { afterSeq?: number; generation?: string; turnLimit?: number },
+  ): Promise<({ ok: true } & TranscriptSyncResult) | { ok: false; message: string }> {
+    const path = this.transcriptPath(key.workspaceRoot, key.workspaceId, key.agentId)
+    try {
+      const result = await this.transcripts.sync(key.workspaceRoot, path, {
+        ...input,
+        forceSnapshot: this.nonDurableLogs.has(path),
+      })
+      return { ok: true, ...result }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : 'Conversation transcript is unavailable.' }
+    }
+  }
+
+  async readConversationPage(
+    key: ConversationTranscriptInput,
+    beforeCursor: number,
+    turnLimit?: number,
+  ): Promise<ConversationPageResult> {
+    const path = this.transcriptPath(key.workspaceRoot, key.workspaceId, key.agentId)
+    try {
+      return { ok: true, page: await this.transcripts.before(key.workspaceRoot, path, beforeCursor, turnLimit) }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : 'Conversation transcript is unavailable.' }
+    }
+  }
+
+  async recoverTranscript(input: ConversationTranscriptInput): Promise<void> {
+    if (this.deletingTranscripts.has(this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId)))
+      throw new Error('Conversation is being deleted.')
+    await this.initializeSequence(input)
+  }
+
+  private async initializeSequence(input: ConversationTranscriptInput): Promise<void> {
+    const path = this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId)
+    const existing = this.sequenceInitializations.get(path)
+    if (existing) return existing
+    const pending = this.initializeSequenceNow(input)
+    this.sequenceInitializations.set(path, pending)
+    try {
+      await pending
+    } finally {
+      if (this.sequenceInitializations.get(path) === pending) this.sequenceInitializations.delete(path)
+    }
+  }
+
+  private async initializeSequenceNow(input: ConversationTranscriptInput): Promise<void> {
+    const path = this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId)
+    if (this.sequences.has(path)) return
+    await this.eventLog.flush(path)
+    // Only the last turn can still be open, so the end of the log is all this
+    // needs: its last sequence number and any turn it left unfinished.
+    const sync = await this.transcripts.sync(input.workspaceRoot, path, { turnLimit: 1 })
+    const live = Array.from(this.sessions.values()).some(
+      (session) =>
+        session.workspaceRoot === input.workspaceRoot &&
+        session.workspaceId === input.workspaceId &&
+        session.agentId === input.agentId &&
+        session.status !== 'stopped',
+    )
+    const floor = Math.max(sync.head, await this.readLostSequence(input.workspaceRoot, path))
+    const closures = sync.kind === 'snapshot' && !live ? syntheticTurnClosures(sync.page.events, floor) : []
+    for (const event of closures) await this.eventLog.append(path, event, input.workspaceRoot)
+    this.sequences.set(path, closures.at(-1)?.seq ?? floor)
+    // Expiry lists every thread in the workspace; opening a conversation must not wait on it.
+    const expiredAt = this.checkpointsExpiredAt.get(input.workspaceRoot)
+    if (expiredAt !== undefined && this.now() - expiredAt < CHECKPOINT_EXPIRY_INTERVAL_MS) return
+    this.checkpointsExpiredAt.set(input.workspaceRoot, this.now())
+    this.runInBackground(
+      this.threadIndex
+        .list(input)
+        .catch(() => [])
+        .then((threads) =>
+          this.checkpoints.collectExpired(input.workspaceRoot, this.now(), [
+            { key: input, updatedAt: this.now() },
+            ...threads.map((thread) => ({ key: { ...input, agentId: thread.agentId }, updatedAt: thread.updatedAt })),
+          ]),
+        ),
+    )
+  }
+
+  private async captureBeforeTool(session: RuntimeSession, name: string): Promise<void> {
+    if (!session.capabilities?.checkpoints || !session.checkpointTurnSeq) return
+    if (['file_read', 'search', 'list', 'web', 'todo'].includes(inferConversationToolKind(name))) return
+    if (!session.checkpointCapture) {
+      session.checkpointCapture = (async () => {
+        const result = await this.checkpoints.capture(session, session.checkpointTurnSeq!, 'pre')
+        session.checkpointCaptured = result.ok
+        // Said nowhere in the chat (owner ruling 2026-10-01): a turn with no
+        // checkpoint offers no Revert, so there is nothing for a notice to
+        // explain, and the line came back on every session that had one.
+        if (!result.ok && !result.skipped)
+          console.warn(`[conversation-runtime] checkpoint before a tool failed: ${result.message}`)
+      })()
+    }
+    await session.checkpointCapture
+  }
+
+  getTurnDiff(input: ConversationTurnDiffInput): Promise<ConversationTurnDiffResult> {
+    return this.checkpoints.getTurnDiff(input)
+  }
+  async listApprovalRules() {
+    try {
+      return { ok: true as const, rules: await this.approvalRules.list() }
+    } catch (error) {
+      return {
+        ok: false as const,
+        message: error instanceof Error ? error.message : 'Permission rules are unavailable.',
       }
     }
-    const bounded = events.slice(-MAX_TRANSCRIPT_REPLAY_EVENTS)
-    return { ok: true, events: [...bounded, ...syntheticTurnClosures(bounded)] }
+  }
+  async revokeApprovalRule(ruleId: string) {
+    try {
+      await this.approvalRules.revoke(ruleId)
+      return { ok: true as const }
+    } catch (error) {
+      return {
+        ok: false as const,
+        message: error instanceof Error ? error.message : 'Permission rule could not be revoked.',
+      }
+    }
+  }
+
+  async revertToTurn(input: ConversationRevertInput): Promise<ConversationRevertResult> {
+    const scope = await this.checkpoints.fileScope(input.key.workspaceRoot)
+    const path = this.transcriptPath(input.key.workspaceRoot, input.key.workspaceId, input.key.agentId)
+    if (this.revertingScopes.has(scope) || this.deletingTranscripts.has(path) || this.startingTranscripts.has(path))
+      return { ok: false, message: 'A workspace lifecycle operation is already in progress.' }
+    const sharingFiles = Array.from(this.sessions.values()).filter((session) => session.fileScope === scope)
+    if (sharingFiles.some((session) => isSessionBusy(session) || session.status === 'starting'))
+      return { ok: false, message: 'Stop the running turn before reverting files.' }
+    this.revertingScopes.add(scope)
+    try {
+      await this.initializeSequence(input.key)
+      // Idle native children may produce background continuations. Resume their
+      // durable cursors on the next send after the file transaction has finished.
+      for (const session of sharingFiles)
+        this.getAdapterForProviderId(session.providerId)?.disposeChildProcess?.(session.sessionId)
+      const result = await this.checkpoints.revert(input)
+      if (result.ok && result.reverted) {
+        const pending = (this.emissionTails.get(path) ?? Promise.resolve())
+          .catch(() => undefined)
+          .then(async () => {
+            await this.eventLog.flush(path)
+            const previous = (await this.transcripts.tail(input.key.workspaceRoot, path, { events: 1 })).at(-1)
+            const event: ConversationEvent = {
+              id: `conv_evt_${this.eventEpoch}_${++this.eventSequence}`,
+              seq: (this.sequences.get(path) ?? 0) + 1,
+              createdAt: this.now(),
+              workspaceId: input.key.workspaceId,
+              agentId: input.key.agentId,
+              sessionId: previous?.sessionId ?? 'recovered',
+              providerId: previous?.providerId ?? '',
+              modelId: previous?.modelId ?? '',
+              type: 'session_updated',
+              payload: { revertedAfterSeq: input.turnSeq, undo: input.undo === true },
+            }
+            this.sequences.set(path, event.seq!)
+            const outcome = await this.eventLog.append(path, event, input.key.workspaceRoot)
+            for (const session of sharingFiles) {
+              if (session.workspaceId === input.key.workspaceId && session.agentId === input.key.agentId)
+                this.updateExcerpts(session, event)
+            }
+            this.publish(input.key.workspaceRoot, path, event, outcome)
+          })
+        this.emissionTails.set(path, pending)
+        await pending
+      }
+      return result
+    } finally {
+      this.revertingScopes.delete(scope)
+    }
+  }
+
+  /**
+   * "Edit from here": take the conversation back to before the user message
+   * at `turnSeq`. The provider forgets that message and every turn after it,
+   * and a `session_updated` carrying `rewoundFromSeq` takes them out of the
+   * transcript's view; the JSONL keeps them, as it keeps everything. Files
+   * are not touched: a caller that wants them back reverts the turn's
+   * checkpoint once this has succeeded. Gated on the adapter declaring `rewind`.
+   * A message steered into a turn before the provider had a point within it
+   * to go back to takes that turn's own message with it (findRewindTarget).
+   */
+  async rewindToTurn(input: ConversationRewindInput): Promise<ConversationRewindResult> {
+    const { key, turnSeq } = input
+    if (!key?.workspaceRoot?.trim() || !key.workspaceId?.trim() || !key.agentId?.trim())
+      return { ok: false, message: 'Conversation identity is required.' }
+    if (!Number.isSafeInteger(turnSeq) || turnSeq < 1) return { ok: false, message: 'The message to edit is invalid.' }
+    const path = this.transcriptPath(key.workspaceRoot, key.workspaceId, key.agentId)
+    const scope = await this.checkpoints.fileScope(key.workspaceRoot)
+    if (
+      this.revertingScopes.has(scope) ||
+      this.deletingTranscripts.has(path) ||
+      this.startingTranscripts.has(path) ||
+      this.rewindingTranscripts.has(path)
+    )
+      return { ok: false, message: 'A workspace lifecycle operation is already in progress.' }
+    const live = Array.from(this.sessions.values()).filter(
+      (session) =>
+        session.workspaceRoot === key.workspaceRoot &&
+        session.workspaceId === key.workspaceId &&
+        session.agentId === key.agentId &&
+        session.status !== 'stopped',
+    )
+    if (live.some((session) => isSessionBusy(session) || session.status === 'starting'))
+      return { ok: false, message: 'Stop the running turn before editing an earlier message.' }
+    this.rewindingTranscripts.add(path)
+    try {
+      await this.initializeSequence(key)
+      await this.eventLog.flush(path)
+      const target = await this.findRewindTarget(key, turnSeq)
+      if (!target.ok) return target
+      const providerId = live[0]?.providerId ?? target.event.providerId
+      const adapter = this.getAdapterForProviderId(providerId)
+      if (!adapter?.rewind || adapter.capabilities?.rewind !== true)
+        return { ok: false, message: 'This agent cannot go back to an earlier message.' }
+      // A live session drops its child now; without one, the next session
+      // starts from the cursor the event below records.
+      for (const session of live) {
+        const rewound = await adapter.rewind({ ...session, cursor: target.cursor })
+        if (!rewound.ok) return rewound
+      }
+      const pending = (this.emissionTails.get(path) ?? Promise.resolve())
+        .catch(() => undefined)
+        .then(async () => {
+          const event: ConversationEvent = {
+            id: `conv_evt_${this.eventEpoch}_${++this.eventSequence}`,
+            seq: (this.sequences.get(path) ?? 0) + 1,
+            createdAt: this.now(),
+            workspaceId: key.workspaceId,
+            agentId: key.agentId,
+            sessionId: live[0]?.sessionId ?? target.event.sessionId,
+            providerId,
+            modelId: live[0]?.modelId ?? target.event.modelId,
+            type: 'session_updated',
+            // Also the resume cursor (readResumeCursor): no provider session
+            // before the first turn, else the kept turn's end as a fork point.
+            payload: {
+              rewoundFromSeq: target.fromSeq,
+              providerSessionId: target.cursor?.sessionId ?? null,
+              ...(target.cursor?.at ? { providerResumeAt: target.cursor.at } : {}),
+            },
+          }
+          this.sequences.set(path, event.seq!)
+          const outcome = await this.eventLog.append(path, event, key.workspaceRoot)
+          this.publish(key.workspaceRoot, path, event, outcome)
+        })
+      this.emissionTails.set(path, pending)
+      await pending
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : 'The conversation could not go back.' }
+    } finally {
+      this.rewindingTranscripts.delete(path)
+    }
+  }
+
+  /**
+   * The user message at `turnSeq` and where the provider stood before it: the
+   * cursor on the end of the newest turn still in view before it, or null when
+   * it is the conversation's first. Read from the end back, so rewinds already
+   * made (each after the turns it hid) are known before the turns they hid.
+   */
+  private async findRewindTarget(
+    key: ConversationTranscriptInput,
+    turnSeq: number,
+  ): Promise<
+    | { ok: true; event: ConversationEvent; cursor: ConversationProviderCursor | null; fromSeq: number }
+    | { ok: false; message: string }
+  > {
+    const hidden: Array<{ from: number; before: number }> = []
+    // Turns that failed before reaching the provider left nothing in its
+    // session, so the turn before them is as good a point as any.
+    const unreached = new Set<string>()
+    // Turns a steer ended before the provider had a point within them to go
+    // back to. The steered message went into that turn's work, so going back
+    // before it goes back before that turn's own message as well, and both
+    // leave the view: what stays on screen is what the agent still knows.
+    const joined = new Set<string>()
+    const walk: {
+      target?: ConversationEvent
+      cursor: ConversationProviderCursor | null
+      uncharted: boolean
+      fromSeq: number
+    } = {
+      cursor: null,
+      uncharted: false,
+      fromSeq: turnSeq,
+    }
+    await this.transcripts.findLast(
+      key.workspaceRoot,
+      this.transcriptPath(key.workspaceRoot, key.workspaceId, key.agentId),
+      (event) => {
+        const seq = event.seq ?? 0
+        const rewoundFrom = event.type === 'session_updated' ? event.payload?.rewoundFromSeq : undefined
+        if (typeof rewoundFrom === 'number') {
+          hidden.push({ from: rewoundFrom, before: seq })
+          return false
+        }
+        if (hidden.some((range) => seq >= range.from && seq < range.before)) return false
+        if (!walk.target) {
+          if (seq === turnSeq) {
+            walk.target = event
+            return event.type !== 'user_message'
+          }
+          // Past it without meeting it: hidden by a rewind, or never there.
+          return seq < turnSeq
+        }
+        const turnId = typeof event.payload?.turnId === 'string' ? event.payload.turnId : undefined
+        if (event.type === 'turn_completed' || event.type === 'turn_failed') {
+          const found = readProviderCursor(event.payload?.providerCursor)
+          if (found?.at) {
+            walk.cursor = found
+            return true
+          }
+          if (turnId && event.payload?.steered === true) joined.add(turnId)
+          const reason = event.payload?.reason
+          if (turnId && !found && (reason === 'runtime' || reason === 'spawn')) unreached.add(turnId)
+          return false
+        }
+        if (event.type === 'user_message' && turnId && joined.has(turnId)) {
+          walk.fromSeq = seq
+          return false
+        }
+        if (event.type === 'user_message' && !(turnId && unreached.has(turnId))) {
+          walk.uncharted = true
+          return true
+        }
+        return false
+      },
+    )
+    const { target, cursor, uncharted, fromSeq } = walk
+    if (target?.type !== 'user_message')
+      return { ok: false, message: 'That message is no longer in this conversation.' }
+    if (!cursor && uncharted)
+      return {
+        ok: false,
+        message:
+          'There is no record of where the agent stood before this message, so the conversation cannot go back to it.',
+      }
+    return { ok: true, event: target, cursor, fromSeq }
   }
 
   // The latest provider-session cursor recorded in the transcript; stateful
-  // providers use it to natively resume after a restart.
+  // providers use it to natively resume after a restart. A rewind is a cursor
+  // too: to no session at all when it went back past the first turn, else to a
+  // point inside one (`providerResumeAt`) that the next child forks at.
   private async readResumeCursor(
     workspaceRoot: string,
     workspaceId: string,
     agentId: string,
-  ): Promise<string | undefined> {
-    const transcript = await this.readTranscript({ workspaceRoot, workspaceId, agentId })
-    if (!transcript.ok) return undefined
-    for (let index = transcript.events.length - 1; index >= 0; index -= 1) {
-      const event = transcript.events[index]
-      if (event.type !== 'session_updated' && event.type !== 'session_started') continue
-      const cursor = event.payload?.providerSessionId
-      if (typeof cursor === 'string' && cursor.trim()) return cursor.trim()
+    providerId: string,
+  ): Promise<{ sessionId?: string; at?: string } | undefined> {
+    const text = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim() : undefined)
+    // Only a cursor this provider wrote: a transcript restarted on another
+    // provider holds that one's cursors too, and a session id means nothing to
+    // any provider but the one that issued it (a Claude session id handed to
+    // Codex, or a Codex thread id to Claude, fails every turn).
+    const isCursor = (event: ConversationEvent) =>
+      event.providerId === providerId &&
+      (event.type === 'session_updated' || event.type === 'session_started') &&
+      (text(event.payload?.providerSessionId) !== undefined || typeof event.payload?.rewoundFromSeq === 'number')
+    try {
+      await this.eventLog.flush(this.transcriptPath(workspaceRoot, workspaceId, agentId))
+      const event = await this.transcripts.findLast(
+        workspaceRoot,
+        this.transcriptPath(workspaceRoot, workspaceId, agentId),
+        isCursor,
+      )
+      const sessionId = text(event?.payload?.providerSessionId)
+      if (!sessionId) return undefined
+      const at = text(event?.payload?.providerResumeAt)
+      return { sessionId, ...(at ? { at } : {}) }
+    } catch {
+      return undefined
     }
-    return undefined
   }
 
   private toSummary(session: RuntimeSession): ConversationSessionSummary {
@@ -818,9 +3332,26 @@ export class ConversationRuntime {
       status,
       createdAt,
       updatedAt,
+      displayName: session.displayName,
+      capabilities: session.capabilities,
+      phase: session.phase,
+      currentToolTitle: session.currentToolTitle,
+      firstUserText: session.firstUserText,
+      lastUserText: session.lastUserText,
+      lastAssistantText: session.lastAssistantText,
+      ...(session.backgroundAgents ? { backgroundAgents: session.backgroundAgents } : {}),
+      ...(session.lastTurnEndedAt !== undefined ? { lastTurnEndedAt: session.lastTurnEndedAt } : {}),
+      ...(session.lastUserMessageAt !== undefined ? { lastUserMessageAt: session.lastUserMessageAt } : {}),
+      ...(session.resting && status !== 'stopped' ? { resting: true as const } : {}),
+      // Only while a turn is open: every way a turn closes clears `activeTurnId`.
+      ...(session.activeTurnId !== null && session.turnStartedAt !== undefined
+        ? { turnStartedAt: session.turnStartedAt }
+        : {}),
+      ...(session.promptCache ? { promptCache: session.promptCache } : {}),
       // Only when the session carries one, so a session that never chose a
       // preset reports absence rather than an invented 'default'.
       ...(permissionPreset ? { permissionPreset } : {}),
+      ...(permissionPreset && session.permissionMode ? { permissionMode: session.permissionMode } : {}),
     }
   }
 }
@@ -829,19 +3360,70 @@ export class ConversationRuntime {
 // came from `sendTurn` or from the adapter's continuation channel. A
 // continuation turn clears `pendingRequestId`, so that field alone would report
 // an occupied session as free and let a second turn take it over.
+function completedHistory(events: ConversationEvent[]): ConversationMessage[] {
+  const history: ConversationMessage[] = []
+  let user: string | undefined
+  let assistant = ''
+  for (const event of events) {
+    if (event.type === 'user_message') {
+      user = typeof event.payload?.text === 'string' ? event.payload.text : undefined
+      assistant = ''
+    } else if (event.type === 'content_delta' && typeof event.payload?.text === 'string')
+      assistant += event.payload.text
+    else if (event.type === 'turn_completed' && user !== undefined) {
+      history.push({ role: 'user', content: user })
+      if (assistant) history.push({ role: 'assistant', content: assistant })
+      user = undefined
+      assistant = ''
+    } else if (event.type === 'turn_failed') {
+      user = undefined
+      assistant = ''
+    }
+  }
+  return history
+}
+
+// The first message with words: an image-only opener names nothing.
+function isWordedUserMessage(event: ConversationEvent): boolean {
+  return (
+    event.type === 'user_message' && typeof event.payload?.text === 'string' && event.payload.text.trim().length > 0
+  )
+}
+
 function isSessionBusy(session: RuntimeSession): boolean {
   return session.activeTurnId !== null || session.pendingRequestId !== null
 }
 
+// Why a busy session cannot take a steer, or null when it can: the provider
+// has to take messages mid-turn, a turn has to be running to take it, and a
+// card the agent is blocked on is answered first — a message would only queue
+// behind it. The running turn must have reached the provider, which is what
+// the message joins, and must not have ended there: a message sent then goes
+// as the next turn once this one is over.
+function steerRefusal(session: RuntimeSession, adapter: ConversationProviderAdapter): string | null {
+  if (session.capabilities?.steer !== true || !adapter.steer)
+    return 'This agent cannot take a message while it is working.'
+  if (!session.activeTurnId) return 'Conversation turn is already in progress.'
+  if (session.pendingApprovalRequestIds.size > 0) return 'Conversation turn is awaiting approval.'
+  const running = session.providerTurn
+  if (!running || running.turnId !== session.activeTurnId)
+    return session.turnLockRequestId
+      ? 'The agent has not started on the last message yet.'
+      : 'The agent is carrying on by itself; the message goes when it stops.'
+  if (running.finished) return 'The agent has just finished; the message goes as the next turn.'
+  return null
+}
+
 function safeSegment(value: string): string {
-  return encodeURIComponent(value.trim().replace(/[\\/]/g, '-'))
+  const encoded = encodeURIComponent(value.trim().replace(/[\\/]/g, '-'))
+  return encoded === '.' || encoded === '..' ? encoded.replace(/\./g, '%2E') : encoded
 }
 
 // A transcript can end mid-turn (the app died while streaming). Replaying it
 // verbatim would leave the projection permanently "streaming" and block the
 // composer, so unfinished turns are closed with synthetic interrupt events —
 // not persisted, only appended to the replay result.
-function syntheticTurnClosures(events: ConversationEvent[]): ConversationEvent[] {
+function syntheticTurnClosures(events: ConversationEvent[], after: number): ConversationEvent[] {
   const openTurns = new Map<string, ConversationEvent>()
   for (const event of events) {
     const turnId = typeof event.payload?.turnId === 'string' ? event.payload.turnId : null
@@ -855,6 +3437,7 @@ function syntheticTurnClosures(events: ConversationEvent[]): ConversationEvent[]
   let sequence = 0
   return Array.from(openTurns.entries()).map(([turnId, source]) => ({
     id: `conv_evt_replay_close_${++sequence}`,
+    seq: after + sequence,
     sessionId: source.sessionId,
     workspaceId: source.workspaceId,
     agentId: source.agentId,
@@ -866,6 +3449,44 @@ function syntheticTurnClosures(events: ConversationEvent[]): ConversationEvent[]
   }))
 }
 
+/** A turn end's `providerCursor`, as the adapter recorded it; null when absent or malformed. */
+function readProviderCursor(value: unknown): ConversationProviderCursor | null {
+  if (!value || typeof value !== 'object') return null
+  const { sessionId, at } = value as Record<string, unknown>
+  if (typeof sessionId !== 'string' || !sessionId.trim()) return null
+  return { sessionId, at: typeof at === 'string' && at ? at : null }
+}
+
+/** Beside the transcript: the highest sequence number published that may not be in it. */
+function lostSequencePath(transcriptPath: string): string {
+  return transcriptPath.replace(/\.jsonl$/, '.lost-seq.json')
+}
+
+// Events a turn opens with before its runtime has done anything with it. A
+// turn that fails after only these never got as far as the model: its child
+// did not start, or the runtime refused the turn's settings.
+const TURN_OPENING_EVENTS: ReadonlySet<ConversationEvent['type']> = new Set([
+  'turn_started',
+  'session_started',
+  'session_ready',
+  'session_updated',
+])
+
+function eventIterator(
+  stream: ConversationEvent[] | AsyncIterable<ConversationEvent>,
+): AsyncIterator<ConversationEvent> {
+  return (isAsyncIterable(stream) ? stream : fromArray(stream))[Symbol.asyncIterator]()
+}
+
+async function* fromArray(events: ConversationEvent[]): AsyncIterable<ConversationEvent> {
+  yield* events
+}
+
+function readTurnFailure(event: ConversationEvent | null): string {
+  const message = event?.payload?.message
+  return typeof message === 'string' ? message : ''
+}
+
 function isAsyncIterable(
   value: ConversationEvent[] | AsyncIterable<ConversationEvent>,
 ): value is AsyncIterable<ConversationEvent> {
@@ -873,15 +3494,40 @@ function isAsyncIterable(
 }
 
 function redactEvent(event: ConversationEvent): ConversationEvent {
-  return JSON.parse(
-    JSON.stringify(event, (key, value) => {
-      if (key === 'inputTokens' || key === 'outputTokens' || key === 'totalTokens') {
-        return value
-      }
-      if (typeof key === 'string' && /secret|token|api[-_]?key|authorization/i.test(key)) {
-        return '[redacted]'
-      }
-      return value
-    }),
-  ) as ConversationEvent
+  return isPlainDelta(event) ? event : redactConversationValue(event)
+}
+
+const ENVELOPE_KEYS = new Set([
+  'id',
+  'seq',
+  'sessionId',
+  'workspaceId',
+  'agentId',
+  'providerId',
+  'modelId',
+  'type',
+  'createdAt',
+  'payload',
+])
+
+/**
+ * A reply or reasoning delta that is only its text: every token of a reply is
+ * one, and redaction goes by key, so none of its keys has anything to redact.
+ * Skipping it spares a JSON round trip per token. A delta carrying anything
+ * else is redacted like any event.
+ */
+function isPlainDelta(event: ConversationEvent): boolean {
+  if (event.type !== 'content_delta' && event.type !== 'reasoning_delta') return false
+  for (const key in event) if (!ENVELOPE_KEYS.has(key)) return false
+  for (const key in event.payload ?? {}) if (key !== 'text' && key !== 'turnId') return false
+  return true
+}
+
+/** Events that ride the log's short batch instead of forcing a write. */
+function isStreamedEvent(event: ConversationEvent): boolean {
+  return (
+    event.type === 'content_delta' ||
+    event.type === 'reasoning_delta' ||
+    (event.type === 'tool_output' && event.payload?.partial === true)
+  )
 }

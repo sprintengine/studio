@@ -7,6 +7,3 @@
 
 /** Build-time default for `MULTIAUTH_BASE_URL` (the account service). */
 declare const __MULTIAUTH_BASE_URL__: string | undefined
-
-/** Build-time default for `SPRINTENGINE_MOBILE_RELAY_URL` (the mobile relay). */
-declare const __MOBILE_RELAY_URL__: string | undefined

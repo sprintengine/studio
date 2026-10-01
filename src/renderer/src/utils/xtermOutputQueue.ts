@@ -1,6 +1,12 @@
 import type { Terminal } from '@xterm/xterm'
 import { TERMINAL_RECENT_REPLAY_BYTES } from '../../../shared/terminal-history'
 import {
+  createResumeHold,
+  resumeReleasePayload,
+  type ResumeHoldRelease,
+  type ResumeHoldTimers,
+} from './terminalResumeHold'
+import {
   isTerminalRepaintPaused,
   reportTerminalRepaintPauseWindow,
   subscribeTerminalRepaintPause,
@@ -9,10 +15,24 @@ import {
 const MAX_TERMINAL_WRITE_CHARS = 32 * 1024
 const MAX_QUEUED_TERMINAL_CHARS = TERMINAL_RECENT_REPLAY_BYTES
 const TERMINAL_WRITE_FRAME_BUDGET_MS = 8
+// How long a scheduled drain waits for an animation frame before draining
+// without one (see `scheduleDrain`).
+const DRAIN_WITHOUT_FRAME_MS = 250
+// RIS: full terminal reset, as an escape sequence so it is parsed in order
+// with the replay it precedes.
+const FULL_RESET = '\x1bc'
 const TERMINAL_THROTTLE_MESSAGE = '\r\n[Terminal output throttled to keep the UI responsive]\r\n'
 
 type TerminalOutputQueueOptions = {
   recordWrite: (data: string, elapsedMs: number) => void
+  /**
+   * Flow control: `units` of live output are finished with — parsed by xterm,
+   * or dropped by this queue — and main may count them as no longer in flight
+   * (see terminal-output-buffer.ts in main). Every unit enqueued is reported
+   * exactly once, including on clear and dispose, so a pane can never leave the
+   * pty waiting on output it will not parse.
+   */
+  onConsumed?: (units: number) => void
 }
 
 type XtermOutputQueue = ReturnType<typeof createXtermOutputQueue>
@@ -52,25 +72,15 @@ type XtermReplayGateOptions = {
   recordWrite?: (data: string, elapsedMs: number) => void
   onReplayStateChange?: (state: XtermReplayState) => void
   onReplayProfile?: (profile: XtermReplayProfile) => void
+  /** Called once a resume hold lets go, after its output is on its way to the screen. */
+  onResumeRelease?: (release: ResumeHoldRelease) => void
+  /** Test seam for the resume hold's clock. */
+  resumeHoldTimers?: ResumeHoldTimers
 }
 
 function replayByteLength(value: string): number {
   return new TextEncoder().encode(value).length
 }
-
-// Alt-screen enter sequences (DECSET 1049 / 1047 / 47). A CLI relaunched on
-// resume re-enters its full-screen TUI with one of these; we use it to know the
-// transitional normal-buffer boot noise is over and the real repaint has begun.
-const ALT_SCREEN_ENTER_RE = /\x1b\[\?(?:1049|1047|47)h/
-
-// Default ceiling for how long resume-suppression withholds boot output while
-// waiting for the alt-screen repaint. For a TUI agent the alt-screen scan fires
-// first, so this only matters as a fallback for a CLI that never enters an
-// alt-screen (plain shell, some Codex modes) — and withholding LONGER is strictly
-// safer for a merely-slow resume, so the only cost of a generous value is a
-// slightly later reveal for the uncommon non-TUI case. Sized to comfortably
-// outlast a slow `--resume` repaint without stranding non-TUI output for long.
-const RESUME_SUPPRESSION_TIMEOUT_MS = 750
 
 /**
  * Split a replay payload into bounded chunks so it can be written across
@@ -100,12 +110,28 @@ export function splitReplayIntoChunks(data: string, maxChars: number): string[] 
   return chunks
 }
 
-export function createXtermOutputQueue(term: Terminal, { recordWrite }: TerminalOutputQueueOptions) {
+export function createXtermOutputQueue(term: Terminal, { recordWrite, onConsumed }: TerminalOutputQueueOptions) {
   const queue: string[] = []
   let scheduled = false
   let writing = false
   let disposed = false
   let queuedChars = 0
+  // Live output enqueued and not yet reported as consumed. A counter rather
+  // than a mark per chunk: chunks are split and trimmed on their way through,
+  // and what main needs is the amount, which the counter keeps exact while
+  // never reporting more than was enqueued.
+  let unreported = 0
+  // Waiting for everything enqueued so far to have been parsed by xterm.
+  const writtenCallbacks: Array<() => void> = []
+  const runWrittenCallbacks = () => {
+    for (const callback of writtenCallbacks.splice(0)) callback()
+  }
+  const consume = (units: number) => {
+    const reported = Math.min(units, unreported)
+    if (reported <= 0) return
+    unreported -= reported
+    onConsumed?.(reported)
+  }
 
   // Modal repaint pause. While a covering dialog is open we keep accepting PTY
   // data into the SAME FIFO and simply stop draining it, so the pause cannot
@@ -158,7 +184,12 @@ export function createXtermOutputQueue(term: Terminal, { recordWrite }: Terminal
 
       const remainingChars = targetChars - retainedChars
       if (remainingChars > 0) {
-        const tail = chunk.slice(-remainingChars)
+        let start = chunk.length - remainingChars
+        // Never begin on the second half of a surrogate pair: xterm would
+        // print the orphan as a replacement character after the notice.
+        const first = chunk.charCodeAt(start)
+        if (first >= 0xdc00 && first <= 0xdfff) start += 1
+        const tail = chunk.slice(start)
         retained.unshift(tail)
         retainedChars += tail.length
       }
@@ -172,6 +203,7 @@ export function createXtermOutputQueue(term: Terminal, { recordWrite }: Terminal
     // Banner chars are added, not carried over from the payload, so the drop
     // count compares payload with payload.
     droppedChars += Math.max(payloadCharsBefore - retainedChars, 0)
+    consume(Math.max(payloadCharsBefore - retainedChars, 0))
   }
 
   const takeChunk = (): string | null => {
@@ -189,10 +221,33 @@ export function createXtermOutputQueue(term: Terminal, { recordWrite }: Terminal
     return head
   }
 
+  // A drain waits for the next animation frame, so a burst lands as one paint.
+  // It must not wait for a frame that never comes: a window whose compositor
+  // has stopped producing frames (a locked screen with the display asleep, a
+  // background-throttled page) would otherwise hold every byte here until the
+  // cap above started discarding the oldest. The fallback timer drains without
+  // a frame; xterm parses now and paints when frames return. Whichever fires
+  // first runs the drain and the other finds nothing to do.
+  let drainGeneration = 0
+  let fallbackTimer: ReturnType<typeof setTimeout> | null = null
+  const clearFallback = () => {
+    if (fallbackTimer === null) return
+    clearTimeout(fallbackTimer)
+    fallbackTimer = null
+  }
   const scheduleDrain = () => {
     if (scheduled || writing || disposed || paused) return
     scheduled = true
-    window.requestAnimationFrame(drain)
+    drainGeneration += 1
+    const generation = drainGeneration
+    const run = () => {
+      if (generation !== drainGeneration || !scheduled) return
+      clearFallback()
+      drain()
+    }
+    clearFallback()
+    fallbackTimer = setTimeout(run, DRAIN_WITHOUT_FRAME_MS)
+    window.requestAnimationFrame(run)
   }
 
   const drain = () => {
@@ -205,13 +260,18 @@ export function createXtermOutputQueue(term: Terminal, { recordWrite }: Terminal
       if (disposed || paused) return
 
       const data = takeChunk()
-      if (!data) return
+      if (!data) {
+        runWrittenCallbacks()
+        return
+      }
 
       const writeStartedAt = performance.now()
       writing = true
       term.write(data, () => {
         writing = false
         recordWrite(data, performance.now() - writeStartedAt)
+        // The throttle banner is this queue's own text, not output main sent.
+        if (data !== TERMINAL_THROTTLE_MESSAGE) consume(data.length)
 
         if (disposed) return
         // A pause that lands mid-drain stops here. The write already in flight
@@ -236,6 +296,11 @@ export function createXtermOutputQueue(term: Terminal, { recordWrite }: Terminal
     if (disposed || nextPaused === paused) return
     paused = nextPaused
     if (paused) {
+      // A dialog is covering the pane and nothing will be parsed until it
+      // closes. That must not stall the pty behind it — the agent keeps running
+      // — so what is queued counts as taken; this queue's own bound decides
+      // what survives the pause.
+      consume(unreported)
       pauseStartedAt = performance.now()
       heldChunks = 0
       heldChars = 0
@@ -270,6 +335,9 @@ export function createXtermOutputQueue(term: Terminal, { recordWrite }: Terminal
       if (paused) {
         heldChunks += 1
         heldChars += data.length
+        onConsumed?.(data.length)
+      } else {
+        unreported += data.length
       }
       trimQueue()
       // A no-op while paused; the resume handler is what restarts the drain.
@@ -283,11 +351,26 @@ export function createXtermOutputQueue(term: Terminal, { recordWrite }: Terminal
       // carries.
       queue.length = 0
       queuedChars = 0
+      consume(unreported)
+      if (!writing) runWrittenCallbacks()
+    },
+    /**
+     * Run `callback` once xterm has parsed everything enqueued before this call
+     * (at once, if nothing is waiting). What the pane's program has switched
+     * on — bracketed paste, say — is only in xterm's modes by then.
+     */
+    whenWritten: (callback: () => void) => {
+      if (disposed) return
+      writtenCallbacks.push(callback)
+      if (queue.length === 0 && !writing && !scheduled) runWrittenCallbacks()
     },
     dispose: () => {
       disposed = true
+      clearFallback()
+      writtenCallbacks.length = 0
       queue.length = 0
       queuedChars = 0
+      consume(unreported)
       // Unsubscribing here is what keeps a terminal disposed DURING a pause
       // from leaking: without it the store retains this closure — and the whole
       // buffered queue with it — for the life of the window.
@@ -307,7 +390,7 @@ export function createXtermOutputQueue(term: Terminal, { recordWrite }: Terminal
 export function createXtermReplayGate(
   term: Terminal,
   outputQueue: XtermOutputQueue,
-  { recordWrite, onReplayStateChange, onReplayProfile }: XtermReplayGateOptions = {},
+  { recordWrite, onReplayStateChange, onReplayProfile, onResumeRelease, resumeHoldTimers }: XtermReplayGateOptions = {},
 ) {
   const liveBuffer: string[] = []
   let disposed = false
@@ -326,15 +409,34 @@ export function createXtermReplayGate(
   let drainScheduled = false
   let writing = false
 
-  // Resume-suppression state. On a freeze-the-view resume the CLI is relaunched
-  // under this same xterm; its boot output paints to the normal screen buffer
-  // (focus-report echo `^[[I`, the trust/permissions warning, shell fragments)
-  // before it re-enters its alt-screen TUI. Withhold that transitional output
-  // and flush it in one write once the alt-screen repaint begins, so the noise
-  // lands on the now-hidden normal buffer and never gets its own painted frame.
-  let resumeSuppressing = false
-  let resumeHold = ''
-  let resumeTimer: ReturnType<typeof setTimeout> | null = null
+  // Resuming a paused agent: the relaunched CLI's output is held off screen
+  // until its first frame has landed, then swapped in for the frozen view in
+  // one write (see terminalResumeHold.ts for why, and for when it lets go).
+  //
+  // If the frozen snapshot is still draining when the hold lets go (resume
+  // clicked while a deep scrollback is mid-paint), writing now would interleave
+  // the release with the remaining replay chunks, and a swap's clear would land
+  // before the snapshot's tail. Route it through `liveBuffer` instead, which
+  // `settleReplay` flushes in order once the snapshot has fully drained.
+  const resumeHold = createResumeHold({
+    ...(resumeHoldTimers ? { timers: resumeHoldTimers } : {}),
+    onRelease: (release) => {
+      if (disposed) return
+      const payload = resumeReleasePayload(release)
+      if (payload) {
+        if (replaying) liveBuffer.push(payload)
+        else outputQueue.enqueue(payload)
+      }
+      onResumeRelease?.(release)
+    },
+  })
+  // Callbacks waiting for the output to be on screen, parked while a replay
+  // drains: live output buffered behind the replay only reaches the queue once
+  // it has settled.
+  const writtenAfterReplay: Array<() => void> = []
+  const releaseWrittenAfterReplay = () => {
+    for (const callback of writtenAfterReplay.splice(0)) outputQueue.whenWritten(callback)
+  }
 
   // Per-reattach diagnostics, reset on each `beginReplayWait`/`handleReplay`.
   let payloadChars = 0
@@ -356,32 +458,6 @@ export function createXtermReplayGate(
       const next = liveBuffer.shift()
       if (next) outputQueue.enqueue(next)
     }
-  }
-
-  // End resume-suppression and paint the held boot output. The hold buffer is
-  // written as a single chunk (boot output is small, well under the queue's
-  // split threshold), so xterm parses the normal→alt-screen transition in one
-  // write and the visible end state is the clean repainted TUI. Nothing is
-  // dropped — scrollback/serialize stay faithful.
-  //
-  // If a snapshot replay is still draining (e.g. resume clicked while the frozen
-  // view is mid-paint over deep scrollback), enqueuing now would interleave the
-  // held buffer with the remaining replay chunks — and since the held buffer
-  // enters the alt-screen, any later replay chunk would corrupt the TUI repaint.
-  // Route it through `liveBuffer` instead, which `settleReplay` flushes in order
-  // once the snapshot has fully drained.
-  const revealResume = (): void => {
-    if (!resumeSuppressing) return
-    resumeSuppressing = false
-    if (resumeTimer !== null) {
-      clearTimeout(resumeTimer)
-      resumeTimer = null
-    }
-    const held = resumeHold
-    resumeHold = ''
-    if (!held || disposed) return
-    if (replaying) liveBuffer.push(held)
-    else outputQueue.enqueue(held)
   }
 
   const emitProfile = (endedVia: XtermReplayProfile['endedVia']) => {
@@ -407,6 +483,7 @@ export function createXtermReplayGate(
       term.scrollToBottom()
       emitState('ready', true)
       flushLiveBuffer()
+      releaseWrittenAfterReplay()
     }
     emitProfile('replay')
   }
@@ -488,6 +565,7 @@ export function createXtermReplayGate(
       revealedOnce = true
       emitState('ready', true)
       flushLiveBuffer()
+      releaseWrittenAfterReplay()
       emitProfile('finish-wait')
     },
     handleReplay: (data: string) => {
@@ -499,8 +577,16 @@ export function createXtermReplayGate(
       // output so the window is applied exactly once (no duplicated pre-hide
       // content). An initial attach (awaitingReplay) writes onto an empty xterm
       // and must NOT reset.
-      if (!awaitingReplay && revealedOnce) {
-        term.reset()
+      //
+      // The reset rides the first replay chunk as RIS (`ESC c`, which xterm
+      // handles by running the same `reset()`), rather than being called here.
+      // Called here, it painted: the chunk is written on the next animation
+      // frame, so every reveal showed one frame of an empty terminal before the
+      // content came back — a flash on every workspace switch. Inside the write
+      // it is parsed together with the content, and the next paint shows the
+      // result.
+      const resync = !awaitingReplay && revealedOnce
+      if (resync) {
         outputQueue.clear()
         liveBuffer.length = 0
       }
@@ -514,20 +600,22 @@ export function createXtermReplayGate(
       writeCount = 0
       maxWriteMs = 0
       replayChunks = splitReplayIntoChunks(data, MAX_TERMINAL_WRITE_CHARS)
+      if (resync) replayChunks[0] = FULL_RESET + (replayChunks[0] ?? '')
       replayIndex = 0
       emitState('replaying', false)
+      // A resume in flight is over: the replay is the resumed session's own
+      // stream, everything held included, so what the hold kept is dropped
+      // rather than swapped in on top of it (terminalResumeHold.ts). Released
+      // after `replaying` is set, so whoever waits on the release's output
+      // (`whenOutputWritten`) waits for this replay to be on screen.
+      resumeHold.releaseForReplay()
       scheduleDrain()
     },
     handleLiveData: (data: string) => {
       if (disposed || !data) return
-      // Resume-suppression takes precedence over the replay-buffer branch: while
-      // a relaunch is in flight we withhold ALL live output until the alt-screen
-      // repaint begins (or the fallback fires), regardless of replay state.
-      if (resumeSuppressing) {
-        resumeHold += data
-        if (ALT_SCREEN_ENTER_RE.test(resumeHold)) revealResume()
-        return
-      }
+      // A resume hold takes precedence over the replay-buffer branch: while a
+      // relaunch is in flight ALL live output is held until its first frame.
+      if (resumeHold.push(data)) return
       if (awaitingReplay || replaying) {
         liveBuffer.push(data)
         liveBufferedCount += 1
@@ -535,36 +623,36 @@ export function createXtermReplayGate(
       }
       outputQueue.enqueue(data)
     },
-    // Arm resume-suppression for a freeze-the-view relaunch: until the relaunched
-    // CLI re-enters its alt-screen TUI (or `timeoutMs` elapses), boot output is
-    // withheld instead of painted. Call this immediately before kicking the
-    // relaunch, so the first live chunk is already intercepted.
-    armResumeSuppression: (timeoutMs: number = RESUME_SUPPRESSION_TIMEOUT_MS) => {
+    // Hold the relaunched CLI's output until its first frame (see
+    // terminalResumeHold.ts). Call immediately before kicking the relaunch, so
+    // the first live chunk is already intercepted. `replaceFrozenView` is true
+    // when the relaunch resumes a conversation the CLI will render again.
+    armResumeHold: (options: { replaceFrozenView: boolean }) => {
       if (disposed) return
-      if (resumeTimer !== null) clearTimeout(resumeTimer)
-      resumeSuppressing = true
-      resumeHold = ''
-      resumeTimer = setTimeout(revealResume, Math.max(0, timeoutMs))
+      resumeHold.arm(options)
     },
-    // Flush any withheld boot output and disarm. Used as the fallback when the
-    // relaunched process exits before painting an alt-screen, so a genuine boot
-    // error still surfaces. A no-op when not suppressing.
-    flushResumeSuppression: () => {
-      revealResume()
+    // Let go of anything held without swapping: the relaunched process exited
+    // before its first frame, so a genuine start-up error surfaces under the
+    // frozen view. A no-op when not holding.
+    releaseResumeHoldForExit: () => {
+      resumeHold.releaseForExit()
+    },
+    // Run `callback` once everything this pane has been handed so far is on
+    // screen: a replay drained, and the live output behind it parsed.
+    whenOutputWritten: (callback: () => void) => {
+      if (disposed) return
+      if (awaitingReplay || replaying) writtenAfterReplay.push(callback)
+      else outputQueue.whenWritten(callback)
     },
     dispose: () => {
       disposed = true
+      writtenAfterReplay.length = 0
       awaitingReplay = false
       replaying = false
       liveBuffer.length = 0
       replayChunks = []
       replayIndex = 0
-      resumeSuppressing = false
-      resumeHold = ''
-      if (resumeTimer !== null) {
-        clearTimeout(resumeTimer)
-        resumeTimer = null
-      }
+      resumeHold.dispose()
     },
   }
 }

@@ -13,10 +13,12 @@ export type ModuleEnablementWriteResult = { ok: boolean; message?: string }
 export type ColorScheme = 'light' | 'dark'
 
 // Window chrome material: 'glass' renders the window canvas (sidebar, title
-// strip, aside column) over OS-native vibrancy, and is the default; 'solid' is
-// the opaque alternative.
-// macOS-only for now — main ignores 'glass' on other platforms.
-export type WindowMaterial = 'solid' | 'glass'
+// strip, aside column) over OS-native vibrancy, and is the default on macOS;
+// 'tinted' is an opaque canvas painted with a static accent-washed gradient and
+// a soft accent glow around the brand mark and the rail's buttons, and is the
+// default everywhere glass is unavailable; 'solid' is the plain opaque canvas.
+// Glass is macOS-only — main reads a 'glass' on other platforms as 'tinted'.
+export type WindowMaterial = 'solid' | 'glass' | 'tinted'
 export type AppMenuAcceleratorUpdate = {
   commandId: string
   accelerator: string | null

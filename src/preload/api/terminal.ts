@@ -3,9 +3,12 @@ import type {
   AgentCli,
   CliRuntimeSettings,
   ElectronApi,
+  TerminalPromptUndelivered,
   TerminalSessionSnapshot,
+  TerminalSessionsDelta,
   TerminalSpawnMetadata,
   TerminalSpawnResult,
+  TerminalVisibilityOptions,
 } from '../../shared/electron-api'
 
 export const terminalApi = {
@@ -41,8 +44,8 @@ export const terminalApi = {
   terminalStatus: (sessionId: string): Promise<{ processAlive: boolean; suspended: boolean }> =>
     ipcRenderer.invoke('terminal:status', sessionId),
   terminalList: (): Promise<TerminalSessionSnapshot[]> => ipcRenderer.invoke('terminal:list'),
-  terminalSetVisible: (sessionId: string, visible: boolean) =>
-    ipcRenderer.invoke('terminal:set-visible', { sessionId, visible }),
+  terminalSetVisible: (sessionId: string, visible: boolean, options?: TerminalVisibilityOptions) =>
+    ipcRenderer.invoke('terminal:set-visible', { sessionId, visible, freshPane: options?.freshPane === true }),
   terminalSuspend: (sessionId: string) => ipcRenderer.invoke('terminal:suspend', sessionId),
   terminalResume: (
     sessionId: string,
@@ -98,12 +101,21 @@ export const terminalApi = {
     ipcRenderer.on(ch, handler)
     return () => ipcRenderer.removeListener(ch, handler)
   },
-  onTerminalSessionsChanged: (cb: (sessions: TerminalSessionSnapshot[]) => void): (() => void) => {
-    const ch = 'terminal:sessions-changed'
-    const handler = (_: IpcRendererEvent, sessions: TerminalSessionSnapshot[]) => cb(sessions)
+  onTerminalSessionsDelta: (cb: (delta: TerminalSessionsDelta) => void): (() => void) => {
+    const ch = 'terminal:sessions-delta'
+    const handler = (_: IpcRendererEvent, delta: TerminalSessionsDelta) => cb(delta)
     ipcRenderer.on(ch, handler)
     return () => ipcRenderer.removeListener(ch, handler)
   },
+  onTerminalPromptUndelivered: (cb: () => void): (() => void) => {
+    const ch = 'terminal:prompt-undelivered'
+    const handler = () => cb()
+    ipcRenderer.on(ch, handler)
+    return () => ipcRenderer.removeListener(ch, handler)
+  },
+  terminalTakeUndeliveredPrompts: (): Promise<TerminalPromptUndelivered[]> =>
+    ipcRenderer.invoke('terminal:take-undelivered-prompts'),
+  terminalAck: (sessionId: string, units: number): void => ipcRenderer.send('terminal:ack', { sessionId, units }),
 } satisfies Pick<
   ElectronApi,
   | 'terminalSpawn'
@@ -123,5 +135,8 @@ export const terminalApi = {
   | 'onTerminalData'
   | 'onTerminalExit'
   | 'onTerminalError'
-  | 'onTerminalSessionsChanged'
+  | 'onTerminalSessionsDelta'
+  | 'onTerminalPromptUndelivered'
+  | 'terminalTakeUndeliveredPrompts'
+  | 'terminalAck'
 >

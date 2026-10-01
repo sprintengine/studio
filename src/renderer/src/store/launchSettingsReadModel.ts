@@ -1,23 +1,31 @@
 /**
  * The seam between the store's `appSettings` and main's agent-launch settings.
  *
- * Five `appSettings` fields are a read model of main's record rather than
+ * Eight `appSettings` fields are a read model of main's record rather than
  * settings this window owns: they are filled from main, never persisted to
  * localStorage, and ignored when a persisted envelope is read back (except
  * once, as the migration offer — see `launchSettingsClient`). Everything that
  * needs to know which fields those are, or to convert between the two shapes,
  * goes through here so the list cannot drift.
  */
-import { effectiveAgentLaunchSettings, type AgentLaunchSettings } from '../../../shared/launch-settings'
+import {
+  effectiveAgentLaunchSettings,
+  normalizeCliPermissionModes,
+  normalizeCliPermissionPresets,
+  type AgentLaunchSettings,
+} from '../../../shared/launch-settings'
 import type { AppSettings, Workspace } from '../types/workspace'
 import { normalizeAppSettings } from './slices/settingsSlice'
 
 export const LAUNCH_SETTINGS_KEYS = [
   'cliRuntimes',
+  'hosts',
   'mcp',
   'projectKnowledgeRoots',
   'lastSelectedCli',
   'lastAgentSpawnPermissionPreset',
+  'cliPermissionPresets',
+  'cliPermissionModes',
 ] as const
 
 type LaunchSettingsKey = (typeof LAUNCH_SETTINGS_KEYS)[number]
@@ -33,10 +41,13 @@ export function withoutLaunchSettings<T extends object>(appSettings: T): Omit<T,
 export function pickLaunchSettings(appSettings: AppSettings): LaunchSettingsFields {
   return {
     cliRuntimes: appSettings.cliRuntimes,
+    hosts: appSettings.hosts,
     mcp: appSettings.mcp,
     projectKnowledgeRoots: appSettings.projectKnowledgeRoots,
     lastSelectedCli: appSettings.lastSelectedCli,
     lastAgentSpawnPermissionPreset: appSettings.lastAgentSpawnPermissionPreset,
+    cliPermissionPresets: appSettings.cliPermissionPresets,
+    cliPermissionModes: appSettings.cliPermissionModes,
   }
 }
 
@@ -54,10 +65,13 @@ export function persistedLaunchSettingsFields(raw: unknown): Record<string, unkn
 export function launchSettingsFromAppSettings(appSettings: AppSettings): AgentLaunchSettings {
   return {
     cliRuntimes: appSettings.cliRuntimes ?? {},
+    hosts: appSettings.hosts ?? {},
     mcp: appSettings.mcp ?? { syncEnabled: false, servers: {} },
     projectKnowledgeRoots: appSettings.projectKnowledgeRoots ?? {},
     lastSelectedCli: appSettings.lastSelectedCli ?? null,
     lastAgentSpawnPermissionPreset: appSettings.lastAgentSpawnPermissionPreset ?? null,
+    cliPermissionPresets: normalizeCliPermissionPresets(appSettings.cliPermissionPresets),
+    cliPermissionModes: normalizeCliPermissionModes(appSettings.cliPermissionModes),
   }
 }
 
@@ -78,10 +92,13 @@ export function withLaunchSettings(
   const normalized = normalizeAppSettings(
     {
       cliRuntimes: effective.cliRuntimes,
+      hosts: effective.hosts,
       mcp: effective.mcp,
       projectKnowledgeRoots: effective.projectKnowledgeRoots,
       lastSelectedCli: effective.lastSelectedCli,
       lastAgentSpawnPermissionPreset: effective.lastAgentSpawnPermissionPreset,
+      cliPermissionPresets: effective.cliPermissionPresets,
+      cliPermissionModes: effective.cliPermissionModes,
     },
     workspaces,
   )

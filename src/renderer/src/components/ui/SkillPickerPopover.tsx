@@ -644,8 +644,12 @@ export const InlineSkillPicker = forwardRef<
     // surface (the shell portals that to <body>), so nothing here is focusable
     // or announced. `flex`, so the shell's empty inline-flex wrapper is a
     // stretched flex item and not an inline box sitting on a line's baseline
-    // — which put the anchor a strut below the box's top edge.
-    <div ref={anchorRef} aria-hidden="true" className="pointer-events-none absolute inset-0 flex">
+    // — which put the anchor a strut below the box's top edge. Not
+    // `aria-hidden`: the shell closes a popover whose anchor sits in a hidden
+    // subtree (its trigger has left the screen), which shut this list on the
+    // first frame after it opened. The layer is empty, so there is nothing
+    // here to hide anyway.
+    <div ref={anchorRef} className="pointer-events-none absolute inset-0 flex">
       <Popover
         open
         onOpenChange={onOpenChange}

@@ -1,29 +1,17 @@
 import React, { useLayoutEffect, useRef, useState } from 'react'
 
 import CliIcon from '../CliIcon'
-import {
-  AgentWorkingDots,
-  Badge,
-  ContextRing,
-  IconButton,
-  LinkButton,
-  MediaButton,
-  Skeleton,
-  Tooltip,
-  TruncatedText,
-} from '../ui'
+import type { PromptCacheReading } from '../../../../shared/prompt-cache'
+import { PromptCacheCardLine } from './PromptCacheMark'
+import { Badge, ContextRing, IconButton, LinkButton, Skeleton, Tooltip, TruncatedText, WorkingMark } from '../ui'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
 import { formatRelativeMs } from '../../utils/relativeTime'
+import { useRelativeNow } from '../../hooks/useRelativeNow'
 import type { AgentCli } from '../../types/workspace'
 import type { SessionContextUsage, SessionFileChange } from '../../../../shared/electron-api'
 import type { BranchPullRequest } from '../../../../shared/git/pull-request'
 import { PullRequestPeekMark } from './PullRequestMark'
-import type {
-  ConversationPeek,
-  ConversationPeekAttachment,
-  ConversationPeekImage,
-  ConversationPeekMessage,
-} from '../../../../shared/conversation-peek'
+import type { ConversationPeek, ConversationPeekMessage } from '../../../../shared/conversation-peek'
 
 // The conversation peek — one hover surface for "what is this chat", opened
 // from a sidebar row and from an agent tab. Design:
@@ -39,7 +27,7 @@ import type {
 // ONE AGENT PER CARD (owner, 2026-09-09). The roster of discs is gone: the
 // sidebar already lists a chat's agents as its own sub-lines, so the person
 // points at the one they mean and the card is that agent's — its files, its
-// images, its thread, its corner. A selector inside a hover surface was solving
+// thread, its corner. A selector inside a hover surface was solving
 // a problem the surface it opens from had already solved.
 //
 // What is deliberately NOT here, because the design cut it: a footer, a "click
@@ -52,7 +40,7 @@ import type {
  * The chat's live state, in the corner's voice.
  *
  * `kind` and not a `Tone`, because the corner is not a status dot and never
- * was: it is the SIDEBAR's own mark — the working dots — and one word beside
+ * was: it is the SIDEBAR's own mark — the working mark — and one word beside
  * them. Three kinds are all the corner can draw differently: dots and muted
  * ink, no dots and subtle ink, no dots and muted ink.
  */
@@ -65,8 +53,15 @@ export type ConversationPeekStatus = {
    *   the same weight as Working without claiming motion that is not there.
    */
   kind: 'working' | 'idle' | 'attention'
-  /** The one word (or short phrase) the corner says: "Working", "Idle · 12m", "Failed". */
+  /** The one word (or short phrase) the corner says: "Working", "Idle", "Failed". */
   label: string
+  /**
+   * A label that reads its age once there is one: from a minute after `since`
+   * the corner says "`label` · 2m" ("Paused · 2m", "Last typed · 12m") in
+   * place of the plain `label` above. It formats the age on its own clock, so
+   * the age keeps moving while the card is open and nothing else redraws.
+   */
+  aged?: { label: string; since: number }
 }
 
 /**
@@ -117,6 +112,18 @@ export type ConversationPeekAgent = {
   pullRequests: BranchPullRequest[]
   /** Context-window usage, or null when nothing has reported any. Null draws no ring. */
   contextUsage: SessionContextUsage | null
+  /**
+   * The conversation's prompt cache, or null when nothing reports one. Draws a
+   * line under the badges while the agent is at rest: how long the cache has
+   * left, or what the next message re-sends now that it has gone.
+   */
+  promptCache?: PromptCacheReading | null
+  /**
+   * Whether this card can compact the conversation (`/compact` at a Claude
+   * Code agent's prompt), with the reason it cannot right now; null where
+   * there is no such action here.
+   */
+  compact?: { blocker: string | null } | null
 }
 
 export type ConversationPeekIdentity = {
@@ -127,13 +134,6 @@ export type ConversationPeekIdentity = {
   /** The one agent whose conversation this card shows. */
   agent: ConversationPeekAgent
 }
-
-/**
- * Images shown in the strip before the rest are counted. The wire cap is
- * `MAX_PEEK_ATTACHMENTS` (8); six is what fits the card's measure beside a
- * "+N" without the strip wrapping into a second row.
- */
-const MAX_THUMBNAILS = 6
 
 /**
  * Thread rows before the list is masked at its top edge. The list scrolls at
@@ -195,23 +195,6 @@ const FileGlyph = ({ className }: { className?: string }) => (
   </svg>
 )
 
-const ImageGlyph = ({ className }: { className?: string }) => (
-  <svg
-    viewBox="0 0 24 24"
-    className={className ?? 'icon-xs'}
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={1.8}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <rect x="3" y="5" width="18" height="14" rx="2" />
-    <circle cx="8.5" cy="10" r="1.5" />
-    <path d="m21 16-5-5-6 6" />
-  </svg>
-)
-
 /**
  * A row's relative age, in the thread's terse voice: `2h`, `32m`, `now` — or
  * null when there is no age to give.
@@ -265,7 +248,15 @@ export function splitChangedPath(path: string): { name: string; folder: string }
  * more than "Working" — it says the agent is working AND what it is doing — so
  * a card that said both would be spending a line on the weaker half.
  */
-function LiveCorner({ status, activeSubagents }: { status: ConversationPeekStatus; activeSubagents: number }) {
+function LiveCorner({
+  status,
+  activeSubagents,
+  seed,
+}: {
+  status: ConversationPeekStatus
+  activeSubagents: number
+  seed?: string
+}) {
   const working = status.kind === 'working'
   const label = working && activeSubagents > 0 ? `${activeSubagents} running` : status.label
   return (
@@ -276,18 +267,29 @@ function LiveCorner({ status, activeSubagents }: { status: ConversationPeekStatu
     >
       {working ? (
         <>
-          {/* The dots carry the accessible name and the word beside them is
+          {/* The mark carries the accessible name and the word beside it is
               decorative, so the state is announced once rather than twice.
-              (`AgentWorkingDots` is `role="img"` with a label by construction —
-              it is the sidebar's mark, and this is the same mark.) */}
-          <AgentWorkingDots label={label} />
+              (`WorkingMark` is `role="img"` with a label by construction —
+              it is the sidebar's mark, and this is the same mark, seeded the
+              same way so the card moves like the row it opened from.) */}
+          <WorkingMark label={label} seed={seed} />
           <span aria-hidden="true">{label}</span>
         </>
       ) : (
-        <span>{label}</span>
+        <span>{status.aged ? <LabelWithAge label={label} aged={status.aged} /> : label}</span>
       )}
     </span>
   )
+}
+
+/**
+ * "Paused · 2m" once a minute has passed, else the plain label, on a clock of
+ * its own. An age with no label of its own (a chat's) is the time alone: "2m".
+ */
+function LabelWithAge({ label, aged }: { label: string; aged: { label: string; since: number } }) {
+  const now = useRelativeNow()
+  const age = formatRelativeMs(aged.since, now)
+  return <>{age ? (aged.label ? `${aged.label} · ${age}` : age) : label}</>
 }
 
 /**
@@ -412,88 +414,6 @@ function ChangedFiles({
 }
 
 /**
- * A thumbnail button. It opens the image the way a path in the terminal already
- * does — which is why images live on the card and never in the thread tooltip:
- * a tooltip may hold nothing clickable, and a control needs a focus ring.
- */
-function AttachmentThumbnail({
-  attachment,
-  onOpen,
-}: {
-  attachment: Extract<ConversationPeekAttachment, { kind: 'image' }>
-  onOpen: ((attachmentId: string) => void) | undefined
-}) {
-  return (
-    // The kit's one button whose SURFACE is content. It draws the hairline, the
-    // radius, the `overflow-hidden` that gives the image the control's corners,
-    // the press scale and the focus ring, and no ground or ink at all — which is
-    // right, because the picture is the button's face.
-    <MediaButton
-      // 46×34 is the thumbnail's own aspect box, not spacing: a pasted
-      // screenshot is landscape, and this is the smallest box that still reads
-      // as one. No token names a media size, so the frame stays with the caller
-      // — which is exactly the contract the primitive documents.
-      className="h-[34px] w-[46px] shrink-0"
-      aria-label={`Open ${attachment.label}`}
-      onClick={(event) => {
-        event.stopPropagation()
-        onOpen?.(attachment.id)
-      }}
-      disabled={!onOpen}
-    >
-      {attachment.thumbnailDataUrl ? (
-        <img src={attachment.thumbnailDataUrl} alt="" className="h-full w-full object-cover" />
-      ) : (
-        // No thumbnail yet — the glyph stands in rather than a blank box, so a
-        // decode still in flight does not read as a broken image. The centring
-        // lives on a span because the primitive is `block`: its child is
-        // normally one image that fills it.
-        <span className="flex h-full w-full items-center justify-center text-[color:var(--text-subtle)]">
-          <ImageGlyph />
-        </span>
-      )}
-    </MediaButton>
-  )
-}
-
-/**
- * Every image sent in the conversation, in one strip (mockup frame 3) — not
- * only the first message's, which is what the shipped card drew and which meant
- * the screenshot someone pasted five minutes ago was unreachable while one from
- * yesterday sat at the top.
- *
- * Six, then a count. The strip must never wrap: a second row of thumbnails is
- * the card resizing under a pointer that is on its way to one of them.
- */
-function ImageStrip({
-  images,
-  onOpen,
-}: {
-  images: ConversationPeekImage[]
-  onOpen: ((attachmentId: string) => void) | undefined
-}) {
-  if (images.length === 0) return null
-  const shown = images.slice(0, MAX_THUMBNAILS)
-  const remainder = images.length - shown.length
-  return (
-    <div className="flex items-center gap-1.5 px-3 pt-2" role="group" aria-label="Images in this conversation">
-      {shown.map((image) => (
-        <AttachmentThumbnail key={image.id} attachment={image} onOpen={onOpen} />
-      ))}
-      {remainder > 0 ? (
-        <span
-          className="inline-flex h-[34px] shrink-0 items-center rounded-sm border border-dashed border-[color:var(--border-default)] px-1.5 font-mono text-micro text-[color:var(--text-subtle)]"
-          aria-label={`${remainder} more ${remainder === 1 ? 'image' : 'images'}`}
-          role="img"
-        >
-          +{remainder}
-        </span>
-      ) : null}
-    </div>
-  )
-}
-
-/**
  * What the thread row's tooltip says. A message longer than the wire cap
  * (`MAX_PEEK_MESSAGE_CHARS`) is CUT with the remainder counted — that is all a
  * hover surface can honestly do, and the message itself is a click away in the
@@ -522,8 +442,6 @@ export function messageTooltipParts(message: ConversationPeekMessage): {
  * interactive.
  */
 function ThreadRow({ message, now, newest }: { message: ConversationPeekMessage; now: number; newest: boolean }) {
-  const attachmentCount = message.attachments.length
-  const hasImage = message.attachments.some((attachment) => attachment.kind === 'image')
   const parts = messageTooltipParts(message)
   const textRef = useRef<HTMLSpanElement>(null)
   const [clipped, setClipped] = useState(false)
@@ -576,16 +494,6 @@ function ThreadRow({ message, now, newest }: { message: ConversationPeekMessage;
       >
         {message.text}
       </span>
-      {attachmentCount > 0 ? (
-        <span
-          className="inline-flex shrink-0 items-center gap-0.5 font-mono text-micro text-[color:var(--text-subtle)]"
-          role="img"
-          aria-label={`${attachmentCount} ${attachmentCount === 1 ? 'attachment' : 'attachments'}`}
-        >
-          {hasImage ? <ImageGlyph className="icon-xs" /> : <FileGlyph className="icon-xs" />}
-          {attachmentCount}
-        </span>
-      ) : null}
     </span>
   )
   return (
@@ -661,7 +569,6 @@ export function ConversationPeekCard({
   now,
   copied,
   onCopySession,
-  onOpenAttachment,
   onOpenDiff,
 }: {
   identity: ConversationPeekIdentity
@@ -670,8 +577,6 @@ export function ConversationPeekCard({
   now: number
   copied: boolean
   onCopySession: () => void
-  /** Absent when the preload has no opener — the thumbnails then render inert rather than lying. */
-  onOpenAttachment?: (attachmentId: string) => void
   /**
    * Open the diff for one path, or — with `null` — the whole of this agent's
    * diff. The shell wires this to the workspace's pane, because a path only
@@ -708,7 +613,13 @@ export function ConversationPeekCard({
             ring it never yields width — the title is the only thing on this
             line that does, and it already has an ellipsis. */}
         <PullRequestPeekMark pullRequests={agent.pullRequests} now={now} />
-        {identity.status ? <LiveCorner status={identity.status} activeSubagents={agent.activeSubagents} /> : null}
+        {identity.status ? (
+          <LiveCorner
+            status={identity.status}
+            activeSubagents={agent.activeSubagents}
+            seed={agent.agentId ?? agent.sessionId ?? undefined}
+          />
+        ) : null}
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5 px-3 pb-1 pt-2.5">
@@ -736,11 +647,17 @@ export function ConversationPeekCard({
         ) : null}
       </div>
 
+      <PromptCacheCardLine
+        sessionId={agent.sessionId}
+        reading={agent.promptCache}
+        working={identity.status?.kind === 'working'}
+        compact={agent.compact ?? null}
+      />
+
       <ChangedFiles
         changes={agent.fileChanges}
         onOpenDiff={onOpenDiff ? (path) => onOpenDiff(path, agent.agentId ?? null) : undefined}
       />
-      <ImageStrip images={peek?.images ?? []} onOpen={onOpenAttachment} />
 
       {loading && !peek ? (
         <div className="flex flex-col gap-1.5 px-3 pb-2.5 pt-2" aria-label="Reading the conversation" role="status">
@@ -751,28 +668,28 @@ export function ConversationPeekCard({
       ) : messages.length > 0 ? (
         <>
           <Thread messages={messages} now={now} />
-          {/* A `live` peek is prompts seen since this app launched, not the
-              chat's history, and a reader who is not told that reads a
-              truncated conversation as the whole one. One quiet line under the
-              thread — never a heading, which is what the two labels this
-              revision removed were. */}
+          {/* The thread is the prompts this app captured, not the chat's own
+              history: a chat begun before the app was watching is missing its
+              start, and a reader who is not told that reads a truncated
+              conversation as the whole one. One quiet line under the thread —
+              never a heading, which is what the two labels this revision
+              removed were. */}
           {peek?.source === 'live' ? (
             <p className="m-0 px-3 pb-2.5 text-micro text-[color:var(--text-subtle)]">
-              Since this app launched — this runtime hands us no transcript.
+              Prompts this app captured — anything sent before it was watching isn’t here.
             </p>
           ) : null}
         </>
       ) : peek && peek.source === 'unknown' ? (
-        // We hold no record of this chat at all — the app was killed rather
-        // than quit, or it was parked past the sidecar's TTL. Deliberately
-        // NOT the `none` line below: that one is about the runtime, and
+        // We hold no record of this chat at all — no live session, no parked
+        // snapshot and no captured prompts. Deliberately NOT the `none` line
+        // below: that one is about the runtime, and
         // saying it here would tell someone their Claude Code chat cannot
         // report messages. This says what is actually true — the messages are
         // gone from OUR records, not from the chat.
         <BodyNote>No record of this chat’s messages any more. Open it and the next one will be here.</BodyNote>
       ) : peek && peek.source === 'none' ? (
-        // Identity only: OpenCode, Muse and a plain shell report neither a
-        // prompt nor a transcript.
+        // Identity only: OpenCode, Muse and a plain shell report no prompts.
         //
         // This arm is LAST of the three, and the order is the whole point. It
         // used to be first, which meant a brand-new Claude Code chat — every
@@ -785,17 +702,11 @@ export function ConversationPeekCard({
           This runtime doesn’t report its messages. The model and session id above are everything it can say.
         </BodyNote>
       ) : peek ? (
-        // A runtime that CAN report and simply has not yet. `source` is
-        // `transcript` or `live` here, so this is an empty chat, not a
-        // limited one. A live peek still owes an explanation — its silence
-        // may be ours, not the chat's. A transcript peek owes none: the chat
-        // really is empty, and the composer below says so better than a line
-        // of prose would.
+        // A runtime that CAN report and simply has not yet — `source` is
+        // `live` here. It still owes an explanation: its silence may be ours,
+        // not the chat's, when the chat began before the app was watching.
         peek.source === 'live' ? (
-          <BodyNote>
-            Nothing sent since this app launched. This runtime hands us no transcript, so anything said before that is
-            not ours to show.
-          </BodyNote>
+          <BodyNote>No prompts captured yet. Anything sent before this app was watching isn’t shown here.</BodyNote>
         ) : null
       ) : (
         // No answer and not loading: the preload has no reader (an older

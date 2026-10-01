@@ -60,7 +60,7 @@ electron.vite.config.*.mjs
 # runtime state: the backlog link cache (resolved link statuses, the agent
 # terminal holding an item, module metadata bound to a live session — every
 # value re-derived from the world, so deleting it costs a lookup and never
-# data); Debug Mode's scratch file per agent terminal; browser tab screenshots
+# data); the scratch files Debug Mode left (retired); browser tab screenshots
 # and element crops; captured conversation transcripts and review state;
 # automation runtime state.
 #

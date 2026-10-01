@@ -2,9 +2,11 @@ import React, { useCallback, useMemo, useState } from 'react'
 
 import { addThirdPartyModuleFromFolder } from '../settings/addThirdPartyModuleFromFolder'
 import { FolderPlusIcon } from '../AppIcons'
-import { ActionResultMessage, Spinner } from '../ui'
+import { InstallFromGitHubDialog } from '../extensions/InstallFromGitHubDialog'
+import { ActionResultMessage, ContextMenu, MenuItem, Spinner } from '../ui'
 import type { ActionResult } from '../ui'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { ModuleContributionBoundary } from '../../modules/ModuleContributionBoundary'
 import { useExtensionsDrawerRows } from './extensionsDrawerRows'
 import { SidebarNavButton } from './SidebarNavButton'
 import { useExtensionsRowBadges } from './useExtensionsRowBadges'
@@ -57,10 +59,18 @@ export function ExtensionsRail({ collapsed }: ExtensionsRailProps) {
   const drawerRows = useExtensionsDrawerRows()
   const badges = useExtensionsRowBadges()
   const openSettingsOverlay = useWorkspaceStore((state) => state.openSettingsOverlay)
+  const activeWorkspaceRoot = useWorkspaceStore(
+    (state) => state.workspaces.find((workspace) => workspace.id === state.activeWorkspaceId)?.folderPath ?? null,
+  )
+  const mcpSettings = useWorkspaceStore((state) => state.appSettings.mcp)
   const [installing, setInstalling] = useState(false)
   const [installMessage, setInstallMessage] = useState<ActionResult | null>(null)
+  // "Add extension" asks where from: a folder on this machine, or a
+  // repository on GitHub. The menu opens under the button.
+  const [addMenu, setAddMenu] = useState<{ x: number; y: number } | null>(null)
+  const [installFromGitHub, setInstallFromGitHub] = useState(false)
 
-  const addExtension = useCallback(async () => {
+  const addExtensionFromFolder = useCallback(async () => {
     if (installing) return
     setInstalling(true)
     setInstallMessage(null)
@@ -92,9 +102,15 @@ export function ExtensionsRail({ collapsed }: ExtensionsRailProps) {
             {
               key: row.key,
               node: (
-                <React.Suspense fallback={null}>
-                  <RowComponent collapsed={collapsed} badge={badge} />
-                </React.Suspense>
+                <ModuleContributionBoundary
+                  moduleId={row.moduleId}
+                  surface={`sidebar nav entry "${row.surfaceId}"`}
+                  variant="inline"
+                >
+                  <React.Suspense fallback={null}>
+                    <RowComponent collapsed={collapsed} badge={badge} />
+                  </React.Suspense>
+                </ModuleContributionBoundary>
               ),
             },
           ]
@@ -106,17 +122,21 @@ export function ExtensionsRail({ collapsed }: ExtensionsRailProps) {
         return [
           {
             key: row.key,
+            // The glyph is the module's component, so the row is contained
+            // with it: a glyph that throws takes its row, not the drawer.
             node: (
-              <SidebarNavButton
-                collapsed={collapsed}
-                icon={<Icon className="icon-sm pointer-events-none shrink-0" />}
-                label={row.label}
-                ariaLabel={row.label}
-                tooltip={row.label}
-                active={row.active}
-                badge={badge}
-                onClick={row.open}
-              />
+              <ModuleContributionBoundary moduleId={row.moduleId} surface={`door row "${row.key}"`} variant="inline">
+                <SidebarNavButton
+                  collapsed={collapsed}
+                  icon={<Icon className="icon-sm pointer-events-none shrink-0" />}
+                  label={row.label}
+                  ariaLabel={row.label}
+                  tooltip={row.label}
+                  active={row.active}
+                  badge={badge}
+                  onClick={row.open}
+                />
+              </ModuleContributionBoundary>
             ),
           },
         ]
@@ -146,15 +166,42 @@ export function ExtensionsRail({ collapsed }: ExtensionsRailProps) {
             )
           }
           label={installing ? 'Adding extension…' : 'Add extension'}
-          ariaLabel={installing ? 'Adding extension from a folder' : 'Add extension from a folder'}
-          tooltip={
-            installMessage?.text ?? (installing ? 'Adding extension from a folder' : 'Add extension from a folder')
-          }
+          ariaLabel={installing ? 'Adding extension from a folder' : 'Add extension'}
+          tooltip={installMessage?.text ?? (installing ? 'Adding extension from a folder' : 'Add extension')}
           disabled={installing}
-          onClick={() => void addExtension()}
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect()
+            setAddMenu({ x: rect.left, y: rect.bottom + 4 })
+          }}
         />
         {!collapsed ? <ActionResultMessage message={installMessage} className="mt-2" /> : null}
       </div>
+      {addMenu ? (
+        <ContextMenu x={addMenu.x} y={addMenu.y} ariaLabel="Add extension" onClose={() => setAddMenu(null)}>
+          <MenuItem
+            onClick={() => {
+              setAddMenu(null)
+              void addExtensionFromFolder()
+            }}
+          >
+            From a folder…
+          </MenuItem>
+          <MenuItem
+            onClick={() => {
+              setAddMenu(null)
+              setInstallFromGitHub(true)
+            }}
+          >
+            From GitHub…
+          </MenuItem>
+        </ContextMenu>
+      ) : null}
+      <InstallFromGitHubDialog
+        open={installFromGitHub}
+        onClose={() => setInstallFromGitHub(false)}
+        workspaceRoot={activeWorkspaceRoot}
+        mcpSettings={mcpSettings}
+      />
       <div
         role="list"
         aria-label="Extensions"

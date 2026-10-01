@@ -20,8 +20,7 @@ import { PANEL_COMMAND_EVENT } from './panelCommands'
  * a terminal's.
  *
  * Only `shell` panes register. An agent pane runs a CLI rather than a prompt
- * and is never sent the shell integration that emits the marks; a fleet pane is
- * attached to another machine's terminal, which we do not inject into either.
+ * and is never sent the shell integration that emits the marks.
  */
 export const TERMINAL_PROMPT_PREVIOUS_COMMAND = 'terminal.promptPrevious'
 export const TERMINAL_PROMPT_NEXT_COMMAND = 'terminal.promptNext'

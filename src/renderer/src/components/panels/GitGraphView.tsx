@@ -3,7 +3,6 @@ import type { GitGraphCommit, GitGraphSnapshot, GitResetMode } from '../../../..
 import { computeGitGraphLayout, type GitGraphLine } from '../../utils/gitGraphLayout'
 import {
   EmptyState,
-  GhostButton,
   InlineNotice,
   MenuItem,
   OutlineButton,
@@ -634,9 +633,11 @@ export function GitGraphView({
             tone="warn"
             action={
               detachedReturnBranch ? (
-                <GhostButton onClick={() => onReturnToBranch(detachedReturnBranch)}>
+                // The notice's one way out, so it stands off the notice rather
+                // than reading as more of its sentence.
+                <OutlineButton onClick={() => onReturnToBranch(detachedReturnBranch)}>
                   Return to {detachedReturnBranch}
-                </GhostButton>
+                </OutlineButton>
               ) : undefined
             }
           >

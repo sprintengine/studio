@@ -13,7 +13,15 @@
  * The measurement is a heartbeat: a timer that should fire every `intervalMs`,
  * and the difference between when it should have fired and when it did. That
  * difference is time the loop spent on something else. It costs one timer tick
- * twice a second and allocates nothing while the loop is healthy.
+ * twice a second and allocates nothing while the loop is healthy — and it only
+ * runs while one of the app's windows has focus (`power-activity.ts`), because a
+ * frozen terminal is only something a person feels while they are typing into
+ * it. An app sitting in the background does not pay 120 wakeups a minute to
+ * watch for a stall nobody is there to notice.
+ *
+ * `reset()` exists for sleep. The clock the heartbeat reads can keep counting
+ * while the machine is suspended, so the first tick after a wake would measure
+ * the whole nap as one enormous stall. Waking re-arms the baseline instead.
  *
  * It writes to the same JSONL log the Diagnostics "Open logs folder" action
  * opens, because that is the one place a person on a packaged build can reach
@@ -55,6 +63,8 @@ const HEARTBEAT_INTERVAL_MS = 500
 const STALL_THRESHOLD_MS = 1_000
 /** The most often a report is written while stalls keep coming. */
 const REPORT_EVERY_MS = 60_000
+
+export type MainThreadStallMonitor = ReturnType<typeof createMainThreadStallMonitor>
 
 export function createMainThreadStallMonitor(deps: MainThreadStallMonitorDeps) {
   const now = deps.now ?? (() => performance.now())
@@ -126,6 +136,17 @@ export function createMainThreadStallMonitor(deps: MainThreadStallMonitorDeps) {
       timers.clearInterval(handle)
       handle = null
       flush(now())
+    },
+    /**
+     * Forget when the last tick ran. For a wake from sleep: whatever gap the
+     * clock shows across the suspend is the machine sleeping, not the loop
+     * stalling, and must not be reported as one.
+     */
+    reset(): void {
+      lastTickAt = now()
+    },
+    isRunning(): boolean {
+      return handle !== null
     },
   }
 }

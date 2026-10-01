@@ -1,0 +1,8 @@
+node_modules/
+packed/
+# module/dist is NOT ignored: an install from GitHub reads the built module at a
+# commit, so the build is committed with the manifest that describes it.
+*.key
+*.pem
+*.tgz.tmp
+.DS_Store
