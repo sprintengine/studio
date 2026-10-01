@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, protocol, session } from 'electron'
+import { app, ipcMain, protocol, session } from 'electron'
 import { buildStamp as mainBuildStamp } from 'virtual:sprintengine-build-stamp'
 import { MODULE_EVENTS_CHANNEL } from '../shared/modules/events'
 import { parseAuthCallbackFromArgv } from './auth-service'
@@ -91,7 +91,7 @@ applyHostApiGate(thirdPartyMainLoad.ineligible, thirdPartyMainLoad.modules)
 // predicate can close over it; the set is filled in once the manifest list exists.
 const enabledMainModuleIds = new Set<string>()
 const activeMainModules = activeForChannel(
-  createBundledMainModules(),
+  createBundledMainModules(studioPlatform()),
   (module) => module.manifest.id,
   includeDevModules,
 )
@@ -122,12 +122,7 @@ const moduleLoad = loadMainModules({
   // Module events fan out to every open window on the one host-owned channel;
   // the renderer kernel routes each envelope to its own module's subscribers.
   // Nothing is buffered for windows opened later — see shared/modules/events.ts.
-  deliverModuleEvent: (event) => {
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (window.isDestroyed() || window.webContents.isDestroyed()) continue
-      window.webContents.send(MODULE_EVENTS_CHANNEL, event)
-    }
-  },
+  deliverModuleEvent: (event) => studioPlatform().clients.publish(MODULE_EVENTS_CHANNEL, event),
 })
 // The manifest universe the enablement gate resolves against — every main module
 // present on this channel, so a module and its dependencies (scheduled agents,

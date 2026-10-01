@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Notification, ipcMain, net, powerMonitor } from 'electron'
+import { app, BrowserWindow, ipcMain, net, powerMonitor } from 'electron'
 import { createHash, randomUUID } from 'crypto'
 import { existsSync } from 'fs'
 import { homedir, hostname } from 'os'
@@ -196,6 +196,7 @@ import {
   releaseLauncher,
 } from './integrations/live-instances'
 import { entriesRunLauncher, removeIntegrations, SESSION_INTEGRATION_KINDS } from './integrations/remove-integrations'
+import { studioPlatform } from '../server/platform/platform'
 
 // How long the quit gives the session integrations' removal. What it does not
 // reach stays listed, and the next quit takes it out.
@@ -221,6 +222,9 @@ import {
 const execFileAsync = promisify(execFile)
 
 export function createAppServices(diagnosticsEnabled: boolean) {
+  // What the server-bound services below take from Electron, installed by the
+  // entry. Read through it where a service is being moved off Electron.
+  const platform = studioPlatform()
   const { logMainPerfEvent, withIpcDiagnostics } = createMainDiagnostics({
     enabled: diagnosticsEnabled,
   })
@@ -419,7 +423,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // Configured on every platform because it costs nothing; only Windows ever
   // starts a helper.
   configureWslHelpers({
-    appVersion: app.getVersion(),
+    appVersion: platform.identity.version(),
     userDataDir: app.getPath('userData'),
     resources: () => {
       const helperDir = getBundledResourceDir('wsl-helper')
@@ -1249,7 +1253,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // stay-paired, phase 3): only while no window is focused, only the events a
   // person is waiting on, never the code. A click brings the app forward and
   // opens the Remote popover in the first workspace window.
-  const shownNotices = new Map<string, Notification>()
   const tailnetNotifier = createTailnetNotifier({
     isAnyWindowFocused: () =>
       BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()),
@@ -1265,19 +1268,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       revealMainWindow(window)
       window.webContents.send(REMOTE_OPEN_REQUESTED_CHANNEL)
     },
-    show: (notice, onClick) => {
-      if (!Notification.isSupported()) return
-      // A later phase of the same request replaces the banner rather than
-      // stacking "waiting" under "paired".
-      shownNotices.get(notice.key)?.close()
-      const banner = new Notification({ title: notice.title, body: notice.body, silent: false })
-      banner.on('click', onClick)
-      banner.on('close', () => {
-        if (shownNotices.get(notice.key) === banner) shownNotices.delete(notice.key)
-      })
-      shownNotices.set(notice.key, banner)
-      banner.show()
-    },
+    // A later phase of the same request replaces the banner rather than
+    // stacking "waiting" under "paired": the notice's key says which.
+    show: (notice, onClick) => platform.notifier.notify({ ...notice, onActivate: onClick }),
   })
   // The embedded browser's main half (browser-pane epic): adopts the guests the
   // pane's browser tabs attach, drives them, and finds the dev servers this
@@ -1454,8 +1447,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // the main services that own them — one lane, no window required.
   // The gateway starts with the app.
   const automationService = createAutomationService({
-    resolveUserDataDir: () => app.getPath('userData'),
-    appVersion: app.getVersion(),
+    resolveUserDataDir: () => platform.paths.dataDir(),
+    appVersion: platform.identity.version(),
     // Dev runs serve the script straight from the repo; packaged builds ship
     // it via the electron-builder extraResources entry (resources/automation).
     resolveBridgeScriptPath: resolveStudioMcpBridgeScriptPath,
