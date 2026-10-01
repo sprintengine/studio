@@ -1,6 +1,7 @@
 # Studio server — design and phased plan
 
-Status: proposed, 2026-10-01. Nothing here is implemented. This file replaces
+Status: proposed, 2026-10-01. Phase 1 (the Electron seams) is implemented;
+nothing after it is. This file replaces
 the remaining steps of the agent SDK plan on `feat/studio-agent-sdk` (the work
 after the protocol package and the tailnet lane and module service that speak
 it) with the phases in section 13. When code and this file disagree, fix one of
@@ -107,6 +108,11 @@ root. It builds every service with closures over `app` and `BrowserWindow`.
 `src/seams/moduleConversationSeam.test.ts` already composes the runtime, the
 launch service, the gateway tools and the module host without Electron, which
 is the closest thing to a headless composition recipe the tree has.
+
+This section records where things stood when the design was written. Phase 1
+has since routed the Electron uses in the table above through the platform
+interfaces of section 4.2, except the canvas worker window, the canvas
+subscribers and the browser tools, which wait for the render host (phase 5).
 
 ### 3.2 The IPC surface
 
@@ -223,11 +229,11 @@ standalone server).
 
 | Interface | Replaces | Node implementation |
 | --- | --- | --- |
-| `StudioPaths` — `dataDir`, `logsDir`, `cacheDir`, `runDir`, `resourcesDir` | `app.getPath`, `app.isPackaged`, `app.getAppPath`, `process.resourcesPath`, asar-unpacked rewriting | from `--data-dir` / the bootstrap envelope; XDG defaults on Linux; the bundle's own directory for resources |
-| `SecretCipher` — `available()`, `seal(bytes)`, `open(bytes)` | `safeStorage` | a data key from the bootstrap envelope (desktop-spawned), else a 0600 key file in `dataDir` (see 9.3) |
-| `ClientBus` — `publish(topic, payload)`, `publishTo(clientId, …)` | `BrowserWindow.getAllWindows()` loops, `webContents.send`, `broadcastToWorkspaceWindows` | fans out to RPC subscriptions |
-| `Notifier` — `notify({ severity, title, body, target })` | `Notification`, the bell | a `notifications` stream clients render |
-| `AppIdentity` — `version`, `buildStamp`, `channel` | `app.getVersion`, the build stamp | baked into the bundle |
+| `StudioPaths` — `dataDir`, `logsDir`, `isPackaged`, `resourcesDir`, `appRoot` (`cacheDir` and `runDir` arrive with the phases that use them) | `app.getPath`, `app.isPackaged`, `app.getAppPath`, `process.resourcesPath` | from `--data-dir` / the bootstrap envelope; XDG defaults (`defaultServerLocations`); the bundle's own directory for resources |
+| `SecretCipher` — `available()`, `seal(text)`, `open(bytes)` | `safeStorage` | a data key from the bootstrap envelope (desktop-spawned), else a 0600 key file in `<dataDir>/run/` (see 9.3) |
+| `ClientBus` — `publish(topic, payload)` (`publishTo(clientId, …)` when the router exists) | `BrowserWindow.getAllWindows()` loops, `webContents.send`, `broadcastToWorkspaceWindows` | fans out to RPC subscriptions |
+| `Notifier` — `notify({ key, title, body, onActivate })` | `Notification`, the bell | a `notifications` stream clients render |
+| `AppIdentity` — `version` (the build stamp and channel join it with `welcome`) | `app.getVersion`, the build stamp | baked into the bundle |
 | `RenderHost` — `acquire(purpose)` returns a CDP browser | the hidden canvas worker window, `wc.debugger` | headless Chromium over a pipe (section 8) |
 | `ClientDirectory` — which attached clients can reveal a tab, open an editor, show a tour | `BrowserWindow` lookups in the editor, tour and canvas-open tools | client capabilities from `hello` (6.4) |
 | `PowerEvents` (optional) | `powerMonitor`, `net.isOnline` | none; the shell forwards wake and online hints as client events |
@@ -236,8 +242,16 @@ standalone server).
 object (the `ConversationIpcHandlers` shape) and is registered on the RPC router
 and, during the migration only, on `ipcMain` by the shell.
 
-A guard test walks the import graph from `src/server/` and fails on any path to
-`electron`, so the boundary is enforced by a test rather than by review.
+A guard test (`src/server/electron-boundary.test.ts`) walks the import graph
+from everything under `src/server/` and from a list of the server-bound files
+still in `src/main/`, and fails on any path to `electron`, so the boundary is
+enforced by a test rather than by review.
+
+The process installs one platform before it builds anything
+(`installStudioPlatform`): Electron main does it first thing in its entry, and
+the standalone server will in its own. A store that is constructed takes its
+piece as an option and falls back to the installed platform; a free function
+deep in the call graph reads the installed one when it is called.
 
 ### 4.3 Modules split along the same line
 
@@ -1007,6 +1021,13 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
   `electron` (the list grows each phase).
 - **Risks.** Low; the trap is a lazy require that only runs in a packaged
   build, so a packaged smoke run is part of the phase.
+- **Landed.** As scoped, plus what the guard found: the model discovery cache
+  (`model-discovery/service.ts`), the pictures Codex generates
+  (`providers/codex-conversation-provider.ts`, through a dynamic import) and
+  the diagnostics log (`diagnostics-service.ts`, whose open-the-folder half
+  moved to the shell's `diagnostics-folder.ts`). The module host's event
+  delivery publishes on the `ClientBus`, and the tailnet pairing notices go
+  through the `Notifier`. `ripgrep-binary.ts` needed nothing.
 
 ### Phase 2 — Studio RPC on the owner socket, in process; the agent SDK (M)
 
