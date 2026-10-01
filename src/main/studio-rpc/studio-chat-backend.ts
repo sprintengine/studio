@@ -14,6 +14,7 @@ import {
   parseStartSessionInput,
 } from '../conversation-ipc-inputs'
 import type { ConversationIpcHandlers } from '../ipc/conversation-ipc'
+import { confineToRoots } from './studio-file-confinement'
 
 // The Studio RPC's chat surface in main: the very handlers the conversation
 // IPC serves Studio's windows with, behind the same input checks
@@ -56,6 +57,11 @@ export type StudioChatBackendDeps = {
     readImageDataUrl(path: string): Promise<string>
   }
   repoRoot(folderPath: string, hostId?: string): Promise<string | null>
+  /**
+   * The folders a chat's files may be stat'd or read from: workspaces' and
+   * live chats' folders, and the app's stores of sent pictures and plans.
+   */
+  readableRoots(): string[] | Promise<string[]>
   /** Whether the runtime holds a receipt for a session's command id. */
   hasReceipt(sessionId: string, commandId: string): Promise<boolean>
   /** The (CLI, folder) list main holds, probing when it is missing or old. */
@@ -98,6 +104,12 @@ function checked<T extends { commandId?: string; commandFingerprint?: string }>(
 
 export function createStudioChatBackend(deps: StudioChatBackendDeps): StudioChatBackend {
   const handlers = deps.conversation
+  // A file the chat surface reads is one inside a folder a chat can be about.
+  const confined = async (path: string): Promise<string> => {
+    const checked = await confineToRoots(path, await deps.readableRoots())
+    if (!checked.ok) throw new Error(checked.message)
+    return checked.path
+  }
   const onCommandsChanged = deps.onCommandsChanged ?? onConversationCommandsChanged
   return {
     async startSession(input) {
@@ -235,8 +247,8 @@ export function createStudioChatBackend(deps: StudioChatBackendDeps): StudioChat
     searchFiles: (slot, input) => deps.files.searchFiles(slot, input),
     cancelFileSearch: (slot, channel) => deps.files.cancelActiveFileSearch(slot, channel),
     releaseFileSearches: (slot) => deps.files.cancelAllFileSearches(slot),
-    stat: (path) => deps.files.statPath(path),
-    readImage: (path) => deps.files.readImageDataUrl(path),
+    stat: async (path) => deps.files.statPath(await confined(path)),
+    readImage: async (path) => deps.files.readImageDataUrl(await confined(path)),
     repoRoot: (folderPath, hostId) => deps.repoRoot(folderPath, hostId),
     workspaces: () => deps.workspaces(),
   }

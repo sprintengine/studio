@@ -1,3 +1,5 @@
+import { join } from 'node:path'
+
 import { app, BrowserWindow } from 'electron'
 import type { IpcMain } from 'electron'
 import { registerAgentConfigImportIpc } from './ipc/agent-config-import-ipc'
@@ -9,6 +11,8 @@ import { registerAutomationIpc } from './ipc/automation-ipc'
 import { registerStudioLocalAppsIpc } from './ipc/studio-local-apps-ipc'
 import { registerStudioConnectionIpc } from './ipc/studio-connection-ipc'
 import { createStudioChatBackend } from './studio-rpc/studio-chat-backend'
+import { CONVERSATION_ATTACHMENTS_DIRECTORY } from './conversation-attachment-store'
+import { CONVERSATION_PLANS_DIRECTORY } from './conversation-plan-store'
 import { registerAppMenuIpc } from './app-menu'
 import { registerBacklogIpc } from './ipc/backlog-ipc'
 import { registerBuiltinSkillsIpc } from './ipc/builtin-skills-ipc'
@@ -238,6 +242,12 @@ export function registerCoreIpc(
       files: { ...filesystemSearchHandlers, ...filesystemReadHandlers },
       repoRoot: gitRepoRootFor,
       hasReceipt: (sessionId, commandId) => services.conversations.hasCommandReceipt(sessionId, commandId),
+      // A run's worktree is inside its repository's folder, or a workspace of its own.
+      readableRoots: () => [
+        ...services.workspaceRegistry.getRecords().flatMap((record) => (record.folderPath ? [record.folderPath] : [])),
+        join(app.getPath('userData'), CONVERSATION_ATTACHMENTS_DIRECTORY),
+        join(app.getPath('userData'), CONVERSATION_PLANS_DIRECTORY),
+      ],
       commands: (input) => conversationCommands.list(input),
       workspaces: () =>
         services.workspaceRegistry.getRecords().map((record) => ({

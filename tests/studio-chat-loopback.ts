@@ -151,6 +151,8 @@ function chatOver(api: Api) {
     repoRoot: (folderPath, hostId) =>
       hostId === undefined ? call(api, 'getGitRepoRoot', folderPath) : call(api, 'getGitRepoRoot', folderPath, hostId),
     hasReceipt: receipts.has,
+    // The chat suites name files on a stubbed disk; nothing here is confined but by the stubs.
+    readableRoots: () => ['/'],
     commands: (input) => call(api, 'conversationCommands', input),
     onCommandsChanged: (listener) => {
       const subscribe = api.onConversationCommandsChanged as ((cb: typeof listener) => () => void) | undefined

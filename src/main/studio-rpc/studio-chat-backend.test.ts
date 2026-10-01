@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import type { ConversationSendTurnInput } from '../../shared/conversation-runtime'
 import { createStudioChatBackend, type StudioChatBackendDeps } from './studio-chat-backend'
 
@@ -49,6 +53,7 @@ function deps(overrides: Partial<StudioChatBackendDeps['conversation']> = {}) {
     },
     repoRoot: async () => null,
     hasReceipt: async () => false,
+    readableRoots: () => [tmpdir()],
     commands: async (input) => ({ cli: input.cli, cwd: input.cwd, commands: [], fetchedAt: 0 }),
     onCommandsChanged: () => () => undefined,
     workspaces: () => [],
@@ -112,6 +117,37 @@ test('a revert, rewind, fork or picture read that throws is answered as that one
   assert.deepEqual(await chat.rewind({ key, turnSeq: 1 }), failure)
   assert.deepEqual(await chat.fork({ key, side: 'user', turnSeq: 1, newAgentId: 'agent-2' }), failure)
   assert.deepEqual(await chat.attachment('a/b.png'), failure)
+})
+
+test('a file is stat’d or read only inside the folders a chat can read, and by its real path', async () => {
+  const workspace = await realpath(await mkdtemp(join(tmpdir(), 'studio-chat-files-')))
+  try {
+    await writeFile(join(workspace, 'a.png'), 'png')
+    const read: string[] = []
+    const { value } = deps()
+    const chat = createStudioChatBackend({
+      ...value,
+      readableRoots: () => [workspace],
+      files: {
+        ...value.files,
+        statPath: async (path) => {
+          read.push(path)
+          return { isFile: true, isDirectory: false, sizeBytes: 3, modifiedAt: '', modifiedAtMs: 1 }
+        },
+        readImageDataUrl: async (path) => {
+          read.push(path)
+          return 'data:image/png;base64,cG5n'
+        },
+      },
+    })
+    assert.equal((await chat.stat(join(workspace, 'a.png'))).isFile, true)
+    assert.equal(await chat.readImage(join(workspace, 'a.png')), 'data:image/png;base64,cG5n')
+    await assert.rejects(chat.stat('/etc/hosts'), /outside the folders this chat can read/)
+    await assert.rejects(chat.readImage(`${workspace}/../a.png`), /not written plainly/)
+    assert.deepEqual(read, [join(workspace, 'a.png'), join(workspace, 'a.png')])
+  } finally {
+    await rm(workspace, { recursive: true, force: true })
+  }
 })
 
 test('a command list is asked for with a chat CLI and an absolute folder, as over IPC', async () => {

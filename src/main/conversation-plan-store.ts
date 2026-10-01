@@ -24,7 +24,9 @@ import { ConversationAttachmentStore } from './conversation-attachment-store'
 // Its name is derived from the plan's text, so asking twice for one plan
 // opens one file.
 
-const STORE_DIRECTORY = 'conversation-plans'
+/** Where, under the data directory, copies of plans are kept. */
+export const CONVERSATION_PLANS_DIRECTORY = 'conversation-plans'
+const STORE_DIRECTORY = CONVERSATION_PLANS_DIRECTORY
 export const MAX_PLAN_DOCUMENT_BYTES = 1024 * 1024
 const MAX_STEM_LENGTH = 48
 
