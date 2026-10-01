@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, test } from 'vitest'
 
-import { createDataKeySecretCipher, createKeyFileSecretCipher } from './secret-cipher'
+import { createDataKeySecretCipher, createKeyFileSecretCipher, windowsOwnerOnlyAclArgs } from './secret-cipher'
 
 const directories: string[] = []
 function tempDir(): string {
@@ -51,10 +51,56 @@ test('the key file is created once, owner-only, and reused by the next cipher', 
   assert.deepEqual(readFileSync(keyPath), key)
 })
 
-test('an unreadable key file makes the cipher unavailable instead of throwing out of a store', () => {
+test('a damaged key file makes the cipher unavailable, says how to recover, and is never replaced', () => {
+  for (const contents of ['', 'short key']) {
+    const keyPath = join(tempDir(), 'secret-key')
+    writeFileSync(keyPath, contents)
+    const cipher = createKeyFileSecretCipher({ keyPath })
+    assert.equal(cipher.available(), false)
+    assert.throws(() => cipher.seal('value'), /is damaged .* Move it aside and restart/)
+    assert.equal(readFileSync(keyPath, 'utf8'), contents, 'the damaged key is left for the owner to deal with')
+  }
+})
+
+test('a failed load is remembered for a moment, so asking before every seal does not reread the disk', () => {
   const keyPath = join(tempDir(), 'secret-key')
-  writeFileSync(keyPath, 'not a key')
-  const cipher = createKeyFileSecretCipher({ keyPath })
+  writeFileSync(keyPath, 'short key')
+  let clock = 0
+  const cipher = createKeyFileSecretCipher({ keyPath, now: () => clock })
   assert.equal(cipher.available(), false)
-  assert.throws(() => cipher.seal('value'), /cannot be read or created/)
+  writeFileSync(keyPath, Buffer.alloc(32, 9))
+  clock += 1_000
+  assert.equal(cipher.available(), false, 'still within the pause')
+  clock += 5_000
+  assert.equal(cipher.available(), true, 'the next try after the pause reads the repaired key')
+})
+
+test('a key is made whole and owner-only before it is linked into place, and a key that landed first wins', () => {
+  const dir = tempDir()
+  const keyPath = join(dir, 'run', 'secret-key')
+  const restricted: string[] = []
+  const winner = Buffer.alloc(32, 3)
+  const cipher = createKeyFileSecretCipher({
+    keyPath,
+    restrict: (path) => {
+      restricted.push(path)
+      assert.equal(readFileSync(path).length, 32, 'the bytes are all there before anyone can read the key')
+      // Another process links its key in while this one is still restricting.
+      writeFileSync(keyPath, winner)
+    },
+  })
+  const sealed = cipher.seal('token')
+  assert.equal(restricted.length, 1)
+  assert.notEqual(restricted[0], keyPath, 'the temporary file is restricted, not the published name')
+  assert.deepEqual(readFileSync(keyPath), winner, 'the loser does not overwrite the winner')
+  assert.equal(createDataKeySecretCipher(winner).open(sealed), 'token', 'and seals with the winner')
+  assert.deepEqual(readdirSync(join(dir, 'run')), ['secret-key'], 'no temporary file is left behind')
+})
+
+test('on Windows the key file is left with one full-control entry, the current user', () => {
+  assert.deepEqual(
+    windowsOwnerOnlyAclArgs('C:\\Users\\dev\\studio\\run\\secret-key', { USERNAME: 'dev', USERDOMAIN: 'BUILD-BOX' }),
+    ['C:\\Users\\dev\\studio\\run\\secret-key', '/inheritance:r', '/grant:r', 'BUILD-BOX\\dev:F'],
+  )
+  assert.deepEqual(windowsOwnerOnlyAclArgs('C:\\key', { USERNAME: 'dev' }).at(-1), 'dev:F')
 })
