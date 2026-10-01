@@ -29,7 +29,7 @@ import { conversationCommandsFor, publishConversationCommands } from '../convers
 import { CODEX_COMPACT_COMMAND, codexCompactRequest, codexConversationCommands } from '../conversation-commands/codex'
 import type { ConversationCommand } from '../../shared/conversation/commands'
 import { codexPlanInput, codexTool, codexToolResult } from './codex-items'
-import type { ThreadItem, TurnPlanUpdatedNotification } from './codex-protocol'
+import type { ThreadForkParams, ThreadItem, TurnPlanUpdatedNotification } from './codex-protocol'
 import {
   CONVERSATION_IDENTITY_ENV_KEYS,
   hostMachineName,
@@ -123,6 +123,9 @@ type Session = {
   closed: boolean
   input: MockAdapterSessionInput
   threadId: string | null
+  // A fork's first connection branches this thread through this turn
+  // (`thread/fork`) instead of resuming one of its own.
+  forkFrom: { threadId: string; lastTurnId: string } | null
   transport: CodexRpcTransport | null
   starting?: Promise<void>
   turn: ActiveTurn | null
@@ -248,11 +251,14 @@ export function createCodexConversationProvider(
     state.pending.clear()
     if (!failure && !interrupted && !state.turn.cancelled && !state.turn.compact)
       state.history.push({ user: state.turn.message, assistant: state.turn.text })
-    emit(
-      state,
-      failure ? 'turn_failed' : 'turn_completed',
-      failure ? { message: failure, reason: 'provider_error' } : { interrupted },
-    )
+    // Where the thread stood once this turn was over: the turn a fork made at
+    // its end branches the thread through (`thread/fork`'s `lastTurnId`).
+    const providerCursor =
+      state.threadId && state.turn.nativeId ? { sessionId: state.threadId, at: state.turn.nativeId } : null
+    emit(state, failure ? 'turn_failed' : 'turn_completed', {
+      ...(failure ? { message: failure, reason: 'provider_error' } : { interrupted }),
+      ...(providerCursor ? { providerCursor } : {}),
+    })
     if (state.turn.watchdog) clearTimeout(state.turn.watchdog)
     state.turn.queue.end()
     state.turn.settle()
@@ -493,6 +499,7 @@ export function createCodexConversationProvider(
     }
     if (method === 'turn/completed') {
       const native = record(params.turn)
+      turn.nativeId = text(native.id) || turn.nativeId
       finish(
         state,
         native.status === 'failed' ? text(record(native.error).message) || 'Codex turn failed.' : undefined,
@@ -807,8 +814,22 @@ export function createCodexConversationProvider(
             : {}),
         }
         let resumeLost = false
+        let forkLost = false
         let result: RecordValue
-        if (state.threadId) {
+        if (state.forkFrom) {
+          // A fork's thread is the parent's, through the turn it was forked
+          // at. One Codex no longer has carries the conversation over as a
+          // lost resume does.
+          const from = state.forkFrom
+          const params: ThreadForkParams = { ...threadParams, threadId: from.threadId, lastTurnId: from.lastTurnId }
+          try {
+            result = record(await transport.request('thread/fork', params))
+          } catch (error) {
+            if (!isMissingThreadError(error)) throw error
+            result = record(await transport.request('thread/start', threadParams))
+            forkLost = true
+          }
+        } else if (state.threadId) {
           try {
             result = record(await transport.request('thread/resume', { ...threadParams, threadId: state.threadId }))
           } catch (error) {
@@ -826,8 +847,9 @@ export function createCodexConversationProvider(
         const id = text(record(result.thread).id)
         if (!id) throw new Error('Codex did not return a conversation identity.')
         state.threadId = id
+        state.forkFrom = null
         void publishSkills(state)
-        if (resumeLost) state.replayHistory = true
+        if (resumeLost || forkLost) state.replayHistory = true
         emit(state, 'session_updated', {
           providerSessionId: id,
           ...(resumeLost
@@ -835,7 +857,12 @@ export function createCodexConversationProvider(
                 notice:
                   'The previous Codex thread could not be resumed, so this conversation continues in a new thread. The earlier messages were passed to it as context.',
               }
-            : {}),
+            : forkLost
+              ? {
+                  notice:
+                    'The Codex thread this chat was forked from could not be found, so it continues in a new thread. The earlier messages were passed to it as context.',
+                }
+              : {}),
         })
       } catch (error) {
         state.transport = null
@@ -871,17 +898,30 @@ export function createCodexConversationProvider(
       cost: false,
       contextMeter: false,
       liveModelSwitch: true,
+      fork: true,
+    },
+    // A fork branches the parent's thread through the turn it was made at,
+    // on its first connection. Without a turn to name, the fork starts a
+    // thread of its own and its first message carries the conversation.
+    async fork(input) {
+      return { ok: true, cursor: input.exact && input.cursor?.at ? input.cursor : null }
     },
     startSession(input) {
+      // A cursor with a point in it is a fork's: Codex never rewinds.
+      const forkFrom =
+        input.resumeSessionId && input.resumeSessionAt
+          ? { threadId: input.resumeSessionId, lastTurnId: input.resumeSessionAt }
+          : null
       const state: Session = {
         input,
         closed: false,
-        threadId: input.resumeSessionId ?? null,
+        threadId: forkFrom ? null : (input.resumeSessionId ?? null),
+        forkFrom,
         transport: null,
         turn: null,
         pending: new Map(),
         history: [],
-        replayHistory: false,
+        replayHistory: input.seedFromHistory === true,
         lastActivityAt: Date.now(),
         spawnedAt: null,
         children: new Map(),
@@ -951,8 +991,9 @@ export function createCodexConversationProvider(
               state,
               'Send /compact on its own: Codex compacts the conversation without instructions or images.',
             )
-          // A thread that has not had a turn yet has nothing to summarise.
-          if (compact && !state.threadId && !state.history.length)
+          // A thread that has not had a turn yet has nothing to summarise; a
+          // fork's has the turns it was forked with.
+          if (compact && !state.threadId && !state.forkFrom && !state.history.length)
             return finish(state, 'There is no conversation to compact yet.')
           // Capture before starting the autonomous turn, not after an edit notification.
           await state.input.onBeforeTool?.('Edit')
@@ -1135,8 +1176,9 @@ export function createCodexConversationProvider(
   }
 }
 
-// The first message to a thread that replaced a lost one carries the
-// conversation so far, which is the only context the new thread gets.
+// The first message to a thread that replaced a lost one, or that starts a
+// fork Codex could not branch, carries the conversation so far, which is the
+// only context the new thread gets.
 function withReplayedHistory(state: Session, message: string): string {
   if (!state.replayHistory) return message
   state.replayHistory = false
