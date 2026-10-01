@@ -57,8 +57,10 @@ not hold, `unsupported_protocol_version` with both numbers named
 A local app is paired once. The person mints a one-time pairing code in
 Studio's Settings, naming the app, the scopes it gets and its permission
 ceiling. The app's first `hello` presents `{ pairingCode }`; its `welcome`
-carries `pairing.token`, shown that once — Studio keeps only its hash. Every
-later `hello` presents `{ token }`. Revoking the app in Settings ends its open
+carries `pairing.token` — Studio keeps only its hash. The code stays good
+until that token is first presented: a welcome lost with its connection is
+answered again by presenting the code again, with a fresh token that voids the
+lost one. Every later `hello` presents `{ token }`, which spends the code. Revoking the app in Settings ends its open
 connections with `bye { code: 'revoked' }`.
 
 The `welcome`'s `grant` is what the connection may do:

@@ -47,7 +47,9 @@ const CHUNK_CHARS = 48_000
 /**
  * What a client proves who it is with: the token it was paired with (or the
  * owner token), or a one-time pairing code the person minted in Studio's
- * Settings, which the `welcome` exchanges for a token exactly once.
+ * Settings, which the `welcome` exchanges for a token. The code stays good
+ * until that token is first presented, so a welcome lost with its connection
+ * is answered again (with a fresh token, voiding the lost one).
  */
 export type StudioAuth = { token: string } | { pairingCode: string }
 

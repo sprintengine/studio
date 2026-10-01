@@ -41,8 +41,24 @@ test('a pairing code is redeemed once, for exactly the grant Settings named', as
     store.offers().some((pending) => pending.id === offer.id),
     false,
   )
-  assert.equal(store.redeem(code).ok, false)
   assert.deepEqual(store.authenticate(redeemed.ok ? redeemed.token : ''), redeemed.ok ? redeemed.grant : null)
+  // The token arrived and was used: the code is spent.
+  assert.equal(store.redeem(code).ok, false)
+})
+
+test('a code whose token never arrived can be presented again, for the same app and a fresh token', async () => {
+  const dir = await dataDir()
+  const store = createStudioLocalAppStore({ resolveUserDataDir: () => dir })
+  const { code } = store.offer(offerInput)
+  const lost = store.redeem(code)
+  const retried = store.redeem(code)
+  assert.ok(lost.ok && retried.ok)
+  assert.equal(retried.grant.clientId, lost.grant.clientId)
+  assert.equal(store.list().length, 1)
+  // Only the latest token works; the one lost with its welcome is void.
+  assert.equal(store.authenticate(lost.token), null)
+  assert.equal(store.authenticate(retried.token)?.clientId, lost.grant.clientId)
+  assert.equal(store.redeem(code).ok, false)
 })
 
 test('only the token’s hash reaches disk, owner-only, and it still authenticates after a restart', async () => {

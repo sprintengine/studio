@@ -167,6 +167,42 @@ test('a pairing code is redeemed once and its token kept 0600 for every later co
   assert.equal(again.grant.clientId, 'paired')
 })
 
+test('a token that cannot be kept fails the connect, and the same code works once it can', async () => {
+  const target = await studio()
+  // The fake authenticator spends codes; this one plays Studio's rule: good
+  // until its token is first presented.
+  const grant = {
+    clientId: 'kept',
+    name: 'kept',
+    owner: false,
+    scopes: ['conversation:read' as const],
+    ceiling: 'auto' as const,
+  }
+  const code = 'sepair_0123456789abcdef'
+  const authenticate = target.auth.authenticate
+  target.auth.authenticate = (credential, client) => {
+    if ('pairingCode' in credential && credential.pairingCode === code) {
+      target.auth.grants.set('kept', grant)
+      target.auth.tokens.set('sest_kept_token_00000000', 'kept')
+      return { ok: true, grant, pairingToken: 'sest_kept_token_00000000' }
+    }
+    return authenticate(credential, client)
+  }
+  const options = {
+    transport: socketTransport({ dataDir: target.dataDir }),
+    client: { name: 'kept' },
+    auth: { pairingCode: code },
+  }
+  await assert.rejects(
+    connect({ ...options, onToken: () => Promise.reject(new Error('disk full')) }),
+    (error: StudioError) => error.code === 'token_not_kept' && /disk full/.test(error.message),
+  )
+  const kept: string[] = []
+  const app = await connect({ ...options, onToken: (token) => void kept.push(token) })
+  cleanups.push(() => app.close())
+  assert.deepEqual(kept, ['sest_kept_token_00000000'])
+})
+
 test('events resume across Studio restarting, with no gap and no repeat', async () => {
   const target = await studio()
   const states: StudioClientState[] = []

@@ -36,7 +36,10 @@ loosest permission preset its chats may run on. Studio shows a one-time
 pairing code, valid for ten minutes. The app's first connection presents the
 code and is answered with a token, once: keep it (`tokenFile` does, `0600` in a
 `0700` directory) and present it from then on. Studio keeps only the token's
-hash. Revoking the app in Settings ends its open connections and its token.
+hash. The code stays good until the token is first presented, so a welcome
+lost with its connection, or a token `onToken` could not keep (the connect
+fails with `token_not_kept`), is recovered by connecting with the same code
+again. Revoking the app in Settings ends its open connections and its token.
 
 What an app may do is its grant:
 
