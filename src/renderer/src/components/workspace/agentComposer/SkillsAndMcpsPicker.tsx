@@ -348,7 +348,7 @@ export function SkillsAndMcpsPicker({
           // The kit's chip, which is what both hosts were passing a chrome
           // string to draw: the `triggerClassName` escape hatch is gone with
           // it, because a trigger the kit can draw does not need one.
-          <ChipButton ref={ref} variant="outline" onClick={togglePopover} {...triggerProps}>
+          <ChipButton ref={ref} variant="raised" onClick={togglePopover} {...triggerProps}>
             <StarGlyph filled={false} stroked className="icon-xs" />
             {includeMcps ? 'Skills & MCPs' : 'Skills'}
             {pickedCount > 0 ? <span className="text-[color:var(--text-subtle)]">· {pickedCount}</span> : null}

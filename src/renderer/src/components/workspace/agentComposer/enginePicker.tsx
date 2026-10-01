@@ -65,14 +65,15 @@ export function EnginePickerChip({
       popupRole="menu"
       placement={placement}
       renderTrigger={({ ref, triggerProps, togglePopover }) => {
-        // The kit's chip. `outline` is the variant that stays findable on a busy
-        // strip; a solid-ish accent on a standing chip would spend the accent
-        // budget on a state display rather than on the view's one primary
-        // action (principles.md → The accent budget).
+        // The kit's raised chip: a control in the composer's toolbar row,
+        // standing off it on the same edge as every other control there. A
+        // solid-ish accent on a standing chip would spend the accent budget on
+        // a state display rather than on the view's one primary action
+        // (principles.md → The accent budget).
         const chip = (
           <ChipButton
             ref={ref}
-            variant="outline"
+            variant="raised"
             tone="neutral"
             onClick={togglePopover}
             // Named, not left to its contents: the chip is a mark plus a

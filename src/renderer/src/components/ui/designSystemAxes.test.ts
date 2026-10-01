@@ -172,7 +172,9 @@ test('designSystemAxes', async () => {
       // not a win — and the wizard's own panes took the rest with them.
       // workspace 10 → 8, 2026-09-16: the unmounted AgentComposer panel was deleted.
       // 8 → 7: shared attachment chips now use the documented radius ramp.
-      'components/workspace': 7, // 2026-09-16: the in-tree Sprint Engine surfaces left the tree with their off-ramps
+      // 7 → 6, 2026-10-01: the worktree switch took the raised chip's shell,
+      // and its bare `rounded` went with the box it drew by hand.
+      'components/workspace': 6, // 2026-09-16: the in-tree Sprint Engine surfaces left the tree with their off-ramps
       // 35 → 34, 2026-09-06: the retired plan door's plan column was deleted
       // with its door (a70ba0931).
       // 34 → 26, 2026-09-08: SwitchboardBoardPanel, SwitchboardWorkspacePanel and

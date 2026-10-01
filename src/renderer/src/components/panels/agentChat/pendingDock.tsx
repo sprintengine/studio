@@ -142,13 +142,12 @@ function ArrivalAnnouncement({ text }: { text: string }) {
 const DOCK_TONE_STATE = { warn: 'needs_input', error: 'failed', accent: 'in_progress' } as const
 
 // The shared card shell docked above the composer: eyebrow row led by the
-// lifecycle glyph of what is being asked, content, then a footer of keyboard hints + actions. Question,
+// lifecycle glyph of what is being asked, content, then a footer of actions. Question,
 // permission and plan requests all render inside it so pending asks read as
 // one consistent surface.
 export function DockShell({
   tone,
   eyebrow,
-  hints,
   actions,
   onKeyDown,
   containerRef,
@@ -157,7 +156,6 @@ export function DockShell({
 }: {
   tone: 'warn' | 'error' | 'accent'
   eyebrow: string
-  hints?: React.ReactNode
   /**
    * The dock's buttons, in reading order with the affirmative one last. A dock
    * offers a two-button choice, and the two are never the same button twice:
@@ -192,10 +190,13 @@ export function DockShell({
         <span className="text-micro font-medium tracking-normal text-[color:var(--text-subtle)]">{eyebrow}</span>
       </div>
       {children}
+      {/* No row of key hints (owner ruling 2026-10-01): the keys still work —
+          ⏎ and ⎋ on every card, the digits and arrows on a question — and the
+          plan's and the question's affirmative
+          buttons wear their ⏎. A line spelling them out on every
+          card cost a row of height in a dock that is already the tallest
+          thing above the composer, to tell a regular what they know. */}
       <div className="flex items-center gap-2.5 px-3 pb-2.5 pt-2">
-        {hints ? (
-          <span className="flex items-center gap-2 text-micro text-[color:var(--text-subtle)]">{hints}</span>
-        ) : null}
         <div className="ml-auto flex shrink-0 gap-2">{actions}</div>
       </div>
     </div>
@@ -235,7 +236,6 @@ export function permissionActionLabel(action?: string): string {
 export function ConversationPendingDock({
   pendingApproval,
   pendingApprovals,
-  workspaceName,
   workspaceRoot,
   onApprove,
   modeSwitches,
@@ -244,7 +244,6 @@ export function ConversationPendingDock({
 }: {
   pendingApproval?: ApprovalEntry
   pendingApprovals?: ApprovalEntry[]
-  workspaceName?: string
   workspaceRoot?: string
   onApprove: ApprovalHandler
   /** The looser modes a permission card offers to allow into; none offers none. */
@@ -298,7 +297,6 @@ export function ConversationPendingDock({
           ) : (
             <ConversationPermissionCard
               entry={entry}
-              workspaceName={workspaceName}
               workspaceRoot={workspaceRoot}
               onApprove={onApprove}
               {...(modeSwitches?.length && onApproveAndSwitch ? { modeSwitches, onApproveAndSwitch } : {})}
@@ -322,7 +320,6 @@ export function ConversationPendingDock({
 // alternatives rather than targets, so the primary never moves.
 export function ConversationPermissionCard({
   entry,
-  workspaceName,
   workspaceRoot,
   onApprove,
   modeSwitches = [],
@@ -331,7 +328,6 @@ export function ConversationPermissionCard({
   active = true,
 }: {
   entry: Extract<TranscriptEntry, { kind: 'approval' }>
-  workspaceName?: string
   workspaceRoot?: string
   onApprove: ApprovalHandler
   modeSwitches?: ApprovalModeSwitch[]
@@ -424,16 +420,6 @@ export function ConversationPermissionCard({
       containerRef={containerRef}
       onKeyDown={handleKeyDown}
       ariaLabel="Permission request"
-      hints={
-        <>
-          <span className="inline-flex items-center gap-1">
-            <Kbd>⏎</Kbd> {entry.defaultToNo ? 'deny' : 'allow once'}
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <Kbd>⎋</Kbd> deny
-          </span>
-        </>
-      }
       actions={
         <>
           <GhostButton
@@ -503,12 +489,6 @@ export function ConversationPermissionCard({
           <InlineDiff edit={withoutNoNewlineMarkers(edit)} />
         </div>
       ))}
-      {workspaceName ? (
-        <div className="flex items-center gap-1.5 px-3 pt-1.5 text-meta text-[color:var(--text-subtle)]">
-          <FolderGlyph className="icon-xs" />
-          in {workspaceName}
-        </div>
-      ) : null}
     </DockShell>
   )
 }
@@ -555,16 +535,6 @@ export function ConversationPlanCard({
       containerRef={containerRef}
       onKeyDown={handleKeyDown}
       ariaLabel="Plan approval"
-      hints={
-        <>
-          <span className="inline-flex items-center gap-1">
-            <Kbd>⏎</Kbd> approve
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <Kbd>⎋</Kbd> keep planning
-          </span>
-        </>
-      }
       actions={
         <>
           {/* Read it as a document in the pane, decide here: the dock keeps
@@ -713,23 +683,6 @@ export function ConversationQuestionCard({
       containerRef={containerRef}
       onKeyDown={handleKeyDown}
       ariaLabel="Question from the agent"
-      hints={
-        <>
-          {!question.multiSelect && question.options.length > 1 ? (
-            <span className="inline-flex items-center gap-1">
-              <Kbd>↑↓</Kbd> choose
-            </span>
-          ) : null}
-          {question.options.length > 0 ? (
-            <span className="inline-flex items-center gap-1">
-              <Kbd>1–{Math.min(question.options.length, 9)}</Kbd> {question.multiSelect ? 'toggle' : 'pick'}
-            </span>
-          ) : null}
-          <span className="inline-flex items-center gap-1">
-            <Kbd>⏎</Kbd> {isLast ? 'answer' : 'next'}
-          </span>
-        </>
-      }
       actions={
         <>
           <GhostButton onClick={() => onAnswer(requestId, false)} disabled={busy}>
@@ -824,17 +777,5 @@ export function ConversationQuestionCard({
         </div>
       ) : null}
     </DockShell>
-  )
-}
-
-export function FolderGlyph({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 14 14" fill="none" aria-hidden="true">
-      <path
-        d="M2 4.5A1.5 1.5 0 013.5 3h2l1 1.5h4A1.5 1.5 0 0112 6v4a1.5 1.5 0 01-1.5 1.5h-7A1.5 1.5 0 012 10V4.5z"
-        stroke="currentColor"
-        strokeWidth="1.2"
-      />
-    </svg>
   )
 }

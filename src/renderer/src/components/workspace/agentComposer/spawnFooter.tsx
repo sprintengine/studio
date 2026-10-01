@@ -82,6 +82,7 @@ export function FooterMenu({
           // tone and its `--bg-hover` lift.
           <ChipButton
             ref={ref}
+            variant="raised"
             tint={tone === 'warn' ? 'var(--tone-warn)' : tone === 'accent' ? 'var(--accent-primary)' : undefined}
             aria-label={ariaLabel}
             onClick={togglePopover}

@@ -133,11 +133,15 @@ test('SegmentedControl', async () => {
 
     run("segments are square at the toolbar's own control step", () => {
       const view = mount(iconStrip())
+      const group = view.container.querySelector('[role="radiogroup"]') as HTMLElement
       const radio = view.container.querySelector('[role="radio"]') as HTMLElement
       const classes = radio.getAttribute('class') ?? ''
-      assert.match(classes, /size-control-xs/, 'the strip sits level with the button --icon items beside it')
+      const track = group.getAttribute('class') ?? ''
+      // The track carries the height; a square thumb fills it.
+      assert.match(track, /h-control-xs/, 'the strip sits level with the button --icon items beside it')
+      assert.match(classes, /aspect-square/)
       assert.match(classes, /px-0/)
-      assert.ok(!/h-control-sm/.test(classes), 'never the 30px form-control step in a 30px band')
+      assert.ok(!/h-control-sm/.test(track), 'never the 30px form-control step in a 30px band')
       view.unmount()
     })
 
@@ -154,7 +158,9 @@ test('SegmentedControl', async () => {
         'one tab stop, on the selection',
       )
       const checked = radios[1].getAttribute('class') ?? ''
-      assert.match(checked, /bg-\[color:var\(--bg-selected\)\]/)
+      // A raised thumb in the track: the lifted ground and the control edge.
+      assert.match(checked, /bg-\[color:var\(--bg-surface-raised\)\]/)
+      assert.match(checked, /control-edge/)
       assert.ok(
         !/bg-\[color:var\(--accent-primary\)\]/.test(checked),
         'a selected segment is a state display, not the primary action',

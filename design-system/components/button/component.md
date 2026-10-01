@@ -218,6 +218,33 @@ The treatment is two things in one token, never hand-rolled:
   resting shadow rather than layering over it: the highlight inverts into a
   shadow cast inward, and the drop disappears.
 
+Each shadow travels with a **sheen** — a faint top-to-bottom falloff painted as
+a `background-image` over the control's ground, so it lays over whatever colour
+the variant set:
+
+- `gradient.control-raised-sheen` with `control-raised`: white falling off from
+  the lit top edge across the fill.
+- `gradient.control-sheen` with `control-edge`: dark mode lifts the upper half,
+  light mode shades the lower half — both read as a face curved toward the
+  light.
+
+The sheen drops with the drop: pressed and disabled paint no `background-image`.
+
+### The lit lip, strengthened (owner ruling 2026-10-01)
+
+`control-edge` gained a 1px inset top highlight in **both** modes (it had one in
+dark only), a shallow drop in light, and the sheen above; `control-raised`
+gained a second, softer drop under the first. At the old values a bordered
+control in light mode was a hairline box with a shadow too faint to find, and the
+same treatment was spread across too few members to read as a family.
+
+It now reaches every bordered neutral control that is pressed to act: the
+outline button, the [chip button](../chip-button/component.md)'s `--raised`
+variant, the [card button](../card-button/component.md)'s `--raised` launcher
+tile and the [segmented control](../segmented-control/component.md)'s thumb.
+Fields — inputs, selects and [trigger buttons](../trigger-button/component.md)
+— stay level with the page: they state a value rather than perform an action.
+
 Ghost and icon buttons stay flat. A borderless control has no edge to light,
 and giving one a drop shadow would make every toolbar read as a row of tiles.
 

@@ -45,13 +45,14 @@
  * physical button under a light source above it. `box-shadow` rather than a
  * ::before ring so the bevel and the drop are one property with one token. */
 .ds-button--primary {
-  background: var(--sem-color-accent-primary);
+  background-color: var(--sem-color-accent-primary);
+  background-image: var(--sem-gradient-control-raised-sheen);
   color: var(--sem-color-text-on-accent);
   box-shadow: var(--sem-shadow-control-raised);
 }
 
 .ds-button--primary:hover:not(:disabled) {
-  background: var(--sem-color-accent-hover);
+  background-color: var(--sem-color-accent-hover);
 }
 
 /* Pressed REPLACES the resting shadow rather than layering over it: the light
@@ -59,10 +60,12 @@
  * because the control is no longer standing off the surface. */
 .ds-button--primary:active:not(:disabled),
 .ds-button--primary[data-pressed]:not(:disabled) {
+  background-image: none;
   box-shadow: var(--sem-shadow-control-pressed);
 }
 
 .ds-button--primary:disabled {
+  background-image: none;
   box-shadow: none;
 }
 
@@ -71,23 +74,26 @@
  * quiet enough that it never competes with the view's one primary. */
 .ds-button--outline {
   border: 1px solid var(--sem-color-border-default);
-  background: var(--sem-color-bg-surface);
+  background-color: var(--sem-color-bg-surface);
+  background-image: var(--sem-gradient-control-sheen);
   color: var(--sem-color-text-default);
   box-shadow: var(--sem-shadow-control-edge);
 }
 
 .ds-button--outline:hover:not(:disabled) {
   border-color: var(--sem-color-border-strong);
-  background: var(--sem-color-bg-hover);
+  background-color: var(--sem-color-bg-hover);
   color: var(--sem-color-text-primary);
 }
 
 .ds-button--outline:active:not(:disabled),
 .ds-button--outline[data-pressed]:not(:disabled) {
+  background-image: none;
   box-shadow: var(--sem-shadow-control-pressed);
 }
 
 .ds-button--outline:disabled {
+  background-image: none;
   box-shadow: none;
 }
 

@@ -117,9 +117,12 @@
   --sem-shadow-popover: 0 1px 2px rgba(16, 20, 24, 0.08), 0 4px 12px -4px rgba(16, 20, 24, 0.12);
   --sem-shadow-modal: 0 2px 6px rgba(16, 20, 24, 0.08), 0 16px 48px -12px rgba(16, 20, 24, 0.18);
   --sem-shadow-toast: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 1px 2px rgba(16, 20, 24, 0.08), 0 10px 28px -8px rgba(16, 20, 24, 0.22);
-  --sem-shadow-control-raised: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 1px 2px rgba(16, 20, 24, 0.14);
-  --sem-shadow-control-edge: inset 0 -1px 0 rgba(16, 20, 24, 0.05), 0 1px 1px rgba(16, 20, 24, 0.05);
+  --sem-shadow-control-raised: inset 0 1px 0 rgba(255, 255, 255, 0.26), 0 1px 2px rgba(16, 20, 24, 0.16), 0 2px 6px -2px rgba(16, 20, 24, 0.16);
+  --sem-shadow-control-edge: inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -1px 0 rgba(16, 20, 24, 0.04), 0 1px 2px rgba(16, 20, 24, 0.07);
   --sem-shadow-control-pressed: inset 0 1px 2px rgba(16, 20, 24, 0.12);
+  --sem-shadow-control-track: inset 0 1px 2px rgba(16, 20, 24, 0.06);
+  --sem-gradient-control-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0) 45%, rgba(16, 20, 24, 0.03) 100%);
+  --sem-gradient-control-raised-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0) 100%);
   --sem-font-family-ui: Inter, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --sem-font-family-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
   --sem-font-size-micro: 11px;
@@ -238,9 +241,12 @@
   --sem-shadow-popover: 0 4px 12px -6px rgba(0, 0, 0, 0.55);
   --sem-shadow-modal: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 16px 48px -16px rgba(0, 0, 0, 0.72);
   --sem-shadow-toast: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 1px 2px rgba(0, 0, 0, 0.4), 0 14px 36px -10px rgba(0, 0, 0, 0.75);
-  --sem-shadow-control-raised: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 1px 2px rgba(0, 0, 0, 0.45);
-  --sem-shadow-control-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --sem-shadow-control-raised: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 1px 2px rgba(0, 0, 0, 0.5), 0 2px 6px -2px rgba(0, 0, 0, 0.45);
+  --sem-shadow-control-edge: inset 0 1px 0 rgba(255, 255, 255, 0.075), 0 1px 2px rgba(0, 0, 0, 0.42);
   --sem-shadow-control-pressed: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+  --sem-shadow-control-track: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+  --sem-gradient-control-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.045) 0%, rgba(255, 255, 255, 0) 100%);
+  --sem-gradient-control-raised-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0) 100%);
   --sem-opacity-dimmed: 0.38;
   --sem-glass-blur: 16px;
   --sem-glass-saturation: 1.08;
@@ -299,9 +305,12 @@
   --sem-shadow-popover: 0 4px 12px -6px rgba(0, 0, 0, 0.55);
   --sem-shadow-modal: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 16px 48px -16px rgba(0, 0, 0, 0.72);
   --sem-shadow-toast: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 1px 2px rgba(0, 0, 0, 0.4), 0 14px 36px -10px rgba(0, 0, 0, 0.75);
-  --sem-shadow-control-raised: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 1px 2px rgba(0, 0, 0, 0.45);
-  --sem-shadow-control-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --sem-shadow-control-raised: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 1px 2px rgba(0, 0, 0, 0.5), 0 2px 6px -2px rgba(0, 0, 0, 0.45);
+  --sem-shadow-control-edge: inset 0 1px 0 rgba(255, 255, 255, 0.075), 0 1px 2px rgba(0, 0, 0, 0.42);
   --sem-shadow-control-pressed: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+  --sem-shadow-control-track: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+  --sem-gradient-control-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.045) 0%, rgba(255, 255, 255, 0) 100%);
+  --sem-gradient-control-raised-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0) 100%);
   --sem-opacity-dimmed: 0.38;
   --sem-glass-blur: 16px;
   --sem-glass-saturation: 1.08;
@@ -357,9 +366,12 @@
   --sem-shadow-popover: 0 1px 2px rgba(16, 20, 24, 0.08), 0 4px 12px -4px rgba(16, 20, 24, 0.12);
   --sem-shadow-modal: 0 2px 6px rgba(16, 20, 24, 0.08), 0 16px 48px -12px rgba(16, 20, 24, 0.18);
   --sem-shadow-toast: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 1px 2px rgba(16, 20, 24, 0.08), 0 10px 28px -8px rgba(16, 20, 24, 0.22);
-  --sem-shadow-control-raised: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 1px 2px rgba(16, 20, 24, 0.14);
-  --sem-shadow-control-edge: inset 0 -1px 0 rgba(16, 20, 24, 0.05), 0 1px 1px rgba(16, 20, 24, 0.05);
+  --sem-shadow-control-raised: inset 0 1px 0 rgba(255, 255, 255, 0.26), 0 1px 2px rgba(16, 20, 24, 0.16), 0 2px 6px -2px rgba(16, 20, 24, 0.16);
+  --sem-shadow-control-edge: inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -1px 0 rgba(16, 20, 24, 0.04), 0 1px 2px rgba(16, 20, 24, 0.07);
   --sem-shadow-control-pressed: inset 0 1px 2px rgba(16, 20, 24, 0.12);
+  --sem-shadow-control-track: inset 0 1px 2px rgba(16, 20, 24, 0.06);
+  --sem-gradient-control-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0) 45%, rgba(16, 20, 24, 0.03) 100%);
+  --sem-gradient-control-raised-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0) 100%);
   --sem-opacity-dimmed: 0.42;
   --sem-glass-blur: 12px;
   --sem-glass-saturation: 1.14;
@@ -1608,13 +1620,14 @@ code {
  * physical button under a light source above it. `box-shadow` rather than a
  * ::before ring so the bevel and the drop are one property with one token. */
 .ds-button--primary {
-  background: var(--sem-color-accent-primary);
+  background-color: var(--sem-color-accent-primary);
+  background-image: var(--sem-gradient-control-raised-sheen);
   color: var(--sem-color-text-on-accent);
   box-shadow: var(--sem-shadow-control-raised);
 }
 
 .ds-button--primary:hover:not(:disabled) {
-  background: var(--sem-color-accent-hover);
+  background-color: var(--sem-color-accent-hover);
 }
 
 /* Pressed REPLACES the resting shadow rather than layering over it: the light
@@ -1622,10 +1635,12 @@ code {
  * because the control is no longer standing off the surface. */
 .ds-button--primary:active:not(:disabled),
 .ds-button--primary[data-pressed]:not(:disabled) {
+  background-image: none;
   box-shadow: var(--sem-shadow-control-pressed);
 }
 
 .ds-button--primary:disabled {
+  background-image: none;
   box-shadow: none;
 }
 
@@ -1634,23 +1649,26 @@ code {
  * quiet enough that it never competes with the view's one primary. */
 .ds-button--outline {
   border: 1px solid var(--sem-color-border-default);
-  background: var(--sem-color-bg-surface);
+  background-color: var(--sem-color-bg-surface);
+  background-image: var(--sem-gradient-control-sheen);
   color: var(--sem-color-text-default);
   box-shadow: var(--sem-shadow-control-edge);
 }
 
 .ds-button--outline:hover:not(:disabled) {
   border-color: var(--sem-color-border-strong);
-  background: var(--sem-color-bg-hover);
+  background-color: var(--sem-color-bg-hover);
   color: var(--sem-color-text-primary);
 }
 
 .ds-button--outline:active:not(:disabled),
 .ds-button--outline[data-pressed]:not(:disabled) {
+  background-image: none;
   box-shadow: var(--sem-shadow-control-pressed);
 }
 
 .ds-button--outline:disabled {
+  background-image: none;
   box-shadow: none;
 }
 
@@ -1974,6 +1992,33 @@ code {
   background: var(--sem-color-bg-hover);
 }
 
+/* raised — a LAUNCHER tile: one of a grid of things to open, pressed once and
+ * gone (owner ruling 2026-10-01). The bordered hairline over the raised ground,
+ * standing off the page on the control edge exactly as an outline button does.
+ * The elevation is there at rest, so hover still moves only the ground and the
+ * edge colour; nothing appears and nothing reflows. */
+.ds-card-button--raised {
+  border: 1px solid var(--sem-color-border-default);
+  background-color: var(--sem-color-bg-surface-raised);
+  background-image: var(--sem-gradient-control-sheen);
+  box-shadow: var(--sem-shadow-control-edge);
+}
+
+.ds-card-button--raised:hover:not(:disabled):not([aria-pressed='true']) {
+  border-color: var(--sem-color-border-strong);
+  background-color: var(--sem-color-bg-hover);
+}
+
+.ds-card-button--raised:active:not(:disabled):not([aria-pressed='true']) {
+  background-image: none;
+  box-shadow: var(--sem-shadow-control-pressed);
+}
+
+.ds-card-button--raised:disabled {
+  background-image: none;
+  box-shadow: none;
+}
+
 /* The chosen tile — the same neutral canon a row takes, because a chosen tile
  * and a chosen row are one fact in two layouts. Hover is excluded above rather
  * than repainted here. */
@@ -1983,7 +2028,9 @@ code {
   box-shadow: inset 0 0 0 2px var(--sem-color-accent-primary);
 }
 
-.ds-card-button--bordered[aria-pressed='true'] {
+.ds-card-button--bordered[aria-pressed='true'],
+.ds-card-button--raised[aria-pressed='true'] {
+  background-image: none;
   border-color: var(--sem-color-border-strong);
 }
 
@@ -2646,6 +2693,41 @@ code {
 .ds-chip-button--overlay:hover:not(:disabled):not([aria-pressed='true']):not([aria-current='true']) {
   border-color: var(--sem-color-border-strong);
   background: var(--sem-color-bg-hover);
+}
+
+/* raised — a chip that is a CONTROL in a toolbar row rather than a label inside
+ * a line (owner ruling 2026-10-01): a composer's model, skills, permissions and
+ * overflow triggers. It wears the outline button's shell exactly — the xs
+ * control height, the control radius, the hairline, the lit top lip over a
+ * shallow drop and the sheen — so a chip and a button beside the same composer
+ * are one family. The one chip variant that is not content-height. */
+.ds-chip-button--raised {
+  height: var(--sem-size-control-xs);
+  padding: 0 var(--sem-space-md);
+  gap: var(--sem-space-xs);
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-control);
+  background-color: var(--sem-color-bg-surface-raised);
+  background-image: var(--sem-gradient-control-sheen);
+  box-shadow: var(--sem-shadow-control-edge);
+  font-size: var(--sem-font-size-meta);
+}
+
+.ds-chip-button--raised:hover:not(:disabled):not([aria-pressed='true']):not([aria-current='true']) {
+  border-color: var(--sem-color-border-strong);
+  background-color: var(--sem-color-bg-hover);
+}
+
+/* Elevated controls press by inverting the bevel, never by scale as well. */
+.ds-chip-button--raised:active:not(:disabled) {
+  transform: none;
+  background-image: none;
+  box-shadow: var(--sem-shadow-control-pressed);
+}
+
+.ds-chip-button--raised:disabled {
+  background-image: none;
+  box-shadow: none;
 }
 
 /* The two tone tints. A STANDING warning the chip itself carries — scripts are
@@ -6966,19 +7048,29 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 }
 
 /* components/segmented-control/component.css */
-/* Segmented control — a radiogroup strip of 2–4 always-visible, mutually
- * exclusive choices (src/renderer/src/components/ui/SegmentedControl.tsx).
+/* Segmented control — a radiogroup of 2–4 always-visible, mutually exclusive
+ * choices (src/renderer/src/components/ui/SegmentedControl.tsx).
  *
- * The group owns the border, radius, and clip; segments own nothing
- * structural. Selection is neutral — bg.selected plus an ink lift — never the
- * accent: a selected segment is a state display, not the view's one primary
- * action. */
+ * A TRACK and a THUMB (owner ruling 2026-10-01). The group is a groove set into
+ * the surface — bg.well, a border.subtle hairline, and shadow.control-track
+ * light falling into it — and owns the ramp height. The selected segment is a
+ * raised thumb standing out of the groove on shadow.control-edge and
+ * gradient.control-sheen: the same step every bordered control stands off the
+ * page. Unselected segments are bare ink on the groove.
+ *
+ * Selection stays neutral — a lifted ground and an ink lift, never the accent:
+ * a selected segment is a state display, not the view's one primary action. */
 
 .ds-segmented-control {
   display: inline-flex;
-  overflow: hidden;
-  border: 1px solid var(--sem-color-border-default);
+  align-items: stretch;
+  gap: var(--sem-space-3xs);
+  height: var(--sem-size-control-sm);
+  padding: var(--sem-space-3xs);
+  border: 1px solid var(--sem-color-border-subtle);
   border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-well);
+  box-shadow: var(--sem-shadow-control-track);
 }
 
 .ds-segmented-control-segment {
@@ -6986,10 +7078,12 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   align-items: center;
   /* Only a badged segment has a second child: its count, after the label. */
   gap: var(--sem-space-xs);
-  height: var(--sem-size-control-sm);
-  padding: 0 var(--sem-space-lg);
+  padding: 0 var(--sem-space-md);
   border: 0;
-  background: var(--sem-color-bg-surface);
+  /* The thumb sits 2px inside the track's 7px corner, so it takes the chip
+   * step: concentric rather than a second 7px curve crowding the first. */
+  border-radius: var(--sem-radius-chip);
+  background: transparent;
   color: var(--sem-color-text-muted);
   font-family: var(--sem-font-family-ui);
   font-size: var(--sem-font-size-meta);
@@ -6997,12 +7091,8 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   cursor: pointer;
   transition:
     background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    box-shadow var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
     color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
-}
-
-/* One internal hairline per join — on the segment after it, never doubled. */
-.ds-segmented-control-segment + .ds-segmented-control-segment {
-  border-left: 1px solid var(--sem-color-border-subtle);
 }
 
 .ds-segmented-control-segment:hover:not(:disabled):not([aria-checked='true']) {
@@ -7010,16 +7100,15 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   color: var(--sem-color-text-primary);
 }
 
-/* Neutral selection: a luminance step and an ink lift, which is why the
- * checked segment survives grayscale. */
+/* The thumb: the raised ground over the groove, lit from above. A luminance
+ * step AND an edge, which is why the checked segment survives grayscale. */
 .ds-segmented-control-segment[aria-checked='true'] {
-  background: var(--sem-color-bg-selected);
+  background-color: var(--sem-color-bg-surface-raised);
+  background-image: var(--sem-gradient-control-sheen);
+  box-shadow: var(--sem-shadow-control-edge);
   color: var(--sem-color-text-primary);
 }
 
-/* The group clips its own overflow, so the shared treatment turns inward —
- * only the offset is negated, same width, same colour (the split button's
- * reasoning, and its exact rule). */
 .ds-segmented-control-segment:focus-visible {
   outline: var(--sem-focus-ring);
   outline-offset: calc(-1 * var(--sem-focus-ring-offset));
@@ -7031,9 +7120,12 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 }
 
 /* Dense variant for inline sub-controls inside compact popovers. */
-.ds-segmented-control--sm .ds-segmented-control-segment {
+.ds-segmented-control--sm {
   height: var(--sem-size-control-xs);
-  padding: 0 var(--sem-space-md);
+}
+
+.ds-segmented-control--sm .ds-segmented-control-segment {
+  padding: 0 var(--sem-space-sm);
   font-size: var(--sem-font-size-micro);
 }
 
@@ -7048,7 +7140,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
  * that cannot spend width on labels — the diff window's side-by-side / unified
  * toggle, sharing its row with the file stepper and the include counter.
  *
- * `size.control.xs` square, so the strip matches the `button --icon` items
+ * A `size.control.xs` track of square thumbs, so the strip matches the `button --icon` items
  * beside it in a `toolbar` band rather than standing a step taller than them,
  * and the glyph steps up to `icon.size.sm`: here the glyph IS the control, not
  * a mark beside the word that is.
@@ -7057,9 +7149,12 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
  * tooltip, which is the contract `tabs --icon-only` already wrote. A segment
  * with no label and no tooltip is a blank button, and it is the only thing this
  * variant can get wrong. */
-.ds-segmented-control--icon-only .ds-segmented-control-segment {
-  width: var(--sem-size-control-xs);
+.ds-segmented-control--icon-only {
   height: var(--sem-size-control-xs);
+}
+
+.ds-segmented-control--icon-only .ds-segmented-control-segment {
+  aspect-ratio: 1;
   justify-content: center;
   padding: 0;
 }
@@ -12802,7 +12897,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-app)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-app)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.app</code><code class="catalog-token-value">{ref.color.mist-100}</code><span class="catalog-badge">surface</span></p><p class="catalog-token-meta">Root/page background — the canvas every panel sits on. Root and page background, the base layer of every view. <strong>Do not:</strong> Cards or raised chrome — use bg.surface / bg.surface-raised so panels read as elevated.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-surface)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-surface)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.surface</code><code class="catalog-token-value">{ref.color.white}</code><span class="catalog-badge">surface</span></p><p class="catalog-token-meta">Panel, section, and default card surface — one step above the app canvas. Panels, sections, cards — the default working surface.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-surface-raised)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-surface-raised)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.surface-raised</code><code class="catalog-token-value">{ref.color.white}</code><span class="catalog-badge">surface</span></p><p class="catalog-token-meta">Raised chrome: tab strips, inputs, popovers, drawers. Inputs, popovers, drawers, and other chrome raised above the panel surface.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-well)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-well)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.well</code><code class="catalog-token-value">rgba(32, 36, 40, 0.05)</code><span class="catalog-badge">surface</span></p><p class="catalog-token-meta">A content well set into a reading surface: a translucent tint of the ink over whatever surface is behind it, so it separates from the conversation canvas, a panel, and a card alike. Code blocks and other preformatted source shown inside prose — content the reader is meant to see as a separate object in the flow, not as chrome. Pair with a border.subtle hairline. <strong>Do not:</strong> Controls, rows, hover or selection (those are bg.hover / bg.selected), and chrome raised above the panel (bg.surface-raised). Never stack a well inside a well: the tints add.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-well)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-well)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.well</code><code class="catalog-token-value">rgba(32, 36, 40, 0.05)</code><span class="catalog-badge">surface</span></p><p class="catalog-token-meta">A content well set into a reading surface: a translucent tint of the ink over whatever surface is behind it, so it separates from the conversation canvas, a panel, and a card alike. Code blocks and other preformatted source shown inside prose — content the reader is meant to see as a separate object in the flow, not as chrome. Pair with a border.subtle hairline. Also the groove of a segmented control (owner ruling 2026-10-01): a track is set INTO the surface the same way, and a tint rather than a solid is what lets one strip sit on a panel, a card or a popover alike. <strong>Do not:</strong> A control's own face, rows, hover or selection (those are bg.hover / bg.selected), and chrome raised above the panel (bg.surface-raised). Never stack a well inside a well: the tints add.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-hover)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-hover)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.hover</code><code class="catalog-token-value">{ref.color.mist-150}</code><span class="catalog-badge">interaction</span></p><p class="catalog-token-meta">Hover fill on rows, buttons, and list items — the only hover treatment (no shadow, scale, or glow). Hover background on any interactive row, button, or list item.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-active)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-active)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.active</code><code class="catalog-token-value">{ref.color.mist-200}</code><span class="catalog-badge">interaction</span></p><p class="catalog-token-meta">Pressed / active background. Pressed state background on interactive surfaces.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-selected)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-selected)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.selected</code><code class="catalog-token-value">{ref.color.mist-250}</code><span class="catalog-badge">interaction</span></p><p class="catalog-token-meta">Selection in the pane that currently has focus. The selected row of the focused pane or list. Pair with text.primary. <strong>Do not:</strong> A second simultaneous strong selection elsewhere on screen — every other pane drops to bg.selected-resting.</p></div></div>
@@ -12887,9 +12982,12 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.popover</code><code class="catalog-token-value">0 1px 2px rgba(16, 20, 24, 0.08), 0 4px 12px -4px rgba(16, 20, 24, 0.12)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Elevation for trigger-anchored surfaces: popovers, menus, tooltips. Popover, ContextMenu, Select listbox, and Tooltip shells. <strong>Do not:</strong> Cards, rows, or hover states — structure comes from hairline borders.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.modal</code><code class="catalog-token-value">0 2px 6px rgba(16, 20, 24, 0.08), 0 16px 48px -12px rgba(16, 20, 24, 0.18)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Elevation for centred modal shells sitting over a scrim. Modal and ConfirmDialog shells only. In dark mode the value leads with an inset top highlight — the lit edge — because a black drop shadow over a scrimmed near-black ground separates nothing; light mode needs no such line. <strong>Do not:</strong> Anchored surfaces — those use shadow.popover.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.toast</code><code class="catalog-token-value">inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 1px 2px rgba(16, 20, 24, 0.08), 0 10px 28px -8px rgba(16, 20, 24, 0.22)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Elevation for the toast card: a 1px lit top edge over a lifted drop, so the corner report reads as sitting above the page it floats over. The toast card only. The inset highlight is the control-raised light source (lit from above); the drop sits between popover and modal because a toast floats over live content with no scrim and no anchor to lean on. <strong>Do not:</strong> Anchored surfaces (shadow.popover) or scrimmed shells (shadow.modal).</p></div></div>
-<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.control-raised</code><code class="catalog-token-value">inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 1px 2px rgba(16, 20, 24, 0.14)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Resting elevation for a filled control: a 1px lit top edge over a shallow drop. Filled buttons at rest — the primary and destructive variants. The inset highlight is the light source; the drop is what lifts the control off the surface. <strong>Do not:</strong> Overlays — those take shadow.popover / shadow.modal / shadow.drawer. Also not for ghost or icon buttons: a borderless control has no edge to light.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.control-edge</code><code class="catalog-token-value">inset 0 -1px 0 rgba(16, 20, 24, 0.05), 0 1px 1px rgba(16, 20, 24, 0.05)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Resting elevation for a bordered neutral control: the quieter half-step below control-raised. Outlined buttons and other bordered neutral controls at rest. Lights the inner top rim on dark, shades the inner bottom on light — both read as lit from above. <strong>Do not:</strong> Filled controls — those take shadow.control-raised, which is a full step brighter.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.control-raised</code><code class="catalog-token-value">inset 0 1px 0 rgba(255, 255, 255, 0.26), 0 1px 2px rgba(16, 20, 24, 0.16), 0 2px 6px -2px rgba(16, 20, 24, 0.16)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Resting elevation for a filled control: a 1px lit top edge over a shallow drop. Filled buttons at rest — the primary and destructive variants. The inset highlight is the light source; the drop is what lifts the control off the surface. <strong>Do not:</strong> Overlays — those take shadow.popover / shadow.modal / shadow.drawer. Also not for ghost or icon buttons: a borderless control has no edge to light.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.control-edge</code><code class="catalog-token-value">inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -1px 0 rgba(16, 20, 24, 0.04), 0 1px 2px rgba(16, 20, 24, 0.07)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Resting elevation for a bordered neutral control: the quieter half-step below control-raised. Every bordered neutral control at rest: outlined buttons, raised chips, raised cards, a segmented control’s selected thumb and trigger buttons. A 1px lit top lip over a shallow drop in both modes — lit from above. <strong>Do not:</strong> Filled controls — those take shadow.control-raised, which is a full step brighter.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.control-pressed</code><code class="catalog-token-value">inset 0 1px 2px rgba(16, 20, 24, 0.12)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">The pressed state of any elevated control: the bevel inverts and the drop is gone. Filled and outlined buttons while :active or [data-pressed]. Replaces the resting shadow outright — it is not layered over it. <strong>Do not:</strong> A resting state, and never on a control that carries no resting elevation.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.control-track</code><code class="catalog-token-value">inset 0 1px 2px rgba(16, 20, 24, 0.06)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">The recessed well a segmented control’s raised thumb slides along: light falls into it from above. The track of a segmented control, under its control-edge thumb. The one inset-at-rest shadow: a track is a groove in the surface, not a control on it. <strong>Do not:</strong> Inputs, cards or anything a person presses — those stand off the surface (control-edge) rather than sinking into it.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.gradient.control-sheen</code><code class="catalog-token-value">linear-gradient(180deg, rgba(255, 255, 255, 0) 45%, rgba(16, 20, 24, 0.03) 100%)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">The faint top-to-bottom falloff across a bordered neutral control’s face, painted as a background-image over its ground colour. Paired with shadow.control-edge on every bordered neutral control at rest: light mode shades the lower half, dark mode lifts the upper half, so the face reads as curved toward the light. Reached through the app’s .control-edge class, never spelled at a call site. <strong>Do not:</strong> Filled controls (gradient.control-raised-sheen), flat ghost/icon controls, or any surface that is not a control.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.gradient.control-raised-sheen</code><code class="catalog-token-value">linear-gradient(180deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0) 100%)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">The sheen across a filled control’s face: white falling off from the lit top edge. Paired with shadow.control-raised on the primary and destructive fills. Reached through the app’s .control-raised class. <strong>Do not:</strong> Bordered neutrals (gradient.control-sheen) or flat controls.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.icon.size.xs</code><code class="catalog-token-value">13px</code><span class="catalog-badge">iconography</span></p><p class="catalog-token-meta">Inline glyphs next to body/meta copy. Inline glyphs beside meta copy and inside chips.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.icon.size.sm</code><code class="catalog-token-value">16px</code><span class="catalog-badge">iconography</span></p><p class="catalog-token-meta">Default list-row and toolbar icons. The default icon size for rows, toolbars, and close glyphs.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.icon.size.md</code><code class="catalog-token-value">18px</code><span class="catalog-badge">iconography</span></p><p class="catalog-token-meta">Button-pair icons and panel-header chrome. Icons paired with button labels and panel-header affordances.</p></div></div>
@@ -13216,7 +13314,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p>What you withhold is as deliberate as what you show. No screen confronts a person with everything at once.</p>
 <ul><li>Each screen gets one visual priority. High-signal status and the default reading path are visible; secondary detail and lower-frequency configuration are revealed as the user reaches for them, behind nearby disclosure.</li><li><strong>Prefer per-row and per-cell actions revealed on hover or focus over always-on controls.</strong> Delete, roll back, close, reveal-in-folder, and the rest belong to the row you are pointing at — not to every row simultaneously.</li><li>Anything revealed on hover <strong>must also appear on keyboard focus</strong>, and must have a non-hover path (an overflow menu, a context menu, or the detail pane). Hover-only is a bug, not a style.</li><li>Revealing an action must not resize or reflow the row. Reserve its space, or reveal it over the row's trailing padding.</li><li>Disclosure is not concealment: destructive or state-changing actions stay discoverable, and a state a person must act on is never hidden behind hover.</li></ul>
 <h4>Hairlines carry the structure</h4>
-<ul><li>Borders do the structural work. Cards, fills, and shadows do not. Group with space and a heading before reaching for a container; a card inside a card needs a real containment reason.</li><li><strong>A settings group is a card, and that is the stated reason</strong> (ruled 2026-09-14). The rule above still holds everywhere else: space and a heading first, a container only for a reason. A settings page is the reason. It is a long scroll of rows that have nothing to do with each other except which page they landed on, and the groups run eight and ten rows deep — at that length the gap between two groups and the gap between two rows are the same gap, and the heading is left labelling a region with no edge. So a run of setting rows takes a bordered surface: <code>border.subtle</code>, <code>radius.shell</code>, <code>bg.surface-raised</code>, hairlines between rows and never around them. The section label stays <strong>outside</strong> the card and keeps its own typography — the card is the group's edge, so a heading inside it would draw a second one. See [setting-row](../components/setting-row/component.md). This does not license cards elsewhere: it licenses them where a group's own length has eaten the space that was separating it.</li><li>Hairlines are 1px at canonical zoom. No doubled borders where surfaces meet, no 2px divider as decoration.</li><li><strong>Elevation is a three-step ramp, and every step is an overlay:</strong> <code>shadow.popover</code> for trigger-anchored surfaces, <code>shadow.drawer</code> for drawers and side panels, <code>shadow.modal</code> for centred dialogs. Nothing in the document flow — no card, row, or hover state — takes a shadow.</li><li>In light mode, <code>bg.surface-raised</code> is deliberately the same white as <code>bg.surface</code>: raised surfaces separate by shadow and <code>border.strong</code>, not by tone. In dark mode the tone step does the work.</li><li><strong>Inside an overlay, space separates — rules do not.</strong> A dialog's title, its content, and its buttons are divided by padding. A rule under the title and another above the buttons cuts a small surface into three boxed strips and buys nothing: the shell already draws its own edge, and a shell that scrolls as one piece never needed the rules as scroll affordances.</li><li><strong>One chrome row per content region.</strong> Everything that is chrome for the same content shares a band — status on the left, controls on the right. A tools bar stacked on a status bar spends a second band of vertical space to say what the first could hold. When you reach for a second row, the question is which row the new control belongs in, not where to put the new row.</li><li><strong>A notice carries its tone with a glyph, not a coloured edge.</strong> A 2px stripe down one side of an error or warning card is decoration wearing a hairline's clothes: it doubles the card's own border, breaks the 1px rule, and leaves the tone carried by colour alone. Use a 1px neutral hairline, the soft tone tint, and the tone glyph at the leading edge — which is what makes it survive greyscale.</li></ul>
+<ul><li>Borders do the structural work. Cards, fills, and shadows do not. Group with space and a heading before reaching for a container; a card inside a card needs a real containment reason.</li><li><strong>A settings group is a card, and that is the stated reason</strong> (ruled 2026-09-14). The rule above still holds everywhere else: space and a heading first, a container only for a reason. A settings page is the reason. It is a long scroll of rows that have nothing to do with each other except which page they landed on, and the groups run eight and ten rows deep — at that length the gap between two groups and the gap between two rows are the same gap, and the heading is left labelling a region with no edge. So a run of setting rows takes a bordered surface: <code>border.subtle</code>, <code>radius.shell</code>, <code>bg.surface-raised</code>, hairlines between rows and never around them. The section label stays <strong>outside</strong> the card and keeps its own typography — the card is the group's edge, so a heading inside it would draw a second one. See [setting-row](../components/setting-row/component.md). This does not license cards elsewhere: it licenses them where a group's own length has eaten the space that was separating it.</li><li>Hairlines are 1px at canonical zoom. No doubled borders where surfaces meet, no 2px divider as decoration.</li><li><strong>Elevation is a three-step ramp, and every step is an overlay:</strong> <code>shadow.popover</code> for trigger-anchored surfaces, <code>shadow.drawer</code> for drawers and side panels, <code>shadow.modal</code> for centred dialogs. Nothing in the document flow — no card, row, or hover state — takes a shadow.</li><li><strong>Control elevation is the one in-flow exception</strong> (2026-09-02, widened by owner ruling 2026-10-01): a control that is pressed to act stands off the page on <code>shadow.control-edge</code> / <code>shadow.control-raised</code> — a 1px lit top lip over a shallow drop — with the matching <code>gradient.control-*</code> sheen across its face, and sinks on <code>shadow.control-pressed</code>. Outline and filled buttons, raised chips, launcher tiles and a segmented control's thumb take it; fields, rows, cards and borderless controls do not. See [button → Elevation](../components/button/component.md).</li><li>In light mode, <code>bg.surface-raised</code> is deliberately the same white as <code>bg.surface</code>: raised surfaces separate by shadow and <code>border.strong</code>, not by tone. In dark mode the tone step does the work.</li><li><strong>Inside an overlay, space separates — rules do not.</strong> A dialog's title, its content, and its buttons are divided by padding. A rule under the title and another above the buttons cuts a small surface into three boxed strips and buys nothing: the shell already draws its own edge, and a shell that scrolls as one piece never needed the rules as scroll affordances.</li><li><strong>One chrome row per content region.</strong> Everything that is chrome for the same content shares a band — status on the left, controls on the right. A tools bar stacked on a status bar spends a second band of vertical space to say what the first could hold. When you reach for a second row, the question is which row the new control belongs in, not where to put the new row.</li><li><strong>A notice carries its tone with a glyph, not a coloured edge.</strong> A 2px stripe down one side of an error or warning card is decoration wearing a hairline's clothes: it doubles the card's own border, breaks the 1px rule, and leaves the tone carried by colour alone. Use a 1px neutral hairline, the soft tone tint, and the tone glyph at the leading edge — which is what makes it survive greyscale.</li></ul>
 <h4>Space and size</h4>
 <ul><li>Every padding, gap, and margin comes from <code>sem.space.*</code> — a 2px grid at the dense end opening to 4px steps at panel scale. A raw pixel value in a component means the scale is missing a step; add it here rather than locally.</li><li>Controls come from <code>sem.size.control.*</code>: <code>xs</code> (26px) for icon buttons and in-row triggers, <code>sm</code> (30px) as the default for anything with a label, <code>md</code> (34px) for overlay primary actions. An input and a select side by side must share a height.</li><li>Nothing interactive is drawn below <code>sem.size.hit-target-min</code>. A small glyph pads out to it with a transparent hit area rather than shrinking its target.</li><li>An indent that aligns text to a reserved glyph slot (the 28px a leading 16px glyph plus its gap occupies) is structure, not rhythm: it keeps its computed value, off the space scale if need be, with a one-line comment saying what it lines up with. Moving it to the nearest step misaligns the column it exists to align.</li><li>At most 2 radii per view. <code>radius.control</code> (5px) is the default; larger radii belong to overlay and modal shells. Marketing radii (<code>rounded-2xl</code> and up) never appear on operational chrome.</li><li>A capped column is centred or it is a bug. When a <code>max-width</code> element IS the page's content — a wizard step, a settings body, a door canvas — it centres (<code>max-w-*</code> + <code>mx-auto</code>), and its footer actions cap to the same measure so they align with the content edges. A reading-measure cap *inside* a left-anchored composition (prose under an uncapped heading, beside a figure) stays anchored with its siblings; centring it alone would misalign the page.</li></ul>
 <h4>Type</h4>
@@ -13270,7 +13368,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <ul><li>Never hard-code a color, space, size, radius, duration, or z-index the system defines. Pick by the token's documented <code>role</code> and <code>use</code>, not by its looks.</li><li>The <code>--ref-*</code> tier is internal plumbing for the token file. Components and patterns consume <code>--sem-*</code> only.</li><li>Layering comes from <code>sem.z.*</code>. A surface that needs to sit between two defined layers is the wrong kind of surface. In-flow depth has its own three steps below <code>drawer</code> — <code>sticky</code> (10), <code>pane</code> (20, docked panes and in-canvas floating chrome) and <code>float</code> (30, panel-internal popovers and HUDs) — so a bare <code>z-20</code> / <code>z-30</code> is a hard-coded z-index like any other.</li></ul>
 <h4>Reject on sight</h4>
 <p>Each of these is a restart signal, not a fix-it-later note. Rebuild the surface rather than patching it.</p>
-<ul><li>Two or more accent hues competing for primary, or an accent used as a selection fill.</li><li>More than two radii or more than three font weights in one view.</li><li>A third font family, or a serif anywhere in the product.</li><li>A badge or tinted pill where a status mark carries the same meaning.</li><li>A status dot — a tone-filled disc standing for a state — on any surface.</li><li>A card inside a card with no containment reason.</li><li>A hero composition — oversized headline, decorative blob, three-up stat row — inside an operational panel.</li><li>A primary button with a gradient fill, inset highlight, or blurred shadow.</li><li>Decorative emoji as iconography, or celebration copy (&quot;✅&quot;, &quot;🎉&quot;, &quot;Awesome!&quot;).</li><li>Placeholder content: &quot;Lorem ipsum&quot;, &quot;Card title&quot;, &quot;Item 1 / 2 / 3&quot;.</li><li>Empty-state copy that explains an obvious interaction (&quot;Click here to start&quot;), or marketing copy in operational chrome.</li><li>A subtitle restating the title, a field label restating the dialog title, or helper text restating the placeholder.</li><li>The application naming itself in ordinary UI copy.</li><li>A success message that dumps the operation's metadata instead of its result.</li><li>A red &quot;Required&quot; or an asterisk on a field nobody has filled in yet.</li><li>A tone-coloured bar down the left edge of a notice, card, or callout.</li><li>Two stacked bands of chrome above one region of content.</li><li>Dividers separating the sections of a dialog.</li><li>The same count shown in two places where the values could appear to disagree.</li><li>Always-on row actions that should have been revealed on hover — or hover-revealed actions with no keyboard path.</li></ul>
+<ul><li>Two or more accent hues competing for primary, or an accent used as a selection fill.</li><li>More than two radii or more than three font weights in one view.</li><li>A third font family, or a serif anywhere in the product.</li><li>A badge or tinted pill where a status mark carries the same meaning.</li><li>A status dot — a tone-filled disc standing for a state — on any surface.</li><li>A card inside a card with no containment reason.</li><li>A hero composition — oversized headline, decorative blob, three-up stat row — inside an operational panel.</li><li>A primary button with a two-hue gradient fill, a coloured glow, or a blurred halo. The lit lip, the shallow drop and the same-hue sheen of the control elevation tokens are the system's own and are not this; anything past them is.</li><li>Decorative emoji as iconography, or celebration copy (&quot;✅&quot;, &quot;🎉&quot;, &quot;Awesome!&quot;).</li><li>Placeholder content: &quot;Lorem ipsum&quot;, &quot;Card title&quot;, &quot;Item 1 / 2 / 3&quot;.</li><li>Empty-state copy that explains an obvious interaction (&quot;Click here to start&quot;), or marketing copy in operational chrome.</li><li>A subtitle restating the title, a field label restating the dialog title, or helper text restating the placeholder.</li><li>The application naming itself in ordinary UI copy.</li><li>A success message that dumps the operation's metadata instead of its result.</li><li>A red &quot;Required&quot; or an asterisk on a field nobody has filled in yet.</li><li>A tone-coloured bar down the left edge of a notice, card, or callout.</li><li>Two stacked bands of chrome above one region of content.</li><li>Dividers separating the sections of a dialog.</li><li>The same count shown in two places where the values could appear to disagree.</li><li>Always-on row actions that should have been revealed on hover — or hover-revealed actions with no keyboard path.</li></ul>
 </div>
 </section>
 <section id="components" class="catalog-group">
@@ -15377,6 +15475,12 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p>Filled and outlined buttons are the one thing in the document flow that carries a shadow. Everywhere else in this system structure comes from a hairline; a button is the exception because it is the only in-flow element that claims to be *pressable*, and depth is how a surface says so.</p>
 <p>The treatment is two things in one token, never hand-rolled:</p>
 <ul><li><code>shadow.control-raised</code> — filled variants. A 1px <code>inset</code> highlight on the top edge (the light source is above) over a shallow drop (the control stands off the surface).</li><li><code>shadow.control-edge</code> — the outline variant, half a step quieter. Dark mode lights the inner top rim; light mode shades the inner bottom. Both read as lit from above.</li><li><code>shadow.control-pressed</code> — the pressed state of either. It <strong>replaces</strong> the resting shadow rather than layering over it: the highlight inverts into a shadow cast inward, and the drop disappears.</li></ul>
+<p>Each shadow travels with a <strong>sheen</strong> — a faint top-to-bottom falloff painted as a <code>background-image</code> over the control's ground, so it lays over whatever colour the variant set:</p>
+<ul><li><code>gradient.control-raised-sheen</code> with <code>control-raised</code>: white falling off from the lit top edge across the fill.</li><li><code>gradient.control-sheen</code> with <code>control-edge</code>: dark mode lifts the upper half, light mode shades the lower half — both read as a face curved toward the light.</li></ul>
+<p>The sheen drops with the drop: pressed and disabled paint no <code>background-image</code>.</p>
+<h5>The lit lip, strengthened (owner ruling 2026-10-01)</h5>
+<p><code>control-edge</code> gained a 1px inset top highlight in <strong>both</strong> modes (it had one in dark only), a shallow drop in light, and the sheen above; <code>control-raised</code> gained a second, softer drop under the first. At the old values a bordered control in light mode was a hairline box with a shadow too faint to find, and the same treatment was spread across too few members to read as a family.</p>
+<p>It now reaches every bordered neutral control that is pressed to act: the outline button, the [chip button](../chip-button/component.md)'s <code>--raised</code> variant, the [card button](../card-button/component.md)'s <code>--raised</code> launcher tile and the [segmented control](../segmented-control/component.md)'s thumb. Fields — inputs, selects and [trigger buttons](../trigger-button/component.md) — stay level with the page: they state a value rather than perform an action.</p>
 <p>Ghost and icon buttons stay flat. A borderless control has no edge to light, and giving one a drop shadow would make every toolbar read as a row of tiles.</p>
 <h4>States</h4>
 <ul><li>Hover: primary deepens/brightens to <code>accent.hover</code>; ghost and icon gain <code>bg.hover</code> and stronger ink. Elevation does not change on hover — a button that rises under the pointer is a hover affordance, not a press one, and the press is the state worth spending depth on.</li><li>Active: elevated variants sink — <code>shadow.control-pressed</code> replaces the resting shadow, with no transform. Flat variants (ghost, icon) keep the scale(0.97) press, removed under reduced motion. The two never stack: a control either has an edge to invert or it shrinks, never both.</li><li>Focus-visible: 2px ring of <code>border.focus</code>; never remove the ring without replacing it.</li><li>Disabled: 45% opacity, <code>not-allowed</code> cursor, hover suppressed, and elevation dropped to <code>none</code> — a control that cannot be pressed does not stand off the surface.</li><li>Pressed (icon only): a toggle that stays thrown — a locked terminal, a revealed pane — fills <code>bg.selected</code> with <code>text.primary</code> ink and keeps it through hover. It is a <strong>prop on the component</strong>, not a class the caller adds: two equal-specificity <code>text-*</code> utilities are resolved by stylesheet order rather than by the order they appear in the attribute, so a call site that paints its own pressed fill loses it to the primitive's <code>hover:</code> step. The button supplies <code>aria-pressed</code> unless the caller sets it, and the prop is <strong>tri-state</strong>: leave it undefined on a button that is not a toggle (no attribute — a close or delete glyph is an action, not an unpressed toggle), pass <code>false</code> on a toggle that is currently off (<code>aria-pressed=&quot;false&quot;</code>, which is what a screen reader is owed), <code>true</code> when thrown. Defaulting the prop to <code>false</code> collapses the first two cases and silently downgrades every toggle to a plain button. Never the accent — a thrown toggle is a selection, and selection is neutral.</li></ul>
@@ -15448,13 +15552,14 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
  * physical button under a light source above it. `box-shadow` rather than a
  * ::before ring so the bevel and the drop are one property with one token. */
 .ds-button--primary {
-  background: var(--sem-color-accent-primary);
+  background-color: var(--sem-color-accent-primary);
+  background-image: var(--sem-gradient-control-raised-sheen);
   color: var(--sem-color-text-on-accent);
   box-shadow: var(--sem-shadow-control-raised);
 }
 
 .ds-button--primary:hover:not(:disabled) {
-  background: var(--sem-color-accent-hover);
+  background-color: var(--sem-color-accent-hover);
 }
 
 /* Pressed REPLACES the resting shadow rather than layering over it: the light
@@ -15462,10 +15567,12 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
  * because the control is no longer standing off the surface. */
 .ds-button--primary:active:not(:disabled),
 .ds-button--primary[data-pressed]:not(:disabled) {
+  background-image: none;
   box-shadow: var(--sem-shadow-control-pressed);
 }
 
 .ds-button--primary:disabled {
+  background-image: none;
   box-shadow: none;
 }
 
@@ -15474,23 +15581,26 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
  * quiet enough that it never competes with the view's one primary. */
 .ds-button--outline {
   border: 1px solid var(--sem-color-border-default);
-  background: var(--sem-color-bg-surface);
+  background-color: var(--sem-color-bg-surface);
+  background-image: var(--sem-gradient-control-sheen);
   color: var(--sem-color-text-default);
   box-shadow: var(--sem-shadow-control-edge);
 }
 
 .ds-button--outline:hover:not(:disabled) {
   border-color: var(--sem-color-border-strong);
-  background: var(--sem-color-bg-hover);
+  background-color: var(--sem-color-bg-hover);
   color: var(--sem-color-text-primary);
 }
 
 .ds-button--outline:active:not(:disabled),
 .ds-button--outline[data-pressed]:not(:disabled) {
+  background-image: none;
   box-shadow: var(--sem-shadow-control-pressed);
 }
 
 .ds-button--outline:disabled {
+  background-image: none;
   box-shadow: none;
 }
 
@@ -15928,6 +16038,14 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <div class="demo-stage" data-mode="light">
   <p class="demo-label">Light</p>
   <div class="demo-row">
+    <button type="button" class="ds-card-button ds-card-button--raised" style="width: 150px; padding: var(--sem-space-md) var(--sem-space-lg)">
+      <span class="ds-card-button-title">Browser</span>
+    </button>
+    <button type="button" class="ds-card-button ds-card-button--raised" style="width: 150px; padding: var(--sem-space-md) var(--sem-space-lg)">
+      <span class="ds-card-button-title">Terminal</span>
+    </button>
+  </div>
+  <div class="demo-row">
     <button type="button" class="ds-card-button ds-card-button--bordered" style="width: 200px; padding: var(--sem-space-lg) var(--sem-space-lg) var(--sem-space-md); gap: var(--sem-space-2xs)">
       <span class="ds-card-button-title">Automations</span>
       <span class="ds-card-button-supporting">Two runs in flight</span>
@@ -15948,6 +16066,14 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 </div>
 <div class="demo-stage" data-mode="dark">
   <p class="demo-label">Dark</p>
+  <div class="demo-row">
+    <button type="button" class="ds-card-button ds-card-button--raised" style="width: 150px; padding: var(--sem-space-md) var(--sem-space-lg)">
+      <span class="ds-card-button-title">Browser</span>
+    </button>
+    <button type="button" class="ds-card-button ds-card-button--raised" style="width: 150px; padding: var(--sem-space-md) var(--sem-space-lg)">
+      <span class="ds-card-button-title">Terminal</span>
+    </button>
+  </div>
   <div class="demo-row">
     <button type="button" class="ds-card-button ds-card-button--bordered" style="width: 200px; padding: var(--sem-space-lg) var(--sem-space-lg) var(--sem-space-md); gap: var(--sem-space-2xs)">
       <span class="ds-card-button-title">Automations</span>
@@ -15978,9 +16104,9 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p>| Part | Class | Required | |---|---|---| | Tile | <code>.ds-card-button</code> | yes — a <code>&lt;button&gt;</code> | | Title | <code>.ds-card-button-title</code> | no — <code>font.size.body</code>, <code>font.weight.medium</code> | | Supporting line | <code>.ds-card-button-supporting</code> | no — <code>font.size.meta</code>, <code>text.subtle</code> | | Content | — | the caller's: a preview frame, a swatch, an image, a glyph |</p>
 <p>The component states <strong>no padding</strong>. A tile's inset is part of its composition — a preview frame wants <code>space.2xs</code>, a summary tile wants <code>space.lg</code> over <code>space.md</code> — so it is the caller's, and a default here would be one more utility every caller had to out-specify.</p>
 <h4>Variants</h4>
-<ul><li><strong>Default</strong> — no edge. The tile *is* its content: a preview iframe, a specimen, a picture. The hover ground is the whole affordance.</li><li><strong><code>--bordered</code></strong> — a <code>border.default</code> hairline over <code>bg.surface</code>, lifting to <code>border.strong</code>. For a tile whose content does not draw its own box. The hairline is present <strong>at rest</strong>, which is what lets it lift on hover without moving anything.</li></ul>
+<ul><li><strong>Default</strong> — no edge. The tile *is* its content: a preview iframe, a specimen, a picture. The hover ground is the whole affordance.</li><li><strong><code>--bordered</code></strong> — a <code>border.default</code> hairline over <code>bg.surface</code>, lifting to <code>border.strong</code>. For a tile whose content does not draw its own box. The hairline is present <strong>at rest</strong>, which is what lets it lift on hover without moving anything.</li><li><strong><code>--raised</code></strong> (owner ruling 2026-10-01) — <code>--bordered</code>'s hairline over <code>bg.surface-raised</code>, standing off the page on <code>shadow.control-edge</code> and <code>gradient.control-sheen</code> exactly as an outline button does. For a <strong>launcher</strong> tile: one of a grid of things to open and be done with — the empty pane's Browser / Terminal / Files grid. A tile like that *is* a pressable control standing on its own, which is the one case The rule leaves room for. The elevation is present at rest, so hover still changes only the ground and the edge colour; nothing appears and nothing reflows. Chosen, it sits down into the selection fill like <code>--bordered</code>, because the selection edge is itself a shadow and a chosen tile is a place, not a thing to press.</li></ul>
 <h4>States</h4>
-<p>| State | Treatment | |---|---| | Rest | Transparent (or the hairline over <code>bg.surface</code>) | | Hover | <code>bg.hover</code> ground; on <code>--bordered</code>, the border also lifts to <code>border.strong</code>. Nothing else changes | | Selected | <code>bg.selected</code> fill, ink at <code>text.primary</code>, 2px inset <code>accent.primary</code> edge. Hover <strong>not applied</strong> | | Focus-visible | The shared ring | | Disabled | 45% opacity, <code>not-allowed</code>, hover suppressed | | Pressed | <strong>Nothing.</strong> No scale — see The rule |</p>
+<p>| State | Treatment | |---|---| | Rest | Transparent (or the hairline over <code>bg.surface</code>) | | Hover | <code>bg.hover</code> ground; on <code>--bordered</code>, the border also lifts to <code>border.strong</code>. Nothing else changes | | Selected | <code>bg.selected</code> fill, ink at <code>text.primary</code>, 2px inset <code>accent.primary</code> edge. Hover <strong>not applied</strong> | | Focus-visible | The shared ring | | Disabled | 45% opacity, <code>not-allowed</code>, hover suppressed | | Pressed | <strong>Nothing</strong> on the flat variants — no scale, see The rule. <code>--raised</code> sinks: <code>shadow.control-pressed</code> replaces the edge and the sheen drops |</p>
 <p>Hover is *excluded* from the selected state rather than repainted over it, for the reason [row-button](../row-button/component.md) documents: <code>bg.hover</code> sits below <code>bg.selected</code>, so a selected tile under the pointer would dim.</p>
 <h4>Usage</h4>
 <ul><li><strong>A grid of offers takes the accent on every card's action, not on one</strong> (<code>principles.md</code> → The storefront exception). That is about the button *inside* a card; the card itself never takes the accent as a fill.</li><li><strong>A live count or no line at all.</strong> A number nobody has measured yet is no line; a number that really is nothing is words (&quot;No runs&quot;, &quot;None installed&quot;).</li><li>Keep the tile's own content to a title, one supporting line, and at most one live fact. A tile that needs more is a row.</li></ul>
@@ -16044,6 +16170,33 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   background: var(--sem-color-bg-hover);
 }
 
+/* raised — a LAUNCHER tile: one of a grid of things to open, pressed once and
+ * gone (owner ruling 2026-10-01). The bordered hairline over the raised ground,
+ * standing off the page on the control edge exactly as an outline button does.
+ * The elevation is there at rest, so hover still moves only the ground and the
+ * edge colour; nothing appears and nothing reflows. */
+.ds-card-button--raised {
+  border: 1px solid var(--sem-color-border-default);
+  background-color: var(--sem-color-bg-surface-raised);
+  background-image: var(--sem-gradient-control-sheen);
+  box-shadow: var(--sem-shadow-control-edge);
+}
+
+.ds-card-button--raised:hover:not(:disabled):not([aria-pressed='true']) {
+  border-color: var(--sem-color-border-strong);
+  background-color: var(--sem-color-bg-hover);
+}
+
+.ds-card-button--raised:active:not(:disabled):not([aria-pressed='true']) {
+  background-image: none;
+  box-shadow: var(--sem-shadow-control-pressed);
+}
+
+.ds-card-button--raised:disabled {
+  background-image: none;
+  box-shadow: none;
+}
+
 /* The chosen tile — the same neutral canon a row takes, because a chosen tile
  * and a chosen row are one fact in two layouts. Hover is excluded above rather
  * than repainted here. */
@@ -16053,7 +16206,9 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   box-shadow: inset 0 0 0 2px var(--sem-color-accent-primary);
 }
 
-.ds-card-button--bordered[aria-pressed='true'] {
+.ds-card-button--bordered[aria-pressed='true'],
+.ds-card-button--raised[aria-pressed='true'] {
+  background-image: none;
   border-color: var(--sem-color-border-strong);
 }
 
@@ -16115,6 +16270,14 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 &lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
   &lt;p class=&quot;demo-label&quot;&gt;Light&lt;/p&gt;
   &lt;div class=&quot;demo-row&quot;&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-card-button ds-card-button--raised&quot; style=&quot;width: 150px; padding: var(--sem-space-md) var(--sem-space-lg)&quot;&gt;
+      &lt;span class=&quot;ds-card-button-title&quot;&gt;Browser&lt;/span&gt;
+    &lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-card-button ds-card-button--raised&quot; style=&quot;width: 150px; padding: var(--sem-space-md) var(--sem-space-lg)&quot;&gt;
+      &lt;span class=&quot;ds-card-button-title&quot;&gt;Terminal&lt;/span&gt;
+    &lt;/button&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;demo-row&quot;&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-card-button ds-card-button--bordered&quot; style=&quot;width: 200px; padding: var(--sem-space-lg) var(--sem-space-lg) var(--sem-space-md); gap: var(--sem-space-2xs)&quot;&gt;
       &lt;span class=&quot;ds-card-button-title&quot;&gt;Automations&lt;/span&gt;
       &lt;span class=&quot;ds-card-button-supporting&quot;&gt;Two runs in flight&lt;/span&gt;
@@ -16135,6 +16298,14 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 &lt;/div&gt;
 &lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
   &lt;p class=&quot;demo-label&quot;&gt;Dark&lt;/p&gt;
+  &lt;div class=&quot;demo-row&quot;&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-card-button ds-card-button--raised&quot; style=&quot;width: 150px; padding: var(--sem-space-md) var(--sem-space-lg)&quot;&gt;
+      &lt;span class=&quot;ds-card-button-title&quot;&gt;Browser&lt;/span&gt;
+    &lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-card-button ds-card-button--raised&quot; style=&quot;width: 150px; padding: var(--sem-space-md) var(--sem-space-lg)&quot;&gt;
+      &lt;span class=&quot;ds-card-button-title&quot;&gt;Terminal&lt;/span&gt;
+    &lt;/button&gt;
+  &lt;/div&gt;
   &lt;div class=&quot;demo-row&quot;&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-card-button ds-card-button--bordered&quot; style=&quot;width: 200px; padding: var(--sem-space-lg) var(--sem-space-lg) var(--sem-space-md); gap: var(--sem-space-2xs)&quot;&gt;
       &lt;span class=&quot;ds-card-button-title&quot;&gt;Automations&lt;/span&gt;
@@ -18612,6 +18783,13 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     <button type="button" class="ds-chip-button ds-chip-button--error" aria-pressed="true">Debug</button>
     <button type="button" class="ds-chip-button" disabled>Unavailable</button>
   </div>
+  <div class="demo-row">
+    <button type="button" class="ds-chip-button ds-chip-button--raised">Model · high</button>
+    <button type="button" class="ds-chip-button ds-chip-button--raised">Skills</button>
+    <button type="button" class="ds-chip-button ds-chip-button--raised ds-chip-button--warn">Bypass</button>
+    <button type="button" class="ds-chip-button ds-chip-button--raised" aria-label="More options">⋯</button>
+    <button type="button" class="ds-chip-button ds-chip-button--raised" disabled>Unavailable</button>
+  </div>
 </div>
 <div class="demo-stage" data-mode="dark">
   <p class="demo-label">Dark</p>
@@ -18628,6 +18806,13 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     <button type="button" class="ds-chip-button ds-chip-button--error" aria-pressed="true">Debug</button>
     <button type="button" class="ds-chip-button" disabled>Unavailable</button>
   </div>
+  <div class="demo-row">
+    <button type="button" class="ds-chip-button ds-chip-button--raised">Model · high</button>
+    <button type="button" class="ds-chip-button ds-chip-button--raised">Skills</button>
+    <button type="button" class="ds-chip-button ds-chip-button--raised ds-chip-button--warn">Bypass</button>
+    <button type="button" class="ds-chip-button ds-chip-button--raised" aria-label="More options">⋯</button>
+    <button type="button" class="ds-chip-button ds-chip-button--raised" disabled>Unavailable</button>
+  </div>
 </div>
 </div>
 <div class="catalog-doc">
@@ -18640,6 +18825,15 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p><code>font.size.micro</code> and no lower. A chip is a label *about* the thing beside it, and it must not outweigh what it qualifies.</p>
 <h4>Variants</h4>
 <ul><li><strong>Default (ghost)</strong> — no edge, no ground. A toggle in a chrome strip.</li><li><strong><code>--outline</code></strong> — a <code>border.default</code> hairline over <code>bg.surface-raised</code>. For a chip that must be findable on a busy surface: a wizard's branch step, a related-node chip on a canvas.</li><li><strong><code>--overlay</code></strong> — the form a chip takes when it <strong>floats over content</strong> rather than sitting in the flow: a canvas HUD control, a badge over a pan/zoom surface. <code>radius.overlay</code> and a <code>border.default</code> edge over <code>bg.surface</code>, so it reads as a small floating surface rather than as part of what is underneath. Still <strong>no shadow</strong>: the elevation ramp is for surfaces a person opened, not for chrome that was always there.</li></ul>
+<h5>Raised (owner ruling 2026-10-01)</h5>
+<p><strong><code>--raised</code></strong> is a chip that is a <strong>control in a toolbar row</strong> rather than a label inside a line: the composer's model, skills &amp; MCPs, permissions, worktree and ⋯ triggers, and the project and machine pickers on the launch row. Those had been <code>--outline</code> and ghost chips at <code>radius.chip</code> on their line box, and beside the composer's raised buttons they read as squarer, shorter and flatter than everything they shared a row with.</p>
+<p>It wears the outline button's shell exactly: <code>size.control.xs</code>, <code>radius.control</code>, the <code>border.default</code> hairline, and the control elevation — <code>shadow.control-edge</code> (a lit top lip over a shallow drop) with <code>gradient.control-sheen</code> across the face. It keeps everything that makes it a chip rather than a button: the tones, the identity tint, and the thrown states.</p>
+<p>It is the <strong>one chip variant that is not content-height</strong>, and that is the whole reason it is a variant rather than a re-skin of <code>--outline</code>: a toolbar row has already decided it is a row of controls, so riding a line box there is the defect, not the virtue. A chip inside a sentence, a card's meta line or a canvas HUD stays on one of the three inline variants.</p>
+<p>A composite that has to wear the same box without being one button — the worktree switch is a glyph button and a name field in one bordered box — takes the shell from the shipped primitive's <code>RAISED_CHIP_SHELL</code> export rather than spelling it, so it cannot drift a pixel from the chips beside it.</p>
+<h5>Folding a raised row (owner ruling 2026-10-01)</h5>
+<p>A row of raised chips has a width budget, and a squashed panel used to answer it by wrapping onto a second line or crushing every chip to a sliver. Below the row's own budget its <strong>secondary</strong> chips fold behind one more <code>--raised</code> chip carrying a chevron that points the way its popover opens; the popover holds the same controls, stacked. The <strong>essential</strong> controls never fold: the model picker, the send or start action, and anything a launch cannot start without.</p>
+<ul><li><strong>Measured against the row, not the window.</strong> The same panel width is a different budget depending on what sits beside the panel.</li><li><strong>Nothing is dropped.</strong> A control that disappears is a missing feature at that size.</li><li><strong>Mounted once.</strong> Folded controls move into the popover rather than being hidden in place, so there are never two focus targets or two accessible names for one control.</li><li><strong>A chevron, not ⋯,</strong> because a launch row may already carry a ⋯ of its own, and two identical glyphs side by side read as one door.</li><li><strong>A standing warning survives the fold.</strong> If a folded chip carries the warn tone (permissions bypassed), the chevron takes the same tint.</li></ul>
+<p>Shipped as <code>FoldedControls</code> and <code>useMeasuredFold</code> in <code>src/renderer/src/components/ui/FoldedControls.tsx</code>.</p>
 <p>The edge, where a variant has one, is present <strong>at rest and held through every state</strong>. A border that appeared when the chip was thrown would resize the row it sits in.</p>
 <h4>Tone</h4>
 <ul><li><strong>Default</strong> — <code>text.subtle</code>, lifting to <code>text.default</code>. The chip is a qualifier.</li><li><strong><code>neutral</code></strong> — <code>text.default</code>, lifting to <code>text.primary</code>. One step up, where the chip's label is the row's own information.</li><li><strong><code>--warn</code> / <code>--error</code></strong> — a <strong>standing warning the chip itself carries</strong>: scripts are running in this preview, permissions are bypassed on this preset. Thrown, it fills the tone's soft tint and takes the tone's <code>on-tint</code> ink, which is what keeps the label legible on the fill.</li></ul>
@@ -18648,14 +18842,14 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p>A chip may carry an <strong>identity colour</strong> of its own — an epic's hue, a bucket's — resolved per item by the caller. It paints the ink and a 12% mix of the same value as a ground, <strong>never a solid fill</strong>: an identity hue is a name, not a status and not an emphasis (<code>principles.md</code> → Identity colour). It is the same 12% weight the <code>status.*-soft</code> tokens carry, so an epic pill and a warn chip sit at the same depth on the surface.</p>
 <p>A thrown state <strong>outranks</strong> the tint. Interaction state is a state of the pointer and the keyboard; an identity is a property of the thing, and the state paints over it while it lasts — the same ordering the file tree's row washes follow.</p>
 <h4>States</h4>
-<p>| State | Treatment | |---|---| | Rest | Per variant and tone above | | Hover | <code>bg.hover</code> ground, ink one step up — <strong>only while not thrown</strong> | | Thrown | <code>bg.selected</code> (neutral tones) or the tone's soft tint, held through hover | | Focus-visible | The shared ring | | Disabled | 45% opacity, <code>not-allowed</code> | | Pressed | <code>scale(0.97)</code> — flat controls press by scale |</p>
+<p>| State | Treatment | |---|---| | Rest | Per variant and tone above | | Hover | <code>bg.hover</code> ground, ink one step up — <strong>only while not thrown</strong> | | Thrown | <code>bg.selected</code> (neutral tones) or the tone's soft tint, held through hover | | Focus-visible | The shared ring | | Disabled | 45% opacity, <code>not-allowed</code> | | Pressed | <code>scale(0.97)</code> — flat controls press by scale. <code>--raised</code> presses like an elevated button instead: <code>shadow.control-pressed</code> replaces the edge and the sheen drops, with no scale |</p>
 <h4>Accessibility</h4>
 <ul><li><strong><code>aria-pressed</code> for a toggle, <code>aria-current</code> for one of a set.</strong> A view-mode chip you switch on is pressed; the step you are on in a trail is current. Both are tri-state in the shipped implementation: undefined on a chip that is neither, <code>false</code> on a toggle that is off.</li><li>The label carries the meaning; a chip whose state is colour alone fails grayscale. A thrown chip changes its <strong>ground</strong>, which survives it.</li><li>Chips are individually focusable. A row of chips is a row of tab stops unless the host makes it a composite, in which case the host owns roving focus and the chips take <code>tabIndex</code> from it.</li></ul>
 <h4>Known drift</h4>
 <p><strong>The tone tints' ink.</strong> The reference CSS here paints a thrown <code>--warn</code> / <code>--error</code> chip in the tone's own colour on the tone's soft fill — the call [badge](../badge/component.md) and [banner](../banner/component.md) already make in this bundle. The shipped primitive darkens it one step, to an &quot;on tint&quot; ink mixed toward <code>text.primary</code>, because the raw tone on a 20% tint of itself is close to the contrast floor at <code>font.size.micro</code>.</p>
 <p>That step exists in the consuming app and <strong>has no token here yet</strong>, so it is recorded rather than invented locally: adding <code>status.*-on-tint</code> to the foundations is a token decision with nineteen themes downstream of it, not a component's to make. The shape, the fill and the condition are the same either way.</p>
 <h4>Shipped implementation</h4>
-<p><code>src/renderer/src/components/ui/ChipButton.tsx</code>, exporting <code>ChipButton</code> with <code>variant</code>, <code>tone</code>, <code>pressed</code>, <code>selected</code> and <code>tint</code>.</p>
+<p><code>src/renderer/src/components/ui/ChipButton.tsx</code>, exporting <code>ChipButton</code> with <code>variant</code>, <code>tone</code>, <code>pressed</code>, <code>selected</code> and <code>tint</code>, and <code>RAISED_CHIP_SHELL</code> — the <code>--raised</code> box for a composite that has to wear it.</p>
 </div>
 </div>
 <details class="catalog-source"><summary>components/chip-button/component.css</summary><pre><code>/* Chip button — a content-height pill that toggles, filters or names one thing.
@@ -18745,6 +18939,41 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   background: var(--sem-color-bg-hover);
 }
 
+/* raised — a chip that is a CONTROL in a toolbar row rather than a label inside
+ * a line (owner ruling 2026-10-01): a composer's model, skills, permissions and
+ * overflow triggers. It wears the outline button's shell exactly — the xs
+ * control height, the control radius, the hairline, the lit top lip over a
+ * shallow drop and the sheen — so a chip and a button beside the same composer
+ * are one family. The one chip variant that is not content-height. */
+.ds-chip-button--raised {
+  height: var(--sem-size-control-xs);
+  padding: 0 var(--sem-space-md);
+  gap: var(--sem-space-xs);
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-control);
+  background-color: var(--sem-color-bg-surface-raised);
+  background-image: var(--sem-gradient-control-sheen);
+  box-shadow: var(--sem-shadow-control-edge);
+  font-size: var(--sem-font-size-meta);
+}
+
+.ds-chip-button--raised:hover:not(:disabled):not([aria-pressed='true']):not([aria-current='true']) {
+  border-color: var(--sem-color-border-strong);
+  background-color: var(--sem-color-bg-hover);
+}
+
+/* Elevated controls press by inverting the bevel, never by scale as well. */
+.ds-chip-button--raised:active:not(:disabled) {
+  transform: none;
+  background-image: none;
+  box-shadow: var(--sem-shadow-control-pressed);
+}
+
+.ds-chip-button--raised:disabled {
+  background-image: none;
+  box-shadow: none;
+}
+
 /* The two tone tints. A STANDING warning the chip itself carries — scripts are
  * running in this preview, permissions are bypassed on this preset — never a
  * second way of saying what a status mark already says.
@@ -18829,6 +19058,13 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     &lt;button type=&quot;button&quot; class=&quot;ds-chip-button ds-chip-button--error&quot; aria-pressed=&quot;true&quot;&gt;Debug&lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-chip-button&quot; disabled&gt;Unavailable&lt;/button&gt;
   &lt;/div&gt;
+  &lt;div class=&quot;demo-row&quot;&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-chip-button ds-chip-button--raised&quot;&gt;Model · high&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-chip-button ds-chip-button--raised&quot;&gt;Skills&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-chip-button ds-chip-button--raised ds-chip-button--warn&quot;&gt;Bypass&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-chip-button ds-chip-button--raised&quot; aria-label=&quot;More options&quot;&gt;⋯&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-chip-button ds-chip-button--raised&quot; disabled&gt;Unavailable&lt;/button&gt;
+  &lt;/div&gt;
 &lt;/div&gt;
 &lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
   &lt;p class=&quot;demo-label&quot;&gt;Dark&lt;/p&gt;
@@ -18844,6 +19080,13 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     &lt;button type=&quot;button&quot; class=&quot;ds-chip-button ds-chip-button--warn&quot; aria-pressed=&quot;true&quot;&gt;Bypass&lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-chip-button ds-chip-button--error&quot; aria-pressed=&quot;true&quot;&gt;Debug&lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-chip-button&quot; disabled&gt;Unavailable&lt;/button&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;demo-row&quot;&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-chip-button ds-chip-button--raised&quot;&gt;Model · high&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-chip-button ds-chip-button--raised&quot;&gt;Skills&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-chip-button ds-chip-button--raised ds-chip-button--warn&quot;&gt;Bypass&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-chip-button ds-chip-button--raised&quot; aria-label=&quot;More options&quot;&gt;⋯&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-chip-button ds-chip-button--raised&quot; disabled&gt;Unavailable&lt;/button&gt;
   &lt;/div&gt;
 &lt;/div&gt;
 &lt;/body&gt;
@@ -36053,12 +36296,15 @@ window.addEventListener('resize', repositionAll)
 <p>It sets a <strong>value</strong>; it does not switch a view. A control that swaps the content region below it is a tab strip — a different component with a different role (<code>tablist</code>) and a different active treatment (the hairline underline). And it is not a select: use one only when showing every option at once is worth the row it costs, which stops being true past four options or past one word per label.</p>
 <p>Longer labels, or choices that need a hint sentence each, belong to radio rows — the strip has no room for either, and cramming them in is the signal you picked the wrong control.</p>
 <h4>Anatomy</h4>
-<p>| Part | Class | Required | |---|---|---| | Group | <code>.ds-segmented-control</code> | yes — <code>role=&quot;radiogroup&quot;</code> with an accessible name; owns the border, radius, and overflow clip | | Segment | <code>.ds-segmented-control-segment</code> | 2–4 — real <code>&lt;button&gt;</code>s with <code>role=&quot;radio&quot;</code> | | Count | the [badge](../badge/component.md) count species, inside a segment after its label | no — see &quot;Badged segment&quot; |</p>
-<p>The group owns everything structural. Segments are separated by a single internal <code>border.subtle</code> hairline on each segment after the first — never a doubled border, never a gap.</p>
+<p>| Part | Class | Required | |---|---|---| | Group (the track) | <code>.ds-segmented-control</code> | yes — <code>role=&quot;radiogroup&quot;</code> with an accessible name; owns the height, the groove, the hairline and the radius | | Segment | <code>.ds-segmented-control-segment</code> | 2–4 — real <code>&lt;button&gt;</code>s with <code>role=&quot;radio&quot;</code> | | Count | the [badge](../badge/component.md) count species, inside a segment after its label | no — see &quot;Badged segment&quot; |</p>
+<h5>Track and thumb (owner ruling 2026-10-01)</h5>
+<p>The group is a <strong>groove</strong> set into the surface: <code>bg.well</code> (a tint of the ink, so it reads on a panel, a card or a popover alike), a <code>border.subtle</code> hairline, and <code>shadow.control-track</code>, light falling into it from above. It owns the ramp height and a <code>space.3xs</code> inset.</p>
+<p>The selected segment is a <strong>raised thumb</strong> standing out of the groove on <code>shadow.control-edge</code> and <code>gradient.control-sheen</code> over <code>bg.surface-raised</code> — the same step every bordered control in the system stands off the page. The thumb takes <code>radius.chip</code>, concentric inside the track's <code>radius.control</code>. Unselected segments are bare ink on the groove, with no separators: the thumb is what divides the strip.</p>
+<p>This replaced a strip of hairline-separated cells over one flat fill, where the chosen cell was a luminance step away from the rest and the whole thing read as a row of table cells rather than as a switch.</p>
 <h4>Variants</h4>
-<ul><li>Default (no modifier) — <code>size.control.sm</code> height, <code>font.size.meta</code> labels at <code>font.weight.medium</code>. The form-control size: it shares a row height with inputs and selects.</li><li><code>ds-segmented-control--sm</code> — <code>size.control.xs</code> height, <code>font.size.micro</code> labels. The dense variant for an inline sub-control inside a compact popover; never the default on a form.</li><li><code>ds-segmented-control--icon-only</code> (2026-09-09) — square <code>size.control.xs</code> segments carrying a glyph at <code>icon.size.sm</code> instead of a word, and the label becomes the segment's <code>aria-label</code> <strong>and</strong> its tooltip. For a strip on a band that cannot spend width on labels: the diff window's side-by-side / unified toggle, which shares its row with the file stepper and the include counter. The square matches the <code>button --icon</code> items beside it in a [toolbar](../toolbar/component.md) band rather than standing a step taller. Every item must carry an icon.</li><li><strong>Badged segment</strong> (owner ruling 2026-09-25) — a segment may carry the badge component's count after its label, saying how much is waiting behind that choice: the Agents switcher's &quot;1 CLI update available&quot; on the machine that has it, and on no other. It trails the label inside the segment, <code>space.xs</code> after it, rather than docking on the corner the way <code>--corner</code> does, because the group clips its own edge to draw the rounded border and a corner count would be cut in half. Not on <code>--icon-only</code>: the square has no room beside the glyph. Nothing at zero. The count is news, not a second selection state — the selected fill stays the only thing that says which segment is chosen.</li><li><strong>No accent variant.</strong> The selected segment is a *selection*, and selection is neutral: <code>bg.selected</code> with the label lifted to <code>text.primary</code>. An accent-filled segment would spend the one solid accent on a state display.</li></ul>
+<ul><li>Default (no modifier) — <code>size.control.sm</code> height, <code>font.size.meta</code> labels at <code>font.weight.medium</code>. The form-control size: it shares a row height with inputs and selects.</li><li><code>ds-segmented-control--sm</code> — <code>size.control.xs</code> height, <code>font.size.micro</code> labels. The dense variant for an inline sub-control inside a compact popover; never the default on a form.</li><li><code>ds-segmented-control--icon-only</code> (2026-09-09) — a <code>size.control.xs</code> track of square carrying a glyph at <code>icon.size.sm</code> instead of a word, and the label becomes the segment's <code>aria-label</code> <strong>and</strong> its tooltip. For a strip on a band that cannot spend width on labels: the diff window's side-by-side / unified toggle, which shares its row with the file stepper and the include counter. The square matches the <code>button --icon</code> items beside it in a [toolbar](../toolbar/component.md) band rather than standing a step taller. Every item must carry an icon.</li><li><strong>Badged segment</strong> (owner ruling 2026-09-25) — a segment may carry the badge component's count after its label, saying how much is waiting behind that choice: the Agents switcher's &quot;1 CLI update available&quot; on the machine that has it, and on no other. It trails the label inside the segment, <code>space.xs</code> after it, rather than docking on the corner the way <code>--corner</code> does, because a segment is a thumb inside a <code>space.3xs</code>-inset track and a corner count would sit on the track's rim, reading as the strip's rather than the segment's. Not on <code>--icon-only</code>: the square has no room beside the glyph. Nothing at zero. The count is news, not a second selection state — the selected fill stays the only thing that says which segment is chosen.</li><li><strong>No accent variant.</strong> The selected segment is a *selection*, and selection is neutral: the raised thumb with the label lifted to <code>text.primary</code>. An accent-filled segment would spend the one solid accent on a state display.</li></ul>
 <h4>States</h4>
-<p>| State | Treatment | |---|---| | Selected | <code>bg.selected</code>, label at <code>text.primary</code>. Exactly one, always. On <code>--icon-only</code> the glyph takes the ink lift; the fill is the same | | Unselected | <code>bg.surface</code>, label at <code>text.muted</code> | | Hover (unselected) | <code>bg.hover</code>, label lifts to <code>text.primary</code> | | Focus | <code>focus.ring</code> outline on the segment, on <code>:focus-visible</code> only | | Disabled segment | 45% opacity, <code>not-allowed</code>; skipped by arrow keys |</p>
+<p>| State | Treatment | |---|---| | Selected | The raised thumb — <code>bg.surface-raised</code>, <code>shadow.control-edge</code>, <code>gradient.control-sheen</code> — label at <code>text.primary</code>. Exactly one, always. On <code>--icon-only</code> the glyph takes the ink lift; the thumb is the same | | Unselected | No ground of its own — the groove shows through — label at <code>text.muted</code> | | Hover (unselected) | <code>bg.hover</code>, label lifts to <code>text.primary</code> | | Focus | <code>focus.ring</code> outline on the segment, on <code>:focus-visible</code> only | | Disabled segment | 45% opacity, <code>not-allowed</code>; skipped by arrow keys |</p>
 <p>There is no empty state. A segmented control renders with a selection and keeps one; &quot;none of these&quot; is itself a segment if the domain has it.</p>
 <h4>Keyboard</h4>
 <p>The group is a <strong>single tab stop</strong>, and selection follows focus:</p>
@@ -36075,19 +36321,29 @@ window.addEventListener('resize', repositionAll)
 <p>~~Shipped <code>SegmentedControl.tsx</code> rounds the group at 6px (<code>rounded-md</code>) — a radius that exists in no token — and pads md segments at 14px, a step the space scale does not have. Token canon, which this entry specifies: <code>radius.control</code> on the group and <code>space.lg</code> segment padding. The sm variant's 26px height is <code>size.control.xs</code> and is written as the literal in the source; the token is the canon there too.~~ <strong>Resolved 2026-09-02:</strong> the group rounds at <code>rounded-sm</code> (<code>radius.control</code>), md segments pad <code>px-3</code> (<code>space.lg</code>), and the sm variant is <code>h-control-xs</code>. (<code>rounded-md</code> had by then come to mean <code>radius.overlay</code>, 7px, in the app's <code>@theme</code> — the drift had grown by a pixel.)</p>
 </div>
 </div>
-<details class="catalog-source"><summary>components/segmented-control/component.css</summary><pre><code>/* Segmented control — a radiogroup strip of 2–4 always-visible, mutually
- * exclusive choices (src/renderer/src/components/ui/SegmentedControl.tsx).
+<details class="catalog-source"><summary>components/segmented-control/component.css</summary><pre><code>/* Segmented control — a radiogroup of 2–4 always-visible, mutually exclusive
+ * choices (src/renderer/src/components/ui/SegmentedControl.tsx).
  *
- * The group owns the border, radius, and clip; segments own nothing
- * structural. Selection is neutral — bg.selected plus an ink lift — never the
- * accent: a selected segment is a state display, not the view's one primary
- * action. */
+ * A TRACK and a THUMB (owner ruling 2026-10-01). The group is a groove set into
+ * the surface — bg.well, a border.subtle hairline, and shadow.control-track
+ * light falling into it — and owns the ramp height. The selected segment is a
+ * raised thumb standing out of the groove on shadow.control-edge and
+ * gradient.control-sheen: the same step every bordered control stands off the
+ * page. Unselected segments are bare ink on the groove.
+ *
+ * Selection stays neutral — a lifted ground and an ink lift, never the accent:
+ * a selected segment is a state display, not the view's one primary action. */
 
 .ds-segmented-control {
   display: inline-flex;
-  overflow: hidden;
-  border: 1px solid var(--sem-color-border-default);
+  align-items: stretch;
+  gap: var(--sem-space-3xs);
+  height: var(--sem-size-control-sm);
+  padding: var(--sem-space-3xs);
+  border: 1px solid var(--sem-color-border-subtle);
   border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-well);
+  box-shadow: var(--sem-shadow-control-track);
 }
 
 .ds-segmented-control-segment {
@@ -36095,10 +36351,12 @@ window.addEventListener('resize', repositionAll)
   align-items: center;
   /* Only a badged segment has a second child: its count, after the label. */
   gap: var(--sem-space-xs);
-  height: var(--sem-size-control-sm);
-  padding: 0 var(--sem-space-lg);
+  padding: 0 var(--sem-space-md);
   border: 0;
-  background: var(--sem-color-bg-surface);
+  /* The thumb sits 2px inside the track's 7px corner, so it takes the chip
+   * step: concentric rather than a second 7px curve crowding the first. */
+  border-radius: var(--sem-radius-chip);
+  background: transparent;
   color: var(--sem-color-text-muted);
   font-family: var(--sem-font-family-ui);
   font-size: var(--sem-font-size-meta);
@@ -36106,12 +36364,8 @@ window.addEventListener('resize', repositionAll)
   cursor: pointer;
   transition:
     background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    box-shadow var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
     color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
-}
-
-/* One internal hairline per join — on the segment after it, never doubled. */
-.ds-segmented-control-segment + .ds-segmented-control-segment {
-  border-left: 1px solid var(--sem-color-border-subtle);
 }
 
 .ds-segmented-control-segment:hover:not(:disabled):not([aria-checked='true']) {
@@ -36119,16 +36373,15 @@ window.addEventListener('resize', repositionAll)
   color: var(--sem-color-text-primary);
 }
 
-/* Neutral selection: a luminance step and an ink lift, which is why the
- * checked segment survives grayscale. */
+/* The thumb: the raised ground over the groove, lit from above. A luminance
+ * step AND an edge, which is why the checked segment survives grayscale. */
 .ds-segmented-control-segment[aria-checked='true'] {
-  background: var(--sem-color-bg-selected);
+  background-color: var(--sem-color-bg-surface-raised);
+  background-image: var(--sem-gradient-control-sheen);
+  box-shadow: var(--sem-shadow-control-edge);
   color: var(--sem-color-text-primary);
 }
 
-/* The group clips its own overflow, so the shared treatment turns inward —
- * only the offset is negated, same width, same colour (the split button's
- * reasoning, and its exact rule). */
 .ds-segmented-control-segment:focus-visible {
   outline: var(--sem-focus-ring);
   outline-offset: calc(-1 * var(--sem-focus-ring-offset));
@@ -36140,9 +36393,12 @@ window.addEventListener('resize', repositionAll)
 }
 
 /* Dense variant for inline sub-controls inside compact popovers. */
-.ds-segmented-control--sm .ds-segmented-control-segment {
+.ds-segmented-control--sm {
   height: var(--sem-size-control-xs);
-  padding: 0 var(--sem-space-md);
+}
+
+.ds-segmented-control--sm .ds-segmented-control-segment {
+  padding: 0 var(--sem-space-sm);
   font-size: var(--sem-font-size-micro);
 }
 
@@ -36157,7 +36413,7 @@ window.addEventListener('resize', repositionAll)
  * that cannot spend width on labels — the diff window's side-by-side / unified
  * toggle, sharing its row with the file stepper and the include counter.
  *
- * `size.control.xs` square, so the strip matches the `button --icon` items
+ * A `size.control.xs` track of square thumbs, so the strip matches the `button --icon` items
  * beside it in a `toolbar` band rather than standing a step taller than them,
  * and the glyph steps up to `icon.size.sm`: here the glyph IS the control, not
  * a mark beside the word that is.
@@ -36166,9 +36422,12 @@ window.addEventListener('resize', repositionAll)
  * tooltip, which is the contract `tabs --icon-only` already wrote. A segment
  * with no label and no tooltip is a blank button, and it is the only thing this
  * variant can get wrong. */
-.ds-segmented-control--icon-only .ds-segmented-control-segment {
-  width: var(--sem-size-control-xs);
+.ds-segmented-control--icon-only {
   height: var(--sem-size-control-xs);
+}
+
+.ds-segmented-control--icon-only .ds-segmented-control-segment {
+  aspect-ratio: 1;
   justify-content: center;
   padding: 0;
 }

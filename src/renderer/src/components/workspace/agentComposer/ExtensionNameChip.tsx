@@ -30,7 +30,7 @@ export function ExtensionNameChip({
   return (
     <span
       data-extension-name-chip={empty ? 'empty' : invalid ? 'invalid' : 'named'}
-      className={`inline-flex items-center gap-1 rounded-sm py-0.5 pl-1.5 pr-1.5 text-meta text-[color:var(--text-strong)] ${
+      className={`inline-flex h-control-xs items-center gap-1 rounded-sm px-1.5 text-meta text-[color:var(--text-strong)] ${
         invalid
           ? 'border border-[color:var(--tone-error)]'
           : empty
@@ -49,6 +49,9 @@ export function ExtensionNameChip({
       <Input
         ref={inputRef}
         variant="seamless"
+        // The chip owns the box and its height — the raised row's `xs` step —
+        // so the field brings no ramp height of its own into it.
+        size="none"
         fullWidth={false}
         value={name}
         onChange={(event) => onChange(extensionIdFromName(event.currentTarget.value, { typing: true }))}
@@ -56,7 +59,7 @@ export function ExtensionNameChip({
         aria-label="Extension name"
         aria-invalid={invalid || undefined}
         spellCheck={false}
-        className={`field-sizing-content ${empty ? 'min-w-[12ch]' : 'min-w-[2ch]'} max-w-[180px] font-mono text-meta`}
+        className={`field-sizing-content h-full ${empty ? 'min-w-[12ch]' : 'min-w-[2ch]'} max-w-[180px] font-mono text-meta`}
       />
     </span>
   )
