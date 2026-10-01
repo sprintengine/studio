@@ -129,6 +129,10 @@ export function LocalAppsSettings() {
     )
 
   const empty = status.apps.length === 0 && status.offers.length === 0
+  // Pairing and revoking belong to the Studio serving the socket. Another one
+  // on the same profile (a second dev build) would write the same store under
+  // it, so here they are shown and not offered.
+  const elsewhere = !status.running && status.lastError !== null
 
   return (
     <section className="space-y-3 pt-2">
@@ -153,7 +157,7 @@ export function LocalAppsSettings() {
                     <ScopePill key={scope} scope={scope} />
                   ))}
                 </ScopePillSet>
-                <GhostButton tone="danger" onClick={() => void revoke(app.id, app.name)}>
+                <GhostButton tone="danger" disabled={!status.running} onClick={() => void revoke(app.id, app.name)}>
                   Revoke
                 </GhostButton>
               </div>
@@ -239,6 +243,7 @@ export function LocalAppsSettings() {
         </SettingCard>
       ) : (
         <OutlineButton
+          disabled={!status.running}
           onClick={() => {
             setMinted(null)
             setDraft(EMPTY_DRAFT)
@@ -249,7 +254,13 @@ export function LocalAppsSettings() {
       )}
 
       {error ? <InlineNotice tone="error">{error}</InlineNotice> : null}
-      {status.lastError ? <InlineNotice tone="error">{status.lastError}</InlineNotice> : null}
+      {status.lastError ? (
+        <InlineNotice tone="error">
+          {elsewhere
+            ? `${status.lastError} Pair and revoke apps from the Studio that is serving it.`
+            : status.lastError}
+        </InlineNotice>
+      ) : null}
     </section>
   )
 }

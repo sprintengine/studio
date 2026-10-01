@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, test } from 'vitest'
@@ -12,8 +12,10 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
 })
 
-async function harness() {
-  const dir = await mkdtemp(join(tmpdir(), 'studio-rpc-service-'))
+async function harness(nested = '') {
+  const root = await mkdtemp(join(tmpdir(), 'studio-rpc-service-'))
+  const dir = join(root, nested)
+  await mkdir(dir, { recursive: true })
   let clock = Date.parse('2026-10-01T10:00:00Z')
   const records: Array<{ tool: string; args: Record<string, unknown>; ok: boolean }> = []
   const service = createStudioRpcService({
@@ -29,11 +31,13 @@ async function harness() {
     now: () => clock,
   })
   await service.start()
+  assert.equal(service.getStatus().lastError, null)
   cleanups.push(async () => {
     await service.stop()
-    await rm(dir, { recursive: true, force: true })
+    await rm(root, { recursive: true, force: true })
   })
   return {
+    dir,
     service,
     records,
     advance: (ms: number) => {
@@ -78,4 +82,24 @@ test('minting a pairing code and revoking an app from Settings are audited', asy
       ['studio.settings.revoke', true],
     ],
   )
+})
+
+test('a Studio whose socket is not the live one neither pairs nor revokes', async () => {
+  // A data directory long enough that the socket falls back to a temp
+  // directory with a random name: the second Studio finds the first through
+  // the discovery file, not the path.
+  const { dir } = await harness(`${'long-profile-name-'.repeat(4)}x`)
+  const second = createStudioRpcService({
+    paths: { dataDir: () => dir },
+    identity: { version: () => '0.0.0-second' },
+    clients: { publish: () => undefined },
+    backend: () => createFakeBackend(),
+    audit: () => ({ record: () => undefined }) as never,
+  })
+  await second.start()
+  cleanups.push(() => second.stop())
+  assert.equal(second.getStatus().running, false)
+  assert.match(second.getStatus().lastError ?? '', /Another Studio is already serving/)
+  assert.throws(() => second.offer({ name: 'x', scopes: ['conversation:read'], ceiling: 'manual' }), /not serving/)
+  assert.throws(() => second.revoke('sla_1'), /not serving/)
 })

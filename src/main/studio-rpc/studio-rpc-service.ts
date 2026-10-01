@@ -203,6 +203,14 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
     })
   }
 
+  // Pairing and revoking are the serving Studio's. One whose socket did not
+  // start (another Studio serves this profile) would write the same store
+  // under it, and its codes could never be redeemed here.
+  function assertServing(): void {
+    if (!server?.isRunning())
+      throw new Error('This Studio is not serving the local app socket, so it cannot pair or revoke apps.')
+  }
+
   async function startNow(): Promise<void> {
     const directory = dataDir()
     const apps = appStore()
@@ -246,6 +254,7 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
     getStatus: status,
     // Pairing and revoking are recorded too: they decide who may connect.
     offer(input) {
+      assertServing()
       const { offer, code } = appStore().offer(input)
       audit({ clientId: null, clientName: offer.name, tool: 'studio.settings.pairing_code', ok: true, durationMs: 0 })
       return { offer, code, status: status() }
@@ -255,6 +264,7 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
       return status()
     },
     revoke(id) {
+      assertServing()
       if (typeof id !== 'string') return status()
       const clientName =
         appStore()

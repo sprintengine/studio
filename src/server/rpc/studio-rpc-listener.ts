@@ -188,6 +188,14 @@ export function createStudioRpcListener(options: StudioRpcListenerOptions): Stud
     renameSync(staged, discoveryPath)
   }
 
+  function readDiscovery(): ReturnType<typeof parseStudioServerDiscovery> {
+    try {
+      return parseStudioServerDiscovery(JSON.parse(readFileSync(discoveryPath, 'utf8')))
+    } catch {
+      return null
+    }
+  }
+
   function removeDiscovery(socketPath: string): void {
     try {
       const written = parseStudioServerDiscovery(JSON.parse(readFileSync(discoveryPath, 'utf8')))
@@ -202,6 +210,12 @@ export function createStudioRpcListener(options: StudioRpcListenerOptions): Stud
     async start() {
       if (server) return
       ensurePrivateDirectory(runDir, platform)
+      // The discovery file names where a Studio already serving this data
+      // directory listens. A pipe, or a temp socket with a random name, is
+      // never at the path this start would choose, so it is asked about here.
+      const announced = readDiscovery()
+      if (announced && (await probeStudioSocket(announced.socketPath)) === 'live')
+        throw new Error(`Another Studio is already serving this data directory on ${announced.socketPath}.`)
       const socketPath = options.socketPath ?? resolveStudioSocketPath(options.dataDir, platform)
       if (platform !== 'win32') {
         ensurePrivateDirectory(dirname(socketPath), platform)
