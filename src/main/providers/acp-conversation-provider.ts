@@ -9,15 +9,18 @@ import {
 } from '../conversation-file-access'
 import { terminateCliChild } from './cli-child-process'
 import {
+  CONVERSATION_IDENTITY_ENV_KEYS,
   cliHostSpawn,
   hostMachineName,
   mcpServersOnWsl,
   prepareWslCliTarget,
+  spawnCliHostChild,
   wslTargetForHost,
   type WslCliChild,
   type WslCliTarget,
 } from './cli-host-child'
 import { isWslHostId, type ExecutionHostId } from '../../shared/execution-host'
+import { AGENT_IDENTITY_ENV_KEYS, MCP_CHANNEL_TOKEN_ENV } from '../../shared/studio-env'
 import { toWslPath, wslPathInRootSpelling } from '../../shared/host-paths'
 import { publishConversationCommands } from '../conversation-commands/registry'
 import { acpConversationCommands } from '../conversation-commands/acp'
@@ -713,14 +716,18 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
       if (state.closed) throw new Error('Conversation was stopped during startup.')
       const sdk = await import('@agentclientprotocol/sdk')
       if (state.closed) throw new Error('Conversation was stopped during startup.')
-      const target = cliHostSpawn({
-        command,
-        args: acpLaunchArgv(profile, state.input.permissionPreset, state.input.permissionMode),
-        cwd: state.input.workspaceRoot ?? '',
-        env,
-        wsl: wsl ? acpWslChild(wsl, profile, state.input.permissionPreset, state.input.permissionMode) : null,
-      })
-      const child = (options.spawnChild ?? spawn)(target.file, target.args, target.options)
+      // In WSL the child is issued its own MCP channel token, which the app's
+      // gateway the agent starts from its own configuration inherits from it.
+      const child = spawnCliHostChild(
+        {
+          command,
+          args: acpLaunchArgv(profile, state.input.permissionPreset, state.input.permissionMode),
+          cwd: state.input.workspaceRoot ?? '',
+          env,
+          wsl: wsl ? acpWslChild(wsl, profile, state.input.permissionPreset, state.input.permissionMode) : null,
+        },
+        { spawn: options.spawnChild ?? spawn },
+      )
       state.child = child
       state.spawnedAt = Date.now()
       child.stderr.on('data', () => undefined)
@@ -902,6 +909,7 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
           wsl ? mcpServersOnWsl(servers) : servers,
           state.mcpCapabilities,
           profile.displayName,
+          { wsl: wsl !== null },
         )
         // The folder as the agent names it: the Linux spelling in WSL.
         const cwd = wsl ? toWslPath(state.input.workspaceRoot!) : state.input.workspaceRoot!
@@ -1312,6 +1320,13 @@ function isMissingSessionError(error: unknown): boolean {
   )
 }
 
+// What an agent in WSL holds for itself and hands on to the servers it starts.
+const WSL_CHILD_OWNED_ENV: ReadonlySet<string> = new Set([
+  MCP_CHANNEL_TOKEN_ENV,
+  ...AGENT_IDENTITY_ENV_KEYS,
+  ...CONVERSATION_IDENTITY_ENV_KEYS,
+])
+
 /** An MCP server this agent cannot connect to; see acpMcpServers. */
 class AcpMcpServerUnsupportedError extends Error {}
 
@@ -1322,15 +1337,23 @@ class AcpMcpServerUnsupportedError extends Error {}
  * environment explicitly, so the variables a server's entry names
  * (`envVarNames`) are read from this app's own environment here, as is an
  * HTTP server's bearer token.
+ *
+ * Not for an agent in WSL, though, where the gateway's channel token and the
+ * chat's identity are the child's own (issued to it at spawn, carried in by
+ * `forwardEnv`) and inherited by what it starts: a value this app's process
+ * happens to hold would only override them with a stale or foreign one.
  */
 export function acpMcpServers(
   servers: readonly ConversationMcpServer[],
   capabilities: McpCapabilities | undefined,
   agentName: string,
+  options: { wsl?: boolean } = {},
 ): McpServer[] {
+  const hostValue = (name: string): string | undefined =>
+    options.wsl && WSL_CHILD_OWNED_ENV.has(name) ? undefined : process.env[name]
   const fromEnv = (names: readonly string[] | undefined) =>
     (names ?? []).flatMap((name) => {
-      const value = process.env[name]
+      const value = hostValue(name)
       return value ? [{ name, value }] : []
     })
   return servers.map((server): McpServer => {
@@ -1351,7 +1374,7 @@ export function acpMcpServers(
       )
     }
     const headers = Object.entries(server.headers ?? {}).map(([name, value]) => ({ name, value }))
-    const token = server.envVarNames?.[0] ? process.env[server.envVarNames[0]] : undefined
+    const token = server.envVarNames?.[0] ? hostValue(server.envVarNames[0]) : undefined
     if (token && !headers.some((header) => header.name.toLowerCase() === 'authorization'))
       headers.push({ name: 'Authorization', value: `Bearer ${token}` })
     return { type: server.transport, name: server.id, url: server.url ?? '', headers }

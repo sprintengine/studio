@@ -1287,7 +1287,8 @@ export async function probeCodexConversationCommands(
     command,
     cwd: input.cwd,
     env,
-    wsl: wsl ? codexWslChild(wsl) : null,
+    // It opens no thread, so it starts no MCP server and is issued no token.
+    wsl: wsl ? codexWslChild({ distro: wsl.distro, agentStateSocketPath: wsl.agentStateSocketPath }) : null,
     args: codexAppServerArgs(env.SPRINTENGINE_CODEX_APP_SERVER_ARGS),
     onMessage: () => undefined,
     onClose: () => undefined,

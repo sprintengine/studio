@@ -15,6 +15,9 @@ import { createCodexRpcTransport, type CodexRpcOptions, type RpcMessage } from '
 
 const ROOT = '\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo'
 const WSL_TARGET = { distro: 'Ubuntu', agentStateSocketPath: '/run/user/1000/sprintengine/agent.sock' }
+const TOKEN = 'codex_chat_token_0123456789'
+// The machine's token issuer, as `prepareWslCliTarget` hands it out.
+const issueChannelToken = () => ({ token: TOKEN, revoke: () => undefined })
 
 function decodedScript(args: readonly string[]): string {
   const encoded = /echo (\S+)\|base64 -d/u.exec(args.at(-1) ?? '')?.[1] ?? ''
@@ -32,7 +35,7 @@ function wslFixture(mcpServers: ConversationMcpServer[] = []) {
   const adapter = createCodexConversationProvider({
     prepareWslTarget: async (hostId) => {
       prepared.push(hostId)
-      return WSL_TARGET
+      return { ...WSL_TARGET, issueChannelToken }
     },
     resolveExecutable: async () => '/home/dev/.local/bin/codex',
     buildEnv: async () => ({
@@ -122,6 +125,8 @@ test('a Codex chat on a WSL machine starts that machine’s app-server in the fo
     expect.arrayContaining(['SPRINTENGINE_AGENT_ID', 'SPRINTENGINE_CONVERSATION_SESSION_ID']),
   )
   expect(f.connection.wsl?.unsetEnv).toEqual(expect.arrayContaining(['OPENAI_API_KEY', 'CODEX_API_KEY']))
+  // The app-server is issued its channel token as it starts (createCodexRpcTransport).
+  expect(f.connection.wsl?.issueChannelToken).toBe(issueChannelToken)
   // The session's MCP server is started by the Linux side, so its paths are the distribution's.
   expect(f.connection.args?.join(' ')).toContain('"/mnt/c/tools/node.exe"')
   expect(f.connection.args?.join(' ')).toContain('"/mnt/c/tools/files-server.js"')
@@ -183,7 +188,7 @@ test("Codex's skills for a folder on a WSL machine are asked of that machine's a
   await probeCodexConversationCommands(
     { cwd, cliRuntimes: { codex: { hostId: 'wsl:Ubuntu' } } },
     {
-      prepareWslTarget: async () => WSL_TARGET,
+      prepareWslTarget: async () => ({ ...WSL_TARGET, issueChannelToken }),
       resolveExecutable: async () => '/home/dev/.local/bin/codex',
       buildEnv: async () => ({}),
       createTransport: (given) => {
@@ -204,6 +209,8 @@ test("Codex's skills for a folder on a WSL machine are asked of that machine's a
     },
   )
   expect(options.wsl?.distro).toBe('Ubuntu')
+  // It opens no thread, so it starts no MCP server and needs no token.
+  expect(options.wsl?.issueChannelToken).toBeUndefined()
   expect(asked).toEqual([{ cwds: ['/home/dev/probe'] }])
   expect(conversationCommandsFor('codex', cwd).commands.map((command) => command.name)).toContain('triage')
 })
@@ -242,4 +249,47 @@ test('the app-server for a WSL chat is one wsl.exe running codex inside the dist
   expect(script).toContain('SPRINTENGINE_AGENT_ID=agent')
   expect(script).not.toContain('C:\\Windows')
   transport.close()
+})
+
+test("a WSL app-server's MCP channel token is read from stdin before the protocol, and taken back when it ends", async () => {
+  const spawned: Array<{ args: string[]; env: NodeJS.ProcessEnv }> = []
+  const revoked: string[] = []
+  const child = Object.assign(new EventEmitter(), {
+    stdin: new PassThrough(),
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    pid: 7,
+    exitCode: null as number | null,
+    kill: () => true,
+  })
+  const transport = createCodexRpcTransport({
+    command: '/home/dev/.local/bin/codex',
+    cwd: 'C:\\Users\\dev\\repo',
+    env: { SPRINTENGINE_AGENT_ID: 'agent' },
+    platform: 'win32',
+    wsl: {
+      ...WSL_TARGET,
+      forwardEnv: ['SPRINTENGINE_AGENT_ID'],
+      issueChannelToken: () => ({ token: TOKEN, revoke: () => revoked.push(TOKEN) }),
+    },
+    spawnChild: ((_file: string, args: string[], options: { env: NodeJS.ProcessEnv }) => {
+      spawned.push({ args, env: options.env })
+      return child
+    }) as unknown as CodexRpcOptions['spawnChild'],
+    onMessage: () => undefined,
+    onClose: () => undefined,
+  })
+  void transport.request('initialize', {}).catch(() => undefined)
+  const written = child.stdin.read()?.toString() ?? ''
+  // Codex hands the token to the gateway its config names it for (`env_vars`).
+  expect(written.split('\n')[0]).toBe(TOKEN)
+  expect(JSON.parse(written.split('\n')[1])).toMatchObject({ method: 'initialize' })
+  expect(spawned[0].args.join(' ')).not.toContain(TOKEN)
+  expect(decodedScript(spawned[0].args)).not.toContain(TOKEN)
+  expect(decodedScript(spawned[0].args)).toContain('read -r SPRINTENGINE_MCP_CHANNEL_TOKEN')
+  expect(spawned[0].env.SPRINTENGINE_MCP_CHANNEL_TOKEN).toBeUndefined()
+  expect(revoked).toEqual([])
+  child.exitCode = 0
+  child.emit('close', 0)
+  expect(revoked).toEqual([TOKEN])
 })

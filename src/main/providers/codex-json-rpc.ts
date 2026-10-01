@@ -1,7 +1,7 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { StringDecoder } from 'node:string_decoder'
 import { terminateCliChild } from './cli-child-process'
-import { cliHostSpawn, type WslCliChild } from './cli-host-child'
+import { spawnCliHostChild, type WslCliChild } from './cli-host-child'
 
 export type RpcMessage = {
   id?: string | number
@@ -90,7 +90,9 @@ export function codexAppServerArgs(value: string | undefined): string[] {
 
 /** JSONL framing is confined here; protocol events never share stderr or shell parsing. */
 export function createCodexRpcTransport(options: CodexRpcOptions): CodexRpcTransport {
-  const target = cliHostSpawn(
+  // In WSL the child is issued its own MCP channel token: Codex hands it to the
+  // app's gateway, whose entry names it (`env_vars`).
+  const child = spawnCliHostChild(
     {
       command: options.command,
       args: ['app-server', '--listen', 'stdio://', ...(options.args ?? [])],
@@ -98,13 +100,8 @@ export function createCodexRpcTransport(options: CodexRpcOptions): CodexRpcTrans
       env: options.env,
       wsl: options.wsl,
     },
-    { platform: options.platform },
+    { platform: options.platform, spawn: options.spawnChild ?? spawn },
   )
-  const child = (options.spawnChild ?? spawn)(
-    target.file,
-    target.args,
-    target.options,
-  ) as ChildProcessWithoutNullStreams
   const pending = new Map<
     number,
     { resolve(value: unknown): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }
