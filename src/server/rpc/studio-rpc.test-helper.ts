@@ -20,6 +20,7 @@ import { createStudioRpcServer, type StudioRpcServer } from './studio-rpc-server
 import type {
   StudioAuditEntry,
   StudioAuthenticator,
+  StudioChatBackend,
   StudioCommandOutcome,
   StudioConversationBackend,
 } from './studio-rpc-types'
@@ -331,6 +332,7 @@ export async function startTestServer(
     helloTimeoutMs?: number
     maxConnections?: number
     maxConnectionsPerClient?: number
+    chat?: StudioChatBackend
   } = {},
 ): Promise<{
   server: StudioRpcServer
@@ -351,6 +353,7 @@ export async function startTestServer(
     environmentId: 'env-test',
     backend,
     authenticator: auth,
+    ...(input.chat ? { chat: () => input.chat! } : {}),
     audit: (entry) => audit.push(entry),
     resyncRetryAfterMs: () => 1_500,
     ...(input.helloTimeoutMs ? { helloTimeoutMs: input.helloTimeoutMs } : {}),

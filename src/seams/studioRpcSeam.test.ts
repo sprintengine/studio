@@ -12,7 +12,12 @@ import {
 } from '../../packages/agent-sdk/src/index'
 import { connectToStudio } from '../../packages/agent-sdk/src/node'
 import type { StudioClient } from '../../packages/agent-sdk/src/client'
-import { STUDIO_METHODS, type StudioMethod } from '../../packages/studio-protocol/src/public'
+import {
+  STUDIO_CHAT_METHODS,
+  STUDIO_METHODS,
+  type StudioChatMethod,
+  type StudioMethod,
+} from '../../packages/studio-protocol/src/public'
 import type { ConversationEvent, ConversationEventType } from '../shared/conversation-runtime'
 import { emptyAgentLaunchSettings } from '../shared/launch-settings'
 import { emptyWorkspaceRegistryFile, toWorkspaceRegistryRecord } from '../shared/workspace-registry'
@@ -299,6 +304,11 @@ test('every method the server serves has its call in the SDK, under the same sco
     'conversation.loadEarlier': 'conversations.loadEarlier',
     'conversation.toolDetail': 'conversations.toolDetail',
     'conversation.turnDiff': 'conversations.turnDiff',
+    // The chat surface is Studio's own windows' and is called by name.
+    ...(Object.fromEntries(Object.keys(STUDIO_CHAT_METHODS).map((method) => [method, 'request'])) as Record<
+      StudioChatMethod,
+      string
+    >),
   }
   assert.deepEqual(Object.keys(sdkCalls).sort(), Object.keys(STUDIO_METHODS).sort())
   const client = await pairedClient(['conversation:read'], 'manual')
@@ -322,11 +332,19 @@ test('every method the server serves has its call in the SDK, under the same sco
       'conversation.stop': () => service.stop(ref),
       'conversation.create': () => service.create({ workspaceId: 'ws-a' }),
     }
-    const mutations = Object.entries(STUDIO_METHODS).filter(([, spec]) => spec.mutation)
+    const mutations = Object.entries(STUDIO_METHODS).filter(([, spec]) => spec.mutation && !spec.owner)
     assert.deepEqual(mutations.map(([method]) => method).sort(), Object.keys(refusals).sort())
     for (const [method] of mutations) {
       const answer = await refusals[method]()
       assert.deepEqual([method, answer.ok, answer.code], [method, false, 'scope_required'])
+    }
+    // The chat surface is refused to any app that is not Studio's own, whatever it was granted.
+    for (const method of Object.keys(STUDIO_CHAT_METHODS) as StudioChatMethod[]) {
+      const refused = await client.request(method, {} as never).then(
+        () => null,
+        (error: { code?: string }) => error.code,
+      )
+      assert.deepEqual([method, refused], [method, 'owner_required'])
     }
     const info = await client.request('server.info', {})
     assert.equal(info.grant.clientId, client.grant.clientId)

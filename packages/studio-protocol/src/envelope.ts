@@ -137,6 +137,14 @@ export type StudioResponseFrame =
 export type StudioStreamFrame = { t: 'frame'; sub: string; frame: ConversationServerFrame }
 
 /**
+ * One message of a stream that has no cursor: each is whole and replaces
+ * nothing the client must keep in order (a list a CLI reported, a status). The
+ * `payload` is the topic's own, documented with the topic; a reconnect simply
+ * subscribes again. A client that does not know the type skips it.
+ */
+export type StudioPushFrame = { t: 'push'; sub: string; payload: unknown }
+
+/**
  * A subscription that did not start, or that ended. When `retryable`,
  * subscribe again after `retryAfterMs` with the last cursor; otherwise the
  * stream is not available to this client.
@@ -160,6 +168,7 @@ export type StudioServerFrame =
   | StudioWelcomeFrame
   | StudioResponseFrame
   | StudioStreamFrame
+  | StudioPushFrame
   | StudioSubscriptionFailedFrame
   | StudioChunkFrame
   | StudioByeFrame
@@ -184,6 +193,8 @@ export const STUDIO_ERROR_CODES = [
   'unknown_topic',
   // The client's grant does not cover the method or topic.
   'scope_required',
+  // The method or topic, or a member of its params, is for Studio's own connections.
+  'owner_required',
   // The conversation the request names does not exist here.
   'not_found',
   // Studio could not carry it out. Retryable only with `retryAfterMs`.
@@ -343,7 +354,7 @@ export function studioClientFrameIds(value: unknown): { requestId?: string; subs
   return {}
 }
 
-const SERVER_FRAME_TYPES = new Set(['welcome', 'res', 'frame', 'subFailed', 'chunk', 'bye'])
+const SERVER_FRAME_TYPES = new Set(['welcome', 'res', 'frame', 'push', 'subFailed', 'chunk', 'bye'])
 
 /**
  * Whether a frame's `t` is one this version of the envelope defines. A client
@@ -422,6 +433,10 @@ export function parseStudioServerFrame(value: unknown): StudioParsedServerFrame 
       const inner = parseConversationServerFrame(frame.frame)
       return inner ? { t: 'frame', sub: frame.sub, frame: inner } : null
     }
+    case 'push':
+      return id(frame.sub) && Object.hasOwn(frame, 'payload')
+        ? { t: 'push', sub: frame.sub, payload: frame.payload }
+        : null
     case 'subFailed':
       return id(frame.sub) && code(frame.code) && text(frame.message) && typeof frame.retryable === 'boolean'
         ? {

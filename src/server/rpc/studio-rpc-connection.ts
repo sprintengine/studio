@@ -19,6 +19,7 @@ import {
   type StudioErrorBody,
   type StudioGrant,
   type StudioRequestFrame,
+  type StudioConversationKey,
   type StudioServerFrame,
   type StudioSubscribeFrame,
   type StudioTopic,
@@ -31,7 +32,13 @@ import {
   type ConversationSnapshotFrame,
 } from '../conversation-stream-shaping'
 import type { StudioRpcAnswer, StudioRpcRouter } from './studio-rpc-router'
-import type { StudioAuditEntry, StudioAuthenticator, StudioConversationBackend } from './studio-rpc-types'
+import type {
+  StudioAuditEntry,
+  StudioAuthenticator,
+  StudioChatBackend,
+  StudioConversationBackend,
+  StudioRequestContext,
+} from './studio-rpc-types'
 
 // One client's connection to the Studio RPC: newline-delimited JSON on a
 // stream socket, a `hello` first, then requests and subscriptions multiplexed
@@ -48,6 +55,11 @@ import type { StudioAuditEntry, StudioAuthenticator, StudioConversationBackend }
 // `bye resync_required` with a growing delay, then closed; it reconnects and
 // resumes from its cursors. Writes wait for the socket to drain, so what is
 // waiting is in the queue the bound measures and not in the socket's buffer.
+//
+// The stream need not be a socket. Studio's own windows each reach the RPC
+// over a port main hands them (`studio-frame-port.ts`), one frame per message.
+// Those connections are the app's own chat view (`ownWindow`): what they are
+// sent is not redacted, and what they do is not audited, as over IPC.
 
 // A hello is small; a first line bigger than this is not a Studio client.
 const MAX_HELLO_BYTES = 64 * 1024
@@ -63,10 +75,18 @@ const MAX_LOGICAL_FRAME_BYTES = 32 * 1024 * 1024
 const MAX_IN_FLIGHT_READS = 8
 const MAX_IN_FLIGHT_COMMANDS = 32
 const MAX_SUBSCRIPTIONS = 32
+// Studio's own window asks what its IPC asked, which never answered busy: a
+// transcript checks every file it links, and a window follows every chat it
+// shows. Its bounds are there to stop a runaway, not to pace a view.
+const OWN_WINDOW_MAX_IN_FLIGHT = 512
+const OWN_WINDOW_MAX_SUBSCRIPTIONS = 512
 const BUSY_RETRY_MS = 250
 const SUBSCRIBE_RETRY_MS = 2_000
 // How long a closing connection waits for the client to read its `bye`.
 const BYE_GRACE_MS = 1_000
+// File searches are kept by main per caller number; a connection's numbers
+// start well clear of any window's webContents id, which counts up from 1.
+let nextSlot = 1_000_000_000
 
 export type StudioRpcConnection = {
   readonly connectionId: string
@@ -83,6 +103,10 @@ export type StudioRpcConnectionOptions = {
   authenticator: StudioAuthenticator
   router: StudioRpcRouter
   backend: StudioConversationBackend
+  /** The chat surface: its push streams, and the file searches a closed connection leaves behind. */
+  chat?: () => StudioChatBackend | null
+  /** One of Studio's own windows, over the port main handed it. Default false. */
+  ownWindow?: boolean
   /** The welcome's server-wide members: who this Studio is and what it serves. */
   welcome: () => Omit<StudioWelcomeFrame, 't' | 'grant' | 'pairing'>
   /** The delay a client that fell behind is told to wait; it should grow with repeated resyncs. */
@@ -110,7 +134,8 @@ type BulkEntry = { kind: 'bulk'; lines: Iterator<string>; bytes: number; started
 type Subscription = {
   id: string
   topic: StudioTopic
-  key: ConversationKey
+  /** The conversation followed; null for a push topic, which follows none. */
+  key: ConversationKey | null
   /** Frames of the join, until its fence; null once the replay is queued. */
   replay: ConversationServerFrame[] | null
   handle: { dispose(): void } | null
@@ -118,6 +143,13 @@ type Subscription = {
 
 export function createStudioRpcConnection(options: StudioRpcConnectionOptions): StudioRpcConnection {
   const { socket, authenticator, router, backend } = options
+  const ownWindow = options.ownWindow === true
+  const maxReads = ownWindow ? OWN_WINDOW_MAX_IN_FLIGHT : MAX_IN_FLIGHT_READS
+  const maxCommands = ownWindow ? OWN_WINDOW_MAX_IN_FLIGHT : MAX_IN_FLIGHT_COMMANDS
+  const maxSubscriptions = ownWindow ? OWN_WINDOW_MAX_SUBSCRIPTIONS : MAX_SUBSCRIPTIONS
+  // What a client is shown of an event; a window of Studio's own is shown it as IPC shows it.
+  const redact = <T>(value: T): T => (ownWindow ? value : backend.redact(value))
+  const context: StudioRequestContext = { connectionId: options.connectionId, slot: nextSlot++, ownWindow }
   let state: 'hello' | 'open' | 'closed' = 'hello'
   let clientId: string | null = null
   let clientName = ''
@@ -160,6 +192,11 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
     subscriptions.clear()
     replaying.clear()
     for (const release of releases.splice(0)) release()
+    try {
+      options.chat?.()?.releaseFileSearches(context.slot)
+    } catch {
+      // Nothing of this connection's is left to end.
+    }
     options.onClosed(connection)
   }
 
@@ -193,16 +230,15 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
 
   // ── Writing ───────────────────────────────────────────────────────────────
 
-  function writeLine(line: string): Promise<void> {
+  /**
+   * Write one line: `true` when the stream took it at once, else a promise
+   * that settles once it drains. A frame the stream takes at once is gone
+   * before the next is queued, so nothing merges unless the reader is behind.
+   */
+  function writeLine(line: string): true | Promise<void> {
+    if (state === 'closed' || socket.destroyed) return true
+    if (socket.write(`${line}\n`)) return true
     return new Promise((resolve) => {
-      if (state === 'closed' || socket.destroyed) {
-        resolve()
-        return
-      }
-      if (socket.write(`${line}\n`)) {
-        resolve()
-        return
-      }
       const done = () => {
         socket.off('drain', done)
         socket.off('close', done)
@@ -231,7 +267,8 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
           // A logical frame's chunks go out back to back, with nothing between.
           for (const line of studioWireFrames(entry.json ?? JSON.stringify(entry.frame), nextFrameId())) {
             if (closed()) break
-            await writeLine(line)
+            const written = writeLine(line)
+            if (written !== true) await written
           }
           continue
         }
@@ -244,6 +281,8 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
           releaseBulkWaiters()
           continue
         }
+        // A replay yields after every line, taken or not, so a large one never
+        // holds the process; live frames queued meanwhile wait behind it.
         await writeLine(next.value)
       }
     } finally {
@@ -366,7 +405,7 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
   // ── Streams ───────────────────────────────────────────────────────────────
 
   function redactedSnapshotPart(part: ConversationSnapshotFrame): ConversationSnapshotFrame {
-    return { ...part, page: { ...part.page, events: part.page.events.map((event) => backend.redact(event)) } }
+    return { ...part, page: { ...part.page, events: part.page.events.map((event) => redact(event)) } }
   }
 
   /** Everything a join produced, queued as one paced unit ahead of the live events that follow it. */
@@ -391,7 +430,7 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
         producers.push(() => parts.frames(wire, current))
       } else {
         const json = JSON.stringify(
-          source.type === 'event' ? { ...source, event: backend.redact(source.event as ConversationEvent) } : source,
+          source.type === 'event' ? { ...source, event: redact(source.event as ConversationEvent) } : source,
         )
         bytes += Buffer.byteLength(json)
         producers.push(() => wire(json))
@@ -451,6 +490,7 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
       return
     }
     // Every snapshot and fence names its conversation, as on the tailnet.
+    if (!subscription.key) return
     const key = { workspaceId: subscription.key.workspaceId, agentId: subscription.key.agentId }
     const frame: ConversationServerFrame =
       source.type === 'snapshot' || source.type === 'synchronized' ? { ...source, key } : source
@@ -464,7 +504,7 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
       return
     }
     if (frame.type === 'event') {
-      const event = backend.redact(frame.event as ConversationEvent)
+      const event = redact(frame.event as ConversationEvent)
       // A copy the queue may extend in place without touching the runtime's own.
       const owned =
         event === frame.event ? { ...event, ...(event.payload ? { payload: { ...event.payload } } : {}) } : event
@@ -483,13 +523,17 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
       subscriptionFailed(frame.id, 'duplicate_subscription', 'That subscription id is already open on this connection.')
       return
     }
-    if (subscriptions.size >= MAX_SUBSCRIPTIONS) {
+    if (subscriptions.size >= maxSubscriptions) {
       subscriptionFailed(frame.id, 'busy', 'Too many streams are open on this connection.', BUSY_RETRY_MS)
       return
     }
-    const scope = STUDIO_TOPICS[frame.topic].scope
-    if (!studioScopesGrant(grant.scopes, scope)) {
-      subscriptionFailed(frame.id, 'scope_required', `This app's grant does not include "${scope}".`)
+    const spec = STUDIO_TOPICS[frame.topic]
+    if (spec.owner && !grant.owner) {
+      subscriptionFailed(frame.id, 'owner_required', 'This stream is served to Studio’s own connections only.')
+      return
+    }
+    if (!studioScopesGrant(grant.scopes, spec.scope)) {
+      subscriptionFailed(frame.id, 'scope_required', `This app's grant does not include "${spec.scope}".`)
       return
     }
     const parsed = parseStudioTopicParams(frame.topic, frame.params)
@@ -497,8 +541,25 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
       subscriptionFailed(frame.id, parsed.code, parsed.message)
       return
     }
-    const wireKey = parsed.params.key
-    const key = backend.resolveKey(wireKey.workspaceId, wireKey.agentId)
+    if (spec.push) {
+      subscribePush(frame.id, frame.topic)
+      return
+    }
+    const wireKey = (parsed.params as { key: StudioConversationKey }).key
+    if (wireKey.workspaceRoot !== undefined && !grant.owner) {
+      subscriptionFailed(
+        frame.id,
+        'owner_required',
+        'Only Studio’s own connections may name a conversation by its folder.',
+      )
+      return
+    }
+    // An owner names the folder a chat in a run worktree is kept in; anyone
+    // else's key is resolved by its workspace, as on the tailnet.
+    const key =
+      wireKey.workspaceRoot === undefined
+        ? backend.resolveKey(wireKey.workspaceId, wireKey.agentId)
+        : { workspaceRoot: wireKey.workspaceRoot, workspaceId: wireKey.workspaceId, agentId: wireKey.agentId }
     if (!key) {
       subscriptionFailed(
         frame.id,
@@ -513,7 +574,9 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
       key,
       {
         ...(frame.cursor ? { afterSeq: frame.cursor.afterSeq, generation: frame.cursor.generation } : {}),
-        ...(parsed.params.turnLimit === undefined ? {} : { turnLimit: parsed.params.turnLimit }),
+        ...((parsed.params as { turnLimit?: number }).turnLimit === undefined
+          ? {}
+          : { turnLimit: (parsed.params as { turnLimit?: number }).turnLimit }),
       },
       (source) => onFollowFrame(subscription, source),
     )
@@ -521,6 +584,29 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
     // Dropped while the follow was being set up (a failure it delivered at once).
     if (subscriptions.get(frame.id) !== subscription) handle.dispose()
     void handle.ready.catch(() => undefined)
+  }
+
+  /** A topic with no cursor: each payload is sent as it comes, and nothing is replayed. */
+  function subscribePush(id: string, topic: StudioTopic): void {
+    const chat = options.chat?.() ?? null
+    if (!chat || topic !== 'conversation.commands') {
+      subscriptionFailed(id, 'unavailable', `This Studio does not serve ${topic}.`)
+      return
+    }
+    const subscription: Subscription = { id, topic, key: null, replay: null, handle: null }
+    subscriptions.set(id, subscription)
+    const stop = chat.onCommandsChanged((catalog) => {
+      if (state === 'closed' || subscriptions.get(id) !== subscription) return
+      // The grant is read again before anything goes out, as for a conversation.
+      const grant = liveGrant()
+      if (!grant) return
+      if (!studioScopesGrant(grant.scopes, STUDIO_TOPICS[topic].scope)) {
+        refreshGrant()
+        return
+      }
+      enqueueLive({ t: 'push', sub: id, payload: redact(catalog) }, id)
+    })
+    subscription.handle = { dispose: stop }
   }
 
   // ── Reading ───────────────────────────────────────────────────────────────
@@ -535,7 +621,7 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
     // Bounded per connection: one client cannot queue unbounded reads or
     // turns. Over the bound the request is answered busy, and the connection
     // stays open.
-    if (mutation ? commandsInFlight >= MAX_IN_FLIGHT_COMMANDS : readsInFlight >= MAX_IN_FLIGHT_READS) {
+    if (mutation ? commandsInFlight >= maxCommands : readsInFlight >= maxReads) {
       refuseRequest(frame.id, {
         code: 'busy',
         message: 'Too many requests are in flight on this connection.',
@@ -546,7 +632,7 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
     if (mutation) commandsInFlight++
     else readsInFlight++
     void router
-      .handle(grant, method, frame.params)
+      .handle(grant, method, frame.params, context)
       .then(
         (answer) => respond(frame.id, answer),
         () => refuseRequest(frame.id, { code: 'unavailable', message: 'Studio could not carry that out.' }),

@@ -9,7 +9,6 @@ import {
   type ConversationQuestionAnswers,
   type ConversationRequestDecision,
   type ConversationThread,
-  type ConversationWireKey,
   type ConversationWirePage,
   type ConversationWirePermissionPreset,
 } from './conversation.js'
@@ -20,6 +19,19 @@ import {
 } from './handshake.js'
 import type { StudioEnvironment, StudioErrorCode, StudioGrant, StudioServerIdentity } from './envelope.js'
 import type { StudioScope } from './scopes.js'
+import {
+  STUDIO_CHAT_METHODS,
+  STUDIO_CHAT_TOPICS,
+  isStudioChatMethod,
+  parseStudioChatParams,
+  type StudioChatMethodMap,
+  type StudioChatTopicMap,
+  type StudioMethodSpec,
+} from './chat.js'
+import { parseStudioConversationKey, type StudioConversationKey } from './key.js'
+
+export { parseStudioConversationKey, isStudioPath, STUDIO_MAX_PATH_CHARS, type StudioConversationKey } from './key.js'
+export type { StudioMethodSpec } from './chat.js'
 
 // Every method and stream topic, with the scope it needs, in one table.
 //
@@ -35,9 +47,6 @@ import type { StudioScope } from './scopes.js'
 // exactly the same commands. Every mutation carries a `commandId`; a retry
 // with the same id is answered with the first attempt's result and is never
 // carried out twice, across a reconnect and an app restart alike.
-
-/** The conversation a request addresses. */
-export type StudioConversationKey = ConversationWireKey
 
 /** Every command answers with this, plus what its own method adds. */
 export type StudioCommandAnswer = {
@@ -72,7 +81,10 @@ export type StudioServerInfo = {
   grant: StudioGrant
 }
 
-export type StudioMethodMap = {
+export type StudioMethodMap = StudioConversationMethodMap & StudioChatMethodMap
+
+/** The `server` and `conversation` methods phase 2 shipped; the chat surface's are in `chat.ts`. */
+type StudioConversationMethodMap = {
   'server.info': { params: Record<string, never>; result: StudioServerInfo }
   'conversation.list': { params: Record<string, never>; result: { conversations: ConversationThread[] } }
   'conversation.create': {
@@ -118,15 +130,6 @@ export type StudioMethod = keyof StudioMethodMap
 export type StudioMethodParams<M extends StudioMethod> = StudioMethodMap[M]['params']
 export type StudioMethodResult<M extends StudioMethod> = StudioMethodMap[M]['result']
 
-export type StudioMethodSpec = {
-  /** The scope a grant must hold; null for what any authenticated client may ask. */
-  scope: StudioScope | null
-  /** A mutation carries a `commandId`, is audited, and is answered from its receipt on a retry. */
-  mutation: boolean
-  /** The capability a client checks before calling it. */
-  capability: StudioCapability | null
-}
-
 const read = (scope: StudioScope | null = 'conversation:read'): StudioMethodSpec => ({
   scope,
   mutation: false,
@@ -157,6 +160,7 @@ export const STUDIO_METHODS: { readonly [M in StudioMethod]: StudioMethodSpec } 
   'conversation.loadEarlier': read(),
   'conversation.toolDetail': read(),
   'conversation.turnDiff': read(),
+  ...STUDIO_CHAT_METHODS,
 }
 
 /** Whether a string names a method this version of the protocol defines. */
@@ -171,13 +175,20 @@ export type StudioTopicMap = {
    * after it), one `synchronized` fence, then live `event`s.
    */
   'conversation.session': { params: { key: StudioConversationKey; turnLimit?: number } }
-}
+} & StudioChatTopicMap
 
 export type StudioTopic = keyof StudioTopicMap
 export type StudioTopicParams<T extends StudioTopic> = StudioTopicMap[T]['params']
 
-export const STUDIO_TOPICS: { readonly [T in StudioTopic]: { scope: StudioScope; capability: StudioCapability } } = {
+/**
+ * How a topic is held. A `push` topic's frames are `{ t: 'push', sub, payload }`
+ * with no cursor; the others' are conversation frames under `{ t: 'frame' }`.
+ */
+export type StudioTopicSpec = { scope: StudioScope; capability: StudioCapability; owner?: true; push?: true }
+
+export const STUDIO_TOPICS: { readonly [T in StudioTopic]: StudioTopicSpec } = {
   'conversation.session': { scope: 'conversation:read', capability: STUDIO_CONVERSATIONS_CAPABILITY },
+  ...STUDIO_CHAT_TOPICS,
 }
 
 /** Whether a string names a topic this version of the protocol defines. */
@@ -220,14 +231,7 @@ function refuse(code: StudioErrorCode, message: string): StudioParamsRefusal {
   return { ok: false, code, message }
 }
 
-/** A conversation key, or null. */
-export function parseStudioConversationKey(value: unknown): StudioConversationKey | null {
-  return record(value) && id(value.workspaceId) && id(value.agentId)
-    ? { workspaceId: value.workspaceId, agentId: value.agentId }
-    : null
-}
-
-const KEY_REQUIRED = '"key" names the conversation: { workspaceId, agentId }.'
+const KEY_REQUIRED = '"key" names the conversation: { workspaceId, agentId, workspaceRoot? }.'
 
 /**
  * A command method's params as the conversation command they carry, read by
@@ -263,6 +267,7 @@ export function parseStudioCommand(
 
 /** Validate a request's params for its method, keeping only the members the method defines. */
 export function parseStudioMethodParams<M extends StudioMethod>(method: M, params: unknown): StudioParsedParams<M> {
+  if (isStudioChatMethod(method)) return parseStudioChatParams(method, params) as StudioParsedParams<M>
   const value = params === undefined ? {} : params
   if (!record(value)) return refuse('invalid_params', `${method} takes an object of params.`)
   const ok = (parsed: unknown) => ({ ok: true as const, params: parsed as StudioMethodParams<M> })
@@ -326,7 +331,9 @@ export function parseStudioTopicParams<T extends StudioTopic>(
   topic: T,
   params: unknown,
 ): { ok: true; params: StudioTopicParams<T> } | StudioParamsRefusal {
+  if (params === undefined && topic === 'conversation.commands') return { ok: true, params: {} as StudioTopicParams<T> }
   if (!record(params)) return refuse('invalid_params', `${topic} takes an object of params.`)
+  if (topic === 'conversation.commands') return { ok: true, params: {} as StudioTopicParams<T> }
   const key = parseStudioConversationKey(params.key)
   if (!key) return refuse('invalid_params', KEY_REQUIRED)
   if (

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, test } from 'vitest'
 
+import { STUDIO_SCOPES } from '../../../packages/studio-protocol/src/public'
 import { STUDIO_LOCAL_APPS_FILENAME, createStudioLocalAppStore } from './studio-local-app-store'
 import { createGatewayAuditStore } from '../automation/gateway-audit'
 import { readStudioEnvironmentId } from './studio-rpc-service'
@@ -114,7 +115,7 @@ test('the owner token is minted in memory for this run only and grants everythin
     clientId: 'owner',
     name: 'SprintEngine Studio',
     owner: true,
-    scopes: ['conversation:read', 'conversation:operate', 'conversation:create'],
+    scopes: [...STUDIO_SCOPES],
     ceiling: 'bypass',
   })
   assert.equal(createStudioLocalAppStore({ resolveUserDataDir: () => dir }).authenticate(token), null)

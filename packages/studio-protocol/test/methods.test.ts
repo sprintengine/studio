@@ -29,7 +29,7 @@ test('every method and topic names its scope and a capability this package defin
   }
   for (const [topic, spec] of Object.entries(STUDIO_TOPICS)) assert.ok(STUDIO_SCOPES.includes(spec.scope), topic)
   assert.equal(isStudioMethod('constructor'), false)
-  assert.equal(isStudioMethod('conversation.revert'), false)
+  assert.equal(isStudioMethod('conversation.compact'), false)
 })
 
 test('every mutation is a method that carries a commandId, and every reader is not', () => {

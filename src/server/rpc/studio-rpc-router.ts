@@ -1,8 +1,11 @@
 import {
   STUDIO_METHODS,
+  isStudioChatMethod,
   parseStudioMethodParams,
   studioScopesGrant,
   type ConversationCommand,
+  type StudioChatMethod,
+  type StudioConversationKey,
   type StudioCreatedConversation,
   type StudioErrorBody,
   type StudioGrant,
@@ -13,8 +16,18 @@ import {
 } from '../../../packages/studio-protocol/src/public'
 import { isLooserCliPermissionPreset } from '../../shared/cli-permission-preset'
 import { ceilingAllowsUnaskedTools, clampPresetToCeiling } from '../../shared/permission-ceiling'
-import type { ConversationKey } from '../../shared/conversation-runtime'
-import type { StudioAuditEntry, StudioConversationBackend } from './studio-rpc-types'
+import type {
+  ConversationCliRuntimeOverrides,
+  ConversationImageAttachment,
+  ConversationKey,
+} from '../../shared/conversation-runtime'
+import { createStudioUploads, type StudioUploads } from './studio-uploads'
+import type {
+  StudioAuditEntry,
+  StudioChatBackend,
+  StudioConversationBackend,
+  StudioRequestContext,
+} from './studio-rpc-types'
 
 // The Studio RPC's methods, transport-free: given the grant a client holds at
 // this moment, a method and its params, an answer. The connection reads the
@@ -39,12 +52,31 @@ import type { StudioAuditEntry, StudioConversationBackend } from './studio-rpc-t
 //   the runtime's receipts (`client:<id>:<commandId>`, `owner:<commandId>`), as
 //   a module's are (`module:<id>:<commandId>`), so one client can neither
 //   collide with nor be answered from another's receipts.
+//
+// The chat surface (`chat.ts` in the protocol) is served only to owners, and
+// only where main hands the router a chat backend. Its session commands reach
+// the runtime's durable receipts by the same namespaced ids. Its other
+// mutations (starting a session, a revert, a rewind, a fork) address a
+// conversation rather than a session, which the runtime keeps no receipts
+// for, so this router keeps them: the first answer to an id is the answer to
+// every retry of it while this process runs.
+//
+// What a reply carries is redacted and a failure below is told in stable
+// words, except to Studio's own windows (`context.ownWindow`): they are the
+// app's own chat view, which reads the same conversations over IPC as they
+// are, and a view showing a redacted usage count or a vaguer error than its
+// IPC would have is a regression, not a protection.
 
 export type StudioRpcAnswer<M extends StudioMethod = StudioMethod> =
   { ok: true; result: StudioMethodResult<M> } | { ok: false; error: StudioErrorBody }
 
 export type StudioRpcRouter = {
-  handle(grant: StudioGrant, method: StudioMethod, params: unknown): Promise<StudioRpcAnswer>
+  handle(
+    grant: StudioGrant,
+    method: StudioMethod,
+    params: unknown,
+    context?: StudioRequestContext,
+  ): Promise<StudioRpcAnswer>
 }
 
 export type StudioRpcRouterOptions = {
@@ -54,7 +86,23 @@ export type StudioRpcRouterOptions = {
   audit?: (entry: StudioAuditEntry) => void
   /** Where a refusal's own words go: the client is answered with a stable message instead. */
   log?: (message: string) => void
+  /** The chat surface, once main has one to give; null until then, and for a Studio without one. */
+  chat?: () => StudioChatBackend | null
+  uploads?: StudioUploads
   now?: () => number
+}
+
+// How many answers to the chat surface's conversation-level mutations are kept.
+const MAX_KEPT_ANSWERS = 256
+
+const OWNER_ONLY = 'This is served to Studio’s own connections only.'
+const FOLDER_OWNER_ONLY = 'Only Studio’s own connections may name a conversation by its folder.'
+const NO_CONTEXT: StudioRequestContext = { connectionId: '', slot: 0, ownWindow: false }
+
+/** How a request is answered: what its replies show, and in whose words a failure is told. */
+type Voice = {
+  redact<T>(value: T): T
+  failed(code: string, detail: string | undefined, context: string): { ok: false; error: StudioErrorBody }
 }
 
 /**
@@ -116,7 +164,20 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
     if (detail) options.log?.(`Studio RPC ${context} refused (${code}): ${detail}`)
     return refuse(known, STABLE_MESSAGES[known])
   }
+  const clientVoice: Voice = { redact: (value) => backend.redact(value), failed }
+  // Studio's own window hears what its IPC would have said, in the same words.
+  const windowVoice: Voice = {
+    redact: (value) => value,
+    failed: (code, detail) => {
+      const known = Object.hasOwn(STABLE_MESSAGES, code) ? code : 'unavailable'
+      return refuse(known, detail || STABLE_MESSAGES[known])
+    },
+  }
   const now = options.now ?? Date.now
+  const uploads = options.uploads ?? createStudioUploads({ now })
+  // Answers to the chat surface's conversation-level mutations, by namespaced
+  // id, shared while pending so a retry racing the first attempt waits for it.
+  const kept = new Map<string, Promise<StudioRpcAnswer>>()
   // Creates still starting, by namespaced id: a retry that arrives while the
   // first attempt is launching shares it, so one id makes one chat.
   const stopsDone = new Set<string>()
@@ -125,7 +186,12 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
     Promise<{ ok: true; conversation: StudioCreatedConversation } | { ok: false; code: string; message: string }>
   >()
 
-  function resolve(key: { workspaceId: string; agentId: string }): ConversationKey | null {
+  // A key's folder is an owner's to name: it is a path on this disk. Anyone
+  // else's key is resolved by its workspace, as on the tailnet; `handle`
+  // refuses a folder from anyone else before it gets here.
+  function resolve(key: StudioConversationKey, grant: StudioGrant): ConversationKey | null {
+    if (key.workspaceRoot !== undefined && grant.owner)
+      return { workspaceRoot: key.workspaceRoot, workspaceId: key.workspaceId, agentId: key.agentId }
     return backend.resolveKey(key.workspaceId, key.agentId)
   }
   const notFound = (key: { workspaceId: string; agentId: string }) =>
@@ -155,10 +221,11 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
 
   async function command(
     grant: StudioGrant,
-    params: { key: { workspaceId: string; agentId: string }; commandId: string },
+    params: { key: StudioConversationKey; commandId: string },
     command: ConversationCommand,
+    voice: Voice,
   ): Promise<StudioRpcAnswer> {
-    const key = resolve(params.key)
+    const key = resolve(params.key, grant)
     if (!key) return notFound(params.key)
     let carried = command
     if (command.kind === 'setPermissionPreset') {
@@ -191,7 +258,7 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
         )
     }
     const outcome = await backend.command(key, grant.clientId, studioRuntimeCommandId(grant, params.commandId), carried)
-    if (!outcome.ok) return failed(outcome.code ?? 'unavailable', outcome.message, `conversation.${carried.kind}`)
+    if (!outcome.ok) return voice.failed(outcome.code ?? 'unavailable', outcome.message, `conversation.${carried.kind}`)
     const notice = outcome.notice ? { notice: outcome.notice } : {}
     if (carried.kind === 'setPermissionPreset')
       return {
@@ -209,6 +276,7 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
   async function create(
     grant: StudioGrant,
     params: StudioMethodParams<'conversation.create'>,
+    voice: Voice,
   ): Promise<StudioRpcAnswer<'conversation.create'>> {
     const { commandId, ...request } = params
     if (request.allowedTools?.length && !ceilingAllowsUnaskedTools(grant.ceiling))
@@ -245,20 +313,28 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
     const created = await pending
     return created.ok
       ? { ok: true, result: { conversation: created.conversation } }
-      : failed(created.code, created.message, 'conversation.create')
+      : voice.failed(created.code, created.message, 'conversation.create')
   }
 
-  async function dispatch(grant: StudioGrant, method: StudioMethod, params: never): Promise<StudioRpcAnswer> {
+  async function dispatch(
+    grant: StudioGrant,
+    method: StudioMethod,
+    params: never,
+    context: StudioRequestContext,
+    voice: Voice,
+  ): Promise<StudioRpcAnswer> {
+    if (isStudioChatMethod(method)) return chatDispatch(grant, method, params, context, voice)
+    const { failed } = voice
     switch (method) {
       case 'server.info':
         return { ok: true, result: { ...options.info(), grant } }
       case 'conversation.list':
         return { ok: true, result: { conversations: await backend.list() } }
       case 'conversation.create':
-        return create(grant, params)
+        return create(grant, params, voice)
       case 'conversation.stop': {
         const { key: wire, commandId } = params as StudioMethodParams<'conversation.stop'>
-        const key = resolve(wire)
+        const key = resolve(wire, grant)
         if (!key) return notFound(wire)
         const runtimeId = studioRuntimeCommandId(grant, commandId)
         // A stop with no session to stop leaves no receipt in the runtime, so
@@ -273,23 +349,23 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
       }
       case 'conversation.loadEarlier': {
         const { key: wire, beforeCursor, turnLimit } = params as StudioMethodParams<'conversation.loadEarlier'>
-        const key = resolve(wire)
+        const key = resolve(wire, grant)
         if (!key) return notFound(wire)
         const read = await backend.loadEarlier(key, beforeCursor, turnLimit)
         return read.ok
           ? {
               ok: true,
-              result: { page: { ...read.page, events: read.page.events.map((event) => backend.redact(event)) } },
+              result: { page: { ...read.page, events: read.page.events.map((event) => voice.redact(event)) } },
             }
           : failed('unavailable', read.message, 'conversation.loadEarlier')
       }
       case 'conversation.toolDetail': {
         const { key: wire, toolUseId } = params as StudioMethodParams<'conversation.toolDetail'>
-        const key = resolve(wire)
+        const key = resolve(wire, grant)
         if (!key) return notFound(wire)
         const read = await backend.toolDetail(key, toolUseId)
         if (read.ok)
-          return { ok: true, result: { detail: backend.redact(read.detail) as unknown as Record<string, unknown> } }
+          return { ok: true, result: { detail: voice.redact(read.detail) as unknown as Record<string, unknown> } }
         return failed(
           read.code === 'not_found' ? 'not_found' : read.code === 'invalid_input' ? 'invalid_params' : 'unavailable',
           read.message,
@@ -298,45 +374,228 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
       }
       case 'conversation.turnDiff': {
         const { key: wire, turnSeq, path } = params as StudioMethodParams<'conversation.turnDiff'>
-        const key = resolve(wire)
+        const key = resolve(wire, grant)
         if (!key) return notFound(wire)
         const read = await backend.turnDiff(key, turnSeq, path)
         if (!read.ok) return failed('unavailable', read.message, 'conversation.turnDiff')
         const { ok: _ok, ...diff } = read
-        return { ok: true, result: backend.redact(diff) }
+        return { ok: true, result: voice.redact(diff) }
       }
       default: {
         const { key, commandId, ...members } = params as {
-          key: { workspaceId: string; agentId: string }
+          key: StudioConversationKey
           commandId: string
         } & Record<string, unknown>
         const kind = method.slice('conversation.'.length) as ConversationCommand['kind']
-        return command(grant, { key, commandId }, { kind, ...members } as ConversationCommand)
+        return command(grant, { key, commandId }, { kind, ...members } as ConversationCommand, voice)
       }
     }
   }
 
+  // ── The chat surface ─────────────────────────────────────────────────────
+
+  /** The first answer to a namespaced id, for every retry of it; new work otherwise. */
+  function once(
+    id: string,
+    work: () => Promise<StudioRpcAnswer>,
+    voice: Voice,
+    method: string,
+  ): Promise<StudioRpcAnswer> {
+    const known = kept.get(id)
+    if (known) {
+      kept.delete(id)
+      kept.set(id, known)
+      return known
+    }
+    const answer = work().catch((error: unknown): StudioRpcAnswer =>
+      voice.failed('unavailable', error instanceof Error ? error.message : String(error), method),
+    )
+    kept.set(id, answer)
+    while (kept.size > MAX_KEPT_ANSWERS) kept.delete(kept.keys().next().value!)
+    // Work that could not be carried out at all may be tried again under its id.
+    void answer.then((settled) => {
+      if (!settled.ok && settled.error.code === 'unavailable' && kept.get(id) === answer) kept.delete(id)
+    })
+    return answer
+  }
+
+  async function chatDispatch(
+    grant: StudioGrant,
+    method: StudioChatMethod,
+    params: never,
+    context: StudioRequestContext,
+    voice: Voice,
+  ): Promise<StudioRpcAnswer> {
+    const chat = options.chat?.() ?? null
+    if (!chat) return refuse('unavailable', `This Studio does not serve ${method}.`)
+    // A reply is what the backend answered, as this connection may be shown it.
+    const outcome = (result: unknown): StudioRpcAnswer => ({ ok: true, result: voice.redact(result) as never })
+    const runtimeId = (id: string) => studioRuntimeCommandId(grant, id)
+    const keptId = (id: string) => `${method}:${runtimeId(id)}`
+    switch (method) {
+      case 'session.start': {
+        const { commandId, cliRuntimes, ...input } = params as StudioMethodParams<'session.start'>
+        // What a CLI override names is checked where the backend checks the
+        // rest of the start, by the rules its IPC applies.
+        const overrides = cliRuntimes as ConversationCliRuntimeOverrides | undefined
+        return once(
+          keptId(commandId),
+          async () => outcome(await chat.startSession({ ...input, ...(overrides ? { cliRuntimes: overrides } : {}) })),
+          voice,
+          method,
+        )
+      }
+      case 'session.send': {
+        const { commandId, attachments, mentions, ...input } = params as StudioMethodParams<'session.send'>
+        let pictures: ConversationImageAttachment[] | undefined
+        if (attachments?.length) {
+          const spent = uploads.spend(
+            grant.clientId,
+            attachments.map((attachment) => attachment.uploadId),
+            runtimeId(commandId),
+          )
+          if (!spent.ok) return refuse(spent.code, spent.message)
+          pictures = attachments.map((attachment, index) => {
+            const picture = spent.pictures[index]
+            const name = attachment.name ?? picture.name
+            return {
+              id: attachment.id,
+              mediaType: picture.mediaType,
+              dataBase64: picture.bytes.toString('base64'),
+              byteLength: picture.bytes.length,
+              ...(name === undefined ? {} : { name }),
+            }
+          })
+        }
+        return outcome(
+          await chat.sendTurn({
+            ...input,
+            // What each mention names is checked by the backend, by the rules its IPC applies.
+            ...(mentions ? { mentions: mentions as never } : {}),
+            ...(pictures ? { attachments: pictures } : {}),
+            commandId: runtimeId(commandId),
+          }),
+        )
+      }
+      case 'session.interrupt': {
+        const { commandId, ...input } = params as StudioMethodParams<'session.interrupt'>
+        return outcome(await chat.interrupt({ ...input, commandId: runtimeId(commandId) }))
+      }
+      case 'session.respond': {
+        const { commandId, requestKind, ...input } = params as StudioMethodParams<'session.respond'>
+        return outcome(
+          await chat.respond({
+            ...input,
+            ...(requestKind === undefined ? {} : { requestKind: requestKind as never }),
+            commandId: runtimeId(commandId),
+          }),
+        )
+      }
+      case 'session.setPermission': {
+        const { commandId, ...input } = params as StudioMethodParams<'session.setPermission'>
+        return outcome(await chat.setPermission({ ...input, commandId: runtimeId(commandId) }))
+      }
+      case 'session.setModel': {
+        const { commandId, ...input } = params as StudioMethodParams<'session.setModel'>
+        return outcome(await chat.setModel({ ...input, commandId: runtimeId(commandId) }))
+      }
+      case 'uploads.begin': {
+        const begun = uploads.begin(grant.clientId, params as StudioMethodParams<'uploads.begin'>)
+        return begun.ok
+          ? { ok: true, result: { uploadId: begun.uploadId, chunkBytes: begun.chunkBytes } }
+          : refuse(begun.code, begun.message)
+      }
+      case 'uploads.append': {
+        const appended = uploads.append(grant.clientId, params as StudioMethodParams<'uploads.append'>)
+        return appended.ok
+          ? { ok: true, result: { received: appended.received } }
+          : refuse(appended.code, appended.message)
+      }
+      case 'conversation.revert': {
+        const { commandId, key: wire, ...input } = params as StudioMethodParams<'conversation.revert'>
+        const key = resolve(wire, grant)
+        if (!key) return notFound(wire)
+        return once(keptId(commandId), async () => outcome(await chat.revert({ ...input, key })), voice, method)
+      }
+      case 'conversation.rewind': {
+        const { commandId, key: wire, turnSeq } = params as StudioMethodParams<'conversation.rewind'>
+        const key = resolve(wire, grant)
+        if (!key) return notFound(wire)
+        return once(keptId(commandId), async () => outcome(await chat.rewind({ key, turnSeq })), voice, method)
+      }
+      case 'conversation.fork': {
+        const { commandId, key: wire, ...input } = params as StudioMethodParams<'conversation.fork'>
+        const key = resolve(wire, grant)
+        if (!key) return notFound(wire)
+        return once(keptId(commandId), async () => outcome(await chat.fork({ ...input, key })), voice, method)
+      }
+      case 'conversation.attachment':
+        return outcome(await chat.attachment((params as StudioMethodParams<'conversation.attachment'>).ref))
+      case 'conversation.planDocument': {
+        const { key: wire, ...input } = params as StudioMethodParams<'conversation.planDocument'>
+        const key = resolve(wire, grant)
+        if (!key) return notFound(wire)
+        return outcome(await chat.planDocument({ ...key, ...input }))
+      }
+      case 'conversation.commands':
+        return outcome({ catalog: await chat.commands(params as StudioMethodParams<'conversation.commands'>) })
+      case 'providers.list': {
+        const { cliRuntimes } = params as StudioMethodParams<'providers.list'>
+        const overrides = cliRuntimes as ConversationCliRuntimeOverrides | undefined
+        return outcome(await chat.providers(overrides ? { cliRuntimes: overrides } : {}))
+      }
+      case 'providers.models':
+        return outcome(await chat.providerModels(params as StudioMethodParams<'providers.models'>))
+      case 'providers.secretStatus':
+        return outcome(await chat.secretStatus(params as StudioMethodParams<'providers.secretStatus'>))
+      case 'files.search':
+        return outcome(await chat.searchFiles(context.slot, params as StudioMethodParams<'files.search'>))
+      case 'files.cancelSearch':
+        chat.cancelFileSearch(context.slot, (params as StudioMethodParams<'files.cancelSearch'>).channel)
+        return { ok: true, result: {} }
+      case 'files.stat':
+        return outcome({ stat: await chat.stat((params as StudioMethodParams<'files.stat'>).path) })
+      case 'files.readImage':
+        return {
+          ok: true,
+          result: { dataUrl: await chat.readImage((params as StudioMethodParams<'files.readImage'>).path) },
+        }
+      case 'files.repoRoot': {
+        const { folderPath, hostId } = params as StudioMethodParams<'files.repoRoot'>
+        return outcome({ repoRoot: await chat.repoRoot(folderPath, hostId) })
+      }
+      case 'workspaces.list':
+        return outcome({ workspaces: chat.workspaces() })
+    }
+  }
+
   return {
-    async handle(grant, method, params) {
+    async handle(grant, method, params, context = NO_CONTEXT) {
       const spec = STUDIO_METHODS[method]
+      const voice = context.ownWindow ? windowVoice : clientVoice
       const started = now()
       let answer: StudioRpcAnswer
       let read: unknown = params
-      if (spec.scope && !studioScopesGrant(grant.scopes, spec.scope)) {
+      if (spec.owner && !grant.owner) {
+        answer = refuse('owner_required', OWNER_ONLY)
+      } else if (spec.scope && !studioScopesGrant(grant.scopes, spec.scope)) {
         answer = refuse('scope_required', `This app's grant does not include "${spec.scope}".`)
       } else {
         const parsed = parseStudioMethodParams(method, params)
         if (!parsed.ok) answer = refuse(parsed.code, parsed.message)
+        else if (!grant.owner && namesFolder(parsed.params)) answer = refuse('owner_required', FOLDER_OWNER_ONLY)
         else {
           read = parsed.params
-          answer = await dispatch(grant, method, parsed.params as never).catch((error: unknown): StudioRpcAnswer =>
-            failed('unavailable', error instanceof Error ? error.message : String(error), method),
+          answer = await dispatch(grant, method, parsed.params as never, context, voice).catch(
+            (error: unknown): StudioRpcAnswer =>
+              voice.failed('unavailable', error instanceof Error ? error.message : String(error), method),
           )
         }
       }
       // Every mutation is audited, a refused one included: a refusal at the
-      // scope or the ceiling is what this log exists to show.
-      if (spec.mutation) {
+      // scope or the ceiling is what this log exists to show. Studio's own
+      // windows are the app rather than a client of it, and are left out.
+      if (spec.mutation && !context.ownWindow) {
         const created =
           answer.ok && method === 'conversation.create'
             ? (answer.result as StudioMethodResult<'conversation.create'>).conversation
@@ -346,6 +605,12 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
       return answer
     },
   }
+}
+
+/** Whether parsed params name a conversation by its folder, which only an owner may. */
+function namesFolder(params: unknown): boolean {
+  const key = (params as { key?: { workspaceRoot?: unknown } } | null)?.key
+  return key?.workspaceRoot !== undefined
 }
 
 // What a request names, for the audit: its conversation and command id when

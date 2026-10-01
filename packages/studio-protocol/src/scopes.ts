@@ -7,9 +7,23 @@
 // a local app may also start them. Each scope is its own grant except that
 // `conversation:operate` implies `conversation:read`, as on the tailnet: a
 // client that can drive a chat can see what it is driving.
+//
+// The three read families after them are what a chat view reads beside its
+// conversation: the providers and models it can run, files for @-mentions and
+// links, and the workspace list. Every method that needs one is also held to
+// an owner's connection for now (`STUDIO_METHODS[m].owner`), so no pairing can
+// use them yet; a pairing stored before they existed never gains them, since
+// a grant holds exactly the names it was given.
 
 /** Every scope this version of the protocol defines, narrowest first. */
-export const STUDIO_SCOPES = ['conversation:read', 'conversation:operate', 'conversation:create'] as const
+export const STUDIO_SCOPES = [
+  'conversation:read',
+  'conversation:operate',
+  'conversation:create',
+  'providers:read',
+  'files:read',
+  'workspaces:read',
+] as const
 
 export type StudioScope = (typeof STUDIO_SCOPES)[number]
 
