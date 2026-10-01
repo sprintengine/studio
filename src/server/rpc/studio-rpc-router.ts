@@ -28,10 +28,13 @@ import type { StudioAuditEntry, StudioConversationBackend } from './studio-rpc-t
 // - Ceiling. A paired app's chats run no looser than its ceiling, exactly as a
 //   module's do (permission-ceiling.ts): a preset it asks for is lowered to the
 //   ceiling, none asked for is pinned to it, and naming tools a chat may use
-//   unasked needs the loosest ceiling. And an app does not drive a chat that
+//   unasked needs the loosest ceiling. An app does not drive a chat that
 //   already runs looser than its ceiling — it may read it, interrupt or stop
 //   it, deny its requests and lower its preset, but not send to it or approve
-//   for it — or the ceiling would hold only for chats the app started.
+//   for it — or the ceiling would hold only for chats the app started. A chat
+//   running with tools it may use unasked counts as `bypass` for that check,
+//   and answering a request for the rest of the conversation (an allow rule
+//   for its kind) needs a ceiling of at least `auto`.
 // - Command ids. A client's ids are namespaced by the client before they reach
 //   the runtime's receipts (`client:<id>:<commandId>`, `owner:<commandId>`), as
 //   a module's are (`module:<id>:<commandId>`), so one client can neither
@@ -49,13 +52,38 @@ export type StudioRpcRouterOptions = {
   /** What `server.info` answers, without the grant. */
   info: () => Omit<StudioServerInfo, 'grant'>
   audit?: (entry: StudioAuditEntry) => void
+  /** Where a refusal's own words go: the client is answered with a stable message instead. */
+  log?: (message: string) => void
   now?: () => number
+}
+
+/**
+ * What a client is told when the work below the router refused or failed: one
+ * stable sentence per code. The runtime's and the launch's own words can name
+ * paths, processes and other internals, so they go to the log and not to the
+ * client; a code with no sentence here is answered as `unavailable`.
+ */
+const STABLE_MESSAGES: Readonly<Record<string, string>> = {
+  unavailable: 'Studio could not carry that out.',
+  not_found: 'Studio has no such record for this conversation.',
+  invalid_params: 'Studio could not read that request.',
+  unsupported_model: "That model is not one this chat's agent offers here.",
+  unknown_workspace: 'There is no workspace with that id here.',
+  workspace_folder_missing: 'That workspace has no project folder.',
+  no_cli_selected: 'No agent CLI was named, and none is chosen here.',
+  cli_not_conversational: 'That agent CLI does not run as a chat here.',
+  unknown_skill: 'A skill the request names is not installed here.',
+  conversation_start_failed: 'The conversation could not be started.',
 }
 
 /** The receipt key a client's command id is held under. */
 export function studioRuntimeCommandId(grant: StudioGrant, commandId: string): string {
   return grant.owner ? `owner:${commandId}` : `client:${grant.clientId}:${commandId}`
 }
+
+/** The strictest ceiling under which an app may answer a request for the rest of a conversation. */
+const CONVERSATION_RULE_FLOOR = 'auto' as const
+const MAX_REMEMBERED_STOPS = 1024
 
 const refuse = (code: string, message: string): { ok: false; error: StudioErrorBody } => ({
   ok: false,
@@ -82,9 +110,16 @@ function drivesChat(command: ConversationCommand): boolean {
 
 export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRpcRouter {
   const { backend } = options
+  // A refusal from below: logged in its own words, answered in stable ones.
+  const failed = (code: string, detail: string | undefined, context: string): { ok: false; error: StudioErrorBody } => {
+    const known = Object.hasOwn(STABLE_MESSAGES, code) ? code : 'unavailable'
+    if (detail) options.log?.(`Studio RPC ${context} refused (${code}): ${detail}`)
+    return refuse(known, STABLE_MESSAGES[known])
+  }
   const now = options.now ?? Date.now
   // Creates still starting, by namespaced id: a retry that arrives while the
   // first attempt is launching shares it, so one id makes one chat.
+  const stopsDone = new Set<string>()
   const creating = new Map<
     string,
     Promise<{ ok: true; conversation: StudioCreatedConversation } | { ok: false; code: string; message: string }>
@@ -135,6 +170,18 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
         preset,
         ...(preset === command.preset && command.permissionMode ? { permissionMode: command.permissionMode } : {}),
       }
+    } else if (
+      command.kind === 'resolveApproval' &&
+      command.decision === 'conversation' &&
+      isLooserCliPermissionPreset(CONVERSATION_RULE_FLOOR, grant.ceiling)
+    ) {
+      // Allowing a kind of request for the rest of the chat is an allow rule,
+      // as loose for that kind as `auto` lets edits be: an app held below
+      // `auto` answers one request at a time.
+      return refuse(
+        'ceiling_exceeded',
+        `Allowing a request for the rest of the conversation needs a ceiling of "${CONVERSATION_RULE_FLOOR}" or looser; this app's is "${grant.ceiling}". Answer it "once" instead.`,
+      )
     } else if (drivesChat(command)) {
       const running = backend.permissionOf(key)
       if (isLooserCliPermissionPreset(running, grant.ceiling))
@@ -144,7 +191,7 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
         )
     }
     const outcome = await backend.command(key, grant.clientId, studioRuntimeCommandId(grant, params.commandId), carried)
-    if (!outcome.ok) return refuse(outcome.code ?? 'unavailable', outcome.message ?? 'The command was not carried out.')
+    if (!outcome.ok) return failed(outcome.code ?? 'unavailable', outcome.message, `conversation.${carried.kind}`)
     const notice = outcome.notice ? { notice: outcome.notice } : {}
     if (carried.kind === 'setPermissionPreset')
       return {
@@ -198,7 +245,7 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
     const created = await pending
     return created.ok
       ? { ok: true, result: { conversation: created.conversation } }
-      : refuse(created.code, created.message)
+      : failed(created.code, created.message, 'conversation.create')
   }
 
   async function dispatch(grant: StudioGrant, method: StudioMethod, params: never): Promise<StudioRpcAnswer> {
@@ -210,11 +257,19 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
       case 'conversation.create':
         return create(grant, params)
       case 'conversation.stop': {
-        const { key: wire } = params as StudioMethodParams<'conversation.stop'>
+        const { key: wire, commandId } = params as StudioMethodParams<'conversation.stop'>
         const key = resolve(wire)
         if (!key) return notFound(wire)
-        const stopped = await backend.stop(key)
-        return stopped.ok ? { ok: true, result: {} } : refuse('unavailable', stopped.message)
+        const runtimeId = studioRuntimeCommandId(grant, commandId)
+        // A stop with no session to stop leaves no receipt in the runtime, so
+        // it is remembered here: a resend of it never stops a later session.
+        if (stopsDone.has(runtimeId)) return { ok: true, result: {} }
+        const stopped = await backend.stop(key, runtimeId)
+        if (stopped.ok) {
+          stopsDone.add(runtimeId)
+          while (stopsDone.size > MAX_REMEMBERED_STOPS) stopsDone.delete(stopsDone.values().next().value!)
+        }
+        return stopped.ok ? { ok: true, result: {} } : failed('unavailable', stopped.message, 'conversation.stop')
       }
       case 'conversation.loadEarlier': {
         const { key: wire, beforeCursor, turnLimit } = params as StudioMethodParams<'conversation.loadEarlier'>
@@ -222,18 +277,23 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
         if (!key) return notFound(wire)
         const read = await backend.loadEarlier(key, beforeCursor, turnLimit)
         return read.ok
-          ? { ok: true, result: { page: { ...read.page, events: read.page.events.map(backend.redactEvent) } } }
-          : refuse('unavailable', read.message)
+          ? {
+              ok: true,
+              result: { page: { ...read.page, events: read.page.events.map((event) => backend.redact(event)) } },
+            }
+          : failed('unavailable', read.message, 'conversation.loadEarlier')
       }
       case 'conversation.toolDetail': {
         const { key: wire, toolUseId } = params as StudioMethodParams<'conversation.toolDetail'>
         const key = resolve(wire)
         if (!key) return notFound(wire)
         const read = await backend.toolDetail(key, toolUseId)
-        if (read.ok) return { ok: true, result: { detail: read.detail as unknown as Record<string, unknown> } }
-        return refuse(
+        if (read.ok)
+          return { ok: true, result: { detail: backend.redact(read.detail) as unknown as Record<string, unknown> } }
+        return failed(
           read.code === 'not_found' ? 'not_found' : read.code === 'invalid_input' ? 'invalid_params' : 'unavailable',
           read.message,
+          'conversation.toolDetail',
         )
       }
       case 'conversation.turnDiff': {
@@ -241,9 +301,9 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
         const key = resolve(wire)
         if (!key) return notFound(wire)
         const read = await backend.turnDiff(key, turnSeq, path)
-        if (!read.ok) return refuse('unavailable', read.message)
+        if (!read.ok) return failed('unavailable', read.message, 'conversation.turnDiff')
         const { ok: _ok, ...diff } = read
-        return { ok: true, result: diff }
+        return { ok: true, result: backend.redact(diff) }
       }
       default: {
         const { key, commandId, ...members } = params as {
@@ -270,7 +330,7 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
         else {
           read = parsed.params
           answer = await dispatch(grant, method, parsed.params as never).catch((error: unknown): StudioRpcAnswer =>
-            refuse('unavailable', error instanceof Error ? error.message : 'Studio could not carry that out.'),
+            failed('unavailable', error instanceof Error ? error.message : String(error), method),
           )
         }
       }

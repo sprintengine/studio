@@ -36,7 +36,10 @@ loosest permission preset its chats may run on. Studio shows a one-time
 pairing code, valid for ten minutes. The app's first connection presents the
 code and is answered with a token, once: keep it (`tokenFile` does, `0600` in a
 `0700` directory) and present it from then on. Studio keeps only the token's
-hash. Revoking the app in Settings ends its open connections and its token.
+hash. The code stays good until the token is first presented, so a welcome
+lost with its connection, or a token `onToken` could not keep (the connect
+fails with `token_not_kept`), is recovered by connecting with the same code
+again. Revoking the app in Settings ends its open connections and its token.
 
 What an app may do is its grant:
 
@@ -50,7 +53,15 @@ The **ceiling** is the loosest preset the app's chats may run on. A preset it
 asks for above the ceiling is lowered to it, and one it leaves out is pinned to
 it; naming `allowedTools` (tools a chat uses without asking) needs a `bypass`
 ceiling. A chat the person already runs looser than the ceiling can be read,
-interrupted, stopped and denied by the app, but not driven.
+interrupted, stopped and denied by the app, but not driven; a chat started with
+`allowedTools` counts as `bypass` for that. Answering a request `conversation`
+(allow its kind for the rest of the chat) needs a ceiling of at least `auto`.
+
+Scopes and the ceiling are not a sandbox. A paired app runs as you, so it can
+do anything you can on this machine, including editing Studio's own files to
+widen its grant. They keep a trusted app, or a script you gave less than it
+could take, within what you chose; pair only software you would run as
+yourself.
 
 Keep a token out of a repository, out of argv and out of the environment of
 processes you do not control.

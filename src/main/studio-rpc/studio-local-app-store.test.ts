@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync, statSync } from 'node:fs'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { chmod, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, test } from 'vitest'
@@ -41,8 +41,24 @@ test('a pairing code is redeemed once, for exactly the grant Settings named', as
     store.offers().some((pending) => pending.id === offer.id),
     false,
   )
-  assert.equal(store.redeem(code).ok, false)
   assert.deepEqual(store.authenticate(redeemed.ok ? redeemed.token : ''), redeemed.ok ? redeemed.grant : null)
+  // The token arrived and was used: the code is spent.
+  assert.equal(store.redeem(code).ok, false)
+})
+
+test('a code whose token never arrived can be presented again, for the same app and a fresh token', async () => {
+  const dir = await dataDir()
+  const store = createStudioLocalAppStore({ resolveUserDataDir: () => dir })
+  const { code } = store.offer(offerInput)
+  const lost = store.redeem(code)
+  const retried = store.redeem(code)
+  assert.ok(lost.ok && retried.ok)
+  assert.equal(retried.grant.clientId, lost.grant.clientId)
+  assert.equal(store.list().length, 1)
+  // Only the latest token works; the one lost with its welcome is void.
+  assert.equal(store.authenticate(lost.token), null)
+  assert.equal(store.authenticate(retried.token)?.clientId, lost.grant.clientId)
+  assert.equal(store.redeem(code).ok, false)
 })
 
 test('only the token’s hash reaches disk, owner-only, and it still authenticates after a restart', async () => {
@@ -125,3 +141,28 @@ test('a data directory keeps one environment id for good', async () => {
   assert.match(id, /^[0-9a-f-]{36}$/)
   assert.equal(readStudioEnvironmentId(dir), id)
 })
+
+test.runIf(process.platform !== 'win32')(
+  'a revoke whose write fails still closes the app now, and still says the write failed',
+  async () => {
+    const dir = await dataDir()
+    const store = createStudioLocalAppStore({ resolveUserDataDir: () => dir })
+    const redeemed = store.redeem(store.offer(offerInput).code)
+    assert.ok(redeemed.ok)
+    const revoked: string[] = []
+    store.onRevoked((id) => revoked.push(id))
+    await chmod(dir, 0o500)
+    try {
+      assert.throws(() => store.revoke(redeemed.grant.clientId), /EACCES|permission/i)
+    } finally {
+      await chmod(dir, 0o700)
+    }
+    assert.deepEqual(revoked, [redeemed.grant.clientId])
+    assert.equal(store.authenticate(redeemed.token), null)
+    // No half-written file was left beside the store.
+    assert.deepEqual(
+      (await readdir(dir)).filter((name) => name.endsWith('.tmp')),
+      [],
+    )
+  },
+)

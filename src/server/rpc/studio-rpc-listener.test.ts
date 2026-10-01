@@ -8,7 +8,7 @@ import { afterEach, test } from 'vitest'
 
 import { parseStudioServerDiscovery } from '../../../packages/studio-protocol/src/public'
 import { ensurePrivateDirectory, probeStudioSocket, resolveStudioSocketPath } from './studio-rpc-listener'
-import { connectLineClient, hello, OWNER_TOKEN, startTestServer } from './studio-rpc.test-helper'
+import { connectLineClient, hello, OWNER_TOKEN, pairFakeClient, startTestServer } from './studio-rpc.test-helper'
 
 const posix = process.platform !== 'win32'
 const cleanups: Array<() => Promise<void> | void> = []
@@ -105,11 +105,38 @@ test.runIf(posix)('a run directory that is a symlink, or open to others, is not 
 test('a long data directory falls back to a private directory in temp; Windows gets an unguessable pipe', () => {
   const long = `/Users/dev/${'nested/'.repeat(20)}profile`
   const fallback = resolveStudioSocketPath(long, 'darwin', '/tmp/t')
-  assert.match(fallback, /^\/tmp\/t\/sprintengine-studio-[^/]+-[0-9a-f]{12}\/studio\.sock$/)
+  assert.match(fallback, /^\/tmp\/t\/sprintengine-[0-9a-f]{12}\/studio\.sock$/)
+  // Not predictable: another account cannot prepare it in advance.
+  assert.notEqual(fallback, resolveStudioSocketPath(long, 'darwin', '/tmp/t'))
+  // Within what a socket path may be, under macOS's own long temp dir.
+  const macTemp = '/var/folders/ab/abcdefghijklmnopqrstuvwxyz0000gn/T'
+  assert.ok(resolveStudioSocketPath(long, 'darwin', macTemp).length <= 103)
   assert.equal(resolveStudioSocketPath('/Users/dev/app-data', 'linux'), '/Users/dev/app-data/run/studio.sock')
   const pipe = resolveStudioSocketPath('C:\\Users\\dev\\AppData', 'win32')
   assert.match(pipe, /^\\\\\.\\pipe\\sprintengine-studio-[0-9a-f]{12}-[0-9a-f]{16}$/)
   assert.notEqual(pipe, resolveStudioSocketPath('C:\\Users\\dev\\AppData', 'win32'))
+})
+
+test.runIf(posix)('one app cannot hold more than its share of connections', async () => {
+  const started = await startTestServer({ maxConnectionsPerClient: 2 })
+  cleanups.push(() => started.dispose())
+  const token = pairFakeClient(started.auth, 'greedy', ['conversation:read'])
+  for (let index = 0; index < 2; index++) {
+    const held = await connectLineClient(started.path)
+    cleanups.push(() => held.close())
+    held.send(hello({ token }))
+    await held.next((frame) => frame.t === 'welcome')
+  }
+  const third = await connectLineClient(started.path)
+  cleanups.push(() => third.close())
+  third.send(hello({ token }))
+  const bye = await third.next((frame) => frame.t === 'bye')
+  assert.equal(bye.t === 'bye' && bye.code, 'too_many_connections')
+  // Another app is not affected by this one's share.
+  const other = await connectLineClient(started.path)
+  cleanups.push(() => other.close())
+  other.send(hello({ token: OWNER_TOKEN }))
+  assert.equal((await other.next((frame) => frame.t === 'welcome' || frame.t === 'bye')).t, 'welcome')
 })
 
 test.runIf(posix)('connections past the cap are told so and closed', async () => {

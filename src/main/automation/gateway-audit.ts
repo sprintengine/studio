@@ -49,6 +49,9 @@ const SAFE_IDENTIFIER_KEYS = new Set([
   // node whois named for it. Network identifiers, not content.
   'peerAddress',
   'peerNodeId',
+  // How many refused credentials were left out of the log since the last one
+  // written: a count, not anything a caller presented.
+  'suppressed',
 ])
 
 /**

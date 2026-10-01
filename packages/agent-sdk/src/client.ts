@@ -454,8 +454,19 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
     transport = opened
     welcome = frame
     if (frame.pairing) {
+      try {
+        await options.onToken?.(frame.pairing.token)
+      } catch (error) {
+        // A token that could not be kept is not used: Studio holds the pairing
+        // code good until its token is first presented, so the same code works
+        // again once whatever kept it can.
+        opened.close()
+        throw new StudioError(
+          'token_not_kept',
+          `The token this pairing code was exchanged for could not be kept (${error instanceof Error ? error.message : String(error)}). Fix that and connect again with the same code.`,
+        )
+      }
       auth = { token: frame.pairing.token }
-      await options.onToken?.(frame.pairing.token)
     }
     attempts = 0
     setState('open')

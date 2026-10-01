@@ -86,6 +86,11 @@ export type ConversationSessionSummary = {
   // other than the preset's own is in force (cli-permission-mode.ts). Absent,
   // the preset's own mode.
   permissionMode?: string
+  // The session was started with tools it may use without asking
+  // (`allowedTools`). For those tools that is as loose as `bypass`, so anything
+  // holding a caller to a ceiling counts it as bypass. The tools themselves
+  // are not listed here.
+  allowsUnaskedTools?: true
 }
 
 // Loose mirror of the CLI runtime override map (`appSettings.cliRuntimes`)
@@ -290,6 +295,10 @@ export type ConversationSetModelInput = {
 
 export type ConversationStopSessionInput = {
   sessionId: string
+  // With one, the stop goes through the conversation's durable receipts like
+  // any other command: a retry is answered with the first result, so a resend
+  // after a reconnect cannot stop a session started since.
+  commandId?: string
 }
 
 // Settle and Snooze: end the session's child process but keep the session, so
