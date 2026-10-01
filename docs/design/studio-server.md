@@ -1,7 +1,8 @@
 # Studio server — design and phased plan
 
-Status: proposed, 2026-10-01. Phases 1 (the Electron seams) and 2 (the Studio
-RPC) have landed (section 13, "As landed"); nothing after them is. This file replaces
+Status: proposed, 2026-10-01. Phases 1 (the Electron seams), 2 (the Studio
+RPC) and 3 (the Electron-free core and the `studio-server` entry) have landed
+(section 13, "As landed"); nothing after them is. This file replaces
 the remaining steps of the agent SDK plan on `feat/studio-agent-sdk` (the work
 after the protocol package and the tailnet lane and module service that speak
 it) with the phases in section 13. When code and this file disagree, fix one of
@@ -177,8 +178,10 @@ document, the command catalog, @-mention search, history — are still direct
   with no IPC in it, bound to `ipcMain` by a thin function. Every domain that
   moves to the server gets this shape first.
 
-There is no SSH host, no headless entry point and no Electron-free composition
-root today.
+There was no SSH host, no headless entry point and no Electron-free
+composition root when this was written. Phase 3 added the last two
+(`src/server/core/studio-core.ts`, `src/server/main.ts`); there is still no SSH
+host.
 
 ## 4. Process architecture
 
@@ -950,7 +953,13 @@ environments instead of paired desktops only.
 - `npm run build:server` builds `out/server/server.mjs`, a single Node ESM
   bundle of `src/server/` and its dependencies, with the pure-JS dependencies
   inlined (`@anthropic-ai/claude-agent-sdk`, `@agentclientprotocol/sdk`,
-  `diff`, `ignore`, `nanoid`, the protocol packages).
+  `diff`, `ignore`, `nanoid`, the protocol packages). *As of phase 3 it builds
+  `out/server/server.cjs` instead: CommonJS, as the main bundle the same source
+  goes into is, with every dependency left in `node_modules`. That is what a
+  desktop-spawned server (phase 6, inside the app archive) needs; inlining for
+  hosts with no `node_modules` (WSL, SSH) is phases 7 and 8's packaging, and
+  is where the ESM question is decided, against how the agent SDK finds its
+  own files once inlined.*
 - Beside it: `resources/` (plugins, hooks, the studio plugin, built-in skills,
   `automation/mcp-stdio-bridge.mjs`), the ripgrep binary for the target
   os/arch, the canvas worker page and its fonts, and the web client (section
@@ -1120,6 +1129,134 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
   platform is `createNodeStudioPlatform`, whose cipher is the key file and
   whose notifier has no click to deliver until the router exists. Its
   `packaged` flag is required and must come from the bundle, never default.
+- **As landed.**
+  - *One wiring.* `createStudioCore(platform, { role })`
+    (`src/server/core/studio-core.ts`) installs the platform it is given, takes
+    the data directory's run lock, settles whose cipher seals the directory,
+    then builds launch settings and the host registry, the workspace registry
+    and sync, git's machine resolver, the conversation runtime (providers,
+    checkpoints, the thread index and transcripts are the runtime's), the
+    model catalog, the chat launch service, the launch cap and the conversation
+    host factory. `createStudioGateway(core)` composes the MCP gateway and the
+    tailnet lane over it, with the desktop's window and terminal tools placed
+    among the core's own; `createStudioRpc(core, gateway)` composes phase 2's
+    RPC. `createAppServices` calls all three with the Electron platform, the
+    standalone server with the Node one.
+  - *A `ConversationBackend` seam* (`src/server/core/conversation-backend.ts`,
+    asked for by the phase 7 scoping): the chat calls, picked off the runtime
+    by name. The session API, the tailnet host, the IPC handlers, the module
+    conversation and companion services, scheduled agents (through the runtime
+    token), the launch service, the control plane and the peek take it; only
+    the owner's calls (idle sweep, flush, shutdown, live child processes)
+    still reach the runtime. A test fails on a new file that names the runtime
+    class. The runtime is its only implementation; phases 7 and 8 add the
+    remote and routed ones.
+  - *The entry.* `src/server/main.ts` (`serve`, `--version`, `--help`):
+    `--data-dir` (XDG by default, or `SPRINTENGINE_USER_DATA_DIR`),
+    `--logs-dir` (inside a given data directory by default), `--app-root`,
+    `--resources-dir` with `--packaged`, `--share-desktop-data-dir`, `--stdio`.
+    One JSON line on stdout, `{"ready":{pid, version, dataDir, gatewaySocket,
+    rpcSocket, secrets}}` or `{"fatal":{code, message}}`; everything for a
+    person on stderr. `--stdio` stops on `{"t":"shutdown"}` or when stdin
+    closes, which is the parent-watch of 10.1. Exit codes follow the phase 6
+    scoping: 64 usage, 65 data directory unusable, 66 held, 70 failed. It also
+    exports `startStudioServer` for a process that embeds the server.
+  - *No terminals* (ruling a), no module host, no canvas worker and no browser
+    tools on the standalone server yet: the module host's bundled modules
+    still take the shell's terminal runtime and account bridge (phase 6 moves
+    the agent-runtime module, phase 10 splits the rest), and rendering is the
+    render host's (phase 5). Its gateway serves `conversation.create` and
+    module-free tools only.
+  - *Not done:* the bootstrap envelope on stdin (phase 6 decides between it
+    and `utilityProcess` with `postMessage`, its D1), and the `studio-run`
+    pointer. The pointer stays the shell's: it is shared with terminals, and
+    the phase 6 and 7 scopings both give it one writer. A server writing it
+    from a shell would repoint the desktop's hooks at itself.
+  - *Tests.* `src/server/studio-server.smoke.test.ts` builds the bundle and
+    runs it with the `node` running the suite: the ready line, the run lock,
+    the discovery file, a second server refused with 66, MCP `initialize`,
+    `tools/list` and `conversation.create` through the gateway, a clean stop
+    on a shutdown line and on a closed stdin, a desktop's directory refused
+    with 65 or shared with secrets off; and, requiring the bundle as a
+    library, a chat on the mock provider through a tool turn with an edit,
+    its checkpoint and a revert, then an approval. The import-graph guard
+    lists the newly composed `src/main/` files; phase 2's textual walk now
+    skips imports of types only, as the build and phase 1's guard do.
+- **Edge cases, and what was done about each.**
+  - *Import-time side effects.* None of the core's graph reads the platform,
+    starts a timer or touches the disk while it is imported (the bundle boots
+    with nothing installed until `startStudioServer` builds the platform).
+    The idle sweep, the gateway and the RPC start only when composed.
+  - *`__dirname` and resources.* The bundle is CommonJS, so `__dirname` is
+    real; resources are found through `StudioPaths` (`appRoot` from
+    `--app-root`, else the checkout two levels above the bundle; `resourcesDir`
+    with `--packaged`). One lookup still reads the working directory: a
+    source checkout's vendored npm (`resources/runtime`, for installing a CLI
+    through the managed Node), so a dev server started outside the checkout
+    falls back to the person's own npm.
+  - *Dynamic imports of providers.* Relative dynamic imports (the Codex
+    picture store) are bundled; package imports stay `require`s of
+    `node_modules`, ESM-only ones through Node's `require(esm)` (22.12+, and
+    Electron's 24.21.0).
+  - *The gateway and the module host.* The gateway is composed (its socket,
+    discovery files, audit, tailnet lane); the module host is not (above).
+  - *Worker threads.* The core starts none.
+  - *Electron-only packages.* `scripts/build-server.mjs` refuses `electron`,
+    `electron-updater` and `node-pty` anywhere in the graph, naming the
+    importer.
+  - *PATH and CLIs.* The login-shell PATH resolver runs unchanged; a server
+    started from a terminal already has the person's PATH. The managed `node`
+    and `npm` shims set `ELECTRON_RUN_AS_NODE` only when the binary is
+    Electron, and a chat's MCP bridge entry runs on the server's own Node.
+  - *Windows.* The named-pipe gateway, the lock (`process.kill(pid, 0)`) and
+    the key file (phase 1's ACL) work there. A WSL host is not this server's
+    to reach: its helper is a shell concern, so a launch into a distribution
+    fails with "the WSL helper is not available in this process", and a chat's
+    gateway entry is null for a WSL host. The server for a distribution runs
+    inside it (phase 7).
+  - *Two cores on one data directory.* Every core takes
+    `<dataDir>/run/studio.lock` (O_EXCL; pid, host, a token) before any
+    store is built, the desktop included, and lets it go as the last leg of
+    its quit. A lock whose process is gone, or is this process (a container
+    restarting its one process), is taken over; one naming another machine
+    never is. A server also refuses a directory whose Electron `SingletonLock`
+    names a running app (an app older than the lock holds only that). A
+    desktop that finds the lock held reports it and carries on, as builds
+    before the lock did; a server exits 66.
+  - *Secrets sealed by the desktop.* `<dataDir>/studio-data-dir.json` records
+    which cipher seals the directory (`desktop-keychain` or `server-key`);
+    an unrecorded directory is a desktop's when Chromium's `Local State` is in
+    it or any sealed file is not a data key's. A server refuses such a
+    directory (65), or with `--share-desktop-data-dir` runs with a cipher that
+    is unavailable by design: every store treats a secret as session-only,
+    never opens what is on disk and never seals over it. The core also
+    refuses to start a server whose cipher could seal into a desktop's
+    directory, so the guard holds for an embedder that skips the entry.
+  - *Startup and shutdown order.* Platform, then the core (lock, record,
+    stores), then the gateway's socket and discovery, then the RPC socket,
+    then ready. Stop is the reverse: the RPC (it audits into the gateway's
+    log), the gateway, the registry flushed around the chats' end, the hosts'
+    helpers, the lock. A stop that takes over ten seconds leaves anyway,
+    letting go of the lock; a second signal does not wait.
+- **Risks left.** A lock whose process id came round to an unrelated process
+  reads as held until that process ends; the message names the file to
+  remove. Taking over a stale lock has a narrow race between two starters on
+  one directory. The desktop now writes `run/studio.lock` and
+  `studio-data-dir.json` into its profile, which nothing reads but a server.
+  The server's owner credential for the RPC is phase 2's in-memory token,
+  which no client of a headless server can learn yet (the envelope or a 0600
+  token file of 9.2 is phase 6's).
+- **For phase 6.** Spawn `startStudioServer`'s options through the bootstrap
+  (or `utilityProcess` `postMessage`), not argv; take `packaged`,
+  `resourcesDir`, `appRoot` and `appExecPath` from the shell. The shell then
+  stops calling `createStudioCore` itself and so stops taking the run lock;
+  the server takes it with `role: 'server'` and the desktop's cipher handed
+  over (`SecretCipher` via the shell), so `takeDataDir` needs a third case
+  for a server that seals with the keychain on the desktop's behalf. Move the
+  quit's core legs (`core.shutdown`) behind the control channel's drain. The
+  phone lane, scheduled agents, module and companion services already take a
+  `ConversationBackend`, so routing them over the protocol is a change of
+  implementation, not of callers.
 
 ### Phase 4 — The chat view over the protocol (M)
 
