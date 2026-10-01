@@ -728,6 +728,10 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     })
     assertSpawnWanted(state, generation)
     const instructions = await readWorkspaceInstructions(state.workspaceRoot)
+    // A WSL gateway entry names its channel token (`envVarNames`) and never
+    // carries it: the SDK puts `mcpServers` on the child's command line. The
+    // child is issued the token on stdin (spawnWslClaude) and the bridge it
+    // starts inherits it, as a WSL terminal's `claude` hands it on.
     const studioGateway = await options.resolveStudioMcpServer?.({ ...(hostId ? { hostId } : {}) }).catch(() => null)
     const mcpServers = claudeMcpServers(
       [...(studioGateway ? [withAgentIdentity(studioGateway, env)] : []), ...(state.mcpServers ?? [])],

@@ -144,6 +144,26 @@ test('claude-agent-provider mcp servers', async () => {
     await adapter.disposeAll()
   }
 
+  // That gateway names the channel token its bridge opens with, and the entry
+  // the SDK puts on the child's command line carries neither the token nor a
+  // reference to it: the bridge inherits it from the child (spawnWslClaude).
+  {
+    const { firstTurn, adapter } = harness({
+      id: 'sprintengine-studio',
+      name: 'SprintEngine Studio',
+      transport: 'stdio',
+      command: '/home/dev/.local/share/sprintengine-studio/launcher',
+      args: ['mcp'],
+      env: { SPRINTENGINE_USER_DATA_DIR: '/run/user/1000/sprintengine' },
+      envVarNames: ['SPRINTENGINE_MCP_CHANNEL_TOKEN'],
+    })
+    const options = await firstTurn({ cliRuntimes: { 'claude-code': { hostId: 'wsl:Ubuntu' } } })
+    const entry = (options.mcpServers as Record<string, { env?: Record<string, string> }>)['sprintengine-studio']
+    assert.equal(entry.env?.SPRINTENGINE_USER_DATA_DIR, '/run/user/1000/sprintengine')
+    assert.doesNotMatch(JSON.stringify(entry), /SPRINTENGINE_MCP_CHANNEL_TOKEN/u)
+    await adapter.disposeAll()
+  }
+
   // The rendering: HTTP and SSE with a bearer token the CLI expands, Windows
   // paths for a child in WSL, and a server with nothing to start left out.
   assert.deepEqual(

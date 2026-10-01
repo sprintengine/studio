@@ -22,13 +22,27 @@
 // travels base64-encoded in a single argument: `wsl.exe` re-reads its command
 // line, and a quote or a `%` inside an argument is not guaranteed to survive
 // that.
+//
+// That argument is a command line, which any process on this PC can read for
+// as long as the child runs. A secret never goes there: the script reads it
+// from the first lines of its stdin, before the profile runs, and exports it
+// (`stdinEnv`). The one secret today is the MCP channel token a WSL terminal's
+// startup script exports for the same reason: the app's MCP bridge in the
+// distribution opens its channel with it, and the CLI's own children inherit
+// it from the CLI.
 
-import type { SpawnOptionsWithStdioTuple, StdioPipe } from 'node:child_process'
+import {
+  spawn,
+  type ChildProcessWithoutNullStreams,
+  type SpawnOptionsWithStdioTuple,
+  type StdioPipe,
+} from 'node:child_process'
 import { homedir } from 'node:os'
 
 import { distroOfHostId, isWslHostId, type ExecutionHostId } from '../../shared/execution-host'
 import { isWindowsPath, toWslPath } from '../../shared/host-paths'
 import type { ConversationMcpServer } from '../../shared/conversation-runtime'
+import { MCP_CHANNEL_TOKEN_ENV } from '../../shared/studio-env'
 import { argvToPosixShellCommand } from '../agent-launch-render'
 import { wslDistroArgs } from '../hosts/wsl-distro'
 import { cliSpawnTarget } from './cli-child-process'
@@ -47,11 +61,20 @@ export const CONVERSATION_IDENTITY_ENV_KEYS = [
   'SPRINTENGINE_CONVERSATION_SESSION_ID',
 ] as const
 
+/** A token one child's MCP bridge opens its channel to the app with, and how it is taken back. */
+export type WslChannelToken = { token: string; revoke(): void }
+
 /** Where a WSL chat's child runs, resolved once per spawn. */
 export type WslCliTarget = {
   distro: string
   /** The helper's agent-state socket there, for the hooks a chat's CLI runs; null when unknown. */
   agentStateSocketPath: string | null
+  /**
+   * Issues the MCP channel token for one child (`MCP_CHANNEL_TOKEN_ENV`), as a
+   * WSL terminal launch is issued one: without it the app's MCP bridge there
+   * is refused. Absent or null: the child gets none.
+   */
+  issueChannelToken?: () => WslChannelToken | null
 }
 
 /** A WSL target with what a runtime carries into it of the child's environment. */
@@ -64,6 +87,11 @@ export type WslCliChild = WslCliTarget & {
    * exports would take the chat off the person's login, as it would here).
    */
   unsetEnv?: readonly string[]
+  /**
+   * Names whose values in `env` are secrets: they reach the distribution on
+   * the first lines of the child's stdin, never in its command line.
+   */
+  stdinEnv?: readonly string[]
 }
 
 /**
@@ -78,8 +106,14 @@ export function wslCliLaunchArgs(input: {
   env: Readonly<Record<string, string | undefined>>
   forwardEnv: readonly string[]
   unsetEnv?: readonly string[]
+  /** Read, in this order, one line each from stdin before anything else runs, and exported. */
+  stdinEnv?: readonly string[]
   agentStateSocketPath?: string | null
 }): string[] {
+  const reads = (input.stdinEnv ?? []).map((key) => {
+    if (!ENV_NAME.test(key)) throw new Error(`"${key}" is not a variable name.`)
+    return `read -r ${key} || exit 1\nexport ${key}`
+  })
   const assignments: string[] = []
   for (const key of input.forwardEnv) {
     const value = input.env[key]
@@ -94,9 +128,13 @@ export function wslCliLaunchArgs(input: {
     input.cwd === '~' ? 'cd' : `cd -- ${argvToPosixShellCommand([input.cwd])} || exit 1`,
     `exec ${argvToPosixShellCommand(['env', ...unset, ...assignments, input.command, ...input.args])}`,
   ].join('\n')
-  // Parks stdout and stdin while the login shell reads the profile; anything
-  // it prints lands on stderr, which the providers only keep a tail of.
+  // The secrets first, while stdin is still the app's (bash reads a pipe a
+  // byte at a time, so nothing past their lines is taken from the CLI). Then
+  // stdout and stdin are parked while the login shell reads the profile;
+  // anything it prints lands on stderr, which the providers only keep a tail
+  // of. The exported values pass through the profile into the CLI.
   const outer = [
+    ...reads,
     'exec 57>&1 1>&2 58<&0 0</dev/null',
     `exec ${argvToPosixShellCommand(['bash', '-lic', inner, 'bash'])}`,
   ].join('\n')
@@ -118,8 +156,14 @@ type PipedSpawnOptions = SpawnOptionsWithStdioTuple<StdioPipe, StdioPipe, StdioP
   windowsVerbatimArguments?: boolean
 }
 
-/** What `spawn` is called with for one CLI child. */
-export type CliHostSpawn = { file: string; args: string[]; options: PipedSpawnOptions }
+// A POSIX variable name, the only thing `read` and `export` may be handed here.
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/u
+
+/**
+ * What `spawn` is called with for one CLI child. `stdin`, when present, is
+ * written to the child before anything else: the secrets a WSL child reads.
+ */
+export type CliHostSpawn = { file: string; args: string[]; options: PipedSpawnOptions; stdin?: string }
 
 /**
  * How to start a CLI as a stdio child on its machine. `command` is the path the
@@ -154,6 +198,12 @@ export function cliHostSpawn(
       },
     }
   }
+  const secrets = (input.wsl.stdinEnv ?? []).flatMap((key) => {
+    const value = input.env[key]
+    if (value === undefined || value === '') return []
+    if (/[\r\n]/u.test(value)) throw new Error(`${key} cannot be handed to WSL: it spans more than one line.`)
+    return [[key, value] as const]
+  })
   return {
     file: 'wsl.exe',
     args: wslCliLaunchArgs({
@@ -164,12 +214,74 @@ export function cliHostSpawn(
       env: input.env,
       forwardEnv: input.wsl.forwardEnv,
       unsetEnv: input.wsl.unsetEnv,
+      stdinEnv: secrets.map(([key]) => key),
       agentStateSocketPath: input.wsl.agentStateSocketPath,
     }),
     // `wsl.exe` itself needs nothing of the folder, and a `\\wsl.localhost`
-    // path is not a directory every Windows process can start in.
-    options: { ...base, cwd: (deps.homedir ?? homedir)() },
+    // path is not a directory every Windows process can start in. Nor does it
+    // need the secrets in its own environment: they arrive on stdin.
+    options: {
+      ...base,
+      ...(secrets.length > 0 ? { env: withoutKeys(input.env, input.wsl.stdinEnv ?? []) } : {}),
+      cwd: (deps.homedir ?? homedir)(),
+    },
+    ...(secrets.length > 0 ? { stdin: secrets.map(([, value]) => `${value}\n`).join('') } : {}),
   }
+}
+
+function withoutKeys(env: NodeJS.ProcessEnv, keys: readonly string[]): NodeJS.ProcessEnv {
+  const next = { ...env }
+  for (const key of keys) delete next[key]
+  return next
+}
+
+/**
+ * Starts a CLI as a stdio child on its machine (`cliHostSpawn`), the way every
+ * chat runtime starts one. A child in WSL is issued its own MCP channel token
+ * when its machine has one to give, handed to it on stdin and taken back when
+ * the child ends, so the app's MCP gateway it starts there is accepted as a
+ * WSL terminal agent's is.
+ */
+export function spawnCliHostChild(
+  input: Parameters<typeof cliHostSpawn>[0],
+  deps: Parameters<typeof cliHostSpawn>[1] & { spawn?: typeof spawn; signal?: AbortSignal } = {},
+): ChildProcessWithoutNullStreams {
+  const channel = input.wsl?.issueChannelToken?.() ?? null
+  const plan = cliHostSpawn(
+    channel && input.wsl
+      ? {
+          ...input,
+          env: { ...input.env, [MCP_CHANNEL_TOKEN_ENV]: channel.token },
+          wsl: { ...input.wsl, stdinEnv: [...(input.wsl.stdinEnv ?? []), MCP_CHANNEL_TOKEN_ENV] },
+        }
+      : input,
+    deps,
+  )
+  let revoked = false
+  const revoke = () => {
+    if (revoked || !channel) return
+    revoked = true
+    channel.revoke()
+  }
+  let child: ChildProcessWithoutNullStreams
+  try {
+    child = (deps.spawn ?? spawn)(plan.file, plan.args, {
+      ...plan.options,
+      ...(deps.signal ? { signal: deps.signal } : {}),
+    })
+  } catch (error) {
+    revoke()
+    throw error
+  }
+  if (channel) {
+    child.once('close', revoke)
+    // A child that could not be started is not certain to emit `close`.
+    child.on('error', () => {
+      if (child.pid === undefined) revoke()
+    })
+  }
+  if (plan.stdin) child.stdin.write(plan.stdin)
+  return child
 }
 
 /**
@@ -182,7 +294,14 @@ export async function prepareWslCliTarget(hostId: ExecutionHostId): Promise<WslC
   const { hostRegistry } = await import('../hosts/host-registry')
   const host = hostRegistry().get(hostId)
   await host.prepare()
-  return { distro, agentStateSocketPath: host.agentIntegration()?.agentStateSocketPath ?? null }
+  return {
+    distro,
+    agentStateSocketPath: host.agentIntegration()?.agentStateSocketPath ?? null,
+    issueChannelToken: () => {
+      const token = host.issueChannelToken?.()
+      return token ? { token, revoke: () => host.revokeChannelToken?.(token) } : null
+    },
+  }
 }
 
 /**

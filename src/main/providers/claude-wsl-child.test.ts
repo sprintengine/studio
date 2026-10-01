@@ -1,10 +1,11 @@
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { wslClaudeLaunchArgs } from './claude-wsl-child'
+import { spawnWslClaude, wslClaudeLaunchArgs } from './claude-wsl-child'
 
 // The script `wsl.exe` would hand to bash, run here by this machine's bash:
 // everything after `--exec` is what the distribution runs.
@@ -80,6 +81,80 @@ describe('wslClaudeLaunchArgs', () => {
         ].join('\n'),
       )
       expect(result.stderr).toContain('hello from profile')
+    },
+  )
+})
+
+describe('spawnWslClaude', () => {
+  const dirs: string[] = []
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+  })
+
+  // The chat's `claude` starts the app's gateway (the SDK's `mcpServers`) with
+  // its own environment, as it does in a terminal. Inside WSL that bridge
+  // opens the helper's socket only with a token; this runs the shipped bridge
+  // against a socket standing in for the helper's, and reads its first line.
+  it.skipIf(process.platform === 'win32')(
+    "hands the chat's token to the app's MCP bridge, which opens its channel with it",
+    async () => {
+      const home = mkdtempSync(join(tmpdir(), 'wsl-gw-'))
+      dirs.push(home)
+      const socketPath = join(home, 'mcp.sock')
+      const firstLine = new Promise<string>((done) => {
+        const server = createServer((socket) => {
+          let buffered = ''
+          socket.on('data', (chunk) => {
+            buffered += chunk.toString('utf8')
+            const end = buffered.indexOf('\n')
+            if (end < 0) return
+            done(buffered.slice(0, end))
+            socket.destroy()
+            server.close()
+          })
+        }).listen(socketPath)
+      })
+      const info = join(home, 'info.json')
+      writeFileSync(
+        info,
+        JSON.stringify({ socketPath, transport: 'unix-socket', pid: process.pid, channelAuth: 'launch-token' }),
+      )
+      const bridge = resolve('resources/automation/mcp-stdio-bridge.mjs')
+      const fake = join(home, 'claude')
+      writeFileSync(fake, `#!/bin/sh\nexec "${process.execPath}" "${bridge}" --info-path "${info}"\n`)
+      chmodSync(fake, 0o755)
+      const issued: string[] = []
+      const revoked: string[] = []
+      const token = 'chat_token_0123456789abcdef'
+      // What `wsl.exe` would run, run by this machine's bash.
+      const local = ((_file: string, args: string[], options: { stdio: unknown }) => {
+        const exec = args.indexOf('--exec')
+        const [file, ...rest] = args.slice(exec + 1)
+        return spawn(file, rest, { stdio: options.stdio as never, env: { PATH: process.env.PATH, HOME: home } })
+      }) as unknown as typeof spawn
+      const child = spawnWslClaude(
+        {
+          distro: 'Ubuntu',
+          agentStateSocketPath: null,
+          issueChannelToken: () => {
+            issued.push(token)
+            return { token, revoke: () => revoked.push(token) }
+          },
+        },
+        { command: fake, args: ['--output-format', 'stream-json'], cwd: '', env: { CLAUDE_CODE_ENTRYPOINT: 'sdk-ts' } },
+        { spawn: local },
+      )
+      const closed = new Promise<void>((done) => child.once('close', () => done()))
+      let stderr = ''
+      child.stderr?.on('data', (chunk: Buffer) => (stderr += chunk.toString('utf8')))
+      child.stdout?.resume()
+      // A bridge that is refused exits at once; that is the failure, not a hang.
+      const line = await Promise.race([firstLine, closed.then(() => Promise.reject(new Error(stderr)))])
+      expect(JSON.parse(line)).toEqual({ t: 'auth', token })
+      child.stdin?.end()
+      await closed
+      expect(issued).toEqual([token])
+      expect(revoked).toEqual([token])
     },
   )
 })

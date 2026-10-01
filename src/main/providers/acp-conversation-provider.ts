@@ -13,6 +13,7 @@ import {
   hostMachineName,
   mcpServersOnWsl,
   prepareWslCliTarget,
+  spawnCliHostChild,
   wslTargetForHost,
   type WslCliChild,
   type WslCliTarget,
@@ -713,14 +714,18 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
       if (state.closed) throw new Error('Conversation was stopped during startup.')
       const sdk = await import('@agentclientprotocol/sdk')
       if (state.closed) throw new Error('Conversation was stopped during startup.')
-      const target = cliHostSpawn({
-        command,
-        args: acpLaunchArgv(profile, state.input.permissionPreset, state.input.permissionMode),
-        cwd: state.input.workspaceRoot ?? '',
-        env,
-        wsl: wsl ? acpWslChild(wsl, profile, state.input.permissionPreset, state.input.permissionMode) : null,
-      })
-      const child = (options.spawnChild ?? spawn)(target.file, target.args, target.options)
+      // In WSL the child is issued its own MCP channel token, which the app's
+      // gateway the agent starts from its own configuration inherits from it.
+      const child = spawnCliHostChild(
+        {
+          command,
+          args: acpLaunchArgv(profile, state.input.permissionPreset, state.input.permissionMode),
+          cwd: state.input.workspaceRoot ?? '',
+          env,
+          wsl: wsl ? acpWslChild(wsl, profile, state.input.permissionPreset, state.input.permissionMode) : null,
+        },
+        { spawn: options.spawnChild ?? spawn },
+      )
       state.child = child
       state.spawnedAt = Date.now()
       child.stderr.on('data', () => undefined)
