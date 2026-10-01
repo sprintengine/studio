@@ -1,8 +1,9 @@
 # Studio server — design and phased plan
 
 Status: proposed, 2026-10-01. Phases 1 (the Electron seams), 2 (the Studio
-RPC) and 3 (the Electron-free core and the `studio-server` entry) have landed
-(section 13, "As landed"); nothing after them is. This file replaces
+RPC), 3 (the Electron-free core and the `studio-server` entry) and 4 (the chat
+view over the protocol, behind a setting) have landed (section 13, "As
+landed"); nothing after them is. This file replaces
 the remaining steps of the agent SDK plan on `feat/studio-agent-sdk` (the work
 after the protocol package and the tailnet lane and module service that speak
 it) with the phases in section 13. When code and this file disagree, fix one of
@@ -1312,6 +1313,117 @@ Each phase lands as reviewable commits on `feat/studio-agent-sdk`, leaves
   socket mid-turn, resume from the cursor, no duplicated text).
 - **Risks.** Latency on the composer's mention search and on large snapshots;
   measured against IPC before the default flips.
+- **As landed.**
+  - *The way in.* A window does not open a WebSocket with a ticket (5.5): main
+    makes a message channel per connection, serves one end in process
+    (`StudioRpcService.connectWindow`, `framePortStream`) and transfers the
+    other to the window's preload (`studio:connect`, `studio:port`), which
+    keeps the port in its own world and lends the page `studioConnect`,
+    `studioPortSend`, `studioPortListen` and `studioPortClose` by connection
+    id. Only an app window's top-level document gets one (the IPC sender
+    check), at most four at once. The hello still carries a credential: a
+    ticket minted for that one connection, good once within thirty seconds,
+    which is all the page ever holds. This is phase 6's port-per-window
+    decision taken a phase early, so phase 6 hands main's end to the server
+    process and changes nothing in the window.
+  - *Studio's own window.* A connection attached this way (`ownWindow`) is the
+    app's chat view: its events and replies are not redacted, a refusal from
+    below is told in its own words, its mutations are not audited, and its
+    request bounds are sized for a view (512 in flight, 512 streams) rather
+    than a paired app's 8 and 32, because the IPC it replaces refused none of
+    these. Frames a stream takes at once go out at once, so deltas merge only
+    behind a reader that is actually slow.
+  - *The protocol.* `chat.ts` adds `session.*` (start and drive a live session
+    with everything the composer sends), `uploads.*` (a picture in pieces of
+    512 KiB ahead of the send that names it; 5 MB each, 16 a send), the
+    conversation's `revert`, `rewind`, `fork`, `attachment`, `planDocument`
+    and `commands` (and a `conversation.commands` push stream: a new
+    `{ t: 'push', sub, payload }` frame for a stream with no cursor),
+    `providers.*`, `files.*` (mention search, stat, a picture, a repository
+    root) and `workspaces.list`. Three read scopes join
+    (`providers:read`, `files:read`, `workspaces:read`), with eight
+    capabilities. Every chat method is held to an owner's connection
+    (`owner_required`), and so is naming a conversation by its folder
+    (`key.workspaceRoot`, `conversation-folders`): a chat started in a run
+    worktree is kept there, not in its workspace's folder. `server.ping`
+    answers any authenticated client at once.
+  - *Main's half.* The chat surface is the conversation IPC's own handler
+    object, file search and reads, command list service and repository-root
+    lookup (`createStudioChatBackend`), behind the IPC's own input checks,
+    now shared (`conversation-ipc-inputs.ts`). It is provided by the core IPC
+    registration that builds those handlers, so the standalone server does
+    not serve it yet. Sessions are driven through the handlers over the
+    core's `ConversationBackend`, never the runtime.
+  - *The renderer.* `ConversationTransport` gains `startSession` and `revert`,
+    and a sibling seam on every transport, `services`, carries what a chat
+    asks of its window's Studio whichever machine it runs on: providers,
+    files, a plan as a document and the command lists. The chat files call
+    those instead of `window.api`. Each has an IPC and a protocol
+    implementation with the same answers (`chatServices.ts`, `studioChat.ts`);
+    the window's choice is `SPRINTENGINE_CHAT_TRANSPORT` (`studio`, else the
+    IPC), read when a call is made behind one transport object. The window's
+    client is the SDK's (`windowStudioClient`), bound to the environment it
+    first reached. A chat on the protocol says "Reconnecting to Studio" in
+    the composer tray when its connection has been down for a moment.
+  - *The boundary.* `ChatViewErrorBoundary` wraps the local chat (AgentPanel)
+    and a followed one (RemoteConversationPanel): a chat that throws stops in
+    its pane with Reload chat, and the window stays drawn.
+  - *Hardening carried with it.* Command fingerprints: a reused command id
+    for a different command is refused `command_id_conflict`, by the router
+    while it runs and by the runtime's receipts across a restart. Every
+    refusal told in stable words carries an `errorId` the log keeps beside
+    the real cause. The SDK refuses a reconnect that reaches another
+    environment (`environment_changed`), parks on a refused credential or
+    offline until woken, pings a quiet line, times reads out after 60 s, and
+    its stream `cursor` moves only as the consumer reads. Catch-up already
+    chose a snapshot past 8 MiB as well as past 2,000 events; that now has a
+    test.
+  - *Parity and latency.* The chat view's suites that script its IPC run a
+    second time in a `chat-over-studio` Vitest project over a real RPC
+    (`tests/studio-chat-loopback.ts`), with the same assertions; two
+    IPC-shaped tests sit out with their reasons. A reconnect test drops the
+    port mid-reply and checks the text resumes with nothing repeated or lost.
+    Measured in process over a Node message channel (5,000 calls): an
+    invoke-shaped round trip 4.1 µs mean, `files.stat` over the protocol
+    9.7 µs (p99 28 µs), `session.send` 10.2 µs, one streamed event backend to
+    client 5.3 µs. The protocol adds about 6 µs a call, against 25–36 µs for
+    a call over Electron's own IPC or ports (phase 6, E4). A `session.send`
+    over the protocol carries a command id, so the runtime writes its receipt
+    before the turn starts, which the IPC send never did: a small file write
+    per command.
+  - *Still on IPC, and why.* The shell's own members (clipboard, `platform`,
+    open externally, reveal, open in an editor, the picture viewer), the
+    terminals behind a code block's Run, CLI sign-in and Resume in terminal
+    (ruling a), the composer's skill reader (it opens the Extensions
+    surface's reader, which reads through the skills domain, a phase 10
+    domain), the remote chat's Mesh transport, and the session list and
+    history palette outside the chat view.
+  - *Why the IPC stays the default.* The suites prove the renderer's side and
+    the RPC's; nothing yet runs the real Electron ports end to end in a
+    packaged app. Flip the default once a packaged smoke run has driven a
+    chat over them, and keep the IPC behind the setting for one release.
+- **Follow-ups.**
+  - *Assets beside the socket (phase 9).* Phase 4 serves nothing over HTTP:
+    pictures go over the connection in pieces and come back as data. When the
+    web client serves them beside the socket, its routes need signed URLs
+    bound to the file and their expiry, `X-Content-Type-Options: nosniff`, a
+    sandboxing CSP (or `application/octet-stream`) for HTML and SVG, and
+    `Cache-Control: no-store` on anything that carries a credential.
+  - *Durable answers (phase 6).* The router keeps a start's, revert's,
+    rewind's and fork's first answer, and every command's fingerprint, in
+    memory. Once a server can restart under a window that resends, those need
+    receipts that outlive it, as a session's commands already have.
+  - *Flow control on a port (phase 6).* A message port does not push back, so
+    a window's connection never queues and never resyncs; the renderer holds
+    what it is sent, as it does over IPC. A server in its own process should
+    pace a window by acknowledgement rather than by its socket's drain.
+  - *The chat surface on a standalone server (phase 6).* Build the handler
+    objects in the core rather than in the IPC registration, so a server with
+    no Electron serves the chat surface too.
+  - *Paired apps and worktree chats (phase 10).* A key without a folder is
+    resolved by its workspace's folder, as on the tailnet, so a paired app or
+    the phone reaches a chat started in a run worktree only through an owner
+    that names the folder.
 
 ### Phase 5 — The render host (L)
 

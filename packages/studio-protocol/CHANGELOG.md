@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **The chat surface** (`chat.ts`): `session.*`, `uploads.*`, the
+  conversation's `revert`, `rewind`, `fork`, `attachment`, `planDocument` and
+  `commands` with its `conversation.commands` stream, `providers.*`, `files.*`
+  and `workspaces.list`; their param validators (`parseStudioChatParams`) and
+  limits; the scopes `providers:read`, `files:read` and `workspaces:read`; and
+  the capabilities in `STUDIO_CHAT_CAPABILITIES`. Every chat method is an
+  owner's only (`StudioMethodSpec.owner`, refused `owner_required`).
+- **Folder keys.** A conversation key may carry `workspaceRoot`, an owner's
+  only, behind `conversation-folders` (`key.ts`).
+- **Push streams.** `{ t: 'push', sub, payload }` for a stream with no cursor.
+- **`server.ping`**, answered at once, for a client's liveness check.
+- **Error ids.** A refusal's error and a `subFailed` frame may carry `errorId`.
+- **`command_id_conflict`**, for a command id reused for a different command.
+
 ## 0.1.0
 
 The first version: what Studio serves on its owner socket.

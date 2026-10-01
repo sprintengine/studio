@@ -40,10 +40,15 @@ Studio → client
   { t: 'welcome', protocolVersion, minProtocolVersion, server, environment, capabilities, conversation, grant, pairing? }
   { t: 'res', id, ok: true, result } | { t: 'res', id, ok: false, error: { code, message, retryAfterMs? } }
   { t: 'frame', sub, frame }                       // a conversation server frame: snapshot, event, synchronized
-  { t: 'subFailed', sub, code, message, retryable, retryAfterMs? }
+  { t: 'push', sub, payload }                      // one message of a stream with no cursor
+  { t: 'subFailed', sub, code, message, retryable, retryAfterMs?, errorId? }
   { t: 'chunk', frameId, index, total, json }      // a frame over STUDIO_MAX_FRAME_BYTES
   { t: 'bye', code, message, retryAfterMs? }       // Studio is closing the connection
 ```
+
+A refusal Studio tells in stable words, in place of a cause that could name
+its internals, carries `errorId`: an opaque id it logged beside the real
+cause, for someone looking into it to quote.
 
 `hello` is the first frame, within `STUDIO_HELLO_TIMEOUT_MS`. It is answered by
 `welcome`, or by `bye` and a close: `unauthorized` for a credential Studio does
@@ -79,12 +84,15 @@ The `welcome`'s `grant` is what the connection may do:
   and answering a request `conversation` (an allow rule for its kind) needs a
   ceiling of at least `auto`.
 - `owner` — the connection is Studio's own, with every scope and no ceiling.
+  Some methods are an owner's only (`STUDIO_METHODS[m].owner`), whatever
+  scopes another grant holds, and are refused `owner_required`.
 
 ## Methods
 
 | Method                             | Scope   | Takes                                           | Answers                                          |
 | ---------------------------------- | ------- | ----------------------------------------------- | ------------------------------------------------ |
 | `server.info`                      | any     | —                                               | the welcome, without its pairing                 |
+| `server.ping`                      | any     | —                                               | `{ at }`, at once: the line is alive             |
 | `conversation.list`                | read    | —                                               | `{ conversations: ConversationThread[] }`        |
 | `conversation.create`              | create  | `ConversationCreateRequest` + `commandId`       | `{ conversation }`                               |
 | `conversation.send`                | operate | `key`, `commandId`, `message`                   | `{ notice? }`, when the turn ends                |
@@ -99,6 +107,10 @@ The `welcome`'s `grant` is what the connection may do:
 | `conversation.toolDetail`          | read    | `key`, `toolUseId`                              | `{ detail }`                                     |
 | `conversation.turnDiff`            | read    | `key`, `turnSeq`, `path?`                       | `{ diff, patch?, … }`                            |
 
+A key is `{ workspaceId, agentId }`. An owner may add `workspaceRoot`, the
+folder the conversation is kept in when that is not its workspace's (a chat
+started in a run worktree), where the Studio serves `conversation-folders`.
+
 A command's params are the conversation lane's command plus its `key` and
 `commandId`, read by the lane's own validator (`parseStudioCommand`), so a
 command means the same thing on this socket as on the tailnet. Every mutation
@@ -107,7 +119,36 @@ retry with the same id, on the same connection or after a reconnect or a
 restart of the app, is answered with the first attempt's result and never
 carried out twice. A create's `commandId` is kept on the chat it made, so a
 retried create finds that chat. Command ids are namespaced per client by
-Studio, so one client can neither collide with nor answer from another's.
+Studio, so one client can neither collide with nor answer from another's. An
+id names one command: sent again with different params, or for another method,
+it is refused `command_id_conflict` rather than answered with the first
+command's result.
+
+## The chat surface
+
+What a chat view needs beside the conversation lane, so any client can show
+and drive a chat as Studio's own windows do (`chat.ts`). Every one of these is
+an owner's only for now; each still names the scope it would need.
+
+| Method                                                                  | Scope                  | What                                                                                    |
+| ----------------------------------------------------------------------- | ---------------------- | --------------------------------------------------------------------------------------- |
+| `session.start`                                                         | operate                | start a provider session for a chat                                                     |
+| `session.send`, `.interrupt`, `.respond`, `.setPermission`, `.setModel` | operate                | drive a live session by its id, with all a composer sends; answered with its outcome    |
+| `uploads.begin`, `uploads.append`                                       | operate                | stage a picture in pieces of `STUDIO_UPLOAD_CHUNK_BYTES`; a send names it by `uploadId` |
+| `conversation.revert`, `.rewind`, `.fork`                               | operate (fork: create) | a turn's files from its checkpoint; back to an earlier message; a new chat from one     |
+| `conversation.attachment`, `.planDocument`, `.commands`                 | read                   | a sent picture; a proposed plan as a file; the `/` command list a CLI reports           |
+| `providers.list`, `.models`, `.secretStatus`                            | `providers:read`       | the providers a chat can run, their models, whether each has its key                    |
+| `files.search`, `.cancelSearch`, `.stat`, `.readImage`, `.repoRoot`     | `files:read`           | @-mention search and the file facts a chat's links and pictures need                    |
+| `workspaces.list`                                                       | `workspaces:read`      | the workspaces this Studio holds                                                        |
+
+A session method's result is the runtime's own outcome, a refusal by the
+runtime included: `{ ok: true, session, notice? } | { ok: false, message,
+event? }`, inside a successful response. The response's error is for the
+request itself. The same holds for the other methods whose outcome has an `ok`
+of its own.
+
+`{ t: 'sub', id, topic: 'conversation.commands' }` hears every command list a
+CLI reports from then on, one `push` frame each, nothing replayed.
 
 ## Following a conversation
 
@@ -131,7 +172,10 @@ connection stays open.
 `STUDIO_PROTOCOL_VERSION` is 1, with one version of slack
 (`STUDIO_PROTOCOL_MIN_SUPPORTED`), refused at the handshake by an error naming
 both numbers. Features are asked about by capability (`studioPeerSupports`),
-never by version: `conversations`, `conversation-create`, `local-pairing`. The
+never by version: `conversations`, `conversation-create`, `local-pairing`,
+and with the chat surface `conversation-folders`, `conversation-sessions`,
+`conversation-files`, `conversation-checkpoints`, `conversation-commands`,
+`providers`, `files-mention` and `workspaces` (`STUDIO_CHAT_CAPABILITIES`). The
 conversation contract's own version and capabilities travel in
 `welcome.conversation`, unchanged. The policy is the repository's
 `docs/compatibility.md`.

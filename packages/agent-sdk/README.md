@@ -79,20 +79,41 @@ The client keeps its connection:
 
 - It **reconnects** after a drop that reconnecting can fix — Studio quitting
   or restarting, a socket that fell too far behind — with exponential backoff
-  and jitter, never sooner than Studio asked. It stops for good on a refusal a
-  new connection would repeat (`unauthorized`, `revoked`,
-  `unsupported_protocol_version`); `client.closed` rejects with it.
+  and jitter, never sooner than Studio asked.
+- It **waits to be woken** after a refusal a new connection would repeat. A
+  refused credential (`unauthorized`, `revoked`) or being offline parks the
+  client (`state: 'parked'`) until `client.wake()`, or in a browser the page
+  coming back online or to the foreground; a refused credential also ends what
+  was waiting on it. A refusal waking cannot help
+  (`unsupported_protocol_version`) closes it for good; `client.closed` rejects
+  with it.
+- It **follows one Studio**: the one its first connection reaches, or the one
+  named by `environmentId`. A reconnect that reaches another is refused
+  (`environment_changed`) before a cursor is resumed or a request resent.
 - It **resumes** every open stream from its cursor, so a consumer sees no gap
   and no repeat. A cursor Studio cannot vouch for comes back as a snapshot with
   `reset: true`, and so does any snapshot after a stream's first: replace what
-  you held.
+  you held. A stream's `cursor` is what you have read from it, never what is
+  still waiting, so it is safe to keep after applying a frame.
 - It **sends again** every request unanswered when a connection dropped.
   Every mutation carries a command id — yours, or one minted per call — and
   Studio answers a repeat from its receipt rather than carrying it out twice,
-  across reconnects and restarts of the app.
+  across reconnects and restarts of the app. The same id for a different
+  command is refused (`command_id_conflict`).
+- It **notices a dead line**: after a quiet spell it asks for `server.ping`,
+  and a connection that stays silent is made again (`heartbeat`). A read is
+  answered or refused `timeout` within `readTimeoutMs` (60 s).
 - It **stops reading** while a stream's consumer has two thousand frames
   waiting, so Studio sees the backpressure and merges text deltas rather than
   the client buffering without bound.
+
+A transport may bring the credential its one connection says hello with
+(`StudioTransport.credential`): a ticket minted for that connection alone, as
+Studio's own windows use. `auth` is then optional.
+
+`client.subscribe(topic, params, { onPayload, onEnd? })` follows a push topic
+such as `conversation.commands`: each payload as it comes, subscribed again on
+every new connection, nothing replayed.
 
 Ask features by capability: `client.supports('conversation-create')`. The
 welcome (`client.welcome`) names the protocol window, the environment and the

@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **A transport's own credential.** `StudioTransport.credential` says the
+  hello of that one connection (a ticket minted for it); `auth` is then
+  optional.
+- **Push streams.** `client.subscribe(topic, params, listener)`, subscribed
+  again on every new connection.
+- **Folders.** A `ConversationRef` may carry `workspaceRoot`.
+- **`resubscribe: false`** on `events` and `follow` ends a stream with
+  Studio's error instead of subscribing again by itself.
+- **One Studio.** A client is bound to the environment its first connection
+  reaches, or to `environmentId`; a reconnect that reaches another is refused
+  (`environment_changed`) before any cursor is resumed or request resent.
+- **Waking.** A refused credential (`unauthorized`, `revoked`) or being
+  offline parks the client (`state: 'parked'`) until `wake()`, or in a browser
+  the page coming back online or to the foreground.
+- **Liveness and timeouts.** `heartbeat` pings a quiet connection and makes a
+  silent one again; `readTimeoutMs` (60 s) bounds every read.
+- `StudioError.errorId`, and `errorId` on a failed `ConversationResult`.
+
+### Changed
+
+- A revoked or refused client is parked rather than closed; `client.closed`
+  settles only on `close()` or a refusal waking cannot help.
+- A stream's `cursor` is what its consumer has read, never what is still
+  waiting to be read.
+
 ## 0.1.0
 
 The first version.

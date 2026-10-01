@@ -196,10 +196,12 @@ files are not touched by it.
 integer wires above; `checkStudioProtocolVersion` refuses a peer outside it at
 the handshake, naming both numbers, and the server answers that refusal as
 `bye { code: 'unsupported_protocol_version' }`. Features are capabilities
-(`conversations`, `conversation-create`, `local-pairing`) advertised in the
-`welcome`; the conversation contract's own `protocolVersion` and capabilities
+(`conversations`, `conversation-create`, `local-pairing`, and the chat
+surface's in `STUDIO_CHAT_CAPABILITIES`) advertised in the `welcome`, a Studio
+leaving out any it does not serve; the conversation contract's own `protocolVersion` and capabilities
 travel inside it, in `welcome.conversation`, unchanged. A new method or topic
-is a capability, not a bump. Every method names its scope in `STUDIO_METHODS`,
+is a capability, not a bump; so is a new server frame type (`push` was one),
+since a client skips a frame type it does not know. Every method names its scope in `STUDIO_METHODS`,
 typed over the method map so a method without one does not compile.
 
 The pack check (`npm run test:studio-packages:pack`) installs the packed
