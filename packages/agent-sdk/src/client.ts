@@ -29,6 +29,7 @@ import {
   type StudioMethodParams,
   type StudioMethodResult,
   type StudioParsedServerFrame,
+  type StudioTopic,
   type StudioWelcomeFrame,
 } from './protocol.js'
 import type { StudioTransport, StudioTransportFactory } from './transport.js'
@@ -64,8 +65,12 @@ export type ConnectOptions = {
   transport: StudioTransportFactory
   /** Who this client is, for the audit and Settings. Never authority. */
   client: { name: string; version?: string }
-  /** A token from an earlier pairing, or a one-time pairing code from Studio's Settings. */
-  auth: StudioAuth
+  /**
+   * A token from an earlier pairing, or a one-time pairing code from Studio's
+   * Settings. Optional only for a transport that brings a credential of its
+   * own for each connection (`StudioTransport.credential`).
+   */
+  auth?: StudioAuth
   /** Called once with the token a pairing code was exchanged for. Keep it: the code will not work again. */
   onToken?: (token: string) => void | Promise<void>
   /** `false` to fail on the first drop instead of reconnecting. */
@@ -96,6 +101,13 @@ export type StudioConversationService = ConversationService & {
   ): Promise<ConversationResult<StudioMethodResult<'conversation.turnDiff'>>>
 }
 
+/** What a push stream hears: each payload as it comes, and why it ended if it did. */
+export type StudioPushListener = {
+  onPayload(payload: unknown): void
+  /** The stream ended for good: refused, or the client closed. A drop it can resume from is not an end. */
+  onEnd?(error?: StudioError): void
+}
+
 export type StudioClient = AgentConversations & {
   /** The ref-level service, shaped as the module SDK's conversation service. */
   readonly conversations: StudioConversationService
@@ -107,6 +119,12 @@ export type StudioClient = AgentConversations & {
   supports(capability: StudioCapability): boolean
   /** One request, answered or thrown as a `StudioError`. */
   request<M extends StudioMethod>(method: M, params: StudioMethodParams<M>): Promise<StudioMethodResult<M>>
+  /**
+   * Follow a push topic (`STUDIO_TOPICS[topic].push`): every payload as it is
+   * sent, subscribed again on each new connection. Nothing is replayed, so
+   * ask for the current state after subscribing. Returns the unsubscriber.
+   */
+  subscribe(topic: StudioTopic, params: unknown, listener: StudioPushListener): () => void
   close(): void
   /** Settles when the client has closed for good; rejects with why, if it was not asked to. */
   readonly closed: Promise<void>
@@ -128,6 +146,14 @@ type Pending = {
   reject: (error: StudioError) => void
 }
 
+type Push = {
+  id: string
+  topic: StudioTopic
+  params: unknown
+  listener: StudioPushListener
+  retry: ReturnType<typeof setTimeout> | null
+}
+
 type Stream = {
   id: string
   ref: ConversationRef
@@ -138,6 +164,8 @@ type Stream = {
   queue: ReturnType<typeof createFrameQueue>
   /** Whether a snapshot has been delivered: any later one replaces it, and says so. */
   snapshotted: boolean
+  /** Subscribe again after a retryable failure, rather than ending with it. */
+  resubscribe: boolean
   depth: number
   retry: ReturnType<typeof setTimeout> | null
 }
@@ -156,7 +184,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
   const maxDelayMs = reconnect?.maxDelayMs ?? 30_000
   const maxAttempts = reconnect?.maxAttempts ?? Number.POSITIVE_INFINITY
 
-  let auth: StudioAuth = options.auth
+  let auth: StudioAuth | undefined = options.auth
   let transport: StudioTransport | null = null
   let welcome: StudioWelcomeFrame | null = null
   let state: StudioClientState | 'connecting' = 'connecting'
@@ -167,6 +195,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
   let paused = false
   const requests = new Map<string, Pending>()
   const streams = new Map<string, Stream>()
+  const pushes = new Map<string, Push>()
   let resolveClosed!: () => void
   let rejectClosed!: (error: StudioError) => void
   const closed = new Promise<void>((resolve, reject) => {
@@ -204,6 +233,17 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
       params: { key: stream.ref, ...(stream.turnLimit === undefined ? {} : { turnLimit: stream.turnLimit }) },
       ...(stream.cursor ? { cursor: stream.cursor } : {}),
     })
+  }
+
+  function subscribePush(push: Push): void {
+    if (state !== 'open') return
+    send({ t: 'sub', id: push.id, topic: push.topic, params: push.params })
+  }
+
+  function endPush(push: Push, error?: StudioError): void {
+    if (push.retry) clearTimeout(push.retry)
+    if (!pushes.delete(push.id)) return
+    push.listener.onEnd?.(error)
   }
 
   function accept(stream: Stream, frame: ConversationParsedServerFrame): void {
@@ -249,11 +289,16 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
     const id = `s${++sequence}`
     const stream: Stream = {
       id,
-      ref: { workspaceId: ref.workspaceId, agentId: ref.agentId },
+      ref: {
+        workspaceId: ref.workspaceId,
+        agentId: ref.agentId,
+        ...(ref.workspaceRoot === undefined ? {} : { workspaceRoot: ref.workspaceRoot }),
+      },
       ...(streamOptions.turnLimit === undefined ? {} : { turnLimit: streamOptions.turnLimit }),
       cursor: streamOptions.cursor ?? null,
       parts: null,
       snapshotted: false,
+      resubscribe: streamOptions.resubscribe !== false,
       depth: 0,
       retry: null,
       queue: createFrameQueue({
@@ -328,6 +373,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
       stream.queue.fail(error)
     }
     streams.clear()
+    for (const push of [...pushes.values()]) endPush(push, error)
     transport?.close()
     transport = null
     rejectClosed(error)
@@ -337,6 +383,12 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
     lastBye = null
     paused = false
     const next = await options.transport()
+    // Checked before anything waits on a hello that will never be sent.
+    const credential = next.credential ?? auth
+    if (!credential) {
+      next.close()
+      throw new StudioError('unauthorized', 'No credential: pass `auth`, or a transport that brings its own.')
+    }
     const assembler = createStudioChunkAssembler()
     let greeted: ((welcome: StudioWelcomeFrame) => void) | null = null
     let refused: ((error: StudioError) => void) | null = null
@@ -375,11 +427,31 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
           if (stream) accept(stream, frame.frame)
           return
         }
+        case 'push': {
+          const push = pushes.get(frame.sub)
+          if (!push) return
+          try {
+            push.listener.onPayload(frame.payload)
+          } catch {
+            // A listener's own failure is its own; the stream goes on.
+          }
+          return
+        }
         case 'subFailed': {
+          const push = pushes.get(frame.sub)
+          if (push) {
+            if (frame.retryable)
+              push.retry = setTimeout(() => {
+                push.retry = null
+                if (pushes.get(push.id) === push) subscribePush(push)
+              }, frame.retryAfterMs ?? 1_000)
+            else endPush(push, new StudioError(frame.code, frame.message))
+            return
+          }
           const stream = streams.get(frame.sub)
           if (!stream) return
           stream.parts = null
-          if (frame.retryable) {
+          if (frame.retryable && stream.resubscribe) {
             stream.retry = setTimeout(() => {
               stream.retry = null
               if (streams.get(stream.id) === stream) subscribe(stream)
@@ -387,7 +459,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
             return
           }
           streams.delete(stream.id)
-          stream.queue.fail(new StudioError(frame.code, frame.message))
+          stream.queue.fail(new StudioError(frame.code, frame.message, frame.retryAfterMs))
           return
         }
       }
@@ -427,7 +499,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
         protocolVersion: STUDIO_PROTOCOL_VERSION,
         minProtocolVersion: STUDIO_PROTOCOL_MIN_SUPPORTED,
         client: options.client,
-        auth,
+        auth: credential,
       }),
     )
     try {
@@ -474,6 +546,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
       stream.parts = null
       subscribe(stream)
     }
+    for (const push of pushes.values()) subscribePush(push)
     for (const pending of requests.values())
       send({ t: 'req', id: pending.id, method: pending.method, params: pending.params })
     // A consumer still behind from before the drop holds the new connection too.
@@ -543,7 +616,11 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
     }
   }
   const commandId = (options?: CommandOptions) => options?.commandId ?? newCommandId()
-  const key = (ref: ConversationRef) => ({ workspaceId: ref.workspaceId, agentId: ref.agentId })
+  const key = (ref: ConversationRef) => ({
+    workspaceId: ref.workspaceId,
+    agentId: ref.agentId,
+    ...(ref.workspaceRoot === undefined ? {} : { workspaceRoot: ref.workspaceRoot }),
+  })
 
   const conversations: StudioConversationService = {
     create: (input) => result('conversation.create', { ...input, commandId: commandId(input) }),
@@ -589,6 +666,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
           ? { cursor: { afterSeq: followOptions.afterSeq, generation: followOptions.generation } }
           : {}),
         ...(followOptions?.turnLimit === undefined ? {} : { turnLimit: followOptions.turnLimit }),
+        ...(followOptions?.resubscribe === false ? { resubscribe: false } : {}),
       }).stream
       void (async () => {
         try {
@@ -625,6 +703,19 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
     },
     supports: (capability) => studioPeerSupports(welcome?.capabilities, capability),
     request,
+    subscribe(topic, params, listener) {
+      const push: Push = { id: `p${++sequence}`, topic, params, listener, retry: null }
+      if (state === 'closed') {
+        listener.onEnd?.(new StudioError('closed', 'The client is closed.'))
+        return () => undefined
+      }
+      pushes.set(push.id, push)
+      subscribePush(push)
+      return () => {
+        if (push.retry) clearTimeout(push.retry)
+        if (pushes.delete(push.id) && state === 'open') send({ t: 'unsub', id: push.id })
+      }
+    },
     close() {
       if (state === 'closed') return
       setState('closed')
@@ -637,6 +728,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
         stream.queue.end()
       }
       streams.clear()
+      for (const push of [...pushes.values()]) endPush(push)
       transport?.close()
       transport = null
       resolveClosed()

@@ -25,8 +25,13 @@ import type {
 // which throw a `StudioError` instead of answering `ok: false`, and its
 // events as an async iterator that resumes across reconnects.
 
-/** How a conversation is addressed. */
-export type ConversationRef = { workspaceId: string; agentId: string }
+/**
+ * How a conversation is addressed. `workspaceRoot` names the folder it is kept
+ * in when that is not its workspace's (a chat started in a run worktree); only
+ * a Studio's own connections may name one, where it serves the
+ * `conversation-folders` capability.
+ */
+export type ConversationRef = { workspaceId: string; agentId: string; workspaceRoot?: string }
 
 /**
  * The client's own id for a mutation. A retry with the same id is answered
@@ -44,8 +49,17 @@ export type ConversationFollowFrame =
   | { type: 'event'; event: ConversationWireEvent }
   | { type: 'synchronized'; seq: number; generation?: string }
 
-/** Where a `follow` starts, as the module SDK takes it. */
-export type ConversationFollowOptions = { afterSeq?: number; generation?: string; turnLimit?: number }
+/**
+ * Where a `follow` starts, as the module SDK takes it. `resubscribe: false`
+ * ends the stream with an `error` frame when Studio could not start or keep it,
+ * instead of subscribing again by itself, for a consumer that retries on its own.
+ */
+export type ConversationFollowOptions = {
+  afterSeq?: number
+  generation?: string
+  turnLimit?: number
+  resubscribe?: boolean
+}
 
 export type CreateConversationInput = ConversationCreateRequest & CommandOptions
 
@@ -112,6 +126,13 @@ export type EventStreamOptions = {
   /** How many turns a snapshot holds when one is needed. */
   turnLimit?: number
   signal?: AbortSignal
+  /**
+   * When Studio could not start the stream or keep it going but says trying
+   * again may work, subscribe again after the delay it names (the default), or
+   * `false` to end the stream with that error and leave the retry to you.
+   * Reconnecting after a dropped connection is not a failure: it always resumes.
+   */
+  resubscribe?: boolean
 }
 
 /**

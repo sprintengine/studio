@@ -1,3 +1,5 @@
+import type { StudioAuth } from './protocol.js'
+
 // How a client reaches a Studio: anything that carries whole frames both ways.
 //
 // The client is transport-agnostic. Node's owner socket (`./node`) is one
@@ -7,6 +9,12 @@
 // transport's own business.
 
 export type StudioTransport = {
+  /**
+   * The credential this one connection says hello with, when the transport
+   * brings its own: a ticket minted for it alone, say, which is spent by that
+   * hello. It takes the place of `ConnectOptions.auth` for this connection.
+   */
+  credential?: StudioAuth
   /** Send one frame, already encoded as JSON. */
   send(frame: string): void
   /** Close the connection. `onClose` still fires. */

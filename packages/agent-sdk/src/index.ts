@@ -13,6 +13,7 @@ export {
   type ConnectOptions,
   type StudioClient,
   type StudioClientState,
+  type StudioPushListener,
   type StudioConversationService,
 } from './client.js'
 export {
