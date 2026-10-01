@@ -125,6 +125,38 @@ anchored directory operations; provider-owned native edits are a separate CLI
 capability. Post-open filesystem checks are defense in depth, not a kernel
 sandbox against a malicious process repeatedly replacing directory ancestors.
 
+### Chats on a WSL machine
+
+On Windows, every chat runtime runs on a WSL machine as well as on This PC
+(owner ruling 2026-10-01): Claude Code, Codex, Cursor, Grok and OpenCode alike.
+A chat in a workspace on a WSL machine runs each CLI from that distribution,
+with the command set for it there (or the one its PATH finds), the way a
+terminal agent there does (`conversationCliRuntimesForHost`).
+
+Every runtime starts its child the same way (`cli-host-child.ts`): one
+`wsl.exe -d <distro>` whose stdio is the CLI's, running the person's login
+shell so the CLI sees their PATH, login and configuration under the Linux home.
+Nothing of the Windows environment goes in except what the runtime names: the
+chat's identity variables, the SDK's own marks for Claude, and the variables an
+ACP preset is told through (OpenCode's rule set). Codex additionally has the
+OpenAI API variables removed from the login environment, so a key the profile
+exports cannot take the chat off the person's Codex login.
+
+Paths cross the boundary in both directions:
+
+- **Out.** The workspace folder is sent as Linux names it (`/home/dev/repo`,
+  `/mnt/c/Users/dev/repo`): Codex's `thread/start` and `skills/list`, ACP's
+  `session/new` and `session/load`. A stdio MCP server's `C:\…` and
+  `\\wsl.localhost\…` paths become the distribution's.
+- **Back.** An ACP agent's file reads and writes, and a picture Codex saved, are
+  opened through the workspace as Windows names it. Approval checks respell the
+  agent's Linux paths against the workspace root
+  (`ConversationRuntime.approvalCheckInput`), so Auto and "always allow" place
+  files in the workspace for every runtime.
+
+Claude Code's `/` menu is not yet listed for a folder before a chat on a WSL
+machine has started; a running chat lists it.
+
 ## Remote connection over the tailnet
 
 Another machine follows and drives a conversation over Tailscale, and only over
