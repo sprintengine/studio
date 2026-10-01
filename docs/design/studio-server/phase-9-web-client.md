@@ -1,0 +1,1104 @@
+# Phase 9 — the web client and the embeddable conversation view
+
+Status: scoped, 2026-10-01. Nothing here is implemented. This file hardens
+phase 9 of `docs/design/studio-server.md` (sections 9, 11 and 13). Where the
+two disagree, this file states the change the parent needs, in section 12, and
+the parent is updated in the same change that lands the work.
+
+Owner defaults this scope is built on (2026-10-01):
+
+- The browser pane becomes a live view of the server's headless browser.
+- No terminals in v1.
+- Chat first: conversations and the data chat needs (changed files, turn diffs,
+  checkpoints and revert, attachments, @-mention file search, the workspace
+  list). The git panel and file explorer come later.
+
+## 1. What phase 9 delivers
+
+1. **The web client.** The Studio server serves the renderer as a web app on
+   its loopback listener (and, under the conditions in 6.6, the tailnet). A
+   browser pairs once, holds a session cookie, and then runs the same React
+   tree the desktop runs, with the shell members of `window.api` filled by
+   browser fallbacks and the server members carried by the SDK client.
+2. **The embeddable conversation view.** Another app can show a Studio
+   conversation:
+   - a headless **timeline layer** that folds protocol events into rows, with
+     no React, DOM or Electron in it;
+   - a thin **React view** over it;
+   - an **iframe route** on the server for apps that do not want to build
+     anything.
+
+   All three are versioned against the protocol like any other client.
+
+Not in phase 9: terminals (ruling a), the git panel and file explorer
+(ruling c), a hosted relay or public endpoint, multi-user servers.
+
+## 2. Where things stand (measured)
+
+### 2.1 How the renderer is built
+
+- `electron.vite.config.ts` builds three renderer HTML entries (`index`,
+  `splash`, `canvas-worker`) with React, Tailwind v4 (configured in CSS, no
+  `tailwind.config`), a `virtual:sprintengine-build-stamp` module, and a plugin
+  that emits the canvas scene fonts unhashed at `fonts/<Family>/<file>.woff2`
+  beside each document. The only alias is `@renderer` → `src/renderer/src`.
+  Minify is `oxc` with `keepNames`.
+- Nothing in the renderer config is Electron-specific. `base` is unset (the
+  Electron build loads over `file://`), Monaco workers are Vite `?worker`
+  imports (same-origin files), fonts are `@fontsource` packages, and the
+  canvas asset path is `new URL('.', location.href)`. All of that works over
+  HTTP unchanged (experiment E1).
+- `src/renderer/src/main.tsx` holds the first render on three promises:
+  third-party renderer modules, launch settings (an IPC round trip) and
+  `monacoReady`. On the desktop a splash window covers that wait. A browser
+  has no splash.
+
+### 2.2 What the renderer assumes from Electron
+
+- One preload global, `window.api` (`src/preload/index.ts:114`), typed by
+  `ElectronApi` in `src/shared/electron-api.ts`: 282 invokes, 13 sends, 47 push
+  subscriptions, and four values computed in the preload (`platform`,
+  `isDevelopment`, `isDiagnosticsEnabled`, `diagnosticsGetIpcStats`).
+- 189 renderer files reference `window.api`, about 373 distinct members, 965
+  references. Guards: 56 files use `typeof window.api.X`, 88 files use some
+  guard form, and **103 files use none**. The parent design's "about 72
+  files guard" overstates the cover. Note also that `typeof window.api.X`
+  itself throws when `window.api` is undefined; only `window.api?.X` survives
+  that.
+- No renderer module touches `window.api` at import time. Failures happen
+  when a component mounts or a handler runs.
+- **No root error boundary.** `main.tsx` renders `WorkspaceManager` with no
+  boundary above it; `GlobalSurfaceErrorBoundary` wraps only two surfaces.
+  One malformed reply unmounts the whole app to a blank page (E2–E5).
+
+### 2.3 The chat seam
+
+- `ConversationTransport` (`components/panels/agentChat/conversationTransport.ts`)
+  covers subscribe, load earlier, tool detail, turn diff, send, interrupt,
+  respond, preset, and optionally model, attachment, rewind and fork, with
+  twelve capability flags. 18 call sites use it.
+- About 20 chat files still call `window.api` directly (table in 4.3): session
+  start, providers, models, secret status, revert, the plan document, the
+  command catalog, @-mention search, the skill reader, history and search,
+  local images, file links, clipboard and `platform`.
+- The event-to-row pipeline is already pure TypeScript:
+  `conversationProjection.ts` → `incrementalConversationProjection.ts` →
+  `conversationTimeline.ts` (`ConversationTimelineRow`), plus
+  `sessionEventLog.ts` and `todoProgress.ts`. **One leak:** `turnFolds.ts`
+  imports `stepWentWrong` from `toolRows/ToolRow.tsx`, which drags React,
+  `window.api`, shiki and the diff window in. The session store in
+  `useConversationSession.ts` (cursors, merge, urgency, load earlier, retry)
+  is React-free except the hook at the bottom.
+- Rows render through `@legendapp/list` (virtualized, 10 turns a page,
+  manual "load earlier"), `react-markdown` + `remark-gfm`, `shiki` and `diff`.
+
+## 3. Spec — the web client
+
+### 3.1 Build and serve
+
+- **Build.** `npm run build:web` runs Vite with the renderer section of
+  `electron.vite.config.ts` factored into a shared function
+  (`renderer.vite.config.ts`), `base: './'`, one HTML entry (`index`), the
+  build-stamp plugin and the canvas fonts plugin. Output is `out/web/`,
+  copied into the server bundle beside `server.mjs` (parent 10.4). The
+  `splash` entry is not built for the web. The `canvas-worker` entry is built
+  into the server bundle for the render host (parent section 8), not served to
+  browsers.
+- **`import.meta.env.STUDIO_CLIENT`** (`'desktop' | 'web'`) is a build-time
+  define. It is used **only** to choose which `window.api` to install at boot
+  (`createDesktopApi` reads the preload; `createWebApi` builds the shim). Every
+  other branch asks a capability (3.4), so one code path serves a web build
+  and a desktop attached to a remote server.
+- **The inline boot script** in `src/renderer/index.html` moves into a file
+  (`public/boot-theme.js`), loaded as a classic blocking script, so a CSP
+  needs no `'unsafe-inline'` for scripts (E8). Its window-material rule gains
+  "web → solid" (E7).
+- **Boot skeleton.** On the web, `index.html` paints a static skeleton (the
+  sidebar and an empty chat column in the theme's colours) that React
+  replaces, because nothing else covers the wait for launch settings and
+  modules.
+- **Serving.** The server's HTTP layer, on the loopback listener:
+
+  | Path | Auth | Cache | Notes |
+  | --- | --- | --- | --- |
+  | `/assets/*`, `/fonts/*` (hashed, or fixed by the editor's font loader) | none | `public, max-age=31536000, immutable` (fonts: `max-age=86400`) | brotli and gzip precompressed at build time, chosen by `Accept-Encoding` |
+  | `/`, `/index.html`, any SPA route | session, else 302 to `/pair` | `no-store` | carries the headers in 6.4 |
+  | `/pair` | none | `no-store` | a small standalone page, not the app bundle |
+  | `/.well-known/sprintengine-studio` | none | `no-store` | parent 5.3 |
+  | `/ws` | session cookie (web) or ticket (embed, SDK) | — | the one multiplexed socket |
+  | `/api/upload`, `/api/attachment/*`, `/api/tool-image/*` | session or ticket | `private` | bytes beside the socket (parent 5.1) |
+  | `/modules/<hex id>/…` | session | `no-store` | module renderer entries and assets (3.7) |
+  | `/embed/…` | embed token (section 5) | `no-store` | the iframe view |
+
+  Static assets are public on purpose. The bundle is open source, and a page
+  that cannot load its own scripts before pairing cannot show a useful error.
+  Nothing an asset contains is per-user.
+- **Development.** The server proxies page loads to the Vite dev server on
+  `SPRINTENGINE_RENDERER_PORT`; Vite proxies `/ws` and `/api` back. The Origin
+  check (6.3) accepts the dev server's origin only when the server was started
+  with `--dev`.
+
+### 3.2 The web `window.api`
+
+`createWebApi(client)` returns an object typed `ElectronApi` with no casts, so
+the compiler lists every member the shim has not decided about:
+
+- **Server members** come from `createServerBackedApi(client)` (parent 5.5),
+  the same adapter the desktop uses from phase 4.
+- **Shell members** come from `createWebShellApi()`, the fallbacks in
+  section 4.
+- **A member with no web meaning** is implemented as an explicit refusal
+  (`unsupportedOnWeb('terminalSpawn')`). It returns a rejected promise with a
+  typed `UnsupportedOnThisClient` error, or for a subscription, a no-op
+  unsubscribe. It never returns `undefined` and never throws synchronously.
+  Each refusal is logged once per member, which yields the
+  "missing-member report" the parent's test plan asks for.
+- **Values computed in the preload** become explicit: `platform` splits into
+  `clientPlatform` and `hostPlatform` (3.3). `isDevelopment` comes from
+  `import.meta.env.DEV`; `isDiagnosticsEnabled` from a URL flag on loopback
+  only.
+
+The catch-all proxy approach (answer every member with an empty value) does
+not work: it boots only after hand-typed shapes for eight members, and even
+then one wrong shape blanks the app (E3, E4). The shim is typed or it is not
+a shim.
+
+### 3.3 `platform` means two things
+
+`window.api.platform` is the preload's `process.platform`: today the same
+machine as the window. With a server it is two facts:
+
+- **`clientPlatform`** (the browser's OS, from `navigator.userAgentData`, else
+  the user-agent string) decides the Primary modifier (Cmd or Ctrl), the
+  keyboard labels, the traffic-light reserve and the caption buttons. A
+  Windows browser on a Mac server must get Ctrl. The parent design never
+  separates these.
+- **`hostPlatform`** (`welcome.environment.os`) decides path syntax, the
+  "reveal in Finder/Explorer" wording, and CLI hints.
+
+There are 53 `window.api.platform` references in 31 files. Each is
+classified once. Most are client-side; the path helpers are host-side.
+
+### 3.4 Capabilities, not `typeof`
+
+A `clientCapabilities` record (renderer-only) answers what the current shell
+can do: `native-dialogs`, `reveal-in-folder`, `open-in-app`, `os-clipboard`,
+`os-notifications`, `aux-windows`, `multi-window`, `window-controls`,
+`terminals`, `browser-pane-native`, `browser-pane-screencast`,
+`app-menu`, `deep-links`, `drag-paths`. The desktop sets them from the
+preload. The web shim sets them from feature detection, including
+`isSecureContext`. UI hides or swaps a control by asking
+`clientSupports('reveal-in-folder')`, never by `typeof window.api.X`.
+
+Server-side capabilities stay in `welcome.capabilities` (parent 5.3). A
+control needs both when it needs both. For example, "Paste in terminal" needs
+client `terminals` and a server that advertises them.
+
+### 3.5 Session, tabs and reconnect
+
+- **One WebSocket per tab** at `/ws`. The same-origin upgrade carries the
+  session cookie, so a web tab needs no ticket.
+- **`windowId` per tab.** Today every web tab would believe it is
+  `windowId=primary`. The web shim mints a `windowId` per tab, kept in
+  `sessionStorage` so a reload keeps it. The server's workspace sync treats
+  each tab as a window, as it treats each desktop window.
+- **Persisted stores** (`sprintengine-workspaces`, `sprintengine-app-settings`,
+  drafts, notifications, view state; 15 keys) are per origin, so all tabs of
+  one server share them, last writer wins. On the web:
+  - the workspace registry and launch settings are server state, so their
+    `localStorage` envelopes are not authoritative (the store already
+    hydrates from main's registry);
+  - drafts are keyed by conversation and merge;
+  - the appearance settings take a `storage` event listener, as
+    `notificationStore.ts` already has.
+- **Reconnect.** The SDK client reconnects with backoff and resumes every
+  open stream from its `{ afterSeq, generation }`. A cursor the server cannot
+  vouch for gets a reset snapshot (unchanged rule). Triggers in a browser:
+  - `online`;
+  - `visibilitychange` to visible;
+  - `pageshow` with `persisted` (a page restored from the back/forward
+    cache, whose socket was closed);
+  - the socket's `close`.
+
+  Heartbeats are WebSocket ping/pong frames, which the browser answers itself,
+  so background timer throttling cannot fail a heartbeat. The server keeps
+  ping every 25 s and pong timeout at 60 s.
+- **Reload.** Cursors live in memory. A reload takes a fresh snapshot, which
+  is paged (10 turns), so this costs one page.
+- **Version skew.** The page is served by the server it talks to, so they
+  match at load. After a server upgrade, `welcome.server.buildStamp` differs
+  from the page's own stamp. The page then shows "Studio was updated —
+  reload" and keeps working inside the protocol window. This reuses
+  `reportBuildStamp`'s comparison.
+- **Unload.** Today's flushes on `beforeunload` also run on `pagehide` and
+  `visibilitychange` to hidden, because mobile browsers do not fire
+  `beforeunload` reliably.
+
+### 3.6 The browser pane is a screencast
+
+Owner default: the pane becomes a live view of the server's headless browser,
+on every client. That replaces `<webview>` (`BrowserTab.tsx`, about 25
+`browser*` members) with a `ScreencastView`:
+
+- A `<canvas>` draws JPEG frames from the `browser.screencast` stream (parent
+  section 8). Each frame is decoded with `createImageBitmap` off the main
+  thread. The server acknowledges a frame to Chromium only after the client
+  socket drained it, so a slow client gets fewer frames, not a queue.
+- **Input.** Pointer, wheel, keyboard and touch events become `browser.input`
+  calls, with coordinates scaled from CSS pixels to the emulated viewport.
+  IME composition is sent as `Input.insertText` on `compositionend`.
+  **Mouse input bumps the tab's epoch too.** Today only keyboard does (the
+  guest's `before-input-event`); a screencast makes the mouse the main input.
+- **Size.** The pane's size and `devicePixelRatio` drive
+  `Emulation.setDeviceMetricsOverride`, debounced.
+- **Toolbar.** The URL bar, back, forward and reload map to the server's tab.
+  "Open externally" opens the URL in the person's own browser
+  (`window.open`) and says that session state does not come along.
+- **What a screencast cannot do, and the answer:**
+  - Native `<select>` popups: rendered by the server's page as DOM under
+    headless mode, so they show.
+  - Page dialogs (`alert`, `confirm`, `prompt`): `Page.javascriptDialogOpening`
+    becomes an in-app modal that answers through CDP.
+  - File inputs: the person's file is uploaded and set with
+    `DOM.setFileInputFiles`.
+  - Downloads: refused unless a tool asks (parent 8.3); the pane says so.
+  - Cursor shape: not available from CDP; the view shows a default pointer.
+  - Clipboard into the page: a paste event in the view sends `insertText`.
+  - Accessibility: pixels have no tree. The pane offers the page's
+    accessibility snapshot (the same one `browser.snapshot` gives agents) as
+    a text alternative, with a "Read page" control.
+- **Element picker.** The guest preload's picker (`browser-guest.ts`) becomes
+  an overlay script injected through CDP into the server's tab, reporting
+  through a `Runtime.addBinding` channel.
+
+This is phase 5 work in the parent plan (the render host and
+`browser.screencast`). Phase 9 owns the `ScreencastView` component and its
+input mapping, and depends on phase 5 having landed.
+
+### 3.7 Modules on the web
+
+- **Bundled modules** load as they do today, from the web bundle.
+- **Third-party renderer entries** today arrive as source strings and are
+  evaluated with `import()` of `blob:` URLs. React and Monaco are bridged by
+  an import map appended after load (`modules/third-party-loader.ts`). That
+  relies on multiple import maps, which only recent Chromium supports. On
+  Firefox and Safari the loader must instead rewrite bare specifiers to
+  `blob:` URLs before evaluation. The rewrite is a plain string transform the
+  loader already half-does.
+- **Assets.** `getAssetUrl` builds `studio-module://<hmac host>/…` on the
+  desktop. On the web it builds `/modules/<hex id>/assets/<path>?sig=…`,
+  served with the same checks as `module-assets.ts`: trust and enablement per
+  request, the verified file list and its SHA-256, `nosniff`, `no-store`.
+  These assets share the app's origin. That is acceptable only because module
+  renderer code already runs in the app's document on the desktop (blob
+  import), so the origin was never its isolation boundary. Module HTML that
+  wants isolation runs in a sandboxed iframe, as it does now.
+- **Graceful degradation.** `RendererHost.supports()` gains the client
+  capability names in 3.4, so a module can ask
+  `host.supports('native-dialogs')` and degrade. This needs no host API bump:
+  `supports` already answers unknown names `false`.
+- **Recommendation:** third-party renderer modules are off on the web in v1
+  unless the owner turns them on for that server (owner decision 4).
+
+## 4. Inventory: every Electron dependency in the renderer and its web fallback
+
+Legend for **Guard**: `none` = an unguarded call that throws on the web
+today; `typeof` = degrades to a no-op today; `n/a` = nothing to guard.
+Paths are under `src/renderer/src/` unless they start with `src/`.
+
+### 4.1 Shell surfaces
+
+| # | Dependency | Where (main sites) | Guard | Web fallback |
+| --- | --- | --- | --- | --- |
+| 1 | `window.api` itself | `src/preload/index.ts:114` | n/a | `createWebApi(client)` installed before React (3.2) |
+| 2 | `platform`, `isDevelopment`, `isDiagnosticsEnabled` (preload values) | 53 refs in 31 files; `WorkspaceManager.tsx:716` is the first boot read | none | `clientPlatform` / `hostPlatform` (3.3); `import.meta.env.DEV`; URL flag on loopback |
+| 3 | `<webview>` browser pane, guest preload, `before-input-event` keys | `pane/browser/BrowserTab.tsx:591`, `src/preload/browser-guest.ts`, `src/main/browser/browser-manager.ts:488` | none (22 members) | `ScreencastView` over `browser.screencast` and `browser.input` (3.6); picker injected over CDP |
+| 4 | App menu: `onAppMenuCommand`, `updateAppMenuAccelerators`; Electron role items (undo, cut, zoom, reload, devtools, fullscreen) | `WorkspaceManager.tsx:3961,3975`; `src/main/app-menu.ts` | none | Menu commands are already registry commands, so they run from the palette. The menu-only items (About, Check for updates, Diagnostics) move into the account menu. Role items fall to the browser's own (undo/cut/copy work natively in inputs). |
+| 5 | Native menubar popup on Windows/Linux: `showMenubarMenu` | `WorkspaceManager.tsx:4211` | none | Not drawn: `clientSupports('app-menu')` is false. The palette lists the same commands. |
+| 6 | Context menus | All in-page already (`PointerPopover`, `OverflowMenu`; `onContextMenu` in 18 files) | n/a | Unchanged. Where the app does not `preventDefault`, the browser's own menu shows, which is the right default for text. |
+| 7 | Folder picker: `openDir` (`dialog.showOpenDialog`) | 11 sites, e.g. `WorkspaceManager.tsx:3215` (New chat → Browse), `FileExplorer.tsx:2021`, `ExtensionsGlobalSurface.tsx:230` | none | `FolderBrowserDialog`, an in-app modal over `files.browse` (6.8) |
+| 8 | Save dialogs: `git:save-patch`, canvas export | `GitPanel.tsx:1467` (typeof), `CanvasTab.tsx:224` (none) | mixed | Download: the server returns bytes, and the page saves them through an `<a download>` on a blob URL. The git one is out of v1 scope. |
+| 9 | Attach file | `AgentChatView.tsx:2931` (`<input type=file>`) | n/a | Unchanged; bytes go to `/api/upload` |
+| 10 | Drop OS files: `getPathForFile`, `File.path`, `saveDroppedImage` | `utils/imageFileTransfer.ts:82`, `NewAgentPanel.tsx:905`, `utils/terminalDrop.ts:449`, `FileExplorer.tsx:225` | none | No paths exist in a browser. Images attach as base64 as today. Other files upload to `/api/upload` and come back as a server path in the session's upload directory, which is what the agent receives. A document-level `dragover`/`drop` `preventDefault` stops a stray drop from navigating the app away; on the desktop, `will-navigate` does that job. |
+| 11 | In-app drags (custom MIME with server paths) | `utils/terminalDrop.ts:48` | n/a | Unchanged |
+| 12 | Clipboard read/write: `clipboardReadText`, `clipboardWriteText` | about 25 sites; 14 unguarded writes (e.g. `ConversationCodeBlock.tsx:123`), `EditorPanel.tsx:425` read | mixed | `navigator.clipboard`. **Never the server's clipboard**: today these IPC calls hit main's `clipboard`, which on a remote server is the wrong machine. Rich copy already uses `ClipboardItem`. On an insecure origin, writes fall back to `document.execCommand('copy')` and reads are not offered. |
+| 13 | Paste bridge: `bindElectronClipboardPasteBridge` | `main.tsx:37`, `utils/clipboardPasteBridge.ts:42` | none | Not installed on the web. It exists for an Electron paste quirk, and on the web it would `preventDefault` a paste and then fail. |
+| 14 | OS notifications, dock badge and bounce, `flashFrame` | main only (`app-services.ts:1268`, `agent-attention.ts`) | n/a | Web Notifications, shown only when the tab is hidden and permission was granted after a click in Settings. One tab shows each notification, chosen through `BroadcastChannel` leader election, with `tag` set to the event id so duplicates replace each other. `navigator.setAppBadge` where supported (installed PWAs). Otherwise the in-app bell, which exists today. |
+| 15 | `openExternal` (`shell.openExternal`) | 7 sites, 6 unguarded (e.g. `ConversationImage.tsx:40`, `CanvasEditor.tsx:639`) | mixed | `window.open(url, '_blank', 'noopener,noreferrer')` for http, https and mailto; anything else refused. Today's IPC would open the URL on the server machine. |
+| 16 | `target="_blank"` links, `window.open` | `utils/markdown.tsx:569`, `conversationLinks.tsx:145` | n/a | Unchanged: a browser opens a tab. Add `rel="noopener"` where missing. |
+| 17 | `showItemInFolder`, `listFolderOpenTargets`, `openFolderInTarget`, `openHtmlFileInBrowser`, `openDiagnosticsLogsFolder` | 8 + 4 + 4 + 1 sites, unguarded (e.g. `ToolRow.tsx:317`, `conversationLinks.tsx:170`) | none | Hidden (`reveal-in-folder`, `open-in-app` false). A file link opens the in-app viewer. An HTML file opens in the screencast pane. Today these would act on the server's desktop. |
+| 18 | `openImageAttachment` | `ComposerAttachmentStrip.tsx:51`, `ToolRow.tsx:294`, `ConversationImage.tsx:47` | none | Opens `/api/attachment/<id>` in a new tab |
+| 19 | Keyboard: DOM dispatcher (`commandDispatcher.ts`), six menu accelerators, browser-pane forwarded chords | `WorkspaceManager.tsx:3840`, `src/main/app-menu.ts:5` | n/a | DOM dispatcher unchanged, Primary from `clientPlatform`. A web keymap profile (4.2). |
+| 20 | Window controls and state: `windowMinimize`, `windowToggleMaximize`, `windowClose`, `getWindowState`, `onWindowStateChanged`, `onWindowPlacementChanged`, `onWindowCloseRequested` | `WindowControls.tsx:52`, `WorkspaceManager.tsx:1577,1584,2052` | none | Not drawn (`window-controls` false). The close handshake becomes `beforeunload` while a draft or turn is in flight. |
+| 21 | Traffic-light reserve (78 px gap) | `AppRail.tsx:60`, `SidebarChrome.tsx:242`, `WorkspaceHeader.tsx:158`, `AppTitleBar.tsx:16`, two aux windows | n/a | No reserve. It is keyed on `clientPlatform === 'darwin' && clientSupports('window-controls')`, not on platform alone (E6 screenshot shows the gap). |
+| 22 | `-webkit-app-region` drag regions | `index.css:3814`, about 40 uses | n/a | Ignored by browsers; harmless |
+| 23 | Aux windows (`?aux=diff\|file`), diagnostics window, pop-outs: `openAuxWindow`, `dockFileToWorkspace`, `dockDiffToWorkspace`, `onAuxWindowRetarget` | 16 `openAuxWindow` sites; `CheckpointDiffWindow.tsx`, `ExternalEditorWindow.tsx`, `DiffViewer.tsx` | none | In-app modal (the checkpoint diff) or a same-tab route. "Pop out" opens a new tab on the same route; it is a separate client and needs no dock handshake. `windowClose` in an aux view is "close the modal". |
+| 24 | Multiple workspace windows: `createWorkspaceWindow`, `?windowId=`, `restoreDetached` | `WorkspaceManager.tsx:1559,1563,2121` | none | "New window" opens a tab with a fresh `windowId` (3.5) |
+| 25 | Window material (glass, tinted vibrancy): `setWindowMaterial`, boot script `navigator.platform` | `index.html:74`, `hooks/useAppTheme.ts:75`, `index.css:4103` | typeof | Forced `solid` on the web. Today a Mac browser gets `glass`: a transparent canvas and a 52% body tint with nothing behind it (E7). |
+| 26 | `setColorScheme` (native theme) | `useAppTheme.ts:53` | typeof | No-op; `prefers-color-scheme` already drives "system" |
+| 27 | Splash, startup marks: `notifyBootComplete`, `reportBuildStamp`, `startupTimelineEnabled` | `main.tsx` | `?.` | Boot skeleton (3.1); the build stamp is compared with `welcome` (3.5) |
+| 28 | Auto-update: `updateGetState`, `onUpdateStateChanged` | boot | none | Not offered; the server's version shows in About, and skew prompts a reload |
+| 29 | Deep links (`sprintengine://`) | main | n/a | URL routes: `/w/<workspaceId>/c/<conversationId>` |
+| 30 | Third-party module loader: `blob:` import plus appended import map | `modules/third-party-loader.ts:126` | n/a | Specifier rewrite where multiple import maps are unsupported (3.7) |
+| 31 | `studio-module://` asset scheme | `modules/renderer-host.ts:1626`, `src/main/modules/module-assets.ts` | n/a | `/modules/<hex id>/assets/…?sig=` (3.7) |
+| 32 | Design system and theme | `assets/index.css` imports `design-system/foundations/tokens.css`; `data-theme`, `data-mode` | n/a | Unchanged |
+| 33 | Fonts: `@fontsource` Inter and JetBrains Mono; canvas scene fonts | `index.css:6`, `canvasAssetPath.ts:32` | n/a | Unchanged; the server must serve `fonts/` beside `index.html`, else the editor falls back to a public CDN |
+| 34 | Monaco and workers (`?worker`, `loader.config({ monaco })`) | `utils/monacoRuntime.ts` | n/a | Works unchanged over HTTP. Recommendation: lazy on the web, see 7.6. |
+| 35 | xterm, terminals (`terminalSpawn`, `terminalList`, …; called at boot) | `utils/createStudioTerminal.ts`, boot calls `terminalList`, `onTerminalSessionsDelta` | none | Refused (`terminals` false); boot calls get an empty answer (ruling a) |
+| 36 | Voice dictation `getUserMedia` (main auto-grants the mic) | `modules/voice-dictation/voiceDictationController.ts:68` | n/a | Browser permission prompt; secure context only |
+| 37 | Secure-context APIs: `crypto.randomUUID` (4 sites), `navigator.clipboard`, Notifications, service workers | `utils/undeliveredPrompt.ts:50`, `utils/diagnostics.ts:35`, … | n/a | Loopback (`http://127.0.0.1`, `localhost`) is a secure context. Plain HTTP to a tailnet IP is not. One `randomId()` helper over `crypto.getRandomValues` replaces `randomUUID`, and 6.6 requires HTTPS off loopback. |
+| 38 | Account sign-in: `authGetState`, `authLogin` (opens a browser and returns through a deep link) | `SidebarAccountBar` (first crash in E3) | none | The login redirect returns to the server's `/auth/callback` instead of the deep link, or account features are hidden on the web in v1 (owner decision 9) |
+| 39 | Mesh and tailnet admin (`meshGetLiveState`, `tailnetGetStatus`, …; called at boot) | `WorkspaceActions.tsx` (`remoteGlyphState`) | none | Server members (`auth.*` in phase 8). The Remote glyph shows only for owner sessions. |
+| 40 | Canvas worker document | `canvasWorker/transport.ts:40` | `?.` | Server-side (render host); not loaded by browsers |
+
+### 4.2 Keyboard chords browsers reserve
+
+The DOM dispatcher sees a chord only if the browser lets it through. These
+defaults collide (registry lines in `commands/commandRegistry.ts`):
+
+| Chord | Command | In a browser tab | Web default |
+| --- | --- | --- | --- |
+| Primary+W | close pane tab | closes the browser tab; cannot be intercepted | Alt+W |
+| Primary+Shift+W | close workspace | closes the window | Alt+Shift+W |
+| Primary+N | new chat | new browser window | Alt+N |
+| Primary+T (not bound today) | — | new tab | keep unbound |
+| Primary+1…9 | switch workspace | switch browser tab | Alt+1…9 |
+| Ctrl+Tab, Ctrl+Shift+Tab; Cmd+Shift+[ ] | next/previous pane tab | switch browser tab | Alt+] / Alt+[ |
+| Cmd+Alt+←/→ | next/previous workspace | switch tab (Mac) | Alt+Shift+] / [ |
+| Primary+` | next workspace | OS window cycling | unchanged in the PWA window; Alt+` in a tab |
+| Primary+Shift+P | command palette | private window (one browser) | Primary+K remains |
+| Primary+, | settings | browser preferences (Mac) | Alt+, |
+| Primary+K, O, D, F, B, Shift+O, Shift+M, Shift+G, Alt+B | various | browser features, but `preventDefault` works for a focused page | unchanged |
+
+- The web profile is a set of default overrides applied when
+  `clientSupports('app-menu')` is false. A person's own bindings still win.
+- `KbdChord` labels read the effective binding, so the shortcut sheet stays
+  correct.
+- In an installed PWA window, more chords reach the page, but Primary+W still
+  closes it.
+- `navigator.keyboard.lock()` is fullscreen-only and not used.
+- Synthetic Playwright key events bypass the browser's reservation, so these
+  are checked by hand per browser (8.4).
+
+### 4.3 Chat files that bypass `ConversationTransport`
+
+Phase 4 owns moving these behind the transport. Phase 9 depends on it and
+verifies it with the missing-member report on the chat route:
+
+| File | Direct members | Web answer |
+| --- | --- | --- |
+| `AgentChatView.tsx` | `conversationSessionStart`, `conversationProvidersList`, `conversationProviderModels`, `conversationSecretStatus`, clipboard, `platform` | transport `start`, `providers`, `models`, `secretStatus`; clipboard from 4.1 #12 |
+| `changedFilesCard.tsx` | `conversationRevertToTurn`, `getGitRepoRoot`, `statPath` | transport `revert`, `repoRoot`, `stat` |
+| `editFromHere.tsx` | `conversationRevertToTurn` | transport `revert` (gated by `checkpointRevert`, not only `rewind`) |
+| `planCard.tsx` | `conversationPlanDocument` | transport `planDocument`; opens in the in-app viewer |
+| `composerContextPicker.tsx` | `searchFiles`, `cancelFileSearch` | transport `mentionSearch` |
+| `composerSkillReader.tsx` | `pathExists`, `readdir`, `readfile`, `skillsListSources`, `skillsGetScan` | `files.readText`, `skills.*` |
+| `useConversationCommands.ts` | `conversationCommands`, `onConversationCommandsChanged` | transport `commands` stream |
+| `useLocalImage.ts` | `statPath`, `readImageDataUrl` | `/api/attachment` signed URL instead of data URLs |
+| `conversationLinks.tsx` | `statPath`, `listFolderOpenTargets`, `openFolderInTarget`, `platform` | `stat` via transport; open-in-app hidden |
+| `ConversationImage.tsx`, `ToolRow.tsx`, `ComposerAttachmentStrip.tsx` | `openExternal`, `openImageAttachment`, `showItemInFolder` | 4.1 #15, #17, #18 |
+| `ConversationCodeBlock.tsx`, `cliSignIn.ts`, `resumeInTerminal.ts` | `terminal*`, `conversationSessionTerminalHandoff`, `conversationProviderSignIn` | hidden without `terminals`; sign-in through `providers.signIn` (parent 6.6) |
+| `palette/conversationHistoryProvider.ts` | `conversationThreads`, `conversationSearch` (+ stream) | `conversation.threads`, `conversation.search` |
+| `hooks/conversationSessionsStore.ts` | `conversationSessionsList`, `onConversationEvent` (already injectable) | inject the SDK client |
+| `CheckpointDiffWindow.tsx` | `conversationTurnDiff`, `conversationToolDetail`, `windowClose` | transport; modal instead of window |
+| `NewAgentPanel.tsx` and pickers | `agentLaunchPreview`, `meshBrowse`, `getPathForFile`, `saveDroppedImage`, `defaultWorkspaceParentDir`, `cloneGitHubRepo`, scheduled agents | v1: launch preview, workspace list and the folder browser; scheduled agents and clone are later domains |
+
+## 5. The embeddable conversation view
+
+### 5.1 Layers
+
+```
+ @sprintengine/conversation-protocol   (exists; wire types, parsers)
+            ▲
+ @sprintengine/conversation-timeline   (new; React-free, DOM-free)
+   events → projection → rows; session store with cursors, merge, paging
+            ▲
+ @sprintengine/conversation-view       (new; React 19 peer)
+   <ConversationView>, row components, compiled scoped CSS, theme API
+            ▲
+ /embed/conversation/<id>  (served by the server; iframe; uses the view)
+```
+
+- **`conversation-timeline`** takes, unchanged in behaviour:
+  - `conversationProjection.ts`, `incrementalConversationProjection.ts`,
+    `conversationTimeline.ts`, `sessionEventLog.ts`, `todoProgress.ts`,
+    `turnFolds.ts`, `stepDuration.ts`;
+  - the shared helpers they import (`shared/conversation/{mentions,
+    apiKeySource,subagents}`, `shared/records`, `shared/prompt-cache`);
+  - the React-free half of `useConversationSession.ts`, as
+    `createConversationFollower(client, ref, { turnLimit })`, which owns
+    cursors, merge, urgency tiers, load earlier and retry.
+
+  `stepWentWrong` moves out of `ToolRow.tsx` into the package first; that is
+  the one leak. The app imports these from the package, so there is one
+  implementation, not a copy. The phone's five pinned protocol files are not
+  touched.
+- **`conversation-view`** is the read-only subset of today's rows:
+  - `TimelineRow` and the user, assistant, work-timeline, decision,
+    compaction and command-output rows;
+  - `ConversationMarkdown`/`StreamingMarkdown`, `CodeBlock`, `ToolRow`,
+    `InlineDiff`, `AnsiOutput`, reasoning, turn meta, subagent status and
+    result, resolved plans;
+  - `@legendapp/list` virtualization.
+
+  It drops edit, fork, revert, file open, paste in terminal, sign-in and
+  plan-to-pane. A transport with `operate: false`, `localFiles: false` and no
+  `rewind`/`fork` already hides most of them.
+  Its React dependency is a peer. `shiki` languages load lazily. Monaco is not
+  a dependency.
+- The app's chat view consumes the same row components, so a row fixed once is
+  fixed everywhere. The package boundary is enforced by an import-graph test,
+  like the server's Electron guard: `conversation-view` may not import
+  `window.api`, zustand stores or `@renderer/*` outside itself.
+
+### 5.2 Delivery: component, iframe, web component
+
+| Strategy | For | Auth | Styling | Recommendation |
+| --- | --- | --- | --- | --- |
+| React component (`@sprintengine/conversation-view`) | apps that already run React and talk to the server through the SDK | the host app's SDK connection (owner token on the same machine, or a paired device) | shadow root by default (5.3) | **v1** |
+| iframe (`/embed/conversation/<id>`) | any page, no build step | an embed token (5.4) | the server's own page; theme by `postMessage` or URL | **v1** |
+| Web component (`<sprintengine-conversation>`) | non-React apps that want no iframe | as the React component | shadow DOM | later; a thin wrapper over the React view once the two above settle |
+
+The iframe is the security boundary. A third-party page never holds a token
+that can do more than read one conversation, and it never sees the
+conversation's data except what the iframe draws. The component is for
+trusted apps that already hold credentials.
+
+### 5.3 Theming API
+
+- **Isolation.** The rows use Tailwind utility classes. A host app's own
+  Tailwind (or any `.flex`) would collide. `<ConversationView>` therefore
+  renders into an open shadow root it creates, carrying the compiled
+  stylesheet (`adoptedStyleSheets`). `isolation="none"` opts out for hosts
+  that want to restyle, with the stylesheet under `@layer sprintengine` and
+  scoped to `.se-conversation`.
+- **Fonts.** `@font-face` declared inside a shadow root is not applied in
+  every browser, so the view injects its `@font-face` rules into the document
+  once, under unique family names (`SE Inter`, `SE JetBrains Mono`). A host
+  can set `fonts="inherit"` to use its own.
+- **Tokens.** The public contract is a small set of custom properties, not the
+  internal `--sem-*` names, so internal token renames do not break embeds:
+
+  | Token | Maps to |
+  | --- | --- |
+  | `--se-bg`, `--se-surface`, `--se-border` | `--sem-color-bg-*`, `--sem-color-border-*` |
+  | `--se-text`, `--se-text-muted`, `--se-link` | `--sem-color-text-*`, accent |
+  | `--se-accent`, `--se-danger`, `--se-success` | `--sem-color-accent-*`, status |
+  | `--se-diff-add`, `--se-diff-remove` | `--sem-color-diff-*` |
+  | `--se-font-body`, `--se-font-mono`, `--se-font-size` | `--sem-font-*` |
+  | `--se-radius`, `--se-density` (`compact` \| `comfortable`) | `--sem-radius-*`, `[data-density]` |
+  | `--se-syntax-*` (optional) | `--sem-syntax-*` (the shiki theme) |
+
+- **Mode.** `theme={{ mode: 'light' | 'dark' | 'system', tokens?: Partial<Record<SeToken, string>> }}`
+  sets `data-mode` on the embed root, never on the host's `:root`. One of the
+  app's named themes can be picked by id (`theme={{ preset: 'vellum' }}`).
+- **Tokens are generated.** The table is generated from
+  `design-system/foundations/tokens.tokens.json` by
+  `design-system/scripts/build-catalog.mjs`, as `tokens.css` already is.
+  It is never hand-edited.
+
+### 5.4 Embed tokens and the iframe
+
+- **Why tokens and not cookies.** A third-party iframe gets no first-party
+  cookies: third-party cookies are blocked or partitioned in current
+  browsers, and `SameSite=Strict` would refuse them anyway. The iframe
+  authenticates with a token.
+- **Minting.** An owner (or an app holding `conversation:read` plus a new
+  `embed:create` scope) calls `embeds.create`:
+
+  ```
+  embeds.create({
+    conversationId,
+    origins: ['https://dashboard.example.com'],
+    ttlMs,
+    live: true,
+  })
+  → { embedId, token: 'mcemb_…', url }
+  ```
+
+  The token is stored as a hash. It is read-only, scoped to one conversation,
+  and expires (default 24 hours, at most 30 days). It is listed and revoked
+  beside devices, and revocation closes its streams with 4401.
+- **Delivery.** `url` is `/embed/conversation/<id>#token=…`. A fragment is
+  never sent to a server or in a `Referer`. The page reads it, strips it
+  with `history.replaceState`, exchanges it at `POST /embed/session` for a
+  single-use WebSocket ticket, and opens `/ws?ticket=…`. A host that prefers
+  not to put the token in a URL sends it by `postMessage` after `se:ready`
+  instead.
+- **Framing.** `/embed/*` is served with
+  `Content-Security-Policy: frame-ancestors <the embed's origins>`, read from
+  the embed record on each load. Everything else keeps `frame-ancestors
+  'none'`. An embed with no origins cannot be framed at all; it can only be
+  opened as a page.
+- **`postMessage` protocol** (`se.embed`, version 1):
+  - **iframe → host:**
+    - `{ v: 1, type: 'ready', embedId }`
+    - `{ type: 'resize', height }`
+    - `{ type: 'link', href }`: links open in the host's control, never
+      navigate the iframe
+    - `{ type: 'state', turns, working }`
+    - `{ type: 'error', code }`
+  - **host → iframe:**
+    - `{ v: 1, type: 'theme', mode, tokens }`
+    - `{ type: 'token', token }`
+    - `{ type: 'scrollTo', turnId }`
+  - **Rules.** The iframe posts only to the embed's registered origins, never
+    `'*'`. It accepts a message only when `event.origin` is one of them and
+    `event.source === window.parent`. Every message is schema-checked: unknown
+    `type` is ignored, unknown `v` is answered with `error: unsupported_version`.
+    No message can make the iframe send, respond or navigate.
+- **Live or frozen.** `live: true` follows the stream. `live: false` serves a
+  snapshot taken at mint time from a static endpoint, for a page that shows a
+  finished chat.
+
+### 5.5 Versioning
+
+- `conversation-timeline` declares the conversation protocol window it
+  understands and checks `welcome.conversation` on connect. Outside it, the
+  view renders one row: "This Studio server speaks protocol X; this view
+  speaks Y–Z."
+- New event types are additive; the projection already skips unknown types,
+  and the view renders an unknown tool kind with the generic tool row.
+- The `postMessage` protocol is a new wire and gets a row in
+  `docs/compatibility.md` (integer `v`, one version of slack, refusals name
+  both).
+- `conversation-view` follows semver against its row-component props;
+  `conversation-timeline`'s row model (`ConversationTimelineRow`) is public
+  API from 1.0. While both are 0.x, the row shape may change, and the
+  changelog says so.
+- Both get a pack check like `verify-conversation-protocol-pack.mjs` in
+  `verify:app`.
+
+## 6. Auth and security model
+
+### 6.1 Threats specific to a browser
+
+| Threat | Why it applies | Control |
+| --- | --- | --- |
+| Another site drives the server through the person's browser (CSRF, cross-site WebSocket hijacking) | Browsers attach cookies to cross-site requests and WebSocket upgrades | Exact `Origin` check on every upgrade and every non-GET request (6.3); `SameSite=Strict`; no state change on GET |
+| **Another local port** drives it | Cookies are **not** isolated by port, and `SameSite` treats `127.0.0.1:3000` and `127.0.0.1:4791` as the **same site**. Any dev server the person runs is same-site. | The Origin check compares scheme, host **and port**. `SameSite` is not relied on between local ports. |
+| DNS rebinding | A hostile name resolving to 127.0.0.1 reaches the loopback listener with the hostile page's origin | `Host` must be a loopback name or a configured public origin; `Origin` must equal it |
+| Clickjacking | The app framed by a hostile page | `frame-ancestors 'none'` and `X-Frame-Options: DENY` except `/embed/*` (5.4) |
+| Cookie clobbering between servers | Several Studio servers on one host's loopback (the desktop's own, WSL forwarded to localhost, SSH tunnels) share one cookie jar for `127.0.0.1` | Cookie name carries the environment: `se_s_<first 12 of environment.id>`. The server ignores cookies with other names. |
+| Script injection from transcript content | Markdown, tool output and HTML artifacts are agent-written | `react-markdown` (no raw HTML) as today; HTML artifacts stay in sandboxed `srcDoc` iframes; CSP (6.4) as defence in depth |
+| Token in a URL | History, logs, `Referer`, chat unfurlers | Codes and embed tokens travel only in fragments, are single-use or short-lived, and are stripped from history on load |
+| A stolen session cookie | Malware on the client, a shared browser profile | `HttpOnly`; sessions bound to the device record and listed under Devices; revocation closes streams with 4401; idle expiry |
+
+### 6.2 Pairing a browser
+
+- **Loopback, same user.** The desktop's "Open in browser", or
+  `studio-server pair`, mints a one-time code (32 random bytes, base64url,
+  5-minute TTL, hash only kept) and opens
+  `http://127.0.0.1:<port>/pair#code=<code>`.
+  1. The `/pair` page reads the fragment, removes it with `replaceState`, and
+     `POST`s the code to `/pair/exchange` with `Origin` checked.
+  2. The server consumes the code whether the exchange succeeds or not. It
+     creates a **browser device** (kind `web`, a name from the user agent the
+     person can edit) holding the owner's grants or a narrower set, and sets
+     the session cookie.
+  3. The page goes to `/`.
+
+  A wrong or expired code shows "This pairing link was used or has
+  expired — make a new one in Studio", with nothing more.
+- **Another device on the tailnet.** Approval by comparison code, as the phone
+  pairs today:
+  1. The browser's `/pair` page (reached at the server's HTTPS name, 6.6)
+     shows "Pair this browser". The person names it, and the page shows a
+     6-digit code.
+  2. The person types the code into the desktop's pending-request prompt and
+     ticks scopes. Three wrong tries decline.
+  3. The page polls `/pair/request/<id>` and receives the cookie once
+     approved.
+
+  This is the existing `requestPairing`, `approvePairRequest` and
+  `collectPairRequest` flow, with the collect secret held in
+  `sessionStorage`.
+- **QR.** The desktop shows the `/pair#code=` URL as a QR code with the repo's
+  own `src/shared/qr-code.ts` encoder, for a phone browser on the tailnet.
+  This is distinct from the phone app's `sprintengine-tailnet://` link, whose
+  custom scheme exists so that scanning it in a browser cannot spend the code;
+  for the web, spending it in a browser is the point.
+- **SSH.** A browser on the person's laptop reaching a remote server through
+  the desktop's `ssh -L` forward is a loopback page. `studio-server pair` on
+  the remote prints a code; the desktop can open the URL through its
+  forwarded port.
+
+### 6.3 Cookies, CSRF, Origin and Host
+
+- **Cookie.** `se_s_<env>=<32 random bytes>`; `HttpOnly`; `SameSite=Strict`;
+  `Path=/`; `Secure` whenever the origin is HTTPS (and on `http://localhost`,
+  where current browsers accept it); no `Domain`. Sliding expiry: 30 days
+  idle, 90 days absolute (owner decision 7). Stored as a hash on the device
+  record.
+- **Every WebSocket upgrade and every non-GET request**:
+  1. `Host` must be in the allowed set: `127.0.0.1:<port>`, `localhost:<port>`,
+     `[::1]:<port>`, plus each configured `--public-origin` host.
+  2. `Origin` must equal one of the allowed origins **exactly** (scheme, host,
+     port). A missing `Origin` on an upgrade is allowed only with a ticket (SDK
+     and other non-browser clients), never with a cookie alone.
+  3. The cookie or ticket is resolved to a device, and its scopes are read
+     live, per frame, as the tailnet lane does.
+- **No CSRF tokens.** The exact `Origin` check on non-GET requests is the CSRF
+  defence, and every state change rides the socket or a non-GET request.
+  `SameSite=Strict` is the second layer for cross-site requests only.
+- **GET is never a state change**, including `/api/attachment/*`, which only
+  reads.
+- **The tailnet listener today refuses any request with an `Origin`**
+  (`tailnet-gateway-server.ts:614`, `:999`), by design: no client of that lane
+  is a browser. The phone lane keeps that rule. The web routes are a
+  separate handler on the server's HTTP layer with the allow-exact rule
+  above. They never share a code path with the refuse-all lane, so the
+  phone's guarantee does not weaken.
+
+### 6.4 Response headers for the app page
+
+```
+Content-Security-Policy:
+  default-src 'self';
+  script-src 'self' blob:;            (blob: only when third-party modules are on)
+  style-src 'self' 'unsafe-inline';   (Monaco, the canvas editor and React style props)
+  img-src 'self' data: blob:;
+  font-src 'self' data:;
+  connect-src 'self' ws://<host> wss://<host>;   (explicit for older WebKit)
+  worker-src 'self' blob:;
+  frame-src 'self' blob:;             (sandboxed HTML previews)
+  frame-ancestors 'none';
+  object-src 'none'; base-uri 'none'; form-action 'self'
+X-Frame-Options: DENY
+X-Content-Type-Options: nosniff
+Referrer-Policy: no-referrer
+Cross-Origin-Opener-Policy: same-origin
+Permissions-Policy: camera=(), geolocation=(), microphone=(self)
+```
+
+- E8 booted the app under `script-src 'self'; style-src 'self'`. The only
+  violation was the inline theme script, which 3.1 moves to a file.
+- The owner removed the renderer CSP on the desktop (2026-09-27) as a
+  standing rule nobody asked for. This policy is for the **served web page
+  only**, where any site the person visits is another origin with a path to
+  the server. That is a different exposure from a `file://` window. Owner
+  decision 2.
+
+### 6.5 Server-side folder browser (`files.browse`)
+
+- Lists directories only, under the owner's home by default, with a typed
+  path field and breadcrumbs. Files are never listed or read.
+- Requires owner scope or an explicit `files:browse` grant. Tailnet browser
+  pairings do not get it by default; they choose among workspaces the server
+  already knows.
+- Refuses symlink loops, caps entries per listing (1,000, with "more"), and
+  hides dot-directories unless asked.
+- Reuses `filesystem-search.ts`'s ignore rules for "probably not a project"
+  hints (`node_modules`).
+
+### 6.6 Off loopback: the tailnet, proxies and HTTPS
+
+- **Plain HTTP on a tailnet address is not a secure context.** On it:
+  - `crypto.randomUUID` is missing (4 call sites throw);
+  - so are `navigator.clipboard`, Notifications and service workers;
+  - and iOS refuses cleartext by policy.
+
+  The web client off loopback is therefore served over HTTPS or not at all.
+- **Recommended route:** `tailscale serve --bg --https=443 http://127.0.0.1:<port>`.
+  The server sets this up on request, and `tailscale-serve.ts` already
+  drives the CLI. The listener stays loopback-only. The public origin
+  `https://<node>.<tailnet>.ts.net` is added to the allowed set. Peer identity
+  comes from the `Tailscale-User-Login` and `Tailscale-User-Name` headers that
+  serve adds. The server trusts those headers only when it set up serve
+  itself, the connection arrives on loopback, and the request carries serve's
+  identity headers; otherwise it treats the request as an ordinary loopback
+  browser that must pair. Pairing (6.2, approval) still applies: identity
+  narrows who may ask, it does not replace the approval.
+- **`tailscale cert`** with the server terminating TLS itself is the fallback
+  where serve is unavailable. It needs cert renewal; not v1.
+- **Generic reverse proxies.** `--public-origin https://studio.example.ts.net`
+  (repeatable) is the only way to add an origin. `X-Forwarded-*` headers are
+  ignored unless `--trust-proxy 127.0.0.1` names the proxy. Paths work under a
+  prefix because the build uses `base: './'` and the socket URL is resolved
+  relative to `location`.
+- This makes parent open question 11 a phase 9 decision: tailnet web needs
+  HTTPS in the same phase that ships tailnet web (owner decision 1).
+
+## 7. Edge cases
+
+### 7.1 Several tabs and devices on one session
+
+- Each tab is its own client with its own `windowId`. Stream fan-out, command
+  ids and receipts are per connection, so two tabs sending at once produce
+  two turns in order, with each tab's optimistic echo reconciled by its
+  command id.
+- One person on a laptop and a phone browser: two devices, two cookies, both
+  in the Devices list. Revoking one closes only its streams.
+- Notifications: one tab shows each (4.1 #14).
+- Drafts are per conversation in `localStorage`. Two tabs editing the same
+  draft: the last keystroke wins, and the other tab picks it up on its next
+  focus (`storage` event).
+
+### 7.2 Mobile browsers
+
+- The layout today is the desktop layout squeezed: at 390 px the sidebar
+  takes 230 px and the chat column is unusable (E6). Mobile already has the
+  phone app.
+- **Recommendation for v1:** a narrow-viewport chat route (below 640 px: no
+  rail, the sidebar as a drawer, the chat full width). It is the same
+  components with a layout switch, not a mobile design. Owner decision 5.
+- iOS Safari suspends sockets in background tabs. Reconnect on
+  `visibilitychange` and `pageshow` (3.5) covers it.
+- Touch maps to `Input.dispatchTouchEvent` in the screencast.
+- The software keyboard resizes the visual viewport; the composer anchors to
+  `visualViewport` height.
+
+### 7.3 Offline and reconnect
+
+- **While disconnected:**
+  - The UI shows "Reconnecting…" with the time since the last frame.
+  - The composer keeps typing into the draft.
+  - Send queues **one** turn with its command id, marked "will send when
+    reconnected", and resends it on reconnect. The receipt makes the resend
+    idempotent.
+  - Approvals cannot be answered offline (the button says so).
+- After 10 minutes offline, streams are dropped server-side. Reconnect then
+  takes a reset snapshot, which the existing rules handle.
+- **A `4409` resync close** reconnects after `retryAfterMs` without
+  surfacing an error.
+
+### 7.4 Large transcripts in the browser
+
+- Paging (10 turns, 8 MiB page cap), the 256 KiB frame limit with chunking,
+  and the 32 MiB snapshot cap carry over. The SDK reassembles chunks and
+  snapshot parts in the browser, as `tailnet-remote-conversations.ts` does in
+  main.
+- `JSON.parse` of a 256 KiB frame is about a millisecond. The risk is a
+  32 MiB snapshot parsed on the main thread: the browser SDK parses snapshot
+  parts larger than 1 MiB in a worker.
+- Tool output stays out of the snapshot (`toolDetail` on demand) as today.
+- **Measured target** (test 8.5): a 2,000-turn fixture opens to the last page
+  in under 1 s on loopback and keeps the heap under 300 MB after paging to
+  the top.
+
+### 7.5 Service worker
+
+None in v1:
+
+- The page must match its server's version, and a cached shell that outlives
+  an upgrade is the skew 3.5 exists to avoid.
+- Caching authenticated responses in a worker adds a store to clear on
+  revoke.
+
+Hashed assets with `immutable` caching already make a reload cheap. A
+manifest (`manifest.webmanifest`, icons) ships so the page can be installed
+as an app where the browser allows it without a worker. Installing as an app
+also lets more chords reach the page (4.2).
+
+### 7.6 Bundle size
+
+- **Measured (E1):** the eager set is 57 files, 6.32 MB raw, 1.57 MB gzip,
+  1.26 MB brotli. All assets: 477 files, 29 MB raw.
+- **Monaco's `editor.api` chunk** (2.95 MB raw, 0.73 MB gzip) is eager,
+  because `main.tsx` holds the first render on `monacoReady`. The chat route
+  needs Monaco only for the checkpoint diff.
+- **Recommendation:** on the web, `monacoReady` stops gating the first render
+  and loads after it, idle. That roughly halves the bytes before first paint.
+  This recommends a load order, not a size gate (the bundle budget gate was
+  removed by owner ruling 2026-09-27). Owner decision 6.
+- Precompressed brotli at build time; no runtime compression.
+
+### 7.7 Accessibility parity
+
+- Same Chromium engine on the desktop and in Chrome, so the ARIA tree is the
+  same for everything in-page.
+- **Differences that need work:**
+  - The native app menu and the Windows/Linux menubar popup are accessible
+    native menus today; on the web, their commands are reachable only
+    through the palette and the account menu, which must be complete and
+    keyboard-reachable.
+  - Browser zoom replaces the Electron zoom roles: layouts are checked at
+    200%.
+  - Focus must not be trapped by the browser's own chrome on Tab out of the
+    last control (it is not; this is a checklist item).
+  - The screencast pane has a text alternative (3.6).
+  - The pairing page is keyboard-only and screen-reader complete, including
+    the 6-digit code being announced.
+- **Automated.** axe-core runs in the Playwright suite on the pairing page,
+  the chat route with a fixture transcript, the folder browser and the embed
+  page, at both themes. Zero serious violations is the bar.
+
+### 7.8 Feature detection so modules degrade
+
+- **Module renderer code** asks `host.supports(<client capability>)` (3.4,
+  3.7). The SDK docs (`docs/module-authors/`) gain a "running in a browser"
+  section listing which `RendererHost` members are refused on the web, and
+  what the refusal looks like (a rejected promise with
+  `UnsupportedOnThisClient`).
+- **Bundled modules** degrade the same way and serve as the worked examples.
+- **A module that calls a refused member unguarded** gets the rejection, and
+  its contribution boundary (`ModuleContributionBoundary`) catches a render
+  failure, so one module cannot blank the app.
+
+## 8. Test strategy
+
+### 8.1 Unit
+
+- Session store:
+  - cookie minting and hashing;
+  - sliding and absolute expiry;
+  - revocation closing streams with 4401;
+  - cookie name per environment;
+  - a foreign-environment cookie ignored.
+- `Origin` and `Host` matrix, one table-driven test:
+  - each allowed origin;
+  - a different port on `127.0.0.1`;
+  - `localhost` vs `127.0.0.1`;
+  - a rebinding `Host`;
+  - a missing `Origin` with and without a ticket;
+  - a configured public origin;
+  - the dev server origin with and without `--dev`.
+- Pairing codes: TTL, single use (a failed exchange still consumes), fragment
+  never logged.
+- Embed tokens: scope (one conversation, read-only), expiry, origins →
+  `frame-ancestors`, revocation.
+- `postMessage` handler: wrong origin, wrong source, unknown type, unknown
+  version, oversize message.
+- `createWebApi` type test: `satisfies ElectronApi` with no casts. A unit test
+  that enumerates `ElectronApi` keys and asserts each is server-backed,
+  shell-backed or an explicit refusal.
+- `conversation-timeline`: today's projection and timeline tests move with
+  the code. Golden row fixtures for every event type are shared with the
+  phone's protocol fixtures.
+
+### 8.2 The missing-member report
+
+The web build in Playwright against a fake server (the SDK's fake transport
+answering typed fixtures) walks the chat route:
+
+1. boot;
+2. New chat;
+3. folder browser;
+4. send;
+5. stream;
+6. approve;
+7. revert;
+8. @-mention;
+9. attach by drop;
+10. history search;
+11. fork.
+
+It asserts zero calls to refused members and zero `RendererError` logs. This
+is the parent's "the shim's missing-member report is empty for the chat route",
+made concrete.
+
+### 8.3 End to end
+
+Real server bundle, mock provider, Chromium. WebKit and Firefox run the smoke
+subset.
+
+- Pair by fragment URL; the code is gone from `location` and from history.
+- A chat round trip: send, stream, an approval, revert.
+- Kill the socket mid-turn: reconnect, resume from the cursor, no duplicated
+  text (parent phase 4's test, in a browser).
+- Two tabs on one conversation stay consistent; a send from each lands once.
+- Revoke the browser device from the desktop: the tab closes its streams and
+  returns to `/pair`.
+- Drag a non-image file onto the composer: it is uploaded, and the agent
+  receives a server path.
+- Server upgrade while a tab is open: the reload prompt shows; old frames
+  still parse.
+- The embed page framed by a fixture host on another origin: theme message
+  applies; a message from a third origin is ignored; framing from an
+  unlisted origin is refused by the browser.
+
+### 8.4 Manual, per browser (a checklist in the PR)
+
+Reserved chords per 4.2 on Chrome, Safari and Firefox on macOS, and on Chrome
+on Windows. Synthetic key events bypass the browser's own reservation, so
+automation cannot prove these. Also:
+
+- notifications permission flow;
+- clipboard on an HTTPS tailnet origin;
+- iOS Safari reconnect after backgrounding;
+- `tailscale serve` setup and identity headers.
+
+### 8.5 Performance
+
+- The 2,000-turn fixture: first-page time and heap after paging to the top
+  (7.4).
+- Cold load of the app on loopback with an empty cache: time to first
+  contentful paint and to an interactive composer, with and without lazy
+  Monaco. These are recorded, not gated.
+
+### 8.6 Security regression
+
+Each a test that fails if the control is removed:
+
+- a cross-origin WebSocket upgrade with a valid cookie is refused;
+- a `POST` from another local port is refused;
+- `Host: rebind.example` is refused;
+- `/` is served with `frame-ancestors 'none'`;
+- `/embed/*` is served with the embed's origins only;
+- the tailnet phone lane still refuses any `Origin`.
+
+## 9. Experiments and results
+
+All run on 2026-10-01 against `origin/feat/studio-agent-sdk` at `5fd954b19`,
+with scratch scripts outside the tree. No product code was changed.
+
+| # | Experiment | Result |
+| --- | --- | --- |
+| E1 | Build `src/renderer/index.html` with plain Vite 8 (React, Tailwind, a stub build stamp), `base: './'`, no electron-vite | Builds in 2.3 s. 477 assets, 29 MB raw. Eager set: 57 files, 6.32 MB raw / 1.57 MB gzip / 1.26 MB brotli, of which Monaco's `editor.api` is 2.95 MB raw. Largest lazy chunk is `ts.worker` at 6.9 MB. Served statically from any path with no 404s. The canvas fonts plugin was not included; it is needed for `fonts/`. |
+| E2 | Load it in Chromium with **no** `window.api` | Blank page. One warning ("Workspace sync API is unavailable"), then `TypeError: Cannot read properties of undefined (reading 'isDevelopment')` in `WorkspaceManager`'s `useMemo`. With no root error boundary, the whole tree unmounts. |
+| E3 | A catch-all proxy `window.api`: every member a function returning a real promise of `null` (and callable as an unsubscribe) | The third-party module loader fails (caught, logged), then `SidebarAccountBar` reads `.user` of `null` and the app blanks again. |
+| E4 | The same proxy returning `[]` or `{}` by name, plus hand-typed shapes for eight members (`authGetState`, `tailnetGetLiveState`, `meshGetLiveState`, `tailnetGetStatus`, `listThirdPartyRendererEntries`, `listDesignSystemArrivals`, `defaultWorkspaceParentDir`, `hostsList`; the last two are reached from New chat) and the four preload values | Boots to the shell ("No workspace open", New chat). **Boot touches 79 members and calls 67**, including terminals (`terminalList`, `setTerminalIdleSuspendMs`), window placement, the app menu, auto-update, tailnet and mesh state, scheduled agents, design-system arrivals, hosted card feed, plugins, CLI version advisories and workspace backup. Each is a v1 decision: server-backed, shell fallback or refusal. |
+| E5 | Click New chat, then Choose a project, then Browse… | New chat calls `hostsList`, `defaultWorkspaceParentDir`, `onHostsChanged`. Browse… calls `openDir`; its non-string reply crashes `newChat…` with `e.split is not a function` and blanks the app. The folder picker is `openDir`, and its replacement is the first thing a web user hits. |
+| E6 | 390 × 844 viewport | No horizontal overflow, but the desktop layout is squeezed: the sidebar takes about 230 px; the chat column is unusable; the 78 px traffic-light reserve shows because `platform` said `darwin`. |
+| E7 | Computed styles at boot in a browser on macOS | `data-window-material="glass"` (from `navigator.platform`), `html` background transparent, `body` a 52% tint. On the desktop that sits over vibrancy; in a browser it sits over nothing. |
+| E8 | Serve with `script-src 'self'; style-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'` | The app boots. The only violation on the boot path is the inline theme script (it reports its sha256), so the first frame has no theme until React applies it. Monaco, the canvas editor and the third-party loader were not exercised under it; they are expected to need `'unsafe-inline'` styles and `blob:` scripts (6.4). |
+
+**Not tested, and why:**
+
+- Firefox and WebKit: only Chromium was installed.
+- Browser-reserved chords: synthetic events bypass the reservation.
+- A real server: none exists yet; the stubs stood in for it.
+- Secure-context behaviour on a tailnet IP: it follows from the platform
+  rule, not from a run.
+
+## 10. Risks and mitigations
+
+| Risk | Likelihood / impact | Mitigation |
+| --- | --- | --- |
+| One malformed server reply blanks the whole app (E2–E5) | High / high | A root error boundary with a "reload" surface, and per-surface boundaries around the sidebar, chat and pane, before anything else in this phase |
+| 103 unguarded `window.api` files; refusals surface as crashes far from the chat route | High / medium | A typed shim whose refusals reject instead of being absent; the missing-member report in CI; capabilities instead of `typeof` |
+| `platform` conflation gives Windows browsers Mac shortcuts against a Mac server, or the reverse | Certain without the split / medium | 3.3, done early |
+| Local-port same-site: any local dev server can reach a cookie-authenticated loopback server | Certain without exact Origin / high | 6.3: exact `Origin` incl. port on every upgrade and non-GET; tested (8.6) |
+| Cookie collisions between the local, WSL and tunnelled servers on `127.0.0.1` | Likely / medium | Cookie name per environment id |
+| Tailnet over plain HTTP is not a secure context: clipboard, notifications and `randomUUID` break | Certain / high | HTTPS through `tailscale serve`, or no tailnet web in v1 (owner decision 1) |
+| The screencast pane feels worse than a native pane (latency, IME, cursor, dialogs) | Medium / medium | Frame acks and pacing; explicit dialog, file-input and IME handling (3.6); "Open externally" escape hatch |
+| Third-party renderer modules rely on multiple import maps | Certain on Firefox/Safari / low in v1 | Off by default on the web; specifier rewrite when turned on |
+| The embed's shadow-DOM styling meets fonts and portals (popovers rendered to `document.body`) | Medium / low | Fonts injected in the document under unique names; portals target the shadow root; tests at both themes |
+| Extracting the timeline package churns the chat view | Medium / medium | Move files with no behaviour change first (tests move with them), fix the `stepWentWrong` leak, then point the app at the package |
+| Scope: two packages and an iframe route on top of the web client | High / schedule | The embed lands after the web client, as its own commits (11), and can ship a release later without blocking the web client |
+| Monaco eager on the web delays first paint on slow links | Medium / low | Lazy on the web (owner decision 6) |
+
+## 11. Breakdown into reviewable commits
+
+On `feat/studio-agent-sdk`, after phases 4 (chat over the protocol) and 5
+(render host, screencast) have landed. Each commit leaves `npm run verify:app`
+green.
+
+**A. Make the renderer safe to run elsewhere** (desktop-visible, behaviour
+unchanged)
+
+1. `fix(renderer): a root error boundary so one failed surface cannot blank the window`
+2. `refactor(renderer): separate the client's platform from the host's`. This
+   adds `clientPlatform` and `hostPlatform` and classifies the 53 references.
+3. `refactor(renderer): client capabilities instead of typeof checks on window.api`.
+   This adds `clientSupports()`; the desktop sets all of them; call sites on
+   the chat route are converted.
+4. `refactor(renderer): the theme boot script is a file, and the traffic-light reserve asks for window controls`
+5. `refactor(chat): move stepWentWrong out of the tool row so the timeline is pure`
+
+**B. The web build and the server serving it**
+
+6. `build(renderer): a shared renderer Vite config and a web build target`
+   (`build:web`, `out/web`, precompression, `STUDIO_CLIENT` define, manifest,
+   boot skeleton; CI builds it)
+7. `feat(server): serve the web client with its cache and security headers`
+   (static routes, CSP, frame headers, SPA fallback, dev proxy)
+8. `feat(server): browser sessions, origin and host checks`
+   (session store, cookie per environment, the exact-Origin rule, Devices
+   listing kind `web`; tests from 8.1 and 8.6)
+9. `feat(server): pair a browser with a one-time link or by approval`
+   (`/pair`, `/pair/exchange`, approval polling, `studio-server pair`, the
+   desktop's "Open in browser" and QR)
+
+**C. The web shell**
+
+10. `feat(renderer): the web window.api — server-backed members and explicit refusals`
+11. `feat(renderer): browser fallbacks for clipboard, links, notifications and attachments`
+12. `feat(renderer): a server-side folder browser replaces the native folder picker`
+    (with `files.browse` on the server)
+13. `feat(renderer): drop and upload files without a local path`
+14. `feat(renderer): tabs as windows — per-tab window ids, reconnect and the reload prompt`
+15. `feat(renderer): a keymap profile for chords browsers keep`
+16. `feat(renderer): the browser pane as a live view of the server's browser`
+    (`ScreencastView`, input mapping, dialogs, file inputs, text alternative)
+17. `feat(renderer): a narrow layout for the chat route` (if owner decision 5
+    says yes)
+18. `feat(modules): module assets over HTTP and capability checks on the web`
+    (third-party entries gated per owner decision 4)
+19. `test(web): the missing-member report and the end-to-end suite in CI`
+20. `feat(server): HTTPS for the web client through tailscale serve`
+    (if owner decision 1 says v1)
+
+**D. The embeddable view**
+
+21. `refactor(chat): the conversation timeline as a package`
+    (`@sprintengine/conversation-timeline`, files moved unchanged, the app
+    imports it, pack check)
+22. `feat(conversation-view): the read-only conversation view as a React package`
+    (row components, compiled scoped CSS, generated `--se-*` tokens, shadow
+    root, pack check)
+23. `feat(server): embed tokens and the iframe conversation view`
+    (`embeds.create/list/revoke`, `/embed/conversation/<id>`, per-embed
+    `frame-ancestors`, the `postMessage` protocol)
+24. `docs: the web client, embedding a conversation, and the embed wire in compatibility.md`
+
+Sizes: A is S, B is M, C is L (16 alone is M), D is M. The parent's "Phase 9
+(M)" is low; with the embed this is L.
+
+## 12. Changes the overall design needs
+
+1. **§9.1/§9.4 — the tailnet Origin rule.** The tailnet lane refuses any
+   request with an `Origin`. Browser routes must be a separate handler that
+   allows exactly the server's own origins. The phone lane keeps refuse-all.
+   Say so, or "a browser on another tailnet device pairs like the phone"
+   reads as possible on the existing listener, and it is not.
+2. **§9.2 — `SameSite=Strict` is not a port boundary.** Local ports are the
+   same site. The exact-Origin check (scheme, host, port) on every upgrade and
+   non-GET request is the CSRF control. Cookies need a per-environment name,
+   because every server reachable on `127.0.0.1` shares one jar.
+3. **§9.4, §15 q11 — HTTPS is a precondition for tailnet web**, not a later
+   option: plain HTTP to a tailnet address is not a secure context. Either
+   phase 9 ships `tailscale serve` HTTPS, or tailnet web moves out of v1.
+4. **§11 — `platform` is two facts** (client and host). Add the split to 5.5's
+   list of what the shell keeps.
+5. **§11 — clipboard and `openExternal` are client-side on every client**, not
+   only the web. A desktop attached to a remote server must not call the
+   server's clipboard or open URLs on the server's screen. The IPC-backed
+   members move to the shell list in 5.6.
+6. **§11 — the guard count.** It is 56 files with `typeof`, 88 with any guard,
+   103 with none. And there is no root error boundary, so "degrades rather
+   than throws" is not true today. Phase 9 starts with the boundary and a
+   typed shim.
+7. **§8, §15 q5 — answered by the owner default:** the pane is a screencast on
+   every client. Remove the "client-directed browser tools target the
+   person's pane" path from 6.3 and 8. Add that mouse input bumps the epoch.
+8. **§5.4 — the SDK must run in a browser** (no Node built-ins, WebSocket
+   only), and accept a ticket in the URL for clients that cannot set headers
+   (the embed). A same-origin web tab authenticates by cookie and needs no
+   ticket.
+9. **§5.2 — new namespace `embeds`** (`create`, `list`, `revoke`; owner or
+   `embed:create`). **New wire:** the embed `postMessage` protocol, a row in
+   `docs/compatibility.md`.
+10. **§13 phase 9 — size L, not M,** and it depends on phase 5's
+    `browser.screencast`. The embed packages are their own commit group.
+11. **§7.2 — client-owned state on the web** lives in `localStorage` per
+    origin. The same server reached by two routes (loopback and its tailnet
+    HTTPS name) is two origins with separate drafts. That is acceptable, and
+    should be stated.
+
+## 13. Owner decisions
+
+| # | Question | Recommendation |
+| --- | --- | --- |
+| 1 | Tailnet web in v1, which requires HTTPS through `tailscale serve`; or loopback and SSH-forwarded only in v1? | **Ship it with `tailscale serve`** (commit 20). The phone already proves tailnet use; plain HTTP is not an option. |
+| 2 | A Content-Security-Policy on the **served web page** (6.4), given the desktop's was removed on 2026-09-27? | **Yes, web only.** The exposure differs: other sites in the same browser are one origin away. |
+| 3 | Embed scope: read-only in v1, or also answer approvals and send? | **Read-only.** Operating from inside someone else's page needs its own threat model. |
+| 4 | Third-party renderer modules on the web in v1? | **Off by default**, a per-server owner switch to turn on. Bundled modules load. |
+| 5 | A narrow layout for the chat route on phones' browsers in v1, given the phone app exists? | **Yes, the chat route only** (drawer sidebar, full-width chat). No other surface is reworked. |
+| 6 | Load Monaco lazily on the web (not a size gate)? | **Yes.** The chat route needs it only for the checkpoint diff. |
+| 7 | Browser session lifetime | **30 days idle, 90 absolute**, listed and revocable with devices |
+| 8 | Embed delivery | **iframe and React component in v1**; the web component later |
+| 9 | Account sign-in (`authGetState`, `authLogin`) on the web | **Hidden in v1.** Nothing in chat needs it, and its deep-link return needs a redirect route designed with the account service. |
+| 10 | Web keymap: remap the reserved chords to Alt-based defaults (4.2)? | **Yes**, as default overrides a person can change |
+| 11 | Package names `@sprintengine/conversation-timeline` and `@sprintengine/conversation-view`, or fold the timeline into the protocol package? | **Separate packages.** The protocol package stays types and parsers, which the phone pins. |
+| 12 | Service worker | **None in v1**; a manifest only |
