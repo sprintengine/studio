@@ -17,6 +17,9 @@ import type { ConversationEvent, ConversationEventType } from '../shared/convers
 import { emptyAgentLaunchSettings } from '../shared/launch-settings'
 import { emptyWorkspaceRegistryFile, toWorkspaceRegistryRecord } from '../shared/workspace-registry'
 import type { Workspace } from '../renderer/src/types/workspace'
+import { createStaticAppIdentity } from '../server/platform/app-identity'
+import { createLocalClientBus } from '../server/platform/client-bus'
+import { STUDIO_LOCAL_APPS_CHANGED_CHANNEL, type StudioLocalAppsStatus } from '../shared/studio-local-apps'
 import { createGatewayAuditStore } from '../main/automation/gateway-audit'
 import { createConversationGatewayHost } from '../main/automation/tailnet/tailnet-conversation-host'
 import { createConversationLaunchService } from '../main/conversation-launch-service'
@@ -44,6 +47,8 @@ let root: string
 let userData: string
 let service: StudioRpcService
 let runtime: ConversationRuntime
+const bus = createLocalClientBus()
+const published: Array<{ topic: string; payload: unknown }> = []
 
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), 'studio-rpc-seam-'))
@@ -118,9 +123,12 @@ beforeAll(async () => {
     send: (input) => runtime.sendTurn(input),
   })
   const audit = createGatewayAuditStore({ resolveUserDataDir: () => userData })
+  bus.subscribe((topic, payload) => published.push({ topic, payload }))
   service = createStudioRpcService({
-    resolveUserDataDir: () => userData,
-    appVersion: '0.0.0-seam',
+    // The platform's pieces, as a standalone server would install them.
+    paths: { dataDir: () => userData },
+    identity: createStaticAppIdentity({ version: '0.0.0-seam' }),
+    clients: bus,
     backend: () =>
       createStudioConversationBackend({
         host: createConversationGatewayHost(
@@ -240,8 +248,15 @@ test('revoking the app in Settings ends its stream and its client', async () => 
   await until(stream, (frame) => frame.type === 'synchronized')
   const app = service.getStatus().apps.find((entry) => entry.id === client.grant.clientId)
   assert.equal(app?.connected, true)
+  published.length = 0
   service.revoke(client.grant.clientId)
   await assert.rejects(stream.next(), (error: StudioError) => error.code === 'revoked')
+  // Settings hears it on the platform's client bus, with the app gone.
+  const pushed = published.filter((entry) => entry.topic === STUDIO_LOCAL_APPS_CHANGED_CHANNEL).at(-1)
+  assert.equal(
+    (pushed?.payload as StudioLocalAppsStatus | undefined)?.apps.some((entry) => entry.id === client.grant.clientId),
+    false,
+  )
   await assert.rejects(client.closed, (error: StudioError) => error.code === 'revoked')
 })
 

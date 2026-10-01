@@ -1,4 +1,3 @@
-import type { StudioLocalAppsStatus } from '../../shared/studio-local-apps'
 import { writeDiagnosticLog } from '../../main/diagnostics-service'
 import { createStudioConversationBackend } from '../../main/studio-rpc/studio-conversation-backend'
 import { createStudioRpcService, type StudioRpcService } from '../../main/studio-rpc/studio-rpc-service'
@@ -10,21 +9,14 @@ import type { StudioGateway } from './studio-gateway'
 // conversation host the tailnet lane does, starts chats through the same
 // launch service, and audits into the gateway's one log, which is why it is
 // composed from both. The desktop and the standalone server build it here, so
-// it is wired once; each starts it beside its gateway and stops it first.
+// it is wired once; each starts it beside its gateway and stops it first. Its
+// paths, version and the push to Settings are the core's platform's.
 
-export type StudioRpcOptions = {
-  /** Paired apps or the listener changed (the desktop's Settings listens). */
-  onChanged?: (status: StudioLocalAppsStatus) => void
-}
-
-export function createStudioRpc(
-  core: StudioCore,
-  gateway: StudioGateway,
-  options: StudioRpcOptions = {},
-): StudioRpcService {
+export function createStudioRpc(core: StudioCore, gateway: StudioGateway): StudioRpcService {
   return createStudioRpcService({
-    resolveUserDataDir: () => core.platform.paths.dataDir(),
-    appVersion: core.platform.identity.version(),
+    paths: core.platform.paths,
+    identity: core.platform.identity,
+    clients: core.platform.clients,
     backend: () =>
       createStudioConversationBackend({
         host: core.createConversationHost(),
@@ -35,7 +27,6 @@ export function createStudioRpc(
         getWorkspaceAgents: () => core.workspaceSyncService.getSnapshot().state.workspaces,
       }),
     audit: () => gateway.gatewayAudit(),
-    ...(options.onChanged ? { onChanged: options.onChanged } : {}),
     log: (message) => {
       void writeDiagnosticLog({ level: 'warning', source: 'workspace', title: 'Local app socket', message })
     },

@@ -3,7 +3,15 @@ import { chmodSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { toolError, toolSuccess } from '../../shared/modules/mcp-tools'
-import type { StudioLocalAppOfferView, StudioLocalAppsStatus } from '../../shared/studio-local-apps'
+import {
+  STUDIO_LOCAL_APPS_CHANGED_CHANNEL,
+  type StudioLocalAppOfferView,
+  type StudioLocalAppsStatus,
+} from '../../shared/studio-local-apps'
+import type { AppIdentity } from '../../server/platform/app-identity'
+import type { ClientBus } from '../../server/platform/client-bus'
+import { studioPlatform } from '../../server/platform/platform'
+import type { StudioPaths } from '../../server/platform/studio-paths'
 import { createStudioRpcServer, type StudioRpcServer } from '../../server/rpc/studio-rpc-server'
 import type {
   StudioAuditEntry,
@@ -34,14 +42,25 @@ export type StudioRpcService = {
   ownerToken(): string
 }
 
+// Paths, the version and the push to Settings come from the Studio platform
+// (src/server/platform), read when used, so the service runs unchanged on the
+// Electron platform now and on a standalone server's later. No secret is
+// sealed here: a paired app's token is kept only as its hash, which needs no
+// cipher, and the owner token is never written down at all.
 export type StudioRpcServiceOptions = {
-  resolveUserDataDir: () => string
-  appVersion: string
+  /** Defaults to the installed platform's: `dataDir` is where `run/` and the paired apps live. */
+  paths?: Pick<StudioPaths, 'dataDir'>
+  /** Defaults to the installed platform's: the version a welcome and the discovery file name. */
+  identity?: AppIdentity
+  /**
+   * Defaults to the installed platform's. Every change to the paired apps is
+   * published on `STUDIO_LOCAL_APPS_CHANGED_CHANNEL` with fresh status.
+   */
+  clients?: ClientBus
   /** Built on first start: the conversation host it wraps is constructed late in the app's composition. */
   backend: () => StudioConversationBackend
   /** The gateway's audit, so one file records every listener's mutations. */
   audit: () => GatewayAuditStore
-  onChanged?: (status: StudioLocalAppsStatus) => void
   log?: (message: string) => void
   /** A socket path or pipe name of the caller's choosing (tests). */
   socketPath?: string
@@ -67,6 +86,9 @@ export function readStudioEnvironmentId(userDataDir: string): string {
 }
 
 export function createStudioRpcService(options: StudioRpcServiceOptions): StudioRpcService {
+  const dataDir = () => (options.paths ?? studioPlatform().paths).dataDir()
+  const version = () => (options.identity ?? studioPlatform().identity).version()
+  const clients = () => options.clients ?? studioPlatform().clients
   let store: StudioLocalAppStore | null = null
   let server: StudioRpcServer | null = null
   let lastError: string | null = null
@@ -74,7 +96,7 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
 
   const appStore = (): StudioLocalAppStore => {
     if (!store) {
-      store = createStudioLocalAppStore({ resolveUserDataDir: options.resolveUserDataDir, log: options.log })
+      store = createStudioLocalAppStore({ resolveUserDataDir: dataDir, log: options.log })
       store.onChanged(() => announce())
     }
     return store
@@ -96,7 +118,7 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
   }
   function announce(): void {
     try {
-      options.onChanged?.(status())
+      clients().publish(STUDIO_LOCAL_APPS_CHANGED_CHANNEL, status())
     } catch (error) {
       options.log?.(`Local apps push failed: ${error instanceof Error ? error.message : String(error)}`)
     }
@@ -151,12 +173,12 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
   }
 
   async function startNow(): Promise<void> {
-    const dataDir = options.resolveUserDataDir()
+    const directory = dataDir()
     const apps = appStore()
     const next = createStudioRpcServer({
-      dataDir,
-      version: options.appVersion,
-      environmentId: readStudioEnvironmentId(dataDir),
+      dataDir: directory,
+      version: version(),
+      environmentId: readStudioEnvironmentId(directory),
       backend: options.backend(),
       authenticator: authenticator(apps),
       audit,
