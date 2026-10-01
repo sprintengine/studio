@@ -966,6 +966,54 @@ test("ACP opens the session with the chat's own MCP servers, and refuses one the
   } finally {
     delete process.env.ACP_MCP_TEST_TOKEN
   }
+
+  // An agent in WSL keeps the channel token and identity it was started with:
+  // a stale one in this app's environment is not handed to its gateway.
+  const gateway = {
+    id: 'sprintengine-studio',
+    name: 'SprintEngine Studio',
+    transport: 'stdio' as const,
+    command: '/home/dev/.local/share/sprintengine-studio/launcher',
+    args: ['mcp'],
+    env: { SPRINTENGINE_USER_DATA_DIR: '/run/user/1000/sprintengine' },
+    envVarNames: ['SPRINTENGINE_MCP_CHANNEL_TOKEN', 'SPRINTENGINE_AGENT_ID', 'ACP_MCP_TEST_TOKEN'],
+  }
+  const saved = {
+    token: process.env.SPRINTENGINE_MCP_CHANNEL_TOKEN,
+    agent: process.env.SPRINTENGINE_AGENT_ID,
+  }
+  process.env.SPRINTENGINE_MCP_CHANNEL_TOKEN = 'stale-token'
+  process.env.SPRINTENGINE_AGENT_ID = 'stale-agent'
+  process.env.ACP_MCP_TEST_TOKEN = 'secret-token'
+  try {
+    expect(acpMcpServers([gateway], undefined, 'Test agent', { wsl: true })).toEqual([
+      {
+        name: 'sprintengine-studio',
+        command: '/home/dev/.local/share/sprintengine-studio/launcher',
+        args: ['mcp'],
+        env: [
+          { name: 'SPRINTENGINE_USER_DATA_DIR', value: '/run/user/1000/sprintengine' },
+          { name: 'ACP_MCP_TEST_TOKEN', value: 'secret-token' },
+        ],
+      },
+    ])
+    // On this machine the app's environment is the agent's, as before.
+    expect(acpMcpServers([gateway], undefined, 'Test agent')[0]).toMatchObject({
+      env: expect.arrayContaining([
+        { name: 'SPRINTENGINE_MCP_CHANNEL_TOKEN', value: 'stale-token' },
+        { name: 'SPRINTENGINE_AGENT_ID', value: 'stale-agent' },
+      ]),
+    })
+  } finally {
+    for (const [name, value] of [
+      ['SPRINTENGINE_MCP_CHANNEL_TOKEN', saved.token],
+      ['SPRINTENGINE_AGENT_ID', saved.agent],
+      ['ACP_MCP_TEST_TOKEN', undefined],
+    ] as const) {
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+  }
 })
 
 test('ACP branches its running session for a fork at the newest reply, and leaves any other fork to be seeded', async () => {
