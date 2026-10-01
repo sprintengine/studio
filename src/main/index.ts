@@ -1,6 +1,8 @@
-import { app, ipcMain, protocol } from 'electron'
+import { app, BrowserWindow, ipcMain, Notification, protocol, safeStorage } from 'electron'
 import { MODULE_ASSET_SCHEME } from '../shared/modules/assets'
+import { installStudioPlatform } from '../server/platform/platform'
 import { claimAppInstance, configureDevUserData } from './app-instance'
+import { createElectronPlatform } from './platform/electron-platform'
 import { attachStartupTimeline } from './startup-timeline'
 import { REMOVE_INTEGRATIONS_FLAG } from '../shared/integration-removal'
 
@@ -24,6 +26,13 @@ attachStartupTimeline(ipcMain)
 // Before the lock: Electron keys it on the userData directory, so a dev build
 // pinned to its own profile must have moved there first.
 configureDevUserData(app)
+
+// What the server-bound code takes from Electron (paths, the secret cipher,
+// window broadcasts, OS notifications, the app version), installed before
+// either branch below can build anything: the headless integration removal
+// reaches the plugin registry and the MCP config store too. Every member reads
+// Electron when it is used, so nothing here touches `app` before it may be.
+installStudioPlatform(createElectronPlatform({ app, safeStorage, BrowserWindow, Notification }))
 
 // `--remove-integrations` (the Windows uninstaller, or a person scripting an
 // uninstall): the removal Settings runs, with no window and none of the app's
