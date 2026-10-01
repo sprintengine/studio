@@ -129,6 +129,7 @@ test('moduleConversationSeam', async () => {
   const services = {
     conversationLaunchService: launchService,
     conversationRuntime: runtime,
+    conversations: runtime,
     workspaceSyncService: sync,
     agentLaunchSettings: { get: () => emptyAgentLaunchSettings() },
     githubTokenStore: { resolveToken: async () => '' },

@@ -107,7 +107,7 @@ export function createAgentRuntimeModule(
       // registry is what the SDK's getCompanionAgentsService resolves, and it
       // gates attach on the `agents:companion` permission.
       const companionAgentService = createCompanionAgentService({
-        runtime: services.conversationRuntime,
+        runtime: services.conversations,
       })
       host.provideService(CompanionAgentServiceToken, () => companionAgentService)
       host.provideService(CompanionAgentsModuleServiceToken, () =>
@@ -122,11 +122,11 @@ export function createAgentRuntimeModule(
       // the SDK's getConversationService, which checks `conversation:read` /
       // `conversation:operate` and the chat's owner on every call.
       host.provideService(ConversationLaunchServiceToken, () => services.conversationLaunchService)
-      host.provideService(ConversationRuntimeToken, () => services.conversationRuntime)
-      const conversationSessions = new ConversationSessionApi(services.conversationRuntime)
+      host.provideService(ConversationRuntimeToken, () => services.conversations)
+      const conversationSessions = new ConversationSessionApi(services.conversations)
       const conversations = createConversationModuleRegistry({
         launch: (request) => services.conversationLaunchService.launch(request),
-        runtime: services.conversationRuntime,
+        runtime: services.conversations,
         // The same replay, fence and live tail every other follower gets.
         follow: (input, listener) => conversationSessions.subscribe(input, listener),
         // A preset or model switch moves the chat's record as the chat view

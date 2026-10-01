@@ -14,7 +14,7 @@ import type {
   ConversationSessionSummary,
   ConversationSubscribeInput,
 } from '../../../shared/conversation-runtime'
-import type { ConversationRuntime } from '../../conversation-runtime'
+import type { ConversationBackend } from '../../../server/core/conversation-backend'
 import type { ConversationModelCatalog } from '../../conversation-model-catalog'
 import { ConversationSessionApi } from '../../conversation-session-api'
 import { randomUUID } from 'node:crypto'
@@ -95,7 +95,7 @@ export type ConversationGatewayHost = {
     beforeCursor: number,
     turnLimit?: number,
   ): ReturnType<ConversationSessionApi['loadEarlier']>
-  getToolDetail(key: ConversationKey, toolUseId: string): ReturnType<ConversationRuntime['getToolDetail']>
+  getToolDetail(key: ConversationKey, toolUseId: string): ReturnType<ConversationBackend['getToolDetail']>
   getTurnDiff(key: ConversationKey, turnSeq: number, path?: string): ReturnType<ConversationSessionApi['getTurnDiff']>
   /**
    * Where the picture one step made or looked at is on this disk, read from
@@ -146,7 +146,7 @@ export type ConversationGatewayCommandResult = {
  * message, or a rename) answers only for a conversation with no named agent.
  */
 export function createConversationGatewayHost(
-  runtime: ConversationRuntime,
+  runtime: ConversationBackend,
   resolveWorkspaceRoot: (workspaceId: string) => string | null,
   listWorkspaces: () => Array<{ workspaceId: string; workspaceRoot: string }>,
   defaultPermissionPreset: (key: { workspaceId: string; agentId: string }) => ConversationPermissionPreset = () =>
@@ -182,7 +182,7 @@ export function createConversationGatewayHost(
   // gone; a retry of that same command is answered from the runtime's receipt
   // and does not need them again.
   const spent = new Map<string, { deviceId: string; commandId: string }>()
-  const starting = new Map<string, ReturnType<ConversationRuntime['startSession']>>()
+  const starting = new Map<string, ReturnType<ConversationBackend['startSession']>>()
   const sending = new Map<
     string,
     { commandId: string; deviceId: string; promise: Promise<ConversationGatewayCommandResult> }

@@ -72,6 +72,7 @@ import {
   MAX_ATTACHMENT_BYTES,
 } from '../../shared/conversation-attachments'
 import { ConversationRuntime } from '../conversation-runtime'
+import type { ConversationBackend } from '../../server/core/conversation-backend'
 import { ConversationSessionApi } from '../conversation-session-api'
 import { detectCli } from '../cli-runtime-install'
 import { resolveConversationSignIn } from '../conversation-sign-in'
@@ -172,10 +173,10 @@ const CLI_AVAILABLE_TTL_MS = 60_000
 const CLI_UNAVAILABLE_TTL_MS = 30_000
 
 export function createConversationIpcHandlers(
-  // The app passes its shared runtime (owned by app-services so shutdown and
-  // diagnostics reach it); constructing one here keeps tests/legacy callers
-  // working standalone.
-  runtime: ConversationRuntime = new ConversationRuntime({ secretStore: getSharedCredentialStore() }),
+  // The app passes the core's chats (the core owns the runtime, so shutdown and
+  // diagnostics reach it); constructing a runtime here keeps tests/legacy
+  // callers working standalone.
+  runtime: ConversationBackend = new ConversationRuntime({ secretStore: getSharedCredentialStore() }),
 ): ConversationIpcHandlers {
   const secretStore = getSharedCredentialStore()
   const sessions = new ConversationSessionApi(runtime)

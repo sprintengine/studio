@@ -219,7 +219,7 @@ export function registerCoreIpc(
   registerMarketplacePluginIpc(ipcMain, services)
   registerPluginIpc(ipcMain)
   registerConversationIpc(ipcMain, {
-    ...createConversationIpcHandlers(services.conversationRuntime),
+    ...createConversationIpcHandlers(services.conversations),
     terminalHandoff: (input) => services.conversationTerminalHandoff.handoff(input),
   })
   registerCredentialIpc(ipcMain)

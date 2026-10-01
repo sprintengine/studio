@@ -16,11 +16,11 @@ import type {
   ConversationListSessionsInput,
   ConversationToolDetailInput,
 } from '../shared/conversation-runtime'
-import type { ConversationRuntime } from './conversation-runtime'
+import type { ConversationBackend } from '../server/core/conversation-backend'
 
 /** Transport-independent replay, subscription and command boundary. */
 export class ConversationSessionApi {
-  constructor(private readonly runtime: ConversationRuntime) {}
+  constructor(private readonly runtime: ConversationBackend) {}
   listSessions(input?: ConversationListSessionsInput) {
     return this.runtime.listSessions(input)
   }

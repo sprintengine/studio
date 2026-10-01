@@ -162,6 +162,7 @@ import { createAgentControlPlane } from './agent-control-plane'
 import { createAgentLaunchService } from './agent-launch-service'
 import { createLaunchedAgentRegistration, withLaunchedAgentRegistration } from './launched-agent-registration'
 import { ConversationRuntime } from './conversation-runtime'
+import { localConversationBackend } from '../server/core/conversation-backend'
 import type { ConversationEventType } from '../shared/conversation-runtime'
 import { ConversationApprovalRuleStore } from './conversation-approval-rules'
 import { ConversationAttachmentStore } from './conversation-attachment-store'
@@ -622,6 +623,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
   })
   conversationRuntime.startIdleSweep(powerActivity)
+  // What every caller below drives chats through; the runtime itself is only
+  // for what its owner does (the idle sweep, flush, shutdown).
+  const conversations = localConversationBackend(conversationRuntime)
 
   // Renderer-pushed "keep running in the background" setting. Read
   // synchronously inside `window-all-closed`, which is precisely when no
@@ -974,15 +978,15 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       // never fails; the empty arm is the type's other branch, not a swallowed
       // error — a target that matches nothing fails loudly at the plane.
       list: () => {
-        const result = conversationRuntime.listSessions()
+        const result = conversations.listSessions()
         return result.ok ? result.sessions : []
       },
       sendTurn: async ({ sessionId, message }) => {
-        const result = await conversationRuntime.sendTurn({ sessionId, message })
+        const result = await conversations.sendTurn({ sessionId, message })
         return result.ok ? { ok: true } : { ok: false, message: result.message }
       },
       interrupt: async ({ sessionId }) => {
-        const result = await conversationRuntime.interrupt({ sessionId })
+        const result = await conversations.interrupt({ sessionId })
         return result.ok ? { ok: true } : { ok: false, message: result.message }
       },
     },
@@ -1177,7 +1181,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // Resume in terminal: a chat's CLI session handed to a terminal agent,
   // through the same launch door as every other agent.
   const conversationTerminalHandoff = createConversationTerminalHandoff({
-    runtime: conversationRuntime,
+    runtime: conversations,
     launch: (request) => agentLaunchService.launch(request),
     cliResumesSessions: (cli) => cliResumeCapabilities(cli).resumeSession,
     permissionPresetsForCli: (cli) => {
@@ -1409,8 +1413,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     removeWorkspace: (workspaceId) => {
       workspaceSyncService.removeWorkspace(workspaceId, 'system')
     },
-    startSession: (input) => conversationRuntime.startSession(input),
-    send: (input) => conversationRuntime.sendTurn(input),
+    startSession: (input) => conversations.startSession(input),
+    send: (input) => conversations.sendTurn(input),
     // The same installer a terminal launch's skill-at-spawn uses, into the
     // folder the chat works in (a run's worktree when it has one).
     ensureSkillInstalled: (workingRoot, skillId) => ensureSkillInstalled(workingRoot, skillId),
@@ -1423,7 +1427,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // an agent may start agents only at its own preset or stricter.
   const resolveAgentPermissionPreset = createAgentPermissionResolver({
     listConversationSessions: (agentId) => {
-      const listed = conversationRuntime.listSessions({ agentId })
+      const listed = conversations.listSessions({ agentId })
       return listed.ok ? listed.sessions : []
     },
     // The live session objects, not `listTerminals()` snapshots: only four
@@ -1478,7 +1482,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       ),
     resolveConversationHost: () =>
       createConversationGatewayHost(
-        conversationRuntime,
+        conversations,
         (workspaceId) => workspaceRegistry.getRecord(workspaceId)?.folderPath ?? null,
         () =>
           workspaceRegistry
@@ -1775,14 +1779,14 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const conversationPeek = createConversationPeekService({
     readSessionState: terminalRuntime.readConversationPeekSessionState,
     readConversationEvents: async (sessionId) => {
-      const listed = conversationRuntime.listSessions()
+      const listed = conversations.listSessions()
       const summary = listed.ok ? listed.sessions.find((session) => session.sessionId === sessionId) : undefined
       if (!summary) return null
       const workspaceRoot = workspaceRegistry.getRecord(summary.workspaceId)?.folderPath
       if (!workspaceRoot) return []
       // The first message and the newest turn, never the whole transcript:
       // a long chat is tens of megabytes, and a hover must not parse it.
-      return conversationRuntime
+      return conversations
         .readPeekTranscript({ workspaceRoot, workspaceId: summary.workspaceId, agentId: summary.agentId })
         .catch(() => [])
     },
@@ -1799,7 +1803,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // A conversation's row on another machine shows its phase: running, waiting
   // on a person, done. The events that move it (never a token of a reply)
   // become the same throttled push.
-  conversationRuntime.onEvent((event) => {
+  conversations.onEvent((event) => {
     if (CONVERSATION_LIST_EVENTS.has(event.type)) automationService.notifyConversationsChanged()
   })
   // The app's own plugin goes into every workspace it opens, at the two moments
@@ -1986,6 +1990,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     studioPluginService,
     studioAreaSkillStore,
     conversationRuntime,
+    conversations,
     githubTokenStore,
     logMainPerfEvent,
     mcpConfigService,
