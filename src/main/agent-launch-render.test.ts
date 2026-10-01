@@ -569,15 +569,17 @@ test('agent-launch-render', async () => {
   // it, and `none` is no permission flag at all. A mode a CLI has no setting
   // for is not declared, renders no flag, and is not listed as one it takes.
   function testEveryBundledCliRendersItsModes(): void {
-    const claudeModes = {
+    // Claude Code against another model endpoint keeps acceptEdits for Auto:
+    // the classifier mode Claude Code's own Auto uses is not offered there.
+    const claudeEndpointModes = {
       manual: ['--permission-mode', 'default'],
       auto: ['--permission-mode', 'acceptEdits'],
       bypass: ['--permission-mode', 'bypassPermissions'],
     }
     const modeArgs: Record<string, Partial<Record<'manual' | 'auto' | 'bypass', string[]>>> = {
-      'claude-code': claudeModes,
-      'kimi-claude': claudeModes,
-      zai: claudeModes,
+      'claude-code': { ...claudeEndpointModes, auto: ['--permission-mode', 'auto'] },
+      'kimi-claude': claudeEndpointModes,
+      zai: claudeEndpointModes,
       codex: {
         manual: ['--ask-for-approval', 'untrusted', '--sandbox', 'read-only'],
         auto: ['--ask-for-approval', 'on-request', '--sandbox', 'workspace-write'],

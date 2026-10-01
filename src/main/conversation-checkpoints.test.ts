@@ -507,3 +507,19 @@ test('an agent edit to a file the user marked assume-unchanged or skip-worktree 
     await rm(f.directory, { recursive: true, force: true })
   }
 })
+
+test('a file whose name starts with two dots is in the work tree, and the turn keeps its checkpoint', async () => {
+  const f = await repository()
+  try {
+    await writeFile(join(f.root, '..env'), 'TOKEN=example\n')
+    const checkpoints = new ConversationCheckpoints()
+    const captured = await checkpoints.capture(f.key, 1, 'pre')
+    assert.ok(captured.ok, captured.ok ? '' : captured.message)
+    await writeFile(join(f.root, '..env'), 'TOKEN=changed\n')
+    const reverted = await previewThenRevert((input) => checkpoints.revert(input), { key: f.key, turnSeq: 1 })
+    assert.ok(reverted.ok, reverted.ok ? '' : reverted.message)
+    assert.equal(await readFile(join(f.root, '..env'), 'utf8'), 'TOKEN=example\n')
+  } finally {
+    await rm(f.directory, { recursive: true, force: true })
+  }
+})

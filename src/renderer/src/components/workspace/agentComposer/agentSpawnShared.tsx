@@ -83,6 +83,14 @@ export function agentPermissionOptions(cli?: string | null): typeof AGENT_SPAWN_
           'Codex edits and runs commands inside the workspace sandbox without asking, and asks before it writes outside the workspace or uses the network.',
       }
     }
+    if (cli === 'claude-code' && option.value === 'auto') {
+      return {
+        ...option,
+        summary: 'Claude runs what it judges safe; blocks the rest.',
+        title:
+          'Claude Code’s own auto mode: a classifier runs the tool calls it judges safe and turns the risky ones back to Claude. Where your plan or model does not offer it, Claude asks instead.',
+      }
+    }
     if (cli === 'cursor' && option.value === 'auto') {
       return {
         ...option,

@@ -1272,7 +1272,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     // Live permission switch. The preset is recorded and pushed into a running
     // child through the SDK's `setPermissionMode`, which takes effect at once,
     // mid-reply included: Manual is the child's 'default' (and the hook in
-    // `manualAsks`), Auto its 'acceptEdits', Bypass its 'bypassPermissions'
+    // `manualAsks`), Auto its classifier 'auto', Bypass its 'bypassPermissions'
     // (every child is spawned able to take it). Approvals already waiting that
     // bypass would not have asked are answered yes, through the same callback a
     // person's answer takes; the runtime answers the ones Auto covers
@@ -1571,23 +1571,25 @@ function answeredWithin(
 }
 
 // Terminal-preset → SDK permission-mode mapping, mirroring the claude-code
-// plugin manifest's flags (`--permission-mode default|acceptEdits|
+// plugin manifest's flags (`--permission-mode default|auto|
 // bypassPermissions`). `none` maps to undefined on purpose: it means "pass no
 // permission flag and let the harness's own default win", which for the SDK is
 // leaving permissionMode unset rather than pinning it to 'default'.
 //
-// Auto is 'acceptEdits' rather than the CLI's classifier mode ('auto'): Auto
-// promises that edits in the workspace go through and everything riskier asks,
-// on every runtime. The classifier decides for the person instead of asking
-// them, and is only offered on some plans and models, so the same choice would
-// mean different things on different accounts.
+// Auto is the CLI's own classifier mode, 'auto' (owner ruling 2026-10-01), as
+// Cursor's Auto is its auto-review: a person who picks Auto for Claude expects
+// Claude's auto mode, and 'acceptEdits' — which asked before every command —
+// was not it. What the classifier blocks goes back to Claude, not to a card.
+// An account or model the classifier is not offered to gets the CLI's asking
+// mode instead, and the runtime still answers what Auto covers there
+// (shared/conversation/permissionModes.ts).
 const SDK_PERMISSION_MODE_BY_PRESET: Record<
   ConversationPermissionPreset,
-  'default' | 'acceptEdits' | 'bypassPermissions' | undefined
+  'default' | 'auto' | 'bypassPermissions' | undefined
 > = {
   none: undefined,
   manual: 'default',
-  auto: 'acceptEdits',
+  auto: 'auto',
   bypass: 'bypassPermissions',
 }
 
