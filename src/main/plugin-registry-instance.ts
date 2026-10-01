@@ -16,13 +16,7 @@ import {
   type PluginRegistryLoadReport,
 } from './plugin-registry'
 import { readTrustedModulesSync } from './modules/trust-store'
-
-// Lazy require so this module can be imported in node-only test bundles
-// that never reach the `ensureRegistry()` call. The electron `app` module
-// throws on import in plain node.
-function loadElectron(): typeof import('electron') {
-  return require('electron')
-}
+import { studioPlatform } from '../server/platform/platform'
 
 // Lazy-initialized singleton plugin registry for the main process. The launch
 // path needs synchronous access to plugin manifests; this module loads them
@@ -31,16 +25,20 @@ function loadElectron(): typeof import('electron') {
 let registry: PluginRegistry | null = null
 let lastReport: PluginRegistryLoadReport | null = null
 
+// The platform is read when the registry is first wanted, never at import, so
+// a test that never reaches `ensureRegistry()` needs no platform.
 function resolveBundledPluginRoot(): string {
-  const electron = loadElectron()
-  if (electron.app.isPackaged) {
-    const packaged = join(process.resourcesPath, 'plugins')
+  const paths = studioPlatform().paths
+  const resourcesDir = paths.resourcesDir()
+  if (paths.isPackaged() && resourcesDir) {
+    const packaged = join(resourcesDir, 'plugins')
     if (existsSync(packaged)) return packaged
   }
 
+  const appRoot = paths.appRoot()
   const candidates = [
     join(process.cwd(), 'resources', 'plugins'),
-    join(electron.app.getAppPath(), 'resources', 'plugins'),
+    ...(appRoot ? [join(appRoot, 'resources', 'plugins')] : []),
     join(__dirname, '..', '..', 'resources', 'plugins'),
     join(__dirname, '..', '..', '..', 'resources', 'plugins'),
   ]
@@ -54,7 +52,7 @@ function ensureRegistry(): PluginRegistry {
   if (registry) return registry
   registry = createPluginRegistry(
     createAppPluginRegistryOptions(
-      loadElectron().app.getPath('userData'),
+      studioPlatform().paths.dataDir(),
       resolveBundledPluginRoot(),
       defaultUserPluginRoot(),
     ),

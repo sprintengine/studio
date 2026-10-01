@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 
+import { installedStudioPlatform } from '../../server/platform/platform'
 import { findMarketplaceResourcePath, type MarketplaceResourceResolver } from './resources'
 
 type TrustedPublishersFile = {
@@ -23,10 +24,10 @@ export const TRUSTED_PUBLISHERS_DEV_FILENAME = 'trusted-publishers.dev.json'
 
 export type TrustedPublisherReadOptions = {
   /**
-   * Whether this is a packaged build. Injected so the read works in a plain
-   * node test process, where `require('electron')` resolves to nothing — the
-   * default asks electron and falls back to "not packaged", which is what a
-   * source checkout is.
+   * Whether this is a packaged build. Injected so a test can say; the default
+   * asks the installed platform and, with none installed (a plain node test
+   * process, a script), answers "not packaged", which is what a source
+   * checkout is.
    */
   isPackaged?: boolean
   /** Test seam for locating the two files; defaults to the packaged/source resolver. */
@@ -48,13 +49,7 @@ function readFingerprintsFile(path: string | null): string[] {
 
 function resolveIsPackaged(options: TrustedPublisherReadOptions): boolean {
   if (typeof options.isPackaged === 'boolean') return options.isPackaged
-  try {
-    const electron = require('electron') as { app?: { isPackaged?: boolean } }
-    return electron?.app?.isPackaged === true
-  } catch {
-    // No electron (a node test process, a script): a source checkout.
-    return false
-  }
+  return installedStudioPlatform()?.paths.isPackaged() === true
 }
 
 export function readTrustedMarketplacePublisherFingerprintsSync(

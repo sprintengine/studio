@@ -6,20 +6,21 @@
 // installs work without a user Node install.
 //
 // The core resolvers are pure (they take a RuntimeEnv) so they can be unit
-// tested without Electron. `currentRuntimeEnv()` adapts the live process; it
-// lazily reaches for `electron` so importing this module in a plain Node test
-// never requires the Electron binary.
+// tested without Electron. `currentRuntimeEnv()` adapts the live process and
+// the installed platform; with no platform installed (a plain Node test) it
+// answers as a source checkout.
 
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
 import { delimiter, join } from 'path'
 import { readStudioEnv } from '../shared/studio-env'
+import { installedStudioPlatform } from '../server/platform/platform'
 
 export type RuntimeEnv = {
   platform: NodeJS.Platform
-  /** electron `process.resourcesPath` (where extraResources land when packaged). */
+  /** The platform's resources root (`process.resourcesPath`, where extraResources land, in the desktop). */
   resourcesPath: string | undefined
-  /** electron `app.isPackaged`. */
+  /** The platform's `isPackaged` (`app.isPackaged` in the desktop). */
   isPackaged: boolean
   /** electron `process.execPath` — the Electron binary, usable as Node. */
   execPath: string
@@ -96,20 +97,13 @@ export function withManagedRuntimePath(
   return { ...env, [pathKey]: [shimDir, ...entries].join(PATH_DELIMITER) }
 }
 
-/** Builds a RuntimeEnv from the live process, lazily consulting Electron. */
+/** Builds a RuntimeEnv from the live process and the installed platform. */
 export function currentRuntimeEnv(overrides: Partial<RuntimeEnv> = {}): RuntimeEnv {
-  let isPackaged = false
-  try {
-    // Lazy require keeps this module importable from node-only test bundles.
-    const electron = require('electron') as typeof import('electron')
-    isPackaged = Boolean(electron.app?.isPackaged)
-  } catch {
-    isPackaged = false
-  }
+  const paths = installedStudioPlatform()?.paths
   return {
     platform: process.platform,
-    resourcesPath: process.resourcesPath,
-    isPackaged,
+    resourcesPath: paths?.resourcesDir() ?? undefined,
+    isPackaged: paths?.isPackaged() ?? false,
     execPath: process.execPath,
     cwd: process.cwd(),
     exists: existsSync,
