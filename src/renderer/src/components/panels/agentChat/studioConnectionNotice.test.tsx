@@ -83,3 +83,10 @@ test('a window on the conversation IPC never draws it', async () => {
   expect(studioConnectionWords('open')).toBeNull()
   expect(studioConnectionWords('connecting')).toBeNull()
 })
+
+test('a window that could not reach Studio says when it tries again, not that it is reconnecting', async () => {
+  const { studioConnectionWords } = await import('./studioConnectionNotice')
+  expect(studioConnectionWords('unavailable')).toBe(
+    'This window could not reach Studio. It tries again the next time you use the chat.',
+  )
+})

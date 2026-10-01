@@ -33,10 +33,12 @@ export function useWindowStudioConnection(): WindowStudioState | null {
 export function studioConnectionWords(state: WindowStudioState | null): string | null {
   switch (state) {
     case 'reconnecting':
-    case 'unavailable':
       return 'Reconnecting to Studio… The chat picks up where it left off.'
+    // Neither tries again by itself: the window's next use of the chat does.
     case 'parked':
       return 'This window lost its connection to Studio. It tries again the next time you use the chat.'
+    case 'unavailable':
+      return 'This window could not reach Studio. It tries again the next time you use the chat.'
     default:
       return null
   }
@@ -58,7 +60,7 @@ export function StudioConnectionNotice({ graceMs = STUDIO_RECONNECT_GRACE_MS }: 
   }, [down, graceMs])
   if (!words || !lasting) return null
   return (
-    <ComposerTrayRow tone="warn" glyph={state === 'parked' ? undefined : <Spinner />}>
+    <ComposerTrayRow tone="warn" glyph={state === 'reconnecting' ? <Spinner /> : undefined}>
       {words}
     </ComposerTrayRow>
   )
