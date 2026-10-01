@@ -39,6 +39,7 @@ import { CommandOutputRow } from './commandOutputRow'
 import { ChevronRightGlyph, ToolKindGlyph } from './toolRows/ToolKindGlyph'
 import { ChangedFilesCard, hasTurnChanges, RevertTurnAction } from './changedFilesCard'
 import { EditFromHereAction, type EditFromHereDraft } from './editFromHere'
+import { ForkMessageAction, ForkReplyAction, type ForkFromHereTarget } from './forkFromHere'
 import { ResolvedPlanCard } from './planCard'
 import { SubagentLaneResult, subagentModel } from './subagentResult'
 import { AgentCardContent, LaneGlyph, laneOutcomeWords, laneTask, useOpenAgentsPane } from './subagentStatus'
@@ -69,6 +70,9 @@ export type TimelineChrome = {
   // where that puts the message once it has: back into the composer.
   rewindEnabled?: boolean
   onRestoreDraft?: (draft: EditFromHereDraft) => void
+  // Opens a new chat holding the conversation up to a message ("Fork from
+  // here"). Absent where the provider or the transport cannot fork.
+  onFork?: (target: ForkFromHereTarget) => Promise<void>
   // Opens a terminal running the chat CLI's own sign-in. Absent where Studio
   // cannot run it: another machine's chat, or a provider that signs in with a
   // key rather than the CLI's login.
@@ -215,6 +219,14 @@ export function UserTimelineRow({
             running={chrome.conversationRunning ?? false}
             canRestoreFiles={Boolean(chrome.checkpointsEnabled && entry.seq && chrome.checkpointSeqs?.has(entry.seq))}
             onRestoreDraft={chrome.onRestoreDraft}
+            className={MESSAGE_ACTION_REVEAL}
+          />
+        ) : null}
+        {chrome?.onFork ? (
+          <ForkMessageAction
+            entry={entry}
+            running={chrome.conversationRunning ?? false}
+            onFork={chrome.onFork}
             className={MESSAGE_ACTION_REVEAL}
           />
         ) : null}
@@ -375,6 +387,14 @@ export function AssistantTurnBlock({
               // out of the page, and a rich copy missing it would disagree with
               // the plain one.
               html={entry.intermediateText?.length ? undefined : () => replyHtml(proseRef.current)}
+              className={MESSAGE_ACTION_REVEAL}
+            />
+          ) : null}
+          {chrome.onFork ? (
+            <ForkReplyAction
+              turnId={entry.turnId}
+              running={chrome.conversationRunning ?? false}
+              onFork={chrome.onFork}
               className={MESSAGE_ACTION_REVEAL}
             />
           ) : null}

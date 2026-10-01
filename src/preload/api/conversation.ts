@@ -57,6 +57,8 @@ import type {
   ConversationRevertResult,
   ConversationRewindInput,
   ConversationRewindResult,
+  ConversationForkInput,
+  ConversationForkResult,
   ConversationApprovalRulesResult,
   ConversationApprovalRuleRevokeResult,
 } from '../../shared/conversation-runtime'
@@ -89,6 +91,7 @@ type ConversationIpcRenderer = {
   invoke(channel: 'conversation:turn:diff', input: ConversationTurnDiffInput): Promise<ConversationTurnDiffResult>
   invoke(channel: 'conversation:turn:revert', input: ConversationRevertInput): Promise<ConversationRevertResult>
   invoke(channel: 'conversation:turn:rewind', input: ConversationRewindInput): Promise<ConversationRewindResult>
+  invoke(channel: 'conversation:turn:fork', input: ConversationForkInput): Promise<ConversationForkResult>
   invoke(
     channel: 'conversation:session:subscribe',
     input: ConversationSubscribeInput & { subscriptionId: string },
@@ -218,6 +221,8 @@ export function createConversationApi(renderer: ConversationIpcRenderer) {
       renderer.invoke('conversation:turn:revert', input),
     conversationRewindToTurn: (input: ConversationRewindInput): Promise<ConversationRewindResult> =>
       renderer.invoke('conversation:turn:rewind', input),
+    conversationForkAtTurn: (input: ConversationForkInput): Promise<ConversationForkResult> =>
+      renderer.invoke('conversation:turn:fork', input),
     conversationProvidersList: (input?: ConversationProvidersListInput): Promise<ConversationProviderListResult> =>
       renderer.invoke('conversation:providers:list', input),
     conversationProviderModels: (input: ConversationProviderModelsInput): Promise<ConversationProviderModelsResult> =>
@@ -349,6 +354,7 @@ export function createConversationApi(renderer: ConversationIpcRenderer) {
     | 'conversationTurnDiff'
     | 'conversationRevertToTurn'
     | 'conversationRewindToTurn'
+    | 'conversationForkAtTurn'
     | 'conversationApprovalRules'
     | 'conversationRevokeApprovalRule'
     | 'onConversationSession'

@@ -77,6 +77,17 @@ export type ConversationProviderAdapter = {
   // the next turn, so the turns after the point leave the provider's context.
   // An adapter that implements this declares `capabilities.rewind`.
   rewind?(input: MockAdapterRewindInput): Promise<ConversationProviderPermissionResult>
+  // Say where a new chat forked from this one starts its provider session
+  // ("Fork from here"). Asked once, as the fork is made, with the chat's
+  // session context (live or not) and where its provider stood at the point
+  // forked at. The answer is the fork's own resume cursor: the parent's
+  // session at that point, which the fork's first child branches from as a
+  // rewind's does (`resumeSessionAt`), or a session the adapter already
+  // branched off; null starts the fork's provider afresh, handed the
+  // conversation so far as text (`seedFromHistory`). Absent, a stateful
+  // adapter's forks are seeded that way and a stateless one's need nothing.
+  // An adapter that can be forked declares `capabilities.fork`.
+  fork?(input: MockAdapterForkInput): Promise<ConversationProviderForkResult>
   // Hand a user message to the turn that is running (`turnId`, the id its
   // `sendTurn` was given), which takes it in without a turn of its own: the
   // running turn's stream goes on carrying every event, and ends only once
@@ -108,10 +119,14 @@ export type MockAdapterSessionInput = {
   workspaceRoot?: string
   resumeSessionId?: string
   // With `resumeSessionId`: resume only up to this point of that provider
-  // session, as a fork, because the conversation was rewound to it and no
-  // turn has been sent since.
+  // session, as a fork, because the conversation was rewound to it, or is a
+  // new chat forked from another there, and no turn has been sent since.
   resumeSessionAt?: string
   fallbackHistory?: ConversationMessage[]
+  // A fork whose provider could not branch the parent's session: the first
+  // message the provider is sent carries `fallbackHistory` ahead of it, the
+  // only context the new session gets.
+  seedFromHistory?: boolean
   cliRuntimes?: ConversationCliRuntimeOverrides
   permissionPreset?: ConversationPermissionPreset
   // The CLI's own mode at that preset, when one other than its own is chosen.
@@ -200,6 +215,25 @@ export type ConversationProviderCursor = { sessionId: string; at: string | null 
 // The session context plus where to take it back to; null is before the
 // conversation's first turn.
 export type MockAdapterRewindInput = MockAdapterSessionInput & { cursor: ConversationProviderCursor | null }
+
+// The parent chat's session context (its session id may name no live
+// session), plus where to fork it. `resumeSessionId` is the provider session
+// the parent would resume now. `cursor` is where that provider stood at the
+// point forked at, as the adapter recorded it on a turn's end, or null with
+// `exact` when the fork holds no turn that reached the provider. `exact` is
+// false when the transcript has no such record: the turns kept and the
+// provider's session cannot be lined up. `latest`: nothing the parent's
+// provider has seen comes after the point.
+export type MockAdapterForkInput = MockAdapterSessionInput & {
+  cursor: ConversationProviderCursor | null
+  exact: boolean
+  latest: boolean
+}
+
+// The fork's resume cursor (see `fork`), or why it cannot be made. A failure
+// message is shown to the person.
+export type ConversationProviderForkResult =
+  { ok: true; cursor: ConversationProviderCursor | null } | { ok: false; message: string }
 
 // Whether the adapter actually applied the preset. A failure message is shown to
 // the user, so it must say what the provider refused rather than a generic error.

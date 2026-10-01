@@ -112,6 +112,44 @@ for confirmation and refuses when the working tree no longer matches the
 checkpoint's expected content. Checkpoints preserve the real Git index and do
 not include submodules.
 
+### Fork from here
+
+Hovering one of your messages or a finished reply offers **Fork from here**. It
+opens a new chat in the tab right after this one, named after it with
+"(fork)", holding the conversation up to that point; the two then carry on
+separately. Forked at a reply, the new chat holds that reply's turn. Forked at
+one of your messages, it holds everything before it, and the message waits in
+its composer to be changed or sent as it is. The fork runs on the same CLI,
+model, effort, permission mode, skills and folder as the chat it came from,
+and connector servers a running chat was started with ride along while the app
+stays open. The chat forked from is not changed.
+
+Both chats work in the same files, and nothing is restored: a fork made after
+the agent changed files sees them changed. The forked turns' changed-files
+cards and Revert stay with the original chat, whose checkpoints they are.
+
+The fork is offered while the chat is idle, on this machine (a paired
+machine's chat is not forked from here), wherever the runtime can be forked:
+
+| Runtime                     | How the fork continues                                                                                                                                                                      |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Claude Code                 | Its first message branches Claude's own session at the point (`resumeSessionAt` with `forkSession`). A point Claude recorded nothing at (a reply a queued message joined) cannot be forked. |
+| Codex                       | Its first message branches the thread through the turn forked at (`thread/fork` with `lastTurnId`).                                                                                         |
+| Cursor, Grok, OpenCode      | At the newest reply, an agent that offers `session/fork` branches its running session; anywhere else, a new session whose first message carries the conversation so far as text.            |
+| API-key (OpenAI-compatible) | The conversation is replayed from the copy each turn, as for any chat on it.                                                                                                                |
+
+Codex falls back to the conversation as text too, for a chat from before turns
+recorded their Codex turn, and when it cannot branch the thread at that turn
+(the thread or the turn is gone). A fork that carries the conversation as text
+owes it until a message has actually reached the agent: a first send that
+failed before it did (signed out, a CLI that would not start) leaves it owed
+to the next message, across a restart too. An ACP chat that is itself still
+owed its conversation is never branched natively; its fork is seeded as well.
+A second fork of a chat is numbered: "Atlas (fork 2)". A fork
+keeps its point across a restart until its first message is sent. Until then a
+Claude or Codex fork has no CLI session of its own, so Continue in terminal
+waits for that first message.
+
 ## Installed CLI providers
 
 Claude and Codex use their native headless interfaces. ACP providers share an
@@ -387,12 +425,17 @@ an unavailable panel.
    a running turn.
 4. Open an old search result, close/reopen the conversation, inspect changed
    files, and check a confirmed revert in a disposable repository.
-5. Pair the companion over a tailnet with conversation access. Read, send,
+5. Fork a chat from an earlier reply and from an earlier message on each
+   installed runtime. The fork opens in the next tab with the conversation up
+   to that point (and the message in its composer); ask it what was said last,
+   then confirm the original chat is unchanged. Restart before the fork's first
+   message and send one: it still continues from the point.
+6. Pair the companion over a tailnet with conversation access. Read, send,
    approve, answer, stop, disconnect mid-reply and reconnect (the reply resumes
    without a reset), and verify an offline send appears once after
    acknowledgement. Narrow the device to read-only in Settings and confirm the
    next command is refused.
-6. Pair a second Studio desktop with conversation access. Open a chat from its
+7. Pair a second Studio desktop with conversation access. Open a chat from its
    Remote band, send, approve and stop from there; switch its model between
    turns and mid-reply (the notice says the switch applies from the next
    turn), and confirm the host's own chip follows; drop Wi-Fi mid-reply and

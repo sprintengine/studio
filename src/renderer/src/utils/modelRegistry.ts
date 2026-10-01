@@ -294,6 +294,34 @@ export function addAgentTabTiled(
   return true
 }
 
+/**
+ * Open an agent's tab right after another agent's, in that agent's strip, and
+ * bring it to the front: a chat forked from another sits next to the one it
+ * came from rather than wherever the active strip happens to be. Returns false
+ * when that agent has no tab in a strip here; the caller docks the new tab the
+ * ordinary way.
+ */
+export function addAgentTabAfter(
+  workspaceId: string,
+  agentId: string,
+  name: string,
+  afterAgentId: string,
+  config?: Record<string, unknown>,
+): boolean {
+  const model = models.get(workspaceId)
+  if (!model) return false
+  const afterTabId = findAgentTabId(model, afterAgentId)
+  const after = afterTabId ? model.getNodeById(afterTabId) : undefined
+  const tabset = after?.getParent()
+  if (!(after instanceof TabNode) || !(tabset instanceof TabSetNode)) return false
+  const index = tabset.getChildren().indexOf(after)
+  model.doAction(
+    Actions.addNode(agentTabNode(agentId, name, config), tabset.getId(), DockLocation.CENTER, index + 1, true),
+  )
+  window.setTimeout(() => clearAgentSpawnFlash(model, agentId), AGENT_TAB_SPAWN_FLASH_CLEAR_MS)
+  return true
+}
+
 export function focusOrAddAgentTab(
   workspaceId: string,
   agentId: string,
