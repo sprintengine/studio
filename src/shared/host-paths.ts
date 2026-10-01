@@ -131,6 +131,26 @@ export function isWslDriveMountPath(path: string): boolean {
 }
 
 /**
+ * One absolute Linux path from an agent running in WSL, spelled the way the
+ * workspace root is spelled on Windows, with `/` separators (Node and git on
+ * Windows read them).
+ *
+ *   /mnt/c/Users/dev/repo/a.ts  (root C:\Users\dev\repo)                   → C:/Users/dev/repo/a.ts
+ *   /home/dev/repo/a.ts         (root \\wsl$\Ubuntu\home\dev\repo)         → //wsl$/Ubuntu/home/dev/repo/a.ts
+ *   /home/dev/repo/a.ts         (root \\wsl.localhost\Ubuntu\home\dev\repo) → //wsl.localhost/Ubuntu/home/dev/repo/a.ts
+ *
+ * A share root keeps its own share name, so a comparison with it is like for
+ * like. Anything that is not an absolute Linux path comes back unchanged.
+ */
+export function wslPathInRootSpelling(path: string, root: string, distro: string): string {
+  if (!path.startsWith('/') || path.startsWith('//')) return path
+  if (WSL_DRIVE_MOUNT.test(path)) return wslToWindowsPath(path, { separator: '/' })
+  const share = WSL_SHARE_PATH.test(forwardSlashes(root)) ? /^\/\/([^/]+)\/([^/]+)/u.exec(forwardSlashes(root)) : null
+  if (share) return `//${share[1]}/${share[2]}${path}`
+  return wslToWindowsPath(path, { distro, separator: '/' })
+}
+
+/**
  * A tool call's input from an agent running in WSL, with every absolute Linux
  * path in it spelled the way the workspace root is spelled on Windows.
  *
@@ -150,18 +170,14 @@ export function isWslDriveMountPath(path: string): boolean {
  * copy for the checks, and the agent still gets back what it sent.
  */
 export function wslInputInRootSpelling(value: unknown, root: string, distro: string): unknown {
-  const share = WSL_SHARE_PATH.test(forwardSlashes(root)) ? /^\/\/([^/]+)\/([^/]+)/u.exec(forwardSlashes(root)) : null
-  const respell = (path: string): string => {
-    if (WSL_DRIVE_MOUNT.test(path)) return wslToWindowsPath(path, { separator: '/' })
-    if (share) return `//${share[1]}/${share[2]}${path}`
-    return wslToWindowsPath(path, { distro, separator: '/' })
-  }
   const visit = (entry: unknown): unknown => {
     if (typeof entry === 'string') {
       // One whole path: absolute, not a UNC path, no whitespace. A command line
       // that mentions a path is not respelled — a mode never answers commands,
       // and a remembered command grant does not read its paths this way.
-      return entry.startsWith('/') && !entry.startsWith('//') && !/\s/u.test(entry) ? respell(entry) : entry
+      return entry.startsWith('/') && !entry.startsWith('//') && !/\s/u.test(entry)
+        ? wslPathInRootSpelling(entry, root, distro)
+        : entry
     }
     if (Array.isArray(entry)) return entry.map(visit)
     if (entry && typeof entry === 'object')
