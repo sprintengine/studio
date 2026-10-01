@@ -2,12 +2,13 @@ import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
 import type { AgentLaunchRequest, AgentLaunchResult } from '../shared/agent-launch'
-import type { ConversationSessionActionResult } from '../shared/conversation-runtime'
 import type { ConversationTerminalHandoffTarget } from './conversation-runtime'
 import {
   createConversationTerminalHandoff,
+  handoffNotice,
   terminalLaunchRequest,
   type ConversationTerminalHandoffDeps,
+  type TerminalHandoffStopped,
 } from './conversation-terminal-handoff'
 
 const TARGET: ConversationTerminalHandoffTarget = {
@@ -20,12 +21,10 @@ const TARGET: ConversationTerminalHandoffTarget = {
   permissionPreset: 'auto',
 }
 
-const SUSPENDED = { ok: true, session: {} } as unknown as ConversationSessionActionResult
-
 function harness(
   options: {
     target?: ConversationTerminalHandoffTarget | { refused: string }
-    suspend?: ConversationSessionActionResult
+    stop?: { ok: true; stopped: TerminalHandoffStopped } | { ok: false; message: string }
     launch?: AgentLaunchResult
     cliResumesSessions?: (cli: string) => boolean
   } = {},
@@ -40,9 +39,12 @@ function harness(
         const target = options.target ?? TARGET
         return 'refused' in target ? { ok: false, message: target.refused } : { ok: true, target }
       },
-      suspendSession: async () => {
-        steps.push('suspend')
-        return options.suspend ?? SUSPENDED
+      stopForTerminalHandoff: async () => {
+        steps.push('stop')
+        return options.stop ?? { ok: true, stopped: { turn: false, agents: 0 } }
+      },
+      endTerminalHandoff: () => {
+        steps.push('end')
       },
       noteTerminalHandoff: async ({ notice }) => {
         steps.push('note')
@@ -70,14 +72,14 @@ function harness(
   return { handoff: createConversationTerminalHandoff(deps).handoff, steps, launches, notices }
 }
 
-test('the chat is suspended before the terminal opens its session, and told afterwards', async () => {
+test('the chat is stopped and suspended before the terminal opens its session, and told afterwards', async () => {
   const app = harness()
   assert.deepEqual(await app.handoff({ sessionId: 'conv-1' }), {
     ok: true,
     workspaceId: 'ws-1',
     agentId: 'agent-claude-code-abc123',
   })
-  assert.deepEqual(app.steps, ['target', 'suspend', 'launch', 'note'])
+  assert.deepEqual(app.steps, ['target', 'stop', 'launch', 'note', 'end'])
   assert.deepEqual(app.launches, [
     {
       workspaceId: 'ws-1',
@@ -89,16 +91,38 @@ test('the chat is suspended before the terminal opens its session, and told afte
       cliModel: 'claude-opus-5-5',
     },
   ])
-  assert.match(app.notices[0] ?? '', /continues in a terminal/)
+  assert.match(app.notices[0] ?? '', /^This conversation continues in a terminal/)
 })
 
-test("a chat's refusal reaches the person, and nothing is suspended or launched", async () => {
-  const app = harness({ target: { refused: 'The agent is still working.' } })
-  assert.deepEqual(await app.handoff({ sessionId: 'conv-1' }), { ok: false, message: 'The agent is still working.' })
+test('a chat stopped mid-turn hands over all the same, and its notice says the agent was stopped', async () => {
+  const app = harness({ stop: { ok: true, stopped: { turn: true, agents: 0 } } })
+  assert.equal((await app.handoff({ sessionId: 'conv-1' })).ok, true)
+  assert.deepEqual(app.steps, ['target', 'stop', 'launch', 'note', 'end'])
+  assert.match(app.notices[0] ?? '', /^The agent was stopped, so this conversation could continue in a terminal\./)
+})
+
+test('the notice names the agents a handoff stopped with the chat', () => {
+  assert.match(handoffNotice({ turn: true, agents: 2 }), /^The agent was stopped, with the 2 agents it started,/)
+  assert.match(handoffNotice({ turn: false, agents: 1 }), /^The agent this chat started was stopped,/)
+})
+
+test('a chat that could not be stopped is not handed over, and sends are let through again', async () => {
+  const app = harness({ stop: { ok: false, message: 'Conversation provider is unavailable.' } })
+  assert.deepEqual(await app.handoff({ sessionId: 'conv-1' }), {
+    ok: false,
+    message: 'Conversation provider is unavailable.',
+  })
+  assert.deepEqual(app.steps, ['target', 'stop', 'end'])
+})
+
+test("a chat's refusal reaches the person, and nothing is stopped or launched", async () => {
+  const refused = 'This chat has no CLI session yet. Send it a message first.'
+  const app = harness({ target: { refused } })
+  assert.deepEqual(await app.handoff({ sessionId: 'conv-1' }), { ok: false, message: refused })
   assert.deepEqual(app.steps, ['target'])
 })
 
-test('a chat whose CLI cannot resume in a terminal is refused before it is suspended', async () => {
+test('a chat whose CLI cannot resume in a terminal is refused before it is stopped', async () => {
   const cursor = harness({ target: { ...TARGET, providerId: 'cursor-agent' }, cliResumesSessions: () => false })
   assert.equal((await cursor.handoff({ sessionId: 'conv-1' })).ok, false)
   assert.deepEqual(cursor.steps, ['target'])
@@ -111,7 +135,7 @@ test('a chat whose CLI cannot resume in a terminal is refused before it is suspe
 test('a launch that fails leaves the chat suspended, not told it moved', async () => {
   const app = harness({ launch: { ok: false, code: 'agent_spawn_failed', message: 'claude was not found.' } })
   assert.deepEqual(await app.handoff({ sessionId: 'conv-1' }), { ok: false, message: 'claude was not found.' })
-  assert.deepEqual(app.steps, ['target', 'suspend', 'launch'])
+  assert.deepEqual(app.steps, ['target', 'stop', 'launch', 'end'])
 })
 
 test("the terminal runs on the chat's machine, and takes its mode only where the CLI has it", () => {

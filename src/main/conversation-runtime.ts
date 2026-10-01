@@ -45,7 +45,8 @@ import type {
   ConversationRewindInput,
   ConversationRewindResult,
 } from '../shared/conversation-runtime'
-import type { ExecutionHostId } from '../shared/execution-host'
+import { distroOfHostId, type ExecutionHostId } from '../shared/execution-host'
+import { wslInputInRootSpelling } from '../shared/host-paths'
 import { inferConversationToolKind } from '../shared/conversation/toolKind'
 import { isTurnlessSubagentStep, readSubagentStatus } from '../shared/conversation/subagents'
 import {
@@ -331,6 +332,9 @@ export class ConversationRuntime {
   private readonly deletingTranscripts = new Set<string>()
   private readonly startingTranscripts = new Set<string>()
   private readonly revertingScopes = new Set<string>()
+  // Sessions whose CLI session is being handed to a terminal; a send waits for
+  // the terminal rather than respawning the child it was just stopped in.
+  private readonly terminalHandoffs = new Set<string>()
   // Transcripts being taken back to an earlier message; a send waits for it.
   private readonly rewindingTranscripts = new Set<string>()
   private readonly sequenceInitializations = new Map<string, Promise<void>>()
@@ -681,6 +685,11 @@ export class ConversationRuntime {
       return { ok: false, message: 'Conversation is being deleted.' }
     if (this.rewindingTranscripts.has(this.transcriptPath(session.workspaceRoot, session.workspaceId, session.agentId)))
       return { ok: false, message: 'Conversation is going back to an earlier message.' }
+    // A message queued behind the turn a handoff stopped goes out the moment
+    // that turn ends; sent now, it would respawn the chat's child beside the
+    // terminal opening the same CLI session.
+    if (this.terminalHandoffs.has(session.sessionId))
+      return { ok: false, message: 'This conversation is moving to a terminal, so the message was not sent.' }
     if (session.status === 'stopped') return { ok: false, message: 'Conversation session is stopped.' }
     if (isSessionBusy(session) && !input.steer) {
       return {
@@ -1188,8 +1197,9 @@ export class ConversationRuntime {
       }
     }
 
+    let emitted: EmittedSummary
     try {
-      await this.emitAll(
+      emitted = await this.emitAll(
         session,
         adapter.resolveApproval({
           ...session,
@@ -1202,6 +1212,20 @@ export class ConversationRuntime {
     } catch (error) {
       session.answeredApprovals.delete(input.requestId)
       throw error
+    }
+    // A stateful adapter that ended the turn in answering (the provider that
+    // asked is gone): the session is settled here as a stop settles it.
+    // Marking it active again, as the branch below does for a turn that goes
+    // on, locked the chat behind a turn nothing was running — no Send, and a
+    // Stop with nothing to stop.
+    if (session.stateful && (emitted.failed || emitted.completed)) {
+      session.activeTurnId = null
+      session.pendingRequestId = null
+      session.turnLockRequestId = null
+      session.activeTurnAbort = null
+      session.status = 'ready'
+      session.updatedAt = this.now()
+      return { ok: true, session: this.toSummary(session) }
     }
     if (session.stateful) {
       // The turn is still streaming inside the adapter (the approval resolved
@@ -1260,6 +1284,18 @@ export class ConversationRuntime {
     session.updatedAt = this.now()
     this.answerWaitingApprovalsByMode(session)
     return { ok: true, session: this.toSummary(session), ...(applied.notice ? { notice: applied.notice } : {}) }
+  }
+
+  // The input approval checks place a request by. An agent running in WSL names
+  // files the Linux way and the workspace root is a Windows path, so its paths
+  // are respelled as the root spells them first — or every file in the
+  // workspace reads as outside it, and Auto and "always allow" answer nothing.
+  // Only for a session whose agent the provider runs in WSL; the event the
+  // person sees and the answer the agent gets keep the input as it was sent.
+  private approvalCheckInput(session: RuntimeSession, input: unknown): unknown {
+    const cli = this.getAdapterForProviderId(session.providerId)?.executionHostCli
+    const distro = cli ? distroOfHostId(session.cliRuntimes?.[cli]?.hostId) : null
+    return distro ? wslInputInRootSpelling(input, session.workspaceRoot, distro) : input
   }
 
   // A mode chosen while requests wait answers the ones it covers, as it would
@@ -1445,9 +1481,11 @@ export class ConversationRuntime {
   }
 
   // Resume in terminal, the chat's half: what a terminal needs to take this
-  // chat's CLI session over. Refused while anything in the chat is still
-  // running, since the terminal and the chat's child would both write to the
-  // one session; the caller suspends the chat before the terminal starts.
+  // chat's CLI session over. A running turn or agent does not refuse it: the
+  // caller stops those (`stopForTerminalHandoff`) before the terminal starts,
+  // since the terminal and the chat's child would both write to the one
+  // session. Everything that does refuse is checked here first, so a handoff
+  // that cannot happen never stops anything.
   async terminalHandoffTarget(
     input: ConversationTerminalHandoffInput,
   ): Promise<{ ok: true; target: ConversationTerminalHandoffTarget } | { ok: false; message: string }> {
@@ -1455,19 +1493,20 @@ export class ConversationRuntime {
     if (!session) return { ok: false, message: 'Conversation session is invalid.' }
     if (!session.stateful)
       return { ok: false, message: 'This chat has no CLI session behind it for a terminal to resume.' }
-    if (isSessionBusy(session) || session.status === 'starting')
-      return { ok: false, message: 'The agent is still working. Continue it in a terminal once its turn is over.' }
-    if (session.runningSubagents.size > 0 || (session.backgroundAgents ?? 0) > 0)
-      return {
-        ok: false,
-        message: 'An agent this chat started is still running. Continue it in a terminal once that agent is done.',
-      }
+    // Still opening, it has no settled CLI session to hand over yet.
+    if (session.status === 'starting')
+      return { ok: false, message: 'The chat is still starting. Try again in a moment.' }
     const cursor = await this.readResumeCursor(
       session.workspaceRoot,
       session.workspaceId,
       session.agentId,
       session.providerId,
     )
+    // A turn that is running reports where the CLI session stands once it
+    // reaches the CLI: its first turn names the session, and the turn after
+    // Edit from here names the fork. Until then there is nothing to hand over.
+    if (isSessionBusy(session) && (!cursor?.sessionId || cursor.at))
+      return { ok: false, message: 'The agent has not opened its CLI session yet. Try again in a moment.' }
     if (!cursor?.sessionId) return { ok: false, message: 'This chat has no CLI session yet. Send it a message first.' }
     // After Edit from here the chat's next turn forks the CLI session at an
     // earlier point. A terminal resuming the id would load the turns the
@@ -1491,6 +1530,44 @@ export class ConversationRuntime {
         ...(session.cliRuntimes ? { cliRuntimes: session.cliRuntimes } : {}),
       },
     }
+  }
+
+  // Resume in terminal, when the chat is still working: the agent is stopped
+  // first, by the composer's Stop (`interrupt`), which answers no to whatever
+  // card it was waiting on, and once that has settled the chat is suspended,
+  // so its child is gone before the terminal opens the session. Agents the
+  // chat started live in that child and end with it; their cards are closed
+  // here rather than left showing agents nothing is running. Until
+  // `endTerminalHandoff`, a send is refused (see `sendTurn`).
+  async stopForTerminalHandoff(
+    input: ConversationTerminalHandoffInput,
+  ): Promise<{ ok: true; stopped: { turn: boolean; agents: number } } | { ok: false; message: string }> {
+    const session = this.sessions.get(input.sessionId)
+    if (!session) return { ok: false, message: 'Conversation session is invalid.' }
+    this.terminalHandoffs.add(session.sessionId)
+    const turn = isSessionBusy(session)
+    if (session.activeTurnId) {
+      const interrupted = await this.interrupt({ sessionId: session.sessionId })
+      // The turn can end by itself while it is being stopped; that is no failure.
+      if (!interrupted.ok && session.activeTurnId) return interrupted
+    }
+    const suspended = await this.suspendSession({ sessionId: session.sessionId })
+    if (!suspended.ok) return suspended
+    const agents = Array.from(session.runningSubagents.values())
+    for (const agent of agents)
+      await this.emit(
+        session,
+        this.eventForSession(session, 'subagent_status', {
+          ...agent,
+          status: 'stopped',
+          error: 'The agent stopped when the conversation moved to a terminal.',
+        }),
+      )
+    return { ok: true, stopped: { turn, agents: agents.length } }
+  }
+
+  endTerminalHandoff(input: ConversationTerminalHandoffInput): void {
+    this.terminalHandoffs.delete(input.sessionId)
   }
 
   // Tell the chat where its conversation went, in its own tray.
@@ -1852,7 +1929,7 @@ export class ConversationRuntime {
     if (stamped.type === 'approval_requested' && typeof stamped.payload?.requestId === 'string') {
       const request: PermissionModeRequest = {
         action: String(stamped.payload.action ?? ''),
-        input: stamped.payload.input,
+        input: this.approvalCheckInput(session, stamped.payload.input),
         toolKind: stamped.payload.toolKind as PermissionModeRequest['toolKind'],
         requestKind: String(stamped.payload.kind ?? 'tool'),
         defaultToNo: stamped.payload.defaultToNo === true,

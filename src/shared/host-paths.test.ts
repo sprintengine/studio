@@ -8,8 +8,10 @@ import {
   isWslDriveMountPath,
   linuxPathUnderRoot,
   toWslPath,
+  wslInputInRootSpelling,
   wslToWindowsPath,
 } from './host-paths'
+import { permissionModeAllows } from './conversation/permissionModes'
 
 // One row per spelling a path arrives in, and what each conversion makes of it.
 // `null` in the Windows column means "unchanged" (the input comes back as is).
@@ -185,4 +187,35 @@ test('a Linux path joins the root wslpath prints for the distribution', () => {
     '\\\\wsl.localhost\\Ubuntu\\home\\dev\\.claude',
   )
   assert.equal(linuxPathUnderRoot('/', '\\\\wsl$\\Debian'), '\\\\wsl$\\Debian')
+})
+
+// A WSL agent names files the Linux way; the workspace root is a Windows path.
+// Auto placed every file in the workspace outside it and approved nothing.
+test("a WSL agent's paths are placed against the root as the root spells them", () => {
+  const share = '\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo'
+  const auto = (action: string, root: string, file: string) =>
+    permissionModeAllows('auto', { action, input: wslInputInRootSpelling({ file_path: file }, root, 'Ubuntu') }, root)
+
+  assert.equal(auto('Edit', 'C:\\Users\\dev\\repo', '/mnt/c/Users/dev/repo/src/a.ts'), true)
+  assert.equal(auto('Edit', 'C:\\Users\\dev\\repo', '/mnt/c/Users/dev/other/a.ts'), false)
+  assert.equal(auto('Edit', share, '/home/dev/repo/src/a.ts'), true)
+  assert.equal(
+    auto('Read', '\\\\wsl$\\Ubuntu\\home\\dev\\repo', '/home/dev/repo/README.md'),
+    true,
+    "the root's own share name",
+  )
+  assert.equal(auto('Read', share, '/etc/passwd'), false)
+  assert.equal(auto('Edit', share, '/home/dev/repo/../../x'), false, 'a climb out stays out')
+  assert.equal(auto('Edit', share, '/home/dev/repo/.git/hooks/pre-commit'), false, 'never the git directory')
+})
+
+test('only whole paths are respelled, and the input itself is left alone', () => {
+  const input = { file_path: '/home/dev/repo/a.ts', command: 'cat /home/dev/repo/a.ts', edits: [{ path: '/mnt/d/x' }] }
+  const respelled = wslInputInRootSpelling(input, 'C:\\Users\\dev\\repo', 'Ubuntu')
+  assert.deepEqual(respelled, {
+    file_path: '//wsl.localhost/Ubuntu/home/dev/repo/a.ts',
+    command: 'cat /home/dev/repo/a.ts',
+    edits: [{ path: 'D:/x' }],
+  })
+  assert.equal(input.file_path, '/home/dev/repo/a.ts')
 })

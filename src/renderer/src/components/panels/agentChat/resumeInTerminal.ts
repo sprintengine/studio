@@ -8,8 +8,10 @@ import type { AgentState } from '../../../types/workspace'
  * Resume in terminal, the renderer's half: offered for a chat whose CLI resumes
  * a session in a terminal (Claude Code and Codex today; the manifest's
  * `capabilities.resumeSession` turns others on), and carried out by main,
- * which suspends the chat and launches the terminal agent. The new tab is
- * revealed as every main-launched agent's is.
+ * which stops whatever the chat is running (as its Stop button would),
+ * suspends it and launches the terminal agent. So it is offered mid-turn too,
+ * with nothing to confirm, as Stop has nothing. The new tab is revealed as
+ * every main-launched agent's is.
  */
 export function chatResumesInTerminal(
   agent: Pick<AgentState, 'runtimeKind' | 'conversation'> | undefined,

@@ -22,6 +22,7 @@ import { asRecord } from '../../shared/records'
 import { CONVERSATION_DEFAULT_MODEL_ID } from '../../shared/conversation-harness'
 import { isWslHostId, type ExecutionHostId } from '../../shared/execution-host'
 import { isWindowsPath, toWslPath } from '../../shared/host-paths'
+import { isLooserCliPermissionPreset } from '../../shared/cli-permission-preset'
 import { AGENT_IDENTITY_ENV_KEYS } from '../../shared/studio-env'
 import { inferConversationToolKind } from '../../shared/conversation/toolKind'
 import { summarizeToolInput } from '../../shared/conversation/approvalSummary'
@@ -118,6 +119,9 @@ export type ClaudeAgentProviderOptions = {
   prepareWslTarget?: (hostId: ExecutionHostId) => Promise<WslClaudeTarget>
   // Starts the child inside that machine; tests stand in.
   spawnWslChild?: (target: WslClaudeTarget, request: ClaudeSpawnRequest) => ChildProcess
+  // How long a child has to answer a stop or a mode switch before it is taken
+  // to be wedged. Tests shorten it.
+  childAnswerTimeoutMs?: number
   // The app's own MCP gateway on the machine the child runs on, handed to
   // every child. Null or absent leaves it out.
   resolveStudioMcpServer?: (input: { hostId?: ExecutionHostId }) => Promise<ConversationMcpServer | null>
@@ -367,6 +371,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
   const tempDir = options.tempDir ?? tmpdir()
   const prepareWslTarget = options.prepareWslTarget ?? prepareWslClaudeTarget
   const spawnWslChild = options.spawnWslChild ?? spawnWslClaude
+  const childAnswerTimeoutMs = options.childAnswerTimeoutMs ?? UNRESPONSIVE_CHILD_MS
   const sessions = new Map<string, SessionState>()
   // Staged plugin folders still being removed, so shutdown can wait for them.
   const removals = new Set<Promise<void>>()
@@ -479,12 +484,31 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
   // through although its typed signature does not declare it yet. An older
   // CLI ignores it, and the message it still runs arrives as a continuation
   // turn rather than being lost.
-  function interruptChild(state: SessionState): void {
+  function interruptChild(state: SessionState): Promise<boolean> {
     for (const uuid of state.pendingSendUuids) state.interruptedSendUuids.add(uuid)
     state.pendingSendUuids.clear()
     state.textSeam = false
     const interrupt = state.query?.interrupt as ((options?: { cancelQueued?: boolean }) => Promise<unknown>) | undefined
-    void interrupt?.call(state.query, { cancelQueued: true }).catch(() => undefined)
+    if (!interrupt) return Promise.resolve(true)
+    // A refusal is still an answer: the child is alive to give it.
+    return answeredWithin(
+      interrupt.call(state.query, { cancelQueued: true }).catch(() => undefined),
+      childAnswerTimeoutMs,
+    )
+  }
+
+  // Stop, on a child that never acknowledges it, ends the child. A process
+  // wedged inside WSL — or anywhere — holds the turn's permission callback and
+  // reads none of what it is sent, so the card's Allow and the composer's Stop
+  // both landed in a process that would never act on them, and the chat had no
+  // way out but closing it. Ended, the next message respawns the child on the
+  // same session (resumed), which is what a person retrying expects.
+  function endUnresponsiveChildAfterStop(state: SessionState, acknowledged: Promise<boolean>): void {
+    const query = state.query
+    if (!query) return
+    void acknowledged.then((answered) => {
+      if (!answered && state.query === query) disposeChild(state)
+    })
   }
 
   function resolveAllPendingPermissions(state: SessionState, decision: PermissionDecision): void {
@@ -1007,6 +1031,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
   const adapter: ClaudeAgentProviderAdapter = {
     id: CLAUDE_AGENT_PROVIDER_ID,
     displayName: 'Claude Code',
+    executionHostCli: 'claude-code',
     capabilities: {
       tools: true,
       approvals: true,
@@ -1210,7 +1235,33 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       const state = sessions.get(input.sessionId)
       if (!state) return []
       const pending = state.pendingPermissions.get(input.requestId)
-      if (!pending) return []
+      if (!pending) {
+        // Nothing here is waiting on that answer any more — the child that
+        // asked ended, or was replaced, while the card was up. Answering into
+        // nothing left the card standing and the chat locked behind it with
+        // no way on, so the card is closed instead, and a turn whose child is
+        // gone is ended: the next message respawns it, resumed.
+        const turnId = input.turnId || state.turn?.turnId
+        const events = [
+          eventFor(state, 'approval_resolved', {
+            ...(turnId ? { turnId } : {}),
+            requestId: input.requestId,
+            approved: false,
+          }),
+        ]
+        if (!state.query && turnId) {
+          endTurn(state)
+          events.push(
+            eventFor(state, 'turn_failed', {
+              turnId,
+              reason: 'provider',
+              message: 'Claude Code stopped while this was waiting for an answer. Send a message to carry on.',
+              ...providerCursorPayload(state),
+            }),
+          )
+        }
+        return events
+      }
       state.pendingPermissions.delete(input.requestId)
       pending.resolve({ approved: input.approved, answers: input.answers })
       // approval_resolved is emitted through the still-open turn stream so the
@@ -1230,7 +1281,9 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     // looser carries on, and the next turn respawns it (resumed) as `none`
     // spawns; an idle child is replaced at once. A child that refuses the mode
     // is replaced the same way, and mid-reply that waits for the next message,
-    // since disposing it would drop the reply the user is reading. A child a
+    // since disposing it would drop the reply the user is reading — though a
+    // looser mode is answered by the runtime meanwhile, so only a stricter one
+    // says so. A child that does not answer at all counts as refusing. A child a
     // background agent is still working in waits the same way, or the agent
     // would end with it.
     async setPermissionPreset(input: MockAdapterPermissionInput): Promise<ConversationProviderPermissionResult> {
@@ -1248,21 +1301,28 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         return { ok: true }
       }
       const query = state.query
-      try {
-        await query.setPermissionMode(target ?? 'default')
-      } catch {
+      const before = state.childPreset
+      // Bounded: a child that never answers the control request (a process
+      // wedged inside WSL) held the switch — and the chip, and the answer the
+      // person had just given — for as long as the process lived.
+      const switched = await answeredWithin(query.setPermissionMode(target ?? 'default'), childAnswerTimeoutMs, {
+        rejectAsUnanswered: true,
+      })
+      if (!switched) {
         if (state.query !== query) return { ok: true }
         if (childIsIdle(state)) {
           disposeChild(state)
           return { ok: true }
         }
-        return {
-          ok: true,
-          notice:
-            next === 'bypass'
-              ? 'Bypass permissions applies from your next message.'
-              : 'The new permissions apply from your next message.',
-        }
+        // A LOOSER mode is in force at once all the same: the child still
+        // asks, and the runtime answers by the session's recorded mode
+        // (permissionModeAllows), so the very next request the new mode covers
+        // never reaches the person. Manual is in force at once too, through
+        // the hook in `manualAsks`, which reads the session's preset. Only
+        // another STRICTER mode waits — the child would run, unasked, what it
+        // now should ask about — and only that is worth a sentence.
+        if (next === 'manual' || (before && isLooserCliPermissionPreset(next, before))) return { ok: true }
+        return { ok: true, notice: 'The stricter permissions apply from your next message.' }
       }
       if (state.query !== query) return { ok: true }
       // Moved again while the child answered: which mode it ended on is not
@@ -1305,7 +1365,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       const state = sessions.get(input.sessionId)
       if (!state) return []
       const turnId = state.turn?.turnId
-      interruptChild(state)
+      endUnresponsiveChildAfterStop(state, interruptChild(state))
       resolveAllPendingPermissions(state, { approved: false })
       endTurn(state)
       return [
@@ -1477,6 +1537,37 @@ async function readWorkspaceInstructions(workspaceRoot: string): Promise<string>
     }
   }
   return sections.join('\n\n')
+}
+
+// How long a child has to answer a control request — a permission-mode switch,
+// a stop — before it is taken to be wedged. A live child answers in
+// milliseconds; this only ever fires on one that will not answer at all.
+const UNRESPONSIVE_CHILD_MS = 5_000
+
+/**
+ * Whether `promise` settled within `ms`. A rejection counts as an answer
+ * unless `rejectAsUnanswered` — for a request whose refusal means the same as
+ * silence to the caller.
+ */
+function answeredWithin(
+  promise: Promise<unknown>,
+  ms: number,
+  options: { rejectAsUnanswered?: boolean } = {},
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), ms)
+    timer.unref?.()
+    promise.then(
+      () => {
+        clearTimeout(timer)
+        resolve(true)
+      },
+      () => {
+        clearTimeout(timer)
+        resolve(!options.rejectAsUnanswered)
+      },
+    )
+  })
 }
 
 // Terminal-preset → SDK permission-mode mapping, mirroring the claude-code

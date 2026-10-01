@@ -887,6 +887,7 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
   return {
     id: profile.id,
     displayName: profile.displayName,
+    executionHostCli: profile.cli,
     capabilities: baseCapabilities(profile),
     sessions: 'stateful',
     acceptsMcpServers: true,

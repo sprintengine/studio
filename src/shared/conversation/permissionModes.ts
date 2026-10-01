@@ -19,8 +19,10 @@ import { inferConversationToolKind } from './toolKind'
 import {
   approvalFilePath,
   approvalInput,
+  isAgentLaunchingGatewayTool,
   isApprovalPathInGitDirectory,
   isPathWithinApprovalRoot,
+  mcpCallOf,
   type ApprovalRuleRequest,
 } from './approvalRules'
 
@@ -42,10 +44,11 @@ const AUTO_EDIT_KINDS = new Set(['file_edit', 'file_write'])
  *   not let a stray keystroke pass, or the person's own "always ask" rule) is
  *   never answered either.
  * - `bypass` answers every other tool request.
- * - `auto` answers the agent's to-do list, reads, searches and listings whose
- *   every place is inside the workspace, and edits whose every file (and every
- *   file one is moved to) is inside it; never its git directory. Commands, the
- *   network, MCP tools, subagents and anything it cannot place ask: a lookup
+ * - `auto` answers the agent's to-do list, MCP tools other than the gateway's
+ *   agent-launching ones, reads, searches and listings whose every place is
+ *   inside the workspace, and edits whose every file (and every file one is
+ *   moved to) is inside it; never its git directory. Commands, the network,
+ *   subagents and anything it cannot place ask: a lookup
  *   that names no place it can resolve asks, and so does one that mentions a
  *   path outside the workspace anywhere in its input, whatever key the runtime
  *   put it under. (An edit's content is text for the file, not a place, so an
@@ -64,6 +67,16 @@ export function permissionModeAllows(
   if (request.suppressAlwaysAllowRule || !workspaceRoot) return false
   const kind = request.toolKind ?? inferConversationToolKind(request.action)
   if (kind === 'todo') return true
+  // An MCP tool is one the person connected on purpose, and asking before every
+  // call to it was most of what Auto still asked (owner ruling 2026-10-01).
+  // Never the gateway tools that start an agent or give one a workspace: each
+  // hands a prompt of the caller's choosing to an agent that then acts on its
+  // own, which no remembered grant covers either. A name the checks cannot read
+  // as an MCP call asks.
+  if (kind === 'mcp') {
+    const call = mcpCallOf(request.action)
+    return call !== null && !isAgentLaunchingGatewayTool(call.server, call.tool)
+  }
   const paths = LOOKUP_TOOL_KINDS.has(kind)
     ? mentionsOutside(request.input, workspaceRoot)
       ? null

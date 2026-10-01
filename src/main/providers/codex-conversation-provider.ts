@@ -790,6 +790,7 @@ export function createCodexConversationProvider(
   return {
     id: CODEX_CONVERSATION_PROVIDER_ID,
     displayName: 'Codex',
+    executionHostCli: 'codex',
     sessions: 'stateful',
     acceptsMcpServers: true,
     listModels: () => [...models],

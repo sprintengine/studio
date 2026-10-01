@@ -621,8 +621,14 @@ const AGENT_LAUNCHING_GATEWAY_TOOLS = new Set([
   'workspace.create',
 ])
 
-function isAgentLaunchingGatewayTool(server: string, tool: string): boolean {
+export function isAgentLaunchingGatewayTool(server: string, tool: string): boolean {
   return server.includes(STUDIO_MCP_SERVER_ID) && AGENT_LAUNCHING_GATEWAY_TOOLS.has(tool.replace('_', '.'))
+}
+
+/** The server and tool an `mcp__<server>__<tool>` call names, or null for any other name. */
+export function mcpCallOf(action: string): { server: string; tool: string } | null {
+  const match = /^mcp__(?<server>[\w.-]+)__(?<tool>[\w.-]+)$/u.exec(action)
+  return match?.groups ? { server: match.groups.server, tool: match.groups.tool } : null
 }
 
 export function approvalRuleCandidate(
@@ -651,13 +657,12 @@ export function approvalRuleCandidate(
     return { ...base, matcher, label: `${request.action}: files within ${prefix} except .git` }
   }
   if (kind === 'mcp') {
-    const match = /^mcp__(?<server>[\w.-]+)__(?<tool>[\w.-]+)$/u.exec(request.action)
-    if (!match?.groups) return null
-    if (isAgentLaunchingGatewayTool(match.groups.server, match.groups.tool)) return null
+    const call = mcpCallOf(request.action)
+    if (!call || isAgentLaunchingGatewayTool(call.server, call.tool)) return null
     return {
       ...base,
-      matcher: { type: 'mcp', server: match.groups.server, tool: match.groups.tool },
-      label: `${match.groups.server}: ${match.groups.tool}`,
+      matcher: { type: 'mcp', server: call.server, tool: call.tool },
+      label: `${call.server}: ${call.tool}`,
     }
   }
   return null

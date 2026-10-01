@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, test } from 'vitest'
 
+import type { AgentLaunchRequest } from '../shared/agent-launch'
 import { ConversationRuntime } from './conversation-runtime'
+import { createConversationTerminalHandoff } from './conversation-terminal-handoff'
 import type {
   ConversationProviderAdapter,
   ConversationProviderCursor,
@@ -218,4 +220,182 @@ test('the handoff notice lands in the chat without moving its resume point', asy
   assert.deepEqual(last?.payload, { notice: 'Continues in a terminal.' })
   const found = await chat.runtime.terminalHandoffTarget({ sessionId })
   assert.equal(found.ok && found.target.providerSessionId, 'provider-1')
+})
+
+// A stateful provider whose turns keep working until they are stopped, as a
+// long turn does: `ask` waits on a permission card, `spawn` leaves a background
+// agent running after its turn, anything else runs on. Interrupting answers the
+// card no, as the CLI's own Stop does.
+function workingProvider(record: { interrupts: number; denied: string[]; disposed: number }) {
+  let pending: { requestId?: string; release: () => void } | null = null
+  const adapter: ConversationProviderAdapter = {
+    id: 'codex-agent',
+    sessions: 'stateful',
+    capabilities: { ...CAPABILITIES, approvals: true, subagents: true },
+    listModels: () => ['model'],
+    startSession: (input) => [event(input, 'session_started', {})],
+    async *sendTurn(input) {
+      yield event(input, 'turn_started', { turnId: input.turnId })
+      yield event(input, 'session_updated', { providerSessionId: 'thread-1' })
+      if (input.message === 'spawn') {
+        yield event(input, 'subagent_status', { toolUseId: 'task-1', status: 'running', background: true })
+        yield event(input, 'turn_completed', { turnId: input.turnId })
+        return
+      }
+      if (input.message === 'ask')
+        yield event(input, 'approval_requested', {
+          turnId: input.turnId,
+          requestId: input.requestId,
+          action: 'Bash',
+          summary: 'Bash: npm test',
+        })
+      await new Promise<void>((release) => {
+        pending = { ...(input.message === 'ask' ? { requestId: input.requestId } : {}), release }
+      })
+    },
+    resolveApproval: () => [],
+    interrupt: (input) => {
+      record.interrupts++
+      if (pending?.requestId) record.denied.push(pending.requestId)
+      pending?.release()
+      pending = null
+      return [event(input, 'turn_failed', { reason: 'interrupted' })]
+    },
+    stopSession: () => [],
+    disposeChildProcess: () => {
+      record.disposed++
+      return true
+    },
+  }
+  return adapter
+}
+
+async function workingChat() {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-handoff-'))
+  roots.add(workspaceRoot)
+  const record = { interrupts: 0, denied: [] as string[], disposed: 0 }
+  const runtime = new ConversationRuntime({
+    adapters: [workingProvider(record)],
+    getProviderById: () => undefined,
+    secretStore: { getStatus: async () => ({ ok: false, message: 'unused' }) },
+  })
+  runtimes.add(runtime)
+  const key = { workspaceRoot, workspaceId: 'workspace', agentId: 'agent' }
+  const started = await runtime.startSession({ ...key, providerId: 'codex-agent', modelId: 'model' })
+  assert.ok(started.ok)
+  const sessionId = started.session.sessionId
+  const seen: ConversationEventType[] = []
+  runtime.onEvent((entry) => seen.push(entry.type))
+  const waitFor = async (type: ConversationEventType) => {
+    for (let tries = 0; tries < 200 && !seen.includes(type); tries++) await new Promise((r) => setTimeout(r, 5))
+    assert.ok(seen.includes(type), `no ${type} event`)
+  }
+  const summary = () => {
+    const listed = runtime.listSessions()
+    assert.ok(listed.ok)
+    return listed.sessions[0]!
+  }
+  const events = async () => {
+    const transcript = await runtime.readTranscript(key)
+    assert.ok(transcript.ok)
+    return transcript.events
+  }
+  // The handoff as main wires it, with a launch that records what the chat
+  // looked like the moment the terminal was opened.
+  const launches: Array<{ request: AgentLaunchRequest; status: string; interrupts: number; sendWhileOpening: string }> =
+    []
+  const handoff = (options: { cliResumesSessions?: boolean } = {}) =>
+    createConversationTerminalHandoff({
+      runtime,
+      cliResumesSessions: () => options.cliResumesSessions !== false,
+      launch: async (request) => {
+        const send = await runtime.sendTurn({ sessionId, message: 'queued behind the stopped turn' })
+        launches.push({
+          request,
+          status: summary().status,
+          interrupts: record.interrupts,
+          sendWhileOpening: send.ok ? 'sent' : send.message,
+        })
+        return {
+          ok: true,
+          workspaceId: request.workspaceId,
+          agentId: 'terminal-agent',
+          sessionId: 't',
+          cli: 'codex',
+          executionId: 't',
+        }
+      },
+    }).handoff({ sessionId })
+  return { runtime, sessionId, record, waitFor, summary, events, launches, handoff }
+}
+
+test('a handoff asked for mid-turn stops the turn first, then opens the terminal on its session', async () => {
+  const chat = await workingChat()
+  void chat.runtime.sendTurn({ sessionId: chat.sessionId, message: 'refactor the parser' })
+  await chat.waitFor('session_updated')
+  assert.equal(chat.summary().status, 'active')
+
+  assert.deepEqual(await chat.handoff(), { ok: true, workspaceId: 'workspace', agentId: 'terminal-agent' })
+  // Stopped and settled before the terminal opened, and the child gone with it.
+  assert.equal(chat.launches.length, 1)
+  assert.equal(chat.launches[0]!.interrupts, 1)
+  assert.equal(chat.launches[0]!.status, 'ready')
+  assert.equal(chat.launches[0]!.request.resumeCliSessionId, 'thread-1')
+  assert.ok(chat.record.disposed > 0)
+  // A message queued behind the stopped turn waits for the person rather than
+  // respawning the chat beside the terminal.
+  assert.match(chat.launches[0]!.sendWhileOpening, /moving to a terminal/)
+
+  const events = await chat.events()
+  const failed = events.filter((entry) => entry.type === 'turn_failed')
+  assert.equal(failed.at(-1)?.payload?.reason, 'interrupted')
+  assert.match(String(events.at(-1)?.payload?.notice), /^The agent was stopped, so this conversation could continue/)
+  // Once it has moved, the chat takes a message again.
+  void chat.runtime.sendTurn({ sessionId: chat.sessionId, message: 'one more thing' })
+  await new Promise((r) => setTimeout(r, 20))
+  assert.equal(chat.summary().status, 'active')
+})
+
+test('a handoff asked for while a card waits answers it no, then hands over', async () => {
+  const chat = await workingChat()
+  void chat.runtime.sendTurn({ sessionId: chat.sessionId, message: 'ask' })
+  await chat.waitFor('approval_requested')
+  assert.equal(chat.summary().status, 'awaiting_approval')
+
+  assert.equal((await chat.handoff()).ok, true)
+  assert.equal(chat.record.denied.length, 1)
+  assert.equal(chat.launches[0]!.interrupts, 1)
+  assert.equal(chat.launches[0]!.status, 'ready')
+  const events = await chat.events()
+  const asked = events.findIndex((entry) => entry.type === 'approval_requested')
+  const ended = events.findIndex((entry) => entry.type === 'turn_failed')
+  // The turn ends after the card, which is what closes the card in the chat.
+  assert.ok(asked >= 0 && ended > asked)
+  assert.match(String(events.at(-1)?.payload?.notice), /^The agent was stopped/)
+})
+
+test('an agent the chat started is stopped with the handoff, and its card says so', async () => {
+  const chat = await workingChat()
+  assert.ok((await chat.runtime.sendTurn({ sessionId: chat.sessionId, message: 'spawn' })).ok)
+  assert.equal(chat.summary().backgroundAgents, 1)
+
+  assert.equal((await chat.handoff()).ok, true)
+  assert.equal(chat.record.interrupts, 0, 'no turn was running to interrupt')
+  assert.equal(chat.summary().backgroundAgents, undefined)
+  const events = await chat.events()
+  const agent = events.filter((entry) => entry.type === 'subagent_status').at(-1)
+  assert.equal(agent?.payload?.status, 'stopped')
+  assert.match(String(events.at(-1)?.payload?.notice), /^The agent this chat started was stopped/)
+})
+
+test('a handoff refused for any other reason leaves a working chat running', async () => {
+  const chat = await workingChat()
+  void chat.runtime.sendTurn({ sessionId: chat.sessionId, message: 'refactor the parser' })
+  await chat.waitFor('session_updated')
+  assert.deepEqual(await chat.handoff({ cliResumesSessions: false }), {
+    ok: false,
+    message: 'A terminal cannot resume this kind of chat yet.',
+  })
+  assert.equal(chat.record.interrupts, 0)
+  assert.equal(chat.summary().status, 'active')
 })
