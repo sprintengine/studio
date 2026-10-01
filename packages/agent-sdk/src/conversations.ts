@@ -146,7 +146,12 @@ export type EventStreamOptions = {
  * replaces what you held.
  */
 export type ConversationEventStream = AsyncIterableIterator<ConversationFollowFrame> & {
-  /** The last sequence received and its log's generation; null until the first fence. Persist it to resume later. */
+  /**
+   * The last sequence this stream has handed you, and its log's generation;
+   * null until the first fence has been read. It never runs ahead of what you
+   * have taken from the stream, so persisting it after applying a frame never
+   * skips one that was received but not yet read.
+   */
   readonly cursor: StudioCursor | null
   close(): void
 }
@@ -263,17 +268,20 @@ export function agentConversations(service: ConversationService): AgentConversat
  * many frames wait, so a producer can stop reading while a consumer lags.
  * Frames already received are delivered before an end or a failure.
  */
-export function createFrameQueue(hooks: {
-  onClose: () => void
-  onDepth?: (depth: number) => void
-  cursor: () => StudioCursor | null
-}): {
+export function createFrameQueue(hooks: { onClose: () => void; onDepth?: (depth: number) => void }): {
   stream: ConversationEventStream
-  push(frame: ConversationFollowFrame): void
+  /** Queue a frame, with the cursor that holds once the consumer has taken it (null: none yet; absent: unchanged). */
+  push(frame: ConversationFollowFrame, cursor?: StudioCursor | null): void
   fail(error: Error): void
   end(): void
 } {
-  const queue: ConversationFollowFrame[] = []
+  const queue: Array<{ frame: ConversationFollowFrame; cursor?: StudioCursor | null }> = []
+  // Moved only as the consumer takes frames: the cursor it has applied.
+  let applied: StudioCursor | null = null
+  const take = (entry: { frame: ConversationFollowFrame; cursor?: StudioCursor | null }) => {
+    if (entry.cursor !== undefined) applied = entry.cursor
+    return entry.frame
+  }
   const waiters: Array<{
     resolve: (result: IteratorResult<ConversationFollowFrame>) => void
     reject: (error: Error) => void
@@ -302,13 +310,13 @@ export function createFrameQueue(hooks: {
   }
   const stream: ConversationEventStream = {
     get cursor() {
-      return hooks.cursor()
+      return applied
     },
     next() {
-      const frame = queue.shift()
-      if (frame) {
+      const entry = queue.shift()
+      if (entry) {
         hooks.onDepth?.(queue.length)
-        return Promise.resolve({ value: frame, done: false })
+        return Promise.resolve({ value: take(entry), done: false })
       }
       if (closed || ending) return deliverEnd()
       return new Promise((resolve, reject) => waiters.push({ resolve, reject }))
@@ -332,12 +340,13 @@ export function createFrameQueue(hooks: {
   }
   return {
     stream,
-    push(frame) {
+    push(frame, cursor) {
       if (closed || ending) return
+      const entry = cursor === undefined ? { frame } : { frame, cursor }
       const waiter = waiters.shift()
-      if (waiter) waiter.resolve({ value: frame, done: false })
+      if (waiter) waiter.resolve({ value: take(entry), done: false })
       else {
-        queue.push(frame)
+        queue.push(entry)
         hooks.onDepth?.(queue.length)
       }
     },

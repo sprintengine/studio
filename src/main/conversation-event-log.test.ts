@@ -418,3 +418,31 @@ test('findLast with a byte budget stops looking past it', async () => {
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test('a reconnect behind by more bytes than a snapshot costs is sent a snapshot, however few events it missed', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-event-log-'))
+  try {
+    const filePath = join(root, 'agent.jsonl')
+    const small = Array.from({ length: 4 }, (_, index) => ({
+      ...event('user_message', { text: 'hi' }),
+      seq: index + 1,
+    }))
+    // Two events after seq 4, but the first of them a tool's whole output.
+    const big = { ...event('tool_output', { toolUseId: 'dump', output: 'x'.repeat(64 * 1024) }), seq: 5 }
+    const last = { ...event('user_message', { text: 'after' }), seq: 6 }
+    await writeFile(filePath, `${[...small, big, last].map((item) => JSON.stringify(item)).join('\n')}\n`, {
+      mode: 0o600,
+    })
+    const reader = new ConversationTranscriptReader({ catchUpEvents: 2000, catchUpBytes: 16 * 1024 })
+    const first = await reader.sync(root, filePath, {})
+    const generation = first.generation
+    const nearby = await reader.sync(root, filePath, { afterSeq: 5, generation })
+    assert.equal(nearby.kind, 'events', 'one event behind, and small enough: the missed event')
+    const behind = await reader.sync(root, filePath, { afterSeq: 4, generation })
+    assert.equal(behind.kind, 'snapshot', 'two events behind, but more bytes than the budget: a snapshot')
+    const counted = new ConversationTranscriptReader({ catchUpEvents: 1, catchUpBytes: 1024 * 1024 })
+    assert.equal((await counted.sync(root, filePath, { afterSeq: 4, generation })).kind, 'snapshot', 'and by count')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})

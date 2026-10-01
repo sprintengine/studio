@@ -98,10 +98,10 @@ export function fromModuleConversationService(
     follow: (ref, options, onFrame) => module.follow(ref, options, onFrame),
     events(ref, options = {}) {
       // In process nothing drops, so there is nothing to resume: one follow,
-      // its cursor kept as frames arrive.
+      // its cursor kept as frames arrive and handed on as each is read.
       let cursor: StudioCursor | null = options.cursor ?? null
       let unfollow: (() => void) | null = null
-      const queue = createFrameQueue({ cursor: () => cursor, onClose: () => unfollow?.() })
+      const queue = createFrameQueue({ onClose: () => unfollow?.() })
       unfollow = module.follow(
         ref,
         {
@@ -118,7 +118,7 @@ export function fromModuleConversationService(
             cursor = { afterSeq: frame.seq, generation: frame.generation }
           else if (frame.type === 'event' && cursor && frame.event.seq !== undefined)
             cursor = { ...cursor, afterSeq: frame.event.seq }
-          queue.push(frame)
+          queue.push(frame, frame.type === 'snapshot' ? null : cursor ? { ...cursor } : undefined)
         },
       )
       options.signal?.addEventListener('abort', () => queue.stream.close(), { once: true })

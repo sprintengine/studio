@@ -328,7 +328,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
       stream.snapshotted = true
       // A snapshot replaces what came before: the cursor is the fence's now.
       stream.cursor = null
-      stream.queue.push(delivered)
+      stream.queue.push(delivered, null)
       return
     }
     if (frame.type === 'event') {
@@ -336,16 +336,21 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
       // Never twice: what the cursor already covers was delivered.
       if (seq !== undefined && stream.cursor && seq <= stream.cursor.afterSeq) return
       if (seq !== undefined && stream.cursor) stream.cursor = { ...stream.cursor, afterSeq: seq }
-      stream.queue.push({ type: 'event', event: frame.event })
+      // What resumes the stream is what was received; what its consumer reads
+      // as `cursor` moves only as it takes each frame.
+      stream.queue.push({ type: 'event', event: frame.event }, stream.cursor ? { ...stream.cursor } : undefined)
       return
     }
     if (frame.type === 'synchronized') {
       if (frame.generation) stream.cursor = { afterSeq: frame.seq, generation: frame.generation }
-      stream.queue.push({
-        type: 'synchronized',
-        seq: frame.seq,
-        ...(frame.generation === undefined ? {} : { generation: frame.generation }),
-      })
+      stream.queue.push(
+        {
+          type: 'synchronized',
+          seq: frame.seq,
+          ...(frame.generation === undefined ? {} : { generation: frame.generation }),
+        },
+        stream.cursor ? { ...stream.cursor } : undefined,
+      )
     }
   }
 
@@ -366,7 +371,6 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
       depth: 0,
       retry: null,
       queue: createFrameQueue({
-        cursor: () => stream.cursor,
         onDepth: (depth) => {
           stream.depth = depth
           adjustReading()

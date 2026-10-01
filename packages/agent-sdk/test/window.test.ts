@@ -227,9 +227,10 @@ test('offline, a client parks with what it was asked kept, and the network comin
     const client = await connected(target)
     navigator.onLine = false
     target.drop()
-    for (let tries = 0; client.state !== 'parked' && tries < 100; tries++)
+    const stateOf = () => client.state as string
+    for (let tries = 0; stateOf() !== 'parked' && tries < 100; tries++)
       await new Promise((resolve) => setTimeout(resolve, 5))
-    assert.equal(client.state, 'parked')
+    assert.equal(stateOf(), 'parked')
     assert.equal(target.tickets.length, 1, 'and it does not try while offline')
     // Kept, not refused: it goes out once the network is back.
     const asked = client.request('workspaces.list', {} as never).then(
@@ -238,13 +239,33 @@ test('offline, a client parks with what it was asked kept, and the network comin
     )
     navigator.onLine = true
     events.dispatchEvent(new Event('online'))
-    for (let tries = 0; client.state !== 'open' && tries < 100; tries++)
+    for (let tries = 0; stateOf() !== 'open' && tries < 100; tries++)
       await new Promise((resolve) => setTimeout(resolve, 5))
-    assert.equal(client.state, 'open')
+    assert.equal(stateOf(), 'open')
     assert.equal(target.tickets.length, 2)
     // This test's chat surface has no workspaces: refused, but by Studio, so it went out.
     assert.notEqual(await asked, 'offline')
   } finally {
     vi.unstubAllGlobals()
   }
+})
+
+test('a stream’s cursor is what its consumer has read, never what is still waiting to be read', async () => {
+  const target = window()
+  const client = await connected(target)
+  const stream = client.conversation({ workspaceId: 'ws-1', agentId: 'agent-1' }).events()
+  for (let next = await stream.next(); next.value?.type !== 'synchronized'; next = await stream.next());
+  const fenced = stream.cursor
+  assert.ok(fenced)
+  target.backend.emit('agent-1', 'user_message', { text: 'one' })
+  target.backend.emit('agent-1', 'user_message', { text: 'two' })
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  // Received, not yet read: the cursor has not moved.
+  assert.deepEqual(stream.cursor, fenced)
+  const first = await stream.next()
+  assert.equal(first.value?.type === 'event' && first.value.event.payload?.text, 'one')
+  assert.equal(stream.cursor?.afterSeq, (first.value?.type === 'event' && first.value.event.seq) || -1)
+  const second = await stream.next()
+  assert.equal(stream.cursor?.afterSeq, (second.value?.type === 'event' && second.value.event.seq) || -1)
+  stream.close()
 })
