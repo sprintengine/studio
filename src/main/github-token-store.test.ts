@@ -52,4 +52,12 @@ test('without a cipher the token lasts for the session and never reaches the dis
   assert.deepEqual(status, { configured: true, source: 'settings', encryptionAvailable: false })
   assert.equal(await store.resolveToken(), 'ghp_example')
   assert.equal(existsSync(join(dir, 'github-token.bin')), false)
+
+  // A token another cipher sealed (the desktop's keychain, seen from a server
+  // sharing its directory) outlives a clear here.
+  await new GitHubTokenStore({ resolveUserDataDir: () => dir, cipher: createSecretCipherStandIn() }).writeToken(
+    'ghp_desktop',
+  )
+  await store.clearToken()
+  assert.equal(existsSync(join(dir, 'github-token.bin')), true)
 })

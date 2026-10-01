@@ -85,6 +85,14 @@ test('secret-store', async () => {
     assert.equal(written.status.encryptionAvailable, false)
     assert.equal(files.files.size, 0)
     assert.doesNotMatch(JSON.stringify(written), /sk-session-secret/)
+
+    // A file sealed by a cipher this store does not have (the desktop's
+    // keychain, seen from a server sharing its directory) outlives a clear.
+    const sealed = createStore({ files, encryptionAvailable: true })
+    assert.equal((await sealed.setSecret('openai-compatible', 'sk-desktop-secret')).ok, true)
+    assert.equal(files.files.size, 1)
+    assert.equal((await store.clearSecret('openai-compatible')).ok, true)
+    assert.equal(files.files.size, 1)
   }
 
   async function testEnvironmentStatusUsesDescriptorEnv(): Promise<void> {

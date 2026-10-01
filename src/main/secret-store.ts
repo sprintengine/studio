@@ -122,7 +122,13 @@ export class ProviderSecretStore {
     if (!descriptor.ok) return { ok: false, message: descriptor.message }
 
     this.inMemorySecrets.delete(descriptor.storageKey)
-    await this.files.unlink(this.secretPath(descriptor.storageKey)).catch(() => {})
+    // Only a cipher that could have sealed the file may delete it. With none
+    // (a server sharing the desktop's data directory, its secrets off), the
+    // file is the desktop's keychain ciphertext, which nothing here wrote or
+    // can read, and clearing a session-only key must not take it with it.
+    if (this.cipher.available()) {
+      await this.files.unlink(this.secretPath(descriptor.storageKey)).catch(() => {})
+    }
     return { ok: true, status: await this.buildStatus(descriptor) }
   }
 

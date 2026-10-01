@@ -81,7 +81,9 @@ export class GitHubTokenStore {
 
   async clearToken(): Promise<GitHubTokenStatus> {
     this.inMemoryToken = null
-    await unlink(this.tokenPath).catch(() => {})
+    // As for provider secrets: with no cipher here, the file on disk is one
+    // this process did not seal and cannot read, so it is left alone.
+    if (this.cipher.available()) await unlink(this.tokenPath).catch(() => {})
     return this.getStatus()
   }
 }
