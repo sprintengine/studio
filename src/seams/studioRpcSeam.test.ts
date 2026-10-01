@@ -242,6 +242,27 @@ test('a paired app starts a chat, follows it and drives it, held to its ceiling'
   }
 })
 
+test('a stop resent after the chat started again does not stop it again', async () => {
+  const client = await pairedClient(['conversation:read', 'conversation:operate', 'conversation:create'], 'auto')
+  try {
+    const chat = await client.createConversation({ workspaceId: 'ws-a', cli: 'claude-code' })
+    const live = () => {
+      const listed = runtime.listSessions({ workspaceId: 'ws-a', agentId: chat.ref.agentId })
+      return listed.ok ? listed.sessions.filter((session) => session.status !== 'stopped') : []
+    }
+    await chat.stop({ commandId: 'halt' })
+    assert.equal(live().length, 0)
+    // The chat is sent to again, which starts its session again.
+    await chat.send('back again')
+    assert.equal(live().length, 1)
+    // The same stop, as a client resends it after a reconnect.
+    await chat.stop({ commandId: 'halt' })
+    assert.equal(live().length, 1)
+  } finally {
+    client.close()
+  }
+})
+
 test('revoking the app in Settings ends its stream and its client', async () => {
   const client = await pairedClient(['conversation:read', 'conversation:create'], 'manual')
   const chat = await client.createConversation({ workspaceId: 'ws-a', cli: 'claude-code' })

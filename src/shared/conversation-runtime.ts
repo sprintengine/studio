@@ -295,6 +295,10 @@ export type ConversationSetModelInput = {
 
 export type ConversationStopSessionInput = {
   sessionId: string
+  // With one, the stop goes through the conversation's durable receipts like
+  // any other command: a retry is answered with the first result, so a resend
+  // after a reconnect cannot stop a session started since.
+  commandId?: string
 }
 
 // Settle and Snooze: end the session's child process but keep the session, so

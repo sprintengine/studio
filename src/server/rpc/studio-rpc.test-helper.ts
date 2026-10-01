@@ -35,6 +35,8 @@ export type FakeBackend = StudioConversationBackend & {
   emit(agentId: string, type: ConversationEvent['type'], payload?: Record<string, unknown>): ConversationEvent
   commands: Array<{ clientId: string; commandId: string; command: ConversationCommand }>
   creates: Array<{ request: ConversationCreateRequest; launchCommandId: string }>
+  /** Every stop carried out, by its namespaced command id. */
+  stops: string[]
   presets: Map<string, ConversationWirePermissionPreset>
   followers(agentId: string): number
 }
@@ -48,6 +50,7 @@ export function createFakeBackend(agentIds: string[] = ['agent-1']): FakeBackend
   const backend: FakeBackend = {
     commands: [],
     creates: [],
+    stops: [],
     presets: new Map(),
     followers: (agentId) => logs.get(agentId)?.listeners.size ?? 0,
     emit(agentId, type, payload) {
@@ -138,7 +141,9 @@ export function createFakeBackend(agentIds: string[] = ['agent-1']): FakeBackend
       receipts.set(commandId, outcome)
       return outcome
     },
-    async stop() {
+    async stop(_key, commandId) {
+      if (!receipts.has(commandId)) backend.stops.push(commandId)
+      receipts.set(commandId, { ok: true })
       return { ok: true }
     },
     permissionOf: (key) => backend.presets.get(key.agentId) ?? 'auto',

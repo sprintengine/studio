@@ -240,6 +240,10 @@ test('command ids are namespaced per client, and a retried id is carried out onc
     backend.commands.map((entry) => entry.commandId),
     ['client:one:same', 'client:two:same', 'owner:same'],
   )
+  // A stop is a command like the rest: carried out once under its id.
+  await request(one, 'e', 'conversation.stop', { key, commandId: 'halt' })
+  await request(one, 'f', 'conversation.stop', { key, commandId: 'halt' })
+  assert.deepEqual(backend.stops, ['client:one:halt'])
 })
 
 test('a create retried while the first is starting, and after, makes one chat', async () => {

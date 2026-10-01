@@ -62,6 +62,7 @@ export function studioRuntimeCommandId(grant: StudioGrant, commandId: string): s
 
 /** The strictest ceiling under which an app may answer a request for the rest of a conversation. */
 const CONVERSATION_RULE_FLOOR = 'auto' as const
+const MAX_REMEMBERED_STOPS = 1024
 
 const refuse = (code: string, message: string): { ok: false; error: StudioErrorBody } => ({
   ok: false,
@@ -91,6 +92,7 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
   const now = options.now ?? Date.now
   // Creates still starting, by namespaced id: a retry that arrives while the
   // first attempt is launching shares it, so one id makes one chat.
+  const stopsDone = new Set<string>()
   const creating = new Map<
     string,
     Promise<{ ok: true; conversation: StudioCreatedConversation } | { ok: false; code: string; message: string }>
@@ -228,10 +230,18 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
       case 'conversation.create':
         return create(grant, params)
       case 'conversation.stop': {
-        const { key: wire } = params as StudioMethodParams<'conversation.stop'>
+        const { key: wire, commandId } = params as StudioMethodParams<'conversation.stop'>
         const key = resolve(wire)
         if (!key) return notFound(wire)
-        const stopped = await backend.stop(key)
+        const runtimeId = studioRuntimeCommandId(grant, commandId)
+        // A stop with no session to stop leaves no receipt in the runtime, so
+        // it is remembered here: a resend of it never stops a later session.
+        if (stopsDone.has(runtimeId)) return { ok: true, result: {} }
+        const stopped = await backend.stop(key, runtimeId)
+        if (stopped.ok) {
+          stopsDone.add(runtimeId)
+          while (stopsDone.size > MAX_REMEMBERED_STOPS) stopsDone.delete(stopsDone.values().next().value!)
+        }
         return stopped.ok ? { ok: true, result: {} } : refuse('unavailable', stopped.message)
       }
       case 'conversation.loadEarlier': {
