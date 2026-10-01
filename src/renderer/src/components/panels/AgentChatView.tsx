@@ -2255,13 +2255,19 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // view can operate the conversation.
   const rewindEnabled = operate && capabilities?.rewind === true && typeof transport.rewind === 'function'
   // "Fork from here", where the provider can be forked and this machine can
-  // open the fork in a tab. A fork at the newest reply makes sure this chat has
-  // its session first: a provider that branches only the session it is
-  // running (an ACP agent's `session/fork`) does it from there.
+  // open the fork in a tab. A provider that branches only the session it is
+  // running (an ACP agent's `session/fork`, `forkFromLiveSession`) has this
+  // chat's session started first for a fork at the newest reply; any other
+  // is not started for nothing.
   const forkRef = useRef<(target: ForkFromHereTarget) => Promise<void>>(async () => undefined)
   forkRef.current = async (target) => {
     if (!workspaceRoot) throw new Error('This chat has no folder to fork in.')
-    if (target.side === 'assistant' && target.turnId === latestTurnId && transport.capabilities.startSession)
+    if (
+      target.side === 'assistant' &&
+      target.turnId === latestTurnId &&
+      capabilities?.forkFromLiveSession === true &&
+      transport.capabilities.startSession
+    )
       await ensureSession()
     await forkChat({ transport, key: { workspaceRoot, workspaceId, agentId }, target })
   }

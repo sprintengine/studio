@@ -132,12 +132,14 @@ export async function forkChat(input: {
   target: ForkFromHereTarget
 }): Promise<void> {
   const { key, target } = input
-  const parent = useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === key.workspaceId)?.agents[
-    key.agentId
-  ]
+  const workspace = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === key.workspaceId)
+  const parent = workspace?.agents[key.agentId]
   if (!input.transport.fork || !parent?.conversation) throw new Error('This chat cannot be forked here.')
   const agentId = `conversation-${parent.conversation.providerId}-${nanoid(6)}`
-  const name = `${parent.name || 'Chat'} (fork)`
+  const name = forkName(
+    parent.name || 'Chat',
+    Object.values(workspace?.agents ?? {}).map((agent) => agent.name),
+  )
   const forked = await input.transport.fork({
     key,
     newAgentId: agentId,
@@ -151,6 +153,21 @@ export async function forkChat(input: {
   if (target.side === 'user') composerDraftStore().getState().put(key.workspaceId, agentId, target.draft)
   placeSpawnedAgentTab(key.workspaceId, agentId, name, { afterAgentId: key.agentId })
   showToast({ tone: 'neutral', title: `Forked into ${name}. Both chats work in the same files.` })
+}
+
+/**
+ * What a fork is called: the chat's name with "(fork)", numbered past the
+ * forks of it already open. A fork of a fork counts among the forks of the
+ * chat it started from, so a second generation reads "Atlas (fork 2)", never
+ * "Atlas (fork) (fork)".
+ */
+export function forkName(parentName: string, taken: readonly string[]): string {
+  const base = parentName.replace(/ \(fork(?: \d+)?\)$/u, '')
+  const names = new Set(taken)
+  if (!names.has(`${base} (fork)`)) return `${base} (fork)`
+  let index = 2
+  while (names.has(`${base} (fork ${index})`)) index += 1
+  return `${base} (fork ${index})`
 }
 
 /** The fork's agent record: the parent's engine and folder under the fork's own name. */

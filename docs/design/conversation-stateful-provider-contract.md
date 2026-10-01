@@ -127,9 +127,11 @@ branched already (an ACP agent's `session/fork`, only at the newest reply), or
 null. The copy, renumbered under the new agent id, ends with a
 `session_updated` carrying `forkedFrom` and that cursor; `readResumeCursor`
 treats it like a rewind's marker. Null with history to carry also writes
-`seedFromHistory`, and until the fork's first `user_message` every start passes
-`seedFromHistory: true` with `fallbackHistory`, which the Codex and ACP
-adapters send ahead of that first message. An adapter without `fork` is seeded
+`seedFromHistory`, and every start passes `seedFromHistory: true` with
+`fallbackHistory`, which the Codex and ACP adapters send ahead of the next
+message, until the adapter reports the seed delivered (a `session_updated`
+with `historySeeded`, once Codex accepted `turn/start` or the ACP prompt
+returned) or a turn of the fork completes. An adapter without `fork` is seeded
 when stateful and needs nothing when stateless.
 
 ### Provider identity & listing

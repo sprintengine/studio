@@ -139,7 +139,13 @@ machine's chat is not forked from here), wherever the runtime can be forked:
 | API-key (OpenAI-compatible) | The conversation is replayed from the copy each turn, as for any chat on it.                                                                                                                |
 
 Codex falls back to the conversation as text too, for a chat from before turns
-recorded their Codex turn, and when the thread it came from is gone. A fork
+recorded their Codex turn, and when it cannot branch the thread at that turn
+(the thread or the turn is gone). A fork that carries the conversation as text
+owes it until a message has actually reached the agent: a first send that
+failed before it did (signed out, a CLI that would not start) leaves it owed
+to the next message, across a restart too. An ACP chat that is itself still
+owed its conversation is never branched natively; its fork is seeded as well.
+A second fork of a chat is numbered: "Atlas (fork 2)". A fork
 keeps its point across a restart until its first message is sent. Until then a
 Claude or Codex fork has no CLI session of its own, so Continue in terminal
 waits for that first message.

@@ -8,7 +8,7 @@ import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { useToastStore } from '../../../store/toastStore'
 import { addAgentTabAfter, registerModel, unregisterModel } from '../../../utils/modelRegistry'
 import { composerDraftStore } from './draftStore'
-import { forkChat, forkedAgentPatch } from './forkFromHere'
+import { forkChat, forkName, forkedAgentPatch } from './forkFromHere'
 
 const WS = 'fork-from-here-ws'
 const root = '/Users/dev/app-worktree'
@@ -134,4 +134,12 @@ test('beside a chat with no tab here, the fork is left to dock the ordinary way'
   const t = setup()
   expect(addAgentTabAfter(WS, 'fork', 'Atlas (fork)', 'closed-chat')).toBe(false)
   expect(tabsOf(t.model).agents).toEqual(['parent', 'other'])
+})
+
+test('a fork is named after the chat it came from, numbered past the forks already open', () => {
+  expect(forkName('Atlas', ['Atlas', 'Iris'])).toBe('Atlas (fork)')
+  expect(forkName('Atlas', ['Atlas', 'Atlas (fork)'])).toBe('Atlas (fork 2)')
+  // A fork of a fork is one more fork of the chat it started from.
+  expect(forkName('Atlas (fork)', ['Atlas', 'Atlas (fork)'])).toBe('Atlas (fork 2)')
+  expect(forkName('Atlas (fork 2)', ['Atlas', 'Atlas (fork)', 'Atlas (fork 2)'])).toBe('Atlas (fork 3)')
 })
