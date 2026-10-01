@@ -240,6 +240,17 @@ same socket and the same frames; nothing in the wire is specific to a phone.
   that CLI), and sends the prompt as its first message. It answers once the
   session is up, with the workspace and agent ids a remote pane follows the
   chat by. Like every remote command it is audited.
+- **Answering a plan.** A desktop that advertises `conversation-plans` takes
+  `resolvePlan` (`approve` or `reject`) for a plan the agent proposed, and
+  refuses it for a request that is not a plan, before the provider sees it.
+  A plan answered as a `resolveApproval` (`once` carries it out, `deny` sends
+  the agent back to planning), as every client did before, is still taken.
+- **A CLI's own modes.** A desktop that advertises
+  `conversation-cli-permission-modes` lists the CLI's own mode a chat runs at
+  its preset (Claude Code's Accept edits) and the modes its provider runs, and
+  takes a `permissionMode` beside the preset on `setPermissionPreset`. A
+  resume keeps the mode the chat was left on. A desktop without it drops the
+  member and runs the preset's own mode, never a looser one.
 - **Switching a chat's model.** A desktop that advertises the
   `conversation-models` capability (owner ruling 2026-09-27) lists each chat's
   CLI and the models this machine's own picker offers for it — the CLI's
@@ -307,10 +318,40 @@ follows. Live events that arrive while a replay is still going out wait behind
 it, bounded by size rather than count, so a busy turn during a large catch-up
 does not force a resync before the fence.
 
-The portable protocol lives in `packages/conversation-protocol`; its README is
-the frame reference. Its source mirror and digest in the companion must be
-updated together until the companion adopts a published package version.
-Building this branch does not publish that package.
+### The protocol
+
+`@sprintengine/conversation-protocol` (`packages/conversation-protocol`) is the
+one contract every follower of a conversation speaks (owner ruling
+2026-10-01): this socket, the module SDK's conversation service, and the
+desktop's own chat view, which imports its event types from it through
+`src/shared/conversation-runtime.ts`. Its README is the frame reference. It
+declares:
+
+- **Events, in two layers.** Each provider adapter reads its CLI's own stream
+  and writes `ConversationEvent`s in a vocabulary no provider owns
+  (`CONVERSATION_EVENT_TYPES`); the provider's shapes stay in the adapter.
+  Everything above, this socket included, carries only that second layer.
+- **Commands and answers.** Every mutation carries the client's `commandId`,
+  which the runtime records as a durable receipt before any work starts, so a
+  retry is answered with the first attempt's result. A tool permission is
+  answered `once`, `conversation` or `deny`, a question with its answers, a
+  plan with `approve` or `reject`, and each answer can name the kind it is for.
+  A permanent approval rule is the person's to make here and has no command.
+- **Capabilities and a version.** `hello` answers the conversation protocol
+  version (1), its minimum, and the conversation capabilities this machine
+  advertises (`conversation-hello`). Features are asked about by capability,
+  never by version; the version exists to refuse a peer a change could not be
+  made additive for, naming both numbers.
+- **Create requests.** `ConversationCreateRequest`, with `allowedTools` beside
+  the preset. This socket does not create conversations through it; the
+  module SDK does, and so will the local socket.
+
+The package entry is `public.ts`. The phone carries `index.ts` and the four
+files it re-exports byte for byte under a shared SHA-256 pin
+(`src/main/automation/tailnet/conversation-protocol.test.ts`), so those five
+files change only in a change made on both sides at once; everything added
+since lives in files of its own, re-exported from the entry, and leaves the
+pin as it is. Building this branch does not publish the package.
 
 Phase changes reach a client while its socket is open, and every paired
 device's change feed says when the conversation list moved — a conversation

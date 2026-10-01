@@ -107,7 +107,8 @@ HOST_API_VERSION`. `checkHostApiCompatibility` is the one check; it is
 - **Capabilities.** `host.supports(name)` answers what the running host
   provides now, from the table in `src/shared/modules/host-api.ts`
   (`hostSupports`). The names are the SDK's `HostCapability` union:
-  `conversations`, `conversation-controls`, `chat.open`, `companion-agents`,
+  `conversations`, `conversation-controls`, `conversation-streams`,
+  `conversation-requests`, `conversation-permissions`, `chat.open`, `companion-agents`,
   `scheduled-agents`, `secrets`, `github`, `storage`, `mcp-tools`, `skills`,
   `module-assets`, `notifications`.
   A capability joins the table in the same change that makes it real, and an
@@ -138,8 +139,21 @@ a peer sees.
 
 `@sprintengine/conversation-protocol` is a separate portable package for the
 additive `conversations` tailnet capability. It owns the direct conversation
-WebSocket frames, their client validator and pure tool-presentation helpers.
-It does not change the mobile-control wire or its version number.
+WebSocket frames, their client validator and pure tool-presentation helpers,
+and since `0.2.0` the whole conversation contract: the event layer, the
+command vocabulary, create requests, the `hello` handshake and the capability
+names. It does not change the mobile-control wire or its version number.
+
+The lane has its own `CONVERSATION_PROTOCOL_VERSION`, answered by `hello` on a
+desktop that advertises `conversation-hello`, with the same one-version window
+rule as the integer wires above (`checkConversationProtocolVersion` names both
+numbers). It is 1, and like them it moves only for a change a capability
+cannot describe. `0.2.0` added three capabilities and no version:
+`conversation-hello`, `conversation-plans` (`resolvePlan`) and
+`conversation-cli-permission-modes` (a `permissionMode` beside the preset).
+Each degrades on a desktop without it to something that desktop already does:
+`hello` and `resolvePlan` are refused under their ids, and an unknown
+`permissionMode` member is dropped, so the preset's own mode runs.
 
 The initial `0.1.0` contract requires the `conversations` capability. Additive
 optional fields preserve that contract. Model switching is one such addition: its own
@@ -160,7 +174,10 @@ Both ESM and CommonJS tarball consumers and Node16 declarations are checked by
 Until a published version is adopted, the phone carries the same portable source
 files with a shared SHA-256 pin. A wire or presentation edit must update both
 copies and both pins in companion changes; passing one repo's local hash check
-alone does not prove the two peers agree. Publishing is a separate release step.
+alone does not prove the two peers agree. The pin covers `index.ts` and the four
+files it re-exports; the package's entry is `public.ts`, which re-exports those
+and the files added since, so an addition goes in a file of its own and leaves
+the pin alone. Publishing is a separate release step.
 
 ## Changing a wire format
 

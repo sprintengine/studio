@@ -32,6 +32,29 @@ new chat. The app no longer has an automations engine for a module to extend.
   A scheduled agent's `permissionPreset` is any of the four modes a chat
   takes (`bypass`, `auto`, `manual`, `none`), or null to follow the person's
   choice at run time.
+- **Conversation streams.** `host.supports('conversation-streams')` says the
+  host takes both:
+  - `follow(ref, cursor, onFrame)`: a snapshot, or only the events after a
+    cursor (`afterSeq` and `generation`) the log can vouch for, then a
+    `synchronized` fence, then live events (`ModuleConversationStreamFrame`).
+  - `commandId` on `create`, `send`, `interrupt`, `respondToApproval`,
+    `answerQuestion`, `resolvePlan`, `setPermissionPreset` and `setModel`
+    (`ModuleConversationCommandOptions` for the ones that take options): a
+    retry is answered with the first call's result and never carried out
+    twice, and a retried `create` answers with the chat the first one made.
+- **Typed answers.** `host.supports('conversation-requests')`:
+  `answerQuestion(ref, { requestId, answers })` and
+  `resolvePlan(ref, { requestId, decision: 'approve' | 'reject' })`, each
+  refused for a request of another kind. On an older host `answerQuestion`
+  answers through `respondToApproval`, as such a host took a question's
+  answers, and `resolvePlan` is refused naming the capability.
+- **CLI modes and allowed tools.** `host.supports('conversation-permissions')`:
+  `permissionMode` beside the preset on `create`, `setPermissionPreset` and
+  the summaries, and `allowedTools` on `create`, which needs
+  `conversation:bypass`.
+- The event, page, frame and decision types restate
+  `@sprintengine/conversation-protocol` exactly; the drift guard pins them to
+  the package. The SDK still has no dependencies.
 - **Conversation controls.** `host.supports('conversation-controls')` says the
   host takes all of these:
   - `create` takes any of the four presets (`none`, `manual`, `auto`,
