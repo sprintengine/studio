@@ -223,6 +223,18 @@ export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin(), buildStampPlugin()],
     define: serviceEndpointDefines(),
+    build: {
+      rollupOptions: {
+        // Two entries: the app's main process, and the Studio server it forks
+        // as a utility process when the server runs in a process of its own
+        // (src/server/desktop-main.ts). One build, so both carry one stamp,
+        // and the server is packed in app.asar beside main.
+        input: {
+          index: resolve('src/main/index.ts'),
+          'studio-server': resolve('src/server/desktop-main.ts'),
+        },
+      },
+    },
   },
   preload: {
     plugins: [externalizeDepsPlugin()],

@@ -11,9 +11,19 @@ export function getDiagnosticsLogDirectory(): string {
   return studioPlatform().paths.logsDir()
 }
 
+// The file's name before its date. The Studio server out of process writes
+// `diagnostics-server-…` beside the shell's own, so two processes never append
+// to one file.
+let logName = 'diagnostics'
+
+/** Name this process's diagnostics file; set once, by an entry, before anything is written. */
+export function setDiagnosticsLogName(name: string): void {
+  logName = name
+}
+
 function getDiagnosticsLogPath(timestamp = new Date()): string {
   const day = timestamp.toISOString().slice(0, 10)
-  return join(getDiagnosticsLogDirectory(), `diagnostics-${day}.jsonl`)
+  return join(getDiagnosticsLogDirectory(), `${logName}-${day}.jsonl`)
 }
 
 export async function writeDiagnosticLog(input: DiagnosticLogInput): Promise<DiagnosticLogEntry> {

@@ -4,7 +4,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, test } from 'vitest'
 
+import { loadMainModules } from '../../main/module-host/load-modules'
+import { ConversationLaunchServiceToken, ConversationRuntimeToken } from '../../main/module-host/service-tokens'
+import { createBundledMainModules } from '../../main/modules'
+import { AGENT_RUNTIME_MANIFEST } from '../../main/modules/agent-runtime-module'
 import { SERVER_IPC_CHANNELS } from '../../shared/ipc-channel-owners'
+import { createNodeStudioPlatform } from '../platform/platform'
 import { createIpcTunnel } from '../ipc/ipc-tunnel'
 import { registerServerDomainIpc, type ServerDomainIpcDeps } from './server-ipc'
 
@@ -51,10 +56,27 @@ function serverDomainStubs(dataDir: string): ServerDomainIpcDeps {
   }
 }
 
-test('every channel the server registers is in the table, and every table entry is registered', () => {
+test('every channel the server registers is in the table, and every table entry is registered', async () => {
   const tunnel = createIpcTunnel()
   const handles = registerServerDomainIpc(tunnel.registry as never, serverDomainStubs(scratch))
   void handles.conversationCommands.dispose()
+  // The module kernel registers on the same tunnel in the server: its own
+  // bridge channel and each bundled module's.
+  const platform = createNodeStudioPlatform({ dataDir: scratch, packaged: false, version: '0.0.0-test' })
+  const modules = loadMainModules({
+    ipcMain: tunnel.registry as never,
+    modules: [
+      {
+        manifest: AGENT_RUNTIME_MANIFEST,
+        registerMain(host) {
+          host.provideService(ConversationLaunchServiceToken, () => anything())
+          host.provideService(ConversationRuntimeToken, () => anything())
+        },
+      },
+      ...createBundledMainModules(platform),
+    ],
+  })
+  assert.deepEqual(modules.report.errors, [])
   const registered = tunnel.channels()
   const listed = Object.keys(SERVER_IPC_CHANNELS).sort()
   assert.deepEqual(
@@ -67,4 +89,6 @@ test('every channel the server registers is in the table, and every table entry 
     [],
     'listed in SERVER_IPC_CHANNELS but not registered by the server',
   )
+  await modules.kernel.runShutdownBegin()
+  await modules.kernel.runShutdown()
 })

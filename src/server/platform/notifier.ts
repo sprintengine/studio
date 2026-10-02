@@ -1,3 +1,5 @@
+import type { ShellRevealTarget } from '../shell-bridge/shell-bridge'
+
 // How server code asks for a person's attention outside any window: a pairing
 // request waiting for approval, a machine that came back.
 //
@@ -14,8 +16,13 @@ export type StudioNotice = {
   key: string
   title: string
   body?: string
-  /** What a click on the notice does. */
+  /** What a click on the notice does, in this process. */
   onActivate?: () => void
+  /**
+   * Where a click goes, as data, for a notice another process shows (the
+   * Studio server's, shown by the desktop shell): the shell carries it out.
+   */
+  activate?: ShellRevealTarget
 }
 
 export type Notifier = {

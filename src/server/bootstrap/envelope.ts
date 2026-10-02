@@ -127,7 +127,12 @@ export type SupervisorToServer =
       t: 'attach-client'
       clientId: string
       windowId: string | null
-      kind: 'desktop-window' | 'shell'
+      /**
+       * A window's IPC tunnel; a chat view's Studio protocol connection (its
+       * ticket follows as the answer to `studio.connect`); or the shell's own
+       * session, which offers its toolsets.
+       */
+      kind: 'desktop-window' | 'studio-connection' | 'shell'
       /** A workspace window (not Diagnostics or an aux view): the `workspace-windows` push target. */
       workspaceWindow?: boolean
     }
