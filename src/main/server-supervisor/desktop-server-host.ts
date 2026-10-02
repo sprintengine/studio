@@ -116,7 +116,7 @@ export function createDesktopServerHost(options: {
     sendWindowHints()
   })
   supervisor.onState((state) => {
-    say(`server ${state.kind}`)
+    say(state.kind === 'ready' ? `server ready (pid ${state.ready.pid})` : `server ${state.kind}`)
     if (state.kind === 'failed') {
       void writeDiagnosticLog({
         level: 'error',
