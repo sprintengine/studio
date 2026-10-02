@@ -19,6 +19,7 @@ import { resolveModuleEnablement } from '../../shared/modules/resolve'
 import type { StudioCore } from '../core/studio-core'
 import type { StudioGateway } from '../core/studio-gateway'
 import type { StudioPlatform } from '../platform/platform'
+import { installElectronRequireGuard } from './electron-require-guard'
 
 // The module kernel in the Studio server out of process (phase 6 spec, 12.2):
 // every module's server half, registered on the server's IPC tunnel, its MCP
@@ -73,9 +74,14 @@ export function createServerModules(deps: {
     load(registry, nextGateway) {
       gateway = nextGateway
       const overrides = readOverrides()
+      // Main halves run here without Electron: a module that declares it needs
+      // it loads manifest-only, and one that requires it anyway is refused at
+      // the require (12.4).
       const thirdParty = planThirdPartyMainModules(
         discoverUserModulesSync(defaultUserModuleRoot(), readModuleTrustContextSync(dataDir)),
+        { electronMain: false },
       )
+      installElectronRequireGuard(() => Object.values(thirdParty.moduleRoots))
       applyHostApiGate(thirdParty.ineligible, thirdParty.modules)
       const bundled = activeForChannel(
         createBundledMainModules(platform),
@@ -107,6 +113,7 @@ export function createServerModules(deps: {
         ineligible: thirdParty.ineligible,
         launchErrors: thirdParty.launchErrors,
         deliverModuleEvent: (event) => platform.clients.publish(MODULE_EVENTS_CHANNEL, event),
+        electronMain: false,
       })
       manifests = [
         agentRuntime.manifest,

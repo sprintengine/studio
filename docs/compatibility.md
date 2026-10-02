@@ -111,7 +111,14 @@ HOST_API_VERSION`. `checkHostApiCompatibility` is the one check; it is
   `conversations`, `conversation-controls`, `conversation-streams`,
   `conversation-requests`, `conversation-permissions`, `chat.open`, `companion-agents`,
   `scheduled-agents`, `secrets`, `github`, `storage`, `mcp-tools`, `skills`,
-  `module-assets`, `notifications`.
+  `module-assets`, `notifications`, and `electron-main`, which the main host
+  answers itself: true in the desktop's own main process, false where a
+  module's main half runs in the Studio server out of process.
+- **`requires.hostCapabilities`.** An optional manifest field (added with
+  `electron-main`, no version bump): a module whose `entry.main` cannot run
+  without a capability names it, and a host that lacks it loads the module
+  manifest-only (its renderer half still loads). The validator keeps names it
+  does not know, since a host that does not know a name does not support it.
   A capability joins the table in the same change that makes it real, and an
   unknown name answers `false`. As on the tailnet, an additive feature ships as
   a capability with no version bump.

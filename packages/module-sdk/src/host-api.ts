@@ -45,6 +45,12 @@ export type HostCapability =
   | 'skills'
   | 'module-assets'
   | 'notifications'
+  // `entry.main` runs in the desktop's own main process, where `electron` can
+  // be required. False wherever the main half runs in the Studio server, a
+  // Node process with no Electron APIs; a module that cannot live without them
+  // declares `requires.hostCapabilities: ['electron-main']` and runs only where
+  // this is true.
+  | 'electron-main'
   | (string & {})
 
 export type HostApiCompatibility =

@@ -75,6 +75,12 @@ export type CapabilityManifest = {
    * built for an API it does not provide.
    */
   engines?: { hostApi: number }
+  /**
+   * What the host must provide for `entry.main` to run at all. A module that
+   * names `electron-main` is loaded manifest-only (its renderer half still
+   * loads) wherever the host does not support it.
+   */
+  requires?: { hostCapabilities?: HostCapability[] }
   entry?: ModuleEntry
   /**
    * Digests of every file the module ships. `sprintengine-module sign` writes

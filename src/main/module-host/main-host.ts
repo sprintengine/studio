@@ -276,6 +276,12 @@ export type MainKernel = {
 }
 
 export type MainKernelOptions = {
+  /**
+   * Whether a module's main half runs where `electron` can be required: true
+   * in the desktop's own main process (the default), false in the Studio
+   * server out of process. What `host.supports('electron-main')` answers.
+   */
+  electronMain?: boolean
   /** Sends one module event to every open renderer window. Absent in tests. */
   deliverModuleEvent?: (event: ModuleEventEnvelope) => void
   /** Clock override for flood-bound tests. */
@@ -587,7 +593,8 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
     return {
       moduleId,
       hostApiVersion: HOST_API_VERSION,
-      supports: hostSupports,
+      supports: (capability) =>
+        capability === 'electron-main' ? (options.electronMain ?? true) : hostSupports(capability),
       registerIpc(channel, handler) {
         const existing = channels.get(channel)
         if (existing) {

@@ -42,13 +42,44 @@ let launchSnapshot: ThirdPartyMainLaunchSnapshot = {
   errors: new Map(),
 }
 
-export function planThirdPartyMainModules(input: ThirdPartyMainLoadInput): ThirdPartyMainLoadPlan {
+/** Why a module's main half did not run here; Settings shows it in these words. */
+export const NEEDS_ELECTRON_MAIN = 'skipped: needs electron-main'
+
+/** `require('electron')` from a module's main half, where its main half runs without Electron. */
+export class ElectronUnavailableError extends Error {
+  constructor(request: string) {
+    super(
+      `${NEEDS_ELECTRON_MAIN}: this module's main half requires "${request}", which the Studio server ` +
+        'does not provide. Declare requires.hostCapabilities ["electron-main"] in its manifest.',
+    )
+    this.name = 'ElectronUnavailableError'
+  }
+}
+
+export function planThirdPartyMainModules(
+  input: ThirdPartyMainLoadInput,
+  options: {
+    /**
+     * Whether `electron` can be required where the main halves run: false in
+     * the Studio server out of process (owner default 2026-10-01), where a
+     * module that declares it needs Electron is loaded manifest-only.
+     */
+    electronMain?: boolean
+  } = {},
+): ThirdPartyMainLoadPlan {
   const modules: CapabilityModule[] = []
   const moduleRoots: Record<string, string> = {}
   const ineligible: Record<string, ModuleResolutionErrorCode> = {}
+  const electronMain = options.electronMain ?? true
 
   for (const installed of input.modules) {
-    modules.push(createThirdPartyMainModule(installed))
+    const needsElectron = installed.manifest.requires?.hostCapabilities?.includes('electron-main') === true
+    modules.push(
+      !electronMain && needsElectron
+        ? { manifest: installed.manifest }
+        : createThirdPartyMainModule(installed, { electronMain }),
+    )
+    if (!electronMain && needsElectron) skippedForElectron.add(installed.manifest.id)
     moduleRoots[installed.manifest.id] = installed.moduleRoot
     if (isLoadEligible(installed.trust.status)) continue
     ineligible[installed.manifest.id] = installed.trust.status === 'invalid' ? 'invalid_signature' : 'untrusted'
@@ -91,7 +122,15 @@ function sanitizeLaunchMessage(message: string): string {
   return sanitizeEntryMessage(message, 'Module main entry failed during startup.')
 }
 
-function createThirdPartyMainModule(installed: InstalledModule): CapabilityModule {
+// The modules this process loaded manifest-only because they need Electron.
+const skippedForElectron = new Set<string>()
+
+/** Whether a module's main half was skipped here because it needs Electron. */
+export function skippedForElectronMain(moduleId: string): boolean {
+  return skippedForElectron.has(moduleId)
+}
+
+function createThirdPartyMainModule(installed: InstalledModule, options: { electronMain: boolean }): CapabilityModule {
   const entryMain = installed.manifest.entry?.main
   if (!isLoadEligible(installed.trust.status) || !entryMain) {
     return { manifest: installed.manifest }
@@ -100,7 +139,24 @@ function createThirdPartyMainModule(installed: InstalledModule): CapabilityModul
   const verifiedFiles = installed.trust.verifiedFiles
   return {
     manifest: installed.manifest,
-    registerMain: (host) => loadTrustedEntry(installed.moduleRoot, entryMain, verifiedFiles, host),
+    registerMain: (host) => {
+      if (options.electronMain) return loadTrustedEntry(installed.moduleRoot, entryMain, verifiedFiles, host)
+      // An undeclared `require('electron')` is caught as it happens (the
+      // Studio server's require guard throws ElectronUnavailableError), and
+      // classified by name rather than reported as a crash.
+      const classify = (error: unknown): never => {
+        if (error instanceof Error && error.name === 'ElectronUnavailableError') {
+          skippedForElectron.add(installed.manifest.id)
+        }
+        throw error
+      }
+      try {
+        const registered = loadTrustedEntry(installed.moduleRoot, entryMain, verifiedFiles, host)
+        return registered ? Promise.resolve(registered).catch(classify) : registered
+      } catch (error) {
+        return classify(error)
+      }
+    },
   }
 }
 

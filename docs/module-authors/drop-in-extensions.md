@@ -57,6 +57,14 @@ the user has trusted execute code.
   extra file is refused as tampered, when the app lists modules and again
   immediately before it runs `entry.main`.
 - Permissions are install-time disclosure — see [permissions.md](./permissions.md).
+- **`entry.main` may run without Electron.** When Studio runs its server in a
+  process of its own, a module's main half runs there: a Node process with no
+  Electron APIs, where `host.supports('electron-main')` is false. A module
+  that cannot live without them declares
+  `"requires": { "hostCapabilities": ["electron-main"] }` and loads only where
+  that is true; elsewhere it loads manifest-only and Settings says
+  "skipped: needs electron-main". A main half that requires `electron` without
+  declaring it is refused at the require, with the same words.
 
 ### Installing from GitHub
 
