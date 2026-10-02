@@ -1,6 +1,7 @@
 # Phase 6: the local Studio server out of process
 
-Status: scoping spec, 2026-10-01. Nothing here is implemented. This document
+Status: scoping spec, 2026-10-01; implemented behind the flag on 2026-10-02,
+except section 6.3's toolsets (see "Implementation status" below). This document
 refines phase 6 of `docs/design/studio-server.md` (section 13) and the parts of
 sections 4.3, 5.5, 6.3, 9.3 and 10.1 it touches. It also covers the module
 server/client split that phase 10 completes (section 12 here). Where this
@@ -12,6 +13,38 @@ browser and no canvas. Phase 5 is now client tools
 (`phase-5-client-tools.md`), so the shell's pane and canvas reach the server
 as the `browser` and `canvas` toolsets it offers, not as `ShellBridge`
 members, and the canvas service is the shell's.
+
+## Implementation status (2026-10-02)
+
+Built, behind `SPRINTENGINE_SERVER_MODE` and the Advanced toggle, with in
+process still the default (decision R04): the bootstrap envelope and control
+frames (6.1), the stdio and parent-port carriers and the serve loop (7.2),
+the run lock guarding the socket (7.2), `ShellBridge` both ways (6.3, the
+non-tool half), the IPC tunnel and the preload router (6.2), the supervisor
+(7.1), the utility-process launcher and the server log (10), the port broker,
+the desktop server's composition with the module kernel (12.2, 12.4), the
+shell's composition out of process with `ServerStateMirror` (5), the keychain
+as the server's cipher (9.1), the split quit (7.4), the MCP bridge's
+reconnect (6.5), the server's state in words, the Advanced toggle and the
+boot fallback (7.1, O9), the seam tests and `scripts/smoke-server-mode.mjs`
+(16). Each section says what was amended at implementation.
+
+Not built yet:
+
+- **Section 6.3's toolsets.** The shell offering `editor`, `tour` and
+  `terminal` (and phase 5's `browser` and `canvas`) over the control channel
+  waits for phase 5's client-tools mechanism. Until then the server's gateway
+  lists no screen or terminal tools, and `agent.launch` goes through
+  `ShellBridge.terminals` (5.1).
+- **Section 8's measurements.** `measure-startup.mjs --server-mode` exists;
+  no comparison has been run. Section 16.4's manual checklist (packaged and
+  notarized builds, Windows, Linux) has not been run either.
+- **Dev restart on rebuild (R9).** The server is part of the main build, so a
+  change to it restarts the whole app under `electron-vite dev`.
+- **A transcript's own words for a server crash** (7.4): a turn a crash cut
+  short still reads "The app closed while this turn was streaming."
+- **The CI job for the both-modes matrix** (16.2) and the import-graph
+  single-writer guard (16.1).
 
 ## 0. Owner defaults this spec is built on (2026-10-01)
 
