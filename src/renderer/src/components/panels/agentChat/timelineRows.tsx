@@ -13,6 +13,7 @@ import { AttachmentThumbnail } from '../ComposerAttachmentStrip'
 import { StoredAttachmentThumbnail } from './storedAttachments'
 import {
   Badge,
+  CardButton,
   CopyGlyphButton,
   TruncatedText,
   GhostButton,
@@ -29,7 +30,14 @@ import { useConversationDisclosure } from './conversationViewState'
 import { UserMessageFold } from './userMessageFold'
 import { presentToolItem, summarizeToolGroup } from '../../../../../shared/conversation/presentation'
 import type { ConversationToolKind } from '../../../../../shared/conversation-runtime'
-import { deriveTurnFold } from './turnFolds'
+import {
+  deriveTurnFold,
+  turnAgentLanes,
+  turnFoldedProse,
+  turnFoldedSteps,
+  turnFoldFailures,
+  turnShownWork,
+} from './turnFolds'
 import { formatStepDuration } from './stepDuration'
 import { useLiveRowMotion } from './liveVisibility'
 import { formatMessageDateTime, formatMessageTime, LiveElapsed } from './liveElapsed'
@@ -42,7 +50,14 @@ import { EditFromHereAction, type EditFromHereDraft } from './editFromHere'
 import { ForkMessageAction, ForkReplyAction, type ForkFromHereTarget } from './forkFromHere'
 import { ResolvedPlanCard } from './planCard'
 import { SubagentLaneResult, subagentModel } from './subagentResult'
-import { AgentCardContent, LaneGlyph, laneOutcomeWords, laneTask, useOpenAgentsPane } from './subagentStatus'
+import {
+  AgentCardContent,
+  AgentLaneSummary,
+  LaneGlyph,
+  laneOutcomeWords,
+  laneTask,
+  useOpenAgentsPane,
+} from './subagentStatus'
 import React, { memo, useId, useMemo, useState, useRef } from 'react'
 
 // Auth-shaped turn failures get a sign-in action in the error block. Whole
@@ -273,10 +288,10 @@ function UserMessageBody({ id, text }: { id: string; text: string }) {
   )
 }
 
-// One assistant turn: work timeline (with the reasoning and prose that came
-// between its steps) → closing reasoning → decisions → prose → meta line.
-// Glyph-led, no avatar bubble; the reading text gets real size, chrome stays
-// small and quiet.
+// One assistant turn: the fold over its work (the steps, and the reasoning and
+// prose that came between them) → what it made for the person to see → the
+// agents it sent off → decisions → prose → meta line. Glyph-led, no avatar bubble; the reading text gets real size,
+// chrome stays small and quiet.
 export function AssistantTurnBlock({
   entry,
   tools,
@@ -291,21 +306,24 @@ export function AssistantTurnBlock({
   modelSwitched?: boolean
 }) {
   const context = useConversationLinkContext()
-  const fold = deriveTurnFold(entry, tools, !chrome.latestTurnId || chrome.latestTurnId === entry.turnId)
+  const fold = deriveTurnFold(entry, tools)
+  // Folded until asked for, the turn running now included: the steps are how
+  // the reply was reached, and the working line already says what is
+  // happening (owner ruling 2026-10-02).
   const [workOpen, setWorkOpen] = useConversationDisclosure(
     `${context?.workspaceId ?? ''}:${context?.agentId ?? ''}`,
     `fold:${entry.turnId}`,
-    !fold?.defaultFolded,
+    false,
   )
   const foldRegionId = useId()
   const proseRef = useRef<HTMLDivElement>(null)
-  // A shut fold still draws the steps running now; the list is kept while the
-  // tools are, so the timeline under it is not redrawn for each token.
-  const folded = Boolean(fold && !workOpen)
-  const shownTools = useMemo(
-    () => (folded ? tools.filter((tool) => tool.status === 'running') : tools),
-    [folded, tools],
-  )
+  const open = !fold || workOpen
+  // Kept while the tools are, so the cards are not redrawn for each token.
+  const lanes = useMemo(() => turnAgentLanes(tools), [tools])
+  const failed = useMemo(() => turnFoldFailures(tools), [tools])
+  const foldedSteps = useMemo(() => turnFoldedSteps(tools).length, [tools])
+  const foldedProse = useMemo(() => turnFoldedProse(entry.intermediateText), [entry.intermediateText])
+  const shown = useMemo(() => turnShownWork(tools, entry.intermediateText), [tools, entry.intermediateText])
   return (
     <div className="pb-6">
       <MessageAuthorHeading>{chrome.assistantName}</MessageAuthorHeading>
@@ -318,12 +336,12 @@ export function AssistantTurnBlock({
           tone="subtle"
           aria-expanded={workOpen}
           aria-controls={foldRegionId}
-          aria-label={fold.failed ? `${fold.label}, ${fold.failed} failed` : undefined}
+          aria-label={failed ? `${fold.label}, ${failed} failed` : undefined}
           onClick={() => setWorkOpen(!workOpen)}
           className="group/fold"
         >
           {fold.label}
-          {fold.failed ? <span className="text-[color:var(--tone-error)]">· {fold.failed} failed</span> : null}
+          {failed ? <span className="text-[color:var(--tone-error)]">· {failed} failed</span> : null}
           {/* The same turn-to-open chevron every other disclosure in the
               transcript carries, so the fold reads as one before it is tried. */}
           <ChevronRightGlyph
@@ -331,20 +349,21 @@ export function AssistantTurnBlock({
           />
         </GhostButton>
       ) : null}
-      {/* What the fold opens and closes. A step still running stays in here
-          while the fold is shut, so the region is always drawn. */}
+      {/* What the fold opens and closes. The agents and what the agent showed
+          are drawn under it, so the timeline inside leaves them out. */}
       <div id={foldRegionId}>
-        {tools.length > 0 ? (
+        {open && (foldedSteps || foldedProse?.length || entry.reasoningSegments?.length) ? (
           <WorkTimeline
-            tools={shownTools}
+            tools={tools}
             live={entry.status === 'streaming'}
-            intermediateText={folded ? undefined : entry.intermediateText}
-            reasoning={folded ? undefined : entry.reasoningSegments}
+            intermediateText={foldedProse}
+            reasoning={entry.reasoningSegments}
             turnId={entry.turnId}
+            foldedOnly
           />
         ) : null}
         {/* Thinking since the last step: the whole turn's when it ran none. */}
-        {(!fold || workOpen) && entry.reasoning.trim() ? (
+        {open && entry.reasoning.trim() ? (
           <ReasoningBlock
             text={entry.reasoning}
             duration={
@@ -355,6 +374,16 @@ export function AssistantTurnBlock({
           />
         ) : null}
       </div>
+      {shown.map((item) =>
+        item.kind === 'step' ? (
+          <WorkTimelineStep key={item.id} tool={item.tool} />
+        ) : (
+          <div key={item.id} className="mb-2 min-w-0">
+            <ConversationMarkdown text={item.text} />
+          </div>
+        ),
+      )}
+      {lanes.length > 0 ? <AgentLaneCards lanes={lanes} /> : null}
       <ResolvedDecisions rows={decisions} className={entry.text.trim() ? 'mb-3' : undefined} />
       {entry.text.trim() ? (
         // The pane's full width, as the composer below it: the column's edges
@@ -498,6 +527,7 @@ export const WorkTimeline = memo(function WorkTimeline({
   intermediateText,
   reasoning,
   turnId = '',
+  foldedOnly = false,
 }: {
   tools: TranscriptToolEntry[]
   live: boolean
@@ -505,6 +535,10 @@ export const WorkTimeline = memo(function WorkTimeline({
   reasoning?: ReasoningSegment[]
   // Scopes each reasoning block's open state to its turn.
   turnId?: string
+  // Inside a turn's fold: its agents and what it showed the person are drawn
+  // under the fold, so their rows are left out, while the prose and reasoning
+  // written before them stay in place.
+  foldedOnly?: boolean
 }) {
   const parts = useMemo(
     () => partitionWorkTimeline(tools, intermediateText, reasoning),
@@ -527,7 +561,7 @@ export const WorkTimeline = memo(function WorkTimeline({
               <ConversationMarkdown text={text} />
             </div>
           ))}
-          <WorkTimelineGroup tools={part.tools} />
+          <WorkTimelineGroup tools={foldedOnly ? turnFoldedSteps(part.tools) : part.tools} />
         </React.Fragment>
       ))}
     </div>
@@ -586,6 +620,7 @@ const WorkTimelineGroup = memo(function WorkTimelineGroup({ tools }: { tools: Tr
   const [open, setOpen] = useConversationDisclosure(key, `group:${tools[0]?.id ?? ''}`, false)
   const step = (tool: TranscriptToolEntry) => <WorkTimelineStep key={tool.id} tool={tool} />
   const railId = useId()
+  if (!tools.length) return null
   return (
     <div data-copy-exclude="">
       {settled.length > 1 ? (
@@ -625,6 +660,41 @@ const WorkTimelineGroup = memo(function WorkTimelineGroup({ tools }: { tools: Tr
 }, sameSteps)
 export const WorkTimelineStep = memo(function WorkTimelineStep({ tool }: { tool: TranscriptToolEntry }) {
   return tool.subagentLane ? <SubagentLane tool={tool} /> : <ToolRow tool={tool} />
+})
+
+// The agents a turn sent off, one card each, outside the turn's fold: the
+// fan-out is the part of the work worth seeing at a glance. A card opens the
+// agent's own thread in the Agents tab beside the chat. A chat on another
+// machine has no Agents tab to open, so there each agent is its lane, which
+// opens in place.
+const AgentLaneCards = memo(function AgentLaneCards({ lanes }: { lanes: TranscriptToolEntry[] }) {
+  const openAgents = useOpenAgentsPane()
+  return (
+    <ul aria-label="Agents" data-copy-exclude="" className="mb-3 flex flex-col gap-1.5">
+      {lanes.map((lane) => (
+        <li key={lane.id}>
+          {openAgents ? <AgentLaneCard lane={lane} onOpen={() => openAgents(lane.id)} /> : <SubagentLane tool={lane} />}
+        </li>
+      ))}
+    </ul>
+  )
+})
+
+const AgentLaneCard = memo(function AgentLaneCard({ lane, onOpen }: { lane: TranscriptToolEntry; onOpen: () => void }) {
+  // A working agent's character loops only while its card is on screen.
+  const cardRef = useRef<HTMLButtonElement>(null)
+  useLiveRowMotion(cardRef, lane.status === 'running')
+  return (
+    <CardButton
+      ref={cardRef}
+      variant="bordered"
+      onClick={onOpen}
+      aria-label={`${subagentLaneLabel(lane)}: ${laneTask(lane) || 'agent'}. Open in Agents`}
+      className="w-full px-3 py-2"
+    >
+      <AgentLaneSummary lane={lane} />
+    </CardButton>
+  )
 })
 
 // A background agent the model spawned: a lane header that stays live for the

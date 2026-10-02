@@ -2,14 +2,16 @@
 // glyph beside it and the words that say working, done, failed or stopped.
 
 import { createContext, useContext, type JSX } from 'react'
-import { AgentGlyph, WorkingMark, type AgentGlyphState } from '../../ui'
+import { AgentGlyph, TruncatedText, WorkingMark, type AgentGlyphState } from '../../ui'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { openAgentsPane } from '../../workspace/pane/agents/agentsPaneFocus'
 import { useConversationLinkContext } from './conversationLinks'
 import { useConversationTransport } from './conversationTransport'
 import type { TranscriptToolEntry } from './conversationProjection'
 import { flattenToolEntries, subagentLaneLabel, toolObject } from './conversationTimeline'
+import { LiveElapsed } from './liveElapsed'
 import { formatStepDuration } from './stepDuration'
+import { subagentResultPreview } from './subagentResult'
 import { ToolKindGlyph } from './toolRows/ToolKindGlyph'
 
 /** The glyph state of the agent a lane spawned. */
@@ -149,6 +151,56 @@ export function AgentCardContent({ tool, running }: { tool: TranscriptToolEntry;
       ) : null}
       {footer ? <span className="block text-[color:var(--text-subtle)]">{footer}</span> : null}
     </>
+  )
+}
+
+/** How an agent is doing: working and for how long, or how it ended. */
+export function LaneStatus({ lane }: { lane: TranscriptToolEntry }): JSX.Element {
+  if (lane.status === 'running')
+    return (
+      <span className="text-[color:var(--accent-primary)]">
+        Working{lane.startedAt !== undefined ? ' · ' : ''}
+        {lane.startedAt !== undefined ? <LiveElapsed startedAt={lane.startedAt} /> : null}
+      </span>
+    )
+  return (
+    <span className={lane.outputStatus === 'error' ? 'text-[color:var(--tone-error)]' : undefined}>
+      {laneOutcomeWords(lane)}
+    </span>
+  )
+}
+
+/**
+ * One agent at a glance, as the chat's agent cards and the Agents tab's list
+ * draw it: who it is and what it was sent to do, how it is doing, and under
+ * that what it is doing now or the first line of what it found. The caller
+ * supplies the pressable box around it.
+ */
+export function AgentLaneSummary({ lane }: { lane: TranscriptToolEntry }): JSX.Element {
+  const running = lane.status === 'running'
+  const task = laneTask(lane)
+  const now = lane.agent?.progressSummary ?? (lane.agent?.lastToolName ? `Using ${lane.agent.lastToolName}` : '')
+  const detail = running ? now : lane.agent?.error || subagentResultPreview(lane.output)
+  return (
+    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <span className="flex min-w-0 items-center gap-2 text-meta">
+        <LaneGlyph tool={lane} />
+        <span className={`shrink-0 ${running ? 'font-medium text-[color:var(--text-default)]' : ''}`}>
+          {subagentLaneLabel(lane)}
+        </span>
+        {task ? <TruncatedText as="span" text={task} className="min-w-0 text-[color:var(--text-muted)]" /> : null}
+        <span className="ml-auto shrink-0 pl-2 text-micro tabular-nums text-[color:var(--text-subtle)]">
+          <LaneStatus lane={lane} />
+        </span>
+      </span>
+      {detail ? (
+        <TruncatedText
+          as="span"
+          text={detail}
+          className={`min-w-0 pl-6 text-micro ${lane.agent?.error && !running ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-subtle)]'}`}
+        />
+      ) : null}
+    </span>
   )
 }
 
