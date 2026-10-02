@@ -2,11 +2,11 @@
 
 Status: 2026-10-01, amended 2026-10-02 for the small-server ruling. This file
 resolves the open decisions of `docs/design/studio-server.md` (section 15) and
-of the phase specs beside it (the withdrawn phase 5 spec's section 11, phase 6
-section 14, phase 7 section 11, phase 8 section 11, phase 9 section 13, and
-the changes each asks of the parent). Questions that already have a settled
-answer are decided here. Only the rest go to the owner (owner ruling
-2026-10-01).
+of the phase specs beside it (the withdrawn phase 5 spec's section 11, the
+client-tools phase 5 spec's section 16, phase 6 section 14, phase 7 section
+11, phase 8 section 11, phase 9 section 13, and the changes each asks of the
+parent). Questions that already have a settled answer are decided here. Only
+the rest go to the owner (owner ruling 2026-10-01).
 
 Where a row changes what a spec says, the spec is amended in the same change
 that lands that phase's first commit, as each spec already requires.
@@ -23,9 +23,8 @@ and its download, sandbox and fonts, screencast frames, render pools, the
 canvas worker on the server and its fallback) is marked **Superseded
 (2026-10-02)** with the reason, and keeps its ID. Rows R75–R79 are new: the
 SSH pane, the web client's previews and canvas, and the shell's own toolsets
-in phase 6.
-R74 is fixed on `main`. Phase 5's own open decisions are listed at the end and
-folded in separately.
+in phase 6. Rows R80–R86 are the client-tools spec's open decisions. R74 is
+fixed on `main`.
 
 ## How to read the table
 
@@ -71,7 +70,7 @@ folded in separately.
 
 | ID | Spec IDs | Decision | Resolution | Class | Reason |
 | --- | --- | --- | --- | --- | --- |
-| R13 | Q1; P9-11 | Package names | `@sprintengine/conversation-protocol` grows into the whole Studio wire: types and parsers only, with the phone's pinned files untouched. Client logic goes in separate packages: `@sprintengine/agent-sdk`, `@sprintengine/conversation-timeline` and `@sprintengine/conversation-view`. No rename before 1.0. | A | One wire package means one versioning policy and one import for third parties. Keeping client behaviour out of it keeps the phone's pin stable. A rename costs every early adopter a migration for a name. |
+| R13 | Q1; P9-11 | Package names | `@sprintengine/studio-protocol` is the Studio wire (owner ruling 2026-10-01, landed in phase 2): types and parsers only, depending on `@sprintengine/conversation-protocol` and re-exporting all of it, so the conversation package stays the phone's subset with its pinned files untouched. Client logic goes in separate packages: `@sprintengine/agent-sdk`, `@sprintengine/conversation-timeline` and `@sprintengine/conversation-view`. | A | The owner ruled the name, and the package exists. One import for third parties, one versioning policy for the wire, and client behaviour kept out of it, so the phone's pin stays stable. |
 | R14 | §9.2, §5.5; P9 §6.3, §12.2 | WebSocket tickets, `Origin` and `Host` | Tickets are single-use and live 30 seconds. Every upgrade and every non-GET request checks `Host` against loopback names or configured origins, and checks `Origin` exactly (scheme, host, port). Cookies are `SameSite=Strict`, with no state change on GET. | B | A reusable ticket that leaks into a log can be replayed. Without an `Origin` check, any page in the person's browser, including another local port, can drive the server with their cookie. |
 | R15 | P9 §12.2 | Cookie name with several servers on one loopback | `se_s_<first 12 of environment.id>`. The server ignores other names. | A | Every server reachable on `127.0.0.1` shares one cookie jar, so a fixed name lets servers clobber each other's sessions. |
 | R16 | P9 §12.1 | Browsers on the tailnet listener | The phone lane keeps refusing any request with an `Origin`. Browser routes are a separate handler with the exact-origin rule from R14. | B | The phone's tailnet pairing is shipped. Its guarantee that no browser can speak on that lane must not weaken for the web client. |
@@ -169,7 +168,19 @@ canvas, which are now the toolsets it offers.
 | R64 | P6-O14 | Keep the phase 6 experiment scripts | Optional, under `scripts/experiments/server-process/`. | C | See the owner list. |
 | R78 | P6-D11, P6-O15; P5c §10.6 | The desktop's editor, tour and terminal tools once the server is out of process | The shell offers them as the `editor`, `tour` and `terminal` toolsets on phase 5's mechanism, over the control channel. `ShellBridge` keeps only what is not an agent tool (cipher, internal terminal launches for two service tokens, reveal, notify, analytics, the integrations gate). | A | One path for every tool a client supplies, with one routing rule, one deadline and one cancellation, instead of bespoke bridge members that would repeat them. |
 
-Counts: 79 rows. 35 are class A, 18 class B and 15 class C; 11 are
+### Client tools (phase 5)
+
+| ID | Spec IDs | Decision | Resolution | Class | Reason |
+| --- | --- | --- | --- | --- | --- |
+| R80 | P5c-1; P5c §10.3 | Where boards live | Where they are today: the server's data directory (`canvas/ws_<hash>/`) plus the legacy `diagrams/` folder, read and written through the owner-only `files.*`. Moving them into the workspace is a separate product question. | B | It moves nobody's files, needs no migration on any host, and keeps agent-drawn scratch boards out of commits, which is why boards left the checkout in the first place. |
+| R81 | P5c-2; P5c §6.2 | Routing among several clients offering one toolset | Affinity first (a conversation stays on the client it first used), then the client the person is looking at, then the one showing the workspace, then the client that started the conversation, then desktop before web before headless. | A | The person watching is the one who can see and take over the browser; affinity keeps a tab, a worker's warm state and an app's session from hopping mid-task. |
+| R82 | P5c-3; P5c §7.1 | Approve each app toolset on first offer, beyond the `tools:offer` scope | The scope given at pairing is the consent, with Settings showing every toolset, the audit, and an OS notification the first time an app offers a name. No separate prompt. | C | See the owner list. |
+| R83 | P5c-4 | Should the server answer `canvas.list`, `describe` and `find` itself with no client attached | No. With no client offering `canvas`, agents have no canvas tools. | A | Ruling (f) keeps the canvas off the server, and splitting one tool family across two owners would give agents two lists that disagree. |
+| R84 | P5c-5; P5c §5.3 | Remove a client's tools mid-connection for runtimes that honour `list_changed` | No. A connection's list only grows; a tool whose client has gone answers `client_unavailable` until it is offered again. | B | Every runtime then behaves the same, prompt caches and Claude Code's ToolSearch index stay valid, and an agent reads a sentence naming the fix instead of an unknown-tool error. |
+| R85 | P5c-6; P5c §4.5, §8.2 | Grace and timeout values | A 20 s reconnect grace, a 60 s default tool timeout and 600 s maximum. Log reconnect gaps and call durations, and revisit after a release. | A | They cover today's built-in deadlines and a network blip; the numbers are constants a later release can change without a protocol bump. |
+| R86 | P5c-7; P5c §1.3 finding 2, §5.4 | Hand Codex and ACP chats the gateway at launch | Yes, in a separate change after phase 5: the gateway in Codex's `-c` overrides and in ACP's `session/new` and `session/load`, with the chat's identity on the entry, and never a second copy beside a pinned workspace entry. | C | See the owner list. |
+
+Counts: 86 rows. 38 are class A, 20 class B and 17 class C; 11 are
 superseded (2026-10-02).
 
 ## The browser pane and the render host
@@ -216,7 +227,8 @@ The answer that replaces it:
 
 Each item keeps its spec's recommendation as the working default until you
 rule. The 2026-10-02 ruling removed the Chromium, sandbox, screencast and
-server-canvas items (R40–R43, R45–R47, R49, R50), and R74 is fixed on `main`.
+server-canvas items (R37, R38, R40–R43, R45–R47, R49, R50), and R74 is fixed
+on `main`.
 
 1. **R21 Relay transport for SSH and the WSL fallback.** Use one relay program
    over stdio, not `ssh -N -L`. It needs no local listener and has no free-port
@@ -253,20 +265,29 @@ server-canvas items (R40–R43, R45–R47, R49, R50), and R74 is fixed on `main`
     release, and a self-hosted WSL2 runner before the default flips.
 14. **R73 `C:\` workspaces on a WSL machine.** Keep supporting them, with UI
     reads on Windows and an advisory in New chat. Never block them.
-15. **R75 The local end of the SSH pane's forward.** Chromium speaks SOCKS5
-    without authentication, so a SOCKS listener on the laptop's loopback is
-    one any local user could reach, against goal 4 ("never an unauthenticated
-    port"). The working default is SOCKS5 as ruled, narrowed: open only while
-    that environment has a pane tab, on Linux refusing another uid's
-    connection. The alternative is the same forward with an HTTP-proxy local
-    end that demands a per-session credential, which Chromium does answer;
-    nothing else in the design changes. Say which.
-
-### Phase 5: client-supplied tools
-
-Phase 5's open decisions are in its spec,
-[`phase-5-client-tools.md`](phase-5-client-tools.md) section 16 (where boards
-live, routing among several desktops, approving an app's toolsets, a
-server-side canvas read with no client, removing tools mid-connection, the
-grace and timeout values, the gateway for Codex and ACP chats). They are
-folded into this file separately.
+15. **R75 The SSH pane's local proxy.** To show a remote machine's dev server
+    in the desktop's own browser pane, the desktop runs a small proxy on the
+    laptop that the pane talks to, and sends its traffic through the SSH
+    connection. Chromium only talks to this kind of proxy (SOCKS5) without a
+    password, so while it is open another user account on the same laptop
+    could use it to reach the remote machine as you, against goal 4 ("never
+    an unauthenticated port"). Recommended for now: keep SOCKS5 but narrowed,
+    open only while a tab for that machine is open and, on Linux, refusing
+    other users' connections. If shared Macs or Windows PCs matter, use an
+    HTTP proxy with a per-session password instead, which Chromium does
+    answer; nothing else in the design changes.
+16. **R82 Consent for an app's tools.** When you pair an app and tick "Give
+    agents tools from this app", that tick is the consent: no second prompt
+    each time the app offers a toolset. You see every toolset in Settings, get
+    a notification the first time an app offers one, and every call still
+    passes the agent's own approval. Recommended: keep it to the pairing tick.
+    A second prompt guards against nothing the pairing did not already allow,
+    since the app runs as you.
+17. **R86 Studio's tools in Codex, Cursor, OpenCode and Grok chats.** Today
+    only Claude chats (and agents started in a terminal) are given Studio's
+    tools: workspaces and backlog, the browser, the canvas, and any tools an
+    app offers. A Codex or
+    ACP chat gets them only by accident, from a config file a terminal launch
+    left in the folder. Recommended: yes, give those chats the gateway too, in
+    a small change after phase 5, so a chat can use the browser and the
+    canvas whichever agent runs it.

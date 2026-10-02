@@ -299,6 +299,13 @@ cookies are not isolated by port. So:
   from a request before forwarding it: the dev server never sees one.
 - A `Set-Cookie` from the dev server whose name starts `se_` or `__Host-se_`
   is dropped, so the app cannot overwrite Studio's session.
+- The app's script can still set cookies for the host itself
+  (`document.cookie`), which Studio then receives. It cannot replace an
+  `HttpOnly` cookie, but it can add a same-named one on a narrower path. So
+  Studio reads every `se_s_` value a request carries and accepts the one that
+  verifies, never the first. A page that floods the jar can make Studio's
+  requests too large until the person clears the host's cookies; that is a
+  nuisance the preview's help names, not a way in.
 - A hostname per preview would make a separate site as well, but a loopback
   page and a tailnet node each have one name (`*.localhost` is not resolved
   by every browser), so the port is the boundary that holds everywhere.
@@ -409,8 +416,9 @@ browser, so it can do what the desktop's hidden worker window does, and phase
   is the shell role phase 5 §7.2 asks this phase to settle. A tailnet browser
   pairing never offers it in v1, because `tools:offer` is never granted on
   the tailnet.
-- **Routing.** By phase 5 §6.2: affinity first, then the client the person is
-  looking at, then by kind, desktop before web. A hidden tab sends
+- **Routing.** By phase 5 §6.2 (R81): affinity first, then the client the
+  person is looking at, then the one showing the workspace, then the
+  conversation's starter, then by kind, desktop before web. A hidden tab sends
   `tools.focus { focused: false }`, so a visible client is preferred.
 - **Background tabs.** Browsers throttle timers and pause
   `requestAnimationFrame` in hidden tabs. A call arrives as a socket message,
@@ -989,13 +997,14 @@ also lets more chords reach the page (4.2).
   version, oversize message.
 - Previews (3.6): `previews.list` against a fake `/proc` and a fake `lsof`
   (an agent's listener listed, the server's own and another user's process
-  never); `open` refusing a port under 1024 from a non-owner, the server's
-  own port and any non-loopback target; the enter code single use and
-  expired at 60 s; requests without the preview cookie answered 401; every
-  `se_` cookie stripped from a forwarded request; Studio-named `Set-Cookie`s
-  dropped; `Host`, `Origin` and `Location` rewriting; `X-Frame-Options` and
-  `frame-ancestors` replaced; an upgrade with another `Origin` refused; idle
-  close at 30 minutes.
+  never); `open` refusing a typed port from a non-owner, a port under 1024,
+  the server's own port and any non-loopback target; the enter code single
+  use and expired at 60 s; requests without the preview cookie answered
+  401; every `se_` cookie stripped from a forwarded request; Studio-named
+  `Set-Cookie`s dropped; `Host`, `Origin` and `Location` rewriting;
+  `X-Frame-Options` and `frame-ancestors` replaced; an upgrade with another
+  `Origin` refused; idle close at 30 minutes; a script-set `se_s_` cookie on
+  a narrower path not shadowing the real session.
 - `createWebApi` type test: `satisfies ElectronApi` with no casts. A unit test
   that enumerates `ElectronApi` keys and asserts each is server-backed,
   shell-backed or an explicit refusal.

@@ -4,9 +4,10 @@ Status: scoped, 2026-10-02. Nothing here is implemented. This file replaces
 the earlier phase 5 spec, "headless rendering", which planned a browser and a
 canvas renderer inside the server. The owner ruling of 2026-10-02 withdrew
 that plan, and this spec implements the ruling against the code as it stands
-after phases 1–4. Where it disagrees with `docs/design/studio-server.md` or the
-phase 6–9 specs, section 13 lists the change, and the parent is amended in the
-same change that lands this phase's first code commit.
+after phases 1–4. Section 13 lists what it changes in
+`docs/design/studio-server.md` and the phase 6–9 specs; those changes are made
+in the same change as this spec. Its open decisions (section 16) are rows
+R80–R86 of `decisions.md`.
 
 ## 1. Summary
 
@@ -42,7 +43,7 @@ bring them back later (section 14).
    file access is the only canvas-related code the server keeps.
 4. **The fixed capability list of parent §6.4 becomes built-in toolsets**
    offered through the same mechanism. `browser-pane` becomes `browser`, and
-   `canvas-render` becomes `canvas`. `editor`, `tour` and `terminals` follow in
+   `canvas-render` becomes `canvas`. `editor`, `tour` and `terminal` follow in
    phase 6 (section 10.6). `notify`, `reveal-tab` and `cipher` are not agent
    tools and stay client capabilities.
 
@@ -51,20 +52,35 @@ bring them back later (section 14).
 1. **Only some runtimes follow a changing tool list.** The gateway already
    advertises `tools.listChanged` (`src/main/automation/mcp-dispatch.ts:107`)
    and broadcasts `notifications/tools/list_changed` to every socket
-   (`mcp-socket-server.ts:236-240`). Claude Code acts on it from CLI 2.1.0, as
-   do Gemini CLI and OpenCode. Codex ignores it, the Cursor agent CLI is
-   reported to ignore it, and Grok is unknown (section 5.4). The design
-   therefore never relies on removing a tool mid-session. Each MCP connection
-   gets a list that only grows, and a tool whose client has gone stays listed
-   and answers a clear error (5.3).
-2. **Only Claude chats receive the gateway at launch.**
-   `claude-agent-provider.ts:735-738` passes it as an Agent SDK MCP server.
-   Codex app-server chats get only their connector servers
-   (`codex-conversation-provider.ts:775-785`), and ACP chats only their
-   session's own servers (`acp-conversation-provider.ts:907-921`). Terminal
-   agents reach the gateway through the workspace MCP config
-   (`studio-mcp-sync.ts:76`). So a Codex or ACP chat has no browser or canvas
-   tools today, and this phase does not change that (open decision 7).
+   (`mcp-socket-server.ts:236-240`), today only when a module is turned on or
+   off live (`app-main.ts:152`). Claude Code acts on it from CLI 2.1.0, and
+   OpenCode does too. Codex ignores it, the Cursor agent CLI is reported to
+   ignore it, and Grok is unknown (section 5.4). These are upstream
+   behaviours, read rather than tested here. The design therefore never relies
+   on removing a tool mid-session. Each MCP connection gets a list that only
+   grows, and a tool whose client has gone stays listed and answers a clear
+   error (5.3).
+2. **Only Claude chats are handed the gateway at launch.**
+   `claude-agent-provider.ts:735-738` passes it as an Agent SDK MCP server,
+   with the chat's identity stamped on it (`withAgentIdentity`), because the
+   chat's child loads no project settings (`app-services.ts:571-588`). Codex
+   app-server chats are handed only the session's own servers, as `-c`
+   overrides (`codex-conversation-provider.ts:774-785`), and ACP chats (Cursor,
+   OpenCode, Grok) only the session's own servers on `session/new`
+   (`acp-conversation-provider.ts:907-921`). Terminal agents get it at each
+   launch: Claude Code (and the CLIs that share its plugin) through the app's
+   plugin directory, whose `.mcp.json` carries it; every other CLI with an
+   MCP config through an entry pinned into the workspace's own config file,
+   `.codex/config.toml`, `.cursor/mcp.json`, `opencode.json` or `.mcp.json`
+   (`studio-mcp-sync.ts:104-150`). A Codex or ACP chat can still start the
+   gateway from such a pinned entry, left by an earlier terminal launch in
+   the same folder, if its CLI reads that file. Studio does not arrange it,
+   and an ACP chat's environment has every `SPRINTENGINE_*` variable removed
+   (`acp-conversation-provider.ts:451-458`), so that connection declares no
+   agent and the gateway files it as `external-local`
+   (`mcp-dispatch.ts:189-191`). In practice a Codex or ACP chat has no
+   browser or canvas tools today, and this phase does not change that (open
+   decision 7).
 3. **The gateway does not know conversations, only agents.** A connection is
    identified by the `sprintengine.studio/connect` call the stdio bridge sends
    with `workspaceId` and `agentId` (`mcp-stdio-bridge.mjs:182-193`,
@@ -489,7 +505,7 @@ see does not make every agent on the machine re-list. The tailnet listener
 | `studio-agent` in a conversation the owner granted it to (`tools.grant`) | yes | yes |
 | `studio-agent`, any conversation, when the app's reach is `all` | yes | yes |
 | any other `studio-agent` (a chat or terminal agent) | yes | no |
-| `external-local` (a CLI the person started, with no agent id) | yes | only with reach `all` |
+| `external-local` (no agent id: a CLI the person started, or a chat that loaded a pinned entry, finding 2) | yes | only with reach `all` |
 | `remote-tailnet` | as today, through the device's scope gate | no, in v1 |
 
 - "Started" means the conversation's agent record names the app.
@@ -523,7 +539,13 @@ by wire name, with the latest definition.
    catalog keeps the newest definition and sends `list_changed`. A tool the new
    offer dropped stays listed and answers `tool_withdrawn`.
 5. **The connection ends.** Its catalog is dropped. The next session starts
-   from step 1.
+   from step 1. A stdio bridge that reconnects across a server restart
+   (phase 6 §6.5) is a new connection to the gateway while the agent still
+   holds its old list, and the shell or an app may not have re-offered yet.
+   So a call to a wire name the new catalog lacks, whose toolset is built in
+   or bound to a pairing (3.1), is answered `client_unavailable` rather than
+   as an unknown tool, and the tool joins the catalog when its toolset is
+   offered again.
 
 Why tools are never removed mid-connection:
 
@@ -547,14 +569,20 @@ zero. A standalone, WSL or SSH server sets no expectation and never waits.
 
 ### 5.4 Each runtime
 
-| Runtime | Gateway in its chats today | Honours `list_changed` | What the person sees when a client connects mid-session |
+| Runtime | Gets the gateway today | Honours `list_changed` | What the person sees when a client connects mid-session |
 | --- | --- | --- | --- |
-| Claude Code via the Agent SDK (chat), and the CLI (terminal) | yes (`claude-agent-provider.ts:735-738,789`) | yes from CLI 2.1.0, only when the server declares `tools.listChanged`, which it does. From 2.1.267, tools added mid-session reach the model as deferred definitions found through ToolSearch. | the tools appear from the next turn |
-| Codex app-server | no; terminals only, through the workspace config | no: `on_tool_list_changed` only logs (codex `rmcp-client/src/logging_client_handler.rs`) | at the next thread |
-| Gemini CLI over ACP | no (session servers only) | yes: `refreshTools()` replaces the server's tools (`packages/core/src/tools/mcp-client.ts`) | next turn, once the gateway is passed to ACP sessions |
-| OpenCode over ACP | no | yes (`packages/opencode/src/mcp/index.ts`) | next turn, likewise |
-| Cursor agent CLI over ACP | no | reported not to | at the next session |
-| Grok CLI over ACP | no | unknown; treated as no | at the next session |
+| Claude Code via the Agent SDK (chat) | yes, handed it at launch with its identity (`claude-agent-provider.ts:735-738,789`) | yes from CLI 2.1.0, only when the server declares `tools.listChanged`, which it does. From 2.1.267, tools added mid-session reach the model as deferred definitions found through ToolSearch. | the tools appear from the next turn |
+| Claude Code in a terminal | yes, through the app's plugin directory at launch | as the chat | as the chat |
+| Codex app-server (chat) | no; only from an entry a terminal launch pinned into the workspace's `.codex/config.toml`, if the CLI reads it | no: `on_tool_list_changed` only logs (codex `rmcp-client/src/logging_client_handler.rs`) | at the next thread, once it has the gateway |
+| Codex in a terminal | yes, the pinned workspace entry | no | at the next session |
+| OpenCode over ACP (chat) | no; only from a pinned `opencode.json` entry, with no identity | yes (`packages/opencode/src/mcp/index.ts`) | next turn, once the gateway is passed to ACP sessions |
+| Cursor agent CLI over ACP (chat) | no; only from a pinned `.cursor/mcp.json` entry, with no identity | reported not to | at the next session |
+| Grok CLI over ACP (chat) | no; only from a pinned `.mcp.json` entry, with no identity | unknown; treated as no | at the next session |
+| OpenCode, Cursor and Grok in a terminal | yes, the pinned workspace entry | as their chats | as their chats |
+
+Studio drives no other ACP runtime today (`ACP_PROFILES`,
+`acp-conversation-provider.ts:118-170`). Every runtime gets its gateway entry
+once, at launch, and nothing re-syncs it during a session.
 
 The Agent SDK can also add or remove whole MCP servers on a live session
 (`setMcpServers` in the installed SDK's `sdk.d.ts`). This design does not need it: the gateway
@@ -646,7 +674,7 @@ other connection that tries is refused `reserved_name`.
 | Desktop and its in-process server (phases 1–5) | main attaches its own client over a port with `shell: true`, the way windows attach with `ownWindow: true` (`studio-rpc-service.ts:316-323`) |
 | Desktop and its out-of-process local server (phase 6) | the control channel, which is process-private (phase 6 §4) |
 | Desktop and a WSL, SSH or standalone server | an owner grant and `hello.client.kind: 'desktop'` |
-| Web client (phase 9), for `canvas` only | an owner grant and `kind: 'web'`; phase 9 decides |
+| Web client (phase 9), for `canvas` only | an owner grant and `kind: 'web'` (phase 9 §3.8, decisions R79) |
 | Headless client (section 14, later) | an owner grant and `kind: 'headless'` |
 
 On the last three routes the role rests on the owner credential. Anything that
@@ -654,6 +682,12 @@ holds the owner token on the server's host (`<dataDir>/run/owner-token`, 0600)
 can already do everything the owner can, so the reservation does not try to
 keep owner-level code out. It keeps paired apps out, and it keeps an owner
 script from taking a built-in name by accident.
+
+The shell role may also offer a reserved family that the server does not
+serve itself: the WSL front door forwards `backlog.*` and the module tools
+still wired on the Windows side to a WSL server this way (phase 7 §3.7). A
+name the server registers itself is refused `reserved_name` to every client,
+the shell included, so no offer can shadow a core or module tool.
 
 ### 7.3 Approval
 
@@ -711,6 +745,9 @@ and the number of tools. It never records input or results.
 | `orphaned` | grace ends; the tool mutates | `client_disconnected` ("may or may not have finished") |
 
 A `reply` for a call that has already been answered is dropped and logged.
+Withdrawing a toolset does not cut short a call already `sent`: the client
+may still reply, and otherwise the deadline or a `cancel` (8.4) ends it. Only
+calls routed after the withdrawal are answered `tool_withdrawn`.
 
 ### 8.2 The grace
 
@@ -765,7 +802,8 @@ a follow-up.
 Calls in flight fail with the agent's own gateway connection, which a restart
 drops (phase 6 §6.5 covers the bridge). The SDK reconnects with backoff and
 re-offers. No call is redelivered across a server restart, because the server
-has no memory of it.
+has no memory of it. A call the agent makes after its bridge has reconnected,
+before the client has re-offered, answers `client_unavailable` (5.3, step 5).
 
 ## 9. The SDK
 
@@ -952,7 +990,7 @@ explorer extends them later (parent ruling c).
 | Method / topic | Scope | Shape |
 | --- | --- | --- |
 | `files.roots { workspaceId }` | `files:read` | `{ workspace: true, boards: true }`: which roots exist for that workspace. No absolute paths. |
-| `files.stat { root, path }` | `files:read` | `{ kind: 'file' \| 'directory', size, mtimeMs, hash? }` or `not_found` |
+| `files.stat { root, path }` | `files:read` | `{ stat: { kind: 'file' \| 'directory', size, mtimeMs, hash? } }` or `not_found`. The method exists since phase 4 as `{ path }` with an absolute path (`chat.ts:226`); `root` is an optional addition, and with it `path` is relative. Without `root` it answers as today. |
 | `files.list { root, path }` | `files:read` | `{ entries: [{ name, kind }] }`, one level, symlinks reported as neither (as `canvas-node-fs.ts:34-40`) |
 | `files.read { root, path }` | `files:read` | `{ text, hash, size, mtimeMs }`. Up to 64 MB; a large answer is chunked by the server (`envelope.ts:491-507`). |
 | `files.write { root, path, text \| uploadId, ifMatch, commandId }` | `files:write` | `{ hash, size, mtimeMs }`, or `conflict { currentHash }`. Atomic: a temp file in the same directory, then a rename. Parent directories are created. `ifMatch: null` means create only. |
@@ -1029,21 +1067,22 @@ in front of the person (6.2).
 On a WSL server, the Windows pane reaches the distribution's `localhost`
 through WSL's forwarding, as today. On an SSH server, an agent that starts a
 dev server on the remote and calls `browser.open http://localhost:5173` would
-reach the laptop's port 5173, not the remote's. Phase 8 owns the fix, and this
-phase asks for it. The research recommends a per-environment partition
-(`persist:env-<id>`) proxied through the SSH connection the desktop already
-holds (`ssh -D` with `proxyBypassRules: '<-loopback>'`), so the pane sees the
-remote's network with no port juggling and keeps its native fidelity. Until
-phase 8 lands, `browser.status` reports `network: 'local'` for a tab of an SSH
-environment, and the tool description says so.
+reach the laptop's port 5173, not the remote's. Phase 8 owns the fix (phase 8
+§6.8, decisions R75 and R76): a per-environment partition
+(`persist:env-<id>`) whose proxy is a SOCKS forward carried over the SSH
+connection the desktop already holds, by the relay's `tcp` streams rather
+than `ssh -D`, with `proxyBypassRules: '<-loopback>'`. The pane then sees the
+remote's network with no port juggling and keeps its native fidelity. SSH
+environments arrive with phase 8, so there is no gap to cover before it.
+`browser.status` reports `network: 'remote'` or `'local'` per tab.
 
 ### 10.5 The web client
 
 The web client runs Excalidraw in a real browser, so it can offer `canvas`
-later, with the same tools over the same board files. Phase 9 owns that. It
-cannot offer `browser`, because a page cannot drive arbitrary sites. A server
-whose only attached client is a web tab therefore lists `canvas` (once phase 9
-offers it) and not `browser`.
+later, with the same tools over the same board files. Phase 9 does (its §3.8,
+decisions R79). It cannot offer `browser`, because a page cannot drive
+arbitrary sites. A server whose only attached client is a web tab therefore
+lists `canvas` (from phase 9) and not `browser`.
 
 ### 10.6 Editor, tour and terminals
 
@@ -1054,9 +1093,11 @@ in built-in toolsets offered by the shell, `editor`, `tour` and `terminal`.
 For the terminal family, the toolset keeps today's wire names, so it may hold
 `agent.launch` and `backlog.work`. They do not move in this phase, because
 they are not in the way of a server without a screen until phase 6 moves the
-gateway out of process. Phase 6 should move them onto this mechanism instead of
-building `ShellBridge.reveal` and `ShellBridge.terminals` as bespoke members
-(section 13).
+gateway out of process. Phase 6 moves them onto this mechanism instead of
+building bespoke `ShellBridge` members for them (phase 6 §6.3, decisions R78).
+`ShellBridge` keeps only what is not an agent tool: revealing a tab for a
+clicked notice or a deep link, and the terminal launches behind two internal
+service tokens.
 
 ## 11. Migration
 
@@ -1209,6 +1250,8 @@ built.
 
 ## 13. Changes the parent and phases 6–9 need
 
+All of these are made in the same change as this spec.
+
 | Where | Change |
 | --- | --- |
 | Parent §1 | "The server owns … the MCP gateway and its tools, the canvas board store" → the gateway and tool routing; board files on its disk. Ruling (e) is replaced by the 2026-10-02 ruling (1.1). |
@@ -1222,11 +1265,11 @@ built.
 | Parent §9.4 | The tailnet scope families lose `canvas:read|operate`. `tools:offer` is never granted to a tailnet pairing in v1. |
 | Parent §13, phase 5 | "The render host (L)" → "Client tools (M)", scope as 1.2, tests as 11.2. |
 | Parent §14, §15 | Drop the Chromium download, sandbox and font risks and questions. Add the runtime-coverage risk (section 15 here). |
-| Phase 6 | `ShellBridge.browserPane` (CDP over the control channel) and `ShellBridge.canvasRender` are replaced by the shell's `browser` and `canvas` toolsets, offered over the control channel. The server carries no CDP. Recommended: `reveal`, `editor`, `tour` and `terminals` move to toolsets too (10.6). D5 and O5 ("the shell's offscreen worker and pane over ShellBridge") are met by this spec. The canvas service leaves the server-owned list (phase 6 §5); the board files stay server-owned. |
+| Phase 6 | `ShellBridge.browserPane` (CDP over the control channel) and `ShellBridge.canvasRender` are replaced by the shell's `browser` and `canvas` toolsets, offered over the control channel. The server carries no CDP. `editor`, `tour` and `terminal` move to toolsets too (10.6, R78); `reveal` stays on `ShellBridge`, because it serves a clicked notice, not an agent. D5 and O5 ("the shell's offscreen worker and pane over ShellBridge") are met by this spec. The canvas service leaves the server-owned list (phase 6 §5); the board files stay server-owned. |
 | Phase 7 | §3.8 "Render host" is deleted. A WSL server lists the Windows desktop's toolsets like a local one. "The attached desktop renders for WSL" is now the only path, for canvas and browser alike. No Linux Chromium. |
-| Phase 8 | §6.8 "The headless browser on the remote" is deleted. Add the proxied per-environment partition (10.4) so `browser.*` reaches the remote's `localhost`. |
-| Phase 9 | Remove the screencast pane and `browser-pane-screencast`. The web client shows no browser pane in v1, and an "Open in the desktop app" action where a pane would be. It may offer `canvas` (10.5). The canvas worker row (`canvasWorker/transport.ts:40`, "server-side, render host") becomes "not loaded by browsers; the web client's canvas toolset is phase 9's choice". |
-| Decisions | Rows R37, R38, R40, R46 and R50, and "The browser pane and the render host", are superseded. The tab model, screencast and render-host answers no longer apply: tabs live in the desktop's pane, and only clients render. |
+| Phase 8 | §6.8 "The headless browser on the remote" is replaced by the pane's traffic through the SSH connection: the proxied per-environment partition (10.4) so `browser.*` reaches the remote's `localhost`. |
+| Phase 9 | Remove the screencast pane and `browser-pane-screencast`. The web client offers no `browser` toolset in v1; where the desktop shows a browser tab it shows a preview of a dev server on the server, on an origin of its own (phase 9 §3.6), with "Open in the desktop app" when a desktop is attached. It offers `canvas` (10.5, phase 9 §3.8), so the canvas worker row (`canvasWorker/transport.ts:40`, "server-side, render host") becomes "loaded by the web client to offer `canvas`; never server-side". |
+| Decisions | Rows R37, R38, R40–R43, R45–R47, R49 and R50, and "The browser pane and the render host", are superseded. The tab model, screencast and render-host answers no longer apply: tabs live in the desktop's pane, and only clients render. This spec's open decisions are rows R80–R86. |
 
 ## 14. Later: the headless client (out of scope)
 
@@ -1287,7 +1330,7 @@ want unattended tools.
 
 | Risk | Mitigation |
 | --- | --- |
-| Agents on Codex, Cursor or Grok do not pick up a client that attaches mid-session | stable lists (5.3); the tools appear at the next session; "client_unavailable" names the fix. Those chats have no gateway today anyway (finding 2). |
+| Agents on Codex, Cursor or Grok do not pick up a client that attaches mid-session | stable lists (5.3); the tools appear at the next session; "client_unavailable" names the fix. Their chats are not handed the gateway today (finding 2, open decision 7); their terminal sessions are. |
 | Claude Code's ToolSearch index does not refresh after `list_changed` (anthropics/claude-code#66084) | additions only, never removals; an integration test in the Claude provider suite that a tool added mid-session can be called, run on each CLI bump |
 | An agent's browser work stops when the laptop sleeps | intended under the ruling; the 20 s grace covers blips; the message says to reconnect a desktop; the headless client later |
 | A slow client stalls an agent | per-tool deadlines (4.5), `busy` limits (4.8), cancellation on interrupt (8.4) |
@@ -1295,9 +1338,12 @@ want unattended tools.
 | Two desktops edit one board | `ifMatch` writes, `settleDisk`, person-wins (10.3); test 11.2 (5) |
 | A malicious or careless app feeds agents misleading tools | `tools:offer` off by default, reach "own" by default, origin prefixes and labels, rules deleted with the app, audit (section 7) |
 | Workspace id collisions across environments in the pane | tabs keyed by environment and workspace (10.1) |
-| Remote `localhost` from an SSH chat reaches the laptop | phase 8's proxied partition (10.4); `network: 'local'` in `browser.status` until then |
+| Remote `localhost` from an SSH chat reaches the laptop | phase 8's proxied partition (10.4), which ships with SSH environments; `browser.status` says per tab whose network it uses |
 
 ## 16. Open decisions
+
+These are rows R80–R86 of `decisions.md`, in this order (spec IDs `P5c-1` to
+`P5c-7`). Decisions 3 and 7 are for the owner; the rest are settled there.
 
 **1. Where boards live.**
 
@@ -1342,8 +1388,8 @@ they live in the workspace.
 
 **5. Remove a client's tools mid-connection for runtimes that handle it?**
 
-*Recommendation:* no (5.3). Removal only helps Claude Code, Gemini and
-OpenCode. It breaks prompt caching and the ToolSearch index, and it makes those
+*Recommendation:* no (5.3). Removal only helps Claude Code and OpenCode. It
+breaks prompt caching and the ToolSearch index, and it makes those
 runtimes behave differently from the rest for no gain over a clear
 `client_unavailable`.
 
@@ -1354,11 +1400,18 @@ maximum).
 call durations, then revisit after a release.
 
 **7. Give Codex and ACP chats the gateway at launch?** Today only Claude chats
-get it (finding 2), so only they and terminal agents can use the browser,
-canvas or app tools.
+are handed it (finding 2), so only they and terminal agents reliably have the
+browser, canvas or app tools. A Codex or ACP chat reaches the gateway only by
+chance, from an entry a terminal launch pinned into the workspace, and an ACP
+chat's connection then carries no identity, so it never sees an app's
+conversation-scoped toolset.
 
 *Recommendation:* yes, in a separate change after this phase. Pass the gateway
 in `codexMcpServerArgs` (`codex-conversation-provider.ts:1369`) and in ACP's
 `newSession`/`loadSession` `mcpServers` (`acp-conversation-provider.ts:907-921`),
-with the agent identity env. The stable list (5.3) already makes it safe for
-runtimes that ignore `list_changed`.
+with the chat's identity on the entry itself (as `withAgentIdentity` does for
+Claude), since the ACP child's environment drops `SPRINTENGINE_*`. Keep one
+copy: a pinned workspace entry the CLI would also load is the same server
+twice, which the terminal path already avoids for Claude
+(`studioGatewayDeliveredAtLaunch`). The stable list (5.3) already makes it
+safe for runtimes that ignore `list_changed`.

@@ -2,7 +2,7 @@
 
 Status: scoping spec, 2026-10-01. Nothing here is implemented. This document
 refines phase 6 of `docs/design/studio-server.md` (section 13) and the parts of
-sections 4.3, 5.5, 8.1, 9.3 and 10.1 it touches. It also covers the module
+sections 4.3, 5.5, 6.3, 9.3 and 10.1 it touches. It also covers the module
 server/client split that phase 10 completes (section 12 here). Where this
 document asks for a change to the overall design, it says so in section 3. The
 owner rules on it there or in section 14 before code lands.
@@ -635,9 +635,10 @@ t1  both done (or server SIGKILLed at its budget)
   miss, exactly as today.
 - **Board writes flush before the drain.** The canvas service is the shell's,
   and its last writes reach disk through the server's `files.write`, so they
-  go before the server stops serving. A call still in flight to one of the
-  shell's toolsets is answered `cancelled` (phase 5, 8.4) once the toolsets
-  are withdrawn.
+  go before the server stops serving. Withdrawing the toolsets stops new
+  calls reaching the shell (they answer `tool_withdrawn`); a call already
+  in flight to it is cancelled with `shutting_down` when the server drains
+  (phase 5, 8.1 and 8.4).
 - **Integrations run only after the server has exited.** No chat agent is left
   to use the MCP entries being removed.
 - **"Restart to update"** forwards the server's `shutdown-progress` to the
@@ -771,7 +772,7 @@ decision O4 and is not part of phase 6.
 - **Crashes.** No crash reporter exists today, and phase 6 adds none. The
   server installs `uncaughtException` and `unhandledRejection` handlers that
   write a diagnostic and exit 70. A V8 OOM is bounded by `execArgv:
-  ['--max-old-space-size=<limits.maxOldSpaceMb>']` (decision O9), so a leak
+  ['--max-old-space-size=<limits.maxOldSpaceMb>']` (decision O10), so a leak
   restarts the server instead of exhausting the machine.
 
 ## 11. Code signing, platform and packaging
