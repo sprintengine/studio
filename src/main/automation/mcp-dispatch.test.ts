@@ -8,6 +8,8 @@ import { test } from 'vitest'
 import type { McpConnectionContext, McpToolRegistration } from '../../shared/modules/mcp-tools'
 import { createMcpDispatcher, JSONRPC_INVALID_REQUEST } from './mcp-dispatch'
 import { createMcpSocketServer } from './mcp-socket-server'
+import { issueGatewayLaunchToken, revokeGatewayLaunchToken } from '../../server/core/gateway-launch-tokens'
+import { gatewayConversation } from '../../server/tools/client-tool-gateway'
 
 const CONNECT = 'sprintengine.studio/connect'
 
@@ -137,5 +139,55 @@ test('over the local socket, a refused re-declaration leaves every later call at
     socket.destroy()
     await server.stop()
     rmSync(dirname(socketPath), { recursive: true, force: true })
+  }
+})
+
+test('a launch token proves which conversation a connection is, whatever it declares', async () => {
+  const gateway = dispatcher()
+  const context = freshContext()
+  const token = issueGatewayLaunchToken({ workspaceId: 'ws-1', agentId: 'chat-1', cliId: 'codex' })
+  try {
+    // It declares another agent; the token names this one, and wins.
+    await gateway.dispatch(CONNECT, { agentId: 'someone-else', workspaceId: 'ws-9', launchToken: token }, context)
+    assert.equal(context.metadata.kind, 'studio-agent')
+    assert.equal(context.metadata.agentId, 'chat-1')
+    assert.equal(context.metadata.workspaceId, 'ws-1')
+    assert.equal(context.metadata.cliId, 'codex')
+    assert.deepEqual(gatewayConversation(context), { workspaceId: 'ws-1', agentId: 'chat-1' })
+    // A second launch's token cannot move it.
+    const other = issueGatewayLaunchToken({ workspaceId: 'ws-1', agentId: 'chat-2' })
+    const moved = await gateway.dispatch(
+      CONNECT,
+      { agentId: 'chat-1', workspaceId: 'ws-1', launchToken: other },
+      context,
+    )
+    assert.equal(moved.kind, 'error')
+    assert.deepEqual(gatewayConversation(context), { workspaceId: 'ws-1', agentId: 'chat-1' })
+    revokeGatewayLaunchToken(other)
+  } finally {
+    revokeGatewayLaunchToken(token)
+  }
+})
+
+test('without a live token a declared agent is only a claim: no conversation is bound', async () => {
+  const gateway = dispatcher()
+  const declaredOnly = freshContext()
+  await gateway.dispatch(CONNECT, { agentId: 'chat-1', workspaceId: 'ws-1' }, declaredOnly)
+  assert.equal(declaredOnly.metadata.agentId, 'chat-1')
+  assert.equal(gatewayConversation(declaredOnly), undefined)
+  const revoked = freshContext()
+  const token = issueGatewayLaunchToken({ workspaceId: 'ws-1', agentId: 'chat-1' })
+  revokeGatewayLaunchToken(token)
+  await gateway.dispatch(CONNECT, { agentId: 'chat-1', workspaceId: 'ws-1', launchToken: token }, revoked)
+  assert.equal(gatewayConversation(revoked), undefined)
+  // A paired device never takes a launch's identity, whatever it presents.
+  const live = issueGatewayLaunchToken({ workspaceId: 'ws-1', agentId: 'chat-1' })
+  try {
+    const remote: McpConnectionContext = { metadata: { kind: 'remote-tailnet', deviceId: 'dev-1' } }
+    await gateway.dispatch(CONNECT, { launchToken: live }, remote)
+    assert.equal(remote.metadata.kind, 'remote-tailnet')
+    assert.equal(gatewayConversation(remote), undefined)
+  } finally {
+    revokeGatewayLaunchToken(live)
   }
 })

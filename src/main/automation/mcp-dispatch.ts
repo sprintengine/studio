@@ -13,7 +13,13 @@ import type {
   McpToolRegistration,
   McpToolResult,
 } from '../../shared/modules/mcp-tools'
-import { runGatewayCall, type GatewayCallScope } from '../../server/tools/client-tool-gateway'
+import {
+  bindGatewayConversation,
+  gatewayConversation,
+  runGatewayCall,
+  type GatewayCallScope,
+} from '../../server/tools/client-tool-gateway'
+import { resolveGatewayLaunchToken, type GatewayLaunchIdentity } from '../../server/core/gateway-launch-tokens'
 import type { ClientToolServedBy } from '../../server/tools/client-tool-registry'
 
 // The gateway's MCP method semantics, independent of how bytes arrive.
@@ -112,15 +118,30 @@ export function createMcpDispatcher(options: {
   /** The tools this connection may see, resolved per request: client tools differ by connection. */
   resolveTools: (context?: McpConnectionContext) => McpToolRegistration[]
   clientTools?: McpClientToolHooks
+  /** Who a launch token was issued to; the process-wide launch tokens unless a test names its own. */
+  resolveLaunchToken?: (token: string) => GatewayLaunchIdentity | null
   onToolCall?: (event: McpToolCallEvent) => void
 }): McpDispatcher {
+  const resolveLaunchToken = options.resolveLaunchToken ?? resolveGatewayLaunchToken
   return {
     async dispatch(method, params, context, gate, io): Promise<McpDispatchOutcome> {
       switch (method) {
         case 'sprintengine.studio/connect': {
           const declared = applyDeclaredConnectionMetadata(context.metadata, params)
           if (!declared.ok) return { kind: 'error', code: JSONRPC_INVALID_REQUEST, errorMessage: declared.message }
-          context.metadata = declared.metadata
+          const proven = provenLaunch(context, params, resolveLaunchToken)
+          if (!proven.ok) return { kind: 'error', code: JSONRPC_INVALID_REQUEST, errorMessage: proven.message }
+          context.metadata = proven.identity
+            ? {
+                ...declared.metadata,
+                kind: 'studio-agent',
+                workspaceId: proven.identity.workspaceId,
+                agentId: proven.identity.agentId,
+                ...(proven.identity.agentName ? { agentName: proven.identity.agentName } : {}),
+                ...(proven.identity.cliId ? { cliId: proven.identity.cliId } : {}),
+              }
+            : declared.metadata
+          if (proven.identity) bindGatewayConversation(context, proven.identity)
           return { kind: 'no_response' }
         }
         case 'initialize': {
@@ -301,6 +322,46 @@ function applyDeclaredConnectionMetadata(
       peerNode: established.peerNode,
     },
   }
+}
+
+/**
+ * The launch a connection's token proves, if it presented one a live launch
+ * holds. The conversation is taken from the token and never from what the
+ * connection declared, and once proven it does not change: a second token for
+ * another conversation is refused. A paired device's connection is the
+ * transport's to identify, and never takes a launch's identity.
+ */
+function provenLaunch(
+  context: McpConnectionContext,
+  params: Record<string, unknown>,
+  resolve: (token: string) => GatewayLaunchIdentity | null,
+): { ok: true; identity: GatewayLaunchIdentity | null } | { ok: false; message: string } {
+  const token = typeof params.launchToken === 'string' ? params.launchToken.trim() : ''
+  const bound = gatewayConversation(context)
+  if (!token || context.metadata.kind === 'remote-tailnet') {
+    // Re-stating an identity without the token keeps the conversation it proved.
+    if (bound)
+      return {
+        ok: true,
+        identity: {
+          workspaceId: bound.workspaceId,
+          agentId: bound.agentId,
+          ...(context.metadata.agentName ? { agentName: context.metadata.agentName } : {}),
+          ...(context.metadata.cliId ? { cliId: context.metadata.cliId } : {}),
+        },
+      }
+    return { ok: true, identity: null }
+  }
+  const identity = resolve(token)
+  // A token no live launch holds proves nothing; the declared identity stands
+  // as the claim it always was.
+  if (!identity) return { ok: true, identity: bound ? { ...bound } : null }
+  if (bound && (bound.workspaceId !== identity.workspaceId || bound.agentId !== identity.agentId))
+    return {
+      ok: false,
+      message: 'This connection already belongs to another agent and cannot take a second launch’s token.',
+    }
+  return { ok: true, identity }
 }
 
 export type DeclaredProtocolVersion = { kind: 'absent' | 'supported' } | { kind: 'unsupported'; value: unknown }

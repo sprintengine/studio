@@ -409,7 +409,7 @@ export function createWslHost(distro: string, deps: WslHostDeps): ExecutionHost 
       ].filter(Boolean)
       if (names.length > 0) void helper.requestIfRunning('session.remove', { names }).catch(() => undefined)
     },
-    issueChannelToken: () => helper.issueChannelToken(),
+    issueChannelToken: (identity) => helper.issueChannelToken(identity),
     revokeChannelToken: (token) => helper.revokeChannelToken(token),
     watchDir(nativePath, recursive, listener) {
       const watchers = new EventEmitter() as EventEmitter & { close(): void }

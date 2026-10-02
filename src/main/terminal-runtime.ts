@@ -45,6 +45,11 @@ import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 import { normalizeExecutionHostId, wslHostId } from '../shared/execution-host'
 import { isWindowsPath, wslToWindowsPath } from '../shared/host-paths'
 import { hostRegistry } from './hosts/host-registry'
+import {
+  issueGatewayLaunchToken,
+  revokeGatewayLaunchToken,
+  type GatewayLaunchIdentity,
+} from '../server/core/gateway-launch-tokens'
 import { resolveWslDistroForPath } from './hosts/wsl-distro'
 import type { HostAgentIntegration, HostLaunchTarget, HostProcessRef } from './hosts/execution-host'
 import {
@@ -1243,6 +1248,7 @@ function releaseSessionHost(session: TerminalSession): void {
   // token, can no longer open an MCP channel on its machine.
   if (session.channelToken) {
     hostRegistry().get(session.hostId).revokeChannelToken?.(session.channelToken)
+    revokeGatewayLaunchToken(session.channelToken)
     session.channelToken = undefined
   }
   const lease = session.hostLease
@@ -3279,9 +3285,22 @@ async function spawnTerminalFromIpc(
       })
       if (block) return { ok: false, sessionId, message: block.message, exitCode: 1 }
     }
-    // A WSL agent's MCP bridge opens its channel with this launch's token,
-    // which the startup script exports; the session revokes it when it ends.
-    channelToken = !shellOnly && launchTarget.kind === 'wsl' ? host.issueChannelToken?.() : undefined
+    // Every agent launch is issued its own gateway token, bound to its
+    // conversation: the agent's MCP bridge presents it, and the gateway takes
+    // the agent's identity from it. In WSL it is also the token the bridge
+    // opens its channel with, exported by the startup script; here it rides in
+    // the terminal's environment. The session revokes it when it ends.
+    const launchIdentity: GatewayLaunchIdentity | null =
+      !shellOnly && workspaceId && agentId
+        ? { workspaceId, agentId, ...(agentName ? { agentName } : {}), cliId: agentCli }
+        : null
+    channelToken = shellOnly
+      ? undefined
+      : launchTarget.kind === 'wsl'
+        ? host.issueChannelToken?.(launchIdentity)
+        : launchIdentity
+          ? issueGatewayLaunchToken(launchIdentity)
+          : undefined
     const launchFor: HostLaunchTarget =
       channelToken && launchTarget.kind === 'wsl' ? { ...launchTarget, channelToken } : launchTarget
     const {
@@ -3364,6 +3383,8 @@ async function spawnTerminalFromIpc(
         agentId,
         agentName,
         ...(shellOnly ? {} : { cli: agentCli }),
+        // In WSL the startup script exports it; wsl.exe itself needs none.
+        ...(channelToken && launchTarget.kind !== 'wsl' ? { launchToken: channelToken } : {}),
       }),
     })
     const startedAt = Date.now()
@@ -3415,7 +3436,10 @@ async function spawnTerminalFromIpc(
 
     return { ok: true, sessionId } satisfies TerminalSpawnResult
   } catch (error) {
-    if (channelToken) host.revokeChannelToken?.(channelToken)
+    if (channelToken) {
+      host.revokeChannelToken?.(channelToken)
+      revokeGatewayLaunchToken(channelToken)
+    }
     if (unownedLaunchPromptPath) void cleanupHostContextFile(unownedLaunchPromptPath)
     const message = getTerminalErrorMessage(error)
     retainFailedTerminalSession({

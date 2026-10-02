@@ -173,12 +173,23 @@ test("the app's own MCP bridge reaches the automation server through a helper ch
     SPRINTENGINE_MCP_CHANNEL_TOKEN: token,
   })
   assert.deepEqual(JSON.parse(out.trim()), { jsonrpc: '2.0', id: 7, result: { ok: true } })
-  const connectFrame = JSON.parse(automationLines[0]) as { method: string; params: { agentId: string; cliId: string } }
+  const connectFrame = JSON.parse(automationLines[0]) as {
+    method: string
+    params: { agentId: string; cliId: string; launchToken?: string }
+  }
   assert.equal(connectFrame.method, 'sprintengine.studio/connect')
   assert.equal(connectFrame.params.agentId, 'agent-1')
   assert.equal(connectFrame.params.cliId, 'claude-code')
+  // The channel token is also the launch's gateway token: the gateway takes
+  // the agent's identity from it. The helper's own auth line stays with the helper.
+  assert.equal(connectFrame.params.launchToken, token)
   assert.deepEqual(JSON.parse(automationLines[1]), { jsonrpc: '2.0', id: 7, method: 'tools/list' })
-  assert.ok(!automationLines.some((line) => line.includes(token)), 'the token never reaches the automation server')
+  assert.equal(
+    automationLines.filter((line) => line.includes(token)).length,
+    1,
+    'the token reaches the automation server only as the connect frame’s proof',
+  )
+  assert.ok(!automationLines.some((line) => line.includes('"t":"auth"')), 'the auth line is the helper’s alone')
   client.revokeChannelToken(token)
 })
 

@@ -32,6 +32,11 @@
 import { createHash, randomBytes } from 'node:crypto'
 import type { Duplex, Readable, Writable } from 'node:stream'
 
+import {
+  issueGatewayLaunchToken,
+  revokeGatewayLaunchToken,
+  type GatewayLaunchIdentity,
+} from '../../server/core/gateway-launch-tokens'
 import { decodeWslOutput } from './wsl-distro'
 import { WslSetupError } from './wsl-setup-error'
 import { NEEDS_INSTALL_EXIT, parseNeedReport, type NeedReport } from './wsl-install'
@@ -197,7 +202,8 @@ export type WslHelperClient = {
    * token issued here, and not yet revoked, is connected to the automation
    * server. Revoke it when the launch's session ends.
    */
-  issueChannelToken(): string
+  /** One launch's channel token; bound to its conversation as its gateway token when it has one. */
+  issueChannelToken(identity?: GatewayLaunchIdentity | null): string
   revokeChannelToken(token: string): void
   /**
    * Watches a Linux directory inside the distribution. Registered with the
@@ -799,12 +805,16 @@ export function createWslHelperClient(deps: WslHelperClientDeps): WslHelperClien
       armIdle()
     },
     requestIfRunning,
-    issueChannelToken() {
+    issueChannelToken(identity) {
       const token = randomBytes(32).toString('base64url')
       channelTokens.add(tokenDigest(token))
+      // The same token is the launch's gateway token: the bridge it opens a
+      // channel for presents it to the gateway, which takes the agent from it.
+      if (identity) issueGatewayLaunchToken(identity, token)
       return token
     },
     revokeChannelToken(token) {
+      revokeGatewayLaunchToken(token)
       const digest = tokenDigest(token)
       channelTokens.delete(digest)
       // The session is over: what its bridge (or anything that took its

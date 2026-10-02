@@ -81,7 +81,8 @@ bring them back later (section 14).
    (`mcp-dispatch.ts:189-191`). In practice a Codex or ACP chat has no
    browser or canvas tools today, and this phase does not change that (open
    decision 7).
-3. **The gateway does not know conversations, only agents.** A connection is
+3. **The gateway does not know conversations, only agents.** (Since R87, a
+   launch token proves the agent and its conversation; section 7.6.) A connection is
    identified by the `sprintengine.studio/connect` call the stdio bridge sends
    with `workspaceId` and `agentId` (`mcp-stdio-bridge.mjs:182-193`,
    `mcp-dispatch.ts:181-219`). `{ workspaceId, agentId }` is exactly the Studio
@@ -748,6 +749,39 @@ The gateway audit (`gateway-audit.ts`) records:
 The Studio RPC audit (`StudioAuditEntry`, `studio-rpc-types.ts:187-198`)
 records `tools.offer`, `tools.withdraw` and `tools.grant` with the toolset name
 and the number of tools. It never records input or results.
+
+### 7.6 Which conversation a connection is (R87)
+
+Finding 3 says a gateway connection's identity is advisory: anything that can
+open the socket can declare any agent. An app's tools reach the conversations
+it started, so a declared identity would let any local agent reach them. Owner
+ruling 2026-10-02 (decisions R87): every agent launch is issued its own gateway
+token bound to its conversation, and the gateway takes the conversation from
+the token, never from what the connection declares.
+
+- `src/server/core/gateway-launch-tokens.ts` issues, resolves and revokes the
+  tokens, kept as their SHA-256 in the process that runs the gateway, so a
+  restart voids them all as it ends every launch.
+- The token rides in `MCP_CHANNEL_TOKEN_ENV`, the variable a WSL launch
+  already carried its channel token in, so every path that hands that variable
+  to the bridge (a terminal's environment, a WSL startup script, Codex's
+  `env_vars`, a chat child's stdin inside a distribution) carries it unchanged.
+  In WSL the channel token *is* the gateway token: the helper checks it to open
+  the channel, and the gateway resolves the same value.
+- Issued for every terminal agent launch (`terminal-runtime.ts`), every chat
+  child started through `spawnCliHostChild` whose environment names its
+  conversation, and a local Claude chat's child (`claude-agent-provider.ts`).
+  Revoked when the session or child ends. An ACP chat's environment carries no
+  identity, so it is issued none, which matches finding 2 until R86 lands.
+- The bridge sends it as `launchToken` on `sprintengine.studio/connect`, on
+  the local socket only. A valid token sets the connection's agent and binds
+  its conversation; once bound, a second launch's token is refused. A token no
+  live launch holds proves nothing, and the declared identity stays the claim
+  it always was. A tailnet connection never takes a launch's identity.
+- Only a bound conversation counts for an app's reach (5.2). The launch cap and
+  the audit read the same metadata, which the token now proves where present.
+- A launch token the app's own process inherited (Studio started from inside
+  an agent's terminal) is stripped from every child that is not that launch.
 
 ## 8. Disconnect, reconnect, cancellation and idempotency
 
