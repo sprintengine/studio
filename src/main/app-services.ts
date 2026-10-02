@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, net, powerMonitor } from 'electron'
+import { app, BrowserWindow, ipcMain, net, powerMonitor, safeStorage } from 'electron'
 import { createHash, randomUUID } from 'crypto'
 import { existsSync } from 'fs'
 import { homedir, hostname } from 'os'
@@ -26,10 +26,12 @@ import {
   setLaunchSkillPluginDirsResolver,
   setLaunchStatusLineScriptResolver,
 } from './terminal-launch'
-import { REMOTE_OPEN_REQUESTED_CHANNEL, TAILNET_EVENT_CHANNEL } from '../shared/tailnet'
+import { TAILNET_EVENT_CHANNEL } from '../shared/tailnet'
 import { MESH_EVENT_CHANNEL } from '../shared/tailnet-mesh'
 import { CANVAS_MODULE_DEFAULT_ENABLED } from '../shared/modules/manifest'
 import { createTailnetNotifier } from './tailnet-notifications'
+import { createInProcessShellBridge } from './shell-bridge'
+import { createShellReveal } from './shell-reveal'
 import { revealMainWindow } from './window-factory'
 import { createAutomationTools } from './automation/automation-tools'
 import { createTailnetTools, type TailnetToolsFrontDoor } from './automation/tailnet/tailnet-tools'
@@ -103,6 +105,7 @@ import { createAnalyticsService } from './telemetry/analytics-service'
 import { createTelemetryConsentStore } from './telemetry/consent-store'
 import { readInstallId } from './telemetry/install-id'
 import type { BackgroundStatus } from '../shared/background-mode'
+import { isTelemetryEventName, type TelemetryProperties } from '../shared/telemetry'
 import { resolveMemoryRoot } from './memory-graph'
 import { getPluginManifest, listPluginRegistryEntries } from './plugin-registry-instance'
 import { createMcpServerResolver } from './mcp-config-readers/resolve-servers'
@@ -196,6 +199,30 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const platform = studioPlatform()
   const { logMainPerfEvent, withIpcDiagnostics } = createMainDiagnostics({
     enabled: diagnosticsEnabled,
+  })
+  // What the server's code asks of the shell that is not an agent tool: the
+  // keychain, OS notifications and where a click on one goes, the analytics
+  // sink, the integrations gate, and terminal launches for the internal
+  // service tokens. In process it calls the shell's services directly; the
+  // same object is what the shell serves a server in a process of its own.
+  // Its late-bound members (the launch, the gate) resolve at call time.
+  const shellBridge = createInProcessShellBridge({
+    safeStorage,
+    launchAgent: () => (request) => agentLaunchService.launch(request),
+    reveal: createShellReveal({
+      windows: () => BrowserWindow.getAllWindows(),
+      // Never the hidden canvas worker: with the pane closed and an agent
+      // drawing it can be the only window open.
+      isCanvasWorker: isCanvasWorkerWindow,
+      revealMainWindow,
+    }),
+    notifier: platform.notifier,
+    // Only the events this app sends at all; the record drops any property
+    // value that is not a plain string, number or boolean.
+    analytics: (event) => {
+      if (isTelemetryEventName(event.name)) analytics.record(event.name, event.properties as TelemetryProperties)
+    },
+    integrationsReady: () => agentIntegrationReady,
   })
   // Learn the default WSL distribution's name once, in the background, so a WSL
   // launch built later can name it with `-d` (Windows only; a no-op elsewhere).
@@ -1168,20 +1195,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     isAnyWindowFocused: () =>
       BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()),
     isEnabled: () => automationService.getTailnetStatus().notifications,
-    openRemote: () => {
-      // Never the hidden canvas worker: `revealMainWindow` shows and focuses
-      // what it is given, and with the pane closed and an agent drawing it can
-      // be the only window open.
-      const window = BrowserWindow.getAllWindows().find(
-        (candidate) => !candidate.isDestroyed() && !isCanvasWorkerWindow(candidate),
-      )
-      if (!window) return
-      revealMainWindow(window)
-      window.webContents.send(REMOTE_OPEN_REQUESTED_CHANNEL)
-    },
+    openRemote: () => void shellBridge.reveal.tab({ kind: 'remote' }),
     // A later phase of the same request replaces the banner rather than
-    // stacking "waiting" under "paired": the notice's key says which.
-    show: (notice, onClick) => platform.notifier.notify({ ...notice, onActivate: onClick }),
+    // stacking "waiting" under "paired": the notice's key says which. A click
+    // opens the Remote popover, which the bridge's reveal does.
+    show: (notice) => shellBridge.notify({ ...notice, activate: { kind: 'remote' } }),
   })
   // The embedded browser's main half (browser-pane epic): adopts the guests the
   // pane's browser tabs attach, drives them, and finds the dev servers this
@@ -1754,6 +1772,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   }
 
   return {
+    shellBridge,
     removeSessionIntegrations,
     startDeferredBootJobs,
     prepareWorkspacesAtBoot,

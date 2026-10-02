@@ -507,6 +507,22 @@ requests on the control channel. The `browserPane` (CDP over the control
 channel) and `canvasRender` members an earlier draft had are gone (owner
 ruling 2026-10-02).
 
+As built (`src/server/shell-bridge/`, `src/main/shell-bridge.ts`):
+
+- **A notice carries its click as data.** `notify({ key, title, body,
+  activate })` names a reveal target, and the shell carries the click out
+  itself, so no closure has to cross the channel. The targets are `remote`
+  (the Remote popover) and `app`; the tailnet notifier is the one server-side
+  caller today, and it already goes through the bridge in process.
+- **Analytics names are checked on the shell's side** against the closed
+  event list (`isTelemetryEventName`), and the record keeps only plain
+  property values, so a server cannot open a new series.
+- **The integrations gate is one request** the shell answers once its
+  launcher and plugin home are written. Like `agentIntegrationReady`, it
+  never fails: a shell that cannot answer lets launches proceed.
+- **The shell that is gone** fails each call by its own rule: a seal rejects,
+  a launch answers `shell_unavailable`, a reveal answers false.
+
 The shell sends the server **hints**:
 
 - `power { suspend | resume | lock | unlock | battery }`, from `powerMonitor`;
