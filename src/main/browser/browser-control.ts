@@ -36,9 +36,21 @@ const REFS_GLOBAL = '__seBrowserRefs'
 
 export type BrowserControlError = {
   ok: false
-  code: 'no_tab' | 'interrupted' | 'not_found' | 'not_visible' | 'cdp' | 'timeout' | 'invalid'
+  code:
+    'no_tab' | 'interrupted' | 'not_found' | 'not_visible' | 'cdp' | 'timeout' | 'invalid' | 'dialog_open' | 'no_dialog'
   message: string
 }
+
+/** A JavaScript dialog the page opened, which holds the page until someone answers it. */
+export type BrowserDialog = {
+  type: 'alert' | 'confirm' | 'prompt' | 'beforeunload'
+  message: string
+  /** A prompt's own default answer. */
+  defaultPrompt?: string
+  url: string
+  openedAt: string
+}
+export type DialogResult = { ok: true; answered: BrowserDialog; accepted: boolean }
 
 export type ConsoleEntry = {
   level: 'log' | 'info' | 'warn' | 'error' | 'debug'
@@ -107,6 +119,13 @@ type Session = {
   /** Newest last; agent actions and the person's takeovers, so an `interrupted` explains itself. */
   actions: ActionEntry[]
   attached: boolean
+  /**
+   * A dialog the page has open. It holds the page's script, so every action
+   * but answering it would wait on a page that cannot answer.
+   */
+  dialog: BrowserDialog | null
+  /** Told when a dialog opens, so an action already waiting on the page can stop. */
+  onDialog: Set<(dialog: BrowserDialog) => void>
   dispose: () => void
 }
 
@@ -333,7 +352,17 @@ export function createBrowserControl(manager: BrowserControlManager) {
       existing = undefined
     }
     if (!existing) {
-      const created: Session = { tabId, wc, console: [], network: [], actions: [], attached: false, dispose: () => {} }
+      const created: Session = {
+        tabId,
+        wc,
+        console: [],
+        network: [],
+        actions: [],
+        attached: false,
+        dialog: null,
+        onDialog: new Set(),
+        dispose: () => {},
+      }
       const onMessage = (_event: unknown, method: string, params: Record<string, unknown>) =>
         onCdpEvent(created, method, params)
       const onDetach = () => {
@@ -460,7 +489,26 @@ export function createBrowserControl(manager: BrowserControlManager) {
       if (frame && !frame.parentId) {
         s.console.length = 0
         s.network.length = 0
+        s.dialog = null
       }
+    } else if (method === 'Page.javascriptDialogOpening') {
+      const type = ['alert', 'confirm', 'prompt', 'beforeunload'].includes(String(params.type))
+        ? (params.type as BrowserDialog['type'])
+        : 'alert'
+      const dialog: BrowserDialog = {
+        type,
+        message: String(params.message ?? '').slice(0, 2_000),
+        ...(typeof params.defaultPrompt === 'string' && params.defaultPrompt
+          ? { defaultPrompt: params.defaultPrompt.slice(0, 2_000) }
+          : {}),
+        url: String(params.url ?? '').slice(0, 500),
+        openedAt: new Date(at).toISOString(),
+      }
+      s.dialog = dialog
+      for (const listener of [...s.onDialog]) listener(dialog)
+    } else if (method === 'Page.javascriptDialogClosed') {
+      // Answered: by the agent, or by the person in the pane.
+      s.dialog = null
     }
   }
 
@@ -506,6 +554,7 @@ export function createBrowserControl(manager: BrowserControlManager) {
   ): Promise<T | BrowserControlError> {
     const s = await session(tabId)
     if ('ok' in s) return s
+    if (s.dialog) return dialogOpen(s.dialog)
     const epoch = manager.epochOf(tabId)
     const checkpoint = () =>
       manager.epochOf(tabId) !== epoch
@@ -528,8 +577,15 @@ export function createBrowserControl(manager: BrowserControlManager) {
     // while it runs so it never goes dark mid-wait.
     manager.noteAgentActivity(tabId)
     const keepLit = setInterval(() => manager.noteAgentActivity(tabId), 1_000)
+    // A dialog the action makes the page open holds the page, and the action
+    // with it: the agent is told at once rather than at the action's deadline.
+    let stopWaiting: ((dialog: BrowserDialog) => void) | null = null
+    const opened = new Promise<BrowserControlError>((resolve) => {
+      stopWaiting = (dialog) => resolve(dialogOpen(dialog, true))
+      s.onDialog.add(stopWaiting)
+    })
     try {
-      const out = await fn(s, checkpoint)
+      const out = await Promise.race([fn(s, checkpoint), opened])
       if (out.ok) {
         // A yielded action does not re-light the badge: the person has the page.
         manager.noteAgentActivity(tabId)
@@ -544,7 +600,17 @@ export function createBrowserControl(manager: BrowserControlManager) {
       return fail(error instanceof DeadlineError ? 'timeout' : 'cdp', message)
     } finally {
       clearInterval(keepLit)
+      if (stopWaiting) s.onDialog.delete(stopWaiting)
     }
+  }
+
+  function dialogOpen(dialog: BrowserDialog, justOpened = false): BrowserControlError {
+    const what = dialog.type === 'beforeunload' ? 'leave-page' : dialog.type
+    return fail(
+      'dialog_open',
+      `${justOpened ? 'The page opened' : 'The page has'} a ${what} dialog${dialog.message ? `: "${dialog.message}"` : ''}. ` +
+        'It holds the page until it is answered: answer it with browser.dialog (accept or dismiss).',
+    )
   }
 
   /** Synthetic input, bracketed so the manager's human-epoch does not count it. */
@@ -870,6 +936,43 @@ export function createBrowserControl(manager: BrowserControlManager) {
           }
         },
       )
+    },
+
+    /** Answer the dialog the page has open: OK (with a prompt's text) or Cancel. */
+    async dialog(
+      tabId: string,
+      answer: { accept: boolean; promptText?: string },
+    ): Promise<DialogResult | BrowserControlError> {
+      const s = await session(tabId)
+      if ('ok' in s) return s
+      const open = s.dialog
+      if (!open) return fail('no_dialog', 'No dialog is open on this tab.')
+      try {
+        await withDeadline(
+          s.wc.debugger.sendCommand('Page.handleJavaScriptDialog', {
+            accept: answer.accept,
+            ...(answer.promptText !== undefined ? { promptText: answer.promptText } : {}),
+          }),
+          CAPTURE_TIMEOUT_MS,
+          'The page did not take the answer in time.',
+        )
+      } catch (error) {
+        return fail(
+          error instanceof DeadlineError ? 'timeout' : 'cdp',
+          error instanceof Error ? error.message : String(error),
+        )
+      }
+      s.dialog = null
+      pushBounded(s.actions, ACTION_HISTORY_MAX, {
+        id: nextActionId(),
+        action: 'dialog',
+        args: answer.accept ? 'accept' : 'dismiss',
+        status: 'succeeded',
+        startedAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+      })
+      manager.noteAgentActivity(tabId)
+      return { ok: true, answered: open, accepted: answer.accept }
     },
 
     /** Buffered console output since the last navigation (or since `clear`). */

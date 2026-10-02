@@ -30,6 +30,8 @@ export const BROWSER_MUTATION_TOOL_NAMES: readonly string[] = [
   'browser.evaluate',
   'browser.resize',
   'browser.set_appearance',
+  // Answering a page's dialog presses OK or Cancel on the person's page.
+  'browser.dialog',
 ]
 
 const OPEN_WAIT_MS = 8_000
@@ -73,6 +75,7 @@ export type BrowserToolsDeps = {
     | 'console'
     | 'network'
     | 'actionsOf'
+    | 'dialog'
   >
   /** Whether a workspace id names an open workspace. */
   hasWorkspace: (workspaceId: string) => boolean
@@ -718,6 +721,35 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
         if (!manager.setColorScheme(resolved.tabId, scheme)) return failure('no_tab', 'The tab is gone.')
         manager.noteAgentActivity(resolved.tabId)
         return success({ scheme })
+      },
+    },
+    {
+      name: 'browser.dialog',
+      description:
+        'Answer the JavaScript dialog (alert, confirm, prompt, or leave-page confirmation) a page has open. While one is open, the other browser tools on that tab answer `dialog_open` with its text. `accept` presses OK, with `text` as a prompt’s answer; `dismiss` presses Cancel.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['accept', 'dismiss'] },
+          text: { type: 'string', description: 'A prompt’s answer, with `accept`.' },
+          tabId: TARGET_PROPERTIES.tabId,
+          workspaceId: TARGET_PROPERTIES.workspaceId,
+        },
+        required: ['action'],
+        additionalProperties: false,
+      },
+      handler: async (args, context) => {
+        const resolved = resolveTab(args, context)
+        if ('content' in resolved) return resolved
+        const action = str(args, 'action')
+        if (action !== 'accept' && action !== 'dismiss')
+          return failure('invalid', '`action` must be accept or dismiss.')
+        const text = typeof args.text === 'string' ? args.text : undefined
+        const result = await control.dialog(resolved.tabId, {
+          accept: action === 'accept',
+          ...(action === 'accept' && text !== undefined ? { promptText: text } : {}),
+        })
+        return result.ok ? success({ answered: result.answered, accepted: result.accepted }) : controlFailure(result)
       },
     },
   ]

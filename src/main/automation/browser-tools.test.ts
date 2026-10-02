@@ -166,6 +166,19 @@ for (const through of ['direct', 'the shell'] as const)
         scroll: async () => ({ ok: true }),
         evaluate: async () => ({ ok: true, value: 42, truncated: false }),
         waitFor: async () => ({ ok: false, code: 'timeout', message: 'Waited 5000ms' }),
+        dialog: async (tabId, answer) => {
+          calls.push(`dialog:${tabId}:${answer.accept ? 'accept' : 'dismiss'}:${answer.promptText ?? ''}`)
+          return {
+            ok: true,
+            answered: {
+              type: 'prompt',
+              message: 'Name?',
+              url: 'http://localhost:5173/',
+              openedAt: '2026-10-02T09:00:00.000Z',
+            },
+            accepted: answer.accept,
+          }
+        },
         console: async () => ({ ok: true, entries: [] }),
         network: async () => ({ ok: true, entries: [] }),
         actionsOf: (tabId) =>
@@ -517,6 +530,25 @@ for (const through of ['direct', 'the shell'] as const)
         await h.tools.get('browser.open')!.handler({ url: 'http://localhost:5173/next' }, agentA)
         assert.ok(h.calls.includes('navigate:t1:http://localhost:5173/next'), 'the agent navigated its own tab')
         assert.ok(!h.calls.some((call) => call.startsWith('navigate:t2')), 'the person’s tab was left alone')
+      })
+
+      await run('browser.dialog answers the page’s dialog, and an action it holds says so', async () => {
+        const h = harness({
+          click: async () => ({
+            ok: false,
+            code: 'dialog_open',
+            message: 'The page opened a prompt dialog: "Name?". Answer it with browser.dialog (accept or dismiss).',
+          }),
+        })
+        h.tabs.set('t1', { workspaceId: 'ws-1', state: tabState('t1', 'http://localhost:5173/') })
+        const held = await h.tools.get('browser.click')!.handler({ ref: 'e1' }, bound)
+        assert.equal((structured(held).error as { code: string }).code, 'dialog_open')
+        const answered = await h.tools.get('browser.dialog')!.handler({ action: 'accept', text: 'Ada' }, bound)
+        assert.equal(answered.isError, undefined)
+        assert.deepEqual(structured(answered).accepted, true)
+        assert.ok(h.calls.includes('dialog:t1:accept:Ada'))
+        const bad = await h.tools.get('browser.dialog')!.handler({ action: 'maybe' }, bound)
+        assert.equal((structured(bad).error as { code: string }).code, 'invalid')
       })
 
       await run('an agent whose tab closed resolves afresh instead of failing', async () => {

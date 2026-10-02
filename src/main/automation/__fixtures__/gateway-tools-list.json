@@ -69,6 +69,10 @@
       "sha256": "0f2788d0f3814053b27a4c9573f193aa6a2b6709ace9e824e8565def2d5466c7"
     },
     {
+      "name": "browser.dialog",
+      "sha256": "d32e8936801adb5510bd056d88eef5906a7efb22086a95b1d5cf9f1e2cde7415"
+    },
+    {
       "name": "canvas.list",
       "sha256": "9223c8c4144fff6a57c2ea032c89990895f546f97cb5d8d407c87310429917cb"
     },
@@ -333,6 +337,10 @@
     {
       "name": "browser.set_appearance",
       "sha256": "0f2788d0f3814053b27a4c9573f193aa6a2b6709ace9e824e8565def2d5466c7"
+    },
+    {
+      "name": "browser.dialog",
+      "sha256": "d32e8936801adb5510bd056d88eef5906a7efb22086a95b1d5cf9f1e2cde7415"
     },
     {
       "name": "canvas.list",

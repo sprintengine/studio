@@ -42,6 +42,8 @@ test('studio-plugin-skills', async () => {
   const NON_TOOL_TOKENS = new Set([
     'bypass_all',
     'canvas_module_disabled',
+    // A browser error code, not a tool: a page's dialog holds the tab.
+    'dialog_open',
     'in_progress',
     // A canvas error code, not a tool: the board file on disk is unreadable, so
     // nothing was written over it.
