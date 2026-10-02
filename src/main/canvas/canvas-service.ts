@@ -552,6 +552,8 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
       board.appState = { ...scene.appState }
       board.files = {}
       const written = await writeScene(board)
+      // Another client created the same board first: open theirs.
+      if (!written.ok && written.error.code === 'fs_conflict') return loadFromDisk(board, false)
       if (!written.ok) return written
       board.loaded = true
       return canvasOk(undefined)

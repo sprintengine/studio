@@ -347,6 +347,18 @@ for (const [name, make] of RIGS)
   })
 
 describe('two desktops on one Studio, one board', () => {
+  test('two desktops creating one new board at once both open it', async () => {
+    const served = await studioServing()
+    const first = protocolService(await attach(served))
+    const second = protocolService(await attach(served))
+    const [one, two] = await Promise.all([
+      first.service.readBoard(BOARD, { create: true }),
+      second.service.readBoard(BOARD, { create: true }),
+    ])
+    assert.ok(one.ok, one.ok ? '' : one.error.message)
+    assert.ok(two.ok, two.ok ? '' : two.error.message)
+  })
+
   test('edits to different elements both survive, and each desktop hears the other’s', async () => {
     const served = await studioServing()
     const first = protocolService(await attach(served))
