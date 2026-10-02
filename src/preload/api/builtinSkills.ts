@@ -1,4 +1,5 @@
-import { ipcRenderer, type IpcRendererEvent } from 'electron'
+import type { IpcRendererEvent } from 'electron'
+import { ipc as ipcRenderer } from '../ipc-router'
 import type { BuiltinSkill, BuiltinSkillStatus, ElectronApi, StudioPluginStatus } from '../../shared/electron-api'
 import type { StudioAreaSkillChoices, StudioAreaSkillId } from '../../shared/studio-area-skills'
 

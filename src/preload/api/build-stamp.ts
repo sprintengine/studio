@@ -1,4 +1,4 @@
-import { ipcRenderer } from 'electron'
+import { ipc as ipcRenderer } from '../ipc-router'
 import { BUILD_STAMP_CHANNEL, type BuildStamp } from '../../shared/build-stamp'
 import type { ElectronApi } from '../../shared/electron-api'
 

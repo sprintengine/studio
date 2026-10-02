@@ -1,5 +1,6 @@
 import { BrowserWindow, screen, shell, type WebContents } from 'electron'
 import { join } from 'path'
+import { serverModeWindowArguments } from './server-mode'
 import { guestPreloadPath } from './browser/browser-manager'
 import { applyGuestWebPreferences, type GuestWebPreferences } from './browser/guest-policy'
 import type { WindowMaterial } from '../shared/electron-api'
@@ -143,6 +144,8 @@ export function createMainWindow({
     ...materialOptions,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
+      // Which process owns the server's IPC channels this session (ipc-router.ts).
+      additionalArguments: serverModeWindowArguments(),
       sandbox: false,
       // Background throttling stays ON (Electron's default), deliberately.
       //
@@ -305,6 +308,8 @@ export function createDiagnosticsWindow(): BrowserWindow {
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
+      // Which process owns the server's IPC channels this session (ipc-router.ts).
+      additionalArguments: serverModeWindowArguments(),
       sandbox: false,
     },
   })
@@ -412,6 +417,8 @@ export function openAuxWindow({ kind, singletonKey, params, bounds = null, focus
     backgroundColor: '#09090b',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
+      // Which process owns the server's IPC channels this session (ipc-router.ts).
+      additionalArguments: serverModeWindowArguments(),
       sandbox: false,
       // A diff or editor window hosts no terminal and no background work, so it
       // has no reason to keep painting while hidden. See the workspace window

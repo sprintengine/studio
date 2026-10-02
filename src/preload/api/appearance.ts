@@ -1,4 +1,4 @@
-import { ipcRenderer } from 'electron'
+import { ipc as ipcRenderer } from '../ipc-router'
 import type { ColorScheme, ElectronApi, WindowMaterial } from '../../shared/electron-api'
 
 type AppearanceIpcRenderer = {

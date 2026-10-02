@@ -1,4 +1,4 @@
-import { ipcRenderer } from 'electron'
+import { ipc as ipcRenderer } from '../ipc-router'
 import type { ElectronApi, McpSyncInput, McpSyncResult } from '../../shared/electron-api'
 
 export const mcpApi = {

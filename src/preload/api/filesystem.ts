@@ -1,4 +1,5 @@
-import { ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
+import { webUtils, type IpcRendererEvent } from 'electron'
+import { ipc as ipcRenderer } from '../ipc-router'
 import type {
   ContentSearchResult,
   DiagnosticLogEntry,

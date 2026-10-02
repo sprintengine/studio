@@ -1,4 +1,4 @@
-import { ipcRenderer } from 'electron'
+import { ipc as ipcRenderer } from '../ipc-router'
 import type {
   AgentSkillWriteInput,
   AgentSkillWriteResult,
