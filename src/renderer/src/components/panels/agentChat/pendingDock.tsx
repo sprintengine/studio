@@ -13,6 +13,7 @@ import {
   SplitButton,
   InlineNotice,
 } from '../../ui'
+import { CheckboxBox } from '../../ui/Checkbox'
 import { type TranscriptEntry } from './conversationProjection'
 import { toolObject } from './conversationTimeline'
 import { ConversationFileLink, ConversationMarkdown } from './conversationLinks'
@@ -191,9 +192,8 @@ export function DockShell({
       </div>
       {children}
       {/* No row of key hints (owner ruling 2026-10-01): the keys still work —
-          ⏎ and ⎋ on every card, the digits and arrows on a question — and the
-          plan's and the question's affirmative
-          buttons wear their ⏎. A line spelling them out on every
+          ⏎ and ⎋ on every card, the digits and arrows on a question — and no
+          button wears its key either. A line spelling them out on every
           card cost a row of height in a dock that is already the tallest
           thing above the composer, to tell a regular what they know. */}
       <div className="flex items-center gap-2.5 px-3 pb-2.5 pt-2">
@@ -203,11 +203,20 @@ export function DockShell({
   )
 }
 
-export function Kbd({ children }: { children: React.ReactNode }) {
+// The single-answer twin of `CheckboxBox`: the same size, border and accent,
+// round. Decorative — the row's `aria-checked` carries the state.
+function RadioDot({ checked }: { checked: boolean }) {
   return (
-    <kbd className="rounded-xs border border-b-2 border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] px-1 py-px font-sans text-micro font-medium leading-none text-[color:var(--text-muted)]">
-      {children}
-    </kbd>
+    <span
+      aria-hidden="true"
+      className={`inline-flex size-icon-sm items-center justify-center rounded-full border transition-colors ${
+        checked
+          ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)]'
+          : 'border-[color:var(--border-default)] bg-[color:var(--bg-app)]'
+      }`}
+    >
+      {checked ? <span className="size-1.5 rounded-full bg-[color:var(--text-on-accent)]" /> : null}
+    </span>
   )
 }
 
@@ -544,7 +553,7 @@ export function ConversationPlanCard({
             Keep planning
           </GhostButton>
           <OutlineButton size="sm" onClick={() => onApprove(entry.requestId, true)} disabled={busy}>
-            Approve plan <Kbd>⏎</Kbd>
+            Approve plan
           </OutlineButton>
         </>
       }
@@ -689,7 +698,7 @@ export function ConversationQuestionCard({
             Dismiss
           </GhostButton>
           <OutlineButton size="sm" onClick={advance} disabled={busy || !currentAnswered}>
-            {isLast ? 'Answer' : 'Next'} <Kbd>⏎</Kbd>
+            {isLast ? 'Answer' : 'Next'}
           </OutlineButton>
         </>
       }
@@ -703,7 +712,7 @@ export function ConversationQuestionCard({
         aria-label={question.header ?? plainInlineText(question.question)}
         className="flex flex-col px-2 pt-1"
       >
-        {question.options.map((option, index) => {
+        {question.options.map((option) => {
           const checked = picks.includes(option.label)
           const parsed = parseOptionLabel(option.label)
           return (
@@ -718,19 +727,14 @@ export function ConversationQuestionCard({
               selected={checked}
               disabled={busy}
               onClick={() => toggleOption(option.label)}
+              // The marker says what kind of answer this is — a dot for one, a
+              // box for several — not which digit picks it. The digits still
+              // work; a numbered square on every row was a key hint by another
+              // name, and the only square corner on a card of rounded ones.
               icon={
-                index < 9 ? (
-                  <span
-                    aria-hidden="true"
-                    className={`mt-0.5 shrink-0 rounded-xs border px-1 py-px font-mono text-micro font-medium leading-none ${
-                      checked
-                        ? 'border-[color:var(--accent-primary)] text-[color:var(--accent-primary)]'
-                        : 'border-[color:var(--border-strong)] text-[color:var(--text-subtle)]'
-                    }`}
-                  >
-                    {index + 1}
-                  </span>
-                ) : null
+                <span className="mt-0.5 flex shrink-0">
+                  {question.multiSelect ? <CheckboxBox checked={checked} /> : <RadioDot checked={checked} />}
+                </span>
               }
             >
               <span className="block text-body font-semibold leading-5 text-[color:var(--text-strong)]">
