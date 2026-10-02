@@ -621,6 +621,10 @@ benefit. A CLI started afterwards does.
 - **Compatibility mode.** "Restart in compatibility mode" writes
   `server-mode.json` = `in-process` and relaunches. It is the user-facing
   rollback.
+- **As built** (`src/main/server-supervisor/supervisor.ts`): `FAILED` carries
+  `neverReady`, true when no server reached `ready` this session, which is
+  the case decision O9's boot-time fallback applies to. A server stopped for a
+  quit is never restarted, and a fork that throws counts as a failed boot.
 
 ### 7.2 Server state machine (server side)
 
