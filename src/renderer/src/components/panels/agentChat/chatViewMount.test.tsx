@@ -1316,3 +1316,96 @@ test('a turn’s steps rest folded, the latest one included; its agents are card
     await chat.unmount()
   }
 })
+
+test('a replay plays the conversation back a reply at a time, stopping on each message', async () => {
+  const chat = await mountChat({
+    events: [
+      event('user_message', { turnId: 't1', text: 'Why does the build fail?' }),
+      event('turn_started', { turnId: 't1' }),
+      event('content_delta', { turnId: 't1', text: 'The barrel stopped exporting the pager.' }),
+      event('turn_completed', { turnId: 't1' }),
+      event('user_message', { turnId: 't2', text: 'Thanks for checking' }),
+      event('turn_started', { turnId: 't2' }),
+      event('content_delta', { turnId: 't2', text: 'Any time.' }),
+      event('turn_completed', { turnId: 't2' }),
+    ],
+  })
+  const replay = () => chat.host.querySelector<HTMLElement>('[data-conversation-replay]')
+  const shown = () => replay()?.textContent ?? ''
+  const press = (key: string) =>
+    chat.act(async () => {
+      chat.dom.window.document.activeElement!.dispatchEvent(
+        new chat.dom.window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }),
+      )
+    })
+  try {
+    // Started from the palette while the person is in the composer.
+    const composer = chat.host.querySelector('textarea')!
+    composer.focus()
+    await chat.act(async () => {
+      chat.dom.window.dispatchEvent(
+        new chat.dom.window.CustomEvent('sprintengine:panel-command', { detail: { id: 'chat.replay.start' } }),
+      )
+    })
+    // It opens on the first message, its reply not yet begun, with the keys in hand.
+    expect(shown()).toContain('Why does the build fail?')
+    expect(shown()).not.toContain('The barrel stopped')
+    expect(shown()).toContain('1/2')
+    expect(replay()!.contains(chat.dom.window.document.activeElement)).toBe(true)
+    // The live chat stays mounted underneath, out of reach.
+    expect(chat.host.querySelector('textarea')!.closest('[inert]')).not.toBeNull()
+
+    // Space plays the reply and stops on the next message.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      await press(' ')
+      expect(replay()!.querySelector('button[aria-label="Pause replay"]')).not.toBeNull()
+      for (let step = 0; step < 40; step++) await chat.act(async () => vi.advanceTimersByTime(500))
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(shown()).toContain('The barrel stopped exporting the pager.')
+    expect(shown()).toContain('Thanks for checking')
+    expect(shown()).not.toContain('Any time.')
+    expect(shown()).toContain('2/2')
+    expect(replay()!.querySelector('button[aria-label="Play replay"]')).not.toBeNull()
+
+    // → finishes the last reply at once; ← goes back to the message that asked for it.
+    await press('ArrowRight')
+    expect(shown()).toContain('Any time.')
+    expect(shown()).toContain('End of the conversation')
+    await press('ArrowLeft')
+    expect(shown()).not.toContain('Any time.')
+    expect(shown()).toContain('Thanks for checking')
+
+    // Esc leaves, and the live chat is back as it was, focus where it was.
+    await press('Escape')
+    expect(replay()).toBeNull()
+    expect(chat.host.querySelector('[inert]')).toBeNull()
+    expect(chat.host.textContent).toContain('Any time.')
+    expect(chat.dom.window.document.activeElement).toBe(composer)
+  } finally {
+    await chat.unmount()
+  }
+})
+
+test("a replay asked for from the tab's menu waits for the transcript, then opens on its first message", async () => {
+  const { requestChatReplay } = await import('./chatReplayRequests')
+  // The menu asks before the tab's chat has mounted, let alone read its transcript.
+  requestChatReplay('workspace', 'agent')
+  const chat = await mountChat({
+    events: [
+      event('user_message', { turnId: 't1', text: 'Walk me through the release' }),
+      event('turn_started', { turnId: 't1' }),
+      event('content_delta', { turnId: 't1', text: 'First, the changelog.' }),
+      event('turn_completed', { turnId: 't1' }),
+    ],
+  })
+  try {
+    const replay = chat.host.querySelector<HTMLElement>('[data-conversation-replay]')
+    expect(replay?.textContent).toContain('Walk me through the release')
+    expect(replay?.textContent).not.toContain('First, the changelog.')
+  } finally {
+    await chat.unmount()
+  }
+})
