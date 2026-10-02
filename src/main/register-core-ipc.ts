@@ -5,7 +5,11 @@ import { registerAppearanceIpc } from './ipc/appearance-ipc'
 import { registerBackgroundModeIpc } from './ipc/background-mode-ipc'
 import { registerTelemetryIpc } from './ipc/telemetry-ipc'
 import { registerAuthIpc } from './ipc/auth-ipc'
-import { registerStudioConnectionIpc } from './ipc/studio-connection-ipc'
+import {
+  registerRemoteStudioConnectionIpc,
+  registerStudioConnectionIpc,
+  type RemoteWindowConnector,
+} from './ipc/studio-connection-ipc'
 import { assertAppSender } from './ipc/ipc-sender'
 import { registerAppMenuIpc } from './app-menu'
 import { registerBuiltinSkillsIpc } from './ipc/builtin-skills-ipc'
@@ -73,6 +77,11 @@ import { writeDiagnosticLog } from './diagnostics-service'
 export type CoreIpcOptions = {
   includeDevModules?: boolean
   applyModuleEnablementLive?: ModuleEnablementLiveApplier
+  /**
+   * The Studio server in a process of its own: its domains register there, on
+   * its IPC tunnel, and a chat view's protocol connection is brokered to it.
+   */
+  server?: { studioConnections: RemoteWindowConnector }
 }
 
 /** What registration hands back for the app's shutdown to finish. */
@@ -108,7 +117,8 @@ export function registerCoreIpc(
     },
   })
   registerToursIpc(ipcMain, services.tourService)
-  registerStudioConnectionIpc(ipcMain, services.studioRpcService)
+  if (options.server) registerRemoteStudioConnectionIpc(ipcMain, options.server.studioConnections)
+  else if (services.studioRpcService) registerStudioConnectionIpc(ipcMain, services.studioRpcService)
   registerAppMenuIpc(ipcMain)
   registerClipboardIpc(ipcMain)
   registerCliRuntimeIpc(ipcMain)
@@ -198,16 +208,21 @@ export function registerCoreIpc(
   // The domains the Studio server owns: registered here while it runs in
   // process, and by the server itself on its IPC tunnel when it runs in a
   // process of its own (src/server/desktop/server-ipc.ts).
-  const { conversationCommands } = registerServerDomainIpc(ipcMain, {
-    core: services.studioCore,
-    gateway: services.automationService,
-    studioRpc: services.studioRpcService,
-    githubTokenStore: services.githubTokenStore,
-    workspaceBackup: services.workspaceBackupService,
-    terminalHandoff: (input) => services.conversationTerminalHandoff.handoff(input),
-    files: { ...filesystemSearchHandlers, ...filesystemReadHandlers },
-    assertAppSender,
-  })
+  const { automationService, studioRpcService, workspaceBackupService, conversationTerminalHandoff } = services
+  const { conversationCommands } =
+    !options.server && automationService && studioRpcService && workspaceBackupService && conversationTerminalHandoff
+      ? registerServerDomainIpc(ipcMain, {
+          core: services.studioCore,
+          gateway: automationService,
+          studioRpc: studioRpcService,
+          githubTokenStore: services.githubTokenStore,
+          workspaceBackup: workspaceBackupService,
+          terminalHandoff: (input) => conversationTerminalHandoff.handoff(input),
+          files: { ...filesystemSearchHandlers, ...filesystemReadHandlers },
+          assertAppSender,
+        })
+      : // The server registers them, and disposes its own command lists.
+        { conversationCommands: { dispose: async () => undefined } }
   registerDesignSystemIpc(ipcMain)
   registerThirdPartyModuleIpc(ipcMain, services)
 

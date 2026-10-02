@@ -48,11 +48,15 @@ export function createPortBroker(deps: PortBrokerDeps): PortBroker {
     entry.clientId = null
   }
 
-  function broker(id: number): void {
+  function broker(id: number, options: { loaded: boolean } = { loaded: false }): void {
     const entry = windows.get(id)
     if (!entry) return
     const { window } = entry
-    if (window.isDestroyed() || window.webContents.isDestroyed() || window.webContents.isLoading()) return
+    if (window.isDestroyed() || window.webContents.isDestroyed()) return
+    // `did-finish-load` says the document is in; otherwise (a window met
+    // mid-load) the event is what brokers it.
+    if (!options.loaded && window.webContents.isLoading()) return
+    if (!options.loaded && !window.webContents.getURL()) return
     if (deps.supervisor.state.kind !== 'ready') return
     const url = window.webContents.getURL()
     if (!deps.isAppDocument(url)) return
@@ -77,7 +81,7 @@ export function createPortBroker(deps: PortBrokerDeps): PortBroker {
     }
     entry.clientId = clientId
     window.webContents.postMessage(SERVER_PORT_CHANNEL, { clientId }, [port2])
-    deps.log?.(`brokered ${clientId}`)
+    deps.log?.(`brokered ${clientId} (${entry.window.webContents.getURL().split('?')[0].split('/').pop()})`)
   }
 
   // Every restart's ready brokers every window again: the old ports died with the old server.
@@ -95,7 +99,7 @@ export function createPortBroker(deps: PortBrokerDeps): PortBroker {
       const entry = { window, clientId: null as string | null, generation: 0 }
       windows.set(id, entry)
       const contents = window.webContents
-      const loaded = () => broker(id)
+      const loaded = () => broker(id, { loaded: true })
       const gone = () => detach(entry)
       const navigating = (details: { isMainFrame?: boolean; isSameDocument?: boolean }) => {
         if (details?.isMainFrame === false || details?.isSameDocument) return

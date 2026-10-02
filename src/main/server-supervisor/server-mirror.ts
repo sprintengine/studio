@@ -1,0 +1,192 @@
+import type { ControlRpc } from '../../server/bootstrap/control-rpc'
+import {
+  SERVER_EVENTS,
+  SERVER_METHODS,
+  type ServerMirrorLaunchSettings,
+  type ServerMirrorRegistry,
+  type ServerMirrorState,
+} from '../../server/desktop/server-methods'
+import {
+  emptyAgentLaunchSettings,
+  type AgentLaunchSettings,
+  type AgentLaunchSettingsRecord,
+  type AgentLaunchSettingsSnapshot,
+} from '../../shared/launch-settings'
+import type { WorkspaceSyncEvent, WorkspaceSyncSnapshot, WorkspaceSyncState } from '../../shared/workspace-sync'
+import type { WorkspaceRegistryRecord } from '../../shared/workspace-registry'
+
+// The shell's read-only copy of what the Studio server owns and the shell
+// reads synchronously (phase 6 spec, section 5): the workspace registry and
+// the launch settings. A terminal launch, the agent registration, the plugin
+// pass over every workspace, the canvas and the tours all ask these at once,
+// in the middle of their own work; out of process the answer has to be here
+// already. The server pushes each change as it is accepted, and the mirror
+// starts over from a fresh snapshot after every server restart.
+//
+// Writes are asynchronous calls: an agent record a terminal launch writes is
+// sent and answered optimistically, the way a window's own write is.
+//
+// The proxies have the shapes the in-process services have, for the members
+// the shell uses, so the shell's composition does not branch on every read.
+
+export type ServerStateMirror = {
+  /** Load a fresh snapshot (the first `ready`, and every restart's). */
+  load(): Promise<void>
+  /** Resolves once a snapshot has arrived. */
+  whenLoaded(): Promise<void>
+  readonly registry: MirrorRegistry
+  readonly workspaceSync: MirrorWorkspaceSync
+  readonly launchSettings: MirrorLaunchSettings
+}
+
+export type MirrorRegistry = {
+  getState(): WorkspaceSyncState
+  getRecords(): WorkspaceRegistryRecord[]
+  getRecord(workspaceId: string): WorkspaceRegistryRecord | null
+  needsHydration(): boolean
+  subscribe(listener: (state: WorkspaceSyncState) => void): () => void
+}
+
+export type MirrorWorkspaceSync = {
+  getSnapshot(): WorkspaceSyncSnapshot
+  subscribeEvents(listener: (event: WorkspaceSyncEvent) => void): () => void
+  updateWorkspaceAgent(
+    workspaceId: string,
+    agentId: string,
+    patch: unknown,
+    actor: string,
+    stamp?: number,
+  ): { ok: true } | { ok: false; reason: string; message: string }
+  /** The server flushes its own registry; nothing is held here. */
+  flush(): Promise<void>
+}
+
+export type MirrorLaunchSettings = {
+  get(): AgentLaunchSettings
+  getRecord(): AgentLaunchSettingsRecord | null
+  getSnapshot(): Promise<AgentLaunchSettingsSnapshot>
+  subscribe(listener: (record: AgentLaunchSettingsRecord) => void): () => void
+}
+
+const EMPTY_STATE: WorkspaceSyncState = {
+  workspaces: [],
+  activeWorkspaceId: null,
+  workspaceWindows: [],
+  primaryWorkspaceWindowId: 'primary',
+  lastAppliedWorkspaceSyncSequence: 0,
+}
+
+export function createServerStateMirror(deps: {
+  rpc: Pick<ControlRpc, 'call' | 'on'>
+  log?: (line: string) => void
+}): ServerStateMirror {
+  let registryView: ServerMirrorRegistry = {
+    state: EMPTY_STATE,
+    snapshot: { sequence: 0, state: stripSequence(EMPTY_STATE) },
+    needsHydration: false,
+  }
+  let launch: ServerMirrorLaunchSettings = { settings: emptyAgentLaunchSettings(), record: null }
+  const registryListeners = new Set<(state: WorkspaceSyncState) => void>()
+  const eventListeners = new Set<(event: WorkspaceSyncEvent) => void>()
+  const launchListeners = new Set<(record: AgentLaunchSettingsRecord) => void>()
+  let markLoaded: () => void = () => undefined
+  const loaded = new Promise<void>((resolve) => {
+    markLoaded = resolve
+  })
+
+  const fan = <T>(listeners: Set<(value: T) => void>, value: T): void => {
+    for (const listener of [...listeners]) {
+      try {
+        listener(value)
+      } catch (error) {
+        deps.log?.(`a mirror listener threw: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+  }
+  const applyRegistry = (next: ServerMirrorRegistry): void => {
+    registryView = next
+    fan(registryListeners, next.state)
+  }
+  const applyLaunch = (next: ServerMirrorLaunchSettings): void => {
+    const changed = next.record && next.record.revision !== launch.record?.revision
+    launch = next
+    if (changed && next.record) fan(launchListeners, next.record)
+  }
+
+  deps.rpc.on(SERVER_EVENTS.mirrorRegistry, (payload) => applyRegistry(payload as ServerMirrorRegistry))
+  deps.rpc.on(SERVER_EVENTS.mirrorWorkspaceEvent, (payload) => fan(eventListeners, payload as WorkspaceSyncEvent))
+  deps.rpc.on(SERVER_EVENTS.mirrorLaunchSettings, (payload) => applyLaunch(payload as ServerMirrorLaunchSettings))
+
+  return {
+    async load() {
+      const state = await deps.rpc.call<ServerMirrorState>(SERVER_METHODS.mirrorSnapshot)
+      applyRegistry({ state: state.state, snapshot: state.snapshot, needsHydration: state.needsHydration })
+      applyLaunch(state.launchSettings)
+      markLoaded()
+    },
+    whenLoaded: () => loaded,
+    registry: {
+      getState: () => registryView.state,
+      getRecords: () => registryView.state.workspaces as WorkspaceRegistryRecord[],
+      getRecord: (workspaceId) =>
+        (registryView.state.workspaces.find((workspace) => workspace.id === workspaceId) as
+          WorkspaceRegistryRecord | undefined) ?? null,
+      needsHydration: () => registryView.needsHydration,
+      subscribe(listener) {
+        registryListeners.add(listener)
+        return () => {
+          registryListeners.delete(listener)
+        }
+      },
+    },
+    workspaceSync: {
+      getSnapshot: () => registryView.snapshot,
+      subscribeEvents(listener) {
+        eventListeners.add(listener)
+        return () => {
+          eventListeners.delete(listener)
+        }
+      },
+      updateWorkspaceAgent(workspaceId, agentId, patch, actor, stamp) {
+        void deps.rpc
+          .call(SERVER_METHODS.updateWorkspaceAgent, {
+            workspaceId,
+            agentId,
+            patch,
+            actor,
+            ...(typeof stamp === 'number' ? { stamp } : {}),
+          })
+          .then(
+            (result) => {
+              const answer = result as { ok?: boolean; message?: string } | null
+              if (answer && answer.ok === false) deps.log?.(`agent record not written: ${answer.message ?? ''}`)
+            },
+            (error: unknown) =>
+              deps.log?.(`agent record not written: ${error instanceof Error ? error.message : String(error)}`),
+          )
+        return { ok: true }
+      },
+      flush: async () => undefined,
+    },
+    launchSettings: {
+      get: () => launch.settings,
+      getRecord: () => launch.record,
+      getSnapshot: async () => ({
+        record: launch.record,
+        settings: launch.settings,
+        persisted: launch.record !== null,
+      }),
+      subscribe(listener) {
+        launchListeners.add(listener)
+        return () => {
+          launchListeners.delete(listener)
+        }
+      },
+    },
+  }
+}
+
+function stripSequence(state: WorkspaceSyncState): WorkspaceSyncSnapshot['state'] {
+  const { lastAppliedWorkspaceSyncSequence: _sequence, ...rest } = state
+  return rest
+}

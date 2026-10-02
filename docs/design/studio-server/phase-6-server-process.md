@@ -331,6 +331,36 @@ Notes:
   - Credentials are resolved by a shell-only method,
     `secrets.resolveForLaunch`, that is never granted to any other client.
 
+### 5.1 As built (amended at implementation, 2026-10-02)
+
+- **Module enablement and trust are written by the shell in this phase.**
+  Settings' enablement IPC and the third-party install, trust and uninstall
+  IPC stay with the marketplace in the shell, so the shell is the one writer
+  of `module-enablement.json` and `trusted-modules.json`; the server reads
+  both when it loads the kernel, and the shell asks it to apply a change live
+  (`modules.apply-enablement`). The table above named the server as their
+  writer; one writer is kept either way, and this one needs no second path
+  for the marketplace.
+- **The shell's view of the core** (`src/main/server-supervisor/remote-core.ts`)
+  has the core's shape for the members the shell uses: the registry and the
+  workspace bus and the launch settings from `ServerStateMirror`, the agent
+  records its launches write sent as calls (answered optimistically), a host
+  registry of its own over the mirrored settings for terminals on WSL, and
+  the idle threshold passed on. Any other member throws by name.
+- **The GitHub token** is the server's; the shell's skills, cards and
+  marketplace ask for it over the control channel. A terminal launch's
+  credential is `secrets.resolve-for-launch`, asked by the shell only.
+- **The boot's workspace pass** (the plugin home and the pass over every
+  workspace) stays with the shell, which owns the integrations (decision
+  R63): it waits for the server's first snapshot inside the boot budget, so
+  there is no `workspaces.prepareAtBoot` call (7.3, step 5).
+- **Until the shell offers `editor`, `tour` and `terminal` as toolsets
+  (6.3)**, the server's gateway lists the core's tools and the server-side
+  automation tools; `agent.launch` and resume-in-terminal go through
+  `ShellBridge.terminals`, the terminal tools list no sessions, and a chat on
+  a WSL machine starts without the gateway entry (its helper is the
+  shell's). The shell's control plane drives terminals only out of process.
+
 ## 6. Interfaces
 
 ### 6.1 Bootstrap envelope and ready
@@ -738,6 +768,14 @@ t1  both done (or server SIGKILLed at its budget)
   (phase 5, 8.1 and 8.4).
 - **Integrations run only after the server has exited.** No chat agent is left
   to use the MCP entries being removed.
+- **As built** (`app-lifecycle.ts`): the shell's legs are modules (begin),
+  timers, canvas, then the server's drain starts (8 s, 6 s when leaving for
+  an update) while the shell's agent state, terminals and pull requests run;
+  `studio server` waits for it before integrations, WSL helpers, telemetry
+  and modules. The server's legs are modules (begin), local app socket,
+  automations, workspace registry, chat transcripts, chats, command lists,
+  the registry again, modules, and the data directory; a lost parent runs
+  only the transcripts, the registry and the lock.
 - **"Restart to update"** forwards the server's `shutdown-progress` to the
   progress window. The 10 s `UPDATE_SHUTDOWN_BUDGET_MS` covers both processes.
 - **Windows: the server must be gone before the NSIS hand-over.** The installer

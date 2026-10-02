@@ -25,11 +25,14 @@ export type ServerLog = {
 }
 
 export type ServerLogOptions = {
-  logsDir: string
+  /** Read when the first line is written: Electron's logs path is settled only once the app is ready. */
+  logsDir: string | (() => string)
   now?: () => Date
   maxFileBytes?: number
   keepDays?: number
   tailLines?: number
+  /** Every line as it is appended (a dev build echoes them to its terminal). */
+  onLine?: (line: string) => void
 }
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024
@@ -39,6 +42,7 @@ const FILE_PATTERN = /^server-(\d{4}-\d{2}-\d{2})(?:\.(\d+))?\.log$/
 
 export function createServerLog(options: ServerLogOptions): ServerLog {
   const now = options.now ?? (() => new Date())
+  const logsDir = (): string => (typeof options.logsDir === 'function' ? options.logsDir() : options.logsDir)
   const maxBytes = options.maxFileBytes ?? MAX_FILE_BYTES
   const keepDays = options.keepDays ?? KEEP_DAYS
   const tailLines = options.tailLines ?? TAIL_LINES
@@ -65,10 +69,10 @@ export function createServerLog(options: ServerLogOptions): ServerLog {
   function open(today: string): void {
     close()
     try {
-      mkdirSync(options.logsDir, { recursive: true })
+      mkdirSync(logsDir(), { recursive: true })
       // A part already written today (the app restarted) is appended to while it has room.
       for (;;) {
-        const candidate = join(options.logsDir, `server-${today}${part > 0 ? `.${part}` : ''}.log`)
+        const candidate = join(logsDir(), `server-${today}${part > 0 ? `.${part}` : ''}.log`)
         let existing = 0
         try {
           existing = statSync(candidate).size
@@ -98,7 +102,7 @@ export function createServerLog(options: ServerLogOptions): ServerLog {
     const cutoff = Date.parse(`${today}T00:00:00Z`) - keepDays * 24 * 60 * 60 * 1000
     let entries: string[]
     try {
-      entries = readdirSync(options.logsDir)
+      entries = readdirSync(logsDir())
     } catch {
       return
     }
@@ -107,7 +111,7 @@ export function createServerLog(options: ServerLogOptions): ServerLog {
       if (!match) continue
       if (Date.parse(`${match[1]}T00:00:00Z`) < cutoff) {
         try {
-          unlinkSync(join(options.logsDir, entry))
+          unlinkSync(join(logsDir(), entry))
         } catch {
           // Someone else's, or gone already.
         }
@@ -116,6 +120,7 @@ export function createServerLog(options: ServerLogOptions): ServerLog {
   }
 
   function append(line: string): void {
+    options.onLine?.(line)
     tail.push(line)
     if (tail.length > tailLines) tail.splice(0, tail.length - tailLines)
     const stamp = now()

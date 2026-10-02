@@ -34,6 +34,16 @@ import { removeRetiredEntitlementCache } from './retired-entitlement-cache'
 import { removeRetiredRelayState } from './retired-relay-state'
 import { applyHostApiGate } from './modules/host-api-gate'
 import { studioPlatform } from '../server/platform/platform'
+import { SERVER_EVENTS, SERVER_METHODS } from '../server/desktop/server-methods'
+import type { AgentPhaseEvent } from '../shared/agent-runtime'
+import { readServerMode, setSessionServerMode } from './server-mode'
+import { createDesktopServerHost } from './server-supervisor/desktop-server-host'
+import { channelForVersion } from './update-channel-store'
+import { createDefaultMarketplaceRegistryClient } from './ipc/marketplace-registry-ipc'
+import { toThirdPartyModuleView } from './ipc/third-party-module-ipc'
+
+/** How long the boot's workspace pass waits for the Studio server out of process. */
+const BOOT_SERVER_WAIT_MS = 15_000
 
 // The app proper, loaded by the entry (index.ts) only in the process that holds
 // the single-instance lock. By the time this runs the startup timeline is
@@ -53,7 +63,25 @@ attachBuildSkewWatch(ipcMain, createBuildSkewWatch({ mainStamp: mainBuildStamp }
 const extensionFolders = ensureExtensionFolders()
 
 const DIAGNOSTICS_ENABLED = readStudioEnv('SPRINTENGINE_DIAGNOSTICS') === '1'
-const services = createAppServices(DIAGNOSTICS_ENABLED)
+
+// Where the Studio server runs this session: in this process, the default, or
+// in a utility process of its own (phase 6). Decided once, here, before any
+// service is built, so every store has one writer for the whole session.
+const serverMode = readServerMode(app.getPath('userData'))
+setSessionServerMode(serverMode.mode)
+const serverHost =
+  serverMode.mode === 'out-of-process'
+    ? createDesktopServerHost({
+        buildStamp: mainBuildStamp.commit,
+        diagnosticsEnabled: DIAGNOSTICS_ENABLED,
+        version: app.getVersion(),
+        channel: channelForVersion(app.getVersion()) === 'nightly' ? 'nightly' : 'latest',
+      })
+    : null
+if (serverHost) {
+  console.info(`[studio-server] out of process (${serverMode.source})`)
+}
+const services = createAppServices(DIAGNOSTICS_ENABLED, serverHost?.link ?? null)
 let applyModuleEnablementLive: ModuleEnablementLiveApplier | undefined
 
 // Dev-only capability surfaces (Voice) ship only in
@@ -65,6 +93,9 @@ const includeDevModules = !app.isPackaged
 const coreIpc = registerCoreIpc(ipcMain, services, DIAGNOSTICS_ENABLED, {
   includeDevModules,
   applyModuleEnablementLive: (overrides) => applyModuleEnablementLive?.(overrides),
+  ...(serverHost
+    ? { server: { studioConnections: { connectPort: (port) => serverHost.connectStudioPort(port) } } }
+    : {}),
 })
 
 // Capability modules register their own IPC/services/sidecars through the host
@@ -110,9 +141,12 @@ const getModulePermissions = (moduleId: string): readonly string[] | undefined =
 // reference its manifest for the enablement gate; constructed after
 // `getModulePermissions` so the companion-attach permission check is wired in.
 const agentRuntimeModule = createAgentRuntimeModule(services, { getModulePermissions, platform: studioPlatform() })
+// Out of process every module's server half loads in the server
+// (src/server/desktop/server-modules.ts); the shell loads none and keeps an
+// empty kernel for the renderer-entry channel, which is the shell's.
 const moduleLoad = loadMainModules({
   ipcMain,
-  modules: [agentRuntimeModule, ...activeMainModules, ...thirdPartyMainLoad.modules],
+  modules: serverHost ? [] : [agentRuntimeModule, ...activeMainModules, ...thirdPartyMainLoad.modules],
   overrides: moduleOverrides,
   // Skill directories a third-party module registers are resolved against —
   // and must stay inside — its install folder.
@@ -140,6 +174,11 @@ const recomputeMainEnablement = (overrides: Record<string, boolean>): void => {
 }
 recomputeMainEnablement(moduleOverrides)
 applyModuleEnablementLive = async (overrides) => {
+  // Out of process the server's kernel applies it; this process wrote the file.
+  if (serverHost) {
+    recomputeMainEnablement(overrides)
+    return serverHost.supervisor.call(SERVER_METHODS.applyModuleEnablement, { overrides })
+  }
   const report = await moduleLoad.applyEnablement(overrides, { liveModuleIds: LIVE_ENABLED_MODULE_IDS })
   const scheduledAgentsError = report.errors.find((error) => error.id === 'scheduled-agents')
   if (scheduledAgentsError) return { ok: false, message: scheduledAgentsError.message }
@@ -149,7 +188,7 @@ applyModuleEnablementLive = async (overrides) => {
   // Module-contributed gateway tools follow enablement live: the
   // gateway re-reads the registry and enablement per request, so only the
   // connected MCP clients need a nudge to refresh their tool lists.
-  services.automationService.notifyToolsListChanged()
+  services.automationService?.notifyToolsListChanged()
   return { ok: true }
 }
 // Automation server ← Scheduled agents module: resolved per tool call so a live
@@ -268,28 +307,65 @@ function readModuleTrustContext(): ModuleTrustContext {
 // than hiding inside "app ready".
 markStartup('main.module-evaluated')
 
+if (serverHost) {
+  // What the server asks of the shell: the keychain, notices, terminal
+  // launches, the integrations gate, and the two caches only the shell keeps.
+  serverHost.serveShell(services.shellBridge, {
+    marketplaceRead: (input) => createDefaultMarketplaceRegistryClient().read(input as never),
+    thirdPartyModules: async () => {
+      const { modules, rejected } = await discoverUserModules(defaultUserModuleRoot(), readModuleTrustContext())
+      return { modules: modules.map((module) => toThirdPartyModuleView(module)), rejected }
+    },
+  })
+  // A restarted server starts without the renderer's module registry; it is sent again.
+  serverHost.supervisor.onReady(() => {
+    const snapshot = services.moduleRegistryMirror.read()
+    if (snapshot) serverHost.link.rpc.emit(SERVER_EVENTS.moduleRegistrySnapshot, snapshot)
+  })
+}
+
 registerAppLifecycle({
   diagnosticsEnabled: DIAGNOSTICS_ENABLED,
   allowMultipleInstances: allowsMultipleInstances(app),
   terminalRuntime: services.terminalRuntime,
   conversations: services.conversations,
   conversationOwner: services.conversationOwner,
-  automationService: services.automationService,
-  studioRpcService: services.studioRpcService,
+  automationService: services.automationService ?? undefined,
+  studioRpcService: services.studioRpcService ?? undefined,
   agentStateService: services.agentStateService,
   workspaceSyncService: services.workspaceSyncService,
   removeSessionIntegrations: services.removeSessionIntegrations,
-  releaseDataDir: () => services.studioCore.dataDirLock?.release(),
+  releaseDataDir: () => (serverHost ? undefined : services.studioCore.dataDirLock?.release()),
   canvasService: services.canvasService,
   conversationCommands: coreIpc.conversationCommands,
   onAgentAttentionReady: (attention) => services.setTourAttention((key) => attention.notify(key)),
   pullRequestRecord: services.pullRequestRecord,
   analytics: services.analytics,
-  moduleKernel: moduleLoad.kernel,
+  // Out of process the server runs every module's startup and shutdown hooks.
+  ...(serverHost ? {} : { moduleKernel: moduleLoad.kernel }),
   updateService: services.updateService,
   checkPluginSourceUpdates: () => services.skillsService.checkSourceUpdates(),
   startDeferredBootJobs: services.startDeferredBootJobs,
-  prepareWorkspacesAtBoot: services.prepareWorkspacesAtBoot,
+  // Out of process the workspaces to prepare arrive with the server's first
+  // snapshot; the pass waits for it, inside the same boot budget.
+  prepareWorkspacesAtBoot: serverHost
+    ? () =>
+        serverHost.link
+          .whenServing(BOOT_SERVER_WAIT_MS)
+          .then(() => serverHost.mirror.whenLoaded())
+          .then(() => services.prepareWorkspacesAtBoot())
+    : services.prepareWorkspacesAtBoot,
+  ...(serverHost
+    ? {
+        server: {
+          start: () => serverHost.start(),
+          shutdown: (options) => serverHost.shutdown(options),
+          log: serverHost.log,
+          onAttentionPhase: (listener) =>
+            void serverHost.link.rpc.on(SERVER_EVENTS.attentionPhase, (event) => listener(event as AgentPhaseEvent)),
+        },
+      }
+    : {}),
   backgroundMode: {
     isEnabled: () => services.backgroundModeStore.isEnabled(),
     readStatus: () => services.readBackgroundStatus(),
@@ -298,5 +374,5 @@ registerAppLifecycle({
     void parseAuthCallbackFromArgv(services.sprintengineAuth, argv)
   },
   // ── extension-platform additions ──
-  moduleLoadReady: moduleLoad.ready,
+  ...(serverHost ? {} : { moduleLoadReady: moduleLoad.ready }),
 })

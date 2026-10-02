@@ -233,6 +233,10 @@ export default defineConfig({
           index: resolve('src/main/index.ts'),
           'studio-server': resolve('src/server/desktop-main.ts'),
         },
+        // Every chunk beside the entries, as with one entry: main's code finds
+        // the renderer and the resources relative to its own `__dirname`, which
+        // a `chunks/` folder would move one level down.
+        output: { chunkFileNames: '[name]-[hash].js' },
       },
     },
   },

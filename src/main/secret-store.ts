@@ -239,3 +239,12 @@ let sharedCredentialStore: ProviderSecretStore | null = null
 export function getSharedCredentialStore(): ProviderSecretStore {
   return (sharedCredentialStore ??= new ProviderSecretStore())
 }
+
+/**
+ * Put another store in its place, before anything has asked for it: the shell,
+ * when the Studio server runs in a process of its own, resolves a terminal's
+ * credential from the server that keeps it.
+ */
+export function installSharedCredentialStore(store: ProviderSecretStore): void {
+  sharedCredentialStore = store
+}
