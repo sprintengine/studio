@@ -857,10 +857,18 @@ decision O4 and is not part of phase 6.
   `child-process-metrics.ts` already descends from main's pid, so agent CLIs
   under the server keep being classified.
 - **Crashes.** No crash reporter exists today, and phase 6 adds none. The
-  server installs `uncaughtException` and `unhandledRejection` handlers that
-  write a diagnostic and exit 70. A V8 OOM is bounded by `execArgv:
-  ['--max-old-space-size=<limits.maxOldSpaceMb>']` (decision O10), so a leak
-  restarts the server instead of exhausting the machine.
+  server installs an `uncaughtException` handler that writes a diagnostic and
+  exits 70. An `unhandledRejection` is logged and not fatal (amended at
+  implementation, 2026-10-02): the same code has run in main, where one has
+  never ended the app, and a server restarted on each would lose every chat
+  for a promise someone forgot to catch. No heap cap is passed (decision R06
+  settled O10 the other way): Node's own limit applies, and an OOM is a crash
+  the supervisor restarts.
+- **As built.** The log is `src/main/server-supervisor/server-log.ts`: a day
+  that passes 10 MB continues in `server-YYYY-MM-DD.1.log`, files are 0600,
+  and lines the shell says about the server (a fork, an exit, a kill) are
+  marked `[shell]`. A hung server is ended with SIGKILL on POSIX, since a
+  blocked event loop runs no SIGTERM handler.
 
 ## 11. Code signing, platform and packaging
 
