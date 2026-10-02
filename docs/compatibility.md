@@ -201,7 +201,15 @@ surface's in `STUDIO_CHAT_CAPABILITIES`) advertised in the `welcome`, a Studio
 leaving out any it does not serve; the conversation contract's own `protocolVersion` and capabilities
 travel inside it, in `welcome.conversation`, unchanged. A new method or topic
 is a capability, not a bump; so is a new server frame type (`push` was one),
-since a client skips a frame type it does not know. Every method names its scope in `STUDIO_METHODS`,
+since a client skips a frame type it does not know. Client tools are one such
+capability within version 1: `client-tools` adds the `tools.*` methods and
+stream, the server frames `call` and `cancel`, and the client frames `reply`
+and `progress`. A Studio sends `call` only to a connection that offered a
+toolset, and the SDK sends `reply` only to a Studio that advertised the
+capability, so neither end is handed a frame type it does not know.
+`files-write` adds the owner-only `files.*` by root, which the canvas uses
+over a Studio's boards. A hello's `client.kind` and `client.instanceId` are
+optional hints a Studio that does not know them ignores. Every method names its scope in `STUDIO_METHODS`,
 typed over the method map so a method without one does not compile.
 
 The pack check (`npm run test:studio-packages:pack`) installs the packed

@@ -4,6 +4,15 @@
 
 ### Added
 
+- **Tools for agents.** `client.tools.offer(toolset)` gives Studio's agents
+  tools that run in your program, offered again on every connection;
+  `withdraw()`, `focus()` and `catalog()` beside it. A handler gets the calling
+  chat, a cancel signal and `progress()`; `toolResult` and `StudioToolError`
+  shape its answer. Needs the `client-tools` capability and `tools:offer`.
+- **A process run's id.** Every hello carries an `instanceId`, the same across
+  one `connect()`'s reconnects, so a call cut off by a drop is answered once.
+  `client.kind` may say what a client is; Studio reads it from owners only.
+
 - **A transport's own credential.** `StudioTransport.credential` says the
   hello of that one connection (a ticket minted for it); `auth` is then
   optional.

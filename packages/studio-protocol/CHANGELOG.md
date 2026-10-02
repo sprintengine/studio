@@ -4,6 +4,17 @@
 
 ### Added
 
+- **Client tools** (`client-tools`): `tools.offer`, `withdraw`, `focus`,
+  `catalog`, `grants` and `grant`, the `tools.catalog` stream, the `call` /
+  `cancel` server frames and `reply` / `progress` client frames, the
+  `tools:offer` scope, `STUDIO_TOOL_LIMITS` and the validators
+  (`parseStudioToolsetOffer`, `parseStudioToolResult`, …).
+- **Files by root** (`files-write`, owners): `files.roots`, `list`, `read`,
+  `write`, `remove`, `stat` with a `root`, the `files.watch` stream, the
+  `files:write` scope, and `uploads.begin { purpose: 'file' }`.
+- `hello.client.kind` and `hello.client.instanceId`; the `reserved_name`,
+  `name_taken` and `not_offered` codes.
+
 - **The chat surface** (`chat.ts`): `session.*`, `uploads.*` (with
   `uploads.discard`), the
   conversation's `revert`, `rewind`, `fork`, `attachment`, `planDocument` and
