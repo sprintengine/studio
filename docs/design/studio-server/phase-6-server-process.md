@@ -336,7 +336,7 @@ Notes:
 ### 6.1 Bootstrap envelope and ready
 
 ```ts
-// packages/conversation-protocol/src/studio/bootstrap.ts (new file; the phone's pinned files untouched)
+// src/server/bootstrap/envelope.ts (private to the app's own processes; see below)
 interface ServerBootstrapEnvelope {
   v: 1
   role: 'desktop-local' | 'headless'
@@ -345,24 +345,51 @@ interface ServerBootstrapEnvelope {
   runDir: string                // <dataDir>/run, created 0700
   tempDir: string
   paths: {
-    resourcesDir: string; appPath: string; isPackaged: boolean
+    resourcesDir: string | null; appPath: string | null; isPackaged: boolean
     appExecPath: string         // the app binary: launcher pointer, MCP fallback entry
     helperExecPath?: string     // what process.execPath is inside a utilityProcess
   }
   app: { version: string; buildStamp: string; channel: 'latest' | 'nightly' }
   owner: { tokenHash?: string } // headless only; the desktop needs no token (D2)
-  listeners: { gateway: true; tailnet: 'from-settings' }
-  limits: { maxOldSpaceMb?: number }
+  listeners: { gateway: boolean; tailnet: 'from-settings' | 'off' }
+  secrets: { kind: 'shell'; available: boolean } | { kind: 'key-file' }   // section 9
   flags: Record<string, boolean> // forwarded SPRINTENGINE_* switches (diagnostics, timeline)
 }
 
 type ServerToSupervisor =
   | { t: 'ready'; pid: number; environmentId: string; version: string; buildStamp: string;
-      gateway: { socketPath: string }; tailnet: { bound: string | null } ; bootMs: number }
+      gateway: { socketPath: string | null }; tailnet: { bound: string | null } ; bootMs: number }
   | { t: 'pong'; seq: number; loopLagMs: number; rssMb: number }
   | { t: 'shutdown-progress'; leg: string; done: number; total: number; durationMs: number; failed: boolean }
   | { t: 'fatal'; code: ServerExitCode; message: string }
+
+type SupervisorToServer =
+  | { t: 'envelope'; envelope: ServerBootstrapEnvelope }      // parent port only; stdio sends the bare envelope
+  | { t: 'ping'; seq: number }
+  | { t: 'shutdown'; drain: boolean; budgetMs: number }
+  | { t: 'attach-client'; clientId: string; windowId: string | null; kind: 'desktop-window' | 'shell' } // port transferred
+  | { t: 'detach-client'; clientId: string }
 ```
+
+Beside these, either end may ask the other through a small request, answer
+and event layer (`src/server/bootstrap/control-rpc.ts`: `req`, `res`,
+`event`). `ShellBridge` (6.3) and `supervisor.call` (6.4) are built on it.
+
+Amended at implementation (2026-10-02):
+
+- **Where it lives.** An earlier draft put the envelope in the
+  conversation-protocol package. Both ends are this app's own processes,
+  built from one commit and checked by build stamp, so it is not a surface
+  another program codes against; a published package would make it one, with
+  a compatibility row to keep. It lives in `src/server/bootstrap/`.
+- **No heap cap.** `limits.maxOldSpaceMb` is gone: decision R06 settled O10
+  the other way (Node's own limit applies).
+- **`secrets`.** The server must answer `available()` synchronously while it
+  composes its stores, before any request to the shell could return, so the
+  shell's answer at fork time travels in the envelope. A headless server says
+  `key-file` (decision R12).
+- **`gateway: boolean` and `tailnet: 'off'`.** The seam tests start a server
+  with no listeners.
 
 The desktop delivers the envelope by `postMessage`. WSL, SSH and CI deliver
 it as one stdin line. `src/server/bootstrap/parent-port.ts` and
@@ -380,6 +407,7 @@ it as one stdin line. `src/server/bootstrap/parent-port.ts` and
 | 67 | Protocol or build-stamp mismatch with the shell | no; dev rebuild only |
 | 70 | Uncaught error | yes |
 | 75 | Temporary failure (listener bind raced, `EMFILE`) | yes |
+| signal | Killed or crashed | yes |
 
 ### 6.2 The legacy IPC tunnel
 

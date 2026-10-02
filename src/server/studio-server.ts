@@ -16,6 +16,7 @@ import type { StudioRpcService } from '../main/studio-rpc/studio-rpc-service'
 import { readDataDirSecrets, restrictDataDir } from './core/data-dir'
 import { createNodeStudioPlatform, type NodeStudioPlatform } from './platform/platform'
 import { createUnavailableSecretCipher } from './platform/secret-cipher'
+import { SERVER_EXIT } from './bootstrap/envelope'
 
 // A Studio server under plain Node: the core and its gateway, with nothing of
 // Electron. The `studio-server` entry (main.ts) runs it from a shell; a later
@@ -88,10 +89,12 @@ export class StudioServerStartError extends Error {
   }
 }
 
-export const EXIT_USAGE = 64
-export const EXIT_DATA_DIR_UNUSABLE = 65
-export const EXIT_DATA_DIR_BUSY = 66
-export const EXIT_FAILED = 70
+// The codes the bootstrap envelope documents (bootstrap/envelope.ts), under
+// the names this file and the entry have always used.
+export const EXIT_USAGE = SERVER_EXIT.usage
+export const EXIT_DATA_DIR_UNUSABLE = SERVER_EXIT.dataDirUnusable
+export const EXIT_DATA_DIR_BUSY = SERVER_EXIT.dataDirBusy
+export const EXIT_FAILED = SERVER_EXIT.failed
 
 // How often a server checks that the data directory's lock is still its own.
 // The desktop that took it waits for this server to exit, so this is most of
