@@ -324,6 +324,42 @@ test('WorkspaceSidebar.settled', async () => {
       await settle()
       assert.deepEqual(chatsSuspended, ['echo-chat'], "settling a chat ends its chat agent's process")
       assert.deepEqual(killed, ['alpha-pty'], 'and kills no terminal for it')
+
+      // Settling the chat you are in moves you on: the next chat down the rail
+      // opens, or the one above it when there is none below. Settling a chat
+      // you are not in leaves the selection where it is.
+      const selected: string[] = []
+      const threeOpen = {
+        ...props,
+        workspaces: [workspace('w1', 'Alpha'), workspace('w6', 'Foxtrot'), workspace('w7', 'Golf')],
+        activityByWorkspaceId: { w1: 'idle', w6: 'idle', w7: 'idle' },
+        onSelectWorkspace: (id: string) => selected.push(id),
+      }
+      const drawnIds = (): string[] =>
+        [...container.querySelectorAll<HTMLElement>('[role="treeitem"][data-workspace-id]')].map(
+          (row) => row.dataset.workspaceId!,
+        )
+      const nameOf: Record<string, string> = { w1: 'Alpha', w6: 'Foxtrot', w7: 'Golf' }
+      await render({ ...threeOpen, activeWorkspaceId: 'w1' } as unknown as SidebarProps)
+      const order = drawnIds()
+      assert.equal(order.length, 3, `all three chats are drawn (got ${order.join(', ')})`)
+
+      await render({ ...threeOpen, activeWorkspaceId: order[0] } as unknown as SidebarProps)
+      act(() => actionLabel(`Settle ${nameOf[order[0]!]}`)!.click())
+      await settle()
+      assert.deepEqual(selected, [order[1]], 'settling the open chat opens the one below it')
+
+      selected.length = 0
+      await render({ ...threeOpen, activeWorkspaceId: order[2] } as unknown as SidebarProps)
+      act(() => actionLabel(`Settle ${nameOf[order[2]!]}`)!.click())
+      await settle()
+      assert.deepEqual(selected, [order[1]], 'the last chat in the rail hands off to the one above')
+
+      selected.length = 0
+      await render({ ...threeOpen, activeWorkspaceId: order[0] } as unknown as SidebarProps)
+      act(() => actionLabel(`Settle ${nameOf[order[2]!]}`)!.click())
+      await settle()
+      assert.deepEqual(selected, [], 'settling a chat you are not in opens nothing')
     } finally {
       act(() => {
         root.unmount()

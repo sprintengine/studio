@@ -548,16 +548,6 @@ function WorkspaceSidebar({
     [rowHasOpenAgents],
   )
 
-  // Settle by hand: the record first, then the ptys — the row must move even
-  // if a kill fails, and `terminateWorkspaceTerminals` absorbs its failures.
-  const settleWorkspaceById = useCallback(
-    (id: WorkspaceId) => {
-      setWorkspaceSettled(id, true)
-      quietSettledWorkspace(id)
-    },
-    [setWorkspaceSettled, quietSettledWorkspace],
-  )
-
   // Snooze by hand (owner ruling, 2026-09-10): the record first, then PAUSE the
   // ptys — the same order and the same reason as Settle above, and the same
   // gate on the row actually having something open, because asking main to
@@ -638,6 +628,52 @@ function WorkspaceSidebar({
     if (!root) return []
     return Array.from(root.querySelectorAll<HTMLElement>('[role="treeitem"]'))
   }, [])
+
+  // The chat to open when the one you are in is settled: the next chat row
+  // down the rail as drawn, else the one above it. Rows on a Settled or
+  // Snoozed shelf are skipped — settling one chat should land you in another
+  // that is still going, not open a resting one.
+  const successorRowOf = useCallback(
+    (id: WorkspaceId): WorkspaceId | null => {
+      const byId = new Map(openAgentSourcesRef.current.workspaces.map((workspace) => [workspace.id, workspace]))
+      const now = Date.now()
+      const ids = getTreeRows()
+        .map((row) => row.dataset.workspaceId as WorkspaceId | undefined)
+        .filter((candidate): candidate is WorkspaceId => {
+          if (!candidate) return false
+          if (candidate === id) return true
+          const workspace = byId.get(candidate)
+          return !!workspace && !isSettledWorkspace(workspace) && !isSnoozedWorkspace(workspace, now)
+        })
+      const index = ids.indexOf(id)
+      if (index < 0) return null
+      return (
+        ids.slice(index + 1).find((candidate) => candidate !== id) ??
+        ids
+          .slice(0, index)
+          .reverse()
+          .find((candidate) => candidate !== id) ??
+        null
+      )
+    },
+    [getTreeRows],
+  )
+
+  // Settle by hand: the record first, then the ptys — the row must move even
+  // if a kill fails, and `terminateWorkspaceTerminals` absorbs its failures.
+  //
+  // Settling the chat you are in moves you on to the next one. The row you are
+  // in is never shelved (`isShelved`), so without the hand-off it sat there,
+  // checked off and still open, until you clicked somewhere else.
+  const settleWorkspaceById = useCallback(
+    (id: WorkspaceId) => {
+      const successor = id === activeWorkspaceId ? successorRowOf(id) : null
+      setWorkspaceSettled(id, true)
+      quietSettledWorkspace(id)
+      if (successor) onSelectWorkspace(successor)
+    },
+    [activeWorkspaceId, successorRowOf, setWorkspaceSettled, quietSettledWorkspace, onSelectWorkspace],
+  )
 
   // Drilling into a surface hides this rail (item 1993), and hiding a scrollport
   // drops its offset to zero — so Back would return the workspaces rail scrolled
@@ -3459,6 +3495,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
   const rowElement = (
     <div
       data-row-key={rowKey}
+      data-workspace-id={workspace.id}
       // Roving tabindex: exactly one treeitem is in the tab order at a time,
       // and Arrow/Home/End move focus between rows (handleTreeRowKeyDown).
       tabIndex={isRovingTarget ? 0 : -1}
