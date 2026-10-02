@@ -10,6 +10,7 @@
     "packages/agent-sdk/src/module.ts",
     "packages/agent-sdk/src/protocol.ts",
     "packages/agent-sdk/src/transport.ts",
+    "packages/agent-sdk/src/tools.ts",
     "src/renderer/src/**/*",
     "src/shared/**/*",
     "packages/module-sdk/src/index.ts",

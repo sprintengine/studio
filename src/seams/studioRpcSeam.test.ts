@@ -14,10 +14,8 @@ import { connectToStudio } from '../../packages/agent-sdk/src/node'
 import type { StudioClient } from '../../packages/agent-sdk/src/client'
 import {
   STUDIO_CHAT_METHODS,
-  STUDIO_TOOLS_METHODS,
   STUDIO_METHODS,
   type StudioChatMethod,
-  type StudioToolsMethod,
   type StudioMethod,
 } from '../../packages/studio-protocol/src/public'
 import type { ConversationEvent, ConversationEventType } from '../shared/conversation-runtime'
@@ -322,11 +320,13 @@ test('every method the server serves has its call in the SDK, under the same sco
       StudioChatMethod,
       string
     >),
-    // Client tools, by name until the SDK gives them calls of their own.
-    ...(Object.fromEntries(Object.keys(STUDIO_TOOLS_METHODS).map((method) => [method, 'request'])) as Record<
-      StudioToolsMethod,
-      string
-    >),
+    // Client tools: a withdrawal is the offered toolset's own `withdraw`, and
+    // opening a chat to an app is Studio's own windows' and called by name.
+    'tools.offer': 'tools.offer',
+    'tools.withdraw': 'tools.offer',
+    'tools.focus': 'tools.focus',
+    'tools.catalog': 'tools.catalog',
+    'tools.grant': 'request',
   }
   assert.deepEqual(Object.keys(sdkCalls).sort(), Object.keys(STUDIO_METHODS).sort())
   const client = await pairedClient(['conversation:read'], 'manual')

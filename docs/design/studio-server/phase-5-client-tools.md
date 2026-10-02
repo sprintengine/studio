@@ -875,6 +875,7 @@ export type ToolCall = {
   tool: string
   conversation: ConversationRef | null   // the calling chat, when there is one
   agent: { name?: string; cli?: string }
+  context: StudioToolCallContext         // as the call frame carries it (added as built: 9.3 reads it)
   signal: AbortSignal                    // aborted on cancel
   /** True when this id reached an earlier connection of this process first. */
   redelivered: boolean
@@ -935,6 +936,11 @@ Behaviour:
 - Results over 960 KiB fail locally with `too_large` (4.6).
 - Offering needs `supports('client-tools')`. Without it, `offer` rejects with
   `unsupported`.
+- As built: the SDK mints the `instanceId` once per `connect()` and sends it
+  with every hello, and `ConnectOptions.client` takes `kind`. `ToolCall`
+  carries the call's `context`, which the desktop's adapter (9.3) rebuilds a
+  gateway handler's `McpConnectionContext` from. `StudioToolError` is exported
+  beside `toolResult`.
 
 ### 9.2 Example
 
