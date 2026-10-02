@@ -34,6 +34,8 @@ import { revealMainWindow } from './window-factory'
 import { createAutomationTools } from './automation/automation-tools'
 import { createTailnetTools, type TailnetToolsFrontDoor } from './automation/tailnet/tailnet-tools'
 import { desktopGatewayTools } from './automation/desktop-gateway-tools'
+import { createDesktopShellTools } from './desktop-shell-tools'
+import { readStudioEnv } from '../shared/studio-env'
 import type { McpToolContribution } from './module-host/main-host'
 import { createDefaultMarketplaceRegistryClient } from './ipc/marketplace-registry-ipc'
 import { toThirdPartyModuleView } from './ipc/third-party-module-ipc'
@@ -1304,7 +1306,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     return CANVAS_MODULE_DEFAULT_ENABLED
   }
 
-  // The browser and canvas tools, as main runs them.
+  // The browser and canvas tools, as main runs them. The shell offers the
+  // browser to the gateway as a client toolset, the way any app offers its
+  // tools; `SPRINTENGINE_CLIENT_TOOLS=0` keeps it registered in process, as
+  // before, for one release.
+  const clientToolsEnabled = readStudioEnv('SPRINTENGINE_CLIENT_TOOLS') !== '0'
   const browserTools = createBrowserTools({
     manager: browserManager,
     control: browserControl,
@@ -1354,8 +1360,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     // The core's own tools (`conversation.create`) among this app's window,
     // terminal and run tools, in the order agents have always listed them
     // (`desktopGatewayTools`).
+    // This server's shell offers these, and an agent's first list waits for them.
+    expectShellToolsets: clientToolsEnabled ? ['browser'] : [],
     appTools: desktopGatewayTools({
-      browser: browserTools,
+      browser: clientToolsEnabled ? [] : browserTools,
       canvas: canvasTools,
       editor: createEditorTools(
         createEditorToolBackends({
@@ -1585,7 +1593,52 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // over the core and its gateway as a standalone server composes it. Its
   // paths, version and the push to Settings are the platform's. Nothing in the
   // app uses it yet; paired apps are listed and revoked in Settings.
-  const studioRpcService = createStudioRpc(core, automationService)
+  const studioRpc = createStudioRpc(core, automationService)
+  // The shell, a client of its own server over a port main holds both ends
+  // of: it offers what only a screen can serve.
+  const desktopShell = createDesktopShellTools({
+    transport: studioRpc.shellTransport(),
+    version: app.getVersion(),
+    toolsets: clientToolsEnabled ? [{ name: 'browser', registrations: browserTools }] : [],
+    focus: {
+      current: () => ({
+        focused: BrowserWindow.getAllWindows().some(
+          (window) => !window.isDestroyed() && !isCanvasWorkerWindow(window) && window.isFocused(),
+        ),
+        // A desktop shows every workspace it holds, each a tab away.
+        workspaceIds: workspaceSyncService
+          .getSnapshot()
+          .state.workspaces.map((workspace) => workspace.id)
+          .slice(0, 64),
+      }),
+      onChange: (listener) => {
+        app.on('browser-window-focus', listener)
+        app.on('browser-window-blur', listener)
+        const unsubscribe = workspaceSyncService.subscribeEvents(listener)
+        return () => {
+          app.off('browser-window-focus', listener)
+          app.off('browser-window-blur', listener)
+          unsubscribe()
+        }
+      },
+    },
+    log: (message) => {
+      void writeDiagnosticLog({ level: 'warning', source: 'workspace', title: 'Desktop tools', message })
+    },
+  })
+  // Started and stopped with the RPC: the shell's client goes first, so the
+  // RPC's goodbye is never one it would answer by reconnecting.
+  const studioRpcService: typeof studioRpc = {
+    ...studioRpc,
+    start: () => {
+      void desktopShell.start()
+      return studioRpc.start()
+    },
+    stop: () => {
+      desktopShell.stop()
+      return studioRpc.stop()
+    },
+  }
   // The conversation peek (hover a chat row or an agent tab): the prompts this
   // app captured for the session the card is anchored to. Built here rather
   // than inside the runtime so its assembly rules stay Electron-free and

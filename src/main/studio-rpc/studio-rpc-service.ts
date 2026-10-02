@@ -19,6 +19,9 @@ import {
   mintStudioTicket,
   type StudioFramePort,
 } from '../../server/rpc/studio-frame-port'
+import { inProcessStudioTransport } from '../../server/rpc/studio-in-process-port'
+import { STUDIO_SCOPES, type StudioGrant } from '../../../packages/studio-protocol/src/public'
+import type { StudioTransportFactory } from '../../../packages/agent-sdk/src/transport'
 import { createStudioRpcServer, type StudioRpcServer } from '../../server/rpc/studio-rpc-server'
 import type { ClientToolRegistry } from '../../server/tools/client-tool-registry'
 import type {
@@ -66,6 +69,12 @@ export type StudioRpcService = {
   provideChat(chat: StudioChatBackend): void
   /** Which agents a paired app's tools reach. */
   toolReachOf(clientId: string): StudioLocalAppToolReach
+  /**
+   * Connections for the desktop's own shell, in this process: each is served
+   * as the shell (it may offer the built-in toolsets) and says hello with a
+   * ticket minted for it alone.
+   */
+  shellTransport(): StudioTransportFactory
 }
 
 // Paths, the version and the push to Settings come from the Studio platform
@@ -112,6 +121,11 @@ export function readStudioEnvironmentId(userDataDir: string): string {
   writeFileSync(path, `${JSON.stringify({ id }, null, 2)}\n`, { mode: 0o600 })
   if (process.platform !== 'win32') chmodSync(path, 0o600)
   return id
+}
+
+/** The grant the desktop's own shell holds: the owner's, under the app's name. */
+function shellGrant(): StudioGrant {
+  return { clientId: 'owner', name: 'SprintEngine Studio', owner: true, scopes: [...STUDIO_SCOPES], ceiling: 'bypass' }
 }
 
 export function createStudioRpcService(options: StudioRpcServiceOptions): StudioRpcService {
@@ -336,5 +350,20 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
       chat = next
     },
     toolReachOf: (clientId) => appStore().toolReachOf(clientId),
+    shellTransport() {
+      return async () => {
+        const ticket = mintStudioTicket()
+        return inProcessStudioTransport(
+          (stream) => {
+            hub().attach(stream, {
+              authenticator: createTicketAuthenticator(ticket, { grant: shellGrant }),
+              ownWindow: false,
+              shell: true,
+            })
+          },
+          () => ({ token: ticket }),
+        )()
+      }
+    },
   }
 }

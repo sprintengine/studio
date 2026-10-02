@@ -32,27 +32,25 @@ import type { ConversationRef } from './client-toolset-store'
 // or bound to a pairing, is answered as a client that is not there, not as an
 // unknown tool, and the tool joins the catalog once its toolset is offered.
 
-/** What an agent connection is, beside its metadata: proven by the transport or its launch token, never declared. */
-type ConnectionState = {
+/** What an agent connection is beside its metadata: who it is to the registry, and the conversation it proved. */
+type ConnectionIdentity = {
   id: string
   /** The conversation its launch token is bound to (R87). */
   conversation?: ConversationRef
-  catalog: Map<string, ClientToolDefinition> | null
-  notify: (() => void) | null
-  lastNotified: number
-  pendingNotify: ReturnType<typeof setTimeout> | null
 }
 
-const states = new WeakMap<McpConnectionContext, ConnectionState>()
+// Per connection object, for as long as the transport holds it: a connection
+// is a context, and the context is the transport's for its whole life.
+const identities = new WeakMap<McpConnectionContext, ConnectionIdentity>()
 let connectionSequence = 0
 
-function stateOf(context: McpConnectionContext): ConnectionState {
-  let state = states.get(context)
-  if (!state) {
-    state = { id: `mcp-${++connectionSequence}`, catalog: null, notify: null, lastNotified: 0, pendingNotify: null }
-    states.set(context, state)
+function identityOf(context: McpConnectionContext): ConnectionIdentity {
+  let identity = identities.get(context)
+  if (!identity) {
+    identity = { id: `mcp-${++connectionSequence}` }
+    identities.set(context, identity)
   }
-  return state
+  return identity
 }
 
 /**
@@ -61,14 +59,22 @@ function stateOf(context: McpConnectionContext): ConnectionState {
  * proved, never what the connection said.
  */
 export function bindGatewayConversation(context: McpConnectionContext, conversation: ConversationRef | null): void {
-  const state = stateOf(context)
-  if (conversation) state.conversation = { workspaceId: conversation.workspaceId, agentId: conversation.agentId }
-  else delete state.conversation
+  const identity = identityOf(context)
+  if (conversation) identity.conversation = { workspaceId: conversation.workspaceId, agentId: conversation.agentId }
+  else delete identity.conversation
 }
 
 /** The conversation a gateway connection's launch token proved, if any. */
 export function gatewayConversation(context: McpConnectionContext | undefined): ConversationRef | undefined {
-  return context ? states.get(context)?.conversation : undefined
+  return context ? identities.get(context)?.conversation : undefined
+}
+
+/** One gateway's view of a connection: its catalog and when it was last told the list grew. */
+type ConnectionState = {
+  catalog: Map<string, ClientToolDefinition> | null
+  notify: (() => void) | null
+  lastNotified: number
+  pendingNotify: ReturnType<typeof setTimeout> | null
 }
 
 /** What the dispatcher hands a tool call while it runs: how to stop it, and where its progress goes. */
@@ -103,16 +109,25 @@ export function createClientToolGateway(options: {
   const { registry } = options
   const now = options.now ?? Date.now
   const tracked = new Set<McpConnectionContext>()
+  const states = new WeakMap<McpConnectionContext, ConnectionState>()
+  function stateOf(context: McpConnectionContext): ConnectionState {
+    let state = states.get(context)
+    if (!state) {
+      state = { catalog: null, notify: null, lastNotified: 0, pendingNotify: null }
+      states.set(context, state)
+    }
+    return state
+  }
   // Waits only until the shell's toolsets first arrive, or the wait runs out
   // once: after that a missing toolset is a missing client, not a slow start.
   let booted: Promise<void> | null = options.expectShellToolsets?.length ? null : Promise.resolve()
 
   function callerOf(context: McpConnectionContext): ClientToolCaller {
-    const state = stateOf(context)
+    const identity = identityOf(context)
     return {
-      gatewayConnectionId: state.id,
+      gatewayConnectionId: identity.id,
       metadata: context.metadata,
-      ...(state.conversation ? { conversation: state.conversation } : {}),
+      ...(identity.conversation ? { conversation: identity.conversation } : {}),
     }
   }
 
@@ -258,7 +273,7 @@ export function createClientToolGateway(options: {
         state.pendingNotify = null
         state.notify = null
         state.catalog = null
-        registry.gatewayConnectionClosed(state.id)
+        registry.gatewayConnectionClosed(identityOf(context).id)
       }
     },
   }

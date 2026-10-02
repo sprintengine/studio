@@ -1021,6 +1021,18 @@ the app depends on is the public one, as the parent requires (§5.4).
 - **No window open.** Today a call with no window answers `pane_unavailable`
   after 8 s. That stays. On a desktop-local server the shell is always
   attached (decisions R01), so the tools are always listed there.
+- **As built.** The shell is `createDesktopShellTools` (`src/main/desktop-shell-tools.ts`),
+  an SDK client over `StudioRpcService.shellTransport()`: an in-process pair
+  (`src/server/rpc/studio-in-process-port.ts`) attached with `shell: true` and
+  a ticket good for one hello, so no credential leaves main. It is started
+  with the RPC and stopped before it. Its focus hint says whether any app
+  window is focused and lists every workspace the desktop holds, each a tab
+  away; the active one is left out until a window reports it. The desktop's
+  composition is one function, `desktopGatewayTools`, so the parity record
+  and the app list from the same order. One behaviour differs, by design: a
+  built-in handler that throws (none of today's do, they answer tool errors)
+  now answers the agent `tool_failed` as a tool error, where the in-process
+  gateway answered a JSON-RPC internal error.
 
 ### 10.2 `canvas`: what is client and what is server
 
