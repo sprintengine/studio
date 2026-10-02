@@ -7,6 +7,11 @@ protocol and `@sprintengine/agent-sdk`, and a Windows-side local server running
 out of process. Where this file disagrees with the parent design, section 12
 lists the change the parent needs.
 
+Amended 2026-10-02 for the owner ruling of that date: the server has no
+browser and no canvas. A WSL server renders nothing and downloads no Chromium;
+its agents get `browser` and `canvas` from the Windows desktop, through the
+front door, as phase 5's client toolsets (`phase-5-client-tools.md`).
+
 It was written on a Mac with no WSL. Everything said about WSL's behaviour
 comes from reading the code that drives it today and from WSL's documented
 behaviour, not from running it. Statements that need a real Windows machine to
@@ -80,16 +85,13 @@ Three facts from that reading shape this phase:
    `ipc/conversation-ipc.ts`. If WSL chats moved out without a seam under all
    of them, the phone, scheduled agents and gateway tools would lose WSL chats
    that work today. Section 5 is that seam.
-3. **Today's WSL chats appear to have no Studio gateway.** A launch's MCP
-   channel token is issued only for WSL *terminal* launches
-   (`terminal-runtime.ts`, `issueChannelToken`). The chat CLI's gateway entry
-   names `SPRINTENGINE_MCP_CHANNEL_TOKEN` in `envVarNames`
-   (`wsl-host.ts` `studioMcpEntry`), but `WSL_FORWARDED_ENV_KEYS` does not carry
-   it, and no chat path issues one. The helper's relay drops a channel with no
-   valid auth line. **(Unverified on Windows, but it reads as a live bug.)** It
-   should be fixed on `main` independently, by issuing and revoking a token per
-   chat session. Phase 7 removes the problem by construction: a chat agent in
-   WSL reaches the server's own owner-only socket.
+3. **WSL chats had no Studio gateway.** A launch's MCP channel token was
+   issued only for WSL *terminal* launches (`terminal-runtime.ts`,
+   `issueChannelToken`), so the helper's relay dropped a chat agent's channel.
+   This is **fixed on `main`** (#133 and its follow-ups): a WSL chat is issued
+   a channel token per session, an ACP agent keeps its own, and the token is
+   taken back when a start is refused. Phase 7 makes the token unnecessary for
+   chats: a chat agent in WSL reaches the server's own owner-only socket.
 
 ## 3. Spec
 
@@ -99,7 +101,7 @@ Three facts from that reading shape this phase:
 ~/.local/share/sprintengine-studio/
   runtime/node-v24.21.0/bin/node          pinned Node (existing)
   <appVersion>/wsl-helper/ hooks/ automation/ plugin/   helper payload (existing)
-  <appVersion>/server/                    NEW: server.mjs, bridge.mjs, resources/, rg, canvas worker, fonts
+  <appVersion>/server/                    NEW: server.mjs, bridge.mjs, resources/, rg
   data/                                   NEW: the server's data dir (default profile)
   data-<profileId>/                       NEW: any other Windows profile's data dir (D3)
     run/  studio.lock  server.json  owner-token  data.key  studio.sock  automation.sock
@@ -137,8 +139,9 @@ Three facts from that reading shape this phase:
   existing `NEED` / install / retry loop in `wsl-helper-client.ts` drives both.
   That loop's start half is extracted as `startWslEntry(...)`, which keeps the
   prewarm, backoff, fatal hold and `classifyWslFailure`.
-- **Archive size.** The bundle includes the Linux ripgrep binary, the canvas
-  worker and fonts, and later the web client. It is streamed once per app
+- **Archive size.** The bundle includes the Linux ripgrep binary, and later
+  the web client. It carries no canvas worker and no browser: nothing renders
+  in the distribution. It is streamed once per app
   version per distro over `wsl.exe` stdin. The 10-minute tar deadline is kept.
   The digest is computed over a deterministic tar (`buildAppPayload`), so a
   reinstall happens only when a byte changes.
@@ -290,8 +293,9 @@ Unix socket, `MessagePort`, arbitrary duplex), not a URL only (12.3).
 ### 3.6 Files, watching, attachments, clipboard
 
 - **Inside the distro (`/home/…`).** Watches are inotify, native and cheap.
-  This replaces the helper-relayed watch for chat purposes (the canvas fs
-  watch, changed files).
+  This replaces the helper-relayed watch for chat purposes (changed files).
+  Boards do not move in phase 7 (3.8), so the canvas watch is not one of
+  them.
 - **On `/mnt/<drive>`.** WSL2's drive mount does not deliver inotify events for
   changes made by Windows processes. That is documented, long-standing WSL2
   behaviour. A server watching `/mnt/c/…` hears agent edits made in Linux but
@@ -338,14 +342,19 @@ Unix socket, `MessagePort`, arbitrary duplex), not a URL only (12.3).
   finds the server's `automation.sock` (0600, in an 0700 directory) through
   its discovery file. No channel token is needed: the file mode is the boundary,
   as it is on macOS.
-  - Tools the WSL server does not own (`terminal.*`, `agent.launch`,
-    `backlog.*`, `editor.*`, `tour.*`, `browser.*` on the person's pane, and
-    module tools still wired on the Windows side) are **forwarded** to the
-    front door as client-directed `call`s (parent 6.3). The front door
-    advertises them in `hello.client.capabilities` as
-    `gateway-forward:<tool>`, and the server lists exactly those.
-  - With no front door attached, they are absent from `tools/list`, not
-    failing.
+  - Tools the WSL server does not own (`browser.*` and `canvas.*`, which the
+    desktop offers; `terminal.*`, `agent.launch`, `backlog.*`, `editor.*`,
+    `tour.*`; and module tools still wired on the Windows side) are
+    **forwarded** to the front door as client tool calls (parent 6.3, phase
+    5). The front door is an owner client of the WSL server with
+    `kind: 'desktop'`, so it holds the shell role there (phase 5, 7.2). It
+    offers, with `tools.offer`, the toolsets it can serve: those its own shell
+    offers it, and the Windows-side tools. Each `call` it receives is relayed
+    into its own client-tool registry or gateway, and the `reply` comes back
+    the same way.
+  - With no front door attached, these tools are absent from a new
+    connection's `tools/list`; one already shown them keeps them listed, and
+    they answer `client_unavailable` (phase 5, 5.3).
   - The result: a chat agent in WSL sees the same tool set it would see on
     Windows.
 - **Hooks and agent state.** The server builds the Claude plugin copy and hook
@@ -359,23 +368,30 @@ Unix socket, `MessagePort`, arbitrary duplex), not a URL only (12.3).
   (`wsl-host.ts` `ensureLauncher`). The WSL server never writes it in phase 7.
   Two writers of one pointer would flap it on every start.
 
-### 3.8 Render host
+### 3.8 Browser and canvas
 
-- Phase 5's source chain applies, with one reordering for WSL: **an attached
-  Windows desktop that advertises `canvas-render` comes before a Linux
-  Chromium download**. A WSL server is always reached through a Windows
-  desktop in phase 7, so that client is present whenever a person is.
-- Linux Chromium in a stock WSL Ubuntu is usually missing `libnss3`,
-  `libgbm1`, `libasound2` and fonts. In WSL1 it also has no user namespaces for
-  its sandbox. The `ldd` probe from parent 8.2 runs, and its result is shown as
-  an install line, not a failure, because the desktop covers the gap.
-- With no desktop attached (an agent drawing on a board from a scheduled run),
-  the Linux Chromium is used if present and working. Otherwise the tool
-  answers that this server cannot render, and how to fix it.
-- **The agents' browser.** A dev server an agent starts in WSL
-  (`npm run dev` on `0.0.0.0:3000` or `127.0.0.1:3000`) is reachable from the
-  server's own Chromium directly, and from the person's Windows pane through
-  localhost forwarding. Today's behaviour is unchanged.
+There is no render host (owner ruling 2026-10-02). Nothing in the distribution
+renders, and no Linux Chromium is downloaded or probed for.
+
+- **The agents' browser.** A WSL agent's `browser.*` calls are the desktop's
+  `browser` toolset, forwarded by the front door (3.7). A dev server an agent
+  starts in WSL (`npm run dev` on `0.0.0.0:3000` or `127.0.0.1:3000`) is
+  reachable from the person's Windows pane through localhost forwarding, as
+  today. With forwarding off (`localhostForwarding=false`, or the stdio
+  bridge in use), the pane cannot reach it, as today; phase 8's proxied
+  partition over the bridge is a later option.
+- **The canvas.** `canvas.*` calls are the desktop's `canvas` toolset,
+  forwarded the same way. Boards do not move in phase 7: the desktop's canvas
+  service keeps them through the Windows-side server's `files.*`, where they
+  are today. Whether a WSL workspace's boards move into its distribution's
+  server is decided with phase 8's environment list, as the workspace list is
+  (5.4).
+- **With no desktop attached**, an agent has no browser or canvas tools. In
+  phase 7 that cannot happen: a WSL server runs only while the front door
+  holds its lease (3.5), and the front door is the desktop, whose shell offers
+  its toolsets with no window open (the tray). If a later phase lets a WSL
+  server run on its own, its agents work without those tools until a client
+  offers them.
 
 ### 3.9 Upgrades
 
@@ -696,7 +712,7 @@ On the Linux server, `wsl:<distro>` host ids must mean nothing:
 
 | # | Case | Behaviour | Verified? |
 | --- | --- | --- | --- |
-| 8.1 | **WSL1** | No VM, Windows loopback shared directly, no inotify for Windows-side changes on drive mounts, no namespaces for a Chromium sandbox. Node 24's documented kernel floor (4.18) is above what WSL1 reports. Recommended: per-process path (D2) | Node 24 on WSL1 unverified (V6) |
+| 8.1 | **WSL1** | No VM, Windows loopback shared directly, no inotify for Windows-side changes on drive mounts. Node 24's documented kernel floor (4.18) is above what WSL1 reports. Recommended: per-process path (D2) | Node 24 on WSL1 unverified (V6) |
 | 8.2 | **`localhostForwarding=false`**, `networkingMode=none`, or policy-disabled forwarding | TCP probe fails, stdio bridge used, reason shown | Bridge tested with fake `wsl.exe`; real case V1 |
 | 8.3 | **Mirrored networking** | Loopback shared both ways; `127.0.0.1` bind works; port space shared with Windows (bind retry); Tailscale interface visible, so the tailnet listener is forced off | V1 |
 | 8.4 | **Firewall / VPN / endpoint security** blocking loopback or the WSL relay | Probe or proof fails, bridge used. VPNs that break the WSL2 NAT network break agents' outbound calls today too, so no change. API-key chats (`openai-compatible-provider.ts`, plain `fetch` in-process) **move their egress from Windows to the distro**, so a Windows-only proxy or PAC file no longer applies. Shown as a network error naming the environment; the login env's `HTTPS_PROXY` is honoured | V7 |
@@ -721,7 +737,7 @@ On the Linux server, `wsl:<distro>` host ids must mean nothing:
 | 8.23 | **Drag a file from Explorer** | Bytes uploaded (3.6). A file inside the workspace goes as a relative path | — |
 | 8.24 | **CLI sign-in with a localhost OAuth callback** | The CLI listens inside WSL; the Windows browser redirects to `localhost:<port>`, which reaches it only with forwarding or mirrored mode. Same as a WSL terminal sign-in today; a device-code flow is preferred where the CLI has one | V10 |
 | 8.25 | **Windows Defender / EDR** | Fewer Windows process creations than today (no `wsl.exe` per chat CLI, and no `eval $(… base64 -d)` command lines, a shape heuristic EDRs flag). The archive lands in ext4 and is not scanned on the NTFS side. `/mnt/c` traffic is still scanned on the NTFS side (6). The downloaded Node archive in userData is scanned once | V11 |
-| 8.26 | **Disk and memory** | The data dir lives in the distro's vhdx, which grows and does not shrink by itself; Settings shows the data dir size. Server, CLIs and an optional Chromium share the VM's memory cap | — |
+| 8.26 | **Disk and memory** | The data dir lives in the distro's vhdx, which grows and does not shrink by itself; Settings shows the data dir size. The server and the CLIs share the VM's memory cap | — |
 | 8.27 | **Long `$HOME` / socket path over 100 bytes** | Falls back to the runtime dir (3.1) | Unit test |
 | 8.28 | **The app updated while the server runs** | 3.9 drain-and-replace; the old tree is kept while live | Install tests |
 | 8.29 | **Front door restarts while the server lives** | Reads `server.json` and `owner-token` over `wsl.exe --exec`, takes a new lease, reattaches | Test with a fake |
@@ -823,7 +839,7 @@ the results recorded in the release notes for release N:
 | Migration loses attachments, plans or rules | Missing context in old chats | Copy, then confirm, then remove. Reverse migration. Receipts. Tests both ways |
 | Login profile differences | A CLI found per-process but not by the server, or the reverse | Same capture code as the helper's CLI detection, which is already what the machine picker shows |
 | API-key chat egress moves into the distro | Proxy-dependent chats fail | Named error, login-env proxy honoured, release note |
-| Memory: a server per distro plus Chromium | VM pressure | Lazy start, idle exit, desktop rendering preferred in WSL (3.8) |
+| Memory: a server per distro | VM pressure | Lazy start, idle exit; nothing renders in the distribution (3.8) |
 | Phase size | It slips | The breakdown in section 13 lands value at commit 6 (chat on a WSL server behind the switch) with everything after it independently revertible |
 
 ## 11. Owner decisions
@@ -831,7 +847,7 @@ the results recorded in the release notes for release N:
 | # | Decision | Recommendation |
 | --- | --- | --- |
 | D1 | **Front door vs direct.** In phase 7, does the Windows-side core route WSL chats (renderers, phone, gateway and modules unchanged), or do renderers connect to each WSL server directly, as the SSH design does? | **Route through the front door.** It is the only shape that keeps every in-process consumer working without each learning about environments. Direct connections arrive with phase 8's environment list and can use the same servers |
-| D2 | **WSL1.** Run the server there, or keep WSL1 on the per-process path? | **Per-process path for WSL1.** No drive-mount inotify, no Chromium sandbox, kernel below Node 24's floor, likely few users. Revisit when the per-process chat path is due for removal: removing it then means dropping WSL1 chats |
+| D2 | **WSL1.** Run the server there, or keep WSL1 on the per-process path? | **Per-process path for WSL1.** No drive-mount inotify, kernel below Node 24's floor, likely few users. Revisit when the per-process chat path is due for removal: removing it then means dropping WSL1 chats |
 | D3 | **Data dir per Windows profile or per distro?** | **Per profile**: `data/` for the packaged default profile, `data-<profileId>/` otherwise, matching how the helper already separates sockets per profile, so a dev build never shares chats with the installed app |
 | D4 | **Secrets at rest in WSL**: a 0600 key file, or a DPAPI-held key sent in the envelope? (extends parent Q3) | **Key file.** Same protection boundary in practice, works for a server started from a WSL terminal, symmetric with SSH |
 | D5 | **Copy provider API keys into each WSL server on its first flip?** | **Yes, once, automatically**, with a line in the migration notice, because those keys already powered that distro's chats. Later edits are offered, not pushed |
@@ -840,7 +856,7 @@ the results recorded in the release notes for release N:
 | D8 | **Helper and server**: two processes in phase 7, merged in phase 10? | **Two now.** The helper's private wire stays version-locked and the Git pane and terminals keep working untouched. Merge when the Git pane and explorer move to the protocol |
 | D9 | **A self-hosted Windows runner with WSL2** for an end-to-end job, or the manual checklist (9.3) per release? | **Checklist for release N**, and a self-hosted runner before release N+1 flips the default |
 | D10 | **`C:\` workspaces on a WSL machine**: keep supporting them (recommended, with Windows-side UI reads and an advisory), or steer new WSL workspaces into the Linux file system only? | **Keep supporting**, advise in New chat, and never block |
-| D11 | **The live gateway-token gap for today's WSL chats** (2, item 3): fix on `main` now, independently of phase 7? | **Yes**, a small fix: issue and revoke a channel token per chat session and forward it |
+| D11 | **The live gateway-token gap for today's WSL chats** (2, item 3): fix on `main` now, independently of phase 7? | **Done**: fixed on `main` (#133), a channel token issued and revoked per chat session |
 
 ## 12. Changes the parent design needs
 
@@ -865,18 +881,25 @@ the results recorded in the release notes for release N:
 7. **Section 5.5 "spawning `wsl.exe` is the shell's job"**: WSL servers are
    managed by the Windows-side core (`WslEnvironmentManager`). Only SSH needs
    the shell, for askpass dialogs.
-8. **Section 6.4: `terminals` is advertised to the WSL servers of the
-   desktop's own PC**, because the desktop can open terminals there. Today the
-   rule says "only to a server on its own machine".
+8. **Section 6.3: the `terminal` toolset is offered to the WSL servers of the
+   desktop's own PC** (through the front door, 3.7), because the desktop can
+   open terminals there. The parent's rule says "only to a server on its own
+   machine".
 9. **Section 6.2: `~/.sprintengine/bin/current` in a distro keeps one writer**
    (the Windows side) until terminals move. The parent says the WSL server
    rewrites it at start, which would make two writers.
-10. **Sections 8.1 / 8.4: in WSL the attached desktop's renderer is preferred
-    over a Linux Chromium download**, and parent Q7's fallback becomes the WSL
-    default rather than a corner case.
+10. **Sections 8.1 / 8.4: superseded (2026-10-02).** This asked for the
+    attached desktop's renderer to be preferred over a Linux Chromium in WSL.
+    There is no Chromium and no render host now; the desktop's toolsets serve
+    a WSL server through the front door (3.7, 3.8).
 11. **Section 7.1: the WSL data dir is per Windows profile** (D3).
 12. **Section 13, phase 7 size: M becomes L.** It includes the backend seam,
     the router, the migration both ways, the mutual handshake and the bridge.
+13. **Section 6.3 (2026-10-02): forwarded tools are client toolsets.** The
+    front door offers a WSL server the toolsets it can serve, with
+    `tools.offer` under the shell role, and relays their calls (3.7). The
+    `gateway-forward:<tool>` capabilities an earlier draft of this file named
+    are not needed.
 
 ## 13. Commit breakdown
 
@@ -914,8 +937,9 @@ Each commit leaves `npm run verify:app` green and the app shippable. Commits
    Export/import, re-keying approval rules, attachments and plans, provider
    key copy, receipts, the no-live-session flip.
 9. **`feat(server): a chat agent in WSL reaches its server's gateway, and forwarded tools`.**
-   The server-local MCP entry and discovery, `gateway-forward:<tool>`
-   capabilities from the front door, native hooks and agent state.
+   The server-local MCP entry and discovery, the front door's toolset offers
+   and call relay (3.7, on phase 5's mechanism), native hooks and agent
+   state.
 10. **`feat(chat): files, watching and links for WSL workspaces at the edge`.**
     Windows-side UI reads for `C:\` folders, watch hints and the slow poll, the
     renderer's link resolution with the environment's path style, byte uploads
@@ -929,5 +953,5 @@ Each commit leaves `npm run verify:app` green and the app shippable. Commits
 14. *(Release N+2)* **`refactor(chat): the per-process WSL chat path is removed`**,
     subject to D2.
 
-Commits 3, 4 and D11's token fix are independent of the rest and can land on
-`main` first.
+Commits 3 and 4 are independent of the rest and can land on `main` first.
+D11's token fix already has (#133).

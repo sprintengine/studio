@@ -7,6 +7,12 @@ server/client split that phase 10 completes (section 12 here). Where this
 document asks for a change to the overall design, it says so in section 3. The
 owner rules on it there or in section 14 before code lands.
 
+Amended 2026-10-02 for the owner ruling of that date: the server has no
+browser and no canvas. Phase 5 is now client tools
+(`phase-5-client-tools.md`), so the shell's pane and canvas reach the server
+as the `browser` and `canvas` toolsets it offers, not as `ShellBridge`
+members, and the canvas service is the shell's.
+
 ## 0. Owner defaults this spec is built on (2026-10-01)
 
 | Default | What it means for phase 6 |
@@ -15,6 +21,7 @@ owner rules on it there or in section 14 before code lands.
 | Secrets use the system keyring where one exists, otherwise an owner-only file | On the desktop, the shell's `safeStorage` is the keyring (Keychain, DPAPI, libsecret or kwallet). A headless server uses the platform keyring tool where it answers, else a 0600 key file. |
 | A third-party module that imports `electron` has its server half skipped, based on a capability | The server never loads such an `entry.main`. The in-process path still does. |
 | No terminals in v1 | Terminals, their node-pty sessions, the agent-state socket and terminal snapshots stay in the Electron shell. |
+| The server is small (owner ruling 2026-10-02) | No browser and no canvas in the server process. The shell offers its pane as the `browser` toolset and its canvas service and worker as the `canvas` toolset (phase 5); the server routes agents' calls to them and keeps only the board files. |
 
 ## 1. What phase 6 delivers
 
@@ -29,8 +36,9 @@ machine. These move into that process:
 - the module kernel with every module's server half.
 
 The Electron main process becomes the **shell**. It owns windows, terminals,
-the browser pane, update, tray, menus, dialogs, OS notifications and account
-sign-in. It reaches server-owned state over the protocol.
+the browser pane, the canvas service and its worker window, update, tray,
+menus, dialogs, OS notifications and account sign-in. It reaches server-owned
+state over the protocol, and offers the server its toolsets.
 
 The whole phase sits behind a flag that is **off by default**. With the flag
 off, the app runs exactly as it does today, in one process, from the same
@@ -118,8 +126,9 @@ Each fact was measured or read in this tree (section 13 has the numbers):
   `BrowserWindow.getAllWindows()`.
 
 Moving the gateway therefore moves its data backends with it. The backends
-that act on a screen or a terminal become **client-directed** calls back to
-the shell (section 6.4).
+that act on a screen or a terminal become **toolsets the shell offers**
+(phase 5's mechanism, section 6.3 here): `browser` and `canvas` from phase 5,
+and `editor`, `tour` and `terminal` moved onto it in this phase.
 
 `mcp-socket-server.ts` unlinks any existing socket file unconditionally at
 start. Its comment says this is safe only because the app's single-instance
@@ -143,7 +152,9 @@ agents included, would lose its Studio tools for the rest of its session**
 - **Push channels.**
   - About 35 server-owned channels: conversation, workspace sync, launch
     settings, hosts, tailnet, mesh, modules, scheduled agents, canvas, tours,
-    editor reveal, skills and CLI model discovery.
+    editor reveal, skills and CLI model discovery. (Since the 2026-10-02
+    ruling the canvas channels stay with the shell: the canvas service is
+    client-side.)
   - About 30 shell-owned: terminal, browser pane, window, menu, update,
     splash.
   - Three hybrid: `auth:*` and `browser:open-request`.
@@ -200,12 +211,13 @@ Each change is a recommendation. Section 14 lists them as decisions.
 | D2 | 5.5 the preload | The renderer opens a loopback WebSocket with a single-use ticket | **A `MessagePort` per window, brokered by main** to the utility process. Desktop windows need no network listener, ticket or `Origin` rule. Tickets remain for remote environments. |
 | D3 | 5.4 the SDK | WebSocket and socket transports | `@sprintengine/agent-sdk` gets a `StudioTransport` seam (`send`, `onFrame`, `close`) with WebSocket, Node socket and MessagePort implementations. |
 | D4 | 9.3 secrets | Desktop: data key handed over in the envelope, `*.bin` re-sealed during phase 6 | Desktop: **the shell is the cipher** (`seal`/`open` over the control channel), and the files stay byte-identical. Data keys apply only to headless servers. Phase 6 does no re-seal migration. |
-| D5 | 8.1 render host, source 1 | The server launches the app's Electron binary as a headless render host | Desktop-local: **the shell's existing offscreen canvas worker and browser pane, reached as client-directed calls**. The 8.4 fallback becomes the primary local path. A local server can never outlive the shell, so the shell is always attached. Headless Chromium is for WSL, SSH and standalone. |
+| D5 | 8.1 render host, source 1 | The server launches the app's Electron binary as a headless render host | **Superseded (2026-10-02).** The parent's render host is gone. What D5 asked for on the desktop (the shell's canvas worker and pane) is now the only path on every server, as the shell's `browser` and `canvas` toolsets (phase 5), and no server runs a Chromium. |
 | D6 | 10.1 lifetime | The server exits when its parent exits and no other client is attached | The local server exits with the app, always (owner default). A server never "attaches to an existing one" on the desktop: the app's own lock already rules out a second shell per profile. |
 | D7 | 7.2 split | The full list of server-owned files | Phase 6 moves a **subset** (section 5). Git changelists, pull requests, tours, skills and marketplace, memory, design and the file-explorer data stay with the shell until phase 10. |
 | D8 | 6.2 gateway | The audit and socket move unchanged | They move unchanged, plus a server run lock before any unlink, plus an MCP bridge that reconnects (section 6.5). |
-| D9 | 4.2 interfaces | `StudioPaths` and others | Add `appExecPath` and `helperExecPath` to `StudioPaths`. A guard test forbids `process.execPath` under `src/server/`. Add a `ShellBridge` interface: cipher, terminals, reveal, power and visibility hints, analytics sink, integrations-ready gate. |
+| D9 | 4.2 interfaces | `StudioPaths` and others | Add `appExecPath` and `helperExecPath` to `StudioPaths`. A guard test forbids `process.execPath` under `src/server/`. Add a `ShellBridge` interface for what is not an agent tool: cipher, the terminal runtime behind two internal service tokens, revealing a tab, power and visibility hints, analytics sink, integrations-ready gate. Agent-facing shell tools are toolsets (6.3). |
 | D10 | 4.3 third-party modules | Open question: capability or API bump | Use an `electron-main` host capability, an optional manifest field, and a load-time `require('electron')` interceptor. The host API version is not bumped (section 12.4). |
+| D11 | 6.3 client tools (2026-10-02) | `editor.*`, `tour.*`, `terminal.*`, `agent.launch` and `backlog.work` reach windows through in-process brokers | They become the shell's `editor`, `tour` and `terminal` toolsets on phase 5's mechanism, offered over the control channel, rather than `ShellBridge` members (section 6.3). `ShellBridge` keeps only what is not an agent tool. |
 
 D1 and D2 go together. A child started with `ELECTRON_RUN_AS_NODE` cannot
 receive a `MessagePort`, so choosing D1 is what makes D2 possible.
@@ -234,21 +246,23 @@ transport-agnostic after phase 3. Only `src/server/bootstrap/` differs.
 ┌──────────────────────── Electron main = the shell ────────────────────────┐
 │ windows · menus · tray · dialogs · OS notifications · update · account    │
 │ terminals (node-pty) · agent-state.sock · terminal snapshots · PR capture  │
-│ browser pane · canvas worker window · integrations (launcher, hooks)       │
+│ browser pane · canvas service + worker · integrations (launcher, hooks)    │
 │ git panel · file explorer · skills/marketplace · tours UI · design · memory│
 │                                                                            │
 │ ServerSupervisor ──fork──► utilityProcess "studio-server"                  │
 │ PortBroker: MessageChannelMain per window                                  │
-│ ShellBridge (answers the server's calls: cipher, terminals, reveal, …)     │
+│ ShellBridge (cipher, reveal, hints, …) · toolsets: browser, canvas, editor,│
+│ tour, terminal (offered over the control channel, phase 5's mechanism)     │
 └──────┬───────────────── parentPort (control channel) ─────────────┬───────┘
        │                                                            │
        │  ┌──────────── utilityProcess: Studio server ──────────────┐│
        │  │ StudioCore: conversations, providers, checkpoints,      ││
        │  │ thread index, workspace registry, launch settings,      ││
-       │  │ secrets (sealed via the shell), backlog, canvas store,  ││
+       │  │ secrets (sealed via the shell), backlog, board files,   ││
        │  │ scheduled agents, companion agents, module kernel and   ││
        │  │ module server halves                                    ││
-       │  │ MCP gateway: automation.sock ◄── agent CLIs (bridge)    ││
+       │  │ MCP gateway: automation.sock ◄── agent CLIs (bridge);   ││
+       │  │ client tool calls routed to the shell's toolsets        ││
        │  │ tailnet listener + mesh ◄── phone, other desktops       ││
        │  └───────────────▲──────────────────────────────────────────┘│
        │                  │ one MessagePort per window (D2)           │
@@ -261,10 +275,11 @@ There are three channels, all of them process-private:
 
 1. **The control channel** (`parentPort` ⇄ `UtilityProcess.postMessage`).
    It carries the bootstrap envelope, `ready`, health pings, shutdown and
-   drain, the shell's client session (the shell is an owner client with
-   capabilities `terminals`, `reveal-tab`, `editor`, `tour`, `browser-pane`,
-   `canvas-render`, `notify`, `cipher`), and the `call`/`reply` frames for
-   `ShellBridge`.
+   drain, the shell's client session (the shell is an owner client with the
+   shell role, capabilities `reveal-tab`, `notify` and `cipher`, and the
+   toolsets `browser`, `canvas`, `editor`, `tour` and `terminal` it offers
+   with `tools.offer`), the `call`, `cancel`, `reply` and `progress` frames
+   of its toolsets, and the requests for `ShellBridge`.
 2. **One window port per renderer.** Main creates a `MessageChannelMain`. It
    sends `port1` to the server with `{ attachClient: { clientId, windowId,
    kind: 'desktop-window' } }` and `port2` to that window's preload. The frames
@@ -287,8 +302,8 @@ at boot by the flag.** The other process reaches it over the protocol.
 
 | Owner with the flag on | Files and services |
 | --- | --- |
-| **Server** | `automation.sock`, `sprintengine-studio-mcp-info.json`, `automation-server-info.json`, `automation-settings.json`, `sprintengine-studio-mcp-audit.jsonl`; `tailnet-remote-settings.json`, `tailnet-remote-devices.json`, `tailnet-mesh-connections.json`; `provider-secrets/`, `github-token.bin`, `module-secrets/`; `module-storage/`, `module-enablement.json`, `trusted-modules.json`; scheduled agents; `conversation-attachments/`, conversation plans, approval rules, `conversation-commands-cache.json`; `sprintengine-launch-settings.json`, the CLI runtime and host settings; `workspace-registry.json`, `workspace-backup.json`; `model-discovery-cache.json`, `model-feed-cache.json`, `cli-update-notices.json`; canvas boards (phase 5); checkpoints and their sweep; title generation; companion agents; mobile control; backlog service |
-| **Shell** | Chromium's own files; `window-material.json`, background mode, update channel and install note, color scheme; account refresh tokens; `terminal-snapshots/`, `terminal-startup/`, `agent-state.sock`, `agent-prompts/`, `agent-launch-settings.json` (terminal launches); `integration-ledger.json`, `agent-integration/`, `tool-bin/`, the `~/.sprintengine/bin` launcher and pointer, `~/.sprintengine/instances`; `git-changelists/`, `pull-requests/`; skills, plugins and marketplace caches and installs; tours; memory graph; design system; hosted card and source feeds; telemetry consent and install id; `module-asset-origin-secret` and the `studio-module://` handler |
+| **Server** | `automation.sock`, `sprintengine-studio-mcp-info.json`, `automation-server-info.json`, `automation-settings.json`, `sprintengine-studio-mcp-audit.jsonl`; `tailnet-remote-settings.json`, `tailnet-remote-devices.json`, `tailnet-mesh-connections.json`; `provider-secrets/`, `github-token.bin`, `module-secrets/`; `module-storage/`, `module-enablement.json`, `trusted-modules.json`; scheduled agents; `conversation-attachments/`, conversation plans, approval rules, `conversation-commands-cache.json`; `sprintengine-launch-settings.json`, the CLI runtime and host settings; `workspace-registry.json`, `workspace-backup.json`; `model-discovery-cache.json`, `model-feed-cache.json`, `cli-update-notices.json`; canvas board files (written only through `files.write`, phase 5); checkpoints and their sweep; title generation; companion agents; mobile control; backlog service |
+| **Shell** | Chromium's own files, the pane's partitions included; the canvas service, its worker window and its pending writes (it keeps boards through the server's `files.*`); `window-material.json`, background mode, update channel and install note, color scheme; account refresh tokens; `terminal-snapshots/`, `terminal-startup/`, `agent-state.sock`, `agent-prompts/`, `agent-launch-settings.json` (terminal launches); `integration-ledger.json`, `agent-integration/`, `tool-bin/`, the `~/.sprintengine/bin` launcher and pointer, `~/.sprintengine/instances`; `git-changelists/`, `pull-requests/`; skills, plugins and marketplace caches and installs; tours; memory graph; design system; hosted card and source feeds; telemetry consent and install id; `module-asset-origin-secret` and the `studio-module://` handler |
 | **Read by both, written by one** | `trusted-modules.json` and `module-enablement.json` (written by the server; read per request by the shell's asset handler); the launcher pointer (written by the shell; read by the server to build MCP entries); `host-context/` |
 
 Notes:
@@ -424,15 +439,30 @@ interface CallerContext {
   so these become no-ops on the server side). Each is converted to
   `caller.clientId` or `caller.windowId` in the commit that moves its domain.
 
-### 6.3 `ShellBridge`: what the server asks of the shell
+### 6.3 `ShellBridge` and the shell's toolsets
+
+What the server asks of the shell splits in two.
+
+**Agent tools are toolsets.** Phase 5 made the pane and the canvas client
+toolsets (`browser`, `canvas`), offered with `tools.offer` by the client that
+holds the shell role. In process, that client is main's port attached with
+`shell: true`; out of process it is the control channel, which is
+process-private. The server routes `call` frames to it and receives `reply`
+and `progress` back, exactly as for any client tool, so the server carries no
+CDP and no canvas code. Phase 6 moves the rest of the gateway's screen and
+terminal tools onto the same mechanism instead of building bespoke bridge
+members: the shell offers `editor` (`editor.*`), `tour` (`tour.*`) and
+`terminal` (`terminal.*`, `agent.launch`, `backlog.work`, under today's wire
+names). `terminal` is offered only to a server on the shell's own machine
+(parent 6.3).
+
+**What is not an agent tool stays on `ShellBridge`:**
 
 ```ts
 interface ShellBridge {
   cipher: { available(): Promise<boolean>; seal(plain: Uint8Array): Promise<Uint8Array>; open(sealed: Uint8Array): Promise<Uint8Array> }
-  terminals: { launchAgent(input: AgentLaunchInput): Promise<AgentLaunchResult>; list(): Promise<TerminalSummary[]>; create(input): Promise<…> }
-  reveal: { tab(target): Promise<boolean>; editorOpen(input): Promise<…>; editorDiff(input): Promise<…>; tour(input): Promise<…> }
-  browserPane: { forWorkspace(workspaceId): Promise<PaneSession | null> }   // CDP over the control channel
-  canvasRender: CanvasWorkerTransport                                       // the shell's offscreen worker (D5)
+  terminals: { launchAgent(input: AgentLaunchInput): Promise<AgentLaunchResult> }   // for the two internal service tokens (12.2) only
+  reveal: { tab(target): Promise<boolean> }                                       // the reveal-tab capability: a notice clicked, a deep link
   notify(n: ServerNotification): void                                      // OS notification, bell, dock badge
   analytics(event: AnalyticsEvent): void                                    // consent and install id stay in the shell
   integrationsReady(): Promise<void>
@@ -440,17 +470,18 @@ interface ShellBridge {
 ```
 
 The in-process implementation calls the shell services directly, so the flag-off
-path uses the same interface. The out-of-process implementation sends `call`
-frames on the control channel. The gateway's `terminal.*`, `agent.launch`,
-`backlog.work`, `editor.*`, `tour.*`, `canvas.open` and pane-targeted
-`browser.*` tools call through it. Section 6.3 of the design described them as
-client-directed; here the client is always the shell.
+path uses the same interface. The out-of-process implementation sends
+requests on the control channel. The `browserPane` (CDP over the control
+channel) and `canvasRender` members an earlier draft had are gone (owner
+ruling 2026-10-02).
 
 The shell sends the server **hints**:
 
 - `power { suspend | resume | lock | unlock | battery }`, from `powerMonitor`;
 - `visibility { anyWindowVisible }`, which replaces the mesh's `hasWindow`;
 - `focus { appFocused }`, for tours, editor tools and the tailnet notifier;
+  routing among clients that offer a toolset reads phase 5's `tools.focus`,
+  which the shell sends beside it;
 - `online`.
 
 ### 6.4 `ServerSupervisor` in the shell
@@ -586,12 +617,14 @@ misconfigured flag cannot produce two gateways.
 The 16 legs split across the two processes and run partly in parallel:
 
 ```
-t0  shell: modules(begin, shell) · timers · drop tray
-t0  shell → server: shutdown { drain: true, budgetMs: 8000 }
+t0  shell: modules(begin, shell) · timers · drop tray · canvas (pending board
+      writes go to the server while it still serves, bounded at 2 s) · withdraw
+      toolsets
+t0' shell → server: shutdown { drain: true, budgetMs: 8000 }
       server legs: modules(begin) · timers · automations (mesh, tailnet, socket,
       discovery files, audit) · workspace registry · chat transcripts · chats
-      (stop sessions, dispose adapters) · canvas · command lists · registry
-      (final) · modules  → exit 0
+      (stop sessions, dispose adapters) · command lists · registry (final) ·
+      modules  → exit 0
 t0  shell (concurrently): agent state · terminals · pull requests (flush, dispose)
 t1  both done (or server SIGKILLed at its budget)
     shell: integrations (skipped when leaving for update) · WSL helpers ·
@@ -600,6 +633,11 @@ t1  both done (or server SIGKILLed at its budget)
 
 - **Transcripts flush first in the server.** They are what a person would
   miss, exactly as today.
+- **Board writes flush before the drain.** The canvas service is the shell's,
+  and its last writes reach disk through the server's `files.write`, so they
+  go before the server stops serving. A call still in flight to one of the
+  shell's toolsets is answered `cancelled` (phase 5, 8.4) once the toolsets
+  are withdrawn.
 - **Integrations run only after the server has exited.** No chat agent is left
   to use the MCP entries being removed.
 - **"Restart to update"** forwards the server's `shutdown-progress` to the
@@ -779,7 +817,7 @@ decision O4 and is not part of phase 6.
 | agent-runtime | kernel module (`agent-runtime-module.ts`) | `app.getPath`, `safeStorage` | conversation, workspace, storage, secrets, GitHub and companion services | — | 6 |
 | scheduled-agents | kernel module; six `scheduled-agents:*` channels registered directly | broadcast loop, `app.getPath` | store, scheduler, runner, gateway `schedule.*` tools, the six channels (tunnelled) | panel | 6 |
 | third-party | kernel, `createRequire` in main, no sandbox | anything | `entry.main` unless it needs `electron-main` (12.4) | `entry.renderer`, `studio-module://` assets (shell) | 6 |
-| canvas | static (`registerCanvasIpc`, `canvas-service.ts`) | hidden worker window, `WebContents` subscribers, export dialog | board store, merge, `canvas.*` tools, protocol namespace (phase 5) | editor; export dialog in the shell writes bytes from `canvas.exportImage` | 5–6 |
+| canvas | static (`registerCanvasIpc`, `canvas-service.ts`) | hidden worker window, `WebContents` subscribers, export dialog | **none** (2026-10-02): the board files, through `files.*` (phase 5) | everything else: the service, merge, worker window, `canvas.*` tools as the shell's `canvas` toolset, the editor, the export dialog | 5 |
 | backlog | static (`registerBacklogIpc`, 17 handlers) | none | backlog service, `backlog.*` tools, mobile control | panel | 6 (the gateway needs it) |
 | git | static (`registerGitIpc` 55 handlers, repo watch) | save dialog in `git-ipc.ts`, focus checks in repo watch | phase 6: git for chat only. Phase 10: read models, changelists, repo watch, panel data | panel; dialogs | 10 |
 | design system | static; `utilityProcess.fork` for bundle scripts | `utilityProcess`, `templates-path.ts` | phase 10: a `ScriptRunner` with a Node implementation (`child_process.fork` on the server's Node; `helperExecPath` runs as Node, E6) | panel | 10 |
@@ -813,11 +851,12 @@ are written atomically.
 
 ### 12.3 Phase 10: every module on the kernel, both halves declared
 
-- **Bundled modules move to the kernel.** Canvas, backlog, git, design, tours,
-  pull requests, skills and marketplace stop being static wiring in
+- **Bundled modules move to the kernel.** Backlog, git, design, tours, pull
+  requests, skills and marketplace stop being static wiring in
   `app-services.ts` and `register-core-ipc.ts`. Each becomes a
   `createBundledMainModules()` entry whose `registerMain` runs in the server.
-  Its renderer half is a kernel renderer module.
+  Its renderer half is a kernel renderer module. Canvas has no server half
+  (12.1): it becomes a kernel renderer module and the shell's toolset.
 - **Tunnelled channels become protocol methods.** Each domain's tunnelled
   channels become `module.invoke { moduleId, channel }` or typed namespace
   methods, and the tunnel entry is removed. A domain is done when no channel in
@@ -886,7 +925,7 @@ them kept. They are not committed with this document.
 | O2 | How desktop windows reach the local server (D2, D3) | **A brokered `MessagePort` per window**. No loopback listener until the web client (phase 9). Tickets only for remote environments. |
 | O3 | Secrets on the desktop in phase 6 (D4) | **The shell as cipher, formats unchanged.** No re-seal migration in phase 6. |
 | O4 | Linux desktop where `safeStorage` falls back to `basic_text` | Keep today's behaviour in phase 6 and report it. In a later phase, move those secrets to the owner-only key file with a one-time re-seal, which satisfies the owner default. |
-| O5 | Local render host (D5) | **The shell's offscreen worker and pane over `ShellBridge`.** Headless Chromium only off the desktop. |
+| O5 | Local render host (D5) | **Superseded (2026-10-02).** No render host anywhere. The shell's worker and pane are its `canvas` and `browser` toolsets (phase 5) on every server. |
 | O6 | The phase 6 domain cut (D7, section 5) | Approve the table. Git panel, file explorer, skills, marketplace, tours, memory, PRs and design stay in the shell until phase 10. |
 | O7 | Confirm before quitting with running chat turns | **No**: parity with today. Revisit when the server can outlive the app. |
 | O8 | Default and rollback | Flag **off** for the phase 6 release. A Settings → Advanced toggle ("Run Studio server in its own process", restart required) plus `SPRINTENGINE_SERVER_MODE`. Default on only after a release of dogfooding with zero `FAILED` reports and R6 verified. The in-process path stays for **at least two releases after** the default flips. |
@@ -896,6 +935,7 @@ them kept. They are not committed with this document.
 | O12 | Third-party `electron` modules (D10) | The capability, the manifest field and the require interceptor. **No host API bump.** |
 | O13 | Who writes the launcher pointer and integrations on the desktop | **The shell**, in phase 6. Headless servers write their own host's pointer (phases 7 and 8). |
 | O14 | Keep the experiment scripts in the tree | Optional: `scripts/experiments/server-process/`. |
+| O15 | Editor, tour and terminal tools (D11) | **Toolsets the shell offers**, on phase 5's mechanism. One path for every tool a client supplies, with its routing, deadlines and cancellation, instead of bespoke `ShellBridge` members. |
 
 ## 15. Risks and mitigations
 
@@ -954,6 +994,11 @@ them kept. They are not committed with this document.
   process and over a fake control channel): cipher round trip,
   `terminals.launchAgent` errors when no shell is attached, `reveal` with no
   window.
+- **The shell's toolsets over the control channel.** Phase 5's `tools/list`
+  snapshot is identical in process and out of process, `editor`, `tour` and
+  `terminal` included; a `browser` and a `canvas` call round trip through the
+  control channel; a server restart leaves the agent's list unchanged and the
+  tools answer again once the shell re-offers.
 - **Module host:**
   - `ModuleCallContext` passed through;
   - the `electron` require interceptor classifying a throwing `registerMain`
@@ -1019,7 +1064,7 @@ Sizes are relative.
 | 1 | `feat(protocol): bootstrap envelope, ready and control frames, server exit codes` (new files in the protocol package) | S |
 | 2 | `feat(server): stdio and parent-port bootstrap adapters around startServer()` | S |
 | 3 | `feat(server): run lock; the gateway unlinks a stale socket only under it` | S |
-| 4 | `feat(server): ShellBridge interface with the in-process implementation; route the gateway's terminal, launch, reveal, tour, pane and canvas-render backends through it` (flag off: same behaviour) | M |
+| 4 | `feat(server): ShellBridge interface with the in-process implementation (cipher, internal terminal launches, reveal, notify, analytics, integrations gate); the shell offers editor, tour and terminal as toolsets beside phase 5's browser and canvas` (flag off: same behaviour) | M |
 | 5 | `feat(server): ServerIpcRegistry, CallerContext and ClientBus targets` | S |
 | 6 | `refactor(main): createShellServices beside createStudioCore; app-main composes by server mode` (in process both are built, as today) | M |
 | 7 | `feat(main): ServerSupervisor state machine with a fake-child test suite` | M |
@@ -1046,7 +1091,8 @@ that carries them (O8).
 ## 18. Out of scope for phase 6
 
 - Web, WSL and SSH routes (phases 7–9).
-- Headless Chromium (phase 5 for standalone servers; D5 for the desktop).
+- A browser or a canvas in the server (owner ruling 2026-10-02); the optional
+  headless client that offers them with nobody attached (phase 5 spec, §14).
 - A server that outlives the app.
 - A loopback TCP listener.
 - Terminals on the server.

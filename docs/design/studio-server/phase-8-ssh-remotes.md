@@ -6,6 +6,11 @@ builds on. Where this file and the parent disagree, section 12 below lists what
 the parent should change. When code and this file disagree, fix one of them in
 the same change.
 
+Amended 2026-10-02 for the owner ruling of that date: the server has no
+browser and no canvas. The remote gets no Chromium; the desktop's own pane
+reaches the remote through the SSH connection instead (6.8), and the canvas is
+the desktop's toolset (phase 5, `phase-5-client-tools.md`).
+
 Owner defaults this scope is built on (2026-10-01):
 
 - A remote CLI signs in through its device-code flow where it has one;
@@ -41,7 +46,11 @@ A person adds `build-box` (an alias from their own `~/.ssh/config`, or
    resuming every stream from its cursor (`afterSeq` and `generation`);
 8. upgrades a managed server by installing the new bundle beside it, draining
    the old one and starting the new one; never touches an external server or a
-   newer one; and says plainly when versions cannot talk.
+   newer one; and says plainly when versions cannot talk;
+9. sends the desktop pane's traffic for that machine's workspaces through the
+   same SSH session, so an agent's `browser.open http://localhost:5173` shows
+   the remote's dev server in the person's own pane (6.8). Nothing is installed
+   on the remote for it.
 
 Out of scope: terminals on the remote (ruling a), a native Windows server
 reached over SSH (parent, non-goals), our own SSH implementation, multi-user
@@ -149,6 +158,7 @@ type SavedEnvironment = {
     keepRunning: boolean        // leave the managed server up after the last client
     dataDir?: string            // advanced: a non-default --data-dir on the remote
     installDir?: string         // advanced: for a home mounted noexec
+    paneTraffic: 'all' | 'loopback' | 'off'   // what the pane sends through the remote (6.8)
   }
 }
 ```
@@ -305,7 +315,7 @@ which prints `@@SPRINTENGINE_RELAY <server version> <protocol window>` and
 then carries bytes between its stdio and the server's owner socket. Why, from
 the experiments:
 
-- no local listener of any kind: nothing for another local user to connect to,
+- no local listener for the protocol: nothing for another local user to connect to,
   no free-port race (E1.11, E1.12), no 104-byte socket paths (E1.8), no stale
   socket files (E1.10);
 - works where `sshd` disables stream-local or TCP forwarding (E4.7) and
@@ -320,7 +330,8 @@ The relay carries a small **multiplexer** (length-prefixed frames with a
 stream id), so the desktop can open several logical owner-socket connections —
 the WebSocket and the HTTP requests for images and uploads beside it (parent
 5.1) — over one SSH session. Each logical stream is an ordinary connection to
-the owner socket on the remote; the server needs no change for it.
+the owner socket on the remote; the server needs no change for it. A second
+stream kind, `tcp`, carries the pane's traffic to the remote's network (6.8).
 
 **Auth through the relay.** The relay runs as the person, launched over an
 authenticated SSH session, so it already is the proof the parent's 9.4 wants.
@@ -548,18 +559,159 @@ In practice over SSH:
   not ask to unlock it. 0600 key file.
 - `server.info` says which one is in use, and Settings shows it per machine.
 
-### 6.8 The headless browser on the remote
+### 6.8 The pane's traffic through the SSH connection
 
-Phase 5's render host on a Linux remote needs: the Chromium build for the
-target (streamed from the desktop like Node, ~100–170 MB, or the remote
-download), the shared libraries headless Chromium links (`libnss3`, `libatk`,
-`libgbm`, `libasound`, …) and `fontconfig` with some fonts, and unprivileged
-user namespaces for the sandbox. Without root the person cannot add missing
-libraries; the probe's `ldd` report names them and the `apt`/`dnf` line for an
-admin. Until then the canvas falls back to an attached desktop's renderer
-(parent 8.4) and `browser.*` tools answer that this machine cannot browse. The
-Chromium download is never part of the first connect; it happens on the first
-tool call that needs it, with its size shown.
+The server has no browser (owner ruling 2026-10-02). An agent on `build-box`
+that starts a dev server on the remote's `127.0.0.1:5173` and calls
+`browser.open http://localhost:5173` reaches the desktop's `browser` toolset
+(phase 5), whose pane would load the **laptop's** port 5173. This section
+makes `localhost` in that environment's tabs mean the remote, with no
+Chromium on the remote and no screencast: the desktop's own pane, its network
+sent through the SSH connection the desktop already holds.
+
+```
+ pane tab of a build-box workspace, partition persist:env-<environment.id>
+   │  Chromium: proxyRules socks5://127.0.0.1:<p>, proxyBypassRules '<-loopback>'
+   ▼
+ main: SshPaneForward for build-box, a SOCKS5 listener on 127.0.0.1:<p>
+   │  one multiplexer stream per CONNECT: open { kind: 'tcp', host, port }
+   ▼
+ the environment's SSH session: the relay's stdio (5.4)
+   ▼
+ relay on build-box: connects to host:port as the person, resolving host there
+   ▼
+ the dev server on build-box's 127.0.0.1:5173 (or any host build-box can reach)
+```
+
+**Why the relay and not `ssh -D`.** Every session Studio opens runs with
+`ClearAllForwardings=yes`, because a person's `LocalForward` lines otherwise
+break it (E1.7, E1.8), and that also clears a `-D`. A second session just for
+`-D` would cost a second authentication, which Windows OpenSSH cannot share
+(E1.14), and hardened hosts refuse forwarding outright (E4.7). The relay's
+multiplexer already carries streams over the one session; a `tcp` stream kind
+is a small addition that needs no forwarding and no new authentication.
+
+**The relay side.**
+
+- The multiplexer's `open` gains a kind: `owner` (today's: a connection to
+  the owner socket, authenticated by the relay) and `tcp { host, port }`. For
+  `tcp` the relay resolves `host` on the remote, so `localhost`, the remote's
+  `/etc/hosts` and its private DNS mean what they mean to the agent, connects
+  with a 10 s deadline, and answers `opened` or `refused { code }`
+  (`refused`, `unreachable`, `timeout`, `limit`).
+- Half-close is carried both ways, and each stream has its own credit window,
+  so a stalled page cannot hold up the Studio protocol beside it.
+- At most 256 `tcp` streams per relay. The relay counts streams, targets and
+  bytes for diagnostics; it records no content.
+- The Studio server takes no part: the relay opens the connection. The pane's
+  network keeps working while the server restarts or upgrades, for as long as
+  the session lives.
+
+**The desktop side.** `SshPaneForward` (`src/main/environments/ssh/pane-forward.ts`),
+one per SSH environment, in main:
+
+- **Listener.** A SOCKS5 server bound to `127.0.0.1` on a port the OS picks
+  (`listen(0)`). It is opened when the first tab of that environment is
+  created (by the person, or by an agent's `browser.open`), and closed when
+  the last one closes, when the environment is forgotten, and at quit. The
+  port is kept for the listener's life, across reconnects, so the session's
+  proxy setting never has to change under an open tab.
+- **SOCKS5 subset.** Method "no authentication" only, because Chromium offers
+  no other (see Security). `CONNECT` only; `BIND` and `UDP ASSOCIATE` are
+  refused with reply 0x07. Address types IPv4, IPv6 and domain name; Chromium
+  sends `socks5://` targets as names, so names resolve on the remote. Relay
+  refusals map to replies 0x05 (`refused`), 0x04 (`unreachable`), 0x06
+  (`timeout`) and 0x01 (`limit`).
+- **Partition.** One per environment, `persist:env-<environment.id>` (phase 5
+  §10.4, R76), shared by that environment's workspaces, as today's single
+  partition is shared by the local ones. Tabs are keyed by environment and
+  workspace (phase 5 §10.1), so a tab of a `build-box` workspace is always
+  created in `build-box`'s partition. Before the first tab loads, main calls
+  `session.setProxy({ proxyRules: 'socks5://127.0.0.1:<p>', proxyBypassRules:
+  '<-loopback>' })`. `<-loopback>` removes Chromium's implicit bypass of
+  `localhost`, `127.0.0.1` and `[::1]`, so loopback goes to the remote too.
+  Keying by `environment.id` means the SSH alias and the tailnet route to one
+  machine share one partition.
+- **What goes through the remote** (R76): by default everything the partition
+  loads, so the pane sees the network the agent sees. A per-machine setting,
+  `paneTraffic: 'all' | 'loopback' | 'off'`, can send only loopback targets
+  through the remote, the forward itself connecting everything else directly
+  from the laptop (no PAC script needed: the forward sees each target), or
+  turn the forward off. `browser.status` reports `network: 'remote'` or
+  `'local'` per tab, and the tool descriptions say so.
+
+**Lifecycle with the connection** (5.6):
+
+| Environment state | The forward |
+| --- | --- |
+| Relaying, Handshaking, Connected | `CONNECT`s flow. |
+| Reconnecting, NeedsSignIn, Disconnected | The listener stays bound. Streams that were open die with the session, so Chromium shows its own error page, and a dev page's hot-reload client retries on its own. A new `CONNECT` waits up to 10 s for the relay, then gets 0x04. The pane shows a line in words: "build-box is reconnecting. This tab's network goes through it." |
+| Resolving to Locating, Starting, Upgrading | As Reconnecting: there is no relay yet. |
+| Sleep, wake, network change | The session is restarted (section 7); as Reconnecting. |
+| Forget | The listener closes. "Also clear build-box's browsing data" calls `session.clearStorageData()` on the partition. |
+| App quit | The listener closes with main. |
+
+**What works, and what does not.**
+
+- HTTP, HTTPS, HTTP/2 (inside TLS through the tunnel), WebSockets (a dev
+  server's hot reload) and server-sent events are TCP, and pass through SOCKS5
+  unchanged.
+- HTTP/3 does not: QUIC is UDP, and Chromium does not send it through a SOCKS
+  proxy, so those sites fall back to HTTP/2.
+- WebRTC: UDP cannot ride the forward. The partition's web contents set
+  `webRTCIPHandlingPolicy: 'disable_non_proxied_udp'`, so a page neither
+  leaks the laptop's addresses nor goes around the remote. A dev app that
+  uses peer connections does not work in the pane over SSH; this is stated in
+  the pane's help.
+- Secure contexts and mixed content follow the URL, not the route.
+  `http://localhost:5173` is a secure context because of its name, so service
+  workers, `crypto.subtle` and the clipboard behave as for a local dev
+  server. `http://build-box.lan:5173` is not one, as it would not be locally.
+- Cookies and storage are the desktop's, in the environment's partition on the
+  laptop's disk. They are never written on the remote, and they are not
+  shared with local tabs: being signed in to a site locally does not carry
+  over to `build-box`'s tabs.
+- The laptop's own `localhost:5173` is unreachable from `build-box`'s tabs, by
+  design. Local workspaces' tabs still reach it.
+- The laptop's system proxy and VPN do not apply to that partition: its
+  traffic leaves from the remote's network. A remote with no internet egress,
+  or one that needs an HTTP proxy, fails for outside sites unless
+  `paneTraffic` is `loopback`. The relay does not chain to the remote's
+  `HTTPS_PROXY` in v1.
+- DevTools, downloads (they land on the laptop), file uploads (from the
+  laptop), the password manager and inline PDFs are the native pane's, as
+  they are for a local tab.
+- Every request crosses the SSH link. Hot reload is unaffected; a heavy first
+  page load is as slow as the link.
+
+**Security.**
+
+- **The local listener (D13, R75).** Chromium speaks SOCKS5 without
+  authentication, so the listener cannot ask for a credential. Any process
+  that can reach the laptop's loopback can connect to it while it is open,
+  and through it reach `build-box` as the person. A process of the same user
+  can already run `ssh build-box` as them, so the exposure is to other OS
+  users on the laptop, which is against the parent's goal 4 ("never an
+  unauthenticated port"). The working default narrows it: loopback only, a
+  port the OS picks, open only while a tab of that environment exists, and on
+  Linux each accepted connection's owner uid is read from `/proc/net/tcp` and
+  another uid's is refused. macOS and Windows have no cheap equivalent. The
+  alternative that meets goal 4 everywhere is the same forward with an HTTP
+  proxy as its local end (`CONNECT` for TLS and WebSockets, absolute-form
+  requests for plain HTTP), demanding a per-session `Proxy-Authorization` that
+  main answers through Electron's `login` event. Nothing else in this section
+  changes. Decision D13.
+- **The remote side.** The relay connects as the person, to what their shell
+  on `build-box` can reach anyway; the forward adds no capability there. Where
+  an administrator set `AllowTcpForwarding no`, the forward still works,
+  because it is a program in the person's own session, as `nc` would be;
+  OpenSSH's own documentation notes that turning forwarding off does not stop
+  a user with shell access from running their own forwarder. Settings says
+  "Browser traffic for build-box goes through build-box" on that machine, and
+  `paneTraffic: 'off'` turns it off.
+- **The page is untrusted**, exactly as a local dev page in today's pane: the
+  pane's guest isolation is unchanged, and the partition holds no Studio
+  credential.
 
 ## 7. Connection resilience
 
@@ -597,7 +749,7 @@ and transcripts; the integrity of what runs on the remote (Node, server).
 | **A secret in a remote argv** (visible to all users, E1.15) | No secret in any remote argv; the envelope travels on stdin after a marker; the relay reads the token file itself |
 | **A secret executed as shell text** and echoed into a log (E5) | The marker handshake before any stdin payload; scripts are a single compound command ending in `exit`; a test that the envelope is never written before the marker |
 | **Other users on the remote** | No TCP listener; run dir 0700, socket and token 0600; `/tmp` fallback ownership-checked with `lstat`; the owner token required on the socket regardless (parent 9.1) |
-| **Other users on the desktop** | No local listener at all (5.4); the askpass socket in a 0700 directory with a per-spawn token |
+| **Other users on the desktop** | No local listener for the protocol (5.4); the askpass socket in a 0700 directory with a per-spawn token; the pane forward's SOCKS listener only on loopback, only while a tab needs it, uid-checked on Linux, and decision D13 for the rest (6.8) |
 | **Phishing through prompts**: a server crafting keyboard-interactive text that looks like a Studio or OS prompt | Remote text shown only inside "build-box asks:"; the host-key and passphrase dialogs are recognised from ssh's own fixed strings, never from remote text |
 | **Leaked SSH secrets** | Answers go from the dialog to the shim over the socket and nowhere else: not in an env var, a file, a log or memory beyond the dialog's life |
 | **Agent forwarding abused by remote root** | `ForwardAgent=no` on Studio's sessions, whatever the config says |
@@ -635,6 +787,17 @@ and transcripts; the integrity of what runs on the remote (Node, server).
   two connects at once (serialised), and the "never downgrade" rule with two
   clients.
 - The multiplexer: interleaving, back-pressure, a stream closed mid-frame.
+- The pane forward (6.8): the SOCKS5 parser (a greeting offering only "no
+  authentication"; `CONNECT` with IPv4, IPv6 and a name; `BIND` and
+  `UDP ASSOCIATE` refused 0x07; truncated and malformed requests); relay
+  refusals mapped to SOCKS replies; the listener opened by the first tab and
+  closed by the last, by Forget and at quit; the port unchanged across a
+  reconnect; a `CONNECT` during Reconnecting held, then answered 0x04 after
+  10 s; `paneTraffic: 'loopback'` connecting a non-loopback target directly;
+  the Linux uid check against a fake `/proc/net/tcp`.
+- The relay's `tcp` streams against a local echo server: `opened`, a closed
+  port `refused`, `localhost` resolved by the relay, half-close both ways,
+  the 256-stream limit.
 
 ### 9.2 Script tests (generated scripts, real shells)
 
@@ -665,6 +828,9 @@ guard. Variants by build arg or run flag:
 | `docker pause` for 30 s / `docker restart` | keepalive detection, reconnect, resume (E4.8) |
 | an older and a newer fake server version in `server.json` | upgrade, attach, VersionBlocked; never downgraded |
 | arm64 and x64 runners | both Linux targets |
+| a Vite-style dev server bound to the container's `127.0.0.1:5173`, and a decoy on the runner's own `127.0.0.1:5173` | an Electron test opens a tab in `persist:env-<id>` with the forward: the remote's page loads, never the decoy's; the hot-reload WebSocket connects, and an edit on the remote updates the tab; `browser.open http://localhost:5173` through the `browser` toolset from a chat on the remote shows the same page |
+| the dev server, with `AllowTcpForwarding no` | the forward needs no `sshd` forwarding |
+| the dev server, `docker pause` for 30 s | the tab's error page and the reconnecting line, then the page and its hot reload back once the session is |
 
 ### 9.4 macOS and Windows
 
@@ -680,7 +846,21 @@ guard. Variants by build arg or run flag:
   `ssh.exe` first on `PATH` is not picked; the Windows `ssh-agent` service off
   (the default) still works with key files.
 
-### 9.5 Skew tests
+### 9.5 Chromium behaviour to confirm
+
+Facts 6.8 relies on that were read, not run, and get an Electron-level test
+before the forward ships:
+
+- **V-P1.** With `proxyBypassRules: '<-loopback>'`, `localhost`, `127.0.0.1`
+  and `[::1]` all go to the SOCKS proxy, and `localhost` arrives as a name.
+- **V-P2.** Chromium sends no QUIC through a SOCKS proxy, and an HTTP/3 site
+  loads over HTTP/2.
+- **V-P3.** What Chromium's private-network checks do for a public page that
+  fetches `http://localhost` through the proxy.
+- **V-P4.** `webRTCIPHandlingPolicy: 'disable_non_proxied_udp'` set on the
+  partition's guests sends no UDP from the laptop.
+
+### 9.6 Skew tests
 
 A fake server advertising `protocolVersion` at each edge of the window and
 one past it, against the client's handshake: attach, attach with hidden
@@ -695,11 +875,14 @@ features, VersionBlocked with both numbers named.
 | Windows OpenSSH behaves differently (askpass, paths, no multiplexing) | Medium / medium | One session per connect so multiplexing is not needed; a Windows checklist; the binary override |
 | Old glibc (RHEL 7 class) or musl remotes | Medium / medium | Detected in the probe and named; decisions D3 and D4 |
 | Password users are asked on every reconnect | Medium / low | One authentication per reconnect, not per step; background reconnects stop at NeedsSignIn rather than prompting; the person's own `ControlMaster`/`ControlPersist` config is honoured and makes it silent |
-| Payload size on slow uplinks (Node ~30–45 MB, bundle tens of MB, Chromium later ~150 MB) | Medium / low | Node and Chromium installed once per version; upgrades send only the bundle; the remote-download option; progress and size shown |
+| Payload size on slow uplinks (Node ~30–45 MB, bundle tens of MB) | Medium / low | Node installed once per version; upgrades send only the bundle; the remote-download option; progress and size shown. No Chromium is ever sent (2026-10-02) |
 | A long-lived server on a machine nobody watches (disk, memory) | Medium / medium | Idle-out by default; logs rotate; `keepRunning` is explicit per machine |
 | Two clients on different versions fighting over one remote | Low / high | Never downgrade, never stop an external or newer server (5.6) |
 | Login-shell noise or a broken profile | Medium / low | Markers: nothing before the first `@@SPRINTENGINE_` line is parsed (E4.1), and it is kept for diagnostics |
 | Agents on the remote that need a terminal (`agent.launch`, `backlog.work`) | Certain / medium | Not offered on SSH servers (parent 6.3), and the UI says why |
+| The pane's SOCKS listener on the laptop is reachable by other local users while it is open | Low on single-user laptops / high where it applies | Loopback only, open only while a tab of that environment exists, a uid check on Linux; decision D13 offers an authenticated local end |
+| Pane traffic leaving from the remote surprises the person (no egress there, a proxy it needs, a site that geolocates) | Medium / low | Said in Settings and in the pane's reconnecting line; `paneTraffic: 'loopback'` or `'off'` per machine |
+| Agents on an SSH server lose the browser and canvas when the laptop sleeps | Certain / medium | The ruling's intent: they are the desktop's toolsets. Calls answer `client_unavailable` naming the fix (phase 5); the headless client is the later answer |
 
 ## 11. Decisions for the owner
 
@@ -717,6 +900,8 @@ features, VersionBlocked with both numbers named.
 | D10 | Use a systemd user unit when lingering is on, without asking? | **Yes**, and show it in Settings. Without linger, the detached process; never run `loginctl enable-linger` ourselves |
 | D11 | macOS remotes in v1? | **Yes** (both arches): the experiments ran the whole path on macOS without root. A `launchd` agent comes later |
 | D12 | When a desktop finds an older external server, offer the upgrade in place? | **Offer, ask first, drain the same way** — never automatic |
+| D13 | The pane forward's local end (6.8): Chromium speaks SOCKS5 without authentication, so a SOCKS listener on the laptop's loopback can be reached by other local users while it is open. Keep SOCKS5 as ruled, or give the same forward an HTTP-proxy local end with a per-session credential that Chromium answers through Electron's `login` event? | **SOCKS5 as ruled, narrowed** (loopback, open only while a tab needs it, a uid check on Linux), until the owner says goal 4 must hold on multi-user Macs and Windows PCs too; then the HTTP-proxy end, which changes nothing else |
+| D14 | The pane's partition for an SSH machine, and what goes through the remote | **One persistent partition per environment** (`persist:env-<environment.id>`), and **all of its traffic** through the remote by default, with `paneTraffic` per machine |
 
 ## 12. Changes the parent design needs
 
@@ -752,6 +937,13 @@ features, VersionBlocked with both numbers named.
    the choice in `server.info`.
 10. **13, phase 8 risks**: add `KillUserProcesses`, Windows OpenSSH's lack of
     multiplexing, and macOS keychain-held CLI logins.
+11. **8.1 (2026-10-02)**: the pane's traffic for an SSH environment goes
+    through the relay's `tcp` streams, on that environment's own partition
+    with `proxyBypassRules: '<-loopback>'` (6.8). Not `ssh -D`, which every
+    Studio session's `ClearAllForwardings=yes` rules out.
+12. **2, goal 4 (2026-10-02)**: the pane forward's SOCKS listener is the one
+    local listener this phase adds, and it cannot be authenticated (D13). Say
+    which way goal 4 is kept.
 
 ## 13. Commits
 
@@ -787,9 +979,15 @@ spawn and envelope, the WSL stdio transport).
    keep-running and stop.
 8. **`feat(providers): sign in on an SSH machine`** — device-code flows through
    `providers.signIn`; the local `ssh -t` terminal for the rest.
-9. **`test(environments): dockerized sshd integration suite`** — the fixture
+9. **`feat(environments): the pane's traffic through the SSH connection`** —
+   the relay's `tcp` stream kind; `SshPaneForward` (the SOCKS5 listener, its
+   lifecycle with the connection, the Linux uid check); the per-environment
+   partition with its proxy and WebRTC policy; `paneTraffic` in Settings;
+   `browser.status` reporting `network: 'remote'`; the 9.1 unit tests and the
+   9.5 checks.
+10. **`test(environments): dockerized sshd integration suite`** — the fixture
    image and the 9.3 variants in the Linux CI job; the macOS unprivileged-sshd
    job; the Windows checklist in `docs/`.
-10. **`docs(design): fold phase 8's changes into the Studio server design`** —
+11. **`docs(design): fold phase 8's changes into the Studio server design`** —
     the section 12 edits to the parent, and a `docs/compatibility.md` note on
     the relay and its framing version.

@@ -5,9 +5,16 @@ phase 9 of `docs/design/studio-server.md` (sections 9, 11 and 13). Where the
 two disagree, this file states the change the parent needs, in section 12, and
 the parent is updated in the same change that lands the work.
 
-Owner defaults this scope is built on (2026-10-01):
+Amended 2026-10-02 for the owner ruling of that date: the server has no
+browser and no canvas. The screencast pane is gone. The web client shows an
+agent's dev server through `previews` (3.6), offers the `canvas` toolset
+itself (3.8), and offers no `browser` toolset in v1.
 
-- The browser pane becomes a live view of the server's headless browser.
+Owner defaults this scope is built on (2026-10-01, as amended):
+
+- The server is small (owner ruling 2026-10-02): no browser and no canvas in
+  it. The earlier default, "the browser pane becomes a live view of the
+  server's headless browser", is withdrawn.
 - No terminals in v1.
 - Chat first: conversations and the data chat needs (changed files, turn diffs,
   checkpoints and revert, attachments, @-mention file search, the workspace
@@ -28,7 +35,12 @@ Owner defaults this scope is built on (2026-10-01):
    - an **iframe route** on the server for apps that do not want to build
      anything.
 
-   All three are versioned against the protocol like any other client.
+   All three are versioned against the protocol like any other client. The
+   embed is built after the web client.
+3. **Previews.** An agent's dev server on the server's loopback, passed
+   through to the browser on an origin of its own (3.6).
+4. **The web client's `canvas` toolset.** The web client draws boards and
+   answers agents' `canvas.*` calls, as the desktop does (3.8).
 
 Not in phase 9: terminals (ruling a), the git panel and file explorer
 (ruling c), a hosted relay or public endpoint, multi-user servers.
@@ -102,8 +114,9 @@ Not in phase 9: terminals (ruling a), the git panel and file explorer
   build-stamp plugin and the canvas fonts plugin. Output is `out/web/`,
   copied into the server bundle beside `server.mjs` (parent 10.4). The
   `splash` entry is not built for the web. The `canvas-worker` entry is built
-  into the server bundle for the render host (parent section 8), not served to
-  browsers.
+  for the web too: the web client loads it in a hidden frame to offer the
+  `canvas` toolset (3.8). The server bundle itself carries no canvas worker
+  and renders nothing.
 - **`import.meta.env.STUDIO_CLIENT`** (`'desktop' | 'web'`) is a build-time
   define. It is used **only** to choose which `window.api` to install at boot
   (`createDesktopApi` reads the preload; `createWebApi` builds the shim). Every
@@ -129,6 +142,7 @@ Not in phase 9: terminals (ruling a), the git panel and file explorer
   | `/api/upload`, `/api/attachment/*`, `/api/tool-image/*` | session or ticket | `private` | bytes beside the socket (parent 5.1) |
   | `/modules/<hex id>/…` | session | `no-store` | module renderer entries and assets (3.7) |
   | `/embed/…` | embed token (section 5) | `no-store` | the iframe view |
+  | each preview's own origin (a separate listener) | preview cookie, after a one-time code (3.6) | as the dev server sends | an agent's dev server, passed through |
 
   Static assets are public on purpose. The bundle is open source, and a page
   that cannot load its own scripts before pairing cannot show a useful error.
@@ -184,8 +198,8 @@ classified once. Most are client-side; the path helpers are host-side.
 A `clientCapabilities` record (renderer-only) answers what the current shell
 can do: `native-dialogs`, `reveal-in-folder`, `open-in-app`, `os-clipboard`,
 `os-notifications`, `aux-windows`, `multi-window`, `window-controls`,
-`terminals`, `browser-pane-native`, `browser-pane-screencast`,
-`app-menu`, `deep-links`, `drag-paths`. The desktop sets them from the
+`terminals`, `browser-pane` (the desktop's native pane), `previews` (the web
+client's preview pane, 3.6), `app-menu`, `deep-links`, `drag-paths`. The desktop sets them from the
 preload. The web shim sets them from feature detection, including
 `isSecureContext`. UI hides or swaps a control by asking
 `clientSupports('reveal-in-folder')`, never by `typeof window.api.X`.
@@ -234,46 +248,123 @@ client `terminals` and a server that advertises them.
   `visibilitychange` to hidden, because mobile browsers do not fire
   `beforeunload` reliably.
 
-### 3.6 The browser pane is a screencast
+### 3.6 The browser pane on the web: previews
 
-Owner default: the pane becomes a live view of the server's headless browser,
-on every client. That replaces `<webview>` (`BrowserTab.tsx`, about 25
-`browser*` members) with a `ScreencastView`:
+The server has no browser and there is no screencast (owner ruling
+2026-10-02). A page cannot drive other sites, so the web client offers no
+`browser` toolset in v1, and with only web clients attached agents have no
+browser (phase 5 §10.5). What the person still needs is to see what an agent
+built: a dev server listening on the server's loopback. The `previews`
+namespace passes one through to the browser, on an origin of its own.
 
-- A `<canvas>` draws JPEG frames from the `browser.screencast` stream (parent
-  section 8). Each frame is decoded with `createImageBitmap` off the main
-  thread. The server acknowledges a frame to Chromium only after the client
-  socket drained it, so a slow client gets fewer frames, not a queue.
-- **Input.** Pointer, wheel, keyboard and touch events become `browser.input`
-  calls, with coordinates scaled from CSS pixels to the emulated viewport.
-  IME composition is sent as `Input.insertText` on `compositionend`.
-  **Mouse input bumps the tab's epoch too.** Today only keyboard does (the
-  guest's `before-input-event`); a screencast makes the mouse the main input.
-- **Size.** The pane's size and `devicePixelRatio` drive
-  `Emulation.setDeviceMetricsOverride`, debounced.
-- **Toolbar.** The URL bar, back, forward and reload map to the server's tab.
-  "Open externally" opens the URL in the person's own browser
-  (`window.open`) and says that session state does not come along.
-- **What a screencast cannot do, and the answer:**
-  - Native `<select>` popups: rendered by the server's page as DOM under
-    headless mode, so they show.
-  - Page dialogs (`alert`, `confirm`, `prompt`): `Page.javascriptDialogOpening`
-    becomes an in-app modal that answers through CDP.
-  - File inputs: the person's file is uploaded and set with
-    `DOM.setFileInputFiles`.
-  - Downloads: refused unless a tool asks (parent 8.3); the pane says so.
-  - Cursor shape: not available from CDP; the view shows a default pointer.
-  - Clipboard into the page: a paste event in the view sends `insertText`.
-  - Accessibility: pixels have no tree. The pane offers the page's
-    accessibility snapshot (the same one `browser.snapshot` gives agents) as
-    a text alternative, with a "Read page" control.
-- **Element picker.** The guest preload's picker (`browser-guest.ts`) becomes
-  an overlay script injected through CDP into the server's tab, reporting
-  through a `Runtime.addBinding` channel.
+```
+ web client page, origin S (http://127.0.0.1:<studio port>, or the tailnet HTTPS name)
+   └─ preview pane: <iframe sandbox …>, or a new browser tab
+        origin P: the same host, a port of its own  ──► preview listener on the server
+                                                           │ HTTP and WebSocket, passed through
+                                                           ▼
+                                               127.0.0.1:<dev port> on the server host
+```
 
-This is phase 5 work in the parent plan (the render host and
-`browser.screencast`). Phase 9 owns the `ScreencastView` component and its
-input mapping, and depends on phase 5 having landed.
+**Methods.** Owner sessions, or a `previews:open` grant that tailnet browser
+pairings do not get by default (a preview exposes services on the server's
+loopback to that device).
+
+| Method | Shape |
+| --- | --- |
+| `previews.list` | `{}` → `{ ports: [{ port, pid, command, workspaceId?, conversation? }] }`. TCP listeners, on loopback or a wildcard address, of processes in the server's agent process trees (the CLIs it spawned and their descendants): `/proc/net/tcp` and `tcp6` mapped through `/proc/<pid>/fd` on Linux, `lsof -nP -iTCP -sTCP:LISTEN` for those pids on macOS. The server's own listeners are never listed. |
+| `previews.open` | `{ port, workspaceId? }` → `{ previewId, origin, enterUrl }`. The port is one `list` gave, or any port from 1024 an owner types, never one of the server's own. The target is always the server's loopback (`127.0.0.1`, else `[::1]`), never another host, so this is not an open proxy. |
+| `previews.close` | `{ previewId }` → `{}` |
+| topic `previews.changes` (push) | the session's open previews, whole, on every change |
+
+**Origin.** Each preview gets its own listener on the server's loopback, on a
+port the OS picks, so its origin differs from Studio's by port:
+`http://127.0.0.1:<pp>` for a loopback page; on the tailnet, an HTTPS port of
+the node's name mapped to it with `tailscale serve`, the way the app itself is
+served (6.6). The separate origin is what keeps agent-written code away from
+Studio:
+
+- the app's script cannot read Studio's DOM, storage or responses;
+- any WebSocket upgrade or non-GET request the app makes to Studio carries
+  `Origin: P`, which the exact-origin rule (6.3) refuses whatever cookie rides
+  with it;
+- Studio's authenticated responses gain `Cross-Origin-Resource-Policy:
+  same-origin`, so the app cannot embed them as images or scripts either.
+
+Same host and another port is a different origin but the **same site**, and
+cookies are not isolated by port. So:
+
+- Studio's session cookie (`se_s_<env>`, `HttpOnly`, `SameSite=Strict`) is
+  sent to P by the browser. The preview listener strips every `se_` cookie
+  from a request before forwarding it: the dev server never sees one.
+- A `Set-Cookie` from the dev server whose name starts `se_` or `__Host-se_`
+  is dropped, so the app cannot overwrite Studio's session.
+- A hostname per preview would make a separate site as well, but a loopback
+  page and a tailnet node each have one name (`*.localhost` is not resolved
+  by every browser), so the port is the boundary that holds everywhere.
+
+**Auth.** A preview listener is never open without a credential (parent goal
+4).
+
+1. `previews.open` returns `enterUrl`, `P/__se_preview/enter?code=<code>`: 32
+   random bytes, single use, 60 seconds, kept as a hash.
+2. The web client loads it in the pane or a new tab. The listener spends the
+   code, sets `se_pv_<previewId>` (`HttpOnly`, `SameSite=Strict`, `Path=/`,
+   `Secure` on HTTPS) and redirects to `/` with `Referrer-Policy: no-referrer`
+   and `Cache-Control: no-store`. The code is in the query, not a fragment,
+   because the listener must see it on that first navigation; it is spent
+   before the page it opens can run, the same reasoning as R17's tickets.
+3. Every later request and upgrade needs that cookie. Without it the listener
+   answers 401 with a one-line page, "Open this preview from Studio". Nothing
+   under `/__se_preview/` is ever forwarded.
+4. An upgrade must also carry `Origin: P`: no other site, and not Studio's own
+   page, can drive the dev server's socket with the person's cookie.
+5. A preview closes on `previews.close`, when its browser session is revoked,
+   after 30 minutes with no request, or when the server stops. A session holds
+   at most eight.
+
+**Pass-through.** The listener speaks HTTP/1.1 to the browser (on the tailnet,
+`tailscale serve` terminates TLS in front of it) and pipes each request to the
+dev server with only these changes:
+
+- `Host` becomes `localhost:<dev port>`, because current dev servers refuse an
+  unknown `Host` as their own DNS-rebinding guard; an `Origin` equal to P
+  becomes `http://localhost:<dev port>` for the same reason. Studio's cookies
+  are removed. No `X-Forwarded-*` header is added.
+- On the way back, a `Location` naming `localhost:<dev port>` or
+  `127.0.0.1:<dev port>` is rewritten to P; Studio-named `Set-Cookie`s are
+  dropped; `X-Frame-Options` is removed and any `frame-ancestors` in the
+  app's CSP is replaced by `frame-ancestors S`, so the pane can frame the app
+  and no other page can. Bodies are never rewritten, and nothing is injected
+  into the app's pages.
+- **WebSocket upgrades** (hot reload) pass through with the same `Host` and
+  `Origin` changes and the cookie check; frames are piped, never parsed. Hot
+  reload clients that connect to `location.host`, the default for the common
+  dev servers, therefore work.
+- Streaming responses and server-sent events are piped without buffering.
+
+**The pane.** Where the desktop shows a browser tab, the web client shows a
+preview pane: a port picker from `previews.list` (each port labelled with its
+command and the conversation that started it), the preview in an `<iframe
+sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals
+allow-downloads">` (`allow-same-origin` beside `allow-scripts` is safe only
+because P is never S), Reload, "Open in a new tab", and "Open in the desktop
+app" when a desktop is attached to this server. There is no back or forward,
+and the path field shows what the person typed: a cross-origin frame's
+navigations cannot be read, and Studio injects nothing to read them.
+
+**Limits, stated in the pane's help.**
+
+- An app that uses absolute URLs (`fetch('http://localhost:3001/api')`, a hot
+  reload client pinned to `ws://localhost:24678`) points at the person's own
+  machine. From a browser on the server's machine they still work; through
+  the tailnet they do not. The fix is in the app: relative URLs, or its dev
+  server's own proxy. A second preview gives the API an origin, not a new
+  address in the app's code.
+- Previews on one host share the browser's cookie jar, as two dev servers on
+  `localhost` do today.
+- Agents do not see the preview. They have a browser only when a desktop (or,
+  later, the headless client) offers one.
 
 ### 3.7 Modules on the web
 
@@ -300,6 +391,38 @@ input mapping, and depends on phase 5 having landed.
 - **Recommendation:** third-party renderer modules are off on the web in v1
   unless the owner turns them on for that server (owner decision 4).
 
+### 3.8 The web client offers `canvas`
+
+The web client runs the same `@excalidraw/excalidraw` build in a real
+browser, so it can do what the desktop's hidden worker window does, and phase
+5 leaves the choice to this phase (phase 5 §7.2, §10.5). It offers `canvas`.
+
+- **What runs in the page.** The web build includes the `canvas-worker` entry
+  and its fonts (3.1). The web client loads the worker in a hidden
+  same-origin iframe, and runs the portable canvas service and tools (phase 5
+  §10.2) in the page, with `path.posix` and a Web Crypto hash injected for
+  their two Node imports. Boards are kept through the server's `files.*`
+  methods and followed with `files.watch` (phase 5 §10.3), so an edit made
+  here shows in a desktop on the same board, and the reverse.
+- **Who may offer it.** A web tab whose session holds the owner's grants
+  (a loopback pairing that kept them), with `hello.client.kind: 'web'`; that
+  is the shell role phase 5 §7.2 asks this phase to settle. A tailnet browser
+  pairing never offers it in v1, because `tools:offer` is never granted on
+  the tailnet.
+- **Routing.** By phase 5 §6.2: affinity first, then the client the person is
+  looking at, then by kind, desktop before web. A hidden tab sends
+  `tools.focus { focused: false }`, so a visible client is preferred.
+- **Background tabs.** Browsers throttle timers and pause
+  `requestAnimationFrame` in hidden tabs. A call arrives as a socket message,
+  which is not throttled, and the worker must answer without waiting on a
+  frame or a timer; a test runs the canvas suite with the page hidden. The
+  page withdraws `canvas` on `pagehide` and offers it again on `pageshow`.
+- **Fonts.** The same bundled fonts as the desktop, served from the web
+  bundle's `fonts/`, so a label measures the same in both clients (R48 for
+  CJK).
+- **Results.** `canvas.screenshot` uses the same export ladder, inside phase
+  5's 960 KiB reply limit. `canvas.open` reveals the board in that tab.
+
 ## 4. Inventory: every Electron dependency in the renderer and its web fallback
 
 Legend for **Guard**: `none` = an unguarded call that throws on the web
@@ -312,7 +435,7 @@ Paths are under `src/renderer/src/` unless they start with `src/`.
 | --- | --- | --- | --- | --- |
 | 1 | `window.api` itself | `src/preload/index.ts:114` | n/a | `createWebApi(client)` installed before React (3.2) |
 | 2 | `platform`, `isDevelopment`, `isDiagnosticsEnabled` (preload values) | 53 refs in 31 files; `WorkspaceManager.tsx:716` is the first boot read | none | `clientPlatform` / `hostPlatform` (3.3); `import.meta.env.DEV`; URL flag on loopback |
-| 3 | `<webview>` browser pane, guest preload, `before-input-event` keys | `pane/browser/BrowserTab.tsx:591`, `src/preload/browser-guest.ts`, `src/main/browser/browser-manager.ts:488` | none (22 members) | `ScreencastView` over `browser.screencast` and `browser.input` (3.6); picker injected over CDP |
+| 3 | `<webview>` browser pane, guest preload, `before-input-event` keys | `pane/browser/BrowserTab.tsx:591`, `src/preload/browser-guest.ts`, `src/main/browser/browser-manager.ts:488` | none (22 members) | The preview pane over `previews` (3.6): an iframe on the preview's own origin. No element picker, no agent control, no screencast |
 | 4 | App menu: `onAppMenuCommand`, `updateAppMenuAccelerators`; Electron role items (undo, cut, zoom, reload, devtools, fullscreen) | `WorkspaceManager.tsx:3961,3975`; `src/main/app-menu.ts` | none | Menu commands are already registry commands, so they run from the palette. The menu-only items (About, Check for updates, Diagnostics) move into the account menu. Role items fall to the browser's own (undo/cut/copy work natively in inputs). |
 | 5 | Native menubar popup on Windows/Linux: `showMenubarMenu` | `WorkspaceManager.tsx:4211` | none | Not drawn: `clientSupports('app-menu')` is false. The palette lists the same commands. |
 | 6 | Context menus | All in-page already (`PointerPopover`, `OverflowMenu`; `onContextMenu` in 18 files) | n/a | Unchanged. Where the app does not `preventDefault`, the browser's own menu shows, which is the right default for text. |
@@ -326,7 +449,7 @@ Paths are under `src/renderer/src/` unless they start with `src/`.
 | 14 | OS notifications, dock badge and bounce, `flashFrame` | main only (`app-services.ts:1268`, `agent-attention.ts`) | n/a | Web Notifications, shown only when the tab is hidden and permission was granted after a click in Settings. One tab shows each notification, chosen through `BroadcastChannel` leader election, with `tag` set to the event id so duplicates replace each other. `navigator.setAppBadge` where supported (installed PWAs). Otherwise the in-app bell, which exists today. |
 | 15 | `openExternal` (`shell.openExternal`) | 7 sites, 6 unguarded (e.g. `ConversationImage.tsx:40`, `CanvasEditor.tsx:639`) | mixed | `window.open(url, '_blank', 'noopener,noreferrer')` for http, https and mailto; anything else refused. Today's IPC would open the URL on the server machine. |
 | 16 | `target="_blank"` links, `window.open` | `utils/markdown.tsx:569`, `conversationLinks.tsx:145` | n/a | Unchanged: a browser opens a tab. Add `rel="noopener"` where missing. |
-| 17 | `showItemInFolder`, `listFolderOpenTargets`, `openFolderInTarget`, `openHtmlFileInBrowser`, `openDiagnosticsLogsFolder` | 8 + 4 + 4 + 1 sites, unguarded (e.g. `ToolRow.tsx:317`, `conversationLinks.tsx:170`) | none | Hidden (`reveal-in-folder`, `open-in-app` false). A file link opens the in-app viewer. An HTML file opens in the screencast pane. Today these would act on the server's desktop. |
+| 17 | `showItemInFolder`, `listFolderOpenTargets`, `openFolderInTarget`, `openHtmlFileInBrowser`, `openDiagnosticsLogsFolder` | 8 + 4 + 4 + 1 sites, unguarded (e.g. `ToolRow.tsx:317`, `conversationLinks.tsx:170`) | none | Hidden (`reveal-in-folder`, `open-in-app` false). A file link opens the in-app viewer. An HTML file opens in a sandboxed `srcDoc` frame, as HTML artifacts already do. Today these would act on the server's desktop. |
 | 18 | `openImageAttachment` | `ComposerAttachmentStrip.tsx:51`, `ToolRow.tsx:294`, `ConversationImage.tsx:47` | none | Opens `/api/attachment/<id>` in a new tab |
 | 19 | Keyboard: DOM dispatcher (`commandDispatcher.ts`), six menu accelerators, browser-pane forwarded chords | `WorkspaceManager.tsx:3840`, `src/main/app-menu.ts:5` | n/a | DOM dispatcher unchanged, Primary from `clientPlatform`. A web keymap profile (4.2). |
 | 20 | Window controls and state: `windowMinimize`, `windowToggleMaximize`, `windowClose`, `getWindowState`, `onWindowStateChanged`, `onWindowPlacementChanged`, `onWindowCloseRequested` | `WindowControls.tsx:52`, `WorkspaceManager.tsx:1577,1584,2052` | none | Not drawn (`window-controls` false). The close handshake becomes `beforeunload` while a draft or turn is in flight. |
@@ -349,7 +472,7 @@ Paths are under `src/renderer/src/` unless they start with `src/`.
 | 37 | Secure-context APIs: `crypto.randomUUID` (4 sites), `navigator.clipboard`, Notifications, service workers | `utils/undeliveredPrompt.ts:50`, `utils/diagnostics.ts:35`, … | n/a | Loopback (`http://127.0.0.1`, `localhost`) is a secure context. Plain HTTP to a tailnet IP is not. One `randomId()` helper over `crypto.getRandomValues` replaces `randomUUID`, and 6.6 requires HTTPS off loopback. |
 | 38 | Account sign-in: `authGetState`, `authLogin` (opens a browser and returns through a deep link) | `SidebarAccountBar` (first crash in E3) | none | The login redirect returns to the server's `/auth/callback` instead of the deep link, or account features are hidden on the web in v1 (owner decision 9) |
 | 39 | Mesh and tailnet admin (`meshGetLiveState`, `tailnetGetStatus`, …; called at boot) | `WorkspaceActions.tsx` (`remoteGlyphState`) | none | Server members (`auth.*` in phase 8). The Remote glyph shows only for owner sessions. |
-| 40 | Canvas worker document | `canvasWorker/transport.ts:40` | `?.` | Server-side (render host); not loaded by browsers |
+| 40 | Canvas worker document | `canvasWorker/transport.ts:40` | `?.` | Loaded by the web client in a hidden same-origin frame to offer `canvas` (3.8). Never server-side |
 
 ### 4.2 Keyboard chords browsers reserve
 
@@ -581,6 +704,7 @@ trusted apps that already hold credentials.
 | Clickjacking | The app framed by a hostile page | `frame-ancestors 'none'` and `X-Frame-Options: DENY` except `/embed/*` (5.4) |
 | Cookie clobbering between servers | Several Studio servers on one host's loopback (the desktop's own, WSL forwarded to localhost, SSH tunnels) share one cookie jar for `127.0.0.1` | Cookie name carries the environment: `se_s_<first 12 of environment.id>`. The server ignores cookies with other names. |
 | Script injection from transcript content | Markdown, tool output and HTML artifacts are agent-written | `react-markdown` (no raw HTML) as today; HTML artifacts stay in sandboxed `srcDoc` iframes; CSP (6.4) as defence in depth |
+| An agent's dev app, shown as a preview, attacks Studio | It is agent-written code running in the person's browser, on the same host as Studio | Its own origin, never Studio's; Studio's cookies stripped from what the preview forwards and Studio-named `Set-Cookie`s dropped; the exact `Origin` rule refuses its requests to Studio; `Cross-Origin-Resource-Policy: same-origin` on Studio's authenticated responses; its own one-time code and cookie (3.6) |
 | Token in a URL | History, logs, `Referer`, chat unfurlers | Codes and embed tokens travel only in fragments, are single-use or short-lived, and are stripped from history on load |
 | A stolen session cookie | Malware on the client, a shared browser profile | `HttpOnly`; sessions bound to the device record and listed under Devices; revocation closes streams with 4401; idle expiry |
 
@@ -618,10 +742,12 @@ trusted apps that already hold credentials.
   This is distinct from the phone app's `sprintengine-tailnet://` link, whose
   custom scheme exists so that scanning it in a browser cannot spend the code;
   for the web, spending it in a browser is the point.
-- **SSH.** A browser on the person's laptop reaching a remote server through
-  the desktop's `ssh -L` forward is a loopback page. `studio-server pair` on
-  the remote prints a code; the desktop can open the URL through its
-  forwarded port.
+- **SSH.** A browser on the person's laptop reaches a remote server through a
+  loopback listener the desktop opens on request over the SSH relay (phase 8,
+  5.4, which replaced `ssh -L`), so it is a loopback page. `studio-server
+  pair` on the remote prints a code; the desktop opens the URL through that
+  listener. A preview over SSH is forwarded the same way, one listener per
+  preview, so it keeps an origin of its own.
 
 ### 6.3 Cookies, CSRF, Origin and Host
 
@@ -661,7 +787,7 @@ Content-Security-Policy:
   font-src 'self' data:;
   connect-src 'self' ws://<host> wss://<host>;   (explicit for older WebKit)
   worker-src 'self' blob:;
-  frame-src 'self' blob:;             (sandboxed HTML previews)
+  frame-src 'self' blob: <scheme>://<host>:*;   (sandboxed HTML previews; dev-server previews, 3.6)
   frame-ancestors 'none';
   object-src 'none'; base-uri 'none'; form-action 'self'
 X-Frame-Options: DENY
@@ -669,6 +795,7 @@ X-Content-Type-Options: nosniff
 Referrer-Policy: no-referrer
 Cross-Origin-Opener-Policy: same-origin
 Permissions-Policy: camera=(), geolocation=(), microphone=(self)
+Cross-Origin-Resource-Policy: same-origin   (on every authenticated response, 3.6)
 ```
 
 - E8 booted the app under `script-src 'self'; style-src 'self'`. The only
@@ -744,7 +871,7 @@ Permissions-Policy: camera=(), geolocation=(), microphone=(self)
   components with a layout switch, not a mobile design. Owner decision 5.
 - iOS Safari suspends sockets in background tabs. Reconnect on
   `visibilitychange` and `pageshow` (3.5) covers it.
-- Touch maps to `Input.dispatchTouchEvent` in the screencast.
+- A preview on a phone is the dev app's own page, so touch is the app's.
 - The software keyboard resizes the visual viewport; the composer anchors to
   `visualViewport` height.
 
@@ -816,7 +943,8 @@ also lets more chords reach the page (4.2).
     200%.
   - Focus must not be trapped by the browser's own chrome on Tab out of the
     last control (it is not; this is a checklist item).
-  - The screencast pane has a text alternative (3.6).
+  - The preview pane is the dev app's own DOM in a frame, as accessible as
+    the app is; the pane's own controls are checked like any other.
   - The pairing page is keyboard-only and screen-reader complete, including
     the 6-digit code being announced.
 - **Automated.** axe-core runs in the Playwright suite on the pairing page,
@@ -859,6 +987,15 @@ also lets more chords reach the page (4.2).
   `frame-ancestors`, revocation.
 - `postMessage` handler: wrong origin, wrong source, unknown type, unknown
   version, oversize message.
+- Previews (3.6): `previews.list` against a fake `/proc` and a fake `lsof`
+  (an agent's listener listed, the server's own and another user's process
+  never); `open` refusing a port under 1024 from a non-owner, the server's
+  own port and any non-loopback target; the enter code single use and
+  expired at 60 s; requests without the preview cookie answered 401; every
+  `se_` cookie stripped from a forwarded request; Studio-named `Set-Cookie`s
+  dropped; `Host`, `Origin` and `Location` rewriting; `X-Frame-Options` and
+  `frame-ancestors` replaced; an upgrade with another `Origin` refused; idle
+  close at 30 minutes.
 - `createWebApi` type test: `satisfies ElectronApi` with no casts. A unit test
   that enumerates `ElectronApi` keys and asserts each is server-backed,
   shell-backed or an explicit refusal.
@@ -906,6 +1043,13 @@ subset.
 - The embed page framed by a fixture host on another origin: theme message
   applies; a message from a third origin is ignored; framing from an
   unlisted origin is refused by the browser.
+- A preview of a Vite fixture started by a mock agent: the pane loads it, an
+  edit on the server reaches the page through hot reload, and a second
+  browser context without the enter code gets 401.
+- The web client offering `canvas`: an agent's `canvas.edit` on the mock
+  provider is answered by the web tab with no desktop attached; the board
+  shows the edit in a second tab through `files.watch`; the same with the
+  page hidden.
 
 ### 8.4 Manual, per browser (a checklist in the PR)
 
@@ -936,6 +1080,12 @@ Each a test that fails if the control is removed:
 - `/` is served with `frame-ancestors 'none'`;
 - `/embed/*` is served with the embed's origins only;
 - the tailnet phone lane still refuses any `Origin`.
+- a page on a preview origin cannot open `/ws` or `POST` to Studio, even with
+  Studio's cookie in the jar;
+- a preview's dev server never receives a `se_` cookie, and cannot set one;
+- Studio's authenticated responses carry `Cross-Origin-Resource-Policy:
+  same-origin`, so a preview cannot embed them;
+- a preview listener answers nothing without its own cookie.
 
 ## 9. Experiments and results
 
@@ -971,7 +1121,10 @@ with scratch scripts outside the tree. No product code was changed.
 | Local-port same-site: any local dev server can reach a cookie-authenticated loopback server | Certain without exact Origin / high | 6.3: exact `Origin` incl. port on every upgrade and non-GET; tested (8.6) |
 | Cookie collisions between the local, WSL and tunnelled servers on `127.0.0.1` | Likely / medium | Cookie name per environment id |
 | Tailnet over plain HTTP is not a secure context: clipboard, notifications and `randomUUID` break | Certain / high | HTTPS through `tailscale serve`, or no tailnet web in v1 (owner decision 1) |
-| The screencast pane feels worse than a native pane (latency, IME, cursor, dialogs) | Medium / medium | Frame acks and pacing; explicit dialog, file-input and IME handling (3.6); "Open externally" escape hatch |
+| A previewed dev app (agent-written) reaches Studio's session or API | Low with the controls / high | Its own origin, cookie stripping both ways, the exact `Origin` rule, `Cross-Origin-Resource-Policy`, its own one-time code (3.6); the security regressions in 8.6 |
+| A dev app with absolute `localhost` URLs breaks in a preview from another device | Likely / low | Stated in the pane's help; works from a browser on the server's machine; "Open in the desktop app" where a desktop is attached |
+| With only web clients attached, agents have no browser | Certain / medium | The ruling's intent (no browser in the server, none a page can offer). Agents get `canvas` from the web client; `browser.*` answers `client_unavailable` naming the fix (phase 5) |
+| A hidden web tab answers `canvas` calls slowly | Medium / low | Calls ride socket messages, which are not throttled; the worker waits on no frame or timer; routing prefers a visible client (3.8) |
 | Third-party renderer modules rely on multiple import maps | Certain on Firefox/Safari / low in v1 | Off by default on the web; specifier rewrite when turned on |
 | The embed's shadow-DOM styling meets fonts and portals (popovers rendered to `document.body`) | Medium / low | Fonts injected in the document under unique names; portals target the shadow root; tests at both themes |
 | Extracting the timeline package churns the chat view | Medium / medium | Move files with no behaviour change first (tests move with them), fix the `stepWentWrong` leak, then point the app at the package |
@@ -981,7 +1134,7 @@ with scratch scripts outside the tree. No product code was changed.
 ## 11. Breakdown into reviewable commits
 
 On `feat/studio-agent-sdk`, after phases 4 (chat over the protocol) and 5
-(render host, screencast) have landed. Each commit leaves `npm run verify:app`
+(client tools, and the `files` subset boards are kept through) have landed. Each commit leaves `npm run verify:app`
 green.
 
 **A. Make the renderer safe to run elsewhere** (desktop-visible, behaviour
@@ -1019,31 +1172,40 @@ unchanged)
 13. `feat(renderer): drop and upload files without a local path`
 14. `feat(renderer): tabs as windows — per-tab window ids, reconnect and the reload prompt`
 15. `feat(renderer): a keymap profile for chords browsers keep`
-16. `feat(renderer): the browser pane as a live view of the server's browser`
-    (`ScreencastView`, input mapping, dialogs, file inputs, text alternative)
-17. `feat(renderer): a narrow layout for the chat route` (if owner decision 5
+16. `feat(server): previews of a dev server on an origin of its own`
+    (`previews.list/open/close`, the per-preview listener, the one-time code
+    and cookie, cookie stripping, `Host`/`Origin` rewriting, WebSocket
+    pass-through, frame headers, `tailscale serve` ports for tailnet origins,
+    `Cross-Origin-Resource-Policy` on Studio's responses; tests from 8.1 and
+    8.6) and `feat(renderer): the preview pane` (port picker, sandboxed frame,
+    open in a new tab)
+17. `feat(renderer): the web client offers the canvas toolset`
+    (the worker entry in the web build, the portable canvas service in the
+    page over `files.*`, `tools.offer` from owner sessions, focus and
+    visibility, the canvas suite run through it, page hidden included)
+18. `feat(renderer): a narrow layout for the chat route` (if owner decision 5
     says yes)
-18. `feat(modules): module assets over HTTP and capability checks on the web`
+19. `feat(modules): module assets over HTTP and capability checks on the web`
     (third-party entries gated per owner decision 4)
-19. `test(web): the missing-member report and the end-to-end suite in CI`
-20. `feat(server): HTTPS for the web client through tailscale serve`
+20. `test(web): the missing-member report and the end-to-end suite in CI`
+21. `feat(server): HTTPS for the web client through tailscale serve`
     (if owner decision 1 says v1)
 
 **D. The embeddable view**
 
-21. `refactor(chat): the conversation timeline as a package`
+22. `refactor(chat): the conversation timeline as a package`
     (`@sprintengine/conversation-timeline`, files moved unchanged, the app
     imports it, pack check)
-22. `feat(conversation-view): the read-only conversation view as a React package`
+23. `feat(conversation-view): the read-only conversation view as a React package`
     (row components, compiled scoped CSS, generated `--se-*` tokens, shadow
     root, pack check)
-23. `feat(server): embed tokens and the iframe conversation view`
+24. `feat(server): embed tokens and the iframe conversation view`
     (`embeds.create/list/revoke`, `/embed/conversation/<id>`, per-embed
     `frame-ancestors`, the `postMessage` protocol)
-24. `docs: the web client, embedding a conversation, and the embed wire in compatibility.md`
+25. `docs: the web client, embedding a conversation, and the embed wire in compatibility.md`
 
-Sizes: A is S, B is M, C is L (16 alone is M), D is M. The parent's "Phase 9
-(M)" is low; with the embed this is L.
+Sizes: A is S, B is M, C is L (16 and 17 are M each), D is M. The
+parent's "Phase 9 (M)" is low; with the embed this is L.
 
 ## 12. Changes the overall design needs
 
@@ -1069,9 +1231,13 @@ Sizes: A is S, B is M, C is L (16 alone is M), D is M. The parent's "Phase 9
    103 with none. And there is no root error boundary, so "degrades rather
    than throws" is not true today. Phase 9 starts with the boundary and a
    typed shim.
-7. **§8, §15 q5 — answered by the owner default:** the pane is a screencast on
-   every client. Remove the "client-directed browser tools target the
-   person's pane" path from 6.3 and 8. Add that mouse input bumps the epoch.
+7. **§8, §15 q5 — superseded by the owner ruling of 2026-10-02.** This asked
+   for the pane to be a screencast on every client. There is no server
+   browser: the desktop's pane is the `browser` toolset on every route, the
+   web client shows `previews` (3.6) and offers no `browser` in v1. The parent
+   keeps "agent browser tools act on the person's pane" (it is now the only
+   path). That mouse input bumps the epoch stands, as a rule of the desktop's
+   pane (decisions R39).
 8. **§5.4 — the SDK must run in a browser** (no Node built-ins, WebSocket
    only), and accept a ticket in the URL for clients that cannot set headers
    (the embed). A same-origin web tab authenticates by cookie and needs no
@@ -1079,18 +1245,25 @@ Sizes: A is S, B is M, C is L (16 alone is M), D is M. The parent's "Phase 9
 9. **§5.2 — new namespace `embeds`** (`create`, `list`, `revoke`; owner or
    `embed:create`). **New wire:** the embed `postMessage` protocol, a row in
    `docs/compatibility.md`.
-10. **§13 phase 9 — size L, not M,** and it depends on phase 5's
-    `browser.screencast`. The embed packages are their own commit group.
+10. **§13 phase 9 — size L, not M,** and it depends on phase 5's client
+    tools and `files` subset (for the web `canvas` toolset), not on a
+    screencast. The embed packages are their own commit group.
 11. **§7.2 — client-owned state on the web** lives in `localStorage` per
     origin. The same server reached by two routes (loopback and its tailnet
     HTTPS name) is two origins with separate drafts. That is acceptable, and
     should be stated.
+12. **§5.2, §8 (2026-10-02) — a `previews` namespace** (`list`, `open`,
+    `close`, a `changes` topic; owner or `previews:open`), each preview on a
+    listener and an origin of its own (3.6). §9.4 gains `previews:open` as a
+    family tailnet pairings do not get by default.
+13. **§6.3, §8 (2026-10-02) — the web client offers `canvas`** from an owner
+    session with `kind: 'web'` (3.8), settling the web row of phase 5 §7.2.
 
 ## 13. Owner decisions
 
 | # | Question | Recommendation |
 | --- | --- | --- |
-| 1 | Tailnet web in v1, which requires HTTPS through `tailscale serve`; or loopback and SSH-forwarded only in v1? | **Ship it with `tailscale serve`** (commit 20). The phone already proves tailnet use; plain HTTP is not an option. |
+| 1 | Tailnet web in v1, which requires HTTPS through `tailscale serve`; or loopback and SSH-forwarded only in v1? | **Ship it with `tailscale serve`** (commit 21). The phone already proves tailnet use; plain HTTP is not an option. |
 | 2 | A Content-Security-Policy on the **served web page** (6.4), given the desktop's was removed on 2026-09-27? | **Yes, web only.** The exposure differs: other sites in the same browser are one origin away. |
 | 3 | Embed scope: read-only in v1, or also answer approvals and send? | **Read-only.** Operating from inside someone else's page needs its own threat model. |
 | 4 | Third-party renderer modules on the web in v1? | **Off by default**, a per-server owner switch to turn on. Bundled modules load. |
@@ -1102,3 +1275,5 @@ Sizes: A is S, B is M, C is L (16 alone is M), D is M. The parent's "Phase 9
 | 10 | Web keymap: remap the reserved chords to Alt-based defaults (4.2)? | **Yes**, as default overrides a person can change |
 | 11 | Package names `@sprintengine/conversation-timeline` and `@sprintengine/conversation-view`, or fold the timeline into the protocol package? | **Separate packages.** The protocol package stays types and parsers, which the phone pins. |
 | 12 | Service worker | **None in v1**; a manifest only |
+| 13 | How the web client shows an agent's dev server (3.6) | **`previews`**: a listener and an origin per preview on the server's loopback, its own one-time code and cookie, Studio's cookies stripped, WebSocket upgrades passed through; offered ports are the agents' listeners plus an owner-typed port, never Studio's own |
+| 14 | The web client offers `canvas` (3.8) | **Yes, from owner sessions** (`kind: 'web'`); never from a tailnet browser pairing in v1 |
