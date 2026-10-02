@@ -63,6 +63,13 @@ export type McpSocketServerOptions = {
     error?: unknown
   }) => void
   log?: (message: string) => void
+  /**
+   * Whether this process may remove a socket file it finds at start: true only
+   * for the holder of the data directory's run lock (or a desktop, which its
+   * single-instance lock already makes the only owner). Asked at each start;
+   * absent means yes, as for a test's own socket.
+   */
+  mayRemoveStaleSocket?: () => boolean
 }
 
 export type McpSocketServer = {
@@ -86,10 +93,13 @@ export function createMcpSocketServer(options: McpSocketServerOptions): McpSocke
   async function start(): Promise<void> {
     if (server) return
     // A stale socket file from a crashed previous run would block listen();
-    // remove it. A *live* second instance is prevented upstream by Electron's
-    // single-instance lock, so this cannot disconnect a running server.
+    // remove it. Only the run lock's holder may: whoever else is listening on
+    // this path holds the lock, so a process without it would disconnect a
+    // live server's agents. Without it, the listen below fails and the status
+    // says why instead.
     if (process.platform !== 'win32' && existsSync(options.socketPath)) {
-      unlinkSync(options.socketPath)
+      if (options.mayRemoveStaleSocket?.() ?? true) unlinkSync(options.socketPath)
+      else options.log?.(`${options.socketPath} exists and this process does not hold the run lock; leaving it`)
     }
     const next = createServer((socket) => handleConnection(socket))
     await new Promise<void>((resolve, reject) => {

@@ -604,11 +604,28 @@ BOOTING ──envelope ok──► LOCKING ──run lock acquired──► COMP
                                                         the transcript flush is attempted first)
 ```
 
-**Run lock.** `<dataDir>/run/server.lock` is created `O_EXCL` and holds
-`{ pid, startedAt, bootId }`. A lock whose pid is dead, or alive but younger
-than `startedAt`, is stale and removed. Only the lock holder may unlink a stale
-`automation.sock` (D8). In-process mode takes the same lock, so even a
-misconfigured flag cannot produce two gateways.
+**Run lock.** The lock phase 3 added, `<dataDir>/run/studio.lock`, serves:
+it is written whole and linked into place, and holds `{ role, pid, hostname,
+startedAt, token }`. A lock whose pid is dead, or is this process's own, is
+stale and replaced. A headless server refuses a live holder, and refuses a
+directory whose Electron `SingletonLock` names a running app. The desktop
+takes any lock over (its single-instance lock already makes it the profile's
+only app), and a headless server that loses its lock that way stops and exits
+66. **The desktop's out-of-process server takes the lock with the desktop
+role**, as main does in process: it is the app's own process tree, it must not
+be refused by its own parent's `SingletonLock`, and a crashed predecessor's
+lock is its to replace (the supervisor never forks while that predecessor
+lives, 7.1). Only the lock holder may unlink a stale `automation.sock` (D8):
+the socket server asks before it removes a file it finds, and a process
+without the lock leaves the file and reports the failed listen. In-process
+mode takes the same lock, so even a misconfigured flag cannot produce two
+gateways.
+
+Amended at implementation (2026-10-02): an earlier draft named a new
+`server.lock` with a `bootId` and a "younger than `startedAt`" rule for a
+reused pid. The phase 3 lock already answers both cases for the desktop (it
+takes over), and a headless server meeting a reused pid refuses with a
+message that names the file to remove, which is the safe side of a guess.
 
 ### 7.3 Startup ordering with the flag on
 

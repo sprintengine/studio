@@ -66,6 +66,8 @@ type AutomationServiceOptions = {
    */
   hasWindow?: () => boolean
   onMeshEvent?: (event: MeshEvent) => void
+  /** Whether this process holds the data directory, and so may remove a stale socket file (mcp-socket-server.ts). */
+  holdsDataDir?: () => boolean
   logDiagnostic?: (diagnostic: { level: 'warning'; title: string; message: string; details?: string }) => void
 }
 
@@ -220,6 +222,7 @@ export function createAutomationService(options: AutomationServiceOptions) {
         audit.record({ connection: context.metadata, tool, args, durationMs, result, error })
       },
       log: (text) => warn('Automation server', text),
+      ...(options.holdsDataDir ? { mayRemoveStaleSocket: options.holdsDataDir } : {}),
     })
     try {
       await next.start()

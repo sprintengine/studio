@@ -63,6 +63,10 @@ export function createStudioGateway(core: StudioCore, options: StudioGatewayOpti
     ...(options.onMeshEvent ? { onMeshEvent: options.onMeshEvent } : {}),
     ...(options.hasWindow ? { hasWindow: options.hasWindow } : {}),
     resolveConversationHost: core.createConversationHost,
+    // The run lock's holder removes a stale socket; nobody else does. A desktop
+    // that could not take the lock still may, as builds before it did: its
+    // single-instance lock already rules out a second app on this profile.
+    holdsDataDir: () => (core.dataDirLock ? core.dataDirLock.isHeld() : core.role === 'desktop'),
     // The gateway's tool set: core app tools + canonical run tools merged once,
     // module-contributed tools read from the host kernel per request
     // and gated on their owner's live enablement.
