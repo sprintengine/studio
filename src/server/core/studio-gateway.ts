@@ -9,6 +9,7 @@ import { toolSuccess, toolError } from '../../shared/modules/mcp-tools'
 import type { StudioToolReach } from '../../../packages/studio-protocol/src/public'
 import { createClientToolRegistry, type ClientToolRegistry } from '../tools/client-tool-registry'
 import { createClientToolGateway } from '../tools/client-tool-gateway'
+import { cancelClientCallsAtTurnEnd } from '../tools/client-tool-turns'
 import type { McpConnectionContext } from '../../shared/modules/mcp-tools'
 import { createClientToolsetStore, type ConversationRef } from '../tools/client-toolset-store'
 import { studioBridgeScriptPath, type StudioCore } from './studio-core'
@@ -181,6 +182,8 @@ export function createStudioGateway(core: StudioCore, options: StudioGatewayOpti
   // become the same throttled push.
   conversations.onEvent((event) => {
     if (CONVERSATION_LIST_EVENTS.has(event.type)) automationService.notifyConversationsChanged()
+    // An interrupted turn stops what it was waiting on in a client too.
+    cancelClientCallsAtTurnEnd(clientTools, event)
   })
 
   // A desktop that displaced a Studio server from its data directory opens

@@ -191,6 +191,7 @@ type Affinity = { instanceKey: string | null; movedFrom?: string }
 
 const DEFAULT_GRACE_MS = STUDIO_TOOL_LIMITS.reconnectGraceMs
 const BUSY_RETRY_MS = 500
+const MAX_AFFINITIES = 8192
 const SHELL_KIND_ORDER: Record<StudioClientKind, number> = { desktop: 0, web: 1, headless: 2, app: 3 }
 
 function noun(toolset: string, title: string): string {
@@ -679,7 +680,10 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
     const best = rank(list, caller, toolset)
     if (!best) return null
     const movedFrom = affinity && affinity.instanceKey === null ? affinity.movedFrom : undefined
+    affinities.delete(key)
     affinities.set(key, { instanceKey: best.key })
+    // One per conversation and toolset: the oldest go first past a bound.
+    while (affinities.size > MAX_AFFINITIES) affinities.delete(affinities.keys().next().value!)
     const offered = best.offers.get(toolset)!
     const notice =
       movedFrom !== undefined
