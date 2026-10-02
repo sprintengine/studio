@@ -1,0 +1,160 @@
+import { arch, platform } from 'node:os'
+import type { Duplex } from 'node:stream'
+
+import {
+  CONVERSATION_CAPABILITIES,
+  CONVERSATION_PROTOCOL_MIN_SUPPORTED,
+  CONVERSATION_PROTOCOL_VERSION,
+  STUDIO_CAPABILITIES,
+  STUDIO_CHAT_CAPABILITIES,
+  STUDIO_PROTOCOL_MIN_SUPPORTED,
+  STUDIO_PROTOCOL_VERSION,
+  type StudioWelcomeFrame,
+} from '../../../packages/studio-protocol/src/public'
+import { createStudioRpcConnection, type StudioRpcConnection } from './studio-rpc-connection'
+import { createStudioRpcListener, type StudioRpcListener } from './studio-rpc-listener'
+import { createStudioRpcRouter } from './studio-rpc-router'
+import type {
+  StudioAuditEntry,
+  StudioAuthenticator,
+  StudioChatBackend,
+  StudioConversationBackend,
+} from './studio-rpc-types'
+
+// The Studio RPC as one piece: the owner socket, a connection per client, and
+// the router behind them. Main constructs it with the conversations it serves
+// and who may connect; nothing here knows it is inside Electron.
+//
+// Two ways in share the one router. The listener accepts clients on the owner
+// socket; `attach` takes a connection main already holds the other end of (a
+// window's port), with that connection's own authenticator. The receipts and
+// uploads the router keeps are the same for both, so a window that reconnects
+// finds what it left.
+
+/**
+ * The conversation capabilities the socket serves: every one the contract
+ * defines, but the two that describe the tailnet lane's own transport — a
+ * picture route beside its WebSocket, and a `hello` frame on it, which here is
+ * the connection's own handshake.
+ */
+export const STUDIO_RPC_CONVERSATION_CAPABILITIES: string[] = CONVERSATION_CAPABILITIES.filter(
+  (capability) => capability !== 'conversation-images' && capability !== 'conversation-hello',
+)
+
+export type StudioRpcServerOptions = {
+  dataDir: string
+  version: string
+  /** Minted once per data directory; see `StudioEnvironment.id`. */
+  environmentId: string
+  backend: StudioConversationBackend
+  /** The chat surface, when main has given one; its capabilities are advertised only then. */
+  chat?: () => StudioChatBackend | null
+  authenticator: StudioAuthenticator
+  audit?: (entry: StudioAuditEntry) => void
+  resyncRetryAfterMs?: (clientId: string) => number
+  socketPath?: string
+  helloTimeoutMs?: number
+  maxConnections?: number
+  /** The most connections one client may hold at once; 8 unless set. */
+  maxConnectionsPerClient?: number
+  onConnectionsChanged?: () => void
+  log?: (message: string) => void
+}
+
+/** A connection that did not come through the listener, and who may say hello on it. */
+export type StudioRpcAttachOptions = {
+  /** A window's port answers to the one ticket main minted for it. */
+  authenticator: StudioAuthenticator
+  /** One of Studio's own windows: shown conversations as its IPC shows them, and not audited. */
+  ownWindow: boolean
+}
+
+export type StudioRpcServer = StudioRpcListener & {
+  /** Serve a connection main holds the other end of. It ends when its stream does, or on `stop`. */
+  attach(stream: Duplex, options: StudioRpcAttachOptions): StudioRpcConnection
+}
+
+export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRpcServer {
+  const perClient = options.maxConnectionsPerClient ?? 8
+  const chat = () => options.chat?.() ?? null
+  const welcome = (): Omit<StudioWelcomeFrame, 't' | 'grant' | 'pairing'> => ({
+    protocolVersion: STUDIO_PROTOCOL_VERSION,
+    minProtocolVersion: STUDIO_PROTOCOL_MIN_SUPPORTED,
+    server: { name: 'SprintEngine Studio', version: options.version },
+    environment: { id: options.environmentId, hostKind: 'local', os: platform(), arch: arch() },
+    capabilities: STUDIO_CAPABILITIES.filter(
+      (capability) => chat() !== null || !(STUDIO_CHAT_CAPABILITIES as readonly string[]).includes(capability),
+    ),
+    conversation: {
+      protocolVersion: CONVERSATION_PROTOCOL_VERSION,
+      minProtocolVersion: CONVERSATION_PROTOCOL_MIN_SUPPORTED,
+      capabilities: STUDIO_RPC_CONVERSATION_CAPABILITIES,
+    },
+  })
+  const router = createStudioRpcRouter({
+    backend: options.backend,
+    chat,
+    info: welcome,
+    audit: options.audit,
+    log: options.log,
+  })
+  const attached = new Set<StudioRpcConnection>()
+  let attachSequence = 0
+  const listener: StudioRpcListener = createStudioRpcListener({
+    dataDir: options.dataDir,
+    version: options.version,
+    ...(options.socketPath ? { socketPath: options.socketPath } : {}),
+    ...(options.maxConnections ? { maxConnections: options.maxConnections } : {}),
+    log: options.log,
+    onConnectionsChanged: options.onConnectionsChanged,
+    createConnection: (socket, connectionId, onClosed) =>
+      createStudioRpcConnection({
+        socket,
+        connectionId,
+        authenticator: options.authenticator,
+        router,
+        backend: options.backend,
+        chat,
+        welcome,
+        audit: options.audit,
+        resyncRetryAfterMs: options.resyncRetryAfterMs,
+        helloTimeoutMs: options.helloTimeoutMs,
+        log: options.log,
+        // Counted among the connections already authenticated as it; this one
+        // has no client yet, so it is not among them.
+        admitClient: (clientId) =>
+          listener.connections().filter((connection) => connection.clientId() === clientId).length < perClient,
+        onClosed,
+      }),
+  })
+  return {
+    ...listener,
+    async stop(retryAfterMs = 1_000) {
+      for (const connection of [...attached]) connection.bye('shutting_down', 'Studio is closing.', retryAfterMs)
+      attached.clear()
+      await listener.stop(retryAfterMs)
+      router.close()
+    },
+    attach(stream, attachOptions) {
+      const connection = createStudioRpcConnection({
+        socket: stream,
+        connectionId: `w${++attachSequence}`,
+        authenticator: attachOptions.authenticator,
+        router,
+        backend: options.backend,
+        chat,
+        ownWindow: attachOptions.ownWindow,
+        welcome,
+        audit: options.audit,
+        resyncRetryAfterMs: options.resyncRetryAfterMs,
+        helloTimeoutMs: options.helloTimeoutMs,
+        log: options.log,
+        onClosed: (closed) => {
+          attached.delete(closed)
+        },
+      })
+      if (!connection.isClosed()) attached.add(connection)
+      return connection
+    },
+  }
+}

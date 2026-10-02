@@ -21,6 +21,7 @@ import { setConversationDisclosures, useConversationDisclosure } from './convers
 import { joinTreePath } from '../../../utils/fileTreeEntries'
 import { openFileSurface } from '../../../utils/openFileSurface'
 import { openGitDiff } from '../../../utils/openGitDiff'
+import type { ChatFileSource } from './chatServices'
 import { useConversationTransport } from './conversationTransport'
 
 export type TurnChangeSummary = { files: number; addedLines: number; removedLines: number }
@@ -51,14 +52,16 @@ function RevertTurnButton({
   className,
 }: RevertTurnActionProps) {
   const context = useConversationLinkContext()
+  const transport = useConversationTransport()
   const dialog = useConfirmDialog()
   const [pending, setPending] = useState(false)
   async function revert() {
-    if (!context?.agentId || running || pending) return
+    const revertTurn = transport.revert
+    if (!context?.agentId || running || pending || !revertTurn) return
     setPending(true)
     const key = { workspaceRoot: context.workspaceRoot, workspaceId: context.workspaceId, agentId: context.agentId }
     try {
-      let preview = await window.api.conversationRevertToTurn({ key, turnSeq, undo: reverted })
+      let preview = await revertTurn({ key, turnSeq, undo: reverted })
       let drift: string | undefined
       // The runtime acts only on the exact paths the dialog showed. When the
       // files moved while it was open, show the new list and ask again.
@@ -102,7 +105,7 @@ function RevertTurnButton({
           ),
         })
         if (!accepted) return
-        const result = await window.api.conversationRevertToTurn({
+        const result = await revertTurn({
           key,
           turnSeq,
           undo: reverted,
@@ -111,7 +114,7 @@ function RevertTurnButton({
         })
         if (!result.ok && result.changed) {
           drift = result.message
-          preview = await window.api.conversationRevertToTurn({ key, turnSeq, undo: reverted })
+          preview = await revertTurn({ key, turnSeq, undo: reverted })
           continue
         }
         if (!result.ok) throw new Error(result.message)
@@ -394,12 +397,10 @@ export async function changedFileLocation(
 
 // A path that is not a file any more — deleted or moved since the turn — says
 // so rather than opening an empty tab.
-async function openChangedFile(context: ConversationLinkContext, path: string) {
+async function openChangedFile(files: ChatFileSource, context: ConversationLinkContext, path: string) {
   try {
-    const resolved = await changedFileLocation(context.workspaceRoot, path, (folder) =>
-      window.api.getGitRepoRoot(folder),
-    )
-    if (!(await window.api.statPath(resolved)).isFile) throw new Error('not a file')
+    const resolved = await changedFileLocation(context.workspaceRoot, path, (folder) => files.repoRoot(folder))
+    if (!(await files.stat(resolved)).isFile) throw new Error('not a file')
     openFileSurface({
       workspaceId: context.workspaceId,
       path: resolved,
@@ -423,13 +424,14 @@ let turnDiffReveals = 0
  * or the person did to it since — rather than as this one turn's before/after.
  */
 async function openTurnInDiffViewer(
+  files: ChatFileSource,
   context: Pick<ConversationLinkContext, 'workspaceId' | 'workspaceRoot'>,
   turnSeq: number,
   paths: readonly string[],
   focus: string,
 ): Promise<void> {
   try {
-    const repoRoot = (await window.api.getGitRepoRoot(context.workspaceRoot).catch(() => null)) || context.workspaceRoot
+    const repoRoot = (await files.repoRoot(context.workspaceRoot).catch(() => null)) || context.workspaceRoot
     openGitDiff({
       workspaceId: context.workspaceId,
       repoRoot,
@@ -494,13 +496,15 @@ export function ChangedFilesCard({
     localKey && context
       ? (path: string, list = files) =>
           void openTurnInDiffViewer(
+            transport.services.files,
             context,
             turnSeq,
             (list ?? []).map((file) => file.path),
             path,
           )
       : undefined
-  const openFile = localKey && context ? (path: string) => void openChangedFile(context, path) : undefined
+  const openFile =
+    localKey && context ? (path: string) => void openChangedFile(transport.services.files, context, path) : undefined
   async function openTurnDiff() {
     if (!localKey) return
     try {

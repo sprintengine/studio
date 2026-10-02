@@ -275,7 +275,18 @@ test('claude-agent-provider', async () => {
       const systemPrompt = capturedOptions[0]?.systemPrompt as { append?: string }
       assert.match(systemPrompt.append ?? '', /Run the tests before committing\./)
       adapter.disposeAll?.()
-      await new Promise((resolve) => setTimeout(resolve, 20))
+      // The folder is removed once the child has gone, which a loaded machine
+      // can take longer than a fixed beat to reach: wait for it, up to 5 s.
+      for (let attempt = 0; attempt < 250; attempt++) {
+        if (
+          !(await stat(plugins[0].path).then(
+            () => true,
+            () => false,
+          ))
+        )
+          break
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      }
       await assert.rejects(stat(plugins[0].path), 'the staged plugin is removed with its child')
 
       const plain = createAdapter((_message, context) => {

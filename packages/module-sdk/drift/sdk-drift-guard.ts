@@ -276,6 +276,10 @@ import {
   HOST_API_VERSION as APP_HOST_API_VERSION,
 } from '../../../src/shared/modules/host-api'
 import type * as appConversation from '../../../src/shared/modules/conversation-service'
+// The conversation contract itself. The SDK restates it rather than depending
+// on the package, so its published tarball stays self-contained; these pins
+// are what keep the restatement the contract.
+import type * as protocol from '../../conversation-protocol/src/public'
 import type * as appBrokers from '../../../src/shared/modules/brokers'
 
 type Extends<A, B> = [A] extends [B] ? true : false
@@ -537,6 +541,29 @@ expectType<IsExact<appConversation.ModuleConversationService, sdk.ModuleConversa
 expectType<IsExact<appConversation.ModuleOpenChatInput, sdk.ModuleOpenChatInput>>()
 expectType<IsExact<appConversation.ModuleOpenChatResult, sdk.ModuleOpenChatResult>>()
 expectType<IsExact<appConversation.ModuleChatRuntimeOption, sdk.ModuleChatRuntimeOption>>()
+expectType<IsExact<appConversation.ModuleConversationPlanDecision, sdk.ModuleConversationPlanDecision>>()
+expectType<IsExact<appConversation.ModuleConversationPage, sdk.ModuleConversationPage>>()
+expectType<IsExact<appConversation.ModuleConversationStreamFrame, sdk.ModuleConversationStreamFrame>>()
+expectType<IsExact<appConversation.ModuleConversationFollowOptions, sdk.ModuleConversationFollowOptions>>()
+expectType<IsExact<appConversation.ModuleConversationCommandOptions, sdk.ModuleConversationCommandOptions>>()
+
+// Against the protocol package directly, so a change there fails here even
+// where the app's module contract would let it through.
+expectType<IsExact<protocol.ConversationEventType, sdk.ModuleConversationEventType>>()
+expectType<IsExact<protocol.ConversationEvent, sdk.ModuleConversationEvent>>()
+expectType<IsExact<protocol.ConversationSessionStatus, sdk.ModuleConversationStatus>>()
+expectType<IsExact<protocol.ConversationWirePermissionPreset, sdk.ModuleConversationPermissionPreset>>()
+expectType<IsExact<protocol.ConversationRequestDecision, sdk.ModuleConversationApprovalDecision>>()
+expectType<IsExact<protocol.ConversationPlanDecision, sdk.ModuleConversationPlanDecision>>()
+expectType<IsExact<protocol.ConversationPage, sdk.ModuleConversationPage>>()
+expectType<IsExact<protocol.ConversationStreamFrame, sdk.ModuleConversationStreamFrame>>()
+// What a module's create shares with the contract's create means the same.
+expectType<
+  IsExact<
+    Pick<protocol.ConversationCreateRequest, keyof protocol.ConversationCreateRequest>,
+    Pick<sdk.ModuleConversationCreateInput, keyof protocol.ConversationCreateRequest>
+  >
+>()
 
 expectType<IsExact<appBrokers.ModuleSecretsError, sdk.ModuleSecretsError>>()
 expectType<IsExact<appBrokers.ModuleSecretFetchInit, sdk.ModuleSecretFetchInit>>()

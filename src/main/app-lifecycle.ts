@@ -40,10 +40,14 @@ type RegisterAppLifecycleOptions = {
   }
   /** Handed the one attention channel once it exists, for asks that are not a turn (a diff tour). */
   onAgentAttentionReady?(attention: { notify(key: string): void }): void
-  // Conversation-agent runtime: quit must dispose its headless child
-  // processes too — they live outside the PTY reaper's sight.
-  conversationRuntime?: {
+  // The chats, as every caller drives them (the core's conversation backend):
+  // the attention channel follows their events.
+  conversations?: {
     onEvent?(listener: (event: ConversationEvent) => void): () => void
+  }
+  // The conversation runtime's owner handle: quit must dispose its headless
+  // child processes too — they live outside the PTY reaper's sight.
+  conversationOwner?: {
     /** Buffered transcript text to disk, before the slower session stops. */
     flushTranscripts?(): Promise<void>
     shutdown(): Promise<void>
@@ -51,6 +55,14 @@ type RegisterAppLifecycleOptions = {
   automationService?: {
     initialize(): Promise<unknown>
     shutdown(): Promise<void>
+  }
+  /**
+   * The Studio RPC's owner socket, for applications paired with this app.
+   * Started beside the gateway and stopped with it; nothing waits on it.
+   */
+  studioRpcService?: {
+    start(): Promise<void>
+    stop(): Promise<void>
   }
   // Always-on (no setting gate): the reporter socket must be listening before
   // any agent launches so the first lifecycle frame is captured.
@@ -68,6 +80,13 @@ type RegisterAppLifecycleOptions = {
    * so deleting the app leaves none of them behind. Once no agent is running.
    */
   removeSessionIntegrations?: () => Promise<void>
+  /**
+   * Lets go of the data directory's run lock (src/server/core/data-dir.ts), so
+   * a server started after the app quits finds it free rather than asking
+   * whether the process that held it is still running. Last, after every leg
+   * that writes into the directory.
+   */
+  releaseDataDir?: () => void
   // The Canvas pane's service: it holds a board mid-write (temp file, then a
   // rename), a directory watcher per open board, and a hidden worker window.
   // Quitting between those two fs calls would leave a stray temp file in the
@@ -142,11 +161,14 @@ export function registerAppLifecycle({
   diagnosticsEnabled,
   allowMultipleInstances = false,
   terminalRuntime,
-  conversationRuntime,
+  conversations,
+  conversationOwner,
   automationService,
+  studioRpcService,
   agentStateService,
   workspaceSyncService,
   removeSessionIntegrations,
+  releaseDataDir,
   canvasService,
   conversationCommands,
   pullRequestRecord,
@@ -272,6 +294,10 @@ export function registerAppLifecycle({
         message: error instanceof Error ? error.message : String(error),
       }).catch(() => undefined)
     })
+    // The owner socket for paired local apps, beside it and not awaited
+    // either. Nothing in the app depends on it; a socket that cannot start
+    // says so in Settings.
+    void studioRpcService?.start().catch(() => undefined)
 
     // The plate goes up BEFORE the main window is created: from here until the
     // reveal there is always something on screen. A nightly build opens on its
@@ -458,9 +484,7 @@ export function registerAppLifecycle({
       setBadgeCount: (count) => app.setBadgeCount(count),
     })
     terminalRuntime.registerAgentPhaseListener?.((event) => agentAttention.onAgentPhase(event))
-    const disposeConversationAttention = conversationRuntime?.onEvent?.(
-      createConversationAttentionListener(agentAttention),
-    )
+    const disposeConversationAttention = conversations?.onEvent?.(createConversationAttentionListener(agentAttention))
     if (disposeConversationAttention) app.once('will-quit', disposeConversationAttention)
     onAgentAttentionReady?.(agentAttention)
     app.on('browser-window-focus', (_event, win) => {
@@ -540,17 +564,20 @@ export function registerAppLifecycle({
           hostedFeedPoller?.stop()
         },
       ],
+      // Before the gateway, whose audit it writes to: its clients are told to
+      // come back later, and resume from their cursors.
+      ['local app socket', () => studioRpcService?.stop()],
       ['automations', () => automationService?.shutdown()],
       ['agent state', () => agentStateService?.shutdown()],
       ['workspace registry', () => workspaceSyncService?.flush()],
-      ['chat transcripts', () => conversationRuntime?.flushTranscripts?.()],
+      ['chat transcripts', () => conversationOwner?.flushTranscripts?.()],
       ['terminals', () => terminalRuntime.shutdown()],
       // After the terminal service: the last frames it ingests can still file
       // a captured pull request, and this is what gets that write to disk and
       // stops the watch timers.
       ['pull requests (flush)', () => pullRequestRecord?.flush()],
       ['pull requests (dispose)', () => pullRequestRecord?.dispose()],
-      ['chats', () => conversationRuntime?.shutdown()],
+      ['chats', () => conversationOwner?.shutdown()],
       ['canvas', () => canvasService?.dispose()],
       ['command lists', () => conversationCommands?.dispose()],
       ['workspace registry (final)', () => workspaceSyncService?.flush()],
@@ -569,6 +596,7 @@ export function registerAppLifecycle({
       // draining in-flight work and stopping kernel-owned sidecars in reverse
       // registration order.
       ['modules', () => moduleKernel?.runShutdown()],
+      ['data directory', () => releaseDataDir?.()],
     ]
     const shutdown = async () => {
       for (const [index, [name, task]] of legs.entries()) {

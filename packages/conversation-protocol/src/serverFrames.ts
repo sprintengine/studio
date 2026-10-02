@@ -7,6 +7,7 @@ import {
   type ConversationWirePhase,
   type ConversationWireThread,
 } from './index.js'
+import { isConversationPermissionModeId } from './commands.js'
 
 // The client half of the frame contract: what a desktop or phone following a
 // conversation accepts from the desktop it follows. `parseConversationClientFrame`
@@ -31,9 +32,21 @@ export type ConversationWireEvent = {
 
 export type ConversationWirePage = { events: ConversationWireEvent[]; hasMore: boolean; beforeCursor: number | null }
 
+/**
+ * A listed conversation under the full contract. A desktop that advertises
+ * `conversation-cli-permission-modes` names the CLI's own mode the chat runs
+ * at its preset (`permissionMode`, absent for the preset's own) and the modes
+ * its provider can run beside the presets (`capabilities.permissionModes`).
+ */
+export type ConversationThread = Omit<ConversationWireThread, 'capabilities'> & {
+  permissionMode?: string
+  capabilities?: NonNullable<ConversationWireThread['capabilities']> & { permissionModes?: string[] }
+}
+
 /** A server frame after validation: events and pages are typed, everything else as the protocol declares it. */
 export type ConversationParsedServerFrame =
-  | Exclude<ConversationServerFrame, { type: 'event' } | { type: 'snapshot' }>
+  | Exclude<ConversationServerFrame, { type: 'event' } | { type: 'snapshot' } | { type: 'sessions' }>
+  | { type: 'sessions'; requestId: string; sessions: ConversationThread[] }
   | { type: 'event'; event: ConversationWireEvent }
   | {
       type: 'snapshot'
@@ -149,7 +162,7 @@ function key(value: unknown): ConversationWireKey | null {
 }
 
 /** One listed conversation, or null. Capabilities absent or malformed read as unknown, not as refused. */
-function thread(value: unknown): ConversationWireThread | null {
+function thread(value: unknown): ConversationThread | null {
   if (!record(value)) return null
   const listed = key(value)
   if (
@@ -183,6 +196,11 @@ function thread(value: unknown): ConversationWireThread | null {
     ...(value.sessionId === undefined ? {} : { sessionId: value.sessionId as string }),
     // A preset this client does not know is left out rather than guessed at.
     ...(isConversationWirePermissionPreset(value.permissionPreset) ? { permissionPreset: value.permissionPreset } : {}),
+    // A mode only means something beside the preset it belongs to.
+    ...(isConversationWirePermissionPreset(value.permissionPreset) &&
+    isConversationPermissionModeId(value.permissionMode)
+      ? { permissionMode: value.permissionMode }
+      : {}),
     ...(models ? { models } : {}),
     ...(flags
       ? {
@@ -195,6 +213,9 @@ function thread(value: unknown): ConversationWireThread | null {
             checkpoints: flag('checkpoints'),
             ...(Array.isArray(flags.permissionPresets)
               ? { permissionPresets: flags.permissionPresets.filter(isConversationWirePermissionPreset) }
+              : {}),
+            ...(Array.isArray(flags.permissionModes)
+              ? { permissionModes: flags.permissionModes.filter(isConversationPermissionModeId) }
               : {}),
           },
         }
@@ -218,7 +239,7 @@ export function parseConversationServerFrame(value: unknown): ConversationParsed
   switch (frame.type) {
     case 'sessions': {
       if (!id(frame.requestId) || !Array.isArray(frame.sessions)) return null
-      const sessions: ConversationWireThread[] = []
+      const sessions: ConversationThread[] = []
       for (const entry of frame.sessions) {
         const listed = thread(entry)
         // One unreadable row does not hide the rest of the list.

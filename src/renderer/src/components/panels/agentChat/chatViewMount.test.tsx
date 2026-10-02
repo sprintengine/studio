@@ -7,6 +7,7 @@ import type {
   ConversationSessionFrame,
   ConversationSubscribeInput,
 } from '../../../../../shared/conversation-runtime'
+import { installStudioLoopback } from '../../../../../../tests/studio-chat-loopback'
 
 // The virtual list measures a real viewport, which jsdom does not have; this
 // stand-in renders every row so the rows themselves can be driven. Like the
@@ -167,6 +168,7 @@ async function mountChat({
       ...(setModel ? { conversationSessionSetModel: setModel } : {}),
     },
   })
+  installStudioLoopback(dom.window as unknown as { api: Record<string, unknown> })
   const { act, createElement } = await import('react')
   const { createRoot } = await import('react-dom/client')
   const { useWorkspaceStore } = await import('../../../store/workspaceStore')

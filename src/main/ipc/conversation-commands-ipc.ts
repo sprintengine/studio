@@ -1,20 +1,18 @@
-import { isAbsolute, join } from 'node:path'
+import { join } from 'node:path'
 import type { IpcMain } from 'electron'
 
 import type { ConversationCommandCatalog } from '../../shared/conversation/commands'
-import { conversationProviderForCli } from '../../shared/conversation-harness'
 import type { ConversationCliRuntimeOverrides } from '../../shared/conversation-runtime'
 import {
   CONVERSATION_COMMANDS_CHANGED_CHANNEL,
   CONVERSATION_COMMANDS_LIST_CHANNEL,
-  type ConversationCommandsRequest,
 } from '../../shared/ipc/conversation-commands'
-import { isRecord } from '../../shared/records'
 import {
   CONVERSATION_COMMANDS_CACHE_FILE,
   createConversationCommandsDiskCache,
 } from '../conversation-commands/disk-cache'
 import { onConversationCommandsChanged } from '../conversation-commands/registry'
+import { readConversationCommandsRequest } from '../conversation-commands/request'
 import { createConversationCommandsService, type ConversationCommandsService } from '../conversation-commands/service'
 
 /** The slice of a renderer's webContents the push touches. */
@@ -33,22 +31,11 @@ export type ConversationCommandsIpcDeps = {
   cliRuntimes?: () => ConversationCliRuntimeOverrides | undefined
 }
 
-// The renderer names a CLI and a folder; anything else is refused here rather
-// than handed to a probe that would start a process with it. The CLI must be
-// one a chat can ride, and the folder an absolute path.
-export function readConversationCommandsRequest(raw: unknown): ConversationCommandsRequest | null {
-  if (!isRecord(raw) || typeof raw.cli !== 'string' || typeof raw.cwd !== 'string') return null
-  if (!conversationProviderForCli(raw.cli)) return null
-  if (!raw.cwd || raw.cwd.length > 4096 || raw.cwd.includes('\0') || !isAbsolute(raw.cwd)) return null
-  return {
-    cli: raw.cli,
-    cwd: raw.cwd,
-    ...(raw.refresh === true ? { refresh: true } : {}),
-    ...(raw.probe === false ? { probe: false as const } : {}),
-  }
-}
+export { readConversationCommandsRequest }
 
 export type ConversationCommandsIpcHandle = {
+  /** The list main holds for a (CLI, folder), as the channel answers it; the Studio RPC asks through this too. */
+  list: ConversationCommandsService['list']
   /** Stop relaying pushes; for tests. */
   stop: () => void
   /** Stop recording into the disk cache and write what is pending; for quit. */
@@ -98,5 +85,5 @@ export function registerConversationCommandsIpc(
     stopRelay()
     subscribers.clear()
   }
-  return { stop, dispose: () => service.dispose() }
+  return { list: (input) => service.list(input), stop, dispose: () => service.dispose() }
 }

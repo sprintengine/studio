@@ -1,24 +1,26 @@
 import {
   CONVERSATION_DEFAULT_MODEL_ID,
-  type ConversationClientFrame,
+  type ConversationCommand,
+  type ConversationThread,
   type ConversationWireErrorCode,
   type ConversationWireModels,
-  type ConversationWireThread,
-} from '../../../../packages/conversation-protocol/src'
+} from '../../../../packages/conversation-protocol/src/public'
 import { isPlaceholderAgentName } from '../../../shared/agent-names'
 import type {
   ConversationKey,
   ConversationImageAttachment,
   ConversationPermissionPreset,
+  ConversationSessionActionResult,
   ConversationSessionFrame,
   ConversationSessionSummary,
   ConversationSubscribeInput,
 } from '../../../shared/conversation-runtime'
-import type { ConversationRuntime } from '../../conversation-runtime'
+import type { ConversationBackend } from '../../../server/core/conversation-backend'
 import type { ConversationModelCatalog } from '../../conversation-model-catalog'
 import { ConversationSessionApi } from '../../conversation-session-api'
 import { randomUUID } from 'node:crypto'
 import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET } from '../../../shared/launch-settings'
+import { parseCliPermissionModeId } from '../../../shared/cli-permission-mode'
 import { basename, dirname, isAbsolute, resolve } from 'node:path'
 import { openConfinedExistingFile } from '../../conversation-file-access'
 import { conversationImagePathOf } from './tailnet-conversation-images'
@@ -54,6 +56,7 @@ const wireCapabilities = (session: ConversationSessionSummary) =>
         ...(session.capabilities.permissionPresets
           ? { permissionPresets: [...session.capabilities.permissionPresets] }
           : {}),
+        ...(session.capabilities.permissionModes ? { permissionModes: [...session.capabilities.permissionModes] } : {}),
       }
     : undefined
 
@@ -81,7 +84,7 @@ export async function readBoundedConversationUpload(path: string, expectedBytes:
 }
 
 export type ConversationGatewayHost = {
-  list(): Promise<ConversationWireThread[]>
+  list(): Promise<ConversationThread[]>
   resolveKey(workspaceId: string, agentId: string): ConversationKey | null
   subscribe(
     key: ConversationKey,
@@ -93,7 +96,7 @@ export type ConversationGatewayHost = {
     beforeCursor: number,
     turnLimit?: number,
   ): ReturnType<ConversationSessionApi['loadEarlier']>
-  getToolDetail(key: ConversationKey, toolUseId: string): ReturnType<ConversationRuntime['getToolDetail']>
+  getToolDetail(key: ConversationKey, toolUseId: string): ReturnType<ConversationBackend['getToolDetail']>
   getTurnDiff(key: ConversationKey, turnSeq: number, path?: string): ReturnType<ConversationSessionApi['getTurnDiff']>
   /**
    * Where the picture one step made or looked at is on this disk, read from
@@ -111,12 +114,37 @@ export type ConversationGatewayHost = {
     bytes: number
     dispose?: () => void
   }): string
+  /**
+   * The preset the conversation runs under now, or would resume under: the
+   * same answer its listed thread gives as `permissionPreset`.
+   */
+  permissionOf?(key: Pick<ConversationKey, 'workspaceId' | 'agentId'>): ConversationPermissionPreset
+  /**
+   * Carry out one command under its client's id. `fingerprint`, where the
+   * client's door computes one, is kept with the command's receipt: the same
+   * id for a different command is then refused (`command_id_conflict`).
+   */
   command(
     key: ConversationKey,
     deviceId: string,
     commandId: string,
-    command: Extract<ConversationClientFrame, { type: 'command' }>['command'],
+    command: ConversationCommand,
+    fingerprint?: string,
   ): Promise<ConversationGatewayCommandResult>
+}
+
+/**
+ * A runtime answer as a command's result. The runtime names one refusal by a
+ * code, a command id already used for a different command, and that is kept;
+ * the commands built here name none, and the runtime's words stay in the message.
+ */
+function relay(
+  result: ConversationGatewayCommandResult | ConversationSessionActionResult,
+): ConversationGatewayCommandResult {
+  if (result.ok || result.code === undefined || result.code === 'command_id_conflict')
+    return result as ConversationGatewayCommandResult
+  const { code: _unnamed, ...rest } = result
+  return rest as ConversationGatewayCommandResult
 }
 
 export type ConversationToolImagePath =
@@ -130,7 +158,7 @@ export type ConversationToolImagePath =
 export type ConversationGatewayCommandResult = {
   ok: boolean
   message?: string
-  code?: ConversationWireErrorCode
+  code?: ConversationWireErrorCode | 'command_id_conflict'
   notice?: string
 }
 
@@ -144,7 +172,7 @@ export type ConversationGatewayCommandResult = {
  * message, or a rename) answers only for a conversation with no named agent.
  */
 export function createConversationGatewayHost(
-  runtime: ConversationRuntime,
+  runtime: ConversationBackend,
   resolveWorkspaceRoot: (workspaceId: string) => string | null,
   listWorkspaces: () => Array<{ workspaceId: string; workspaceRoot: string }>,
   defaultPermissionPreset: (key: { workspaceId: string; agentId: string }) => ConversationPermissionPreset = () =>
@@ -180,7 +208,7 @@ export function createConversationGatewayHost(
   // gone; a retry of that same command is answered from the runtime's receipt
   // and does not need them again.
   const spent = new Map<string, { deviceId: string; commandId: string }>()
-  const starting = new Map<string, ReturnType<ConversationRuntime['startSession']>>()
+  const starting = new Map<string, ReturnType<ConversationBackend['startSession']>>()
   const sending = new Map<
     string,
     { commandId: string; deviceId: string; promise: Promise<ConversationGatewayCommandResult> }
@@ -201,15 +229,20 @@ export function createConversationGatewayHost(
   // The preset a conversation runs under, or would resume under: the last
   // session this app ran for it (a stopped one still holds the preset it had),
   // else the default above. A remote resume keeps the conversation on the
-  // preset it was left on rather than choosing one of its own.
-  const presetFor = (
+  // preset it was left on rather than choosing one of its own, and on the
+  // CLI's own mode at that preset when the session ran one.
+  const permissionFor = (
     key: { workspaceId: string; agentId: string },
     sessions: ConversationSessionSummary[],
-  ): ConversationPermissionPreset => {
+  ): { permissionPreset: ConversationPermissionPreset; permissionMode?: string } => {
     const latest = sessions
       .filter((session) => session.workspaceId === key.workspaceId && session.agentId === key.agentId)
       .sort((a, b) => b.updatedAt - a.updatedAt)[0]
-    return latest?.permissionPreset ?? defaultPermissionPreset(key)
+    if (!latest?.permissionPreset) return { permissionPreset: defaultPermissionPreset(key) }
+    return {
+      permissionPreset: latest.permissionPreset,
+      ...(latest.permissionMode ? { permissionMode: latest.permissionMode } : {}),
+    }
   }
   const imagePaths = new Map<string, { at: number; found: Promise<ConversationToolImagePath> }>()
   const threadFor = async (key: ConversationKey) => {
@@ -248,7 +281,7 @@ export function createConversationGatewayHost(
           ...key,
           providerId: thread.providerId,
           modelId: thread.model,
-          permissionPreset: presetFor(key, listed.ok ? listed.sessions : []),
+          ...permissionFor(key, listed.ok ? listed.sessions : []),
         })
       })()
       starting.set(id, request)
@@ -268,6 +301,7 @@ export function createConversationGatewayHost(
     key: ConversationKey,
     commandId: string,
     modelId: string,
+    fingerprint?: string,
   ): Promise<ConversationGatewayCommandResult> => {
     let session = sessionFor(key)
     const providerId = session?.providerId ?? (await threadFor(key))?.providerId
@@ -284,7 +318,12 @@ export function createConversationGatewayHost(
       if (!resumed.ok) return resumed
       session = resumed.session
     }
-    const switched = await api.setModel({ sessionId: session.sessionId, commandId, modelId })
+    const switched = await api.setModel({
+      sessionId: session.sessionId,
+      commandId,
+      modelId,
+      ...(fingerprint ? { commandFingerprint: fingerprint } : {}),
+    })
     if (!switched.ok) return { ok: false, message: switched.message }
     return { ok: true, ...(switched.notice ? { notice: switched.notice } : {}) }
   }
@@ -295,7 +334,7 @@ export function createConversationGatewayHost(
       const live = all.filter((session) => session.status !== 'stopped').sort((a, b) => b.updatedAt - a.updatedAt)
       // One catalog read per provider for the whole list.
       const catalogs = new Map<string, Promise<ConversationModelCatalog | null>>()
-      const byId = new Map<string, ConversationWireThread>()
+      const byId = new Map<string, ConversationThread>()
       for (const workspace of listWorkspaces()) {
         const indexed = await runtime.listThreads(workspace)
         if (!indexed.ok) continue
@@ -315,7 +354,7 @@ export function createConversationGatewayHost(
             modelId: thread.model,
             turnCount: thread.turnCount,
             lastSeq: thread.lastSeq,
-            permissionPreset: presetFor({ workspaceId: workspace.workspaceId, agentId: thread.agentId }, all),
+            ...permissionFor({ workspaceId: workspace.workspaceId, agentId: thread.agentId }, all),
             ...(models ? { models } : {}),
             ...(summary ? { sessionId: summary.sessionId, capabilities: wireCapabilities(summary) } : {}),
           })
@@ -336,13 +375,17 @@ export function createConversationGatewayHost(
           modelId: summary.modelId,
           turnCount: 0,
           lastSeq: 0,
-          permissionPreset: presetFor(summary, all),
+          ...permissionFor(summary, all),
           ...(models ? { models } : {}),
           sessionId: summary.sessionId,
           capabilities: wireCapabilities(summary),
         })
       }
       return [...byId.values()].sort((a, b) => b.updatedAt - a.updatedAt)
+    },
+    permissionOf(key) {
+      const listed = api.listSessions({ workspaceId: key.workspaceId, agentId: key.agentId })
+      return permissionFor(key, listed.ok ? listed.sessions : []).permissionPreset
     },
     resolveKey: (workspaceId, agentId) => {
       const workspaceRoot = resolveWorkspaceRoot(workspaceId)
@@ -396,9 +439,11 @@ export function createConversationGatewayHost(
       uploads.set(id, { ...input, at: Date.now() })
       return id
     },
-    command(key, deviceId, commandId, command) {
-      if (command.kind === 'setModel') return setModel(key, commandId, command.modelId)
-      const execute = async (): Promise<ConversationGatewayCommandResult> => {
+    command(key, deviceId, commandId, command, fingerprint) {
+      if (command.kind === 'setModel') return setModel(key, commandId, command.modelId, fingerprint)
+      const stamp = fingerprint ? { commandFingerprint: fingerprint } : {}
+      const execute = async (): Promise<ConversationGatewayCommandResult> => relay(await run())
+      const run = async (): Promise<ConversationGatewayCommandResult | ConversationSessionActionResult> => {
         let session = sessionFor(key)
         // A send, or a preset switch, reaches a conversation with no live
         // session by resuming it; the switch then applies to that session.
@@ -421,6 +466,7 @@ export function createConversationGatewayHost(
                 commandId,
                 message: command.message,
                 attachments: [],
+                ...stamp,
               })
             const attachments: ConversationImageAttachment[] = []
             for (const id of ids) {
@@ -454,6 +500,7 @@ export function createConversationGatewayHost(
               commandId,
               message: command.message,
               attachments,
+              ...stamp,
             })
             // Accepted: the images are in the turn now, so their staged files
             // are removed rather than left for the hour-long expiry. A refused
@@ -468,7 +515,7 @@ export function createConversationGatewayHost(
             return sent
           }
           case 'interrupt':
-            return api.interrupt({ sessionId: session.sessionId, commandId })
+            return api.interrupt({ sessionId: session.sessionId, commandId, ...stamp })
           case 'resolveApproval':
             return api.resolveApproval({
               sessionId: session.sessionId,
@@ -476,6 +523,7 @@ export function createConversationGatewayHost(
               requestId: command.requestId,
               approved: command.decision !== 'deny',
               decision: command.decision,
+              ...stamp,
             })
           case 'answerQuestion':
             return api.answerQuestion({
@@ -484,13 +532,32 @@ export function createConversationGatewayHost(
               requestId: command.requestId,
               approved: true,
               answers: command.answers,
+              ...stamp,
             })
-          case 'setPermissionPreset':
+          // A plan's own answer, refused for a request that is not a plan.
+          // A plan answered as a `resolveApproval`, as before this command
+          // existed, is still taken.
+          case 'resolvePlan':
+            return api.resolveApproval({
+              sessionId: session.sessionId,
+              commandId,
+              requestId: command.requestId,
+              approved: command.decision === 'approve',
+              requestKind: 'plan',
+              ...stamp,
+            })
+          case 'setPermissionPreset': {
+            // A mode that is no mode id of a CLI's own is dropped, and the
+            // preset's own mode runs, as a client from before modes gets.
+            const permissionMode = parseCliPermissionModeId(command.permissionMode)
             return api.setPermissionPreset({
               sessionId: session.sessionId,
               commandId,
               permissionPreset: command.preset,
+              ...(permissionMode ? { permissionMode } : {}),
+              ...stamp,
             })
+          }
         }
       }
       // Approval responses and interrupts must stay available while a send is

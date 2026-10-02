@@ -11,12 +11,13 @@ a private data structure, and changing one is not a local edit.**
 
 ## What is versioned
 
-| Wire                                                                              | Version                                  | Window                                               | Declared in                                     |
-| --------------------------------------------------------------------------------- | ---------------------------------------- | ---------------------------------------------------- | ----------------------------------------------- |
-| Tailnet transport — Studio driving another Studio                                 | `TAILNET_TRANSPORT_VERSION` (integer)    | `TAILNET_MIN_SUPPORTED_TRANSPORT_VERSION` .. current | `src/main/automation/tailnet/tailnet-routes.ts` |
-| Mobile control — the phone reading and driving a desktop over the tailnet gateway | `mobileControlProtocolVersion` (integer) | `mobileControlSupportedProtocolVersions`             | `src/main/mobile/control/protocol.ts`           |
-| MCP                                                                               | dated strings, newest first              | every entry in the list                              | `src/shared/mcp/protocol.ts`                    |
-| Module host API — an installed extension built against `@sprintengine/module-sdk` | `HOST_API_VERSION` (integer)             | `HOST_API_MIN_SUPPORTED` .. current                  | `src/shared/modules/host-api.ts`                |
+| Wire                                                                                  | Version                                  | Window                                               | Declared in                                     |
+| ------------------------------------------------------------------------------------- | ---------------------------------------- | ---------------------------------------------------- | ----------------------------------------------- |
+| Tailnet transport — Studio driving another Studio                                     | `TAILNET_TRANSPORT_VERSION` (integer)    | `TAILNET_MIN_SUPPORTED_TRANSPORT_VERSION` .. current | `src/main/automation/tailnet/tailnet-routes.ts` |
+| Mobile control — the phone reading and driving a desktop over the tailnet gateway     | `mobileControlProtocolVersion` (integer) | `mobileControlSupportedProtocolVersions`             | `src/main/mobile/control/protocol.ts`           |
+| MCP                                                                                   | dated strings, newest first              | every entry in the list                              | `src/shared/mcp/protocol.ts`                    |
+| Module host API — an installed extension built against `@sprintengine/module-sdk`     | `HOST_API_VERSION` (integer)             | `HOST_API_MIN_SUPPORTED` .. current                  | `src/shared/modules/host-api.ts`                |
+| Studio protocol — a client on Studio's owner socket (`@sprintengine/studio-protocol`) | `STUDIO_PROTOCOL_VERSION` (integer)      | `STUDIO_PROTOCOL_MIN_SUPPORTED` .. current           | `packages/studio-protocol/src/handshake.ts`     |
 
 One more version number is near these and is **not** a wire window: the
 backlog item schema version is a file format, and is not negotiated with a peer.
@@ -107,7 +108,8 @@ HOST_API_VERSION`. `checkHostApiCompatibility` is the one check; it is
 - **Capabilities.** `host.supports(name)` answers what the running host
   provides now, from the table in `src/shared/modules/host-api.ts`
   (`hostSupports`). The names are the SDK's `HostCapability` union:
-  `conversations`, `conversation-controls`, `chat.open`, `companion-agents`,
+  `conversations`, `conversation-controls`, `conversation-streams`,
+  `conversation-requests`, `conversation-permissions`, `chat.open`, `companion-agents`,
   `scheduled-agents`, `secrets`, `github`, `storage`, `mcp-tools`, `skills`,
   `module-assets`, `notifications`.
   A capability joins the table in the same change that makes it real, and an
@@ -138,8 +140,21 @@ a peer sees.
 
 `@sprintengine/conversation-protocol` is a separate portable package for the
 additive `conversations` tailnet capability. It owns the direct conversation
-WebSocket frames, their client validator and pure tool-presentation helpers.
-It does not change the mobile-control wire or its version number.
+WebSocket frames, their client validator and pure tool-presentation helpers,
+and since `0.2.0` the whole conversation contract: the event layer, the
+command vocabulary, create requests, the `hello` handshake and the capability
+names. It does not change the mobile-control wire or its version number.
+
+The lane has its own `CONVERSATION_PROTOCOL_VERSION`, answered by `hello` on a
+desktop that advertises `conversation-hello`, with the same one-version window
+rule as the integer wires above (`checkConversationProtocolVersion` names both
+numbers). It is 1, and like them it moves only for a change a capability
+cannot describe. `0.2.0` added three capabilities and no version:
+`conversation-hello`, `conversation-plans` (`resolvePlan`) and
+`conversation-cli-permission-modes` (a `permissionMode` beside the preset).
+Each degrades on a desktop without it to something that desktop already does:
+`hello` and `resolvePlan` are refused under their ids, and an unknown
+`permissionMode` member is dropped, so the preset's own mode runs.
 
 The initial `0.1.0` contract requires the `conversations` capability. Additive
 optional fields preserve that contract. Model switching is one such addition: its own
@@ -160,7 +175,38 @@ Both ESM and CommonJS tarball consumers and Node16 declarations are checked by
 Until a published version is adopted, the phone carries the same portable source
 files with a shared SHA-256 pin. A wire or presentation edit must update both
 copies and both pins in companion changes; passing one repo's local hash check
-alone does not prove the two peers agree. Publishing is a separate release step.
+alone does not prove the two peers agree. The pin covers `index.ts` and the four
+files it re-exports; the package's entry is `public.ts`, which re-exports those
+and the files added since, so an addition goes in a file of its own and leaves
+the pin alone. Publishing is a separate release step.
+
+### The Studio protocol
+
+`@sprintengine/studio-protocol` is what Studio serves on its owner socket (a
+Unix socket in `<userData>/run/`, or a named pipe on Windows) to the
+applications on this machine a person has paired with it, and is the protocol
+`@sprintengine/agent-sdk` speaks. It is a connection envelope — `hello` /
+`welcome`, requests answered by id, subscriptions keyed by id — around the
+conversation contract, which it depends on and re-exports rather than copies:
+a stream's frames are the conversation lane's own server frames, and a
+command's params are read by the lane's own validator. The phone's pinned
+files are not touched by it.
+
+`STUDIO_PROTOCOL_VERSION` is 1, with the same one-version window as the
+integer wires above; `checkStudioProtocolVersion` refuses a peer outside it at
+the handshake, naming both numbers, and the server answers that refusal as
+`bye { code: 'unsupported_protocol_version' }`. Features are capabilities
+(`conversations`, `conversation-create`, `local-pairing`, and the chat
+surface's in `STUDIO_CHAT_CAPABILITIES`) advertised in the `welcome`, a Studio
+leaving out any it does not serve; the conversation contract's own `protocolVersion` and capabilities
+travel inside it, in `welcome.conversation`, unchanged. A new method or topic
+is a capability, not a bump; so is a new server frame type (`push` was one),
+since a client skips a frame type it does not know. Every method names its scope in `STUDIO_METHODS`,
+typed over the method map so a method without one does not compile.
+
+The pack check (`npm run test:studio-packages:pack`) installs the packed
+tarball beside the conversation protocol's and checks both module systems and
+Node16 declarations.
 
 ## Changing a wire format
 

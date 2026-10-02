@@ -65,8 +65,8 @@ function EditFromHereButton({ entry, running, canRestoreFiles, onRestoreDraft, c
       // The files a restore would put back, asked before the dialog so it can
       // name them; a turn that changed nothing offers no restore at all.
       let files: ConversationCheckpointFile[] = []
-      if (canRestoreFiles) {
-        const preview = await window.api.conversationRevertToTurn({ key, turnSeq })
+      if (canRestoreFiles && transport.revert) {
+        const preview = await transport.revert({ key, turnSeq })
         if (preview.ok) files = preview.files
       }
       const choice = { restoreFiles: false }
@@ -86,7 +86,7 @@ function EditFromHereButton({ entry, running, canRestoreFiles, onRestoreDraft, c
       if (!rewound.ok) throw new Error(rewound.message)
       onRestoreDraft(draft)
       if (choice.restoreFiles && files.length > 0) {
-        const restoreError = await restoreTurnFiles(key, turnSeq, files)
+        const restoreError = await restoreTurnFiles(transport, key, turnSeq, files)
         if (restoreError)
           showToast({
             tone: 'error',
@@ -122,12 +122,14 @@ function EditFromHereButton({ entry, running, canRestoreFiles, onRestoreDraft, c
 // Put back the files the dialog listed, from the turn's checkpoint. The
 // reason it could not, or null once it has.
 async function restoreTurnFiles(
+  transport: ConversationTransport,
   key: ConversationKey,
   turnSeq: number,
   files: ConversationCheckpointFile[],
 ): Promise<string | null> {
+  if (!transport.revert) return 'this conversation’s files cannot be restored from here.'
   try {
-    const reverted = await window.api.conversationRevertToTurn({
+    const reverted = await transport.revert({
       key,
       turnSeq,
       confirmed: true,

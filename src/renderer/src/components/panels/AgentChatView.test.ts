@@ -1588,9 +1588,9 @@ test('AgentChatView', async () => {
     'unsupported manual approval cannot silently fall back to CLI-managed permissions',
   )
   assert.match(
-    chatViewSource.slice(chatViewSource.indexOf('conversationSessionStart({')),
+    chatViewSource.slice(chatViewSource.indexOf('transport.startSession({')),
     /^[\s\S]{0,600}?\n\s+permissionPreset,\n/,
-    'conversationSessionStart carries the agent’s preset instead of the provider default',
+    'the session start carries the agent’s preset instead of the provider default',
   )
   assert.doesNotMatch(
     chatViewSource,
@@ -1605,8 +1605,9 @@ test('AgentChatView', async () => {
     'the chat spawn stamps the preset the picker showed for its CLI, like every CLI spawn',
   )
   // A refused change must never leave the pill claiming a preset the session is
-  // not on: every failure branch of changePermissionPreset (bridge missing,
-  // provider said no, threw) writes the old value back.
+  // not on: both failure branches of changePermissionPreset (refused, threw)
+  // write the old value back. A window whose bridge is missing is answered
+  // with a refusal by its transport, so the first branch covers it.
   assert.match(
     chatViewSource,
     /const previous = \{ cliPermissionPreset: agent\?\.cliPermissionPreset, cliPermissionMode: agent\?\.cliPermissionMode \}/,
@@ -1614,8 +1615,8 @@ test('AgentChatView', async () => {
   )
   assert.equal(
     (chatViewSource.match(/updateBinding\(previous\)/g) ?? []).length,
-    3,
-    'all three failure branches roll the optimistic write back',
+    2,
+    'both failure branches roll the optimistic write back',
   )
   // An accepted change the provider cannot apply to the streaming turn comes back
   // with a sentence saying when it starts applying (1808). Produced-and-dropped is

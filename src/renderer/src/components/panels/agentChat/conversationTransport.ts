@@ -1,5 +1,8 @@
 import { createContext, useContext } from 'react'
 
+import { windowStudioClient } from '../../../studio/windowStudioClient'
+import { ipcChatServices, type ChatServices } from './chatServices'
+import { createStudioChatServices, createStudioConversationParts } from './studioChat'
 import type {
   ConversationAttachmentInput,
   ConversationAttachmentResult,
@@ -9,6 +12,8 @@ import type {
   ConversationLoadEarlierInput,
   ConversationPageResult,
   ConversationRespondToRequestInput,
+  ConversationRevertInput,
+  ConversationRevertResult,
   ConversationRewindInput,
   ConversationRewindResult,
   ConversationSendTurnInput,
@@ -16,6 +21,8 @@ import type {
   ConversationSessionSummary,
   ConversationSetModelInput,
   ConversationSetPermissionInput,
+  ConversationStartSessionInput,
+  ConversationStartSessionResult,
   ConversationSubscribeInput,
   ConversationToolDetailInput,
   ConversationToolDetailResult,
@@ -39,6 +46,12 @@ import type {
 // provider id: a remote device may not choose a permanent approval rule or a
 // bypass preset, cannot revert a checkpoint on the other machine's disk, and
 // has none of this machine's skills, files or history index to offer.
+//
+// A conversation on this machine is reached one of two ways, chosen once per
+// window (`window.api.studioChatTransport`): the conversation IPC, or the
+// Studio protocol over the window's Studio client. Both answer every call
+// with the same shapes, and the chat view cannot tell them apart. The IPC is
+// the default while the protocol path has its release beside it.
 
 export type ConversationTransportCapabilities = {
   /** Send, stop, answer approvals and questions, change the preset. */
@@ -127,6 +140,15 @@ export type ConversationTransport = {
    * over there.
    */
   toolImage?(input: { toolUseId: string }): Promise<ConversationToolImageResult>
+  /** Start the chat's provider session here. Present where `capabilities.startSession` is. */
+  startSession?(input: ConversationStartSessionInput): Promise<ConversationStartSessionResult>
+  /** Revert a turn's files from its checkpoint, or preview that. Present where `capabilities.checkpointRevert` is. */
+  revert?(input: ConversationRevertInput): Promise<ConversationRevertResult>
+  /**
+   * The Studio this window belongs to: providers, files, plans and command
+   * lists. The same for every chat in the window, whichever machine it runs on.
+   */
+  services: ChatServices
 }
 
 export type ConversationToolImageResult =
@@ -147,10 +169,13 @@ const LOCAL_CAPABILITIES: ConversationTransportCapabilities = {
   steer: true,
 }
 
+type LocalParts = Omit<ConversationTransport, 'kind' | 'capabilities' | 'services'>
+
 /** The conversation IPC, read off `window.api` at call time so a test's stub is the one used. */
-const localConversationTransport: ConversationTransport = {
-  kind: 'local',
-  capabilities: LOCAL_CAPABILITIES,
+const ipcConversationParts: Required<
+  Pick<LocalParts, 'setModel' | 'attachment' | 'rewind' | 'fork' | 'startSession' | 'revert'>
+> &
+  LocalParts = {
   subscribe: (input, cb) => window.api.onConversationSession(input, cb),
   loadEarlier: (input) => window.api.conversationLoadEarlier(input),
   toolDetail: (input) => window.api.conversationToolDetail(input),
@@ -158,11 +183,94 @@ const localConversationTransport: ConversationTransport = {
   send: (input) => window.api.conversationSessionSendTurn(input),
   interrupt: (input) => window.api.conversationSessionInterrupt(input),
   respond: (input) => window.api.conversationSessionRespondToRequest(input),
-  setPermissionPreset: (input) => window.api.conversationSessionSetPermission(input),
+  setPermissionPreset: async (input) =>
+    typeof window.api.conversationSessionSetPermission === 'function'
+      ? window.api.conversationSessionSetPermission(input)
+      : { ok: false, message: 'Changing tool permissions mid-conversation needs an app restart.' },
   setModel: (input) => window.api.conversationSessionSetModel(input),
   attachment: (input) => window.api.conversationAttachment(input),
   rewind: (input) => window.api.conversationRewindToTurn(input),
   fork: (input) => window.api.conversationForkAtTurn(input),
+  startSession: (input) => window.api.conversationSessionStart(input),
+  revert: (input) => window.api.conversationRevertToTurn(input),
+}
+
+// One Studio implementation per window object, so its client and the
+// subscriptions keyed by transport are this window's.
+const studioImplementations = new WeakMap<object, { parts: LocalParts; services: ChatServices }>()
+
+function studioImplementation(): { parts: LocalParts; services: ChatServices } {
+  const api = window.api as object
+  let known = studioImplementations.get(api)
+  if (!known) {
+    const client = () => windowStudioClient(window.api)
+    known = { parts: createStudioConversationParts(client), services: createStudioChatServices(client) }
+    studioImplementations.set(api, known)
+  }
+  return known
+}
+
+/** Whether this window's chat view is on the Studio protocol. */
+export function chatOverStudioProtocol(): boolean {
+  return typeof window !== 'undefined' && window.api?.studioChatTransport === 'studio'
+}
+
+const localParts = (): typeof ipcConversationParts =>
+  chatOverStudioProtocol() ? (studioImplementation().parts as typeof ipcConversationParts) : ipcConversationParts
+
+/** The window's services, by the same choice as its conversations. */
+export function windowChatServices(): ChatServices {
+  return chatOverStudioProtocol() ? studioImplementation().services : ipcChatServices
+}
+
+// Each call is answered by the implementation the window chose, read when it
+// is made; the object itself never changes, so what is keyed by it (a shared
+// subscription, a picture cache) stays put.
+const windowServices: ChatServices = {
+  providers: {
+    list: (input) => windowChatServices().providers.list(input),
+    models: (input) => windowChatServices().providers.models(input),
+    secretStatus: (input) => windowChatServices().providers.secretStatus(input),
+  },
+  files: {
+    get canStat() {
+      return windowChatServices().files.canStat
+    },
+    search: (rootPath, query, options) => windowChatServices().files.search(rootPath, query, options),
+    cancelSearch: (channel) => windowChatServices().files.cancelSearch(channel),
+    stat: (path) => windowChatServices().files.stat(path),
+    readImage: (path) => windowChatServices().files.readImage(path),
+    repoRoot: (folderPath, hostId) => windowChatServices().files.repoRoot(folderPath, hostId),
+  },
+  planDocument: (input) => windowChatServices().planDocument(input),
+  commands: {
+    get list() {
+      return windowChatServices().commands.list
+    },
+    get onChanged() {
+      return windowChatServices().commands.onChanged
+    },
+  },
+}
+
+const localConversationTransport: ConversationTransport = {
+  kind: 'local',
+  capabilities: LOCAL_CAPABILITIES,
+  subscribe: (input, cb) => localParts().subscribe(input, cb),
+  loadEarlier: (input) => localParts().loadEarlier(input),
+  toolDetail: (input) => localParts().toolDetail(input),
+  turnDiff: (input) => localParts().turnDiff(input),
+  send: (input) => localParts().send(input),
+  interrupt: (input) => localParts().interrupt(input),
+  respond: (input) => localParts().respond(input),
+  setPermissionPreset: (input) => localParts().setPermissionPreset(input),
+  setModel: (input) => localParts().setModel(input),
+  attachment: (input) => localParts().attachment(input),
+  rewind: (input) => localParts().rewind(input),
+  fork: (input) => localParts().fork(input),
+  startSession: (input) => localParts().startSession(input),
+  revert: (input) => localParts().revert(input),
+  services: windowServices,
 }
 
 const ConversationTransportContext = createContext<ConversationTransport>(localConversationTransport)
@@ -248,5 +356,8 @@ export function createRemoteConversationTransport(input: {
         ? { ok: true, src: result.dataUrl }
         : { ok: false, unsupported: result.code === 'images_unsupported', message: result.message }
     },
+    // A chat followed from a paired machine still reads this window's Studio
+    // for providers, files, plans and command lists, as it always has.
+    services: windowServices,
   }
 }

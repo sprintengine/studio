@@ -1,14 +1,7 @@
 import { existsSync } from 'node:fs'
 import { isAbsolute, join, normalize } from 'node:path'
 
-type ElectronAppLike = {
-  isPackaged?: boolean
-  getAppPath?: () => string
-}
-
-type ElectronLike = {
-  app?: ElectronAppLike
-}
+import { installedStudioPlatform } from '../../server/platform/platform'
 
 export type MarketplaceResourceResolver = (relativePath: string) => string | null
 
@@ -36,13 +29,14 @@ function marketplaceResourceCandidates(
   const safeRelativePath = normalizeMarketplaceRelativePath(relativePath)
   if (!safeRelativePath) return []
 
-  const electron = loadElectron()
-  const app = electron?.app
-  const isPackaged = options.isPackaged ?? app?.isPackaged ?? false
-  const resourcesPath = options.resourcesPath ?? process.resourcesPath
+  // With no platform installed (a node test process, a script) this is a
+  // source checkout with no resources root and no app root of its own.
+  const paths = installedStudioPlatform()?.paths
+  const isPackaged = options.isPackaged ?? paths?.isPackaged() ?? false
+  const resourcesPath = options.resourcesPath ?? paths?.resourcesDir() ?? undefined
   const appPath = Object.prototype.hasOwnProperty.call(options, 'appPath')
     ? (options.appPath ?? null)
-    : (app?.getAppPath?.() ?? null)
+    : (paths?.appRoot() ?? null)
   const cwd = options.cwd ?? process.cwd()
   const dirname = options.dirname ?? __dirname
 
@@ -67,12 +61,4 @@ function normalizeMarketplaceRelativePath(relativePath: string): string | null {
   if (!normalized || normalized === '.' || normalized === '..') return null
   if (normalized.startsWith('../') || normalized.includes('/../')) return null
   return normalized
-}
-
-function loadElectron(): ElectronLike | null {
-  try {
-    return require('electron') as ElectronLike
-  } catch {
-    return null
-  }
 }

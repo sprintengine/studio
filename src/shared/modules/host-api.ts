@@ -22,6 +22,9 @@ export {
 const HOST_CAPABILITIES: ReadonlySet<HostCapability> = new Set<HostCapability>([
   'conversations',
   'conversation-controls',
+  'conversation-streams',
+  'conversation-requests',
+  'conversation-permissions',
   'secrets',
   'github',
   'companion-agents',

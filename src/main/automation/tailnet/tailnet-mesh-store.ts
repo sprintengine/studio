@@ -2,6 +2,8 @@ import { chmodSync, existsSync, readFileSync, renameSync, unlinkSync, writeFileS
 import { join } from 'path'
 import { randomBytes, randomUUID } from 'crypto'
 
+import { installedStudioPlatform } from '../../../server/platform/platform'
+import type { SecretCipher } from '../../../server/platform/secret-cipher'
 import { normalizeTailnetScopes, type TailnetScope } from '../../../shared/tailnet'
 import type { MeshConnection } from '../../../shared/tailnet-mesh'
 import { isRecord } from '../../../shared/records'
@@ -12,8 +14,9 @@ import { isRecord } from '../../../shared/records'
 // that one stores hashes of credentials other machines present to us, which is
 // all a verifier needs. This one stores credentials we present elsewhere, so
 // the token itself has to come back — but only in this process, just before it
-// is sent. On disk each token is sealed with Electron's `safeStorage` (the OS
-// keychain), the way the provider secrets and the sign-in refresh token are.
+// is sent. On disk each token is sealed with the platform's secret cipher (the
+// OS keychain, through Electron's `safeStorage`, in the desktop), the way the
+// provider secrets and the sign-in refresh token are.
 // A file that any process running as this user can read would otherwise hand
 // that process every machine this one is paired with.
 //
@@ -38,16 +41,9 @@ export const LEGACY_TAILNET_MESH_FILENAME = 'tailnet-fleet-connections.json'
 /** A stored connection, with the credential the public view omits. */
 export type StoredMeshConnection = MeshConnection & { deviceToken: string }
 
-/** The slice of Electron's `safeStorage` this store uses; injected in tests. */
-export type MeshTokenCipher = {
-  isEncryptionAvailable(): boolean
-  encryptString(value: string): Buffer
-  decryptString(value: Buffer): string
-}
-
 /**
  * The file format. 2 seals each token (`sealedToken`, base64 of the
- * `safeStorage` ciphertext); 1 held it as plaintext and is rewritten as 2 the
+ * cipher's output); 1 held it as plaintext and is rewritten as 2 the
  * first time it is read.
  */
 const MESH_FILE_VERSION = 2
@@ -77,13 +73,13 @@ export type TailnetMeshStore = {
 
 export function createTailnetMeshStore(options: {
   resolveUserDataDir: () => string
-  /** Production reads Electron's `safeStorage`; tests inject a stand-in. */
-  safeStorage?: MeshTokenCipher | null
+  /** Production reads the installed platform's cipher; tests inject a stand-in. */
+  cipher?: SecretCipher | null
   now?: () => Date
   log?: (message: string) => void
 }): TailnetMeshStore {
   const now = options.now ?? (() => new Date())
-  const cipher = options.safeStorage === undefined ? loadSafeStorage() : options.safeStorage
+  const cipher = options.cipher === undefined ? platformCipher() : options.cipher
   const loaded = read(options.resolveUserDataDir(), cipher, options.log)
   let connections: MeshEntry[] = loaded.connections
   // Sealed records this session could not open (the keychain said no, or is
@@ -93,7 +89,7 @@ export function createTailnetMeshStore(options: {
 
   function encryptionAvailable(): boolean {
     try {
-      return cipher?.isEncryptionAvailable() === true
+      return cipher?.available() === true
     } catch {
       return false
     }
@@ -102,7 +98,7 @@ export function createTailnetMeshStore(options: {
   function seal(entry: MeshEntry): string | null {
     if (entry.sealedToken) return entry.sealedToken
     if (!cipher || !encryptionAvailable()) return null
-    entry.sealedToken = cipher.encryptString(entry.deviceToken).toString('base64')
+    entry.sealedToken = cipher.seal(entry.deviceToken).toString('base64')
     return entry.sealedToken
   }
 
@@ -243,7 +239,7 @@ type ReadResult = {
   plaintextRead: boolean
 }
 
-function read(userDataDir: string, cipher: MeshTokenCipher | null, log?: (message: string) => void): ReadResult {
+function read(userDataDir: string, cipher: SecretCipher | null, log?: (message: string) => void): ReadResult {
   const empty: ReadResult = { connections: [], unopened: [], plaintextRead: false }
   const path = migrateLegacyFile(userDataDir, log)
   let raw: string
@@ -282,10 +278,10 @@ function read(userDataDir: string, cipher: MeshTokenCipher | null, log?: (messag
 }
 
 /** The token inside a sealed record, or null when this session cannot open it. */
-function openToken(sealed: string, cipher: MeshTokenCipher | null, log?: (message: string) => void): string | null {
+function openToken(sealed: string, cipher: SecretCipher | null, log?: (message: string) => void): string | null {
   try {
-    if (!cipher || !cipher.isEncryptionAvailable()) return null
-    const token = cipher.decryptString(Buffer.from(sealed, 'base64'))
+    if (!cipher || !cipher.available()) return null
+    const token = cipher.open(Buffer.from(sealed, 'base64'))
     return token.length > 0 ? token : null
   } catch (error) {
     log?.(`Could not open a sealed token in ${TAILNET_MESH_FILENAME}; it is kept for a later launch: ${message(error)}`)
@@ -363,17 +359,12 @@ function replaceFileAtomically(path: string, body: string): void {
 }
 
 /**
- * Electron's `safeStorage`, or null outside Electron. Loaded lazily, as the
- * other secret stores do, so this module stays importable in plain Node; null
- * reads as "cannot encrypt", which keeps tokens in memory only.
+ * The installed platform's cipher, or null when no platform is installed (a
+ * plain-Node test that injected none). Null reads as "cannot encrypt", which
+ * keeps tokens in memory only, as it did outside Electron.
  */
-function loadSafeStorage(): MeshTokenCipher | null {
-  try {
-    const electron = require('electron') as { safeStorage?: MeshTokenCipher } | string
-    return typeof electron === 'object' && electron.safeStorage ? electron.safeStorage : null
-  } catch {
-    return null
-  }
+function platformCipher(): SecretCipher | null {
+  return installedStudioPlatform()?.secrets ?? null
 }
 
 const PAIRED_VIA: ReadonlySet<string> = new Set(['link', 'request', 'reverse', 'unknown'])

@@ -20,9 +20,11 @@ import { IconButton, RowButton, StarGlyph, Tooltip } from '../ui'
 import { revealBacklogItemInPane } from '../workspace/pane/backlogPaneReveal'
 import { requestPaletteOpen } from '../palette/paletteOpenRequest'
 import { CliInstallCta } from '../workspace/cliInstallRoute'
+import { ChatViewErrorBoundary, reloadableLazy } from './agentChat/ChatViewErrorBoundary'
 
 const TerminalView = React.lazy(() => import('./TerminalView'))
-const AgentChatView = React.lazy(() => import('./AgentChatView'))
+// Reloadable, so the chat boundary's Reload chat can fetch a chunk that failed.
+const AgentChatView = reloadableLazy(() => import('./AgentChatView'))
 
 interface Props {
   workspaceId: string
@@ -197,10 +199,14 @@ export default function AgentPanel({ workspaceId, agentId, sessionId, shouldKill
     window.dispatchEvent(new CustomEvent('sprintengine:resume-terminal', { detail: { sessionId: effectiveSessionId } }))
   }
   if (isConversationRuntime) {
+    // A chat that throws while rendering, or whose code fails to load, stops
+    // in its own pane rather than taking the window with it.
     return (
-      <React.Suspense fallback={null}>
-        <AgentChatView workspaceId={workspaceId} agentId={agentId} />
-      </React.Suspense>
+      <ChatViewErrorBoundary chatKey={`${workspaceId}:${agentId}`}>
+        <React.Suspense fallback={null}>
+          <AgentChatView workspaceId={workspaceId} agentId={agentId} />
+        </React.Suspense>
+      </ChatViewErrorBoundary>
     )
   }
 

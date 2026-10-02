@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Notification, ipcMain, net, powerMonitor } from 'electron'
+import { app, BrowserWindow, ipcMain, net, powerMonitor } from 'electron'
 import { createHash, randomUUID } from 'crypto'
 import { existsSync } from 'fs'
 import { homedir, hostname } from 'os'
@@ -26,16 +26,13 @@ import {
   setLaunchSkillPluginDirsResolver,
   setLaunchStatusLineScriptResolver,
 } from './terminal-launch'
-import { createAutomationService } from './automation/automation-service'
 import { REMOTE_OPEN_REQUESTED_CHANNEL, TAILNET_EVENT_CHANNEL } from '../shared/tailnet'
 import { MESH_EVENT_CHANNEL } from '../shared/tailnet-mesh'
 import { CANVAS_MODULE_DEFAULT_ENABLED } from '../shared/modules/manifest'
 import { createTailnetNotifier } from './tailnet-notifications'
 import { revealMainWindow } from './window-factory'
 import { createAutomationTools } from './automation/automation-tools'
-import { createAgentPermissionResolver, launchPermissionCeiling } from './automation/launch-permission-cap'
 import { createTailnetTools, type TailnetToolsFrontDoor } from './automation/tailnet/tailnet-tools'
-import { createStudioGatewayTools } from './automation/studio-gateway-tools'
 import type { McpToolContribution } from './module-host/main-host'
 import { createDefaultMarketplaceRegistryClient } from './ipc/marketplace-registry-ipc'
 import { toThirdPartyModuleView } from './ipc/third-party-module-ipc'
@@ -91,14 +88,9 @@ import {
   createFsSkillDirectoryReader,
   createWorkspaceSkillsService,
 } from './workspace-skills-service'
-import { createAgentLaunchSettingsStore } from './launch-settings-store'
 import type { HostAgentIntegration } from './hosts/execution-host'
-import { createHostRegistry, hostRegistry, installHostRegistry } from './hosts/host-registry'
-import { isWslHostId } from '../shared/execution-host'
-import { comparablePath } from '../shared/host-paths'
-import { installGitHostResolver } from './git-run'
+import { hostRegistry } from './hosts/host-registry'
 import { effectiveAgentLaunchSettings } from '../shared/launch-settings'
-import { parseCliPermissionPreset } from '../shared/cli-permission-preset'
 import { setCliModelDiscoveryRuntimesResolver } from './ipc/cli-model-discovery-ipc'
 import {
   configureCliVersionService,
@@ -106,7 +98,6 @@ import {
   scheduleCliVersionRead,
 } from './cli-version-advisory-service'
 import { createBackgroundModeStore } from './background-mode-store'
-import { powerActivity } from './power-activity'
 import { createStudioAreaSkillStore } from './studio-area-skill-store'
 import { createAnalyticsService } from './telemetry/analytics-service'
 import { createTelemetryConsentStore } from './telemetry/consent-store'
@@ -127,7 +118,6 @@ import { createConversationPeekService } from './conversation-peek/service'
 import { createConversationTerminalHandoff } from './conversation-terminal-handoff'
 import { createAgentPromptStore, registeredAgentOwners } from './agent-prompt-store'
 import {
-  cliResumeCapabilities,
   createTerminalRuntime,
   getTerminalSessionById,
   listLiveTerminalSessions,
@@ -136,6 +126,7 @@ import {
   resolveSpawnEventSink,
 } from './terminal-runtime'
 import { isTerminalProcessAlive, setSessionPullRequestReader } from './terminal-session'
+import { cliResumeCapabilities } from './cli-resume-capabilities'
 import { createAgentChangelistFeed } from './agent-changelist-feed'
 import { createPullRequestRecord } from './pull-request-record'
 import { createBrowserManager } from './browser/browser-manager'
@@ -148,8 +139,6 @@ import { createEditorRevealBroker } from './editor-reveal/editor-reveal-broker'
 import { createEditorToolBackends } from './editor-reveal/editor-tool-backends'
 import { EDITOR_REVEAL_PENDING_CHANNEL } from '../shared/editor-reveal'
 import { createTourTools } from './automation/tour-tools'
-import { createConversationTools } from './automation/conversation-tools'
-import { createConversationLaunchService } from './conversation-launch-service'
 import { createAppTourService } from './tours/tour-app'
 import { canvasBoardStoreDir } from './canvas/canvas-board-store'
 import { createCanvasService } from './canvas/canvas-service'
@@ -161,15 +150,6 @@ import { broadcastToWorkspaceWindows, isWorkspaceWindowWebContents, listWorkspac
 import { createAgentControlPlane } from './agent-control-plane'
 import { createAgentLaunchService } from './agent-launch-service'
 import { createLaunchedAgentRegistration, withLaunchedAgentRegistration } from './launched-agent-registration'
-import { ConversationRuntime } from './conversation-runtime'
-import type { ConversationEventType } from '../shared/conversation-runtime'
-import { ConversationApprovalRuleStore } from './conversation-approval-rules'
-import { ConversationAttachmentStore } from './conversation-attachment-store'
-import { ConversationPlanStore } from './conversation-plan-store'
-import { createConversationGatewayHost } from './automation/tailnet/tailnet-conversation-host'
-import { createConversationModelCatalog } from './conversation-model-catalog'
-import { readDiscoveredCliModelCatalogs } from './model-discovery/service'
-import { getSharedCredentialStore } from './secret-store'
 import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
 import { SprintEngineUpdateService } from './update-service'
 import { channelForVersion, createUpdateChannelStore } from './update-channel-store'
@@ -177,9 +157,6 @@ import { createUpdateInstallNoteStore } from './update-install-note'
 import { sendSplashProgress, showUpdateProgressWindow } from './splash-window'
 import { GitHubTokenStore } from './github-token-store'
 import { createWorkspaceBackupService } from './workspace-backup'
-import { createWorkspaceRegistryStore } from './workspace-registry-store'
-import { createWorkspaceRegistryService } from './workspace-registry-service'
-import { createWorkspaceSyncService } from './workspace-sync-service'
 import { writeDiagnosticLog } from './diagnostics-service'
 import { getPluginRegistry } from './plugin-registry-instance'
 import { declaredPermissionPresets } from './plugin-render'
@@ -196,21 +173,14 @@ import {
   releaseLauncher,
 } from './integrations/live-instances'
 import { entriesRunLauncher, removeIntegrations, SESSION_INTEGRATION_KINDS } from './integrations/remove-integrations'
+import { studioPlatform } from '../server/platform/platform'
+import { createStudioCore, studioBridgeScriptPath } from '../server/core/studio-core'
+import { createStudioGateway } from '../server/core/studio-gateway'
+import { createStudioRpc } from '../server/core/studio-rpc'
 
 // How long the quit gives the session integrations' removal. What it does not
 // reach stays listed, and the next quit takes it out.
 const QUIT_INTEGRATION_REMOVAL_BUDGET_MS = 5_000
-/** The conversation events that change what a paired device's list says: a start, an end, a phase. */
-const CONVERSATION_LIST_EVENTS = new Set<ConversationEventType>([
-  'session_started',
-  'session_closed',
-  'user_message',
-  'turn_started',
-  'turn_completed',
-  'turn_failed',
-  'approval_requested',
-  'approval_resolved',
-])
 import {
   createIntegrationLedger,
   hostIdForPath,
@@ -221,6 +191,9 @@ import {
 const execFileAsync = promisify(execFile)
 
 export function createAppServices(diagnosticsEnabled: boolean) {
+  // What the server-bound services below take from Electron, installed by the
+  // entry. Read through it where a service is being moved off Electron.
+  const platform = studioPlatform()
   const { logMainPerfEvent, withIpcDiagnostics } = createMainDiagnostics({
     enabled: diagnosticsEnabled,
   })
@@ -250,10 +223,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
   })
   installIntegrationLedger(integrationLedgerStore)
-  const resolveStudioMcpBridgeScriptPath = () =>
-    app.isPackaged
-      ? join(process.resourcesPath, 'automation', 'mcp-stdio-bridge.mjs')
-      : join(app.getAppPath(), 'resources', 'automation', 'mcp-stdio-bridge.mjs')
+  const resolveStudioMcpBridgeScriptPath = () => studioBridgeScriptPath(platform.paths)
   const workspaceSkillsService = createWorkspaceSkillsService()
   // The watcher is built first because the capability answer has to state
   // whether it can be kept true: a workspace whose paths could not be watched
@@ -419,7 +389,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // Configured on every platform because it costs nothing; only Windows ever
   // starts a helper.
   configureWslHelpers({
-    appVersion: app.getVersion(),
+    appVersion: platform.identity.version(),
     userDataDir: app.getPath('userData'),
     resources: () => {
       const helperDir = getBundledResourceDir('wsl-helper')
@@ -591,14 +561,14 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
   })
 
-  // Conversation-agent runtime (chat sessions, incl. headless Claude child
-  // processes). Owned here — not inside the IPC factory — so app shutdown can
-  // dispose its child processes and diagnostics can inventory them.
-  const conversationRuntime = new ConversationRuntime({
-    secretStore: getSharedCredentialStore(),
-    approvalRules: new ConversationApprovalRuleStore(app.getPath('userData')),
-    attachmentStore: new ConversationAttachmentStore(app.getPath('userData')),
-    planStore: new ConversationPlanStore(app.getPath('userData')),
+  // The core this process serves from: launch settings and machines, the
+  // workspace registry, the conversation runtime and the backend chats are
+  // driven through, the launch service. The same composition a standalone
+  // server builds under plain Node (src/server/core/studio-core.ts); built here
+  // because a Claude chat's child is handed this app's gateway and the launch
+  // cap reads this app's terminals.
+  const core = createStudioCore(platform, {
+    role: 'desktop',
     // A Claude chat's child loads no project settings, so the gateway pinned
     // into a workspace's `.mcp.json` never reached it; the child is handed the
     // gateway itself, on the machine its `claude` runs on.
@@ -616,8 +586,30 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         ...(gateway.envVarNames?.length ? { envVarNames: gateway.envVarNames } : {}),
       }
     },
+    // The live session objects, not `listTerminals()` snapshots: only four
+    // fields are read, and a snapshot of every session is not cheap.
+    listTerminalSessions: () =>
+      listLiveTerminalSessions().map((session) => ({
+        kind: session.kind,
+        workspaceId: session.workspaceId,
+        agentId: session.agentId,
+        processAlive: isTerminalProcessAlive(session),
+        agentRecord: session.agentRecord,
+      })),
+    // A distribution turned on or off adds or drops its CLI updates.
+    onHostSettingsChanged: () => scheduleCliVersionRead(),
   })
-  conversationRuntime.startIdleSweep(powerActivity)
+  const {
+    agentLaunchSettings,
+    hosts,
+    workspaceRegistry,
+    workspaceSyncService,
+    conversationOwner,
+    conversations,
+    conversationModelCatalog,
+    conversationLaunchService,
+    resolveAgentPermissionPreset,
+  } = core
 
   // Renderer-pushed "keep running in the background" setting. Read
   // synchronously inside `window-all-closed`, which is precisely when no
@@ -668,24 +660,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     })
   }
 
-  // The agent-launch settings (CLI runtimes, MCP, knowledge roots, last CLI,
-  // spawn permission preset). Main owns them: windows read and patch this
-  // store over IPC, and every main-side launch reads it; persisted under
-  // userData.
-  const agentLaunchSettings = createAgentLaunchSettingsStore({
-    resolveUserDataDir: () => app.getPath('userData'),
-    logDiagnostic: (diagnostic) => {
-      void writeDiagnosticLog({ ...diagnostic, source: 'agents' })
-    },
-  })
   // A model-discovery pass main starts itself (boot, after an install) probes
   // with the same per-CLI command overrides a launch would use.
   setCliModelDiscoveryRuntimesResolver(() => agentLaunchSettings.get().cliRuntimes)
-  const conversationModelCatalog = createConversationModelCatalog({
-    listClis: () => listPluginRegistryEntries(),
-    readDiscovered: () => readDiscoveredCliModelCatalogs(),
-    userModels: (cli) => agentLaunchSettings.get().cliRuntimes[cli]?.models,
-  })
   // The version check asks about the same machines, with the same commands,
   // that Settings ▸ Agents lists: this one and each WSL distribution turned on.
   configureCliVersionService({ machines: launchSettingsCliMachines(() => agentLaunchSettings.get()) })
@@ -694,34 +671,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // machines change (below), so a badge follows without the hourly wait.
   subscribeKnownCliAvailability(() => scheduleCliVersionRead())
 
-  // The machines this computer offers (shared/execution-host.ts): this one,
-  // and on Windows each WSL distribution. One registry, installed for the whole
-  // process, so a launch, the reaper and the git runner resolve a host against
-  // the same per-machine settings. A change to those settings tells every
-  // window its machine list may read differently.
+  // One warning per distinct message per run: the same MCP config is synced
+  // on every WSL launch, and the same sentence each time is noise.
   const mcpWslWarningsSeen = new Set<string>()
-  const hosts = createHostRegistry({ readHostSettings: () => agentLaunchSettings.get().hosts })
-  installHostRegistry(hosts)
-  let lastHostSettings = JSON.stringify(agentLaunchSettings.get().hosts)
-  agentLaunchSettings.subscribe((record) => {
-    const next = JSON.stringify(record.settings.hosts)
-    if (next === lastHostSettings) return
-    lastHostSettings = next
-    hosts.notifyChanged()
-    // A distribution turned on or off adds or drops its CLI updates.
-    scheduleCliVersionRead()
-  })
-  // Git for a repository on a WSL machine runs in that distribution: a folder
-  // inside it (`\\wsl.localhost\<distro>\…`), or one an open workspace on that
-  // machine holds. Everything else keeps this machine's git.
-  // macOS and Linux have one machine, so their git never asks.
-  installGitHostResolver((cwd) => {
-    if (process.platform !== 'win32') return null
-    const byFolder = hosts.resolve({ folder: cwd })
-    if (byFolder.kind === 'wsl') return byFolder
-    const owner = findWorkspaceHostForPath(cwd)
-    return owner ? hosts.get(owner) : null
-  })
 
   // The Scheduled agents module registers on the module kernel AFTER app
   // services are constructed; index.ts injects the resolver once the kernel is
@@ -970,15 +922,15 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       // never fails; the empty arm is the type's other branch, not a swallowed
       // error — a target that matches nothing fails loudly at the plane.
       list: () => {
-        const result = conversationRuntime.listSessions()
+        const result = conversations.listSessions()
         return result.ok ? result.sessions : []
       },
       sendTurn: async ({ sessionId, message }) => {
-        const result = await conversationRuntime.sendTurn({ sessionId, message })
+        const result = await conversations.sendTurn({ sessionId, message })
         return result.ok ? { ok: true } : { ok: false, message: result.message }
       },
       interrupt: async ({ sessionId }) => {
-        const result = await conversationRuntime.interrupt({ sessionId })
+        const result = await conversations.interrupt({ sessionId })
         return result.ok ? { ok: true } : { ok: false, message: result.message }
       },
     },
@@ -1016,32 +968,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
 
   const workspaceBackupService = createWorkspaceBackupService({
     resolveUserDataDir: () => app.getPath('userData'),
-    // Read at write time, so the registry built below is in place by then.
+    // Read at write time, from the core's registry.
     readRegistry: () => workspaceRegistry.getState(),
     // At most one registry serialization every ten seconds; the newest request
     // inside the interval is written when it ends.
     minRegistryIntervalMs: 10_000,
-  })
-  const logWorkspaceSyncDiagnostic = (diagnostic: {
-    level: 'warning'
-    title: string
-    message: string
-    details?: string
-  }) => {
-    void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
-  }
-  // The authoritative workspace registry. It replaces the routing
-  // snapshot outright: routing lives IN the record now, so the
-  // workspaceNames/workspaceFolderPaths/workspaceModes side-maps that snapshot
-  // carried — each added to patch a specific placeholder gap — have nothing
-  // left to patch.
-  const workspaceRegistryStore = createWorkspaceRegistryStore({
-    resolveUserDataDir: () => app.getPath('userData'),
-    logDiagnostic: logWorkspaceSyncDiagnostic,
-  })
-  const workspaceRegistry = createWorkspaceRegistryService({
-    store: workspaceRegistryStore,
-    logDiagnostic: logWorkspaceSyncDiagnostic,
   })
   // An agent removed from the registry (its row deleted, or its workspace
   // removed) takes its stored prompts with it: they are a person's verbatim
@@ -1054,22 +985,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     }
     registeredAgents = next
   })
-  const workspaceSyncService = createWorkspaceSyncService({
-    registry: workspaceRegistry,
-    resolveResumeCapabilities: cliResumeCapabilities,
-  })
-  // The WSL machine of the open workspace whose folder holds `path`, for the
-  // git runner: a WSL workspace whose folder sits on a Windows drive still runs
-  // its git in the distribution, where its agents run theirs.
-  function findWorkspaceHostForPath(path: string): string | null {
-    const target = comparablePath(path)
-    for (const workspace of workspaceSyncService.getSnapshot().state.workspaces) {
-      if (!isWslHostId(workspace.hostId) || !workspace.folderPath) continue
-      const folder = comparablePath(workspace.folderPath)
-      if (target === folder || target.startsWith(`${folder}/`)) return workspace.hostId
-    }
-    return null
-  }
 
   // Composing an agent launch is main's job. Built here, after the
   // terminal runtime and workspace sync, because it reads both: the workspace it
@@ -1173,7 +1088,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // Resume in terminal: a chat's CLI session handed to a terminal agent,
   // through the same launch door as every other agent.
   const conversationTerminalHandoff = createConversationTerminalHandoff({
-    runtime: conversationRuntime,
+    runtime: conversations,
     launch: (request) => agentLaunchService.launch(request),
     cliResumesSessions: (cli) => cliResumeCapabilities(cli).resumeSession,
     permissionPresetsForCli: (cli) => {
@@ -1249,7 +1164,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // stay-paired, phase 3): only while no window is focused, only the events a
   // person is waiting on, never the code. A click brings the app forward and
   // opens the Remote popover in the first workspace window.
-  const shownNotices = new Map<string, Notification>()
   const tailnetNotifier = createTailnetNotifier({
     isAnyWindowFocused: () =>
       BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()),
@@ -1265,19 +1179,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       revealMainWindow(window)
       window.webContents.send(REMOTE_OPEN_REQUESTED_CHANNEL)
     },
-    show: (notice, onClick) => {
-      if (!Notification.isSupported()) return
-      // A later phase of the same request replaces the banner rather than
-      // stacking "waiting" under "paired".
-      shownNotices.get(notice.key)?.close()
-      const banner = new Notification({ title: notice.title, body: notice.body, silent: false })
-      banner.on('click', onClick)
-      banner.on('close', () => {
-        if (shownNotices.get(notice.key) === banner) shownNotices.delete(notice.key)
-      })
-      shownNotices.set(notice.key, banner)
-      banner.show()
-    },
+    // A later phase of the same request replaces the banner rather than
+    // stacking "waiting" under "paired": the notice's key says which.
+    show: (notice, onClick) => platform.notifier.notify({ ...notice, onActivate: onClick }),
   })
   // The embedded browser's main half (browser-pane epic): adopts the guests the
   // pane's browser tabs attach, drives them, and finds the dev servers this
@@ -1399,66 +1303,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     return CANVAS_MODULE_DEFAULT_ENABLED
   }
 
-  // Starting a chat in main, for a caller with no window here to start it in
-  // (a paired machine's New chat, `conversation.create`). The record goes
-  // through the sequenced bus like any agent main registers, so every window
-  // and paired device hears about the chat the moment it exists.
-  const conversationLaunchService = createConversationLaunchService({
-    getWorkspace: (workspaceId) => workspaceRegistry.getRecord(workspaceId) ?? null,
-    getLaunchSettings: () => agentLaunchSettings.get(),
-    writeAgent: (workspaceId, agentId, agent) =>
-      workspaceSyncService.updateWorkspaceAgent(workspaceId, agentId, agent, 'system'),
-    listWorkspaces: () => workspaceRegistry.getRecords(),
-    createWorkspace: (request) => {
-      const created = workspaceSyncService.createWorkspace(request, 'system')
-      return created.ok ? { ok: true, workspaceId: created.result.workspace.id } : created
-    },
-    removeWorkspace: (workspaceId) => {
-      workspaceSyncService.removeWorkspace(workspaceId, 'system')
-    },
-    startSession: (input) => conversationRuntime.startSession(input),
-    send: (input) => conversationRuntime.sendTurn(input),
-    // The same installer a terminal launch's skill-at-spawn uses, into the
-    // folder the chat works in (a run's worktree when it has one).
-    ensureSkillInstalled: (workingRoot, skillId) => ensureSkillInstalled(workingRoot, skillId),
-    warn: (message) => {
-      void writeDiagnosticLog({ level: 'warning', source: 'workspace', title: 'Chat launch', message })
-    },
-  })
-
-  // What an agent of this app is running on now, for the gateway's launch cap:
-  // an agent may start agents only at its own preset or stricter.
-  const resolveAgentPermissionPreset = createAgentPermissionResolver({
-    listConversationSessions: (agentId) => {
-      const listed = conversationRuntime.listSessions({ agentId })
-      return listed.ok ? listed.sessions : []
-    },
-    // The live session objects, not `listTerminals()` snapshots: only four
-    // fields are read, and a snapshot of every session is not cheap.
-    listTerminalSessions: () =>
-      listLiveTerminalSessions().map((session) => ({
-        kind: session.kind,
-        workspaceId: session.workspaceId,
-        agentId: session.agentId,
-        processAlive: isTerminalProcessAlive(session),
-        agentRecord: session.agentRecord,
-      })),
-    readAgentRecordPreset: (workspaceId, agentId) => {
-      const agent = workspaceRegistry.getRecord(workspaceId)?.agents[agentId]
-      return agent ? { found: true, preset: agent.cliPermissionPreset } : { found: false }
-    },
-  })
-
   // Instance-global SprintEngine Studio MCP surface: reads come from the
   // workspace-sync snapshot and terminal runtime, and mutations go straight to
   // the main services that own them — one lane, no window required.
   // The gateway starts with the app.
-  const automationService = createAutomationService({
-    resolveUserDataDir: () => app.getPath('userData'),
-    appVersion: app.getVersion(),
-    // Dev runs serve the script straight from the repo; packaged builds ship
-    // it via the electron-builder extraResources entry (resources/automation).
-    resolveBridgeScriptPath: resolveStudioMcpBridgeScriptPath,
+  const automationService = createStudioGateway(core, {
     // The live-state push (remote-sessions-ux): every window hears listener,
     // pairing, and connection changes the moment main does — the fix for pair
     // requests that could expire while only Settings, if open, would show them.
@@ -1483,298 +1332,255 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         (window) =>
           !window.isDestroyed() && !isCanvasWorkerWindow(window) && window.isVisible() && !window.isMinimized(),
       ),
-    resolveConversationHost: () =>
-      createConversationGatewayHost(
-        conversationRuntime,
-        (workspaceId) => workspaceRegistry.getRecord(workspaceId)?.folderPath ?? null,
-        () =>
-          workspaceRegistry
-            .getRecords()
-            .filter((record) => Boolean(record.folderPath))
-            .map((record) => ({
-              workspaceId: record.id,
-              workspaceRoot: record.folderPath!,
-            })),
-        // A chat's own agent record carries the preset the person last chose
-        // for it; a chat without one starts on the app-wide spawn default, as a
-        // new chat in a window does.
-        (key) =>
-          parseCliPermissionPreset(
-            workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]?.cliPermissionPreset,
-          ) ?? effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastAgentSpawnPermissionPreset,
-        // The agent record's name — the same record, and the same field, this
-        // desktop's tab and sidebar read — so a remote lists the chat by the
-        // name it has here rather than by its first message.
-        (key) => workspaceRegistry.getRecord(key.workspaceId)?.agents[key.agentId]?.name,
-        // The chat's CLI catalog as this machine's own picker lists it, so a
-        // paired device offers the same models and can switch to no other.
-        conversationModelCatalog,
-      ),
-    // The gateway's tool set: core app tools + canonical run tools merged once,
-    // module-contributed tools read from the host kernel per request
-    // and gated on their owner's live enablement.
-    resolveGatewayTools: createStudioGatewayTools({
-      resolveModuleTools: () => resolveModuleMcpTools(),
-      isModuleEnabled: (moduleId) => resolveModuleEnabled(moduleId),
-      // A module tool runs under its caller's launch cap, so a chat the module
-      // starts for a capped agent is no looser than that agent.
-      callerPermissionCeiling: (context) => launchPermissionCeiling(context, resolveAgentPermissionPreset),
-      warn: (details) => {
-        void writeDiagnosticLog({
-          level: 'warning',
-          source: 'workspace',
-          title: 'Studio MCP gateway',
-          message: 'Studio MCP gateway',
-          details,
-        })
-      },
-      appTools: [
-        ...createBrowserTools({
-          manager: browserManager,
-          control: browserControl,
-          hasWorkspace: (workspaceId) =>
-            workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
-        }),
-        ...createCanvasTools({
-          service: canvasService,
-          hasWorkspace: (workspaceId) =>
-            workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
-          isCanvasEnabled,
-        }),
-        ...createEditorTools(
-          createEditorToolBackends({
-            findWorkspace: (workspaceId) =>
-              workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId) ??
-              null,
-            listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
-            agentWrittenFiles,
-            broker: editorRevealBroker,
-            userDataDir: () => app.getPath('userData'),
-            isAppFocused: () =>
-              BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()),
-          }),
-        ),
-        ...createTourTools({
-          service: tourService,
-          hasWorkspace: (workspaceId) =>
-            workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
-        }),
-        ...createConversationTools({
-          launch: (request) => conversationLaunchService.launch(request),
-          resolveAgentPermissionPreset,
-        }),
-        ...createAutomationTools({
-          getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
+    // Module-contributed tools, read from the host kernel per request and
+    // gated on their owner's live enablement.
+    resolveModuleTools: () => resolveModuleMcpTools(),
+    isModuleEnabled: (moduleId) => resolveModuleEnabled(moduleId),
+    // The core's own tools (`conversation.create`) among this app's window,
+    // terminal and run tools, in the order agents have always listed them.
+    appTools: (coreTools) => [
+      ...createBrowserTools({
+        manager: browserManager,
+        control: browserControl,
+        hasWorkspace: (workspaceId) =>
+          workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
+      }),
+      ...createCanvasTools({
+        service: canvasService,
+        hasWorkspace: (workspaceId) =>
+          workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
+        isCanvasEnabled,
+      }),
+      ...createEditorTools(
+        createEditorToolBackends({
+          findWorkspace: (workspaceId) =>
+            workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId) ??
+            null,
           listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
-          launchAgent: (request) => agentLaunchService.launch(request),
-          resolveAgentPermissionPreset,
-          createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
-          listBacklogItems: (workspaceRoot) => listBacklogItems(workspaceRoot),
-          readBacklogItem: (workspaceRoot, relativePath) => readBacklogItem(workspaceRoot, relativePath),
-          backlogWrite: {
-            updateStatus: updateBacklogStatus,
-            updateType: updateBacklogType,
-            updateTriage: updateBacklogTriage,
-            updateEpic: updateBacklogEpic,
-            updateDependenciesPlanned: updateBacklogDependenciesPlanned,
-            addOrUpdateLink: addOrUpdateBacklogLink,
-            repairIntegrity: repairBacklogIntegrity,
-          },
-          getScheduledAgents: () => resolveScheduledAgents(),
-          defaultChatCli: () => effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastSelectedCli ?? null,
-          // The mobile companion, which reaches this desktop only over the
-          // tailnet gateway: the snapshot builder and the command service behind
-          // `workspace.snapshot` and `workspace.mobile_command`, scoped to the
-          // workspaces main already knows. Both are stateless enough to own here,
-          // and nothing else holds an instance: this desktop publishes nothing
-          // to a phone, it only answers what a paired device asks.
-          mobileControl: (() => {
-            // Dev servers this machine publishes on the tailnet ride the snapshot
-            // so the phone has a door to them. Stateless; the daemon is the truth.
-            const shareService = createTailnetShareService()
-            const snapshotService = new MobileControlSnapshotService({
-              readWebTargets: () => readTailnetWebTargets(shareService),
-            })
-            const commandService = new MobileControlCommandService()
-            // Stable for the app's lifetime; the phone treats it as an opaque id.
-            const desktopSessionId = `tailnet:${hostname()}`
-            // The commands the gateway transport actually serves: snapshot reads
-            // via workspace.snapshot, mutations via workspace.mobile_command's
-            // allowlist. Advertised in the snapshot so the phone's affordance
-            // gate shows exactly what will work over this transport.
-            const gatewayCommands: MobileControlCommandType[] = ['snapshot.request', 'backlog.update']
-            const workspaceRoots = () =>
-              uniqueResolvedRoots(listKnownWorkspaceRoots(workspaceSyncService.getSnapshot()))
-            return {
-              async readSnapshot(input: { include?: string[]; knownSnapshotVersion?: string }) {
-                const roots = workspaceRoots()
-                // An empty or absent `include` is the default set. A named one is
-                // served exactly, retired names included: they select nothing, so
-                // a read that names only a retired collection gets an empty
-                // snapshot rather than silently widening to every collection.
-                const include =
-                  input.include && input.include.length > 0
-                    ? input.include.filter((entry): entry is MobileSnapshotCollection =>
-                        (mobileSnapshotCollections as readonly string[]).includes(entry),
-                      )
-                    : undefined
-                const snapshot = await snapshotService.readSnapshot({
-                  desktopSessionId,
-                  workspaceRoots: roots,
-                  commands: gatewayCommands,
-                  ...(include ? { include } : {}),
-                })
-                // The version is computed before sanitizing and sanitizing
-                // keeps it, so an unchanged read is answered without the copy.
-                if (input.knownSnapshotVersion && input.knownSnapshotVersion === snapshot.snapshotVersion) {
-                  return { unchanged: true as const, snapshotVersion: snapshot.snapshotVersion }
-                }
-                const safe = sanitizeMobileSnapshotForTransport(snapshot)
-                return { unchanged: false as const, snapshot: safe as unknown as Record<string, unknown> }
-              },
-              async dispatchCommand(input: {
-                type: string
-                payload: Record<string, unknown>
-                deviceId: string
-                idempotencyKey: string
-                expectedSnapshotVersion?: string
-              }) {
-                const result = await commandService.dispatch(
-                  {
-                    protocolVersion: mobileControlProtocolVersion,
-                    commandId: `tnc_${randomUUID()}`,
-                    type: input.type,
-                    payload: input.payload,
-                    deviceId: input.deviceId,
-                    issuedAt: new Date().toISOString(),
-                    idempotencyKey: input.idempotencyKey,
-                    ...(input.expectedSnapshotVersion
-                      ? { expectedSnapshotVersion: input.expectedSnapshotVersion }
-                      : {}),
-                  },
-                  { allowedWorkspaceRoots: workspaceRoots() },
-                )
-                if (!result.ok) {
-                  return { ok: false as const, code: result.error.code, message: result.error.message }
-                }
-                return {
-                  ok: true as const,
-                  commandId: result.commandId,
-                  commandType: result.commandType,
-                  executedAt: result.executedAt,
-                  // The result crosses to another device: local paths never do.
-                  data: deepRedactLocalPaths(result.data),
-                }
-              },
-            }
-          })(),
-          // Agent-at-launch worktrees (agent.launch isolation + every connector
-          // launch): derive the `agent/<slug>` branch and container the Worktree
-          // manager uses, then create through the shared git helper. Mirrors
-          // WorkspaceManager's own worktree-agent spawn (copyIncludedFiles carries
-          // the repo's worktree-include set into the isolated tree).
-          createAgentWorktree: async ({ workspaceRoot, name, baseRef }) => {
-            const paths = agentWorktreePaths(workspaceRoot, name)
-            if (!paths) return { error: `"${name}" does not reduce to a usable worktree name.` }
-            const created = await createGitWorktree({
-              repoRoot: workspaceRoot,
-              containerPath: paths.containerPath,
-              destinationPath: paths.destinationPath,
-              branchName: paths.branchName,
-              // A remote launch names the branch to fork from (its picker lists
-              // this checkout's branches); a local one forks HEAD as it always did.
-              baseRef: baseRef?.trim() || 'HEAD',
-              copyIncludedFiles: true,
-              // The agent's id is minted after this, by the launch; the branch
-              // names the owner until then.
-              agentLockOwner: paths.branchName,
-            })
-            if (!created.ok) return { error: created.message ?? 'Git worktree creation failed.' }
-            return { worktreePath: created.data.path, branch: created.data.branch ?? paths.branchName }
-          },
-          readRepositoryIdentity: (folderPath) => readRepositoryIdentity(folderPath),
-          // The facts behind `workspace.checkout` (checkout-and-branch-on-remote-
-          // create): the same readers the sidebar rows and the Worktree manager
-          // use, so a remote picker lists exactly what this machine's Git view
-          // would. Not a repo is an answer, not an error.
-          readWorkspaceCheckout: async (workspaceRoot) => {
-            const empty = { git: false as const, branch: null, defaultBranch: null, branches: [], worktrees: [] }
-            const repoRoot = await getGitRepoRoot(workspaceRoot).catch(() => null)
-            if (!repoRoot) return empty
-            const [branch, snapshot, worktrees] = await Promise.all([
-              readBranchName(repoRoot),
-              getGitBranches(repoRoot).catch(() => null),
-              listGitWorktrees(repoRoot).catch(() => null),
-            ])
-            const trunk = await resolveTrunk(repoRoot, branch).catch(() => null)
-            return {
-              git: true,
-              branch,
-              defaultBranch: trunk?.name ?? null,
-              // `git branch` prints a detached HEAD as a pseudo-entry,
-              // "(HEAD detached at abc)", marked current; it is not a ref
-              // anyone can fork from and is dropped.
-              branches: (snapshot?.branches ?? [])
-                .filter((entry) => !entry.name.startsWith('('))
-                .map((entry) => ({ name: entry.name, current: entry.current })),
-              worktrees: worktrees?.ok
-                ? worktrees.data.worktrees
-                    .filter((entry) => !entry.bare)
-                    // `git worktree list` names the main worktree first, always.
-                    .map((entry, index) => ({ path: entry.path, branch: entry.branch, isMain: index === 0 }))
-                : [],
-            }
-          },
-          // module.*/marketplace.*. The registry snapshot is the
-          // renderer's mirror — main's own module list omits every renderer-only
-          // module, so reporting from it would be wrong by construction. Trust
-          // and launch readiness stay main-owned (signature verification and the
-          // trust store live here), and the marketplace read goes through the
-          // same client the Extensions storefront's IPC uses, cache included.
-          getModuleRegistrySnapshot: () => moduleRegistryMirror.read(),
-          listInstalledThirdPartyModules: async () => {
-            const { modules, rejected } = await discoverUserModules(
-              defaultUserModuleRoot(),
-              readModuleTrustContextSync(app.getPath('userData')),
-            )
-            return { modules: modules.map((module) => toThirdPartyModuleView(module)), rejected }
-          },
-          listModuleContributedTools: () =>
-            resolveModuleMcpTools().map((tool) => ({ moduleId: tool.moduleId, toolName: tool.registration.name })),
-          readMarketplaceRegistry: (input) => marketplaceRegistryReader.read(input),
-          // backlog.work composes the target CLI's native skill invocation from the
-          // loaded plugin manifests.
-          listPlugins: () => getPluginRegistry().loaded(),
-          // backlog.work ensures the Backlog skill exists in the CLI's native dir
-          // before launch (the same getStatus → install seam as a spawn). Reports
-          // whether the skill is now present; a false result is non-fatal. Asked
-          // of the machine the agent will run on: a WSL machine is prepared
-          // first (the launch that follows waits for the same), so its answer
-          // is the one that launch will act on.
-          ensureBuiltinSkillInstalled: async (workspaceRoot, skillId, cli, hostId) => {
-            const host = hostRegistry().resolve({ requested: hostId ?? null, folder: workspaceRoot })
-            if (host.kind === 'wsl') await host.prepare().catch(() => undefined)
-            const result = await ensureSkillInstalled(workspaceRoot, skillId, {
-              cli,
-              hostId: host.id,
-              integration: host.agentIntegration(),
-            })
-            if (!result.ok && result.status === 'unknown-skill') {
-              console.warn(`[skills] backlog.work asked for unknown skill "${skillId}".`)
-            }
-            return result.ok
-          },
+          agentWrittenFiles,
+          broker: editorRevealBroker,
+          userDataDir: () => app.getPath('userData'),
+          isAppFocused: () =>
+            BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()),
         }),
-        // Remote-control configuration, local socket only: the listener refuses
-        // this whole family regardless of a device's scopes (tailnet-scopes.ts).
-        ...createTailnetTools({ resolveTailnet: () => tailnetToolsFrontDoor }),
-      ],
-    }),
-    logDiagnostic: (diagnostic) => {
-      void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
-    },
+      ),
+      ...createTourTools({
+        service: tourService,
+        hasWorkspace: (workspaceId) =>
+          workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
+      }),
+      ...coreTools,
+      ...createAutomationTools({
+        getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
+        listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
+        launchAgent: (request) => agentLaunchService.launch(request),
+        resolveAgentPermissionPreset,
+        createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
+        listBacklogItems: (workspaceRoot) => listBacklogItems(workspaceRoot),
+        readBacklogItem: (workspaceRoot, relativePath) => readBacklogItem(workspaceRoot, relativePath),
+        backlogWrite: {
+          updateStatus: updateBacklogStatus,
+          updateType: updateBacklogType,
+          updateTriage: updateBacklogTriage,
+          updateEpic: updateBacklogEpic,
+          updateDependenciesPlanned: updateBacklogDependenciesPlanned,
+          addOrUpdateLink: addOrUpdateBacklogLink,
+          repairIntegrity: repairBacklogIntegrity,
+        },
+        getScheduledAgents: () => resolveScheduledAgents(),
+        defaultChatCli: () => effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastSelectedCli ?? null,
+        // The mobile companion, which reaches this desktop only over the
+        // tailnet gateway: the snapshot builder and the command service behind
+        // `workspace.snapshot` and `workspace.mobile_command`, scoped to the
+        // workspaces main already knows. Both are stateless enough to own here,
+        // and nothing else holds an instance: this desktop publishes nothing
+        // to a phone, it only answers what a paired device asks.
+        mobileControl: (() => {
+          // Dev servers this machine publishes on the tailnet ride the snapshot
+          // so the phone has a door to them. Stateless; the daemon is the truth.
+          const shareService = createTailnetShareService()
+          const snapshotService = new MobileControlSnapshotService({
+            readWebTargets: () => readTailnetWebTargets(shareService),
+          })
+          const commandService = new MobileControlCommandService()
+          // Stable for the app's lifetime; the phone treats it as an opaque id.
+          const desktopSessionId = `tailnet:${hostname()}`
+          // The commands the gateway transport actually serves: snapshot reads
+          // via workspace.snapshot, mutations via workspace.mobile_command's
+          // allowlist. Advertised in the snapshot so the phone's affordance
+          // gate shows exactly what will work over this transport.
+          const gatewayCommands: MobileControlCommandType[] = ['snapshot.request', 'backlog.update']
+          const workspaceRoots = () => uniqueResolvedRoots(listKnownWorkspaceRoots(workspaceSyncService.getSnapshot()))
+          return {
+            async readSnapshot(input: { include?: string[]; knownSnapshotVersion?: string }) {
+              const roots = workspaceRoots()
+              // An empty or absent `include` is the default set. A named one is
+              // served exactly, retired names included: they select nothing, so
+              // a read that names only a retired collection gets an empty
+              // snapshot rather than silently widening to every collection.
+              const include =
+                input.include && input.include.length > 0
+                  ? input.include.filter((entry): entry is MobileSnapshotCollection =>
+                      (mobileSnapshotCollections as readonly string[]).includes(entry),
+                    )
+                  : undefined
+              const snapshot = await snapshotService.readSnapshot({
+                desktopSessionId,
+                workspaceRoots: roots,
+                commands: gatewayCommands,
+                ...(include ? { include } : {}),
+              })
+              // The version is computed before sanitizing and sanitizing
+              // keeps it, so an unchanged read is answered without the copy.
+              if (input.knownSnapshotVersion && input.knownSnapshotVersion === snapshot.snapshotVersion) {
+                return { unchanged: true as const, snapshotVersion: snapshot.snapshotVersion }
+              }
+              const safe = sanitizeMobileSnapshotForTransport(snapshot)
+              return { unchanged: false as const, snapshot: safe as unknown as Record<string, unknown> }
+            },
+            async dispatchCommand(input: {
+              type: string
+              payload: Record<string, unknown>
+              deviceId: string
+              idempotencyKey: string
+              expectedSnapshotVersion?: string
+            }) {
+              const result = await commandService.dispatch(
+                {
+                  protocolVersion: mobileControlProtocolVersion,
+                  commandId: `tnc_${randomUUID()}`,
+                  type: input.type,
+                  payload: input.payload,
+                  deviceId: input.deviceId,
+                  issuedAt: new Date().toISOString(),
+                  idempotencyKey: input.idempotencyKey,
+                  ...(input.expectedSnapshotVersion ? { expectedSnapshotVersion: input.expectedSnapshotVersion } : {}),
+                },
+                { allowedWorkspaceRoots: workspaceRoots() },
+              )
+              if (!result.ok) {
+                return { ok: false as const, code: result.error.code, message: result.error.message }
+              }
+              return {
+                ok: true as const,
+                commandId: result.commandId,
+                commandType: result.commandType,
+                executedAt: result.executedAt,
+                // The result crosses to another device: local paths never do.
+                data: deepRedactLocalPaths(result.data),
+              }
+            },
+          }
+        })(),
+        // Agent-at-launch worktrees (agent.launch isolation + every connector
+        // launch): derive the `agent/<slug>` branch and container the Worktree
+        // manager uses, then create through the shared git helper. Mirrors
+        // WorkspaceManager's own worktree-agent spawn (copyIncludedFiles carries
+        // the repo's worktree-include set into the isolated tree).
+        createAgentWorktree: async ({ workspaceRoot, name, baseRef }) => {
+          const paths = agentWorktreePaths(workspaceRoot, name)
+          if (!paths) return { error: `"${name}" does not reduce to a usable worktree name.` }
+          const created = await createGitWorktree({
+            repoRoot: workspaceRoot,
+            containerPath: paths.containerPath,
+            destinationPath: paths.destinationPath,
+            branchName: paths.branchName,
+            // A remote launch names the branch to fork from (its picker lists
+            // this checkout's branches); a local one forks HEAD as it always did.
+            baseRef: baseRef?.trim() || 'HEAD',
+            copyIncludedFiles: true,
+            // The agent's id is minted after this, by the launch; the branch
+            // names the owner until then.
+            agentLockOwner: paths.branchName,
+          })
+          if (!created.ok) return { error: created.message ?? 'Git worktree creation failed.' }
+          return { worktreePath: created.data.path, branch: created.data.branch ?? paths.branchName }
+        },
+        readRepositoryIdentity: (folderPath) => readRepositoryIdentity(folderPath),
+        // The facts behind `workspace.checkout` (checkout-and-branch-on-remote-
+        // create): the same readers the sidebar rows and the Worktree manager
+        // use, so a remote picker lists exactly what this machine's Git view
+        // would. Not a repo is an answer, not an error.
+        readWorkspaceCheckout: async (workspaceRoot) => {
+          const empty = { git: false as const, branch: null, defaultBranch: null, branches: [], worktrees: [] }
+          const repoRoot = await getGitRepoRoot(workspaceRoot).catch(() => null)
+          if (!repoRoot) return empty
+          const [branch, snapshot, worktrees] = await Promise.all([
+            readBranchName(repoRoot),
+            getGitBranches(repoRoot).catch(() => null),
+            listGitWorktrees(repoRoot).catch(() => null),
+          ])
+          const trunk = await resolveTrunk(repoRoot, branch).catch(() => null)
+          return {
+            git: true,
+            branch,
+            defaultBranch: trunk?.name ?? null,
+            // `git branch` prints a detached HEAD as a pseudo-entry,
+            // "(HEAD detached at abc)", marked current; it is not a ref
+            // anyone can fork from and is dropped.
+            branches: (snapshot?.branches ?? [])
+              .filter((entry) => !entry.name.startsWith('('))
+              .map((entry) => ({ name: entry.name, current: entry.current })),
+            worktrees: worktrees?.ok
+              ? worktrees.data.worktrees
+                  .filter((entry) => !entry.bare)
+                  // `git worktree list` names the main worktree first, always.
+                  .map((entry, index) => ({ path: entry.path, branch: entry.branch, isMain: index === 0 }))
+              : [],
+          }
+        },
+        // module.*/marketplace.*. The registry snapshot is the
+        // renderer's mirror — main's own module list omits every renderer-only
+        // module, so reporting from it would be wrong by construction. Trust
+        // and launch readiness stay main-owned (signature verification and the
+        // trust store live here), and the marketplace read goes through the
+        // same client the Extensions storefront's IPC uses, cache included.
+        getModuleRegistrySnapshot: () => moduleRegistryMirror.read(),
+        listInstalledThirdPartyModules: async () => {
+          const { modules, rejected } = await discoverUserModules(
+            defaultUserModuleRoot(),
+            readModuleTrustContextSync(app.getPath('userData')),
+          )
+          return { modules: modules.map((module) => toThirdPartyModuleView(module)), rejected }
+        },
+        listModuleContributedTools: () =>
+          resolveModuleMcpTools().map((tool) => ({ moduleId: tool.moduleId, toolName: tool.registration.name })),
+        readMarketplaceRegistry: (input) => marketplaceRegistryReader.read(input),
+        // backlog.work composes the target CLI's native skill invocation from the
+        // loaded plugin manifests.
+        listPlugins: () => getPluginRegistry().loaded(),
+        // backlog.work ensures the Backlog skill exists in the CLI's native dir
+        // before launch (the same getStatus → install seam as a spawn). Reports
+        // whether the skill is now present; a false result is non-fatal. Asked
+        // of the machine the agent will run on: a WSL machine is prepared
+        // first (the launch that follows waits for the same), so its answer
+        // is the one that launch will act on.
+        ensureBuiltinSkillInstalled: async (workspaceRoot, skillId, cli, hostId) => {
+          const host = hostRegistry().resolve({ requested: hostId ?? null, folder: workspaceRoot })
+          if (host.kind === 'wsl') await host.prepare().catch(() => undefined)
+          const result = await ensureSkillInstalled(workspaceRoot, skillId, {
+            cli,
+            hostId: host.id,
+            integration: host.agentIntegration(),
+          })
+          if (!result.ok && result.status === 'unknown-skill') {
+            console.warn(`[skills] backlog.work asked for unknown skill "${skillId}".`)
+          }
+          return result.ok
+        },
+      }),
+      // Remote-control configuration, local socket only: the listener refuses
+      // this whole family regardless of a device's scopes (tailnet-scopes.ts).
+      ...createTailnetTools({ resolveTailnet: () => tailnetToolsFrontDoor }),
+    ],
   })
   tailnetToolsFrontDoor = automationService
+  // The Studio RPC: the protocol applications on this machine follow, drive
+  // and start chats with, on an owner-only socket in userData/run, composed
+  // over the core and its gateway as a standalone server composes it. Its
+  // paths, version and the push to Settings are the platform's. Nothing in the
+  // app uses it yet; paired apps are listed and revoked in Settings.
+  const studioRpcService = createStudioRpc(core, automationService)
   // The conversation peek (hover a chat row or an agent tab): the prompts this
   // app captured for the session the card is anchored to. Built here rather
   // than inside the runtime so its assembly rules stay Electron-free and
@@ -1782,14 +1588,14 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const conversationPeek = createConversationPeekService({
     readSessionState: terminalRuntime.readConversationPeekSessionState,
     readConversationEvents: async (sessionId) => {
-      const listed = conversationRuntime.listSessions()
+      const listed = conversations.listSessions()
       const summary = listed.ok ? listed.sessions.find((session) => session.sessionId === sessionId) : undefined
       if (!summary) return null
       const workspaceRoot = workspaceRegistry.getRecord(summary.workspaceId)?.folderPath
       if (!workspaceRoot) return []
       // The first message and the newest turn, never the whole transcript:
       // a long chat is tens of megabytes, and a hover must not parse it.
-      return conversationRuntime
+      return conversations
         .readPeekTranscript({ workspaceRoot, workspaceId: summary.workspaceId, agentId: summary.agentId })
         .catch(() => [])
     },
@@ -1798,17 +1604,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // A live launched session whose agent is missing from its workspace is
   // adopted, so a launch-time write that did not land is not the end of it.
   terminalRuntime.subscribeSessionsChanged(() => launchedAgentRegistration.reconcile())
-  // The change feed (2026-09-05): paired devices used to poll workspace.list
-  // every thirty seconds; now the registry's accepted events become one small
-  // push, throttled in the listener so a burst here is one push there, and a
-  // device re-reads only when told to.
-  workspaceSyncService.subscribeEvents(() => automationService.notifyWorkspacesChanged())
-  // A conversation's row on another machine shows its phase: running, waiting
-  // on a person, done. The events that move it (never a token of a reply)
-  // become the same throttled push.
-  conversationRuntime.onEvent((event) => {
-    if (CONVERSATION_LIST_EVENTS.has(event.type)) automationService.notifyConversationsChanged()
-  })
   // The app's own plugin goes into every workspace it opens, at the two moments
   // a workspace becomes real to main: the roots the registry already holds when
   // this process starts, and every accepted registry event after that. Not at
@@ -1968,6 +1763,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     canvasService,
     canvasSubscribers,
     automationService,
+    studioRpcService,
     backgroundModeStore,
     telemetryConsentStore,
     analytics,
@@ -1992,7 +1788,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     builtinSkillManager,
     studioPluginService,
     studioAreaSkillStore,
-    conversationRuntime,
+    studioCore: core,
+    conversationOwner,
+    conversations,
     githubTokenStore,
     logMainPerfEvent,
     mcpConfigService,

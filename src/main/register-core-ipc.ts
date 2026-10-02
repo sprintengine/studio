@@ -1,3 +1,5 @@
+import { join } from 'node:path'
+
 import { app, BrowserWindow } from 'electron'
 import type { IpcMain } from 'electron'
 import { registerAgentConfigImportIpc } from './ipc/agent-config-import-ipc'
@@ -6,6 +8,11 @@ import { registerBackgroundModeIpc } from './ipc/background-mode-ipc'
 import { registerTelemetryIpc } from './ipc/telemetry-ipc'
 import { registerAuthIpc } from './ipc/auth-ipc'
 import { registerAutomationIpc } from './ipc/automation-ipc'
+import { registerStudioLocalAppsIpc } from './ipc/studio-local-apps-ipc'
+import { registerStudioConnectionIpc } from './ipc/studio-connection-ipc'
+import { createStudioChatBackend } from './studio-rpc/studio-chat-backend'
+import { CONVERSATION_ATTACHMENTS_DIRECTORY } from './conversation-attachment-store'
+import { CONVERSATION_PLANS_DIRECTORY } from './conversation-plan-store'
 import { registerAppMenuIpc } from './app-menu'
 import { registerBacklogIpc } from './ipc/backlog-ipc'
 import { registerBuiltinSkillsIpc } from './ipc/builtin-skills-ipc'
@@ -30,7 +37,7 @@ import { registerMeshIpc } from './ipc/mesh-ipc'
 import { createFolderOpenIpcDependencies, registerFolderOpenIpc } from './ipc/folder-open-ipc'
 import { registerGitHubTokenIpc } from './ipc/github-token-ipc'
 import { registerGitHubReposIpc } from './ipc/github-repos-ipc'
-import { registerGitIpc } from './ipc/git-ipc'
+import { gitRepoRootFor, registerGitIpc } from './ipc/git-ipc'
 import { registerDesignSystemIpc } from './ipc/design-system-ipc'
 import { registerMcpIpc } from './ipc/mcp-ipc'
 import { registerMemoryActivityIpc } from './ipc/memory-activity-ipc'
@@ -76,7 +83,8 @@ import type { AppServices } from './app-services'
 import { createFilesystemMutationHandlers } from './filesystem-mutation-handlers'
 import { createFilesystemReadHandlers } from './filesystem-read'
 import { createFilesystemWatchSearchHandlers } from './filesystem-watch-search-handlers'
-import { openDiagnosticsLogsFolder, writeDiagnosticLog } from './diagnostics-service'
+import { openDiagnosticsLogsFolder } from './diagnostics-folder'
+import { writeDiagnosticLog } from './diagnostics-service'
 
 export type CoreIpcOptions = {
   includeDevModules?: boolean
@@ -120,6 +128,8 @@ export function registerCoreIpc(
     registry: services.workspaceRegistry,
   })
   registerAutomationIpc(ipcMain, services.automationService)
+  registerStudioLocalAppsIpc(ipcMain, services.studioRpcService)
+  registerStudioConnectionIpc(ipcMain, services.studioRpcService)
   registerMeshIpc(ipcMain, services.automationService)
   registerAppMenuIpc(ipcMain)
   registerWorkspaceBackupIpc(ipcMain, services.workspaceBackupService)
@@ -148,7 +158,8 @@ export function registerCoreIpc(
     agentCapabilities: services.agentCapabilityService,
     agentSkillInstaller: services.agentSkillInstaller,
   })
-  registerFilesystemWatchSearchIpc(ipcMain, createFilesystemWatchSearchHandlers())
+  const filesystemSearchHandlers = createFilesystemWatchSearchHandlers()
+  registerFilesystemWatchSearchIpc(ipcMain, filesystemSearchHandlers)
   const filesystemReadHandlers = createFilesystemReadHandlers()
   registerFilesystemReadIpc(ipcMain, filesystemReadHandlers)
   // The file-manager target of the open-in-editor control is the same reveal the
@@ -166,7 +177,7 @@ export function registerCoreIpc(
     openDiagnosticsWindow: () => {
       createDiagnosticsWindow()
     },
-    listConversationRoots: () => services.conversationRuntime.listLiveConversationRoots(),
+    listConversationRoots: () => services.conversations.listLiveConversationRoots(),
   })
   registerUpdateIpc(ipcMain, { updateService: services.updateService })
   registerLaunchSettingsIpc(ipcMain, { launchSettings: services.agentLaunchSettings })
@@ -217,10 +228,36 @@ export function registerCoreIpc(
   registerCliVersionIpc(ipcMain)
   registerMarketplacePluginIpc(ipcMain, services)
   registerPluginIpc(ipcMain)
+  // Over the core's chats, as every in-process consumer reaches them.
+  const conversationHandlers = createConversationIpcHandlers(services.conversations)
   registerConversationIpc(ipcMain, {
-    ...createConversationIpcHandlers(services.conversationRuntime),
+    ...conversationHandlers,
     terminalHandoff: (input) => services.conversationTerminalHandoff.handoff(input),
   })
+  // The Studio RPC's chat surface is these same handlers, so a chat view on
+  // the protocol and one on IPC reach one chat by the same rules.
+  services.studioRpcService.provideChat(
+    createStudioChatBackend({
+      conversation: conversationHandlers,
+      files: { ...filesystemSearchHandlers, ...filesystemReadHandlers },
+      repoRoot: gitRepoRootFor,
+      hasReceipt: (sessionId, commandId) => services.conversations.hasCommandReceipt(sessionId, commandId),
+      // A run's worktree is inside its repository's folder, or a workspace of its own.
+      readableRoots: () => [
+        ...services.workspaceRegistry.getRecords().flatMap((record) => (record.folderPath ? [record.folderPath] : [])),
+        join(app.getPath('userData'), CONVERSATION_ATTACHMENTS_DIRECTORY),
+        join(app.getPath('userData'), CONVERSATION_PLANS_DIRECTORY),
+      ],
+      commands: (input) => conversationCommands.list(input),
+      workspaces: () =>
+        services.workspaceRegistry.getRecords().map((record) => ({
+          id: record.id,
+          name: record.name,
+          folderPath: record.folderPath ?? null,
+          ...(record.hostId ? { hostId: record.hostId } : {}),
+        })),
+    }),
+  )
   registerCredentialIpc(ipcMain)
   registerDesignSystemIpc(ipcMain)
   registerThirdPartyModuleIpc(ipcMain, services)
@@ -233,7 +270,7 @@ export function registerCoreIpc(
     // headless conversation child processes share the threshold.
     setIdleSuspendThresholdMs: (value: unknown): void => {
       services.terminalRuntime.ipcHandlers.setIdleSuspendThresholdMs(value)
-      services.conversationRuntime.setIdleThresholdMs(value)
+      services.conversationOwner.setIdleThresholdMs(value)
     },
   })
 

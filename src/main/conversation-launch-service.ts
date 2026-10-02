@@ -105,6 +105,13 @@ export type ConversationLaunchRequest = {
   permissionPreset?: CliPermissionPreset
   /** The CLI's own mode at `permissionPreset`, read only beside it. */
   permissionMode?: string
+  /**
+   * Tools the chat's session may use without asking, by its CLI's names for
+   * them. They hold for the session this launch starts, as `connectorId`'s
+   * servers do; a session started again later (after a restart) asks as its
+   * preset says. A CLI whose chat cannot take the list ignores it.
+   */
+  allowedTools?: string[]
   /** The chat's first message. */
   prompt?: string
   name?: string
@@ -118,6 +125,8 @@ export type ConversationLaunchRequest = {
   attachments?: ConversationImageAttachment[]
   /** The module that started the chat; only that module reaches it through the module service. */
   ownerModuleId?: string
+  /** The caller's namespaced id for this create, kept on the chat so a retry can find it. */
+  launchCommandId?: string
   /**
    * The scheduled agent whose run this is. Written on the workspace a new
    * chat is born in (`Workspace.scheduledAgentId`), so the chat says where it
@@ -273,6 +282,7 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
     // preset's own mode.
     const ownMode = request.permissionPreset ? parseCliPermissionModeId(request.permissionMode) : permission.mode
     const permissionMode = ownMode && conversationPermissionModes(cli).includes(ownMode) ? ownMode : undefined
+    const allowedTools = [...new Set((request.allowedTools ?? []).map((tool) => tool.trim()).filter(Boolean))]
     // The run worktree when there is one: the session starts there, so the
     // agent's edits, its transcript and the skills below all stay inside it.
     const worktreePath = request.worktreePath?.trim() || undefined
@@ -328,6 +338,7 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
       ...(worktreePath ? { execution: { mode: 'worktree' as const, worktreeId: null, cwd: worktreePath } } : {}),
       ...(skills.length > 0 ? { conversationSkills: skills } : {}),
       ...(request.ownerModuleId?.trim() ? { ownerModuleId: request.ownerModuleId.trim() } : {}),
+      ...(request.launchCommandId ? { launchCommandId: request.launchCommandId } : {}),
     }
     let chatWorkspaceId = workspace.id
     if (newChat) {
@@ -388,6 +399,7 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
         permissionPreset,
         ...(permissionMode ? { permissionMode } : {}),
         ...(mcpServers.length > 0 ? { mcpServers } : {}),
+        ...(allowedTools.length > 0 ? { allowedTools } : {}),
       })
       .catch((error: unknown): ConversationStartSessionResult => ({
         ok: false,

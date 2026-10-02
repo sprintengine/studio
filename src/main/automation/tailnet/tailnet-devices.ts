@@ -1,8 +1,8 @@
-import { randomBytes, randomInt, timingSafeEqual } from 'crypto'
+import { randomBytes, randomInt } from 'crypto'
 import { chmodSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 
-import { hashSecret } from './secret-hash'
+import { hashSecret, secretsMatch } from './secret-hash'
 import type { TailnetPeerIdentity } from './tailnet-peer-identity'
 import {
   normalizeTailnetScopes,
@@ -907,13 +907,6 @@ function readOrigin(value: unknown): TailnetDeviceOrigin {
     kind: value.kind as TailnetDeviceOrigin['kind'],
     by: typeof value.by === 'string' && value.by ? value.by.slice(0, 120) : null,
   }
-}
-
-/** Constant-time comparison of two hex digests; length-mismatch short-circuits safely. */
-function secretsMatch(left: string, right: string): boolean {
-  const a = Buffer.from(left, 'utf8')
-  const b = Buffer.from(right, 'utf8')
-  return a.length === b.length && timingSafeEqual(a, b)
 }
 
 function message(error: unknown): string {

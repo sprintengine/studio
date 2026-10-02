@@ -93,18 +93,23 @@ export type GitIpcPaths = {
   livePaths?: () => string[]
 }
 
+// `hostId` names the machine whose git answers, for a caller that knows it
+// before any workspace does (a New chat on a WSL machine, see withGitHost).
+const scopedHost = (hostId: unknown) =>
+  isWslHostId(typeof hostId === 'string' ? hostId : null) ? hostRegistry().get(hostId as string) : null
+
+/** The repository a folder is in, asked of the machine `hostId` names: the IPC's answer, and the Studio RPC's. */
+export function gitRepoRootFor(folderPath: string, hostId?: unknown): Promise<string | null> {
+  return withGitHost(scopedHost(hostId), () => getGitRepoRoot(folderPath))
+}
+
 export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics, paths: GitIpcPaths): void {
   // The profile an agent worktree's in-use lock names, so this profile can tell
   // its own locks from another dev build's (agent-worktree-lock.ts).
   setAgentWorktreeLockProfile(paths.userDataDir)
-  // `hostId` names the machine whose git answers, for a caller that knows it
-  // before any workspace does (a New chat on a WSL machine, see withGitHost).
-  const scopedHost = (hostId: unknown) =>
-    isWslHostId(typeof hostId === 'string' ? hostId : null) ? hostRegistry().get(hostId as string) : null
-
   ipcMain.handle('git:get-repo-root', async (_, folderPath: string, hostId?: unknown) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'get-repo-root', { folderPath }, () =>
-      withGitHost(scopedHost(hostId), () => getGitRepoRoot(folderPath)),
+      gitRepoRootFor(folderPath, hostId),
     )
   })
 

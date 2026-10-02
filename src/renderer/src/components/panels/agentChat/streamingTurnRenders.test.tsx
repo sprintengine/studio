@@ -1,6 +1,7 @@
 import { JSDOM } from 'jsdom'
 import { expect, test, vi } from 'vitest'
 import type { TranscriptEntry, TranscriptToolEntry } from './conversationProjection'
+import { installStudioLoopback } from '../../../../../../tests/studio-chat-loopback'
 
 // Counts how often a step is presented, which each tool row does when it renders.
 const presented = vi.hoisted(() => ({ count: 0 }))
@@ -30,6 +31,7 @@ test('a token streaming into a turn re-renders its reply, not its steps', async 
     matchMedia: () => ({ matches: false, addEventListener: () => undefined, removeEventListener: () => undefined }),
     api: { platform: 'darwin' },
   })
+  installStudioLoopback(dom.window as unknown as { api: Record<string, unknown> })
   const { act, createElement } = await import('react')
   const { createRoot } = await import('react-dom/client')
   const { AssistantTurnBlock } = await import('./timelineRows')

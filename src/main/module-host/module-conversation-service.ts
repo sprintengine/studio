@@ -22,16 +22,35 @@
 // person's own default, which is theirs to choose and is not capped here.
 //
 // Events reach a module the way they reach a chat UI: redacted (secret-shaped
-// payload keys) and only for its own chats.
+// payload keys) and only for its own chats. `follow` delivers them the way
+// every follower of the protocol gets them: a snapshot, or only the events
+// after a cursor the log can vouch for, then a `synchronized` fence, then live.
+//
+// Every mutating call but `stop` takes the module's own `commandId`. It is
+// namespaced by the module (`module:<moduleId>:<commandId>`) and handed to
+// the runtime's durable command receipts, so a retry is answered with the
+// first attempt's result and never carried out twice, and one module can
+// neither collide with nor read another client's receipts. A create is
+// recorded on the chat it makes (`launchCommandId`), so a retried create finds
+// that chat rather than starting a second.
+//
+// `allowedTools` lets a chat use the named tools without asking, which for a
+// tool like a shell is as much as `bypass` for it; a module names them only
+// when its ceiling is `bypass`, and never through an agent's tool call that is
+// capped below it.
 
 import { randomUUID } from 'crypto'
 
 import { conversationWorkingRoot, type AgentState } from '../../shared/agent-state'
-import { cliForConversationProvider } from '../../shared/conversation-harness'
+import { cliForConversationProvider, conversationPermissionModes } from '../../shared/conversation-harness'
+import { parseCliPermissionModeId } from '../../shared/cli-permission-mode'
 import {
   CONVERSATION_PERMISSION_PRESETS,
+  type ConversationApprovalKind,
   type ConversationCliRuntimeOverrides,
   type ConversationEvent,
+  type ConversationSessionFrame,
+  type ConversationSubscribeInput,
   type ConversationInterruptInput,
   type ConversationListSessionsInput,
   type ConversationListSessionsResult,
@@ -52,16 +71,23 @@ import type {
   ModuleConversationCreateInput,
   ModuleConversationErrorCode,
   ModuleConversationEvent,
+  ModuleConversationFollowOptions,
   ModuleConversationImageAttachment,
   ModuleConversationPermissionPreset,
   ModuleConversationRef,
   ModuleConversationRegistry,
   ModuleConversationResult,
   ModuleConversationService,
+  ModuleConversationStreamFrame,
   ModuleConversationSummary,
 } from '../../shared/modules/conversation-service'
 import { isLooserCliPermissionPreset, type CliPermissionPreset } from '../../shared/cli-permission-preset'
-import { CONVERSATION_DEFAULT_MODEL_ID } from '../../../packages/conversation-protocol/src'
+import { ceilingAllowsUnaskedTools } from '../../shared/permission-ceiling'
+import {
+  CONVERSATION_DEFAULT_MODEL_ID,
+  CONVERSATION_MAX_MESSAGE_CHARS,
+  isConversationAllowedTools,
+} from '../../../packages/conversation-protocol/src/public'
 import { redactEvent } from '../companion-agent-service'
 import type { ConversationLaunchRequest, ConversationLaunchResult } from '../conversation-launch-service'
 import { clampToModuleToolCaller } from './module-tool-caller'
@@ -87,9 +113,20 @@ export type ModuleConversationRuntime = {
   onEvent(listener: (event: ConversationEvent) => void): () => void
 }
 
+/**
+ * Follow one conversation's log from a cursor: snapshot (or only the events
+ * after the cursor), a `synchronized` fence, then live events. The session
+ * API's `subscribe`, which every other follower uses too.
+ */
+export type ModuleConversationFollow = (
+  input: ConversationSubscribeInput,
+  listener: (frame: ConversationSessionFrame) => void,
+) => { dispose(): void; ready: Promise<void> }
+
 export type ModuleConversationDeps = {
   launch: (request: ConversationLaunchRequest) => Promise<ConversationLaunchResult>
   runtime: ModuleConversationRuntime
+  follow: ModuleConversationFollow
   /**
    * Patch a chat's agent record through the sequenced workspace bus. A preset
    * or model switch is written there as the chat view writes it, so the next
@@ -181,6 +218,27 @@ function isStringList(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === 'string' && entry.trim() !== '')
 }
 
+// A module's own id for a mutating call: what the wire takes for a commandId.
+function isCommandId(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 200
+}
+
+// A question's answers, bounded as the wire bounds them.
+function isAnswers(value: unknown): value is Record<string, string> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const entries = Object.entries(value)
+  let chars = 0
+  for (const [question, answer] of entries) {
+    if (typeof answer !== 'string') return false
+    chars += question.length + answer.length
+  }
+  return entries.length <= 64 && chars <= CONVERSATION_MAX_MESSAGE_CHARS
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+}
+
 function isAttachmentList(value: unknown): value is ModuleConversationImageAttachment[] {
   return (
     Array.isArray(value) &&
@@ -194,6 +252,43 @@ function isAttachmentList(value: unknown): value is ModuleConversationImageAttac
         typeof entry.byteLength === 'number',
     )
   )
+}
+
+function badCommandId(): Failure {
+  return failure('invalid_input', '"commandId" must be a string of 1 to 200 characters.')
+}
+
+/** A follow's cursor as the session API takes it, or why it is not one. */
+function followCursor(
+  options: ModuleConversationFollowOptions | undefined,
+): { afterSeq?: number; generation?: string; turnLimit?: number } | string {
+  if (options === undefined) return {}
+  if (typeof options !== 'object' || options === null) return 'follow takes an object of options, or none.'
+  if (options.afterSeq !== undefined && !isNonNegativeInteger(options.afterSeq))
+    return '"afterSeq" must be a sequence number.'
+  if (
+    options.generation !== undefined &&
+    (typeof options.generation !== 'string' || !options.generation || options.generation.length > 200)
+  )
+    return '"generation" must be the generation a snapshot or fence named.'
+  if (
+    options.turnLimit !== undefined &&
+    !(isNonNegativeInteger(options.turnLimit) && options.turnLimit >= 1 && options.turnLimit <= 100)
+  )
+    return '"turnLimit" must be between 1 and 100.'
+  return {
+    ...(options.afterSeq === undefined ? {} : { afterSeq: options.afterSeq }),
+    ...(options.generation === undefined ? {} : { generation: options.generation }),
+    ...(options.turnLimit === undefined ? {} : { turnLimit: options.turnLimit }),
+  }
+}
+
+/** A frame with its events redacted, as `subscribe` and `transcript` redact them. */
+function redactFrame(frame: ConversationSessionFrame): ModuleConversationStreamFrame {
+  if (frame.type === 'event') return { type: 'event', event: redactEvent(frame.event) }
+  if (frame.type === 'snapshot')
+    return { ...frame, page: { ...frame.page, events: frame.page.events.map(redactEvent) } }
+  return frame
 }
 
 function actionResult(result: ConversationSessionActionResult): ModuleConversationResult {
@@ -236,6 +331,22 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
     return clampToModuleToolCaller(own, deps.getCallerPermissionCeiling?.() ?? null)
   }
 
+  // Whether a module may name tools its chats use without asking: only one
+  // whose chats may go as far as `bypass`, and not while it is serving an
+  // agent's tool call that is capped below that.
+  function mayAllowTools(moduleId: string): boolean {
+    return ceilingAllowsUnaskedTools(
+      moduleConversationCeiling(declared(moduleId)),
+      deps.getCallerPermissionCeiling?.() ?? null,
+    )
+  }
+
+  // The runtime's receipt key for a module's command: its own id, namespaced
+  // so no other client's command shares it. Without one, a fresh id, as before.
+  function runtimeCommandId(moduleId: string, commandId: string | undefined): string {
+    return commandId === undefined ? newCommandId() : `module:${moduleId}:${commandId}`
+  }
+
   function findOwned(moduleId: string, ref: ModuleConversationRef): OwnedChat | null {
     const workspace = deps.getWorkspaceAgents().find((candidate) => candidate.id === ref.workspaceId)
     const agent = workspace?.agents[ref.agentId]
@@ -259,10 +370,25 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
 
   // A chat whose session ended (a restart, a stop) takes a turn by starting
   // its session again, on the engine and preset its record carries — the same
-  // thing a window's chat view does when the person types into it.
-  async function sessionFor(ref: ModuleConversationRef, owned: OwnedChat): Promise<string | Failure> {
+  // thing a window's chat view does when the person types into it. Calls that
+  // arrive while it is starting (a retried send) wait for that one start.
+  const starting = new Map<string, Promise<string | Failure>>()
+  function sessionFor(ref: ModuleConversationRef, owned: OwnedChat): Promise<string | Failure> {
     const live = liveSession(ref)
-    if (live) return live.sessionId
+    if (live) return Promise.resolve(live.sessionId)
+    const key = refKey(ref)
+    let start = starting.get(key)
+    if (!start) {
+      start = startSession(ref, owned)
+      starting.set(key, start)
+      const started = start
+      void started.then(() => {
+        if (starting.get(key) === started) starting.delete(key)
+      })
+    }
+    return start
+  }
+  async function startSession(ref: ModuleConversationRef, owned: OwnedChat): Promise<string | Failure> {
     const conversation = owned.agent.conversation
     if (!owned.workingRoot || !conversation) {
       return failure('workspace_folder_missing', `Workspace "${ref.workspaceId}" has no project folder.`)
@@ -288,13 +414,22 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
     return started.ok ? started.session.sessionId : failure('conversation_start_failed', started.message)
   }
 
-  // The live session's preset, else the one the chat's record starts it on.
+  // The live session's preset, else the one the chat's record starts it on,
+  // with the CLI's own mode at it when one other than the preset's own.
   function presetOf(
     live: ConversationSessionSummary | null | undefined,
     agent: AgentState | undefined,
-  ): { permissionPreset?: ModuleConversationPermissionPreset } {
-    const permissionPreset = live?.permissionPreset ?? agent?.cliPermissionPreset
-    return permissionPreset ? { permissionPreset } : {}
+  ): { permissionPreset?: ModuleConversationPermissionPreset; permissionMode?: string } {
+    if (live?.permissionPreset)
+      return {
+        permissionPreset: live.permissionPreset,
+        ...(live.permissionMode ? { permissionMode: live.permissionMode } : {}),
+      }
+    if (!agent?.cliPermissionPreset) return {}
+    return {
+      permissionPreset: agent.cliPermissionPreset,
+      ...(agent.cliPermissionMode ? { permissionMode: agent.cliPermissionMode } : {}),
+    }
   }
 
   function summarize(workspaceId: string, agent: AgentState): ModuleConversationSummary {
@@ -325,6 +460,118 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
     return summaries
   }
 
+  // Starting a chat for a module: checked, capped, launched and summarised.
+  async function createNow(
+    moduleId: string,
+    input: ModuleConversationCreateInput,
+    launchCommandId?: string,
+  ): Promise<ModuleConversationResult<{ conversation: ModuleConversationSummary }>> {
+    if (typeof input.workspaceId !== 'string' || !input.workspaceId.trim()) {
+      return failure('invalid_input', '"workspaceId" is required.')
+    }
+    for (const key of ['cli', 'model', 'prompt', 'name'] as const) {
+      if (input[key] !== undefined && typeof input[key] !== 'string') {
+        return failure('invalid_input', `"${key}" must be a string when provided.`)
+      }
+    }
+    if (input.skills !== undefined && !isStringList(input.skills)) {
+      return failure('invalid_input', '"skills" must be a list of skill ids.')
+    }
+    if (input.attachments !== undefined && !isAttachmentList(input.attachments)) {
+      return failure('invalid_input', '"attachments" must be a list of images.')
+    }
+    if (input.permissionPreset !== undefined && !isPermissionPreset(input.permissionPreset)) {
+      return failure('invalid_input', '"permissionPreset" must be "none", "manual", "auto" or "bypass".')
+    }
+    if (input.permissionMode !== undefined && !parseCliPermissionModeId(input.permissionMode)) {
+      return failure('invalid_input', '"permissionMode" must be one of the CLI\'s own mode ids.')
+    }
+    if (input.allowedTools !== undefined && !isConversationAllowedTools(input.allowedTools)) {
+      return failure('invalid_input', '"allowedTools" must be a list of at most 64 tool names.')
+    }
+    if (input.allowedTools?.length && !mayAllowTools(moduleId)) {
+      return failure(
+        'permission_missing',
+        `Module "${moduleId}" must declare "conversation:bypass" to let a chat use tools without asking.`,
+      )
+    }
+    const permissionPreset = capped(moduleId, input.permissionPreset)
+    // A mode belongs to the preset asked for; one lowered to the ceiling
+    // runs its own mode.
+    const permissionMode =
+      permissionPreset && permissionPreset === input.permissionPreset ? input.permissionMode : undefined
+    const launched = await deps.launch({
+      workspaceId: input.workspaceId.trim(),
+      ...(input.cli ? { cli: input.cli } : {}),
+      ...(input.model ? { cliModel: input.model } : {}),
+      ...(input.prompt ? { prompt: input.prompt } : {}),
+      ...(input.name ? { name: input.name } : {}),
+      ...(input.skills?.length ? { skills: input.skills } : {}),
+      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
+      ...(permissionPreset ? { permissionPreset } : {}),
+      ...(permissionMode ? { permissionMode } : {}),
+      ...(input.allowedTools?.length ? { allowedTools: input.allowedTools } : {}),
+      ownerModuleId: moduleId,
+      ...(launchCommandId ? { launchCommandId } : {}),
+    })
+    if (!launched.ok) return failure(launched.code as ModuleConversationErrorCode, launched.message)
+    const live = liveSession(launched)
+    const record = deps.getWorkspaceAgents().find((workspace) => workspace.id === launched.workspaceId)?.agents[
+      launched.agentId
+    ]
+    return {
+      ok: true,
+      conversation: {
+        workspaceId: launched.workspaceId,
+        agentId: launched.agentId,
+        sessionId: launched.sessionId,
+        name: launched.name,
+        cli: launched.cli,
+        providerId: launched.providerId,
+        modelId: launched.modelId,
+        status: live?.status ?? 'starting',
+        ...presetOf(live, record),
+      },
+    }
+  }
+
+  // The chat a module's earlier create with this id made, if it still exists.
+  function findCreated(moduleId: string, launchCommandId: string): ModuleConversationSummary | null {
+    for (const workspace of deps.getWorkspaceAgents()) {
+      for (const agent of Object.values(workspace.agents)) {
+        if (agent?.ownerModuleId === moduleId && agent.launchCommandId === launchCommandId)
+          return summarize(workspace.id, agent)
+      }
+    }
+    return null
+  }
+  const creating = new Map<string, Promise<ModuleConversationResult<{ conversation: ModuleConversationSummary }>>>()
+
+  // A question's answers, or a plan's decision, to the request it names, which
+  // the runtime refuses when the request is of another kind.
+  async function answer(
+    moduleId: string,
+    ref: ModuleConversationRef,
+    requestId: string,
+    requestKind: ConversationApprovalKind,
+    approved: boolean,
+    commandId: string | undefined,
+    answers?: Record<string, string>,
+  ): Promise<ModuleConversationResult> {
+    const live = liveSession(ref)
+    if (!live) return failure('runtime_refused', 'The conversation has no live session to answer.')
+    return deps.runtime
+      .respondToRequest({
+        sessionId: live.sessionId,
+        requestId,
+        approved,
+        requestKind,
+        ...(commandId === undefined ? {} : { commandId: runtimeCommandId(moduleId, commandId) }),
+        ...(answers ? { answers } : {}),
+      })
+      .then(actionResult, actionError)
+  }
+
   // ── Event fan-out ───────────────────────────────────────────────────────
 
   type Subscriber = { moduleId: string; ref: ModuleConversationRef; cb: (event: ModuleConversationEvent) => void }
@@ -335,6 +582,8 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
     last: string
   }
   const subscribers = new Map<string, Set<Subscriber>>()
+  // Every open follow's closer, so teardown ends them all.
+  const follows = new Set<() => void>()
   const watchers = new Set<Watcher>()
   let unsubscribeRuntime: (() => void) | null = null
   let unsubscribeWorkspaces: (() => void) | null = null
@@ -401,54 +650,23 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
       async create(input: ModuleConversationCreateInput) {
         if (!canOperate(moduleId)) return missing(moduleId, 'conversation:operate')
         if (typeof input !== 'object' || input === null) return failure('invalid_input', 'create takes an object.')
-        if (typeof input.workspaceId !== 'string' || !input.workspaceId.trim()) {
-          return failure('invalid_input', '"workspaceId" is required.')
+        if (input.commandId !== undefined && !isCommandId(input.commandId)) return badCommandId()
+        if (input.commandId === undefined) return createNow(moduleId, input)
+        // A retry while the first attempt is still starting the chat shares
+        // it; one after finds the chat on its record. Either way, one chat.
+        const launchCommandId = runtimeCommandId(moduleId, input.commandId)
+        const created = findCreated(moduleId, launchCommandId)
+        if (created) return { ok: true, conversation: created }
+        let pending = creating.get(launchCommandId)
+        if (!pending) {
+          pending = createNow(moduleId, input, launchCommandId)
+          creating.set(launchCommandId, pending)
+          const settled = pending
+          void settled.then(() => {
+            if (creating.get(launchCommandId) === settled) creating.delete(launchCommandId)
+          })
         }
-        for (const key of ['cli', 'model', 'prompt', 'name'] as const) {
-          if (input[key] !== undefined && typeof input[key] !== 'string') {
-            return failure('invalid_input', `"${key}" must be a string when provided.`)
-          }
-        }
-        if (input.skills !== undefined && !isStringList(input.skills)) {
-          return failure('invalid_input', '"skills" must be a list of skill ids.')
-        }
-        if (input.attachments !== undefined && !isAttachmentList(input.attachments)) {
-          return failure('invalid_input', '"attachments" must be a list of images.')
-        }
-        if (input.permissionPreset !== undefined && !isPermissionPreset(input.permissionPreset)) {
-          return failure('invalid_input', '"permissionPreset" must be "none", "manual", "auto" or "bypass".')
-        }
-        const permissionPreset = capped(moduleId, input.permissionPreset)
-        const launched = await deps.launch({
-          workspaceId: input.workspaceId.trim(),
-          ...(input.cli ? { cli: input.cli } : {}),
-          ...(input.model ? { cliModel: input.model } : {}),
-          ...(input.prompt ? { prompt: input.prompt } : {}),
-          ...(input.name ? { name: input.name } : {}),
-          ...(input.skills?.length ? { skills: input.skills } : {}),
-          ...(input.attachments?.length ? { attachments: input.attachments } : {}),
-          ...(permissionPreset ? { permissionPreset } : {}),
-          ownerModuleId: moduleId,
-        })
-        if (!launched.ok) return failure(launched.code as ModuleConversationErrorCode, launched.message)
-        const live = liveSession(launched)
-        const record = deps.getWorkspaceAgents().find((workspace) => workspace.id === launched.workspaceId)?.agents[
-          launched.agentId
-        ]
-        return {
-          ok: true,
-          conversation: {
-            workspaceId: launched.workspaceId,
-            agentId: launched.agentId,
-            sessionId: launched.sessionId,
-            name: launched.name,
-            cli: launched.cli,
-            providerId: launched.providerId,
-            modelId: launched.modelId,
-            status: live?.status ?? 'starting',
-            ...presetOf(live, record),
-          },
-        }
+        return pending
       },
 
       async send(ref, input) {
@@ -463,6 +681,7 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
         if (input.attachments !== undefined && !isAttachmentList(input.attachments)) {
           return failure('invalid_input', '"attachments" must be a list of images.')
         }
+        if (input.commandId !== undefined && !isCommandId(input.commandId)) return badCommandId()
         const owned = findOwned(moduleId, ref)
         if (!owned) return notOwned(ref)
         const sessionId = await sessionFor(ref, owned)
@@ -471,7 +690,7 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
         return deps.runtime
           .sendTurn({
             sessionId,
-            commandId: newCommandId(),
+            commandId: runtimeCommandId(moduleId, input.commandId),
             message: input.message,
             ...(input.skills?.length ? { skills: input.skills.map((id) => ({ id })) } : {}),
             ...(input.attachments?.length ? { attachments: input.attachments } : {}),
@@ -480,12 +699,18 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
           .then(actionResult, actionError)
       },
 
-      async interrupt(ref) {
+      async interrupt(ref, options) {
         if (!canOperate(moduleId)) return missing(moduleId, 'conversation:operate')
         if (!isRef(ref) || !findOwned(moduleId, ref)) return notOwned(ref)
+        if (options?.commandId !== undefined && !isCommandId(options.commandId)) return badCommandId()
         const live = liveSession(ref)
         if (!live) return { ok: true }
-        return deps.runtime.interrupt({ sessionId: live.sessionId }).then(actionResult, actionError)
+        return deps.runtime
+          .interrupt({
+            sessionId: live.sessionId,
+            ...(options?.commandId === undefined ? {} : { commandId: runtimeCommandId(moduleId, options.commandId) }),
+          })
+          .then(actionResult, actionError)
       },
 
       async respondToApproval(ref, input) {
@@ -501,6 +726,7 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
         if (input.decision === undefined && input.approved === undefined) {
           return failure('invalid_input', 'An answer needs "decision" (or the older "approved").')
         }
+        if (input.commandId !== undefined && !isCommandId(input.commandId)) return badCommandId()
         // The older boolean reads as the narrowest answer it can mean.
         const decision: ModuleConversationApprovalDecision = input.decision ?? (input.approved ? 'once' : 'deny')
         if (input.approved !== undefined && input.approved !== (decision !== 'deny')) {
@@ -524,21 +750,58 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
             sessionId: live.sessionId,
             requestId: input.requestId,
             approved: decision !== 'deny',
+            // Through the receipts only when the module named the command, as
+            // an answer from the chat view is.
+            ...(input.commandId === undefined ? {} : { commandId: runtimeCommandId(moduleId, input.commandId) }),
             ...(decision === 'conversation' ? { decision } : {}),
             ...(input.answers ? { answers: input.answers } : {}),
           })
           .then(actionResult, actionError)
       },
 
-      async setPermissionPreset(ref, preset) {
+      async answerQuestion(ref, input) {
+        if (!canOperate(moduleId)) return missing(moduleId, 'conversation:operate')
+        if (!isRef(ref) || !findOwned(moduleId, ref)) return notOwned(ref)
+        if (typeof input?.requestId !== 'string') return failure('invalid_input', '"requestId" is required.')
+        if (!isAnswers(input.answers)) {
+          return failure('invalid_input', '"answers" maps each question to a string, within the message limit.')
+        }
+        if (input.commandId !== undefined && !isCommandId(input.commandId)) return badCommandId()
+        return answer(moduleId, ref, input.requestId, 'question', true, input.commandId, input.answers)
+      },
+
+      async resolvePlan(ref, input) {
+        if (!canOperate(moduleId)) return missing(moduleId, 'conversation:operate')
+        if (!isRef(ref) || !findOwned(moduleId, ref)) return notOwned(ref)
+        if (typeof input?.requestId !== 'string') return failure('invalid_input', '"requestId" is required.')
+        if (input.decision !== 'approve' && input.decision !== 'reject') {
+          return failure('invalid_input', '"decision" must be "approve" or "reject".')
+        }
+        if (input.commandId !== undefined && !isCommandId(input.commandId)) return badCommandId()
+        return answer(moduleId, ref, input.requestId, 'plan', input.decision === 'approve', input.commandId)
+      },
+
+      async setPermissionPreset(ref, preset, options) {
         if (!canOperate(moduleId)) return missing(moduleId, 'conversation:operate')
         if (!isRef(ref)) return notOwned(ref)
         if (!isPermissionPreset(preset)) {
           return failure('invalid_input', 'The preset must be "none", "manual", "auto" or "bypass".')
         }
+        if (options?.commandId !== undefined && !isCommandId(options.commandId)) return badCommandId()
+        const requestedMode = options?.permissionMode
+        if (requestedMode !== undefined && !parseCliPermissionModeId(requestedMode)) {
+          return failure('invalid_input', '"permissionMode" must be one of the CLI\'s own mode ids.')
+        }
         const owned = findOwned(moduleId, ref)
         if (!owned) return notOwned(ref)
         const permissionPreset = capped(moduleId, preset) ?? preset
+        const cli = cliForConversationProvider(liveSession(ref)?.providerId ?? owned.agent.conversation?.providerId)
+        if (requestedMode !== undefined && !conversationPermissionModes(cli).includes(requestedMode)) {
+          return failure('invalid_input', `This conversation's agent has no mode "${requestedMode}".`)
+        }
+        // A mode belongs to the preset asked for: one lowered to the ceiling
+        // runs that preset's own mode.
+        const permissionMode = permissionPreset === preset ? requestedMode : undefined
         // A live session takes the switch first, and the record moves only once
         // the provider accepted it. With none, the record is what the next
         // session starts on, as in the chat view.
@@ -546,22 +809,38 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
         let notice: string | undefined
         if (live) {
           const applied = await deps.runtime
-            .setPermission({ sessionId: live.sessionId, commandId: newCommandId(), permissionPreset })
+            .setPermission({
+              sessionId: live.sessionId,
+              commandId: runtimeCommandId(moduleId, options?.commandId),
+              permissionPreset,
+              ...(permissionMode ? { permissionMode } : {}),
+            })
             .catch((error: unknown): ConversationSessionActionResult => actionError(error))
           if (!applied.ok) return failure('runtime_refused', applied.message)
           notice = applied.notice
         }
-        const written = deps.writeAgent(ref.workspaceId, ref.agentId, { cliPermissionPreset: permissionPreset })
+        // The mode is written beside the preset, or cleared with it: a mode
+        // left from an earlier preset is not this one's.
+        const written = deps.writeAgent(ref.workspaceId, ref.agentId, {
+          cliPermissionPreset: permissionPreset,
+          cliPermissionMode: permissionMode,
+        })
         if (!written.ok) {
           return failure('agent_write_failed', written.message ?? 'The conversation could not be saved.')
         }
-        return { ok: true, permissionPreset, ...(notice ? { notice } : {}) }
+        return {
+          ok: true,
+          permissionPreset,
+          ...(permissionMode ? { permissionMode } : {}),
+          ...(notice ? { notice } : {}),
+        }
       },
 
-      async setModel(ref, modelId) {
+      async setModel(ref, modelId, options) {
         if (!canOperate(moduleId)) return missing(moduleId, 'conversation:operate')
         if (!isRef(ref)) return notOwned(ref)
         if (typeof modelId !== 'string' || !modelId.trim()) return failure('invalid_input', 'A model id is required.')
+        if (options?.commandId !== undefined && !isCommandId(options.commandId)) return badCommandId()
         const owned = findOwned(moduleId, ref)
         if (!owned) return notOwned(ref)
         const id = modelId.trim()
@@ -582,7 +861,7 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
         const sessionId = await sessionFor(ref, owned)
         if (typeof sessionId !== 'string') return sessionId
         const switched = await deps.runtime
-          .setModel({ sessionId, commandId: newCommandId(), modelId: id })
+          .setModel({ sessionId, commandId: runtimeCommandId(moduleId, options?.commandId), modelId: id })
           .catch((error: unknown): ConversationSessionActionResult => actionError(error))
         if (!switched.ok) return failure('runtime_refused', switched.message)
         const conversation = owned.agent.conversation
@@ -616,6 +895,53 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
           if (set.size === 0) subscribers.delete(key)
           releaseIfIdle()
         }
+      },
+
+      follow(ref, options, onFrame) {
+        requireRead(moduleId)
+        if (!isRef(ref)) throw new Error(notOwned(ref).message)
+        const owned = findOwned(moduleId, ref)
+        if (!owned) throw new Error(notOwned(ref).message)
+        if (!owned.workingRoot) throw new Error(`Workspace "${ref.workspaceId}" has no project folder.`)
+        const cursor = followCursor(options)
+        if (typeof cursor === 'string') throw new Error(cursor)
+        const followed = { workspaceId: ref.workspaceId, agentId: ref.agentId }
+        let open = true
+        const deliver = (frame: ModuleConversationStreamFrame) => {
+          try {
+            onFrame(frame)
+          } catch {
+            // A module's callback throwing is its own problem; the stream goes on.
+          }
+        }
+        let handle: { dispose(): void } | null = null
+        const close = () => {
+          if (!open) return
+          open = false
+          handle?.dispose()
+          follows.delete(close)
+        }
+        follows.add(close)
+        handle = deps.follow(
+          {
+            key: { workspaceRoot: owned.workingRoot, workspaceId: ref.workspaceId, agentId: ref.agentId },
+            ...cursor,
+          },
+          (frame) => {
+            if (!open) return
+            // Read live, as `subscribe` reads it: a permission narrowed, or a
+            // chat's record gone, ends the stream with a sentence.
+            if (!canRead(moduleId) || !findOwned(moduleId, followed)) {
+              close()
+              deliver({ type: 'error', message: 'This conversation is no longer readable by this module.' })
+              return
+            }
+            deliver(redactFrame(frame))
+          },
+        )
+        // A follow undone before the join answered drops what it set up.
+        if (!open) handle.dispose()
+        return close
       },
 
       async transcript(ref) {
@@ -669,12 +995,16 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
   const registry: ModuleConversationRegistry = {
     create: (moduleId, input) => serviceFor(moduleId).create(input),
     send: (moduleId, ref, input) => serviceFor(moduleId).send(ref, input),
-    interrupt: (moduleId, ref) => serviceFor(moduleId).interrupt(ref),
+    interrupt: (moduleId, ref, options) => serviceFor(moduleId).interrupt(ref, options),
     respondToApproval: (moduleId, ref, input) => serviceFor(moduleId).respondToApproval(ref, input),
-    setPermissionPreset: (moduleId, ref, preset) => serviceFor(moduleId).setPermissionPreset(ref, preset),
-    setModel: (moduleId, ref, modelId) => serviceFor(moduleId).setModel(ref, modelId),
+    answerQuestion: (moduleId, ref, input) => serviceFor(moduleId).answerQuestion(ref, input),
+    resolvePlan: (moduleId, ref, input) => serviceFor(moduleId).resolvePlan(ref, input),
+    setPermissionPreset: (moduleId, ref, preset, options) =>
+      serviceFor(moduleId).setPermissionPreset(ref, preset, options),
+    setModel: (moduleId, ref, modelId, options) => serviceFor(moduleId).setModel(ref, modelId, options),
     stop: (moduleId, ref) => serviceFor(moduleId).stop(ref),
     subscribe: (moduleId, ref, cb) => serviceFor(moduleId).subscribe(ref, cb),
+    follow: (moduleId, ref, options, onFrame) => serviceFor(moduleId).follow(ref, options, onFrame),
     transcript: (moduleId, ref) => serviceFor(moduleId).transcript(ref),
     list: (moduleId, filter) => serviceFor(moduleId).list(filter),
     watch: (moduleId, filter, cb) => serviceFor(moduleId).watch(filter, cb),
@@ -684,6 +1014,7 @@ export function createConversationModuleRegistry(deps: ModuleConversationDeps): 
     forModule: serviceFor,
     registry,
     dispose() {
+      for (const close of [...follows]) close()
       subscribers.clear()
       watchers.clear()
       unsubscribeWorkspaces?.()

@@ -476,6 +476,17 @@ test('the owning module is stamped on the chat record', async () => {
   assert.equal(ownRecord.writes[0]!.agent!.ownerModuleId, undefined, "a chat nobody's module started has no owner")
 })
 
+test('tools allowed at launch reach the session it starts, once each, and none means none', async () => {
+  const { service, record } = harness()
+  await service.launch({ workspaceId: 'ws-1', cli: 'claude-code', allowedTools: ['Write', ' Edit ', 'Write', ''] })
+  assert.deepEqual(record.starts[0]!.allowedTools, ['Write', 'Edit'])
+  // Session-only, like a connector's servers: nothing about them is written on the record.
+  assert.equal(JSON.stringify(record.writes[0]!.agent).includes('Write'), false)
+  const { service: plain, record: plainRecord } = harness()
+  await plain.launch({ workspaceId: 'ws-1', cli: 'claude-code', allowedTools: [] })
+  assert.equal('allowedTools' in plainRecord.starts[0]!, false)
+})
+
 test('a worktree launch starts the session in the worktree and records where it runs', async () => {
   const { service, record } = harness()
   const result = await service.launch({
@@ -525,16 +536,23 @@ test('pictures ride the first message, and a failed first message reaches the ca
   assert.match(failures[0]!, /provider went away/)
 })
 
-test('the owner survives the registry normalisation every window and restart goes through', async () => {
+test('the owner and the creating command survive the registry normalisation every window and restart goes through', async () => {
   const { service, record } = harness()
-  await service.launch({ workspaceId: 'ws-1', cli: 'claude-code', ownerModuleId: 'acme.reviews' })
+  await service.launch({
+    workspaceId: 'ws-1',
+    cli: 'claude-code',
+    ownerModuleId: 'acme.reviews',
+    launchCommandId: 'module:acme.reviews:create-1',
+  })
   const agent = record.writes[0]!.agent!
   const workspace = normalizeWorkspaceForRegistry({
     id: 'ws-1',
     agents: { [agent.id]: agent },
   } as unknown as Workspace)
   assert.equal(workspace.agents[agent.id]!.ownerModuleId, 'acme.reviews')
-  assert.equal(JSON.parse(JSON.stringify(workspace)).agents[agent.id].ownerModuleId, 'acme.reviews')
+  const persisted = JSON.parse(JSON.stringify(workspace)).agents[agent.id]
+  assert.equal(persisted.ownerModuleId, 'acme.reviews')
+  assert.equal(persisted.launchCommandId, 'module:acme.reviews:create-1')
 })
 
 test("a connector launch starts the chat with that connector's MCP server, and refuses one it cannot run", async () => {

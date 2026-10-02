@@ -1,4 +1,3 @@
-import { app } from 'electron'
 import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'fs/promises'
 import { createHash } from 'crypto'
 import { homedir } from 'os'
@@ -18,6 +17,7 @@ import type { HostAgentIntegration } from './hosts/execution-host'
 import { isPathInsideOrEqual } from './path-containment'
 import { integrationLedger } from './integrations/ledger'
 import { gitTracksPath } from './skills/studio-plugin'
+import { studioPlatform } from '../server/platform/platform'
 
 // The marker a managed copy carries. Exported because the attach path
 // (src/main/agent-skill-installer.ts) reads and writes the same file, and two
@@ -338,7 +338,9 @@ function canonicalTarget(targets: BuiltinSkillTargetState[]): BuiltinSkillTarget
 export const BUILTIN_SKILLS_RESOURCE_DIR = 'builtin-skills'
 
 export function builtinSkillSourceRoot(): string {
-  if (app.isPackaged) return join(process.resourcesPath, BUILTIN_SKILLS_RESOURCE_DIR)
+  const paths = studioPlatform().paths
+  const resourcesDir = paths.resourcesDir()
+  if (paths.isPackaged() && resourcesDir) return join(resourcesDir, BUILTIN_SKILLS_RESOURCE_DIR)
   return join(process.cwd(), 'resources', BUILTIN_SKILLS_RESOURCE_DIR)
 }
 

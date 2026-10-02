@@ -18,6 +18,7 @@ import { SkillsAndMcpsPicker } from '../../workspace/agentComposer/SkillsAndMcps
 import { AttachmentChip } from '../../ui/AttachmentChip'
 import { recentFileVisit, workspaceFileVisits } from '../../../utils/recentFileVisits'
 import { rankConversationCommands, SlashCommandMenu, type SlashCommandMenuStatus } from './slashCommandMenu'
+import { useConversationTransport } from './conversationTransport'
 
 type TriggerRange = ComposerTrigger['range']
 
@@ -50,6 +51,7 @@ export function fileMentionCandidates(root: string, files: FileSearchEntry[], qu
 
 export function useFileMentionSearch(workspaceRoot: string | null, query: string | null) {
   const channel = `mention:${useId()}`
+  const files = useConversationTransport().services.files
   const [state, setState] = useState<{ rows: ConversationMentionRef[]; loading: boolean; error: string | null }>({
     rows: [],
     loading: false,
@@ -62,8 +64,8 @@ export function useFileMentionSearch(workspaceRoot: string | null, query: string
     if (!workspaceRoot || query === null || !query.trim()) return
     const timer = window.setTimeout(() => {
       started = true
-      void window.api
-        .searchFiles(workspaceRoot, query, {
+      void files
+        .search(workspaceRoot, query, {
           limit: 50,
           purpose: 'mention',
           channel,
@@ -85,9 +87,9 @@ export function useFileMentionSearch(workspaceRoot: string | null, query: string
     return () => {
       cancelled = true
       window.clearTimeout(timer)
-      if (started) void window.api.cancelFileSearch?.(channel).catch(() => undefined)
+      if (started) void files.cancelSearch(channel).catch(() => undefined)
     }
-  }, [query, workspaceRoot, channel])
+  }, [query, workspaceRoot, channel, files])
   return state
 }
 

@@ -7,13 +7,9 @@ import type {
   ConversationSecretStatus,
   ConversationSecretStatusResult,
 } from '../shared/electron-api'
+import { studioPlatform } from '../server/platform/platform'
+import type { SecretCipher } from '../server/platform/secret-cipher'
 import { type CredentialOwner, resolveCredentialOwner } from './credential-descriptors'
-
-type SafeStorageAdapter = {
-  isEncryptionAvailable(): boolean
-  encryptString(value: string): Buffer
-  decryptString(value: Buffer): string
-}
 
 type FileAdapter = {
   mkdir: typeof mkdir
@@ -27,8 +23,11 @@ export type ProviderSecretStoreOptions = {
   // (conversation providers AND CLI plugins). Defaults to the shared resolver so
   // the store is a single mechanism, not a chat-only one.
   resolveAuthOwner?: (id: string) => CredentialOwner | undefined
+  // Both default to the installed platform: the app's data directory and the
+  // cipher its other secrets are sealed with (Electron's `safeStorage` in the
+  // desktop).
   resolveUserDataDir?: () => string
-  safeStorage?: SafeStorageAdapter
+  cipher?: SecretCipher
   files?: FileAdapter
   env?: NodeJS.ProcessEnv
 }
@@ -50,15 +49,15 @@ export type ProviderSecretValueResult =
 export class ProviderSecretStore {
   private readonly resolveAuthOwner: (id: string) => CredentialOwner | undefined
   private readonly resolveUserDataDir: () => string
-  private readonly safeStorage: SafeStorageAdapter
+  private readonly cipher: SecretCipher
   private readonly files: FileAdapter
   private readonly env: NodeJS.ProcessEnv
   private readonly inMemorySecrets = new Map<string, string>()
 
   constructor(options: ProviderSecretStoreOptions = {}) {
     this.resolveAuthOwner = options.resolveAuthOwner ?? resolveCredentialOwner
-    this.resolveUserDataDir = options.resolveUserDataDir ?? (() => loadElectron().app.getPath('userData'))
-    this.safeStorage = options.safeStorage ?? loadElectron().safeStorage
+    this.resolveUserDataDir = options.resolveUserDataDir ?? (() => studioPlatform().paths.dataDir())
+    this.cipher = options.cipher ?? lazyPlatformCipher
     this.files = options.files ?? { mkdir, readFile, unlink, writeFile }
     this.env = options.env ?? process.env
   }
@@ -78,7 +77,7 @@ export class ProviderSecretStore {
         ok: true,
         providerId: descriptor.providerId,
         value: this.inMemorySecrets.get(descriptor.storageKey) ?? '',
-        source: this.safeStorage.isEncryptionAvailable() ? 'settings' : 'session',
+        source: this.cipher.available() ? 'settings' : 'session',
       }
     }
 
@@ -103,10 +102,10 @@ export class ProviderSecretStore {
     if (!trimmed) return { ok: false, message: 'Provider secret value is required.' }
 
     this.inMemorySecrets.set(descriptor.storageKey, trimmed)
-    if (this.safeStorage.isEncryptionAvailable()) {
+    if (this.cipher.available()) {
       try {
         await this.files.mkdir(dirname(this.secretPath(descriptor.storageKey)), { recursive: true })
-        await this.files.writeFile(this.secretPath(descriptor.storageKey), this.safeStorage.encryptString(trimmed), {
+        await this.files.writeFile(this.secretPath(descriptor.storageKey), this.cipher.seal(trimmed), {
           mode: 0o600,
         })
       } catch {
@@ -123,14 +122,20 @@ export class ProviderSecretStore {
     if (!descriptor.ok) return { ok: false, message: descriptor.message }
 
     this.inMemorySecrets.delete(descriptor.storageKey)
-    await this.files.unlink(this.secretPath(descriptor.storageKey)).catch(() => {})
+    // Only a cipher that could have sealed the file may delete it. With none
+    // (a server sharing the desktop's data directory, its secrets off), the
+    // file is the desktop's keychain ciphertext, which nothing here wrote or
+    // can read, and clearing a session-only key must not take it with it.
+    if (this.cipher.available()) {
+      await this.files.unlink(this.secretPath(descriptor.storageKey)).catch(() => {})
+    }
     return { ok: true, status: await this.buildStatus(descriptor) }
   }
 
   private async buildStatus(
     descriptor: Extract<ProviderSecretDescriptor, { ok: true }>,
   ): Promise<ConversationSecretStatus> {
-    const encryptionAvailable = this.safeStorage.isEncryptionAvailable()
+    const encryptionAvailable = this.cipher.available()
     if (this.inMemorySecrets.has(descriptor.storageKey)) {
       return {
         providerId: descriptor.providerId,
@@ -179,10 +184,10 @@ export class ProviderSecretStore {
   }
 
   private async readPersistedSecret(storageKey: string): Promise<string | null> {
-    if (!this.safeStorage.isEncryptionAvailable()) return null
+    if (!this.cipher.available()) return null
     try {
       const encrypted = await this.files.readFile(this.secretPath(storageKey))
-      const secret = this.safeStorage.decryptString(encrypted).trim()
+      const secret = this.cipher.open(encrypted).trim()
       if (secret) this.inMemorySecrets.set(storageKey, secret)
       return secret || null
     } catch {
@@ -217,8 +222,12 @@ export class ProviderSecretStore {
   }
 }
 
-function loadElectron(): typeof import('electron') {
-  return require('electron')
+// The installed platform's cipher, looked up on each use as the Electron one
+// used to be, so constructing a store reads nothing.
+const lazyPlatformCipher: SecretCipher = {
+  available: () => studioPlatform().secrets.available(),
+  seal: (plaintext) => studioPlatform().secrets.seal(plaintext),
+  open: (sealed) => studioPlatform().secrets.open(sealed),
 }
 
 // The studio's single shared credential store. Both the conversation runtime and

@@ -58,6 +58,7 @@ function rememberPathKind(path: string, kind: 'file' | 'other'): void {
 // changing under the reader); one without — `/Users/dev/project` — reads as text,
 // because it is far more often a folder. The answer then settles it either way.
 function useExistingFile(resolved: string | null | undefined, path: string | null): boolean {
+  const files = useConversationTransport().services.files
   const guess = (): boolean => {
     const known = resolved ? knownPathKind(resolved) : undefined
     if (known) return known === 'file'
@@ -71,10 +72,10 @@ function useExistingFile(resolved: string | null | undefined, path: string | nul
       setIsFile(known === 'file')
       return
     }
-    if (typeof window.api?.statPath !== 'function') return
+    if (!files.canStat) return
     let cancelled = false
-    void window.api
-      .statPath(resolved)
+    void files
+      .stat(resolved)
       .then((stat) => (stat.isFile ? 'file' : 'other'))
       .catch(() => 'other' as const)
       .then((kind) => {
@@ -84,7 +85,7 @@ function useExistingFile(resolved: string | null | undefined, path: string | nul
     return () => {
       cancelled = true
     }
-  }, [resolved])
+  }, [resolved, files])
   return isFile
 }
 
@@ -119,7 +120,8 @@ export const ConversationFileLink = React.memo(function ConversationFileLink({
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   // A path from a conversation on another machine names a file over there;
   // resolving it here could open a same-named local file.
-  const localFiles = useConversationTransport().capabilities.localFiles
+  const transport = useConversationTransport()
+  const localFiles = transport.capabilities.localFiles
   const target = classifyLinkToken(token, {
     source,
     cwd: context?.cwd,
@@ -159,7 +161,7 @@ export const ConversationFileLink = React.memo(function ConversationFileLink({
   async function open(external: boolean) {
     if (!context || !resolved || target?.type !== 'file') return
     try {
-      const stat = await window.api.statPath(resolved)
+      const stat = await transport.services.files.stat(resolved)
       if (!stat.isFile) {
         rememberPathKind(resolved, 'other')
         report(`File not found: ${target.path}`)

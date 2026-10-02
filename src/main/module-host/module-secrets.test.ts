@@ -4,18 +4,19 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, test } from 'vitest'
 
-import { createModuleSecretsRegistry, deleteModuleSecrets, type ModuleSecretsCipher } from './module-secrets'
+import { createModuleSecretsRegistry, deleteModuleSecrets } from './module-secrets'
+import type { SecretCipher } from '../../server/platform/secret-cipher'
 import type { BrokerFetch } from './broker-http'
 
 const SECRET = 'sk-live-5ecret-value-123'
 
-// A stand-in for safeStorage whose output never contains the plaintext, so a
+// A stand-in for the secret cipher whose output never contains the plaintext, so a
 // test can tell "sealed" from "written as is".
-function fakeCipher(available = true): ModuleSecretsCipher {
+function fakeCipher(available = true): SecretCipher {
   return {
-    isEncryptionAvailable: () => available,
-    encryptString: (value) => Buffer.from(`sealed:${Buffer.from(value, 'utf8').toString('base64')}`),
-    decryptString: (value) => {
+    available: () => available,
+    seal: (value) => Buffer.from(`sealed:${Buffer.from(value, 'utf8').toString('base64')}`),
+    open: (value) => {
       const text = value.toString('utf8')
       if (!text.startsWith('sealed:')) throw new Error('not sealed by this cipher')
       return Buffer.from(text.slice('sealed:'.length), 'base64').toString('utf8')
@@ -34,7 +35,7 @@ async function harness(
   options: {
     permissions?: Record<string, string[]>
     respond?: (call: Call) => Response | Promise<Response>
-    cipher?: ModuleSecretsCipher | null
+    cipher?: SecretCipher | null
   } = {},
 ) {
   const userDataDir = await mkdtemp(join(tmpdir(), 'module-secrets-'))
@@ -46,7 +47,7 @@ async function harness(
   }
   const secrets = createModuleSecretsRegistry({
     userDataDir,
-    safeStorage: options.cipher === undefined ? fakeCipher() : options.cipher,
+    cipher: options.cipher === undefined ? fakeCipher() : options.cipher,
     getModulePermissions: (id) => (options.permissions ?? { weather: ['secrets'], other: ['secrets'] })[id],
     fetch: fetchImpl,
   })

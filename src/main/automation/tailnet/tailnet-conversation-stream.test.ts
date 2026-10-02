@@ -861,6 +861,79 @@ test('remote always is refused before host execution, while a preset switch reac
   stream.close(1000, '')
 })
 
+test('hello names the protocol and the conversation capabilities, and the full contract’s commands reach the host', async () => {
+  const socket = new Socket()
+  const executed: unknown[] = []
+  const audited: ConversationCommandAudit[] = []
+  const gateway = host()
+  gateway.command = async (_key, _device, _id, command) => {
+    executed.push(command)
+    return { ok: true }
+  }
+  const stream = createTailnetConversationStream({
+    socket,
+    deviceId: 'device',
+    deviceName: 'phone',
+    scopes: ['conversation:operate'],
+    host: gateway,
+    capabilities: ['events', 'upload', 'conversations', 'conversation-plans', 'conversation-hello'],
+    onClosed: () => {},
+    audit: (entry) => audited.push(entry),
+  })
+  socket.receive({ type: 'hello', requestId: 'h-1', protocolVersion: 1 })
+  socket.receive({ type: 'subscribe', key: { workspaceId: 'w', agentId: 'a' } })
+  await tick()
+  socket.receive({
+    type: 'command',
+    commandId: 'c1',
+    command: { kind: 'resolvePlan', requestId: 'r', decision: 'reject' },
+  })
+  socket.receive({
+    type: 'command',
+    commandId: 'c2',
+    command: { kind: 'setPermissionPreset', preset: 'auto', permissionMode: 'acceptEdits' },
+  })
+  socket.receive({
+    type: 'command',
+    commandId: 'c3',
+    command: { kind: 'resolvePlan', requestId: 'r', decision: 'once' },
+  })
+  await waitFor(() => executed.length === 2, 'both commands reach the host')
+  assert.deepEqual(executed, [
+    { kind: 'resolvePlan', requestId: 'r', decision: 'reject' },
+    { kind: 'setPermissionPreset', preset: 'auto', permissionMode: 'acceptEdits' },
+  ])
+  const output = socket.output() as Frame[]
+  // Only the conversation capabilities, and nothing about the transport.
+  assert.deepEqual(
+    output.find((frame) => frame.type === 'result' && (frame as { requestId?: string }).requestId === 'h-1'),
+    {
+      type: 'result',
+      requestId: 'h-1',
+      ok: true,
+      data: {
+        protocolVersion: 1,
+        minProtocolVersion: 1,
+        capabilities: ['conversations', 'conversation-plans', 'conversation-hello'],
+      },
+    },
+  )
+  // A plan answer in the wrong vocabulary is a bad frame, settled under its id and audited.
+  const refused = output.find(
+    (frame) => frame.type === 'commandResult' && (frame as { commandId?: string }).commandId === 'c3',
+  )
+  assert.equal(refused?.code, 'invalid_frame')
+  assert.deepEqual(
+    audited.map((entry) => [entry.tool, entry.commandId, entry.ok]),
+    [
+      ['conversation.resolvePlan', 'c3', false],
+      ['conversation.resolvePlan', 'c1', true],
+      ['conversation.setPermissionPreset', 'c2', true],
+    ],
+  )
+  stream.close(1000, '')
+})
+
 test("a model switch needs operate, and reaches the client with the host's own refusal code or notice, audited", async () => {
   const run = async (scopes: TailnetScope[]) => {
     const socket = new Socket()

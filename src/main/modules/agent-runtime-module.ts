@@ -1,6 +1,5 @@
-import { app, safeStorage } from 'electron'
-
 import type { AppServices } from '../app-services'
+import type { StudioPlatform } from '../../server/platform/platform'
 import type { ConversationCliRuntimeOverrides } from '../../shared/conversation-runtime'
 import { effectiveAgentLaunchSettings } from '../../shared/launch-settings'
 import type { CapabilityManifest } from '../../shared/modules/manifest'
@@ -26,6 +25,7 @@ import {
 } from '../module-host/service-tokens'
 import type { CapabilityModule } from '../module-host/load-modules'
 import { createConversationModuleRegistry } from '../module-host/module-conversation-service'
+import { ConversationSessionApi } from '../conversation-session-api'
 import { createModuleGitHubRegistry } from '../module-host/module-github'
 import { createModuleSecretsRegistry } from '../module-host/module-secrets'
 import { createModuleStorageRegistry } from '../module-host/module-storage'
@@ -67,8 +67,13 @@ export const AGENT_RUNTIME_MANIFEST: CapabilityManifest = {
 
 export function createAgentRuntimeModule(
   services: AppServices,
-  options: { getModulePermissions: ModulePermissionsResolver },
+  options: {
+    getModulePermissions: ModulePermissionsResolver
+    /** Where module storage and module secrets live, and what the secrets are sealed with. */
+    platform: Pick<StudioPlatform, 'paths' | 'secrets'>
+  },
 ): CapabilityModule {
+  const { paths, secrets: cipher } = options.platform
   return {
     manifest: AGENT_RUNTIME_MANIFEST,
     registerMain(host) {
@@ -95,16 +100,14 @@ export function createAgentRuntimeModule(
       )
       // Per-module, per-workspace JSON storage (SDK getModuleStorage): the
       // host owns file placement so modules stop inventing locations.
-      host.provideService(ModuleStorageToken, () =>
-        createModuleStorageRegistry({ userDataDir: () => app.getPath('userData') }),
-      )
+      host.provideService(ModuleStorageToken, () => createModuleStorageRegistry({ userDataDir: () => paths.dataDir() }))
       // Companion agents: workspace-bound background agents driven through the
       // shared conversation runtime. The core service is app-internal
       // (first-party consumers require it directly); the moduleId-scoped
       // registry is what the SDK's getCompanionAgentsService resolves, and it
       // gates attach on the `agents:companion` permission.
       const companionAgentService = createCompanionAgentService({
-        runtime: services.conversationRuntime,
+        runtime: services.conversations,
       })
       host.provideService(CompanionAgentServiceToken, () => companionAgentService)
       host.provideService(CompanionAgentsModuleServiceToken, () =>
@@ -119,10 +122,13 @@ export function createAgentRuntimeModule(
       // the SDK's getConversationService, which checks `conversation:read` /
       // `conversation:operate` and the chat's owner on every call.
       host.provideService(ConversationLaunchServiceToken, () => services.conversationLaunchService)
-      host.provideService(ConversationRuntimeToken, () => services.conversationRuntime)
+      host.provideService(ConversationRuntimeToken, () => services.conversations)
+      const conversationSessions = new ConversationSessionApi(services.conversations)
       const conversations = createConversationModuleRegistry({
         launch: (request) => services.conversationLaunchService.launch(request),
-        runtime: services.conversationRuntime,
+        runtime: services.conversations,
+        // The same replay, fence and live tail every other follower gets.
+        follow: (input, listener) => conversationSessions.subscribe(input, listener),
         // A preset or model switch moves the chat's record as the chat view
         // moves it, through the same bus every window hears.
         writeAgent: (workspaceId, agentId, patch) =>
@@ -145,8 +151,8 @@ export function createAgentRuntimeModule(
       // the signed-in person's GitHub, without ever holding the value itself.
       // Each checks its permission (`secrets`, `github`) on every call.
       const secrets = createModuleSecretsRegistry({
-        userDataDir: app.getPath('userData'),
-        safeStorage,
+        userDataDir: paths.dataDir(),
+        cipher,
         getModulePermissions: options.getModulePermissions,
       })
       host.provideService(ModuleSecretsServiceToken, () => secrets.registry)

@@ -43,3 +43,55 @@ test('a host from before conversation-controls answers a refusal, not a TypeErro
     assert.match(answer.message, /conversation-controls/)
   }
 })
+
+test('the helper forwards the protocol calls with the module’s id and every option', async () => {
+  const calls: unknown[][] = []
+  const record =
+    (name: string) =>
+    (...args: unknown[]) => {
+      calls.push([name, ...args])
+      return name === 'follow' ? () => undefined : Promise.resolve({ ok: true })
+    }
+  const names = ['answerQuestion', 'resolvePlan', 'follow', 'interrupt', 'setPermissionPreset', 'setModel']
+  const chats = getConversationService(hostWith(Object.fromEntries(names.map((name) => [name, record(name)]))))
+  const ref = { workspaceId: 'ws-1', agentId: 'agent-1' }
+  const onFrame = () => undefined
+  await chats.answerQuestion(ref, { requestId: 'q', answers: { a: 'b' } })
+  await chats.resolvePlan(ref, { requestId: 'p', decision: 'approve', commandId: 'c-1' })
+  chats.follow(ref, { afterSeq: 3, generation: 'g' }, onFrame)
+  await chats.interrupt(ref, { commandId: 'c-2' })
+  await chats.setPermissionPreset(ref, 'auto', { permissionMode: 'acceptEdits', commandId: 'c-3' })
+  await chats.setModel(ref, 'default', { commandId: 'c-4' })
+  assert.deepEqual(calls, [
+    ['answerQuestion', 'acme', ref, { requestId: 'q', answers: { a: 'b' } }],
+    ['resolvePlan', 'acme', ref, { requestId: 'p', decision: 'approve', commandId: 'c-1' }],
+    ['follow', 'acme', ref, { afterSeq: 3, generation: 'g' }, onFrame],
+    ['interrupt', 'acme', ref, { commandId: 'c-2' }],
+    ['setPermissionPreset', 'acme', ref, 'auto', { permissionMode: 'acceptEdits', commandId: 'c-3' }],
+    ['setModel', 'acme', ref, 'default', { commandId: 'c-4' }],
+  ])
+})
+
+test('a host from before the protocol calls answers as it can, and says which capability to check', async () => {
+  const answered: unknown[] = []
+  const chats = getConversationService(
+    hostWith({
+      respondToApproval: async (...args: unknown[]) => {
+        answered.push(args)
+        return { ok: true }
+      },
+    }),
+  )
+  const ref = { workspaceId: 'ws-1', agentId: 'agent-1' }
+  // An older host took a question's answers on respondToApproval.
+  assert.deepEqual(await chats.answerQuestion(ref, { requestId: 'q', answers: { a: 'b' } }), { ok: true })
+  assert.deepEqual(answered, [['acme', ref, { requestId: 'q', approved: true, answers: { a: 'b' } }]])
+  const plan = await chats.resolvePlan(ref, { requestId: 'p', decision: 'reject' })
+  assert.equal(!plan.ok && plan.code, 'runtime_refused')
+  assert.match(!plan.ok ? plan.message : '', /conversation-requests/)
+  const frames: unknown[] = []
+  const stop = chats.follow(ref, undefined, (frame) => frames.push(frame))
+  assert.equal(typeof stop, 'function')
+  assert.equal(frames.length, 1)
+  assert.match((frames[0] as { message: string }).message, /conversation-streams/)
+})

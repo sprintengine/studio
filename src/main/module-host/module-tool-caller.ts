@@ -16,11 +16,8 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks'
 
-import {
-  isLooserCliPermissionPreset,
-  isMostPermissiveCliPermissionPreset,
-  type CliPermissionPreset,
-} from '../../shared/cli-permission-preset'
+import type { CliPermissionPreset } from '../../shared/cli-permission-preset'
+import { clampPresetToCeiling } from '../../shared/permission-ceiling'
 
 type ModuleToolCaller = {
   /** The loosest preset an agent the handler starts may run on; null when the caller is not capped. */
@@ -53,7 +50,5 @@ export function clampToModuleToolCaller(
   requested: CliPermissionPreset | undefined,
   ceiling: CliPermissionPreset | null = moduleToolCallerCeiling(),
 ): CliPermissionPreset | undefined {
-  if (ceiling === null) return requested
-  if (requested === undefined) return isMostPermissiveCliPermissionPreset(ceiling) ? undefined : ceiling
-  return isLooserCliPermissionPreset(requested, ceiling) ? ceiling : requested
+  return clampPresetToCeiling(requested, ceiling)
 }

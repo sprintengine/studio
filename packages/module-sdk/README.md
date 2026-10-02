@@ -222,7 +222,28 @@ reads its chats) and `dependsOn: ["agent-runtime"]`.
   preset in force. Check `host.supports('conversation-controls')` before
   `setPermissionPreset`, `setModel`, a `decision`, or a preset other than
   `'none'` and `'bypass'`.
+- **`answerQuestion(ref, { requestId, answers })`** answers a question the
+  agent asked, and **`resolvePlan(ref, { requestId, decision })`** carries a
+  plan out (`'approve'`) or sends the agent back to planning (`'reject'`).
+  Each is refused for a request of another kind. Check
+  `host.supports('conversation-requests')`; an older host takes a question's
+  answers on `respondToApproval`, which `answerQuestion` falls back to.
+- **CLI modes and allowed tools.** `create` and `setPermissionPreset` take the
+  agent CLI's own `permissionMode` beside the preset (Claude Code's
+  `'acceptEdits'`), which goes with a preset lowered to the ceiling; `create`
+  also takes `allowedTools`, tools the chat uses without asking, which needs
+  `conversation:bypass`. Check `host.supports('conversation-permissions')`.
+- **`commandId`.** Every mutating call but `stop` takes your own id for it. A
+  retry with the same id, even after the app restarted, is answered with the
+  first call's result and never carried out twice; a retried `create` answers
+  with the chat the first one made. Check `host.supports('conversation-streams')`.
 - **`subscribe(ref, cb)`** streams `ModuleConversationEvent`s from now on;
+  **`follow(ref, cursor, onFrame)`** streams with no gap: a `snapshot` (or,
+  given the `afterSeq` and `generation` of events you already hold, only the
+  ones after them), one `synchronized` fence, then live events. Render what
+  you cached, then follow from its cursor; keep each fence's `seq` and
+  `generation` as the next cursor. A snapshot with `reset: true` replaces what
+  you held. Check `host.supports('conversation-streams')`.
   **`transcript(ref)`** replays everything recorded. **`list(filter?)`** and
   **`watch(filter, cb)`** give `ModuleConversationSummary` rows.
 - A module reaches **only the chats it created** — never the person's own and

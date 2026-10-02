@@ -17,7 +17,10 @@ agent CLIs from `entry.main` to work around that.
 Check `host.supports('conversations')` (main) or `host.supports('chat.open')`
 (renderer) first, and tell the person when the host does not offer it.
 `host.supports('conversation-controls')` says the host also takes the four
-presets, `setPermissionPreset`, `setModel` and approval `decision`s.
+presets, `setPermissionPreset`, `setModel` and approval `decision`s;
+`conversation-streams` says it takes `follow` and `commandId`;
+`conversation-requests`, `answerQuestion` and `resolvePlan`; and
+`conversation-permissions`, `permissionMode` and `allowedTools`.
 
 ## openChat (renderer)
 
@@ -65,18 +68,26 @@ export const registerMain: RegisterMain = (host) => {
 
 | Method | Needs | Notes |
 | --- | --- | --- |
-| `create({ workspaceId, prompt?, name?, cli?, model?, skills?, attachments?, permissionPreset? })` | operate | Resolves `{ ok: true, conversation }` once the chat exists. `prompt` is sent as the first turn. `permissionPreset` (`manual`, `none`, `auto`, `bypass`) absent = the person's default; `'bypass'` skips the runtime's approval prompts — only when the person asked for it, and only with `conversation:bypass` declared (otherwise it runs on `auto`). |
+| `create({ workspaceId, prompt?, name?, cli?, model?, skills?, attachments?, permissionPreset?, permissionMode?, allowedTools?, commandId? })` | operate | Resolves `{ ok: true, conversation }` once the chat exists. `prompt` is sent as the first turn. `permissionPreset` (`manual`, `none`, `auto`, `bypass`) absent = the person's default; `'bypass'` skips the runtime's approval prompts — only when the person asked for it, and only with `conversation:bypass` declared (otherwise it runs on `auto`). `permissionMode` is the CLI's own mode at that preset. `allowedTools` are used without asking and need `conversation:bypass`. |
 | `send(ref, { message, skills?, attachments?, steer? })` | operate | Another turn. `steer: true` lands it inside the turn that is running. |
 | `interrupt(ref)` / `stop(ref)` | operate | Stop the current turn / end the session. |
-| `respondToApproval(ref, { requestId, decision, answers? })` | operate | Answer an `approval_requested` event: `decision` is `once`, `conversation` (that kind of request, for the rest of the chat) or `deny`; the older `approved: boolean` still works. Approve only what the person would approve. |
-| `setPermissionPreset(ref, preset)` | operate | Switch the chat's preset from its next tool call. Answers `{ ok: true, permissionPreset, notice? }`: the preset in force, lowered to the module's ceiling when it asked for more. |
+| `respondToApproval(ref, { requestId, decision, answers?, commandId? })` | operate | Answer an `approval_requested` event: `decision` is `once`, `conversation` (that kind of request, for the rest of the chat) or `deny`; the older `approved: boolean` still works. Approve only what the person would approve. |
+| `answerQuestion(ref, { requestId, answers, commandId? })` | operate | Answer a request of kind `question`: question text to the chosen answer. Refused for any other kind. |
+| `resolvePlan(ref, { requestId, decision, commandId? })` | operate | Answer a request of kind `plan`: `approve` or `reject`. Refused for any other kind. |
+| `setPermissionPreset(ref, preset, { permissionMode?, commandId? }?)` | operate | Switch the chat's preset from its next tool call. Answers `{ ok: true, permissionPreset, permissionMode?, notice? }`: the preset in force, lowered to the module's ceiling when it asked for more (and the mode dropped with it). |
 | `setModel(ref, modelId)` | operate | Switch to another model of the chat's runtime from its next turn (an id `listChatRuntimes()` lists, or `default`). Answers `{ ok: true, modelId, notice? }`; a runtime that binds a chat to its model refuses. |
 | `subscribe(ref, cb)` | read | Live events from now on; returns the unsubscriber. |
+| `follow(ref, { afterSeq?, generation?, turnLimit? }?, onFrame)` | read | No gap: a `snapshot` (or only the events after the cursor you hold), a `synchronized` fence, then live events. Keep the fence's `seq` and `generation` as your next cursor; a snapshot with `reset: true` replaces what you held. Returns the unsubscriber. |
 | `transcript(ref)` | read | Every recorded event, for catching up. |
 | `list(filter?)` / `watch(filter, cb)` | read | The module's own chats: `{ workspaceId, agentId, sessionId, name, cli, providerId, modelId, status, permissionPreset? }`. `watch` fires at once, then on change. |
 
 `ref` is `{ workspaceId, agentId }` — keep it (in `getModuleStorage`) if you
 need the chat after a restart.
+
+Every mutating call but `stop` takes a `commandId` of your own (options last
+for `interrupt`, `setPermissionPreset` and `setModel`). Reuse it when you
+retry: the host answers with the first attempt's result and never carries the
+command out twice, even across a restart.
 
 Status: `starting`, `ready` (waiting for a message), `active` (working),
 `awaiting_approval`, `stopped`, `failed`, or `absent` (exists, no session

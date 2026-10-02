@@ -1,0 +1,256 @@
+import type { ConversationJsonValue, ConversationToolKind, ConversationToolStatus } from './tool-types.js'
+
+// The public event layer: what a conversation records, in a vocabulary no
+// provider owns. Each provider adapter reads its CLI's own stream (an SDK
+// message, an app-server notification, an ACP update) and writes these; the
+// provider's own shapes never leave the adapter. Everything that follows a
+// conversation — the chat view, a paired device, a module, an embedder — reads
+// this layer and nothing under it.
+//
+// Additive by rule: a client skips an event type, or a payload member, it does
+// not know (`parseConversationWireEvent` lets unknown types through for that
+// reason), so a new kind or field ships without a version bump.
+
+export type ConversationSessionStatus = 'starting' | 'ready' | 'active' | 'awaiting_approval' | 'stopped' | 'failed'
+
+/** Every kind of event a conversation records, oldest first. */
+export const CONVERSATION_EVENT_TYPES = [
+  'session_started',
+  'session_ready',
+  'session_closed',
+  // A session's own facts changed: its model, its preset, a notice about
+  // either, the provider's capabilities. Stateful providers also report their
+  // durable resume cursor here, which the desktop reads back from the
+  // transcript to resume natively.
+  'session_updated',
+  // Recorded by the desktop at turn start with the person's message, so a
+  // replayed transcript has the user's side of the conversation too.
+  'user_message',
+  'turn_started',
+  'content_delta',
+  'reasoning_delta',
+  'tool_started',
+  'tool_output',
+  'approval_requested',
+  'approval_resolved',
+  'usage_updated',
+  // The provider summarised the conversation to free context (payload:
+  // `trigger` 'manual' | 'auto', `preTokens`, `postTokens`).
+  'context_compacted',
+  // What a command the CLI ran without the model printed (`/context`,
+  // `/usage`; payload: `output`, `command` without its slash). `adapterNote:
+  // true` marks a line the adapter wrote about the command instead, such as a
+  // `/clear` having started a new conversation.
+  'command_output',
+  'turn_completed',
+  'turn_failed',
+  // Where a spawned subagent's run stands (running, finished, failed, stopped),
+  // keyed by the tool call that spawned it. Session-scoped: a background agent
+  // outlives the turn that launched it, so this carries no turnId.
+  'subagent_status',
+  // Something a spawned agent said between its steps, keyed by the tool call
+  // that spawned it. Its own record, not a content_delta: an agent's words
+  // belong to its thread, never to the reply of the conversation that spawned
+  // it. Session-scoped for the same reason as subagent_status.
+  'subagent_message',
+] as const
+
+export type ConversationEventType = (typeof CONVERSATION_EVENT_TYPES)[number]
+
+/** Whether a value names an event type this version of the protocol defines. */
+export function isConversationEventType(value: unknown): value is ConversationEventType {
+  return (CONVERSATION_EVENT_TYPES as readonly unknown[]).includes(value)
+}
+
+/** One event of a conversation, as it streams and as its transcript replays it. */
+export type ConversationEvent = {
+  id: string
+  /**
+   * Order within the conversation's log. Only increases, but not contiguous: a
+   * run of text deltas can be merged into one numbered with the run's last
+   * sequence. Absent only on events recorded before the desktop stamped one.
+   */
+  seq?: number
+  sessionId: string
+  workspaceId: string
+  agentId: string
+  providerId: string
+  modelId: string
+  type: ConversationEventType
+  createdAt: number
+  payload?: Record<string, unknown>
+}
+
+/**
+ * Payload carried on `tool_started`. `parentToolUseId` is what makes subagent
+ * work visible: a provider that runs tools inside a spawned agent stamps the
+ * child calls with the id of the tool call that spawned them, so consumers can
+ * group them under that parent instead of flattening them into the turn.
+ * Absent means an ordinary top-level tool call.
+ */
+export type ConversationToolStartedPayload = {
+  toolUseId?: string
+  kind?: ConversationToolKind
+  name?: string
+  input?: ConversationJsonValue
+  inputTruncated?: boolean
+  turnId?: string
+  toolCallId?: string
+  tool: string
+  summary?: string
+  addedLines?: number
+  removedLines?: number
+  parentToolUseId?: string
+  /**
+   * Set on the tool call that spawns a subagent. It heads a lane whose rows
+   * are the tool calls carrying its `toolCallId` as their `parentToolUseId`;
+   * its own `tool_output` closes the lane, so the lane's elapsed time is the
+   * span between the two events. A background agent's call returns at once;
+   * its lane stays open on `subagent_status` until the agent itself finishes.
+   */
+  subagentLane?: boolean
+  /**
+   * The kind of subagent the model asked for ('Explore', 'general-purpose', a
+   * custom agent id), when the call names one. Lane label; absent means the
+   * consumer falls back to `summary`.
+   */
+  subagentType?: string
+}
+
+/** Payload carried on `tool_output`. `parentToolUseId` mirrors `tool_started`. */
+export type ConversationToolOutputPayload = {
+  /**
+   * How an adapter's `output` relates to the tool's earlier output events.
+   * 'replace' (the default): it is the whole output so far. 'append': only the
+   * text produced since the previous event. Events the desktop publishes are
+   * always 'replace' and carry no `outputMode`.
+   */
+  outputMode?: 'append' | 'replace'
+  partial?: boolean
+  clipped?: boolean
+  toolUseId?: string
+  preview?: string
+  totalBytes?: number
+  truncated?: boolean
+  status?: ConversationToolStatus
+  exitCode?: number
+  mime?: string
+  turnId?: string
+  toolCallId?: string
+  output: string
+  isError: boolean
+  parentToolUseId?: string
+  /**
+   * The result of a background subagent, delivered when the agent finishes,
+   * usually after the turn that launched it has ended. It closes the lane
+   * wherever it started and needs no turn.
+   */
+  backgroundResult?: boolean
+}
+
+export type ConversationSubagentState = 'running' | 'completed' | 'failed' | 'stopped'
+
+/** Payload carried on `subagent_message`: one finished block of an agent's own text. */
+export type ConversationSubagentMessagePayload = {
+  /** The spawning tool call: the lane this belongs to. */
+  parentToolUseId: string
+  text: string
+  /** The text was longer than a transcript event keeps; this is its beginning. */
+  truncated?: boolean
+}
+
+/**
+ * Payload carried on `subagent_status`: the latest known state of one spawned
+ * agent. Each event repeats what it knows; a field it leaves out keeps the
+ * value an earlier event reported.
+ */
+export type ConversationSubagentStatusPayload = {
+  /** The spawning tool call: the lane this status belongs to. */
+  toolUseId: string
+  taskId?: string
+  status: ConversationSubagentState
+  /** Launched in the background: the agent runs on after the turn that launched it. */
+  background?: boolean
+  subagentType?: string
+  description?: string
+  /** The tool the agent called most recently. */
+  lastToolName?: string
+  /** A short present-tense line about what the agent is doing, when the provider generates one. */
+  progressSummary?: string
+  usage?: { totalTokens: number; toolUses: number; durationMs: number }
+  /** Why a failed or stopped agent ended, when known. */
+  error?: string
+  endedAt?: number
+}
+
+/**
+ * What an `approval_requested` event asks for. Each kind has its own answer:
+ * a `tool` permission is resolved with an approval decision, a `question`
+ * with its answers, a `plan` with approve or reject.
+ */
+export type ConversationApprovalKind = 'tool' | 'question' | 'plan'
+
+export type ConversationQuestionOption = {
+  label: string
+  description?: string
+}
+
+export type ConversationQuestion = {
+  question: string
+  header?: string
+  multiSelect?: boolean
+  allowFreeText?: boolean
+  options: ConversationQuestionOption[]
+}
+
+/**
+ * Payload carried on `approval_requested`: the members every provider sets,
+ * and the ones each kind adds. A provider may add others; a client reads what
+ * it knows. An absent `kind` is a `tool` permission.
+ */
+export type ConversationApprovalRequestedPayload = {
+  requestId: string
+  turnId?: string
+  kind?: ConversationApprovalKind
+  /** The tool the request is about, as the provider names it. */
+  action?: string
+  toolKind?: ConversationToolKind
+  summary?: string
+  /** Present on a `question`. */
+  questions?: ConversationQuestion[]
+  /** Present on a `plan`: the plan the agent proposes. */
+  plan?: string
+}
+
+/** Payload carried on `approval_resolved`: how a request was answered. */
+export type ConversationApprovalResolvedPayload = {
+  requestId: string
+  turnId?: string
+  approved: boolean
+  /** A question's answers, question text to the chosen answer. */
+  answers?: Record<string, string>
+}
+
+/**
+ * A window of a conversation's log. Merged runs of deltas appear as one event
+ * numbered with the run's last sequence; `beforeCursor` is the first sequence
+ * the page covers, to page back from with `loadEarlier`.
+ */
+export type ConversationPage = { events: ConversationEvent[]; hasMore: boolean; beforeCursor: number | null }
+
+/**
+ * What following one conversation delivers, in order: a `snapshot` (or, for a
+ * cursor the desktop can vouch for, nothing), the events after it, then one
+ * `synchronized` fence naming the sequence and log generation the follower is
+ * now current to; live events after that. A `snapshot` with `reset: true`
+ * replaces whatever the follower held. Keep the fence's `seq` and
+ * `generation`: they are the cursor a later follow resumes from.
+ */
+export type ConversationStreamFrame =
+  | { type: 'event'; event: ConversationEvent }
+  | { type: 'snapshot'; page: ConversationPage; reset?: true; generation?: string }
+  | { type: 'synchronized'; seq: number; generation?: string }
+  | { type: 'error'; message: string }
+
+/** Where a follower stands in a conversation's log: the last sequence it holds, and that log's generation. */
+export type ConversationCursor = { afterSeq: number; generation: string }

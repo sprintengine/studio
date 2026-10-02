@@ -21,7 +21,9 @@ import { ATTACHMENT_IMAGE_EXTENSIONS } from './attachment-image-file'
 // so reading one back never resolves a path the renderer supplied: anything
 // that is not exactly that shape is refused before the filesystem is touched.
 
-const STORE_DIRECTORY = 'conversation-attachments'
+/** Where, under the data directory, sent pictures are kept. */
+export const CONVERSATION_ATTACHMENTS_DIRECTORY = 'conversation-attachments'
+const STORE_DIRECTORY = CONVERSATION_ATTACHMENTS_DIRECTORY
 const REF_PATTERN = /^([0-9a-f]{32})\/([0-9a-f-]{36})\.([a-z]+)$/u
 const MEDIA_TYPE_BY_EXTENSION = new Map(
   Object.entries(ATTACHMENT_IMAGE_EXTENSIONS).map(([mediaType, extension]) => [extension, mediaType]),

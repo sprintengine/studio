@@ -1,20 +1,29 @@
 {
   "name": "@sprintengine/conversation-protocol",
-  "version": "0.1.0",
-  "description": "Portable conversation frames and validation for Studio's tailnet chat lane.",
+  "version": "0.2.0",
+  "description": "The conversation contract SprintEngine Studio speaks to everything that follows or drives its chats: events, commands, frames, capabilities and their validators.",
   "license": "MIT",
   "type": "module",
-  "main": "./dist/cjs/index.js",
-  "module": "./dist/esm/index.js",
-  "types": "./dist/cjs/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sprintengine/studio.git",
+    "directory": "packages/conversation-protocol"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "main": "./dist/cjs/public.js",
+  "module": "./dist/esm/public.js",
+  "types": "./dist/cjs/public.d.ts",
   "exports": {
     ".": {
-      "import": { "types": "./dist/esm/index.d.ts", "default": "./dist/esm/index.js" },
-      "require": { "types": "./dist/cjs/index.d.ts", "default": "./dist/cjs/index.js" }
+      "import": { "types": "./dist/esm/public.d.ts", "default": "./dist/esm/public.js" },
+      "require": { "types": "./dist/cjs/public.d.ts", "default": "./dist/cjs/public.js" }
     },
     "./package.json": "./package.json"
   },
   "sideEffects": false,
-  "files": ["dist", "README.md", "LICENSE"],
+  "files": ["dist", "README.md", "CHANGELOG.md", "LICENSE"],
   "scripts": { "build": "node build.mjs", "prepack": "npm run build" }
 }

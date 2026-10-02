@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { resolveTerminalFileReferencePath } from '../../../utils/terminalFileLinks'
 import { useConversationLinkContext } from './conversationLinks'
+import type { ChatFileSource } from './chatServices'
 import {
   useConversationTransport,
   type ConversationToolImageResult,
@@ -31,10 +32,9 @@ export type LocalImage = {
 const LOCAL_IMAGE_CACHE_ENTRIES = 8
 const localImages = new Map<string, Promise<string>>()
 
-async function readLocalImage(path: string): Promise<string> {
-  if (typeof window.api.statPath !== 'function') return window.api.readImageDataUrl(path)
-  const stat = await window.api.statPath(path).catch(() => null)
-  if (!stat || typeof stat.modifiedAtMs !== 'number') return window.api.readImageDataUrl(path)
+async function readLocalImage(files: ChatFileSource, path: string): Promise<string> {
+  const stat = await files.stat(path).catch(() => null)
+  if (!stat || typeof stat.modifiedAtMs !== 'number') return files.readImage(path)
   const key = `${stat.modifiedAtMs}:${stat.sizeBytes}:${path}`
   const cached = localImages.get(key)
   if (cached) {
@@ -42,7 +42,7 @@ async function readLocalImage(path: string): Promise<string> {
     localImages.set(key, cached)
     return cached
   }
-  const read = window.api.readImageDataUrl(path)
+  const read = files.readImage(path)
   localImages.set(key, read)
   while (localImages.size > LOCAL_IMAGE_CACHE_ENTRIES) localImages.delete(localImages.keys().next().value!)
   // A failed read is not kept: the next look asks again.
@@ -58,7 +58,9 @@ async function readLocalImage(path: string): Promise<string> {
 // does, so the picture and the link beside it always name the same file.
 export function useLocalImage(path: string | null | undefined): LocalImage {
   const context = useConversationLinkContext()
-  const localFiles = useConversationTransport().capabilities.localFiles
+  const transport = useConversationTransport()
+  const localFiles = transport.capabilities.localFiles
+  const files = transport.services.files
   const resolved =
     path && localFiles
       ? resolveTerminalFileReferencePath(path, { executionRoot: context?.cwd, workspaceRoot: context?.workspaceRoot })
@@ -67,7 +69,7 @@ export function useLocalImage(path: string | null | undefined): LocalImage {
   useEffect(() => {
     if (!resolved) return
     let cancelled = false
-    readLocalImage(resolved).then(
+    readLocalImage(files, resolved).then(
       (src) => {
         if (!cancelled) setImage({ path: resolved, src })
       },
@@ -78,7 +80,7 @@ export function useLocalImage(path: string | null | undefined): LocalImage {
     return () => {
       cancelled = true
     }
-  }, [resolved])
+  }, [resolved, files])
   const current = image?.path === resolved ? image : undefined
   return { resolved, src: current?.src, failed: current?.failed }
 }

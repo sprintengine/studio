@@ -37,13 +37,13 @@ export const WorkspaceSyncServiceToken =
 export const WorkspaceRegistryToken = createServiceToken<AppServices['workspaceRegistry']>('core.workspace-registry')
 // The host-internal chat services: the one path that starts a chat in main (a
 // module's `create`, an automation run's agent, a paired machine's New chat)
-// and the conversation runtime those chats run on. First-party only — neither
+// and the chats they run as (the core's conversation backend; the key keeps the
+// name it had when that was the runtime itself). First-party only — neither
 // key is on the third-party service list; a module reaches chats through the
 // moduleId-scoped ConversationModuleServiceToken below.
 export const ConversationLaunchServiceToken =
   createServiceToken<AppServices['conversationLaunchService']>('core.conversation-launch')
-export const ConversationRuntimeToken =
-  createServiceToken<AppServices['conversationRuntime']>('core.conversation-runtime')
+export const ConversationRuntimeToken = createServiceToken<AppServices['conversations']>('core.conversation-runtime')
 // Scheduled agents: the one door every caller — the New chat panel, an
 // extension, an agent's MCP call — creates and changes them through.
 export const ScheduledAgentsServiceToken = createServiceToken<ScheduledAgentsService>('scheduled-agents.service')

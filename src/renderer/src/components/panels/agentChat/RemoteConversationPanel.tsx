@@ -11,6 +11,7 @@ import { RemoteMachineGlyph } from '../../AppIcons'
 import { TruncatedText } from '../../ui'
 import type { CliRuntimeOption } from '../../ui/CliModelPicker'
 import { ConversationChatBody } from '../AgentChatView'
+import { ChatViewErrorBoundary } from './ChatViewErrorBoundary'
 import type { ChatBinding, ChatAgentFields } from './chatBinding'
 import type { ChatReadiness } from './chatStates'
 import {
@@ -257,12 +258,14 @@ export default function RemoteConversationPanel({
 
   return (
     <ConversationTransportProvider value={transport}>
-      <ConversationChatBody
-        key={`${connectionId}:${remoteWorkspaceId}:${remoteAgentId}`}
-        workspaceId={workspaceId}
-        agentId={remoteAgentId}
-        binding={binding}
-      />
+      <ChatViewErrorBoundary chatKey={`${connectionId}:${remoteWorkspaceId}:${remoteAgentId}`}>
+        <ConversationChatBody
+          key={`${connectionId}:${remoteWorkspaceId}:${remoteAgentId}`}
+          workspaceId={workspaceId}
+          agentId={remoteAgentId}
+          binding={binding}
+        />
+      </ChatViewErrorBoundary>
     </ConversationTransportProvider>
   )
 }

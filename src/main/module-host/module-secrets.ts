@@ -7,8 +7,8 @@
 // broker — module code, and whatever it renders, never holds the credential.
 //
 // Storage: one file per module under `<userData>/module-secrets/`, the whole
-// record (every name's value AND its allowed origins) sealed with Electron's
-// `safeStorage`, so the allow-list cannot be widened by editing the file. On a
+// record (every name's value AND its allowed origins) sealed with the platform's
+// secret cipher (Electron's `safeStorage` in the desktop), so the allow-list cannot be widened by editing the file. On a
 // system that cannot encrypt, nothing is stored and `set` says
 // `storage_unavailable` — a plaintext key on disk is the thing this avoids, and
 // a key that silently vanished at quit would surprise the module more than a
@@ -38,20 +38,14 @@ import type {
   ModuleSecretsRegistry,
   ModuleSecretsService,
 } from '../../shared/modules/brokers'
+import type { SecretCipher } from '../../server/platform/secret-cipher'
 import { brokerRequest, brokerTimeout, redactSecret, type BrokerFetch } from './broker-http'
 
-/** The slice of Electron's `safeStorage` the broker uses; injected in tests. */
-export type ModuleSecretsCipher = {
-  isEncryptionAvailable(): boolean
-  encryptString(value: string): Buffer
-  decryptString(value: Buffer): string
-}
-
 export type ModuleSecretsDeps = {
-  /** Electron's userData folder; secrets live under `module-secrets/` in it. */
+  /** The app's data directory; secrets live under `module-secrets/` in it. */
   userDataDir: string
-  /** Electron's `safeStorage`; null where there is none (nothing can be stored). */
-  safeStorage: ModuleSecretsCipher | null
+  /** The platform's secret cipher; null where there is none (nothing can be stored). */
+  cipher: SecretCipher | null
   /** The permissions the module declared in its manifest. */
   getModulePermissions: (moduleId: string) => readonly string[] | undefined
   /** Defaults to the global fetch. */
@@ -132,7 +126,7 @@ export function createModuleSecretsRegistry(deps: ModuleSecretsDeps): ModuleSecr
   }
   function encryptionAvailable(): boolean {
     try {
-      return deps.safeStorage?.isEncryptionAvailable() === true
+      return deps.cipher?.available() === true
     } catch {
       return false
     }
@@ -156,9 +150,9 @@ export function createModuleSecretsRegistry(deps: ModuleSecretsDeps): ModuleSecr
     } catch {
       return empty
     }
-    if (!deps.safeStorage || !encryptionAvailable()) return empty
+    if (!deps.cipher || !encryptionAvailable()) return empty
     try {
-      const parsed = JSON.parse(deps.safeStorage.decryptString(sealed)) as Partial<StoredRecord>
+      const parsed = JSON.parse(deps.cipher.open(sealed)) as Partial<StoredRecord>
       if (parsed?.version !== 1 || typeof parsed.secrets !== 'object' || parsed.secrets === null) return empty
       const secrets: Record<string, StoredSecret> = {}
       for (const [name, entry] of Object.entries(parsed.secrets)) {
@@ -181,10 +175,10 @@ export function createModuleSecretsRegistry(deps: ModuleSecretsDeps): ModuleSecr
       await unlink(path).catch(() => {})
       return
     }
-    if (!deps.safeStorage) throw new Error('No cipher.')
+    if (!deps.cipher) throw new Error('No cipher.')
     await mkdir(secretsDir(deps.userDataDir), { recursive: true })
     const temporary = `${path}.${process.pid}.${Date.now()}.tmp`
-    await writeFile(temporary, deps.safeStorage.encryptString(JSON.stringify(record)), { mode: 0o600 })
+    await writeFile(temporary, deps.cipher.seal(JSON.stringify(record)), { mode: 0o600 })
     try {
       await rename(temporary, path)
     } catch (error) {

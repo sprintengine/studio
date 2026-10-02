@@ -3,12 +3,15 @@
   "include": [
     "electron.vite.config.*",
     "src/main/**/*",
+    "src/server/**/*",
     "src/preload/**/*",
     "src/shared/**/*",
     "src/renderer/src/types/appTheme.ts",
     "src/renderer/src/types/workspace.ts",
     "packages/module-sdk/src/**/*",
-    "packages/conversation-protocol/src/**/*"
+    "packages/conversation-protocol/src/**/*",
+    "packages/studio-protocol/src/**/*",
+    "packages/agent-sdk/src/**/*"
   ],
   "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "packages/**/*.test.ts"],
   "compilerOptions": {

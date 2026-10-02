@@ -6,23 +6,30 @@
 // installs work without a user Node install.
 //
 // The core resolvers are pure (they take a RuntimeEnv) so they can be unit
-// tested without Electron. `currentRuntimeEnv()` adapts the live process; it
-// lazily reaches for `electron` so importing this module in a plain Node test
-// never requires the Electron binary.
+// tested without Electron. `currentRuntimeEnv()` adapts the live process and
+// the installed platform; with no platform installed (a plain Node test) it
+// answers as a source checkout.
 
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
 import { delimiter, join } from 'path'
 import { readStudioEnv } from '../shared/studio-env'
+import { installedStudioPlatform } from '../server/platform/platform'
 
 export type RuntimeEnv = {
   platform: NodeJS.Platform
-  /** electron `process.resourcesPath` (where extraResources land when packaged). */
+  /** The platform's resources root (`process.resourcesPath`, where extraResources land, in the desktop). */
   resourcesPath: string | undefined
-  /** electron `app.isPackaged`. */
+  /** The platform's `isPackaged` (`app.isPackaged` in the desktop). */
   isPackaged: boolean
-  /** electron `process.execPath` — the Electron binary, usable as Node. */
+  /** `process.execPath`: the Electron binary in the desktop, usable as Node; Node itself in a standalone server. */
   execPath: string
+  /**
+   * Whether `execPath` is Electron, which runs as Node only with
+   * `ELECTRON_RUN_AS_NODE=1`. Absent means it is. A server on plain Node writes
+   * shims without the flag, so nothing an install starts inherits it.
+   */
+  execPathIsElectron?: boolean
   /** Working directory / dev checkout root used to find `resources/` in dev. */
   cwd: string
   /** Predicate for path existence (injectable for tests). */
@@ -96,21 +103,15 @@ export function withManagedRuntimePath(
   return { ...env, [pathKey]: [shimDir, ...entries].join(PATH_DELIMITER) }
 }
 
-/** Builds a RuntimeEnv from the live process, lazily consulting Electron. */
+/** Builds a RuntimeEnv from the live process and the installed platform. */
 export function currentRuntimeEnv(overrides: Partial<RuntimeEnv> = {}): RuntimeEnv {
-  let isPackaged = false
-  try {
-    // Lazy require keeps this module importable from node-only test bundles.
-    const electron = require('electron') as typeof import('electron')
-    isPackaged = Boolean(electron.app?.isPackaged)
-  } catch {
-    isPackaged = false
-  }
+  const paths = installedStudioPlatform()?.paths
   return {
     platform: process.platform,
-    resourcesPath: process.resourcesPath,
-    isPackaged,
+    resourcesPath: paths?.resourcesDir() ?? undefined,
+    isPackaged: paths?.isPackaged() ?? false,
     execPath: process.execPath,
+    execPathIsElectron: Boolean(process.versions.electron),
     cwd: process.cwd(),
     exists: existsSync,
     ...overrides,
@@ -158,7 +159,8 @@ export function getManagedRuntimeShimDir(platform: NodeJS.Platform = process.pla
 const writtenShims = new Map<string, { shimDir: string; prefixBinDir: string }>()
 
 /**
- * Writes `node`/`npm` shims that run the Electron binary as Node, plus a `bin`
+ * Writes `node`/`npm` shims that run this process's Node (the Electron binary
+ * as Node, in the desktop), plus a `bin`
  * directory under the writable npm prefix. Returns the shim dir, or null when
  * npm is not vendored (e.g. dev builds before `runtimes:fetch`).
  *
@@ -171,9 +173,11 @@ export function ensureManagedRuntimeShims(env: RuntimeEnv = currentRuntimeEnv())
   const npmCli = bundledNpmCliPath(env)
   if (!npmCli) return null
 
+  const runAsNode = env.execPathIsElectron !== false
   const writtenKey = [
     env.platform,
     managedNodeBinary(env),
+    runAsNode ? 'electron' : 'node',
     npmCli,
     getManagedRuntimeShimDir(env.platform),
     getManagedNpmPrefixDir(env.platform),
@@ -198,30 +202,33 @@ export function ensureManagedRuntimeShims(env: RuntimeEnv = currentRuntimeEnv())
     if (env.platform === 'win32') {
       writeFileSync(
         join(shimDir, 'node.cmd'),
-        ['@echo off', 'set ELECTRON_RUN_AS_NODE=1', `"${node}" %*`, ''].join('\r\n'),
+        ['@echo off', ...(runAsNode ? ['set ELECTRON_RUN_AS_NODE=1'] : []), `"${node}" %*`, ''].join('\r\n'),
         'utf8',
       )
       writeFileSync(
         join(shimDir, 'npm.cmd'),
-        ['@echo off', 'set ELECTRON_RUN_AS_NODE=1', `"${node}" "${npmCli}" --prefix "${prefixDir}" %*`, ''].join(
-          '\r\n',
-        ),
+        [
+          '@echo off',
+          ...(runAsNode ? ['set ELECTRON_RUN_AS_NODE=1'] : []),
+          `"${node}" "${npmCli}" --prefix "${prefixDir}" %*`,
+          '',
+        ].join('\r\n'),
         'utf8',
       )
     } else {
+      const exec = runAsNode ? 'exec env ELECTRON_RUN_AS_NODE=1' : 'exec'
       const nodeShim = join(shimDir, 'node')
-      writeFileSync(
-        nodeShim,
-        ['#!/usr/bin/env bash', `exec env ELECTRON_RUN_AS_NODE=1 ${shellQuote(node)} "$@"`, ''].join('\n'),
-        { encoding: 'utf8', mode: 0o755 },
-      )
+      writeFileSync(nodeShim, ['#!/usr/bin/env bash', `${exec} ${shellQuote(node)} "$@"`, ''].join('\n'), {
+        encoding: 'utf8',
+        mode: 0o755,
+      })
       chmodSync(nodeShim, 0o755)
       const npmShim = join(shimDir, 'npm')
       writeFileSync(
         npmShim,
         [
           '#!/usr/bin/env bash',
-          `exec env ELECTRON_RUN_AS_NODE=1 ${shellQuote(node)} ${shellQuote(npmCli)} --prefix ${shellQuote(prefixDir)} "$@"`,
+          `${exec} ${shellQuote(node)} ${shellQuote(npmCli)} --prefix ${shellQuote(prefixDir)} "$@"`,
           '',
         ].join('\n'),
         { encoding: 'utf8', mode: 0o755 },

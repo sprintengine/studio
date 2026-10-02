@@ -148,8 +148,9 @@ export type CapabilityPermission =
   // Start, prompt, interrupt and stop the module's own conversations, and open
   // a chat in the renderer (`RendererHost.openChat`). Implies read.
   | 'conversation:operate'
-  // Run those conversations on `bypass`. Without it a module's chats go no
-  // looser than `auto`, whatever it asks for.
+  // Run those conversations on `bypass`, and let them use named tools
+  // without asking (`allowedTools`). Without it a module's chats go no looser
+  // than `auto`, whatever it asks for.
   | 'conversation:bypass'
   // Store secrets the host sends only to origins the module named, never
   // handing the value back (the SDK's scoped secrets service).
@@ -2137,16 +2138,21 @@ export {
   getConversationService,
   type ModuleChatRuntimeOption,
   type ModuleConversationApprovalDecision,
+  type ModuleConversationCommandOptions,
   type ModuleConversationCreateInput,
   type ModuleConversationErrorCode,
   type ModuleConversationEvent,
   type ModuleConversationEventType,
+  type ModuleConversationFollowOptions,
   type ModuleConversationImageAttachment,
+  type ModuleConversationPage,
   type ModuleConversationPermissionPreset,
+  type ModuleConversationPlanDecision,
   type ModuleConversationRef,
   type ModuleConversationResult,
   type ModuleConversationService,
   type ModuleConversationStatus,
+  type ModuleConversationStreamFrame,
   type ModuleConversationSummary,
   type ModuleOpenChatInput,
   type ModuleOpenChatResult,

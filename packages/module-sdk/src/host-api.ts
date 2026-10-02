@@ -28,6 +28,13 @@ export type HostCapability =
   // The conversation service's controls: all four permission presets,
   // `setPermissionPreset`, `setModel` and approval `decision`s.
   | 'conversation-controls'
+  // `follow` (a snapshot or the events after a cursor, a `synchronized`
+  // fence, then live events) and a `commandId` on every mutating call.
+  | 'conversation-streams'
+  // `answerQuestion` and `resolvePlan`, each refused for a request of another kind.
+  | 'conversation-requests'
+  // The agent CLI's own `permissionMode` beside the preset, and `allowedTools` at `create`.
+  | 'conversation-permissions'
   | 'chat.open'
   | 'companion-agents'
   | 'scheduled-agents'

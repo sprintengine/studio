@@ -1047,6 +1047,8 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
         // judged by the grant the device holds now.
         scopes: () => options.devices.listDevices().find((entry) => entry.id === currentDevice.id)?.scopes ?? null,
         host: options.conversations,
+        // A `hello` names the conversation capabilities among what `health` and `identity` advertise.
+        capabilities: TAILNET_CAPABILITIES,
         onClosed: () => {
           if (registration.stream) conversationStreams.delete(registration.stream)
         },

@@ -5,6 +5,7 @@ import type { ConversationRevertInput, ConversationRewindInput } from '../../../
 import type { TranscriptEntry } from './conversationProjection'
 import type { EditFromHereDraft } from './editFromHere'
 import type { ConversationTransport } from './conversationTransport'
+import { installStudioLoopback } from '../../../../../../tests/studio-chat-loopback'
 
 type UserEntry = Extract<TranscriptEntry, { kind: 'user' }>
 
@@ -38,6 +39,7 @@ async function mount(entry: UserEntry, options: { canRestoreFiles: boolean; rewi
       },
     },
   })
+  installStudioLoopback(dom.window as unknown as { api: Record<string, unknown> })
   const { act } = await import('react')
   const { createRoot } = await import('react-dom/client')
   const { EditFromHereAction } = await import('./editFromHere')

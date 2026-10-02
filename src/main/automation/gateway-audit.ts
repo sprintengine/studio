@@ -49,11 +49,27 @@ const SAFE_IDENTIFIER_KEYS = new Set([
   // node whois named for it. Network identifiers, not content.
   'peerAddress',
   'peerNodeId',
+  // How many refused credentials were left out of the log since the last one
+  // written: a count, not anything a caller presented.
+  'suppressed',
 ])
+
+/**
+ * Who a record is about: an MCP caller of the gateway, or (`studio-client`) a
+ * paired local app on Studio's owner socket. A local app's id is proven the
+ * way a tailnet device's is: its connection presented the app's token before
+ * anything it did was carried out. `clientName` is the name it was paired
+ * under, or the one a refused hello claimed.
+ */
+export type GatewayAuditConnection = Omit<McpConnectionMetadata, 'kind'> & {
+  kind: McpConnectionMetadata['kind'] | 'studio-client'
+  clientId?: string
+  clientName?: string
+}
 
 export type GatewayAuditRecord = {
   timestamp: string
-  connection: McpConnectionMetadata
+  connection: GatewayAuditConnection
   tool: string
   durationMs: number
   outcome: 'success' | 'failure'
@@ -70,7 +86,7 @@ export type GatewayAuditStore = {
    * audit that cannot be written must not fail the mutation it describes.
    */
   record(input: {
-    connection: McpConnectionMetadata
+    connection: GatewayAuditConnection
     tool: string
     durationMs: number
     args: Record<string, unknown>
@@ -240,9 +256,12 @@ function collectSafeIdentifiers(
 // Identity written into the record. Local-socket fields stay advisory (anything
 // with filesystem access could claim them); the tailnet fields do not — the
 // listener authenticated the device before dispatch, so `deviceId`/`peerNode`
-// answer "which paired machine did this" for a remote mutation.
-function normalizeConnection(connection: McpConnectionMetadata): McpConnectionMetadata {
+// answer "which paired machine did this" for a remote mutation. A Studio RPC
+// client's id is proven the same way, by the token its connection presented.
+function normalizeConnection(connection: GatewayAuditConnection): GatewayAuditConnection {
   const trim = (value: string | undefined): string | undefined => value?.trim().slice(0, 256) || undefined
+  if (connection.kind === 'studio-client')
+    return { kind: 'studio-client', clientId: trim(connection.clientId), clientName: trim(connection.clientName) }
   return {
     kind:
       connection.kind === 'studio-agent'

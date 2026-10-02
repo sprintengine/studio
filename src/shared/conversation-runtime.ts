@@ -1,70 +1,40 @@
+// The conversation contract — events, their payloads, pages and stream
+// frames — is @sprintengine/conversation-protocol's, which every transport
+// speaks (the chat view's IPC, the tailnet lane, the module SDK). It is
+// re-exported here under the names app code has always imported; what stays
+// below is the runtime's own: session inputs, results and summaries.
 import type {
+  ConversationApprovalKind,
+  ConversationEvent,
   ConversationJsonValue,
+  ConversationPage,
+  ConversationSessionStatus,
   ConversationToolKind,
+  ConversationToolOutputPayload,
+  ConversationToolStartedPayload,
   ConversationToolStatus,
-} from '../../packages/conversation-protocol/src/tool-types'
+} from '../../packages/conversation-protocol/src/public'
 export type {
+  ConversationApprovalKind,
+  ConversationApprovalRequestedPayload,
+  ConversationApprovalResolvedPayload,
+  ConversationCursor,
+  ConversationEvent,
+  ConversationEventType,
   ConversationJsonValue,
+  ConversationPage,
+  ConversationQuestion,
+  ConversationQuestionOption,
+  ConversationSessionStatus,
+  ConversationStreamFrame as ConversationSessionFrame,
+  ConversationSubagentMessagePayload,
+  ConversationSubagentState,
+  ConversationSubagentStatusPayload,
   ConversationToolKind,
+  ConversationToolOutputPayload,
+  ConversationToolStartedPayload,
   ConversationToolStatus,
-} from '../../packages/conversation-protocol/src/tool-types'
-
-export type ConversationSessionStatus = 'starting' | 'ready' | 'active' | 'awaiting_approval' | 'stopped' | 'failed'
-
-export type ConversationEventType =
-  | 'session_started'
-  | 'session_ready'
-  | 'session_closed'
-  // Stateful providers report their own durable session identity (the resume
-  // cursor) through this event; the runtime reads it back from the JSONL
-  // transcript on the next startSession to resume natively.
-  | 'session_updated'
-  // Emitted by the runtime itself at turn start with the user's message text,
-  // so the persisted transcript replays complete conversations (user bubbles
-  // included) after an app restart.
-  | 'user_message'
-  | 'turn_started'
-  | 'content_delta'
-  | 'reasoning_delta'
-  | 'tool_started'
-  | 'tool_output'
-  | 'approval_requested'
-  | 'approval_resolved'
-  | 'usage_updated'
-  // The provider summarised the conversation to free context (payload:
-  // `trigger` 'manual' | 'auto', `preTokens`, `postTokens`). Additive: a
-  // client that does not know it skips it, as the wire validator allows.
-  | 'context_compacted'
-  // What a command the CLI ran without the model printed (`/context`,
-  // `/usage`; payload: `output`, `command` without its slash). `adapterNote:
-  // true` marks a line the adapter wrote about the command instead, such as a
-  // `/clear` having started a new conversation. Additive, as above.
-  | 'command_output'
-  | 'turn_completed'
-  | 'turn_failed'
-  // Where a spawned subagent's run stands (running, finished, failed, stopped),
-  // keyed by the tool call that spawned it. Session-scoped: a background agent
-  // outlives the turn that launched it, so this carries no turnId.
-  | 'subagent_status'
-  // Something a spawned agent said between its steps, keyed by the tool call
-  // that spawned it. Its own record, not a content_delta: an agent's words
-  // belong to its thread, never to the reply of the conversation that spawned
-  // it. Session-scoped for the same reason as subagent_status.
-  | 'subagent_message'
-
-export type ConversationEvent = {
-  id: string
-  // Absent only on legacy events and provider events before runtime stamping.
-  seq?: number
-  sessionId: string
-  workspaceId: string
-  agentId: string
-  providerId: string
-  modelId: string
-  type: ConversationEventType
-  createdAt: number
-  payload?: Record<string, unknown>
-}
+} from '../../packages/conversation-protocol/src/public'
 
 export type ConversationSessionSummary = {
   sessionId: string
@@ -116,6 +86,11 @@ export type ConversationSessionSummary = {
   // other than the preset's own is in force (cli-permission-mode.ts). Absent,
   // the preset's own mode.
   permissionMode?: string
+  // The session was started with tools it may use without asking
+  // (`allowedTools`). For those tools that is as loose as `bypass`, so anything
+  // holding a caller to a ceiling counts it as bypass. The tools themselves
+  // are not listed here.
+  allowsUnaskedTools?: true
 }
 
 // Loose mirror of the CLI runtime override map (`appSettings.cliRuntimes`)
@@ -253,6 +228,10 @@ export type ConversationPlanDocumentInput = ConversationKey & {
 export type ConversationPlanDocumentResult = { ok: true; path: string } | { ok: false; message: string }
 
 export type ConversationSendTurnInput = {
+  // What the command was, hashed by whoever named its id: a receipt keeps it,
+  // and the same id coming back for a different command is refused rather
+  // than answered with the first one's result. Never sent by a window's IPC.
+  commandFingerprint?: string
   mentions?: import('./conversation/mentions').ConversationMentionRef[]
   reasoningEffort?: string
   mode?: 'default' | 'plan' | 'ask'
@@ -277,11 +256,19 @@ export type ConversationSendTurnInput = {
 }
 
 export type ConversationInterruptInput = {
+  // What the command was, hashed by whoever named its id: a receipt keeps it,
+  // and the same id coming back for a different command is refused rather
+  // than answered with the first one's result. Never sent by a window's IPC.
+  commandFingerprint?: string
   commandId?: string
   sessionId: string
 }
 
 export type ConversationRespondToRequestInput = {
+  // What the command was, hashed by whoever named its id: a receipt keeps it,
+  // and the same id coming back for a different command is refused rather
+  // than answered with the first one's result. Never sent by a window's IPC.
+  commandFingerprint?: string
   commandId?: string
   decision?: import('./conversation/approvalRules').ConversationApprovalDecision
   sessionId: string
@@ -291,122 +278,11 @@ export type ConversationRespondToRequestInput = {
   // text → chosen answer (multi-select answers comma-separated, free-text
   // "other" answers verbatim). Ignored for plain tool approvals.
   answers?: Record<string, string>
-}
-
-// Payload carried on `tool_started`. `parentToolUseId` is what makes subagent
-// work visible: a provider that runs tools inside a spawned agent stamps the
-// child calls with the id of the tool call that spawned them, so consumers can
-// group them under that parent instead of flattening them into the turn (or,
-// as before, dropping them). Absent means an ordinary top-level tool call.
-export type ConversationToolStartedPayload = {
-  toolUseId?: string
-  kind?: ConversationToolKind
-  name?: string
-  input?: ConversationJsonValue
-  inputTruncated?: boolean
-  turnId?: string
-  toolCallId?: string
-  tool: string
-  summary?: string
-  addedLines?: number
-  removedLines?: number
-  parentToolUseId?: string
-  // Set on the tool call that spawns a subagent (Task/Agent). It is the header
-  // of a lane whose rows are the tool calls carrying its `toolCallId` as their
-  // `parentToolUseId`; its own `tool_output` closes the lane, so the lane's
-  // elapsed time is the span between the two events. A background agent's
-  // call returns at once; its lane stays open on `subagent_status` until the
-  // agent itself finishes.
-  subagentLane?: boolean
-  // The kind of subagent the model asked for ('Explore', 'general-purpose', a
-  // custom agent id), when the call names one. Lane label; absent means the
-  // consumer falls back to `summary`.
-  subagentType?: string
-}
-
-// Payload carried on `tool_output`. `parentToolUseId` mirrors `tool_started`
-// so a child call's completion lands in the same lane as its start.
-export type ConversationToolOutputPayload = {
-  // How an adapter's `output` relates to the tool's earlier output events.
-  // 'replace' (the default): it is the whole output so far. 'append': it is
-  // only the text produced since the previous event, and the runtime keeps the
-  // rest. Events the runtime publishes are always 'replace': `preview` and
-  // `output` there are the latest text, and the field is removed.
-  outputMode?: 'append' | 'replace'
-  partial?: boolean
-  clipped?: boolean
-  toolUseId?: string
-  preview?: string
-  totalBytes?: number
-  truncated?: boolean
-  status?: ConversationToolStatus
-  exitCode?: number
-  mime?: string
-  turnId?: string
-  toolCallId?: string
-  output: string
-  isError: boolean
-  parentToolUseId?: string
-  // The result of a background subagent, delivered when the agent finishes,
-  // usually after the turn that launched it has ended. It closes the lane
-  // wherever it started and rides the session channel, so it neither needs
-  // nor opens a turn.
-  backgroundResult?: boolean
-}
-
-export type ConversationSubagentState = 'running' | 'completed' | 'failed' | 'stopped'
-
-// Payload carried on `subagent_message`: one finished block of an agent's own
-// text, as it said it.
-export type ConversationSubagentMessagePayload = {
-  // The spawning tool call: the lane this belongs to.
-  parentToolUseId: string
-  text: string
-  // The text was longer than a transcript event keeps; this is its beginning.
-  truncated?: boolean
-}
-
-// Payload carried on `subagent_status`: the latest known state of one spawned
-// agent. Each event repeats what it knows; a field it leaves out keeps the
-// value an earlier event reported.
-export type ConversationSubagentStatusPayload = {
-  // The spawning tool call: the lane this status belongs to.
-  toolUseId: string
-  taskId?: string
-  status: ConversationSubagentState
-  // Launched in the background: its spawning call returned at once and the
-  // agent runs on after the turn that launched it.
-  background?: boolean
-  subagentType?: string
-  description?: string
-  // The tool the agent called most recently.
-  lastToolName?: string
-  // A short present-tense line about what the agent is doing, when the
-  // provider generates one.
-  progressSummary?: string
-  usage?: { totalTokens: number; toolUses: number; durationMs: number }
-  // Why a failed or stopped agent ended, when known.
-  error?: string
-  endedAt?: number
-}
-
-// Structured payload shapes carried on `approval_requested` events. `kind`
-// distinguishes a plain tool permission from an interactive question card or
-// a plan-approval card; provider-neutral so any stateful adapter can emit
-// them and the chat UI renders them the same way.
-export type ConversationApprovalKind = 'tool' | 'question' | 'plan'
-
-type ConversationQuestionOption = {
-  label: string
-  description?: string
-}
-
-export type ConversationQuestion = {
-  question: string
-  header?: string
-  multiSelect?: boolean
-  allowFreeText?: boolean
-  options: ConversationQuestionOption[]
+  // The kind of request the caller believes it is answering. Given, an answer
+  // to a request of another kind is refused rather than read as that kind's:
+  // a plan approved by a client that meant to answer a tool permission is not
+  // the same decision. Absent, any kind is answered, as before.
+  requestKind?: ConversationApprovalKind
 }
 
 // Change how tool permissions behave on a session that is already running. The
@@ -414,6 +290,10 @@ export type ConversationQuestion = {
 // effect on its next tool call, without recreating the session or losing
 // history.
 export type ConversationSetPermissionInput = {
+  // What the command was, hashed by whoever named its id: a receipt keeps it,
+  // and the same id coming back for a different command is refused rather
+  // than answered with the first one's result. Never sent by a window's IPC.
+  commandFingerprint?: string
   commandId?: string
   sessionId: string
   permissionPreset: ConversationPermissionPreset
@@ -424,13 +304,25 @@ export type ConversationSetPermissionInput = {
 // Switch a running conversation to another model of the same provider. The
 // CLI's own default row is `default`. Applies from the next turn.
 export type ConversationSetModelInput = {
+  // What the command was, hashed by whoever named its id: a receipt keeps it,
+  // and the same id coming back for a different command is refused rather
+  // than answered with the first one's result. Never sent by a window's IPC.
+  commandFingerprint?: string
   commandId?: string
   sessionId: string
   modelId: string
 }
 
 export type ConversationStopSessionInput = {
+  // What the command was, hashed by whoever named its id: a receipt keeps it,
+  // and the same id coming back for a different command is refused rather
+  // than answered with the first one's result. Never sent by a window's IPC.
+  commandFingerprint?: string
   sessionId: string
+  // With one, the stop goes through the conversation's durable receipts like
+  // any other command: a retry is answered with the first result, so a resend
+  // after a reconnect cannot stop a session started since.
+  commandId?: string
 }
 
 // Settle and Snooze: end the session's child process but keep the session, so
@@ -462,7 +354,9 @@ export type ConversationSessionActionResult =
   // but does not apply yet (switching to Bypass while a turn is still
   // streaming). The action succeeded; this is not an error.
   | { ok: true; session: ConversationSessionSummary; notice?: string }
-  | { ok: false; message: string; event?: ConversationEvent }
+  // `code` names a refusal a caller acts on by itself. The runtime gives one:
+  // `command_id_conflict`, a command id already used for a different command.
+  | { ok: false; message: string; event?: ConversationEvent; code?: string }
 
 export type ConversationListSessionsResult =
   { ok: true; sessions: ConversationSessionSummary[] } | { ok: false; message: string }
@@ -604,13 +498,5 @@ export type ConversationSubscribeInput = {
   generation?: string
   turnLimit?: number
 }
-export type ConversationPage = { events: ConversationEvent[]; hasMore: boolean; beforeCursor: number | null }
 export type ConversationLoadEarlierInput = { key: ConversationKey; beforeCursor: number; turnLimit?: number }
 export type ConversationPageResult = { ok: true; page: ConversationPage } | { ok: false; message: string }
-export type ConversationSessionFrame =
-  | { type: 'event'; event: ConversationEvent }
-  // Page events keep a merged run of deltas as one event numbered with the
-  // run's last sequence; `beforeCursor` is the first sequence the page covers.
-  | { type: 'snapshot'; page: ConversationPage; reset?: true; generation?: string }
-  | { type: 'synchronized'; seq: number; generation?: string }
-  | { type: 'error'; message: string }
