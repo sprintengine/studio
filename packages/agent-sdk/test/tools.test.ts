@@ -15,6 +15,7 @@ import {
 import { createClientToolRegistry, type ClientToolRegistry } from '../../../src/server/tools/client-tool-registry'
 import { createClientToolsetStore } from '../../../src/server/tools/client-toolset-store'
 import { StudioError, StudioToolError, connect, toolResult, type StudioClient, type ToolCall } from '../src/index'
+import { createClientTools } from '../src/tools'
 import { socketTransport } from '../src/node'
 
 // `client.tools` against the in-process router: an offer, a call there and
@@ -293,6 +294,7 @@ test('a cancel aborts the handler’s signal', async () => {
   const target = await studio()
   const app = await client(target)
   let aborted: unknown = null
+  let started = false
   await app.tools.offer({
     name: 'game',
     // An owner's tools reach what its offer says; these tests' agents started nowhere.
@@ -304,6 +306,7 @@ test('a cancel aborts the handler’s signal', async () => {
         inputSchema: { type: 'object' },
         handler: (_input, call) =>
           new Promise<string>((resolve) => {
+            started = true
             call.signal.addEventListener('abort', () => {
               aborted = call.signal.reason
               resolve('stopped')
@@ -313,8 +316,7 @@ test('a cancel aborts the handler’s signal', async () => {
     ],
   })
   const pending = target.registry.call({ caller: caller('chat-9'), toolset: 'game', tool: 'wait', args: {} })
-  await until(() => target.registry.pendingCalls() === 1, 'the call')
-  await new Promise((resolve) => setTimeout(resolve, 20))
+  await until(() => started, 'the handler to start')
   target.registry.cancelCallsFor({ workspaceId: 'ws-1', agentId: 'chat-9' })
   const answer = await pending
   assert.equal(answer.result.content[0].type === 'text' && answer.result.content[0].text, 'cancelled: Cancelled.')
@@ -350,4 +352,57 @@ test('offering needs a Studio that takes tools', async () => {
     }),
     (error: StudioError) => error.code === 'unsupported',
   )
+})
+
+test('a call still running is never forgotten, however many finish after it', async () => {
+  const sent: Array<Record<string, unknown>> = []
+  const tools = createClientTools({
+    request: async () => ({ wireNames: ['game.wait', 'game.quick'] }),
+    send: (frame) => {
+      sent.push(frame)
+      return true
+    },
+    supports: () => true,
+    isOpen: () => true,
+  })
+  let waits = 0
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await tools.api.offer({
+    name: 'game',
+    tools: [
+      {
+        name: 'wait',
+        description: 'Waits.',
+        inputSchema: { type: 'object' },
+        handler: async () => {
+          waits++
+          await gate
+          return 'waited'
+        },
+      },
+      { name: 'quick', description: 'Quick.', inputSchema: { type: 'object' }, handler: () => 'quick' },
+    ],
+  })
+  const frame = (id: string, tool: string, redelivery = false) =>
+    ({
+      t: 'call',
+      id,
+      toolset: 'game',
+      tool,
+      input: {},
+      context: { connection: { kind: 'studio-agent' } },
+      timeoutMs: 60_000,
+      ...(redelivery ? { redelivery: true } : {}),
+    }) as const
+  tools.handleCall(frame('slow', 'wait'))
+  for (let index = 0; index < 2100; index++) tools.handleCall(frame(`quick-${index}`, 'quick'))
+  await until(() => sent.length === 2100, 'the quick calls')
+  // Redelivered after all of those: it joins the handler, which runs once.
+  tools.handleCall(frame('slow', 'wait', true))
+  release()
+  await until(() => sent.some((reply) => reply.id === 'slow'), 'the slow reply')
+  assert.equal(waits, 1)
 })

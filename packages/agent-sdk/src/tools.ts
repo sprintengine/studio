@@ -135,6 +135,13 @@ export const toolResult = {
 
 const MEMORY_MS = 10 * 60 * 1000
 const MAX_MEMORY = 2048
+/**
+ * The most the stored replies may hold between them. A redelivery comes within
+ * Studio's reconnect grace, so the newest replies are the ones worth keeping;
+ * past this, the oldest finished ones go first, and a call still running is
+ * never forgotten.
+ */
+const MAX_MEMORY_BYTES = 32 * 1024 * 1024
 
 type Live = {
   input: ToolsetInput
@@ -145,6 +152,8 @@ type Live = {
 type Remembered = {
   running: Promise<unknown> | null
   reply: Record<string, unknown> | null
+  /** The encoded reply's size, counted against the memory's budget. */
+  bytes: number
   controller: AbortController
   at: number
 }
@@ -163,10 +172,20 @@ export function createClientTools(deps: {
   const memory = new Map<string, Remembered>()
   let lastFocus: Record<string, unknown> | null = null
 
+  let memoryBytes = 0
+  function forget(id: string, entry: Remembered): void {
+    memory.delete(id)
+    memoryBytes -= entry.bytes
+  }
   function prune(): void {
     const at = now()
-    for (const [id, entry] of memory) if (!entry.running && at - entry.at > MEMORY_MS) memory.delete(id)
-    while (memory.size > MAX_MEMORY) memory.delete(memory.keys().next().value!)
+    for (const [id, entry] of memory) if (!entry.running && at - entry.at > MEMORY_MS) forget(id, entry)
+    // Oldest finished first; a running call is never forgotten, or its
+    // redelivery would run the handler again.
+    for (const [id, entry] of memory) {
+      if (memory.size <= MAX_MEMORY && memoryBytes <= MAX_MEMORY_BYTES) break
+      if (!entry.running) forget(id, entry)
+    }
   }
 
   async function sendOffer(entry: Live): Promise<void> {
@@ -258,9 +277,12 @@ export function createClientTools(deps: {
       remembered.reply = frame
       remembered.running = null
       remembered.at = now()
+      remembered.bytes = studioUtf8Length(JSON.stringify(frame))
+      memoryBytes += remembered.bytes
       // Moved to the end: the oldest finished call is the first to go.
       memory.delete(id)
       memory.set(id, remembered)
+      prune()
     }
     if (deps.isOpen()) deps.send(frame)
   }
@@ -331,9 +353,17 @@ export function createClientTools(deps: {
         if (known.reply && deps.isOpen()) deps.send(known.reply)
         return
       }
-      const remembered: Remembered = { running: null, reply: null, controller: new AbortController(), at: now() }
+      const remembered: Remembered = {
+        running: null,
+        reply: null,
+        bytes: 0,
+        controller: new AbortController(),
+        at: now(),
+      }
       memory.set(frame.id, remembered)
-      remembered.running = run(frame, remembered).catch(() => undefined)
+      const running = run(frame, remembered).catch(() => undefined)
+      // A call answered before its handler could start (an unknown tool) is finished already.
+      if (!remembered.reply) remembered.running = running
     },
     /** Studio stopped waiting for a call: its handler's signal is aborted. Its reply, if any, is dropped there. */
     handleCancel(frame: StudioCancelFrame): void {
