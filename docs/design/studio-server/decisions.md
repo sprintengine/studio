@@ -1,6 +1,7 @@
 # Studio server — decisions
 
-Status: 2026-10-01, amended 2026-10-02 for the small-server ruling. This file
+Status: 2026-10-01, amended 2026-10-02 for the small-server ruling. Every
+class C item is ruled (2026-10-02). This file
 resolves the open decisions of `docs/design/studio-server.md` (section 15) and
 of the phase specs beside it (the withdrawn phase 5 spec's section 11, the
 client-tools phase 5 spec's section 16, phase 6 section 14, phase 7 section
@@ -83,7 +84,7 @@ fixed on `main`.
 
 | ID | Spec IDs | Decision | Resolution | Class | Reason |
 | --- | --- | --- | --- | --- | --- |
-| R21 | P8-D1; P7 §12.6; §9.4, §10.2 step 3, §10.3 step 5 | SSH transport, and the WSL stdio fallback | One relay program carries bytes between stdio and the owner socket: the SSH connect session's stdio instead of `ssh -N -L` (P8 §5.4), and the WSL fallback's `wsl.exe` stdio (P7 §3.4). SSH adds a stream multiplexer; WSL uses one bridge per connection. | C | See the owner list. |
+| R21 | P8-D1; P7 §12.6; §9.4, §10.2 step 3, §10.3 step 5 | SSH transport, and the WSL stdio fallback | One relay program carries bytes between stdio and the owner socket: the SSH connect session's stdio instead of `ssh -N -L` (P8 §5.4), and the WSL fallback's `wsl.exe` stdio (P7 §3.4). SSH adds a stream multiplexer; WSL uses one bridge per connection. | C, ruled | Owner ruling 2026-10-02: the recommendation stands. |
 | R22 | P8-D2 | Does a remote credential reach the desktop? | No. Each connect proves itself over the SSH session, and the desktop stores only the route, never a remote token. | A | A laptop's disk then holds no credential for any SSH machine. Revoking someone's SSH access revokes their Studio access. |
 | R23 | P8-D3 | musl (Alpine) remotes | Refused in v1, with a sentence that names musl. | A | The pinned runtime and the bundle's native pieces have no musl builds, and finding that out from a loader ENOENT is worse than being told. |
 | R24 | P8-D4 | glibc below the runtime's floor (RHEL/CentOS 7) | Refused with the version found. | A | Those systems are past end of life, and the pinned Node does not run there. |
@@ -109,10 +110,10 @@ fixed on `main`.
 | R67 | P7 §12.2 | What the owner socket serves | The whole HTTP and WebSocket surface (upgrade, uploads, signed asset URLs), not frames only. | A | One listener that carries everything is what lets any byte pipe (the WSL bridge, the SSH relay, a forward) carry everything with no per-route special cases. |
 | R68 | P7-D3; P7 §12.11; §7.1 | WSL data directory | One per Windows profile inside the distribution: `data/` for the packaged default profile, `data-<profileId>/` otherwise. Never shared with the Windows-side data directory. | A | A development build must never share chats with the installed app. Each side's database has one writer on its own file system. |
 | R69 | P7-D5 | Provider API keys when a distro first moves to its server | Copied once, automatically, over the authenticated connection (`providers.secrets.set`), with a line in the migration notice. Later edits are offered, not pushed. Never through the environment or `WSLENV`. | A | Those keys already powered that distro's chats, and asking the person to type them again buys nothing. The environment of a WSL process can be read by any of the user's processes. |
-| R70 | P7-D2 | WSL1 | Keep WSL1 on the per-process path. | C | See the owner list. |
-| R71 | P7-D8 | The WSL helper and the server | Two processes in phase 7, merged in phase 10. | C | See the owner list. |
-| R72 | P7-D9 | Windows end-to-end testing | The manual checklist for the first release, and a self-hosted Windows runner with WSL2 before the default flips. | C | See the owner list. |
-| R73 | P7-D10 | `C:\` workspaces on a WSL machine | Keep supporting them: agents and git in WSL, UI file reads on Windows, and an advisory in New chat, never a block. | C | See the owner list. |
+| R70 | P7-D2 | WSL1 | WSL2 only. A WSL1 distro is refused with a message that names the conversion command (`wsl --set-version <distro> 2`); the new server never runs in one. | C, ruled | Owner ruling 2026-10-02. WSL1 lacks drive-mount inotify and its kernel is below Node 24's floor, and nobody the app serves uses it. |
+| R71 | P7-D8 | The WSL helper and the server | Two processes in phase 7, merged in phase 10. | C, ruled | Owner ruling 2026-10-02: the recommendation stands. |
+| R72 | P7-D9 | Windows end-to-end testing | The manual checklist for the first release, and a self-hosted Windows runner with WSL2 before the default flips. | C, ruled | Owner ruling 2026-10-02: the recommendation stands. |
+| R73 | P7-D10 | `C:\` workspaces on a WSL machine | Keep supporting them: agents and git in WSL, UI file reads on Windows, and an advisory in New chat, never a block. | C, ruled | Owner ruling 2026-10-02: the recommendation stands. |
 | R74 | P7-D11 | The gateway-token gap in today's WSL chats | Fixed on `main` (#133 and follow-ups): a WSL chat is issued an MCP channel token per session, an ACP agent keeps its own, and the token is taken back when a start is refused. | A | Done. Nothing is left to decide. |
 
 ### Rendering, the browser and the pane
@@ -131,14 +132,14 @@ canvas, which are now the toolsets it offers.
 | R41 | P5-D4; Q6 | Where the download comes from | The Chrome for Testing bucket, pinned by our own SHA-256. | Superseded (2026-10-02) | There is no download. |
 | R42 | P5-D5; Q6; §8.2 | When the sandbox cannot start | Never fall back silently. A per-host `render.allowNoSandbox`, off by default, with a persistent warning. No implicit exception for the canvas. | Superseded (2026-10-02) | No browser runs on a server, so there is no sandbox to start. |
 | R43 | P5-D10; Q6 | Who downloads Chromium for WSL and SSH hosts | The host when it can reach the bucket; the client streams it as the fallback. | Superseded (2026-10-02) | There is no download. |
-| R44 | P5-D11; P5c §12 | A `browser.dialog` tool and a `dialog_open` error | Yes, as a change to the desktop's `browser` toolset. | C | See the owner list. |
+| R44 | P5-D11; P5c §12 | A `browser.dialog` tool and a `dialog_open` error | Yes, as a change to the desktop's `browser` toolset. | C, ruled | Owner ruling 2026-10-02: the recommendation stands. |
 | R45 | P5 §1.2 finding 8 | Screencast frames on the wire | One binary message type for frames. Everything else stays JSON text. | Superseded (2026-10-02) | No screencast. Every client tool result fits one JSON frame (P5c §4.6), so the wire stays text only. |
 | R46 | P5 §1.2 finding 3; P6-D5, P6-O5 (canvas); P7 §3.8, §12.10 | Where the canvas worker runs for servers on the desktop's own PC | The shell's existing offscreen worker, over `ShellBridge`, for the local server and its WSL servers. No `electron-child` render host, and no Linux Chromium download for WSL while a desktop is attached. Chromium for SSH and standalone servers. | Superseded (2026-10-02) | The canvas is always a client's: the desktop's worker draws for every server it is attached to, as the `canvas` toolset, and no server draws. |
 | R47 | Q7; P5-D8 | Attached-client canvas fallback for SSH and standalone servers (parent §8.4) | Drop it. (WSL is covered by R46, not by this fallback.) | Superseded (2026-10-02) | What was a fallback is now the only path, and a general one (client toolsets). |
-| R48 | P5-D6; P5c §12 | Bundle the Xiaolai CJK font | Yes, in the desktop and the web client, the two clients that draw boards. Not in the server, which draws nothing (2026-10-02). | C | See the owner list. |
+| R48 | P5-D6; P5c §12 | Bundle the Xiaolai CJK font | Yes, in the desktop and the web client, the two clients that draw boards. Not in the server, which draws nothing (2026-10-02). | C, ruled | Owner ruling 2026-10-02: the recommendation stands. |
 | R49 | P5-D7 | Bundle an emoji font for the Linux canvas worker | Not in v1; the probe warns. | Superseded (2026-10-02) | There is no Linux canvas worker on a server; clients use their own emoji fonts. |
 | R50 | P5-D9 | Split phase 5 | 5a (render host and canvas), 5b (agents' browser), 5c (the screencast view). After R37, 5c serves only non-local environments and the web. | Superseded (2026-10-02) | Phase 5 is now client tools, one phase (`phase-5-client-tools.md`). |
-| R75 | P8-D13; P8 §6.8 | The local end of the SSH pane's forward | SOCKS5 as ruled, with the exposure narrowed: bound to `127.0.0.1` on an ephemeral port, open only while that environment has a pane tab, and on Linux refusing a peer of another uid. If that is not enough, the same forward's local end speaks an HTTP proxy with a per-session `Proxy-Authorization`, which Chromium answers through Electron's `login` event. | C | See the owner list. |
+| R75 | P8-D13; P8 §6.8 | The local end of the SSH pane's forward | The forward's local end is an HTTP proxy bound to `127.0.0.1` on an ephemeral port with a per-session `Proxy-Authorization` credential, answered through Electron's `login` event. Open only while that environment has a pane tab. No SOCKS5 listener. | C, ruled | Owner ruling 2026-10-02. It keeps goal 4, never an unauthenticated port, on shared Macs and Windows PCs as well as Linux. |
 | R76 | P8-D14; P8 §6.8; P5c §10.4 | The SSH pane's partition and what goes through the remote | One persistent partition per environment (`persist:env-<environment.id>`), shared by that environment's workspaces. All of its traffic goes through the remote, loopback included (`proxyBypassRules: '<-loopback>'`), with a per-machine switch to send only loopback there. | A | The proxy is set per session, so a partition cannot span environments; per environment matches today's shared model and keeps sign-ins across workspaces. Sending everything through the remote makes the pane see the network the agent sees (its `/etc/hosts`, its private network). |
 
 ### The web client
@@ -152,8 +153,8 @@ canvas, which are now the toolsets it offers.
 | R55 | P9-12 | Service worker | None in v1; a web manifest only. | A | Nothing works offline without the server, and a stale cached bundle against a newer server is a version-skew bug. |
 | R56 | P9 §12.5 | Clipboard and `openExternal` | Client-side on every client, including a desktop attached to a remote server. | A | A remote server's clipboard and screen are not the person's. |
 | R57 | P9 §12.11 | Client state on the web | `localStorage` per origin. One server reached by two routes keeps two sets of drafts, which is stated. | A | Origins are the browser's storage boundary. Syncing drafts through the server is a feature, not a fix. |
-| R58 | P9-3 | Embed scope in v1 | Read-only. | C | See the owner list. |
-| R59 | P9-8; P9 §12.9 | Embed delivery and the `embeds` namespace | An iframe route and a React component in v1, and the web component later. The `embeds` namespace (`create`, `list`, `revoke`) and the embed `postMessage` wire get a row in `docs/compatibility.md`. | C | See the owner list. |
+| R58 | P9-3 | Embed scope in v1 | Read-only. | C, ruled | Owner ruling 2026-10-02: the recommendation stands. |
+| R59 | P9-8; P9 §12.9 | Embed delivery and the `embeds` namespace | An iframe route and a React component in v1, and the web component later. The `embeds` namespace (`create`, `list`, `revoke`) and the embed `postMessage` wire get a row in `docs/compatibility.md`. | C, ruled | Owner ruling 2026-10-02: the recommendation stands. |
 | R77 | P9-13; P9 §3.6 | How the web client shows an agent's dev server | `previews`: a port on the server's loopback passed through on an origin of its own (same host, its own port), never Studio's. Its own single-use entry code and cookie; Studio's cookies stripped from what it forwards; WebSocket upgrades passed through. Offered ports are those the server's agent processes listen on, plus a port an owner types; never Studio's own. Owner sessions, or a `previews:open` grant that tailnet browsers do not get by default. | B | The dev app is agent-written code running in the person's browser. On Studio's origin it could read the session and drive the server; a separate origin makes Studio's exact `Origin` rule (R14) refuse it. |
 | R79 | P9-14; P9 §3.8; P5c §7.2, §10.5 | Does the web client offer `canvas`, and from which sessions? | Yes, from a session holding the owner's grants, with `kind: 'web'`; never from a tailnet browser pairing in v1. It runs the same worker page and portable canvas service, keeping boards through `files.*`. | A | It runs the real editor in a real browser, so agents keep the canvas with only a web tab attached. Tailnet pairings never hold `tools:offer` in v1 (P5c §7.1). |
 
@@ -161,11 +162,11 @@ canvas, which are now the toolsets it offers.
 
 | ID | Spec IDs | Decision | Resolution | Class | Reason |
 | --- | --- | --- | --- | --- | --- |
-| R60 | Q10; P6-D10, P6-O12; P6 §12.3 | Third-party `entry.main` that imports `electron`; the module server/client split | An `electron-main` host capability, an optional `requires.hostCapabilities` manifest field, and a load-time `require('electron')` interceptor. No host API bump. Every module declares both halves in phase 10. | C | See the owner list. |
-| R61 | §11; P9-4 | Third-party renderer modules on the web; their asset origin | Off by default on the web, with a per-server owner switch. Bundled modules load. | C | See the owner list. |
-| R62 | P6-D7, P6-O6 | Phase 6's domain cut | Approve P6 section 5. Git panel, file explorer, skills, marketplace, tours, memory, PRs and design stay in the shell until phase 10. Since 2026-10-02 the canvas service is the shell's too (the `canvas` toolset); only the board files are server-owned. | C | See the owner list. |
-| R63 | P6-O13; P7 §12.9; §6.2 | Who writes the launcher pointer and integrations on the desktop | The shell, in phase 6. In a distro, the Windows side stays the one writer until terminals move. SSH and standalone servers write their own host's. | C | See the owner list. |
-| R64 | P6-O14 | Keep the phase 6 experiment scripts | Optional, under `scripts/experiments/server-process/`. | C | See the owner list. |
+| R60 | Q10; P6-D10, P6-O12; P6 §12.3 | Third-party `entry.main` that imports `electron`; the module server/client split | An `electron-main` host capability, an optional `requires.hostCapabilities` manifest field, and a load-time `require('electron')` interceptor. No host API bump. Every module declares both halves in phase 10. | C, ruled | Owner ruling 2026-10-02: the recommendation stands. |
+| R61 | §11; P9-4 | Third-party renderer modules on the web; their asset origin | Off by default on the web, with a per-server owner switch. Bundled modules load. | C, ruled | Owner ruling 2026-10-02: the recommendation stands. |
+| R62 | P6-D7, P6-O6 | Phase 6's domain cut | Approve P6 section 5. Git panel, file explorer, skills, marketplace, tours, memory, PRs and design stay in the shell until phase 10. Since 2026-10-02 the canvas service is the shell's too (the `canvas` toolset); only the board files are server-owned. | C, ruled | Owner ruling 2026-10-02: the recommendation stands. |
+| R63 | P6-O13; P7 §12.9; §6.2 | Who writes the launcher pointer and integrations on the desktop | The shell, in phase 6. In a distro, the Windows side stays the one writer until terminals move. SSH and standalone servers write their own host's. | C, ruled | Owner ruling 2026-10-02: the recommendation stands. |
+| R64 | P6-O14 | Keep the phase 6 experiment scripts | Not kept. Experiments run from a scratch directory and are not committed. | C, ruled | Owner ruling 2026-10-02. No test needs them. |
 | R78 | P6-D11, P6-O15; P5c §10.6 | The desktop's editor, tour and terminal tools once the server is out of process | The shell offers them as the `editor`, `tour` and `terminal` toolsets on phase 5's mechanism, over the control channel. `ShellBridge` keeps only what is not an agent tool (cipher, internal terminal launches for two service tokens, reveal, notify, analytics, the integrations gate). | A | One path for every tool a client supplies, with one routing rule, one deadline and one cancellation, instead of bespoke bridge members that would repeat them. |
 
 ### Client tools (phase 5)
@@ -174,14 +175,15 @@ canvas, which are now the toolsets it offers.
 | --- | --- | --- | --- | --- | --- |
 | R80 | P5c-1; P5c §10.3 | Where boards live | Where they are today: the server's data directory (`canvas/ws_<hash>/`) plus the legacy `diagrams/` folder, read and written through the owner-only `files.*`. Moving them into the workspace is a separate product question. | B | It moves nobody's files, needs no migration on any host, and keeps agent-drawn scratch boards out of commits, which is why boards left the checkout in the first place. |
 | R81 | P5c-2; P5c §6.2 | Routing among several clients offering one toolset | Affinity first (a conversation stays on the client it first used), then the client the person is looking at, then the one showing the workspace, then the client that started the conversation, then desktop before web before headless. | A | The person watching is the one who can see and take over the browser; affinity keeps a tab, a worker's warm state and an app's session from hopping mid-task. |
-| R82 | P5c-3; P5c §7.1 | Approve each app toolset on first offer, beyond the `tools:offer` scope | The scope given at pairing is the consent, with Settings showing every toolset, the audit, and an OS notification the first time an app offers a name. No separate prompt. | C | See the owner list. |
+| R82 | P5c-3; P5c §7.1 | Approve each app toolset on first offer, beyond the `tools:offer` scope | The scope given at pairing is the consent, with Settings showing every toolset, the audit, and an OS notification the first time an app offers a name. No separate prompt. | C, ruled | Owner ruling 2026-10-02: the recommendation stands. |
 | R83 | P5c-4 | Should the server answer `canvas.list`, `describe` and `find` itself with no client attached | No. With no client offering `canvas`, agents have no canvas tools. | A | Ruling (f) keeps the canvas off the server, and splitting one tool family across two owners would give agents two lists that disagree. |
 | R84 | P5c-5; P5c §5.3 | Remove a client's tools mid-connection for runtimes that honour `list_changed` | No. A connection's list only grows; a tool whose client has gone answers `client_unavailable` until it is offered again. | B | Every runtime then behaves the same, prompt caches and Claude Code's ToolSearch index stay valid, and an agent reads a sentence naming the fix instead of an unknown-tool error. |
 | R85 | P5c-6; P5c §4.5, §8.2 | Grace and timeout values | A 20 s reconnect grace, a 60 s default tool timeout and 600 s maximum. Log reconnect gaps and call durations, and revisit after a release. | A | They cover today's built-in deadlines and a network blip; the numbers are constants a later release can change without a protocol bump. |
-| R86 | P5c-7; P5c §1.3 finding 2, §5.4 | Hand Codex and ACP chats the gateway at launch | Yes, in a separate change after phase 5: the gateway in Codex's `-c` overrides and in ACP's `session/new` and `session/load`, with the chat's identity on the entry, and never a second copy beside a pinned workspace entry. | C | See the owner list. |
+| R86 | P5c-7; P5c §1.3 finding 2, §5.4 | Hand Codex and ACP chats the gateway at launch | Yes, in a separate change after phase 5: the gateway in Codex's `-c` overrides and in ACP's `session/new` and `session/load`, with the chat's identity on the entry, and never a second copy beside a pinned workspace entry. | C, ruled | Owner ruling 2026-10-02: the recommendation stands. |
+| R87 | Review of P5c §7 | How the gateway knows which conversation an agent connection belongs to | Each agent launch is issued its own gateway token bound to its conversation (the WSL channel token generalised to every launch), and the server derives the identity from the token, never from what the connection declares. Part of phase 5. | C, ruled | Owner ruling 2026-10-02. A declared identity is only a claim, so any local agent could otherwise reach tools an app offered to another conversation. |
 
-Counts: 86 rows. 38 are class A, 20 class B and 17 class C; 11 are
-superseded (2026-10-02).
+Counts: 87 rows. 38 are class A, 20 class B and 18 class C, all 18 ruled by
+the owner on 2026-10-02; 11 are superseded (2026-10-02).
 
 ## The browser pane and the render host
 
@@ -225,8 +227,13 @@ The answer that replaces it:
 
 ## For the owner: the class C items
 
-Each item keeps its spec's recommendation as the working default until you
-rule. The 2026-10-02 ruling removed the Chromium, sandbox, screencast and
+**Ruled (owner ruling 2026-10-02).** Every item below is decided as recommended,
+with three exceptions: R64, the experiment scripts are not kept; R70, the new
+server is WSL2 only and a WSL1 distro is refused with the conversion command;
+R75, the SSH pane's local end is an HTTP proxy with a per-session credential,
+not SOCKS5. R87 is added: every agent launch gets its own gateway token, and the
+server takes the conversation from the token. The list keeps the reasoning as it
+was put to the owner. The 2026-10-02 ruling removed the Chromium, sandbox, screencast and
 server-canvas items (R37, R38, R40–R43, R45–R47, R49, R50), and R74 is fixed
 on `main`.
 
