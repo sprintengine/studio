@@ -13,6 +13,8 @@ import {
   JSONRPC_INVALID_REQUEST,
   JSONRPC_PARSE_ERROR,
   type JsonRpcId,
+  type McpClientToolHooks,
+  type McpToolCallEvent,
 } from './mcp-dispatch'
 import type {
   McpConnectionContext,
@@ -53,15 +55,13 @@ export type McpSocketServerOptions = {
    * enablement live, and the gateway is constructed before modules
    * load, so a snapshot here would be permanently stale.
    */
-  resolveTools: () => McpToolRegistration[]
-  onToolCall?: (event: {
-    context: McpConnectionContext
-    tool: string
-    args: Record<string, unknown>
-    durationMs: number
-    result?: McpToolResult
-    error?: unknown
-  }) => void
+  resolveTools: (context?: McpConnectionContext) => McpToolRegistration[]
+  /**
+   * Client tools: each connection's own catalog, told when it grows. A
+   * connection is tracked while it is open, and told alone.
+   */
+  clientTools?: McpClientToolHooks & { track(context: McpConnectionContext, notify: () => void): () => void }
+  onToolCall?: (event: McpToolCallEvent) => void
   log?: (message: string) => void
 }
 
@@ -80,6 +80,7 @@ export function createMcpSocketServer(options: McpSocketServerOptions): McpSocke
     serverName: options.serverName,
     serverVersion: options.serverVersion,
     resolveTools: options.resolveTools,
+    ...(options.clientTools ? { clientTools: options.clientTools } : {}),
     onToolCall: options.onToolCall,
   })
 
@@ -119,6 +120,8 @@ export function createMcpSocketServer(options: McpSocketServerOptions): McpSocke
     server = null
     for (const socket of sockets) socket.destroy()
     sockets.clear()
+    for (const untrack of untracks.values()) untrack()
+    untracks.clear()
     connectionContexts.clear()
     await new Promise<void>((resolve) => current.close(() => resolve()))
     if (process.platform !== 'win32' && existsSync(options.socketPath)) {
@@ -134,7 +137,15 @@ export function createMcpSocketServer(options: McpSocketServerOptions): McpSocke
     sockets.add(socket)
     socket.setEncoding('utf8')
     let buffer = ''
-    connectionContexts.set(socket, { metadata: { kind: 'external-local' } })
+    const context: McpConnectionContext = { metadata: { kind: 'external-local' } }
+    connectionContexts.set(socket, context)
+    if (options.clientTools)
+      untracks.set(
+        socket,
+        options.clientTools.track(context, () =>
+          respond(socket, { jsonrpc: '2.0', method: 'notifications/tools/list_changed' }),
+        ),
+      )
     // Preserve request ordering within one stdio bridge. In particular, the
     // bridge's advisory connection-metadata notification must be applied before
     // an immediately-following initialize/tools call on the same TCP chunk.
@@ -153,18 +164,21 @@ export function createMcpSocketServer(options: McpSocketServerOptions): McpSocke
       while (newline !== -1) {
         const line = buffer.slice(0, newline).trim()
         buffer = buffer.slice(newline + 1)
-        if (line) pending = pending.then(() => handleLine(socket, line))
+        // A cancellation is about a call that is still running, which the
+        // queue would make it wait behind: it is handled as it arrives.
+        if (line && isCancellation(line)) void handleLine(socket, line)
+        else if (line) pending = pending.then(() => handleLine(socket, line))
         newline = buffer.indexOf('\n')
       }
     })
-    socket.on('close', () => {
+    const forget = () => {
       sockets.delete(socket)
       connectionContexts.delete(socket)
-    })
-    socket.on('error', () => {
-      sockets.delete(socket)
-      connectionContexts.delete(socket)
-    })
+      untracks.get(socket)?.()
+      untracks.delete(socket)
+    }
+    socket.on('close', forget)
+    socket.on('error', forget)
   }
 
   async function handleLine(socket: Socket, line: string): Promise<void> {
@@ -202,7 +216,10 @@ export function createMcpSocketServer(options: McpSocketServerOptions): McpSocke
 
     try {
       const context = connectionContexts.get(socket) ?? { metadata: { kind: 'external-local' as const } }
-      const result = await dispatcher.dispatch(parsed.method, params, context)
+      const result = await dispatcher.dispatch(parsed.method, params, context, undefined, {
+        requestId: id,
+        notify: (message) => respond(socket, message),
+      })
       if (result.kind === 'no_response') {
         if (!isNotification) respond(socket, { jsonrpc: '2.0', id, result: {} })
         return
@@ -228,6 +245,7 @@ export function createMcpSocketServer(options: McpSocketServerOptions): McpSocke
   }
 
   const connectionContexts = new Map<Socket, McpConnectionContext>()
+  const untracks = new Map<Socket, () => void>()
 
   return {
     start,
@@ -261,6 +279,17 @@ function respond(socket: Socket, payload: Record<string, unknown>): void {
     })
   }
   socket.write(`${line}\n`)
+}
+
+/** Whether a line is an agent's `notifications/cancelled`, read cheaply before it is parsed for real. */
+function isCancellation(line: string): boolean {
+  if (!line.includes('notifications/cancelled')) return false
+  try {
+    const parsed = JSON.parse(line) as { method?: unknown; id?: unknown }
+    return parsed.method === 'notifications/cancelled' && parsed.id === undefined
+  } catch {
+    return false
+  }
 }
 
 function idOf(value: unknown): JsonRpcId {

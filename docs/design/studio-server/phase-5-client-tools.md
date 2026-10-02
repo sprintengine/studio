@@ -406,10 +406,13 @@ agent reads both kinds the same way it reads every gateway error now.
 - The server's deadline for a call is the tool's `timeoutMs` plus 5 s of slack
   for the round trip. When it passes, the agent is answered `timeout` and the
   client is sent `cancel { reason: 'timeout' }`.
-- A `progress` frame resets an idle timer, but never extends a call past
-  `timeoutMs`. Where the agent's `tools/call` carried `_meta.progressToken`,
-  the gateway forwards it as `notifications/progress`, a small new path in
-  `mcp-dispatch.ts`. Otherwise it is only logged at debug level.
+- A `progress` frame never extends a call past `timeoutMs`. Where the agent's
+  `tools/call` carried `_meta.progressToken`, the gateway forwards it as
+  `notifications/progress`, a small new path in `mcp-dispatch.ts`, with a
+  count that rises by at least one each time (MCP requires it to rise, and a
+  client may name no number). Otherwise it is dropped. (Amended as built: the
+  spec first had progress reset an idle timer, but no idle timer exists beside
+  the deadline, so there was nothing for it to reset.)
 - Built-in tools declare timeouts that cover today's internal deadlines:
   `browser.open` 30 s, `browser.wait_for` and `browser.evaluate` 40 s, every
   other browser tool 20 s; `canvas.import` 90 s, `canvas.edit`, `layout` and
@@ -486,8 +489,11 @@ The limits are constants in `tools.ts`, so a client can read them.
 ### 5.1 One gateway, a list per connection
 
 `McpDispatcher` takes `resolveTools(context)` instead of `resolveTools()`
-(`mcp-dispatch.ts:116-125`), and `createStudioGatewayTools` returns
-`(context) => McpToolRegistration[]`. Core and module tools ignore the
+(`mcp-dispatch.ts:116-125`). As built, `createStudioGatewayTools` stays as it
+was, Studio's own tools with no context, and the gateway composes the list per
+connection: the client gateway's built-ins for that connection, Studio's own
+tools, then the apps' toolsets for that connection
+(`src/server/core/studio-gateway.ts`). Core and module tools ignore the
 context. Client tools are filtered by it. The `ttlMs` stays at five minutes:
 it is the floor for a client that ignores notifications, and 5.3 makes a
 cached list safe to keep.
@@ -799,7 +805,10 @@ A call is cancelled, and the client sent `cancel`, when any of these happens:
   `cancelCallsFor({ workspaceId, agentId })`. This does not depend on the
   agent's CLI cancelling its MCP request.
 - **The agent cancels.** The gateway handles MCP `notifications/cancelled` for
-  a `tools/call` it is running, a small addition to `mcp-dispatch.ts`.
+  a `tools/call` it is running, a small addition to `mcp-dispatch.ts`. The
+  local socket answers a connection's requests one at a time, so it handles a
+  cancellation as soon as it arrives rather than queueing it behind the call
+  it is about.
 - **The agent goes away.** Its gateway socket closes (`agent_gone`).
 - **The deadline passes** (`timeout`).
 - **The server shuts down** (`shutting_down`).

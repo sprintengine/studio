@@ -2,7 +2,11 @@ import { createWriteStream, type WriteStream } from 'fs'
 import { chmod, mkdir, rename, stat, unlink } from 'fs/promises'
 import { join } from 'path'
 
+import { isStudioBuiltInToolset } from '../../../packages/studio-protocol/src/public'
 import type { McpConnectionMetadata, McpToolResult } from './mcp-socket-server'
+
+/** The client that ran a client tool: who answered for the agent. */
+export type GatewayAuditServedBy = { clientId: string; clientName: string; instanceId: string; kind: string }
 
 export const STUDIO_GATEWAY_AUDIT_FILENAME = 'sprintengine-studio-mcp-audit.jsonl'
 
@@ -80,6 +84,8 @@ export type GatewayAuditRecord = {
   errorCode?: string
   targets: Record<string, string | number | boolean>
   affected: Record<string, string | number | boolean>
+  /** For a tool a client offers: the client that ran it. */
+  servedBy?: GatewayAuditServedBy
 }
 
 export type GatewayAuditStore = {
@@ -96,6 +102,7 @@ export type GatewayAuditStore = {
     args: Record<string, unknown>
     result?: McpToolResult
     error?: unknown
+    servedBy?: GatewayAuditServedBy
   }): void
   /** Settles once every record queued so far is on disk. */
   flush(): Promise<void>
@@ -163,10 +170,22 @@ export function createGatewayAuditStore(options: {
           ...(code ? { errorCode: code } : {}),
           targets: safeIdentifiers(input.args),
           // A browser tool's result is the page's word (evaluate returns
-          // arbitrary JSON); nothing in it may pose as an app identifier.
-          affected: input.tool.startsWith('browser.')
-            ? {}
-            : safeIdentifiers(input.result?.structuredContent ?? canonicalContent(input.result)),
+          // arbitrary JSON); nothing in it may pose as an app identifier. An
+          // app's tool's result is that app's word, read the same way.
+          affected:
+            input.tool.startsWith('browser.') || (input.servedBy && !isStudioBuiltInToolset(input.tool.split('.')[0]))
+              ? {}
+              : safeIdentifiers(input.result?.structuredContent ?? canonicalContent(input.result)),
+          ...(input.servedBy
+            ? {
+                servedBy: {
+                  clientId: input.servedBy.clientId.slice(0, 256),
+                  clientName: input.servedBy.clientName.slice(0, 256),
+                  instanceId: input.servedBy.instanceId.slice(0, 256),
+                  kind: input.servedBy.kind.slice(0, 32),
+                },
+              }
+            : {}),
         }
         line = `${JSON.stringify(record)}\n`
       } catch (error) {

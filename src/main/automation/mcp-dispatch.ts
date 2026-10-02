@@ -13,6 +13,8 @@ import type {
   McpToolRegistration,
   McpToolResult,
 } from '../../shared/modules/mcp-tools'
+import { runGatewayCall, type GatewayCallScope } from '../../server/tools/client-tool-gateway'
+import type { ClientToolServedBy } from '../../server/tools/client-tool-registry'
 
 // The gateway's MCP method semantics, independent of how bytes arrive.
 //
@@ -63,30 +65,57 @@ export type McpDispatchGate = {
   authorizeToolCall?: (toolName: string) => McpToolResult | null
 }
 
+/** What a transport gives one message beyond its params: its JSON-RPC id, and a way to send the caller a notification. */
+export type McpDispatchIo = {
+  requestId?: JsonRpcId
+  notify?: (message: Record<string, unknown>) => void
+}
+
 export type McpDispatcher = {
   dispatch(
     method: string,
     params: Record<string, unknown>,
     context: McpConnectionContext,
     gate?: McpDispatchGate,
+    io?: McpDispatchIo,
   ): Promise<McpDispatchOutcome>
 }
+
+/** One gateway tool call, as the audit hook hears it. */
+export type McpToolCallEvent = {
+  context: McpConnectionContext
+  tool: string
+  args: Record<string, unknown>
+  durationMs: number
+  result?: McpToolResult
+  error?: unknown
+  /** The client that ran it, for a tool a client offers. */
+  servedBy?: ClientToolServedBy
+}
+
+/** What the gateway's client tools add to the dispatcher. */
+export type McpClientToolHooks = {
+  /** Settles once a server that expects its shell's toolsets has them, or has waited long enough. */
+  ready(): Promise<void>
+  /** A call to a client tool this connection was never listed: answered rather than refused as unknown. */
+  fallback(context: McpConnectionContext, name: string): McpToolRegistration | null
+}
+
+// The tools/call requests running on each connection, by their JSON-RPC id,
+// so an agent's `notifications/cancelled` can stop one.
+const runningCalls = new WeakMap<McpConnectionContext, Map<string, AbortController>>()
+const callKey = (id: JsonRpcId) => (typeof id === 'number' ? `n:${id}` : `s:${String(id)}`)
 
 export function createMcpDispatcher(options: {
   serverName: string
   serverVersion: string
-  resolveTools: () => McpToolRegistration[]
-  onToolCall?: (event: {
-    context: McpConnectionContext
-    tool: string
-    args: Record<string, unknown>
-    durationMs: number
-    result?: McpToolResult
-    error?: unknown
-  }) => void
+  /** The tools this connection may see, resolved per request: client tools differ by connection. */
+  resolveTools: (context?: McpConnectionContext) => McpToolRegistration[]
+  clientTools?: McpClientToolHooks
+  onToolCall?: (event: McpToolCallEvent) => void
 }): McpDispatcher {
   return {
-    async dispatch(method, params, context, gate): Promise<McpDispatchOutcome> {
+    async dispatch(method, params, context, gate, io): Promise<McpDispatchOutcome> {
       switch (method) {
         case 'sprintengine.studio/connect': {
           const declared = applyDeclaredConnectionMetadata(context.metadata, params)
@@ -111,10 +140,20 @@ export function createMcpDispatcher(options: {
         }
         case 'notifications/initialized':
           return { kind: 'no_response' }
+        case 'notifications/cancelled': {
+          // The agent gave up on a call: one a client is running is cancelled
+          // there too. A call that already answered, or an id never seen, is nothing.
+          const requestId = params.requestId
+          if (typeof requestId === 'string' || typeof requestId === 'number')
+            runningCalls.get(context)?.get(callKey(requestId))?.abort()
+          return { kind: 'no_response' }
+        }
         case 'ping':
           return { kind: 'result', value: {} }
         case 'tools/list': {
-          const tools = gate?.filterTools ? gate.filterTools(options.resolveTools()) : options.resolveTools()
+          await options.clientTools?.ready()
+          const resolved = options.resolveTools(context)
+          const tools = gate?.filterTools ? gate.filterTools(resolved) : resolved
           return {
             kind: 'result',
             value: {
@@ -125,7 +164,11 @@ export function createMcpDispatcher(options: {
         }
         case 'tools/call': {
           const name = typeof params.name === 'string' ? params.name : ''
-          const tool = options.resolveTools().find((candidate) => candidate.name === name)
+          await options.clientTools?.ready()
+          const tool =
+            options.resolveTools(context).find((candidate) => candidate.name === name) ??
+            options.clientTools?.fallback(context, name) ??
+            null
           if (!tool) {
             return { kind: 'error', code: JSONRPC_INVALID_PARAMS, errorMessage: `Unknown tool "${name}".` }
           }
@@ -138,13 +181,55 @@ export function createMcpDispatcher(options: {
           // Tool-domain failures (unknown workspace, malformed payload) come back
           // as MCP tool results with isError: true — explicit, never fake success.
           const startedAt = Date.now()
+          // A call the agent may cancel, and whose progress it asked to hear.
+          const controller = new AbortController()
+          const key = io?.requestId === undefined || io.requestId === null ? null : callKey(io.requestId)
+          const running = runningCalls.get(context) ?? new Map<string, AbortController>()
+          runningCalls.set(context, running)
+          if (key) running.set(key, controller)
+          const meta = isRecord(params._meta) ? params._meta : undefined
+          const progressToken =
+            typeof meta?.progressToken === 'string' || typeof meta?.progressToken === 'number'
+              ? meta.progressToken
+              : undefined
+          let steps = 0
+          const scope: GatewayCallScope = {
+            signal: controller.signal,
+            ...(progressToken !== undefined && io?.notify
+              ? {
+                  progress: (update) => {
+                    // MCP progress must rise; a client that names no number still moves it.
+                    steps = Math.max(steps + 1, typeof update.progress === 'number' ? update.progress : 0)
+                    io.notify!({
+                      jsonrpc: '2.0',
+                      method: 'notifications/progress',
+                      params: {
+                        progressToken,
+                        progress: steps,
+                        ...(typeof update.total === 'number' ? { total: update.total } : {}),
+                        ...(update.message ? { message: update.message } : {}),
+                      },
+                    })
+                  },
+                }
+              : {}),
+          }
           try {
-            const result = await tool.handler(args, context)
-            options.onToolCall?.({ context, tool: name, args, durationMs: Date.now() - startedAt, result })
+            const result = await runGatewayCall(scope, () => tool.handler(args, context))
+            options.onToolCall?.({
+              context,
+              tool: name,
+              args,
+              durationMs: Date.now() - startedAt,
+              result,
+              ...(scope.servedBy ? { servedBy: scope.servedBy } : {}),
+            })
             return { kind: 'result', value: result as unknown as Record<string, unknown> }
           } catch (error) {
             options.onToolCall?.({ context, tool: name, args, durationMs: Date.now() - startedAt, error })
             throw error
+          } finally {
+            if (key && running.get(key) === controller) running.delete(key)
           }
         }
         default:

@@ -8,6 +8,8 @@ import { writeDiagnosticLog } from '../../main/diagnostics-service'
 import { toolSuccess, toolError } from '../../shared/modules/mcp-tools'
 import type { StudioToolReach } from '../../../packages/studio-protocol/src/public'
 import { createClientToolRegistry, type ClientToolRegistry } from '../tools/client-tool-registry'
+import { createClientToolGateway } from '../tools/client-tool-gateway'
+import type { McpConnectionContext } from '../../shared/modules/mcp-tools'
 import { createClientToolsetStore, type ConversationRef } from '../tools/client-toolset-store'
 import { studioBridgeScriptPath, type StudioCore } from './studio-core'
 
@@ -48,6 +50,13 @@ export type StudioGatewayOptions = Pick<
   resolveModuleTools?: GatewayToolsOptions['resolveModuleTools']
   /** Live enablement of a contributing module; resolved per call, never captured. */
   isModuleEnabled?: (moduleId: string) => boolean
+  /**
+   * The shell's toolsets this server lists from an agent's first `tools/list`
+   * (the desktop's own: `browser`, `canvas`). A list that arrives before the
+   * shell has offered them waits for them, up to five seconds. A server with
+   * no shell of its own names none and never waits.
+   */
+  expectShellToolsets?: readonly string[]
 }
 
 export type StudioGateway = ReturnType<typeof createStudioGateway>
@@ -119,6 +128,19 @@ export function createStudioGateway(core: StudioCore, options: StudioGatewayOpti
     },
   })
 
+  // Each agent connection's own list of client tools, which only grows.
+  const clientGateway = createClientToolGateway({
+    registry: clientTools,
+    ...(options.expectShellToolsets ? { expectShellToolsets: options.expectShellToolsets } : {}),
+  })
+  // The order agents have always listed: the shell's toolsets in the slots
+  // the browser and canvas tools held, Studio's own tools, then any app's.
+  const resolveTools = (context?: McpConnectionContext) => [
+    ...clientGateway.builtIns(context),
+    ...resolveGatewayTools(),
+    ...clientGateway.apps(context),
+  ]
+
   const automationService = createAutomationService({
     resolveUserDataDir: () => platform.paths.dataDir(),
     appVersion: platform.identity.version(),
@@ -130,7 +152,12 @@ export function createStudioGateway(core: StudioCore, options: StudioGatewayOpti
     // The gateway's tool set: core app tools + canonical run tools merged once,
     // module-contributed tools read from the host kernel per request
     // and gated on their owner's live enablement.
-    resolveGatewayTools,
+    resolveGatewayTools: resolveTools,
+    clientTools: {
+      ready: () => clientGateway.ready(),
+      fallback: (context, name) => clientGateway.fallback(context, name),
+      track: (context, notify) => clientGateway.track(context, notify),
+    },
     logDiagnostic: (diagnostic) => {
       void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
     },
