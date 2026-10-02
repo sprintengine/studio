@@ -6,6 +6,10 @@ import { parseArgs } from 'node:util'
 import { readStudioEnv } from '../shared/studio-env'
 import { writeDiagnosticLog } from '../main/diagnostics-service'
 import { defaultServerLocations } from './platform/studio-paths'
+import { installFatalHandlers } from './bootstrap/fatal'
+import { startHeadlessServer } from './bootstrap/headless'
+import { serveOnChannel } from './bootstrap/serve'
+import { stdioChannel } from './bootstrap/stdio'
 import {
   EXIT_DATA_DIR_BUSY,
   EXIT_FAILED,
@@ -21,6 +25,7 @@ import {
 //   node out/server/server.cjs [serve] [--data-dir <dir>] [--logs-dir <dir>]
 //        [--app-root <dir>] [--resources-dir <dir> --packaged]
 //        [--share-desktop-data-dir] [--stdio]
+//   node out/server/server.cjs --bootstrap stdio
 //   node out/server/server.cjs --version
 //
 // Once its gateway is listening it prints one JSON line on stdout,
@@ -30,9 +35,12 @@ import {
 // stops it too. SIGINT and SIGTERM stop it gracefully; a second one does not
 // wait. The exit codes say whether trying again can help (studio-server.ts).
 //
-// Nothing starts this yet: the desktop still runs the same core in its own
-// process. It is how the core is shown to run without Electron, and what a
-// later phase's desktop, WSL distribution or SSH host starts.
+// `--bootstrap stdio` is how a parent that holds its stdio starts it (a WSL
+// distribution's front door, an SSH session, CI): the first line on stdin is
+// the bootstrap envelope (bootstrap/envelope.ts), and from then on stdin and
+// stdout carry control frames, one JSON line each, until a `shutdown` frame or
+// stdin's end. The desktop's own server is the same core forked as a utility
+// process (desktop-main.ts), with the envelope on its parent port.
 
 // The same server as a library, for a process that embeds it rather than
 // starting it from a shell: a later phase's bootstrap, and the smoke test,
@@ -58,6 +66,7 @@ const USAGE = `Usage: studio-server [serve] [options]
   --packaged                 This is an installed build, not a source checkout
   --share-desktop-data-dir   Run against the desktop app's data directory, with saved keys off
   --stdio                    Driven by a parent over stdin: stop on {"t":"shutdown"} or when stdin closes
+  --bootstrap stdio          Read a bootstrap envelope on stdin and speak control frames on stdout
   --version                  Print the version and exit
 `
 
@@ -83,7 +92,11 @@ function versionFrom(appRoot: string | null): string {
   return '0.0.0'
 }
 
-type Command = { kind: 'version' } | { kind: 'help' } | { kind: 'serve'; options: StudioServerOptions; stdio: boolean }
+type Command =
+  | { kind: 'version' }
+  | { kind: 'help' }
+  | { kind: 'bootstrap'; carrier: 'stdio' }
+  | { kind: 'serve'; options: StudioServerOptions; stdio: boolean }
 
 export function parseServerArgs(argv: string[], env = process.env): Command {
   const { values, positionals } = parseArgs({
@@ -98,12 +111,21 @@ export function parseServerArgs(argv: string[], env = process.env): Command {
       packaged: { type: 'boolean' },
       'share-desktop-data-dir': { type: 'boolean' },
       stdio: { type: 'boolean' },
+      bootstrap: { type: 'string' },
       version: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },
   })
   if (values.version) return { kind: 'version' }
   if (values.help) return { kind: 'help' }
+  if (values.bootstrap !== undefined) {
+    if (values.bootstrap !== 'stdio') throw new Error(`Unknown bootstrap carrier: ${values.bootstrap}`)
+    // Everything a flag would say, the envelope says instead.
+    if (positionals.length > 0 || Object.keys(values).some((key) => key !== 'bootstrap')) {
+      throw new Error('--bootstrap takes no other options: the envelope carries them.')
+    }
+    return { kind: 'bootstrap', carrier: 'stdio' }
+  }
   const [command = 'serve', ...rest] = positionals
   if (command !== 'serve' || rest.length > 0) throw new Error(`Unknown command: ${positionals.join(' ')}`)
   if (values.packaged && !values['resources-dir']) throw new Error('--packaged needs --resources-dir.')
@@ -155,6 +177,7 @@ async function main(argv: string[]): Promise<number> {
     process.stdout.write(`${versionFrom(defaultAppRoot())}\n`)
     return 0
   }
+  if (command.kind === 'bootstrap') return serveOverStdio()
 
   // Installed before the server starts, so a signal or a closed stdin during
   // startup is not lost: the stop waits for the start to finish, then runs.
@@ -250,6 +273,18 @@ async function main(argv: string[]): Promise<number> {
   const asked = pending as { reason: string; code: number } | null
   if (asked) stop(asked.reason, asked.code)
   return exited
+}
+
+/** `--bootstrap stdio`: the envelope on stdin, control frames each way, until told to stop. */
+function serveOverStdio(): Promise<number> {
+  const channel = stdioChannel(process.stdin, process.stdout)
+  installFatalHandlers(channel, say)
+  return serveOnChannel(channel, {
+    starters: { headless: startHeadlessServer },
+    unwrapEnvelope: false,
+    buildStamp: bundledBuild()?.commit ?? null,
+    log: say,
+  })
 }
 
 if (require.main === module) {

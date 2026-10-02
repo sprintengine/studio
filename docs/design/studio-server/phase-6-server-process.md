@@ -392,9 +392,13 @@ Amended at implementation (2026-10-02):
   with no listeners.
 
 The desktop delivers the envelope by `postMessage`. WSL, SSH and CI deliver
-it as one stdin line. `src/server/bootstrap/parent-port.ts` and
-`src/server/bootstrap/stdio.ts` both produce the same
-`(envelope, controlChannel)` pair for `startServer()`.
+it as one stdin line (`studio-server --bootstrap stdio`).
+`src/server/bootstrap/parent-port.ts` and `src/server/bootstrap/stdio.ts`
+both produce the same control channel, and `serveOnChannel`
+(`src/server/bootstrap/serve.ts`) reads the envelope from it, starts the
+role's server, says `ready`, answers pings and runs the shutdown legs. A
+message that arrives before anyone listens (a `shutdown` sent during boot) is
+held, not dropped.
 
 **Exit codes**, which tell the supervisor whether to retry:
 

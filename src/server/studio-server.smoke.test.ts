@@ -258,3 +258,67 @@ test('a chat runs on the mock provider, with a checkpoint and a revert, in the b
   assert.equal(report.turnsCompleted, 2)
   assert.match(report.replies.at(-1), /^Mock response for: Files were reverted[\s\S]*hello$/)
 })
+
+test('a server started with a bootstrap envelope on stdin says ready, answers pings and drains on shutdown', async () => {
+  const env = isolatedEnv('bootstrap')
+  const dataDir = join(scratch, 'bootstrap', 'data')
+  const child = spawn(process.execPath, [bundle, '--bootstrap', 'stdio'], { env, cwd: tmpdir() })
+  let stderr = ''
+  child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString('utf8')))
+  const exited = new Promise<number | null>((resolve) => child.on('exit', (code) => resolve(code)))
+  const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]()
+  const next = async (): Promise<Record<string, any>> => {
+    const line = await lines.next()
+    assert.equal(line.done, false, `the server wrote nothing more on stdout; stderr:\n${stderr}`)
+    return JSON.parse(line.value) as Record<string, any>
+  }
+  child.stdin.write(
+    `${JSON.stringify({
+      v: 1,
+      role: 'headless',
+      dataDir,
+      logsDir: join(scratch, 'bootstrap', 'logs'),
+      runDir: join(dataDir, 'run'),
+      tempDir: tmpdir(),
+      paths: { resourcesDir: null, appPath: ROOT, isPackaged: false, appExecPath: process.execPath },
+      app: { version: '0.0.0-test', buildStamp: '', channel: 'nightly' },
+      owner: {},
+      listeners: { gateway: true, tailnet: 'off' },
+      secrets: { kind: 'key-file' },
+      flags: {},
+    })}\n`,
+  )
+  const ready = await next()
+  assert.equal(ready.t, 'ready', stderr)
+  assert.equal(ready.pid, child.pid)
+  assert.match(ready.environmentId, /^[0-9a-f-]{36}$/)
+  assert.equal(typeof ready.gateway.socketPath, 'string')
+  assert.ok(existsSync(join(dataDir, 'run', 'studio.lock')))
+
+  child.stdin.write(`${JSON.stringify({ t: 'ping', seq: 3 })}\n`)
+  const pong = await next()
+  assert.equal(pong.t, 'pong')
+  assert.equal(pong.seq, 3)
+
+  child.stdin.write(`${JSON.stringify({ t: 'shutdown', drain: true, budgetMs: 8000 })}\n`)
+  const legs: string[] = []
+  for (let frame = await next(); frame.t === 'shutdown-progress'; frame = await next().catch(() => ({ t: 'end' }))) {
+    legs.push(frame.leg)
+    if (frame.done === frame.total) break
+  }
+  assert.deepEqual(legs, ['studio-rpc', 'gateway', 'core'])
+  assert.equal(await exited, 0, stderr)
+  assert.equal(existsSync(join(dataDir, 'run', 'studio.lock')), false, 'the run lock is let go')
+})
+
+test('a bootstrap envelope that is not one exits 64 and says why on stdout', async () => {
+  const child = spawn(process.execPath, [bundle, '--bootstrap', 'stdio'], { env: isolatedEnv('bad-envelope') })
+  const exited = new Promise<number | null>((resolve) => child.on('exit', (code) => resolve(code)))
+  const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]()
+  child.stdin.write('{"v":1,"role":"headless"}\n')
+  const fatal = JSON.parse((await lines.next()).value as string) as { t: string; code: number; message: string }
+  assert.equal(fatal.t, 'fatal')
+  assert.equal(fatal.code, 64)
+  assert.match(fatal.message, /dataDir/)
+  assert.equal(await exited, 64)
+})

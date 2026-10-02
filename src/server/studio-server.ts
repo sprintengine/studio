@@ -17,6 +17,7 @@ import { readDataDirSecrets, restrictDataDir } from './core/data-dir'
 import { createNodeStudioPlatform, type NodeStudioPlatform } from './platform/platform'
 import { createUnavailableSecretCipher } from './platform/secret-cipher'
 import { SERVER_EXIT } from './bootstrap/envelope'
+import { runShutdownLegs, type ShutdownLegProgress } from './bootstrap/serve'
 
 // A Studio server under plain Node: the core and its gateway, with nothing of
 // Electron. The `studio-server` entry (main.ts) runs it from a shell; a later
@@ -54,6 +55,11 @@ export type StudioServerOptions = {
   onDataDirLost?: () => void
   /** Where a warning that does not stop the server goes (the entry: stderr). */
   log?: (message: string) => void
+  /**
+   * Open the gateway's socket and the owner socket. Off for a server started
+   * only to be driven over its control channel (the seam tests); default on.
+   */
+  listen?: boolean
 }
 
 export type StudioServerReady = {
@@ -74,8 +80,11 @@ export type StudioServer = {
   rpc: StudioRpcService
   platform: NodeStudioPlatform
   ready: StudioServerReady
-  /** Stop the RPC, the gateway, then the core. Safe to call more than once; later calls wait on the first. */
-  stop(): Promise<void>
+  /**
+   * Stop the RPC, the gateway, then the core, saying each leg as it ends.
+   * Safe to call more than once; later calls wait on the first.
+   */
+  stop(onLeg?: (progress: ShutdownLegProgress) => void): Promise<void>
 }
 
 /** Why a server could not start, and the process exit code that says so (sysexits, as the supervisor reads them). */
@@ -210,10 +219,14 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   const rpc = createStudioRpc(core, started)
   let status: Awaited<ReturnType<StudioGateway['initialize']>>
   try {
-    status = await started.initialize()
-    // Not fatal when it cannot bind, as in the desktop: its status says why,
-    // and the gateway and chats do not depend on it.
-    await rpc.start().catch(() => undefined)
+    if (options.listen === false) {
+      status = started.getStatus()
+    } else {
+      status = await started.initialize()
+      // Not fatal when it cannot bind, as in the desktop: its status says why,
+      // and the gateway and chats do not depend on it.
+      await rpc.start().catch(() => undefined)
+    }
   } catch (error) {
     await rpc.stop().catch(() => undefined)
     await started.shutdown().catch(() => undefined)
@@ -222,13 +235,16 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   }
 
   let stopping: Promise<void> | null = null
-  const stop = (): Promise<void> => {
+  const stop = (onLeg?: (progress: ShutdownLegProgress) => void): Promise<void> => {
     clearInterval(lockWatch)
-    stopping ??= (async () => {
-      await rpc.stop().catch(() => undefined)
-      await started.shutdown().catch(() => undefined)
-      await core.shutdown()
-    })()
+    stopping ??= runShutdownLegs(
+      [
+        ['studio-rpc', () => rpc.stop()],
+        ['gateway', () => started.shutdown()],
+        ['core', () => core.shutdown()],
+      ],
+      onLeg,
+    )
     return stopping
   }
   // The desktop wins a data directory it opens: it takes the lock over, then
