@@ -1,14 +1,31 @@
 # Studio server — decisions
 
-Status: 2026-10-01. This file resolves the open decisions of
-`docs/design/studio-server.md` (section 15) and of the phase specs beside it
-(phase 5 section 11, phase 6 section 14, phase 7 section 11, phase 8 section
-11, phase 9 section 13, and the changes each asks of the parent). Questions
-that already have a settled answer are decided here. Only the rest go to the
-owner (owner ruling 2026-10-01).
+Status: 2026-10-01, amended 2026-10-02 for the small-server ruling. This file
+resolves the open decisions of `docs/design/studio-server.md` (section 15) and
+of the phase specs beside it (the withdrawn phase 5 spec's section 11, phase 6
+section 14, phase 7 section 11, phase 8 section 11, phase 9 section 13, and
+the changes each asks of the parent). Questions that already have a settled
+answer are decided here. Only the rest go to the owner (owner ruling
+2026-10-01).
 
 Where a row changes what a spec says, the spec is amended in the same change
 that lands that phase's first commit, as each spec already requires.
+
+**2026-10-02: the server is small (owner ruling 2026-10-02).** The server
+holds agents, conversations, tool routing between agents and clients, pairing
+and permissions, and raw access to its machine (files, git, diffs,
+workspaces). It has no browser and no canvas. Clients build the views and
+offer toolsets, which the server exposes to agents and forwards calls to
+(`docs/design/studio-server.md` section 1.1, and the new phase 5 spec,
+`phase-5-client-tools.md`, which replaces the headless-rendering spec). Every
+row that assumed a renderer in the server (a render host, a server Chromium
+and its download, sandbox and fonts, screencast frames, render pools, the
+canvas worker on the server and its fallback) is marked **Superseded
+(2026-10-02)** with the reason, and keeps its ID. Rows R75–R79 are new: the
+SSH pane, the web client's previews and canvas, and the shell's own toolsets
+in phase 6.
+R74 is fixed on `main`. Phase 5's own open decisions are listed at the end and
+folded in separately.
 
 ## How to read the table
 
@@ -16,6 +33,8 @@ that lands that phase's first commit, as each spec already requires.
   asked: `Q5` is question 5 in the parent's section 15; `P5-D2`, `P6-O5`,
   `P7-D3`, `P8-D1` are the decision numbers in the phase 5–8 specs; `P9-3` is
   phase 9's owner decision 3; `§` points at a section of the named document.
+  `P5-…` names the withdrawn headless-rendering spec (in git history); the
+  new phase 5 spec's decisions are `P5c-1` and on.
   Duplicates across specs are merged into one row. Row numbers are stable
   labels, so a few rows sit out of numeric order in their section.
 - **Class**:
@@ -26,6 +45,8 @@ that lands that phase's first commit, as each spec already requires.
   - **C, owner.** No settled answer exists. The spec's recommendation stands
     as the working default until the owner rules. Listed again in the last
     section.
+  - **Superseded (2026-10-02).** The ruling of that date removed the question.
+    The row stays so its ID and history hold; it is not a decision any more.
 
 ## Decisions
 
@@ -93,26 +114,33 @@ that lands that phase's first commit, as each spec already requires.
 | R71 | P7-D8 | The WSL helper and the server | Two processes in phase 7, merged in phase 10. | C | See the owner list. |
 | R72 | P7-D9 | Windows end-to-end testing | The manual checklist for the first release, and a self-hosted Windows runner with WSL2 before the default flips. | C | See the owner list. |
 | R73 | P7-D10 | `C:\` workspaces on a WSL machine | Keep supporting them: agents and git in WSL, UI file reads on Windows, and an advisory in New chat, never a block. | C | See the owner list. |
-| R74 | P7-D11 | The gateway-token gap in today's WSL chats | Fix it on `main` now: issue and revoke a channel token per chat session, and forward it. | C | See the owner list. |
+| R74 | P7-D11 | The gateway-token gap in today's WSL chats | Fixed on `main` (#133 and follow-ups): a WSL chat is issued an MCP channel token per session, an ACP agent keeps its own, and the token is taken back when a start is refused. | A | Done. Nothing is left to decide. |
 
 ### Rendering, the browser and the pane
 
+Most of this section is superseded by the 2026-10-02 ruling: the server
+renders nothing, so the questions about a server's Chromium, its sandbox,
+fonts and frames are gone. What survives is about the desktop's own pane and
+canvas, which are now the toolsets it offers.
+
 | ID | Spec IDs | Decision | Resolution | Class | Reason |
 | --- | --- | --- | --- | --- | --- |
-| R37 | Q5; P5-D1; P6-D5, P6-O5 (browser); P7 §3.8, §12.10; P9 §3.6, §12.7 | The person's browser pane | The pane stays native on a desktop attached to a server on its own PC (the local server and its WSL servers), and agent `browser.*` tools act on it there. Everywhere else the pane is a screencast of the server's tabs. See "The browser pane and the render host" below. | A | Full native fidelity where the person usually works. Ruling (e)'s no-window browsing is still met on every server without a shell. |
-| R38 | P5-D2; §8, §8.3 | The agents' browser profile model | One persistent profile per server, shared across its workspaces, which is today's model. Named and ephemeral profiles can come later. | A | Sign-ins survive restarts and idle parks. One process instead of one per workspace on small hosts. No change in behaviour on the desktop. |
-| R39 | P5 §5.3; P9 §12.7 | What counts as the person taking over | Pointer-down, key-down and wheel on the pane, and the person's own navigation commands, bump the tab's epoch. Agent navigations do not. | A | When the pane is the person's only way in, a click is as much a takeover as a key. |
-| R40 | P5-D3; Q6 | Which Chromium for WSL, SSH and standalone servers | `chrome-headless-shell`. | C | See the owner list. |
-| R41 | P5-D4; Q6 | Where the download comes from | The Chrome for Testing bucket, pinned by our own SHA-256. | C | See the owner list. |
-| R42 | P5-D5; Q6; §8.2 | When the sandbox cannot start | Never fall back silently. A per-host `render.allowNoSandbox`, off by default, with a persistent warning. No implicit exception for the canvas. | C | See the owner list. |
-| R43 | P5-D10; Q6 | Who downloads Chromium for WSL and SSH hosts | The host when it can reach the bucket; the client streams it as the fallback. | C | See the owner list. |
-| R44 | P5-D11 | A `browser.dialog` tool and a `dialog_open` error | Yes, in the agents'-browser phase. | C | See the owner list. |
-| R45 | P5 §1.2 finding 8 | Screencast frames on the wire | One binary message type for frames. Everything else stays JSON text. | C | See the owner list. |
-| R46 | P5 §1.2 finding 3; P6-D5, P6-O5 (canvas); P7 §3.8, §12.10 | Where the canvas worker runs for servers on the desktop's own PC | The shell's existing offscreen worker, over `ShellBridge`, for the local server and its WSL servers. No `electron-child` render host, and no Linux Chromium download for WSL while a desktop is attached. Chromium for SSH and standalone servers. | C | See the owner list. |
-| R47 | Q7; P5-D8 | Attached-client canvas fallback for SSH and standalone servers (parent §8.4) | Drop it. (WSL is covered by R46, not by this fallback.) | C | See the owner list. |
-| R48 | P5-D6 | Bundle the Xiaolai CJK font | Yes, in the server bundle and the desktop. | C | See the owner list. |
-| R49 | P5-D7 | Bundle an emoji font for the Linux canvas worker | Not in v1; the probe warns. | C | See the owner list. |
-| R50 | P5-D9 | Split phase 5 | 5a (render host and canvas), 5b (agents' browser), 5c (the screencast view). After R37, 5c serves only non-local environments and the web. | C | See the owner list. |
+| R37 | Q5; P5-D1; P6-D5, P6-O5 (browser); P7 §3.8, §12.10; P9 §3.6, §12.7 | The person's browser pane | The pane stays native on a desktop attached to a server on its own PC (the local server and its WSL servers), and agent `browser.*` tools act on it there. Everywhere else the pane is a screencast of the server's tabs. | Superseded (2026-10-02) | The server has no tabs to screencast. The pane is the desktop's native pane on every route and the desktop's `browser` toolset; an SSH server's tabs go through the SSH connection (R75, R76), and the web client gets previews (R77). |
+| R38 | P5-D2; §8, §8.3 | The agents' browser profile model | One persistent profile per server, shared across its workspaces, which is today's model. Named and ephemeral profiles can come later. | Superseded (2026-10-02) | No server browser, so no server profile. The profile is the desktop's: today's shared persistent partition for its own PC, and one partition per SSH environment (R76). |
+| R39 | P5 §5.3; P9 §12.7; P5c §10.1 | What counts as the person taking over | Pointer-down, key-down and wheel on the pane, and the person's own navigation commands, bump the tab's epoch. Agent navigations do not. Since 2026-10-02 this is a rule of the desktop's pane and its `browser` toolset, where the epoch already lives. | A | A person who clicks in a page an agent is driving has taken it over as surely as one who types. |
+| R40 | P5-D3; Q6 | Which Chromium for WSL, SSH and standalone servers | `chrome-headless-shell`. | Superseded (2026-10-02) | No server downloads or runs a Chromium. |
+| R41 | P5-D4; Q6 | Where the download comes from | The Chrome for Testing bucket, pinned by our own SHA-256. | Superseded (2026-10-02) | There is no download. |
+| R42 | P5-D5; Q6; §8.2 | When the sandbox cannot start | Never fall back silently. A per-host `render.allowNoSandbox`, off by default, with a persistent warning. No implicit exception for the canvas. | Superseded (2026-10-02) | No browser runs on a server, so there is no sandbox to start. |
+| R43 | P5-D10; Q6 | Who downloads Chromium for WSL and SSH hosts | The host when it can reach the bucket; the client streams it as the fallback. | Superseded (2026-10-02) | There is no download. |
+| R44 | P5-D11; P5c §12 | A `browser.dialog` tool and a `dialog_open` error | Yes, as a change to the desktop's `browser` toolset. | C | See the owner list. |
+| R45 | P5 §1.2 finding 8 | Screencast frames on the wire | One binary message type for frames. Everything else stays JSON text. | Superseded (2026-10-02) | No screencast. Every client tool result fits one JSON frame (P5c §4.6), so the wire stays text only. |
+| R46 | P5 §1.2 finding 3; P6-D5, P6-O5 (canvas); P7 §3.8, §12.10 | Where the canvas worker runs for servers on the desktop's own PC | The shell's existing offscreen worker, over `ShellBridge`, for the local server and its WSL servers. No `electron-child` render host, and no Linux Chromium download for WSL while a desktop is attached. Chromium for SSH and standalone servers. | Superseded (2026-10-02) | The canvas is always a client's: the desktop's worker draws for every server it is attached to, as the `canvas` toolset, and no server draws. |
+| R47 | Q7; P5-D8 | Attached-client canvas fallback for SSH and standalone servers (parent §8.4) | Drop it. (WSL is covered by R46, not by this fallback.) | Superseded (2026-10-02) | What was a fallback is now the only path, and a general one (client toolsets). |
+| R48 | P5-D6; P5c §12 | Bundle the Xiaolai CJK font | Yes, in the desktop and the web client, the two clients that draw boards. Not in the server, which draws nothing (2026-10-02). | C | See the owner list. |
+| R49 | P5-D7 | Bundle an emoji font for the Linux canvas worker | Not in v1; the probe warns. | Superseded (2026-10-02) | There is no Linux canvas worker on a server; clients use their own emoji fonts. |
+| R50 | P5-D9 | Split phase 5 | 5a (render host and canvas), 5b (agents' browser), 5c (the screencast view). After R37, 5c serves only non-local environments and the web. | Superseded (2026-10-02) | Phase 5 is now client tools, one phase (`phase-5-client-tools.md`). |
+| R75 | P8-D13; P8 §6.8 | The local end of the SSH pane's forward | SOCKS5 as ruled, with the exposure narrowed: bound to `127.0.0.1` on an ephemeral port, open only while that environment has a pane tab, and on Linux refusing a peer of another uid. If that is not enough, the same forward's local end speaks an HTTP proxy with a per-session `Proxy-Authorization`, which Chromium answers through Electron's `login` event. | C | See the owner list. |
+| R76 | P8-D14; P8 §6.8; P5c §10.4 | The SSH pane's partition and what goes through the remote | One persistent partition per environment (`persist:env-<environment.id>`), shared by that environment's workspaces. All of its traffic goes through the remote, loopback included (`proxyBypassRules: '<-loopback>'`), with a per-machine switch to send only loopback there. | A | The proxy is set per session, so a partition cannot span environments; per environment matches today's shared model and keeps sign-ins across workspaces. Sending everything through the remote makes the pane see the network the agent sees (its `/etc/hosts`, its private network). |
 
 ### The web client
 
@@ -127,6 +155,8 @@ that lands that phase's first commit, as each spec already requires.
 | R57 | P9 §12.11 | Client state on the web | `localStorage` per origin. One server reached by two routes keeps two sets of drafts, which is stated. | A | Origins are the browser's storage boundary. Syncing drafts through the server is a feature, not a fix. |
 | R58 | P9-3 | Embed scope in v1 | Read-only. | C | See the owner list. |
 | R59 | P9-8; P9 §12.9 | Embed delivery and the `embeds` namespace | An iframe route and a React component in v1, and the web component later. The `embeds` namespace (`create`, `list`, `revoke`) and the embed `postMessage` wire get a row in `docs/compatibility.md`. | C | See the owner list. |
+| R77 | P9-13; P9 §3.6 | How the web client shows an agent's dev server | `previews`: a port on the server's loopback passed through on an origin of its own (same host, its own port), never Studio's. Its own single-use entry code and cookie; Studio's cookies stripped from what it forwards; WebSocket upgrades passed through. Offered ports are those the server's agent processes listen on, plus a port an owner types; never Studio's own. Owner sessions, or a `previews:open` grant that tailnet browsers do not get by default. | B | The dev app is agent-written code running in the person's browser. On Studio's origin it could read the session and drive the server; a separate origin makes Studio's exact `Origin` rule (R14) refuse it. |
+| R79 | P9-14; P9 §3.8; P5c §7.2, §10.5 | Does the web client offer `canvas`, and from which sessions? | Yes, from a session holding the owner's grants, with `kind: 'web'`; never from a tailnet browser pairing in v1. It runs the same worker page and portable canvas service, keeping boards through `files.*`. | A | It runs the real editor in a real browser, so agents keep the canvas with only a web tab attached. Tailnet pairings never hold `tools:offer` in v1 (P5c §7.1). |
 
 ### Modules and migration
 
@@ -134,91 +164,35 @@ that lands that phase's first commit, as each spec already requires.
 | --- | --- | --- | --- | --- | --- |
 | R60 | Q10; P6-D10, P6-O12; P6 §12.3 | Third-party `entry.main` that imports `electron`; the module server/client split | An `electron-main` host capability, an optional `requires.hostCapabilities` manifest field, and a load-time `require('electron')` interceptor. No host API bump. Every module declares both halves in phase 10. | C | See the owner list. |
 | R61 | §11; P9-4 | Third-party renderer modules on the web; their asset origin | Off by default on the web, with a per-server owner switch. Bundled modules load. | C | See the owner list. |
-| R62 | P6-D7, P6-O6 | Phase 6's domain cut | Approve P6 section 5. Git panel, file explorer, skills, marketplace, tours, memory, PRs and design stay in the shell until phase 10. | C | See the owner list. |
+| R62 | P6-D7, P6-O6 | Phase 6's domain cut | Approve P6 section 5. Git panel, file explorer, skills, marketplace, tours, memory, PRs and design stay in the shell until phase 10. Since 2026-10-02 the canvas service is the shell's too (the `canvas` toolset); only the board files are server-owned. | C | See the owner list. |
 | R63 | P6-O13; P7 §12.9; §6.2 | Who writes the launcher pointer and integrations on the desktop | The shell, in phase 6. In a distro, the Windows side stays the one writer until terminals move. SSH and standalone servers write their own host's. | C | See the owner list. |
 | R64 | P6-O14 | Keep the phase 6 experiment scripts | Optional, under `scripts/experiments/server-process/`. | C | See the owner list. |
+| R78 | P6-D11, P6-O15; P5c §10.6 | The desktop's editor, tour and terminal tools once the server is out of process | The shell offers them as the `editor`, `tour` and `terminal` toolsets on phase 5's mechanism, over the control channel. `ShellBridge` keeps only what is not an agent tool (cipher, internal terminal launches for two service tokens, reveal, notify, analytics, the integrations gate). | A | One path for every tool a client supplies, with one routing rule, one deadline and one cancellation, instead of bespoke bridge members that would repeat them. |
 
-Counts: 74 rows. 33 are class A, 17 class B and 24 class C.
+Counts: 79 rows. 35 are class A, 18 class B and 15 class C; 11 are
+superseded (2026-10-02).
 
 ## The browser pane and the render host
 
-The specs disagree:
+**Superseded (2026-10-02).** This section reconciled four specs that each put
+a browser or a canvas renderer somewhere in the server's reach: a render host
+with server-owned tabs, a screencast pane for SSH and the web, the shell's
+worker drawing for servers on its own PC, and Chromium everywhere else. The
+owner ruling of 2026-10-02 removed the premise: the server renders nothing.
+The answer that replaces it:
 
-- Phase 6 keeps desktop rendering in the shell and uses headless Chromium only
-  off the desktop (P6-O5).
-- Phase 5 runs every render in a child process, Electron on desktops and
-  Chromium elsewhere, and makes the pane a screencast (P5 §4.1, §5.7).
-- Phase 7 has the attached Windows desktop render for WSL before any Linux
-  Chromium is downloaded (P7 §3.8).
-- Phase 9 makes the pane a screencast on every client (P9 §3.6).
-- The earlier owner default made the pane a live view of the server's headless
-  browser.
-
-The one answer:
-
-1. **One tab model.** Tabs belong to the server's `BrowserTabsService`
-   (P5 §5.1): server-minted ids, grouped by workspace, persisted, with the
-   person-wins epoch (R39). Tools reach a tab through `CdpSession`, which has
-   two implementations: the Electron debugger on a shell tab, and a CDP target
-   in the render host's Chromium.
-2. **Where a tab renders depends on whether a desktop shell shares the
-   server's PC.**
-   - **The desktop's local server and its WSL servers.** Tabs render in the
-     shell's native pane, in today's persistent partition. Agent `browser.*`
-     calls reach them as client-directed calls: over `ShellBridge` (P6-O5) for
-     the local server, and through the front door (R65) for a WSL server. A dev
-     server an agent starts in WSL is reachable from the Windows pane through
-     localhost forwarding, as it is today (P7 §3.8). These servers run
-     only while the shell keeps them (R01, R36), so a shell is always there. With no window
-     open (the tray), the shell keeps the workspace's tabs as offscreen web
-     contents in the same partition, so no tool needs a window. Nothing is
-     downloaded, and no `electron-child` render host is built.
-   - **SSH and standalone servers.** Tabs render in the server's own Chromium
-     (P5 §4.2–§4.5), one persistent profile per server (R38). This is ruling
-     (e)'s headless mode. It is also correct for a remote chat, because the
-     agent's dev server listens on the remote's `localhost` (P5 §5.6), which a
-     pane on the laptop cannot reach.
-   - **A WSL server with no desktop attached.** This cannot happen while the
-     lease (R36) is the only thing that keeps it running. If a later phase lets
-     one run on its own, it uses a Linux Chromium when present and working.
-     Otherwise the tool answers that this server cannot render, and how to fix
-     it (P7 §3.8).
-3. **The pane is a view of wherever the tab renders.** On a desktop attached
-   to a server on its own PC, the pane is the native `<webview>`. It keeps
-   DevTools, file drag and drop, rich clipboard, inline PDFs and the password
-   manager, so P5-D1's losses do not apply there. In every other case the pane
-   is the `ScreencastView` (P5 §5.7, P9 §3.6): a desktop attached to an SSH or
-   standalone server, and every web client. A web tab viewing a shell-hosted
-   tab gets the same `browser.screencast` stream, produced by
-   `Page.startScreencast` on that tab's debugger session. If phase 5c finds
-   Electron's debugger refuses it, that one case shows "open this tab in the
-   desktop app" instead.
-4. **Canvas follows the same line** (R46, for the owner): the shell's worker
-   for the local and WSL servers, and the Chromium canvas process for SSH and
-   standalone servers.
-
-What this changes in the specs:
-
-- The earlier default, "the pane becomes a live view of the server's headless
-  browser", now holds on every route except a desktop attached to a server on
-  its own PC.
-- P5's `electron-child` backend and its stdio control channel are dropped.
-- 5c shrinks to the screencast view for SSH and standalone servers and for the
-  web.
-- The parent's §8 rule "client-directed when the workspace has an active pane
-  tab" becomes "always the shell, for a server on the desktop's own PC".
-- Phase 9 §12.7's removal of the client-directed path is withdrawn for those
-  servers.
-- Phase 7's "the attached desktop renders for WSL" (P7 §12.10) is kept, and
-  extends from canvas to the agents' browser.
-
-**Why this answer.** Most of the time the person works on a desktop attached to
-a server on their own PC, and there a native pane is cheapest and most
-faithful. A screencast earns its costs (JPEG text, no DevTools, no password
-manager, in-app pickers) only where there is nothing native to show. Agents
-still browse with no window open on every server, which is what ruling (e) asks.
-There is one tab model and one tool code path, so the cases differ only in
-which `CdpSession` a tab holds.
+1. **No server tabs.** Tabs live in the desktop's pane, as today. The agents'
+   `browser.*` tools are the desktop's `browser` toolset, driven through its
+   webview by `browser-control.ts`; the person-wins epoch stays there (R39).
+2. **The pane is native on every route.** For the local server and its WSL
+   servers its traffic goes direct (Windows reaches WSL's `localhost` by
+   forwarding). For an SSH server it goes through the SSH connection, on a
+   partition of that environment's own (R75, R76). No screencast anywhere.
+3. **The web client** offers no `browser` toolset in v1 and shows an agent's
+   dev server through `previews`, on an origin of its own (R77).
+4. **The canvas** is a client's: the desktop's hidden worker window, and the
+   web client's page, each offering the `canvas` toolset over board files the
+   server keeps (phase 5 spec §10).
 
 ## Phase 7's changes to the parent, reconciled
 
@@ -233,73 +207,66 @@ which `CdpSession` a tab holds.
 | §12.7 WSL servers are managed by the Windows-side core | Accepted. This narrows phase 8 §12.4: main's connection broker serves SSH. A renderer that reaches a WSL server directly asks main, and main asks the core. | R65 |
 | §12.8 `terminals` advertised to the desktop's own WSL servers | Accepted. It changes nothing in phase 7, because chats there route through the front door. | — |
 | §12.9 One writer for the launcher pointer in a distro | Accepted, with the launcher-pointer decision. | R63 |
-| §12.10 Desktop rendering for WSL before a Linux Chromium download | Accepted, and extended to the agents' browser (above). | R37, R46 |
+| §12.10 Desktop rendering for WSL before a Linux Chromium download | Superseded (2026-10-02): there is no Linux Chromium to prefer it over. The desktop's toolsets serve a WSL server as they serve the local one. | R37, R46 |
 | §12.11 One data directory per Windows profile | Accepted. | R68 |
 | §12.12 Phase 7 is size L | Accepted. | — |
+| §12.13 Forwarded tools are client toolsets (added 2026-10-02) | Accepted. The front door offers the WSL server what its shell offers it, on phase 5's mechanism. | R78 |
 
 ## For the owner: the class C items
 
 Each item keeps its spec's recommendation as the working default until you
-rule.
+rule. The 2026-10-02 ruling removed the Chromium, sandbox, screencast and
+server-canvas items (R40–R43, R45–R47, R49, R50), and R74 is fixed on `main`.
 
 1. **R21 Relay transport for SSH and the WSL fallback.** Use one relay program
    over stdio, not `ssh -N -L`. It needs no local listener and has no free-port
    race or 104-byte socket paths. It works where `sshd` forbids forwarding,
    costs one authentication per connect even on Windows OpenSSH, and is the
-   same program as WSL's stdio bridge.
-2. **R40 Which Chromium.** `chrome-headless-shell`: half the download and a
-   fraction of the memory, and no tool or canvas gap was found. Revisit if
-   people browse PDFs on remote servers.
-3. **R41 Download source.** The Chrome for Testing bucket with our own SHA-256
-   pins. A mirror needs a legal review; our own build is a project.
-4. **R42 No sandbox.** Never silently. `render.allowNoSandbox` per host, off by
-   default, warned in `server.info`. It covers the canvas too.
-5. **R43 Who downloads Chromium.** The host when it can reach the bucket, and
-   the desktop streams it otherwise. This differs from R27, where the desktop
-   streams by default under ruling (d). The reason is 100+ MB over SSH from a
-   laptop. Say if you want R27's rule here as well.
-6. **R44 `browser.dialog`.** Yes. With no person watching, a dialog otherwise
-   blocks the agent until its deadline.
-7. **R45 Binary screencast frames.** Yes, as one binary message type. Base64
-   in JSON adds a third to every frame.
-8. **R46 Canvas for the local and WSL servers.** The shell's existing offscreen
-   worker over `ShellBridge`, matching R37's rule that the shell renders for
-   servers on its own PC. No `electron-child` host, and no Linux Chromium
-   download for WSL.
-9. **R47 Attached-client canvas fallback for SSH and standalone servers.**
-   Drop it. Only a headless host whose Chromium cannot start would use it, and
-   the probe's fix is better than a second code path.
-10. **R48 Xiaolai font.** Bundle it (12 MB, OFL). CJK labels are then measured
-    the same everywhere, and nothing fetches fonts from esm.sh.
-11. **R49 Emoji font.** Not in v1. The probe warns.
-12. **R50 Phase 5 split.** Yes: 5a, 5b, and a smaller 5c.
-13. **R58 Embed scope.** Read-only in v1. Acting from inside someone else's
-    page needs its own threat model.
-14. **R59 Embed delivery.** An iframe route and a React component in v1, the
-    web component later, and the `embeds` namespace with its compatibility row.
-15. **R60 `electron` modules and the module split.** The capability, the
-    manifest field and the `require` interceptor, with no host API bump.
-16. **R61 Third-party renderer modules on the web.** Off by default, with a
-    per-server owner switch.
-17. **R62 Phase 6 domain cut.** Approve P6 section 5 as written.
-18. **R63 Launcher pointer.** The shell writes it on the desktop in phase 6,
-    and the Windows side stays its one writer inside a distro.
-19. **R64 Experiment scripts.** Keep them only if you want them. No test needs
+   same program as WSL's stdio bridge. It now also carries the SSH pane's
+   forward (R75).
+2. **R44 `browser.dialog`.** Yes, in the desktop's `browser` toolset. A page's
+   `alert` in the pane otherwise blocks the agent until its deadline when
+   nobody is watching.
+3. **R48 Xiaolai font.** Bundle it (12 MB, OFL) in the desktop and the web
+   client. CJK labels are then measured the same by every client that draws,
+   and nothing fetches fonts from esm.sh, which the app does today.
+4. **R58 Embed scope.** Read-only in v1. Acting from inside someone else's
+   page needs its own threat model.
+5. **R59 Embed delivery.** An iframe route and a React component in v1, the
+   web component later, and the `embeds` namespace with its compatibility row.
+6. **R60 `electron` modules and the module split.** The capability, the
+   manifest field and the `require` interceptor, with no host API bump.
+7. **R61 Third-party renderer modules on the web.** Off by default, with a
+   per-server owner switch.
+8. **R62 Phase 6 domain cut.** Approve P6 section 5 as written, with the
+   canvas service on the shell's side and only the board files server-owned.
+9. **R63 Launcher pointer.** The shell writes it on the desktop in phase 6,
+   and the Windows side stays its one writer inside a distro.
+10. **R64 Experiment scripts.** Keep them only if you want them. No test needs
     them.
-20. **R70 WSL1.** Keep it on the per-process path. It has no drive-mount
-    inotify and no Chromium sandbox, its kernel is below Node 24's floor, and it
-    likely has few users. Removing the per-process path later means dropping
-    WSL1 chats.
-21. **R71 Helper and server.** Two processes in phase 7. Merge them when the
+11. **R70 WSL1.** Keep it on the per-process path. It has no drive-mount
+    inotify, its kernel is below Node 24's floor, and it likely has few users.
+    Removing the per-process path later means dropping WSL1 chats.
+12. **R71 Helper and server.** Two processes in phase 7. Merge them when the
     Git pane and explorer move to the protocol.
-22. **R72 Windows end-to-end testing.** The manual checklist for the first
+13. **R72 Windows end-to-end testing.** The manual checklist for the first
     release, and a self-hosted WSL2 runner before the default flips.
-23. **R73 `C:\` workspaces on a WSL machine.** Keep supporting them, with UI
+14. **R73 `C:\` workspaces on a WSL machine.** Keep supporting them, with UI
     reads on Windows and an advisory in New chat. Never block them.
-24. **R74 The WSL chat gateway-token gap.** Fix it on `main` now, independently
-    of phase 7: issue and revoke a channel token per chat session, and forward
-    it.
+15. **R75 The local end of the SSH pane's forward.** Chromium speaks SOCKS5
+    without authentication, so a SOCKS listener on the laptop's loopback is
+    one any local user could reach, against goal 4 ("never an unauthenticated
+    port"). The working default is SOCKS5 as ruled, narrowed: open only while
+    that environment has a pane tab, on Linux refusing another uid's
+    connection. The alternative is the same forward with an HTTP-proxy local
+    end that demands a per-session credential, which Chromium does answer;
+    nothing else in the design changes. Say which.
 
-Not a class C item, but it narrows an earlier default: R37 keeps the native
-pane on a desktop attached to a server on its own PC, and uses the screencast
-everywhere else.
+### Phase 5: client-supplied tools
+
+Phase 5's open decisions are in its spec,
+[`phase-5-client-tools.md`](phase-5-client-tools.md) section 16 (where boards
+live, routing among several desktops, approving an app's toolsets, a
+server-side canvas read with no client, removing tools mid-connection, the
+grace and timeout values, the gateway for Codex and ACP chats). They are
+folded into this file separately.
