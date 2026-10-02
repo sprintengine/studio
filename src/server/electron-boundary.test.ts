@@ -78,12 +78,11 @@ const SERVER_BOUND: readonly string[] = [
   'src/main/automation/studio-gateway-tools.ts',
   'src/main/automation/gateway-audit.ts',
   'src/main/automation/conversation-tools.ts',
-  'src/main/automation/canvas-tools.ts',
   'src/main/automation/launch-permission-cap.ts',
   'src/main/automation/tailnet/**',
   'src/main/mcp-config-service.ts',
-  // The canvas board store and service.
-  'src/main/canvas/canvas-service.ts',
+  // Where a workspace's boards are kept: the server resolves the board files'
+  // root with it, though the canvas service itself is a client's (PORTABLE).
   'src/main/canvas/canvas-board-store.ts',
   // The module host's main halves and the bundled modules on it.
   'src/main/module-host/main-host.ts',
@@ -117,6 +116,18 @@ const SERVER_BOUND: readonly string[] = [
   // File search for @-mentions.
   'src/main/conversation-mentions.ts',
   'src/main/filesystem-search.ts',
+]
+
+/**
+ * Code the server does not load but a client without Electron will: the
+ * canvas service and its tools, which the desktop runs today and a web or
+ * headless client runs later, over the same board files (the client-tools
+ * spec, 10.2). Held to the same rule as server-bound code.
+ */
+const PORTABLE: readonly string[] = [
+  'src/main/canvas/canvas-service.ts',
+  'src/main/automation/canvas-tools.ts',
+  'src/shared/canvas/**',
 ]
 
 // Electron itself and the packages built on it: `electron/main`, `@electron/*`,
@@ -233,8 +244,8 @@ function pathToElectron(inputs: Metafile['inputs'], entry: string): string[] | n
   return null
 }
 
-test('no server-bound file reaches electron, directly or through what it imports', async () => {
-  const files = expand(SERVER_BOUND)
+test('no server-bound or portable file reaches electron, directly or through what it imports', async () => {
+  const files = expand([...SERVER_BOUND, ...PORTABLE])
   const inputs = await importGraph(files)
   const reached = files.flatMap((file) => {
     const chain = pathToElectron(inputs, file)
@@ -256,7 +267,7 @@ test('the walk does find electron where it is', async () => {
 })
 
 test('no server-bound file loads something the walk cannot follow, unless it is listed with a reason', async () => {
-  const inputs = await importGraph(expand(SERVER_BOUND))
+  const inputs = await importGraph(expand([...SERVER_BOUND, ...PORTABLE]))
   assert.deepEqual(
     computedLoads(inputs),
     [],
