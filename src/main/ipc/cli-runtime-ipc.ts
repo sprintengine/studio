@@ -12,13 +12,27 @@ import { recordCliDetection } from '../cli-availability'
 import { cliInstallMethods, detectCli, installCli, updateCli } from '../cli-runtime-install'
 import { noteCliDetected } from '../cli-version-advisory-service'
 import { isWslHostId, LOCAL_HOST_ID } from '../../shared/execution-host'
+import type { CliModelDiscoveryInput } from '../../shared/ipc/cli-model-discovery'
 import { discoverAndBroadcastCliModels } from './cli-model-discovery-ipc'
 
 type DetectInput = { cli: AgentCli; runtime?: Partial<CliRuntimeSettings> }
 type MethodsInput = { cli: AgentCli; runtime?: Partial<CliRuntimeSettings> }
 type InstallIpcInput = CliInstallInput & { runtime?: Partial<CliRuntimeSettings> }
 
-export function registerCliRuntimeIpc(ipcMain: IpcMain): void {
+type ModelDiscovery = (input: CliModelDiscoveryInput) => Promise<unknown>
+
+export function registerCliRuntimeIpc(
+  ipcMain: IpcMain,
+  options: {
+    /**
+     * The pass that follows an install. In process it runs here; with the
+     * Studio server in a process of its own it runs there, the one writer of
+     * the model catalog cache.
+     */
+    discoverModels?: ModelDiscovery
+  } = {},
+): void {
+  const discoverModels: ModelDiscovery = options.discoverModels ?? ((input) => discoverAndBroadcastCliModels(input))
   // A row's own detection (opening it, or its Re-check): a probe of this one
   // CLI on this one machine, which the shared answer takes on, so the list, the
   // pickers and the version check agree with what the row just found.
@@ -38,7 +52,7 @@ export function registerCliRuntimeIpc(ipcMain: IpcMain): void {
         event.sender.send(channel, chunk)
       }
     })
-    afterInstall(input.cli, input.runtime, result)
+    afterInstall(input.cli, input.runtime, result, discoverModels)
     return result
   })
   // Update action: the CLI's own updater where the manifest declares
@@ -51,7 +65,7 @@ export function registerCliRuntimeIpc(ipcMain: IpcMain): void {
         event.sender.send(channel, chunk)
       }
     })
-    afterInstall(input.cli, input.runtime, result)
+    afterInstall(input.cli, input.runtime, result, discoverModels)
     return result
   })
 }
@@ -67,7 +81,12 @@ export function registerCliRuntimeIpc(ipcMain: IpcMain): void {
 // matches the one that produced the stored catalog, so this pass re-probes it
 // (and a first install gets its first catalog) without waiting for the next
 // refresh. Neither is awaited — the result goes back to Settings at once.
-function afterInstall(cli: AgentCli, runtime: Partial<CliRuntimeSettings> | undefined, result: CliInstallResult): void {
+function afterInstall(
+  cli: AgentCli,
+  runtime: Partial<CliRuntimeSettings> | undefined,
+  result: CliInstallResult,
+  discoverModels: ModelDiscovery,
+): void {
   if (!result.installed) return
   const hostId = isWslHostId(runtime?.hostId) ? runtime.hostId : LOCAL_HOST_ID
   void noteCliDetected(runtime, {
@@ -80,7 +99,5 @@ function afterInstall(cli: AgentCli, runtime: Partial<CliRuntimeSettings> | unde
     error: null,
   }).catch(() => undefined)
   if (!result.ok) return
-  void discoverAndBroadcastCliModels({ clis: [cli], ...(runtime ? { cliRuntimes: { [cli]: runtime } } : {}) }).catch(
-    () => undefined,
-  )
+  void discoverModels({ clis: [cli], ...(runtime ? { cliRuntimes: { [cli]: runtime } } : {}) }).catch(() => undefined)
 }

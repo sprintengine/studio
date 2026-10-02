@@ -391,6 +391,8 @@ export function registerAppLifecycle({
       // waits a little longer so the probes do not compete with the renderer's
       // first paint. Each CLI is re-probed only when its catalog is a day old or
       // its version changed, so on most launches this spawns nothing.
+      // Out of process the server runs this pass itself, where the cache is.
+      if (server) return
       bootModelDiscoveryTimer = setTimeout(() => {
         bootModelDiscoveryTimer = null
         void discoverAndBroadcastCliModels().catch(() => undefined)

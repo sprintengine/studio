@@ -80,10 +80,13 @@ export function createServerStateMirror(deps: {
   rpc: Pick<ControlRpc, 'call' | 'on'>
   log?: (line: string) => void
 }): ServerStateMirror {
+  // Until the first snapshot nothing is known: `needsHydration` answers true,
+  // which every reader takes as "not yet" rather than "this agent is gone"
+  // (the prompt store must not drop a live agent's history on an empty mirror).
   let registryView: ServerMirrorRegistry = {
     state: EMPTY_STATE,
     snapshot: { sequence: 0, state: stripSequence(EMPTY_STATE) },
-    needsHydration: false,
+    needsHydration: true,
   }
   let launch: ServerMirrorLaunchSettings = { settings: emptyAgentLaunchSettings(), record: null }
   const registryListeners = new Set<(state: WorkspaceSyncState) => void>()

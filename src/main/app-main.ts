@@ -108,7 +108,13 @@ const coreIpc = registerCoreIpc(ipcMain, services, DIAGNOSTICS_ENABLED, {
   includeDevModules,
   applyModuleEnablementLive: (overrides) => applyModuleEnablementLive?.(overrides),
   ...(serverHost
-    ? { server: { studioConnections: { connectPort: (port) => serverHost.connectStudioPort(port) } } }
+    ? {
+        server: {
+          studioConnections: { connectPort: (port) => serverHost.connectStudioPort(port) },
+          discoverModels: (input) =>
+            serverHost.supervisor.call(SERVER_METHODS.discoverModels, input, { timeoutMs: 120_000 }),
+        },
+      }
     : {}),
 })
 

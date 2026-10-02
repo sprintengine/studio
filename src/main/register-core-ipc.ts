@@ -66,6 +66,7 @@ import {
   openAuxWindow,
 } from './window-factory'
 import type { AppServices } from './app-services'
+import type { CliModelDiscoveryInput } from '../shared/ipc/cli-model-discovery'
 import { registerServerDomainIpc } from '../server/desktop/server-ipc'
 import { createFilesystemMutationHandlers } from './filesystem-mutation-handlers'
 import { createFilesystemReadHandlers } from './filesystem-read'
@@ -81,7 +82,11 @@ export type CoreIpcOptions = {
    * The Studio server in a process of its own: its domains register there, on
    * its IPC tunnel, and a chat view's protocol connection is brokered to it.
    */
-  server?: { studioConnections: RemoteWindowConnector }
+  server?: {
+    studioConnections: RemoteWindowConnector
+    /** A model discovery pass, run by the server, which keeps the catalog cache. */
+    discoverModels(input: CliModelDiscoveryInput): Promise<unknown>
+  }
 }
 
 /** What registration hands back for the app's shutdown to finish. */
@@ -121,7 +126,10 @@ export function registerCoreIpc(
   else if (services.studioRpcService) registerStudioConnectionIpc(ipcMain, services.studioRpcService)
   registerAppMenuIpc(ipcMain)
   registerClipboardIpc(ipcMain)
-  registerCliRuntimeIpc(ipcMain)
+  registerCliRuntimeIpc(
+    ipcMain,
+    options.server ? { discoverModels: (input) => options.server!.discoverModels(input) } : {},
+  )
   registerTextGenerationIpc(ipcMain)
   // Voice dictation is a dev-only capability (the `voice-dictation` module). Its
   // main IPC is not yet a capability module, so gate it on the build channel

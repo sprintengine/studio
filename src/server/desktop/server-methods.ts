@@ -26,6 +26,8 @@ export const SERVER_METHODS = {
   applyModuleEnablement: 'modules.apply-enablement',
   /** `{ clientId }` → `{ connectionId, ticket }`: a chat view's protocol connection, its port already attached. */
   studioConnect: 'studio.connect',
+  /** `CliModelDiscoveryInput` → its result: the pass after an install, run where the catalog cache lives. */
+  discoverModels: 'models.discover',
   /** → `ServerInfo`. */
   info: 'server.info',
 } as const

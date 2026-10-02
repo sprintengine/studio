@@ -440,6 +440,9 @@ function serveShellRequests(deps: {
       .readPeekTranscript({ workspaceRoot, workspaceId: summary.workspaceId, agentId: summary.agentId })
       .catch(() => [])
   })
+  rpc.handle(SERVER_METHODS.discoverModels, (params) =>
+    discoverAndBroadcastCliModels((params ?? {}) as Parameters<typeof discoverAndBroadcastCliModels>[0]),
+  )
   rpc.handle(SERVER_METHODS.conversationRoots, () => core.conversations.listLiveConversationRoots())
   rpc.handle(SERVER_METHODS.applyModuleEnablement, (params) =>
     deps.modules.applyEnablement((params as { overrides?: Record<string, boolean> } | null)?.overrides ?? {}),
