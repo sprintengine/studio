@@ -1,16 +1,5 @@
 # Changelog
 
-## Unreleased
-
-### Added
-
-- **The `electron-main` host capability and `requires.hostCapabilities`.** A
-  module's main half may run in the Studio server, a Node process with no
-  Electron APIs, where `host.supports('electron-main')` is false. A module that
-  cannot run without Electron declares
-  `"requires": { "hostCapabilities": ["electron-main"] }` and loads
-  manifest-only wherever it is false. Additive: `HOST_API_VERSION` stays 1.
-
 ## 1.0.0-beta.1
 
 Automations became scheduled agents: a prompt and a cron schedule, each run a
