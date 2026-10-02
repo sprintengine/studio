@@ -14,8 +14,10 @@ import { connectToStudio } from '../../packages/agent-sdk/src/node'
 import type { StudioClient } from '../../packages/agent-sdk/src/client'
 import {
   STUDIO_CHAT_METHODS,
+  STUDIO_TOOLS_METHODS,
   STUDIO_METHODS,
   type StudioChatMethod,
+  type StudioToolsMethod,
   type StudioMethod,
 } from '../../packages/studio-protocol/src/public'
 import type { ConversationEvent, ConversationEventType } from '../shared/conversation-runtime'
@@ -318,6 +320,11 @@ test('every method the server serves has its call in the SDK, under the same sco
     // The chat surface is Studio's own windows' and is called by name.
     ...(Object.fromEntries(Object.keys(STUDIO_CHAT_METHODS).map((method) => [method, 'request'])) as Record<
       StudioChatMethod,
+      string
+    >),
+    // Client tools, by name until the SDK gives them calls of their own.
+    ...(Object.fromEntries(Object.keys(STUDIO_TOOLS_METHODS).map((method) => [method, 'request'])) as Record<
+      StudioToolsMethod,
       string
     >),
   }

@@ -1,6 +1,7 @@
 import {
   STUDIO_METHODS,
   isStudioChatMethod,
+  isStudioToolsMethod,
   parseStudioMethodParams,
   studioScopesGrant,
   type ConversationCommand,
@@ -380,6 +381,8 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
     fingerprint: string | undefined,
   ): Promise<StudioRpcAnswer> {
     if (isStudioChatMethod(method)) return chatDispatch(grant, method, params, context, voice, fingerprint)
+    // Client tools are served by a Studio that advertises them, and this one does not yet.
+    if (isStudioToolsMethod(method)) return refuse('unavailable', `This Studio does not serve ${method}.`)
     const { failed } = voice
     switch (method) {
       case 'server.info':

@@ -7,6 +7,7 @@ import {
   CONVERSATION_PROTOCOL_VERSION,
   STUDIO_CAPABILITIES,
   STUDIO_CHAT_CAPABILITIES,
+  STUDIO_CLIENT_TOOLS_CAPABILITY,
   STUDIO_PROTOCOL_MIN_SUPPORTED,
   STUDIO_PROTOCOL_VERSION,
   type StudioWelcomeFrame,
@@ -83,7 +84,10 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
     server: { name: 'SprintEngine Studio', version: options.version },
     environment: { id: options.environmentId, hostKind: 'local', os: platform(), arch: arch() },
     capabilities: STUDIO_CAPABILITIES.filter(
-      (capability) => chat() !== null || !(STUDIO_CHAT_CAPABILITIES as readonly string[]).includes(capability),
+      (capability) =>
+        // Client tools are not served yet.
+        capability !== STUDIO_CLIENT_TOOLS_CAPABILITY &&
+        (chat() !== null || !(STUDIO_CHAT_CAPABILITIES as readonly string[]).includes(capability)),
     ),
     conversation: {
       protocolVersion: CONVERSATION_PROTOCOL_VERSION,

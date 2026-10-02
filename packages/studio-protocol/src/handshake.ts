@@ -38,6 +38,12 @@ export const STUDIO_PROVIDERS_CAPABILITY = 'providers' as const
 export const STUDIO_FILES_CAPABILITY = 'files-mention' as const
 /** The workspaces this Studio holds: `workspaces.list`. */
 export const STUDIO_WORKSPACES_CAPABILITY = 'workspaces' as const
+/**
+ * A client may offer toolsets for Studio's agents (`tools.*`), and is sent a
+ * `call` when an agent uses one. A client sends `reply` and `progress` frames
+ * only to a Studio that advertises this.
+ */
+export const STUDIO_CLIENT_TOOLS_CAPABILITY = 'client-tools' as const
 
 /**
  * Every Studio capability this version of the package knows, in the order
@@ -56,6 +62,7 @@ export const STUDIO_CAPABILITIES = [
   STUDIO_PROVIDERS_CAPABILITY,
   STUDIO_FILES_CAPABILITY,
   STUDIO_WORKSPACES_CAPABILITY,
+  STUDIO_CLIENT_TOOLS_CAPABILITY,
 ] as const
 
 /**
