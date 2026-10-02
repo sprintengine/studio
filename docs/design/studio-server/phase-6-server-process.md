@@ -620,6 +620,15 @@ info file's `pid` changed or the socket reappears within 30 s.
 Bridges already running in a CLI session started before the update cannot
 benefit. A CLI started afterwards does.
 
+As built (`resources/automation/mcp-stdio-bridge.mjs`, local mode): the
+bridge now reads the client's lines instead of piping them, so it can hold
+what the client sent before the first socket connected (the connect frame has
+to be first), answer every request that was waiting when the socket closed,
+and answer at once anything sent while Studio is away. The replayed
+`initialize` carries an id of the bridge's own, whose answer it keeps from
+the client. A bridge whose Studio does not come back within 30 s leaves with
+code 0, as it did the moment the socket closed before.
+
 ## 7. Process lifecycle
 
 ### 7.1 Supervisor state machine (shell side)

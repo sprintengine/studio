@@ -3,8 +3,11 @@
 //
 // SprintEngine Studio listens on a Unix domain socket / Windows named pipe speaking MCP's stdio
 // framing (newline-delimited JSON-RPC 2.0). Stock MCP clients speak stdio, so
-// this script is the adapter: it finds the running server and pipes
-// stdin/stdout to it verbatim. No protocol logic.
+// this script is the adapter: it finds the running server and carries
+// stdin/stdout to it line for line. The one piece of protocol it knows is
+// what a reconnect needs: when the Studio server restarts under a running
+// agent, the bridge reconnects and replays the client's `initialize`, so the
+// agent keeps its Studio tools (runLocal).
 //
 // Two transports, one behaviour on stdio:
 //
@@ -211,43 +214,219 @@ function channelAuthLine(info) {
   return `${JSON.stringify({ t: 'auth', token })}\n`
 }
 
+// How long a bridge waits for Studio to come back after its gateway goes: the
+// Studio server restarting (it is supervised, and back within seconds), or
+// the app quitting, after which nothing comes back and the bridge leaves.
+const RECONNECT_WINDOW_MS = 30_000
+const RECONNECT_POLL_MS = 250
+// The id the bridge's own replayed `initialize` carries, so its answer is
+// recognised and kept from the client, which already had one.
+const REPLAY_ID_PREFIX = '__studio_reinitialize_'
+
+/**
+ * Local mode: the gateway's socket, and across a restart of the Studio server
+ * a new one. The MCP client sees one session throughout:
+ *
+ *   1. the bridge keeps the client's `initialize` and the
+ *      `notifications/initialized` after it;
+ *   2. when the socket closes, every request still waiting is answered with
+ *      an error ("Studio restarted; retry"), and so is anything sent before
+ *      Studio is back;
+ *   3. it reconnects once the discovery file names a new process, or the
+ *      socket answers again, within 30 s; otherwise it leaves as before;
+ *   4. on the new socket it says who it is again, replays `initialize`
+ *      (swallowing the answer) and `initialized`, then tells the client the
+ *      tool list may have changed.
+ */
 function runLocal(infoPathArg) {
   const infoPath = resolveInfoPath(infoPathArg)
-  const info = readServerInfo(infoPath)
-  const authLine = channelAuthLine(info)
+  const firstInfo = readServerInfo(infoPath)
+  // Read here, once: a bridge with no launch token for a helper fails at
+  // start, as before, rather than on the first reconnect.
+  channelAuthLine(firstInfo)
 
-  const socket = connect(info.socketPath)
-  let connected = false
+  let socket = null
+  // Lines the client sent before the first socket connected: they follow the
+  // connect frame, which has to be first on the wire.
+  const early = []
+  let live = false
+  let connectedOnce = false
+  let stdinEnded = false
+  let reconnecting = false
+  let replays = 0
+  let initializeLine = null
+  let initializedLine = null
+  const swallow = new Set()
+  /** Requests the gateway has not answered yet, by their JSON id. */
+  const waiting = new Map()
+  let clientBuffer = ''
+  let serverBuffer = ''
 
-  socket.on('connect', () => {
-    connected = true
-    if (authLine) socket.write(authLine)
-    // Advisory attribution only: the gateway's trust boundary remains the local
-    // OS user/socket. This frame is deliberately sent before stdin piping, and
-    // the server serializes frames per connection so initialize cannot overtake it.
-    socket.write(`${connectFrameBody()}\n`)
-    process.stdin.pipe(socket)
-    socket.pipe(process.stdout)
-  })
+  const toClient = (message) => process.stdout.write(`${JSON.stringify(message)}\n`)
+  const answerRestarted = (id) =>
+    toClient({
+      jsonrpc: '2.0',
+      id,
+      error: { code: -32000, message: 'SprintEngine Studio restarted; retry the request.' },
+    })
 
-  socket.on('error', (error) => {
-    if (connected) {
-      fail(`Connection to the SprintEngine Studio MCP gateway was lost: ${error.message}`)
+  function fromClient(line) {
+    let message = null
+    try {
+      message = JSON.parse(line)
+    } catch {
+      // Not JSON: passed on as it came, for the gateway to refuse.
     }
-    const alive = appearsAlive(info.pid)
-    if (alive === false) {
-      fail(
-        `Could not connect to ${info.socketPath} and the recorded app process (pid ${info.pid}) is gone — ` +
-          'the discovery file is stale (the app likely crashed). Start SprintEngine Studio.',
-      )
+    if (message && typeof message === 'object') {
+      if (message.method === 'initialize' && initializeLine === null) initializeLine = message
+      if (message.method === 'notifications/initialized' && initializedLine === null) initializedLine = line
+      if ('id' in message && typeof message.method === 'string') {
+        if (reconnecting) {
+          answerRestarted(message.id)
+          return
+        }
+        waiting.set(JSON.stringify(message.id), message.id)
+      }
     }
-    fail(`Could not connect to ${info.socketPath}: ${error.message}`)
-  })
+    if (reconnecting) return
+    if (live && socket) socket.write(`${line}\n`)
+    else early.push(line)
+  }
 
-  // Server closed the connection (app quit): clean exit so
-  // MCP clients treat it as a normal disconnect.
-  socket.on('close', () => process.exit(0))
-  process.stdin.on('end', () => socket.end())
+  function fromServer(line) {
+    let message = null
+    try {
+      message = JSON.parse(line)
+    } catch {
+      // Passed through as it came.
+    }
+    if (message && typeof message === 'object' && 'id' in message && !('method' in message)) {
+      const key = JSON.stringify(message.id)
+      if (swallow.has(key)) {
+        swallow.delete(key)
+        return
+      }
+      waiting.delete(key)
+    }
+    process.stdout.write(`${line}\n`)
+  }
+
+  function open(info, replay) {
+    const next = connect(info.socketPath)
+    socket = next
+    let connected = false
+    next.on('connect', () => {
+      connected = true
+      connectedOnce = true
+      reconnecting = false
+      const authLine = channelAuthLine(info)
+      if (authLine) next.write(authLine)
+      // Advisory attribution only: the gateway's trust boundary remains the local
+      // OS user/socket. This frame is deliberately sent before stdin piping, and
+      // the server serializes frames per connection so initialize cannot overtake it.
+      next.write(`${connectFrameBody()}\n`)
+      if (replay) {
+        if (initializeLine) {
+          const id = `${REPLAY_ID_PREFIX}${++replays}`
+          swallow.add(JSON.stringify(id))
+          next.write(`${JSON.stringify({ ...initializeLine, id })}\n`)
+        }
+        if (initializedLine) next.write(`${initializedLine}\n`)
+        toClient({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' })
+      }
+      live = true
+      for (const line of early.splice(0)) next.write(`${line}\n`)
+    })
+    next.setEncoding('utf8')
+    next.on('data', (chunk) => {
+      serverBuffer += chunk
+      let newline = serverBuffer.indexOf('\n')
+      while (newline !== -1) {
+        const line = serverBuffer.slice(0, newline)
+        serverBuffer = serverBuffer.slice(newline + 1)
+        if (line.trim()) fromServer(line)
+        newline = serverBuffer.indexOf('\n')
+      }
+    })
+    next.on('error', (error) => {
+      if (connected || connectedOnce) return // 'close' follows; it decides.
+      const alive = appearsAlive(info.pid)
+      if (alive === false) {
+        fail(
+          `Could not connect to ${info.socketPath} and the recorded app process (pid ${info.pid}) is gone — ` +
+            'the discovery file is stale (the app likely crashed). Start SprintEngine Studio.',
+        )
+      }
+      fail(`Could not connect to ${info.socketPath}: ${error.message}`)
+    })
+    next.on('close', () => {
+      if (socket !== next) return
+      socket = null
+      live = false
+      serverBuffer = ''
+      // The client went first: this is the end of the session.
+      if (stdinEnded || !connected) {
+        if (stdinEnded) process.exit(0)
+        return
+      }
+      for (const id of waiting.values()) answerRestarted(id)
+      waiting.clear()
+      void reconnect(info)
+    })
+  }
+
+  async function reconnect(previous) {
+    reconnecting = true
+    const deadline = Date.now() + RECONNECT_WINDOW_MS
+    while (Date.now() < deadline && !stdinEnded) {
+      await new Promise((resolve) => setTimeout(resolve, RECONNECT_POLL_MS))
+      let info = null
+      try {
+        info = JSON.parse(readFileSync(infoPath, 'utf8'))
+      } catch {
+        continue // Removed while the server stopped; written again when it is back.
+      }
+      if (!info || typeof info.socketPath !== 'string') continue
+      const restarted = info.pid !== previous.pid
+      if (!restarted && !(await socketAnswers(info.socketPath))) continue
+      open(info, true)
+      return
+    }
+    // Studio did not come back (the app quit): leave as a closed server always did.
+    process.exit(0)
+  }
+
+  process.stdin.setEncoding('utf8')
+  process.stdin.on('data', (chunk) => {
+    clientBuffer += chunk
+    let newline = clientBuffer.indexOf('\n')
+    while (newline !== -1) {
+      const line = clientBuffer.slice(0, newline)
+      clientBuffer = clientBuffer.slice(newline + 1)
+      if (line.trim()) fromClient(line)
+      newline = clientBuffer.indexOf('\n')
+    }
+  })
+  process.stdin.on('end', () => {
+    stdinEnded = true
+    if (socket) socket.end()
+    else process.exit(0)
+  })
+  open(firstInfo, false)
+}
+
+/** Whether something is listening on the socket now. */
+function socketAnswers(socketPath) {
+  return new Promise((resolve) => {
+    const probe = connect(socketPath)
+    const done = (answer) => {
+      probe.removeAllListeners()
+      probe.destroy()
+      resolve(answer)
+    }
+    probe.once('connect', () => done(true))
+    probe.once('error', () => done(false))
+  })
 }
 
 // ---------------------------------------------------------------------------
