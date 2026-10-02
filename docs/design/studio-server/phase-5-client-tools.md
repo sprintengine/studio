@@ -1082,6 +1082,16 @@ explorer extends them later (parent ruling c).
 - A write over the client frame stages its bytes with `uploads.begin
   { purpose: 'file', byteLength }`, the existing upload path generalised: any
   media type, up to 64 MB when the purpose is `file`.
+- As built (`src/server/rpc/studio-files.ts`): the family is advertised as the
+  `files-write` capability. A conditional write or removal that finds the file
+  other than expected answers inside a successful response, `{ ok: false,
+  code: 'conflict', currentHash }`, the way the chat surface's own outcomes
+  do, so a client reads it beside the success shape rather than as a refusal
+  of the request. A retry of the same `commandId` is answered with the first
+  outcome; carried out again, its own write would read as a conflict. Writes
+  to one file are queued, so the check and the rename are one step to every
+  writer through the server. `canvas-board-store.ts` stays on the
+  server-bound list: the server resolves the `boards` root with it.
 
 **The remote `CanvasFs`.** `src/main/canvas/protocol-canvas-fs.ts` implements
 `CanvasFs` and the directory watcher over these methods.

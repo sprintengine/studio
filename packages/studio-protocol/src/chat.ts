@@ -16,6 +16,7 @@ import {
 } from './handshake.js'
 import type { StudioErrorCode } from './envelope.js'
 import { isStudioPath, parseStudioConversationKey, type StudioConversationKey } from './key.js'
+import { STUDIO_MAX_FILE_BYTES, isStudioRelativePath, parseStudioFileRoot, type StudioFileRoot } from './files.js'
 import type { StudioScope } from './scopes.js'
 
 // What a chat view needs beside the conversation lane: the methods Studio's
@@ -170,7 +171,8 @@ export type StudioChatMethodMap = {
     result: StudioSessionOutcome
   }
   'uploads.begin': {
-    params: { mediaType: string; byteLength: number; name?: string }
+    /** A picture for a send, or (`purpose: 'file'`, owners) a file's bytes for `files.write`, of any type. */
+    params: { mediaType: string; byteLength: number; name?: string; purpose?: 'picture' | 'file' }
     result: { uploadId: string; chunkBytes: number }
   }
   'uploads.append': { params: { uploadId: string; offset: number; dataBase64: string }; result: { received: number } }
@@ -223,7 +225,8 @@ export type StudioChatMethodMap = {
     result: Record<string, unknown> & { ok: boolean }
   }
   'files.cancelSearch': { params: { channel?: string }; result: Record<string, never> }
-  'files.stat': { params: { path: string }; result: { stat: Record<string, unknown> } }
+  /** By an absolute path; or, with `root` (the `files-write` capability), by a path relative to it. */
+  'files.stat': { params: { path: string; root?: StudioFileRoot }; result: { stat: Record<string, unknown> } }
   'files.readImage': { params: { path: string }; result: { dataUrl: string } }
   'files.repoRoot': { params: { folderPath: string; hostId?: string }; result: { repoRoot: string | null } }
   'workspaces.list': { params: Record<string, never>; result: { workspaces: StudioWorkspace[] } }
@@ -500,6 +503,16 @@ export function parseStudioChatParams<M extends StudioChatMethod>(method: M, par
       return ok({ ...session, modelId: value.modelId.trim() })
     }
     case 'uploads.begin': {
+      if (value.purpose === 'file') {
+        if (!(typeof value.mediaType === 'string' && /^[\w.+-]{1,64}\/[\w.+-]{1,64}$/.test(value.mediaType)))
+          return refuse('"mediaType" is the file’s media type.')
+        if (!(integer(value.byteLength) && value.byteLength > 0))
+          return refuse('"byteLength" is the file’s size in bytes.')
+        if (value.byteLength > STUDIO_MAX_FILE_BYTES)
+          return refuse(`A file may be at most ${STUDIO_MAX_FILE_BYTES / (1024 * 1024)} MB.`, 'too_large')
+        return ok({ mediaType: value.mediaType, byteLength: value.byteLength, purpose: 'file' })
+      }
+      if (value.purpose !== undefined && value.purpose !== 'picture') return refuse('"purpose" is picture or file.')
       if (!(STUDIO_UPLOAD_MEDIA_TYPES as readonly unknown[]).includes(value.mediaType))
         return refuse('A picture is PNG, JPEG, WebP or GIF.')
       if (!(integer(value.byteLength) && value.byteLength > 0))
@@ -638,7 +651,14 @@ export function parseStudioChatParams<M extends StudioChatMethod>(method: M, par
       return optional(value.channel, id)
         ? ok(value.channel === undefined ? {} : { channel: value.channel })
         : refuse('"channel" names the search.')
-    case 'files.stat':
+    case 'files.stat': {
+      if (value.root === undefined)
+        return isStudioPath(value.path) ? ok({ path: value.path }) : refuse('"path" is a path on Studio’s disk.')
+      const root = parseStudioFileRoot(value.root)
+      if (!root) return refuse('"root" is { kind: "boards" | "workspace", workspaceId }.')
+      if (!isStudioRelativePath(value.path)) return refuse('"path" is relative to its root, with "/" between parts.')
+      return ok({ path: value.path, root })
+    }
     case 'files.readImage':
       return isStudioPath(value.path) ? ok({ path: value.path }) : refuse('"path" is a path on Studio’s disk.')
     case 'files.repoRoot':

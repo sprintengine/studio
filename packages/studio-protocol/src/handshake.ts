@@ -44,6 +44,12 @@ export const STUDIO_WORKSPACES_CAPABILITY = 'workspaces' as const
  * only to a Studio that advertises this.
  */
 export const STUDIO_CLIENT_TOOLS_CAPABILITY = 'client-tools' as const
+/**
+ * Files under a workspace's roots, by root and relative path: `files.roots`,
+ * `list`, `read`, `write`, `remove`, `stat` with a root, and the `files.watch`
+ * stream. Owners only. What a client runs the canvas over a Studio's boards with.
+ */
+export const STUDIO_BOARD_FILES_CAPABILITY = 'files-write' as const
 
 /**
  * Every Studio capability this version of the package knows, in the order
@@ -63,6 +69,7 @@ export const STUDIO_CAPABILITIES = [
   STUDIO_FILES_CAPABILITY,
   STUDIO_WORKSPACES_CAPABILITY,
   STUDIO_CLIENT_TOOLS_CAPABILITY,
+  STUDIO_BOARD_FILES_CAPABILITY,
 ] as const
 
 /**

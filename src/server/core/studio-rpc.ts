@@ -4,6 +4,8 @@ import {
   createStudioConversationBackend,
 } from '../../main/studio-rpc/studio-conversation-backend'
 import { createStudioRpcService, type StudioRpcService } from '../../main/studio-rpc/studio-rpc-service'
+import { canvasBoardStoreDir } from '../../main/canvas/canvas-board-store'
+import { createStudioFiles } from '../rpc/studio-files'
 import type { StudioCore } from './studio-core'
 import type { StudioGateway } from './studio-gateway'
 
@@ -31,6 +33,17 @@ export function createStudioRpc(core: StudioCore, gateway: StudioGateway): Studi
       }),
     audit: () => gateway.gatewayAudit(),
     tools: gateway.clientTools,
+    // A workspace's folder, and the board store Studio keeps for it under its
+    // data directory: the canvas reads and writes its boards through these.
+    files: createStudioFiles({
+      resolveRoot: (root) => {
+        const folder = core.workspaceSyncService
+          .getSnapshot()
+          .state.workspaces.find((workspace) => workspace.id === root.workspaceId)?.folderPath
+        if (!folder) return null
+        return root.kind === 'workspace' ? folder : canvasBoardStoreDir(core.platform.paths.dataDir(), folder)
+      },
+    }),
     log: (message) => {
       void writeDiagnosticLog({ level: 'warning', source: 'workspace', title: 'Local app socket', message })
     },

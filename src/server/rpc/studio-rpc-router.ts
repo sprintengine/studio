@@ -2,7 +2,9 @@ import {
   STUDIO_METHODS,
   isStudioChatMethod,
   isStudioToolsMethod,
+  isStudioFilesMethod,
   parseStudioMethodParams,
+  type StudioFilesMethod,
   type StudioToolsMethod,
   studioScopesGrant,
   type ConversationCommand,
@@ -27,6 +29,7 @@ import type {
 } from '../../shared/conversation-runtime'
 import { createStudioUploads, type StudioUploads } from './studio-uploads'
 import type { ClientToolRegistry } from '../tools/client-tool-registry'
+import type { StudioFiles } from './studio-files'
 import type {
   StudioAuditEntry,
   StudioChatBackend,
@@ -99,6 +102,8 @@ export type StudioRpcRouterOptions = {
   chat?: () => StudioChatBackend | null
   /** Client toolsets; without it, `tools.*` is answered `unavailable`. */
   tools?: ClientToolRegistry
+  /** Files under a workspace's roots; without it, `files.*` by root is answered `unavailable`. */
+  files?: StudioFiles
   uploads?: StudioUploads
   now?: () => number
 }
@@ -394,8 +399,16 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
     voice: Voice,
     fingerprint: string | undefined,
   ): Promise<StudioRpcAnswer> {
+    // By root it is the files family's, served with or without a chat surface.
+    if (method === 'files.stat' && (params as StudioMethodParams<'files.stat'>).root !== undefined) {
+      const { path, root } = params as StudioMethodParams<'files.stat'>
+      if (!options.files) return refuse('unavailable', 'This Studio does not serve files by root.')
+      const found = await options.files.stat(root!, path)
+      return found.ok ? { ok: true, result: { stat: found.stat } } : refuse(found.code, found.message)
+    }
     if (isStudioChatMethod(method)) return chatDispatch(grant, method, params, context, voice, fingerprint)
     if (isStudioToolsMethod(method)) return toolsDispatch(grant, method, params, context)
+    if (isStudioFilesMethod(method)) return filesDispatch(grant, method, params, voice)
     const { failed } = voice
     switch (method) {
       case 'server.info':
@@ -521,6 +534,70 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
         if (!key) return notFound(wire)
         const answer = tools.grant({ workspaceId: key.workspaceId, agentId: key.agentId }, toolset, granted)
         return answer.ok ? { ok: true, result: { grants: answer.grants } } : refuse(answer.code, answer.message)
+      }
+    }
+  }
+
+  // ── Files under a workspace's roots ──────────────────────────────────────
+
+  async function filesDispatch(
+    grant: StudioGrant,
+    method: StudioFilesMethod,
+    params: never,
+    voice: Voice,
+  ): Promise<StudioRpcAnswer> {
+    const files = options.files
+    if (!files) return refuse('unavailable', `This Studio does not serve ${method}.`)
+    const failed = (outcome: { code: string; message: string }) => refuse(outcome.code, outcome.message)
+    switch (method) {
+      case 'files.roots':
+        return { ok: true, result: files.roots((params as StudioMethodParams<'files.roots'>).workspaceId) }
+      case 'files.list': {
+        const { root, path } = params as StudioMethodParams<'files.list'>
+        const listed = await files.list(root, path)
+        return listed.ok ? { ok: true, result: { entries: listed.entries } } : failed(listed)
+      }
+      case 'files.read': {
+        const { root, path } = params as StudioMethodParams<'files.read'>
+        const read = await files.read(root, path)
+        if (!read.ok) return failed(read)
+        const { ok: _ok, ...result } = read
+        return { ok: true, result }
+      }
+      case 'files.write': {
+        const { root, path, text, uploadId, ifMatch, commandId } = params as StudioMethodParams<'files.write'>
+        const runtimeId = studioRuntimeCommandId(grant, commandId)
+        // A retry of a write is answered with the first one's outcome: carried
+        // out again, its own write would read as another writer's conflict.
+        return once(
+          `files.write:${runtimeId}`,
+          async () => {
+            let bytes: Buffer
+            if (text !== undefined) bytes = Buffer.from(text, 'utf8')
+            else {
+              const spent = uploads.spend(grant.clientId, [uploadId!], runtimeId)
+              if (!spent.ok) return refuse(spent.code, spent.message)
+              bytes = spent.pictures[0].bytes
+            }
+            const written = await files.write(root, path, bytes, ifMatch)
+            if (uploadId !== undefined) uploads.settle(grant.clientId, runtimeId, written.ok)
+            return written.ok || written.code === 'conflict' ? { ok: true, result: written as never } : failed(written)
+          },
+          voice,
+          method,
+        )
+      }
+      case 'files.remove': {
+        const { root, path, ifMatch, commandId } = params as StudioMethodParams<'files.remove'>
+        return once(
+          `files.remove:${studioRuntimeCommandId(grant, commandId)}`,
+          async () => {
+            const removed = await files.remove(root, path, ifMatch)
+            return removed.ok || removed.code === 'conflict' ? { ok: true, result: removed as never } : failed(removed)
+          },
+          voice,
+          method,
+        )
       }
     }
   }

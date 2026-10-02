@@ -24,6 +24,7 @@ import { STUDIO_SCOPES, type StudioGrant } from '../../../packages/studio-protoc
 import type { StudioTransportFactory } from '../../../packages/agent-sdk/src/transport'
 import { createStudioRpcServer, type StudioRpcServer } from '../../server/rpc/studio-rpc-server'
 import type { ClientToolRegistry } from '../../server/tools/client-tool-registry'
+import type { StudioFiles } from '../../server/rpc/studio-files'
 import type {
   StudioAuditEntry,
   StudioAuthenticator,
@@ -98,6 +99,8 @@ export type StudioRpcServiceOptions = {
   audit: () => GatewayAuditStore
   /** The client toolsets the gateway lists to agents, offered over this RPC. */
   tools?: ClientToolRegistry
+  /** Files under a workspace's roots, for owners (`files-write`). */
+  files?: StudioFiles
   log?: (message: string) => void
   /** A socket path or pipe name of the caller's choosing (tests). */
   socketPath?: string
@@ -268,6 +271,7 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
       authenticator: authenticator(appStore()),
       audit,
       ...(options.tools ? { tools: options.tools } : {}),
+      ...(options.files ? { files: options.files } : {}),
       resyncRetryAfterMs: createResyncBackoff(),
       onConnectionsChanged: () => announce(),
       ...(options.socketPath ? { socketPath: options.socketPath } : {}),

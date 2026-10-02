@@ -25,6 +25,7 @@ import {
   type StudioServerFrame,
   type StudioSubscribeFrame,
   type StudioTopic,
+  type StudioTopicParams,
   type StudioWelcomeFrame,
 } from '../../../packages/studio-protocol/src/public'
 import type { ConversationEvent, ConversationKey, ConversationSessionFrame } from '../../shared/conversation-runtime'
@@ -35,6 +36,7 @@ import {
 } from '../conversation-stream-shaping'
 import { studioErrorId, type StudioRpcAnswer, type StudioRpcRouter } from './studio-rpc-router'
 import type { ClientToolConnection, ClientToolRegistry } from '../tools/client-tool-registry'
+import type { StudioFiles } from './studio-files'
 import type {
   StudioAuditEntry,
   StudioAuthenticator,
@@ -120,6 +122,8 @@ export type StudioRpcConnectionOptions = {
   shell?: boolean
   /** The client tools registry, when this Studio serves client tools. */
   tools?: ClientToolRegistry
+  /** Files under a workspace's roots: the `files.watch` stream. */
+  files?: StudioFiles
   /** The welcome's server-wide members: who this Studio is and what it serves. */
   welcome: () => Omit<StudioWelcomeFrame, 't' | 'grant' | 'pairing'>
   /** The delay a client that fell behind is told to wait; it should grow with repeated resyncs. */
@@ -580,7 +584,7 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
       return
     }
     if (spec.push) {
-      subscribePush(frame.id, frame.topic)
+      subscribePush(frame.id, frame.topic, parsed.params)
       return
     }
     const wireKey = (parsed.params as { key: StudioConversationKey }).key
@@ -625,9 +629,13 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
   }
 
   /** A topic with no cursor: each payload is sent as it comes, and nothing is replayed. */
-  function subscribePush(id: string, topic: StudioTopic): void {
+  function subscribePush(id: string, topic: StudioTopic, params?: unknown): void {
     if (topic === 'tools.catalog') {
       subscribeCatalog(id)
+      return
+    }
+    if (topic === 'files.watch') {
+      subscribeWatch(id, params as StudioTopicParams<'files.watch'>)
       return
     }
     const chat = options.chat?.() ?? null
@@ -649,6 +657,46 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
       enqueueLive({ t: 'push', sub: id, payload: redact(catalog) }, id)
     })
     subscription.handle = { dispose: stop }
+  }
+
+  /** One directory's changed names, as they happen, until the client unsubscribes or the folder goes. */
+  function subscribeWatch(id: string, params: StudioTopicParams<'files.watch'>): void {
+    const files = options.files
+    if (!files) {
+      subscriptionFailed(id, 'unavailable', 'This Studio does not serve files.watch.')
+      return
+    }
+    const subscription: Subscription = { id, topic: 'files.watch', key: null, replay: null, handle: null }
+    subscriptions.set(id, subscription)
+    void files
+      .watch(params.root, params.path, (names) => {
+        if (state === 'closed' || subscriptions.get(id) !== subscription) return
+        const grant = liveGrant()
+        if (!grant) return
+        if (!studioScopesGrant(grant.scopes, STUDIO_TOPICS['files.watch'].scope)) {
+          refreshGrant()
+          return
+        }
+        enqueueLive({ t: 'push', sub: id, payload: { names } }, id)
+      })
+      .then(
+        (watched) => {
+          if (!watched.ok) {
+            if (subscriptions.get(id) === subscription) {
+              subscriptions.delete(id)
+              subscriptionFailed(id, watched.code, watched.message)
+            }
+            return
+          }
+          if (state === 'closed' || subscriptions.get(id) !== subscription) watched.dispose()
+          else subscription.handle = { dispose: () => watched.dispose() }
+        },
+        () => {
+          if (subscriptions.get(id) !== subscription) return
+          subscriptions.delete(id)
+          subscriptionFailed(id, 'unavailable', 'Studio could not watch that folder.', SUBSCRIBE_RETRY_MS)
+        },
+      )
   }
 
   /** The client toolsets this client may see, whole, after each change; a burst of changes is one push. */

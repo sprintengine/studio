@@ -8,6 +8,7 @@ import {
   STUDIO_CAPABILITIES,
   STUDIO_CHAT_CAPABILITIES,
   STUDIO_CLIENT_TOOLS_CAPABILITY,
+  STUDIO_BOARD_FILES_CAPABILITY,
   STUDIO_PROTOCOL_MIN_SUPPORTED,
   STUDIO_PROTOCOL_VERSION,
   type StudioWelcomeFrame,
@@ -16,6 +17,7 @@ import { createStudioRpcConnection, type StudioRpcConnection } from './studio-rp
 import { createStudioRpcListener, type StudioRpcListener } from './studio-rpc-listener'
 import { createStudioRpcRouter } from './studio-rpc-router'
 import type { ClientToolRegistry } from '../tools/client-tool-registry'
+import type { StudioFiles } from './studio-files'
 import type {
   StudioAuditEntry,
   StudioAuthenticator,
@@ -55,6 +57,8 @@ export type StudioRpcServerOptions = {
   audit?: (entry: StudioAuditEntry) => void
   /** Client toolsets: offered here, listed to agents by the gateway. Advertised as `client-tools` only when given. */
   tools?: ClientToolRegistry
+  /** Files under a workspace's roots, for owners. Advertised as `files-write` only when given. */
+  files?: StudioFiles
   resyncRetryAfterMs?: (clientId: string) => number
   socketPath?: string
   helloTimeoutMs?: number
@@ -94,6 +98,7 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
     capabilities: STUDIO_CAPABILITIES.filter(
       (capability) =>
         (capability !== STUDIO_CLIENT_TOOLS_CAPABILITY || options.tools !== undefined) &&
+        (capability !== STUDIO_BOARD_FILES_CAPABILITY || options.files !== undefined) &&
         (chat() !== null || !(STUDIO_CHAT_CAPABILITIES as readonly string[]).includes(capability)),
     ),
     conversation: {
@@ -108,6 +113,7 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
     info: welcome,
     audit: options.audit,
     ...(options.tools ? { tools: options.tools } : {}),
+    ...(options.files ? { files: options.files } : {}),
     log: options.log,
   })
   // A revoked app's offers go at once, with its names: a later app that takes
@@ -135,6 +141,7 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
         welcome,
         audit: options.audit,
         ...(options.tools ? { tools: options.tools } : {}),
+        ...(options.files ? { files: options.files } : {}),
         resyncRetryAfterMs: options.resyncRetryAfterMs,
         helloTimeoutMs: options.helloTimeoutMs,
         log: options.log,
@@ -167,6 +174,7 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
         welcome,
         audit: options.audit,
         ...(options.tools ? { tools: options.tools } : {}),
+        ...(options.files ? { files: options.files } : {}),
         resyncRetryAfterMs: options.resyncRetryAfterMs,
         helloTimeoutMs: options.helloTimeoutMs,
         log: options.log,
