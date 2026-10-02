@@ -97,7 +97,12 @@ export type {
   CapabilityDiagnostic,
 } from './skills'
 import type { AutomationServerStatus } from './automation'
-import type { StudioLocalAppOfferInput, StudioLocalAppOfferView, StudioLocalAppsStatus } from './studio-local-apps'
+import type {
+  StudioLocalAppOfferInput,
+  StudioLocalAppOfferView,
+  StudioLocalAppToolReach,
+  StudioLocalAppsStatus,
+} from './studio-local-apps'
 import type { StudioChatTransportMode, StudioConnectResult } from './studio-connection'
 import type {
   TailnetApprovePairRequestView,
@@ -675,6 +680,8 @@ export type ElectronApi = {
   studioLocalAppsCancelOffer: (id: string) => Promise<StudioLocalAppsStatus>
   /** Revoke an app: its token stops working and its open connections are closed at once. */
   studioLocalAppsRevoke: (id: string) => Promise<StudioLocalAppsStatus>
+  /** Change which agents a paired app's tools reach: the chats it starts, or every agent here. */
+  studioLocalAppsSetReach: (id: string, reach: StudioLocalAppToolReach) => Promise<StudioLocalAppsStatus>
   onStudioLocalAppsChanged: (cb: (status: StudioLocalAppsStatus) => void) => () => void
   /** How this window's chat view reaches conversations: the protocol, or the conversation IPC. */
   studioChatTransport: StudioChatTransportMode

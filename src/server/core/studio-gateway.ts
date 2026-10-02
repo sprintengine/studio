@@ -5,6 +5,13 @@ import { createConversationTools } from '../../main/automation/conversation-tool
 import { launchPermissionCeiling } from '../../main/automation/launch-permission-cap'
 import { createStudioGatewayTools } from '../../main/automation/studio-gateway-tools'
 import { writeDiagnosticLog } from '../../main/diagnostics-service'
+import { toolSuccess, toolError } from '../../shared/modules/mcp-tools'
+import type { StudioToolReach } from '../../../packages/studio-protocol/src/public'
+import { createClientToolRegistry, type ClientToolRegistry } from '../tools/client-tool-registry'
+import { createClientToolGateway } from '../tools/client-tool-gateway'
+import { cancelClientCallsAtTurnEnd } from '../tools/client-tool-turns'
+import type { McpConnectionContext } from '../../shared/modules/mcp-tools'
+import { createClientToolsetStore, type ConversationRef } from '../tools/client-toolset-store'
 import { studioBridgeScriptPath, type StudioCore } from './studio-core'
 
 // The Studio MCP gateway over a core: the always-on socket agents reach the
@@ -44,9 +51,24 @@ export type StudioGatewayOptions = Pick<
   resolveModuleTools?: GatewayToolsOptions['resolveModuleTools']
   /** Live enablement of a contributing module; resolved per call, never captured. */
   isModuleEnabled?: (moduleId: string) => boolean
+  /**
+   * The shell's toolsets this server lists from an agent's first `tools/list`
+   * (the desktop's own: `browser`, `canvas`). A list that arrives before the
+   * shell has offered them waits for them, up to five seconds. A server with
+   * no shell of its own names none and never waits.
+   */
+  expectShellToolsets?: readonly string[]
 }
 
 export type StudioGateway = ReturnType<typeof createStudioGateway>
+
+/** What the client tools registry reads from the RPC that pairs apps, linked once that RPC exists. */
+export type ClientToolLinks = {
+  /** Which agents a paired app's tools reach. */
+  reachOf?: (clientId: string) => StudioToolReach
+  /** The client that started a conversation, from its record. */
+  startedBy?: (conversation: ConversationRef) => string | null
+}
 
 export function createStudioGateway(core: StudioCore, options: StudioGatewayOptions = {}) {
   const { platform, workspaceSyncService, conversations } = core
@@ -54,6 +76,79 @@ export function createStudioGateway(core: StudioCore, options: StudioGatewayOpti
     launch: (request) => core.conversationLaunchService.launch(request),
     resolveAgentPermissionPreset: core.resolveAgentPermissionPreset,
   })
+
+  // The gateway's own tools: what no client may offer under the same family.
+  const resolveGatewayTools = createStudioGatewayTools({
+    resolveModuleTools: () => options.resolveModuleTools?.() ?? [],
+    isModuleEnabled: (moduleId) => options.isModuleEnabled?.(moduleId) ?? false,
+    // A module tool runs under its caller's launch cap, so a chat the module
+    // starts for a capped agent is no looser than that agent.
+    callerPermissionCeiling: (context) => launchPermissionCeiling(context, core.resolveAgentPermissionPreset),
+    warn: (details) => {
+      void writeDiagnosticLog({
+        level: 'warning',
+        source: 'workspace',
+        title: 'Studio MCP gateway',
+        message: 'Studio MCP gateway',
+        details,
+      })
+    },
+    appTools: options.appTools ? options.appTools(coreTools) : coreTools,
+  })
+
+  // Client toolsets: offered over the Studio RPC, listed to agents here. The
+  // RPC that pairs apps links in each app's reach and who started a chat.
+  const clientToolLinks: ClientToolLinks = {}
+  let automation: ReturnType<typeof createAutomationService> | null = null
+  const clientTools: ClientToolRegistry = createClientToolRegistry({
+    store: createClientToolsetStore({
+      dataDir: () => platform.paths.dataDir(),
+      log: (message) => {
+        void writeDiagnosticLog({ level: 'warning', source: 'workspace', title: 'Client tools', message })
+      },
+    }),
+    servedFamilies: () => new Set(resolveGatewayTools().map((tool) => tool.name.split('.')[0])),
+    reservedNames: () =>
+      new Set((options.resolveModuleTools?.() ?? []).map((contribution) => contribution.moduleId.toLowerCase())),
+    reachOf: (clientId) => clientToolLinks.reachOf?.(clientId) ?? 'own',
+    startedBy: (conversation) => clientToolLinks.startedBy?.(conversation) ?? null,
+    // Offers and withdrawals land in the gateway's one audit, beside the RPC's
+    // own records, with the toolset's name and size and nothing a tool was given.
+    audit: (entry) =>
+      automation?.gatewayAudit().record({
+        connection: { kind: 'studio-client', clientId: entry.clientId, clientName: entry.clientName },
+        tool: entry.tool,
+        durationMs: 0,
+        args: { toolset: entry.toolset, tools: entry.tools },
+        result: entry.ok
+          ? toolSuccess({ ok: true })
+          : toolError(entry.code ?? 'refused', 'The Studio RPC request was not carried out.'),
+      }),
+    // The person hears once when an app first gives agents tools under a name
+    // (decisions R82): the pairing tick was the consent, this is the notice.
+    onFirstOffer: (entry) =>
+      platform.notifier.notify({
+        key: `client-tools:${entry.clientId}:${entry.toolset}`,
+        title: `${entry.clientName} gave agents ${entry.tools === 1 ? 'a tool' : `${entry.tools} tools`}`,
+        body: `Agents can now call its ${entry.title} tools. See them, or revoke the app, in Settings → Local apps.`,
+      }),
+    log: (message) => {
+      void writeDiagnosticLog({ level: 'info', source: 'workspace', title: 'Client tools', message })
+    },
+  })
+
+  // Each agent connection's own list of client tools, which only grows.
+  const clientGateway = createClientToolGateway({
+    registry: clientTools,
+    ...(options.expectShellToolsets ? { expectShellToolsets: options.expectShellToolsets } : {}),
+  })
+  // The order agents have always listed: the shell's toolsets in the slots
+  // the browser and canvas tools held, Studio's own tools, then any app's.
+  const resolveTools = (context?: McpConnectionContext) => [
+    ...clientGateway.builtIns(context),
+    ...resolveGatewayTools(),
+    ...clientGateway.apps(context),
+  ]
 
   const automationService = createAutomationService({
     resolveUserDataDir: () => platform.paths.dataDir(),
@@ -70,23 +165,12 @@ export function createStudioGateway(core: StudioCore, options: StudioGatewayOpti
     // The gateway's tool set: core app tools + canonical run tools merged once,
     // module-contributed tools read from the host kernel per request
     // and gated on their owner's live enablement.
-    resolveGatewayTools: createStudioGatewayTools({
-      resolveModuleTools: () => options.resolveModuleTools?.() ?? [],
-      isModuleEnabled: (moduleId) => options.isModuleEnabled?.(moduleId) ?? false,
-      // A module tool runs under its caller's launch cap, so a chat the module
-      // starts for a capped agent is no looser than that agent.
-      callerPermissionCeiling: (context) => launchPermissionCeiling(context, core.resolveAgentPermissionPreset),
-      warn: (details) => {
-        void writeDiagnosticLog({
-          level: 'warning',
-          source: 'workspace',
-          title: 'Studio MCP gateway',
-          message: 'Studio MCP gateway',
-          details,
-        })
-      },
-      appTools: options.appTools ? options.appTools(coreTools) : coreTools,
-    }),
+    resolveGatewayTools: resolveTools,
+    clientTools: {
+      ready: () => clientGateway.ready(),
+      fallback: (context, name) => clientGateway.fallback(context, name),
+      track: (context, notify) => clientGateway.track(context, notify),
+    },
     logDiagnostic: (diagnostic) => {
       void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
     },
@@ -102,14 +186,26 @@ export function createStudioGateway(core: StudioCore, options: StudioGatewayOpti
   // become the same throttled push.
   conversations.onEvent((event) => {
     if (CONVERSATION_LIST_EVENTS.has(event.type)) automationService.notifyConversationsChanged()
+    // An interrupted turn stops what it was waiting on in a client too.
+    cancelClientCallsAtTurnEnd(clientTools, event)
   })
 
   // A desktop that displaced a Studio server from its data directory opens
   // the socket only once that server has exited: closing its listener
   // removes the socket file at the shared path, which would take the
   // desktop's new one with it. Agent launches wait on the same.
+  automation = automationService
   return {
     ...automationService,
+    /** The client toolsets offered over the Studio RPC. */
+    clientTools,
+    /** Link in what the registry reads from the RPC that pairs apps. */
+    linkClientTools: (links: ClientToolLinks) => Object.assign(clientToolLinks, links),
+    shutdown: async () => {
+      // Every call still waiting on a client is answered before the sockets go.
+      clientTools.close()
+      await automationService.shutdown()
+    },
     initialize: async () => {
       await core.whenDataDirFree
       return automationService.initialize()

@@ -167,3 +167,22 @@ test.runIf(process.platform !== 'win32')(
     )
   },
 )
+
+test('an app that may offer tools has a reach, which the person may change; one that may not stays own', async () => {
+  const dir = await dataDir()
+  const store = createStudioLocalAppStore({ resolveUserDataDir: () => dir })
+  const tooled = store.offer({ ...offerInput, name: 'game', scopes: ['tools:offer'], toolReach: 'all' })
+  assert.equal(tooled.offer.toolReach, 'all')
+  const plain = store.offer({ ...offerInput, toolReach: 'all' })
+  assert.equal(plain.offer.toolReach, 'own')
+  const game = store.redeem(tooled.code)
+  const bot = store.redeem(plain.code)
+  assert.ok(game.ok && bot.ok)
+  assert.equal(store.toolReachOf(game.grant.clientId), 'all')
+  assert.equal(store.setToolReach(game.grant.clientId, 'own'), true)
+  assert.equal(store.setToolReach(bot.grant.clientId, 'all'), false)
+  // Kept across a restart; a pairing stored before reach existed reads as own.
+  const again = createStudioLocalAppStore({ resolveUserDataDir: () => dir })
+  assert.equal(again.toolReachOf(game.grant.clientId), 'own')
+  assert.equal(again.toolReachOf('sla_unknown'), 'own')
+})

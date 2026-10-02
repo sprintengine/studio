@@ -1,6 +1,11 @@
 import { writeDiagnosticLog } from '../../main/diagnostics-service'
-import { createStudioConversationBackend } from '../../main/studio-rpc/studio-conversation-backend'
+import {
+  conversationStartedBy,
+  createStudioConversationBackend,
+} from '../../main/studio-rpc/studio-conversation-backend'
 import { createStudioRpcService, type StudioRpcService } from '../../main/studio-rpc/studio-rpc-service'
+import { canvasBoardStoreDir } from '../../main/canvas/canvas-board-store'
+import { createStudioFiles } from '../rpc/studio-files'
 import type { StudioCore } from './studio-core'
 import type { StudioGateway } from './studio-gateway'
 
@@ -27,9 +32,28 @@ export function createStudioRpc(core: StudioCore, gateway: StudioGateway): Studi
         getWorkspaceAgents: () => core.workspaceSyncService.getSnapshot().state.workspaces,
       }),
     audit: () => gateway.gatewayAudit(),
+    tools: gateway.clientTools,
+    forgetToolApprovals: (toolsets) => core.approvalRules.forgetGatewayToolsets(toolsets),
+    // A workspace's folder, and the board store Studio keeps for it under its
+    // data directory: the canvas reads and writes its boards through these.
+    files: createStudioFiles({
+      resolveRoot: (root) => {
+        const folder = core.workspaceSyncService
+          .getSnapshot()
+          .state.workspaces.find((workspace) => workspace.id === root.workspaceId)?.folderPath
+        if (!folder) return null
+        return root.kind === 'workspace' ? folder : canvasBoardStoreDir(core.platform.paths.dataDir(), folder)
+      },
+    }),
     log: (message) => {
       void writeDiagnosticLog({ level: 'warning', source: 'workspace', title: 'Local app socket', message })
     },
+  })
+  // An app's tools reach the chats it started, and as far as its pairing says.
+  gateway.linkClientTools({
+    reachOf: (clientId) => service.toolReachOf(clientId),
+    startedBy: (conversation) =>
+      conversationStartedBy(core.workspaceSyncService.getSnapshot().state.workspaces, conversation),
   })
   // Like the gateway, it binds only once a Studio server this desktop
   // displaced has gone: that server's listener still answers until then, and

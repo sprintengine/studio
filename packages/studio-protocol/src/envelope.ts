@@ -10,6 +10,19 @@ import {
   type ConversationWirePermissionPreset,
 } from './conversation.js'
 import { normalizeStudioScopes, type StudioScope } from './scopes.js'
+import {
+  STUDIO_CLIENT_KINDS,
+  STUDIO_INSTANCE_ID_PATTERN,
+  parseStudioCallFrame,
+  parseStudioCancelFrame,
+  parseStudioProgressFrame,
+  parseStudioReplyFrame,
+  type StudioCallFrame,
+  type StudioCancelFrame,
+  type StudioClientKind,
+  type StudioProgressFrame,
+  type StudioReplyFrame,
+} from './tools.js'
 
 // The connection envelope: one connection per client, carrying every
 // namespace. A request is answered under its id; a stream is keyed by the
@@ -54,7 +67,24 @@ const CHUNK_CHARS = 48_000
 export type StudioAuth = { token: string } | { pairingCode: string }
 
 /** What a client says about itself. `name` is for the audit and Settings, never for authority. */
-export type StudioClientInfo = { name: string; version?: string; capabilities?: string[] }
+export type StudioClientInfo = {
+  name: string
+  version?: string
+  capabilities?: string[]
+  /**
+   * What kind of client this is. Read only from an owner's grant; any other
+   * grant is an `app`, whatever it says. A transport that knows better (the
+   * desktop's own port to its server) overrides it.
+   */
+  kind?: StudioClientKind
+  /**
+   * Random per process run, the same across that process's reconnects: how a
+   * Studio tells two desktops on one owner grant apart, and knows a reconnect
+   * is the same process (a call it was running is sent to it again).
+   * 16 to 64 characters of `[A-Za-z0-9_-]`.
+   */
+  instanceId?: string
+}
 
 export type StudioHelloFrame = {
   t: 'hello'
@@ -78,7 +108,13 @@ export type StudioSubscribeFrame = { t: 'sub'; id: string; topic: string; params
 
 export type StudioUnsubscribeFrame = { t: 'unsub'; id: string }
 
-export type StudioClientFrame = StudioHelloFrame | StudioRequestFrame | StudioSubscribeFrame | StudioUnsubscribeFrame
+export type StudioClientFrame =
+  | StudioHelloFrame
+  | StudioRequestFrame
+  | StudioSubscribeFrame
+  | StudioUnsubscribeFrame
+  | StudioReplyFrame
+  | StudioProgressFrame
 
 // ── Studio → client ─────────────────────────────────────────────────────────
 
@@ -178,6 +214,8 @@ export type StudioServerFrame =
   | StudioSubscriptionFailedFrame
   | StudioChunkFrame
   | StudioByeFrame
+  | StudioCallFrame
+  | StudioCancelFrame
 
 /** A server frame after validation: a stream's inner frame is the conversation lane's parsed frame. */
 export type StudioParsedServerFrame =
@@ -219,6 +257,12 @@ export const STUDIO_ERROR_CODES = [
   'command_id_conflict',
   // The client fell too far behind a stream; resubscribe with the last cursor.
   'resync_required',
+  // A toolset name no app may take, or one Studio serves itself.
+  'reserved_name',
+  // A toolset name another app's pairing already holds.
+  'name_taken',
+  // A withdrawal or a grant naming a toolset that is not offered.
+  'not_offered',
 ] as const
 
 export type StudioErrorCode = (typeof STUDIO_ERROR_CODES)[number]
@@ -307,6 +351,15 @@ export function parseStudioClientFrame(value: unknown): StudioClientFrame | null
       const client = value.client
       if (!record(client) || !name(client.name)) return null
       if (client.version !== undefined && !text(client.version, 64)) return null
+      // A kind or an instance id in the wrong shape is dropped, not refused:
+      // both are hints the server weighs, and a hello is not lost over one.
+      const kind = (STUDIO_CLIENT_KINDS as readonly unknown[]).includes(client.kind)
+        ? (client.kind as StudioClientKind)
+        : undefined
+      const instanceId =
+        typeof client.instanceId === 'string' && STUDIO_INSTANCE_ID_PATTERN.test(client.instanceId)
+          ? client.instanceId
+          : undefined
       const auth = value.auth
       if (!record(auth)) return null
       const credential: StudioAuth | null = secret(auth.token)
@@ -323,6 +376,8 @@ export function parseStudioClientFrame(value: unknown): StudioClientFrame | null
           name: client.name.trim(),
           ...(client.version === undefined ? {} : { version: client.version as string }),
           ...(client.capabilities === undefined ? {} : { capabilities: capabilities(client.capabilities) }),
+          ...(kind ? { kind } : {}),
+          ...(instanceId ? { instanceId } : {}),
         },
         auth: credential,
       }
@@ -350,6 +405,10 @@ export function parseStudioClientFrame(value: unknown): StudioClientFrame | null
     }
     case 'unsub':
       return id(value.id) ? { t: 'unsub', id: value.id } : null
+    case 'reply':
+      return parseStudioReplyFrame(value)
+    case 'progress':
+      return parseStudioProgressFrame(value)
     default:
       return null
   }
@@ -367,7 +426,7 @@ export function studioClientFrameIds(value: unknown): { requestId?: string; subs
   return {}
 }
 
-const SERVER_FRAME_TYPES = new Set(['welcome', 'res', 'frame', 'push', 'subFailed', 'chunk', 'bye'])
+const SERVER_FRAME_TYPES = new Set(['welcome', 'res', 'frame', 'push', 'subFailed', 'chunk', 'bye', 'call', 'cancel'])
 
 /**
  * Whether a frame's `t` is one this version of the envelope defines. A client
@@ -476,6 +535,10 @@ export function parseStudioServerFrame(value: unknown): StudioParsedServerFrame 
       return code(frame.code) && text(frame.message)
         ? { t: 'bye', code: frame.code, message: frame.message, ...retry(frame) }
         : null
+    case 'call':
+      return parseStudioCallFrame(frame)
+    case 'cancel':
+      return parseStudioCancelFrame(frame)
     default:
       return null
   }

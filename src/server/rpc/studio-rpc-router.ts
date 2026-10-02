@@ -1,7 +1,11 @@
 import {
   STUDIO_METHODS,
   isStudioChatMethod,
+  isStudioToolsMethod,
+  isStudioFilesMethod,
   parseStudioMethodParams,
+  type StudioFilesMethod,
+  type StudioToolsMethod,
   studioScopesGrant,
   type ConversationCommand,
   type StudioChatMethod,
@@ -24,6 +28,8 @@ import type {
   ConversationKey,
 } from '../../shared/conversation-runtime'
 import { createStudioUploads, type StudioUploads } from './studio-uploads'
+import type { ClientToolRegistry } from '../tools/client-tool-registry'
+import type { StudioFiles } from './studio-files'
 import type {
   StudioAuditEntry,
   StudioChatBackend,
@@ -94,6 +100,10 @@ export type StudioRpcRouterOptions = {
   log?: (message: string) => void
   /** The chat surface, once main has one to give; null until then, and for a Studio without one. */
   chat?: () => StudioChatBackend | null
+  /** Client toolsets; without it, `tools.*` is answered `unavailable`. */
+  tools?: ClientToolRegistry
+  /** Files under a workspace's roots; without it, `files.*` by root is answered `unavailable`. */
+  files?: StudioFiles
   uploads?: StudioUploads
   now?: () => number
 }
@@ -249,7 +259,12 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
     grant: StudioGrant,
     method: StudioMethod,
     started: number,
-    params: { key?: { workspaceId: string; agentId: string }; commandId?: string; workspaceId?: string },
+    params: {
+      key?: { workspaceId: string; agentId: string }
+      commandId?: string
+      workspaceId?: string
+      toolset?: string
+    },
     answer: StudioRpcAnswer,
     created?: { workspaceId: string; agentId: string },
   ): void {
@@ -261,6 +276,7 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
       ...(target ? { workspaceId: target.workspaceId, agentId: target.agentId } : {}),
       ...(!target && params.workspaceId ? { workspaceId: params.workspaceId } : {}),
       ...(params.commandId ? { commandId: params.commandId } : {}),
+      ...(params.toolset ? { toolset: params.toolset } : {}),
       ok: answer.ok,
       ...(answer.ok ? {} : { code: answer.error.code }),
       durationMs: now() - started,
@@ -332,6 +348,7 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
     grant: StudioGrant,
     params: StudioMethodParams<'conversation.create'>,
     voice: Voice,
+    context: StudioRequestContext,
   ): Promise<StudioRpcAnswer<'conversation.create'>> {
     const { commandId, ...request } = params
     if (request.allowedTools?.length && !ceilingAllowsUnaskedTools(grant.ceiling))
@@ -366,6 +383,9 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
       })
     }
     const created = await pending
+    if (created.ok && context.connectionId)
+      // The process that started it is where its calls go first (routing, 6.2).
+      options.tools?.noteStarted(context.connectionId, created.conversation)
     return created.ok
       ? { ok: true, result: { conversation: created.conversation } }
       : voice.failed(created.code, created.message, 'conversation.create')
@@ -379,7 +399,16 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
     voice: Voice,
     fingerprint: string | undefined,
   ): Promise<StudioRpcAnswer> {
+    // By root it is the files family's, served with or without a chat surface.
+    if (method === 'files.stat' && (params as StudioMethodParams<'files.stat'>).root !== undefined) {
+      const { path, root } = params as StudioMethodParams<'files.stat'>
+      if (!options.files) return refuse('unavailable', 'This Studio does not serve files by root.')
+      const found = await options.files.stat(root!, path)
+      return found.ok ? { ok: true, result: { stat: found.stat } } : refuse(found.code, found.message)
+    }
     if (isStudioChatMethod(method)) return chatDispatch(grant, method, params, context, voice, fingerprint)
+    if (isStudioToolsMethod(method)) return toolsDispatch(grant, method, params, context)
+    if (isStudioFilesMethod(method)) return filesDispatch(grant, method, params, voice)
     const { failed } = voice
     switch (method) {
       case 'server.info':
@@ -389,7 +418,7 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
       case 'conversation.list':
         return { ok: true, result: { conversations: await backend.list() } }
       case 'conversation.create':
-        return create(grant, params, voice)
+        return create(grant, params, voice, context)
       case 'conversation.stop': {
         const { key: wire, commandId } = params as StudioMethodParams<'conversation.stop'>
         const key = resolve(wire, grant)
@@ -456,6 +485,139 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
     }
   }
 
+  // ── Client tools ─────────────────────────────────────────────────────────
+
+  function toolsDispatch(
+    grant: StudioGrant,
+    method: StudioToolsMethod,
+    params: never,
+    context: StudioRequestContext,
+  ): StudioRpcAnswer {
+    const tools = options.tools
+    if (!tools) return refuse('unavailable', `This Studio does not serve ${method}.`)
+    switch (method) {
+      case 'tools.offer': {
+        const { toolset, reach } = params as StudioMethodParams<'tools.offer'>
+        const offered = tools.offer(context.connectionId, toolset, reach)
+        return offered.ok
+          ? { ok: true, result: { toolset: offered.toolset, wireNames: offered.wireNames, reach: offered.reach } }
+          : {
+              ok: false,
+              error: {
+                code: offered.code,
+                message: offered.message,
+                ...(offered.retryAfterMs === undefined ? {} : { retryAfterMs: offered.retryAfterMs }),
+              },
+            }
+      }
+      case 'tools.withdraw': {
+        const withdrawn = tools.withdraw(context.connectionId, (params as StudioMethodParams<'tools.withdraw'>).toolset)
+        return withdrawn.ok
+          ? { ok: true, result: { withdrawn: withdrawn.withdrawn } }
+          : {
+              ok: false,
+              error: {
+                code: withdrawn.code,
+                message: withdrawn.message,
+                ...(withdrawn.retryAfterMs === undefined ? {} : { retryAfterMs: withdrawn.retryAfterMs }),
+              },
+            }
+      }
+      case 'tools.focus':
+        tools.focus(context.connectionId, params as StudioMethodParams<'tools.focus'>)
+        return { ok: true, result: {} }
+      case 'tools.catalog':
+        return { ok: true, result: { toolsets: tools.catalog({ clientId: grant.clientId, owner: grant.owner }) } }
+      case 'tools.grants': {
+        const { key: wire } = params as StudioMethodParams<'tools.grants'>
+        const key = resolve(wire, grant)
+        if (!key) return notFound(wire)
+        return { ok: true, result: { grants: tools.grantsOf({ workspaceId: key.workspaceId, agentId: key.agentId }) } }
+      }
+      case 'tools.grant': {
+        const { key: wire, toolset, granted } = params as StudioMethodParams<'tools.grant'>
+        const key = resolve(wire, grant)
+        if (!key) return notFound(wire)
+        const answer = tools.grant({ workspaceId: key.workspaceId, agentId: key.agentId }, toolset, granted)
+        return answer.ok ? { ok: true, result: { grants: answer.grants } } : refuse(answer.code, answer.message)
+      }
+    }
+  }
+
+  // ── Files under a workspace's roots ──────────────────────────────────────
+
+  async function filesDispatch(
+    grant: StudioGrant,
+    method: StudioFilesMethod,
+    params: never,
+    voice: Voice,
+  ): Promise<StudioRpcAnswer> {
+    const files = options.files
+    if (!files) return refuse('unavailable', `This Studio does not serve ${method}.`)
+    const failed = (outcome: { code: string; message: string }) => refuse(outcome.code, outcome.message)
+    switch (method) {
+      case 'files.roots':
+        return { ok: true, result: files.roots((params as StudioMethodParams<'files.roots'>).workspaceId) }
+      case 'files.list': {
+        const { root, path } = params as StudioMethodParams<'files.list'>
+        const listed = await files.list(root, path)
+        return listed.ok ? { ok: true, result: { entries: listed.entries } } : failed(listed)
+      }
+      case 'files.read': {
+        const { root, path } = params as StudioMethodParams<'files.read'>
+        const read = await files.read(root, path)
+        if (!read.ok) return failed(read)
+        const { ok: _ok, ...result } = read
+        return { ok: true, result }
+      }
+      case 'files.write': {
+        const { root, path, text, uploadId, ifMatch, commandId } = params as StudioMethodParams<'files.write'>
+        const runtimeId = studioRuntimeCommandId(grant, commandId)
+        // A retry of a write is answered with the first one's outcome: carried
+        // out again, its own write would read as another writer's conflict.
+        return once(
+          `files.write:${runtimeId}`,
+          async () => {
+            let bytes: Buffer
+            if (text !== undefined) bytes = Buffer.from(text, 'utf8')
+            else {
+              const spent = uploads.spend(grant.clientId, [uploadId!], runtimeId, 'file')
+              if (!spent.ok) return refuse(spent.code, spent.message)
+              bytes = spent.pictures[0].bytes
+            }
+            // A conflict is an answer, kept for every repeat of this command,
+            // so its bytes go as a write's do; a write that could not be
+            // carried out leaves them unsent, for a retry or a discard.
+            let written: Awaited<ReturnType<typeof files.write>>
+            try {
+              written = await files.write(root, path, bytes, ifMatch)
+            } catch (error) {
+              if (uploadId !== undefined) uploads.settle(grant.clientId, runtimeId, false)
+              throw error
+            }
+            if (uploadId !== undefined)
+              uploads.settle(grant.clientId, runtimeId, written.ok || written.code === 'conflict')
+            return written.ok || written.code === 'conflict' ? { ok: true, result: written as never } : failed(written)
+          },
+          voice,
+          method,
+        )
+      }
+      case 'files.remove': {
+        const { root, path, ifMatch, commandId } = params as StudioMethodParams<'files.remove'>
+        return once(
+          `files.remove:${studioRuntimeCommandId(grant, commandId)}`,
+          async () => {
+            const removed = await files.remove(root, path, ifMatch)
+            return removed.ok || removed.code === 'conflict' ? { ok: true, result: removed as never } : failed(removed)
+          },
+          voice,
+          method,
+        )
+      }
+    }
+  }
+
   // ── The chat surface ─────────────────────────────────────────────────────
 
   /** The first answer to a namespaced id, for every retry of it; new work otherwise. */
@@ -494,13 +656,37 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
     const chat = options.chat?.() ?? null
     // A session command's receipt keeps what it was, across a restart too.
     const stamp = fingerprint ? { commandFingerprint: fingerprint } : {}
+    // An upload is the client's; its budget is this connection's. Staging
+    // needs no chat: a board too large for one frame is staged the same way.
+    const holder = { client: grant.clientId, connection: context.connectionId }
+    switch (method) {
+      case 'uploads.begin': {
+        const input = params as StudioMethodParams<'uploads.begin'>
+        // A file's bytes are only ever spent by `files.write`, which is an owner's.
+        if (input.purpose === 'file' && !grant.owner)
+          return refuse('owner_required', 'Only Studio itself may stage a file’s bytes.')
+        const begun = uploads.begin(holder, input)
+        return begun.ok
+          ? { ok: true, result: { uploadId: begun.uploadId, chunkBytes: begun.chunkBytes } }
+          : refuse(begun.code, begun.message)
+      }
+      case 'uploads.append': {
+        const appended = uploads.append(holder, params as StudioMethodParams<'uploads.append'>)
+        return appended.ok
+          ? { ok: true, result: { received: appended.received } }
+          : refuse(appended.code, appended.message)
+      }
+      case 'uploads.discard':
+        return {
+          ok: true,
+          result: uploads.discard(grant.clientId, (params as StudioMethodParams<'uploads.discard'>).uploadIds),
+        }
+    }
     if (!chat) return refuse('unavailable', `This Studio does not serve ${method}.`)
     // A reply is what the backend answered, as this connection may be shown it.
     const outcome = (result: unknown): StudioRpcAnswer => ({ ok: true, result: voice.redact(result) as never })
     const runtimeId = (id: string) => studioRuntimeCommandId(grant, id)
     const keptId = (id: string) => `${method}:${runtimeId(id)}`
-    // An upload is the client's; its budget is this connection's.
-    const holder = { client: grant.clientId, connection: context.connectionId }
     switch (method) {
       case 'session.start': {
         const { commandId, cliRuntimes, ...input } = params as StudioMethodParams<'session.start'>
@@ -586,23 +772,6 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
         const { commandId, ...input } = params as StudioMethodParams<'session.setModel'>
         return outcome(await chat.setModel({ ...input, commandId: runtimeId(commandId), ...stamp }))
       }
-      case 'uploads.begin': {
-        const begun = uploads.begin(holder, params as StudioMethodParams<'uploads.begin'>)
-        return begun.ok
-          ? { ok: true, result: { uploadId: begun.uploadId, chunkBytes: begun.chunkBytes } }
-          : refuse(begun.code, begun.message)
-      }
-      case 'uploads.append': {
-        const appended = uploads.append(holder, params as StudioMethodParams<'uploads.append'>)
-        return appended.ok
-          ? { ok: true, result: { received: appended.received } }
-          : refuse(appended.code, appended.message)
-      }
-      case 'uploads.discard':
-        return {
-          ok: true,
-          result: uploads.discard(grant.clientId, (params as StudioMethodParams<'uploads.discard'>).uploadIds),
-        }
       case 'conversation.revert': {
         const { commandId, key: wire, ...input } = params as StudioMethodParams<'conversation.revert'>
         const key = resolve(wire, grant)
@@ -729,6 +898,7 @@ function auditTargets(value: unknown): {
   key?: { workspaceId: string; agentId: string }
   commandId?: string
   workspaceId?: string
+  toolset?: string
 } {
   if (value === null || typeof value !== 'object') return {}
   const params = value as Record<string, unknown>
@@ -738,9 +908,11 @@ function auditTargets(value: unknown): {
   const agentId = text(key?.agentId)
   const commandId = text(params.commandId)
   const created = text(params.workspaceId)
+  const toolset = text(params.toolset)
   return {
     ...(workspaceId && agentId ? { key: { workspaceId, agentId } } : {}),
     ...(commandId ? { commandId } : {}),
     ...(created ? { workspaceId: created } : {}),
+    ...(toolset ? { toolset } : {}),
   }
 }

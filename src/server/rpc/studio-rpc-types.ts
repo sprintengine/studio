@@ -192,6 +192,9 @@ export type StudioAuditEntry = {
   workspaceId?: string
   agentId?: string
   commandId?: string
+  /** An offer or a withdrawal: the toolset's name and how many tools it holds. Never a tool's input or result. */
+  toolset?: string
+  tools?: number
   ok: boolean
   code?: string
   durationMs: number

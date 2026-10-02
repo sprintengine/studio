@@ -81,7 +81,8 @@ bring them back later (section 14).
    (`mcp-dispatch.ts:189-191`). In practice a Codex or ACP chat has no
    browser or canvas tools today, and this phase does not change that (open
    decision 7).
-3. **The gateway does not know conversations, only agents.** A connection is
+3. **The gateway does not know conversations, only agents.** (Since R87, a
+   launch token proves the agent and its conversation; section 7.6.) A connection is
    identified by the `sprintengine.studio/connect` call the stdio bridge sends
    with `workspaceId` and `agentId` (`mcp-stdio-bridge.mjs:182-193`,
    `mcp-dispatch.ts:181-219`). `{ workspaceId, agentId }` is exactly the Studio
@@ -298,6 +299,7 @@ the shell (7.2).
 | `tools.focus` | `tools:offer` | no | no | `{ focused: boolean, workspaceIds: string[], activeWorkspaceId?: string }` → `{}`. A routing hint (6.3). |
 | `tools.catalog` | `conversation:read` | no | no | `{}` → `{ toolsets: StudioToolsetListing[] }`. An app sees its own toolsets and the built-ins. An owner sees all of them. |
 | topic `tools.catalog` (push) | `conversation:read` | no | no | the same listing, whole, on every change. The chat view labels a tool's origin with it (5.5). |
+| `tools.grants` | `conversation:read` | yes | no | `{ key }` → `{ grants: string[] }`: the app toolsets one conversation is open to. (Added as built: a chat's menu shows each toolset ticked or not before the person changes it.) |
 | `tools.grant` | `conversation:operate` | yes | yes (`commandId`) | `{ key, toolset, granted: boolean, commandId }` → `{ grants: string[] }`. Opens or closes one conversation to one app toolset (5.2). |
 | `files.*` subset | see 10.3 | yes | see 10.3 | board file access for the canvas toolset |
 
@@ -406,10 +408,13 @@ agent reads both kinds the same way it reads every gateway error now.
 - The server's deadline for a call is the tool's `timeoutMs` plus 5 s of slack
   for the round trip. When it passes, the agent is answered `timeout` and the
   client is sent `cancel { reason: 'timeout' }`.
-- A `progress` frame resets an idle timer, but never extends a call past
-  `timeoutMs`. Where the agent's `tools/call` carried `_meta.progressToken`,
-  the gateway forwards it as `notifications/progress`, a small new path in
-  `mcp-dispatch.ts`. Otherwise it is only logged at debug level.
+- A `progress` frame never extends a call past `timeoutMs`. Where the agent's
+  `tools/call` carried `_meta.progressToken`, the gateway forwards it as
+  `notifications/progress`, a small new path in `mcp-dispatch.ts`, with a
+  count that rises by at least one each time (MCP requires it to rise, and a
+  client may name no number). Otherwise it is dropped. (Amended as built: the
+  spec first had progress reset an idle timer, but no idle timer exists beside
+  the deadline, so there was nothing for it to reset.)
 - Built-in tools declare timeouts that cover today's internal deadlines:
   `browser.open` 30 s, `browser.wait_for` and `browser.evaluate` 40 s, every
   other browser tool 20 s; `canvas.import` 90 s, `canvas.edit`, `layout` and
@@ -486,8 +491,11 @@ The limits are constants in `tools.ts`, so a client can read them.
 ### 5.1 One gateway, a list per connection
 
 `McpDispatcher` takes `resolveTools(context)` instead of `resolveTools()`
-(`mcp-dispatch.ts:116-125`), and `createStudioGatewayTools` returns
-`(context) => McpToolRegistration[]`. Core and module tools ignore the
+(`mcp-dispatch.ts:116-125`). As built, `createStudioGatewayTools` stays as it
+was, Studio's own tools with no context, and the gateway composes the list per
+connection: the client gateway's built-ins for that connection, Studio's own
+tools, then the apps' toolsets for that connection
+(`src/server/core/studio-gateway.ts`). Core and module tools ignore the
 context. Client tools are filtered by it. The `ttlMs` stays at five minutes:
 it is the floor for a client that ignores notifications, and 5.3 makes a
 cached list safe to keep.
@@ -508,14 +516,21 @@ see does not make every agent on the machine re-list. The tailnet listener
 | `external-local` (no agent id: a CLI the person started, or a chat that loaded a pinned entry, finding 2) | yes | only with reach `all` |
 | `remote-tailnet` | as today, through the device's scope gate | no, in v1 |
 
-- "Started" means the conversation's agent record names the app.
-  `conversation.create` records `startedBy: { clientId, instanceId }` on the
-  agent record (`studio-conversation-backend.ts:92-123`). Conversations started
-  before this phase have none.
-- An app's reach is a setting on its pairing: "its tools reach the
-  conversations it starts" (default) or "every conversation and terminal agent
-  on this machine". It is shown and changed in Settings beside its scopes. An
-  owner script passes `reach` on the offer instead.
+- "Started" means the conversation's agent record names the app. A chat a
+  client starts is launched under its namespaced command id
+  (`client:<clientId>:<commandId>`, or `owner:<commandId>`), and the agent
+  record already keeps that id (`launchCommandId`), so the client is read from
+  it (`conversationStartedBy`, `studio-conversation-backend.ts`) and nothing new
+  is written to the record. Which process of the client started it, for routing
+  (6.2 step 4), is kept in memory by the registry from `conversation.create`'s
+  answer. (Amended as built: the spec first had `conversation.create` write a
+  new `startedBy` member, which would have duplicated what the record holds.)
+- An app's reach is a setting on its pairing (`toolReach` in
+  `studio-local-apps.json`): "its tools reach the conversations it starts"
+  (default) or "every conversation and terminal agent on this machine". It is
+  shown and changed in Settings beside its scopes. Unlike the scopes, which are
+  fixed at pairing, it may be changed at any time. A pairing stored before this
+  phase reads as `own`. An owner script passes `reach` on the offer instead.
 - A built-in toolset reaches every caller, because today every caller sees the
   browser and canvas tools. This keeps parity.
 
@@ -600,7 +615,10 @@ is one server whose list grows.
   tour. App toolsets come after every core and module tool, sorted by name.
 - **Origin in the chat.** The chat view subscribes to `tools.catalog` and
   labels a tool row or an approval card whose wire name belongs to an app
-  toolset with the app's title ("from Acme Game"). This needs no change to the
+  toolset with the app's title ("from Acme Game"). (As built: the window's own
+  Studio client follows the catalog, `src/renderer/src/studio/clientTools.ts`,
+  only once a tool that could be an app's is shown; `tools.grant` is offered
+  from a chat tab's context menu, one ticked row per app toolset.) This needs no change to the
   conversation contract: the label is resolved client-side from the tool name
   the approval already carries (`mcpCallOf`, `approvalRules.ts:629-632`).
 
@@ -677,6 +695,12 @@ other connection that tries is refused `reserved_name`.
 | Web client (phase 9), for `canvas` only | an owner grant and `kind: 'web'` (phase 9 §3.8, decisions R79) |
 | Headless client (section 14, later) | an owner grant and `kind: 'headless'` |
 
+As built, an owner connection whose hello says `kind: 'desktop'` is the shell
+on every route, the desktop's own in-process server included: in phases 1–5
+the owner token never leaves the desktop's process, so only the desktop can
+say it. A `kind: 'headless'` owner may offer `browser` and `canvas`, and a
+`kind: 'web'` owner `canvas` only.
+
 On the last three routes the role rests on the owner credential. Anything that
 holds the owner token on the server's host (`<dataDir>/run/owner-token`, 0600)
 can already do everything the owner can, so the reservation does not try to
@@ -701,7 +725,11 @@ the shell included, so no offer can shadow a core or module tool.
   rule whose tool is one of that app's wire names
   (`conversation-approval-rules.ts`), in the same write as the revocation. The
   name binding goes too (3.1). A different app that later takes the same name
-  inherits no "always allow".
+  inherits no "always allow". (As built, the three live in three files, so
+  "the same write" is the same Settings action: the pairing is revoked and its
+  names released before `revoke` returns, and the rules, saved and
+  per-session, are forgotten before the promise it returns settles; a failure
+  there is logged.)
 - The launch cap (`launch-permission-cap.ts`) does not apply. A client tool
   runs in the client, not as a Studio agent launch. An app that starts a
   conversation from inside a handler does it through its own grant and its own
@@ -729,6 +757,39 @@ The gateway audit (`gateway-audit.ts`) records:
 The Studio RPC audit (`StudioAuditEntry`, `studio-rpc-types.ts:187-198`)
 records `tools.offer`, `tools.withdraw` and `tools.grant` with the toolset name
 and the number of tools. It never records input or results.
+
+### 7.6 Which conversation a connection is (R87)
+
+Finding 3 says a gateway connection's identity is advisory: anything that can
+open the socket can declare any agent. An app's tools reach the conversations
+it started, so a declared identity would let any local agent reach them. Owner
+ruling 2026-10-02 (decisions R87): every agent launch is issued its own gateway
+token bound to its conversation, and the gateway takes the conversation from
+the token, never from what the connection declares.
+
+- `src/server/core/gateway-launch-tokens.ts` issues, resolves and revokes the
+  tokens, kept as their SHA-256 in the process that runs the gateway, so a
+  restart voids them all as it ends every launch.
+- The token rides in `MCP_CHANNEL_TOKEN_ENV`, the variable a WSL launch
+  already carried its channel token in, so every path that hands that variable
+  to the bridge (a terminal's environment, a WSL startup script, Codex's
+  `env_vars`, a chat child's stdin inside a distribution) carries it unchanged.
+  In WSL the channel token *is* the gateway token: the helper checks it to open
+  the channel, and the gateway resolves the same value.
+- Issued for every terminal agent launch (`terminal-runtime.ts`), every chat
+  child started through `spawnCliHostChild` whose environment names its
+  conversation, and a local Claude chat's child (`claude-agent-provider.ts`).
+  Revoked when the session or child ends. An ACP chat's environment carries no
+  identity, so it is issued none, which matches finding 2 until R86 lands.
+- The bridge sends it as `launchToken` on `sprintengine.studio/connect`, on
+  the local socket only. A valid token sets the connection's agent and binds
+  its conversation; once bound, a second launch's token is refused. A token no
+  live launch holds proves nothing, and the declared identity stays the claim
+  it always was. A tailnet connection never takes a launch's identity.
+- Only a bound conversation counts for an app's reach (5.2). The launch cap and
+  the audit read the same metadata, which the token now proves where present.
+- A launch token the app's own process inherited (Studio started from inside
+  an agent's terminal) is stripped from every child that is not that launch.
 
 ## 8. Disconnect, reconnect, cancellation and idempotency
 
@@ -786,7 +847,10 @@ A call is cancelled, and the client sent `cancel`, when any of these happens:
   `cancelCallsFor({ workspaceId, agentId })`. This does not depend on the
   agent's CLI cancelling its MCP request.
 - **The agent cancels.** The gateway handles MCP `notifications/cancelled` for
-  a `tools/call` it is running, a small addition to `mcp-dispatch.ts`.
+  a `tools/call` it is running, a small addition to `mcp-dispatch.ts`. The
+  local socket answers a connection's requests one at a time, so it handles a
+  cancellation as soon as it arrives rather than queueing it behind the call
+  it is about.
 - **The agent goes away.** Its gateway socket closes (`agent_gone`).
 - **The deadline passes** (`timeout`).
 - **The server shuts down** (`shutting_down`).
@@ -819,6 +883,7 @@ export type ToolCall = {
   tool: string
   conversation: ConversationRef | null   // the calling chat, when there is one
   agent: { name?: string; cli?: string }
+  context: StudioToolCallContext         // as the call frame carries it (added as built: 9.3 reads it)
   signal: AbortSignal                    // aborted on cancel
   /** True when this id reached an earlier connection of this process first. */
   redelivered: boolean
@@ -879,6 +944,11 @@ Behaviour:
 - Results over 960 KiB fail locally with `too_large` (4.6).
 - Offering needs `supports('client-tools')`. Without it, `offer` rejects with
   `unsupported`.
+- As built: the SDK mints the `instanceId` once per `connect()` and sends it
+  with every hello, and `ConnectOptions.client` takes `kind`. `ToolCall`
+  carries the call's `context`, which the desktop's adapter (9.3) rebuilds a
+  gateway handler's `McpConnectionContext` from. `StudioToolError` is exported
+  beside `toolResult`.
 
 ### 9.2 Example
 
@@ -959,6 +1029,18 @@ the app depends on is the public one, as the parent requires (§5.4).
 - **No window open.** Today a call with no window answers `pane_unavailable`
   after 8 s. That stays. On a desktop-local server the shell is always
   attached (decisions R01), so the tools are always listed there.
+- **As built.** The shell is `createDesktopShellTools` (`src/main/desktop-shell-tools.ts`),
+  an SDK client over `StudioRpcService.shellTransport()`: an in-process pair
+  (`src/server/rpc/studio-in-process-port.ts`) attached with `shell: true` and
+  a ticket good for one hello, so no credential leaves main. It is started
+  with the RPC and stopped before it. Its focus hint says whether any app
+  window is focused and lists every workspace the desktop holds, each a tab
+  away; the active one is left out until a window reports it. The desktop's
+  composition is one function, `desktopGatewayTools`, so the parity record
+  and the app list from the same order. One behaviour differs, by design: a
+  built-in handler that throws (none of today's do, they answer tool errors)
+  now answers the agent `tool_failed` as a tool error, where the in-process
+  gateway answered a JSON-RPC internal error.
 
 ### 10.2 `canvas`: what is client and what is server
 
@@ -1008,9 +1090,22 @@ explorer extends them later (parent ruling c).
 - A write over the client frame stages its bytes with `uploads.begin
   { purpose: 'file', byteLength }`, the existing upload path generalised: any
   media type, up to 64 MB when the purpose is `file`.
+- As built (`src/server/rpc/studio-files.ts`): the family is advertised as the
+  `files-write` capability. A conditional write or removal that finds the file
+  other than expected answers inside a successful response, `{ ok: false,
+  code: 'conflict', currentHash }`, the way the chat surface's own outcomes
+  do, so a client reads it beside the success shape rather than as a refusal
+  of the request. A retry of the same `commandId` is answered with the first
+  outcome; carried out again, its own write would read as a conflict. Writes
+  to one file are queued, so the check and the rename are one step to every
+  writer through the server. `canvas-board-store.ts` stays on the
+  server-bound list: the server resolves the `boards` root with it.
 
 **The remote `CanvasFs`.** `src/main/canvas/protocol-canvas-fs.ts` implements
-`CanvasFs` and the directory watcher over these methods.
+`CanvasFs` and the directory watcher over these methods. (As built, a board
+over about 768 KB is staged with `uploads.*` before its write, and the
+adapter takes an `onReconnect` hook through which its owner says the client
+connected again, for the synthetic change below.)
 
 - The service runs with `path.posix` and two virtual roots,
   `/boards/<workspaceId>/` and `/workspace/<workspaceId>/`, which the adapter
@@ -1183,6 +1278,14 @@ The flag is deleted in the release after.
    against the in-memory `CanvasFs` (today), against `createNodeCanvasFs` on a
    temp directory, and against the protocol `CanvasFs` over an in-process
    server with a temp data directory. Every case passes on all three.
+   (Amended as built: `canvas-service.test.ts` stays on the in-memory
+   filesystem, because most of its cases assert that filesystem's own log of
+   operations, which a disk cannot show. `canvas-service-filesystems.test.ts`
+   runs the cases that are about the board, not the log, on all three: create,
+   a person's commit and an agent's edit read back, a change made outside the
+   app merged and pushed, a write an outside change got ahead of, and listing;
+   and, over the protocol only, a conditional write another client got in
+   ahead of, for a commit and for an agent's edit.)
 5. **Two clients, one board.** Two canvas services over the protocol on one
    board: an agent edit in one while the other commits a person's edit to the
    same element ends `interrupted` with the person's version on disk; edits to

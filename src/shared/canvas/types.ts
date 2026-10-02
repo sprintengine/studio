@@ -330,6 +330,8 @@ export type CanvasErrorCode =
   | 'worker_unavailable'
   | 'timeout'
   | 'too_large'
+  // The board changed on disk while it was being written: read it again and retry.
+  | 'fs_conflict'
 
 export type CanvasError = {
   code: CanvasErrorCode

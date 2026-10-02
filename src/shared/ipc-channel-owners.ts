@@ -113,6 +113,7 @@ export const SERVER_IPC_CHANNELS: Readonly<Record<string, ServerIpcChannel>> = {
   'studio-local-apps:cancel-offer': {},
   'studio-local-apps:offer': {},
   'studio-local-apps:revoke': {},
+  'studio-local-apps:set-reach': {},
   'studio-local-apps:status': { retry: 'once' },
   'tailnet:approve-pair-request': {},
   'tailnet:cancel-pairing': {},

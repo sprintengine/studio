@@ -13,10 +13,11 @@ import {
   toolSuccess,
   type McpConnectionContext,
   type McpToolRegistration,
-  type McpToolResult,
 } from '../../../shared/modules/mcp-tools'
 import {
   createMcpDispatcher,
+  type McpClientToolHooks,
+  type McpToolCallEvent,
   declaredProtocolVersion,
   isRecord,
   jsonRpcErrorResponse,
@@ -123,7 +124,10 @@ export type TailnetGatewayServerOptions = {
   port: number
   serverName: string
   serverVersion: string
-  resolveTools: () => McpToolRegistration[]
+  /** The tools a connection may see, per request: client tools differ by connection. */
+  resolveTools: (context?: McpConnectionContext) => McpToolRegistration[]
+  /** Client tools: a stream is told alone when its list grows. */
+  clientTools?: McpClientToolHooks & { track(context: McpConnectionContext, notify: () => void): () => void }
   /** The gateway's own mutation classification, so scopes cannot drift from the audit's. */
   isMutation: (toolName: string) => boolean
   devices: TailnetDeviceStore
@@ -154,14 +158,7 @@ export type TailnetGatewayServerOptions = {
    * transport saw it, resolved at the same point `recordSeen` is.
    */
   onActivity?: (event: TailnetGatewayActivity) => void
-  onToolCall?: (event: {
-    context: McpConnectionContext
-    tool: string
-    args: Record<string, unknown>
-    durationMs: number
-    result?: McpToolResult
-    error?: unknown
-  }) => void
+  onToolCall?: (event: McpToolCallEvent) => void
   now?: () => number
   log?: (message: string) => void
   /** The change feed's per-kind push floor; tests shorten it. */
@@ -206,6 +203,8 @@ type StreamSession = {
   /** The device as authenticated at upgrade, for the close announcement. */
   device: TailnetDevice
   context: McpConnectionContext
+  /** Ends the stream's place among the connections client tools tell about a longer list. */
+  untrack?: () => void
 }
 
 type EventStream = { socket: Duplex; deviceId: string }
@@ -334,6 +333,7 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     serverName: options.serverName,
     serverVersion: options.serverVersion,
     resolveTools: options.resolveTools,
+    ...(options.clientTools ? { clientTools: options.clientTools } : {}),
     onToolCall: options.onToolCall,
   })
 
@@ -1077,6 +1077,9 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
 
     const session: StreamSession = { socket, deviceId: device.id, device, context: contextFor(device, peerNode) }
     streams.add(session)
+    session.untrack = options.clientTools?.track(session.context, () =>
+      sendStream(session, { jsonrpc: '2.0', method: 'notifications/tools/list_changed' }),
+    )
     options.onActivity?.({ kind: 'stream', device, open: true, peerNode, peerAddress })
     const decoder = createWebSocketFrameDecoder(MAX_WEBSOCKET_MESSAGE_BYTES)
     // Serialize per connection so a client's messages are answered in order.
@@ -1127,6 +1130,7 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
    */
   function dropStream(session: StreamSession): void {
     if (streams.delete(session)) {
+      session.untrack?.()
       options.onActivity?.({ kind: 'stream', device: session.device, open: false })
     }
   }

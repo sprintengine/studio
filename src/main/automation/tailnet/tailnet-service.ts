@@ -1,4 +1,4 @@
-import type { McpConnectionContext, McpToolRegistration, McpToolResult } from '../../../shared/modules/mcp-tools'
+import type { McpConnectionContext, McpToolRegistration } from '../../../shared/modules/mcp-tools'
 import {
   normalizeTailnetScopes,
   TAILNET_SCOPES,
@@ -20,12 +20,14 @@ import {
   createTailnetGatewayServer,
   type TailnetGatewayActivity,
   type TailnetGatewayServer,
+  type TailnetGatewayServerOptions,
 } from './tailnet-gateway-server'
 import { resolveTailnetInterface } from './tailnet-interface'
 import { createTailnetPeerResolver, type TailnetPeerIdentity, type TailnetPeerResolver } from './tailnet-peer-identity'
 import { createTailnetPeerScanner, type TailnetPeerScanner } from './tailnet-peers'
 import { readTailnetSettings, writeTailnetSettings, type TailnetSettings } from './tailnet-settings'
 import type { ConversationGatewayHost } from './tailnet-conversation-host'
+import type { McpToolCallEvent } from '../mcp-dispatch'
 
 // Lifecycle for tailnet remote control: settings, paired devices, and the
 // listener itself.
@@ -133,16 +135,10 @@ export type TailnetRemoteServiceOptions = {
   resolveUserDataDir: () => string
   serverName: string
   serverVersion: string
-  resolveTools: () => McpToolRegistration[]
+  resolveTools: (context?: McpConnectionContext) => McpToolRegistration[]
+  clientTools?: TailnetGatewayServerOptions['clientTools']
   isMutation: (toolName: string) => boolean
-  onToolCall?: (event: {
-    context: McpConnectionContext
-    tool: string
-    args: Record<string, unknown>
-    durationMs: number
-    result?: McpToolResult
-    error?: unknown
-  }) => void
+  onToolCall?: (event: McpToolCallEvent) => void
   conversations?: ConversationGatewayHost
   /**
    * The live-state push (remote-sessions-ux): fired on every observable change
@@ -446,6 +442,7 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
       serverName: options.serverName,
       serverVersion: options.serverVersion,
       resolveTools: options.resolveTools,
+      ...(options.clientTools ? { clientTools: options.clientTools } : {}),
       isMutation: options.isMutation,
       devices,
       peers,

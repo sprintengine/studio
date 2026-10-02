@@ -35,6 +35,9 @@ import { createShellReveal } from './shell-reveal'
 import { revealMainWindow } from './window-factory'
 import { createAutomationTools } from './automation/automation-tools'
 import { createTailnetTools, type TailnetToolsFrontDoor } from './automation/tailnet/tailnet-tools'
+import { desktopGatewayTools } from './automation/desktop-gateway-tools'
+import { createDesktopShellTools } from './desktop-shell-tools'
+import { readStudioEnv } from '../shared/studio-env'
 import type { McpToolContribution } from './module-host/main-host'
 import { createDefaultMarketplaceRegistryClient } from './ipc/marketplace-registry-ipc'
 import { toThirdPartyModuleView } from './ipc/third-party-module-ipc'
@@ -155,6 +158,7 @@ import { studioPlatform } from '../server/platform/platform'
 import { createStudioCore, studioBridgeScriptPath } from '../server/core/studio-core'
 import { createStudioGateway } from '../server/core/studio-gateway'
 import { createStudioRpc } from '../server/core/studio-rpc'
+import type { StudioRpcService } from './studio-rpc/studio-rpc-service'
 import { createServerGatewayBackends } from '../server/desktop/gateway-backends'
 import { SERVER_EVENTS, SERVER_METHODS } from '../server/desktop/server-methods'
 import {
@@ -1335,6 +1339,25 @@ export function createAppServices(
     return CANVAS_MODULE_DEFAULT_ENABLED
   }
 
+  // The browser and canvas tools, as main runs them. The shell offers both to
+  // the gateway as client toolsets, the way any app offers its tools;
+  // `SPRINTENGINE_CLIENT_TOOLS=0` keeps them registered in process, as before,
+  // for one release. The canvas service stays on this disk's files while the
+  // server runs in this process: they are the server's files too.
+  const clientToolsEnabled = readStudioEnv('SPRINTENGINE_CLIENT_TOOLS') !== '0'
+  const browserTools = createBrowserTools({
+    manager: browserManager,
+    control: browserControl,
+    hasWorkspace: (workspaceId) =>
+      workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
+  })
+  const canvasTools = createCanvasTools({
+    service: canvasService,
+    hasWorkspace: (workspaceId) =>
+      workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
+    isCanvasEnabled,
+  })
+
   // Instance-global SprintEngine Studio MCP surface: reads come from the
   // workspace-sync snapshot and terminal runtime, and mutations go straight to
   // the main services that own them — one lane, no window required.
@@ -1372,21 +1395,14 @@ export function createAppServices(
         resolveModuleTools: () => resolveModuleMcpTools(),
         isModuleEnabled: (moduleId) => resolveModuleEnabled(moduleId),
         // The core's own tools (`conversation.create`) among this app's window,
-        // terminal and run tools, in the order agents have always listed them.
-        appTools: (coreTools) => [
-          ...createBrowserTools({
-            manager: browserManager,
-            control: browserControl,
-            hasWorkspace: (workspaceId) =>
-              workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
-          }),
-          ...createCanvasTools({
-            service: canvasService,
-            hasWorkspace: (workspaceId) =>
-              workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
-            isCanvasEnabled,
-          }),
-          ...createEditorTools(
+        // terminal and run tools, in the order agents have always listed them
+        // (`desktopGatewayTools`).
+        // This server's shell offers these, and an agent's first list waits for them.
+        expectShellToolsets: clientToolsEnabled ? ['browser', 'canvas'] : [],
+        appTools: desktopGatewayTools({
+          browser: clientToolsEnabled ? [] : browserTools,
+          canvas: clientToolsEnabled ? [] : canvasTools,
+          editor: createEditorTools(
             createEditorToolBackends({
               findWorkspace: (workspaceId) =>
                 workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId) ??
@@ -1399,13 +1415,12 @@ export function createAppServices(
                 BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()),
             }),
           ),
-          ...createTourTools({
+          tour: createTourTools({
             service: tourService,
             hasWorkspace: (workspaceId) =>
               workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
           }),
-          ...coreTools,
-          ...createAutomationTools(
+          automation: createAutomationTools(
             createServerGatewayBackends({
               getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
               listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
@@ -1435,8 +1450,8 @@ export function createAppServices(
           ),
           // Remote-control configuration, local socket only: the listener refuses
           // this whole family regardless of a device's scopes (tailnet-scopes.ts).
-          ...createTailnetTools({ resolveTailnet: () => tailnetToolsFrontDoor }),
-        ],
+          tailnet: createTailnetTools({ resolveTailnet: () => tailnetToolsFrontDoor }),
+        }),
       })
   tailnetToolsFrontDoor = automationService
   // The Studio RPC: the protocol applications on this machine follow, drive
@@ -1444,7 +1459,61 @@ export function createAppServices(
   // over the core and its gateway as a standalone server composes it. Its
   // paths, version and the push to Settings are the platform's. Nothing in the
   // app uses it yet; paired apps are listed and revoked in Settings.
-  const studioRpcService = automationService ? createStudioRpc(core, automationService) : null
+  const studioRpc = automationService ? createStudioRpc(core, automationService) : null
+  // The shell, a client of its own server over a port main holds both ends
+  // of: it offers what only a screen can serve.
+  const desktopShell = studioRpc
+    ? createDesktopShellTools({
+        transport: studioRpc.shellTransport(),
+        version: app.getVersion(),
+        toolsets: clientToolsEnabled
+          ? [
+              { name: 'browser', registrations: browserTools },
+              { name: 'canvas', registrations: canvasTools },
+            ]
+          : [],
+        focus: {
+          current: () => ({
+            focused: BrowserWindow.getAllWindows().some(
+              (window) => !window.isDestroyed() && !isCanvasWorkerWindow(window) && window.isFocused(),
+            ),
+            // A desktop shows every workspace it holds, each a tab away.
+            workspaceIds: workspaceSyncService
+              .getSnapshot()
+              .state.workspaces.map((workspace) => workspace.id)
+              .slice(0, 64),
+          }),
+          onChange: (listener) => {
+            app.on('browser-window-focus', listener)
+            app.on('browser-window-blur', listener)
+            const unsubscribe = workspaceSyncService.subscribeEvents(listener)
+            return () => {
+              app.off('browser-window-focus', listener)
+              app.off('browser-window-blur', listener)
+              unsubscribe()
+            }
+          },
+        },
+        log: (message) => {
+          void writeDiagnosticLog({ level: 'warning', source: 'workspace', title: 'Desktop tools', message })
+        },
+      })
+    : null
+  // Started and stopped with the RPC: the shell's client goes first, so the
+  // RPC's goodbye is never one it would answer by reconnecting.
+  const studioRpcService: StudioRpcService | null = studioRpc
+    ? {
+        ...studioRpc,
+        start: () => {
+          void desktopShell?.start()
+          return studioRpc.start()
+        },
+        stop: () => {
+          desktopShell?.stop()
+          return studioRpc.stop()
+        },
+      }
+    : null
   // The conversation peek (hover a chat row or an agent tab): the prompts this
   // app captured for the session the card is anchored to. Built here rather
   // than inside the runtime so its assembly rules stay Electron-free and

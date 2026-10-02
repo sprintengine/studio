@@ -51,8 +51,11 @@ import { takeDataDir } from './take-data-dir'
 //
 // What is not, yet: the module host and its bundled modules (they still take
 // the shell's terminal runtime and account bridge), terminals (owner ruling
-// 2026-10-01: not served by the server in v1), the canvas worker and the
-// browser tools (the render host, phase 5), and everything the shell owns.
+// 2026-10-01: not served by the server in v1), and everything the shell owns.
+// What is not, ever: the browser and the canvas (owner ruling 2026-10-02: the
+// server draws nothing). They are toolsets a client offers, which the gateway
+// lists and routes (src/server/tools/); the server keeps only the board files,
+// read and written through `files.*`.
 
 export type StudioCoreOptions = {
   /** Which kind of process this core runs in; decides the lock and secret rules below. */
@@ -162,9 +165,11 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
   // The conversation runtime: chat sessions and the providers and agent CLI
   // children behind them, transcripts, the thread index and checkpoints. Owned
   // here so the owner's shutdown disposes its child processes.
+  // The saved approvals, which a revoked app's tools leave with it.
+  const approvalRules = new ConversationApprovalRuleStore(dataDir)
   const conversationRuntime = new ConversationRuntime({
     secretStore: getSharedCredentialStore(),
-    approvalRules: new ConversationApprovalRuleStore(dataDir),
+    approvalRules,
     attachmentStore: new ConversationAttachmentStore(dataDir),
     planStore: new ConversationPlanStore(dataDir),
     ...(options.resolveStudioMcpServer ? { resolveStudioMcpServer: options.resolveStudioMcpServer } : {}),
@@ -303,6 +308,7 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     workspaceSyncService,
     conversations,
     conversationOwner,
+    approvalRules,
     conversationModelCatalog,
     conversationLaunchService,
     resolveAgentPermissionPreset,

@@ -181,8 +181,14 @@ function appearsAlive(pid) {
   }
 }
 
-/** The advisory connection metadata both transports accept, identical on each. */
-function connectFrameBody() {
+/**
+ * The connection metadata both transports accept, identical on each. The ids
+ * are a claim; the launch token beside them is the proof: Studio issued it to
+ * the launch that started this agent, and takes the agent's identity from it.
+ * Only the local socket is sent it — a token means nothing on another machine.
+ */
+function connectFrameBody({ withLaunchToken = false } = {}) {
+  const launchToken = withLaunchToken ? studioEnv(CHANNEL_TOKEN_ENV).trim() : ''
   return JSON.stringify({
     jsonrpc: '2.0',
     method: 'sprintengine.studio/connect',
@@ -191,6 +197,7 @@ function connectFrameBody() {
       agentId: studioEnv('SPRINTENGINE_AGENT_ID'),
       agentName: studioEnv('SPRINTENGINE_AGENT_NAME'),
       cliId: studioEnv('SPRINTENGINE_AGENT_CLI'),
+      ...(launchToken ? { launchToken } : {}),
     },
   })
 }
@@ -321,10 +328,13 @@ function runLocal(infoPathArg) {
       reconnecting = false
       const authLine = channelAuthLine(info)
       if (authLine) next.write(authLine)
-      // Advisory attribution only: the gateway's trust boundary remains the local
-      // OS user/socket. This frame is deliberately sent before stdin piping, and
-      // the server serializes frames per connection so initialize cannot overtake it.
-      next.write(`${connectFrameBody()}\n`)
+      // Attribution, proven by the launch token where the launch issued one;
+      // the ids beside it are only a claim. Sent first on every connection, the
+      // first and each after a restart, with the same token: the restarted
+      // server takes the agent's identity from it as the first one did. The
+      // server serializes frames per connection, so initialize (replayed or
+      // the client's) cannot overtake it.
+      next.write(`${connectFrameBody({ withLaunchToken: true })}\n`)
       if (replay) {
         if (initializeLine) {
           const id = `${REPLAY_ID_PREFIX}${++replays}`

@@ -14,14 +14,13 @@
 // pipeline be tested without a window, a real disk or a real second.
 
 import { createHash, randomInt, randomUUID } from 'node:crypto'
-import { dirname, isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
+import * as nodePath from 'node:path'
 
 import type {
   CanvasActionEntry,
   CanvasBoardRef,
   CanvasBoardState,
   CanvasBoardSummary,
-  CanvasBoundElementRef,
   CanvasEditRequest,
   CanvasEditResult,
   CanvasElement,
@@ -46,10 +45,10 @@ import {
 } from '../../shared/canvas/paths'
 import { emptyScene, parseSceneFile, reduceAppState, serializeSceneFile } from '../../shared/canvas/scene-file'
 import { dropStaleTombstones, mergeElements, sceneVersionHash } from '../../shared/canvas/merge'
+import { mergeFromDisk, repairBindingPairs } from '../../shared/canvas/merge-disk'
 import { validateEditRequest } from '../../shared/canvas/skeleton'
 import { lintScene } from '../../shared/canvas/lint'
 import { summariseChanges } from '../../shared/canvas/diff'
-import { isPathStrictlyInside } from '../path-containment'
 import type { CanvasWorkerHost } from './canvas-worker-host'
 import { canvasReaderKey } from './canvas-service-types'
 import type { CanvasActor, CanvasService } from './canvas-service-types'
@@ -133,6 +132,18 @@ export type CanvasDirEntry = {
  */
 export type CanvasFs = {
   readFile(path: string): Promise<string>
+  /**
+   * Write a board whole, atomically, only if the file is still what this
+   * service last saw (`ifMatch`: the SHA-256 of its text; null: it must not
+   * exist yet). A filesystem that is someone else's to write (a Studio server's,
+   * over the protocol) has this; the service then never writes a temp file of
+   * its own, and a write that found the file changed answers `conflict`.
+   */
+  writeFileAtomic?(
+    path: string,
+    contents: string,
+    options: { ifMatch: string | null },
+  ): Promise<{ ok: true } | { ok: false; conflict: true }>
   writeFile(path: string, contents: string): Promise<void>
   /** Bytes, for the one binary file this service writes: an exported PNG. */
   writeBytes?(path: string, contents: Uint8Array): Promise<void>
@@ -146,11 +157,26 @@ export type CanvasFs = {
 
 export type CanvasDirectoryWatcher = { close(): void }
 
+/** The path functions this service uses: Node's own, or `path.posix` over a server's virtual roots. */
+export type CanvasPathApi = Pick<typeof nodePath, 'dirname' | 'join' | 'resolve' | 'relative' | 'isAbsolute'>
+
 export type CanvasTimerHandle = { cancel(): void }
 export type CanvasSetTimer = (fn: () => void, ms: number) => CanvasTimerHandle
 
 export type CanvasServiceDeps = {
   fs: CanvasFs
+  /**
+   * How board paths are joined and compared: `node:path` unless given. A
+   * service whose boards are on a server's disk runs on `path.posix` over the
+   * virtual roots its filesystem maps, so a Windows desktop driving a Linux
+   * server never mixes separators.
+   */
+  path?: CanvasPathApi
+  /**
+   * Where an export writes: a folder the person picked on this machine, through
+   * this machine's filesystem, whatever `fs` is. Defaults to `fs`.
+   */
+  exportFs?: CanvasFs
   now: () => number
   /** A workspace's project folder from main's registry; null when it has none. */
   resolveWorkspaceRoot: (workspaceId: string) => string | null
@@ -307,12 +333,6 @@ function freshNonce(): number {
   return randomInt(2 ** 31)
 }
 
-function boundRefs(element: CanvasElement): CanvasBoundElementRef[] {
-  const bound = element.boundElements
-  if (!Array.isArray(bound)) return []
-  return bound.filter((ref) => typeof ref?.id === 'string')
-}
-
 function liveIds(elements: CanvasElement[]): string[] {
   return elements.filter((element) => element.isDeleted !== true).map((element) => element.id)
 }
@@ -338,6 +358,12 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
   let fontWarningLogged = false
 
   const platform = deps.platform ?? process.platform
+  const paths: CanvasPathApi = deps.path ?? nodePath
+  /** `child` strictly under `parent`, compared as the paths name them: symlinks are not followed. */
+  const strictlyInside = (parent: string, child: string): boolean => {
+    const rel = paths.relative(paths.resolve(parent), paths.resolve(child))
+    return rel !== '' && !rel.startsWith('..') && !paths.isAbsolute(rel)
+  }
   // Folded where the filesystem folds it: on darwin and win32 two spellings of
   // one path name one file, and two registry entries over one file would each
   // hold their own revision, their own watcher and their own idea of the scene.
@@ -375,8 +401,8 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
     if (!base) {
       return canvasFail('unknown_workspace', `Workspace ${workspaceId} has no board store to keep ${ref.path} in.`)
     }
-    const absolutePath = resolvePath(base, normalized.value)
-    if (!isPathStrictlyInside(base, absolutePath)) {
+    const absolutePath = paths.resolve(base, normalized.value)
+    if (!strictlyInside(base, absolutePath)) {
       return canvasFail(
         'forbidden',
         inStore
@@ -400,7 +426,7 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
       workspaceId: located.workspaceId,
       path: located.path,
       absolutePath: located.absolutePath,
-      directory: dirname(located.absolutePath),
+      directory: paths.dirname(located.absolutePath),
       loaded: false,
       elements: [],
       appState: { ...emptyScene().appState },
@@ -474,7 +500,7 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
     )
     if (!onDisk) return
     board.path = `${board.path.slice(0, cut)}${onDisk.name}`
-    board.absolutePath = join(board.directory, onDisk.name)
+    board.absolutePath = paths.join(board.directory, onDisk.name)
   }
 
   /**
@@ -486,6 +512,8 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
    * and only the ones old enough to be nobody's write in flight.
    */
   async function sweepStaleTemps(board: BoardEntry): Promise<void> {
+    // A filesystem that writes atomically for us leaves no temp of ours behind.
+    if (deps.fs.writeFileAtomic) return
     const prefix = `${board.path.slice(board.path.lastIndexOf('/') + 1)}.`
     let entries: CanvasDirEntry[]
     try {
@@ -496,7 +524,7 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
     const now = deps.now()
     for (const entry of entries) {
       if (!entry.isFile || !entry.name.startsWith(prefix) || !entry.name.endsWith('.tmp')) continue
-      const absolute = join(board.directory, entry.name)
+      const absolute = paths.join(board.directory, entry.name)
       try {
         const stat = await deps.fs.stat(absolute)
         if (now - stat.mtimeMs < STALE_TEMP_MS) continue
@@ -524,6 +552,8 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
       board.appState = { ...scene.appState }
       board.files = {}
       const written = await writeScene(board)
+      // Another client created the same board first: open theirs.
+      if (!written.ok && written.error.code === 'fs_conflict') return loadFromDisk(board, false)
       if (!written.ok) return written
       board.loaded = true
       return canvasOk(undefined)
@@ -613,15 +643,27 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
     } catch (error) {
       return fsFailure(`The folder for ${board.path} could not be created`, error)
     }
-    // The temp file shares the board's directory so the rename is on one
-    // filesystem — across devices it is a copy, and a copy is not atomic.
-    const temp = `${board.absolutePath}.${randomUUID()}.tmp`
-    try {
-      await deps.fs.writeFile(temp, text)
-      await deps.fs.rename(temp, board.absolutePath)
-    } catch (error) {
-      await deps.fs.unlink(temp).catch(() => {})
-      return fsFailure(`The board ${board.path} could not be written`, error)
+    if (deps.fs.writeFileAtomic) {
+      // Someone else's disk: one write, made only if the file is still what
+      // this service last saw. Anything else is another writer's change, which
+      // the caller reads and merges before it tries again.
+      try {
+        const written = await deps.fs.writeFileAtomic(board.absolutePath, text, { ifMatch: board.lastSeenHash })
+        if (!written.ok) return canvasFail('fs_conflict', `${board.path} changed on disk while it was being written.`)
+      } catch (error) {
+        return fsFailure(`The board ${board.path} could not be written`, error)
+      }
+    } else {
+      // The temp file shares the board's directory so the rename is on one
+      // filesystem — across devices it is a copy, and a copy is not atomic.
+      const temp = `${board.absolutePath}.${randomUUID()}.tmp`
+      try {
+        await deps.fs.writeFile(temp, text)
+        await deps.fs.rename(temp, board.absolutePath)
+      } catch (error) {
+        await deps.fs.unlink(temp).catch(() => {})
+        return fsFailure(`The board ${board.path} could not be written`, error)
+      }
     }
     board.lastSeenHash = contentHash(text)
     await noteFileStamp(board)
@@ -796,8 +838,12 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
     } catch (error) {
       // Deleted under us (a branch switch, a rename): memory is still the
       // person's drawing, and the next write puts the file back, so this is a
-      // quiet no-op rather than an emptied board.
-      if (isMissing(error)) return 'settled'
+      // quiet no-op rather than an emptied board. That write creates the file
+      // afresh, so it expects none to be there.
+      if (isMissing(error)) {
+        board.lastSeenHash = null
+        return 'settled'
+      }
       log('A canvas board could not be re-read after a change', { path: board.path, error: errorMessage(error) })
       return 'settled'
     }
@@ -855,6 +901,14 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
     return canvasOk(undefined)
   }
 
+  /** A board whose file changed under two writes in a row: a failed write, as any other. */
+  function keptChanging<T>(board: BoardEntry): CanvasResult<T> {
+    return canvasFail(
+      'forbidden',
+      `The board ${board.path} could not be written: it kept changing on disk. Read it again and retry.`,
+    )
+  }
+
   function armIdleSweep(board: BoardEntry): void {
     board.idleTimer?.cancel()
     board.idleTimer = setTimer(() => {
@@ -904,7 +958,7 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
     const before = board.elements
     const beforeFiles = board.files
     board.elements = dropStaleTombstones(
-      repairBindingPairs(mergeElements(board.elements, outcome.elements)),
+      repairBindingPairs(mergeElements(board.elements, outcome.elements), deps.now(), freshNonce),
       deps.now(),
     )
     if (outcome.files) board.files = { ...board.files, ...outcome.files }
@@ -959,74 +1013,6 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
       if (was.version !== now.version || was.versionNonce !== now.versionNonce) return true
     }
     return false
-  }
-
-  /**
-   * The other half of every binding, after a merge.
-   *
-   * A binding is a PAIR of references — the arrow names the shape, the shape
-   * lists the arrow — and the merge decides per ELEMENT, so the two halves can
-   * come from different writers. A shape the person moved while an agent
-   * fastened an arrow to it wins the merge outright, `boundElements` and all,
-   * and the arrow is then listed nowhere: it follows the shape, but dragging
-   * the shape leaves it behind, and the one-way binding that results is one no
-   * skeleton edit can clear.
-   *
-   * Only the MISSING half is ever added, never removed, which is what makes
-   * this safe to run on every write. Somebody who detached an arrow cleared the
-   * arrow's own binding too, so there is nothing here to add back; a shape
-   * listing an arrow that binds it nowhere is left for the lint to report,
-   * because removing it could undo an edit still in flight.
-   *
-   * A repaired shape takes a version above its own, so the writer whose copy
-   * won hears about it on the answer to its own write rather than sending the
-   * half-binding back and undoing the repair.
-   */
-  function repairBindingPairs(elements: CanvasElement[]): CanvasElement[] {
-    const live = new Map<string, CanvasElement>()
-    for (const element of elements) {
-      if (element.isDeleted !== true) live.set(element.id, element)
-    }
-    const additions = new Map<string, CanvasBoundElementRef[]>()
-    const want = (hostId: string, ref: CanvasBoundElementRef): void => {
-      const host = live.get(hostId)
-      if (!host) return
-      const listed = boundRefs(host).map((entry) => entry.id)
-      const pending = additions.get(hostId) ?? []
-      if (listed.includes(ref.id) || pending.some((entry) => entry.id === ref.id)) return
-      additions.set(hostId, [...pending, ref])
-    }
-
-    for (const element of live.values()) {
-      for (const which of ['startBinding', 'endBinding'] as const) {
-        const binding = element[which]
-        const targetId =
-          typeof binding === 'object' &&
-          binding !== null &&
-          typeof (binding as { elementId?: unknown }).elementId === 'string'
-            ? (binding as { elementId: string }).elementId
-            : null
-        if (targetId) want(targetId, { id: element.id, type: 'arrow' })
-      }
-      if (element.type === 'text' && typeof element.containerId === 'string' && element.containerId) {
-        want(element.containerId, { id: element.id, type: 'text' })
-      }
-    }
-    if (additions.size === 0) return elements
-
-    const now = deps.now()
-    return elements.map((element) => {
-      const extra = additions.get(element.id)
-      if (!extra || element.isDeleted === true) return element
-      const next: CanvasElement = {
-        ...element,
-        boundElements: [...boundRefs(element), ...extra],
-        version: (typeof element.version === 'number' ? element.version : 0) + 1,
-        versionNonce: freshNonce(),
-        updated: now,
-      }
-      return next
-    })
   }
 
   /**
@@ -1091,7 +1077,17 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
         const settled = await settleDisk(board)
         if (!settled.ok) return settled
         if (board.mutationSeq !== seq && contested(board, base, atStake)) return 'retry'
-        const write = await applyAgentWrite(board, computed.value.outcome, actor, computed.value.touched)
+        let write = await applyAgentWrite(board, computed.value.outcome, actor, computed.value.touched)
+        if (!write.ok && write.error.code === 'fs_conflict') {
+          // Another client wrote the file between our read and our write: read
+          // it, and put the edit through the person-wins test again.
+          board.diskDirty = true
+          const resettled = await settleDisk(board)
+          if (!resettled.ok) return resettled
+          if (board.mutationSeq !== seq && contested(board, base, atStake)) return 'retry'
+          write = await applyAgentWrite(board, computed.value.outcome, actor, computed.value.touched)
+          if (!write.ok && write.error.code === 'fs_conflict') return keptChanging(board)
+        }
         if (!write.ok) return write
         return canvasOk(computed.value.value)
       })
@@ -1189,7 +1185,7 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
     for (const entry of entries) {
       if (found.length >= LIST_MAX_SCANNED) return
       if (!entry.isFile || !entry.name.endsWith(CANVAS_FILE_EXTENSION)) continue
-      const absolute = join(store, entry.name)
+      const absolute = paths.join(store, entry.name)
       try {
         const stat = await deps.fs.stat(absolute)
         found.push({ path: entry.name, absolutePath: absolute, modifiedAt: stat.mtimeMs, size: stat.size })
@@ -1226,8 +1222,8 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
       // opens a different board. It was never reachable by its listed path
       // (a folderless path used to mean the default folder), and is left out.
       if (depth === 0) continue
-      const absolute = join(directory, entry.name)
-      const projectPath = relative(root, absolute).split('\\').join('/')
+      const absolute = paths.join(directory, entry.name)
+      const projectPath = paths.relative(root, absolute).split('\\').join('/')
       let stat: CanvasFileStat
       try {
         stat = await deps.fs.stat(absolute)
@@ -1238,7 +1234,7 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
     }
     for (const folder of folders) {
       if (found.length >= LIST_MAX_SCANNED) return
-      await walk(root, join(directory, folder), depth + 1, found)
+      await walk(root, paths.join(directory, folder), depth + 1, found)
     }
   }
 
@@ -1606,23 +1602,32 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
     // it — a tab whose base is behind is told so by getting elements back.
     return enqueue(entry, async () => {
       if (disposed) return canvasFail('worker_unavailable', 'The canvas service is shutting down.')
-      const settled = await settleDisk(entry)
-      if (!settled.ok) return settled
-      const before = entry.elements
-      const beforeFiles = entry.files
-      const beforeAppState = entry.appState
-      const merged = dropStaleTombstones(repairBindingPairs(mergeElements(entry.elements, input.elements)), deps.now())
-      entry.elements = merged
-      entry.appState = reduceAppState(input.appState)
-      // Binary blobs are add-only in an editor session: merging by key keeps an
-      // image an agent added and an image the person pasted in the same board.
-      entry.files = { ...entry.files, ...input.files }
-      const written = await writeScene(entry)
-      if (!written.ok) {
+      let merged: CanvasElement[] = []
+      // Twice at most: a write another client's change got in ahead of is
+      // merged again over what it wrote; a second in a row is a failed write.
+      for (let attempt = 0; ; attempt += 1) {
+        const settled = await settleDisk(entry)
+        if (!settled.ok) return settled
+        const before = entry.elements
+        const beforeFiles = entry.files
+        const beforeAppState = entry.appState
+        merged = dropStaleTombstones(
+          repairBindingPairs(mergeElements(entry.elements, input.elements), deps.now(), freshNonce),
+          deps.now(),
+        )
+        entry.elements = merged
+        entry.appState = reduceAppState(input.appState)
+        // Binary blobs are add-only in an editor session: merging by key keeps an
+        // image an agent added and an image the person pasted in the same board.
+        entry.files = { ...entry.files, ...input.files }
+        const written = await writeScene(entry)
+        if (written.ok) break
         entry.elements = before
         entry.files = beforeFiles
         entry.appState = beforeAppState
-        return written
+        if (written.error.code !== 'fs_conflict') return written
+        if (attempt >= 1) return keptChanging(entry)
+        entry.diskDirty = true
       }
       entry.revision += 1
       entry.mutationSeq += 1
@@ -1668,7 +1673,7 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
     directory: string,
     images: CanvasExportImages = {},
   ): Promise<CanvasResult<{ directory: string; files: string[] }>> {
-    if (typeof directory !== 'string' || !isAbsolute(directory)) {
+    if (typeof directory !== 'string' || !nodePath.isAbsolute(directory)) {
       return canvasFail('invalid_path', 'An export needs an absolute folder to write into.')
     }
     if (images.png !== undefined && (typeof images.png !== 'string' || images.png.length > EXPORT_MAX_PNG_BASE64)) {
@@ -1694,14 +1699,15 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
         files: referencedFiles(entry),
       })
       const outputs: Array<{ file: string; contents: string | Uint8Array }> = [
-        { file: join(directory, `${name}${CANVAS_FILE_EXTENSION}`), contents: text },
+        { file: nodePath.join(directory, `${name}${CANVAS_FILE_EXTENSION}`), contents: text },
       ]
       if (images.png) {
-        outputs.push({ file: join(directory, `${name}.png`), contents: Buffer.from(images.png, 'base64') })
+        outputs.push({ file: nodePath.join(directory, `${name}.png`), contents: Buffer.from(images.png, 'base64') })
       }
-      if (images.svg) outputs.push({ file: join(directory, `${name}.svg`), contents: images.svg })
+      if (images.svg) outputs.push({ file: nodePath.join(directory, `${name}.svg`), contents: images.svg })
+      const exportFs = deps.exportFs ?? deps.fs
       try {
-        await deps.fs.mkdir(directory)
+        await exportFs.mkdir(directory)
       } catch (error) {
         return fsFailure(`The folder ${directory} could not be created`, error)
       }
@@ -1710,19 +1716,20 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
         // A legacy board exported into its own folder: the file already is
         // this board, and rewriting it would only wake the watcher.
         if (
-          canvasBoardKeyPath(resolvePath(output.file), platform) === canvasBoardKeyPath(entry.absolutePath, platform)
+          canvasBoardKeyPath(nodePath.resolve(output.file), platform) ===
+          canvasBoardKeyPath(entry.absolutePath, platform)
         ) {
           written.push(output.file)
           continue
         }
         const temp = `${output.file}.${randomUUID()}.tmp`
         try {
-          if (typeof output.contents === 'string') await deps.fs.writeFile(temp, output.contents)
-          else if (deps.fs.writeBytes) await deps.fs.writeBytes(temp, output.contents)
+          if (typeof output.contents === 'string') await exportFs.writeFile(temp, output.contents)
+          else if (exportFs.writeBytes) await exportFs.writeBytes(temp, output.contents)
           else throw new Error('this filesystem cannot write binary files')
-          await deps.fs.rename(temp, output.file)
+          await exportFs.rename(temp, output.file)
         } catch (error) {
-          await deps.fs.unlink(temp).catch(() => {})
+          await exportFs.unlink(temp).catch(() => {})
           return fsFailure(`${output.file} could not be written`, error)
         }
         written.push(output.file)
@@ -1767,41 +1774,5 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
   }
 }
 
-/**
- * Merge a board file somebody else wrote into what is in memory.
- *
- * Not `mergeElements`: this side is not a peer's partial view but a WHOLE
- * scene, so absence means deletion. An id the disk no longer carries is
- * tombstoned with a bumped version, which is the same deletion every other
- * subscriber will merge; a tie on version goes to the disk, because the disk is
- * what a person just looked at in another program.
- */
-export function mergeFromDisk(local: CanvasElement[], disk: CanvasElement[], now: number): CanvasElement[] {
-  const diskById = new Map<string, CanvasElement>()
-  for (const element of disk) if (!diskById.has(element.id)) diskById.set(element.id, element)
-
-  const merged: CanvasElement[] = []
-  const seen = new Set<string>()
-  for (const element of local) {
-    if (seen.has(element.id)) continue
-    seen.add(element.id)
-    const fromDisk = diskById.get(element.id)
-    if (!fromDisk) {
-      merged.push(
-        element.isDeleted === true
-          ? element
-          : { ...element, isDeleted: true, version: (element.version ?? 0) + 1, updated: now },
-      )
-      continue
-    }
-    const localVersion = typeof element.version === 'number' ? element.version : 0
-    const diskVersion = typeof fromDisk.version === 'number' ? fromDisk.version : 0
-    merged.push(diskVersion >= localVersion ? fromDisk : element)
-  }
-  for (const element of disk) {
-    if (seen.has(element.id)) continue
-    seen.add(element.id)
-    merged.push(element)
-  }
-  return merged
-}
+// Kept importable from here, where it lived before the merge moved to shared.
+export { mergeFromDisk }

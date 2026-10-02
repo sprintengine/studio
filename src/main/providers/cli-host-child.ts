@@ -30,6 +30,11 @@
 // startup script exports for the same reason: the app's MCP bridge in the
 // distribution opens its channel with it, and the CLI's own children inherit
 // it from the CLI.
+//
+// Every child that is a conversation's agent is issued that token, on this
+// machine as in a distribution: it is the launch's gateway token, bound to the
+// conversation, and the gateway takes the agent's identity from it rather
+// than from what its bridge declares.
 
 import {
   spawn,
@@ -43,6 +48,12 @@ import { distroOfHostId, isWslHostId, type ExecutionHostId } from '../../shared/
 import { isWindowsPath, toWslPath } from '../../shared/host-paths'
 import type { ConversationMcpServer } from '../../shared/conversation-runtime'
 import { MCP_CHANNEL_TOKEN_ENV } from '../../shared/studio-env'
+import {
+  issueGatewayLaunchToken,
+  launchIdentityOfEnv,
+  revokeGatewayLaunchToken,
+  type GatewayLaunchIdentity,
+} from '../../server/core/gateway-launch-tokens'
 import { argvToPosixShellCommand } from '../agent-launch-render'
 import { wslDistroArgs } from '../hosts/wsl-distro'
 import { cliSpawnTarget } from './cli-child-process'
@@ -72,9 +83,10 @@ export type WslCliTarget = {
   /**
    * Issues the MCP channel token for one child (`MCP_CHANNEL_TOKEN_ENV`), as a
    * WSL terminal launch is issued one: without it the app's MCP bridge there
-   * is refused. Absent or null: the child gets none.
+   * is refused. Bound to the child's conversation when it has one, so the
+   * gateway knows which agent it is. Absent or null: the child gets none.
    */
-  issueChannelToken?: () => WslChannelToken | null
+  issueChannelToken?: (identity?: GatewayLaunchIdentity | null) => WslChannelToken | null
 }
 
 /** A WSL target with what a runtime carries into it of the child's environment. */
@@ -248,7 +260,8 @@ export function spawnCliHostChild(
   input: Parameters<typeof cliHostSpawn>[0],
   deps: Parameters<typeof cliHostSpawn>[1] & { spawn?: typeof spawn; signal?: AbortSignal } = {},
 ): ChildProcessWithoutNullStreams {
-  const channel = input.wsl?.issueChannelToken?.() ?? null
+  const identity = launchIdentityOfEnv(input.env)
+  const channel = input.wsl ? (input.wsl.issueChannelToken?.(identity) ?? null) : localLaunchToken(identity)
   let revoked = false
   const revoke = () => {
     if (revoked || !channel) return
@@ -267,7 +280,10 @@ export function spawnCliHostChild(
             env: { ...input.env, [MCP_CHANNEL_TOKEN_ENV]: channel.token },
             wsl: { ...input.wsl, stdinEnv: [...(input.wsl.stdinEnv ?? []), MCP_CHANNEL_TOKEN_ENV] },
           }
-        : input,
+        : channel
+          ? { ...input, env: { ...input.env, [MCP_CHANNEL_TOKEN_ENV]: channel.token } }
+          : // A token the app's own process inherited is no launch's: never handed on.
+            { ...input, env: withoutKeys(input.env, [MCP_CHANNEL_TOKEN_ENV]) },
       deps,
     )
     child = (deps.spawn ?? spawn)(plan.file, plan.args, {
@@ -290,6 +306,17 @@ export function spawnCliHostChild(
 }
 
 /**
+ * A gateway token for a child on this machine that is a conversation's agent,
+ * handed to it in its environment and taken back when it ends. Null for a
+ * child that is no conversation's.
+ */
+export function localLaunchToken(identity: GatewayLaunchIdentity | null): WslChannelToken | null {
+  if (!identity) return null
+  const token = issueGatewayLaunchToken(identity)
+  return { token, revoke: () => revokeGatewayLaunchToken(token) }
+}
+
+/**
  * Gets a WSL machine ready for a chat: the helper started (so a broken
  * distribution fails here, with the reason) and its agent-state socket known.
  */
@@ -302,8 +329,8 @@ export async function prepareWslCliTarget(hostId: ExecutionHostId): Promise<WslC
   return {
     distro,
     agentStateSocketPath: host.agentIntegration()?.agentStateSocketPath ?? null,
-    issueChannelToken: () => {
-      const token = host.issueChannelToken?.()
+    issueChannelToken: (identity) => {
+      const token = host.issueChannelToken?.(identity ?? null)
       return token ? { token, revoke: () => host.revokeChannelToken?.(token) } : null
     },
   }

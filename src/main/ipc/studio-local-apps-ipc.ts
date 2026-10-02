@@ -4,6 +4,7 @@ import {
   STUDIO_LOCAL_APPS_CANCEL_OFFER_CHANNEL,
   STUDIO_LOCAL_APPS_OFFER_CHANNEL,
   STUDIO_LOCAL_APPS_REVOKE_CHANNEL,
+  STUDIO_LOCAL_APPS_SET_REACH_CHANNEL,
   STUDIO_LOCAL_APPS_STATUS_CHANNEL,
 } from '../../shared/studio-local-apps'
 import type { StudioRpcService } from '../studio-rpc/studio-rpc-service'
@@ -41,5 +42,9 @@ export function registerStudioLocalAppsIpc(
   ipcMain.handle(STUDIO_LOCAL_APPS_REVOKE_CHANNEL, (event: IpcMainInvokeEvent, id: unknown) => {
     assertAppSender(event)
     return service.revoke(id)
+  })
+  ipcMain.handle(STUDIO_LOCAL_APPS_SET_REACH_CHANNEL, (event: IpcMainInvokeEvent, id: unknown, reach: unknown) => {
+    assertAppSender(event)
+    return service.setToolReach(id, reach)
   })
 }

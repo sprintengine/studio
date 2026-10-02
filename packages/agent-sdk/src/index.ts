@@ -35,3 +35,15 @@ export {
   type EventStreamOptions,
 } from './conversations.js'
 export { fromModuleConversationService, type ModuleConversationServiceLike } from './module.js'
+export {
+  StudioToolError,
+  toolResult,
+  type McpToolResult,
+  type OfferedToolset,
+  type StudioClientTools,
+  type ToolAnswer,
+  type ToolCall,
+  type ToolDefinition,
+  type ToolHandler,
+  type ToolsetInput,
+} from './tools.js'

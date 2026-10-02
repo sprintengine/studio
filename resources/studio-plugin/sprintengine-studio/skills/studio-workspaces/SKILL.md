@@ -87,6 +87,11 @@ find an element.
 expression in the page — use it when the DOM holds an answer the snapshot does
 not, not as a substitute for clicking.
 
+A page that opens an alert, a confirm, a prompt or a leave-page confirmation is
+held until the dialog is answered, and every other browser tool on that tab
+answers `dialog_open` with its text. Answer it with `browser_dialog`: `accept`
+(with `text` for a prompt) or `dismiss`.
+
 ## Showing files and diffs
 
 When you want the person to look at specific code, open it for them instead of

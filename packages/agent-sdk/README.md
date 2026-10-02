@@ -149,6 +149,71 @@ module SDK's conversation service (`getConversationService(host)`): a ref
 `{ ok: true, … } | { ok: false, code, message }`, plus `follow` as a callback
 stream. Code written against a module's service runs against it unchanged.
 
+## Tools for agents
+
+A client may give Studio's agents tools that run in it: a game offering
+`spawn_enemy`, a build tool offering `deploy`. Studio lists them to its agents
+through the MCP gateway they already reach, sends each call to the client that
+offered the tool, and hands the client's answer back. Studio never runs the
+tool's code; it decides who may see the tool, picks the client, holds the
+deadline, and audits.
+
+It needs the `client-tools` capability and a pairing with "Give agents tools
+from this app" (`tools:offer`).
+
+```js
+import { toolResult } from '@sprintengine/agent-sdk'
+
+const game = await client.tools.offer({
+  name: 'game', // 2–16 lowercase letters, digits or hyphens; agents see `game.spawn_enemy`
+  title: 'Acme Game',
+  description: 'Controls the level running in Acme Game on this machine.',
+  tools: [
+    {
+      name: 'spawn_enemy',
+      description: 'Spawn an enemy at a grid cell. Answers the new enemy id.',
+      inputSchema: { type: 'object', properties: { x: { type: 'integer' }, y: { type: 'integer' } } },
+      timeoutMs: 10_000,
+      async handler({ x, y }, call) {
+        const id = await level.spawn(x, y, { signal: call.signal })
+        return toolResult.text(`Spawned #${id} at ${x},${y}.`, { id })
+      },
+    },
+  ],
+})
+// …
+await game.withdraw()
+```
+
+- **Who sees them.** An app's tools reach the chats it started, any chat the
+  person opened to it (a chat tab's menu in Studio), or every agent here if
+  its pairing says so. Each call still passes the chat's own permissions; the
+  approval card says which app the tool is from.
+- **A handler** gets its input and a `ToolCall`: the calling chat
+  (`conversation`), the agent, a `signal` aborted when Studio stops waiting (the
+  turn was interrupted, the deadline passed, the agent left), and `progress()`.
+  A string answers as one text part; `toolResult.text`, `.image` and `.error`
+  build the rest. Throw a `StudioToolError(code, message)` for a failure the
+  agent should read; anything else thrown answers `tool_failed`.
+- **Limits.** 32 tools a toolset, 8 toolsets a connection, a schema of 16 KiB
+  whose root is an object, and an answer of at most 960 KiB, which fails in
+  your process when it is over. A tool's deadline is 60 s unless it names one
+  (1 s to 600 s). `STUDIO_TOOL_LIMITS` has them all.
+- **Reconnects.** What you offered is offered again on every new connection.
+  A call Studio sends again after a drop (the same id, `call.redelivered`)
+  joins the handler still running or is answered from the reply already
+  given, so a handler runs once per call. A process that restarted is a new
+  process to Studio: a call its predecessor was running is not sent to it.
+- **Names.** A toolset name is bound to your pairing the first time you offer
+  it; another app is refused it (`name_taken`), and Studio's own families
+  (`browser`, `canvas`, `workspace`, …) are refused (`reserved_name`).
+  Revoking the pairing releases the name and forgets every approval for it.
+
+`client.tools.catalog()` lists the toolsets this client may see, and
+`client.tools.focus({ focused, workspaceIds })` tells Studio which workspaces
+a client with a screen shows, so a call goes to the one in front of the person.
+See `examples/offer-tools.mjs`.
+
 ## In process
 
 Inside an extension's `entry.main`, `fromModuleConversationService(service)`

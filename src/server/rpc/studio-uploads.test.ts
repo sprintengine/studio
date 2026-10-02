@@ -90,3 +90,16 @@ test('a recorded send lets its bytes go but keeps that they were sent; an unreco
   assert.equal(!again.ok && again.message, 'A picture in this send was already sent with another message.')
   assert.equal(uploads.size(), 1)
 })
+
+test('a file’s bytes are spent only by a file write, and a picture only by a send', () => {
+  const uploads = staged()
+  const file = uploads.begin(one, { mediaType: 'application/json', byteLength: 3, purpose: 'file' })
+  assert.ok(file.ok)
+  assert.ok(uploads.append(one, { uploadId: file.uploadId, offset: 0, dataBase64: 'AAAA' }).ok)
+  const asPicture = uploads.spend('owner', [file.uploadId], 'send-1')
+  assert.equal(!asPicture.ok && asPicture.code, 'invalid_params')
+  assert.ok(uploads.spend('owner', [file.uploadId], 'write-1', 'file').ok)
+  const picture = finished(uploads)
+  const asFile = uploads.spend('owner', [picture], 'write-2', 'file')
+  assert.equal(!asFile.ok && asFile.code, 'invalid_params')
+})

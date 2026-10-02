@@ -6,6 +6,8 @@ import { afterEach, test } from 'vitest'
 
 import { connectLineClient, createFakeBackend, hello } from '../../server/rpc/studio-rpc.test-helper'
 import { createStudioRpcService } from './studio-rpc-service'
+import { createClientToolRegistry } from '../../server/tools/client-tool-registry'
+import { createClientToolsetStore } from '../../server/tools/client-toolset-store'
 
 const cleanups: Array<() => Promise<void> | void> = []
 afterEach(async () => {
@@ -102,4 +104,48 @@ test('a Studio whose socket is not the live one neither pairs nor revokes', asyn
   assert.match(second.getStatus().lastError ?? '', /Another Studio is already serving/)
   assert.throws(() => second.offer({ name: 'x', scopes: ['conversation:read'], ceiling: 'manual' }), /not serving/)
   assert.throws(() => second.revoke('sla_1'), /not serving/)
+})
+
+test('revoking an app that gave agents tools releases its names and forgets the approvals for them', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'studio-rpc-service-tools-'))
+  const forgotten: string[][] = []
+  const registry = createClientToolRegistry({ store: createClientToolsetStore({}), servedFamilies: () => [] })
+  const service = createStudioRpcService({
+    paths: { dataDir: () => root },
+    identity: { version: () => '0.0.0-test' },
+    clients: { publish: () => undefined },
+    backend: () => createFakeBackend(),
+    audit: () => ({ record: () => undefined }) as never,
+    tools: registry,
+    forgetToolApprovals: async (toolsets) => void forgotten.push(toolsets),
+  })
+  await service.start()
+  cleanups.push(async () => {
+    await service.stop()
+    registry.close()
+    await rm(root, { recursive: true, force: true })
+  })
+  const { code } = service.offer({ name: 'Acme Game', scopes: ['tools:offer'], ceiling: 'manual', toolReach: 'all' })
+  const client = await connectLineClient(service.getStatus().socketPath!)
+  cleanups.push(() => client.close())
+  client.send(hello({ pairingCode: code }, { client: { name: 'Acme Game', instanceId: 'acme-process-0123456789' } }))
+  const welcome = await client.next((frame) => frame.t === 'welcome')
+  const id = welcome.t === 'welcome' ? welcome.grant.clientId : ''
+  client.send({
+    t: 'req',
+    id: 'o1',
+    method: 'tools.offer',
+    params: {
+      toolset: { name: 'game', tools: [{ name: 'spawn', description: 'Spawn.', inputSchema: { type: 'object' } }] },
+    },
+  })
+  await client.next((frame) => frame.t === 'res' && frame.id === 'o1')
+  const app = () => service.getStatus().apps.find((entry) => entry.id === id)
+  assert.equal(app()?.toolReach, 'all')
+  assert.deepEqual(app()?.toolsets, [{ name: 'game', title: 'Acme Game', tools: 1, state: 'offered' }])
+  service.setToolReach(id, 'own')
+  assert.equal(app()?.toolReach, 'own')
+  await service.revoke(id)
+  assert.deepEqual(forgotten, [['game']])
+  assert.equal(registry.isKnownToolset('game'), false)
 })

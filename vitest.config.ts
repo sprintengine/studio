@@ -17,6 +17,9 @@ const SERIAL = [
   'src/main/skills/studio-plugin.test.ts',
   'src/main/studio-plugin-service.test.ts',
   'src/main/terminal-runtime.test.ts',
+  // These two wait on a platform's directory watch, which a loaded machine delivers late.
+  'src/main/canvas/canvas-service-filesystems.test.ts',
+  'src/server/rpc/studio-files.test.ts',
   'src/renderer/src/components/workspace/ConversationPeekPopover.test.tsx',
   'src/renderer/src/hooks/useSharedBacklogScan.test.ts',
   'src/renderer/src/modules/backlog-reader.test.ts',
