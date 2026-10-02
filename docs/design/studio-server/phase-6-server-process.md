@@ -18,7 +18,7 @@ members, and the canvas service is the shell's.
 | Default | What it means for phase 6 |
 | --- | --- |
 | The local server exits with the app | No detached or background server on the desktop. Background mode (the tray) keeps the app alive, which keeps the server alive. |
-| Secrets use the system keyring where one exists, otherwise an owner-only file | On the desktop, the shell's `safeStorage` is the keyring (Keychain, DPAPI, libsecret or kwallet). A headless server uses the platform keyring tool where it answers, else a 0600 key file. |
+| Secrets use the system keyring where one exists, otherwise an owner-only file | On the desktop, the shell's `safeStorage` is the keyring (Keychain, DPAPI, libsecret or kwallet). A headless server keeps a 0600 key file in a 0700 directory and probes no keyring (decision R12, owner ruling 2026-10-02). |
 | A third-party module that imports `electron` has its server half skipped, based on a capability | The server never loads such an `entry.main`. The in-process path still does. |
 | No terminals in v1 | Terminals, their node-pty sessions, the agent-state socket and terminal snapshots stay in the Electron shell. |
 | The server is small (owner ruling 2026-10-02) | No browser and no canvas in the server process. The shell offers its pane as the `browser` toolset and its canvas service and worker as the `canvas` toolset (phase 5); the server routes agents' calls to them and keeps only the board files. |
@@ -813,6 +813,18 @@ Numbers are from section 13, on an Apple-silicon Mac with Electron 44.4.5.
   pipe between two processes of the same user. They never touch a socket.
 - The server caches opened values in memory, the way `ProviderSecretStore`
   does today.
+- **As built** (`src/server/shell-bridge/shell-cipher.ts`, amended at
+  implementation 2026-10-02): `SecretCipher` gains optional `sealAsync` and
+  `openAsync`, and the stores that seal or open in an async path (provider
+  secrets, the GitHub token, module secrets) go through `sealSecret` and
+  `openSecret`, which prefer them. In process nothing changes: the Electron
+  cipher has only the synchronous forms. The mesh store opens its tokens
+  synchronously as it is built, so the server opens those ahead of time
+  (`prime`) before it composes; a ciphertext nobody primed fails to open there,
+  which that store already keeps for a later launch rather than overwriting.
+  A new pairing's token is written first without its seal and again once the
+  keychain answers. The shell's answer to `available()` at fork time rides in
+  the envelope, and `prime` asks again.
 - The three unguarded lazy `require('electron')` sites (`secret-store.ts`,
   `plugin-registry-instance.ts`, `mcp-config-service.ts`) take injected
   dependencies in phase 1. In the server, a `require('electron')` that slipped
@@ -822,17 +834,14 @@ Numbers are from section 13, on an Apple-silicon Mac with Electron 44.4.5.
 
 ### 9.2 Headless servers (phases 7 and 8, recorded here for the owner default)
 
-`SecretCipher` uses a random 32-byte data key with AES-256-GCM. The data key
-itself is kept in:
-
-- the macOS login keychain, through `/usr/bin/security`, when the keychain
-  answers (an SSH session to a Mac may find it locked);
-- the Secret Service on Linux, through `secret-tool`, when a session D-Bus and
-  a keyring answer;
-- otherwise a 0600 key file in `<dataDir>/run/`.
-
-The probe order and its result are shown in `server.info`. Using the platform
-CLIs keeps native modules out of the server.
+`SecretCipher` uses a random 32-byte data key with AES-256-GCM, kept in a
+0600 key file in `<dataDir>/run/` inside a 0700 directory
+(`createKeyFileSecretCipher`, which phases 1–4 already built). No keyring is
+probed: SSH and WSL sessions almost never have an unlocked one, and the agent
+CLIs' own logins on those hosts already rely on the same user boundary
+(decision R12, owner ruling 2026-10-02; an earlier draft probed
+`/usr/bin/security` and `secret-tool` first). `server.info` reports the
+choice. The envelope says `secrets: { kind: 'key-file' }`.
 
 ### 9.3 Linux desktop without a keyring
 
