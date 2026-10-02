@@ -6,6 +6,7 @@ import { toolError, toolSuccess } from '../../shared/modules/mcp-tools'
 import {
   STUDIO_LOCAL_APPS_CHANGED_CHANNEL,
   type StudioLocalAppOfferView,
+  type StudioLocalAppToolReach,
   type StudioLocalAppsStatus,
 } from '../../shared/studio-local-apps'
 import type { AppIdentity } from '../../server/platform/app-identity'
@@ -19,6 +20,7 @@ import {
   type StudioFramePort,
 } from '../../server/rpc/studio-frame-port'
 import { createStudioRpcServer, type StudioRpcServer } from '../../server/rpc/studio-rpc-server'
+import type { ClientToolRegistry } from '../../server/tools/client-tool-registry'
 import type {
   StudioAuditEntry,
   StudioAuthenticator,
@@ -62,6 +64,8 @@ export type StudioRpcService = {
   connectWindow(port: StudioFramePort): { connectionId: string; ticket: string }
   /** The chat surface, from the handlers the app's own IPC serves its windows with. */
   provideChat(chat: StudioChatBackend): void
+  /** Which agents a paired app's tools reach. */
+  toolReachOf(clientId: string): StudioLocalAppToolReach
 }
 
 // Paths, the version and the push to Settings come from the Studio platform
@@ -83,6 +87,8 @@ export type StudioRpcServiceOptions = {
   backend: () => StudioConversationBackend
   /** The gateway's audit, so one file records every listener's mutations. */
   audit: () => GatewayAuditStore
+  /** The client toolsets the gateway lists to agents, offered over this RPC. */
+  tools?: ClientToolRegistry
   log?: (message: string) => void
   /** A socket path or pipe name of the caller's choosing (tests). */
   socketPath?: string
@@ -219,6 +225,8 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
         ...(entry.agentId ? { agentId: entry.agentId } : {}),
         ...(entry.commandId ? { id: entry.commandId } : {}),
         ...(entry.suppressed ? { suppressed: entry.suppressed } : {}),
+        ...(entry.toolset ? { toolset: entry.toolset } : {}),
+        ...(entry.tools !== undefined ? { tools: entry.tools } : {}),
       },
       result: entry.ok
         ? toolSuccess({ ok: true })
@@ -245,6 +253,7 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
       chat: () => chat,
       authenticator: authenticator(appStore()),
       audit,
+      ...(options.tools ? { tools: options.tools } : {}),
       resyncRetryAfterMs: createResyncBackoff(),
       onConnectionsChanged: () => announce(),
       ...(options.socketPath ? { socketPath: options.socketPath } : {}),
@@ -326,5 +335,6 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
     provideChat(next) {
       chat = next
     },
+    toolReachOf: (clientId) => appStore().toolReachOf(clientId),
   }
 }

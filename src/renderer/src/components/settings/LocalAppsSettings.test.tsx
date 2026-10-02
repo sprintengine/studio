@@ -20,6 +20,7 @@ const base: StudioLocalAppsStatus = {
       ceiling: 'manual',
       createdAt: '2026-10-01T09:00:00.000Z',
       lastSeenAt: null,
+      toolReach: 'own',
       connected: true,
     },
   ],
@@ -126,7 +127,10 @@ test('pairing names the app, picks scopes and a ceiling, and shows the code once
   })
   await act(async () => button('Make pairing code').click())
   expect(calls).toEqual([
-    ['offer', { name: 'ci-runner', scopes: ['conversation:read', 'conversation:operate'], ceiling: 'auto' }],
+    [
+      'offer',
+      { name: 'ci-runner', scopes: ['conversation:read', 'conversation:operate'], ceiling: 'auto', toolReach: 'own' },
+    ],
   ])
   expect(host.textContent).toContain('Pairing code for ci-runner')
   expect(host.textContent).toContain('sepair_abcdefghijklmnop')

@@ -15,6 +15,7 @@ import {
 import { createStudioRpcConnection, type StudioRpcConnection } from './studio-rpc-connection'
 import { createStudioRpcListener, type StudioRpcListener } from './studio-rpc-listener'
 import { createStudioRpcRouter } from './studio-rpc-router'
+import type { ClientToolRegistry } from '../tools/client-tool-registry'
 import type {
   StudioAuditEntry,
   StudioAuthenticator,
@@ -52,6 +53,8 @@ export type StudioRpcServerOptions = {
   chat?: () => StudioChatBackend | null
   authenticator: StudioAuthenticator
   audit?: (entry: StudioAuditEntry) => void
+  /** Client toolsets: offered here, listed to agents by the gateway. Advertised as `client-tools` only when given. */
+  tools?: ClientToolRegistry
   resyncRetryAfterMs?: (clientId: string) => number
   socketPath?: string
   helloTimeoutMs?: number
@@ -68,6 +71,11 @@ export type StudioRpcAttachOptions = {
   authenticator: StudioAuthenticator
   /** One of Studio's own windows: shown conversations as its IPC shows them, and not audited. */
   ownWindow: boolean
+  /**
+   * The desktop's own shell, over a port main holds both ends of: it may
+   * offer the built-in toolsets (`browser`, `canvas`), whatever its hello says.
+   */
+  shell?: boolean
 }
 
 export type StudioRpcServer = StudioRpcListener & {
@@ -85,8 +93,7 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
     environment: { id: options.environmentId, hostKind: 'local', os: platform(), arch: arch() },
     capabilities: STUDIO_CAPABILITIES.filter(
       (capability) =>
-        // Client tools are not served yet.
-        capability !== STUDIO_CLIENT_TOOLS_CAPABILITY &&
+        (capability !== STUDIO_CLIENT_TOOLS_CAPABILITY || options.tools !== undefined) &&
         (chat() !== null || !(STUDIO_CHAT_CAPABILITIES as readonly string[]).includes(capability)),
     ),
     conversation: {
@@ -100,8 +107,14 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
     chat,
     info: welcome,
     audit: options.audit,
+    ...(options.tools ? { tools: options.tools } : {}),
     log: options.log,
   })
+  // A revoked app's offers go at once, with its names: a later app that takes
+  // one inherits nothing.
+  const forgetRevoked = options.tools
+    ? options.authenticator.onRevoked((clientId) => options.tools?.forgetClient(clientId))
+    : null
   const attached = new Set<StudioRpcConnection>()
   let attachSequence = 0
   const listener: StudioRpcListener = createStudioRpcListener({
@@ -121,6 +134,7 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
         chat,
         welcome,
         audit: options.audit,
+        ...(options.tools ? { tools: options.tools } : {}),
         resyncRetryAfterMs: options.resyncRetryAfterMs,
         helloTimeoutMs: options.helloTimeoutMs,
         log: options.log,
@@ -138,6 +152,7 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
       attached.clear()
       await listener.stop(retryAfterMs)
       router.close()
+      forgetRevoked?.()
     },
     attach(stream, attachOptions) {
       const connection = createStudioRpcConnection({
@@ -148,8 +163,10 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
         backend: options.backend,
         chat,
         ownWindow: attachOptions.ownWindow,
+        shell: attachOptions.shell === true,
         welcome,
         audit: options.audit,
+        ...(options.tools ? { tools: options.tools } : {}),
         resyncRetryAfterMs: options.resyncRetryAfterMs,
         helloTimeoutMs: options.helloTimeoutMs,
         log: options.log,

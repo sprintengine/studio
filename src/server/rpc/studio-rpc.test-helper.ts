@@ -17,6 +17,7 @@ import {
 import type { ConversationEvent, ConversationKey, ConversationSessionFrame } from '../../shared/conversation-runtime'
 import { redactConversationValue } from '../../main/conversation-tool-details'
 import { createStudioRpcServer, type StudioRpcServer } from './studio-rpc-server'
+import type { ClientToolRegistry } from '../tools/client-tool-registry'
 import type {
   StudioAuditEntry,
   StudioAuthenticator,
@@ -337,6 +338,7 @@ export async function startTestServer(
     maxConnections?: number
     maxConnectionsPerClient?: number
     chat?: StudioChatBackend
+    tools?: ClientToolRegistry
   } = {},
 ): Promise<{
   server: StudioRpcServer
@@ -361,6 +363,7 @@ export async function startTestServer(
     backend,
     authenticator: auth,
     ...(input.chat ? { chat: () => input.chat! } : {}),
+    ...(input.tools ? { tools: input.tools } : {}),
     audit: (entry) => audit.push(entry),
     log: (message) => logs.push(message),
     resyncRetryAfterMs: () => 1_500,

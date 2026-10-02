@@ -508,14 +508,21 @@ see does not make every agent on the machine re-list. The tailnet listener
 | `external-local` (no agent id: a CLI the person started, or a chat that loaded a pinned entry, finding 2) | yes | only with reach `all` |
 | `remote-tailnet` | as today, through the device's scope gate | no, in v1 |
 
-- "Started" means the conversation's agent record names the app.
-  `conversation.create` records `startedBy: { clientId, instanceId }` on the
-  agent record (`studio-conversation-backend.ts:92-123`). Conversations started
-  before this phase have none.
-- An app's reach is a setting on its pairing: "its tools reach the
-  conversations it starts" (default) or "every conversation and terminal agent
-  on this machine". It is shown and changed in Settings beside its scopes. An
-  owner script passes `reach` on the offer instead.
+- "Started" means the conversation's agent record names the app. A chat a
+  client starts is launched under its namespaced command id
+  (`client:<clientId>:<commandId>`, or `owner:<commandId>`), and the agent
+  record already keeps that id (`launchCommandId`), so the client is read from
+  it (`conversationStartedBy`, `studio-conversation-backend.ts`) and nothing new
+  is written to the record. Which process of the client started it, for routing
+  (6.2 step 4), is kept in memory by the registry from `conversation.create`'s
+  answer. (Amended as built: the spec first had `conversation.create` write a
+  new `startedBy` member, which would have duplicated what the record holds.)
+- An app's reach is a setting on its pairing (`toolReach` in
+  `studio-local-apps.json`): "its tools reach the conversations it starts"
+  (default) or "every conversation and terminal agent on this machine". It is
+  shown and changed in Settings beside its scopes. Unlike the scopes, which are
+  fixed at pairing, it may be changed at any time. A pairing stored before this
+  phase reads as `own`. An owner script passes `reach` on the offer instead.
 - A built-in toolset reaches every caller, because today every caller sees the
   browser and canvas tools. This keeps parity.
 
@@ -676,6 +683,12 @@ other connection that tries is refused `reserved_name`.
 | Desktop and a WSL, SSH or standalone server | an owner grant and `hello.client.kind: 'desktop'` |
 | Web client (phase 9), for `canvas` only | an owner grant and `kind: 'web'` (phase 9 §3.8, decisions R79) |
 | Headless client (section 14, later) | an owner grant and `kind: 'headless'` |
+
+As built, an owner connection whose hello says `kind: 'desktop'` is the shell
+on every route, the desktop's own in-process server included: in phases 1–5
+the owner token never leaves the desktop's process, so only the desktop can
+say it. A `kind: 'headless'` owner may offer `browser` and `canvas`, and a
+`kind: 'web'` owner `canvas` only.
 
 On the last three routes the role rests on the owner credential. Anything that
 holds the owner token on the server's host (`<dataDir>/run/owner-token`, 0600)

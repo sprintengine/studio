@@ -52,6 +52,10 @@ const SAFE_IDENTIFIER_KEYS = new Set([
   // How many refused credentials were left out of the log since the last one
   // written: a count, not anything a caller presented.
   'suppressed',
+  // A client toolset offered, withdrawn or opened to a conversation: its name
+  // and how many tools it holds, never what a tool was given or answered.
+  'toolset',
+  'tools',
 ])
 
 /**

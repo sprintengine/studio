@@ -3,6 +3,7 @@ import {
   isStudioChatMethod,
   isStudioToolsMethod,
   parseStudioMethodParams,
+  type StudioToolsMethod,
   studioScopesGrant,
   type ConversationCommand,
   type StudioChatMethod,
@@ -25,6 +26,7 @@ import type {
   ConversationKey,
 } from '../../shared/conversation-runtime'
 import { createStudioUploads, type StudioUploads } from './studio-uploads'
+import type { ClientToolRegistry } from '../tools/client-tool-registry'
 import type {
   StudioAuditEntry,
   StudioChatBackend,
@@ -95,6 +97,8 @@ export type StudioRpcRouterOptions = {
   log?: (message: string) => void
   /** The chat surface, once main has one to give; null until then, and for a Studio without one. */
   chat?: () => StudioChatBackend | null
+  /** Client toolsets; without it, `tools.*` is answered `unavailable`. */
+  tools?: ClientToolRegistry
   uploads?: StudioUploads
   now?: () => number
 }
@@ -250,7 +254,12 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
     grant: StudioGrant,
     method: StudioMethod,
     started: number,
-    params: { key?: { workspaceId: string; agentId: string }; commandId?: string; workspaceId?: string },
+    params: {
+      key?: { workspaceId: string; agentId: string }
+      commandId?: string
+      workspaceId?: string
+      toolset?: string
+    },
     answer: StudioRpcAnswer,
     created?: { workspaceId: string; agentId: string },
   ): void {
@@ -262,6 +271,7 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
       ...(target ? { workspaceId: target.workspaceId, agentId: target.agentId } : {}),
       ...(!target && params.workspaceId ? { workspaceId: params.workspaceId } : {}),
       ...(params.commandId ? { commandId: params.commandId } : {}),
+      ...(params.toolset ? { toolset: params.toolset } : {}),
       ok: answer.ok,
       ...(answer.ok ? {} : { code: answer.error.code }),
       durationMs: now() - started,
@@ -333,6 +343,7 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
     grant: StudioGrant,
     params: StudioMethodParams<'conversation.create'>,
     voice: Voice,
+    context: StudioRequestContext,
   ): Promise<StudioRpcAnswer<'conversation.create'>> {
     const { commandId, ...request } = params
     if (request.allowedTools?.length && !ceilingAllowsUnaskedTools(grant.ceiling))
@@ -367,6 +378,9 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
       })
     }
     const created = await pending
+    if (created.ok && context.connectionId)
+      // The process that started it is where its calls go first (routing, 6.2).
+      options.tools?.noteStarted(context.connectionId, created.conversation)
     return created.ok
       ? { ok: true, result: { conversation: created.conversation } }
       : voice.failed(created.code, created.message, 'conversation.create')
@@ -381,8 +395,7 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
     fingerprint: string | undefined,
   ): Promise<StudioRpcAnswer> {
     if (isStudioChatMethod(method)) return chatDispatch(grant, method, params, context, voice, fingerprint)
-    // Client tools are served by a Studio that advertises them, and this one does not yet.
-    if (isStudioToolsMethod(method)) return refuse('unavailable', `This Studio does not serve ${method}.`)
+    if (isStudioToolsMethod(method)) return toolsDispatch(grant, method, params, context)
     const { failed } = voice
     switch (method) {
       case 'server.info':
@@ -392,7 +405,7 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
       case 'conversation.list':
         return { ok: true, result: { conversations: await backend.list() } }
       case 'conversation.create':
-        return create(grant, params, voice)
+        return create(grant, params, voice, context)
       case 'conversation.stop': {
         const { key: wire, commandId } = params as StudioMethodParams<'conversation.stop'>
         const key = resolve(wire, grant)
@@ -455,6 +468,59 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
         } & Record<string, unknown>
         const kind = method.slice('conversation.'.length) as ConversationCommand['kind']
         return command(grant, { key, commandId }, { kind, ...members } as ConversationCommand, voice, fingerprint)
+      }
+    }
+  }
+
+  // ── Client tools ─────────────────────────────────────────────────────────
+
+  function toolsDispatch(
+    grant: StudioGrant,
+    method: StudioToolsMethod,
+    params: never,
+    context: StudioRequestContext,
+  ): StudioRpcAnswer {
+    const tools = options.tools
+    if (!tools) return refuse('unavailable', `This Studio does not serve ${method}.`)
+    switch (method) {
+      case 'tools.offer': {
+        const { toolset, reach } = params as StudioMethodParams<'tools.offer'>
+        const offered = tools.offer(context.connectionId, toolset, reach)
+        return offered.ok
+          ? { ok: true, result: { toolset: offered.toolset, wireNames: offered.wireNames, reach: offered.reach } }
+          : {
+              ok: false,
+              error: {
+                code: offered.code,
+                message: offered.message,
+                ...(offered.retryAfterMs === undefined ? {} : { retryAfterMs: offered.retryAfterMs }),
+              },
+            }
+      }
+      case 'tools.withdraw': {
+        const withdrawn = tools.withdraw(context.connectionId, (params as StudioMethodParams<'tools.withdraw'>).toolset)
+        return withdrawn.ok
+          ? { ok: true, result: { withdrawn: withdrawn.withdrawn } }
+          : {
+              ok: false,
+              error: {
+                code: withdrawn.code,
+                message: withdrawn.message,
+                ...(withdrawn.retryAfterMs === undefined ? {} : { retryAfterMs: withdrawn.retryAfterMs }),
+              },
+            }
+      }
+      case 'tools.focus':
+        tools.focus(context.connectionId, params as StudioMethodParams<'tools.focus'>)
+        return { ok: true, result: {} }
+      case 'tools.catalog':
+        return { ok: true, result: { toolsets: tools.catalog({ clientId: grant.clientId, owner: grant.owner }) } }
+      case 'tools.grant': {
+        const { key: wire, toolset, granted } = params as StudioMethodParams<'tools.grant'>
+        const key = resolve(wire, grant)
+        if (!key) return notFound(wire)
+        const answer = tools.grant({ workspaceId: key.workspaceId, agentId: key.agentId }, toolset, granted)
+        return answer.ok ? { ok: true, result: { grants: answer.grants } } : refuse(answer.code, answer.message)
       }
     }
   }
@@ -732,6 +798,7 @@ function auditTargets(value: unknown): {
   key?: { workspaceId: string; agentId: string }
   commandId?: string
   workspaceId?: string
+  toolset?: string
 } {
   if (value === null || typeof value !== 'object') return {}
   const params = value as Record<string, unknown>
@@ -741,9 +808,11 @@ function auditTargets(value: unknown): {
   const agentId = text(key?.agentId)
   const commandId = text(params.commandId)
   const created = text(params.workspaceId)
+  const toolset = text(params.toolset)
   return {
     ...(workspaceId && agentId ? { key: { workspaceId, agentId } } : {}),
     ...(commandId ? { commandId } : {}),
     ...(created ? { workspaceId: created } : {}),
+    ...(toolset ? { toolset } : {}),
   }
 }

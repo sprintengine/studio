@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import type { Duplex } from 'node:stream'
 
 import {
@@ -16,6 +17,7 @@ import {
   studioWireFrames,
   type ConversationServerFrame,
   type StudioByeCode,
+  type StudioClientInfo,
   type StudioErrorBody,
   type StudioGrant,
   type StudioRequestFrame,
@@ -32,6 +34,7 @@ import {
   type ConversationSnapshotFrame,
 } from '../conversation-stream-shaping'
 import { studioErrorId, type StudioRpcAnswer, type StudioRpcRouter } from './studio-rpc-router'
+import type { ClientToolConnection, ClientToolRegistry } from '../tools/client-tool-registry'
 import type {
   StudioAuditEntry,
   StudioAuthenticator,
@@ -60,6 +63,12 @@ import type {
 // over a port main hands them (`studio-frame-port.ts`), one frame per message.
 // Those connections are the app's own chat view (`ownWindow`): what they are
 // sent is not redacted, and what they do is not audited, as over IPC.
+//
+// A connection whose grant may offer tools is also one end of the client
+// tools registry: Studio sends it `call` and `cancel` frames for the tools it
+// offered, and it answers with `reply` and `progress`. Those two are never
+// answered: one in the wrong shape is logged and dropped, and one from a
+// connection that never could have been sent a call is a frame out of place.
 
 // A hello is small; a first line bigger than this is not a Studio client.
 const MAX_HELLO_BYTES = 64 * 1024
@@ -107,6 +116,10 @@ export type StudioRpcConnectionOptions = {
   chat?: () => StudioChatBackend | null
   /** One of Studio's own windows, over the port main handed it. Default false. */
   ownWindow?: boolean
+  /** The desktop's own shell, over a port main holds: it may offer the built-in toolsets. Default false. */
+  shell?: boolean
+  /** The client tools registry, when this Studio serves client tools. */
+  tools?: ClientToolRegistry
   /** The welcome's server-wide members: who this Studio is and what it serves. */
   welcome: () => Omit<StudioWelcomeFrame, 't' | 'grant' | 'pairing'>
   /** The delay a client that fell behind is told to wait; it should grow with repeated resyncs. */
@@ -167,6 +180,8 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
   const replaying = new Set<string>()
   const releases: Array<() => void> = []
   let helloTimer: ReturnType<typeof setTimeout> | undefined
+  // Whether this connection is one end of the client tools registry.
+  let toolsAttached = false
 
   const nextFrameId = () => `${options.connectionId}:${++frameSequence}`
   // Read through a call, so a check after an await is not narrowed away.
@@ -185,6 +200,7 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
     if (state === 'closed') return
     state = 'closed'
     clearTimeout(helloTimer)
+    if (toolsAttached) options.tools?.detach(options.connectionId)
     pending.length = 0
     liveFrames = liveBytes = bulkBytes = 0
     for (const waiter of bulkWaiters.splice(0)) waiter.resolve()
@@ -610,6 +626,10 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
 
   /** A topic with no cursor: each payload is sent as it comes, and nothing is replayed. */
   function subscribePush(id: string, topic: StudioTopic): void {
+    if (topic === 'tools.catalog') {
+      subscribeCatalog(id)
+      return
+    }
     const chat = options.chat?.() ?? null
     if (!chat || topic !== 'conversation.commands') {
       subscriptionFailed(id, 'unavailable', `This Studio does not serve ${topic}.`)
@@ -627,6 +647,41 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
         return
       }
       enqueueLive({ t: 'push', sub: id, payload: redact(catalog) }, id)
+    })
+    subscription.handle = { dispose: stop }
+  }
+
+  /** The client toolsets this client may see, whole, after each change; a burst of changes is one push. */
+  function subscribeCatalog(id: string): void {
+    const tools = options.tools
+    if (!tools) {
+      subscriptionFailed(id, 'unavailable', 'This Studio does not serve tools.catalog.')
+      return
+    }
+    const subscription: Subscription = { id, topic: 'tools.catalog', key: null, replay: null, handle: null }
+    subscriptions.set(id, subscription)
+    let queued = false
+    const stop = tools.subscribe(() => {
+      if (queued) return
+      queued = true
+      setImmediate(() => {
+        queued = false
+        if (state === 'closed' || subscriptions.get(id) !== subscription) return
+        const grant = liveGrant()
+        if (!grant) return
+        if (!studioScopesGrant(grant.scopes, STUDIO_TOPICS['tools.catalog'].scope)) {
+          refreshGrant()
+          return
+        }
+        enqueueLive(
+          {
+            t: 'push',
+            sub: id,
+            payload: { toolsets: tools.catalog({ clientId: grant.clientId, owner: grant.owner }) },
+          },
+          id,
+        )
+      })
     })
     subscription.handle = { dispose: stop }
   }
@@ -716,6 +771,46 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
       grant: outcome.grant,
       ...(outcome.pairingToken ? { pairing: { token: outcome.pairingToken } } : {}),
     })
+    // Attached once its welcome is queued, so a call sent to a process that is
+    // coming back reaches it after the welcome it waits for.
+    if (options.tools && studioScopesGrant(outcome.grant.scopes, 'tools:offer')) {
+      options.tools.attach(toolsConnection(outcome.grant, frame.client))
+      toolsAttached = true
+    }
+  }
+
+  /**
+   * This connection as the registry holds it. What kind of client it is, and
+   * so which of the shell's toolsets it may offer, is read only from an
+   * owner's grant, or asserted by the transport for the desktop's own port.
+   */
+  function toolsConnection(grant: StudioGrant, client: StudioClientInfo): ClientToolConnection {
+    const shellPort = options.shell === true
+    const kind = shellPort ? 'desktop' : grant.owner ? (client.kind ?? 'app') : 'app'
+    const shell: ClientToolConnection['shell'] = shellPort
+      ? 'all'
+      : !grant.owner
+        ? null
+        : kind === 'desktop'
+          ? 'all'
+          : kind === 'headless'
+            ? ['browser', 'canvas']
+            : kind === 'web'
+              ? ['canvas']
+              : null
+    return {
+      connectionId: options.connectionId,
+      clientId: grant.clientId,
+      clientName: grant.owner && client.name ? client.name : grant.name,
+      kind,
+      // A client that names no process run gets one of its own per
+      // connection: nothing is redelivered to it after a drop.
+      instanceId: client.instanceId ?? `connection-${options.connectionId}-${randomBytes(6).toString('hex')}`,
+      owner: grant.owner,
+      shell,
+      audited: !shellPort,
+      send: (toolFrame) => enqueueLive(toolFrame),
+    }
   }
 
   /** The grant as it is now, or null after closing for a revoked client. */
@@ -751,6 +846,13 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
     }
     const frame = parseStudioClientFrame(value)
     if (!frame) {
+      // An answer to a call is never answered back: one Studio cannot read is
+      // dropped, and the call it meant runs to its deadline.
+      const type = (value as { t?: unknown } | null)?.t
+      if ((type === 'reply' || type === 'progress') && toolsAttached) {
+        options.log?.(`Studio RPC dropped a ${type} it could not read from ${clientName || 'a client'}.`)
+        return
+      }
       const ids = studioClientFrameIds(value)
       const message = 'That frame is not in the documented shape.'
       if (ids.requestId) refuseRequest(ids.requestId, { code: 'invalid_frame', message })
@@ -764,6 +866,15 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
     }
     const grant = liveGrant()
     if (!grant) return
+    if (frame.t === 'reply' || frame.t === 'progress') {
+      if (!toolsAttached || !options.tools?.instanceOf(options.connectionId)) {
+        bye('invalid_frame', 'This connection was never sent a call to answer.')
+        return
+      }
+      if (frame.t === 'reply') options.tools.reply(options.connectionId, frame)
+      else options.tools.progress(options.connectionId, frame)
+      return
+    }
     if (frame.t === 'req') request(frame, grant)
     else if (frame.t === 'sub') subscribe(frame, grant)
     else {

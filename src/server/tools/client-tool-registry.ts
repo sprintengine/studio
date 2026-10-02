@@ -214,11 +214,14 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
   let closed = false
   const callPrefix = randomBytes(6).toString('hex')
 
+  const listeners = new Set<() => void>()
   const changed = () => {
-    try {
-      options.onChange?.()
-    } catch (error) {
-      options.log?.(`A client tools listener threw: ${error instanceof Error ? error.message : String(error)}`)
+    for (const listener of [...(options.onChange ? [options.onChange] : []), ...listeners]) {
+      try {
+        listener()
+      } catch (error) {
+        options.log?.(`A client tools listener threw: ${error instanceof Error ? error.message : String(error)}`)
+      }
     }
   }
   const conversationKey = (ref: ConversationRef) => `${ref.workspaceId}\u0000${ref.agentId}`
@@ -1044,5 +1047,10 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
     },
     /** How many calls are waiting on clients, for tests and diagnostics. */
     pendingCalls: () => calls.size,
+    /** Hear every change to what is offered, granted or gone. Returns the unsubscriber. */
+    subscribe(listener: () => void): () => void {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
   }
 }

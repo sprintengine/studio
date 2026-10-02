@@ -1,5 +1,8 @@
 import { writeDiagnosticLog } from '../../main/diagnostics-service'
-import { createStudioConversationBackend } from '../../main/studio-rpc/studio-conversation-backend'
+import {
+  conversationStartedBy,
+  createStudioConversationBackend,
+} from '../../main/studio-rpc/studio-conversation-backend'
 import { createStudioRpcService, type StudioRpcService } from '../../main/studio-rpc/studio-rpc-service'
 import type { StudioCore } from './studio-core'
 import type { StudioGateway } from './studio-gateway'
@@ -27,9 +30,16 @@ export function createStudioRpc(core: StudioCore, gateway: StudioGateway): Studi
         getWorkspaceAgents: () => core.workspaceSyncService.getSnapshot().state.workspaces,
       }),
     audit: () => gateway.gatewayAudit(),
+    tools: gateway.clientTools,
     log: (message) => {
       void writeDiagnosticLog({ level: 'warning', source: 'workspace', title: 'Local app socket', message })
     },
+  })
+  // An app's tools reach the chats it started, and as far as its pairing says.
+  gateway.linkClientTools({
+    reachOf: (clientId) => service.toolReachOf(clientId),
+    startedBy: (conversation) =>
+      conversationStartedBy(core.workspaceSyncService.getSnapshot().state.workspaces, conversation),
   })
   // Like the gateway, it binds only once a Studio server this desktop
   // displaced has gone: that server's listener still answers until then, and

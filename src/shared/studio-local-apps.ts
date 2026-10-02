@@ -23,9 +23,17 @@ export type StudioLocalApp = {
   ceiling: CliPermissionPreset
   createdAt: string
   lastSeenAt: string | null
+  /**
+   * Which agents the tools it offers reach, when it may offer tools
+   * (`tools:offer`): the conversations it starts (`own`), or every
+   * conversation and terminal agent on this machine (`all`).
+   */
+  toolReach: StudioLocalAppToolReach
   /** Whether it has a connection open now. */
   connected: boolean
 }
+
+export type StudioLocalAppToolReach = 'own' | 'all'
 
 /** A pairing code minted and not yet redeemed. The code itself is shown once, when minted. */
 export type StudioLocalAppOffer = {
@@ -33,6 +41,7 @@ export type StudioLocalAppOffer = {
   name: string
   scopes: StudioScope[]
   ceiling: CliPermissionPreset
+  toolReach: StudioLocalAppToolReach
   expiresAt: string
 }
 
@@ -47,4 +56,9 @@ export type StudioLocalAppsStatus = {
 /** What minting a pairing code answers: the code, once, and the status with the offer in it. */
 export type StudioLocalAppOfferView = { offer: StudioLocalAppOffer; code: string; status: StudioLocalAppsStatus }
 
-export type StudioLocalAppOfferInput = { name: string; scopes: StudioScope[]; ceiling: CliPermissionPreset }
+export type StudioLocalAppOfferInput = {
+  name: string
+  scopes: StudioScope[]
+  ceiling: CliPermissionPreset
+  toolReach: StudioLocalAppToolReach
+}

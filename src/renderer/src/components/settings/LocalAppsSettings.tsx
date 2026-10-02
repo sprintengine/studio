@@ -2,7 +2,11 @@ import { useCallback, useEffect, useId, useState } from 'react'
 
 import type { StudioScope } from '../../../../../packages/studio-protocol/src/public'
 import type { CliPermissionPreset } from '../../../../shared/cli-permission-preset'
-import type { StudioLocalAppOfferView, StudioLocalAppsStatus } from '../../../../shared/studio-local-apps'
+import type {
+  StudioLocalAppOfferView,
+  StudioLocalAppToolReach,
+  StudioLocalAppsStatus,
+} from '../../../../shared/studio-local-apps'
 import { formatRelativeMsAgo, relativeFromNow } from '../../utils/relativeTime'
 import {
   CopyGlyphButton,
@@ -53,8 +57,13 @@ const CEILING_ITEMS = AGENT_SPAWN_PERMISSION_OPTIONS.map((option) => ({
   ...(option.value === 'bypass' ? { tone: 'warn' as const } : {}),
 }))
 
-type Draft = { name: string; scopes: StudioScope[]; ceiling: CliPermissionPreset }
-const EMPTY_DRAFT: Draft = { name: '', scopes: ['conversation:read', 'conversation:operate'], ceiling: 'auto' }
+type Draft = { name: string; scopes: StudioScope[]; ceiling: CliPermissionPreset; toolReach: StudioLocalAppToolReach }
+const EMPTY_DRAFT: Draft = {
+  name: '',
+  scopes: ['conversation:read', 'conversation:operate'],
+  ceiling: 'auto',
+  toolReach: 'own',
+}
 
 export function LocalAppsSettings() {
   const [status, setStatus] = useState<StudioLocalAppsStatus | null>(null)
