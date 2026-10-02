@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, net, powerMonitor, safeStorage } from 'electron'
-import { createHash, randomUUID } from 'crypto'
+import { createHash } from 'crypto'
 import { existsSync } from 'fs'
-import { homedir, hostname } from 'os'
+import { homedir } from 'os'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { dirname, join } from 'path'
@@ -45,17 +45,6 @@ import { readModuleTrustContextSync } from './modules/trust-context'
 import { defaultUserModuleRoot, discoverUserModules } from './modules/user-module-registry'
 import type { ScheduledAgentsService } from './scheduled-agents/service'
 import {
-  addOrUpdateBacklogLink,
-  listBacklogItems,
-  readBacklogItem,
-  repairBacklogIntegrity,
-  updateBacklogDependenciesPlanned,
-  updateBacklogEpic,
-  updateBacklogStatus,
-  updateBacklogTriage,
-  updateBacklogType,
-} from './backlog-service'
-import {
   createBuiltinSkillManager,
   ensureSkillInstalled,
   setDefaultSkillManager,
@@ -65,17 +54,7 @@ import {
 } from './builtin-skills'
 import { SprintEngineAuthBridge } from './auth-service'
 import { createMainDiagnostics } from './main-diagnostics'
-import { createTailnetShareService, readTailnetWebTargets } from './automation/tailnet/tailnet-share-service'
-import { MobileControlSnapshotService, sanitizeMobileSnapshotForTransport } from './mobile/control/snapshot'
-import { MobileControlCommandService } from './mobile/control/command'
-import { deepRedactLocalPaths } from './mobile/control/path-safety'
 import { listKnownWorkspaceRoots, uniqueResolvedRoots } from './workspace-roots'
-import {
-  mobileControlProtocolVersion,
-  mobileSnapshotCollections,
-  type MobileControlCommandType,
-  type MobileSnapshotCollection,
-} from './mobile/control/protocol'
 import { createAgentSkillInstaller } from './agent-skill-installer'
 import { createCapabilityWatcher } from './capability-watcher'
 import { createMcpConfigService } from './mcp-config-service'
@@ -111,12 +90,7 @@ import { getPluginManifest, listPluginRegistryEntries } from './plugin-registry-
 import { createMcpServerResolver } from './mcp-config-readers/resolve-servers'
 import { syncStudioMcpConfig } from './studio-mcp-sync'
 import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../shared/product-identity'
-import { createGitWorktree, excludeMcpConfigFromWorktree, getGitRepoRoot } from './git'
-import { readBranchName, resolveTrunk } from './git-branch-span'
-import { getGitBranches } from './git-read-models'
-import { listGitWorktrees } from './git-worktree-list'
-import { readRepositoryIdentity } from './repository-identity'
-import { agentWorktreePaths } from '../shared/worktree-paths'
+import { excludeMcpConfigFromWorktree } from './git'
 import { createConversationPeekService } from './conversation-peek/service'
 import { createConversationTerminalHandoff } from './conversation-terminal-handoff'
 import { createAgentPromptStore, registeredAgentOwners } from './agent-prompt-store'
@@ -180,6 +154,7 @@ import { studioPlatform } from '../server/platform/platform'
 import { createStudioCore, studioBridgeScriptPath } from '../server/core/studio-core'
 import { createStudioGateway } from '../server/core/studio-gateway'
 import { createStudioRpc } from '../server/core/studio-rpc'
+import { createServerGatewayBackends } from '../server/desktop/gateway-backends'
 
 // How long the quit gives the session integrations' removal. What it does not
 // reach stays listed, and the next quit takes it out.
@@ -1388,205 +1363,34 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
       }),
       ...coreTools,
-      ...createAutomationTools({
-        getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
-        listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
-        launchAgent: (request) => agentLaunchService.launch(request),
-        resolveAgentPermissionPreset,
-        createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
-        listBacklogItems: (workspaceRoot) => listBacklogItems(workspaceRoot),
-        readBacklogItem: (workspaceRoot, relativePath) => readBacklogItem(workspaceRoot, relativePath),
-        backlogWrite: {
-          updateStatus: updateBacklogStatus,
-          updateType: updateBacklogType,
-          updateTriage: updateBacklogTriage,
-          updateEpic: updateBacklogEpic,
-          updateDependenciesPlanned: updateBacklogDependenciesPlanned,
-          addOrUpdateLink: addOrUpdateBacklogLink,
-          repairIntegrity: repairBacklogIntegrity,
-        },
-        getScheduledAgents: () => resolveScheduledAgents(),
-        defaultChatCli: () => effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastSelectedCli ?? null,
-        // The mobile companion, which reaches this desktop only over the
-        // tailnet gateway: the snapshot builder and the command service behind
-        // `workspace.snapshot` and `workspace.mobile_command`, scoped to the
-        // workspaces main already knows. Both are stateless enough to own here,
-        // and nothing else holds an instance: this desktop publishes nothing
-        // to a phone, it only answers what a paired device asks.
-        mobileControl: (() => {
-          // Dev servers this machine publishes on the tailnet ride the snapshot
-          // so the phone has a door to them. Stateless; the daemon is the truth.
-          const shareService = createTailnetShareService()
-          const snapshotService = new MobileControlSnapshotService({
-            readWebTargets: () => readTailnetWebTargets(shareService),
-          })
-          const commandService = new MobileControlCommandService()
-          // Stable for the app's lifetime; the phone treats it as an opaque id.
-          const desktopSessionId = `tailnet:${hostname()}`
-          // The commands the gateway transport actually serves: snapshot reads
-          // via workspace.snapshot, mutations via workspace.mobile_command's
-          // allowlist. Advertised in the snapshot so the phone's affordance
-          // gate shows exactly what will work over this transport.
-          const gatewayCommands: MobileControlCommandType[] = ['snapshot.request', 'backlog.update']
-          const workspaceRoots = () => uniqueResolvedRoots(listKnownWorkspaceRoots(workspaceSyncService.getSnapshot()))
-          return {
-            async readSnapshot(input: { include?: string[]; knownSnapshotVersion?: string }) {
-              const roots = workspaceRoots()
-              // An empty or absent `include` is the default set. A named one is
-              // served exactly, retired names included: they select nothing, so
-              // a read that names only a retired collection gets an empty
-              // snapshot rather than silently widening to every collection.
-              const include =
-                input.include && input.include.length > 0
-                  ? input.include.filter((entry): entry is MobileSnapshotCollection =>
-                      (mobileSnapshotCollections as readonly string[]).includes(entry),
-                    )
-                  : undefined
-              const snapshot = await snapshotService.readSnapshot({
-                desktopSessionId,
-                workspaceRoots: roots,
-                commands: gatewayCommands,
-                ...(include ? { include } : {}),
-              })
-              // The version is computed before sanitizing and sanitizing
-              // keeps it, so an unchanged read is answered without the copy.
-              if (input.knownSnapshotVersion && input.knownSnapshotVersion === snapshot.snapshotVersion) {
-                return { unchanged: true as const, snapshotVersion: snapshot.snapshotVersion }
-              }
-              const safe = sanitizeMobileSnapshotForTransport(snapshot)
-              return { unchanged: false as const, snapshot: safe as unknown as Record<string, unknown> }
-            },
-            async dispatchCommand(input: {
-              type: string
-              payload: Record<string, unknown>
-              deviceId: string
-              idempotencyKey: string
-              expectedSnapshotVersion?: string
-            }) {
-              const result = await commandService.dispatch(
-                {
-                  protocolVersion: mobileControlProtocolVersion,
-                  commandId: `tnc_${randomUUID()}`,
-                  type: input.type,
-                  payload: input.payload,
-                  deviceId: input.deviceId,
-                  issuedAt: new Date().toISOString(),
-                  idempotencyKey: input.idempotencyKey,
-                  ...(input.expectedSnapshotVersion ? { expectedSnapshotVersion: input.expectedSnapshotVersion } : {}),
-                },
-                { allowedWorkspaceRoots: workspaceRoots() },
-              )
-              if (!result.ok) {
-                return { ok: false as const, code: result.error.code, message: result.error.message }
-              }
-              return {
-                ok: true as const,
-                commandId: result.commandId,
-                commandType: result.commandType,
-                executedAt: result.executedAt,
-                // The result crosses to another device: local paths never do.
-                data: deepRedactLocalPaths(result.data),
-              }
-            },
-          }
-        })(),
-        // Agent-at-launch worktrees (agent.launch isolation + every connector
-        // launch): derive the `agent/<slug>` branch and container the Worktree
-        // manager uses, then create through the shared git helper. Mirrors
-        // WorkspaceManager's own worktree-agent spawn (copyIncludedFiles carries
-        // the repo's worktree-include set into the isolated tree).
-        createAgentWorktree: async ({ workspaceRoot, name, baseRef }) => {
-          const paths = agentWorktreePaths(workspaceRoot, name)
-          if (!paths) return { error: `"${name}" does not reduce to a usable worktree name.` }
-          const created = await createGitWorktree({
-            repoRoot: workspaceRoot,
-            containerPath: paths.containerPath,
-            destinationPath: paths.destinationPath,
-            branchName: paths.branchName,
-            // A remote launch names the branch to fork from (its picker lists
-            // this checkout's branches); a local one forks HEAD as it always did.
-            baseRef: baseRef?.trim() || 'HEAD',
-            copyIncludedFiles: true,
-            // The agent's id is minted after this, by the launch; the branch
-            // names the owner until then.
-            agentLockOwner: paths.branchName,
-          })
-          if (!created.ok) return { error: created.message ?? 'Git worktree creation failed.' }
-          return { worktreePath: created.data.path, branch: created.data.branch ?? paths.branchName }
-        },
-        readRepositoryIdentity: (folderPath) => readRepositoryIdentity(folderPath),
-        // The facts behind `workspace.checkout` (checkout-and-branch-on-remote-
-        // create): the same readers the sidebar rows and the Worktree manager
-        // use, so a remote picker lists exactly what this machine's Git view
-        // would. Not a repo is an answer, not an error.
-        readWorkspaceCheckout: async (workspaceRoot) => {
-          const empty = { git: false as const, branch: null, defaultBranch: null, branches: [], worktrees: [] }
-          const repoRoot = await getGitRepoRoot(workspaceRoot).catch(() => null)
-          if (!repoRoot) return empty
-          const [branch, snapshot, worktrees] = await Promise.all([
-            readBranchName(repoRoot),
-            getGitBranches(repoRoot).catch(() => null),
-            listGitWorktrees(repoRoot).catch(() => null),
-          ])
-          const trunk = await resolveTrunk(repoRoot, branch).catch(() => null)
-          return {
-            git: true,
-            branch,
-            defaultBranch: trunk?.name ?? null,
-            // `git branch` prints a detached HEAD as a pseudo-entry,
-            // "(HEAD detached at abc)", marked current; it is not a ref
-            // anyone can fork from and is dropped.
-            branches: (snapshot?.branches ?? [])
-              .filter((entry) => !entry.name.startsWith('('))
-              .map((entry) => ({ name: entry.name, current: entry.current })),
-            worktrees: worktrees?.ok
-              ? worktrees.data.worktrees
-                  .filter((entry) => !entry.bare)
-                  // `git worktree list` names the main worktree first, always.
-                  .map((entry, index) => ({ path: entry.path, branch: entry.branch, isMain: index === 0 }))
-              : [],
-          }
-        },
-        // module.*/marketplace.*. The registry snapshot is the
-        // renderer's mirror — main's own module list omits every renderer-only
-        // module, so reporting from it would be wrong by construction. Trust
-        // and launch readiness stay main-owned (signature verification and the
-        // trust store live here), and the marketplace read goes through the
-        // same client the Extensions storefront's IPC uses, cache included.
-        getModuleRegistrySnapshot: () => moduleRegistryMirror.read(),
-        listInstalledThirdPartyModules: async () => {
-          const { modules, rejected } = await discoverUserModules(
-            defaultUserModuleRoot(),
-            readModuleTrustContextSync(app.getPath('userData')),
-          )
-          return { modules: modules.map((module) => toThirdPartyModuleView(module)), rejected }
-        },
-        listModuleContributedTools: () =>
-          resolveModuleMcpTools().map((tool) => ({ moduleId: tool.moduleId, toolName: tool.registration.name })),
-        readMarketplaceRegistry: (input) => marketplaceRegistryReader.read(input),
-        // backlog.work composes the target CLI's native skill invocation from the
-        // loaded plugin manifests.
-        listPlugins: () => getPluginRegistry().loaded(),
-        // backlog.work ensures the Backlog skill exists in the CLI's native dir
-        // before launch (the same getStatus → install seam as a spawn). Reports
-        // whether the skill is now present; a false result is non-fatal. Asked
-        // of the machine the agent will run on: a WSL machine is prepared
-        // first (the launch that follows waits for the same), so its answer
-        // is the one that launch will act on.
-        ensureBuiltinSkillInstalled: async (workspaceRoot, skillId, cli, hostId) => {
-          const host = hostRegistry().resolve({ requested: hostId ?? null, folder: workspaceRoot })
-          if (host.kind === 'wsl') await host.prepare().catch(() => undefined)
-          const result = await ensureSkillInstalled(workspaceRoot, skillId, {
-            cli,
-            hostId: host.id,
-            integration: host.agentIntegration(),
-          })
-          if (!result.ok && result.status === 'unknown-skill') {
-            console.warn(`[skills] backlog.work asked for unknown skill "${skillId}".`)
-          }
-          return result.ok
-        },
-      }),
+      ...createAutomationTools(
+        createServerGatewayBackends({
+          getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
+          listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
+          launchAgent: (request) => agentLaunchService.launch(request),
+          resolveAgentPermissionPreset,
+          createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
+          getScheduledAgents: () => resolveScheduledAgents(),
+          defaultChatCli: () => effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastSelectedCli ?? null,
+          // module.*/marketplace.*. The registry snapshot is the
+          // renderer's mirror — main's own module list omits every renderer-only
+          // module, so reporting from it would be wrong by construction. Trust
+          // and launch readiness stay main-owned (signature verification and the
+          // trust store live here), and the marketplace read goes through the
+          // same client the Extensions storefront's IPC uses, cache included.
+          getModuleRegistrySnapshot: () => moduleRegistryMirror.read(),
+          listInstalledThirdPartyModules: async () => {
+            const { modules, rejected } = await discoverUserModules(
+              defaultUserModuleRoot(),
+              readModuleTrustContextSync(app.getPath('userData')),
+            )
+            return { modules: modules.map((module) => toThirdPartyModuleView(module)), rejected }
+          },
+          listModuleContributedTools: () =>
+            resolveModuleMcpTools().map((tool) => ({ moduleId: tool.moduleId, toolName: tool.registration.name })),
+          readMarketplaceRegistry: (input) => marketplaceRegistryReader.read(input),
+        }),
+      ),
       // Remote-control configuration, local socket only: the listener refuses
       // this whole family regardless of a device's scopes (tailnet-scopes.ts).
       ...createTailnetTools({ resolveTailnet: () => tailnetToolsFrontDoor }),

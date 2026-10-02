@@ -1,0 +1,120 @@
+import { join } from 'node:path'
+
+import type { IpcMain, IpcMainInvokeEvent } from 'electron'
+
+import { CONVERSATION_ATTACHMENTS_DIRECTORY } from '../../main/conversation-attachment-store'
+import { CONVERSATION_PLANS_DIRECTORY } from '../../main/conversation-plan-store'
+import type { createConversationTerminalHandoff } from '../../main/conversation-terminal-handoff'
+import type { createFilesystemReadHandlers } from '../../main/filesystem-read'
+import type { createFilesystemWatchSearchHandlers } from '../../main/filesystem-watch-search-handlers'
+import { gitRepoRootFor } from '../../main/git-repo-root'
+import type { GitHubTokenStore } from '../../main/github-token-store'
+import type { HostRegistry } from '../../main/hosts/host-registry'
+import { registerAutomationIpc } from '../../main/ipc/automation-ipc'
+import { registerBacklogIpc } from '../../main/ipc/backlog-ipc'
+import { registerCliModelDiscoveryIpc } from '../../main/ipc/cli-model-discovery-ipc'
+import { registerConversationCommandsIpc } from '../../main/ipc/conversation-commands-ipc'
+import { createConversationIpcHandlers, registerConversationIpc } from '../../main/ipc/conversation-ipc'
+import { registerCredentialIpc } from '../../main/ipc/credential-ipc'
+import { registerGitHubReposIpc } from '../../main/ipc/github-repos-ipc'
+import { registerGitHubTokenIpc } from '../../main/ipc/github-token-ipc'
+import { registerHostsIpc } from '../../main/ipc/hosts-ipc'
+import { registerLaunchSettingsIpc } from '../../main/ipc/launch-settings-ipc'
+import { registerMeshIpc } from '../../main/ipc/mesh-ipc'
+import { registerStudioLocalAppsIpc } from '../../main/ipc/studio-local-apps-ipc'
+import { registerWorkspaceBackupIpc } from '../../main/ipc/workspace-backup-ipc'
+import { registerWorkspaceSyncIpc } from '../../main/ipc/workspace-sync-ipc'
+import type { AgentLaunchSettingsStore } from '../../main/launch-settings-store'
+import { createStudioChatBackend } from '../../main/studio-rpc/studio-chat-backend'
+import type { StudioRpcService } from '../../main/studio-rpc/studio-rpc-service'
+import type { WorkspaceBackupService } from '../../main/workspace-backup'
+import type { StudioCore } from '../core/studio-core'
+import type { StudioGateway } from '../core/studio-gateway'
+
+// The `window.api` domains the Studio server owns (phase 6 spec, sections 5
+// and 6.2), registered in one place. Main registers them on `ipcMain` when the
+// server runs in process, which it does by default; the server registers the
+// very same calls on its IPC tunnel when it runs in a process of its own, and
+// the preload routes their channels there (SERVER_IPC_CHANNELS, which the
+// completeness test holds to this list).
+//
+// What is here: the workspace bus and registry hydration, launch settings and
+// machines, the gateway's settings and the tailnet and mesh, the paired local
+// apps, workspace backups, model discovery, the composer's command lists,
+// backlog files, provider credentials and the GitHub token, and the chats.
+// What is not: anything that acts on a window, a terminal or the shell's own
+// caches (the git panel, the file explorer, skills and the marketplace,
+// modules' enablement and trust), which stays with the shell until phase 10.
+
+/** `ipcMain`, or the server's tunnel registry, which has its shape. */
+type IpcRegistryLike = Pick<IpcMain, 'handle' | 'on' | 'removeHandler' | 'removeListener'>
+
+export type ServerDomainIpcDeps = {
+  core: Pick<
+    StudioCore,
+    'workspaceSyncService' | 'workspaceRegistry' | 'agentLaunchSettings' | 'hosts' | 'conversations' | 'platform'
+  > & { hosts: HostRegistry; agentLaunchSettings: AgentLaunchSettingsStore }
+  gateway: StudioGateway
+  studioRpc: StudioRpcService
+  githubTokenStore: GitHubTokenStore
+  workspaceBackup: WorkspaceBackupService
+  terminalHandoff: ReturnType<typeof createConversationTerminalHandoff>['handoff']
+  /** The file reads and searches the chat view's protocol surface answers from. */
+  files: ReturnType<typeof createFilesystemReadHandlers> & ReturnType<typeof createFilesystemWatchSearchHandlers>
+  /** Only an app window may pair a local app: `assertAppSender` in main; the port is the check in the server. */
+  assertAppSender: (event: IpcMainInvokeEvent) => void
+}
+
+export type ServerDomainIpcHandles = {
+  conversationCommands: { dispose(): Promise<void> }
+}
+
+export function registerServerDomainIpc(registry: IpcRegistryLike, deps: ServerDomainIpcDeps): ServerDomainIpcHandles {
+  const ipc = registry as IpcMain
+  const { core } = deps
+  const dataDir = () => core.platform.paths.dataDir()
+  registerWorkspaceSyncIpc(ipc, core.workspaceSyncService, { registry: core.workspaceRegistry })
+  registerAutomationIpc(ipc, deps.gateway)
+  registerStudioLocalAppsIpc(ipc, deps.studioRpc, deps.assertAppSender)
+  registerMeshIpc(ipc, deps.gateway)
+  registerWorkspaceBackupIpc(ipc, deps.workspaceBackup)
+  registerCliModelDiscoveryIpc(ipc)
+  const conversationCommands = registerConversationCommandsIpc(ipc, {
+    userDataDir: dataDir(),
+    cliRuntimes: () => core.agentLaunchSettings.get().cliRuntimes,
+  })
+  registerLaunchSettingsIpc(ipc, { launchSettings: core.agentLaunchSettings })
+  registerHostsIpc(ipc, { hosts: core.hosts })
+  registerBacklogIpc(ipc)
+  registerGitHubTokenIpc(ipc, deps.githubTokenStore)
+  registerGitHubReposIpc(ipc, deps.githubTokenStore)
+  // Over the core's chats, as every in-process consumer reaches them.
+  const conversationHandlers = createConversationIpcHandlers(core.conversations)
+  registerConversationIpc(ipc, { ...conversationHandlers, terminalHandoff: deps.terminalHandoff })
+  // The Studio RPC's chat surface is these same handlers, so a chat view on
+  // the protocol and one on IPC reach one chat by the same rules.
+  deps.studioRpc.provideChat(
+    createStudioChatBackend({
+      conversation: conversationHandlers,
+      files: deps.files,
+      repoRoot: gitRepoRootFor,
+      hasReceipt: (sessionId, commandId) => core.conversations.hasCommandReceipt(sessionId, commandId),
+      // A run's worktree is inside its repository's folder, or a workspace of its own.
+      readableRoots: () => [
+        ...core.workspaceRegistry.getRecords().flatMap((record) => (record.folderPath ? [record.folderPath] : [])),
+        join(dataDir(), CONVERSATION_ATTACHMENTS_DIRECTORY),
+        join(dataDir(), CONVERSATION_PLANS_DIRECTORY),
+      ],
+      commands: (input) => conversationCommands.list(input),
+      workspaces: () =>
+        core.workspaceRegistry.getRecords().map((record) => ({
+          id: record.id,
+          name: record.name,
+          folderPath: record.folderPath ?? null,
+          ...(record.hostId ? { hostId: record.hostId } : {}),
+        })),
+    }),
+  )
+  registerCredentialIpc(ipc)
+  return { conversationCommands }
+}

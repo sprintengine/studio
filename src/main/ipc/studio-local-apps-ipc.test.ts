@@ -10,6 +10,7 @@ vi.mock('electron', () => ({
 }))
 
 const { registerStudioLocalAppsIpc } = await import('./studio-local-apps-ipc')
+const { assertAppSender } = await import('./ipc-sender')
 const { STUDIO_LOCAL_APPS_OFFER_CHANNEL, STUDIO_LOCAL_APPS_REVOKE_CHANNEL, STUDIO_LOCAL_APPS_STATUS_CHANNEL } =
   await import('../../shared/studio-local-apps')
 
@@ -35,6 +36,7 @@ function harness() {
         return status
       },
     } as never,
+    assertAppSender,
   )
   const invoke = (channel: string, sender: Sender, ...args: unknown[]) =>
     handlers.get(channel)!(

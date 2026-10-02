@@ -1,7 +1,8 @@
 import type { IpcMain } from 'electron'
-import { isWslHostId } from '../../shared/execution-host'
+
+export { gitRepoRootFor } from '../git-repo-root'
 import { withGitHost } from '../git-run'
-import { hostRegistry } from '../hosts/host-registry'
+import { gitRepoRootFor, scopedHost } from '../git-repo-root'
 import { writeFile } from 'fs/promises'
 import { isAbsolute, join } from 'path'
 import { diffBranchSelection, listBranchSteps, readFileAtRev } from '../branch-steps'
@@ -49,7 +50,6 @@ import {
   getGitConflictFile,
   getGitFileAtStage,
   getGitFileBase,
-  getGitRepoRoot,
   getGitStatus,
   listGitWorktrees,
   mergeGitRef,
@@ -91,16 +91,6 @@ export type GitIpcPaths = {
   onChangelistsChanged?: (repoRoot: string) => void
   /** Working directories of the live terminal sessions; the worktree cleanup never removes one of them. */
   livePaths?: () => string[]
-}
-
-// `hostId` names the machine whose git answers, for a caller that knows it
-// before any workspace does (a New chat on a WSL machine, see withGitHost).
-const scopedHost = (hostId: unknown) =>
-  isWslHostId(typeof hostId === 'string' ? hostId : null) ? hostRegistry().get(hostId as string) : null
-
-/** The repository a folder is in, asked of the machine `hostId` names: the IPC's answer, and the Studio RPC's. */
-export function gitRepoRootFor(folderPath: string, hostId?: unknown): Promise<string | null> {
-  return withGitHost(scopedHost(hostId), () => getGitRepoRoot(folderPath))
 }
 
 export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics, paths: GitIpcPaths): void {

@@ -450,14 +450,24 @@ interface CallerContext {
   `ClientBus`.
 - **Routing in the preload.** `src/preload/ipc-router.ts` exports an `ipc`
   object with the `ipcRenderer` methods the api modules use. It routes by
-  channel through one generated table, `IPC_CHANNEL_OWNERS: Record<channel,
-  'shell' | 'server'>`. The 51 api modules change one import line each.
+  channel through one table, `SERVER_IPC_CHANNELS`
+  (`src/shared/ipc-channel-owners.ts`). The 50 api modules change one import
+  line each.
   - Server channels go to the port.
-  - Shell channels go to `ipcRenderer`.
+  - Every other channel goes to `ipcRenderer`: the shell is the default.
   - With the flag off, every channel goes to `ipcRenderer`.
-- **Classification completeness.** A test fails when a channel registered
-  anywhere in `src/main` or `src/server` is missing from the table. This is
-  the same rule as `STUDIO_METHOD_SCOPES` in the design.
+  - Amended at implementation (2026-10-02): push channels are not classified.
+    A listener hears a push from either side, since a push comes from
+    whichever process owns its domain; only invokes and sends need routing.
+  - The server's domains are registered in one function,
+    `registerServerDomainIpc` (`src/server/desktop/server-ipc.ts`), which main
+    calls on `ipcMain` in process and the server calls on its tunnel out of
+    process, so both modes register the same handlers.
+- **Classification completeness.** A test fails when a channel the server
+  registers is missing from the table, or the table lists one the server does
+  not register (`src/server/desktop/server-ipc.test.ts`). This is the same
+  rule as `STUDIO_METHOD_SCOPES` in the design. Since the shell is the
+  default, a shell channel needs no entry.
 - **Before the port arrives**, invokes on server channels queue in the preload.
   The queue holds at most 256 entries, and each times out after 30 s with
   `ServerUnavailable`. Listeners for server push channels are kept locally and

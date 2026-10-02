@@ -1,26 +1,40 @@
-import { shell } from 'electron'
 import { access, readdir, readFile, stat } from 'fs/promises'
 import { extname } from 'path'
 import { pathToFileURL } from 'url'
 import { imageMimeType } from './filesystem-image'
 import { MAX_IMAGE_DATA_URL_BYTES, MAX_TEXT_FILE_READ_BYTES } from './filesystem-read-limits'
 import { checkWorkspaceFolder, pathExists } from './filesystem-workspace'
-import { createProjectLogoResolver } from './project-logo'
-import { createProjectLogoIo } from './project-logo-io'
+import { createProjectLogoResolver, type ProjectLogoIo } from './project-logo'
 
 const BINARY_SNIFF_BYTES = 4096
 const MAX_CONTROL_CHARACTER_RATIO = 0.05
 
 export { MAX_IMAGE_DATA_URL_BYTES, MAX_TEXT_FILE_READ_BYTES }
 
-export function createFilesystemReadHandlers() {
+/**
+ * What the reads that hand a file to the OS need: the shell's file manager and
+ * browser. Electron's `shell` in main; absent in the Studio server, which reads
+ * files for the chat view and opens nothing on a screen.
+ */
+export type FileOpener = {
+  showItemInFolder(path: string): void
+  openExternal(url: string): Promise<void>
+}
+
+export function createFilesystemReadHandlers(options: { opener?: FileOpener; projectLogoIo?: ProjectLogoIo } = {}) {
+  const { opener } = options
+  const os = (): FileOpener => {
+    if (!opener) throw new Error('Opening a file on screen is the desktop window’s, not the Studio server’s.')
+    return opener
+  }
   // One resolver per handler set, so the hit cache outlives a single project
   // open and a re-open costs a stat instead of a directory scan.
-  const projectLogos = createProjectLogoResolver(createProjectLogoIo())
+  // The logo is decoded with the shell's image codec, so only the shell resolves it.
+  const projectLogos = options.projectLogoIo ? createProjectLogoResolver(options.projectLogoIo) : null
 
   return {
     detectProjectLogo(folderPath: string) {
-      return projectLogos.resolve(folderPath)
+      return projectLogos ? projectLogos.resolve(folderPath) : Promise.resolve(null)
     },
     async readDirectory(dirPath: string) {
       const entries = await readdir(dirPath, { withFileTypes: true })
@@ -73,7 +87,7 @@ export function createFilesystemReadHandlers() {
     checkWorkspaceFolder,
     async showItemInFolder(targetPath: string) {
       await access(targetPath)
-      shell.showItemInFolder(targetPath)
+      os().showItemInFolder(targetPath)
     },
     async openHtmlFileInBrowser(targetPath: string) {
       const extension = extname(targetPath).toLowerCase()
@@ -86,7 +100,7 @@ export function createFilesystemReadHandlers() {
         throw new Error('Only files can be opened in the browser.')
       }
 
-      await shell.openExternal(pathToFileURL(targetPath).toString())
+      await os().openExternal(pathToFileURL(targetPath).toString())
     },
   }
 }

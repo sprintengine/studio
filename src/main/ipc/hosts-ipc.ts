@@ -1,4 +1,6 @@
-import { BrowserWindow, type IpcMain } from 'electron'
+import type { IpcMain } from 'electron'
+
+import { studioPlatform } from '../../server/platform/platform'
 
 import { HOSTS_CHANNELS, isWslHostId, type HostHomeResult } from '../../shared/execution-host'
 import type { HostListing, HostRegistry } from '../hosts/host-registry'
@@ -40,9 +42,13 @@ export function registerHostsIpc(ipcMain: IpcMain, deps: HostsIpcDependencies): 
       : { ok: false, message: 'Could not read the home folder in that distribution.' }
   })
 
-  const getWindows = deps.getWindows ?? (() => BrowserWindow.getAllWindows())
   return deps.hosts.subscribe(() => {
-    for (const win of getWindows()) {
+    // Every window by default, through the platform's client bus.
+    if (!deps.getWindows) {
+      studioPlatform().clients.publish(HOSTS_CHANNELS.changed, null)
+      return
+    }
+    for (const win of deps.getWindows()) {
       if (!win.isDestroyed()) win.webContents.send(HOSTS_CHANNELS.changed, null)
     }
   })

@@ -1,4 +1,6 @@
-import { BrowserWindow, type IpcMain, type IpcMainInvokeEvent, type WebContents } from 'electron'
+import type { IpcMain, IpcMainInvokeEvent, WebContents } from 'electron'
+
+import { studioPlatform } from '../../server/platform/platform'
 import type { WorkspaceSyncEvent } from '../../shared/workspace-sync'
 import type { WorkspaceSyncService } from '../workspace-sync-service'
 import type { WorkspaceRegistryHydratePayload, WorkspaceRegistryService } from '../workspace-registry-service'
@@ -9,6 +11,7 @@ type BroadcastTarget = {
 }
 
 type RegisterWorkspaceSyncIpcOptions = {
+  /** The windows to broadcast to. Absent: the platform's client bus, every window but the sender's. */
   listWindows?: () => BroadcastTarget[]
   getSourceWindowId?: (event: IpcMainInvokeEvent) => string
   /**
@@ -24,19 +27,28 @@ export function registerWorkspaceSyncIpc(
   options: RegisterWorkspaceSyncIpcOptions = {},
 ): void {
   const getSourceWindowId = options.getSourceWindowId ?? defaultSourceWindowId
-  const listWindows = options.listWindows ?? (() => BrowserWindow.getAllWindows())
+  const listWindows = options.listWindows
+  const broadcast = (syncEvent: WorkspaceSyncEvent, source: SenderEvent | null): void => {
+    if (listWindows) broadcastWorkspaceSyncEvent(syncEvent, source?.sender ?? null, listWindows())
+    else
+      studioPlatform().clients.publish(
+        'workspace-sync:event',
+        syncEvent,
+        source ? { exceptClientId: callerClientId(source) } : 'all',
+      )
+  }
 
   // Events minted with no source window to skip — a gateway create, an
   // automation, the scheduler, a phone — reach every window through this
   // subscription. A window-originated dispatch deliberately does NOT announce
   // here; the handler below broadcasts it so the sending window is skipped.
   service.subscribeEvents((syncEvent) => {
-    broadcastWorkspaceSyncEvent(syncEvent, null, listWindows())
+    broadcast(syncEvent, null)
   })
 
   ipcMain.handle('workspace-sync:dispatch', (event, command: unknown) => {
     const result = service.dispatch({ command, sourceWindowId: getSourceWindowId(event) })
-    if (result.ok) broadcastWorkspaceSyncEvent(result.event, event.sender, listWindows())
+    if (result.ok) broadcast(result.event, event)
     return result
   })
 
@@ -67,7 +79,19 @@ function broadcastWorkspaceSyncEvent(
   }
 }
 
-function defaultSourceWindowId(event: IpcMainInvokeEvent): string {
+type SenderEvent = Pick<IpcMainInvokeEvent, 'sender'> & { caller?: { clientId: string; windowId: string | null } }
+
+/**
+ * The window's client id: the port's in the Studio server's tunnel, its
+ * contents' id in main (what the Electron platform's bus compares).
+ */
+function callerClientId(event: SenderEvent): string {
+  return event.caller?.clientId ?? String(event.sender.id)
+}
+
+function defaultSourceWindowId(event: SenderEvent): string {
+  // The tunnel says which window asked; main reads it back from the URL it gave the window.
+  if (event.caller) return event.caller.windowId ?? 'primary'
   return workspaceWindowIdFromUrl(event.sender.getURL())
 }
 
