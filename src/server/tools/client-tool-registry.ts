@@ -160,8 +160,17 @@ type Instance = ClientToolInstanceInfo & {
   focusedAt: number
   /** When its connection dropped, while it waits out its grace. */
   graceTimer: ReturnType<typeof setTimeout> | null
-  /** Offers and withdrawals in the last minute, for the rate limit. */
+  /** Offers and withdrawals in the last minute on its current connection, for the rate limit. */
   offerTimes: number[]
+  /**
+   * Toolsets it offered on a connection before this one, not yet offered
+   * again. Nothing is sent under them; if they are not offered again within
+   * the grace they go, as an instance's offers go when it does not come back.
+   */
+  stale: Set<string>
+  staleTimer: ReturnType<typeof setTimeout> | null
+  /** Cancels for calls it was sent, held while it has no connection to tell. */
+  pendingCancels: StudioCancelFrame[]
 }
 
 type CallState = 'waiting' | 'sent' | 'orphaned'
@@ -192,6 +201,7 @@ type Affinity = { instanceKey: string | null; movedFrom?: string }
 const DEFAULT_GRACE_MS = STUDIO_TOOL_LIMITS.reconnectGraceMs
 const BUSY_RETRY_MS = 500
 const MAX_AFFINITIES = 8192
+const MAX_PENDING_CANCELS = 256
 const SHELL_KIND_ORDER: Record<StudioClientKind, number> = { desktop: 0, web: 1, headless: 2, app: 3 }
 
 function noun(toolset: string, title: string): string {
@@ -334,6 +344,19 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
       instance.kind = connection.kind
       instance.shell = connection.shell
       instance.audited = connection.audited
+      if (previous?.connectionId !== connection.connectionId) {
+        // The rate limit is a connection's: a process that comes back may offer again.
+        instance.offerTimes = []
+        // What it offered before waits for it to offer again, within a grace.
+        if (instance.offers.size > 0) {
+          for (const name of instance.offers.keys()) instance.stale.add(name)
+          if (instance.staleTimer) clearTimeout(instance.staleTimer)
+          instance.staleTimer = setTimeout(() => expireStale(instance!), graceMs)
+          instance.staleTimer.unref?.()
+        }
+        // What was cancelled while it was away is told to it now.
+        for (const frame of instance.pendingCancels.splice(0)) safeSend(connection, frame)
+      }
     } else {
       instance = {
         key,
@@ -350,6 +373,9 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
         focusedAt: 0,
         graceTimer: null,
         offerTimes: [],
+        stale: new Set(),
+        staleTimer: null,
+        pendingCancels: [],
       }
       instances.set(key, instance)
     }
@@ -387,22 +413,42 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
         affinity.instanceKey = null
         affinity.movedFrom = instance.clientName
       }
-    for (const call of [...calls.values()]) {
-      if (call.instance !== instance) continue
-      if (call.state === 'waiting' || (call.state === 'orphaned' && !call.mutates && !call.rerouted)) {
-        // Never sent, or a read: safe to try once more elsewhere.
-        if (call.state === 'orphaned') call.rerouted = true
-        reroute(call)
-      } else {
-        finish(
-          call,
-          failure(
-            'client_disconnected',
-            `${instance.clientName} disconnected while running ${call.wireName}. It may or may not have finished; check before retrying.`,
-          ),
-        )
-      }
+    if (instance.staleTimer) clearTimeout(instance.staleTimer)
+    instance.staleTimer = null
+    instance.stale.clear()
+    instance.pendingCancels = []
+    for (const call of [...calls.values()])
+      if (call.instance === instance)
+        settleElsewhere(call, `${instance.clientName} disconnected while running ${call.wireName}.`)
+    changed()
+  }
+
+  /**
+   * A call its client can no longer answer: one never sent, or a read, is
+   * tried once more elsewhere; a mutation it may have run is answered so.
+   */
+  function settleElsewhere(call: Call, why: string): void {
+    if (call.state === 'waiting' || (call.state === 'orphaned' && !call.mutates && !call.rerouted)) {
+      if (call.state === 'orphaned') call.rerouted = true
+      reroute(call)
+      return
     }
+    finish(call, failure('client_disconnected', `${why} It may or may not have finished; check before retrying.`))
+  }
+
+  /** A process came back and did not offer again what it offered before: those toolsets go. */
+  function expireStale(instance: Instance): void {
+    instance.staleTimer = null
+    if (instances.get(instance.key) !== instance || !instance.stale.size) return
+    const gone = [...instance.stale]
+    instance.stale.clear()
+    for (const name of gone) {
+      instance.offers.delete(name)
+      if (!offering(name).length) lastGone.set(name, 'disconnected')
+    }
+    for (const call of [...calls.values()])
+      if (call.instance === instance && gone.includes(call.toolset) && call.state !== 'sent')
+        settleElsewhere(call, `${instance.clientName} came back without ${call.wireName}.`)
     changed()
   }
 
@@ -504,6 +550,11 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
       tools: new Map(toolset.tools.map((tool) => [tool.name, tool])),
     }
     instance.offers.set(name, offered)
+    instance.stale.delete(name)
+    if (!instance.stale.size && instance.staleTimer) {
+      clearTimeout(instance.staleTimer)
+      instance.staleTimer = null
+    }
     definitions.set(name, offered)
     lastGone.delete(name)
     audit(true)
@@ -521,9 +572,13 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
       }
     // The same process back within its grace: what it was running, and what
     // waited for it, goes to it now.
+    // One for a tool this offer no longer has is answered, not left to its deadline.
     if (instance.connection)
-      for (const call of calls.values())
-        if (call.instance === instance && call.toolset === name && call.state !== 'sent') send(call)
+      for (const call of [...calls.values()])
+        if (call.instance === instance && call.toolset === name && call.state !== 'sent') {
+          if (offered.tools.has(call.tool)) send(call)
+          else settleElsewhere(call, `${instance.clientName} no longer offers ${call.wireName}.`)
+        }
     changed()
     return {
       ok: true,
@@ -550,7 +605,13 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
         retryAfterMs,
       }
     instance.offers.delete(toolset)
+    instance.stale.delete(toolset)
     if (!offering(toolset).length) lastGone.set(toolset, 'withdrawn')
+    // A call sent before may still be answered; one that was waiting for this
+    // offer is not left to its deadline.
+    for (const call of [...calls.values()])
+      if (call.instance === instance && call.toolset === toolset && call.state !== 'sent')
+        settleElsewhere(call, `${instance.clientName} no longer offers ${call.wireName}.`)
     if (instance.audited)
       options.audit?.({
         clientId: instance.clientId,
@@ -675,7 +736,12 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
     const list = candidates(toolset, tool)
     if (affinity?.instanceKey) {
       const held = instances.get(affinity.instanceKey)
-      if (held && list.includes(held)) return { instance: held }
+      if (held && list.includes(held)) {
+        // Used, so kept longest: the bound drops the affinities nobody uses.
+        affinities.delete(key)
+        affinities.set(key, affinity)
+        return { instance: held }
+      }
     }
     const best = rank(list, caller, toolset)
     if (!best) return null
@@ -757,7 +823,11 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
 
   function send(call: Call): void {
     const connection = call.instance.connection
-    if (!connection || !call.instance.offers.get(call.toolset)?.tools.has(call.tool)) {
+    if (
+      !connection ||
+      call.instance.stale.has(call.toolset) ||
+      !call.instance.offers.get(call.toolset)?.tools.has(call.tool)
+    ) {
       call.state = call.sentTo.size ? 'orphaned' : 'waiting'
       return
     }
@@ -798,8 +868,17 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
   /** Stop waiting for a call: the agent is answered at once, and its client told if it had it. */
   function cancel(call: Call, reason: StudioCancelReason, result: StudioToolResult): void {
     if (calls.get(call.id) !== call) return
-    const connection = call.instance.connection
-    if (call.state === 'sent' && connection) safeSend(connection, { t: 'cancel', id: call.id, reason })
+    // A client that was sent the call is told, now or when it comes back:
+    // its handler may still be running.
+    if (call.sentTo.size > 0) {
+      const frame: StudioCancelFrame = { t: 'cancel', id: call.id, reason }
+      const connection = call.instance.connection
+      if (connection) safeSend(connection, frame)
+      else {
+        call.instance.pendingCancels.push(frame)
+        if (call.instance.pendingCancels.length > MAX_PENDING_CANCELS) call.instance.pendingCancels.shift()
+      }
+    }
     finish(call, result)
   }
 
@@ -992,6 +1071,7 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
     for (const instance of [...instances.values()]) {
       if (instance.clientId !== clientId) continue
       if (instance.graceTimer) clearTimeout(instance.graceTimer)
+      if (instance.staleTimer) clearTimeout(instance.staleTimer)
       instances.delete(instance.key)
       if (instance.connection) byConnection.delete(instance.connection.connectionId)
       for (const entry of [...calls.values()])
@@ -1010,6 +1090,7 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
       definitions.delete(name)
       lastGone.delete(name)
     }
+    buckets.delete(clientId)
     changed()
     return names
   }
@@ -1035,7 +1116,10 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
     closed = true
     for (const entry of [...calls.values()])
       cancel(entry, 'shutting_down', failure('client_unavailable', 'Studio is shutting down.'))
-    for (const instance of instances.values()) if (instance.graceTimer) clearTimeout(instance.graceTimer)
+    for (const instance of instances.values()) {
+      if (instance.graceTimer) clearTimeout(instance.graceTimer)
+      if (instance.staleTimer) clearTimeout(instance.staleTimer)
+    }
     instances.clear()
     byConnection.clear()
   }
@@ -1073,6 +1157,17 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
             instanceId: instance.instanceId,
           }
         : null
+    },
+    /**
+     * Whether a connection's process may be answering calls: it offers a
+     * toolset, or a call was sent to it. A reply from any other is out of place.
+     */
+    mayAnswer: (connectionId: string): boolean => {
+      const instance = connectionOf(connectionId)
+      if (!instance) return false
+      if (instance.offers.size > 0) return true
+      for (const entry of calls.values()) if (entry.instance === instance) return true
+      return false
     },
     /** How many calls are waiting on clients, for tests and diagnostics. */
     pendingCalls: () => calls.size,

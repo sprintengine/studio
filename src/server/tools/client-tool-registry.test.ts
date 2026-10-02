@@ -342,6 +342,62 @@ test('a dropped client that comes back within the grace and offers again is sent
   assert.equal(registry.visibleTools(agent()).length, 2)
 })
 
+test('a process that comes back without a toolset, or without one of its tools, is not waited on to its deadline', async () => {
+  reach.set('game-app', 'all')
+  const instanceId = 'game-process-0123456789'
+  const first = connect('game-app', { instanceId })
+  registry.offer(first.connectionId, toolset('game'))
+  const sent = registry.call({ caller: agent(), toolset: 'game', tool: 'spawn_enemy', args: {} })
+  registry.detach(first.connectionId)
+  const waiting = registry.call({ caller: agent(), toolset: 'game', tool: 'spawn_enemy', args: {} })
+  // It comes back, and nothing is sent under what it offered before until it offers again.
+  const second = connect('game-app', { instanceId })
+  const meanwhile = registry.call({ caller: agent(), toolset: 'game', tool: 'spawn_enemy', args: {} })
+  assert.equal(second.frames.length, 0)
+  // It never offers the toolset again: after a grace, what it may have run is
+  // answered so, and what it was never sent finds nobody else.
+  await vi.advanceTimersByTimeAsync(20_000)
+  assert.equal(code((await sent).result), 'client_disconnected')
+  assert.equal(code((await waiting).result), 'client_unavailable')
+  assert.equal(code((await meanwhile).result), 'client_unavailable')
+  assert.equal(registry.pendingCalls(), 0)
+
+  // Offered again without a tool: a call waiting for that tool is answered at once.
+  const third = connect('game-app', { instanceId: 'game-process-abcdefghij' })
+  registry.offer(third.connectionId, toolset('game'))
+  const read = registry.call({ caller: agent('reader'), toolset: 'game', tool: 'screenshot', args: {} })
+  registry.detach(third.connectionId)
+  const fourth = connect('game-app', { instanceId: 'game-process-abcdefghij' })
+  registry.offer(fourth.connectionId, toolset('game', [tool('spawn_enemy')]))
+  assert.equal(code((await settled(read)).result), 'tool_withdrawn')
+})
+
+test('a call cancelled while its client is away is cancelled there when it comes back', async () => {
+  reach.set('game-app', 'all')
+  const instanceId = 'game-process-0123456789'
+  const first = connect('game-app', { instanceId })
+  registry.offer(first.connectionId, toolset('game'))
+  const running = registry.call({ caller: agent('chat'), toolset: 'game', tool: 'spawn_enemy', args: {} })
+  const id = lastCall(first).id
+  registry.detach(first.connectionId)
+  assert.equal(registry.cancelCallsFor({ workspaceId: 'ws-1', agentId: 'chat' }), 1)
+  assert.equal(code((await running).result), 'cancelled')
+  const second = connect('game-app', { instanceId })
+  assert.deepEqual(second.frames, [{ t: 'cancel', id, reason: 'interrupted' }])
+})
+
+test('the offer rate limit is a connection’s: a process that reconnects may offer again', () => {
+  const instanceId = 'game-process-0123456789'
+  let connection = connect('game-app', { instanceId })
+  for (let index = 0; index < 20; index++)
+    assert.equal(registry.offer(connection.connectionId, toolset('game')).ok, true)
+  const refused = registry.offer(connection.connectionId, toolset('game'))
+  assert.equal(refused.ok ? null : refused.code, 'busy')
+  registry.detach(connection.connectionId)
+  connection = connect('game-app', { instanceId })
+  assert.equal(registry.offer(connection.connectionId, toolset('game')).ok, true)
+})
+
 test('when the grace runs out, a read is routed once more and a mutation is answered client_disconnected', async () => {
   reach.set('game-app', 'all')
   const gone = connect('game-app', { instanceId: 'old-process-0123456789' })
