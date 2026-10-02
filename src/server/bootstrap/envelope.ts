@@ -123,7 +123,14 @@ export type SupervisorToServer =
   | { t: 'ping'; seq: number }
   | { t: 'shutdown'; drain: boolean; budgetMs: number }
   /** A client's port is transferred with this message: a window's, or the shell's own session. */
-  | { t: 'attach-client'; clientId: string; windowId: string | null; kind: 'desktop-window' | 'shell' }
+  | {
+      t: 'attach-client'
+      clientId: string
+      windowId: string | null
+      kind: 'desktop-window' | 'shell'
+      /** A workspace window (not Diagnostics or an aux view): the `workspace-windows` push target. */
+      workspaceWindow?: boolean
+    }
   | { t: 'detach-client'; clientId: string }
 
 export type EnvelopeParseResult = { ok: true; envelope: ServerBootstrapEnvelope } | { ok: false; message: string }
