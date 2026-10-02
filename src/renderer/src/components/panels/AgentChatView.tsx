@@ -129,6 +129,9 @@ import {
 } from './agentChat/quoteSelection'
 import { useStickToBottom } from './agentChat/useStickToBottom'
 import { ConversationRowFrame } from './agentChat/conversationRowFrame'
+import { loadWholeConversation } from './agentChat/conversationReplay'
+import { ConversationReplayView, type ConversationReplaySource } from './agentChat/conversationReplayView'
+import { onChatReplayRequest, takeChatReplayRequest } from './agentChat/chatReplayRequests'
 import { useConversationScrollRestore } from './agentChat/conversationScrollRestore'
 import { useComposerSkillReader } from './agentChat/composerSkillReader'
 import { nextConversationEffort } from './agentChat/conversationEffort'
@@ -424,12 +427,15 @@ export type MountedChatView = {
   cycleEffort?: () => void
   resumeInTerminal?: () => void
   stepTurn?: (direction: -1 | 1) => void
+  /** Play the conversation back from its first message (`chat.replay.start`). */
+  startReplay?: () => void
   /** Quote the document's selection when it is in this view's transcript; whether it was. */
   quoteSelection?: () => boolean
 }
 const mountedChatViews: MountedChatView[] = []
 export const MODEL_PICKER_TOGGLE_COMMAND = 'chat.modelPicker.toggle'
 const RESUME_IN_TERMINAL_COMMAND = 'chat.resumeInTerminal'
+const REPLAY_COMMAND = 'chat.replay.start'
 
 /**
  * Answer `chat.modelPicker.toggle` (⌘⇧M, or the palette row) with ONE chat
@@ -476,6 +482,14 @@ function onModelPickerPanelCommand(event: Event): void {
         .reverse()
         .find((view) => view.workspaceId === useWorkspaceStore.getState().activeWorkspaceId)
     responder?.stepTurn?.(detail.id === 'chat.turn.previous' ? -1 : 1)
+  }
+  if (detail?.id === REPLAY_COMMAND) {
+    const responder =
+      mountedChatViews.find((view) => view.isFocused()) ??
+      [...mountedChatViews]
+        .reverse()
+        .find((view) => view.workspaceId === useWorkspaceStore.getState().activeWorkspaceId)
+    responder?.startReplay?.()
   }
   // The view whose transcript holds the selection answers, whichever has focus.
   if (detail?.id === QUOTE_SELECTION_COMMAND) mountedChatViews.some((view) => view.quoteSelection?.() === true)
@@ -591,6 +605,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     events,
     hydrated,
     hasMore,
+    beforeCursor,
     loadingEarlier,
     loadEarlier: fetchEarlier,
     error: historyError,
@@ -1998,6 +2013,42 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       return next.text
     })
   }
+  // Replay: the conversation played back from its first message, drawn over
+  // this view (agentChat/conversationReplayView). It reads the whole log, so
+  // the turns this view has not paged in yet are fetched first; leaving, or
+  // starting again, drops a read still under way.
+  const [replay, setReplay] = useState<ConversationReplaySource | null>(null)
+  const replayRunRef = useRef(0)
+  const startReplayRef = useRef<() => void>(() => undefined)
+  startReplayRef.current = () => {
+    const run = ++replayRunRef.current
+    setReplay({ status: 'loading' })
+    const root = binding.sessionRoot ?? workspaceRoot
+    const held = { events, hasMore: hasMore && root !== null, beforeCursor }
+    const key = { workspaceRoot: root ?? '', workspaceId, agentId }
+    void loadWholeConversation((input) => transport.loadEarlier(input), key, held)
+      .then((all) => {
+        if (replayRunRef.current === run) setReplay({ status: 'ready', events: all })
+      })
+      .catch((error: unknown) => {
+        if (replayRunRef.current === run)
+          setReplay({ status: 'error', message: error instanceof Error ? error.message : String(error) })
+      })
+  }
+  const leaveReplay = useCallback(() => {
+    replayRunRef.current += 1
+    setReplay(null)
+  }, [])
+  // A replay asked for from the tab's menu, which may have mounted this view to
+  // ask it: the ask waits for the transcript, or it would replay an empty chat.
+  useEffect(() => {
+    if (!hydrated) return
+    const answer = () => {
+      if (takeChatReplayRequest(workspaceId, agentId)) startReplayRef.current()
+    }
+    answer()
+    return onChatReplayRequest(answer)
+  }, [workspaceId, agentId, hydrated])
   const quoteSelectionRef = useRef<() => boolean>(() => false)
   quoteSelectionRef.current = () => {
     const transcript = transcriptRef.current
@@ -2013,6 +2064,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         cycleEffort: () => cycleEffortRef.current(),
         resumeInTerminal: () => resumeInTerminalRef.current(),
         stepTurn,
+        startReplay: () => startReplayRef.current(),
         quoteSelection: () => quoteSelectionRef.current(),
       }),
     [workspaceId, stepTurn],
@@ -2499,6 +2551,8 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
 
           <div
             ref={transcriptRef}
+            // Under a replay the live chat keeps running, out of reach.
+            inert={replay !== null}
             role="log"
             aria-label={`${label} conversation`}
             aria-live="off"
@@ -2616,7 +2670,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
             {announcement}
           </div>
-          <div className="chat-column-gutter relative pb-4 pt-1">
+          <div inert={replay !== null} className="chat-column-gutter relative pb-4 pt-1">
             {!atBottom && timelineRows.length > 0 ? (
               <OutlineButton
                 size="xs"
@@ -3038,6 +3092,15 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
               ) : null}
             </div>
           </div>
+          {replay ? (
+            <ConversationReplayView
+              source={replay}
+              title={label}
+              assistantName={assistantName}
+              cli={chatCli}
+              onLeave={leaveReplay}
+            />
+          ) : null}
         </ChatShell>
       </SubagentTypesProvider>
       {skillReader.reader}
