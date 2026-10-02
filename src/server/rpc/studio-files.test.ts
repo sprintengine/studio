@@ -121,6 +121,33 @@ test.skipIf(process.platform === 'win32')('a link out of the root is a path that
   assert.deepEqual(files.roots('ws-9'), { workspace: false, boards: false })
 })
 
+test.skipIf(process.platform === 'win32')(
+  'two spellings of one board share its queue, so only one of two writes against one read lands',
+  async () => {
+    const { files, workspace } = fixture()
+    mkdirSync(join(workspace, 'real'))
+    symlinkSync(join(workspace, 'real'), join(workspace, 'alias'))
+    for (let round = 0; round < 20; round++) {
+      const before = `{"round":${round}}`
+      writeFileSync(join(workspace, 'real', 'b.excalidraw'), before)
+      const [one, two] = await Promise.all([
+        files.write(ws, 'real/b.excalidraw', Buffer.from('{"by":"one"}'), hash(before)),
+        files.write(ws, 'alias/b.excalidraw', Buffer.from('{"by":"two"}'), hash(before)),
+      ])
+      assert.deepEqual([one.ok, two.ok].sort(), [false, true], `round ${round}`)
+    }
+  },
+)
+
+test('a folder named like a board is neither written nor removed', async () => {
+  const { files, workspace } = fixture()
+  mkdirSync(join(workspace, 'x.excalidraw'))
+  const written = await files.write(ws, 'x.excalidraw', Buffer.from('{}'), null)
+  assert.equal(written.ok ? null : written.code, 'invalid_params')
+  const removed = await files.remove(ws, 'x.excalidraw', null)
+  assert.equal(removed.ok ? null : removed.code, 'invalid_params')
+})
+
 test('a watch gathers a burst of changes into few pushes, by name', async () => {
   const { files, workspace } = fixture()
   const pushes: string[][] = []
@@ -184,11 +211,23 @@ test('the files methods are an owner’s, and a write is answered once per comma
   assert.equal(refused.t === 'res' && !refused.ok && refused.error.code, 'owner_required')
   // The watch stream over the socket.
   owner.send({ t: 'sub', id: 's1', topic: 'files.watch', params: { root: store, path: '' } })
-  await new Promise((resolve) => setTimeout(resolve, 50))
-  writeFileSync(join(boards, 'c.excalidraw'), '{}')
-  const push = await owner.next(
-    (frame) =>
-      frame.t === 'push' && frame.sub === 's1' && (frame.payload as { names: string[] }).names.includes('c.excalidraw'),
-  )
-  assert.equal(push.t, 'push')
+  let heard = false
+  const pushed = owner
+    .next(
+      (frame) =>
+        frame.t === 'push' &&
+        frame.sub === 's1' &&
+        (frame.payload as { names: string[] }).names.includes('c.excalidraw'),
+    )
+    .then((frame) => {
+      heard = true
+      return frame
+    })
+  // A platform's watch takes a moment to start hearing: the board is written
+  // until it is heard.
+  for (let tries = 0; !heard && tries < 250; tries++) {
+    writeFileSync(join(boards, 'c.excalidraw'), String(tries))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  assert.equal((await pushed).t, 'push')
 })

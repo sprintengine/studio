@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { watch as watchDirectory } from 'node:fs'
-import { lstat, mkdir, readFile, readdir, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 
 import {
@@ -22,9 +22,12 @@ import {
 //
 // A write is atomic (a temp file beside the target, then a rename, so a
 // reader never sees half a board) and conditional: `ifMatch` is the SHA-256 of
-// the bytes the client last read, null to create only. Writes to one file are
-// queued, so the check and the rename are one step to every other writer
-// through here. In this version only a board (`*.excalidraw`) is written.
+// the bytes the client last read, null to create only. Writes under one root
+// are queued, so the check and the rename are one step to every other writer
+// through here. The queue is the root's, not the path's: on a disk that folds
+// case, or through a linked folder, two spellings name one file, and a queue
+// per spelling would let both pass the same check. In this version only a
+// board (`*.excalidraw`) is written.
 
 export type StudioFileFailure = {
   ok: false
@@ -92,7 +95,7 @@ function inside(parent: string, child: string): boolean {
 export function createStudioFiles(options: StudioFilesOptions): StudioFiles {
   const queues = new Map<string, Promise<unknown>>()
 
-  /** One file's writes, one at a time. */
+  /** One root's writes, one at a time. */
   function serialised<T>(key: string, task: () => Promise<T>): Promise<T> {
     const run = (queues.get(key) ?? Promise.resolve()).then(task, task)
     const tail = run.then(
@@ -156,6 +159,26 @@ export function createStudioFiles(options: StudioFilesOptions): StudioFiles {
     }
   }
 
+  /** The queue a root's writes share: its real path where it exists. */
+  async function queueKey(base: string): Promise<string> {
+    return realpath(base).catch(() => base)
+  }
+
+  const folderRefused: StudioFileFailure = {
+    ok: false,
+    code: 'invalid_params',
+    message: 'That path is a folder, not a board.',
+  }
+
+  async function isFolder(target: string): Promise<boolean> {
+    try {
+      return (await stat(target)).isDirectory()
+    } catch (error) {
+      if (missing(error)) return false
+      throw error
+    }
+  }
+
   return {
     roots(workspaceId) {
       return {
@@ -213,7 +236,8 @@ export function createStudioFiles(options: StudioFilesOptions): StudioFiles {
       const located = await locate(root, path)
       if (!located.ok) return located
       try {
-        const info = await lstat(located.target)
+        // The link's target, not the link: `locate` has checked where it lands.
+        const info = await stat(located.target)
         if (info.isDirectory()) return { ok: false, code: 'invalid_params', message: 'That path is a folder.' }
         if (info.size > STUDIO_MAX_FILE_BYTES)
           return {
@@ -248,24 +272,28 @@ export function createStudioFiles(options: StudioFilesOptions): StudioFiles {
       const located = await locate(root, path)
       if (!located.ok) return located
       const target = located.target
-      return serialised(target, async (): Promise<StudioFileWritten | StudioFileConflict | StudioFileFailure> => {
-        const found = await currentHash(target)
-        if (found !== ifMatch) return { ok: false, code: 'conflict', currentHash: found }
-        await mkdir(dirname(target), { recursive: true })
-        // Created through a link that now points out: checked again on what exists now.
-        const again = await locate(root, path)
-        if (!again.ok) return again
-        const temp = `${target}.${randomUUID()}.tmp`
-        try {
-          await writeFile(temp, bytes)
-          await rename(temp, target)
-        } catch (error) {
-          await unlink(temp).catch(() => undefined)
-          throw error
-        }
-        const info = await stat(target)
-        return { ok: true, hash: sha256(bytes), size: bytes.length, mtimeMs: info.mtimeMs }
-      })
+      return serialised(
+        await queueKey(located.base),
+        async (): Promise<StudioFileWritten | StudioFileConflict | StudioFileFailure> => {
+          if (await isFolder(target)) return folderRefused
+          const found = await currentHash(target)
+          if (found !== ifMatch) return { ok: false, code: 'conflict', currentHash: found }
+          await mkdir(dirname(target), { recursive: true })
+          // Created through a link that now points out: checked again on what exists now.
+          const again = await locate(root, path)
+          if (!again.ok) return again
+          const temp = `${target}.${randomUUID()}.tmp`
+          try {
+            await writeFile(temp, bytes)
+            await rename(temp, target)
+          } catch (error) {
+            await unlink(temp).catch(() => undefined)
+            throw error
+          }
+          const info = await stat(target)
+          return { ok: true, hash: sha256(bytes), size: bytes.length, mtimeMs: info.mtimeMs }
+        },
+      )
     },
 
     async remove(root, path, ifMatch) {
@@ -274,7 +302,8 @@ export function createStudioFiles(options: StudioFilesOptions): StudioFiles {
       const located = await locate(root, path)
       if (!located.ok) return located
       const target = located.target
-      return serialised(target, async () => {
+      return serialised(await queueKey(located.base), async () => {
+        if (await isFolder(target)) return folderRefused
         const found = await currentHash(target)
         if (found === null) return { ok: true as const, removed: false }
         if (found !== ifMatch) return { ok: false as const, code: 'conflict' as const, currentHash: found }
