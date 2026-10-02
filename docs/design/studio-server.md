@@ -1538,38 +1538,34 @@ rpcSocket, secrets}}` or `{"fatal":{code, message}}`; everything for a
 
 ## 15. Open questions for the owner
 
+These questions, and the decisions the phase specs raise, are resolved in
+[`studio-server/decisions.md`](studio-server/decisions.md) (owner ruling
+2026-10-01). That file classifies every decision, settles the ones that have a
+settled answer, and lists only the rest for the owner. Where its rows change
+what this design says, this file is amended when the phase that implements them
+lands. The questions as they were asked, with where each is answered:
+
 1. **Package names.** Answered (owner ruling 2026-10-01):
    `@sprintengine/studio-protocol`, depending on and re-exporting the
    conversation package, which stays the phone's subset (5.4).
-2. **Local server lifetime.** Exit with the app (default here), or keep running
-   as a background service when the app quits, so agents keep working and the
-   web client stays reachable?
-3. **Secrets on headless hosts.** Is a 0600 key file on WSL and SSH hosts
-   acceptable, or should the server use `libsecret` where a session keyring
-   exists?
-4. **Sign-in without terminals.** Accept a per-CLI device-code or paste flow
-   over `providers.signIn`, and "sign in over SSH" for CLIs without one, or
-   allow one narrow "sign-in terminal" exception to ruling (a)?
-5. **The person's browser pane.** On the desktop with a local server, should
-   agent `browser.*` tools keep acting on the pane the person sees (this
-   design), or should the pane become a screencast of the server's headless
-   browser so there is one browser everywhere?
-6. **Chromium source by default.** Download a pinned headless Chromium on first
-   use (on demand, with a size warning), or require a system Chrome/Chromium on
-   WSL and SSH hosts and download only when asked? And may the agents' browser
-   run without the sandbox on a host where the owner allows it?
-7. **Attached-client rendering fallback.** Keep it (section 8.4) for hosts
-   where Chromium cannot run, or drop it to keep one path?
-8. **Remote targets.** Linux x64/arm64 and macOS over SSH in v1 — is a native
-   Windows server over SSH wanted later, or is WSL the only Windows answer?
-9. **Publishing the server.** Publish `studio-server` to npm (or as a
-   standalone archive) for machines that never run the desktop, or only install
-   it from a desktop in v1?
-10. **Third-party `entry.main` that imports `electron`.** Advertise an
-    `electron-main` host capability and let such modules run only in process,
-    or bump the host API and refuse them on servers?
-11. **Web exposure.** Loopback and tailnet only in v1. Is HTTPS through
-    `tailscale serve` for the web client wanted in v1 or later?
-12. **Terminals later.** If terminals come to the server after v1, they reuse
-    the WSL helper's design; confirm they stay out of scope until chat parity
-    on all routes.
+2. **Local server lifetime.** Settled: it exits with the app (R01).
+3. **Secrets on headless hosts.** Settled: a 0600 key file, with no keyring
+   probing (R12).
+4. **Sign-in without terminals.** Settled: device code, browser callback or
+   paste-back, credentials, and a sign-in-only terminal for the CLI's login
+   command (R34).
+5. **The person's browser pane.** Settled: the pane stays native on a desktop
+   attached to a server on its own PC (the local server and its WSL servers),
+   and is a screencast of the server's tabs everywhere else (R37, and "The browser pane and the render host" in
+   decisions.md). This replaces the last paragraph of section 8.
+6. **Chromium source by default, and running without the sandbox.** For the
+   owner: R40–R43.
+7. **Attached-client rendering fallback.** For the owner: R47 (drop it).
+8. **Remote targets.** Settled: Linux and macOS over SSH. WSL is the only
+   Windows answer (R33).
+9. **Publishing the server.** Settled: yes, to npm and as an archive (R08).
+10. **Third-party `entry.main` that imports `electron`.** For the owner: R60.
+11. **Web exposure.** Settled: tailnet web over HTTPS through `tailscale serve`
+    in phase 9, never plain HTTP (R19).
+12. **Terminals later.** Settled: out of scope until chat reaches parity on
+    every route (R09).
