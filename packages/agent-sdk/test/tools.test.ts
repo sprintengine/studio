@@ -15,6 +15,7 @@ import {
 import { createClientToolRegistry, type ClientToolRegistry } from '../../../src/server/tools/client-tool-registry'
 import { createClientToolsetStore } from '../../../src/server/tools/client-toolset-store'
 import { StudioError, StudioToolError, connect, toolResult, type StudioClient, type ToolCall } from '../src/index'
+import type { StudioCallFrame } from '../src/protocol'
 import { createClientTools } from '../src/tools'
 import { socketTransport } from '../src/node'
 
@@ -386,17 +387,16 @@ test('a call still running is never forgotten, however many finish after it', as
       { name: 'quick', description: 'Quick.', inputSchema: { type: 'object' }, handler: () => 'quick' },
     ],
   })
-  const frame = (id: string, tool: string, redelivery = false) =>
-    ({
-      t: 'call',
-      id,
-      toolset: 'game',
-      tool,
-      input: {},
-      context: { connection: { kind: 'studio-agent' } },
-      timeoutMs: 60_000,
-      ...(redelivery ? { redelivery: true } : {}),
-    }) as const
+  const frame = (id: string, tool: string, redelivery = false): StudioCallFrame => ({
+    t: 'call',
+    id,
+    toolset: 'game',
+    tool,
+    input: {},
+    context: { connection: { kind: 'studio-agent' } },
+    timeoutMs: 60_000,
+    ...(redelivery ? { redelivery: true as const } : {}),
+  })
   tools.handleCall(frame('slow', 'wait'))
   for (let index = 0; index < 2100; index++) tools.handleCall(frame(`quick-${index}`, 'quick'))
   await until(() => sent.length === 2100, 'the quick calls')
