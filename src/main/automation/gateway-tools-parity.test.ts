@@ -27,14 +27,20 @@ test('the desktop’s in-process composition lists exactly the recorded tools', 
   assert.deepEqual(lists, gatewayToolsFixture(lists))
 })
 
-test('the shell’s browser, offered over its port, lists exactly the recorded tools', async () => {
+test('the shell’s browser and canvas, offered over its port, list exactly the recorded tools', async () => {
   const parts = desktopToolParts()
   const ownTools = createStudioGatewayTools({
-    appTools: desktopGatewayTools({ ...parts, browser: [] })(parts.core),
+    appTools: desktopGatewayTools({ ...parts, browser: [], canvas: [] })(parts.core),
     resolveModuleTools: () => [],
     isModuleEnabled: () => false,
   })()
-  const loop = await createClientToolLoop({ toolsets: [{ name: 'browser', registrations: parts.browser }], ownTools })
+  const loop = await createClientToolLoop({
+    toolsets: [
+      { name: 'browser', registrations: parts.browser },
+      { name: 'canvas', registrations: parts.canvas },
+    ],
+    ownTools,
+  })
   try {
     const lists = await listsFor(loop.resolveTools)
     assert.deepEqual(lists, readGatewayToolsFixture())
@@ -46,8 +52,12 @@ test('the shell’s browser, offered over its port, lists exactly the recorded t
 test('an agent listing while the app starts gets the shell’s tools on its first tools/list', async () => {
   const parts = desktopToolParts()
   const loop = await createClientToolLoop({
-    toolsets: [{ name: 'browser', registrations: parts.browser }],
-    expect: ['browser'],
+    // Offered canvas first, as a slower shell might: the list keeps the order agents know.
+    toolsets: [
+      { name: 'canvas', registrations: parts.canvas },
+      { name: 'browser', registrations: parts.browser },
+    ],
+    expect: ['browser', 'canvas'],
     deferStart: true,
   })
   try {
@@ -60,7 +70,7 @@ test('an agent listing while the app starts gets the shell’s tools on its firs
       outcome.kind === 'result' ? (outcome.value.tools as Array<{ name: string }>).map((tool) => tool.name) : []
     assert.deepEqual(
       names,
-      parts.browser.map((tool) => tool.name),
+      [...parts.browser, ...parts.canvas].map((tool) => tool.name),
     )
   } finally {
     await loop.close()

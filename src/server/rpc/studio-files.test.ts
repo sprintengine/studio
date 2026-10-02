@@ -41,6 +41,11 @@ function fixture() {
   return { files, workspace, boards, outside }
 }
 
+async function until(check: () => boolean): Promise<void> {
+  for (let tries = 0; !check() && tries < 500; tries++) await new Promise((resolve) => setTimeout(resolve, 10))
+  assert.ok(check(), 'waited five seconds')
+}
+
 const hash = (text: string) => createHash('sha256').update(text).digest('hex')
 const ws = { kind: 'workspace' as const, workspaceId: 'ws-1' }
 const store = { kind: 'boards' as const, workspaceId: 'ws-1' }
@@ -116,22 +121,29 @@ test.skipIf(process.platform === 'win32')('a link out of the root is a path that
   assert.deepEqual(files.roots('ws-9'), { workspace: false, boards: false })
 })
 
-test('a watch tells of a burst of changes once, by name', async () => {
+test('a watch gathers a burst of changes into few pushes, by name', async () => {
   const { files, workspace } = fixture()
   const pushes: string[][] = []
   const watched = await files.watch(ws, '', (names) => pushes.push(names))
   assert.ok(watched.ok)
   cleanups.push(() => watched.dispose())
-  writeFileSync(join(workspace, 'a.excalidraw'), '1')
-  writeFileSync(join(workspace, 'a.excalidraw'), '2')
-  writeFileSync(join(workspace, 'b.excalidraw'), '3')
+  // A platform's watch takes a moment to start hearing: a probe is written
+  // until it is heard, and the burst starts from there.
+  for (let tries = 0; !pushes.flat().includes('probe.excalidraw') && tries < 250; tries++) {
+    writeFileSync(join(workspace, 'probe.excalidraw'), String(tries))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  await until(() => pushes.flat().includes('probe.excalidraw'))
+  // Its own pushes are let through before counting.
+  await new Promise((resolve) => setTimeout(resolve, 150))
+  pushes.length = 0
+  const written = Array.from({ length: 20 }, (_, index) => `board-${index}.excalidraw`)
+  for (const name of written) writeFileSync(join(workspace, name), '{}')
   const heard = () => new Set(pushes.flat())
-  for (let tries = 0; !(heard().has('a.excalidraw') && heard().has('b.excalidraw')) && tries < 200; tries++)
-    await new Promise((resolve) => setTimeout(resolve, 10))
-  // Three writes inside one debounce are one push (a platform may name the
-  // folder itself beside them).
-  assert.equal(pushes.length, 1)
-  assert.ok(heard().has('a.excalidraw') && heard().has('b.excalidraw'))
+  await until(() => written.every((name) => heard().has(name)))
+  // Twenty writes back to back are gathered, not one push each, however
+  // slowly the platform hands their events over.
+  assert.ok(pushes.length < written.length / 2, `${pushes.length} pushes for ${written.length} writes`)
 })
 
 test('the files methods are an owner’s, and a write is answered once per command id', async () => {

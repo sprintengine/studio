@@ -51,8 +51,11 @@ import { takeDataDir } from './take-data-dir'
 //
 // What is not, yet: the module host and its bundled modules (they still take
 // the shell's terminal runtime and account bridge), terminals (owner ruling
-// 2026-10-01: not served by the server in v1), the canvas worker and the
-// browser tools (the render host, phase 5), and everything the shell owns.
+// 2026-10-01: not served by the server in v1), and everything the shell owns.
+// What is not, ever: the browser and the canvas (owner ruling 2026-10-02: the
+// server draws nothing). They are toolsets a client offers, which the gateway
+// lists and routes (src/server/tools/); the server keeps only the board files,
+// read and written through `files.*`.
 
 export type StudioCoreOptions = {
   /** Which kind of process this core runs in; decides the lock and secret rules below. */

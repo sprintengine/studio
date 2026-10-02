@@ -1094,7 +1094,10 @@ explorer extends them later (parent ruling c).
   server-bound list: the server resolves the `boards` root with it.
 
 **The remote `CanvasFs`.** `src/main/canvas/protocol-canvas-fs.ts` implements
-`CanvasFs` and the directory watcher over these methods.
+`CanvasFs` and the directory watcher over these methods. (As built, a board
+over about 768 KB is staged with `uploads.*` before its write, and the
+adapter takes an `onReconnect` hook through which its owner says the client
+connected again, for the synthetic change below.)
 
 - The service runs with `path.posix` and two virtual roots,
   `/boards/<workspaceId>/` and `/workspace/<workspaceId>/`, which the adapter
@@ -1267,6 +1270,14 @@ The flag is deleted in the release after.
    against the in-memory `CanvasFs` (today), against `createNodeCanvasFs` on a
    temp directory, and against the protocol `CanvasFs` over an in-process
    server with a temp data directory. Every case passes on all three.
+   (Amended as built: `canvas-service.test.ts` stays on the in-memory
+   filesystem, because most of its cases assert that filesystem's own log of
+   operations, which a disk cannot show. `canvas-service-filesystems.test.ts`
+   runs the cases that are about the board, not the log, on all three: create,
+   a person's commit and an agent's edit read back, a change made outside the
+   app merged and pushed, a write an outside change got ahead of, and listing;
+   and, over the protocol only, a conditional write another client got in
+   ahead of, for a commit and for an agent's edit.)
 5. **Two clients, one board.** Two canvas services over the protocol on one
    board: an agent edit in one while the other commits a person's edit to the
    same element ends `interrupted` with the person's version on disk; edits to

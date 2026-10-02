@@ -1306,10 +1306,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     return CANVAS_MODULE_DEFAULT_ENABLED
   }
 
-  // The browser and canvas tools, as main runs them. The shell offers the
-  // browser to the gateway as a client toolset, the way any app offers its
-  // tools; `SPRINTENGINE_CLIENT_TOOLS=0` keeps it registered in process, as
-  // before, for one release.
+  // The browser and canvas tools, as main runs them. The shell offers both to
+  // the gateway as client toolsets, the way any app offers its tools;
+  // `SPRINTENGINE_CLIENT_TOOLS=0` keeps them registered in process, as before,
+  // for one release. The canvas service stays on this disk's files while the
+  // server runs in this process: they are the server's files too.
   const clientToolsEnabled = readStudioEnv('SPRINTENGINE_CLIENT_TOOLS') !== '0'
   const browserTools = createBrowserTools({
     manager: browserManager,
@@ -1361,10 +1362,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     // terminal and run tools, in the order agents have always listed them
     // (`desktopGatewayTools`).
     // This server's shell offers these, and an agent's first list waits for them.
-    expectShellToolsets: clientToolsEnabled ? ['browser'] : [],
+    expectShellToolsets: clientToolsEnabled ? ['browser', 'canvas'] : [],
     appTools: desktopGatewayTools({
       browser: clientToolsEnabled ? [] : browserTools,
-      canvas: canvasTools,
+      canvas: clientToolsEnabled ? [] : canvasTools,
       editor: createEditorTools(
         createEditorToolBackends({
           findWorkspace: (workspaceId) =>
@@ -1599,7 +1600,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const desktopShell = createDesktopShellTools({
     transport: studioRpc.shellTransport(),
     version: app.getVersion(),
-    toolsets: clientToolsEnabled ? [{ name: 'browser', registrations: browserTools }] : [],
+    toolsets: clientToolsEnabled
+      ? [
+          { name: 'browser', registrations: browserTools },
+          { name: 'canvas', registrations: canvasTools },
+        ]
+      : [],
     focus: {
       current: () => ({
         focused: BrowserWindow.getAllWindows().some(
