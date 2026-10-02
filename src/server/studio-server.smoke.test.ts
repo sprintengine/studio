@@ -322,3 +322,48 @@ test('a bootstrap envelope that is not one exits 64 and says why on stdout', asy
   assert.match(fatal.message, /dataDir/)
   assert.equal(await exited, 64)
 })
+
+test('a server killed mid-turn leaves a directory the next one takes over: the lock, the socket and the turn, closed', async () => {
+  const repository = join(scratch, 'killed', 'repository')
+  const dataDir = join(scratch, 'killed', 'data')
+  mkdirSync(repository, { recursive: true })
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: repository, stdio: 'pipe' })
+  git('init', '-q')
+  git('config', 'user.name', 'Developer')
+  git('config', 'user.email', 'dev@example.com')
+  writeFileSync(join(repository, 'existing.txt'), 'original\n')
+  git('add', '.')
+  git('commit', '-qm', 'Initial files')
+  const KILL_FIXTURE = join(__dirname, '__fixtures__', 'kill-mid-turn.cjs')
+  const env = isolatedEnv('killed')
+
+  const first = spawn(process.execPath, [KILL_FIXTURE, bundle, 'start', dataDir, repository, ROOT], {
+    env,
+    cwd: tmpdir(),
+  })
+  let firstErr = ''
+  first.stderr.on('data', (chunk: Buffer) => (firstErr += chunk.toString('utf8')))
+  const waiting = createInterface({ input: first.stdout })[Symbol.asyncIterator]()
+  const said = await waiting.next()
+  assert.equal(said.done, false, firstErr)
+  assert.equal(JSON.parse(said.value).waiting, true)
+  const firstPid = first.pid
+  const gone = new Promise((resolve) => first.on('exit', resolve))
+  first.kill('SIGKILL')
+  await gone
+
+  const resumed = execFileSync(process.execPath, [KILL_FIXTURE, bundle, 'resume', dataDir, repository, ROOT], {
+    env,
+    cwd: tmpdir(),
+    encoding: 'utf8',
+  })
+  const report = JSON.parse(resumed.trim().split('\n').at(-1)!) as Record<string, any>
+  // The dead holder's lock was taken over by the new process.
+  assert.notEqual(report.lock.pid, firstPid)
+  assert.equal(report.lock.pid, report.ready.pid)
+  // The socket the dead server left was removed and bound again.
+  assert.equal(typeof report.ready.gatewaySocket, 'string')
+  // The turn the kill cut short reads as interrupted, and nothing is duplicated.
+  assert.equal(report.messages, 1)
+  assert.deepEqual(report.ends, [{ type: 'turn_failed', reason: 'interrupted' }])
+})
