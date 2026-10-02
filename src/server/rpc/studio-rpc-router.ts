@@ -581,12 +581,22 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
             let bytes: Buffer
             if (text !== undefined) bytes = Buffer.from(text, 'utf8')
             else {
-              const spent = uploads.spend(grant.clientId, [uploadId!], runtimeId)
+              const spent = uploads.spend(grant.clientId, [uploadId!], runtimeId, 'file')
               if (!spent.ok) return refuse(spent.code, spent.message)
               bytes = spent.pictures[0].bytes
             }
-            const written = await files.write(root, path, bytes, ifMatch)
-            if (uploadId !== undefined) uploads.settle(grant.clientId, runtimeId, written.ok)
+            // A conflict is an answer, kept for every repeat of this command,
+            // so its bytes go as a write's do; a write that could not be
+            // carried out leaves them unsent, for a retry or a discard.
+            let written: Awaited<ReturnType<typeof files.write>>
+            try {
+              written = await files.write(root, path, bytes, ifMatch)
+            } catch (error) {
+              if (uploadId !== undefined) uploads.settle(grant.clientId, runtimeId, false)
+              throw error
+            }
+            if (uploadId !== undefined)
+              uploads.settle(grant.clientId, runtimeId, written.ok || written.code === 'conflict')
             return written.ok || written.code === 'conflict' ? { ok: true, result: written as never } : failed(written)
           },
           voice,
@@ -646,13 +656,37 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
     const chat = options.chat?.() ?? null
     // A session command's receipt keeps what it was, across a restart too.
     const stamp = fingerprint ? { commandFingerprint: fingerprint } : {}
+    // An upload is the client's; its budget is this connection's. Staging
+    // needs no chat: a board too large for one frame is staged the same way.
+    const holder = { client: grant.clientId, connection: context.connectionId }
+    switch (method) {
+      case 'uploads.begin': {
+        const input = params as StudioMethodParams<'uploads.begin'>
+        // A file's bytes are only ever spent by `files.write`, which is an owner's.
+        if (input.purpose === 'file' && !grant.owner)
+          return refuse('owner_required', 'Only Studio itself may stage a file’s bytes.')
+        const begun = uploads.begin(holder, input)
+        return begun.ok
+          ? { ok: true, result: { uploadId: begun.uploadId, chunkBytes: begun.chunkBytes } }
+          : refuse(begun.code, begun.message)
+      }
+      case 'uploads.append': {
+        const appended = uploads.append(holder, params as StudioMethodParams<'uploads.append'>)
+        return appended.ok
+          ? { ok: true, result: { received: appended.received } }
+          : refuse(appended.code, appended.message)
+      }
+      case 'uploads.discard':
+        return {
+          ok: true,
+          result: uploads.discard(grant.clientId, (params as StudioMethodParams<'uploads.discard'>).uploadIds),
+        }
+    }
     if (!chat) return refuse('unavailable', `This Studio does not serve ${method}.`)
     // A reply is what the backend answered, as this connection may be shown it.
     const outcome = (result: unknown): StudioRpcAnswer => ({ ok: true, result: voice.redact(result) as never })
     const runtimeId = (id: string) => studioRuntimeCommandId(grant, id)
     const keptId = (id: string) => `${method}:${runtimeId(id)}`
-    // An upload is the client's; its budget is this connection's.
-    const holder = { client: grant.clientId, connection: context.connectionId }
     switch (method) {
       case 'session.start': {
         const { commandId, cliRuntimes, ...input } = params as StudioMethodParams<'session.start'>
@@ -738,23 +772,6 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
         const { commandId, ...input } = params as StudioMethodParams<'session.setModel'>
         return outcome(await chat.setModel({ ...input, commandId: runtimeId(commandId), ...stamp }))
       }
-      case 'uploads.begin': {
-        const begun = uploads.begin(holder, params as StudioMethodParams<'uploads.begin'>)
-        return begun.ok
-          ? { ok: true, result: { uploadId: begun.uploadId, chunkBytes: begun.chunkBytes } }
-          : refuse(begun.code, begun.message)
-      }
-      case 'uploads.append': {
-        const appended = uploads.append(holder, params as StudioMethodParams<'uploads.append'>)
-        return appended.ok
-          ? { ok: true, result: { received: appended.received } }
-          : refuse(appended.code, appended.message)
-      }
-      case 'uploads.discard':
-        return {
-          ok: true,
-          result: uploads.discard(grant.clientId, (params as StudioMethodParams<'uploads.discard'>).uploadIds),
-        }
       case 'conversation.revert': {
         const { commandId, key: wire, ...input } = params as StudioMethodParams<'conversation.revert'>
         const key = resolve(wire, grant)

@@ -101,23 +101,40 @@ export function createProtocolCanvasFs(
       purpose: 'file',
     })
     const chunk = Math.min(begun.chunkBytes || STUDIO_UPLOAD_CHUNK_BYTES, STUDIO_UPLOAD_CHUNK_BYTES)
-    for (let offset = 0; offset < bytes.length; offset += chunk) {
-      const piece = bytes.subarray(offset, offset + chunk)
-      await client.request('uploads.append', {
-        uploadId: begun.uploadId,
-        offset,
-        dataBase64: Buffer.from(piece).toString('base64'),
-      })
+    try {
+      for (let offset = 0; offset < bytes.length; offset += chunk) {
+        const piece = bytes.subarray(offset, offset + chunk)
+        await client.request('uploads.append', {
+          uploadId: begun.uploadId,
+          offset,
+          dataBase64: Buffer.from(piece).toString('base64'),
+        })
+      }
+    } catch (error) {
+      discard(begun.uploadId)
+      throw error
     }
     return begun.uploadId
   }
 
+  /** Give back staged bytes no write will spend, so they stop counting against the connection. */
+  function discard(uploadId: string): void {
+    void client.request('uploads.discard', { uploadIds: [uploadId] }).catch(() => undefined)
+  }
+
   async function write(path: string, text: string, ifMatch: string | null) {
     const { root, path: relative } = locate(path)
-    const body = Buffer.byteLength(text, 'utf8') <= INLINE_TEXT_BYTES ? { text } : { uploadId: await upload(text) }
-    return ask(path, () =>
-      client.request('files.write', { root, path: relative, ...body, ifMatch, commandId: newCommandId() }),
-    )
+    const uploadId = Buffer.byteLength(text, 'utf8') <= INLINE_TEXT_BYTES ? null : await upload(text)
+    const body = uploadId === null ? { text } : { uploadId }
+    try {
+      return await ask(path, () =>
+        client.request('files.write', { root, path: relative, ...body, ifMatch, commandId: newCommandId() }),
+      )
+    } catch (error) {
+      // A write that was not carried out leaves its upload unsent.
+      if (uploadId !== null) discard(uploadId)
+      throw error
+    }
   }
 
   const fs: CanvasFs = {
