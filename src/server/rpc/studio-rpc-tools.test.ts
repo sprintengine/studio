@@ -174,6 +174,11 @@ test('a client that was never sent a call is closed for answering one', async ()
   reader.send({ t: 'reply', id: 'x', ok: true, result: { content: [] } })
   const bye = await reader.next((frame) => frame.t === 'bye')
   assert.equal(bye.t === 'bye' && bye.code, 'invalid_frame')
+  // Holding the scope is not enough: one that has offered nothing was sent nothing.
+  const idle = await open(pairFakeClient(auth, 'idle-app', ['tools:offer']))
+  idle.send({ t: 'reply', id: 'x', ok: true, result: { content: [] } })
+  const idleBye = await idle.next((frame) => frame.t === 'bye')
+  assert.equal(idleBye.t === 'bye' && idleBye.code, 'invalid_frame')
 })
 
 test('revoking an app drops its offers at once', async () => {

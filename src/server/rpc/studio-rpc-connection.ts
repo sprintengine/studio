@@ -915,7 +915,7 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
     const grant = liveGrant()
     if (!grant) return
     if (frame.t === 'reply' || frame.t === 'progress') {
-      if (!toolsAttached || !options.tools?.instanceOf(options.connectionId)) {
+      if (!toolsAttached || !options.tools?.mayAnswer(options.connectionId)) {
         bye('invalid_frame', 'This connection was never sent a call to answer.')
         return
       }
