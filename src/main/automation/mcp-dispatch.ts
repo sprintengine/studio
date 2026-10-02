@@ -110,6 +110,11 @@ export type McpClientToolHooks = {
 // The tools/call requests running on each connection, by their JSON-RPC id,
 // so an agent's `notifications/cancelled` can stop one.
 const runningCalls = new WeakMap<McpConnectionContext, Map<string, AbortController>>()
+// Cancellations that arrived before their call started: a cancellation is
+// handled as it arrives, while the call it names may still be queued behind
+// another request on the same connection. Bounded; the oldest go first.
+const earlyCancels = new WeakMap<McpConnectionContext, Set<string>>()
+const MAX_EARLY_CANCELS = 64
 const callKey = (id: JsonRpcId) => (typeof id === 'number' ? `n:${id}` : `s:${String(id)}`)
 
 export function createMcpDispatcher(options: {
@@ -165,8 +170,16 @@ export function createMcpDispatcher(options: {
           // The agent gave up on a call: one a client is running is cancelled
           // there too. A call that already answered, or an id never seen, is nothing.
           const requestId = params.requestId
-          if (typeof requestId === 'string' || typeof requestId === 'number')
-            runningCalls.get(context)?.get(callKey(requestId))?.abort()
+          if (typeof requestId === 'string' || typeof requestId === 'number') {
+            const running = runningCalls.get(context)?.get(callKey(requestId))
+            if (running) running.abort()
+            else {
+              const early = earlyCancels.get(context) ?? new Set<string>()
+              earlyCancels.set(context, early)
+              early.add(callKey(requestId))
+              if (early.size > MAX_EARLY_CANCELS) early.delete(early.values().next().value!)
+            }
+          }
           return { kind: 'no_response' }
         }
         case 'ping':
@@ -208,6 +221,8 @@ export function createMcpDispatcher(options: {
           const running = runningCalls.get(context) ?? new Map<string, AbortController>()
           runningCalls.set(context, running)
           if (key) running.set(key, controller)
+          // Cancelled while it waited its turn: it starts cancelled.
+          if (key && earlyCancels.get(context)?.delete(key)) controller.abort()
           const meta = isRecord(params._meta) ? params._meta : undefined
           const progressToken =
             typeof meta?.progressToken === 'string' || typeof meta?.progressToken === 'number'

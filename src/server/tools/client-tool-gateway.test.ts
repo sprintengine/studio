@@ -214,6 +214,9 @@ test('a catalog only grows: a gone client’s tool stays listed and answers clie
   // A name no client could answer for is still an unknown tool.
   const unknown = await fresh.request('tools/call', { name: 'nothing.here', arguments: {} })
   assert.ok(unknown.error)
+  // And so is a misspelt tool of a family Studio serves itself: no client answers for it.
+  const typo = await fresh.request('tools/call', { name: 'workspace.lst', arguments: {} })
+  assert.ok(typo.error)
 })
 
 test('a burst of offers is one notification, and only to a connection that can see them', async () => {
@@ -261,6 +264,31 @@ test('an agent’s cancel reaches the client, and progress reaches an agent that
   const answered = await caller.next((message) => message.id === 41)
   assert.match(JSON.stringify(answered.result), /cancelled/)
   assert.deepEqual(game.frames.at(-1), { t: 'cancel', id: call.id, reason: 'interrupted' })
+})
+
+test('a call cancelled while it waits behind another on its connection is never sent', async () => {
+  const { registry, socketPath, client } = await harness({ reach: 'all' })
+  const game = client('game-app')
+  registry.offer(game.connectionId, toolset('game', ['slow']))
+  const caller = await agent(socketPath)
+  // One write, so the cancellation is read before the first call is answered:
+  // the second call waits its turn behind the first, and is given up on there.
+  caller.socket.write(
+    [
+      { jsonrpc: '2.0', id: 51, method: 'tools/call', params: { name: 'game.slow', arguments: {} } },
+      { jsonrpc: '2.0', id: 52, method: 'tools/call', params: { name: 'game.slow', arguments: {} } },
+      { jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 52 } },
+    ]
+      .map((message) => `${JSON.stringify(message)}\n`)
+      .join(''),
+  )
+  for (let tries = 0; !game.frames.some((frame) => frame.t === 'call') && tries < 200; tries++)
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  const first = game.frames.find((frame): frame is StudioCallFrame => frame.t === 'call')!
+  registry.reply(game.connectionId, { t: 'reply', id: first.id, ok: true, result: { content: [] } })
+  const second = await caller.next((message) => message.id === 52)
+  assert.match(JSON.stringify(second.result), /cancelled/)
+  assert.equal(game.frames.filter((frame) => frame.t === 'call').length, 1)
 })
 
 test('an agent that goes away cancels what it was waiting on', async () => {

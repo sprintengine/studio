@@ -667,7 +667,9 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
   }
 
   /** Whether a toolset name is one a client may answer for: built in, reserved for the shell, or bound to a pairing. */
+  /** A toolset a client may answer for. A family Studio serves itself is never one: no client may offer it. */
   function isKnownToolset(toolset: string): boolean {
+    if (servedHere(toolset)) return false
     return isStudioBuiltInToolset(toolset) || reserved(toolset) || options.store.binding(toolset) !== null
   }
 
