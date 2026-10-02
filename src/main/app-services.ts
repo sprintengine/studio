@@ -33,6 +33,7 @@ import { createTailnetNotifier } from './tailnet-notifications'
 import { revealMainWindow } from './window-factory'
 import { createAutomationTools } from './automation/automation-tools'
 import { createTailnetTools, type TailnetToolsFrontDoor } from './automation/tailnet/tailnet-tools'
+import { desktopGatewayTools } from './automation/desktop-gateway-tools'
 import type { McpToolContribution } from './module-host/main-host'
 import { createDefaultMarketplaceRegistryClient } from './ipc/marketplace-registry-ipc'
 import { toThirdPartyModuleView } from './ipc/third-party-module-ipc'
@@ -1303,6 +1304,20 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     return CANVAS_MODULE_DEFAULT_ENABLED
   }
 
+  // The browser and canvas tools, as main runs them.
+  const browserTools = createBrowserTools({
+    manager: browserManager,
+    control: browserControl,
+    hasWorkspace: (workspaceId) =>
+      workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
+  })
+  const canvasTools = createCanvasTools({
+    service: canvasService,
+    hasWorkspace: (workspaceId) =>
+      workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
+    isCanvasEnabled,
+  })
+
   // Instance-global SprintEngine Studio MCP surface: reads come from the
   // workspace-sync snapshot and terminal runtime, and mutations go straight to
   // the main services that own them — one lane, no window required.
@@ -1337,21 +1352,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     resolveModuleTools: () => resolveModuleMcpTools(),
     isModuleEnabled: (moduleId) => resolveModuleEnabled(moduleId),
     // The core's own tools (`conversation.create`) among this app's window,
-    // terminal and run tools, in the order agents have always listed them.
-    appTools: (coreTools) => [
-      ...createBrowserTools({
-        manager: browserManager,
-        control: browserControl,
-        hasWorkspace: (workspaceId) =>
-          workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
-      }),
-      ...createCanvasTools({
-        service: canvasService,
-        hasWorkspace: (workspaceId) =>
-          workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
-        isCanvasEnabled,
-      }),
-      ...createEditorTools(
+    // terminal and run tools, in the order agents have always listed them
+    // (`desktopGatewayTools`).
+    appTools: desktopGatewayTools({
+      browser: browserTools,
+      canvas: canvasTools,
+      editor: createEditorTools(
         createEditorToolBackends({
           findWorkspace: (workspaceId) =>
             workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId) ??
@@ -1364,13 +1370,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
             BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()),
         }),
       ),
-      ...createTourTools({
+      tour: createTourTools({
         service: tourService,
         hasWorkspace: (workspaceId) =>
           workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
       }),
-      ...coreTools,
-      ...createAutomationTools({
+      automation: createAutomationTools({
         getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
         listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
         launchAgent: (request) => agentLaunchService.launch(request),
@@ -1571,8 +1576,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       }),
       // Remote-control configuration, local socket only: the listener refuses
       // this whole family regardless of a device's scopes (tailnet-scopes.ts).
-      ...createTailnetTools({ resolveTailnet: () => tailnetToolsFrontDoor }),
-    ],
+      tailnet: createTailnetTools({ resolveTailnet: () => tailnetToolsFrontDoor }),
+    }),
   })
   tailnetToolsFrontDoor = automationService
   // The Studio RPC: the protocol applications on this machine follow, drive
