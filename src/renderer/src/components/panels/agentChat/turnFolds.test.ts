@@ -1,5 +1,15 @@
 import { test, expect } from 'vitest'
-import { deriveTurnFold, latestReplyTurnId } from './turnFolds'
+import {
+  deriveTurnFold,
+  latestReplyTurnId,
+  proseShownToUser,
+  stepShownToUser,
+  turnAgentLanes,
+  turnFoldedProse,
+  turnFoldedSteps,
+  turnFoldFailures,
+  turnShownWork,
+} from './turnFolds'
 import type { TranscriptEntry, TranscriptToolEntry } from './conversationProjection'
 const tools: TranscriptToolEntry[] = ['one', 'two'].map((id) => ({
   kind: 'tool',
@@ -17,40 +27,50 @@ const entry: Extract<TranscriptEntry, { kind: 'assistant' }> = {
   startedAt: 1000,
   completedAt: 81000,
 }
-test('only settled turns with several work rows fold', () => {
-  expect(deriveTurnFold({ ...entry, status: 'streaming' }, tools, false)).toBeNull()
-  expect(deriveTurnFold(entry, tools.slice(0, 1), false)).toBeNull()
-  expect(deriveTurnFold(entry, tools, false)).toMatchObject({
-    label: 'Worked for 1m 20s · 2 steps',
-    defaultFolded: true,
-  })
-  expect(deriveTurnFold(entry, tools, true)?.defaultFolded).toBe(false)
-})
-test('failed and interrupted folds keep their outcome, live lanes stay outside', () => {
-  expect(deriveTurnFold({ ...entry, status: 'failed' }, tools, false)?.label).toContain('Failed after')
-  expect(deriveTurnFold({ ...entry, status: 'interrupted' }, tools, false)?.label).toContain('You stopped after')
-  expect(deriveTurnFold(entry, [{ ...tools[0], status: 'running', subagentLane: true }, tools[1]], false)).toBeNull()
+test('every turn with steps folds, the one still running included', () => {
+  expect(deriveTurnFold(entry, tools)).toMatchObject({ label: 'Worked for 1m 20s · 2 steps' })
+  expect(deriveTurnFold(entry, tools.slice(0, 1))?.label).toBe('Worked for 1m 20s · 1 step')
+  const running: TranscriptToolEntry[] = [tools[0], { ...tools[1], status: 'running' }]
+  expect(deriveTurnFold({ ...entry, status: 'streaming' }, running)?.label).toBe('Working · 2 steps')
+  // Thinking alone is its own disclosure already.
+  expect(deriveTurnFold({ ...entry, reasoning: 'Thinking' }, [])).toBeNull()
+  expect(deriveTurnFold(entry, [])).toBeNull()
 })
 
-test('intermediate prose contributes to folding while final prose remains separate', () => {
+test('failed and interrupted folds keep their outcome', () => {
+  expect(deriveTurnFold({ ...entry, status: 'failed' }, tools)?.label).toContain('Failed after')
+  expect(deriveTurnFold({ ...entry, status: 'interrupted' }, tools)?.label).toContain('You stopped after')
+})
+
+test('the agents a turn spawned stay outside its fold', () => {
+  const lane: TranscriptToolEntry = { ...tools[0], id: 'lane', status: 'running', subagentLane: true }
+  expect(turnAgentLanes([lane, ...tools])).toEqual([lane])
+  expect(turnFoldedSteps([lane, ...tools])).toEqual(tools)
+  // The steps are counted without it, and a turn that only spawned agents has
+  // nothing to fold.
+  expect(deriveTurnFold(entry, [lane, ...tools])?.label).toBe('Worked for 1m 20s · 2 steps')
+  expect(deriveTurnFold(entry, [lane])).toBeNull()
+  // A failed agent says so on its card, not on the fold.
+  expect(turnFoldFailures([{ ...lane, status: 'done', outputStatus: 'error' }, ...tools])).toBe(0)
+})
+
+test('intermediate prose folds with the steps while final prose remains separate', () => {
   const withProse = { ...entry, intermediateText: [{ text: 'I will inspect the file.', beforeToolUseId: 'one' }] }
-  expect(deriveTurnFold(withProse, tools.slice(0, 1), false)?.defaultFolded).toBe(true)
+  expect(deriveTurnFold(withProse, tools.slice(0, 1))).not.toBeNull()
   expect(withProse.text).toBe('Answer')
 })
 
 test('a turn without a known start reports no duration instead of time since the epoch', () => {
-  expect(deriveTurnFold({ ...entry, startedAt: undefined }, tools, false)?.label).toBe('Worked · 2 steps')
-  expect(deriveTurnFold({ ...entry, startedAt: undefined, durationMs: 4000 }, tools, false)?.label).toBe(
+  expect(deriveTurnFold({ ...entry, startedAt: undefined }, tools)?.label).toBe('Worked · 2 steps')
+  expect(deriveTurnFold({ ...entry, startedAt: undefined, durationMs: 4000 }, tools)?.label).toBe(
     'Worked for 4s · 2 steps',
   )
-  expect(deriveTurnFold({ ...entry, status: 'failed', startedAt: undefined }, tools, false)?.label).toBe(
-    'Failed · 2 steps',
-  )
+  expect(deriveTurnFold({ ...entry, status: 'failed', startedAt: undefined }, tools)?.label).toBe('Failed · 2 steps')
   const withReasoning = { ...entry, reasoning: 'Thinking' }
-  expect(deriveTurnFold(withReasoning, tools.slice(0, 1), false)?.label).toBe('Worked for 1m 20s · 1 step')
+  expect(deriveTurnFold(withReasoning, tools.slice(0, 1))?.label).toBe('Worked for 1m 20s · 1 step')
 })
 
-test('a late continuation turn does not take over as the reply that stays open', () => {
+test('a late continuation turn does not take over as the latest reply', () => {
   const user = (id: string): TranscriptEntry => ({ kind: 'user', id, text: id })
   const reply = (turnId: string): TranscriptEntry => ({ ...entry, turnId })
   expect(latestReplyTurnId([user('a'), reply('a'), user('b'), reply('b')])).toBe('b')
@@ -63,10 +83,31 @@ test('a late continuation turn does not take over as the reply that stays open',
 })
 
 test('a fold counts the steps inside it that went wrong', () => {
-  expect(deriveTurnFold(entry, tools, false)?.failed).toBe(0)
+  expect(turnFoldFailures(tools)).toBe(0)
   const failed: TranscriptToolEntry[] = [
     { ...tools[0], toolKind: 'command', exitCode: 2 },
     { ...tools[1], outputStatus: 'error' },
   ]
-  expect(deriveTurnFold(entry, failed, false)?.failed).toBe(2)
+  expect(turnFoldFailures(failed)).toBe(2)
+})
+
+test('what the agent made for the person to see is never folded', () => {
+  const picture: TranscriptToolEntry = { ...tools[0], id: 'picture', name: 'GenerateImage' }
+  expect(stepShownToUser(picture)).toBe(true)
+  // A picture that failed to generate is one more step that went wrong.
+  expect(stepShownToUser({ ...picture, outputStatus: 'error' })).toBe(false)
+  expect(stepShownToUser(tools[0])).toBe(false)
+  expect(turnFoldedSteps([...tools, picture])).toEqual(tools)
+  expect(deriveTurnFold(entry, [...tools, picture])?.label).toBe('Worked for 1m 20s · 2 steps')
+
+  expect(proseShownToUser('The chart: ![Revenue](/Users/dev/project/chart.png)')).toBe(true)
+  expect(proseShownToUser('<img src="https://example.com/map.png">')).toBe(true)
+  expect(proseShownToUser('I will read [the config](config.ts) next.')).toBe(false)
+  const prose = [
+    { text: 'Checking the file.', beforeToolUseId: 'one' },
+    { text: '![Before](/Users/dev/project/before.png)', beforeToolUseId: 'two' },
+  ]
+  expect(turnFoldedProse(prose)).toEqual([prose[0]])
+  // In the order it came: the prose written before a step comes before it.
+  expect(turnShownWork([...tools, picture], prose).map((item) => item.id)).toEqual(['prose:two:1', 'picture'])
 })

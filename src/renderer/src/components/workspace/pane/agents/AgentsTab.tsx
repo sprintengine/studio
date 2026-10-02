@@ -1,6 +1,6 @@
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
-import { EmptyState, GhostButton, InlineNotice, PanelHeader, RowButton, Spinner, TruncatedText } from '../../../ui'
+import { EmptyState, GhostButton, InlineNotice, PanelHeader, RowButton, Spinner } from '../../../ui'
 import { useLocalChatBinding, type ChatBinding } from '../../../panels/agentChat/chatBinding'
 import { ConversationLinkProvider, ConversationMarkdown } from '../../../panels/agentChat/conversationLinks'
 import {
@@ -9,12 +9,12 @@ import {
   type TranscriptToolEntry,
 } from '../../../panels/agentChat/conversationProjection'
 import { flattenToolEntries, subagentLaneLabel } from '../../../panels/agentChat/conversationTimeline'
-import { LiveElapsed } from '../../../panels/agentChat/liveElapsed'
 import { useLiveRowMotion } from '../../../panels/agentChat/liveVisibility'
-import { SubagentLaneResult, subagentResultPreview } from '../../../panels/agentChat/subagentResult'
+import { SubagentLaneResult } from '../../../panels/agentChat/subagentResult'
 import {
+  AgentLaneSummary,
   LaneGlyph,
-  laneOutcomeWords,
+  LaneStatus,
   laneTask,
   SubagentTypesProvider,
   useSubagentTypeDescription,
@@ -269,58 +269,21 @@ const AgentSection = React.memo(function AgentSection({
   )
 })
 
-function AgentStatus({ lane }: { lane: TranscriptToolEntry }) {
-  if (lane.status === 'running')
-    return (
-      <span className="text-[color:var(--accent-primary)]">
-        Working{lane.startedAt !== undefined ? ' · ' : ''}
-        {lane.startedAt !== undefined ? <LiveElapsed startedAt={lane.startedAt} /> : null}
-      </span>
-    )
-  return (
-    <span className={lane.outputStatus === 'error' ? 'text-[color:var(--tone-error)]' : undefined}>
-      {laneOutcomeWords(lane)}
-    </span>
-  )
-}
-
 // One agent in the list: who it is and what it was sent to do, how it is doing,
 // and underneath, what it is doing now or the first line of what it found.
 function AgentRow({ lane, onOpen }: { lane: TranscriptToolEntry; onOpen: () => void }) {
-  const running = lane.status === 'running'
   // A working agent's character loops; scrolled out of the list (or with the
   // window idle) it holds still, as a transcript's lanes do.
   const rowRef = useRef<HTMLButtonElement>(null)
-  useLiveRowMotion(rowRef, running)
-  const task = laneTask(lane)
-  const now = lane.agent?.progressSummary ?? (lane.agent?.lastToolName ? `Using ${lane.agent.lastToolName}` : '')
-  const detail = running ? now : lane.agent?.error || subagentResultPreview(lane.output)
+  useLiveRowMotion(rowRef, lane.status === 'running')
   return (
     <RowButton
       ref={rowRef}
       density="row"
       onClick={onOpen}
-      aria-label={`${subagentLaneLabel(lane)}: ${task || 'agent'}`}
+      aria-label={`${subagentLaneLabel(lane)}: ${laneTask(lane) || 'agent'}`}
     >
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="flex min-w-0 items-center gap-2 text-meta">
-          <LaneGlyph tool={lane} />
-          <span className={`shrink-0 ${running ? 'font-medium text-[color:var(--text-default)]' : ''}`}>
-            {subagentLaneLabel(lane)}
-          </span>
-          {task ? <TruncatedText as="span" text={task} className="min-w-0 text-[color:var(--text-muted)]" /> : null}
-          <span className="ml-auto shrink-0 pl-2 text-micro tabular-nums text-[color:var(--text-subtle)]">
-            <AgentStatus lane={lane} />
-          </span>
-        </span>
-        {detail ? (
-          <TruncatedText
-            as="span"
-            text={detail}
-            className={`min-w-0 pl-6 text-micro ${lane.agent?.error && !running ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-subtle)]'}`}
-          />
-        ) : null}
-      </span>
+      <AgentLaneSummary lane={lane} />
     </RowButton>
   )
 }
@@ -354,7 +317,7 @@ const AgentThread = React.memo(function AgentThread({
         <LaneGlyph tool={lane} />
         <span className="font-medium text-[color:var(--text-strong)]">{subagentLaneLabel(lane)}</span>
         <span className="ml-auto shrink-0 text-meta tabular-nums text-[color:var(--text-subtle)]">
-          <AgentStatus lane={lane} />
+          <LaneStatus lane={lane} />
         </span>
       </div>
       <dl className="mt-2 flex flex-col gap-1 px-2 text-meta">

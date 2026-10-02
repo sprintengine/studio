@@ -3,23 +3,86 @@ import { flattenToolEntries } from './conversationTimeline'
 import { stepWentWrong } from './toolRows/ToolRow'
 import { formatStepDuration } from './stepDuration'
 
-// `failed` counts the steps that went wrong, a lane's own included: an older
-// turn rests folded, and a failure inside it must still show on the fold.
-export type TurnFold = { kind: 'turn-fold'; id: string; label: string; defaultFolded: boolean; failed: number }
+// A turn's work rests folded behind one line, the turn now running included:
+// the steps are how the reply was reached, and what is happening now is the
+// working line's to say. Two things are never in it: the agents a turn sent
+// off, which are cards of their own under it (`turnAgentLanes`), and whatever
+// the agent made for the person to look at (`turnShownWork`), which a fold
+// would hide from the one it was made for (owner ruling 2026-10-02).
+export type TurnFold = { kind: 'turn-fold'; id: string; label: string }
+
+type IntermediateText = { text: string; beforeToolUseId: string }
+
+/**
+ * A step whose result is for the person to look at, not for the agent to work
+ * from: a picture it generated. A picture it only read, or a screenshot it took
+ * to check its own work, is how it got there and folds with the rest. A new
+ * kind of thing an agent shows (an embedded page, a map) belongs here.
+ */
+export function stepShownToUser(tool: TranscriptToolEntry): boolean {
+  return tool.name === 'GenerateImage' && tool.outputStatus !== 'error'
+}
+
+// A markdown or HTML image: the reply draws it, so the prose carrying it is
+// something to see.
+const PICTURE = /!\[[^\]]*\]\([^)\s]+[^)]*\)|<img\b/i
+
+/** Prose between steps that puts a picture in front of the person. */
+export function proseShownToUser(text: string): boolean {
+  return PICTURE.test(text)
+}
+
+/** The agents a turn spawned, drawn as cards outside its fold. */
+export function turnAgentLanes(tools: readonly TranscriptToolEntry[]): TranscriptToolEntry[] {
+  return tools.filter((tool) => tool.subagentLane)
+}
+
+/** The turn's steps the fold holds: everything but its agents and what it showed. */
+export function turnFoldedSteps(tools: readonly TranscriptToolEntry[]): TranscriptToolEntry[] {
+  return tools.filter((tool) => !tool.subagentLane && !stepShownToUser(tool))
+}
+
+/** The prose between steps the fold holds: everything but what shows a picture. */
+export function turnFoldedProse(parts: readonly IntermediateText[] | undefined): IntermediateText[] | undefined {
+  return parts?.filter((part) => !proseShownToUser(part.text))
+}
+
+export type ShownWork =
+  { kind: 'step'; id: string; tool: TranscriptToolEntry } | { kind: 'prose'; id: string; text: string }
+
+/**
+ * What the agent made for the person to see while it worked, drawn outside the
+ * fold in the order it came: the pictures it generated, and the prose between
+ * its steps that carries one.
+ */
+export function turnShownWork(
+  tools: readonly TranscriptToolEntry[],
+  parts: readonly IntermediateText[] | undefined,
+): ShownWork[] {
+  const shown: ShownWork[] = []
+  for (const tool of tools) {
+    parts?.forEach((part, index) => {
+      if (part.beforeToolUseId === tool.id && proseShownToUser(part.text))
+        shown.push({ kind: 'prose', id: `prose:${tool.id}:${index}`, text: part.text })
+    })
+    if (!tool.subagentLane && stepShownToUser(tool)) shown.push({ kind: 'step', id: tool.id, tool })
+  }
+  return shown
+}
 
 export function deriveTurnFold(
   entry: Extract<TranscriptEntry, { kind: 'assistant' }>,
   tools: TranscriptToolEntry[],
-  isLatest: boolean,
 ): TurnFold | null {
-  if (entry.status === 'streaming') return null
-  const settled = tools.filter((tool) => tool.status !== 'running')
+  const steps = turnFoldedSteps(tools)
   const rows =
-    settled.length +
+    steps.length +
     (entry.reasoning.trim() ? 1 : 0) +
     (entry.reasoningSegments?.length ?? 0) +
-    (entry.intermediateText?.length ?? 0)
-  if (rows <= 1) return null
+    (turnFoldedProse(entry.intermediateText)?.length ?? 0)
+  // Thinking alone is already one line that opens; folding it would only put a
+  // second line in front of it.
+  if (!steps.length && rows <= 1) return null
   // An entry without both ends has no honest duration; a missing start read as
   // 0 would claim the turn ran since 1970.
   const elapsedMs =
@@ -27,31 +90,43 @@ export function deriveTurnFold(
       ? entry.completedAt - entry.startedAt
       : entry.durationMs
   const duration = elapsedMs === undefined ? '' : formatStepDuration(Math.max(0, elapsedMs))
+  // A turn still running has the working line under it counting its time, so
+  // its fold says only that it is working.
   const label =
-    entry.status === 'failed'
-      ? duration
-        ? `Failed after ${duration}`
-        : 'Failed'
-      : entry.status === 'interrupted'
+    entry.status === 'streaming'
+      ? 'Working'
+      : entry.status === 'failed'
         ? duration
-          ? `You stopped after ${duration}`
-          : 'You stopped'
-        : duration
-          ? `Worked for ${duration}`
-          : 'Worked'
+          ? `Failed after ${duration}`
+          : 'Failed'
+        : entry.status === 'interrupted'
+          ? duration
+            ? `You stopped after ${duration}`
+            : 'You stopped'
+          : duration
+            ? `Worked for ${duration}`
+            : 'Worked'
   return {
     kind: 'turn-fold',
     id: `fold:${entry.turnId}`,
-    label: `${label}${settled.length ? ` · ${settled.length} ${settled.length === 1 ? 'step' : 'steps'}` : ''}`,
-    defaultFolded: !isLatest,
-    failed: flattenToolEntries(settled).filter(stepWentWrong).length,
+    label: `${label}${steps.length ? ` · ${steps.length} ${steps.length === 1 ? 'step' : 'steps'}` : ''}`,
   }
 }
 
 /**
- * The turn that answers the latest message: it stays unfolded. A continuation
- * turn (a background agent reporting after its turn ended) has no message of
- * its own, so it must not take that place and fold the reply being read.
+ * How many of the fold's steps went wrong, so a failure inside it still shows
+ * on it. Apart from the label because it reads every step: the turn running
+ * now is drawn on every token, and its steps change only when a step does.
+ */
+export function turnFoldFailures(tools: readonly TranscriptToolEntry[]): number {
+  return flattenToolEntries(turnFoldedSteps(tools).filter((tool) => tool.status !== 'running')).filter(stepWentWrong)
+    .length
+}
+
+/**
+ * The turn that answers the latest message: the one a fork from the newest
+ * reply starts from. A continuation turn (a background agent reporting after
+ * its turn ended) has no message of its own, so it must not take that place.
  */
 export function latestReplyTurnId(entries: readonly TranscriptEntry[]): string | undefined {
   let latest: string | undefined

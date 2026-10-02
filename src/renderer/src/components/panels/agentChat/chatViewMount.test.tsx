@@ -1273,7 +1273,7 @@ test('a sent picture’s bytes leave the view once the transcript has stored it,
   }
 })
 
-test('rows already on screen follow the view: the previous turn folds when a new one starts', async () => {
+test('a turn’s steps rest folded, the latest one included; its agents are cards that open the Agents tab', async () => {
   // Turn ids of its own: a fold another test opened is remembered per turn.
   const chat = await mountChat({
     events: [
@@ -1281,20 +1281,37 @@ test('rows already on screen follow the view: the previous turn folds when a new
       event('turn_started', { turnId: 'fold-first' }),
       event('tool_started', { turnId: 'fold-first', toolUseId: 'fold-one', name: 'Read', input: { path: 'a.ts' } }),
       event('tool_output', { turnId: 'fold-first', toolUseId: 'fold-one', output: 'a', status: 'ok' }),
-      event('tool_started', { turnId: 'fold-first', toolUseId: 'fold-two', name: 'Read', input: { path: 'b.ts' } }),
-      event('tool_output', { turnId: 'fold-first', toolUseId: 'fold-two', output: 'b', status: 'ok' }),
+      event('tool_started', {
+        turnId: 'fold-first',
+        toolUseId: 'fold-agent',
+        name: 'Agent',
+        subagentLane: true,
+        subagentType: 'Explore',
+        input: { description: 'Map the test suites' },
+      }),
+      event('tool_output', { turnId: 'fold-first', toolUseId: 'fold-agent', output: 'Three suites.', status: 'ok' }),
       event('content_delta', { turnId: 'fold-first', text: 'It builds.' }),
       event('turn_completed', { turnId: 'fold-first' }),
     ],
   })
+  const openPaneTab = vi.fn()
+  const { useWorkspaceStore } = await import('../../../store/workspaceStore')
+  useWorkspaceStore.setState({ openPaneTab } as never)
   const fold = () => chat.button('Worked for')
   try {
-    expect(fold()?.getAttribute('aria-expanded'), 'the latest turn rests open').toBe('true')
-    await chat.act(async () => {
-      chat.emit({ type: 'event', event: event('user_message', { turnId: 'fold-second', text: 'And the tests?' }) })
-      chat.emit({ type: 'event', event: event('turn_started', { turnId: 'fold-second' }) })
-    })
-    expect(fold()?.getAttribute('aria-expanded'), 'an earlier turn rests folded').toBe('false')
+    expect(fold()?.textContent, 'the agent is not one of the steps').toContain('1 step')
+    expect(fold()?.getAttribute('aria-expanded'), 'the latest turn rests folded').toBe('false')
+    expect(chat.host.textContent, 'its steps are not drawn').not.toContain('a.ts')
+    expect(chat.host.textContent).toContain('It builds.')
+    const card = Array.from(chat.host.querySelectorAll('button')).find((item) =>
+      item.getAttribute('aria-label')?.endsWith('Open in Agents'),
+    )
+    expect(card?.textContent).toContain('Explore agent')
+    expect(card?.textContent).toContain('Map the test suites')
+    await chat.act(async () => card!.click())
+    expect(openPaneTab).toHaveBeenCalledWith('workspace', { kind: 'agents' })
+    await chat.act(async () => fold()!.click())
+    expect(chat.host.textContent, 'opened, the fold shows the steps').toContain('a.ts')
   } finally {
     await chat.unmount()
   }
