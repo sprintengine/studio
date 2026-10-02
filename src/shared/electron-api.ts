@@ -1,3 +1,5 @@
+import type { ServerMode } from './server-mode'
+import type { StudioServerInfo, StudioServerStatus } from './studio-server-status'
 import type { EditorRevealAck, EditorRevealRequest, EditorStateQuery, EditorStateReply } from './editor-reveal'
 import type {
   LiveTour,
@@ -1058,6 +1060,15 @@ export type ElectronApi = {
   updateQuitAndInstall: () => Promise<AppUpdateCheckResult>
   updateOpenReleaseNotes: () => Promise<{ opened: true; url: string }>
   /** The release channel the updater follows, and whether the person chose it. */
+  /** The Studio server: its phase in words, the Advanced toggle, and the actions on it. */
+  studioServerStatus: () => Promise<StudioServerStatus>
+  studioServerInfo: () => Promise<StudioServerInfo | null>
+  studioServerRetry: () => Promise<void>
+  studioServerRestart: () => Promise<void>
+  studioServerOpenLog: () => Promise<boolean>
+  studioServerSetMode: (mode: ServerMode) => Promise<StudioServerStatus>
+  studioServerRelaunch: (options?: { compatibility?: boolean }) => Promise<void>
+  onStudioServerStatus: (cb: (status: StudioServerStatus) => void) => () => void
   updateGetChannel: () => Promise<AppUpdateChannelSetting>
   /** Save a channel choice, re-point the updater at it and check that channel. */
   updateSetChannel: (channel: AppUpdateTrack) => Promise<AppUpdateCheckResult>

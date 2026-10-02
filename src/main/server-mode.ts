@@ -1,4 +1,4 @@
-import { readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import {
@@ -16,9 +16,22 @@ import {
 // synchronously, before any service is built, and never changed during the
 // session: a store has one writer from the first byte to the last.
 
-export type ServerModeChoice = { mode: ServerMode; source: 'environment' | 'settings' | 'default' }
+export type ServerModeChoice = { mode: ServerMode; source: 'environment' | 'settings' | 'default' | 'fallback' }
 
-export function readServerMode(userDataDir: string, env: NodeJS.ProcessEnv = process.env): ServerModeChoice {
+/**
+ * On the command line of a launch that follows a session whose server could
+ * not start at all (decision O9): this session runs the server in process.
+ * Never written to the settings file: the next ordinary launch tries again.
+ */
+export const SERVER_FALLBACK_ARGUMENT = '--studio-server-fallback'
+const FALLBACK_NOTE_FILENAME = 'server-fallback.json'
+
+export function readServerMode(
+  userDataDir: string,
+  env: NodeJS.ProcessEnv = process.env,
+  argv: readonly string[] = process.argv,
+): ServerModeChoice {
+  if (argv.includes(SERVER_FALLBACK_ARGUMENT)) return { mode: 'in-process', source: 'fallback' }
   const fromEnv = parseServerMode(env[SERVER_MODE_ENV])
   if (fromEnv) return { mode: fromEnv, source: 'environment' }
   try {
@@ -53,4 +66,27 @@ export function sessionServerMode(): ServerMode {
 /** The switch every app window's renderer is started with, which its preload's router reads. */
 export function serverModeWindowArguments(): string[] {
   return [`${SERVER_MODE_ARGUMENT}${sessionMode}`]
+}
+
+/** Leave the next launch a note of why it runs the server in process. */
+export function writeServerFallbackNote(userDataDir: string, reason: string): void {
+  try {
+    writeFileSync(join(userDataDir, FALLBACK_NOTE_FILENAME), `${JSON.stringify({ reason }, null, 2)}\n`, {
+      mode: 0o600,
+    })
+  } catch {
+    // The fallback still happens; it is only said less precisely.
+  }
+}
+
+/** Read and remove that note: it is said once, by the launch it was left for. */
+export function takeServerFallbackNote(userDataDir: string): string | null {
+  const path = join(userDataDir, FALLBACK_NOTE_FILENAME)
+  try {
+    const reason = (JSON.parse(readFileSync(path, 'utf8')) as { reason?: unknown }).reason
+    unlinkSync(path)
+    return typeof reason === 'string' ? reason : null
+  } catch {
+    return null
+  }
 }

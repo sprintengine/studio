@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { StudioServerBanner } from '../studioServer/StudioServerBanner'
 import { hostIdForFolder, isWslHostId, LOCAL_HOST_ID, type ExecutionHostId } from '../../../../shared/execution-host'
 import { nanoid } from 'nanoid'
 import { useShallow } from 'zustand/react/shallow'
@@ -4332,6 +4333,8 @@ export default function WorkspaceManager() {
       <React.Suspense fallback={null}>
         <ToastHost />
       </React.Suspense>
+      {/* The Studio server's state in words while it is not there (phase 6). */}
+      <StudioServerBanner />
 
       <div className="relative flex min-h-0 flex-1 flex-row">
         {/* The app rail (app shell, 2026-09-05): the window's far-left

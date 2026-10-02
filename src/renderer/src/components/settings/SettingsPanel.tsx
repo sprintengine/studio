@@ -5,6 +5,7 @@ import { getRendererHost, selectModuleEnabled } from '../../modules'
 import type { RegisteredSettingsSection } from '../../modules/renderer-host'
 import { AutomationServerSettings } from './AutomationServerSettings'
 import { LocalAppsSettings } from './LocalAppsSettings'
+import { StudioServerSettings } from './StudioServerSettings'
 import { ModuleSettingsSectionHost } from './ModuleSettingsSection'
 import AppThemePicker from './AppThemePicker'
 import { ChatAppearanceRows } from './ChatAppearanceRows'
@@ -1517,6 +1518,9 @@ export default function SettingsPanel({
           {/* The applications paired with Studio's owner socket sit beside
               the gateway: both are doors onto this machine's agents. */}
           <LocalAppsSettings />
+          {/* Where the server behind both of them runs (phase 6): inside the
+              app, or in a process of its own. */}
+          <StudioServerSettings />
         </div>
       ) : null}
 

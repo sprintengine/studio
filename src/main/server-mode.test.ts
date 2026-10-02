@@ -4,7 +4,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, test } from 'vitest'
 
-import { readServerMode, serverModeWindowArguments, setSessionServerMode, writeServerMode } from './server-mode'
+import {
+  readServerMode,
+  serverModeWindowArguments,
+  setSessionServerMode,
+  takeServerFallbackNote,
+  writeServerFallbackNote,
+  writeServerMode,
+} from './server-mode'
 
 const dirs: string[] = []
 afterEach(() => {
@@ -44,4 +51,18 @@ test("every window is started with the session's mode", () => {
   assert.deepEqual(serverModeWindowArguments(), ['--studio-server-mode=in-process'])
   setSessionServerMode('out-of-process')
   assert.deepEqual(serverModeWindowArguments(), ['--studio-server-mode=out-of-process'])
+})
+
+test('a launch after one whose server could not start runs in process, and is told why once', () => {
+  const dir = profile()
+  writeServerMode(dir, 'out-of-process')
+  assert.deepEqual(readServerMode(dir, {}, ['electron', '.', '--studio-server-fallback']), {
+    mode: 'in-process',
+    source: 'fallback',
+  })
+  writeServerFallbackNote(dir, 'The data directory is not writable.')
+  assert.equal(takeServerFallbackNote(dir), 'The data directory is not writable.')
+  assert.equal(takeServerFallbackNote(dir), null, 'said once')
+  // The setting is untouched: the next ordinary launch tries again.
+  assert.equal(readServerMode(dir, {}, []).mode, 'out-of-process')
 })

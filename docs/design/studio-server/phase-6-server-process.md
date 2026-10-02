@@ -670,6 +670,22 @@ code 0, as it did the moment the socket closed before.
 - **Compatibility mode.** "Restart in compatibility mode" writes
   `server-mode.json` = `in-process` and relaunches. It is the user-facing
   rollback.
+- **The boot-time fallback (decision O9), as built.** When the supervisor
+  gives up and no server reached `ready` this session, the shell leaves a
+  note of the reason and relaunches with `--studio-server-fallback`, which
+  runs that launch in process without touching `server-mode.json`; the next
+  ordinary launch tries the separate process again. The fallback launch says
+  why, once, in the window's banner and in Settings. Building the in-process
+  services in the failing session instead would have made it the second
+  writer the rule forbids.
+- **In words** (`src/renderer/src/components/studioServer/`): a strip across
+  the top of a workspace window says "Starting Studio server…" (only after
+  1.5 s), "Reconnecting to Studio server…", or "Studio server stopped." with
+  the reason, Retry and Restart in compatibility mode. Settings → Agents →
+  Studio server holds the Advanced toggle (restart required), the phase, the
+  process's id, uptime and memory, Open log and Restart server. This is also
+  the Diagnostics section of 10: it lives in Settings beside the gateway and
+  the paired apps, which the Diagnostics window does not show.
 - **As built** (`src/main/server-supervisor/supervisor.ts`): `FAILED` carries
   `neverReady`, true when no server reached `ready` this session, which is
   the case decision O9's boot-time fallback applies to. A server stopped for a

@@ -1,4 +1,4 @@
-import { app, ipcMain, protocol, session } from 'electron'
+import { app, ipcMain, protocol, session, shell } from 'electron'
 import { buildStamp as mainBuildStamp } from 'virtual:sprintengine-build-stamp'
 import { MODULE_EVENTS_CHANNEL } from '../shared/modules/events'
 import { parseAuthCallbackFromArgv } from './auth-service'
@@ -36,7 +36,16 @@ import { applyHostApiGate } from './modules/host-api-gate'
 import { studioPlatform } from '../server/platform/platform'
 import { SERVER_EVENTS, SERVER_METHODS } from '../server/desktop/server-methods'
 import type { AgentPhaseEvent } from '../shared/agent-runtime'
-import { readServerMode, setSessionServerMode } from './server-mode'
+import {
+  readServerMode,
+  SERVER_FALLBACK_ARGUMENT,
+  setSessionServerMode,
+  takeServerFallbackNote,
+  writeServerFallbackNote,
+  writeServerMode,
+} from './server-mode'
+import { registerStudioServerIpc } from './ipc/studio-server-ipc'
+import { STUDIO_SERVER_CHANNELS } from '../shared/studio-server-status'
 import { createDesktopServerHost } from './server-supervisor/desktop-server-host'
 import { channelForVersion } from './update-channel-store'
 import { createDefaultMarketplaceRegistryClient } from './ipc/marketplace-registry-ipc'
@@ -69,6 +78,11 @@ const DIAGNOSTICS_ENABLED = readStudioEnv('SPRINTENGINE_DIAGNOSTICS') === '1'
 // service is built, so every store has one writer for the whole session.
 const serverMode = readServerMode(app.getPath('userData'))
 setSessionServerMode(serverMode.mode)
+// A launch that follows one whose server could not start says why, once.
+const serverFellBack =
+  serverMode.source === 'fallback'
+    ? (takeServerFallbackNote(app.getPath('userData')) ?? 'The Studio server could not start.')
+    : null
 const serverHost =
   serverMode.mode === 'out-of-process'
     ? createDesktopServerHost({
@@ -307,7 +321,41 @@ function readModuleTrustContext(): ModuleTrustContext {
 // than hiding inside "app ready".
 markStartup('main.module-evaluated')
 
+// The server's phase in words for every window, the Advanced toggle and the
+// actions on it: registered in process too, where the toggle is all there is.
+const relaunchApp = (args: string[] = []): void => {
+  app.relaunch({ args: [...process.argv.slice(1).filter((arg) => arg !== SERVER_FALLBACK_ARGUMENT), ...args] })
+  app.quit()
+}
+registerStudioServerIpc(ipcMain, {
+  choice: serverMode,
+  supervisor: serverHost?.supervisor ?? null,
+  fellBack: serverFellBack,
+  readSavedMode: () => readServerMode(app.getPath('userData'), {}, []).mode,
+  writeSavedMode: (mode) => writeServerMode(app.getPath('userData'), mode),
+  openLog: async () => {
+    const path = serverHost?.log.currentPath() ?? app.getPath('logs')
+    return (await shell.openPath(path)) === ''
+  },
+  relaunch: ({ compatibility }) => {
+    if (compatibility) writeServerMode(app.getPath('userData'), 'in-process')
+    relaunchApp()
+  },
+  publish: (status) => studioPlatform().clients.publish(STUDIO_SERVER_CHANNELS.changed, status),
+})
+
 if (serverHost) {
+  // Three failed boots with no server ever ready: this session goes on in
+  // process (decision O9), by starting again in process at once, never by
+  // building a second writer mid-session. The next ordinary launch tries the
+  // separate process again; the fallback launch says why, in words.
+  let fellBack = false
+  serverHost.supervisor.onState((state) => {
+    if (fellBack || state.kind !== 'failed' || !state.neverReady) return
+    fellBack = true
+    writeServerFallbackNote(app.getPath('userData'), state.reason)
+    relaunchApp([SERVER_FALLBACK_ARGUMENT])
+  })
   // What the server asks of the shell: the keychain, notices, terminal
   // launches, the integrations gate, and the two caches only the shell keeps.
   serverHost.serveShell(services.shellBridge, {
