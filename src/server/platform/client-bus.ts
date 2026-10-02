@@ -7,12 +7,19 @@
 // stream its subscribers hear. Nothing is buffered either way: a client that
 // attaches later reads the current state, then hears what changes after.
 
+/**
+ * Which clients a push is for: every one, the workspace windows (not
+ * Diagnostics or an aux view), one window, or every window but the one that
+ * caused it (a window that made a change already shows it).
+ */
+export type ClientTarget = 'all' | 'workspace-windows' | { clientId: string } | { exceptClientId: string }
+
 export type ClientBus = {
-  /** Deliver `payload` on `topic` to every attached client, best effort per client. */
-  publish(topic: string, payload: unknown): void
+  /** Deliver `payload` on `topic` to the targeted clients (all by default), best effort per client. */
+  publish(topic: string, payload: unknown, target?: ClientTarget): void
 }
 
-export type ClientBusListener = (topic: string, payload: unknown) => void
+export type ClientBusListener = (topic: string, payload: unknown, target: ClientTarget) => void
 
 /** The bus outside Electron: in-process listeners, which the protocol's streams subscribe through. */
 export type LocalClientBus = ClientBus & {
@@ -22,10 +29,10 @@ export type LocalClientBus = ClientBus & {
 export function createLocalClientBus(): LocalClientBus {
   const listeners = new Set<ClientBusListener>()
   return {
-    publish(topic, payload) {
+    publish(topic, payload, target = 'all') {
       for (const listener of [...listeners]) {
         try {
-          listener(topic, payload)
+          listener(topic, payload, target)
         } catch {
           // One subscriber's failure is not another's, as one window's is not.
         }

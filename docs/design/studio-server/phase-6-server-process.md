@@ -444,7 +444,10 @@ interface CallerContext {
 
 - **`ClientBus` targets** replace the broadcast loops one for one: `all`,
   `workspace-windows`, `{ clientId }` and `{ exceptClientId }`. The last one
-  covers `workspace-sync:event`, which skips its sender today.
+  covers `workspace-sync:event`, which skips its sender today. In process a
+  window's client id is its `webContents.id`; out of process it is the id main
+  gave its port. The tunnel (`src/server/ipc/ipc-tunnel.ts`) is the server's
+  `ClientBus`.
 - **Routing in the preload.** `src/preload/ipc-router.ts` exports an `ipc`
   object with the `ipcRenderer` methods the api modules use. It routes by
   channel through one generated table, `IPC_CHANNEL_OWNERS: Record<channel,
@@ -463,13 +466,28 @@ interface CallerContext {
   `ServerUnavailable { restarting: true }`. The table marks idempotent reads
   (`retry: 'once'`): the router re-sends those on the new port; nothing else is
   re-sent.
-- **Handlers that use `event.sender`.** `CallerContext.sender` is typed
-  `never` and throws at run time, so a missed conversion fails loudly in tests
-  instead of silently broadcasting to nobody. The known users are the
-  `WebContents`-keyed subscriptions in section 2.4, the `getURL()` window-id
-  read, and the 9 `assertAppSender` calls (the port is already app-frame-only,
-  so these become no-ops on the server side). Each is converted to
-  `caller.clientId` or `caller.windowId` in the commit that moves its domain.
+- **Handlers that use `event.sender`.** Amended at implementation
+  (2026-10-02): rather than typing `sender` as `never`, the tunnel hands each
+  handler a stand-in with exactly the part of a `WebContents` the tunnelled
+  domains use: a numeric `id`, `send` (a push to that window alone),
+  `isDestroyed`, and the `destroyed` event (and `did-navigate`, accepted and
+  never fired), which fires when the window's port goes: a closed window, a
+  reload, a crashed renderer. That is what the `WebContents`-keyed
+  subscriptions in 2.4 need, so they move verbatim and end with their window as
+  they do today. **Any other member throws `IpcSenderUnavailable` naming the
+  channel and the member**, so a missed conversion (a `getURL()`, a
+  `BrowserWindow.fromWebContents`) still fails loudly in a test. The window id
+  comes from `event.caller.windowId`, which main asserts when it attaches the
+  port; `registerWorkspaceSyncIpc` already takes it as an option. The 9
+  `assertAppSender` calls become no-ops on the server side (the port is
+  app-frame-only), through an injected check, because `ipc-sender.ts` imports
+  Electron.
+- **Ports.** The tunnel has a port of its own per window (`kind:
+  'desktop-window'`). The chat view's Studio protocol connections keep the
+  per-connection ports and tickets phase 4 built (`studio:connect`); out of
+  process, main hands the server those ports instead of serving them itself.
+  One multiplexed port would have to reimplement the reconnect and ticket
+  rules phase 4 already has per connection.
 
 ### 6.3 `ShellBridge` and the shell's toolsets
 

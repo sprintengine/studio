@@ -23,6 +23,8 @@ export type ElectronPlatformDeps = {
   }
   /** `process.resourcesPath`, where electron-builder's extraResources land. */
   resourcesPath?: () => string | undefined
+  /** Whether a window's contents is a workspace window, for the `workspace-windows` target. Absent: every window is. */
+  isWorkspaceWindow?: (webContents: BrowserWindow['webContents']) => boolean
 }
 
 export function createElectronPlatform(deps: ElectronPlatformDeps): StudioPlatform {
@@ -43,9 +45,16 @@ export function createElectronPlatform(deps: ElectronPlatformDeps): StudioPlatfo
       open: (sealed) => deps.safeStorage.decryptString(sealed),
     },
     clients: {
-      publish(topic, payload) {
+      // A window's client id in process is its contents' id, as the tunnel's
+      // stand-in sender numbers them out of process.
+      publish(topic, payload, target = 'all') {
         for (const window of deps.BrowserWindow.getAllWindows()) {
           if (window.isDestroyed() || window.webContents.isDestroyed()) continue
+          const id = String(window.webContents.id)
+          if (target === 'workspace-windows' && deps.isWorkspaceWindow && !deps.isWorkspaceWindow(window.webContents))
+            continue
+          if (typeof target === 'object' && 'clientId' in target && target.clientId !== id) continue
+          if (typeof target === 'object' && 'exceptClientId' in target && target.exceptClientId === id) continue
           try {
             window.webContents.send(topic, payload)
           } catch {
