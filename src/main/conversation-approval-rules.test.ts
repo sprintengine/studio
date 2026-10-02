@@ -91,3 +91,31 @@ test('a file grant does not follow a symlink into the git directory', async () =
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test('a revoked app’s tools lose every approval, in either spelling, saved or for a session', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'conversation-grant-apps-'))
+  try {
+    const store = new ConversationApprovalRuleStore(dir)
+    const call = (tool: string) => ({
+      action: `mcp__sprintengine-studio__${tool}`,
+      input: {},
+      toolKind: 'mcp' as const,
+    })
+    await store.remember('/workspace/app', 'session', call('game_spawn_enemy'), 'always')
+    await store.remember('/workspace/app', 'session', call('game.screenshot'), 'conversation')
+    await store.remember('/workspace/app', 'session', call('gamepad_press'), 'always')
+    await store.remember('/workspace/app', 'session', call('browser_open'), 'always')
+    expect(await store.forgetGatewayToolsets(['game'])).toBe(1)
+    expect(await store.match('/workspace/app', 'session', call('game_spawn_enemy'))).toBeNull()
+    expect(await store.match('/workspace/app', 'session', call('game.screenshot'))).toBeNull()
+    // Another toolset whose name only starts the same, and Studio's own tools, keep theirs.
+    expect(await store.match('/workspace/app', 'session', call('gamepad_press'))).not.toBeNull()
+    expect(await store.match('/workspace/app', 'session', call('browser_open'))).not.toBeNull()
+    const saved = JSON.parse(await readFile(join(dir, 'conversation-approval-rules.json'), 'utf8')) as Array<{
+      matcher: { tool: string }
+    }>
+    expect(saved.map((rule) => rule.matcher.tool).sort()).toEqual(['browser_open', 'gamepad_press'])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})

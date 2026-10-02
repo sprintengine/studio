@@ -33,6 +33,7 @@ export function createStudioRpc(core: StudioCore, gateway: StudioGateway): Studi
       }),
     audit: () => gateway.gatewayAudit(),
     tools: gateway.clientTools,
+    forgetToolApprovals: (toolsets) => core.approvalRules.forgetGatewayToolsets(toolsets),
     // A workspace's folder, and the board store Studio keeps for it under its
     // data directory: the canvas reads and writes its boards through these.
     files: createStudioFiles({

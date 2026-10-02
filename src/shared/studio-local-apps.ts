@@ -10,6 +10,7 @@ export const STUDIO_LOCAL_APPS_STATUS_CHANNEL = 'studio-local-apps:status'
 export const STUDIO_LOCAL_APPS_OFFER_CHANNEL = 'studio-local-apps:offer'
 export const STUDIO_LOCAL_APPS_CANCEL_OFFER_CHANNEL = 'studio-local-apps:cancel-offer'
 export const STUDIO_LOCAL_APPS_REVOKE_CHANNEL = 'studio-local-apps:revoke'
+export const STUDIO_LOCAL_APPS_SET_REACH_CHANNEL = 'studio-local-apps:set-reach'
 /** Pushed to every window with fresh status whenever an app pairs, connects, leaves or is revoked. */
 export const STUDIO_LOCAL_APPS_CHANGED_CHANNEL = 'studio-local-apps:changed'
 
@@ -31,6 +32,16 @@ export type StudioLocalApp = {
   toolReach: StudioLocalAppToolReach
   /** Whether it has a connection open now. */
   connected: boolean
+  /** The toolsets it gives agents, and how each stands now. */
+  toolsets: StudioLocalAppToolset[]
+}
+
+export type StudioLocalAppToolset = {
+  name: string
+  title: string
+  tools: number
+  /** Offered by a connected process, waiting out a reconnect, or not offered now. */
+  state: 'offered' | 'reconnecting' | 'not_offered'
 }
 
 export type StudioLocalAppToolReach = 'own' | 'all'

@@ -123,6 +123,14 @@ export function createStudioGateway(core: StudioCore, options: StudioGatewayOpti
           ? toolSuccess({ ok: true })
           : toolError(entry.code ?? 'refused', 'The Studio RPC request was not carried out.'),
       }),
+    // The person hears once when an app first gives agents tools under a name
+    // (decisions R82): the pairing tick was the consent, this is the notice.
+    onFirstOffer: (entry) =>
+      platform.notifier.notify({
+        key: `client-tools:${entry.clientId}:${entry.toolset}`,
+        title: `${entry.clientName} gave agents ${entry.tools === 1 ? 'a tool' : `${entry.tools} tools`}`,
+        body: `Agents can now call its ${entry.title} tools. See them, or revoke the app, in Settings → Local apps.`,
+      }),
     log: (message) => {
       void writeDiagnosticLog({ level: 'info', source: 'workspace', title: 'Client tools', message })
     },

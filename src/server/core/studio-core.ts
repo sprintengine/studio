@@ -165,9 +165,11 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
   // The conversation runtime: chat sessions and the providers and agent CLI
   // children behind them, transcripts, the thread index and checkpoints. Owned
   // here so the owner's shutdown disposes its child processes.
+  // The saved approvals, which a revoked app's tools leave with it.
+  const approvalRules = new ConversationApprovalRuleStore(dataDir)
   const conversationRuntime = new ConversationRuntime({
     secretStore: getSharedCredentialStore(),
-    approvalRules: new ConversationApprovalRuleStore(dataDir),
+    approvalRules,
     attachmentStore: new ConversationAttachmentStore(dataDir),
     planStore: new ConversationPlanStore(dataDir),
     ...(options.resolveStudioMcpServer ? { resolveStudioMcpServer: options.resolveStudioMcpServer } : {}),
@@ -306,6 +308,7 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     workspaceSyncService,
     conversations,
     conversationOwner,
+    approvalRules,
     conversationModelCatalog,
     conversationLaunchService,
     resolveAgentPermissionPreset,

@@ -528,6 +528,12 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
         return { ok: true, result: {} }
       case 'tools.catalog':
         return { ok: true, result: { toolsets: tools.catalog({ clientId: grant.clientId, owner: grant.owner }) } }
+      case 'tools.grants': {
+        const { key: wire } = params as StudioMethodParams<'tools.grants'>
+        const key = resolve(wire, grant)
+        if (!key) return notFound(wire)
+        return { ok: true, result: { grants: tools.grantsOf({ workspaceId: key.workspaceId, agentId: key.agentId }) } }
+      }
       case 'tools.grant': {
         const { key: wire, toolset, granted } = params as StudioMethodParams<'tools.grant'>
         const key = resolve(wire, grant)

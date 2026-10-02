@@ -299,6 +299,7 @@ the shell (7.2).
 | `tools.focus` | `tools:offer` | no | no | `{ focused: boolean, workspaceIds: string[], activeWorkspaceId?: string }` → `{}`. A routing hint (6.3). |
 | `tools.catalog` | `conversation:read` | no | no | `{}` → `{ toolsets: StudioToolsetListing[] }`. An app sees its own toolsets and the built-ins. An owner sees all of them. |
 | topic `tools.catalog` (push) | `conversation:read` | no | no | the same listing, whole, on every change. The chat view labels a tool's origin with it (5.5). |
+| `tools.grants` | `conversation:read` | yes | no | `{ key }` → `{ grants: string[] }`: the app toolsets one conversation is open to. (Added as built: a chat's menu shows each toolset ticked or not before the person changes it.) |
 | `tools.grant` | `conversation:operate` | yes | yes (`commandId`) | `{ key, toolset, granted: boolean, commandId }` → `{ grants: string[] }`. Opens or closes one conversation to one app toolset (5.2). |
 | `files.*` subset | see 10.3 | yes | see 10.3 | board file access for the canvas toolset |
 
@@ -614,7 +615,10 @@ is one server whose list grows.
   tour. App toolsets come after every core and module tool, sorted by name.
 - **Origin in the chat.** The chat view subscribes to `tools.catalog` and
   labels a tool row or an approval card whose wire name belongs to an app
-  toolset with the app's title ("from Acme Game"). This needs no change to the
+  toolset with the app's title ("from Acme Game"). (As built: the window's own
+  Studio client follows the catalog, `src/renderer/src/studio/clientTools.ts`,
+  only once a tool that could be an app's is shown; `tools.grant` is offered
+  from a chat tab's context menu, one ticked row per app toolset.) This needs no change to the
   conversation contract: the label is resolved client-side from the tool name
   the approval already carries (`mcpCallOf`, `approvalRules.ts:629-632`).
 
@@ -721,7 +725,11 @@ the shell included, so no offer can shadow a core or module tool.
   rule whose tool is one of that app's wire names
   (`conversation-approval-rules.ts`), in the same write as the revocation. The
   name binding goes too (3.1). A different app that later takes the same name
-  inherits no "always allow".
+  inherits no "always allow". (As built, the three live in three files, so
+  "the same write" is the same Settings action: the pairing is revoked and its
+  names released before `revoke` returns, and the rules, saved and
+  per-session, are forgotten before the promise it returns settles; a failure
+  there is logged.)
 - The launch cap (`launch-permission-cap.ts`) does not apply. A client tool
   runs in the client, not as a Studio agent launch. An app that starts a
   conversation from inside a handler does it through its own grant and its own

@@ -546,3 +546,31 @@ test('whenOffered waits for the shell’s toolsets, and gives up after its wait'
   await vi.advanceTimersByTimeAsync(5_100)
   assert.equal(await never, false)
 })
+
+test('an app’s first offer of a name is told once, and its toolsets read back with how each stands', () => {
+  const told: string[] = []
+  const local = createClientToolRegistry({
+    store: createClientToolsetStore({}),
+    servedFamilies: () => [],
+    onFirstOffer: (entry) => told.push(`${entry.clientName}:${entry.toolset}:${entry.tools}`),
+  })
+  const first: ClientToolConnection = {
+    connectionId: 'c-1',
+    clientId: 'game-app',
+    clientName: 'Acme Game',
+    kind: 'app',
+    instanceId: 'game-instance-0123456789',
+    owner: false,
+    shell: null,
+    audited: true,
+    send: () => undefined,
+  }
+  local.attach(first)
+  local.offer('c-1', toolset('game'))
+  local.offer('c-1', toolset('game'))
+  assert.deepEqual(told, ['Acme Game:game:2'])
+  assert.deepEqual(local.toolsetsOf('game-app'), [{ name: 'game', title: 'Acme Game', tools: 2, state: 'offered' }])
+  local.detach('c-1')
+  assert.equal(local.toolsetsOf('game-app')[0].state, 'reconnecting')
+  local.close()
+})

@@ -124,6 +124,17 @@ export type ClientToolRegistryOptions = {
   onChange?: () => void
   /** Told on each RPC audit-worthy act; never input or results. */
   audit?: (entry: ClientToolAuditEntry) => void
+  /**
+   * An app offered a toolset name for the first time, and agents may now be
+   * given its tools: the person hears of it once (decisions R82).
+   */
+  onFirstOffer?: (entry: {
+    clientId: string
+    clientName: string
+    toolset: string
+    title: string
+    tools: number
+  }) => void
   log?: (message: string) => void
   now?: () => number
   graceMs?: number
@@ -465,10 +476,12 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
     if (!builtIn && appToolCount(name) + toolset.tools.length > STUDIO_TOOL_LIMITS.appToolsPerServer)
       return refuse('busy', `Apps may give agents at most ${STUDIO_TOOL_LIMITS.appToolsPerServer} tools in all.`)
     const title = toolset.title ?? (builtIn ? name : instance.clientName.slice(0, STUDIO_TOOL_LIMITS.titleChars))
+    let firstOffer = false
     if (!builtIn) {
       const binding = options.store.binding(name)
       if (binding && binding.clientId !== instance.clientId)
         return refuse('name_taken', `Another app already gives agents "${name}" tools.`)
+      firstOffer = binding === null && !instance.owner
       try {
         options.store.bind(name, instance.clientId, title)
       } catch (error) {
@@ -493,6 +506,18 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
     definitions.set(name, offered)
     lastGone.delete(name)
     audit(true)
+    if (firstOffer)
+      try {
+        options.onFirstOffer?.({
+          clientId: instance.clientId,
+          clientName: instance.clientName,
+          toolset: name,
+          title,
+          tools: toolset.tools.length,
+        })
+      } catch (error) {
+        options.log?.(`A first-offer listener threw: ${error instanceof Error ? error.message : String(error)}`)
+      }
     // The same process back within its grace: what it was running, and what
     // waited for it, goes to it now.
     if (instance.connection)
@@ -1047,6 +1072,39 @@ export function createClientToolRegistry(options: ClientToolRegistryOptions) {
     },
     /** How many calls are waiting on clients, for tests and diagnostics. */
     pendingCalls: () => calls.size,
+    /**
+     * The toolsets one paired client's name is bound to, and how each stands
+     * now: offered by a connected process, waiting out a reconnect, or not offered.
+     */
+    toolsetsOf(clientId: string): Array<{
+      name: string
+      title: string
+      tools: number
+      state: 'offered' | 'reconnecting' | 'not_offered'
+    }> {
+      return options.store
+        .bindings()
+        .filter((binding) => binding.clientId === clientId)
+        .map((binding) => {
+          const holders = offering(binding.toolset)
+          const definition = definitions.get(binding.toolset)
+          return {
+            name: binding.toolset,
+            title: definition?.title ?? binding.title,
+            tools: definition?.tools.size ?? 0,
+            state:
+              holders.length === 0
+                ? ('not_offered' as const)
+                : holders.some((instance) => instance.connection !== null)
+                  ? ('offered' as const)
+                  : ('reconnecting' as const),
+          }
+        })
+    },
+    /** Something the registry reads changed outside it (an app's reach): every catalog looks again. */
+    refresh(): void {
+      changed()
+    },
     /** Hear every change to what is offered, granted or gone. Returns the unsubscriber. */
     subscribe(listener: () => void): () => void {
       listeners.add(listener)

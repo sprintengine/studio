@@ -26,6 +26,7 @@ import { revealLabel } from '../../../../utils/revealLabel'
 import { showToast } from '../../../../store/toastStore'
 import { ChevronRightGlyph, ToolKindGlyph } from './ToolKindGlyph'
 import { InlineMarkdown } from './InlineMarkdown'
+import { useClientToolOrigin } from '../../../../studio/clientTools'
 import type { ConversationEdit } from '../../../../../../shared/conversation/editHunks'
 
 export function toolPresentationInput(tool: TranscriptToolEntry): PresentableTool {
@@ -556,6 +557,8 @@ export const ToolRow = memo(function ToolRow({ tool }: { tool: TranscriptToolEnt
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>()
   const presentation = useMemo(() => presentToolItem(toolPresentationInput(tool), cachedCommandLabel), [tool])
+  // A tool an app gave agents says whose it is.
+  const origin = useClientToolOrigin(tool.name)
   const running = tool.status === 'running'
   const tone = running ? 'running' : presentation.tone
   const settledAt = running ? undefined : (tool.completedAt ?? tool.startedAt)
@@ -630,6 +633,9 @@ export const ToolRow = memo(function ToolRow({ tool }: { tool: TranscriptToolEnt
             >
               {presentation.title}
             </span>
+            {origin ? (
+              <span className="shrink-0 text-micro text-[color:var(--text-disabled)]">from {origin}</span>
+            ) : null}
             {running ? <span className="sr-only">running</span> : null}
             {tone === 'error' ? <span className="sr-only">failed</span> : null}
           </RowButton>

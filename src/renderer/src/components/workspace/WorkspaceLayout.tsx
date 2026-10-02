@@ -66,6 +66,7 @@ import { AgentTabIdentityPopover, type AgentTabIdentity } from './AgentTabIdenti
 import { agentCheckoutOf, type AgentTabCheckout } from './agentCheckout'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import { TabPromptPeek } from './TabPromptPeek'
+import { ChatAppToolsMenuItems } from './ChatAppToolsMenuItems'
 import { chatResumesInTerminal, resumeChatInTerminalOrToast } from '../panels/agentChat/resumeInTerminal'
 import { ModuleContributionBoundary } from '../../modules/ModuleContributionBoundary'
 import { GitBranchGlyph } from './WorkspaceActions'
@@ -165,6 +166,8 @@ type TabMenuState = {
   currentColor: HighlightColor | null
   /** The chat this tab shows, when its CLI can carry the conversation on in a terminal. */
   resumableChatId: string | null
+  /** The agent this tab shows, for the tools apps may give it. */
+  agentId: string | null
 }
 
 /**
@@ -978,6 +981,7 @@ function WorkspaceLayoutBody({
         isTerminal: node.getComponent() === 'terminal',
         currentColor: config?.highlightColor ?? null,
         resumableChatId: tabAgentId && chatResumesInTerminal(tabAgent, store.pluginCatalogEntries) ? tabAgentId : null,
+        agentId: tabAgentId,
       })
     },
     [workspaceId],
@@ -1700,6 +1704,13 @@ function WorkspaceLayoutBody({
                 Continue in terminal
               </MenuItem>
             </>
+          ) : null}
+          {tabMenu.agentId ? (
+            <ChatAppToolsMenuItems
+              workspaceId={workspaceId}
+              agentId={tabMenu.agentId}
+              onDone={() => setTabMenu(null)}
+            />
           ) : null}
           {tabMenu.isTerminal ? (
             <>

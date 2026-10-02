@@ -259,6 +259,8 @@ export type StudioToolsMethodMap = {
   }
   /** Every toolset this client may see: its own and the built-ins; an owner sees all of them. */
   'tools.catalog': { params: Record<string, never>; result: { toolsets: StudioToolsetListing[] } }
+  /** Owners only: the app toolsets one conversation was opened to. */
+  'tools.grants': { params: { key: StudioConversationKey }; result: { grants: string[] } }
   /** Owners only: open one conversation to one app's toolset, or close it again. */
   'tools.grant': {
     params: { key: StudioConversationKey; toolset: string; granted: boolean; commandId: string }
@@ -292,6 +294,12 @@ export const STUDIO_TOOLS_METHODS: { readonly [M in StudioToolsMethod]: MethodSp
   'tools.withdraw': offering,
   'tools.focus': offering,
   'tools.catalog': { scope: 'conversation:read', mutation: false, capability: STUDIO_CLIENT_TOOLS_CAPABILITY },
+  'tools.grants': {
+    scope: 'conversation:read',
+    mutation: false,
+    capability: STUDIO_CLIENT_TOOLS_CAPABILITY,
+    owner: true,
+  },
   'tools.grant': {
     scope: 'conversation:operate',
     mutation: true,
@@ -599,6 +607,10 @@ export function parseStudioToolsParams<M extends StudioToolsMethod>(
     }
     case 'tools.catalog':
       return ok({})
+    case 'tools.grants': {
+      const key = parseStudioConversationKey(value.key)
+      return key ? ok({ key }) : refuse(KEY)
+    }
     case 'tools.grant': {
       const key = parseStudioConversationKey(value.key)
       if (!key) return refuse(KEY)

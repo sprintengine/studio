@@ -48,7 +48,7 @@ const MAX_APPS = 64
 const LAST_SEEN_PERSIST_INTERVAL_MS = 60 * 1000
 const OWNER_CLIENT_ID = 'owner'
 
-type StoredApp = Omit<StudioLocalApp, 'connected'> & { tokenHash: string }
+type StoredApp = Omit<StudioLocalApp, 'connected' | 'toolsets'> & { tokenHash: string }
 type Offer = StudioLocalAppOffer & {
   codeHash: string
   expiresAtMs: number
@@ -60,7 +60,7 @@ export type StudioLocalAppRedeemResult =
   { ok: true; grant: StudioGrant; token: string } | { ok: false; message: string }
 
 export type StudioLocalAppStore = {
-  list(): Omit<StudioLocalApp, 'connected'>[]
+  list(): Omit<StudioLocalApp, 'connected' | 'toolsets'>[]
   offers(): StudioLocalAppOffer[]
   /** Mint a one-time pairing code. Throws on input Settings should never send. */
   offer(input: unknown): { offer: StudioLocalAppOffer; code: string }
@@ -96,7 +96,7 @@ function grantOf(app: StoredApp): StudioGrant {
   return { clientId: app.id, name: app.name, owner: false, scopes: [...app.scopes], ceiling: app.ceiling }
 }
 
-function publicApp(app: StoredApp): Omit<StudioLocalApp, 'connected'> {
+function publicApp(app: StoredApp): Omit<StudioLocalApp, 'connected' | 'toolsets'> {
   return {
     id: app.id,
     name: app.name,

@@ -22,6 +22,7 @@ const base: StudioLocalAppsStatus = {
       lastSeenAt: null,
       toolReach: 'own',
       connected: true,
+      toolsets: [],
     },
   ],
   offers: [],
@@ -56,6 +57,10 @@ beforeEach(() => {
         return { offer, code: 'sepair_abcdefghijklmnop', status: { ...status, offers: [offer] } }
       }),
       studioLocalAppsCancelOffer: vi.fn(async () => status),
+      studioLocalAppsSetReach: vi.fn(async (id: string, reach: string) => {
+        calls.push(['reach', [id, reach]])
+        return status
+      }),
       onStudioLocalAppsChanged: (cb: (next: StudioLocalAppsStatus) => void) => {
         push = cb
         return () => {
@@ -150,4 +155,27 @@ test('a Studio that is not serving the socket shows its apps but offers no pair 
   expect(button('Pair an app').disabled).toBe(true)
   expect(button('Revoke').disabled).toBe(true)
   expect(host.textContent).toContain('Pair and revoke apps from the Studio that is serving it.')
+})
+
+test('an app that may give agents tools shows what it offers and how far its tools reach', async () => {
+  status.apps[0] = {
+    ...status.apps[0],
+    scopes: ['conversation:read', 'tools:offer'],
+    toolsets: [{ name: 'game', title: 'Acme Game', tools: 2, state: 'reconnecting' }],
+  }
+  await render()
+  expect(host.textContent).toContain('Acme Game (game) · 2 tools · reconnecting')
+  expect(host.textContent).toContain('Its tools reach')
+  expect(host.textContent).toContain('The chats it starts')
+})
+
+test('ticking “Give agents tools from this app” asks how far its tools reach', async () => {
+  await render()
+  await act(async () => button('Pair an app').click())
+  expect(host.textContent).not.toContain('Its tools reach')
+  const tick = host.querySelector<HTMLInputElement>('#local-app-scope-tools\\:offer')
+  expect(host.textContent).toContain('Give agents tools from this app')
+  expect(tick).not.toBeNull()
+  await act(async () => tick!.click())
+  expect(host.textContent).toContain('Its tools reach')
 })

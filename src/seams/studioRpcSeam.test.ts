@@ -327,6 +327,7 @@ test('every method the server serves has its call in the SDK, under the same sco
     'tools.focus': 'tools.focus',
     'tools.catalog': 'tools.catalog',
     'tools.grant': 'request',
+    'tools.grants': 'request',
     // Files by root are Studio's own clients' (the canvas over a server's boards), called by name.
     'files.roots': 'request',
     'files.list': 'request',

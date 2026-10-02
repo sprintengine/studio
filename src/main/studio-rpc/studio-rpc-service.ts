@@ -57,7 +57,14 @@ export type StudioRpcService = {
   /** Mint a one-time pairing code for an app, named and scoped in Settings. */
   offer(input: unknown): StudioLocalAppOfferView
   cancelOffer(id: unknown): StudioLocalAppsStatus
-  revoke(id: unknown): StudioLocalAppsStatus
+  /**
+   * Revoke an app: its token, its connections, its toolset names and every
+   * approval that allows one of its tools. The revocation itself is done when
+   * this returns; the approvals are forgotten by the time it settles.
+   */
+  revoke(id: unknown): Promise<StudioLocalAppsStatus>
+  /** Change which agents an app's tools reach. */
+  setToolReach(id: unknown, reach: unknown): StudioLocalAppsStatus
   /** This run's owner credential, for the desktop's own client. Never written to disk. */
   ownerToken(): string
   /**
@@ -101,6 +108,8 @@ export type StudioRpcServiceOptions = {
   tools?: ClientToolRegistry
   /** Files under a workspace's roots, for owners (`files-write`). */
   files?: StudioFiles
+  /** Forget the saved approvals that allow a revoked app's tools. */
+  forgetToolApprovals?: (toolsets: string[]) => Promise<unknown>
   log?: (message: string) => void
   /** A socket path or pipe name of the caller's choosing (tests). */
   socketPath?: string
@@ -148,6 +157,8 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
     if (!store) {
       store = createStudioLocalAppStore({ resolveUserDataDir: dataDir, log: options.log })
       store.onChanged(() => announce())
+      // What an app offers, and whether it is connected, shows on its row.
+      options.tools?.subscribe(() => announceSoon())
     }
     return store
   }
@@ -162,9 +173,23 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
       lastError,
       apps: appStore()
         .list()
-        .map((app) => ({ ...app, connected: connected.has(app.id) })),
+        .map((app) => ({
+          ...app,
+          connected: connected.has(app.id),
+          toolsets: options.tools?.toolsetsOf(app.id) ?? [],
+        })),
       offers: appStore().offers(),
     }
+  }
+  let announcing = false
+  /** A burst of offers and withdrawals is one push to Settings. */
+  function announceSoon(): void {
+    if (announcing) return
+    announcing = true
+    setImmediate(() => {
+      announcing = false
+      announce()
+    })
   }
   function announce(): void {
     try {
@@ -315,13 +340,17 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
       if (typeof id === 'string') appStore().cancelOffer(id)
       return status()
     },
+    // The revocation is carried out before this returns, and a Studio that is
+    // not serving refuses at once; only the approvals are forgotten after.
     revoke(id) {
       assertServing()
-      if (typeof id !== 'string') return status()
+      if (typeof id !== 'string') return Promise.resolve(status())
       const clientName =
         appStore()
           .list()
           .find((app) => app.id === id)?.name ?? id
+      // Read before the revocation, which releases them.
+      const held = options.tools?.toolsetsOf(id).map((toolset) => toolset.name) ?? []
       let revoked = false
       try {
         revoked = appStore().revoke(id)
@@ -337,6 +366,25 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
         throw error
       }
       if (revoked) audit({ clientId: id, clientName, tool: 'studio.settings.revoke', ok: true, durationMs: 0 })
+      // Its names are released, and the approvals that allowed its tools go
+      // with them: a later app that takes a name inherits no "always allow".
+      const released = [...new Set([...held, ...(options.tools?.forgetClient(id) ?? [])])]
+      return (async () => {
+        if (released.length)
+          try {
+            await options.forgetToolApprovals?.(released)
+          } catch (error) {
+            options.log?.(
+              `The approvals for a revoked app's tools could not be forgotten: ${error instanceof Error ? error.message : String(error)}`,
+            )
+          }
+        return status()
+      })()
+    },
+    setToolReach(id, reach) {
+      assertServing()
+      if (typeof id !== 'string' || (reach !== 'own' && reach !== 'all')) return status()
+      if (appStore().setToolReach(id, reach)) options.tools?.refresh()
       return status()
     },
     ownerToken: () => appStore().ownerToken(),
