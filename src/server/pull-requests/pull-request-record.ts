@@ -100,6 +100,8 @@ const STORE_VERSION = 1
 /** Which conversations worked where. No repository is ever keyed by this name: theirs are `<slug>-<hash>.json`. */
 const CONVERSATIONS_FILE = 'conversations.json'
 const CONVERSATIONS_VERSION = 1
+/** How long the conversations file waits for more notes before it is written. */
+const CONVERSATIONS_WRITE_DELAY_MS = 1_000
 
 /** The bucket a legacy captured pull request sits in until GitHub names its branch. A ref name is never empty. */
 const UNKNOWN_BRANCH = ''
@@ -341,6 +343,20 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
   const conversations = new Map<string, ConversationTouches>()
   /** Terminal session → the conversation it runs as. Not stored: a session names itself on every turn. */
   const sessionAliases = new Map<string, string>()
+  /** The same, the other way round. */
+  const aliasesByConversation = new Map<string, Set<string>>()
+  function aliasSession(sessionId: string, conversation: string): void {
+    const previous = sessionAliases.get(sessionId)
+    if (previous !== undefined) aliasesByConversation.get(previous)?.delete(sessionId)
+    sessionAliases.delete(sessionId)
+    sessionAliases.set(sessionId, conversation)
+    addTo(aliasesByConversation, conversation, sessionId)
+    while (sessionAliases.size > MAX_SESSION_ALIASES) {
+      const [oldest, owner] = sessionAliases.entries().next().value!
+      sessionAliases.delete(oldest)
+      aliasesByConversation.get(owner)?.delete(oldest)
+    }
+  }
   /** A checkout's repository, once git has answered. Only settled answers are kept. */
   const repoKeyByCheckout = new Map<string, string>()
   /**
@@ -550,7 +566,21 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
     )
   }
 
+  /**
+   * Written a moment after the last note rather than on every one: a terminal
+   * agent notes where it is on each directory it moves through, and the file
+   * would otherwise be rewritten per tool call. A flush writes at once.
+   */
+  let conversationsWriteTimer: ReturnType<typeof setTimeout> | null = null
   function persistConversations(): void {
+    if (conversationsWriteTimer) return
+    conversationsWriteTimer = setTimeout(writeConversationsNow, CONVERSATIONS_WRITE_DELAY_MS)
+    conversationsWriteTimer.unref?.()
+  }
+
+  function writeConversationsNow(): void {
+    if (conversationsWriteTimer) clearTimeout(conversationsWriteTimer)
+    conversationsWriteTimer = null
     conversationWrites = conversationWrites.then(
       () =>
         writeJsonFile(options.userDataDir, pullRequestConversationsPath(options.userDataDir), {
@@ -968,8 +998,7 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
     }
     // The legacy entries a hook capture filed under a session this
     // conversation runs as.
-    for (const [sessionId, alias] of sessionAliases) {
-      if (alias !== id) continue
+    for (const sessionId of aliasesByConversation.get(id) ?? []) {
       const own = entriesAt(bySession.get(sessionId))
       if (own.length > 0) lists.push(own)
     }
@@ -1053,15 +1082,7 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
     if (disposed) return
     const id = conversationId(key)
     const before = signatureOf(forConversation(key))
-    if (noteOptions.sessionId) {
-      sessionAliases.delete(noteOptions.sessionId)
-      sessionAliases.set(noteOptions.sessionId, id)
-      while (sessionAliases.size > MAX_SESSION_ALIASES) {
-        const oldest = sessionAliases.keys().next().value
-        if (oldest === undefined) break
-        sessionAliases.delete(oldest)
-      }
-    }
+    if (noteOptions.sessionId) aliasSession(noteOptions.sessionId, id)
     touch(key, checkout, noteOptions.home === true)
     persistConversations()
     await Promise.all([
@@ -1177,6 +1198,7 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
     },
 
     async flush() {
+      if (conversationsWriteTimer) writeConversationsNow()
       for (let pass = 0; pass < 8; pass += 1) {
         const pending: Promise<unknown>[] = [conversationWrites]
         for (const state of repos.values()) {
@@ -1192,6 +1214,7 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
         )
         await Promise.allSettled(pending)
         if (lookupsInFlight.size === 0 && refreshesInFlight.size === 0 && repoKeyReads.size === 0) {
+          if (conversationsWriteTimer) writeConversationsNow()
           // One more pass over the write chains, which the last commit extended.
           await Promise.allSettled([conversationWrites, ...[...repos.values()].map((state) => state.writes)])
           return
@@ -1201,6 +1224,9 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
 
     dispose() {
       disposed = true
+      // A quit flushes first; a dispose on its own drops a write still waiting.
+      if (conversationsWriteTimer) clearTimeout(conversationsWriteTimer)
+      conversationsWriteTimer = null
       watch.dispose()
       releaseWaitingReads()
       for (const pending of deferredLookups.values()) {
