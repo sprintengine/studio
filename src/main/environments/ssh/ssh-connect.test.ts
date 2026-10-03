@@ -13,7 +13,15 @@ import { afterAll, beforeAll, test } from 'vitest'
 
 import { remoteNodeDigests, WSL_NODE_VERSION } from '../../hosts/wsl-node-runtime'
 import { BACKEND_WIRE_VERSION, connectRemoteConversationBackend } from '../../../server/wsl/backend-wire'
-import { assessProbe, buildConnectScript, locateServer, parseProbe, spaceFor, type Probe } from './ssh-connect-script'
+import {
+  assessProbe,
+  buildConnectScript,
+  compareVersions,
+  locateServer,
+  parseProbe,
+  spaceFor,
+  type Probe,
+} from './ssh-connect-script'
 import { buildInstallArchive, serverTreeDigest } from './ssh-install'
 import { RemoteSession, type SessionProcess } from './ssh-session'
 
@@ -270,6 +278,33 @@ test('a home shared with another machine is refused, naming it', () => {
   const located = locateServer(probe, { version: VERSION, backendWire: 1 }, 'build-box')
   assert.equal(located.action, 'blocked')
   assert.match(located.action === 'blocked' ? located.reason : '', /on build-box-2/u)
+})
+
+test('two nightlies are ordered by their build, so an older desktop never replaces a newer server', () => {
+  const older = '0.5.0-nightly.20260923.9'
+  const newer = '0.5.0-nightly.20260923.10'
+  assert.ok((compareVersions(older, newer) ?? 0) < 0)
+  assert.ok((compareVersions(newer, older) ?? 0) > 0)
+  assert.ok((compareVersions('0.5.0-nightly.20260924.1', newer) ?? 0) > 0)
+  assert.ok((compareVersions('0.5.0', newer) ?? 0) > 0, 'a release is above its nightlies')
+  assert.equal(compareVersions('?', '0.5.0'), null)
+  const running = (version: string) =>
+    probeOfFields({ hostname: 'build-box', lock_alive: '1', lock_host: 'build-box', lock_pid: '42' }, [
+      `@@SPRINTENGINE_PROBE server_json=${JSON.stringify({ version, origin: 'bootstrap', backendWire: BACKEND_WIRE_VERSION })}`,
+    ])!
+  const app = (version: string) => ({ version, backendWire: BACKEND_WIRE_VERSION })
+  const fromOlder = locateServer(running(newer), app(older), 'build-box')
+  assert.equal(fromOlder.action, 'blocked')
+  assert.match(fromOlder.action === 'blocked' ? fromOlder.reason : '', /Update this app/u)
+  assert.deepEqual(locateServer(running(older), app(newer), 'build-box'), { action: 'upgrade', from: older })
+  const unknown = locateServer(
+    probeOfFields({ hostname: 'build-box', lock_alive: '1', lock_host: 'build-box', lock_pid: '42' }, [
+      `@@SPRINTENGINE_PROBE server_json=${JSON.stringify({ origin: 'bootstrap', backendWire: BACKEND_WIRE_VERSION })}`,
+    ])!,
+    app(newer),
+    'build-box',
+  )
+  assert.equal(unknown.action, 'blocked', 'a server with no version is never replaced')
 })
 
 test.skipIf(spawnSync('shellcheck', ['--version']).status !== 0)(

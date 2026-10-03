@@ -10,6 +10,7 @@ import {
   streamInstallLines,
 } from '../../hosts/remote-install'
 import { remoteNodePackage, type RemoteNodeTarget } from '../../hosts/wsl-node-runtime'
+import { parseSemver } from '../../../shared/semver'
 
 // The one script every SSH session runs (phase 8 spec, 5.2): a probe of what
 // the machine is, then `@@SPRINTENGINE_SEND`, then one decision line from the
@@ -393,14 +394,32 @@ export type Located =
   | { action: 'upgrade'; from: string }
   | { action: 'blocked'; reason: string; offerUpgrade: boolean }
 
-function compareVersions(a: string, b: string): number {
-  const parse = (value: string) =>
-    value
-      .split(/[.-]/u)
-      .slice(0, 3)
-      .map((part) => Number.parseInt(part, 10) || 0)
-  const [x, y] = [parse(a), parse(b)]
-  for (let i = 0; i < 3; i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) - (y[i] ?? 0)
+/**
+ * Which of two app versions is newer: numbers first, then a prerelease
+ * (`0.5.0-nightly.20260923.41`) below its release and ordered identifier by
+ * identifier, numbers as numbers. Null when either is not a version at all.
+ */
+export function compareVersions(a: string, b: string): number | null {
+  const [x, y] = [parseSemver(a), parseSemver(b)]
+  if (!x || !y) return null
+  const width = Math.max(x.numbers.length, y.numbers.length)
+  for (let i = 0; i < width; i++)
+    if ((x.numbers[i] ?? 0) !== (y.numbers[i] ?? 0)) return (x.numbers[i] ?? 0) - (y.numbers[i] ?? 0)
+  if (x.prerelease === y.prerelease) return 0
+  if (x.prerelease === null) return 1
+  if (y.prerelease === null) return -1
+  const [p, q] = [x.prerelease.split('.'), y.prerelease.split('.')]
+  for (let i = 0; i < Math.max(p.length, q.length); i++) {
+    const [l, r] = [p[i], q[i]]
+    if (l === r) continue
+    if (l === undefined) return -1
+    if (r === undefined) return 1
+    const [ln, rn] = [/^\d+$/u.test(l) ? Number(l) : null, /^\d+$/u.test(r) ? Number(r) : null]
+    if (ln !== null && rn !== null) return ln - rn
+    if (ln !== null) return -1
+    if (rn !== null) return 1
+    return l < r ? -1 : 1
+  }
   return 0
 }
 
@@ -437,6 +456,13 @@ export function locateServer(
   const wire = typeof record.backendWire === 'number' ? record.backendWire : null
   if (version === app.version && wire === app.backendWire) return { action: 'attach' }
   const order = compareVersions(version, app.version)
+  // A version this app cannot place is never replaced: it may be the newer one.
+  if (order === null)
+    return {
+      action: 'blocked',
+      reason: `${label} runs a Studio server whose version (${version}) this app (${app.version}) cannot compare with its own, so Studio left it alone.`,
+      offerUpgrade: false,
+    }
   if (order > 0 || (order === 0 && wire !== app.backendWire && (wire ?? 0) > app.backendWire))
     return {
       action: 'blocked',
