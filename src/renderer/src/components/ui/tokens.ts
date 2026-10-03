@@ -35,6 +35,11 @@ export const TONE_SOFT_VAR: Record<Tone, string> = {
 // The product's one focus indicator: a 2px --border-focus outline at a 2px
 // offset, declared once as the `focus-ring` utility in assets/index.css.
 //
+// It is drawn only while the keyboard moved focus last. Every variant below
+// still matches on a click, but `--focus-ring` is switched off while the root
+// says `data-focus-source="pointer"` (utils/focusSource.ts), so no constant
+// here needs a pointer guard of its own.
+//
 // The utility name is the single source, not these constants: markup that
 // writes `focus-visible:focus-ring` into a className string lands on the same
 // rule, and moving the treatment means editing the utility, never a consumer.

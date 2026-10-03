@@ -2958,8 +2958,11 @@ function CommitComposer({
           placeholder={placeholder ?? 'Commit message'}
           aria-label="Commit message"
           // Grows with the message between three lines and a body's worth, as
-          // the chat composer grows with a draft.
-          className="max-h-[200px] min-h-[56px] overflow-y-auto rounded-t-lg px-3 pb-1 pt-2.5"
+          // the chat composer grows with a draft. `text-meta` because the
+          // composer variant sets no size and inherits one: the chat composer
+          // sits in a `text-meta` panel, this pane sets none, and the commit
+          // message came out a step larger than the sentence typed beside it.
+          className="max-h-[200px] min-h-[56px] overflow-y-auto rounded-t-lg px-3 pb-1 pt-2.5 text-meta"
         />
         <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-0.5">
           {/*
