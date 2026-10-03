@@ -13,6 +13,7 @@ import { useLiveRowMotion } from '../../../panels/agentChat/liveVisibility'
 import { SubagentLaneResult } from '../../../panels/agentChat/subagentResult'
 import {
   AgentLaneSummary,
+  formatTokens,
   LaneGlyph,
   LaneStatus,
   laneTask,
@@ -63,10 +64,6 @@ export function placeAgentMessages(lane: TranscriptToolEntry): {
   const last = afterSteps.at(-1)?.trim()
   if (lane.status !== 'running' && report && last && report.startsWith(last.slice(0, 200))) afterSteps.pop()
   return { beforeSteps, afterSteps }
-}
-
-function formatTokens(count: number): string {
-  return count >= 1000 ? `${Math.round(count / 1000)}k tokens` : `${count} tokens`
 }
 
 // How often the lanes may be refolded while the chat streams. The whole
