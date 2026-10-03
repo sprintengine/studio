@@ -100,6 +100,15 @@ export function createIpcRouter(options: IpcRouterOptions): RendererIpc & {
   const inFlight = new Map<number, Pending>()
   let port: RouterPort | null = null
   let nextId = 1
+  // The server-side subscriptions live now, by the id the caller knows them
+  // by, so a new port can make each again (ServerIpcChannel.subscription).
+  const subscriptions = new Map<string, { channel: string; args: unknown[]; serverId: string }>()
+  const unsubscribeChannels = new Map<string, string>()
+  for (const [channel, spec] of Object.entries(table)) {
+    if (spec.subscription) unsubscribeChannels.set(spec.subscription.unsubscribe, channel)
+  }
+  // Whether a port was ever attached: the first one has nothing to make again.
+  let attachedBefore = false
 
   const routesToServer = (channel: string): boolean =>
     options.mode === 'out-of-process' && Object.hasOwn(table, channel)
@@ -182,15 +191,63 @@ export function createIpcRouter(options: IpcRouterOptions): RendererIpc & {
     }
   }
 
+  const subscriptionIdOf = (value: unknown): string | null => {
+    const id = (value as { subscriptionId?: unknown } | null)?.subscriptionId
+    return typeof id === 'string' ? id : null
+  }
+
+  function sendToServer(channel: string, args: unknown[]): Promise<any> {
+    if (!port && queued.length >= queueLimit) {
+      return Promise.reject(new ServerUnavailable(channel, 'Too many requests are waiting for Studio server.', false))
+    }
+    return new Promise((resolve, reject) => {
+      transmit({ id: nextId++, channel, args, resolve, reject, timer: null })
+    })
+  }
+
+  /** Make every live subscription again on a new port, keeping the ids the callers hold. */
+  function resubscribe(): void {
+    for (const [callerId, entry] of subscriptions) {
+      void sendToServer(entry.channel, entry.args).then(
+        (result) => {
+          const live = subscriptions.get(callerId)
+          if (!live) {
+            // Undone while it was being made again: undo the new one too.
+            const unsubscribe = table[entry.channel]?.subscription?.unsubscribe
+            const serverId = subscriptionIdOf(result)
+            if (unsubscribe && serverId) void sendToServer(unsubscribe, [{ subscriptionId: serverId }]).catch(() => {})
+            return
+          }
+          if (table[entry.channel]?.subscription?.id === 'result')
+            live.serverId = subscriptionIdOf(result) ?? live.serverId
+        },
+        (error: unknown) => console.warn(`[ipc-router] ${entry.channel} was not made again`, error),
+      )
+    }
+  }
+
   const router = {
     invoke(channel: string, ...args: unknown[]): Promise<any> {
       if (!routesToServer(channel)) return renderer.invoke(channel, ...args)
-      if (!port && queued.length >= queueLimit) {
-        return Promise.reject(new ServerUnavailable(channel, 'Too many requests are waiting for Studio server.', false))
+      const subscription = table[channel]?.subscription
+      if (subscription) {
+        const sent = sendToServer(channel, args)
+        return sent.then((result) => {
+          const callerId = subscription.id === 'argument' ? subscriptionIdOf(args[0]) : subscriptionIdOf(result)
+          if (callerId) subscriptions.set(callerId, { channel, args, serverId: callerId })
+          return result
+        })
       }
-      return new Promise((resolve, reject) => {
-        transmit({ id: nextId++, channel, args, resolve, reject, timer: null })
-      })
+      const subscribed = unsubscribeChannels.get(channel)
+      if (subscribed) {
+        const callerId = subscriptionIdOf(args[0])
+        const live = callerId ? subscriptions.get(callerId) : undefined
+        if (callerId) subscriptions.delete(callerId)
+        // The server knows a subscription made again by the id it answered then.
+        if (live && live.serverId !== callerId)
+          return sendToServer(channel, [{ ...(args[0] as object), subscriptionId: live.serverId }])
+      }
+      return sendToServer(channel, args)
     },
     send(channel: string, ...args: unknown[]): void {
       if (!routesToServer(channel)) {
@@ -250,6 +307,10 @@ export function createIpcRouter(options: IpcRouterOptions): RendererIpc & {
       }
       for (const send of queuedSends.splice(0))
         next.postMessage({ t: 'ipc.send', channel: send.channel, args: send.args })
+      // A port after the first is a server that holds none of this window's
+      // subscriptions: they are made again, and what they push resumes.
+      if (attachedBefore) resubscribe()
+      attachedBefore = true
     },
   }
   return router

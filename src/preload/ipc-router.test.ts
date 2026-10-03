@@ -264,3 +264,57 @@ test("a renderer's mode is the switch main put on its command line", () => {
   assert.equal(serverModeFromArgv(['electron', '--studio-server-mode=nonsense']), 'in-process')
   assert.equal(serverModeFromArgv(['electron']), 'in-process')
 })
+
+const SUBSCRIPTIONS = {
+  'session:subscribe': { subscription: { unsubscribe: 'session:unsubscribe', id: 'argument' as const } },
+  'session:unsubscribe': {},
+  'events:subscribe': { subscription: { unsubscribe: 'events:unsubscribe', id: 'result' as const } },
+  'events:unsubscribe': {},
+}
+
+/** Answer the last request on a port with `value`. */
+function answerLast(port: ReturnType<typeof fakePort>, value: unknown) {
+  const request = port.posted.at(-1)!
+  port.deliver({ t: 'ipc.result', id: request.id, ok: true, value })
+}
+
+test('a new port makes every live subscription again, and an undone one is not', async () => {
+  vi.useRealTimers()
+  const router = createIpcRouter({ ipcRenderer: fakeRenderer(), mode: 'out-of-process', table: SUBSCRIPTIONS })
+  const first = fakePort()
+  router.attachPort(first as unknown as RouterPort)
+  const session = router.invoke('session:subscribe', { subscriptionId: 'panel-1', key: 'k' })
+  answerLast(first, { ok: true })
+  await session
+  const events = router.invoke('events:subscribe')
+  answerLast(first, { ok: true, subscriptionId: 'server-1' })
+  await events
+  const other = router.invoke('session:subscribe', { subscriptionId: 'panel-2', key: 'k2' })
+  answerLast(first, { ok: true })
+  await other
+  const undone = router.invoke('session:unsubscribe', { subscriptionId: 'panel-2' })
+  answerLast(first, { ok: true })
+  await undone
+
+  first.hangUp()
+  const second = fakePort()
+  router.attachPort(second as unknown as RouterPort)
+  assert.deepEqual(
+    second.posted.map((message) => [message.channel, message.args]),
+    [
+      ['session:subscribe', [{ subscriptionId: 'panel-1', key: 'k' }]],
+      ['events:subscribe', []],
+    ],
+  )
+  // The server answers the events subscription with a new id, which an undo then names.
+  second.deliver({ t: 'ipc.result', id: second.posted[0].id, ok: true, value: { ok: true } })
+  second.deliver({
+    t: 'ipc.result',
+    id: second.posted[1].id,
+    ok: true,
+    value: { ok: true, subscriptionId: 'server-2' },
+  })
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  void router.invoke('events:unsubscribe', { subscriptionId: 'server-1' })
+  assert.deepEqual(second.posted.at(-1)?.args, [{ subscriptionId: 'server-2' }])
+})
