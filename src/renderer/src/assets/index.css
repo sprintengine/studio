@@ -554,6 +554,28 @@
   --z-toast: var(--sem-z-toast);
 }
 
+/* The ring is for the keyboard, and only the keyboard (owner ruling
+   2026-10-03: "sick of all these green highlighter boxes around everything
+   that I click on"). `:focus-visible` alone does not hold that line in this
+   app. Chromium rings a text field on every click, so the composer, the commit
+   box and every search field lit up the moment they were clicked; a
+   `:focus-within` container (the terminal) lights up on a click by design; and
+   a programmatic `.focus()` after any keystroke — typing in the composer
+   counts — inherits focus-visible, so a pane switched to by a click after
+   typing drew a ring around the whole transcript.
+
+   So the indicator follows the last INPUT rather than the focus event:
+   utils/focusSource.ts stamps `data-focus-source="pointer"` on a pointer press
+   and `"keyboard"` on a navigation key, and while the pointer was last the
+   value every ring reads is switched off. One rule, because every ring in the
+   product (the utilities, the FlexLayout controls, the terminal's ::after)
+   reads `--focus-ring`; FlexLayout's own outlines read `--fl-color-focus` and
+   are switched off beside it, further down. The selected row's edge in the
+   rail (`--selection-edge`) is a selection mark, not a focus ring, and stays. */
+:root[data-focus-source="pointer"] {
+  --focus-ring: none;
+}
+
 /* Light theme — paper-warm whites, dark ink text. References: Linear Light,
    Vercel Light, Stripe Light. Surface, text, border, accent-soft,
    tone-soft, and scrollbar tokens override; semantic tone hexes, tool
@@ -3345,6 +3367,14 @@ body:has([data-selection-pane]:focus-within)
   --fl-color-mini-scroll-indicator: var(--scrollbar-thumb);
   --fl-color-mini-scroll-indicator-hovered: var(--scrollbar-thumb-hover);
   --fl-size-mini-scroll-indicator: 3px;
+}
+
+/* The library draws its own focus outlines (tab, splitter, popup items) from
+   this colour rather than from --focus-ring, so the pointer switch at the top
+   of this file has to reach it by name. Transparent, not `none`: it is a colour
+   inside the library's `outline: 2px solid …` shorthand. */
+:root[data-focus-source="pointer"] .flexlayout__layout {
+  --fl-color-focus: transparent;
 }
 
 /* NOTE: flexlayout puts `flexlayout__tabset-selected` on the tab STRIP
