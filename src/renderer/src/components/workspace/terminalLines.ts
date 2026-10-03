@@ -94,8 +94,8 @@ export function lineDiffOf(
 } {
   if (!summary) return { additions: 0, deletions: 0, changedFiles: 0, files: null, scope: 'folder' }
   // Only a pull request ON THIS CHECKOUT'S BRANCH may say the branch landed.
-  // The session's list is a union that also carries pull requests the agent
-  // opened in other repositories (`cd ../website && gh pr create`); main stamps
+  // The session's list is a union that also carries pull requests on branches
+  // the agent worked on in other repositories; the server stamps
   // `onSessionBranch` on the ones that belong to this branch, and a merged one
   // elsewhere must not read this branch as landed.
   const ownBranch = pullRequests.filter((pr) => pr.onSessionBranch === true)

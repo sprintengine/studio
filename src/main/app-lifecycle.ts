@@ -595,9 +595,10 @@ export function registerAppLifecycle({
       ['workspace registry', () => workspaceSyncService?.flush()],
       ['chat transcripts', () => conversationOwner?.flushTranscripts?.()],
       ['terminals', () => terminalRuntime.shutdown()],
-      // After the terminal service: its last turn ends can still start a
-      // lookup, and this is what gets that write to disk and stops the watch
-      // timers.
+      // In process, the core's record: a lookup a last chat turn end started
+      // is written down, and the watch timers stop. The shell's client of it
+      // closed with the local app socket; out of process the server settles
+      // the record in its own legs.
       ['pull requests (flush)', () => pullRequestRecord?.flush()],
       ['pull requests (dispose)', () => pullRequestRecord?.dispose()],
       ['chats', () => conversationOwner?.shutdown()],

@@ -4,7 +4,7 @@
  *
  * Built for a pull request's merge state self-healing with no window
  * open) and generalised over `{ key, isWatchable, probe }`, so the conversation
- * pull request record (`main/pull-request-record.ts`, epic `pull-request-marks`
+ * pull request record (`src/server/pull-requests/pull-request-record.ts`, epic `pull-request-marks`
  * decision 9) rides this schedule rather than a second one with the same
  * comments.
  *
