@@ -1,0 +1,146 @@
+import assert from 'node:assert/strict'
+
+import { afterEach, test } from 'vitest'
+
+import type { StudioPullRequestsMethodMap } from '../../../packages/studio-protocol/src/public'
+import type { PullRequestsChanged, StudioPullRequests } from '../pull-requests/pull-request-domain'
+import { connectLineClient, hello, OWNER_TOKEN, pairFakeClient, startTestServer } from './studio-rpc.test-helper'
+
+// `pullRequests.*` over the owner socket: the capability, the three methods
+// and the stream, as a client reads them. The record behind them is a stub;
+// what it decides is pull-request-record.test.ts's and pull-request-domain's.
+
+const cleanups: Array<() => unknown> = []
+afterEach(async () => {
+  for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
+})
+
+function stubPullRequests() {
+  const listeners = new Set<(change: PullRequestsChanged) => void>()
+  const noted: Array<StudioPullRequestsMethodMap['pullRequests.noteWork']['params']> = []
+  const stub: StudioPullRequests = {
+    list: async (target): Promise<StudioPullRequestsMethodMap['pullRequests.list']['result']> => ({
+      workspaces: (target.workspaceIds ?? []).includes('ws-1')
+        ? {
+            'ws-1': [
+              {
+                url: 'https://github.com/acme/app/pull/4',
+                repoKey: 'github.com/acme/app',
+                repoName: 'app',
+                number: 4,
+                title: 'Marks',
+                state: 'open',
+                isDraft: false,
+                openedAt: 1,
+                stateAt: 2,
+              },
+            ],
+          }
+        : ({} as Record<string, never[]>),
+      conversations: [],
+    }),
+    refresh: async (target) => ({ asked: (target.workspaceIds ?? []).length > 0 }),
+    noteWork: async (input) => {
+      noted.push(input)
+    },
+    onChanged: (listener) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+  }
+  return { stub, noted, emit: (change: PullRequestsChanged) => listeners.forEach((listener) => listener(change)) }
+}
+
+async function ownerOver(pullRequests?: StudioPullRequests) {
+  const started = await startTestServer(pullRequests ? { pullRequests } : {})
+  cleanups.push(() => started.dispose())
+  const owner = await connectLineClient(started.path)
+  cleanups.push(() => owner.close())
+  owner.send(hello({ token: OWNER_TOKEN }))
+  const welcome = await owner.next((frame) => frame.t === 'welcome')
+  let seq = 0
+  const request = async (method: string, params: unknown) => {
+    const id = `r${++seq}`
+    owner.send({ t: 'req', id, method, params })
+    return owner.next((frame) => frame.t === 'res' && frame.id === id)
+  }
+  return { started, owner, welcome, request }
+}
+
+test('a Studio with a pull request record advertises it, and one without does not', async () => {
+  const withRecord = await ownerOver(stubPullRequests().stub)
+  assert.equal(withRecord.welcome.t === 'welcome' && withRecord.welcome.capabilities.includes('pull-requests'), true)
+  const without = await ownerOver()
+  assert.equal(without.welcome.t === 'welcome' && without.welcome.capabilities.includes('pull-requests'), false)
+  const refused = await without.request('pullRequests.list', { workspaceIds: ['ws-1'] })
+  assert.equal(refused.t === 'res' && !refused.ok && refused.error.code, 'unavailable')
+})
+
+test('an owner lists, refreshes and notes work, and malformed params are refused', async () => {
+  const { stub, noted } = stubPullRequests()
+  const { request } = await ownerOver(stub)
+  const listed = await request('pullRequests.list', { workspaceIds: ['ws-1', 'ws-2'] })
+  assert.equal(listed.t === 'res' && listed.ok, true)
+  const result =
+    listed.t === 'res' && listed.ok
+      ? (listed.result as StudioPullRequestsMethodMap['pullRequests.list']['result'])
+      : null
+  assert.deepEqual(Object.keys(result?.workspaces ?? {}), ['ws-1'])
+  assert.equal(result?.workspaces['ws-1'][0].number, 4)
+
+  const refreshed = await request('pullRequests.refresh', { workspaceIds: ['ws-1'] })
+  assert.deepEqual(refreshed.t === 'res' && refreshed.ok && refreshed.result, { asked: true })
+
+  const note = {
+    conversation: { workspaceId: 'ws-1', agentId: 'term-1' },
+    sessionId: 'terminal-1',
+    checkout: { gitRoot: '/Users/dev/app', branch: 'agent/x' },
+    changedPaths: ['/Users/dev/other-repo/README.md'],
+    turnEnded: true,
+  }
+  const accepted = await request('pullRequests.noteWork', note)
+  assert.deepEqual(accepted.t === 'res' && accepted.ok && accepted.result, {})
+  assert.deepEqual(noted, [note])
+
+  for (const [method, params] of [
+    ['pullRequests.list', { workspaceIds: 'ws-1' }],
+    ['pullRequests.list', { conversations: [{ workspaceId: 'ws-1' }] }],
+    [
+      'pullRequests.noteWork',
+      { conversation: { workspaceId: 'ws-1', agentId: 'a' }, checkout: { gitRoot: '/x', branch: '--upload-pack' } },
+    ],
+    ['pullRequests.noteWork', { conversation: { workspaceId: 'ws-1', agentId: 'a' }, changedPaths: [42] }],
+  ] as const) {
+    const refused = await request(method, params)
+    assert.deepEqual([method, refused.t === 'res' && !refused.ok && refused.error.code], [method, 'invalid_params'])
+  }
+})
+
+test('a paired app is refused, whatever it holds', async () => {
+  const { stub } = stubPullRequests()
+  const { started } = await ownerOver(stub)
+  const app = await connectLineClient(started.path)
+  cleanups.push(() => app.close())
+  app.send(hello({ token: pairFakeClient(started.auth, 'app', ['workspaces:read', 'conversation:read']) }))
+  await app.next((frame) => frame.t === 'welcome')
+  app.send({ t: 'req', id: 'a1', method: 'pullRequests.list', params: { workspaceIds: ['ws-1'] } })
+  const refused = await app.next((frame) => frame.t === 'res' && frame.id === 'a1')
+  assert.equal(refused.t === 'res' && !refused.ok && refused.error.code, 'owner_required')
+  app.send({ t: 'sub', id: 's1', topic: 'pullRequests.changed', params: {} })
+  const failed = await app.next((frame) => frame.t === 'subFailed' && frame.sub === 's1')
+  assert.equal(failed.t === 'subFailed' && failed.code, 'owner_required')
+})
+
+test('the stream names what moved, never the lists', async () => {
+  const { stub, emit } = stubPullRequests()
+  const { owner } = await ownerOver(stub)
+  owner.send({ t: 'sub', id: 's1', topic: 'pullRequests.changed' })
+  // The subscription is registered as the frame is read; give it a turn.
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  emit({ workspaceIds: ['ws-1'], conversations: [{ workspaceId: 'ws-1', agentId: 'agent-1' }] })
+  const pushed = await owner.next((frame) => frame.t === 'push' && frame.sub === 's1')
+  assert.deepEqual(pushed.t === 'push' && pushed.payload, {
+    workspaceIds: ['ws-1'],
+    conversations: [{ workspaceId: 'ws-1', agentId: 'agent-1' }],
+  })
+})
