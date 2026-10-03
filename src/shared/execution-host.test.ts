@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
 import {
+  cliRuntimesOnPlatform,
   distroOfHostId,
   executionHostLabel,
   hostCliCommand,
@@ -12,6 +13,7 @@ import {
   normalizeExecutionHostSettings,
   pathStyleOfHost,
   resolveLaunchHostId,
+  type ExecutionHostId,
 } from './execution-host'
 import { parseAgentLaunchSettingsRecord } from './launch-settings'
 
@@ -104,4 +106,26 @@ test('a version-1 launch settings record is read, without the retired WSL switch
   assert.deepEqual(record.settings.cliRuntimes, { codex: { command: '/Users/dev/bin/codex' } })
   assert.deepEqual(record.settings.hosts, {})
   assert.equal(parseAgentLaunchSettingsRecord({ schemaVersion: 3, revision: 1, settings: {} }), null)
+})
+
+test('off Windows a WSL host id names nothing: no distribution, this machine, and no runtime host', () => {
+  assert.equal(distroOfHostId('wsl:Ubuntu', 'linux'), null)
+  assert.equal(distroOfHostId('wsl:Ubuntu', 'win32'), 'Ubuntu')
+  assert.equal(normalizeExecutionHostId('wsl:Ubuntu', 'linux'), LOCAL_HOST_ID)
+  assert.equal(normalizeExecutionHostId('wsl:Ubuntu', 'darwin'), LOCAL_HOST_ID)
+  assert.equal(normalizeExecutionHostId('wsl:Ubuntu', 'win32'), 'wsl:Ubuntu')
+  assert.equal(normalizeExecutionHostId('wsl:bad name', 'linux'), null)
+  type Runtime = { command?: string; hostId?: ExecutionHostId }
+  const runtimes: Record<string, Runtime> = {
+    claude: { command: 'claude', hostId: 'wsl:Ubuntu' },
+    codex: { command: 'codex' },
+  }
+  assert.deepEqual(cliRuntimesOnPlatform(runtimes, 'linux'), {
+    claude: { command: 'claude' },
+    codex: { command: 'codex' },
+  })
+  assert.equal(cliRuntimesOnPlatform(runtimes, 'win32'), runtimes, 'Windows keeps them as they are')
+  const local: Record<string, Runtime> = { codex: { command: 'codex' } }
+  assert.equal(cliRuntimesOnPlatform(local, 'linux'), local, 'nothing to drop is the same object')
+  assert.equal(cliRuntimesOnPlatform(undefined, 'linux'), undefined)
 })

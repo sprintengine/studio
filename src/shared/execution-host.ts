@@ -91,8 +91,14 @@ export function wslHostId(distro: string): ExecutionHostId {
   return `${WSL_PREFIX}${distro}`
 }
 
-/** The distribution a `wsl:<distro>` id names, or null for any other id. */
-export function distroOfHostId(id: string | null | undefined): string | null {
+/**
+ * The distribution a `wsl:<distro>` id names, or null for any other id. Given
+ * a platform other than Windows, null for every id: a Linux or macOS process
+ * that reads a `wsl:` id (a WSL server handed one by mistake, settings copied
+ * from a PC) has no `wsl.exe` to send anything to, and must not try.
+ */
+export function distroOfHostId(id: string | null | undefined, platform?: string): string | null {
+  if (platform !== undefined && platform !== 'win32') return null
   if (!id || !id.startsWith(WSL_PREFIX)) return null
   const distro = id.slice(WSL_PREFIX.length)
   return DISTRO_NAME.test(distro) ? distro : null
@@ -102,12 +108,41 @@ export function isWslHostId(id: string | null | undefined): id is `wsl:${string}
   return distroOfHostId(id) !== null
 }
 
-/** A value read from disk or the wire, as a host id, or null when it is not one. */
-export function normalizeExecutionHostId(value: unknown): ExecutionHostId | null {
+/**
+ * A value read from disk or the wire, as a host id, or null when it is not one.
+ * Given a platform other than Windows, a WSL id is this machine (`local`): off
+ * Windows there is no other machine for it to name.
+ */
+export function normalizeExecutionHostId(value: unknown, platform?: string): ExecutionHostId | null {
   if (value === LOCAL_HOST_ID) return LOCAL_HOST_ID
   if (typeof value !== 'string') return null
   const distro = distroOfHostId(value)
-  return distro ? wslHostId(distro) : null
+  if (!distro) return null
+  return platform !== undefined && platform !== 'win32' ? LOCAL_HOST_ID : wslHostId(distro)
+}
+
+/**
+ * A chat's CLI runtimes as a process on `platform` may act on them: off
+ * Windows every `wsl:` host id is dropped, so the CLI runs on this machine.
+ * A WSL server is handed the runtimes the Windows side built for a WSL
+ * workspace, and a stray id there would send a provider looking for
+ * `wsl.exe`, or make an approval check respell Linux paths into UNC ones.
+ */
+export function cliRuntimesOnPlatform<T extends { hostId?: ExecutionHostId }>(
+  cliRuntimes: Record<string, T | undefined> | undefined,
+  platform: string,
+): Record<string, T | undefined> | undefined {
+  if (!cliRuntimes || platform === 'win32') return cliRuntimes
+  let changed = false
+  const out: Record<string, T | undefined> = {}
+  for (const [cli, runtime] of Object.entries(cliRuntimes)) {
+    if (runtime && runtime.hostId !== undefined && runtime.hostId !== LOCAL_HOST_ID) {
+      const { hostId: _dropped, ...rest } = runtime
+      out[cli] = rest as T
+      changed = true
+    } else out[cli] = runtime
+  }
+  return changed ? out : cliRuntimes
 }
 
 /**

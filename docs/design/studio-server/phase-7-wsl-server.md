@@ -708,6 +708,15 @@ On the Linux server, `wsl:<distro>` host ids must mean nothing:
 - `conversationCliRuntimesForHost` stamps no `hostId` for a workspace whose
   `hostId` is `local`. Adopted workspaces are always `local` (5.4).
 
+As built (2026-10-03): `distroOfHostId` and `normalizeExecutionHostId` take
+an optional platform, and the runtime is the one door. `ConversationRuntime`
+drops every `wsl:` id from a start's `cliRuntimes` off Windows
+(`cliRuntimesOnPlatform`), before a provider or the approval check sees it,
+and `approvalCheckInput` reads the distribution with the runtime's platform.
+`wslTargetForHost` is left as it is: every provider reads the runtimes the
+runtime hands it, so no stray id reaches one, and the providers stay
+untouched for the change that gives Codex and ACP chats the gateway (R86).
+
 ## 8. Edge cases
 
 | # | Case | Behaviour | Verified? |

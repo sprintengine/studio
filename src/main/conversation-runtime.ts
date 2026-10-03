@@ -47,7 +47,7 @@ import type {
   ConversationForkInput,
   ConversationForkResult,
 } from '../shared/conversation-runtime'
-import { distroOfHostId, type ExecutionHostId } from '../shared/execution-host'
+import { cliRuntimesOnPlatform, distroOfHostId, type ExecutionHostId } from '../shared/execution-host'
 import { wslInputInRootSpelling } from '../shared/host-paths'
 import { inferConversationToolKind } from '../shared/conversation/toolKind'
 import { isTurnlessSubagentStep, readSubagentStatus } from '../shared/conversation/subagents'
@@ -240,6 +240,10 @@ export type ConversationRuntimeOptions = {
   // runs on (a WSL host's, or this one's). Null leaves it out; the chat runs
   // without Studio's tools rather than not at all.
   resolveStudioMcpServer?: (input: { hostId?: ExecutionHostId }) => Promise<ConversationMcpServer | null>
+  // The platform this runtime runs on; tests stand in for another. Off
+  // Windows a `wsl:` host id means nothing (a WSL server is handed the
+  // runtimes a Windows front door built), so it is dropped at the start.
+  platform?: NodeJS.Platform
 }
 
 type ConversationRuntimeListener = (event: ConversationEvent) => void
@@ -359,6 +363,7 @@ export class ConversationRuntime {
   private readonly transcriptLimits: ConversationTranscriptLimits
   private readonly now: () => number
   private readonly randomId: () => string
+  private readonly platform: NodeJS.Platform
   private readonly resolveSkills: ConversationSkillsResolver
   private readonly checkpoints = new ConversationCheckpoints()
   private readonly approvalRules: ConversationApprovalRuleStore
@@ -434,6 +439,7 @@ export class ConversationRuntime {
       this.adapters.set(adapter.id, adapter)
     }
     this.stat = options.stat ?? stat
+    this.platform = options.platform ?? process.platform
     this.eventLog = new ConversationEventLog({
       onError: (filePath, error) => {
         console.warn(
@@ -486,6 +492,8 @@ export class ConversationRuntime {
       return { ok: false, message: 'Conversation lifecycle operation is already in progress.' }
     const inherited = input.mcpServers === undefined ? this.forkedMcpServers.get(path) : undefined
     if (inherited) input = { ...input, mcpServers: inherited }
+    const cliRuntimes = cliRuntimesOnPlatform(input.cliRuntimes, this.platform)
+    if (cliRuntimes !== input.cliRuntimes) input = { ...input, cliRuntimes }
     this.startingTranscripts.add(path)
     try {
       return (await this.adoptLiveSession(input, path)) ?? (await this.startSessionNow(input))
@@ -1378,7 +1386,9 @@ export class ConversationRuntime {
   // person sees and the answer the agent gets keep the input as it was sent.
   private approvalCheckInput(session: RuntimeSession, input: unknown): unknown {
     const cli = this.getAdapterForProviderId(session.providerId)?.executionHostCli
-    const distro = cli ? distroOfHostId(session.cliRuntimes?.[cli]?.hostId) : null
+    // Only on Windows: a Linux server holding a stray `wsl:` id would respell
+    // its own paths into UNC ones, and Auto would approve nothing.
+    const distro = cli ? distroOfHostId(session.cliRuntimes?.[cli]?.hostId, this.platform) : null
     return distro ? wslInputInRootSpelling(input, session.workspaceRoot, distro) : input
   }
 
