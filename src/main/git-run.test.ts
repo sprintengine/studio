@@ -6,6 +6,7 @@ import { test } from 'vitest'
 
 import {
   GIT_NETWORK_TIMEOUT_MS,
+  DRIVE_MOUNT_GIT_CONFIG,
   GIT_SAFETY_CONFIG,
   GIT_READ_TIMEOUT_MS,
   classifyGitCommand,
@@ -207,6 +208,23 @@ test("a repository on another machine gets the same override ahead of the caller
   }
   await withGitHost(host, () => runGitCommand('\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo', ['status', '--porcelain']))
   assert.deepEqual(seen, [[...GIT_SAFETY_CONFIG, 'status', '--porcelain']])
+})
+
+test('Linux git on a Windows drive trusts the index Git for Windows wrote, by size and mtime', async () => {
+  const seen: Array<readonly string[]> = []
+  const host = {
+    kind: 'wsl' as const,
+    runGit: async (_cwd: string, args: readonly string[]) => {
+      seen.push(args)
+      return { code: 0, stdout: '', stderr: '', timedOut: false }
+    },
+  }
+  await withGitHost(host, () => runGitCommand('C:\\Users\\dev\\repo', ['status', '--porcelain']))
+  await withGitHost(host, () => runGitCommand('/mnt/d/work/repo', ['status', '--porcelain']))
+  assert.deepEqual(seen, [
+    [...GIT_SAFETY_CONFIG, ...DRIVE_MOUNT_GIT_CONFIG, 'status', '--porcelain'],
+    [...GIT_SAFETY_CONFIG, ...DRIVE_MOUNT_GIT_CONFIG, 'status', '--porcelain'],
+  ])
 })
 
 test("Git for Windows is told a repository inside a distribution is the person's, for this call only", () => {

@@ -151,6 +151,11 @@ Commands marked **PowerShell** run in a Windows terminal. Commands marked
    mention search three ways: on ext4 through the server, on `/mnt/c`
    through the server, and natively on `C:\` with "One process per chat".
    Write the three numbers down.
+   Then run `git status` once from PowerShell in the `C:\` repository (so
+   Git for Windows writes the index) and open the Git pane of its WSL
+   workspace.
+   **Expect:** the pane fills in about as fast as for a Windows workspace,
+   not after tens of seconds (R89).
 3. V5: with the Windows-side workspace open, run a server chat on `/mnt/c`
    for several turns.
    **Expect:** the chat list and the transcript stay intact, with no

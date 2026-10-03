@@ -669,7 +669,7 @@ As built (2026-10-03):
 | Operation | Workspace on a WSL machine, folder in the distro (`\\wsl.localhost\…`) | Workspace on a WSL machine, folder on a Windows drive (`C:\…`) |
 | --- | --- | --- |
 | Conversations, providers, agent spawn, approvals, plans, attachments store | WSL server | WSL server |
-| Checkpoints, turn diffs, changed files, revert (git) | WSL server (Linux git) | WSL server (Linux git over `/mnt/c`). One git per repository, as ruled 2026-09-24 |
+| Checkpoints, turn diffs, changed files, revert (git) | WSL server (Linux git) | WSL server (Linux git over `/mnt/c`, comparing size and mtime only, R89). One git per repository, as ruled 2026-09-24 |
 | @-mention search, `stat`, image preview, skill reader | WSL server (native ripgrep on ext4: faster than today's Windows ripgrep over UNC) | **Windows side**, native on NTFS (Linux ripgrep over `/mnt/c` is slower than today) |
 | Model discovery, `/` command catalog | WSL server (removes today's "not listed before a chat starts on WSL" gap) | WSL server |
 | Git pane, file explorer, terminals | Shell, through the helper (unchanged in phase 7) | Shell, through the helper (unchanged) |
@@ -798,6 +798,17 @@ into ~/ in this distribution.") confusing and asked for it short and plain.
 The mirror line, "In Ubuntu — slow from Windows. Run on WSL: Ubuntu for full
 speed.", is shown for This PC in a folder inside a distribution, with or
 without the switch, since that chat never involves the server (R88).
+
+Studio's own git on a `C:\` folder from WSL (the server's checkpoints, turn
+diffs and revert over `/mnt/c`, and the Git pane through the helper) runs with
+`-c core.checkStat=minimal` (`DRIVE_MOUNT_GIT_CONFIG`, R89). Measured on a
+3,875-file repository: `git status` took 0.1 s from Windows and 30 s from WSL,
+20 s of it in "refresh index", because the index Git for Windows wrote
+carries inode, owner, ctime and sub-second fields the drive mount never
+matches, so Linux git re-read every tracked file. Size and whole-second mtime
+agree on both sides, and with only those compared the index is trusted. Git
+stays the agents' git, so a checkpoint and a revert see the bytes the agent
+sees.
 With the switch off New chat is as it was. Settings › Machines shows, in each
 distribution's detail, where its chats run (one process per chat, or a
 Studio server in the distribution, marked preview), the server's state in
