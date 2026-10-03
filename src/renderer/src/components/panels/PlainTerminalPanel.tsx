@@ -1,3 +1,4 @@
+import { NotOnMachineYet, useWorkspaceMachine } from './NotOnMachineYet'
 import React, { useEffect, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
@@ -47,7 +48,7 @@ interface Props {
   shouldKillOnUnmount?: (sessionId: string) => boolean
 }
 
-export default function PlainTerminalPanel({
+function PlainTerminalPanelOnThisComputer({
   workspaceId,
   terminalId,
   cwdOverride = null,
@@ -689,4 +690,11 @@ export default function PlainTerminalPanel({
       </div>
     </div>
   )
+}
+
+/** A terminal runs on this computer; a workspace on an SSH machine says so instead (phase 8). */
+export default function PlainTerminalPanel(props: Props) {
+  const machine = useWorkspaceMachine(props.workspaceId)
+  if (machine) return <NotOnMachineYet what="Terminals" machine={machine} />
+  return <PlainTerminalPanelOnThisComputer {...props} />
 }
