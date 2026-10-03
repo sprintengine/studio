@@ -194,7 +194,7 @@ test('a workspace on an SSH machine: the explorer, search, git status, diffs, st
   assert.equal(await invoke('fs:watch-start', `${root}/src`), null)
   await assert.rejects(
     invoke('fs:write-file', `${root}/src/app.ts`, 'x'),
-    /Not available for SSH machines yet \(fs:write-file\)/u,
+    /Not available for SSH machines yet \(Studio's fs:write-file channel\)/u,
   )
   await assert.rejects(invoke('terminal:create', { cwd: root }), /Not available for SSH machines yet/u)
   assert.deepEqual(localCalls, ['fs:readdir ["/Users/dev/somewhere"]'], 'nothing about the machine was answered here')

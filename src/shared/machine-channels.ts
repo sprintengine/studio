@@ -58,5 +58,5 @@ export const MACHINE_QUIET_CHANNELS: Readonly<Record<string, unknown>> = {
 
 /** What a window is told for anything else asked about such a workspace. */
 export function notOnMachineYet(channel: string): string {
-  return `Not available for SSH machines yet (${channel}).`
+  return `Not available for SSH machines yet (Studio's ${channel} channel).`
 }
