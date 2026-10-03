@@ -97,7 +97,9 @@ export type ConversationTransportCapabilities = {
 
 /** What an action answers: the local session API's result, or a remote command's. */
 type ConversationTransportResult =
-  { ok: true; session?: ConversationSessionSummary; notice?: string } | { ok: false; message: string }
+  | { ok: true; session?: ConversationSessionSummary; notice?: string }
+  // `code` as the runtime names a refusal (`session_not_found`: the session is gone there).
+  | { ok: false; message: string; code?: string }
 
 export type ConversationTransport = {
   kind: 'local' | 'remote'

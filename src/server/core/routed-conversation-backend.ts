@@ -69,6 +69,14 @@ export type RoutedConversationBackend = ConversationBackend & {
    * (ConversationSessionApi).
    */
   onRouteResumed(listener: (key: string) => void): () => void
+  /**
+   * A server that held chats stopped (its process is gone: it crashed, or WSL
+   * was shut down), as opposed to a wire that dropped under a server still
+   * running. A turn it was running ended with it.
+   */
+  lost(key: string, message: string): void
+  /** Who hears `lost`: every subscription to one of that server's chats closes the turn it shows open. */
+  onRouteLost(listener: (key: string, message: string) => void): () => void
 }
 
 const SSH_KEY = /^ssh:[A-Za-z0-9_-]+$/u
@@ -180,6 +188,7 @@ export function createRoutedConversationBackend(deps: RoutedConversationBackendD
   local.onEvent(dispatch)
 
   const resumedListeners = new Set<(key: string) => void>()
+  const lostListeners = new Set<(key: string, message: string) => void>()
 
   function attach(connection: WslServerConnection | SshRoutedConnection): void {
     const key = keyOf(connection)
@@ -335,6 +344,19 @@ export function createRoutedConversationBackend(deps: RoutedConversationBackendD
     onRouteResumed(listener: (key: string) => void) {
       resumedListeners.add(listener)
       return () => resumedListeners.delete(listener)
+    },
+    lost(key: string, message: string) {
+      for (const listener of [...lostListeners]) {
+        try {
+          listener(key, message)
+        } catch (error) {
+          log(`A lost-server listener threw: ${failureMessage(error)}`)
+        }
+      }
+    },
+    onRouteLost(listener: (key: string, message: string) => void) {
+      lostListeners.add(listener)
+      return () => lostListeners.delete(listener)
     },
     onEvent(listener: (event: ConversationEvent) => void) {
       listeners.add(listener)

@@ -256,6 +256,13 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       },
     })
     wslServers?.onConnected((connection) => routed.attach(connection))
+    // A distribution's server that stopped under its chats (a crash, `wsl
+    // --shutdown`): the turns it was running show as interrupted now, not
+    // when the server next starts and its transcripts are read again.
+    wslServers?.onStatus((status) => {
+      if (status.state === 'unavailable' || status.state === 'shut-down')
+        routed.lost(status.distro, `The Studio server in ${status.distro} stopped while this turn was running.`)
+    })
     sshServers?.onConnected((connection) => routed.attach(connection))
     conversations = routed
   }

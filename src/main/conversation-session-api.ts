@@ -22,6 +22,13 @@ import type { ConversationBackend } from '../server/core/conversation-backend'
 type ResumableBackend = {
   routeOf(workspaceId: string, workspaceRoot?: string): string | null
   onRouteResumed(listener: (key: string) => void): () => void
+  onRouteLost?(listener: (key: string, message: string) => void): () => void
+}
+
+/** The turn an event belongs to, when it names one. */
+function turnIdOf(event: ConversationEvent): string | null {
+  const turnId = event.payload?.turnId
+  return typeof turnId === 'string' ? turnId : null
 }
 
 /** Transport-independent replay, subscription and command boundary. */
@@ -57,14 +64,35 @@ export class ConversationSessionApi {
     const queued: ConversationEvent[] = []
     let unsubscribe = () => {}
     let stopResume = () => {}
+    let stopLost = () => {}
+    // The turns this subscriber was shown start and not end, so a server
+    // that stops under them can have them shown ended.
+    const openTurns = new Map<string, ConversationEvent>()
+    const follow = (event: ConversationEvent) => {
+      const turnId = turnIdOf(event)
+      if (!turnId) return
+      if (event.type === 'turn_started' || event.type === 'user_message') {
+        if (!openTurns.has(turnId)) openTurns.set(turnId, event)
+      } else if (event.type === 'turn_completed' || event.type === 'turn_failed') openTurns.delete(turnId)
+    }
+    // Set once this subscriber was shown turns closed that the log on disk
+    // has not closed yet: the next catch-up is a reset snapshot, so what the
+    // server writes when it is back replaces them rather than meets them.
+    let closedWhileLost = false
     const dispose = () => {
       if (disposed) return
       disposed = true
       unsubscribe()
       stopResume()
+      stopLost()
     }
     const deliver = (frame: ConversationSessionFrame) => {
       if (disposed) return
+      if (frame.type === 'event') follow(frame.event)
+      else if (frame.type === 'snapshot') {
+        openTurns.clear()
+        for (const event of frame.page.events) follow(event)
+      }
       try {
         listener(frame)
       } catch {
@@ -140,9 +168,40 @@ export class ConversationSessionApi {
     if (typeof routed.onRouteResumed === 'function' && typeof routed.routeOf === 'function') {
       stopResume = routed.onRouteResumed((key) => {
         if (disposed || routed.routeOf!(input.key.workspaceId, input.key.workspaceRoot) !== key) return
-        joined = joined.catch(() => undefined).then(() => (disposed ? undefined : join(seen, generation)))
+        const after = closedWhileLost ? undefined : generation
+        closedWhileLost = false
+        joined = joined.catch(() => undefined).then(() => (disposed ? undefined : join(seen, after)))
         joined.catch(fail)
       })
+      // The server holding the chat stopped (it crashed, or WSL was shut
+      // down): a turn it was running ended with it. Shown so now, as the
+      // runtime shows a turn its app closed under, and not only once the
+      // server is started again and reads its log back.
+      stopLost =
+        routed.onRouteLost?.((key, message) => {
+          if (disposed || joining || openTurns.size === 0) return
+          if (routed.routeOf!(input.key.workspaceId, input.key.workspaceRoot) !== key) return
+          let offset = 0
+          for (const [turnId, source] of [...openTurns]) {
+            offset++
+            deliver({
+              type: 'event',
+              event: {
+                id: `conv_evt_server_lost_${seen}_${offset}`,
+                seq: seen + offset,
+                sessionId: source.sessionId,
+                workspaceId: source.workspaceId,
+                agentId: source.agentId,
+                providerId: source.providerId,
+                modelId: source.modelId,
+                type: 'turn_failed',
+                createdAt: Date.now(),
+                payload: { turnId, reason: 'interrupted', message },
+              },
+            })
+          }
+          closedWhileLost = true
+        }) ?? (() => {})
     }
     return { dispose, ready }
   }
