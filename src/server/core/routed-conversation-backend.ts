@@ -4,7 +4,8 @@ import type { ConversationEvent, ConversationSessionSummary } from '../../shared
 import { distroOfHostId } from '../../shared/execution-host'
 import { distroOfUncPath } from '../../shared/host-paths'
 import type { RemoteBackendMember, RemoteConversationBackend } from '../wsl/backend-wire'
-import { createWslPathEdge } from '../wsl/wsl-path-edge'
+import { createPathEdge, createWslPathEdge, type PathEdge } from '../wsl/wsl-path-edge'
+import { isMachinePath, machinePath, parseMachinePath } from '../../shared/machine-paths'
 import type { WslEnvironmentManager, WslServerConnection } from '../wsl/wsl-environment-manager'
 import type { ConversationBackend } from './conversation-backend'
 
@@ -102,11 +103,24 @@ const RESULT_MEMBERS: ReadonlySet<string> = new Set([
   'forkAtTurn',
 ])
 
-type PathEdge = { args(member: string, args: unknown[]): unknown[]; result(member: string, value: unknown): unknown }
 type Remote = { connection: WslServerConnection | SshRoutedConnection; edge: PathEdge; unsubscribe: () => void }
 
-/** An SSH machine's paths are the server's own: nothing to respell. */
-const IDENTITY_EDGE: PathEdge = { args: (_member, args) => args, result: (_member, value) => value }
+/**
+ * An SSH machine's paths as this computer spells them (`ssh://<id>/…`,
+ * shared/machine-paths.ts), and as its server takes them (plain).
+ */
+function sshPathEdge(key: string): PathEdge {
+  const id = key.slice('ssh:'.length)
+  return createPathEdge({
+    isClientPath: isMachinePath,
+    toServer(path) {
+      const parsed = parseMachinePath(path)
+      if (!parsed || parsed.id !== id) throw new Error(`${path} is not on this SSH machine.`)
+      return parsed.path
+    },
+    pathOut: (path) => machinePath(id, path),
+  })
+}
 
 // A call that carries a command id is answered once by the server's receipts,
 // so after a lost SSH session it is sent again, and joins the turn still
@@ -175,7 +189,7 @@ export function createRoutedConversationBackend(deps: RoutedConversationBackendD
     const edge =
       'distro' in connection
         ? createWslPathEdge({ distro: connection.distro, driveMountRoot: connection.driveMountRoot })
-        : IDENTITY_EDGE
+        : sshPathEdge(key)
     const unsubscribe = connection.backend.onEvent((event) => {
       sessionDistro.set(event.sessionId, key)
       dispatch(event)
@@ -208,6 +222,9 @@ export function createRoutedConversationBackend(deps: RoutedConversationBackendD
     const record = deps.workspace(workspaceId)
     // A workspace on an SSH machine runs there, whatever this computer is.
     if (record?.environment?.kind === 'ssh' && deps.ssh) return `ssh:${record.environment.id}`
+    // A folder spelled on an SSH machine is that machine's, whatever the record says.
+    const machine = workspaceRoot && isMachinePath(workspaceRoot) ? parseMachinePath(workspaceRoot) : null
+    if (machine && deps.ssh) return `ssh:${machine.id}`
     if (platform !== 'win32' || !deps.servers) return null
     const folder = record?.folderPath ?? workspaceRoot ?? null
     // A folder inside a distribution belongs to it, whatever the machine says

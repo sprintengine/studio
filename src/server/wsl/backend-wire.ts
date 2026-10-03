@@ -32,7 +32,7 @@ import type { ConversationBackend, ConversationBackendMember } from '../core/con
  * speaks to one only when this matches what its record says (phase 8 spec,
  * 5.6). Bump it whenever a forwarded member's arguments or answer change.
  */
-export const BACKEND_WIRE_VERSION = 1
+export const BACKEND_WIRE_VERSION = 2
 
 /** Members answered over the wire. The synchronous ones are the router's to answer (from the mirror, or locally). */
 export const REMOTE_BACKEND_MEMBERS = [
@@ -79,6 +79,8 @@ export const BACKEND_WIRE = {
   snapshot: 'backend.snapshot',
   event: 'backend.event',
   sessions: 'backend.sessions',
+  /** `{ channel, args }` → the answer: a machine channel (shared/machine-channels.ts), answered on the server's machine. */
+  machine: 'backend.machine',
 } as const
 
 /** A pushed chat event, with its session as the server sees it once the event is published. */
@@ -169,10 +171,23 @@ function rpcOver(frames: ReturnType<typeof lineFrames>, log?: (message: string) 
 export function serveConversationBackend(
   backend: ConversationBackend,
   stream: Duplex,
-  options: { log?: (message: string) => void } = {},
+  options: {
+    log?: (message: string) => void
+    /** The machine channels, for a client whose workspace is on this server's machine (an SSH machine's, phase 8). */
+    machine?: (channel: string, args: unknown[]) => Promise<unknown>
+  } = {},
 ): { close(): void } {
   const frames = lineFrames(stream)
   const rpc = rpcOver(frames, options.log)
+  const machine = options.machine
+  if (machine)
+    rpc.handle(BACKEND_WIRE.machine, async (params) => {
+      const { channel, args } = (params ?? {}) as { channel?: unknown; args?: unknown }
+      if (typeof channel !== 'string' || !Array.isArray(args))
+        throw new Error('A machine call names a channel and its arguments.')
+      const value = await machine(channel, args)
+      return value === undefined ? null : value
+    })
   rpc.handle(BACKEND_WIRE.call, async (params) => {
     const { member, args } = (params ?? {}) as { member?: unknown; args?: unknown }
     if (typeof member !== 'string' || !REMOTE_MEMBERS.has(member) || !Array.isArray(args))
@@ -212,6 +227,8 @@ export function serveConversationBackend(
 export type RemoteConversationBackend = Pick<ConversationBackend, RemoteBackendMember | 'onEvent' | 'listSessions'> & {
   /** Read the server's sessions again (after a reconnect). */
   refresh(): Promise<void>
+  /** A machine channel answered on the server's machine (shared/machine-channels.ts). */
+  machine(channel: string, args: unknown[]): Promise<unknown>
   /** Whether the wire is up. */
   isOpen(): boolean
   onClose(listener: (reason: string) => void): void
@@ -297,6 +314,7 @@ export function connectRemoteConversationBackend(
       const snapshot = (await rpc.call(BACKEND_WIRE.snapshot, {})) as { sessions?: unknown }
       replace(snapshot?.sessions)
     },
+    machine: (channel, args) => rpc.call(BACKEND_WIRE.machine, { channel, args }, { timeoutMs: 120_000 }),
     isOpen: () => open,
     onClose: (listener) => frames.onClose(listener),
     close: () => frames.close(),

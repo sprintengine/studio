@@ -405,6 +405,21 @@ export class SshEnvironments {
     return { stream: await connection.open(purpose), label: connection.label }
   }
 
+  /**
+   * A machine channel (shared/machine-channels.ts) answered by that machine's
+   * server, for a workspace on it. Connects in the background (never a
+   * prompt) when it must; says in words when it cannot.
+   */
+  async machineCall(id: string, channel: string, args: unknown[]): Promise<unknown> {
+    const saved = this.get(id)
+    if (!saved) throw new Error('That SSH machine is no longer saved in Settings › Machines.')
+    if (!this.connection(id) && !(await this.connectQuietly(id, 20_000)))
+      throw new Error(`${saved.label} is not connected. Connect it in Settings › Machines.`)
+    const connection = this.connection(id)
+    if (!connection) throw new Error(`${saved.label} is not connected. Connect it in Settings › Machines.`)
+    return connection.backend.machine(channel, args)
+  }
+
   /** The keys of the machines connected now. */
   connectedKeys(): string[] {
     return [...this.machines.values()].filter((machine) => machine.current()).map((machine) => machine.key)

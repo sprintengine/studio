@@ -30,7 +30,7 @@ import { createWorkspaceRegistryStore } from '../../main/workspace-registry-stor
 import { createWorkspaceSyncService } from '../../main/workspace-sync-service'
 import { installedStudioPlatform, installStudioPlatform, type StudioPlatform } from '../platform/platform'
 import type { StudioPaths } from '../platform/studio-paths'
-import { localConversationBackend, type ConversationBackend } from './conversation-backend'
+import { localConversationBackend, refuseMachinePaths, type ConversationBackend } from './conversation-backend'
 import {
   createRoutedConversationBackend,
   type SshRoutedConnection,
@@ -232,7 +232,8 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
   // What every caller drives chats through; the runtime itself is only for
   // what its owner does (the idle sweep, flush, shutdown). On Windows, with
   // WSL servers, a router in front of it sends a distribution's chats there.
-  const localConversations = localConversationBackend(conversationRuntime)
+  // A chat whose folder is on an SSH machine never runs in this process.
+  const localConversations = refuseMachinePaths(localConversationBackend(conversationRuntime))
   let conversations: ConversationBackend = localConversations
   const sshServers = options.sshServers ?? null
   if (wslServers || sshServers) {

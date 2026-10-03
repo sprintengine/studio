@@ -30,6 +30,7 @@ const SERIAL = [
   'src/main/environments/ssh/ssh-environment.docker.test.ts',
   'src/server/desktop/shell-ssh-servers.test.ts',
   'src/main/environments/ssh/ssh-resume.test.ts',
+  'src/main/environments/ssh/machine-files.test.ts',
   'src/renderer/src/components/workspace/ConversationPeekPopover.test.tsx',
   'src/renderer/src/hooks/useSharedBacklogScan.test.ts',
   'src/renderer/src/modules/backlog-reader.test.ts',

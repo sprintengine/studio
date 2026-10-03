@@ -1250,6 +1250,33 @@ Linux build needs it only for the preview. With the switch on:
 - Section 12's changes 1, 2, 3 and 11 are folded into the parent design and
   `docs/compatibility.md` notes the private wires.
 
+Files and git for a workspace on an SSH machine (the owner's ruling: the
+server holds raw access to its machine, clients build the views). Such a
+workspace keeps its folder spelled `ssh://<saved id>/home/dev/repo`
+(`shared/machine-paths.ts`), so nothing on this computer can mistake it for
+one of its own folders. The desktop's file, git, terminal and folder IPC
+registrations go through `machineAwareIpc` (`src/main/environments/ssh/
+machine-ipc.ts`): an invoke that names a machine path is never handed to this
+computer's file system or git. The machine channels
+(`shared/machine-channels.ts`: reading directories and files, image data,
+stat, the folder check, @-mention search; git's repository root, status,
+ignore checks, file bases and revisions, hunks, change summaries, branch
+steps, branches, history and identity; staging, unstaging and committing) go
+to that machine's server on the backend wire (`backend.machine`, wire version
+2), which answers with the same modules the desktop answers its own folders
+with (`src/server/machine/machine-channels.ts`), and the paths in the answer
+are spelled again (fields named for paths, and path-keyed maps; never file
+contents). A watch is answered that there is none; every other channel is
+refused with "Not available for SSH machines yet (<channel>)". So the
+explorer, the editor's and previews' reads, @-mentions, git status and diffs
+in the Git pane, and staging and committing work, read and run on the
+machine. The router translates a chat's root at its edge as it does for WSL
+(`createPathEdge`, shared now by both). This process's own runtime refuses a
+chat whose folder is spelled for a machine, in words, and local root scans
+drop such folders, so turning the preview off never makes this computer
+read or write a folder named after one (`machine-files.test.ts` against the
+real relay, with a decoy local folder of the same plain path).
+
 Out of process (phase 6's switch), main still holds the SSH sessions. The
 desktop's server asks main for each relay stream it needs
 (`shell.ssh.open { key, purpose }`); main opens it on the machine's session
@@ -1279,8 +1306,11 @@ Not built yet:
   with its four interactions, and the sign-in-only terminal on the server,
   which needs a pty the server bundle does not carry. A CLI on an SSH machine
   is signed in from a terminal there by hand for now.
-- **Files at the edge**: the file explorer, Git pane, @-mention search and
-  image previews for an SSH workspace read this computer's disk.
+- **Files**: no watch on a machine's folder (the views refresh when asked
+  again), no file writes from the editor, and from the Git pane only staging
+  and committing: push, pull, branches, stashes, worktrees, changelists,
+  conflict resolution and patches answer "Not available for SSH machines
+  yet". Terminals and agent launches in a terminal answer the same.
 - `auth.sessions.list` for SSH sessions, `server.logs.tail` in Diagnostics
   (they show the bootstrap's steps, the probe and ssh's words), `ssh -W` as a
   diagnostic, the jump-host and password variants of 9.3, the Windows job

@@ -1,3 +1,4 @@
+import { machineAwareIpc } from './environments/ssh/machine-ipc'
 import { app, BrowserWindow, shell } from 'electron'
 import type { IpcMain } from 'electron'
 import { registerAgentConfigImportIpc } from './ipc/agent-config-import-ipc'
@@ -100,6 +101,14 @@ export function registerCoreIpc(
   diagnosticsEnabled: boolean,
   options: CoreIpcOptions = {},
 ): CoreIpcHandles {
+  // The file, git, terminal and folder channels never touch this computer for
+  // a workspace on an SSH machine: its paths are spelled `ssh://…`, and these
+  // registrations send them to that machine's server or refuse them in words
+  // (phase 8).
+  const machineIpc = machineAwareIpc(
+    ipcMain,
+    services.ssh ? { call: (id, channel, args) => services.ssh!.environments.machineCall(id, channel, args) } : null,
+  )
   registerWindowIpc(ipcMain, {
     createWorkspaceWindow: ({ windowId, bounds, isMaximized }) => {
       createMainWindow({ diagnosticsEnabled, windowId, bounds, isMaximized })
@@ -140,26 +149,26 @@ export function registerCoreIpc(
   registerBuiltinSkillsIpc(ipcMain, services.builtinSkillManager)
   registerStudioPluginIpc(ipcMain, services.studioPluginService)
   registerStudioAreaSkillsIpc(ipcMain, services.studioAreaSkillStore)
-  registerMcpIpc(ipcMain, services.mcpConfigService)
+  registerMcpIpc(machineIpc, services.mcpConfigService)
   registerAgentConfigImportIpc(ipcMain, services.agentConfigImportService)
   registerSkillsIpc(ipcMain, services.skillsService)
-  registerWorkspaceSkillsIpc(ipcMain, {
+  registerWorkspaceSkillsIpc(machineIpc, {
     workspaceSkills: services.workspaceSkillsService,
     agentCapabilities: services.agentCapabilityService,
     agentSkillInstaller: services.agentSkillInstaller,
   })
   const filesystemSearchHandlers = createFilesystemWatchSearchHandlers()
-  registerFilesystemWatchSearchIpc(ipcMain, filesystemSearchHandlers)
+  registerFilesystemWatchSearchIpc(machineIpc, filesystemSearchHandlers)
   const filesystemReadHandlers = createFilesystemReadHandlers({ opener: shell, projectLogoIo: createProjectLogoIo() })
-  registerFilesystemReadIpc(ipcMain, filesystemReadHandlers)
+  registerFilesystemReadIpc(machineIpc, filesystemReadHandlers)
   // The file-manager target of the open-in-editor control is the same reveal the
   // rest of the app already uses, so it is handed the very same handler.
-  registerFolderOpenIpc(ipcMain, createFolderOpenIpcDependencies(filesystemReadHandlers.showItemInFolder))
+  registerFolderOpenIpc(machineIpc, createFolderOpenIpcDependencies(filesystemReadHandlers.showItemInFolder))
   // Memory/knowledge-graph backend is foundational: agent context injection
   // (TerminalView) and the Knowledge Graph settings tab
   // depend on it, so it is always registered. The memory-graph capability
   // module gates only the visualization panel (renderer side).
-  registerMemoryIpc(ipcMain)
+  registerMemoryIpc(machineIpc)
   registerMemoryActivityIpc(ipcMain)
   registerDiagnosticsIpc(ipcMain, {
     writeDiagnosticLog,
@@ -170,9 +179,9 @@ export function registerCoreIpc(
     listConversationRoots: () => services.conversations.listLiveConversationRoots(),
   })
   registerUpdateIpc(ipcMain, { updateService: services.updateService })
-  registerFilesystemMutationIpc(ipcMain, createFilesystemMutationHandlers())
+  registerFilesystemMutationIpc(machineIpc, createFilesystemMutationHandlers())
   registerGitIpc(
-    ipcMain,
+    machineIpc,
     {
       enabled: diagnosticsEnabled,
       logMainPerfEvent: services.logMainPerfEvent,
@@ -192,8 +201,8 @@ export function registerCoreIpc(
         ),
     },
   )
-  registerGitRepoWatchIpc(ipcMain)
-  registerVersionControlIpc(ipcMain)
+  registerGitRepoWatchIpc(machineIpc)
+  registerVersionControlIpc(machineIpc)
   registerMenuDialogIpc(ipcMain)
   registerModuleEnablementIpc(ipcMain, { applyLive: options.applyModuleEnablementLive })
   registerModuleRegistryIpc(ipcMain, services.moduleRegistryMirror)
@@ -236,7 +245,7 @@ export function registerCoreIpc(
 
   // The terminal runtime (agent-runtime) is always on, so its IPC registers
   // with the core surfaces.
-  registerTerminalIpc(ipcMain, {
+  registerTerminalIpc(machineIpc, {
     ...services.terminalRuntime.ipcHandlers,
     // One idle-suspend setting governs both agent runtimes: PTY terminals and
     // headless conversation child processes share the threshold.
@@ -265,7 +274,7 @@ export function registerCoreIpc(
   // Same reason: the pull request marks are read off a terminal session's
   // observed checkout, so their one refresh channel registers beside the
   // runtime that owns the session.
-  registerPullRequestIpc(ipcMain, {
+  registerPullRequestIpc(machineIpc, {
     refreshPullRequestsForSession: (sessionId) => services.pullRequestRecord.refreshForSession(sessionId),
     // Keyed by conversation, for the rows with nothing running in them.
     listForWorkspaces: (workspaceIds) => {
@@ -281,6 +290,6 @@ export function registerCoreIpc(
   })
   // ── extension-platform additions ──
   // Build your own extension: the SDK's templates, the machine check, the project.
-  registerExtensionScaffoldIpc(ipcMain)
+  registerExtensionScaffoldIpc(machineIpc)
   return { conversationCommands }
 }

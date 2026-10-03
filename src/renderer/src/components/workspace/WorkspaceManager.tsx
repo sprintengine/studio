@@ -51,6 +51,7 @@ import { recencyEqual, stableRecord, stableSet, type RowRecency } from './stable
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
 import { meshConversationSessionId } from '../../../../shared/tailnet-mesh'
 import { nextNewChatName } from '../../../../shared/workspace-title'
+import { machinePath } from '../../../../shared/machine-paths'
 import { combinedAgentActivity, conversationFinishedAt, conversationLastInputAt } from './sidebar/conversationLines'
 import type {
   AgentCli,
@@ -2574,7 +2575,9 @@ export default function WorkspaceManager() {
     if (!seed) return
     setLastNewChatAgent({ kind: 'conversation' })
     createSoloChatWorkspace({
-      folderPath: environment.folder,
+      // Spelled as that machine's (`ssh://<id>/…`): nothing on this computer
+      // mistakes it for one of its own folders.
+      folderPath: machinePath(environment.id, environment.folder),
       seedAgent: { agentPatch: seed.agentPatch },
       environment: { kind: 'ssh', id: environment.id, label: environment.label },
     })

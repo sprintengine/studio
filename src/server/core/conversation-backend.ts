@@ -1,3 +1,4 @@
+import { isMachinePath } from '../../shared/machine-paths'
 import type { ConversationRuntime } from '../../main/conversation-runtime'
 
 // What everything that drives or reads chats calls: the session API both IPC
@@ -64,4 +65,32 @@ export type ConversationBackend = Pick<ConversationRuntime, ConversationBackendM
  */
 export function localConversationBackend(runtime: ConversationRuntime): ConversationBackend {
   return runtime
+}
+
+/**
+ * This process's runtime, refusing a chat whose folder is on an SSH machine
+ * (`ssh://…`, shared/machine-paths.ts): it is that machine's server's to run,
+ * and a path in that spelling handed to this computer's runtime would be read
+ * as a folder here. Every member answers such a call as it fails, in words.
+ */
+export function refuseMachinePaths(backend: ConversationBackend): ConversationBackend {
+  const named = (first: unknown): boolean => {
+    if (typeof first !== 'object' || first === null) return false
+    const record = first as { workspaceRoot?: unknown; key?: { workspaceRoot?: unknown } }
+    return isMachinePath(record.workspaceRoot) || isMachinePath(record.key?.workspaceRoot)
+  }
+  const message = 'This chat is on an SSH machine. Turn SSH machines on (Settings › Agents › Studio server) to open it.'
+  return new Proxy(backend, {
+    get(target, member, receiver) {
+      const value = Reflect.get(target, member, receiver) as unknown
+      if (typeof value !== 'function') return value
+      return (...args: unknown[]) => {
+        if (args.length > 0 && named(args[0]))
+          return member === 'recoverTranscript'
+            ? Promise.reject(new Error(message))
+            : Promise.resolve({ ok: false, message })
+        return (value as (...input: unknown[]) => unknown).apply(target, args)
+      }
+    },
+  })
 }

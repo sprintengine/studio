@@ -6,6 +6,7 @@ import { readStudioEnvironmentId } from '../../main/studio-rpc/studio-rpc-servic
 import { driveMountRootFromMounts, driveMountRootFromWslConf } from '../../shared/host-paths'
 import { startStudioServer, type StudioServer, type StudioServerOptions } from '../studio-server'
 import { BACKEND_WIRE_VERSION, serveConversationBackend } from '../wsl/backend-wire'
+import { createMachineChannels } from '../machine/machine-channels'
 import { startFrontDoorListeners, type FrontDoorListeners } from '../wsl/front-door-listener'
 import type { FrontDoorPurpose } from '../wsl/front-door-proof'
 import { SERVER_EXIT, type FrontDoorReady, type ServerBootstrapEnvelope } from './envelope'
@@ -56,6 +57,10 @@ function readText(path: string): string | null {
   }
 }
 
+// Made once, on first use: a server whose clients never ask reads nothing.
+let machineTable: ReturnType<typeof createMachineChannels> | null = null
+const machineChannels = (): ReturnType<typeof createMachineChannels> => (machineTable ??= createMachineChannels())
+
 /** Hand an admitted front-door connection to what it asked for. */
 export function serveFrontDoorPurpose(
   server: Pick<StudioServer, 'core' | 'rpc'>,
@@ -64,7 +69,7 @@ export function serveFrontDoorPurpose(
   log: (message: string) => void,
 ): void {
   if (purpose === 'backend') {
-    serveConversationBackend(server.core.conversations, stream, { log })
+    serveConversationBackend(server.core.conversations, stream, { log, machine: machineChannels() })
     return
   }
   // The ticket goes first, on its own line, before the Studio protocol starts:

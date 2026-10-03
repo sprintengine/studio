@@ -17,6 +17,7 @@ import { primeDefaultWslDistro } from './hosts/wsl-distro'
 import { configureWslHelpers } from './hosts/wsl-helper-runtime'
 import { createDesktopWslServers } from '../server/wsl/desktop-wsl-servers'
 import { createDesktopSsh, type DesktopSsh } from './environments/ssh/desktop-ssh'
+import { isMachinePath } from '../shared/machine-paths'
 import type { WorkspaceEnvironmentRef } from '../renderer/src/types/workspace'
 import { sessionSshPreview } from './environments/ssh/ssh-preview'
 import { relayShellToolsets, SSH_RELAYED_TOOLSETS } from '../server/wsl/wsl-tool-relay'
@@ -530,7 +531,9 @@ export function createAppServices(
         workspaceRegistry
           .getState()
           .workspaces.flatMap((workspace) =>
-            workspace.folderPath && hostIdForPath(workspace.folderPath) === 'local'
+            workspace.folderPath &&
+            !isMachinePath(workspace.folderPath) &&
+            hostIdForPath(workspace.folderPath) === 'local'
               ? [{ path: workspace.folderPath, hostId: 'local' }]
               : [],
           ),
@@ -1895,6 +1898,8 @@ export function createAppServices(
   }
 
   return {
+    /** SSH machines (phase 8), when their preview is on this session. */
+    ssh,
     shellBridge,
     /** The shell's client of its server: stopped first at quit, so the server's goodbye is not answered. */
     desktopShell,
