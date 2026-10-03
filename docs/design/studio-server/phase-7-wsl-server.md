@@ -455,15 +455,28 @@ Unix socket, `MessagePort`, arbitrary duplex), not a URL only (12.3).
     registry lists them, following later offers and withdrawals. A call runs
     through the Windows registry as the calling conversation's
     (`ClientToolCaller.conversation` from the call's context), with its abort
-    signal and progress. Out of process that is all six toolsets (R78). **In
-    process only `browser` and `canvas` are client toolsets**, so only those
-    reach a WSL agent; `editor`, `tour`, `terminal` and `agent` stay the
-    Windows gateway's own tools there, and a WSL server's agents do not get
-    them until the shell offers them in process too.
+    signal and progress. Out of process that is all six toolsets (R78). In
+    process only `browser` and `canvas` are client toolsets, and `editor`,
+    `tour`, `terminal` and `agent` are the Windows gateway's own tools; the
+    relay offers those from the gateway's own registrations, each call run by
+    the tool's handler on Windows as the calling agent, so a WSL agent gets
+    all six in either mode.
+  - The relay also offers the Windows side's own tools of the families whose
+    data stays there: `backlog`, `workspace`, `schedule`, `cli`, `module`,
+    `marketplace`, and the tools modules add. `conversation` is the WSL
+    server's own. `tailnet` is not offered: it configures who may drive the
+    PC, and is served on the Windows side's owner-only socket and nowhere
+    else. A tool name with a second dot crosses with it as an underscore
+    (`cli.runtime.list` as `cli.runtime_list`), a module's
+    (`review_list_pending`) in a toolset named for its prefix, so an agent
+    that rewrites dots reads the names a Windows agent does. The shell's
+    reserved toolsets do not count against the eight a connection may offer,
+    since the relay offers a server twelve.
   - Tool inputs are relayed as the agent wrote them, except the `editor`
-    tools' file paths (`files[].path`, `paths`, `focus.path`), which open on
-    Windows: an absolute Linux path is respelled with the distribution and
-    its drive mount root (`/home/dev/repo/a.ts` reaches the editor as
+    tools' file paths (`files[].path`, `paths`, `focus.path`) and
+    `workspace.create`'s `folderPath`, which are read on Windows: an
+    absolute Linux path is respelled with the distribution and its drive
+    mount root (`/home/dev/repo/a.ts` reaches the editor as
     `\\wsl.localhost\Ubuntu\home\dev\repo\a.ts`, `/mnt/c/…` as `C:\…`), a
     relative one stays relative to the workspace, and a `~` path is refused
     with a message asking for the absolute path.
@@ -1125,9 +1138,9 @@ Not built yet:
   store and are not shown or applied there; provider API keys are not copied
   (D5), so an API-key provider is unconfigured on the server.
 - **`workspaces.ensure` (5.4) and the environment-id check (3.3 step 8).**
-  The WSL server's own registry is empty, so a gateway tool that lists or
-  creates workspaces from a WSL agent answers for that server, not the
-  person's list.
+  The WSL server's own registry is empty; a WSL agent's `workspace.*` tools
+  are the Windows side's, relayed (3.7), so they answer from the person's
+  list.
 - **Files at the edge (3.6, 5.3, 10).** Mention search, `stat` and image
   previews stay with the Windows side for every WSL workspace; watch hints and
   the slow poll, the renderer's link resolution with the environment's path
@@ -1142,8 +1155,6 @@ Not built yet:
   until it exits, and a start meanwhile is refused with the lock's reason.
 - **Agent state from a server chat** does not reach the desktop's
   agent-state socket.
-- In process, only `browser` and `canvas` are relayed to a WSL server's
-  agents (3.7).
 - **Settings › Machines out of process.** The shell serves the machine list
   from its own host registry, which cannot see the server's WSL servers, so
   the switch and the server's state are not shown while the desktop's server
