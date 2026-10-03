@@ -295,24 +295,34 @@ export type SshFailureCode =
 
 export type SshFailure = { code: SshFailureCode; message: string; detail?: string }
 
+/** A host as ssh names it in `known_hosts`: a name, an address, or `[host]:port`. */
+const SAFE_HOST = /^(?:\[[A-Za-z0-9._:-]{1,253}\]:\d{1,5}|[A-Za-z0-9._:-]{1,253})$/u
+const SAFE_PATH = /^[A-Za-z0-9._/~:\\-]{1,1024}$/u
+
 /**
  * What a failed ssh said, as a sentence about `label` a person can act on.
- * Read from ssh's own fixed messages in the C locale, never from text the
- * remote could have chosen.
+ * Read from ssh's own fixed messages in the C locale. The same stream also
+ * carries what the remote chose to print (its banner, its shell's errors), so
+ * a classification can be wrong but never dangerous: nothing taken from it
+ * goes into a command a person is told to run unless it is a plain host name.
  */
 export function classifySshFailure(stderr: string, label: string, options: { batch?: boolean } = {}): SshFailure {
   const text = stderr.replace(/\r/gu, '')
   const last = text.trim().split('\n').filter(Boolean).at(-1) ?? ''
   if (/REMOTE HOST IDENTIFICATION HAS CHANGED/u.test(text)) {
     const line = /Offending \S+ key in (\S+):(\d+)/u.exec(text)
-    const knownHosts = line ? `${line[1]} line ${line[2]}` : 'your known_hosts file'
-    const host = /Host key for (\S+) has changed/u.exec(text)?.[1]
+    const knownHosts = line && SAFE_PATH.test(line[1]!) ? `${line[1]} line ${line[2]}` : 'your known_hosts file'
+    // Only a plain host name goes into the command to copy: the banner a
+    // remote prints shares this stream, and could otherwise put a second
+    // command after it.
+    const named = /Host key for (\S+) has changed/u.exec(text)?.[1]
+    const host = named && SAFE_HOST.test(named) ? named : null
     return {
       code: 'host-key-changed',
       message:
         `${label}'s host key has changed since you last connected, so Studio did not connect: someone may be ` +
         `intercepting the connection, or the machine was reinstalled. Check with whoever runs it. If the new key is ` +
-        `right, remove the old one (${knownHosts}) with: ssh-keygen -R ${host ?? label}`,
+        `right, remove the old one (${knownHosts}) with: ssh-keygen -R ${host ?? '<its host name>'}`,
       detail: knownHosts,
     }
   }
