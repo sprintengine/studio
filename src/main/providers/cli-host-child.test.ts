@@ -476,4 +476,50 @@ describe('launch tokens for chat children', () => {
     )
     expect(named).toEqual([{ workspaceId: 'ws-1', agentId: 'chat-1', cliId: 'codex' }])
   })
+
+  it('hands a child the token its runtime issued for it in place of one of its own, and takes it back', () => {
+    const recorder = spawnRecorder()
+    const revoked: string[] = []
+    // The environment names no conversation (an ACP agent's): the runtime issued the token itself.
+    spawnCliHostChild(
+      {
+        command: 'agent',
+        args: ['acp'],
+        cwd: '/Users/dev/app',
+        env: {},
+        launch: { token: TOKEN, revoke: () => revoked.push(TOKEN) },
+      },
+      { spawn: recorder.spawn },
+    )
+    expect(recorder.calls[0].env?.SPRINTENGINE_MCP_CHANNEL_TOKEN).toBe(TOKEN)
+    recorder.children[0].emit('close', 0)
+    expect(revoked).toEqual([TOKEN])
+
+    // A child that cannot be started gives it back at once.
+    const failed: string[] = []
+    expect(() =>
+      spawnCliHostChild(
+        {
+          command: 'agent',
+          args: [],
+          cwd: '/Users/dev/app',
+          env: {},
+          launch: { token: TOKEN, revoke: () => failed.push(TOKEN) },
+        },
+        {
+          spawn: (() => {
+            throw new Error('spawn agent ENOENT')
+          }) as unknown as typeof spawn,
+        },
+      ),
+    ).toThrow('ENOENT')
+    expect(failed).toEqual([TOKEN])
+
+    // Null from the runtime is no token, not one of the child's own.
+    spawnCliHostChild(
+      { command: 'codex', args: [], cwd: '/Users/dev/app', env: identity, launch: null },
+      { spawn: recorder.spawn },
+    )
+    expect(recorder.calls[1].env?.SPRINTENGINE_MCP_CHANNEL_TOKEN).toBeUndefined()
+  })
 })
