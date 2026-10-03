@@ -51,7 +51,7 @@
 // request opened inside `PR_WATCH_BOOT_SCAN_MAX_AGE_MS` holds a timer — a
 // 30-day window.
 // Without it every open pull request the app ever saw, in any repository, for
-// sessions long gone, keeps a ≤32-minute timer for the life of the process.
+// sessions long gone, keeps a two-minute timer for the life of the process.
 //
 // EARLIER PULL REQUESTS ARE NEVER DROPPED (decision 6). A lookup merges by URL
 // and adds; it never deletes. A pull request that scrolled out of `gh pr list`
@@ -171,6 +171,11 @@ export type PullRequestRecordOptions = {
    * snapshots of every session the change reaches — see `changeAffectsSession`.
    */
   onRecordChanged?: (change: PullRequestRecordChange) => void
+  /**
+   * Read every stored repository at start, rather than each one when a live
+   * session first asks about it. The app's record does; see `loadStored`.
+   */
+  loadStoredOnStart?: boolean
   now?: () => number
   timers?: WatchPollerTimers
   random?: () => number
@@ -309,6 +314,7 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
   const lookupsInFlight = new Map<string, Promise<void>>()
   const refreshesInFlight = new Map<string, Promise<void>>()
   let tempFileSweep: Promise<void> | null = null
+  let storedLoad: Promise<void> | null = null
   let disposed = false
 
   // Every `gh` read passes through here. See MAX_CONCURRENT_GITHUB_READS: a
@@ -403,6 +409,47 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
     const state = repoStateFor(repoKey)
     await load(state)
     return state
+  }
+
+  /**
+   * Every repository on disk, loaded (owner, 2026-10-02). A repository used to
+   * load only when a live session's checkout asked about it, so after a restart
+   * a chat whose agents were gone wore no mark at all until some other agent
+   * happened to open in the same repository — and its open pull requests held
+   * no watch, so a merge went unseen. Loading commits each list, which arms the
+   * watch on what is open and tells the windows which conversations moved.
+   */
+  function loadStored(): Promise<void> {
+    if (storedLoad) return storedLoad
+    storedLoad = (async () => {
+      const dir = join(options.userDataDir, STORE_DIR)
+      let names: string[] = []
+      try {
+        names = await readdir(dir)
+      } catch {
+        // No store directory yet: nothing has been recorded.
+        return
+      }
+      for (const name of names) {
+        if (disposed) return
+        if (!name.endsWith('.json')) continue
+        const path = join(dir, name)
+        let repoKey = ''
+        try {
+          const parsed: unknown = JSON.parse(await readFile(path, 'utf-8'))
+          if (isRecord(parsed) && typeof parsed.repoKey === 'string') repoKey = parsed.repoKey.trim()
+        } catch {
+          // Left for `load` to set aside, the first time its repository is
+          // asked about by name.
+          continue
+        }
+        // Only a file at the path its own key names: one renamed by hand would
+        // otherwise load under a key whose writes go to a different file.
+        if (!repoKey || pullRequestStorePath(options.userDataDir, repoKey) !== path) continue
+        await loadedRepo(repoKey)
+      }
+    })().catch((error) => warn('could not load the stored pull request records', error))
+    return storedLoad
   }
 
   function persist(state: RepoState): void {
@@ -697,14 +744,16 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
     const merged = new Map<string, BranchPullRequest>()
     for (const entry of existing) merged.set(entry.url, entry)
     for (const entry of incoming) {
-      // A captured entry's `openedBySessionId` is the one field a branch lookup
-      // can NEVER supply, so it is the one field the merge preserves — losing it
-      // would unfile a conversation's own pull request from the conversation.
+      // Who opened a captured entry — its session and its conversation — is
+      // what a branch lookup can NEVER supply, so those are the fields the merge
+      // preserves. Losing either would unfile a conversation's own pull request
+      // from the conversation.
       const previous = merged.get(entry.url) ?? priors?.get(entry.url) ?? priorOf(entry.url)
-      merged.set(
-        entry.url,
-        previous?.openedBySessionId ? { ...entry, openedBySessionId: previous.openedBySessionId } : entry,
-      )
+      merged.set(entry.url, {
+        ...entry,
+        ...(previous?.openedBySessionId ? { openedBySessionId: previous.openedBySessionId } : {}),
+        ...(previous?.openedByWorkspaceId ? { openedByWorkspaceId: previous.openedByWorkspaceId } : {}),
+      })
     }
     return [...merged.values()]
   }
@@ -837,6 +886,21 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
     }
   }
 
+  /**
+   * Every open pull request on the record whose reading is stale — the ones a
+   * conversation holds after its agents are gone included. Those have no
+   * session for `refreshSession` to reach, and a sidebar is scanned for what is
+   * outstanding, so a merge has to show without anyone pointing at the row.
+   * Bounded like the watch (`isEntryWatchable`), and each URL coalesces itself.
+   */
+  function refreshOpenEntries(): void {
+    const cutoff = now() - HOVER_REFRESH_STALE_MS
+    for (const { entry } of located.values()) {
+      if (!isEntryWatchable(entry) || entry.stateAt > cutoff) continue
+      void refresh(entry.url)
+    }
+  }
+
   function refreshSession(session: PullRequestRecordSession): boolean {
     const checkout = pullRequestSessionCheckout(session)
     if (!checkout) {
@@ -881,6 +945,8 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
     })().catch(() => undefined)
     return tempFileSweep
   }
+
+  if (options.loadStoredOnStart) void loadStored()
 
   return {
     forBranch,
@@ -963,6 +1029,9 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
       // has no checkout worth re-asking about, and the `gh` reads this fans out
       // to are capped at MAX_CONCURRENT_GITHUB_READS however many there are.
       for (const session of options.sessions?.list() ?? []) refreshSession(session)
+      void loadStored().then(() => {
+        if (!disposed) refreshOpenEntries()
+      })
     },
 
     changeAffectsSession(change, session) {
@@ -990,6 +1059,7 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
           if (state.loading) pending.push(state.loading)
           pending.push(state.writes)
         }
+        if (storedLoad) pending.push(storedLoad)
         pending.push(...lookupsInFlight.values(), ...refreshesInFlight.values(), ...repoKeyReads.values())
         await Promise.allSettled(pending)
         if (lookupsInFlight.size === 0 && refreshesInFlight.size === 0 && repoKeyReads.size === 0) {
@@ -1058,7 +1128,8 @@ function sameEntry(a: BranchPullRequest, b: BranchPullRequest, includeStateAt: b
     a.isDraft === b.isDraft &&
     a.openedAt === b.openedAt &&
     (!includeStateAt || a.stateAt === b.stateAt) &&
-    a.openedBySessionId === b.openedBySessionId
+    a.openedBySessionId === b.openedBySessionId &&
+    a.openedByWorkspaceId === b.openedByWorkspaceId
   )
 }
 
@@ -1122,6 +1193,12 @@ function parseEntry(raw: unknown): BranchPullRequest | null {
     stateAt,
     ...(typeof raw.openedBySessionId === 'string' && raw.openedBySessionId
       ? { openedBySessionId: raw.openedBySessionId }
+      : {}),
+    // Read back like the session id beside it. It was written and never read,
+    // so every restart unfiled each pull request from the conversation that
+    // opened it — and the next write took it off the disk as well.
+    ...(typeof raw.openedByWorkspaceId === 'string' && raw.openedByWorkspaceId
+      ? { openedByWorkspaceId: raw.openedByWorkspaceId }
       : {}),
   }
 }

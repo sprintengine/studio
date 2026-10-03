@@ -355,8 +355,12 @@ export function PullRequestMark({
   /** The row is background: the mark recedes with the rest of its line. */
   dim?: boolean
 }): JSX.Element | null {
-  const primary = primaryPullRequest(pullRequests)
-  const copy = sidebarMarkCopy(pullRequests)
+  // Open asks for you and merged says it went in; a pull request closed
+  // unmerged says neither, so the row does not wear it (owner, 2026-10-02).
+  // The peek's menu still lists it.
+  const shown = pullRequests.filter((pr) => pr.state !== 'closed')
+  const primary = primaryPullRequest(shown)
+  const copy = sidebarMarkCopy(shown)
   if (!primary || !copy) return null
   return (
     <Tooltip content={<MarkTooltip copy={copy} />} multiline wrapperClassName="flex shrink-0 items-center">

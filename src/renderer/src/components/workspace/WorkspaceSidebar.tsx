@@ -1164,9 +1164,6 @@ function WorkspaceSidebar({
       return {
         name: group?.displayName ?? 'No folder',
         folderPath,
-        // The project's open pull requests, for the mark this line carries in
-        // the flat stream — where there is no folder header to put it on.
-        openPullRequests: openPullRequestsByGroup.get(groupKey) ?? 0,
         color: projectColorOf(groupKey),
         // No folder is not a project (decision 6): the dashed grey outline, so
         // "unfiled" reads as its own thing rather than as a project of its own.
@@ -1177,7 +1174,7 @@ function WorkspaceSidebar({
         unfiled: !group?.remote && !folderPath,
       }
     },
-    [groupByKey, keyOf, openPullRequestsByGroup, projectColorOf],
+    [groupByKey, keyOf, projectColorOf],
   )
 
   // The same line for a conversation on a paired machine. It resolves through
@@ -1196,12 +1193,11 @@ function WorkspaceSidebar({
       return {
         name: group?.displayName ?? remoteProjectName(conversation.workspaceRoot, conversation.machineName),
         folderPath: group?.fullPath ?? conversation.workspaceRoot,
-        openPullRequests: openPullRequestsByGroup.get(groupKey) ?? 0,
         color: projectColorOf(groupKey),
         unfiled: false,
       }
     },
-    [groupByKey, remoteGroupKeyOf, openPullRequestsByGroup, projectColorOf],
+    [groupByKey, remoteGroupKeyOf, projectColorOf],
   )
 
   // The same line for a scheduled agent's row in the Scheduled section: the
@@ -1214,12 +1210,11 @@ function WorkspaceSidebar({
       return {
         name: group?.displayName ?? folderDisplayName(agent.folderPath),
         folderPath: agent.folderPath,
-        openPullRequests: openPullRequestsByGroup.get(groupKey) ?? 0,
         color: projectColorOf(groupKey),
         unfiled: false,
       }
     },
-    [groupByKey, openPullRequestsByGroup, projectColorOf],
+    [groupByKey, projectColorOf],
   )
 
   // The row you are in always has a row: a settled chat you selected (or
@@ -2848,8 +2843,7 @@ function rowOptionsEqual(left: WorkspaceRowOptions, right: WorkspaceRowOptions):
         a.name === b.name &&
         a.folderPath === b.folderPath &&
         a.color === b.color &&
-        a.unfiled === b.unfiled &&
-        a.openPullRequests === b.openPullRequests))
+        a.unfiled === b.unfiled))
   )
 }
 

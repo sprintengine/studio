@@ -115,6 +115,7 @@ import { listGitWorktrees } from './git-worktree-list'
 import { readRepositoryIdentity } from './repository-identity'
 import { agentWorktreePaths } from '../shared/worktree-paths'
 import { createConversationPeekService } from './conversation-peek/service'
+import { captureConversationPullRequests } from './conversation-pull-request-capture'
 import { createConversationTerminalHandoff } from './conversation-terminal-handoff'
 import { createAgentPromptStore, registeredAgentOwners } from './agent-prompt-store'
 import {
@@ -869,6 +870,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // the terminal snapshot channel they already ride.
   const pullRequestRecord = createPullRequestRecord({
     userDataDir: app.getPath('userData'),
+    // So a chat whose agents are gone still wears its pull request after a
+    // restart, and its open ones are watched for a merge.
+    loadStoredOnStart: true,
     // The session OBJECTS, not snapshots: `listTerminals()` builds a snapshot of
     // every session — each of which reads this very record — so resolving one
     // session that way made a hover O(sessions) snapshot builds. The list is the
@@ -897,6 +901,13 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         details: error instanceof Error ? (error.stack ?? error.message) : String(error),
       })
     },
+  })
+  // A chat agent runs no hook reporter, so its `gh pr create` is read off the
+  // conversation stream instead and filed against its conversation — the same
+  // capture a terminal agent's reporter makes (`onPullRequestCaptured` above).
+  captureConversationPullRequests({
+    onEvent: (listener) => conversations.onEvent(listener),
+    noteCaptured: (input) => pullRequestRecord.noteCaptured(input),
   })
   // The snapshot's `pullRequests` field is filled from here, and nowhere else.
   setSessionPullRequestReader((session) => pullRequestRecord.listForSession(session))

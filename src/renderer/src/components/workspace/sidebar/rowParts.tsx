@@ -8,7 +8,6 @@ import React, { createContext, useContext, useState } from 'react'
 import { shortMachineName } from '../../remote/machineRowModel'
 import { RemoteMachineGlyph, FolderTypeIcon, GitBranchGlyph, ScheduleGlyph } from '../../AppIcons'
 import { type ProjectColor } from '../../../utils/projectColor'
-import { ProjectPullRequestMark } from '../PullRequestMark'
 import { formatElapsedMs } from '../../../utils/relativeTime'
 import { useRelativeNow } from '../../../hooks/useRelativeNow'
 
@@ -244,7 +243,6 @@ export type FlatProjectLine = {
   folderPath: string | null
   color: ProjectColor | null
   unfiled: boolean
-  openPullRequests: number
 }
 
 export function ProjectLine({
@@ -273,14 +271,11 @@ export function ProjectLine({
       <FolderTypeIcon className="icon-xs shrink-0" color={project.color} unfiled={project.unfiled} />
       {machineName ? <RemoteRowGlyph machineName={machineName} /> : null}
       <span className="min-w-0 truncate">{project.name}</span>
-      {/* The project's open pull requests, beside the project's name
-          (owner, 2026-09-10). In the flat stream this line is the only
-          place the project is named, so it is the only place the summary
-          can hang — the tree puts the same mark on its folder header.
-          It repeats down a project's rows exactly as the project's name
-          and colour already do: the line is the row's filing, and this
-          is part of what that filing says. */}
-      <ProjectPullRequestMark openCount={project.openPullRequests} projectName={project.name} dim={dim} />
+      {/* No pull request count here (owner, 2026-10-02). This line repeats
+          down every row of a project, so a project-wide count on it read as
+          "this chat has an open pull request" on chats that had none. A
+          chat's pull request is drawn once, on its own row; the tree's
+          folder header, drawn once per project, keeps the count. */}
       {children}
     </div>
   )

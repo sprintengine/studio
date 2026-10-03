@@ -218,8 +218,13 @@ test('WorkspaceSidebar.rowMeta', async () => {
         pullRequest({ number: 411, state: 'closed', openedAt: NOW - 2 * HOUR }),
       ],
     })
-    assert.match(merged, /aria-label="Pull request 420, merged\. Earlier: pull request 411, closed\./)
+    // A pull request closed unmerged is left off the line altogether, the
+    // earlier lines of its tooltip included (owner, 2026-10-02).
+    assert.match(merged, /aria-label="Pull request 420, merged\. Open it on GitHub"/)
     assert.match(merged, /color:var\(--tone-merged\)/, 'merged takes the landed-branch violet')
+
+    const closed = view({ pullRequests: [pullRequest({ number: 411, state: 'closed', openedAt: NOW - HOUR })] })
+    assert.doesNotMatch(closed, /data-pull-request-mark/, 'closed unmerged asks nothing of anyone: no mark')
 
     const open = view({
       pullRequests: [
