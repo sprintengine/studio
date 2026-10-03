@@ -1,5 +1,6 @@
 import type { HelperProcess } from '../../main/hosts/wsl-helper-client'
 import { classifyWslFailure } from '../../main/hosts/wsl-helper-client'
+import { decodeWslOutput } from '../../main/hosts/wsl-distro'
 import { NEEDS_INSTALL_EXIT, parseNeedReport, WSL_DATA_REL, type NeedReport } from '../../main/hosts/wsl-install'
 import { WslSetupError } from '../../main/hosts/wsl-setup-error'
 import type { ServerBoot, ServerBootstrapEnvelope, ServerReady } from '../bootstrap/envelope'
@@ -84,7 +85,10 @@ class Attempt {
   readonly frames: Frame[] = []
   private waiters: Array<() => void> = []
   stdoutText = ''
-  stderr = ''
+  // Raw: what `wsl.exe` says itself (no such distribution, the VM would not
+  // start) is UTF-16LE, and what the server says is UTF-8. Decoded when read.
+  private stderrBytes = Buffer.alloc(0)
+  private stderrNote = ''
   exit: { code: number | null } | null = null
   constructor(readonly process: HelperProcess) {
     let buffer = ''
@@ -111,17 +115,23 @@ class Attempt {
       this.wake()
     })
     process.stderr.on('data', (chunk: Buffer) => {
-      this.stderr = (this.stderr + chunk.toString('utf8')).slice(-STDERR_TAIL_BYTES)
+      // An even tail, so UTF-16 stays aligned.
+      const joined = Buffer.concat([this.stderrBytes, chunk])
+      this.stderrBytes = joined.subarray(Math.max(0, joined.length - STDERR_TAIL_BYTES))
     })
     process.once('close', (code) => {
       this.exit = { code }
       this.wake()
     })
     process.once('error', (error) => {
-      this.stderr += error.message
+      this.stderrNote += error.message
       this.exit = { code: 127 }
       this.wake()
     })
+  }
+  /** The tail of stderr, as text whichever encoding it came in. */
+  get stderr(): string {
+    return `${decodeWslOutput(this.stderrBytes).replace(/[\0\r]/gu, '')}${this.stderrNote}`
   }
   private wake(): void {
     for (const waiter of this.waiters.splice(0)) waiter()
