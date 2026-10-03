@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
 import { effectiveAgentLaunchSettings } from '../../shared/launch-settings'
 import { isWslHostId, type ExecutionHostId, type ExecutionHostSettings } from '../../shared/execution-host'
-import { comparablePath } from '../../shared/host-paths'
+import { comparablePath, distroOfUncPath } from '../../shared/host-paths'
 import { ensureSkillInstalled } from '../../main/builtin-skills'
 import { cliResumeCapabilities } from '../../main/cli-resume-capabilities'
 import {
@@ -310,6 +310,12 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     conversations,
     workspaceFolder: (workspaceId) => workspaceRegistry.getRecord(workspaceId)?.folderPath ?? null,
     isSuspended: () => powerActivity.isSuspended(),
+    // A distribution the person shut down stays down until a chat there is
+    // sent to: reading a checkout in it would start WSL again.
+    pathAsleep: (path) => {
+      const distro = distroOfUncPath(path)
+      return Boolean(distro && wslServers?.manager.status(distro).state === 'shut-down')
+    },
     log: (message, error) => {
       void writeDiagnosticLog({
         level: 'warning',
