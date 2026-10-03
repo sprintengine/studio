@@ -113,6 +113,19 @@ function minutesAgo(ms: number): string {
   return minutes <= 0 ? 'just now' : minutes === 1 ? '1 min ago' : `${minutes} min ago`
 }
 
+/**
+ * States a background connect does not retry: each needs the person (a
+ * prompt, a server to update, a machine to fix) or followed a failure the
+ * person saw. Connect in Settings tries again.
+ */
+const HELD_STATES: ReadonlySet<SshEnvironmentState> = new Set([
+  'failed',
+  'needs-sign-in',
+  'disconnected',
+  'version-blocked',
+  'unsupported',
+])
+
 export class SshEnvironment {
   private view: SshEnvironmentView = {
     state: 'idle',
@@ -132,6 +145,11 @@ export class SshEnvironment {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private attempt = 0
   private lostAt: number | null = null
+  /** Background callers waiting out a reconnect's backoff: they get its next attempt. */
+  private waiting: {
+    promise: Promise<SshServerConnection>
+    settle(attempt: Promise<SshServerConnection>): void
+  } | null = null
   private upgradeAsked = false
   private readonly timing: typeof DEFAULT_TIMING
   private readonly now: () => number
@@ -176,16 +194,52 @@ export class SshEnvironment {
    */
   connect(options: { interactive: boolean } = { interactive: false }): Promise<SshServerConnection> {
     if (this.connection && this.endpoint && !this.endpoint.closed) return Promise.resolve(this.connection)
-    if (!this.running) {
-      if (this.view.state === 'needs-sign-in' && !options.interactive)
-        return Promise.reject(new Error(this.view.stateText))
-      this.intentional = false
-      this.clearReconnect()
-      this.running = this.bootstrap(options.interactive).finally(() => {
-        this.running = null
-      })
+    if (this.running) return this.running
+    // A background caller (a chat, the explorer, the pane) never jumps the
+    // reconnect's backoff, and never retries what needs the person: polled
+    // against a host that fails at once, it would run ssh at its poll rate.
+    // While a reconnect waits out its backoff, it is joined instead.
+    if (!options.interactive) {
+      if (this.reconnectTimer !== null) return this.nextAttempt()
+      if (HELD_STATES.has(this.view.state)) return Promise.reject(new Error(this.view.stateText))
     }
-    return this.running
+    return this.start(options.interactive)
+  }
+
+  private start(interactive: boolean): Promise<SshServerConnection> {
+    this.intentional = false
+    this.clearReconnect()
+    const running = this.bootstrap(interactive).finally(() => {
+      this.running = null
+    })
+    this.running = running
+    this.settleWaiting(running)
+    return running
+  }
+
+  /** The reconnect attempt after the current backoff, for a background caller to wait on. */
+  private nextAttempt(): Promise<SshServerConnection> {
+    if (!this.waiting) {
+      let settle: (attempt: Promise<SshServerConnection>) => void = () => undefined
+      const promise = new Promise<SshServerConnection>((resolve, reject) => {
+        settle = (attempt) => void attempt.then(resolve, reject)
+      })
+      this.waiting = { promise, settle }
+    }
+    return this.waiting.promise
+  }
+
+  /** Hand the waiting callers an attempt, or the reason there is none. */
+  private settleWaiting(attempt: Promise<SshServerConnection> | Error): void {
+    const waiting = this.waiting
+    this.waiting = null
+    waiting?.settle(attempt instanceof Error ? Promise.reject(attempt) : attempt)
+  }
+
+  /** The backoff's own attempt, and wake's: these may start a background bootstrap. */
+  private retry(): void {
+    if (this.running || (this.connection && this.endpoint && !this.endpoint.closed)) return
+    void this.start(false).catch(() => undefined)
   }
 
   private async bootstrap(interactive: boolean): Promise<SshServerConnection> {
@@ -310,6 +364,8 @@ export class SshEnvironment {
         } else this.scheduleReconnect(label, step.message)
         throw step
       }
+      // A reconnect that ends here (a server it cannot use) is not reconnecting any more.
+      this.lostAt = null
       this.set({
         state: step.failure?.code === 'needs-sign-in' ? 'needs-sign-in' : step.state,
         stateText: step.message,
@@ -502,6 +558,7 @@ export class SshEnvironment {
         action: 'connect',
       })
       this.lostAt = null
+      this.settleWaiting(new Error(this.view.stateText))
       return
     }
     const wait = this.timing.backoffMs[Math.min(this.attempt, this.timing.backoffMs.length - 1)]!
@@ -509,7 +566,7 @@ export class SshEnvironment {
     this.set({ state: 'reconnecting', stateText: this.reconnectingText(label), working: true })
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null
-      void this.connect({ interactive: false }).catch(() => undefined)
+      this.retry()
     }, wait)
     this.reconnectTimer.unref?.()
   }
@@ -530,10 +587,7 @@ export class SshEnvironment {
       this.endpoint.close('The computer woke or its network changed.')
       return
     }
-    if (this.lostAt !== null && !this.running) {
-      this.clearReconnect()
-      void this.connect({ interactive: false }).catch(() => undefined)
-    }
+    if (this.lostAt !== null && !this.running) this.retry()
   }
 
   /** Let the session go. The managed server keeps running (its idle rule ends it). */
@@ -541,6 +595,7 @@ export class SshEnvironment {
     this.intentional = true
     this.clearReconnect()
     this.lostAt = null
+    this.settleWaiting(new Error('Disconnected.'))
     const endpoint = this.endpoint
     if (endpoint) endpoint.close('Disconnected.')
     else {

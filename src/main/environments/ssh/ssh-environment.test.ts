@@ -133,10 +133,18 @@ test('connect: installed, started, connected; a second client attaches; a lost s
   assert.equal(second.spawned.length, 1)
 
   // The session dies (a dropped network): reconnects in the background, BatchMode, same server.
+  const beforeDrop = first.spawned.length
   first.spawned.at(-1)!.child.kill()
   assert.ok(await until(() => first.env.summary().state === 'reconnecting', 5_000))
   assert.match(first.env.summary().stateText, /Reconnecting to build-box — last reached/u)
-  assert.ok(await until(() => first.env.summary().state === 'connected', 30_000), first.changes.join('\n'))
+  // A chat asking meanwhile joins the reconnect rather than starting its own.
+  const joined = await Promise.all([
+    first.env.connect({ interactive: false }),
+    first.env.connect({ interactive: false }),
+  ])
+  assert.equal(joined[0], joined[1])
+  assert.equal(first.env.summary().state, 'connected', first.changes.join('\n'))
+  assert.equal(first.spawned.length, beforeDrop + 1, 'one session for the reconnect, however many asked')
   assert.equal(first.spawned.at(-1)!.interactive, false, 'a background reconnect never prompts')
   const after = JSON.parse(
     readFileSync(join(home, '.local', 'share', 'sprintengine-studio', 'data', 'run', 'server.json'), 'utf8'),
@@ -231,6 +239,14 @@ test("ssh's failures become the machine's state in words; a reconnect that needs
   const spawnedBefore = batch.spawned.length
   await assert.rejects(batch.env.connect({ interactive: false }), /needs you to sign in/u)
   assert.equal(batch.spawned.length, spawnedBefore)
+
+  // A failure the person saw is not retried by every background caller (a view polling git).
+  const refusedBefore = refused.spawned.length
+  for (let poll = 0; poll < 3; poll++)
+    await assert.rejects(refused.env.connect({ interactive: false }), /build-box refused the connection/u)
+  assert.equal(refused.spawned.length, refusedBefore, 'no ssh ran for them')
+  await assert.rejects(refused.env.connect({ interactive: true }))
+  assert.equal(refused.spawned.length, refusedBefore + 1, 'Connect in Settings still tries')
 })
 
 test('a machine Studio cannot run on is named, and nothing is installed there', async () => {
