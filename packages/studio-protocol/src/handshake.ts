@@ -50,6 +50,12 @@ export const STUDIO_CLIENT_TOOLS_CAPABILITY = 'client-tools' as const
  * stream. Owners only. What a client runs the canvas over a Studio's boards with.
  */
 export const STUDIO_BOARD_FILES_CAPABILITY = 'files-write' as const
+/**
+ * The pull requests a Studio found for its conversations' branches:
+ * `pullRequests.list`, `refresh` and `noteWork`, and the `pullRequests.changed`
+ * stream. Owners only.
+ */
+export const STUDIO_PULL_REQUESTS_CAPABILITY = 'pull-requests' as const
 
 /**
  * Every Studio capability this version of the package knows, in the order
@@ -70,6 +76,7 @@ export const STUDIO_CAPABILITIES = [
   STUDIO_WORKSPACES_CAPABILITY,
   STUDIO_CLIENT_TOOLS_CAPABILITY,
   STUDIO_BOARD_FILES_CAPABILITY,
+  STUDIO_PULL_REQUESTS_CAPABILITY,
 ] as const
 
 /**
