@@ -1,6 +1,9 @@
 # Phase 7 — the Studio server inside a WSL distribution
 
-Status: scoped, 2026-10-01. Nothing here is implemented. This file hardens
+Status: scoped, 2026-10-01; built behind the per-distribution switch
+(default off) on 2026-10-03, with the parts not built listed in section 14.
+Owner rulings of 2026-10-02 (decisions R70–R74, R78, R87) are applied
+throughout. This file hardens
 phase 7 of `docs/design/studio-server.md` (sections 10.2 and 13) and assumes
 phases 1–6 have landed: an Electron-free core (`createStudioCore`), the Studio
 protocol and `@sprintengine/agent-sdk`, and a Windows-side local server running
@@ -183,8 +186,10 @@ demand:
 
 1. **Resolve the distro.** The workspace's `hostId` gives `wsl:<distro>`. The
    name is checked by `isValidWslDistroName`. `wsl --list --verbose` (cached)
-   gives the state and the WSL version. A distro reported as version 1 takes
-   the per-process path (D2).
+   gives the state and the WSL version. A distro reported as version 1 is
+   refused with a message that names the conversion command, `wsl
+   --set-version <distro> 2` (R70, owner ruling 2026-10-02; this replaces the
+   recommendation to keep WSL1 on the per-process path).
 2. **Start.** Run `wsl.exe -d <distro> --cd ~ --exec sh -s` with the server
    launch script on stdin. If the script prints `NEED`, install (3.2) and retry,
    with the helper's prewarm and backoff.
@@ -801,7 +806,7 @@ stops, and 7.3's migration is not done (section 14).
 ### 7.2 Fallback
 
 - **Automatic fallback** to the per-process path happens only for a distro the
-  server has **never** owned: WSL1 (D2), Node will not run (glibc below 2.28,
+  server has **never** owned: Node will not run (glibc below 2.28,
   musl, an unsupported architecture), or the install fails. The environment
   shows why, and chats there run as they do today.
 - Once the server has owned a distro, a failure **does not** silently fall back,
@@ -817,7 +822,7 @@ stops, and 7.3's migration is not done (section 14).
   - Release N+2: the per-process chat path is removed (`cli-host-child.ts`'s
     WSL branch, `claude-wsl-child.ts`, `mcpServersOnWsl`,
     `approvalCheckInput`'s respelling and the ACP and Codex path mapping),
-    unless D2 keeps WSL1 on it.
+    WSL1 chats go with it (R70: the server is WSL2 only).
 
 ### 7.3 What moves on the first flip of a distro
 
@@ -873,7 +878,7 @@ untouched for the change that gives Codex and ACP chats the gateway (R86).
 
 | # | Case | Behaviour | Verified? |
 | --- | --- | --- | --- |
-| 8.1 | **WSL1** | No VM, Windows loopback shared directly, no inotify for Windows-side changes on drive mounts. Node 24's documented kernel floor (4.18) is above what WSL1 reports. Recommended: per-process path (D2) | Node 24 on WSL1 unverified (V6) |
+| 8.1 | **WSL1** | No VM, Windows loopback shared directly, no inotify for Windows-side changes on drive mounts. Node 24's documented kernel floor (4.18) is above what WSL1 reports. **Refused (R70)**: the server never runs there, and the switch is disabled in Settings for a WSL1 distribution; the message names `wsl --set-version <distro> 2` | Refusal tested; the per-process path on WSL1 is unchanged |
 | 8.2 | **`localhostForwarding=false`**, `networkingMode=none`, or policy-disabled forwarding | TCP probe fails, stdio bridge used, reason shown | Bridge tested with fake `wsl.exe`; real case V1 |
 | 8.3 | **Mirrored networking** | Loopback shared both ways; `127.0.0.1` bind works; port space shared with Windows (bind retry); Tailscale interface visible, so the tailnet listener is forced off | V1 |
 | 8.4 | **Firewall / VPN / endpoint security** blocking loopback or the WSL relay | Probe or proof fails, bridge used. VPNs that break the WSL2 NAT network break agents' outbound calls today too, so no change. API-key chats (`openai-compatible-provider.ts`, plain `fetch` in-process) **move their egress from Windows to the distro**, so a Windows-only proxy or PAC file no longer applies. Shown as a network error naming the environment; the login env's `HTTPS_PROXY` is honoured | V7 |
@@ -961,6 +966,12 @@ untouched for the change that gives Codex and ACP chats the gateway (R86).
 
 ### 9.3 A real machine: the manual checklist, before the default flips
 
+Ruled (R72, 2026-10-02): this checklist is run by hand for the first release
+that ships the server, and a self-hosted Windows runner with WSL 2 runs it
+before release N+1 flips the default. The steps are written out in
+[`docs/wsl-server-checklist.md`](../../wsl-server-checklist.md); the list
+below is what each step answers.
+
 Each item must be run on Windows 11 with WSL2 and an Ubuntu 24.04 distro, and
 the results recorded in the release notes for release N:
 
@@ -975,7 +986,7 @@ the results recorded in the release notes for release N:
   server, `/mnt/c` via the server, and `C:\` natively.
 - **V5.** Sidecar appends and rename-into-place over `/mnt/c` with the
   Windows-side reader open.
-- **V6.** Node 24 and the server on a WSL1 distro.
+- **V6.** A WSL1 distro: the switch is refused with the conversion command, and its per-process chats still work.
 - **V7.** A corporate VPN and an HTTP proxy: chat over loopback, API-key chat
   egress.
 - **V8.** Default user change.
@@ -1008,7 +1019,7 @@ the results recorded in the release notes for release N:
 | # | Decision | Recommendation |
 | --- | --- | --- |
 | D1 | **Front door vs direct.** In phase 7, does the Windows-side core route WSL chats (renderers, phone, gateway and modules unchanged), or do renderers connect to each WSL server directly, as the SSH design does? | **Route through the front door.** It is the only shape that keeps every in-process consumer working without each learning about environments. Direct connections arrive with phase 8's environment list and can use the same servers |
-| D2 | **WSL1.** Run the server there, or keep WSL1 on the per-process path? | **Per-process path for WSL1.** No drive-mount inotify, kernel below Node 24's floor, likely few users. Revisit when the per-process chat path is due for removal: removing it then means dropping WSL1 chats |
+| D2 | **WSL1.** Run the server there, or keep WSL1 on the per-process path? | **Ruled (R70, 2026-10-02): WSL2 only; WSL1 refused with the conversion command.** Recommended was: per-process path for WSL1. No drive-mount inotify, kernel below Node 24's floor, likely few users. Revisit when the per-process chat path is due for removal: removing it then means dropping WSL1 chats |
 | D3 | **Data dir per Windows profile or per distro?** | **Per profile**: `data/` for the packaged default profile, `data-<profileId>/` otherwise, matching how the helper already separates sockets per profile, so a dev build never shares chats with the installed app |
 | D4 | **Secrets at rest in WSL**: a 0600 key file, or a DPAPI-held key sent in the envelope? (extends parent Q3) | **Key file.** Same protection boundary in practice, works for a server started from a WSL terminal, symmetric with SSH |
 | D5 | **Copy provider API keys into each WSL server on its first flip?** | **Yes, once, automatically**, with a line in the migration notice, because those keys already powered that distro's chats. Later edits are offered, not pushed |
@@ -1062,6 +1073,64 @@ the results recorded in the release notes for release N:
     `gateway-forward:<tool>` capabilities an earlier draft of this file named
     are not needed.
 
+## 14. Implementation status (2026-10-03)
+
+Built, behind the per-distribution switch (default off), and always on for
+WSL 2 distributions when the desktop's server runs out of process:
+
+- The 7.4 guards at the runtime's door, and the learned drive mount root.
+- The front door: mutual proof, the loopback door behind its bind guard, the
+  stdio bridge onto a private socket, and the tailnet refusal inside WSL.
+- The WSL tree (`npm run build:server:wsl`), its install beside the helper's,
+  the `boot` frame, the envelope with a front door, `ready` with the port,
+  socket and mount root, the lease, and `WslEnvironmentManager` with the
+  WSL1 refusal, the loopback-then-bridge choice, the idle stop, the
+  shut-down-versus-crash reading and the crash backoff.
+- The private backend wire, `RoutedConversationBackend` in the core, the
+  typed-path edge, the switch and transport settings, and Settings › Machines.
+- The login environment, the server's own gateway for its chats, and the
+  relay of the shell's toolsets.
+- The `C:\` advisory in New chat.
+- The manual checklist (`docs/wsl-server-checklist.md`).
+
+Tested without WSL: a plain `sh` with a temporary home stands in for
+`wsl.exe`, and the real tree is built, installed through the real scripts,
+started, reached over loopback and over the bridge, and asked for its chats
+(`src/server/wsl/wsl-environment-manager.test.ts`); the proof against a
+decoy, the bind guard and the bridge (`front-door.test.ts`); the wire
+(`backend-wire.test.ts`); the router (`routed-conversation-backend.test.ts`);
+the edge (`wsl-path-edge.test.ts`); the relay (`wsl-tool-relay.test.ts`); and
+a front door on the plain-Node bundle (`studio-server.smoke.test.ts`).
+
+Not built yet:
+
+- **Migration (7.3)** and the flip that suspends live sessions first. A chat
+  made per-process and later continued on the server reads its transcript in
+  place, but its attachments, plans and approval rules stay in the Windows
+  store and are not shown or applied there; provider API keys are not copied
+  (D5), so an API-key provider is unconfigured on the server.
+- **`workspaces.ensure` (5.4) and the environment-id check (3.3 step 8).**
+  The WSL server's own registry is empty, so a gateway tool that lists or
+  creates workspaces from a WSL agent answers for that server, not the
+  person's list.
+- **Files at the edge (3.6, 5.3, 10).** Mention search, `stat` and image
+  previews stay with the Windows side for every WSL workspace; watch hints and
+  the slow poll, the renderer's link resolution with the environment's path
+  style, and uploads by bytes for dropped files are not built. Model
+  discovery and the `/` command catalog for a WSL machine stay where they are,
+  so out of process they still fail for WSL as phase 6 left them.
+- **Reattach after a front-door restart (8.29)**: the lease's end stops the
+  server, so a restarted front door starts a fresh one.
+- **Upgrade drain-and-replace (3.9)**: an app update quits the app, whose
+  drain stops the old server; the new app installs and starts its own
+  version's tree. A server orphaned by a crash holds its data directory's lock
+  until it exits, and a start meanwhile is refused with the lock's reason.
+- **Agent state from a server chat** does not reach the desktop's
+  agent-state socket.
+- In process, only `browser` and `canvas` are relayed to a WSL server's
+  agents (3.7).
+- The self-hosted WSL 2 runner (R72).
+
 ## 13. Commit breakdown
 
 Each commit leaves `npm run verify:app` green and the app shippable. Commits
@@ -1112,7 +1181,7 @@ Each commit leaves `npm run verify:app` green and the app shippable. Commits
     and the manual checklist (9.3) as `docs/wsl-server-checklist.md`.
 13. *(Release N+1)* **`feat(wsl): chats run on the distribution's server by default`.**
 14. *(Release N+2)* **`refactor(chat): the per-process WSL chat path is removed`**,
-    subject to D2.
+    which drops WSL1 chats (R70).
 
 Commits 3 and 4 are independent of the rest and can land on `main` first.
 D11's token fix already has (#133).
