@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, beforeAll, test } from 'vitest'
+import { afterAll, beforeAll, test, vi } from 'vitest'
 
 import { createSignIns, readSignInOutput, resolveOnPath } from './machine-sign-in'
 
@@ -31,6 +31,15 @@ beforeAll(() => {
   )
 })
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
+
+const alive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
 
 const resolve = async (binary: string) => join(dir, binary)
 
@@ -90,3 +99,33 @@ test('a browser link that is cancelled; a CLI that is missing; a CLI with no flo
   assert.equal(await resolveOnPath('no-such-cli-here'), null)
   assert.equal(await resolveOnPath('a;b'), null)
 })
+
+test.skipIf(process.platform === 'win32')(
+  'a login that ignores being asked to end, and what it started, are gone once it is cancelled or its server stops',
+  async () => {
+    // A stand-in that shrugs off SIGTERM and leaves a helper of its own running.
+    const stubborn = (name: string) => {
+      writeFileSync(
+        join(dir, name),
+        `#!/bin/sh\ntrap '' TERM\nsleep 60 &\necho $! > '${join(dir, `${name}.helper`)}'\necho "Open a browser and navigate to this link: https://cursor.com/loginDeepControl?challenge=c"\nwhile :; do sleep 1; done\n`,
+      )
+      chmodSync(join(dir, name), 0o755)
+    }
+    stubborn('stubborn-cancel')
+    stubborn('stubborn-stop')
+    for (const [binary, finish] of [
+      ['stubborn-cancel', (signIns: ReturnType<typeof createSignIns>, id: string) => signIns.cancel(id)],
+      ['stubborn-stop', (signIns: ReturnType<typeof createSignIns>) => signIns.stopAll()],
+    ] as const) {
+      const signIns = createSignIns({ resolve: async () => join(dir, binary), killGraceMs: 200 })
+      const started = await signIns.start('cursor')
+      assert.ok(started.ok)
+      if (!started.ok) return
+      const helper = Number(readFileSync(join(dir, `${binary}.helper`), 'utf8'))
+      assert.ok(alive(helper))
+      finish(signIns, started.id)
+      assert.equal((await signIns.wait(started.id)).ok, false)
+      await vi.waitFor(() => assert.equal(alive(helper), false, `${binary}'s helper is gone`), { timeout: 5_000 })
+    }
+  },
+)

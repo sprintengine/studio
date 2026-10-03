@@ -60,11 +60,42 @@ export type SignInDeps = {
   /** Where a CLI's command is on this machine (the login shell's PATH), or null. */
   resolve(binary: string): Promise<string | null>
   spawn?: typeof spawn
+  platform?: NodeJS.Platform
+  /** How long a login asked to end has before it is killed. */
+  killGraceMs?: number
 }
+
+/** How long a login asked to end gets before it is made to. */
+const KILL_GRACE_MS = 5_000
 
 export function createSignIns(deps: SignInDeps) {
   const running = new Map<string, Running>()
   const spawnChild = deps.spawn ?? spawn
+  // A login runs in a process group of its own, so ending it ends whatever it
+  // started too (a CLI's helper, a browser opener), not only the CLI.
+  const grouped = (deps.platform ?? process.platform) !== 'win32'
+  const killGraceMs = deps.killGraceMs ?? KILL_GRACE_MS
+
+  function signal(child: ChildProcessWithoutNullStreams, name: NodeJS.Signals): void {
+    try {
+      if (grouped && child.pid) process.kill(-child.pid, name)
+      else child.kill(name)
+    } catch {
+      // Gone already.
+    }
+  }
+
+  /** Ask a login to end, and make it end after the grace period; its group goes with it. */
+  function end(child: ChildProcessWithoutNullStreams): void {
+    signal(child, 'SIGTERM')
+    const timer = setTimeout(() => signal(child, 'SIGKILL'), killGraceMs)
+    timer.unref?.()
+    child.once('close', () => {
+      clearTimeout(timer)
+      // Anything it started that outlived it.
+      signal(child, 'SIGKILL')
+    })
+  }
 
   async function start(cli: string): Promise<SignInStarted> {
     const flow = SIGN_IN_FLOWS[cli]
@@ -74,6 +105,7 @@ export function createSignIns(deps: SignInDeps) {
     const child = spawnChild(binary, [...flow.args], {
       env: { ...process.env, ...flow.env },
       stdio: ['pipe', 'pipe', 'pipe'],
+      detached: grouped,
     }) as ChildProcessWithoutNullStreams
     child.stdin.on('error', () => undefined)
     let output = ''
@@ -103,7 +135,7 @@ export function createSignIns(deps: SignInDeps) {
       })
     })
     const id = randomBytes(8).toString('hex')
-    const timer = setTimeout(() => child.kill(), SIGN_IN_TIMEOUT_MS)
+    const timer = setTimeout(() => end(child), SIGN_IN_TIMEOUT_MS)
     timer.unref?.()
     running.set(id, { child, done })
     void done.finally(() => {
@@ -113,7 +145,7 @@ export function createSignIns(deps: SignInDeps) {
     await Promise.race([ready, new Promise((resolve) => setTimeout(resolve, START_TIMEOUT_MS).unref?.())])
     const read = readSignInOutput(output)
     if (!read.url) {
-      child.kill()
+      end(child)
       const finished = await done
       return { ok: false, message: finished.ok ? `${flow.binary} printed no sign-in link.` : finished.message }
     }
@@ -139,11 +171,19 @@ export function createSignIns(deps: SignInDeps) {
       return running.get(id)?.done ?? Promise.resolve({ ok: false, message: 'That sign-in has already ended.' })
     },
     cancel(id: string): void {
-      running.get(id)?.child.kill()
+      const entry = running.get(id)
+      if (entry) end(entry.child)
     },
-    /** End every login still waiting: the server is stopping. */
+    /**
+     * End every login still waiting: the server is stopping, and may be gone
+     * before a grace period would run out. A login waiting on a person has
+     * nothing to save, so its group is killed outright.
+     */
     stopAll(): void {
-      for (const entry of running.values()) entry.child.kill()
+      for (const entry of running.values()) {
+        signal(entry.child, 'SIGTERM')
+        signal(entry.child, 'SIGKILL')
+      }
     },
   }
 }
