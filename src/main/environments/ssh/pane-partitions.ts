@@ -1,5 +1,5 @@
 import type { SshPaneTraffic } from '../../../shared/ssh-environments'
-import { SshPaneForward } from './pane-forward'
+import { isLoopbackTarget, SshPaneForward } from './pane-forward'
 import type { SshServerConnection } from './ssh-environment'
 
 // Which browser partition a workspace's pane tabs use, and the forward behind
@@ -13,10 +13,60 @@ import type { SshServerConnection } from './ssh-environment'
 // tabs'. The forward is opened by the machine's first tab and closed a moment
 // after its last, so the port exists only while a tab needs it.
 
+/** What Chromium says about a request before it is sent: the slice of Electron's details the guard reads. */
+export type PaneRequest = { url: string; method: string; resourceType: string; initiatorOrigin?: string }
+
 /** The slice of an Electron session this needs. */
 export type ProxySession = {
   setProxy(config: { proxyRules: string; proxyBypassRules: string }): Promise<void>
   clearStorageData(options?: { storages?: string[] }): Promise<void>
+  webRequest?: {
+    onBeforeRequest(listener: (details: PaneRequest, callback: (response: { cancel: boolean }) => void) => void): void
+  }
+}
+
+/** Whether an origin is a page served from loopback (`http://localhost:5173`), whose own calls to loopback are its own. */
+function isLoopbackOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin)
+    return (url.protocol === 'http:' || url.protocol === 'https:') && isLoopbackTarget(url.hostname)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Whether a request in a machine's partition is a site on the internet
+ * reaching that machine's loopback (phase 8 spec, V-P3): a subresource, a
+ * frame, a WebSocket or a form post to `localhost` (or `127.x`, `[::1]`,
+ * `0.0.0.0`) whose initiator is a web origin that is not itself loopback, or
+ * an opaque one (a sandboxed frame such a site made). Chromium's own
+ * private-network checks do not see through the proxy, and a machine's
+ * loopback holds what an agent runs there: dev servers, databases' web
+ * consoles, debug ports. A local browser keeps public sites from the
+ * laptop's loopback the same way.
+ *
+ * Allowed: anything with no initiator (the person typing a URL, an agent's
+ * `browser.open`, the browser's own requests), anything a loopback page asks
+ * for, the developer tools' own fetches (`devtools://`), and a top-level GET
+ * navigation, which a link to a dev server is.
+ */
+export function blocksForeignLoopback(request: PaneRequest): boolean {
+  let target: URL
+  try {
+    target = new URL(request.url)
+  } catch {
+    return false
+  }
+  if (!isLoopbackTarget(target.hostname)) return false
+  const initiator = request.initiatorOrigin
+  if (!initiator) return false
+  if (initiator !== 'null') {
+    if (isLoopbackOrigin(initiator)) return false
+    if (!/^(?:https?|wss?):/u.test(initiator)) return false
+  }
+  if (request.resourceType === 'mainFrame' && request.method === 'GET') return false
+  return true
 }
 
 export type PanePartitionDeps = {
@@ -91,15 +141,21 @@ export class PanePartitions {
         forward,
         tabs: new Set(),
         closeTimer: null,
-        ready: forward.open().then((port) =>
-          this.deps.sessionFor(partition).setProxy({
+        ready: forward.open().then(async (port) => {
+          const session = this.deps.sessionFor(partition)
+          // Before any guest loads: a site in these tabs never reaches the
+          // machine's loopback behind the person's back (V-P3).
+          session.webRequest?.onBeforeRequest((details, callback) =>
+            callback({ cancel: blocksForeignLoopback(details) }),
+          )
+          await session.setProxy({
             // An HTTP proxy for every scheme; WebSockets are tunnelled by CONNECT.
             proxyRules: `127.0.0.1:${port}`,
             // Chromium never proxies loopback unless told to: this removes that
             // rule, so the machine's localhost is the one these tabs reach.
             proxyBypassRules: '<-loopback>',
-          }),
-        ),
+          })
+        }),
       }
       this.byMachine.set(machine.id, created)
       entry = created
@@ -162,6 +218,10 @@ export class PanePartitions {
       entry.closeTimer = null
       if (entry.tabs.size > 0) return
       this.byMachine.delete(entry.id)
+      // No guest attaches to it again until a new forward is open and the
+      // session points at that one: its proxy names a port now free for
+      // anything on this computer to take.
+      this.prepared.delete(entry.partition)
       void entry.forward.close()
     }, this.deps.closeDelayMs ?? 5_000)
     entry.closeTimer.unref?.()
@@ -188,6 +248,7 @@ export class PanePartitions {
   async forget(id: string, options: { clearBrowsingData: boolean; environmentId: string | null }): Promise<void> {
     const entry = this.byMachine.get(id)
     this.byMachine.delete(id)
+    if (entry) this.prepared.delete(entry.partition)
     if (entry?.closeTimer) clearTimeout(entry.closeTimer)
     await entry?.forward.close()
     if (options.clearBrowsingData)

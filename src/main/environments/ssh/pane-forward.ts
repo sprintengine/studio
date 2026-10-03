@@ -38,13 +38,43 @@ export type PaneForwardDeps = {
 const RECONNECT_WAIT_MS = 10_000
 const LOOPBACK_HOST = '127.0.0.1'
 
-/** Whether a target is the machine's own loopback: what `paneTraffic: 'loopback'` sends there. */
+/**
+ * Whether a target is the machine's own loopback: what `paneTraffic:
+ * 'loopback'` sends there. The unspecified address (`0.0.0.0`, `::`) and an
+ * IPv4-mapped loopback (`::ffff:127.0.0.1`) count: connecting to either
+ * reaches the loopback of whichever computer makes the connection, so sent
+ * from here they would reach this computer's own services.
+ */
 export function isLoopbackTarget(host: string): boolean {
   const bare = host.replace(/^\[(.*)\]$/u, '$1').toLowerCase()
   if (bare === 'localhost' || bare.endsWith('.localhost')) return true
-  if (isIP(bare) === 4) return bare.startsWith('127.')
-  if (isIP(bare) === 6) return bare === '::1' || bare === '0:0:0:0:0:0:0:1'
-  return false
+  if (isIP(bare) === 4) return bare.startsWith('127.') || bare.startsWith('0.')
+  if (isIP(bare) !== 6) return false
+  const words = expandIpv6(bare)
+  if (!words) return false
+  if (words.slice(0, 7).every((word) => word === 0) && (words[7] === 1 || words[7] === 0)) return true
+  // ::ffff:a.b.c.d, which Chromium writes as ::ffff:7f00:1
+  const mapped = words.slice(0, 5).every((word) => word === 0) && words[5] === 0xffff
+  return mapped && (words[6]! >> 8 === 127 || words[6]! >> 8 === 0)
+}
+
+/** An IPv6 address as its eight 16-bit words, a dotted IPv4 tail included; null when it is not one. */
+function expandIpv6(address: string): number[] | null {
+  let text = address.split('%')[0]!
+  const dotted = /(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/u.exec(text)
+  if (dotted) {
+    const [a, b, c, d] = dotted.slice(1).map(Number) as [number, number, number, number]
+    text = `${text.slice(0, dotted.index)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`
+  }
+  const halves = text.split('::')
+  if (halves.length > 2) return null
+  const parse = (part: string) => (part ? part.split(':').map((word) => Number.parseInt(word, 16)) : [])
+  const head = parse(halves[0]!)
+  const tail = halves.length === 2 ? parse(halves[1]!) : []
+  const fill = 8 - head.length - tail.length
+  if (halves.length === 1 ? head.length !== 8 : fill < 0) return null
+  const words = [...head, ...Array<number>(halves.length === 2 ? fill : 0).fill(0), ...tail]
+  return words.every((word) => Number.isInteger(word) && word >= 0 && word <= 0xffff) ? words : null
 }
 
 /** `host:port` from a CONNECT line, IPv6 in brackets; null for anything else. */
@@ -363,7 +393,7 @@ export class SshPaneForward {
     }
     if (rest.length > 0) up(rest)
     socket.on('data', up)
-    let pending = Buffer.alloc(0)
+    let pending: Buffer = Buffer.alloc(0)
     let final = false
     const down = (chunk: Buffer) => {
       if (!socket.write(chunk)) upstream.pause()

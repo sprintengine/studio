@@ -161,9 +161,22 @@ test("refusals and a reconnecting machine are said in words; 'loopback' sends on
 })
 
 test('what counts as loopback, and what a CONNECT may name', () => {
-  for (const host of ['localhost', 'app.localhost', '127.0.0.1', '127.1.2.3', '::1', '[::1]'])
+  for (const host of [
+    'localhost',
+    'app.localhost',
+    '127.0.0.1',
+    '127.1.2.3',
+    '::1',
+    '[::1]',
+    // Each reaches the loopback of whichever computer connects.
+    '0.0.0.0',
+    '::',
+    '[::ffff:127.0.0.1]',
+    '::ffff:7f00:1',
+    '0:0:0:0:0:0:0:1',
+  ])
     assert.equal(isLoopbackTarget(host), true, host)
-  for (const host of ['example.test', '10.0.0.1', 'localhost.example.test', '::2'])
+  for (const host of ['example.test', '10.0.0.1', 'localhost.example.test', '::2', '::ffff:a00:1', 'fe80::1'])
     assert.equal(isLoopbackTarget(host), false, host)
   assert.deepEqual(parseAuthority('localhost:5173'), { host: 'localhost', port: 5173 })
   assert.deepEqual(parseAuthority('[::1]:443'), { host: '::1', port: 443 })
