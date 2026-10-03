@@ -4,6 +4,7 @@ import { ServerBootstrapError, readEnvelope, type ServerControlChannel } from '.
 import { createControlRpc, type ControlRpc } from './control-rpc'
 import {
   SERVER_EXIT,
+  type FrontDoorReady,
   type ServerBootstrapEnvelope,
   type ServerExitCode,
   type ServerReady,
@@ -31,6 +32,8 @@ export type RunningServer = {
   environmentId: string
   gatewaySocket: string | null
   tailnetBound: string | null
+  /** A WSL server's front door, said in `ready`. */
+  frontDoor?: FrontDoorReady
   /**
    * Stop, leg by leg, saying each one as it finishes. `drain: false` is a
    * quit during boot or a lost parent: only what cannot be lost runs.
@@ -221,6 +224,7 @@ export async function serveOnChannel(channel: ServerControlChannel, options: Ser
     gateway: { socketPath: running.gatewaySocket },
     tailnet: { bound: running.tailnetBound },
     bootMs: Math.round(performance.now() - startedAt),
+    ...(running.frontDoor ? { frontDoor: running.frontDoor } : {}),
   }
   send(ready)
   options.log(`ready in ${ready.bootMs} ms: gateway ${ready.gateway.socketPath ?? 'not running'}`)

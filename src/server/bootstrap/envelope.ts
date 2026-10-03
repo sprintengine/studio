@@ -92,10 +92,52 @@ export type ServerBootstrapEnvelope = {
   app: { version: string; buildStamp: string; channel: 'latest' | 'nightly' }
   /** Headless only: the hash of the owner token a first client presents. The desktop needs none. */
   owner: { tokenHash?: string }
-  listeners: { gateway: boolean; tailnet: 'from-settings' | 'off' }
+  listeners: {
+    gateway: boolean
+    tailnet: 'from-settings' | 'off'
+    /**
+     * A WSL distribution's server (phase 7): open the front door's two doors,
+     * loopback TCP when `loopback` and the stdio bridge's socket always, both
+     * behind the mutual proof keyed by `owner.tokenHash`. Headless only, and
+     * never beside a tailnet listener.
+     */
+    frontDoor?: { loopback: boolean }
+  }
   secrets: ServerSecretsMode
+  /** Set for a server inside a WSL distribution: which one, as the Windows side names it. */
+  wsl?: { distro: string }
   /** `SPRINTENGINE_*` switches the server would otherwise read from its own environment. */
   flags: Record<string, boolean>
+}
+
+/**
+ * The first thing a server started over stdio says, before it reads a byte:
+ * the `sh` that exec'd it can no longer swallow the envelope as script, and
+ * the starter learns where the server runs (its home and its own files) to
+ * build an envelope with that machine's paths.
+ */
+export type ServerBoot = {
+  t: 'boot'
+  pid: number
+  version: string
+  buildStamp: string | null
+  /** `$HOME`, which a WSL starter's data directory is under. */
+  home: string
+  uid: number | null
+  /** The Node this server runs on: what an agent's MCP bridge entry names. */
+  execPath: string
+  /** The directory the server's own bundle sits in. */
+  appDir: string
+}
+
+/** Where a WSL server's front door listens, and what the edge needs to know about its paths. */
+export type FrontDoorReady = {
+  /** The loopback port on 127.0.0.1, or null when that door is off or did not open. */
+  port: number | null
+  /** The bridge's Unix socket, or null when it did not open. */
+  socketPath: string | null
+  /** Where the distribution mounts Windows drives (`/mnt/`), or null when automount is off. */
+  driveMountRoot: string | null
 }
 
 /** The server's answer once its gateway is listening. */
@@ -108,10 +150,13 @@ export type ServerReady = {
   gateway: { socketPath: string | null }
   tailnet: { bound: string | null }
   bootMs: number
+  /** A WSL server's front door, when the envelope asked for one. */
+  frontDoor?: FrontDoorReady
 }
 
 /** What the server says to whoever started it, beyond the requests and answers of the control RPC. */
 export type ServerToSupervisor =
+  | ServerBoot
   | ServerReady
   | { t: 'pong'; seq: number; loopLagMs: number; rssMb: number }
   | { t: 'shutdown-progress'; leg: string; done: number; total: number; durationMs: number; failed: boolean }
@@ -180,6 +225,18 @@ export function parseServerBootstrapEnvelope(value: unknown): EnvelopeParseResul
   const listeners = value.listeners
   if (!isRecord(listeners) || typeof listeners.gateway !== 'boolean') return fail('listeners.gateway is missing.')
   if (listeners.tailnet !== 'from-settings' && listeners.tailnet !== 'off') return fail('listeners.tailnet is unknown.')
+  if (listeners.frontDoor !== undefined) {
+    const door = listeners.frontDoor
+    if (!isRecord(door) || typeof door.loopback !== 'boolean') return fail('listeners.frontDoor is malformed.')
+    if (value.role !== 'headless') return fail('only a headless server opens a front door.')
+    if (listeners.tailnet !== 'off') return fail('a server with a front door never listens on the tailnet.')
+    if (typeof owner.tokenHash !== 'string' || !/^[0-9a-f]{64}$/u.test(owner.tokenHash))
+      return fail('a front door needs the owner token hash its proofs are keyed by.')
+  }
+  if (value.wsl !== undefined) {
+    if (!isRecord(value.wsl) || typeof value.wsl.distro !== 'string' || !/^[A-Za-z0-9._-]+$/u.test(value.wsl.distro))
+      return fail('wsl.distro is not a distribution name.')
+  }
   const secrets = value.secrets
   if (!isRecord(secrets)) return fail('secrets is missing.')
   if (secrets.kind === 'shell') {

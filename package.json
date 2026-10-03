@@ -22,6 +22,7 @@
     "dev": "node scripts/dev.js",
     "build": "electron-vite build",
     "build:server": "node scripts/build-server.mjs",
+    "build:server:wsl": "node scripts/build-server.mjs --wsl",
     "build:sdk": "tsc -p packages/module-sdk/tsconfig.json",
     "build:conversation-protocol": "node packages/conversation-protocol/build.mjs",
     "build:studio-protocol": "node packages/studio-protocol/build.mjs",

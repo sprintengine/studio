@@ -108,3 +108,37 @@ test('only exits that a second start could fix are retried', () => {
   // A code nobody documented is a crash of some kind.
   assert.equal(serverExitRetryable({ code: 1 }), true)
 })
+
+test('a front door is opened only by a headless server with an owner token hash and no tailnet listener', () => {
+  const hash = 'a'.repeat(64)
+  const wsl = (overrides: Record<string, unknown> = {}) =>
+    envelope({
+      role: 'headless',
+      dataDir: '/home/dev/.local/share/sprintengine-studio/data',
+      logsDir: '/home/dev/.local/state/sprintengine-studio/logs/data',
+      runDir: '/home/dev/.local/share/sprintengine-studio/data/run',
+      paths: {
+        resourcesDir: '/home/dev/.local/share/sprintengine-studio/server-0.4.0/resources',
+        appPath: '/home/dev/.local/share/sprintengine-studio/server-0.4.0',
+        isPackaged: true,
+        appExecPath: '/home/dev/.local/share/sprintengine-studio/runtime/node-v24.21.0/bin/node',
+      },
+      owner: { tokenHash: hash },
+      listeners: { gateway: true, tailnet: 'off', frontDoor: { loopback: true } },
+      secrets: { kind: 'key-file' },
+      wsl: { distro: 'Ubuntu-24.04' },
+      ...overrides,
+    })
+  assert.equal(parseServerBootstrapEnvelope(wsl()).ok, true)
+  const refused = (overrides: Record<string, unknown>, reason: RegExp) => {
+    const parsed = parseServerBootstrapEnvelope(wsl(overrides))
+    assert.equal(parsed.ok, false)
+    assert.match(parsed.ok ? '' : parsed.message, reason)
+  }
+  refused({ owner: {} }, /owner token hash/u)
+  refused({ owner: { tokenHash: 'not-hex' } }, /owner token hash/u)
+  refused({ listeners: { gateway: true, tailnet: 'from-settings', frontDoor: { loopback: true } } }, /tailnet/u)
+  refused({ listeners: { gateway: true, tailnet: 'off', frontDoor: {} } }, /frontDoor/u)
+  refused({ role: 'desktop-local', secrets: { kind: 'shell', available: true } }, /headless/u)
+  refused({ wsl: { distro: 'two words' } }, /distribution name/u)
+})

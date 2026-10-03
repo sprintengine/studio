@@ -1,3 +1,4 @@
+import { existsSync } from 'fs'
 import { networkInterfaces, type NetworkInterfaceInfo } from 'os'
 
 // Which address the tailnet listener is allowed to bind, decided from the
@@ -82,3 +83,26 @@ export function resolveTailnetInterface(
 function normalize(address: string): string {
   return address.trim().toLowerCase().split('%')[0]
 }
+
+/**
+ * Whether this process runs inside a WSL distribution. In WSL's mirrored
+ * networking mode Windows' own interfaces, the Tailscale one among them,
+ * appear inside the distribution, so a Studio server there would bind the
+ * PC's tailnet address beside the Windows desktop's own listener. The phone
+ * reaches WSL chats through the Windows desktop instead (phase 7 spec, 4.3).
+ */
+export function isInsideWsl(
+  input: {
+    platform?: NodeJS.Platform
+    env?: Record<string, string | undefined>
+    exists?: (path: string) => boolean
+  } = {},
+): boolean {
+  if ((input.platform ?? process.platform) !== 'linux') return false
+  const env = input.env ?? process.env
+  if (env.WSL_DISTRO_NAME) return true
+  return (input.exists ?? existsSync)('/proc/sys/fs/binfmt_misc/WSLInterop')
+}
+
+/** The owner's explicit leave for a tailnet listener inside WSL, which is otherwise refused. */
+export const TAILNET_IN_WSL_ENV = 'SPRINTENGINE_TAILNET_IN_WSL'

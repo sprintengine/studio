@@ -116,8 +116,16 @@ const LOCK_WATCH_MS = 500
 // checkout or app it was built in fails there, by name, and not at a chat.
 const RUNTIME_PACKAGES = ['@anthropic-ai/claude-agent-sdk', '@agentclientprotocol/sdk']
 
+/**
+ * Baked in by scripts/build-server.mjs: true for the WSL tree, which inlines
+ * every dependency, the runtime packages included, so there is nothing to
+ * look for beside it.
+ */
+declare const __STUDIO_SERVER_SELF_CONTAINED__: boolean | undefined
+
 /** The runtime packages this process cannot resolve from where its code is. */
 export function missingRuntimePackages(resolve: (name: string) => unknown = require.resolve): string[] {
+  if (typeof __STUDIO_SERVER_SELF_CONTAINED__ !== 'undefined' && __STUDIO_SERVER_SELF_CONTAINED__) return []
   return RUNTIME_PACKAGES.filter((name) => {
     try {
       resolve(name)

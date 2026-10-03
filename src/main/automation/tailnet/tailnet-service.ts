@@ -22,7 +22,7 @@ import {
   type TailnetGatewayServer,
   type TailnetGatewayServerOptions,
 } from './tailnet-gateway-server'
-import { resolveTailnetInterface } from './tailnet-interface'
+import { isInsideWsl, resolveTailnetInterface, TAILNET_IN_WSL_ENV } from './tailnet-interface'
 import { createTailnetPeerResolver, type TailnetPeerIdentity, type TailnetPeerResolver } from './tailnet-peer-identity'
 import { createTailnetPeerScanner, type TailnetPeerScanner } from './tailnet-peers'
 import { readTailnetSettings, writeTailnetSettings, type TailnetSettings } from './tailnet-settings'
@@ -157,6 +157,11 @@ export type TailnetRemoteServiceOptions = {
   onReverseGrant?: (input: { grant: TailnetReverseGrant; askerName: string; peerNode: string | null }) => void
   /** Injected in tests. Production reads this machine's real interfaces. */
   resolveBindAddress?: () => string | null
+  /**
+   * Whether this process runs inside WSL, where the listener is refused
+   * unless the owner set `SPRINTENGINE_TAILNET_IN_WSL=1`. Tests stand in.
+   */
+  insideWsl?: () => boolean
   /**
    * How often to look for a Tailscale interface while the listener is enabled
    * and waiting for one. Tests drive it down; nothing else sets it.
@@ -422,6 +427,15 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
     if (server?.isRunning()) return false
     const current = loadSettings()
     if (!current.enabled) return false
+    if ((options.insideWsl ?? isInsideWsl)() && process.env[TAILNET_IN_WSL_ENV] !== '1') {
+      // Mirrored networking shows the PC's Tailscale address in here too, and
+      // the Windows desktop already listens on it for this machine.
+      lastError =
+        'Remote control does not listen from inside WSL: the Windows desktop serves this PC on the tailnet, WSL chats included.'
+      options.log?.(lastError)
+      emit({ kind: 'listener', running: false, error: lastError })
+      return true
+    }
     const bindAddress = resolveBindAddress()
     if (!bindAddress) {
       // Explicit refusal, not a fallback to another interface: the whole point
