@@ -13,8 +13,13 @@
  * this still worth probing" and "probe it" — and both are the consumer's to
  * answer.
  *
- * THE SCHEDULE. 1 → 2 → 4 → 8 → 16 → 32 min, then HOLDING at 32 until the key
- * stops being watchable, at which point its timer is torn down for good. It
+ * THE SCHEDULE. 1 → 2 min, then HOLDING at 2 until the key stops being
+ * watchable, at which point its timer is torn down for good. It used to climb
+ * to 32 min, and a pull request merged an hour after it was opened stayed green
+ * in the sidebar for up to half an hour (owner, 2026-10-02: "I should be able
+ * to scan my thread and see exactly what is outstanding"). Two minutes keeps a
+ * merge visible within a glance's worth of time for a handful of `gh` calls; a
+ * merged or closed one is never probed again. It
  * deliberately does not halt at the cap: a headless owner has no "the user came
  * back" trigger to re-arm it, and a watch that goes silent an hour in does not
  * self-heal at all. When nothing is watchable the poller holds zero timers —
@@ -35,13 +40,13 @@
 import { backoffDelayMs, type ExponentialBackoffOptions } from '../../shared/exponentialBackoff'
 
 /**
- * 1 → 2 → 4 → 8 → 16 → 32 min, then every 32 min. No `stopAtMax`: see the header
- * for why a headless owner keeps probing where a renderer supervisor halted.
+ * 1 → 2 min, then every 2 min. No `stopAtMax`: see the header for why a
+ * headless owner keeps probing where a renderer supervisor halted.
  */
 export const PR_WATCH_BACKOFF: ExponentialBackoffOptions = {
   baseMs: 60_000,
   factor: 2,
-  maxMs: 32 * 60_000,
+  maxMs: 2 * 60_000,
 }
 
 /** Each delay is multiplied by 1 ± this, so simultaneously-armed keys desynchronize. */

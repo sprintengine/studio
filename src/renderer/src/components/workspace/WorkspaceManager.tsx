@@ -4391,6 +4391,7 @@ export default function WorkspaceManager() {
           onNewScheduledAgent={sidebarNewScheduledAgent}
           onOpenScheduledAgent={sidebarOpenScheduledAgent}
           openScheduledAgentId={newChatPanelState?.editingScheduledAgentId ?? null}
+          newChatOpen={newChatPanelState !== null}
           onNewChatInFolder={sidebarNewChatInFolder}
           onRevealFolder={sidebarRevealFolder}
           onSetSidebarCollapsed={setSidebarCollapsed}
