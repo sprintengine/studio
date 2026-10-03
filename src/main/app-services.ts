@@ -37,6 +37,9 @@ import { createAutomationTools } from './automation/automation-tools'
 import { createTailnetTools, type TailnetToolsFrontDoor } from './automation/tailnet/tailnet-tools'
 import { desktopGatewayTools } from './automation/desktop-gateway-tools'
 import { createDesktopShellTools } from './desktop-shell-tools'
+import { createAgentPermissionResolver } from './automation/launch-permission-cap'
+import { liveGatewayLaunchTokens, onGatewayLaunchTokenChange } from '../server/core/gateway-launch-tokens'
+import { shellTerminalToolsets } from '../server/desktop/shell-toolsets'
 import { readStudioEnv } from '../shared/studio-env'
 import type { McpToolContribution } from './module-host/main-host'
 import { createDefaultMarketplaceRegistryClient } from './ipc/marketplace-registry-ipc'
@@ -1357,6 +1360,25 @@ export function createAppServices(
       workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
     isCanvasEnabled,
   })
+  // The editor and tour tools act on what a window shows. In process they are
+  // the gateway's own; out of process the shell offers them as its `editor`
+  // and `tour` toolsets (phase 6, 6.3).
+  const editorTools = createEditorTools(
+    createEditorToolBackends({
+      findWorkspace: (workspaceId) =>
+        workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId) ?? null,
+      listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
+      agentWrittenFiles,
+      broker: editorRevealBroker,
+      userDataDir: () => app.getPath('userData'),
+      isAppFocused: () => BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()),
+    }),
+  )
+  const tourTools = createTourTools({
+    service: tourService,
+    hasWorkspace: (workspaceId) =>
+      workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
+  })
 
   // Instance-global SprintEngine Studio MCP surface: reads come from the
   // workspace-sync snapshot and terminal runtime, and mutations go straight to
@@ -1402,24 +1424,8 @@ export function createAppServices(
         appTools: desktopGatewayTools({
           browser: clientToolsEnabled ? [] : browserTools,
           canvas: clientToolsEnabled ? [] : canvasTools,
-          editor: createEditorTools(
-            createEditorToolBackends({
-              findWorkspace: (workspaceId) =>
-                workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId) ??
-                null,
-              listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
-              agentWrittenFiles,
-              broker: editorRevealBroker,
-              userDataDir: () => app.getPath('userData'),
-              isAppFocused: () =>
-                BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()),
-            }),
-          ),
-          tour: createTourTools({
-            service: tourService,
-            hasWorkspace: (workspaceId) =>
-              workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
-          }),
+          editor: editorTools,
+          tour: tourTools,
           automation: createAutomationTools(
             createServerGatewayBackends({
               getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
@@ -1460,8 +1466,36 @@ export function createAppServices(
   // paths, version and the push to Settings are the platform's. Nothing in the
   // app uses it yet; paired apps are listed and revoked in Settings.
   const studioRpc = automationService ? createStudioRpc(core, automationService) : null
-  // The shell, a client of its own server over a port main holds both ends
-  // of: it offers what only a screen can serve.
+  // Where the person's attention is, for routing a call to the window in
+  // front of them when more than one desktop offers a toolset.
+  const desktopFocus = {
+    current: () => ({
+      focused: BrowserWindow.getAllWindows().some(
+        (window) => !window.isDestroyed() && !isCanvasWorkerWindow(window) && window.isFocused(),
+      ),
+      // A desktop shows every workspace it holds, each a tab away.
+      workspaceIds: workspaceSyncService
+        .getSnapshot()
+        .state.workspaces.map((workspace) => workspace.id)
+        .slice(0, 64),
+    }),
+    onChange: (listener: () => void) => {
+      app.on('browser-window-focus', listener)
+      app.on('browser-window-blur', listener)
+      const unsubscribe = workspaceSyncService.subscribeEvents(listener)
+      return () => {
+        app.off('browser-window-focus', listener)
+        app.off('browser-window-blur', listener)
+        unsubscribe()
+      }
+    },
+  }
+  const logDesktopTools = (message: string) => {
+    void writeDiagnosticLog({ level: 'warning', source: 'workspace', title: 'Desktop tools', message })
+  }
+  // The shell, a client of its own server: in process over a port main holds
+  // both ends of, out of process over one it brokers to the server. It offers
+  // what only a screen or a terminal can serve.
   const desktopShell = studioRpc
     ? createDesktopShellTools({
         transport: studioRpc.shellTransport(),
@@ -1472,33 +1506,84 @@ export function createAppServices(
               { name: 'canvas', registrations: canvasTools },
             ]
           : [],
-        focus: {
-          current: () => ({
-            focused: BrowserWindow.getAllWindows().some(
-              (window) => !window.isDestroyed() && !isCanvasWorkerWindow(window) && window.isFocused(),
-            ),
-            // A desktop shows every workspace it holds, each a tab away.
-            workspaceIds: workspaceSyncService
-              .getSnapshot()
-              .state.workspaces.map((workspace) => workspace.id)
-              .slice(0, 64),
-          }),
-          onChange: (listener) => {
-            app.on('browser-window-focus', listener)
-            app.on('browser-window-blur', listener)
-            const unsubscribe = workspaceSyncService.subscribeEvents(listener)
-            return () => {
-              app.off('browser-window-focus', listener)
-              app.off('browser-window-blur', listener)
-              unsubscribe()
-            }
-          },
-        },
-        log: (message) => {
-          void writeDiagnosticLog({ level: 'warning', source: 'workspace', title: 'Desktop tools', message })
-        },
+        focus: desktopFocus,
+        log: logDesktopTools,
       })
-    : null
+    : server
+      ? createDesktopShellTools({
+          transport: server.shellTransport(),
+          version: app.getVersion(),
+          // Out of process the server serves none of these itself (phase 6,
+          // 6.3, decision R78): the browser and the canvas, the editor and
+          // tours, and the terminal family, whose `agent.launch` and
+          // `agent.status` ride an `agent` toolset under today's wire names.
+          toolsets: [
+            { name: 'browser', registrations: browserTools },
+            { name: 'canvas', registrations: canvasTools },
+            { name: 'editor', registrations: editorTools },
+            { name: 'tour', registrations: tourTools },
+            ...shellTerminalToolsets(
+              createServerGatewayBackends({
+                getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
+                listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
+                launchAgent: (request) => agentLaunchService.launch(request),
+                // An agent launches no looser than it runs: its terminal here,
+                // or the preset its record holds (a chat's live preset is the
+                // server's, and its record carries the one last chosen).
+                resolveAgentPermissionPreset: createAgentPermissionResolver({
+                  listConversationSessions: () => [],
+                  listTerminalSessions: () =>
+                    listLiveTerminalSessions().map((session) => ({
+                      kind: session.kind,
+                      workspaceId: session.workspaceId,
+                      agentId: session.agentId,
+                      processAlive: isTerminalProcessAlive(session),
+                      agentRecord: session.agentRecord,
+                    })),
+                  readAgentRecordPreset: (workspaceId, agentId) => {
+                    const agent = workspaceRegistry.getRecord(workspaceId)?.agents[agentId]
+                    return agent ? { found: true, preset: agent.cliPermissionPreset } : { found: false }
+                  },
+                }),
+                // Neither is reached by a terminal or agent tool.
+                createWorkspace: () => ({
+                  ok: false,
+                  reason: 'server_owned',
+                  message: 'Workspaces are created by the Studio server.',
+                }),
+                getScheduledAgents: () => null,
+                defaultChatCli: () => effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastSelectedCli ?? null,
+                getModuleRegistrySnapshot: () => moduleRegistryMirror.read(),
+                listInstalledThirdPartyModules: async () => ({ modules: [], rejected: [] }),
+                listModuleContributedTools: () => [],
+                readMarketplaceRegistry: (input) => marketplaceRegistryReader.read(input),
+              }),
+            ),
+          ],
+          focus: desktopFocus,
+          log: logDesktopTools,
+        })
+      : null
+  // Out of process the shell's client starts now and connects once the
+  // server is up; it comes back on its own after a restart and offers again.
+  if (server) void desktopShell?.start()
+  if (server) {
+    // What the server's gateway reads of the shell's terminals: the sessions
+    // (the launch cap, `backlog.work`'s confirmation) and the launch tokens
+    // they were issued (R87), by digest. Each change as it happens, and all of
+    // them again to a server that has just started.
+    const sendTerminalSessions = () =>
+      server.rpc.emit(SERVER_EVENTS.terminalSessions, terminalRuntime.ipcHandlers.listTerminals())
+    terminalRuntime.subscribeSessionsChanged(sendTerminalSessions)
+    onGatewayLaunchTokenChange((change) => server.rpc.emit(SERVER_EVENTS.launchTokens, { changes: [change] }))
+    server.onServing(() => {
+      server.rpc.emit(SERVER_EVENTS.launchTokens, { reset: true, changes: liveGatewayLaunchTokens() })
+      sendTerminalSessions()
+      // A server back from a restart: the shell's client connects now rather
+      // than at the end of its backoff, and the SDK offers every toolset again.
+      desktopShell?.client()?.wake()
+    })
+  }
   // Started and stopped with the RPC: the shell's client goes first, so the
   // RPC's goodbye is never one it would answer by reconnecting.
   const studioRpcService: StudioRpcService | null = studioRpc
@@ -1715,6 +1800,8 @@ export function createAppServices(
 
   return {
     shellBridge,
+    /** The shell's client of its server: stopped first at quit, so the server's goodbye is not answered. */
+    desktopShell,
     removeSessionIntegrations,
     startDeferredBootJobs,
     prepareWorkspacesAtBoot,

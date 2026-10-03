@@ -391,6 +391,7 @@ registerAppLifecycle({
   removeSessionIntegrations: services.removeSessionIntegrations,
   releaseDataDir: () => (serverHost ? undefined : services.studioCore.dataDirLock?.release()),
   canvasService: services.canvasService,
+  desktopShell: serverHost ? services.desktopShell : null,
   conversationCommands: coreIpc.conversationCommands,
   onAgentAttentionReady: (attention) => services.setTourAttention((key) => attention.notify(key)),
   pullRequestRecord: services.pullRequestRecord,

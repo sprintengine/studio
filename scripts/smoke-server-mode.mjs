@@ -3,8 +3,11 @@
 // spec, 16.3). A sibling of measure-startup.mjs: it launches `out/` with
 // SPRINTENGINE_SERVER_MODE=out-of-process and a temp profile, then
 //
-//   1. waits for the server's ready and for the window's port;
-//   2. SIGKILLs the server and waits for the restart and a fresh port;
+//   1. waits for the server's ready and for the window's port, and lists the
+//      gateway's tools: the shell's toolsets are there;
+//   2. SIGKILLs the server and waits for the restart and a fresh port, and
+//      lists again: the shell offered its toolsets to the new server, and a
+//      call reaches the shell's terminal toolset;
 //   3. quits, and checks the app and its server are both gone in time;
 //   4. relaunches in process on the same profile (the rollback), and checks it
 //      reads the same data directory: the same environment id.
@@ -17,6 +20,7 @@
 import { execFileSync, spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { createConnection } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -107,6 +111,76 @@ async function waitUntil(condition, what) {
   }
 }
 
+// One tool from each toolset the shell offers out of process (phase 6, 6.3).
+const SHELL_TOOLS = ['browser.open', 'canvas.list', 'editor.open', 'tour.status', 'terminal.list', 'agent.launch']
+
+/**
+ * One MCP session with the gateway, as an agent's bridge opens it: the names
+ * it lists, and the answer to `call` when one is given.
+ */
+function gatewaySession(profileDir, call = null) {
+  const { socketPath } = JSON.parse(readFileSync(join(profileDir, 'sprintengine-studio-mcp-info.json'), 'utf8'))
+  return new Promise((resolve, reject) => {
+    const socket = createConnection(socketPath)
+    const timer = setTimeout(() => {
+      socket.destroy()
+      reject(new Error('the gateway did not answer tools/list'))
+    }, STEP_TIMEOUT_MS)
+    let buffered = ''
+    const send = (message) => socket.write(`${JSON.stringify({ jsonrpc: '2.0', ...message })}\n`)
+    socket.on('connect', () => {
+      send({ method: 'sprintengine.studio/connect', params: {} })
+      send({ id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {} } })
+    })
+    socket.on('data', (chunk) => {
+      buffered += chunk.toString()
+      let newline
+      while ((newline = buffered.indexOf('\n')) !== -1) {
+        const line = buffered.slice(0, newline)
+        buffered = buffered.slice(newline + 1)
+        if (!line.trim()) continue
+        const message = JSON.parse(line)
+        if (message.id === 1) {
+          send({ method: 'notifications/initialized' })
+          send({ id: 2, method: 'tools/list', params: {} })
+        } else if (message.id === 2) {
+          const names = (message.result?.tools ?? []).map((tool) => tool.name)
+          if (!call) {
+            clearTimeout(timer)
+            socket.end()
+            resolve({ names })
+          } else send({ id: 3, method: 'tools/call', params: { name: call.name, arguments: call.arguments } })
+        } else if (message.id === 3) {
+          clearTimeout(timer)
+          socket.end()
+          resolve({ names: [], result: message.result, error: message.error })
+        }
+      }
+    })
+    socket.on('error', (error) => {
+      clearTimeout(timer)
+      reject(error)
+    })
+  })
+}
+
+/** The shell's tools the gateway does not list yet, waiting for its offer. */
+async function missingShellTools(profileDir) {
+  let missing = SHELL_TOOLS
+  const deadline = Date.now() + STEP_TIMEOUT_MS
+  while (Date.now() < deadline) {
+    try {
+      const listed = new Set((await gatewaySession(profileDir)).names)
+      missing = SHELL_TOOLS.filter((name) => !listed.has(name))
+      if (missing.length === 0) return []
+    } catch {
+      // The gateway is still binding its socket.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+  return missing
+}
+
 async function quit(app) {
   const started = Date.now()
   app.child.kill('SIGTERM')
@@ -125,6 +199,9 @@ try {
   const serverPid = Number((await ready)[1])
   const firstClient = (await brokered)[1]
   say(`server ${serverPid} ready; window port ${firstClient}`)
+  const missingFirst = await missingShellTools(profile)
+  if (missingFirst.length > 0) fail(`the gateway does not list the shell's ${missingFirst.join(', ')}`)
+  else say("the gateway lists the shell's toolsets")
 
   const restarted = app.expect(/\[shell\] server ready \(pid (\d+)\)/, 'the server to come back')
   const rebrokered = app.expect(/\[shell\] brokered (window-\d+-\d+)/, 'a fresh window port')
@@ -134,6 +211,14 @@ try {
   if (nextPid === serverPid) fail('the restarted server has the old pid')
   if (nextClient === firstClient) fail('the window kept its old port')
   say(`killed ${serverPid}; server ${nextPid} ready; window port ${nextClient}`)
+  const missingAfter = await missingShellTools(profile)
+  if (missingAfter.length > 0) fail(`after the restart the gateway does not list ${missingAfter.join(', ')}`)
+  else say('the shell offered its toolsets to the restarted server')
+  // A call the server routes to the shell's terminal toolset, and its answer back.
+  const called = await gatewaySession(profile, { name: 'terminal.list', arguments: {} })
+  if (called.error || called.result?.isError)
+    fail(`terminal.list through the shell failed: ${JSON.stringify(called.error ?? called.result)}`)
+  else say('terminal.list answered through the shell')
 
   const appPid = app.child.pid
   const exit = await quit(app)

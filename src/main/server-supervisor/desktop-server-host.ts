@@ -10,6 +10,7 @@ import {
   type MessagePortMain,
 } from 'electron'
 
+import type { StudioTransport } from '../../../packages/agent-sdk/src/transport'
 import type { ServerBootstrapEnvelope } from '../../server/bootstrap/envelope'
 import { SERVER_EVENTS, SERVER_METHODS, SHELL_METHODS, type PowerHint } from '../../server/desktop/server-methods'
 import { serveShellBridge } from '../../server/shell-bridge/serve-shell-bridge'
@@ -162,6 +163,20 @@ export function createDesktopServerHost(options: {
     mirror,
     whenServing: async (budgetMs) => (await supervisor.whenReady(budgetMs)) === 'ready',
     isServing: () => supervisor.state.kind === 'ready',
+    onServing: (listener) => supervisor.onReady(() => listener()),
+    shellTransport: () => async () => {
+      if ((await supervisor.whenReady(SHELL_CONNECT_WAIT_MS)) !== 'ready') {
+        throw new Error('Studio server is not running yet.')
+      }
+      const { port1, port2 } = new MessageChannelMain()
+      const clientId = `shell-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+      if (!supervisor.post({ t: 'attach-client', clientId, windowId: null, kind: 'shell' }, [port1])) {
+        port2.close()
+        throw new Error('Studio server is restarting.')
+      }
+      const { ticket } = await supervisor.call<StudioConnectResult>(SERVER_METHODS.shellConnect, { clientId })
+      return messagePortTransport(port2, { token: ticket })
+    },
   }
 
   return {
@@ -197,3 +212,38 @@ export function createDesktopServerHost(options: {
 
 /** How long a chat view's connection waits for a server still starting. */
 const STUDIO_CONNECT_WAIT_MS = 20_000
+/** How long one attempt of the shell's client waits; its own backoff tries again after. */
+const SHELL_CONNECT_WAIT_MS = 30_000
+
+/** A port main holds, as the agent SDK's transport: one frame per message, each way. */
+export function messagePortTransport(port: MessagePortMain, credential: { token: string }): StudioTransport {
+  const closeListeners: Array<(error?: Error) => void> = []
+  let closed = false
+  const end = () => {
+    if (closed) return
+    closed = true
+    for (const listener of closeListeners.splice(0)) listener()
+  }
+  port.once('close', end)
+  const transport: StudioTransport = {
+    credential,
+    send(frame) {
+      if (!closed) port.postMessage(frame)
+    },
+    close() {
+      port.close()
+      end()
+    },
+    onMessage(listener) {
+      port.on('message', (event) => {
+        if (typeof event.data === 'string') listener(event.data)
+      })
+      port.start()
+    },
+    onClose(listener) {
+      if (closed) listener()
+      else closeListeners.push(listener)
+    },
+  }
+  return transport
+}

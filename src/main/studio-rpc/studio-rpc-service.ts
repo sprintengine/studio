@@ -73,6 +73,12 @@ export type StudioRpcService = {
    * seconds; nothing longer-lived reaches the window.
    */
   connectWindow(port: StudioFramePort): { connectionId: string; ticket: string }
+  /**
+   * Serve the desktop's shell over a port main holds the other end of, when
+   * the server runs in a process of its own (phase 6, 6.3): the shell role,
+   * for a ticket good once, as `shellTransport` gives it in process.
+   */
+  connectShell(port: StudioFramePort): { connectionId: string; ticket: string }
   /** The chat surface, from the handlers the app's own IPC serves its windows with. */
   provideChat(chat: StudioChatBackend): void
   /** Which agents a paired app's tools reach. */
@@ -395,6 +401,15 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
         // The window is the app's own chat view: shown conversations as its
         // IPC shows them, and its actions are not a client's to audit.
         ownWindow: true,
+      })
+      return { connectionId: connection.connectionId, ticket }
+    },
+    connectShell(port) {
+      const ticket = mintStudioTicket()
+      const connection = hub().attach(framePortStream(port), {
+        authenticator: createTicketAuthenticator(ticket, { grant: shellGrant }),
+        ownWindow: false,
+        shell: true,
       })
       return { connectionId: connection.connectionId, ticket }
     },

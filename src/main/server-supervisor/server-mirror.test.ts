@@ -96,7 +96,16 @@ test('an agent record the shell writes goes to the server, answered at once', as
 test("the core proxy answers the shell's members and refuses the server's by name", () => {
   const { shell } = pair()
   const mirror = createServerStateMirror({ rpc: shell })
-  const core = createRemoteCore({ rpc: shell, mirror, whenServing: async () => true, isServing: () => true })
+  const core = createRemoteCore({
+    rpc: shell,
+    mirror,
+    whenServing: async () => true,
+    isServing: () => true,
+    onServing: () => () => undefined,
+    shellTransport: () => async () => {
+      throw new Error('not in this test')
+    },
+  })
   assert.equal(core.workspaceRegistry.getRecords().length, 0)
   assert.equal(core.conversations.listSessions().ok, true)
   assert.equal(core.dataDirLock, null)

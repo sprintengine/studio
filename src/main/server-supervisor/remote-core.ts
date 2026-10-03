@@ -1,3 +1,4 @@
+import type { StudioTransportFactory } from '../../../packages/agent-sdk/src/transport'
 import type { StudioCore } from '../../server/core/studio-core'
 import type { ControlRpc } from '../../server/bootstrap/control-rpc'
 import { SERVER_EVENTS, SERVER_METHODS } from '../../server/desktop/server-methods'
@@ -23,6 +24,14 @@ export type ShellServerLink = {
   /** Waits until the server is serving (or gives up after the budget). */
   whenServing(budgetMs: number): Promise<boolean>
   isServing(): boolean
+  /** Every time a server says ready: the first, and each restart's. */
+  onServing(listener: () => void): () => void
+  /**
+   * Connections for the shell's own Studio client to its server, each over a
+   * port the shell brokers on the control channel, with the shell role. Called
+   * again for every reconnect, so a restarted server is reached too.
+   */
+  shellTransport(): StudioTransportFactory
 }
 
 /** The members of the core the shell uses, out of process. */

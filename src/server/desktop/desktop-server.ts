@@ -1,6 +1,8 @@
 import { homedir } from 'node:os'
 
-import { createAutomationTools } from '../../main/automation/automation-tools'
+import { SHELL_TOOLSETS, serverAutomationTools } from './shell-toolsets'
+import type { TerminalSessionSnapshot } from '../../shared/electron-api'
+import { applyGatewayLaunchTokenChange, type LaunchTokenChange } from '../core/gateway-launch-tokens'
 import { createTailnetTools, type TailnetToolsFrontDoor } from '../../main/automation/tailnet/tailnet-tools'
 import { cliResumeCapabilities } from '../../main/cli-resume-capabilities'
 import { createConversationAttentionListener } from '../../main/conversation-attention'
@@ -122,6 +124,17 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
     powerActivity.noteFocus(appFocused)
   })
 
+  // The shell's terminals, as the gateway reads them (the launch cap,
+  // `backlog.work`'s confirmation), and the launch tokens they were issued.
+  let terminalSessions: TerminalSessionSnapshot[] = []
+  rpc.on(SERVER_EVENTS.terminalSessions, (payload) => {
+    if (Array.isArray(payload)) terminalSessions = payload as TerminalSessionSnapshot[]
+  })
+  rpc.on(SERVER_EVENTS.launchTokens, (payload) => {
+    const update = payload as { reset?: boolean; changes?: LaunchTokenChange[] } | null
+    for (const change of update?.changes ?? []) applyGatewayLaunchTokenChange(change)
+  })
+
   let gateway: StudioGateway | null = null
   const whenAgentLaunchReady = async (): Promise<void> => {
     await Promise.all([gateway?.whenGatewayReady(), bridge.integrationsReady()])
@@ -131,6 +144,9 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
   try {
     core = createStudioCore(platform, {
       role: 'desktop',
+      // An agent may start agents only at its own preset or stricter; the
+      // terminal agents it is read for are the shell's.
+      listTerminalSessions: () => terminalSessions,
       // A Claude chat's child is handed the gateway itself, through the
       // launcher the shell writes (decision R63), or this build's binary run
       // as Node when the launcher could not be written. A WSL machine's
@@ -198,14 +214,18 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
     hasWindow: () => anyWindowVisible,
     resolveModuleTools: () => modules.mcpTools(),
     isModuleEnabled: (moduleId) => modules.isEnabled(moduleId),
+    // The shell offers what acts on a screen or a terminal (6.3): an agent's
+    // first list waits for them, as in process it waits for the browser and
+    // the canvas.
+    expectShellToolsets: SHELL_TOOLSETS,
     appTools: (coreTools) => [
       ...coreTools,
-      ...createAutomationTools(
+      ...serverAutomationTools(
         createServerGatewayBackends({
           getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
-          // Terminals are the shell's; their tools arrive as its `terminal`
-          // toolset (spec 6.3). Until then the gateway lists none here.
-          listTerminalSessions: () => [],
+          // The shell's sessions, mirrored: `backlog.work` confirms its launch
+          // against them. `terminal.*` and `agent.*` are the shell's toolsets.
+          listTerminalSessions: () => terminalSessions,
           launchAgent: (request) => bridge.terminals.launchAgent(request),
           resolveAgentPermissionPreset: core.resolveAgentPermissionPreset,
           createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
@@ -330,10 +350,11 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
         )
         return
       }
-      if (attach.kind === 'studio-connection') {
-        // A chat view's protocol connection: answered with its ticket by the
-        // `studio.connect` request that follows on the same channel.
-        handlers.pendingConnections.set(attach.clientId, port as TunnelPort)
+      if (attach.kind === 'studio-connection' || attach.kind === 'shell') {
+        // A chat view's protocol connection, or the shell's own: answered with
+        // its ticket by the `studio.connect` or `studio.connect-shell` request
+        // that follows on the same channel.
+        handlers.pendingConnections.set(attach.clientId, { port: port as TunnelPort, shell: attach.kind === 'shell' })
       }
     },
     detachClient(clientId) {
@@ -388,9 +409,11 @@ function serveShellRequests(deps: {
   gateway: StudioGateway
   envelope: Parameters<ServerStart>[0]['envelope']
   cipherKind: 'shell' | 'key-file'
-}): { pendingConnections: Map<string, TunnelPort> } {
+}): { pendingConnections: Map<string, { port: TunnelPort; shell: boolean }> } {
   const { rpc, core } = deps
-  const pendingConnections = new Map<string, TunnelPort>()
+  // A port that arrived for a connection, until its request takes it: a chat
+  // view's, or the shell's, which only `studio.connect-shell` may take.
+  const pendingConnections = new Map<string, { port: TunnelPort; shell: boolean }>()
   const startedAt = Date.now()
   rpc.handle(SERVER_METHODS.mirrorSnapshot, () => deps.mirror())
   rpc.handle(SERVER_METHODS.updateWorkspaceAgent, (params) => {
@@ -447,13 +470,23 @@ function serveShellRequests(deps: {
   rpc.handle(SERVER_METHODS.applyModuleEnablement, (params) =>
     deps.modules.applyEnablement((params as { overrides?: Record<string, boolean> } | null)?.overrides ?? {}),
   )
-  rpc.handle(SERVER_METHODS.studioConnect, (params) => {
+  const takePort = (params: unknown, shell: boolean): TunnelPort => {
     const clientId = (params as { clientId?: unknown } | null)?.clientId
-    const port = typeof clientId === 'string' ? pendingConnections.get(clientId) : undefined
-    if (!port || typeof clientId !== 'string') throw new Error('No connection port arrived for this request.')
+    const pending = typeof clientId === 'string' ? pendingConnections.get(clientId) : undefined
+    if (!pending || typeof clientId !== 'string' || pending.shell !== shell)
+      throw new Error('No connection port arrived for this request.')
     pendingConnections.delete(clientId)
-    return deps.studioRpc.connectWindow(tunnelPortFrames(port))
-  })
+    return pending.port
+  }
+  rpc.handle(SERVER_METHODS.studioConnect, (params) =>
+    deps.studioRpc.connectWindow(tunnelPortFrames(takePort(params, false))),
+  )
+  // The control channel is process-private, so whatever asks here is the
+  // shell: its connection gets the shell role, which may offer the built-in
+  // toolsets (phase 5, 7.2).
+  rpc.handle(SERVER_METHODS.shellConnect, (params) =>
+    deps.studioRpc.connectShell(tunnelPortFrames(takePort(params, true))),
+  )
   rpc.handle(SERVER_METHODS.info, (): ServerInfo => {
     const status = deps.gateway.getStatus()
     return {

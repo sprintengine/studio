@@ -24,6 +24,9 @@ export const BUILT_IN_TOOL_TIMEOUTS_MS: Readonly<Record<string, number>> = {
   'canvas.edit': 45_000,
   'canvas.layout': 45_000,
   'canvas.screenshot': 45_000,
+  // A launch may cut a worktree, then waits up to 20 s for a live session.
+  'agent.launch': 120_000,
+  'terminal.create': 120_000,
 }
 const BUILT_IN_DEFAULT_TIMEOUT_MS: Readonly<Record<string, number>> = { browser: 20_000, canvas: 15_000 }
 

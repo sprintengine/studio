@@ -95,6 +95,10 @@ type RegisterAppLifecycleOptions = {
   canvasService?: {
     dispose(): Promise<void>
   }
+  // The shell's own client of an out-of-process server, offering its
+  // toolsets: closed before the server drains, so the server's goodbye is
+  // not one it answers by reconnecting.
+  desktopShell?: { stop(): void } | null
   // The composer's command lists: the last good one per CLI and folder waits
   // a moment before it is written, so quit writes what is still pending.
   conversationCommands?: {
@@ -179,6 +183,7 @@ export function registerAppLifecycle({
   removeSessionIntegrations,
   releaseDataDir,
   canvasService,
+  desktopShell,
   conversationCommands,
   pullRequestRecord,
   analytics,
@@ -630,6 +635,7 @@ export function registerAppLifecycle({
       ],
       // The canvas's last board write lands before the server stops serving.
       ['canvas', () => canvasService?.dispose()],
+      ['desktop tools', () => desktopShell?.stop()],
       [
         'studio server (drain)',
         () => {

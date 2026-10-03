@@ -1194,6 +1194,12 @@ building bespoke `ShellBridge` members for them (phase 6 §6.3, decisions R78).
 clicked notice or a deep link, and the terminal launches behind two internal
 service tokens.
 
+As built in phase 6 (2026-10-03): a toolset's tools are `<toolset>.<tool>`
+on the wire, so `agent.launch` and `agent.status` are an `agent` toolset of
+their own beside `terminal`, and `backlog.work` stays the server's, since the
+server serves the `backlog` family and no offer may shadow it. It launches
+through `ShellBridge.terminals` (phase 6, 6.3).
+
 ## 11. Migration
 
 ### 11.1 Commits

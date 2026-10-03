@@ -1,7 +1,8 @@
 # Phase 6: the local Studio server out of process
 
 Status: scoping spec, 2026-10-01; implemented behind the flag on 2026-10-02,
-except section 6.3's toolsets (see "Implementation status" below). This document
+section 6.3's toolsets on 2026-10-03 once phase 5 merged (see
+"Implementation status" below). This document
 refines phase 6 of `docs/design/studio-server.md` (section 13) and the parts of
 sections 4.3, 5.5, 6.3, 9.3 and 10.1 it touches. It also covers the module
 server/client split that phase 10 completes (section 12 here). Where this
@@ -14,7 +15,7 @@ browser and no canvas. Phase 5 is now client tools
 as the `browser` and `canvas` toolsets it offers, not as `ShellBridge`
 members, and the canvas service is the shell's.
 
-## Implementation status (2026-10-02)
+## Implementation status (2026-10-03)
 
 Built, behind `SPRINTENGINE_SERVER_MODE` and the Advanced toggle, with in
 process still the default (decision R04): the bootstrap envelope and control
@@ -27,15 +28,17 @@ shell's composition out of process with `ServerStateMirror` (5), the keychain
 as the server's cipher (9.1), the split quit (7.4), the MCP bridge's
 reconnect (6.5), the server's state in words, the Advanced toggle and the
 boot fallback (7.1, O9), the seam tests and `scripts/smoke-server-mode.mjs`
-(16). Each section says what was amended at implementation.
+(16), and the shell's toolsets over a port it brokers on the control channel
+(6.3). Each section says what was amended at implementation.
 
 Not built yet:
 
-- **Section 6.3's toolsets.** The shell offering `editor`, `tour` and
-  `terminal` (and phase 5's `browser` and `canvas`) over the control channel
-  waits for phase 5's client-tools mechanism. Until then the server's gateway
-  lists no screen or terminal tools, and `agent.launch` goes through
-  `ShellBridge.terminals` (5.1).
+- **The toolsets in process.** With the server in the shell's process, the
+  gateway still serves `editor`, `tour`, `terminal` and `agent` itself, and
+  the shell offers `browser` and `canvas` only, as phase 5 left it: the flag
+  off changes nothing. Out of process every one of the six is the shell's.
+  An agent lists the same tools either way (`shell-toolsets.test.ts`); their
+  order within `tools/list` differs, the shell's toolsets first.
 - **Section 8's measurements.** `measure-startup.mjs --server-mode` exists;
   no comparison has been run. Section 16.4's manual checklist (packaged and
   notarized builds, Windows, Linux) has not been run either.
@@ -250,7 +253,7 @@ Each change is a recommendation. Section 14 lists them as decisions.
 | D8 | 6.2 gateway | The audit and socket move unchanged | They move unchanged, plus a server run lock before any unlink, plus an MCP bridge that reconnects (section 6.5). |
 | D9 | 4.2 interfaces | `StudioPaths` and others | Add `appExecPath` and `helperExecPath` to `StudioPaths`. A guard test forbids `process.execPath` under `src/server/`. Add a `ShellBridge` interface for what is not an agent tool: cipher, the terminal runtime behind two internal service tokens, revealing a tab, power and visibility hints, analytics sink, integrations-ready gate. Agent-facing shell tools are toolsets (6.3). |
 | D10 | 4.3 third-party modules | Open question: capability or API bump | Use an `electron-main` host capability, an optional manifest field, and a load-time `require('electron')` interceptor. The host API version is not bumped (section 12.4). |
-| D11 | 6.3 client tools (2026-10-02) | `editor.*`, `tour.*`, `terminal.*`, `agent.launch` and `backlog.work` reach windows through in-process brokers | They become the shell's `editor`, `tour` and `terminal` toolsets on phase 5's mechanism, offered over the control channel, rather than `ShellBridge` members (section 6.3). `ShellBridge` keeps only what is not an agent tool. |
+| D11 | 6.3 client tools (2026-10-02) | `editor.*`, `tour.*`, `terminal.*`, `agent.launch` and `backlog.work` reach windows through in-process brokers | They become the shell's `editor`, `tour` and `terminal` toolsets on phase 5's mechanism, offered over the control channel, rather than `ShellBridge` members (section 6.3). `ShellBridge` keeps only what is not an agent tool. As built: `agent.*` is a toolset of its own (wire names are `<toolset>.<tool>`), and `backlog.work` stays the server's and launches through `ShellBridge.terminals` (6.3). |
 
 D1 and D2 go together. A child started with `ELECTRON_RUN_AS_NODE` cannot
 receive a `MessagePort`, so choosing D1 is what makes D2 possible.
@@ -387,12 +390,8 @@ Notes:
   workspace) stays with the shell, which owns the integrations (decision
   R63): it waits for the server's first snapshot inside the boot budget, so
   there is no `workspaces.prepareAtBoot` call (7.3, step 5).
-- **Until the shell offers `editor`, `tour` and `terminal` as toolsets
-  (6.3)**, the server's gateway lists the core's tools and the server-side
-  automation tools; `agent.launch` and resume-in-terminal go through
-  `ShellBridge.terminals`, the terminal tools list no sessions, and a chat on
-  a WSL machine starts without the gateway entry (its helper is the
-  shell's). The shell's control plane drives terminals only out of process.
+- **A chat on a WSL machine** starts without the gateway entry out of
+  process (its helper is the shell's).
 
 ## 6. Interfaces
 
@@ -579,12 +578,59 @@ members: the shell offers `editor` (`editor.*`), `tour` (`tour.*`) and
 names). `terminal` is offered only to a server on the shell's own machine
 (parent 6.3).
 
+As built (2026-10-03, `src/server/desktop/shell-toolsets.ts`):
+
+- **Six toolsets, not three.** A toolset's tools are `<toolset>.<tool>` on
+  the wire (phase 5, 3.1), so one toolset cannot hold `terminal.*` and
+  `agent.launch` under today's names. The shell offers `browser`, `canvas`,
+  `editor`, `tour`, `terminal` (`terminal.list`, `terminal.create`) and
+  `agent` (`agent.launch`, `agent.status`); `agent` is a reserved name, so the
+  shell role may offer it and no app can. The server serves the rest of the
+  automation tools and refuses no family by halves: a test holds that the
+  split loses no tool, doubles none, and leaves no family on both sides.
+- **`backlog.work` stays the server's.** Its family is (`backlog.list`,
+  `backlog.read`, …), and an offer may never shadow a family the server
+  registers (phase 5, 7.2). It starts its terminal through
+  `ShellBridge.terminals`, as do a scheduled run and resume in terminal,
+  which are not agent tools. So `ShellBridge.terminals` is the server's one
+  way to start a terminal: for those three and the two internal service
+  tokens (12.2).
+- **How the shell reaches the server.** The control channel carries frames
+  of its own, so the shell's Studio client gets a port: main creates a
+  `MessageChannelMain`, posts one end with `attach-client { kind: 'shell' }`,
+  and asks `studio.connect-shell`, which attaches it to the server's Studio
+  RPC with the shell role and answers a ticket good once. The control channel
+  is process-private, so whatever asks there is the shell. Each reconnect
+  brokers a new port and a new ticket.
+- **The server coming back.** The shell's client is started at boot and
+  retries a failed first connect with backoff (phase 5's `start()` gave up
+  after one try, which in process could not fail). After that the SDK
+  reconnects by itself, and offers every toolset again on the new connection;
+  the supervisor's ready wakes it so it does not wait out its backoff. The
+  server's gateway expects all six (`expectShellToolsets`), so an agent's
+  first `tools/list` after a restart waits up to 5 s for them, as in process
+  it waits for the browser and the canvas.
+- **What the server reads of the shell's terminals.** `backlog.work`'s
+  confirmation and the launch cap read the live sessions, so the shell sends
+  them (`terminals.sessions`) on every coalesced sessions broadcast. The
+  launch tokens (decision R87) its terminal launches are issued cross as
+  SHA-256 digests with their identity (`gateway.launch-tokens`), never the
+  token, so the server's gateway proves those agents' bridges. A server that
+  has just started is sent every live one again: the shell's terminals
+  outlive it, and the MCP bridge reconnects with the token it was given
+  (6.5).
+- **Timeouts.** `agent.launch` and `terminal.create` may cut a worktree and
+  then wait 20 s for a live session, so their call deadline is 120 s; the
+  others keep phase 5's default.
+- **At quit** the shell's client closes before the server drains (7.4,
+  "desktop tools"), so the server's goodbye is not answered by reconnecting.
+
 **What is not an agent tool stays on `ShellBridge`:**
 
 ```ts
 interface ShellBridge {
   cipher: { available(): Promise<boolean>; seal(plain: Uint8Array): Promise<Uint8Array>; open(sealed: Uint8Array): Promise<Uint8Array> }
-  terminals: { launchAgent(input: AgentLaunchInput): Promise<AgentLaunchResult> }   // for the two internal service tokens (12.2) only
+  terminals: { launchAgent(input: AgentLaunchInput): Promise<AgentLaunchResult> }   // backlog.work, scheduled runs, resume in terminal, and the two internal service tokens (12.2)
   reveal: { tab(target): Promise<boolean> }                                       // the reveal-tab capability: a notice clicked, a deep link
   notify(n: ServerNotification): void                                      // OS notification, bell, dock badge
   analytics(event: AnalyticsEvent): void                                    // consent and install id stay in the shell
@@ -827,7 +873,8 @@ t1  both done (or server SIGKILLed at its budget)
 - **Integrations run only after the server has exited.** No chat agent is left
   to use the MCP entries being removed.
 - **As built** (`app-lifecycle.ts`): the shell's legs are modules (begin),
-  timers, canvas, then the server's drain starts (8 s, 6 s when leaving for
+  timers, canvas, desktop tools (the shell's client closes, which withdraws
+  its toolsets), then the server's drain starts (8 s, 6 s when leaving for
   an update) while the shell's agent state, terminals and pull requests run;
   `studio server` waits for it before integrations, WSL helpers, telemetry
   and modules. The server's legs are modules (begin), local app socket,
@@ -1209,7 +1256,13 @@ them kept. They are not committed with this document.
   snapshot is identical in process and out of process, `editor`, `tour` and
   `terminal` included; a `browser` and a `canvas` call round trip through the
   control channel; a server restart leaves the agent's list unchanged and the
-  tools answer again once the shell re-offers.
+  tools answer again once the shell re-offers. As built: the split is held by
+  `shell-toolsets.test.ts` (same tools both ways, no family on both sides);
+  `desktop-shell-tools.test.ts` covers the first connect retried, every
+  toolset offered again after the connection drops, and a family the server
+  serves refused; `gateway-launch-tokens.test.ts` the digests; the bridge
+  test that the same launch token is presented after a restart; the smoke
+  script that a restarted server lists the shell's toolsets again.
 - **Module host:**
   - `ModuleCallContext` passed through;
   - the `electron` require interceptor classifying a throwing `registerMain`

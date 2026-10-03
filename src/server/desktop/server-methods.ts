@@ -26,6 +26,11 @@ export const SERVER_METHODS = {
   applyModuleEnablement: 'modules.apply-enablement',
   /** `{ clientId }` → `{ connectionId, ticket }`: a chat view's protocol connection, its port already attached. */
   studioConnect: 'studio.connect',
+  /**
+   * `{ clientId }` → `{ connectionId, ticket }`: the shell's own Studio
+   * connection, with the shell role, over which it offers its toolsets (6.3).
+   */
+  shellConnect: 'studio.connect-shell',
   /** `CliModelDiscoveryInput` → its result: the pass after an install, run where the catalog cache lives. */
   discoverModels: 'models.discover',
   /** → `ServerInfo`. */
@@ -54,6 +59,18 @@ export const SERVER_EVENTS = {
   moduleRegistrySnapshot: 'modules.registry-snapshot',
   /** Shell → server: the idle threshold shared with terminals. */
   conversationIdleThreshold: 'conversations.idle-threshold',
+  /**
+   * Shell → server: the terminal sessions the shell runs, as the gateway reads
+   * them (`backlog.work`'s confirmation, the launch cap). Sent whole on every
+   * change, and again to a restarted server.
+   */
+  terminalSessions: 'terminals.sessions',
+  /**
+   * Shell → server: the gateway launch tokens the shell's terminal launches
+   * were issued, by digest (decision R87). `{ reset, changes }`: `reset` says
+   * the list is every live one, sent to a server that has just started.
+   */
+  launchTokens: 'gateway.launch-tokens',
   /** Shell → server hints (6.3). */
   hintPower: 'hint.power',
   hintVisibility: 'hint.visibility',
