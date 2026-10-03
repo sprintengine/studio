@@ -36,6 +36,8 @@ export type ShellServerLink = {
    * again for every reconnect, so a restarted server is reached too.
    */
   shellTransport(): StudioTransportFactory
+  /** Hand the server a port spliced onto an SSH machine's relay stream (phase 8). False while it restarts. */
+  attachSshPort?(clientId: string, port: Electron.MessagePortMain): boolean
 }
 
 /** The members of the core the shell uses, out of process. */

@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import type { Duplex } from 'node:stream'
 
 import { BACKEND_WIRE_VERSION } from '../../../server/wsl/backend-wire'
 import { wslServerTreeDir } from '../../../server/wsl/desktop-wsl-servers'
@@ -391,6 +392,22 @@ export class SshEnvironments {
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : String(error) }
     }
+  }
+
+  /**
+   * A stream on a machine's relay for the desktop's server out of process
+   * (`purpose` as the front door names it), connecting in the background
+   * first when it must.
+   */
+  async openStream(key: string, purpose: 'backend' | 'studio'): Promise<{ stream: Duplex; label: string }> {
+    const machine = this.machineFor(key)
+    const connection = await machine.connect({ interactive: false })
+    return { stream: await connection.open(purpose), label: connection.label }
+  }
+
+  /** The keys of the machines connected now. */
+  connectedKeys(): string[] {
+    return [...this.machines.values()].filter((machine) => machine.current()).map((machine) => machine.key)
   }
 
   /** A machine's live connection, or null; never connects. */

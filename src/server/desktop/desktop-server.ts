@@ -60,7 +60,8 @@ import {
 } from './server-methods'
 import { createServerModules } from './server-modules'
 import { createDesktopWslServers } from '../wsl/desktop-wsl-servers'
-import { relayShellToolsets } from '../wsl/wsl-tool-relay'
+import { relayShellToolsets, SSH_RELAYED_TOOLSETS } from '../wsl/wsl-tool-relay'
+import { createShellSshServers } from './shell-ssh-servers'
 import { readStudioEnv } from '../../shared/studio-env'
 
 // The desktop's own Studio server, out of process (phase 6 spec): the core,
@@ -143,9 +144,34 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
     await Promise.all([gateway?.whenGatewayReady(), bridge.integrationsReady()])
   }
 
+  // SSH machines (phase 8), when the preview is on: main holds their sessions
+  // and hands this process a port per relay stream it needs.
+  const sshPorts = new Map<string, TunnelPort>()
+  const shellSsh = envelope.flags.sshMachines
+    ? createShellSshServers({
+        open: (key, purpose) => rpc.call<{ clientId: string; label: string }>(SHELL_METHODS.sshOpen, { key, purpose }),
+        takePort: (clientId) => {
+          const port = sshPorts.get(clientId) ?? null
+          sshPorts.delete(clientId)
+          return port
+        },
+        log: (message) => {
+          void writeDiagnosticLog({ level: 'info', source: 'workspace', title: 'SSH machine', message })
+        },
+      })
+    : null
+  if (shellSsh)
+    rpc.on(SERVER_EVENTS.sshConnected, (payload) => {
+      const key = (payload as { key?: unknown } | null)?.key
+      if (typeof key === 'string' && /^ssh:[A-Za-z0-9_-]+$/u.test(key)) shellSsh.machineConnected(key)
+    })
+
   let core: ReturnType<typeof createStudioCore>
   try {
     core = createStudioCore(platform, {
+      ...(shellSsh
+        ? { sshServers: { servers: shellSsh.servers, onConnected: (listener) => shellSsh.onConnected(listener) } }
+        : {}),
       role: 'desktop',
       // An agent may start agents only at its own preset or stricter; the
       // terminal agents it is read for are the shell's.
@@ -275,6 +301,25 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
         void writeDiagnosticLog({ level: 'info', source: 'workspace', title: 'WSL server', message })
       },
     })
+  // An SSH machine's agents get the desktop's browser and canvas (phase 8).
+  if (shellSsh)
+    relayShellToolsets({
+      onConnected: (listener) =>
+        shellSsh.onConnected((connection) =>
+          listener({
+            key: connection.key,
+            name: connection.label,
+            backend: connection.backend,
+            open: (purpose: 'studio') => connection.open(purpose),
+            toolsets: SSH_RELAYED_TOOLSETS,
+            args: (_toolset, args) => args,
+          }),
+        ),
+      registry: gateway.clientTools,
+      log: (message) => {
+        void writeDiagnosticLog({ level: 'info', source: 'workspace', title: 'SSH machine', message })
+      },
+    })
   const studioRpc = createStudioRpc(core, gateway)
   const githubTokenStore = new GitHubTokenStore()
   const workspaceBackup = createWorkspaceBackupService({
@@ -386,6 +431,11 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
           },
           port as TunnelPort,
         )
+        return
+      }
+      if (attach.kind === 'ssh-stream') {
+        // Taken by the `shell.ssh.open` answer that names this client id.
+        sshPorts.set(attach.clientId, port as TunnelPort)
         return
       }
       if (attach.kind === 'studio-connection' || attach.kind === 'shell') {

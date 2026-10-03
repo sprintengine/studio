@@ -1,6 +1,6 @@
 import { hostname } from 'node:os'
 
-import { app, BrowserWindow, ipcMain, net, powerMonitor, session } from 'electron'
+import { app, BrowserWindow, ipcMain, MessageChannelMain, net, powerMonitor, session } from 'electron'
 
 import { writeDiagnosticLog } from '../../diagnostics-service'
 import { allowMachinePartitions } from '../../browser/guest-policy'
@@ -8,6 +8,9 @@ import { registerSshEnvironmentsIpc } from '../../ipc/ssh-environments-ipc'
 import { channelForVersion } from '../../update-channel-store'
 import { readStudioEnv } from '../../../shared/studio-env'
 import type { WorkspaceEnvironmentRef } from '../../../renderer/src/types/workspace'
+import type { ShellServerLink } from '../../server-supervisor/remote-core'
+import { splicePort } from '../../../server/ipc/port-duplex'
+import { SERVER_EVENTS, SHELL_METHODS } from '../../../server/desktop/server-methods'
 import { PanePartitions } from './pane-partitions'
 import { SshEnvironments } from './ssh-environments'
 
@@ -21,6 +24,8 @@ export type DesktopSsh = { environments: SshEnvironments; panes: PanePartitions 
 
 export function createDesktopSsh(deps: {
   version: string
+  /** The desktop's server, when it runs as a process of its own: its chats on SSH machines go through ports. */
+  server?: ShellServerLink | null
   /** The SSH machine a workspace is on, from main's registry. */
   workspaceEnvironment(workspaceId: string): WorkspaceEnvironmentRef | null
 }): DesktopSsh {
@@ -100,5 +105,34 @@ export function createDesktopSsh(deps: {
     poll.unref?.()
   })
 
+  if (deps.server) serveSshToServer(deps.server, sshEnvironments)
   return { environments: sshEnvironments, panes: panePartitions }
+}
+
+/**
+ * The desktop's server out of process asks main for relay streams: each is
+ * opened on the machine's session here and handed over as a message port.
+ * Main tells it when a machine connects, so it follows that machine's chats,
+ * and again for each one connected when a restarted server comes up.
+ */
+function serveSshToServer(server: ShellServerLink, environments: SshEnvironments): void {
+  server.rpc.handle(SHELL_METHODS.sshOpen, async (params) => {
+    const { key, purpose } = (params ?? {}) as { key?: unknown; purpose?: unknown }
+    if (typeof key !== 'string' || !/^ssh:[A-Za-z0-9_-]+$/u.test(key)) throw new Error('That is not an SSH machine.')
+    if (purpose !== 'backend' && purpose !== 'studio') throw new Error('That is not a stream the server opens.')
+    const { stream, label } = await environments.openStream(key, purpose)
+    const { port1, port2 } = new MessageChannelMain()
+    const clientId = `ssh-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+    if (!server.attachSshPort?.(clientId, port2)) {
+      stream.destroy()
+      port1.close()
+      throw new Error('Studio server is restarting.')
+    }
+    splicePort(port1, stream)
+    return { clientId, label }
+  })
+  environments.onConnected((connection) => server.rpc.emit(SERVER_EVENTS.sshConnected, { key: connection.key }))
+  server.onServing(() => {
+    for (const key of environments.connectedKeys()) server.rpc.emit(SERVER_EVENTS.sshConnected, { key })
+  })
 }

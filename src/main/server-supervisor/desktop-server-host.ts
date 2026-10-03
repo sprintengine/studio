@@ -1,3 +1,4 @@
+import { sessionSshPreview } from '../environments/ssh/ssh-preview'
 import { join } from 'node:path'
 
 import {
@@ -90,7 +91,7 @@ export function createDesktopServerHost(options: {
     owner: {},
     listeners: { gateway: true, tailnet: 'from-settings' },
     secrets: { kind: 'shell', available: safeStorage.isEncryptionAvailable() },
-    flags: { diagnostics: options.diagnosticsEnabled },
+    flags: { diagnostics: options.diagnosticsEnabled, sshMachines: sessionSshPreview() },
   })
   const supervisor = createServerSupervisor({
     fork: () =>
@@ -177,6 +178,8 @@ export function createDesktopServerHost(options: {
       const { ticket } = await supervisor.call<StudioConnectResult>(SERVER_METHODS.shellConnect, { clientId })
       return messagePortTransport(port2, { token: ticket })
     },
+    attachSshPort: (clientId, port) =>
+      supervisor.post({ t: 'attach-client', clientId, windowId: null, kind: 'ssh-stream' }, [port]),
   }
 
   return {

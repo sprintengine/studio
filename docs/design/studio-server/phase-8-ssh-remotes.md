@@ -1241,6 +1241,17 @@ Linux build needs it only for the preview. With the switch on:
 - Section 12's changes 1, 2, 3 and 11 are folded into the parent design and
   `docs/compatibility.md` notes the private wires.
 
+Out of process (phase 6's switch), main still holds the SSH sessions. The
+desktop's server asks main for each relay stream it needs
+(`shell.ssh.open { key, purpose }`); main opens it on the machine's session
+and hands the server a message port spliced onto it (an `ssh-stream`
+attach), over which the server reads its conversation wire and relays the
+desktop's browser and canvas toolsets. Main tells the server when a machine
+connects or reconnects (`ssh.connected`), and again for every connected
+machine when a restarted server comes up, so its router follows that
+machine's chats as the in-process core does
+(`src/server/desktop/shell-ssh-servers.ts`).
+
 Ran against a real `sshd` (Ubuntu 24.04 in Docker on an arm64 Mac, forwarding
 of every kind off): the host-key question and a key's passphrase through the
 askpass shim, a refusal that leaves `known_hosts` untouched, the pinned Linux
@@ -1259,9 +1270,6 @@ Not built yet:
   with its four interactions, and the sign-in-only terminal on the server,
   which needs a pty the server bundle does not carry. A CLI on an SSH machine
   is signed in from a terminal there by hand for now.
-- **Out of process**: main's SSH sessions do not reach the desktop's server
-  process, so a chat on an SSH machine is not routed when the server runs out
-  of process.
 - **Files at the edge**: the file explorer, Git pane, @-mention search and
   image previews for an SSH workspace read this computer's disk.
 - **Resume from cursors**: the private backend wire has none. A command id

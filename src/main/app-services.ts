@@ -614,6 +614,7 @@ export function createAppServices(
   const ssh: DesktopSsh | null = sessionSshPreview()
     ? createDesktopSsh({
         version: platform.identity.version(),
+        server,
         workspaceEnvironment: (workspaceId: string): WorkspaceEnvironmentRef | null =>
           workspaceRegistryOf().getRecord(workspaceId)?.environment ?? null,
       })
