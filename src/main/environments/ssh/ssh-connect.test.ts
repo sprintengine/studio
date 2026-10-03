@@ -23,7 +23,6 @@ const VERSION = (JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as
 let scratch = ''
 let tree = ''
 let digest = ''
-const NODE_DIGEST = remoteNodeDigests()[0]!
 const pids = new Set<number>()
 
 beforeAll(() => {
@@ -72,7 +71,6 @@ const script = (stageId: string, extra: Partial<Parameters<typeof buildConnectSc
   buildConnectScript({
     appVersion: VERSION,
     serverDigest: digest,
-    nodeDigest: NODE_DIGEST,
     stageId,
     installDir: null,
     dataName: 'data',
@@ -274,12 +272,15 @@ test('a home shared with another machine is refused, naming it', () => {
   assert.match(located.action === 'blocked' ? located.reason : '', /on build-box-2/u)
 })
 
-test.skipIf(spawnSync('shellcheck', ['--version']).status !== 0)('the connect script passes shellcheck as POSIX sh', () => {
-  // SC2016: `$` in single quotes is meant literally (printf formats);
-  // SC2086: `set -- $decision` splits on purpose, with globbing off.
-  const result = spawnSync('shellcheck', ['-s', 'sh', '-e', 'SC2016,SC2086', '-'], {
-    input: script('sc1', { installDir: '/opt/dev/studio' }),
-    encoding: 'utf8',
-  })
-  assert.equal(result.status, 0, result.stdout)
-})
+test.skipIf(spawnSync('shellcheck', ['--version']).status !== 0)(
+  'the connect script passes shellcheck as POSIX sh',
+  () => {
+    // SC2016: `$` in single quotes is meant literally (printf formats);
+    // SC2086: `set -- $decision` splits on purpose, with globbing off.
+    const result = spawnSync('shellcheck', ['-s', 'sh', '-e', 'SC2016,SC2086', '-'], {
+      input: script('sc1', { installDir: '/opt/dev/studio' }),
+      encoding: 'utf8',
+    })
+    assert.equal(result.status, 0, result.stdout)
+  },
+)

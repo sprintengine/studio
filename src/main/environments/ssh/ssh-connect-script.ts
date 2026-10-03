@@ -45,8 +45,6 @@ const FETCH_TARGETS: Array<[string, RemoteNodeTarget]> = [
 export type ConnectScriptInput = {
   appVersion: string
   serverDigest: string
-  /** The pinned Node digest a streamed binary is marked with (its target's archive). */
-  nodeDigest: string
   stageId: string
   installDir: string | null
   /** The data directory's name under the data root: `data`, or `data-<profile>` for another profile. */
@@ -54,17 +52,22 @@ export type ConnectScriptInput = {
   channel: 'latest' | 'nightly'
 }
 
-function fetchLines(): string[] {
+/**
+ * The pinned runtime for this machine, chosen by `uname`: its URL, digest and
+ * top directory. The digest marks a streamed binary too, which the desktop
+ * cut from the same archive.
+ */
+function targetLines(): string[] {
   const cases = FETCH_TARGETS.map(([uname, target]) => {
     const pkg = remoteNodePackage(target)
     return `  ${uname}) url='${pkg.url}'; sum='${pkg.sha256}'; top='${pkg.dirName}' ;;`
   })
+  return ["url=''; sum=''; top=''", 'case "$(uname -s)-$(uname -m)" in', ...cases, 'esac']
+}
+
+function fetchLines(): string[] {
   return [
-    "url=''",
-    'case "$(uname -s)-$(uname -m)" in',
-    ...cases,
-    '  *) fail "fetch-target $(uname -s)-$(uname -m)" ;;',
-    'esac',
+    '[ -n "$url" ] || fail "fetch-target $(uname -s)-$(uname -m)"',
     'if command -v curl >/dev/null 2>&1; then curl -fsSL "$url" -o "$stage/node.tgz" || fail "fetch $url"',
     'elif command -v wget >/dev/null 2>&1; then wget -q -O "$stage/node.tgz" "$url" || fail "fetch $url"',
     'else fail "fetch-tool"; fi',
@@ -90,13 +93,13 @@ export function buildConnectScript(input: ConnectScriptInput): string {
     stageId: input.stageId,
     appVersion: input.appVersion,
     serverDigest: input.serverDigest,
-    nodeDigest: input.nodeDigest,
+    nodeDigest: { shellVar: 'sum' },
   })
   const installFetch = streamInstallLines({
     stageId: input.stageId,
     appVersion: input.appVersion,
     serverDigest: input.serverDigest,
-    nodeDigest: input.nodeDigest,
+    nodeDigest: { shellVar: 'sum' },
     beforeUnpack: fetchLines(),
   })
   const indent = (lines: readonly string[]) => lines.map((line) => `    ${line}`)
@@ -108,6 +111,7 @@ export function buildConnectScript(input: ConnectScriptInput): string {
     `rt="$base/${NODE_RUNTIME_REL}"`,
     `app="$base/${tree}"`,
     ...posixInstallFunctions(),
+    ...targetLines(),
     'probe() { printf \'%sPROBE %s=%s\\n\' "$P" "$1" "$2"; }',
     `probe proto ${PROBE_PROTO}`,
     'os="$(uname -s 2>/dev/null)"',

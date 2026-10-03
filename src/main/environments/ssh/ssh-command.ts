@@ -368,3 +368,35 @@ export function classifySshFailure(stderr: string, label: string, options: { bat
     return { code: 'closed', message: `The connection to ${label} was lost.` }
   return { code: 'unknown', message: `Studio could not reach ${label}${last ? `: ${last}` : '.'}` }
 }
+
+/** What a spawned session needs from the askpass broker (askpass.ts), kept structural here. */
+export type AskpassIssuer = { issue(label: string): { env: SshAskpassEnv; revoke(): void } }
+
+/**
+ * One session's ssh: interactive ones get an askpass token, revoked when the
+ * process ends; background ones run BatchMode with no way to ask.
+ */
+export function spawnSshSession(input: {
+  ssh: string
+  destination: SshDestination
+  label: string
+  interactive: boolean
+  askpass: AskpassIssuer | null
+  configFile?: string | null
+  env?: NodeJS.ProcessEnv
+}) {
+  const issued = input.interactive && input.askpass ? input.askpass.issue(input.label) : null
+  const child = spawn(
+    input.ssh,
+    buildSshArgs(input.destination, { batch: !input.interactive, configFile: input.configFile ?? null }),
+    {
+      env: sshEnvironment(input.env ?? process.env, issued?.env ?? null),
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+    },
+  )
+  child.once('close', () => issued?.revoke())
+  child.once('error', () => issued?.revoke())
+  child.stdin.on('error', () => undefined)
+  return child
+}

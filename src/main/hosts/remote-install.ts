@@ -212,8 +212,12 @@ export type StreamInstallInput = {
   appVersion: string
   /** The server tree's payload digest, written in its marker. */
   serverDigest: string
-  /** The pinned Node archive's digest the binary came from, written in the runtime's marker. */
-  nodeDigest: string
+  /**
+   * The pinned Node archive's digest the binary came from, written in the
+   * runtime's marker; or `{ shellVar }`, a variable the script set from
+   * `uname` (an SSH connect, which learns the target only as it runs).
+   */
+  nodeDigest: string | { shellVar: string }
 }
 
 /**
@@ -226,7 +230,10 @@ export type StreamInstallInput = {
 export function streamInstallLines(input: StreamInstallInput & { beforeUnpack?: readonly string[] }): string[] {
   const id = plainToken(input.stageId, 'The stage id')
   const server = serverTreeName(input.appVersion)
-  const nodeDigest = hexToken(input.nodeDigest, 'The Node digest')
+  const nodeDigest =
+    typeof input.nodeDigest === 'string'
+      ? `'${hexToken(input.nodeDigest, 'The Node digest')}'`
+      : `"$${plainToken(input.nodeDigest.shellVar, 'The digest variable')}"`
   const serverDigest = hexToken(input.serverDigest, 'The server digest')
   return [
     `id='${id}'`,
@@ -248,7 +255,7 @@ export function streamInstallLines(input: StreamInstallInput & { beforeUnpack?: 
     `if [ -d "$stage/${NODE_RUNTIME_REL}" ]; then`,
     `  final="$base/${NODE_RUNTIME_REL}"`,
     ...checkLines('node', { stageVar: `$stage/${NODE_RUNTIME_REL}` }).map((line) => `  ${line}`),
-    `  printf '%s' '${nodeDigest}' > "$stage/${NODE_RUNTIME_REL}/.ready" || fail marker`,
+    `  printf '%s' ${nodeDigest} > "$stage/${NODE_RUNTIME_REL}/.ready" || fail marker`,
     '  mkdir -p "$base/runtime" || fail mkdir',
     `  place "$stage/${NODE_RUNTIME_REL}" "$final" || fail "move runtime"`,
     ...pruneLines(PRUNE_GLOBS.node).map((line) => `  ${line}`),

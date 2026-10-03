@@ -504,6 +504,32 @@ never run two bootstraps at once.
 | Handshaking | `welcome` | 10 s | window mismatch → VersionBlocked |
 | Reconnecting | Connected | backoff 1, 2, 4 … 30 s, reset on wake or network change | after 10 min: Disconnected with "last reached …" |
 
+As built (2026-10-03), `src/main/environments/ssh/ssh-environment.ts`:
+
+- The states are the table's, named for Settings: `connecting` (Resolving and
+  Authenticating: `ssh -G` runs when a machine is added, not on every
+  connect), `probing`, `installing`, `starting`, `upgrading`, `connected`,
+  `reconnecting`, `needs-sign-in`, `version-blocked`, `unsupported`,
+  `failed`, `disconnected`. The Relaying and Handshaking steps are timed in
+  the diagnostics but not shown as states of their own.
+- A reconnect that ssh refuses because it would need a prompt (a key's
+  passphrase not in the agent, a password, an unknown host) stops at
+  `needs-sign-in`, "build-box needs you to sign in.", and no background
+  attempt runs until the person connects. A changed host key stops at
+  `failed` with the `ssh-keygen -R` line.
+- The window is one app version: a server of another version is attached
+  only when it is this version, upgraded when it is an older managed one,
+  and otherwise refused in words (newer: "Update this app"; an older external
+  one: an Update button that asks first, R31). The backend wire is private
+  and changes with the app, so "inside the window" is exactly "this version"
+  until it is published.
+- Resume, as built: the private backend wire has no stream cursors. A new
+  wire re-reads the server's sessions (`refresh`), and a call that carries a
+  `commandId` is answered once by the server's receipts, so repeating it after
+  a reconnect joins the turn still running there instead of starting another
+  (`ssh-environment.docker.test.ts` drops a session mid-turn and shows it).
+  Events emitted while the wire was down are not replayed to the live view.
+
 Locating decides between four outcomes:
 
 | Found on the remote | Action |

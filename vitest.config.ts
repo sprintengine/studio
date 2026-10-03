@@ -26,6 +26,8 @@ const SERIAL = [
   // Builds the same tree and runs detached servers and the SSH relay for real.
   'src/server/bootstrap/detached-start.test.ts',
   'src/main/environments/ssh/ssh-connect.test.ts',
+  'src/main/environments/ssh/ssh-environment.test.ts',
+  'src/main/environments/ssh/ssh-environment.docker.test.ts',
   'src/renderer/src/components/workspace/ConversationPeekPopover.test.tsx',
   'src/renderer/src/hooks/useSharedBacklogScan.test.ts',
   'src/renderer/src/modules/backlog-reader.test.ts',
