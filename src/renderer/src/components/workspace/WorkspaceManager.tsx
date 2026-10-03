@@ -171,6 +171,7 @@ import {
 import { isWorkspacePaneFocused } from './pane/paneFocus'
 import { closePaneTabAndItsTerminal } from './pane/paneTerminals'
 import { terminateWorkspaceTerminals } from './workspaceTerminalTermination'
+import { clientSupports } from '../../clientCapabilities'
 import { WindowControls, paneStripOwnsCaptionCorner, windowCaptionReserve } from './WindowControls'
 import { WorkspaceIdentity } from './WorkspaceIdentity'
 import { WorkspaceActions, type SessionGroup, type SessionItem } from './WorkspaceActions'
@@ -329,6 +330,8 @@ function newChatFolderLabel(path: string): string {
 // Lazy so the control center + schema-driven editor stay out of the boot chunk.
 
 const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
+// A shell with no app menu (a browser tab) draws no menu button at all.
+const NO_MENUBAR_ITEMS: readonly (typeof MENU_BAR_ITEMS)[number][] = []
 
 const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const NO_CONVERSATION_SESSIONS: readonly ConversationSessionEntry[] = []
@@ -2051,7 +2054,7 @@ export default function WorkspaceManager() {
   }, [conversationSessions, workspaces])
 
   useEffect(() => {
-    if (window.api.platform === 'darwin') return
+    if (window.api.platform === 'darwin' || !clientSupports('window-controls')) return
 
     let mounted = true
     void window.api.getWindowState().then((state) => {
@@ -4275,13 +4278,20 @@ export default function WorkspaceManager() {
   const sidebarMoveToMainWindow = useStableCallback(moveWorkspaceToPrimaryWindow)
   const sidebarCloseWorkspace = useStableCallback(closeWorkspaceById)
   const sidebarForgetFolder = useStableCallback(handleForgetFolder)
+  // The window's own chrome: traffic lights on a Mac window, caption buttons
+  // and a menubar elsewhere. A browser tab has none of it (phase 9 spec, 3.4):
+  // the browser draws the window, and the palette holds the menu's commands.
+  const nativeMacChrome = window.api.platform === 'darwin' && clientSupports('window-controls')
+  const captionButtons = window.api.platform !== 'darwin' && clientSupports('window-controls')
+  const menubarItems =
+    window.api.platform !== 'darwin' && clientSupports('app-menu') ? MENU_BAR_ITEMS : NO_MENUBAR_ITEMS
   const sidebarRevealFolder = useStableCallback(handleRevealFolder)
   const sidebarOpenRemoteSession = useStableCallback(openRemoteSession)
   const isFullScreen = windowState.isFullScreen
   const sidebarChromeSlot = useMemo(
     () => (
       <SidebarChrome
-        isMac={window.api.platform === 'darwin'}
+        isMac={nativeMacChrome}
         isFullScreen={isFullScreen}
         onToggleSidebar={sidebarToggle}
         onNavigateBack={sidebarNavigateBack}
@@ -4291,7 +4301,7 @@ export default function WorkspaceManager() {
         // same panel as the rail's New chat row below it — one action, two
         // affordances, never two behaviours.
         onNewChat={sidebarNewChat}
-        menuItems={window.api.platform === 'darwin' ? [] : MENU_BAR_ITEMS}
+        menuItems={menubarItems}
         onShowMenu={sidebarShowMenu}
       />
     ),
@@ -4408,14 +4418,14 @@ export default function WorkspaceManager() {
           <div className="flex min-w-0 flex-1 flex-col">
             <WorkspaceHeader
               activeWorkspaceId={windowActiveWorkspaceId}
-              isMac={window.api.platform === 'darwin'}
-              captionReserve={paneOwnsCaptionCorner ? 0 : windowCaptionReserve(window.api.platform === 'darwin')}
+              isMac={nativeMacChrome}
+              captionReserve={paneOwnsCaptionCorner || !captionButtons ? 0 : windowCaptionReserve(nativeMacChrome)}
               isFullScreen={windowState.isFullScreen}
               sidebarCollapsed={sidebarCollapsed}
               onToggleSidebar={() => runCommand('workspace.sidebar.toggle')}
               onOpenSearch={() => runCommand('commandPalette.open')}
               onNewChat={() => openNewChatPanel()}
-              menuItems={window.api.platform === 'darwin' ? [] : MENU_BAR_ITEMS}
+              menuItems={menubarItems}
               onShowMenu={(event, label) => void handleShowMenubarMenu(event, label)}
               // The New chat door has no lifted bar of its own; passing it here drops
               // the workspace-scoped left cluster (panel switches + identity), which
@@ -4761,7 +4771,7 @@ export default function WorkspaceManager() {
         {/* Win/linux caption buttons pin to the window's absolute top-right corner
           (above whatever column owns that edge — content or the aside column),
           since the split chrome has no full-width bar to host them. */}
-        {window.api.platform !== 'darwin' ? (
+        {captionButtons ? (
           <div className="app-no-drag absolute right-0 top-0 z-[var(--z-float)] flex h-[36px] items-center">
             <WindowControls isMaximized={windowState.isMaximized} />
           </div>

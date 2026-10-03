@@ -3,6 +3,7 @@ import { showToast } from '../../../store/toastStore'
 import { focusOrAddTerminalTab, getModel } from '../../../utils/modelRegistry'
 import { useConversationLinkContext, type ConversationLinkContext } from './conversationLinks'
 import { useConversationTransport } from './conversationTransport'
+import { clientSupports } from '../../../clientCapabilities'
 
 // How long a new terminal's shell gets to show it takes a bracketed paste:
 // long enough for rc files that load a prompt framework, short enough that a
@@ -144,7 +145,11 @@ export function ConversationCodeBlock(props: CodeBlockProps) {
   return (
     <CodeBlock
       {...props}
-      onPasteInTerminal={context && localFiles ? (command) => void pasteInTerminal(context, command) : undefined}
+      onPasteInTerminal={
+        context && localFiles && clientSupports('terminals')
+          ? (command) => void pasteInTerminal(context, command)
+          : undefined
+      }
     />
   )
 }

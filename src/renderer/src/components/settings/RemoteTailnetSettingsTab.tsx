@@ -30,6 +30,7 @@ import { STANDARD_SCOPES } from '../remote/scopePickerModel'
 import { PairRequestCard } from '../remote/PairRequestCard'
 import { OutboundPairRequestCard } from '../remote/OutboundPairRequestCard'
 import { useTailnetPresence } from '../workspace/topbar/useTailnetPresence'
+import { hostPlatform } from '../../clientCapabilities'
 
 // Settings → Remote (remote-settings-rebuild): one switch and one list of
 // machines.
@@ -155,7 +156,7 @@ export function RemoteTailnetSettingsTab() {
       mergeMachines({
         // Only used when the scan produced no self row — Tailscale absent or
         // down — so the tab still says which machine you are sitting at.
-        self: { name: 'This machine', os: window.api.platform },
+        self: { name: 'This machine', os: hostPlatform() },
         devices: status?.devices ?? [],
         connections: presence.mesh,
         peers: scan?.peers ?? [],

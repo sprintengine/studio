@@ -200,6 +200,7 @@ export type {
   TranscriptToolEntry,
   UserTurn,
 } from './agentChat/conversationProjection'
+import { hostPlatform } from '../../clientCapabilities'
 
 // The DataTransfer plumbing lives in utils/imageFileTransfer (shared with the
 // new-chat launch surface); re-exported here because this module declared it
@@ -2336,7 +2337,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           onRetry: retry,
           retryDisabled: composerDisabled,
           onSignIn,
-          platform: window.api.platform,
+          platform: hostPlatform(),
           checkpointsEnabled: capabilities?.checkpoints === true,
           conversationRunning: projection.activeTurn,
           checkpointSeqs: stableCheckpointSeqs,

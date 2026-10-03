@@ -14,6 +14,7 @@ import { ConversationImage } from './ConversationImage'
 import { renderMarkdown } from '../../../utils/markdown'
 import { FOCUS_RING_CLASS } from '../../ui/tokens'
 import { useConversationTransport } from './conversationTransport'
+import { hostPlatform } from '../../../clientCapabilities'
 
 export type ConversationLinkContext = { workspaceId: string; cwd: string; workspaceRoot: string; agentId?: string }
 const LinkContext = createContext<ConversationLinkContext | null>(null)
@@ -125,7 +126,7 @@ export const ConversationFileLink = React.memo(function ConversationFileLink({
   const target = classifyLinkToken(token, {
     source,
     cwd: context?.cwd,
-    platform: typeof window === 'undefined' ? 'darwin' : (window.api?.platform ?? 'darwin'),
+    platform: hostPlatform() || 'darwin',
   })
   const resolved =
     target?.type === 'file'

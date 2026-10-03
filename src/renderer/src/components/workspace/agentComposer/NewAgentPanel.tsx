@@ -106,6 +106,7 @@ import {
   type AgentComposerConnector,
   type AgentComposerSelection,
 } from './useAgentComposer'
+import { clientSupports } from '../../../clientCapabilities'
 
 export type NewAgentLaunch = AgentComposerConfirm & {
   /** The agent's startup prompt. Empty means "start with nothing typed". */
@@ -2406,7 +2407,7 @@ function MoreMenu({
           the same CLI with the same picker; they differ only in the interface
           it opens in. Chat agent is listed only where the workspace can host
           one. Worktree left this menu for the launch row (2026-09-30). */}
-      {scheduled ? null : (
+      {scheduled || !clientSupports('terminals') ? null : (
         <MenuRow
           selected={selection.kind === 'general'}
           label="Agent"
@@ -2422,7 +2423,7 @@ function MoreMenu({
           onClick={() => onSelectKind({ kind: 'conversation' })}
         />
       ) : null}
-      {scheduled ? null : (
+      {scheduled || !clientSupports('terminals') ? null : (
         <MenuRow
           selected={selection.kind === 'terminal'}
           label="Terminal"

@@ -1,3 +1,4 @@
+import type { ClientCapability } from './client-capabilities'
 import type { ServerMode } from './server-mode'
 import type { StudioServerInfo, StudioServerStatus } from './studio-server-status'
 import type { EditorRevealAck, EditorRevealRequest, EditorStateQuery, EditorStateReply } from './editor-reveal'
@@ -476,7 +477,21 @@ export type * from './ipc/app'
 export type * from './ipc/backlog'
 
 export type ElectronApi = {
+  /**
+   * The OS of the machine the person is at: the client. It decides the
+   * Primary modifier, the keyboard's labels and the window chrome. In a
+   * desktop window it is the preload's `process.platform`; in a browser tab,
+   * the browser's own (phase 9 spec, 3.3).
+   */
   platform: string
+  /**
+   * The OS of the machine the Studio server runs on. It decides path syntax,
+   * the "Reveal in Finder/Explorer" wording and CLI hints. The same as
+   * `platform` for a desktop window on its own server.
+   */
+  hostPlatform: string
+  /** What this shell can do (src/shared/client-capabilities.ts); ask `clientSupports`, not `typeof`. */
+  clientCapabilities: readonly ClientCapability[]
   isDevelopment: boolean
   isDiagnosticsEnabled: boolean
   windowMinimize: () => Promise<void>

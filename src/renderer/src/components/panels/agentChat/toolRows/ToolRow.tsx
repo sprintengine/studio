@@ -28,6 +28,7 @@ import { ChevronRightGlyph, ToolKindGlyph } from './ToolKindGlyph'
 import { InlineMarkdown } from './InlineMarkdown'
 import { useClientToolOrigin } from '../../../../studio/clientTools'
 import type { ConversationEdit } from '../../../../../../shared/conversation/editHunks'
+import { clientSupports, hostPlatform } from '../../../../clientCapabilities'
 
 export function toolPresentationInput(tool: TranscriptToolEntry): PresentableTool {
   return {
@@ -314,9 +315,9 @@ function GeneratedImage({ path, prompt, toolUseId }: { path: string; prompt?: st
               {prompt}
             </span>
           ) : null}
-          {current.remote ? null : (
+          {current.remote || !clientSupports('reveal-in-folder') ? null : (
             <GhostButton size="inline" onClick={() => void window.api.showItemInFolder(path)}>
-              {revealLabel(window.api.platform)}
+              {revealLabel(hostPlatform())}
             </GhostButton>
           )}
         </figcaption>

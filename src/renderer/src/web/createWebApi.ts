@@ -1,4 +1,5 @@
 import { apiModules } from '../../../preload/api-surface'
+import type { ClientCapability } from '../../../shared/client-capabilities'
 import type { ElectronApi } from '../../../shared/electron-api'
 import type { SprintEngineAuthState } from '../../../shared/ipc/account'
 import type { OpenExternalResult } from '../../../shared/ipc/window'
@@ -71,6 +72,22 @@ function openAttachmentBytes(input: { mediaType: string; dataBase64: string; nam
   setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
+/** The server's OS, which the server writes into the page it serves (web-listener.ts). */
+function servedHostPlatform(): string {
+  const value = document.querySelector('meta[name="sprintengine-host-platform"]')?.getAttribute('content')
+  return value && /^[a-z0-9]{2,16}$/u.test(value) ? value : browserPlatform()
+}
+
+/** What a browser tab can do (phase 9 spec, 3.4): its preview pane, and the clipboard and notifications where the browser allows them. */
+export function browserCapabilities(): ClientCapability[] {
+  const secure = window.isSecureContext
+  return [
+    'previews',
+    ...(secure && navigator.clipboard ? (['os-clipboard'] as const) : []),
+    ...(secure && 'Notification' in window ? (['os-notifications'] as const) : []),
+  ]
+}
+
 function diagnosticsOnLoopback(): boolean {
   const loopback = ['127.0.0.1', 'localhost', '[::1]'].includes(window.location.hostname)
   return loopback && new URLSearchParams(window.location.search).get('diagnostics') === '1'
@@ -127,6 +144,8 @@ export function createWebApi(): ElectronApi {
   return {
     ...apiModules,
     platform: browserPlatform(),
+    hostPlatform: servedHostPlatform(),
+    clientCapabilities: browserCapabilities(),
     isDevelopment: import.meta.env.DEV,
     isDiagnosticsEnabled: diagnosticsOnLoopback(),
     diagnosticsGetIpcStats: () => ({ sampledAt: Date.now(), channels: [] }),

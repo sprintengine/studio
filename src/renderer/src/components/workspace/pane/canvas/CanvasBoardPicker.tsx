@@ -31,6 +31,7 @@ import {
   formatCanvasChangedAt,
   uniqueCanvasBoardName,
 } from './canvasPickerModel'
+import { hostPlatform } from '../../../../clientCapabilities'
 
 // What a Canvas tab shows before it has a board: this project's boards, and one
 // affordance that makes another.
@@ -134,7 +135,7 @@ export function CanvasBoardPicker({ workspaceId, onPick, openPaths }: CanvasBoar
   // Folded the way the pane and main fold their own keys, so a board open under
   // another spelling of its path is still marked as open.
   const openKeys = useMemo(
-    () => new Set((openPaths ?? []).map((path) => canvasBoardKeyPath(path, window.api.platform))),
+    () => new Set((openPaths ?? []).map((path) => canvasBoardKeyPath(path, hostPlatform()))),
     [openPaths],
   )
   const duplicateNames = useMemo(() => duplicateCanvasBoardNames(boards), [boards])
@@ -186,11 +187,7 @@ export function CanvasBoardPicker({ workspaceId, onPick, openPaths }: CanvasBoar
       setNameError(normalized.error.message)
       return
     }
-    const collision = collidingCanvasBoardPath(
-      normalized.value,
-      paths,
-      canvasPathIsCaseInsensitive(window.api.platform),
-    )
+    const collision = collidingCanvasBoardPath(normalized.value, paths, canvasPathIsCaseInsensitive(hostPlatform()))
     if (collision) {
       // Refused rather than silently opened: the person asked for a NEW board,
       // and handing them someone else's is how work gets drawn on top of.
@@ -292,7 +289,7 @@ export function CanvasBoardPicker({ workspaceId, onPick, openPaths }: CanvasBoar
   const rows = view.boards.map((board) => {
     const folder = canvasBoardFolder(board.path)
     const changed = formatCanvasChangedAt(board.modifiedAt, now)
-    const open = openKeys.has(canvasBoardKeyPath(board.path, window.api.platform))
+    const open = openKeys.has(canvasBoardKeyPath(board.path, hostPlatform()))
     return (
       <li key={board.path}>
         {/* The list-card row anatomy the agent CLI, plugin and skill rows draw:

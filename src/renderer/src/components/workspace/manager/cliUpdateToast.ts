@@ -10,6 +10,7 @@ import { cliUpdateNotice } from '../../../utils/feedNotifications'
 import { publishDiagnosticSync } from '../../../utils/diagnostics'
 import { useToastStore, showToast } from '../../../store/toastStore'
 import { cliRuntimeOnMachine } from '../newWorkspace/cliRuntimeOptions'
+import { hostPlatform } from '../../../clientCapabilities'
 
 // The CLI-update toast (owner ruling 2026-09-04): the CLI's glyph,
 // "Update available: Codex 0.153.3", and two buttons — Settings, and Update,
@@ -36,7 +37,7 @@ function toastId(advisory: Pick<CliVersionAdvisory, 'cli' | 'hostId'>): string {
 
 function machineLabel(hostId: CliVersionAdvisory['hostId']): string | null {
   if (hostId === LOCAL_HOST_ID) return null
-  return executionHostLabel(hostId, typeof window === 'undefined' ? '' : (window.api?.platform ?? ''))
+  return executionHostLabel(hostId, hostPlatform())
 }
 
 export function showCliUpdateToast(advisory: CliVersionAdvisory): void {

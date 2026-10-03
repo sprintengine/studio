@@ -95,6 +95,7 @@ import { useSettingsUpdateBadges } from './useSettingsUpdateBadges'
 import { subscribeAppUpdateState, useAppUpdateStore } from '../../store/appUpdateStore'
 import type { SettingsUpdateBadge } from '../../utils/settingsUpdateBadges'
 import { sourceUpdateCadenceLine, type SkillRepoTransport } from '../../../../shared/skills'
+import { hostPlatform } from '../../clientCapabilities'
 
 interface Props {
   onClose: () => void
@@ -487,7 +488,7 @@ export function VersionControlSections({ githubToken }: { githubToken: React.Rea
   const [checking, setChecking] = useState(false)
   const [expandedId, setExpandedId] = useState<VersionControlProviderId | null>(null)
   const sections = useMemo(() => versionControlSections(), [])
-  const platform = window.api.platform
+  const platform = hostPlatform()
 
   const runProbe = useCallback(async () => {
     if (typeof window.api.probeVersionControlProviders !== 'function') {
@@ -668,7 +669,7 @@ export default function SettingsPanel({
   )
   const visibleSettingsTabs = useMemo(
     (): SettingsTabDescriptor[] => [
-      ...settingsTabs.filter((tab) => tab.id !== 'machines' || window.api.platform === 'win32'),
+      ...settingsTabs.filter((tab) => tab.id !== 'machines' || hostPlatform() === 'win32'),
       ...moduleSections.map((section) => ({
         id: moduleSectionTabId(section.id),
         label: section.label,
@@ -772,7 +773,7 @@ export default function SettingsPanel({
   // start WSL, and opening Settings on General should not.
   const { listing: agentsHostListing } = useExecutionHosts({ enabled: activeSettingsTab === 'agents' })
   const agentsMachineOptions = useMemo(
-    () => agentsMachines(agentsHostListing, executionHostLabel(LOCAL_HOST_ID, window.api.platform)),
+    () => agentsMachines(agentsHostListing, executionHostLabel(LOCAL_HOST_ID, hostPlatform())),
     [agentsHostListing],
   )
   const [pickedAgentsMachine, setPickedAgentsMachine] = useState<ExecutionHostId | null>(

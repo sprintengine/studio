@@ -1,6 +1,7 @@
 import type { IBufferRange, ILinkHandler } from '@xterm/xterm'
 
 import { normalizePath } from './terminalFileLinks'
+import { hostPlatform } from '../clientCapabilities'
 
 /**
  * What a terminal is allowed to do with a URI a program printed at it.
@@ -69,7 +70,7 @@ export type TerminalOscLinkOptions = {
  */
 function hostUsesWindowsPaths(): boolean {
   try {
-    return (globalThis as { api?: { platform?: string } }).api?.platform === 'win32'
+    return hostPlatform() === 'win32'
   } catch {
     return false
   }

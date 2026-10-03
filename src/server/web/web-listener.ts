@@ -103,6 +103,14 @@ function pathOf(request: IncomingMessage): URL {
   return new URL(request.url ?? '/', 'http://listener.invalid')
 }
 
+/**
+ * The page with the server's OS in a meta tag, which the tab's `window.api`
+ * reads as its `hostPlatform` before anything renders (phase 9 spec, 3.3).
+ */
+function withHostPlatform(html: string): string {
+  return html.replace('<head>', `<head>\n    <meta name="sprintengine-host-platform" content="${process.platform}" />`)
+}
+
 function routeOf(host: string, policy: WebOriginPolicy): WebRoute {
   const loopback = /^(127\.0\.0\.1|localhost|\[::1\]):\d+$/u.test(host.toLowerCase())
   return loopback ? 'loopback' : policy.publicOrigins.length > 0 ? 'tailnet' : 'loopback'
@@ -316,7 +324,7 @@ export function createWebListener(options: WebListenerOptions): WebListener {
       sendText(response, 503, 'This server was built without the web client (npm run build:web).')
       return
     }
-    sendPage(response, html, origin)
+    sendPage(response, withHostPlatform(html), origin)
   }
 
   function handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): void {

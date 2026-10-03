@@ -57,7 +57,13 @@ import { extensionScaffoldApi } from './api/extension-scaffold'
 // both and the compiler holds each to `ElectronApi`.
 
 /** The values the preload computes from its own process rather than an api module. */
-export type ComputedApiMembers = 'platform' | 'isDevelopment' | 'isDiagnosticsEnabled' | 'diagnosticsGetIpcStats'
+export type ComputedApiMembers =
+  | 'platform'
+  | 'hostPlatform'
+  | 'clientCapabilities'
+  | 'isDevelopment'
+  | 'isDiagnosticsEnabled'
+  | 'diagnosticsGetIpcStats'
 
 export const apiModules = {
   ...agentConfigImportApi,

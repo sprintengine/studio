@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useState } from 'react'
 import { useWorkspaceStore } from '../store/workspaceStore'
+import { clientSupports } from '../clientCapabilities'
 import {
   colorSchemeForResolvedTheme,
   DEFAULT_CHAT_CONTRAST,
@@ -67,8 +68,14 @@ function themeCanvasColor(): string | undefined {
   return /^#[0-9a-f]{6}$/i.test(value) ? value : undefined
 }
 
+// A shell with no native window to dress (a browser tab) is always solid:
+// glass there would be a transparent canvas over nothing.
+function windowMaterialHere(material: WindowMaterial): WindowMaterial {
+  return clientSupports('window-controls') ? effectiveWindowMaterial(material, window.api?.platform) : 'solid'
+}
+
 function pushWindowMaterial(material: WindowMaterial): void {
-  const effective = effectiveWindowMaterial(material, window.api?.platform)
+  const effective = windowMaterialHere(material)
   // Mirror to main: persists for pre-boot application on the next launch and
   // re-applies the window-level material to live windows. Best-effort outside
   // Electron.
@@ -79,7 +86,7 @@ function applyWindowMaterial(material: WindowMaterial): void {
   if (typeof document === 'undefined') return
   // Glass is macOS-only and resolves to tinted elsewhere, so a synced/copied
   // profile can never leave a translucent canvas over a non-vibrant window.
-  const effective = effectiveWindowMaterial(material, window.api?.platform)
+  const effective = windowMaterialHere(material)
   if (effective === 'solid') {
     document.documentElement.removeAttribute('data-window-material')
   } else {

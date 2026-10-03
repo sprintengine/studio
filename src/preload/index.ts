@@ -1,5 +1,6 @@
 import { contextBridge } from 'electron'
 import type { ElectronApi } from '../shared/electron-api'
+import { DESKTOP_CLIENT_CAPABILITIES } from '../shared/client-capabilities'
 import { readStudioEnv } from '../shared/studio-env'
 import { instrumentApi, snapshotIpcStats } from './ipcStats'
 import { apiModules } from './api-surface'
@@ -8,6 +9,9 @@ const diagnosticsEnabled = process.env.NODE_ENV === 'development' || readStudioE
 
 const api = {
   platform: process.platform,
+  // The desktop's server runs on this machine, in process or beside it.
+  hostPlatform: process.platform,
+  clientCapabilities: DESKTOP_CLIENT_CAPABILITIES,
   isDevelopment: process.env.NODE_ENV === 'development',
   isDiagnosticsEnabled: readStudioEnv('SPRINTENGINE_DIAGNOSTICS') === '1',
   diagnosticsGetIpcStats: snapshotIpcStats,

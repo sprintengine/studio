@@ -1372,3 +1372,22 @@ recorded here, with the commit that made it.
 - **Reconnect** follows 3.5: the tunnel and the protocol client reconnect
   with backoff, and at once on `online`, visible and `pageshow`. A 4401 close
   returns the tab to `/pair`.
+
+### 14.3 Platforms and client capabilities (2026-10-03)
+
+- **`platform` stays, and means the client.** Rather than rename 53
+  references, `window.api.platform` is documented as the client's OS (the
+  browser's, in a tab) and `window.api.hostPlatform` is added for the
+  server's. The host-side reads (paths and their case rules, "Reveal in
+  Finder/Explorer", CLI hints and install commands, the WSL rules, terminals'
+  paths, the local machine's label) go through `hostPlatform()`; the keyboard,
+  modifier and window-chrome reads keep `platform`. The served page carries
+  the server's OS in a meta tag, which the tab's shim reads at install.
+- **`clientSupports()`** reads `window.api.clientCapabilities`; a `window.api`
+  that does not declare them (an older preload, a test's stand-in) is a
+  desktop window's. Converted in this pass: the window chrome (traffic-light
+  reserve, caption buttons, the menubar button, window material), the New
+  chat roster (no Agent or Terminal rows without `terminals`), paste and
+  resume in a terminal, and reveal in folder on the chat route. The rest of
+  the `typeof window.api.X` guards are unchanged; on the web their members
+  exist and refuse.

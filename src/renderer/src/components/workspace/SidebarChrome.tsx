@@ -285,7 +285,8 @@ export function SidebarChrome<MenuItem extends string>({
       {trafficLightInset > 0 ? (
         <div aria-hidden="true" className="shrink-0" style={{ width: trafficLightInset }} />
       ) : null}
-      {!isMac ? (
+      {/* The app menu where the shell has one to show (none in a browser tab). */}
+      {!isMac && menuItems.length > 0 ? (
         <div className="flex shrink-0 items-center pl-1">
           <AppMenuButton menuItems={menuItems} onShowMenu={onShowMenu} />
         </div>
