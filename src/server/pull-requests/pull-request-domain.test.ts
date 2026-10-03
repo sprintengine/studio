@@ -11,6 +11,8 @@ import {
   changedPathsOf,
   createPullRequestDomain,
   MAX_OTHER_REPOSITORIES_PER_TURN,
+  MAX_PUSHED_BRANCHES_PER_TURN,
+  POLL_RECENT_WORK_MS,
   type PullRequestsChanged,
 } from './pull-request-domain'
 import { createPullRequestRecord, type PullRequestCheckout } from './pull-request-record'
@@ -43,12 +45,15 @@ type Fixture = {
   defaultBranches?: Record<string, string | null>
   sessions?: ConversationSessionSummary[]
   sessionRoots?: Record<string, string>
+  /** `gitRoot` → the branches `readPushedBranches` answers. */
+  pushed?: Record<string, string[]>
 }
 
 async function domainOver(fixture: Fixture) {
   const listeners: Array<(event: ConversationEvent) => void> = []
   const lookups: string[] = []
   const resolved: string[] = []
+  const pushedReads: Array<[string, number]> = []
   const changes: PullRequestsChanged[] = []
   let now = NOW
   const record = createPullRequestRecord({
@@ -87,6 +92,10 @@ async function domainOver(fixture: Fixture) {
         .sort((a, b) => b.length - a.length)[0]
       return match ? fixture.checkouts[match] : null
     },
+    readPushedBranches: async (gitRoot, since) => {
+      pushedReads.push([gitRoot, since])
+      return fixture.pushed?.[gitRoot] ?? []
+    },
     readDefaultBranch: async (gitRoot) =>
       fixture.defaultBranches && gitRoot in fixture.defaultBranches ? fixture.defaultBranches[gitRoot] : 'main',
     log: () => undefined,
@@ -113,6 +122,7 @@ async function domainOver(fixture: Fixture) {
     record,
     lookups,
     resolved,
+    pushedReads,
     changes,
     emit,
     settled,
@@ -305,5 +315,110 @@ test('a refresh says whether there was anything to ask about', async () => {
   assert.deepEqual(await fixture.domain.refresh({ conversations: [CHAT] }), { asked: false })
   assert.deepEqual(await fixture.domain.refresh({ workspaceIds: ['ws-1'] }), { asked: false })
   assert.deepEqual(await fixture.domain.refresh({}), { asked: true }, 'with no ids, everything outstanding')
+  fixture.domain.dispose()
+})
+
+test('a turn that pushed a branch and went back to the default branch has that branch looked up', async () => {
+  const fixture = await domainOver({
+    checkouts: { '/repo': { gitRoot: '/repo', branch: 'main' } },
+    answers: { '/repo@fix': [pr(7)] },
+    sessionRoots: { 'chat-session': '/repo' },
+    pushed: { '/repo': ['fix', 'main', 'b2', 'b3', 'b4', 'b5', 'b6'] },
+  })
+  fixture.emit({ type: 'turn_started', createdAt: NOW - 120_000 })
+  fixture.emit({ type: 'turn_completed' })
+  await fixture.settled()
+  assert.equal(fixture.pushedReads.length, 1)
+  assert.equal(fixture.pushedReads[0][0], '/repo')
+  assert.ok(fixture.pushedReads[0][1] <= NOW - 120_000, 'pushed since the turn began, with some slack')
+  assert.ok(!fixture.lookups.includes('/repo@main'), 'the default branch is still never asked about')
+  assert.equal(fixture.lookups.length, MAX_PUSHED_BRANCHES_PER_TURN, 'bounded')
+  assert.ok(fixture.lookups.includes('/repo@fix'))
+  const listed = await fixture.domain.list({ conversations: [CHAT] })
+  assert.deepEqual(
+    listed.conversations[0].pullRequests.map((entry) => [entry.number, entry.onConversationBranch === true]),
+    [[7, false]],
+    'worn by the chat, not as its own branch',
+  )
+  fixture.domain.dispose()
+})
+
+test('a turn whose start is unknown asks for no pushed branches; a terminal agent counts from its last turn end', async () => {
+  const fixture = await domainOver({
+    checkouts: { '/repo': { gitRoot: '/repo', branch: 'main' } },
+    answers: {},
+    sessionRoots: { 'chat-session': '/repo' },
+    pushed: { '/repo': ['fix'] },
+  })
+  // A server that came up mid-turn heard no start.
+  fixture.emit({ type: 'turn_completed' })
+  await fixture.settled()
+  assert.deepEqual(fixture.pushedReads, [], 'nothing to count from')
+  const terminal = { workspaceId: 'ws-2', agentId: 'term-1' }
+  const note = { conversation: terminal, checkout: { gitRoot: '/repo', branch: 'main' }, turnEnded: true }
+  await fixture.domain.noteWork(note)
+  await fixture.settled()
+  assert.deepEqual(fixture.pushedReads, [], "a terminal agent's first turn end is where it starts counting")
+  fixture.advance(30_000)
+  await fixture.domain.noteWork(note)
+  await fixture.settled()
+  assert.equal(fixture.pushedReads.length, 1)
+  assert.ok(fixture.pushedReads[0][1] <= NOW, 'from the turn end before')
+  assert.deepEqual(fixture.lookups, ['/repo@fix'])
+  await fixture.domain.noteWork({ ...note, turnEnded: false })
+  await fixture.settled()
+  assert.equal(fixture.pushedReads.length, 1, 'a note mid-turn reads no pushes')
+  fixture.domain.dispose()
+})
+
+test('the poll asks GitHub only for chats active in the last half hour, the most recent first', async () => {
+  const session = (sessionId: string, agentId: string, updatedAt: number): ConversationSessionSummary => ({
+    sessionId,
+    workspaceId: 'ws-1',
+    agentId,
+    providerId: 'p',
+    modelId: 'm',
+    status: 'ready',
+    createdAt: updatedAt,
+    updatedAt,
+  })
+  const fixture = await domainOver({
+    checkouts: {
+      '/repo/a': { gitRoot: '/repo/a', branch: 'idle-branch' },
+      '/repo/b': { gitRoot: '/repo/b', branch: 'busy-branch' },
+    },
+    answers: {},
+    sessions: [session('idle', 'agent-idle', NOW - 2 * POLL_RECENT_WORK_MS), session('busy', 'agent-busy', NOW)],
+    sessionRoots: { idle: '/repo/a', busy: '/repo/b' },
+  })
+  await fixture.domain.pollOnce(false)
+  await fixture.settled()
+  assert.deepEqual(fixture.lookups, ['/repo/b@busy-branch', '/repo/a@idle-branch'], 'first seen: both noted')
+  fixture.lookups.length = 0
+  fixture.advance(61_000)
+  await fixture.domain.pollOnce(true)
+  await fixture.settled()
+  assert.deepEqual(fixture.lookups, ['/repo/b@busy-branch'], 'a chat idle for an hour is left to the watch')
+  fixture.domain.dispose()
+})
+
+test('a terminal agent on the default branch still wears what a legacy capture filed under its session', async () => {
+  const fixture = await domainOver({ checkouts: {}, answers: {} })
+  const terminal = { workspaceId: 'ws-2', agentId: 'term-1' }
+  let named: unknown = null
+  const original = fixture.record.nameSession
+  fixture.record.nameSession = (key, sessionId) => {
+    named = [key, sessionId]
+    original(key, sessionId)
+  }
+  await fixture.domain.noteWork({
+    conversation: terminal,
+    sessionId: 'terminal-1',
+    checkout: { gitRoot: '/repo', branch: 'main' },
+    turnEnded: true,
+  })
+  await fixture.settled()
+  assert.deepEqual(fixture.lookups, [])
+  assert.deepEqual(named, [terminal, 'terminal-1'])
   fixture.domain.dispose()
 })

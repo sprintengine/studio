@@ -233,6 +233,12 @@ export type PullRequestRecord = {
     checkout: PullRequestCheckout,
     options?: { force?: boolean; home?: boolean; sessionId?: string },
   ): Promise<void>
+  /**
+   * The conversation runs as this terminal session, for the entries a legacy
+   * capture filed under it, without noting a checkout: an agent on its
+   * repository's default branch, which is never looked up, still wears them.
+   */
+  nameSession(key: PullRequestConversationKey, sessionId: string): void
   /** The conversation's own checkout, as last noted. */
   homeOf(key: PullRequestConversationKey): PullRequestCheckout | null
   /** One `gh pr list` per checkout+branch per hold, merged in. Unsettled reads change nothing. */
@@ -1155,6 +1161,16 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
     forConversation,
     forWorkspace,
     noteCheckout,
+    nameSession(key, sessionId) {
+      if (disposed || !validKey(key) || !sessionId) return
+      const id = conversationId(key)
+      if (sessionAliases.get(sessionId) === id) return
+      const before = signatureOf(forConversation(key))
+      aliasSession(sessionId, id)
+      if (signatureOf(forConversation(key)) !== before) {
+        emit({ repoKey: null, branch: null, workspaceIds: [key.workspaceId], conversations: [{ ...key }] })
+      }
+    },
     homeOf(key) {
       const conversation = conversations.get(conversationId(key))
       const home = conversation?.touches.find((candidate) => touchId(candidate) === conversation.home)
