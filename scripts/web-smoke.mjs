@@ -199,7 +199,23 @@ try {
 
   await step('the app boots under its CSP with no page error, refusing only the known members', async () => {
     await owner.waitForFunction(() => typeof window.__studioWebRefusals === 'function', null, { timeout: 15_000 })
-    await owner.waitForTimeout(4000)
+    // The boot is done when the sidebar is drawn and the refusals it makes
+    // have stopped growing: read until the list has held for a second and a
+    // half, rather than for a fixed time a slow runner may not finish in.
+    await owner.locator('aside[aria-label="Workspaces"]').waitFor({ timeout: 15_000 })
+    await owner.waitForFunction(
+      () => {
+        const count = window.__studioWebRefusals().length
+        const seen = window.__smokeRefusalsSeen
+        if (!seen || seen.count !== count) {
+          window.__smokeRefusalsSeen = { count, since: Date.now() }
+          return false
+        }
+        return Date.now() - seen.since >= 1500
+      },
+      null,
+      { timeout: 20_000, polling: 250 },
+    )
     assert.equal(await owner.locator('[role=alert]').count(), 0, 'no alert on the first screen')
     assert.deepEqual(ownerErrors, [])
     const refused = await owner.evaluate(() => window.__studioWebRefusals())

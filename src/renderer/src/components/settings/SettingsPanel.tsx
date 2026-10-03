@@ -1610,8 +1610,10 @@ export default function SettingsPanel({
 
       {activeSettingsTab === 'remote' ? (
         <>
-          {/* The browsers paired with a web listener: drawn only where the server answers (a web tab). */}
-          <BrowsersSettings />
+          {/* The browsers paired with a web listener: only a web tab's server
+              answers for them, and a desktop window has the tailnet's own
+              Settings instead, so it does not ask a channel main never serves. */}
+          {clientSupports('tailnet-admin') ? null : <BrowsersSettings />}
           {clientSupports('tailnet-admin') ? <RemoteTailnetSettingsTab /> : null}
         </>
       ) : null}
