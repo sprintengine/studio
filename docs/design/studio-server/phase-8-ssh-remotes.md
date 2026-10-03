@@ -1301,6 +1301,13 @@ machine when a restarted server comes up, so its router follows that
 machine's chats as the in-process core does
 (`src/server/desktop/shell-ssh-servers.ts`).
 
+The jump-host and password variants of 9.3 ran against containers' sshd
+(`ssh-variants.docker.test.ts`): a machine reachable only through a bastion
+by `ProxyJump` in the config, both host keys asked and checked, the server
+started on the target and nothing on the bastion; and `AuthenticationMethods
+publickey,password`, the key's passphrase and then the password asked through
+the shim in order, a wrong password said in words.
+
 Ran against a real `sshd` (Ubuntu 24.04 in Docker on an arm64 Mac, forwarding
 of every kind off): the host-key question and a key's passphrase through the
 askpass shim, a refusal that leaves `known_hosts` untouched, the pinned Linux
@@ -1327,7 +1334,7 @@ Not built yet:
   yet". Terminals and agent launches in a terminal answer the same.
 - `auth.sessions.list` for SSH sessions, `server.logs.tail` in Diagnostics
   (they show the bootstrap's steps, the probe and ssh's words), `ssh -W` as a
-  diagnostic, the jump-host and password variants of 9.3, the Windows job
+  diagnostic, the Windows job
   (9.4; the Windows shim is written but has not run), and V-P2 to V-P4 (9.5).
 - A published release archive of the server tree, so the remote download
   covers the Node runtime only (5.3).

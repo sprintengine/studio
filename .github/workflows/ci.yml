@@ -162,3 +162,4 @@ jobs:
           src/main/hosts/remote-install.test.ts
           src/main/environments/ssh/askpass.test.ts
           src/main/environments/ssh/ssh-environment.docker.test.ts
+          src/main/environments/ssh/ssh-variants.docker.test.ts

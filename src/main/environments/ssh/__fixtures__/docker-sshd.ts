@@ -49,24 +49,33 @@ export type SshdOptions = {
   noexecHome?: boolean
   /** Extra lines for the client's Host entry. */
   clientLines?: string[]
+  /** A docker network to join, and the name to be reached by on it. */
+  network?: { name: string; alias: string }
+  /** Publish port 22 on 127.0.0.1 (default); off for a machine reached only through a jump host. */
+  publish?: boolean
+  /** Reuse this key pair (a jump host and its target admit the same key). */
+  keyPath?: string
 }
 
 export function startSshd(options: SshdOptions = {}): SshdFixture {
   const image = ensureSshdImage()
   const dir = mkdtempSync(join(tmpdir(), 'se-sshd-'))
-  const keyPath = join(dir, 'id_ed25519')
-  execFileSync('ssh-keygen', [
-    '-q',
-    '-t',
-    'ed25519',
-    '-N',
-    options.passphrase ?? '',
-    '-C',
-    'dev@example.com',
-    '-f',
-    keyPath,
-  ])
-  const args = ['run', '-d', '--rm', '-p', '127.0.0.1::22']
+  const keyPath = options.keyPath ?? join(dir, 'id_ed25519')
+  if (!options.keyPath)
+    execFileSync('ssh-keygen', [
+      '-q',
+      '-t',
+      'ed25519',
+      '-N',
+      options.passphrase ?? '',
+      '-C',
+      'dev@example.com',
+      '-f',
+      keyPath,
+    ])
+  const args = ['run', '-d', '--rm']
+  if (options.publish !== false) args.push('-p', '127.0.0.1::22')
+  if (options.network) args.push('--network', options.network.name, '--network-alias', options.network.alias)
   if (options.noexecHome) args.push('--tmpfs', '/home/dev:rw,noexec,uid=1000,gid=1000,mode=0755')
   args.push(image, '/usr/sbin/sshd', '-D', '-e', ...(options.sshdOptions ?? []).flatMap((line) => ['-o', line]))
   const id = execFileSync('docker', args, { encoding: 'utf8' }).trim()
@@ -85,9 +94,12 @@ export function startSshd(options: SshdOptions = {}): SshdFixture {
     ],
     { input: readFileSync(`${keyPath}.pub`) },
   )
-  const port = Number(
-    execFileSync('docker', ['port', id, '22/tcp'], { encoding: 'utf8' }).trim().split('\n')[0]!.split(':').at(-1),
-  )
+  const port =
+    options.publish === false
+      ? 22
+      : Number(
+          execFileSync('docker', ['port', id, '22/tcp'], { encoding: 'utf8' }).trim().split('\n')[0]!.split(':').at(-1),
+        )
   const knownHosts = join(dir, 'known_hosts')
   const configFile = join(dir, 'ssh_config')
   writeFileSync(
@@ -105,7 +117,7 @@ export function startSshd(options: SshdOptions = {}): SshdFixture {
     ].join('\n'),
   )
   // sshd answers a moment after the container starts.
-  for (let attempt = 0; attempt < 50; attempt++) {
+  for (let attempt = 0; attempt < 50 && options.publish !== false; attempt++) {
     const probe = spawnSync('ssh-keyscan', ['-p', String(port), '127.0.0.1'], { encoding: 'utf8', timeout: 2_000 })
     if (probe.stdout.includes('ssh-ed25519')) break
     spawnSync('sleep', ['0.2'])
