@@ -1440,3 +1440,14 @@ recorded here, with the commit that made it.
   component for other apps, only the iframe, and the theme message carries
   the mode alone.
 - **Not built: frozen embeds** (`live: false`); asking for one is refused.
+
+### 14.6 The browser keymap (2026-10-03)
+
+As 4.2 says, with these as built: the swaps are applied where a command's
+defaults are read (the dispatcher, the effective-binding labels, the shortcut
+sheet and its conflict check), keyed on `clientSupports('app-menu')`; a
+person's own binding still wins. `Primary+Shift+P` is dropped rather than
+swapped (the palette keeps `Primary+K`), and the next and previous workspace
+chords become `Alt+Shift+]` and `Alt+Shift+[`. The installed-app (PWA) case
+keeps the same swaps, since the browser's own window still takes
+`Primary+W`.

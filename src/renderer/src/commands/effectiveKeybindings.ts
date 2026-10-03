@@ -2,6 +2,7 @@ import { getCommandDefinition } from './commandRegistry'
 import { getRendererHost } from '../modules'
 import { LEGACY_COMMAND_ID_ALIASES, parseKeybinding, renderKeybinding, type KeybindingPlatform } from './keybindings'
 import type { CommandContribution } from './types'
+import { defaultKeybindingsHere } from './browserKeymap'
 
 export type KeybindingSettingsLike = {
   overrides?: Readonly<Record<string, readonly string[]>>
@@ -30,9 +31,9 @@ export function getEffectiveKeybindings(
   // Module contributions live outside the static registry: resolve their
   // defaults through the kernel so shortcut labels don't silently vanish for
   // commands migrated onto the module path.
-  return (
+  return defaultKeybindingsHere(
     (command ?? getCommandDefinition(commandId) ?? getRendererHost().getModuleCommand(commandId))?.defaultKeybindings ??
-    []
+      [],
   )
 }
 
