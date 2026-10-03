@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { test } from 'vitest'
+import { test, vi } from 'vitest'
 
 import type { ConversationEvent, ConversationSessionFrame } from '../shared/conversation-runtime'
 import type { ConversationBackend } from '../server/core/conversation-backend'
@@ -68,7 +68,11 @@ function routerStandIn() {
   }
 }
 
-const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
+// The stand-in answers through promises alone: a few turns of the event loop
+// run out whatever a resume started, so a check that nothing happened is not a guess.
+const drain = async () => {
+  for (let turn = 0; turn < 10; turn++) await new Promise((resolve) => setImmediate(resolve))
+}
 const seqs = (frames: ConversationSessionFrame[]) =>
   frames.flatMap((frame) => (frame.type === 'event' ? [frame.event.seq] : []))
 
@@ -88,12 +92,12 @@ test('events missed while the wire was down are handed over by the cursor, once,
   router.append(4, false)
   // Another server's resume is not this chat's.
   router.resume('wsl:Ubuntu')
-  await settle()
+  await drain()
   assert.equal(router.syncs.length, 1)
   router.resume('ssh:e1')
-  await settle()
+  await vi.waitFor(() => assert.equal(frames.filter((frame) => frame.type === 'synchronized').length, 2, 'caught up'))
   router.append(5, true)
-  await settle()
+  await vi.waitFor(() => assert.equal(seqs(frames).at(-1), 5))
   assert.deepEqual(router.syncs.at(-1), { afterSeq: 2, generation: 'g1', turnLimit: undefined })
   assert.deepEqual(seqs(frames), [2, 3, 4, 5])
   assert.equal(frames.filter((frame) => frame.type === 'synchronized').length, 2)
@@ -112,12 +116,12 @@ test('a log rewritten while the wire was down is replaced by a reset snapshot', 
   router.rewrite()
   router.append(2, false)
   router.resume('ssh:e1')
-  await settle()
+  await vi.waitFor(() => assert.equal(frames.filter((frame) => frame.type === 'snapshot').length, 2))
   const snapshots = frames.filter((frame) => frame.type === 'snapshot')
   assert.equal(snapshots.length, 2)
   assert.equal((snapshots[1] as { reset?: boolean }).reset, true)
   subscription.dispose()
   router.resume('ssh:e1')
-  await settle()
+  await drain()
   assert.equal(frames.filter((frame) => frame.type === 'snapshot').length, 2, 'a disposed subscription stays quiet')
 })
