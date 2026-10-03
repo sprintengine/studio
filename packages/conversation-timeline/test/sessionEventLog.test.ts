@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
-import type { ConversationEvent, ConversationEventType } from '../../../../../shared/conversation-runtime'
-import { projectConversation } from './conversationProjection'
-import { compactTokenRuns, SeqRanges } from './sessionEventLog'
+import type { ConversationEvent, ConversationEventType } from '../src/protocol.js'
+import { projectConversation } from '../src/conversationProjection.js'
+import { compactTokenRuns, SeqRanges } from '../src/sessionEventLog.js'
 
 test('sequence ranges hold what was seen, however it arrived', () => {
   const ranges = new SeqRanges()

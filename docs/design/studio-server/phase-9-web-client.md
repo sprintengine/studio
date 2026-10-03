@@ -1430,15 +1430,9 @@ recorded here, with the commit that made it.
   `conversation.session` stream and its `loadEarlier`, `toolDetail` and
   `turnDiff`, by workspace and agent and never by folder, and closes the
   socket on anything else; and the embed expires.
-- **Not built: the two packages (5.1).** The embed page uses the app's own
-  projection, timeline and rows in place, under a read-only transport, so a
-  row fixed in the chat is fixed in the embed. Extracting
-  `@sprintengine/conversation-timeline` means moving the projection off
-  `src/shared/conversation-runtime`'s types onto the conversation protocol's,
-  which is its own change; `@sprintengine/conversation-view` (shadow root,
-  generated `--se-*` tokens) follows it. Until then there is no React
-  component for other apps, only the iframe, and the theme message carries
-  the mode alone.
+- **The packages are in 14.10.** The iframe page draws with the app's own
+  rows, under a read-only transport, so a row fixed in the chat is fixed in
+  the embed; the theme message carries the mode alone.
 - **Not built: frozen embeds** (`live: false`); asking for one is refused.
 
 ### 14.6 The browser keymap (2026-10-03)
@@ -1533,3 +1527,32 @@ keeps the same swaps, since the browser's own window still takes
   runs no web listener (in process it cannot, and out of process it is not
   composed with one), so there is no link for it to open; the Browsers
   section is where a link and its QR code are made.
+
+### 14.10 The timeline and view packages (2026-10-03)
+
+- **`@sprintengine/conversation-timeline`** holds the projection, the
+  incremental projection, the timeline, the session event log, the todo
+  progress, the turn folds and step durations, moved unchanged with their
+  tests, and the helpers they read (records, mentions, the API-key source,
+  the prompt cache, subagents, and the two attachment types). The app's old
+  paths are one-line re-exports, so there is one implementation.
+  `stepWentWrong` moved out of the tool row first (`stepOutcome.ts`). Its
+  types are the conversation protocol's; `presentToolItem` and its kin are
+  now exported from that package's entry (the phone's pinned files are
+  unchanged). It adds `createConversationFollower`, the non-visual half of a
+  view over any source that follows a conversation (an agent SDK client's
+  `conversations`), and the protocol window check of 5.5. Not extracted: the
+  app's own session store in `useConversationSession.ts`, which the app keeps;
+  the follower is a new, smaller one for other clients.
+- **`@sprintengine/conversation-view`** is a React component over the
+  follower, read-only, in a shadow root it makes (or under `@layer
+  sprintengine` with `isolation="none"`), themed through `--se-*` tokens. Its
+  rows are its own compact ones, not the app's: the app's rows depend on
+  Studio's design system, Monaco-free but not Tailwind-free, and drawing them
+  outside the app is a larger move. Prose is drawn as React elements from a
+  small markdown subset, never as HTML. The token defaults are the semantic
+  tokens' values at release, written in the package rather than generated.
+- Both have a build, a README, a changelog and a pack check
+  (`test:studio-packages:pack`, which also compiles the view's example
+  against the packed tarballs), and an import-graph test. `docs/embedding-a-conversation.md`
+  covers the iframe and the component.

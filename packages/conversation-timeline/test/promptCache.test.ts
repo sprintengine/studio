@@ -1,6 +1,6 @@
 import { test } from 'vitest'
 import assert from 'node:assert/strict'
-import { applyPromptCacheEvent, parsePromptCacheReading, terminalCompactBlocker } from './prompt-cache'
+import { applyPromptCacheEvent, parsePromptCacheReading, terminalCompactBlocker } from '../src/promptCache.js'
 
 const NOW = 1_800_000_000_000
 

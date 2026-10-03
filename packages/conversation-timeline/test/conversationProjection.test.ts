@@ -1,8 +1,8 @@
 import { expect, test } from 'vitest'
-import type { ConversationEvent, ConversationEventType } from '../../../../../shared/conversation-runtime'
-import { projectConversation, type TranscriptEntry } from './conversationProjection'
-import { deriveConversationTimelineRows } from './conversationTimeline'
-import { applyEvent, createConversationProjectionState } from './incrementalConversationProjection'
+import type { ConversationEvent, ConversationEventType } from '../src/protocol.js'
+import { projectConversation, type TranscriptEntry } from '../src/conversationProjection.js'
+import { deriveConversationTimelineRows } from '../src/conversationTimeline.js'
+import { applyEvent, createConversationProjectionState } from '../src/incrementalConversationProjection.js'
 
 // `at` is the event's clock in milliseconds, so reasoning durations are exact.
 function event(

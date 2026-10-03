@@ -1,11 +1,12 @@
-// Exercise the Studio protocol's and the agent SDK's tarballs the way a third
-// party installs them: packed, installed together with the conversation
-// protocol's tarball they depend on (no registry, no network), and loaded from
-// both module systems, with Node16 declarations checked by a consumer that
-// imports them by name.
+// Exercise the Studio protocol's, the agent SDK's and the conversation
+// timeline's and view's tarballs the way a third party installs them: packed,
+// installed together with the conversation protocol's tarball they depend on
+// (no registry, no network; React is this repository's own copy), and loaded
+// from both module systems, with Node16 declarations checked by a consumer
+// that imports them by name, the view's example among them.
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -19,7 +20,16 @@ const env = {
   ...process.env,
   PATH: `${dirname(process.execPath)}${process.platform === 'win32' ? ';' : ':'}${process.env.PATH}`,
 }
-const run = (command, args, cwd = fixture) => execFileSync(command, args, { cwd, env, stdio: 'pipe' }).toString('utf8')
+const run = (command, args, cwd = fixture) => {
+  try {
+    return execFileSync(command, args, { cwd, env, stdio: 'pipe' }).toString('utf8')
+  } catch (error) {
+    // What the command said, as text: a compiler's errors are the point.
+    throw new Error(
+      `${command} ${args.join(' ')}\n${error.stdout?.toString('utf8') ?? ''}${error.stderr?.toString('utf8') ?? ''}`,
+    )
+  }
+}
 
 /** Build and pack one package directory, returning the tarball's path. */
 function pack(name) {
@@ -41,9 +51,29 @@ async function load(name, entry = '.') {
 }
 
 try {
-  const tarballs = ['conversation-protocol', 'studio-protocol', 'agent-sdk'].map(pack)
+  const tarballs = [
+    'conversation-protocol',
+    'studio-protocol',
+    'agent-sdk',
+    'conversation-timeline',
+    'conversation-view',
+  ].map(pack)
+  // The view's peer, from this repository rather than a registry.
+  const react = ['react', 'react-dom', '@types/react', '@types/react-dom'].map((name) =>
+    join(root, 'node_modules', name),
+  )
   writeFileSync(join(fixture, 'package.json'), JSON.stringify({ private: true }))
-  run('npm', ['install', '--ignore-scripts', '--no-save', '--no-package-lock', '--no-audit', '--no-fund', ...tarballs])
+  run('npm', [
+    'install',
+    '--ignore-scripts',
+    '--no-save',
+    '--no-package-lock',
+    '--no-audit',
+    '--no-fund',
+    '--install-links',
+    ...tarballs,
+    ...react,
+  ])
 
   for (const loaded of await load('studio-protocol')) {
     assert.equal(loaded.STUDIO_PROTOCOL_VERSION, 1)
@@ -84,6 +114,24 @@ try {
       '/Users/dev/Library/Application Support/SprintEngine Studio',
     )
   }
+  for (const loaded of await load('conversation-timeline')) {
+    assert.equal(typeof loaded.createConversationFollower, 'function')
+    assert.equal(typeof loaded.deriveConversationTimelineRows, 'function')
+    assert.equal(loaded.checkConversationTimelineProtocol({ protocolVersion: 1 }).ok, true)
+    assert.equal(loaded.projectConversation([], []).entries.length, 0)
+  }
+  for (const loaded of await load('conversation-view')) {
+    assert.equal(typeof loaded.ConversationView, 'function')
+    assert.ok(loaded.SE_TOKENS.includes('bg'))
+    assert.equal(loaded.themeStyle('dark')['--se-text'], '#ececec')
+  }
+  for (const [name, file, dependency] of [
+    ['conversation-timeline', 'protocol.js', '@sprintengine/conversation-protocol'],
+    ['conversation-view', 'timeline.js', '@sprintengine/conversation-timeline'],
+  ]) {
+    const source = readFileSync(join(fixture, 'node_modules', '@sprintengine', name, 'dist', 'esm', file), 'utf8')
+    assert.match(source, new RegExp(dependency.replace('/', '\\/')))
+  }
   const sdkSource = readFileSync(
     join(fixture, 'node_modules', '@sprintengine', 'agent-sdk', 'dist', 'esm', 'protocol.js'),
     'utf8',
@@ -106,8 +154,18 @@ const client: StudioClient | null = null
 const conversation: Conversation | null = null
 const stream: ConversationEventStream | null = null
 console.log(connect, approvalRequestOf, new StudioError('x', 'y').code, client, conversation, stream, connectToStudio, socketTransport)
+import { createConversationFollower, type ConversationTimelineRow, type ConversationFollowSource } from '@sprintengine/conversation-timeline'
+import { ConversationView, type ConversationViewProps } from '@sprintengine/conversation-view'
+const row: ConversationTimelineRow | null = null
+const followSource: ConversationFollowSource | null = null
+const props: ConversationViewProps | null = null
+console.log(createConversationFollower, row, followSource, ConversationView, props)
 `
   for (const extension of ['cts', 'mts']) writeFileSync(join(fixture, `consumer.${extension}`), consumer)
+  copyFileSync(
+    join(root, 'packages', 'conversation-view', 'examples', 'ReadOnlyConversation.tsx'),
+    join(fixture, 'ReadOnlyConversation.tsx'),
+  )
   writeFileSync(
     join(fixture, 'tsconfig.json'),
     JSON.stringify({
@@ -117,14 +175,17 @@ console.log(connect, approvalRequestOf, new StudioError('x', 'y').code, client, 
         moduleResolution: 'Node16',
         strict: true,
         noEmit: true,
+        jsx: 'react-jsx',
         types: ['node'],
         typeRoots: [join(root, 'node_modules', '@types')],
       },
-      include: ['consumer.cts', 'consumer.mts'],
+      include: ['consumer.cts', 'consumer.mts', 'ReadOnlyConversation.tsx'],
     }),
   )
   run(process.execPath, [compiler, '-p', join(fixture, 'tsconfig.json')])
-  console.log('studio-protocol and agent-sdk pack verification passed (ESM, CommonJS, Node16 declarations)')
+  console.log(
+    'studio-protocol, agent-sdk, conversation-timeline and conversation-view pack verification passed (ESM, CommonJS, Node16 declarations)',
+  )
 } finally {
   // Only the directory created above is removed, never a caller-owned path.
   rmSync(fixture, { recursive: true, force: true })

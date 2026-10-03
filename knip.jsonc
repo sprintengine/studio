@@ -35,6 +35,9 @@
     // The agent SDK's published entries, the client and its Node half.
     "packages/agent-sdk/src/index.ts",
     "packages/agent-sdk/src/node.ts",
+    // The conversation timeline's and view's published entries.
+    "packages/conversation-timeline/src/public.ts",
+    "packages/conversation-view/src/public.ts",
   ],
   "project": [
     "src/**/*.{ts,tsx}",

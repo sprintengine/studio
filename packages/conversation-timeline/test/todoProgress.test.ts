@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
-import { deriveTodoProgress, readTodoSteps } from './todoProgress'
-import type { TranscriptEntry } from './conversationProjection'
+import { deriveTodoProgress, readTodoSteps } from '../src/todoProgress.js'
+import type { TranscriptEntry } from '../src/conversationProjection.js'
 
 type Assistant = Extract<TranscriptEntry, { kind: 'assistant' }>
 

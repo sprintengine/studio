@@ -1,6 +1,6 @@
 import { test } from 'vitest'
 import assert from 'node:assert/strict'
-import { apiKeyBillingNotice, normalizeApiKeySource } from './apiKeySource'
+import { apiKeyBillingNotice, normalizeApiKeySource } from '../src/apiKeySource.js'
 
 test('only the SDK labels survive normalization', () => {
   assert.equal(normalizeApiKeySource('none'), 'none')

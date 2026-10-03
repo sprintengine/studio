@@ -9,8 +9,8 @@ import {
   turnFoldedSteps,
   turnFoldFailures,
   turnShownWork,
-} from './turnFolds'
-import type { TranscriptEntry, TranscriptToolEntry } from './conversationProjection'
+} from '../src/turnFolds.js'
+import type { TranscriptEntry, TranscriptToolEntry } from '../src/conversationProjection.js'
 const tools: TranscriptToolEntry[] = ['one', 'two'].map((id) => ({
   kind: 'tool',
   id,

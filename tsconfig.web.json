@@ -1,6 +1,9 @@
 {
   "extends": "@electron-toolkit/tsconfig/tsconfig.web.json",
   "include": [
+    "packages/conversation-timeline/src/**/*.ts",
+    "packages/conversation-view/src/**/*.ts",
+    "packages/conversation-view/src/**/*.tsx",
     "packages/conversation-protocol/src/**/*.ts",
     "packages/studio-protocol/src/**/*.ts",
     "packages/agent-sdk/src/index.ts",

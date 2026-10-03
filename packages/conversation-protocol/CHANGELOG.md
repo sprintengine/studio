@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **The tool presentation is public.** `presentToolItem`, `toolActionVerb`
+  and `summarizeToolGroup` (with `PresentableTool` and `ToolPresentation`)
+  are exported from the entry, for views that word a tool step as Studio
+  does. The pinned files are unchanged.
+
 ## 0.2.0
 
 The package becomes the one conversation contract: what the tailnet lane, the

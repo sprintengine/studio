@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
-import type { ConversationEvent, ConversationEventType } from '../../../../../shared/conversation-runtime'
-import { projectConversation } from './conversationProjection'
-import { deriveConversationTimelineRows } from './conversationTimeline'
+import type { ConversationEvent, ConversationEventType } from '../src/protocol.js'
+import { projectConversation } from '../src/conversationProjection.js'
+import { deriveConversationTimelineRows } from '../src/conversationTimeline.js'
 import {
   applyEvent,
   createConversationProjectionState,
   prependEvents,
   syncConversationProjection,
-} from './incrementalConversationProjection'
+} from '../src/incrementalConversationProjection.js'
 
 function event(type: ConversationEventType, index: number, payload: Record<string, unknown>): ConversationEvent {
   return {

@@ -1,0 +1,51 @@
+{
+  "name": "@sprintengine/conversation-view",
+  "version": "0.1.0",
+  "description": "A SprintEngine Studio conversation, read-only, as a React component another app renders over its own Studio connection.",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sprintengine/studio.git",
+    "directory": "packages/conversation-view"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "main": "./dist/cjs/public.js",
+  "module": "./dist/esm/public.js",
+  "types": "./dist/cjs/public.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/esm/public.d.ts",
+        "default": "./dist/esm/public.js"
+      },
+      "require": {
+        "types": "./dist/cjs/public.d.ts",
+        "default": "./dist/cjs/public.js"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "examples",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "@sprintengine/conversation-timeline": "^0.1.0"
+  },
+  "peerDependencies": {
+    "react": ">=19",
+    "react-dom": ">=19"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "prepack": "npm run build"
+  }
+}
