@@ -6,8 +6,7 @@ import { readStudioEnvironmentId } from '../../main/studio-rpc/studio-rpc-servic
 import { driveMountRootFromMounts, driveMountRootFromWslConf } from '../../shared/host-paths'
 import { startStudioServer, type StudioServer, type StudioServerOptions } from '../studio-server'
 import { BACKEND_WIRE_VERSION, serveConversationBackend } from '../wsl/backend-wire'
-import { createMachineChannels } from '../machine/machine-channels'
-import { createSignIns, resolveOnPath, type SignIns } from '../machine/machine-sign-in'
+import type { SignIns } from '../machine/machine-sign-in'
 import { startFrontDoorListeners, type FrontDoorListeners } from '../wsl/front-door-listener'
 import type { FrontDoorPurpose } from '../wsl/front-door-proof'
 import { SERVER_EXIT, type FrontDoorReady, type ServerBootstrapEnvelope } from './envelope'
@@ -58,12 +57,21 @@ function readText(path: string): string | null {
   }
 }
 
+// Loaded on first use, not at start: the desktop's bundle loads its
+// dependencies from node_modules, and a server that never serves a machine's
+// files must not need them to start.
 let signInTable: SignIns | null = null
-const signIns = (): SignIns => (signInTable ??= createSignIns({ resolve: resolveOnPath }))
+const signInsLoaded = (): Promise<SignIns> =>
+  import('../machine/machine-sign-in').then(
+    ({ createSignIns, resolveOnPath }) => (signInTable ??= createSignIns({ resolve: resolveOnPath })),
+  )
 
 // Made once, on first use: a server whose clients never ask reads nothing.
-let machineTable: ReturnType<typeof createMachineChannels> | null = null
-const machineChannels = (): ReturnType<typeof createMachineChannels> => (machineTable ??= createMachineChannels())
+let machineTable: Promise<(channel: string, args: unknown[]) => Promise<unknown>> | null = null
+const machineChannels = (channel: string, args: unknown[]): Promise<unknown> =>
+  (machineTable ??= import('../machine/machine-channels').then(({ createMachineChannels }) =>
+    createMachineChannels(),
+  )).then((answer) => answer(channel, args))
 
 /** Hand an admitted front-door connection to what it asked for. */
 export function serveFrontDoorPurpose(
@@ -73,7 +81,11 @@ export function serveFrontDoorPurpose(
   log: (message: string) => void,
 ): void {
   if (purpose === 'backend') {
-    serveConversationBackend(server.core.conversations, stream, { log, machine: machineChannels(), signIns })
+    serveConversationBackend(server.core.conversations, stream, {
+      log,
+      machine: machineChannels,
+      signIns: signInsLoaded,
+    })
     return
   }
   // The ticket goes first, on its own line, before the Studio protocol starts:

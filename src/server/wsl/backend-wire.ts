@@ -179,7 +179,7 @@ export function serveConversationBackend(
     /** The machine channels, for a client whose workspace is on this server's machine (an SSH machine's, phase 8). */
     machine?: (channel: string, args: unknown[]) => Promise<unknown>
     /** CLI sign-ins on this server's machine, with no terminal (decision R34). */
-    signIns?: () => SignIns
+    signIns?: () => Promise<SignIns>
   } = {},
 ): { close(): void } {
   const frames = lineFrames(stream)
@@ -188,11 +188,12 @@ export function serveConversationBackend(
   if (signIns)
     rpc.handle(BACKEND_WIRE.signIn, async (params) => {
       const { op, cli, id, code } = (params ?? {}) as { op?: unknown; cli?: unknown; id?: unknown; code?: unknown }
-      if (op === 'start' && typeof cli === 'string') return signIns().start(cli)
-      if (op === 'paste' && typeof id === 'string' && typeof code === 'string') return signIns().paste(id, code)
-      if (op === 'wait' && typeof id === 'string') return signIns().wait(id)
+      const table = await signIns()
+      if (op === 'start' && typeof cli === 'string') return table.start(cli)
+      if (op === 'paste' && typeof id === 'string' && typeof code === 'string') return table.paste(id, code)
+      if (op === 'wait' && typeof id === 'string') return table.wait(id)
       if (op === 'cancel' && typeof id === 'string') {
-        signIns().cancel(id)
+        table.cancel(id)
         return { ok: true }
       }
       throw new Error('That is not a sign-in step.')
