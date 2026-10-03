@@ -3,6 +3,7 @@ import { ChatGlyph, NewChatIcon, RemoteMachineGlyph, ScheduleGlyph, resolveEnabl
 import CliIcon from '../CliIcon'
 import { PromptCacheMark } from './PromptCacheMark'
 import type { ConversationSessionSummary } from '../../../../shared/conversation-runtime'
+import type { BranchPullRequest } from '../../../../shared/git/pull-request'
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
 import {
   conversationFinishedAt,
@@ -17,7 +18,7 @@ import { summariesEqual, useSidebarGitSummaries } from './useSidebarGitSummaries
 import { checkoutPathsOf, lineOfRemoteRow, terminalLinesOf } from './terminalLines'
 import { suspendWorkspaceTerminals, terminateWorkspaceTerminals } from './workspaceTerminalTermination'
 import { ConversationPeekPopover } from './ConversationPeekPopover'
-import { ProjectPullRequestMark, PullRequestMark } from './PullRequestMark'
+import { openPullRequestCount, ProjectPullRequestMark, PullRequestMark } from './PullRequestMark'
 import {
   pullRequestsForRow,
   useConversationPullRequests,
@@ -1053,23 +1054,20 @@ function WorkspaceSidebar({
   // Open only. A conversation keeps its merged pull requests because that is its
   // history; a project's count is a to-do, and a merged one has nothing left to
   // do (`ProjectPullRequestMark`).
-  //
-  // Counted by URL: two chats that worked on one branch both wear its pull
-  // request, and the project has one thing to do about it, not two.
+  // Each pull request once, however many of the project's chats wear it.
   const openPullRequestsByGroup = useMemo(() => {
-    const urls = new Map<string, Set<string>>()
+    const lists = new Map<string, Array<readonly BranchPullRequest[]>>()
     for (const workspace of workspaces) {
       const list = conversationPullRequests[workspace.id]
       if (!list || list.length === 0) continue
-      const open = list.filter((pr) => pr.state === 'open')
-      if (open.length === 0) continue
       const groupKey = keyOf(workspace)
-      const seen = urls.get(groupKey) ?? new Set<string>()
-      for (const pr of open) seen.add(pr.url)
-      urls.set(groupKey, seen)
+      lists.set(groupKey, [...(lists.get(groupKey) ?? []), list])
     }
     const map = new Map<string, number>()
-    for (const [groupKey, seen] of urls) map.set(groupKey, seen.size)
+    for (const [groupKey, group] of lists) {
+      const open = openPullRequestCount(...group)
+      if (open > 0) map.set(groupKey, open)
+    }
     return map
   }, [conversationPullRequests, keyOf, workspaces])
   // ─── One colour per project, worn on the folder glyph ──────────────────
