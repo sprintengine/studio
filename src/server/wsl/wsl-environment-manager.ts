@@ -342,10 +342,13 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
       // The server is still there but the wire went: one reconnect, then the
       // server is stopped and the next call starts it afresh.
       log(`The connection to the Studio server in ${handle.distro} closed (${why}); reconnecting.`)
-      void connectBackend(handle).then(
-        (next) => {
-          handle.connection = next
-        },
+      // Held as the start in progress, so a call meanwhile waits for this
+      // reconnect instead of opening a second wire beside it.
+      const reconnecting = (handle.starting ??= connectBackend(handle).finally(() => {
+        if (handle.starting === reconnecting) handle.starting = null
+      }))
+      void reconnecting.then(
+        () => undefined,
         (error: unknown) => {
           setStatus(handle, {
             state: 'unavailable',

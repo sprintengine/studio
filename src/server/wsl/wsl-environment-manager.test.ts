@@ -197,6 +197,22 @@ test('with the bridge chosen, the server is reached through the stdio relay and 
   assert.ok(threads.ok)
 })
 
+test('a lost wire is reconnected once, and a call meanwhile waits for it instead of opening another', async () => {
+  const home = fakeHome('reconnect')
+  const connections: WslServerConnection[] = []
+  const { manager: wsl } = manager({ homes: { Ubuntu: home }, connected: (connection) => connections.push(connection) })
+  const first = await wsl.connect('Ubuntu')
+  const pid = readServerPid(home)
+  first.backend.close()
+  const second = await wsl.connect('Ubuntu')
+  assert.notEqual(second, first)
+  assert.equal(connections.length, 2, 'one reconnect, not a second wire beside it')
+  assert.equal(await wsl.connect('Ubuntu'), second)
+  assert.equal(readServerPid(home), pid, 'the same server')
+  const threads = await second.backend.listThreads({ workspaceRoot: join(home, 'repo'), workspaceId: 'ws-1' })
+  assert.ok(threads.ok)
+})
+
 test('a WSL 1 distribution is refused with the command that converts it, and nothing is started', async () => {
   const home = fakeHome('wsl1')
   const { manager: wsl, runner } = manager({
