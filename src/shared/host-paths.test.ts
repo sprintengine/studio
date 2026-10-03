@@ -7,6 +7,9 @@ import {
   isWindowsPath,
   isWslDriveMountPath,
   linuxPathUnderRoot,
+  driveMountRootFromMounts,
+  driveMountRootFromWslConf,
+  normalizeDriveMountRoot,
   toWslPath,
   wslInputInRootSpelling,
   wslPathInRootSpelling,
@@ -248,4 +251,45 @@ test('a path an agent in WSL names comes back to the spelling it left in', () =>
     '//wsl.localhost/Ubuntu/x',
     'a share path is already this machine’s',
   )
+})
+
+test('a learned drive mount root moves every drive path with it, both ways', () => {
+  for (const [root, expected] of [
+    [undefined, '/mnt/c/Users/dev/repo'],
+    ['/mnt/', '/mnt/c/Users/dev/repo'],
+    ['/', '/c/Users/dev/repo'],
+    ['/win/', '/win/c/Users/dev/repo'],
+    ['/win', '/win/c/Users/dev/repo'],
+  ] as const) {
+    const options = root === undefined ? {} : { driveMountRoot: root }
+    assert.equal(toWslPath('C:\\Users\\dev\\repo', options), expected, String(root))
+    assert.equal(wslToWindowsPath(expected, options), 'C:\\Users\\dev\\repo', String(root))
+  }
+  // Under another root, /mnt/c is a Linux folder like any other.
+  assert.equal(
+    wslToWindowsPath('/mnt/c/x', { driveMountRoot: '/win/', distro: 'Ubuntu' }),
+    '\\\\wsl.localhost\\Ubuntu\\mnt\\c\\x',
+  )
+  assert.equal(toWslPath('\\\\wsl.localhost\\Ubuntu\\home\\dev', { driveMountRoot: '/win/' }), '/home/dev')
+  assert.equal(normalizeDriveMountRoot('relative/'), '/mnt/', 'a root that is not absolute is the default')
+  assert.equal(normalizeDriveMountRoot(null), '/mnt/')
+})
+
+test('the drive mount root is read from what is mounted, or from wsl.conf', () => {
+  const mounts = [
+    'none /usr/lib/wsl/drivers 9p ro,dirsync,aname=drivers 0 0',
+    '/dev/sdc / ext4 rw,relatime 0 0',
+    'C:\\134 /win/c 9p rw,dirsync,aname=drvfs;path=C:\\;uid=1000 0 0',
+  ].join('\n')
+  assert.equal(driveMountRootFromMounts(mounts), '/win/')
+  assert.equal(driveMountRootFromMounts('drvfs /mnt/c drvfs rw 0 0\nC: /mnt/c drvfs rw 0 0'), '/mnt/')
+  assert.equal(driveMountRootFromMounts('C:\\ /c 9p rw 0 0'), '/')
+  assert.equal(driveMountRootFromMounts('/dev/sdc / ext4 rw 0 0'), null, 'no drive mounted is automount off')
+
+  assert.equal(driveMountRootFromWslConf(null), '/mnt/')
+  assert.equal(driveMountRootFromWslConf('[boot]\nsystemd=true\n'), '/mnt/')
+  assert.equal(driveMountRootFromWslConf('[automount]\nroot = /\n'), '/')
+  assert.equal(driveMountRootFromWslConf('[automount]\nroot="/win/" # comment\n'), '/win/')
+  assert.equal(driveMountRootFromWslConf('[automount]\nenabled = false\nroot = /win/\n'), null)
+  assert.equal(driveMountRootFromWslConf('[user]\nroot = /nope/\n'), '/mnt/', 'another section says nothing')
 })

@@ -575,6 +575,12 @@ whole list to per-environment registries is the environment work of phase 8.
   parameter, defaulting to `/mnt/`. A distro with automount off cannot serve a
   `C:\` workspace at all, and the environment says so when such a workspace is
   routed there.
+- As built (2026-10-03): `toWslPath` and `wslToWindowsPath` take a
+  `driveMountRoot` (default `/mnt/`). The server reads the root from
+  `/proc/mounts` (a `9p` or `drvfs` mount whose source is a drive), falling
+  back to `/etc/wsl.conf`'s `[automount]` section (`driveMountRootFromMounts`,
+  `driveMountRootFromWslConf`), and reports it in `ready`. The helper is not
+  changed: the per-process path keeps assuming `/mnt/`, as it does today.
 
 ## 6. Which server owns a `C:\` workspace
 

@@ -47,13 +47,93 @@ export function distroOfUncPath(path: string): string | null {
  * the conversion is idempotent. The distribution in a share path is dropped
  * here; `distroOfUncPath` reads it, and the launch passes it to `wsl.exe -d`.
  */
-export function toWslPath(path: string): string {
+export function toWslPath(path: string, options: WslDriveMountOptions = {}): string {
   const normalized = forwardSlashes(path)
   const drive = DRIVE_PATH.exec(normalized)
-  if (drive) return `/mnt/${drive[1].toLowerCase()}/${drive[2] ?? ''}`
+  if (drive) return `${driveMountRootOf(options)}${drive[1].toLowerCase()}/${drive[2] ?? ''}`
   const share = WSL_SHARE_PATH.exec(normalized)
   if (share) return share[2] ?? '/'
   return normalized
+}
+
+/**
+ * Where a distribution mounts the Windows drives. `/mnt/` unless its
+ * `/etc/wsl.conf` says otherwise (`[automount] root = /` or `root = /win/`),
+ * which only the distribution itself can tell; a Studio server inside it
+ * learns the root and reports it, and every translation at the edge takes it
+ * as given. Absent is the default.
+ */
+export type WslDriveMountOptions = { driveMountRoot?: string }
+
+/** The default drive mount root, which `toWslPath` has always assumed. */
+export const DEFAULT_WSL_DRIVE_MOUNT_ROOT = '/mnt/'
+
+/**
+ * A mount root as the translations use it: absolute, ending in one `/`.
+ * Anything that is not an absolute Linux path is the default.
+ */
+export function normalizeDriveMountRoot(root: string | null | undefined): string {
+  if (!root || !root.startsWith('/') || root.startsWith('//')) return DEFAULT_WSL_DRIVE_MOUNT_ROOT
+  const trimmed = forwardSlashes(root).replace(/\/+$/u, '')
+  return `${trimmed}/`
+}
+
+function driveMountRootOf(options: WslDriveMountOptions): string {
+  return normalizeDriveMountRoot(options.driveMountRoot)
+}
+
+function driveMountPattern(root: string): RegExp {
+  if (root === DEFAULT_WSL_DRIVE_MOUNT_ROOT) return WSL_DRIVE_MOUNT
+  const escaped = root.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+  return new RegExp(`^${escaped}([A-Za-z])(?:/(.*))?$`, 'u')
+}
+
+/**
+ * The drive mount root a distribution reports, from what its kernel lists
+ * as mounted (`/proc/mounts`): a `9p` or `drvfs` mount whose source is a
+ * drive (`C:\`). Null when no drive is mounted, which is automount off.
+ */
+export function driveMountRootFromMounts(procMounts: string): string | null {
+  for (const line of procMounts.split(/\r?\n/u)) {
+    const [source, mountPoint, fsType] = line.split(/\s+/u)
+    if (!source || !mountPoint || !fsType) continue
+    if (fsType !== '9p' && fsType !== 'drvfs') continue
+    // Sources are escaped the octal way (`C:\134` for `C:\`).
+    const drive = /^([A-Za-z]):(?:\\|\\134|\/)?/u.exec(source)
+    if (!drive) continue
+    const point = mountPoint.replace(/\\040/gu, ' ')
+    const match = /^(.*\/)([A-Za-z])\/?$/u.exec(point)
+    if (match && match[2].toLowerCase() === drive[1].toLowerCase()) return match[1]
+  }
+  return null
+}
+
+/**
+ * The drive mount root `/etc/wsl.conf` asks for: its `[automount]` section's
+ * `root`, or `/mnt/`; null when that section turns automount off.
+ */
+export function driveMountRootFromWslConf(text: string | null): string | null {
+  if (!text) return DEFAULT_WSL_DRIVE_MOUNT_ROOT
+  let section = ''
+  let root: string | null = null
+  let enabled = true
+  for (const raw of text.split(/\r?\n/u)) {
+    const line = raw.replace(/[#;].*$/u, '').trim()
+    if (!line) continue
+    const header = /^\[([^\]]+)\]$/u.exec(line)
+    if (header) {
+      section = header[1].trim().toLowerCase()
+      continue
+    }
+    if (section !== 'automount') continue
+    const pair = /^([A-Za-z]+)\s*=\s*(.*)$/u.exec(line)
+    if (!pair) continue
+    const key = pair[1].toLowerCase()
+    const value = pair[2].trim().replace(/^"(.*)"$/u, '$1')
+    if (key === 'enabled') enabled = !/^(false|0|no)$/iu.test(value)
+    if (key === 'root') root = value
+  }
+  return enabled ? normalizeDriveMountRoot(root) : null
 }
 
 export type WslToWindowsOptions = {
@@ -66,7 +146,7 @@ export type WslToWindowsOptions = {
   distro?: string
   /** Separator for the result. Git and Node accept `/` on Windows as well. */
   separator?: '\\' | '/'
-}
+} & WslDriveMountOptions
 
 /**
  * A Linux path under WSL as Windows opens it.
@@ -80,7 +160,7 @@ export type WslToWindowsOptions = {
 export function wslToWindowsPath(path: string, options: WslToWindowsOptions = {}): string {
   const separator = options.separator ?? '\\'
   const normalized = forwardSlashes(path)
-  const mount = WSL_DRIVE_MOUNT.exec(normalized)
+  const mount = driveMountPattern(driveMountRootOf(options)).exec(normalized)
   if (mount) {
     const rest = (mount[2] ?? '').split('/').join(separator)
     return `${mount[1].toUpperCase()}:${separator}${rest}`
