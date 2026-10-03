@@ -224,9 +224,10 @@ export function createPreviewProxy(options: PreviewProxyOptions): PreviewProxy {
     // Most dev servers send no policy at all, and every local port is the same
     // site as this one: without its own `frame-ancestors`, any page on the
     // machine could frame the app with its cookie. A second policy holds
-    // whatever the app's own says (a browser enforces every one it is sent).
+    // whatever the app's own says: one header may carry several policies,
+    // comma-separated, and a browser enforces every one.
     const ancestors = options.studioOrigins.length > 0 ? options.studioOrigins.join(' ') : "'none'"
-    out['content-security-policy'] = [...appCsp, `frame-ancestors ${ancestors}`]
+    out['content-security-policy'] = [...appCsp, `frame-ancestors ${ancestors}`].join(', ')
     return out
   }
 
