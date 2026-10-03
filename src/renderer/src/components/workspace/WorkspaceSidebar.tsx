@@ -163,6 +163,11 @@ type WorkspaceSidebarProps = {
   workspaceWindowId: string
   isDetachedWindow: boolean
   sidebarCollapsed: boolean
+  /**
+   * At a phone's width the sidebar takes the whole width in turn with the
+   * content (useNarrowViewport): no resize edge, no width of its own.
+   */
+  fillWidth?: boolean
   // The sidebar's own top strip (SidebarChrome) — window controls that run to the
   // top of the full-height sidebar. Rendered as the first child inside the aside
   // so it shares the column's exact width and resize behavior.
@@ -271,6 +276,7 @@ function WorkspaceSidebar({
   workspaceWindowId,
   isDetachedWindow,
   sidebarCollapsed,
+  fillWidth = false,
   chromeSlot,
   contextRail,
   contextRailActive = false,
@@ -2291,7 +2297,7 @@ function WorkspaceSidebar({
       // straight to this element and never to the store), so an unrelated
       // re-render mid-drag keeps the current width instead of the stale store one.
       style={
-        sidebarCollapsed
+        sidebarCollapsed || fillWidth
           ? undefined
           : {
               width: clampSidebarWidth(
@@ -2308,36 +2314,38 @@ function WorkspaceSidebar({
               maxWidth: '45%',
             }
       }
-      className={`relative flex shrink-0 flex-col bg-[color:var(--bg-canvas)] ${
+      className={`relative flex flex-col bg-[color:var(--bg-canvas)] ${fillWidth ? 'min-w-0 flex-1' : 'shrink-0'} ${
         isResizingSidebar ? '' : 'transition-[width] duration-150 ease-out motion-reduce:transition-none'
       } ${sidebarCollapsed ? 'hidden' : ''}`}
     >
       {/* Drag the right edge to resize; drag it close to the left to collapse.
           A focusable separator is a window splitter, so it says its position:
           the sidebar's width within its bounds. */}
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize sidebar"
-        aria-valuenow={Math.round(sidebarWidth)}
-        aria-valuemin={SIDEBAR_MIN_WIDTH}
-        aria-valuemax={SIDEBAR_MAX_WIDTH}
-        tabIndex={0}
-        onPointerDown={handleResizePointerDown}
-        onKeyDown={handleResizeKeyDown}
-        onDoubleClick={handleResizeDoubleClick}
-        className={`group absolute right-0 top-0 z-[var(--z-pane)] h-full w-1.5 translate-x-1/2 cursor-col-resize ${FOCUS_RING_CLASS}`}
-      >
-        <span
-          aria-hidden="true"
-          // Starts BELOW the 36px band, exactly like the app rail's hairline
-          // (AppRail.tsx): nothing draws a vertical line through the top bar,
-          // and this indicator used to run the window's full height.
-          className={`absolute bottom-0 top-[36px] left-1/2 w-px -translate-x-1/2 bg-[color:var(--accent-primary)] transition-opacity ${
-            isResizingSidebar ? 'opacity-100' : 'opacity-0 group-hover:opacity-60'
-          }`}
-        />
-      </div>
+      {fillWidth ? null : (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize sidebar"
+          aria-valuenow={Math.round(sidebarWidth)}
+          aria-valuemin={SIDEBAR_MIN_WIDTH}
+          aria-valuemax={SIDEBAR_MAX_WIDTH}
+          tabIndex={0}
+          onPointerDown={handleResizePointerDown}
+          onKeyDown={handleResizeKeyDown}
+          onDoubleClick={handleResizeDoubleClick}
+          className={`group absolute right-0 top-0 z-[var(--z-pane)] h-full w-1.5 translate-x-1/2 cursor-col-resize ${FOCUS_RING_CLASS}`}
+        >
+          <span
+            aria-hidden="true"
+            // Starts BELOW the 36px band, exactly like the app rail's hairline
+            // (AppRail.tsx): nothing draws a vertical line through the top bar,
+            // and this indicator used to run the window's full height.
+            className={`absolute bottom-0 top-[36px] left-1/2 w-px -translate-x-1/2 bg-[color:var(--accent-primary)] transition-opacity ${
+              isResizingSidebar ? 'opacity-100' : 'opacity-0 group-hover:opacity-60'
+            }`}
+          />
+        </div>
+      )}
       {/*
        * The sidebar runs to the top of the window, so its own top strip
        * (SidebarChrome) leads: window controls (collapse, search, back/forward,

@@ -21,6 +21,8 @@
 // - removing a browser sends its tab back to pairing at once;
 // - a file with no path dropped on the composer is uploaded, and its path on
 //   the server typed into the message;
+// - at a phone's width the sidebar and the content take turns at the full
+//   width;
 // - a bundle replaced under an open tab makes it offer a reload.
 
 import assert from 'node:assert/strict'
@@ -278,6 +280,32 @@ try {
     assert.ok(path, `a quoted server path is typed: ${typed}`)
     assert.ok(path.startsWith(dataDir), 'the path is in the server data directory')
     assert.equal(readFileSync(path, 'utf8'), 'quarterly numbers\n')
+  })
+
+  await step("at a phone's width the sidebar and the content take turns at the full width", async () => {
+    const phone = await (await browser.newContext({ viewport: { width: 390, height: 780 }, isMobile: true })).newPage()
+    await phone.goto(pairingLink())
+    await phone.waitForURL(`${origin}/`, { timeout: 15_000 })
+    const sidebar = phone.locator('aside[aria-label="Workspaces"]')
+    await phone
+      .getByRole('button', { name: /sidebar/iu })
+      .first()
+      .waitFor({ timeout: 15_000 })
+    assert.equal(await sidebar.isVisible(), false, 'the content has the screen at first')
+    await phone
+      .getByRole('button', { name: /sidebar/iu })
+      .first()
+      .click()
+    await sidebar.waitFor({ state: 'visible' })
+    const box = await sidebar.boundingBox()
+    assert.ok(box && box.width > 250, 'the sidebar fills the width beside the rail')
+    assert.equal(await phone.evaluate(() => document.documentElement.scrollWidth), 390, 'nothing scrolls sideways')
+    await phone
+      .getByRole('button', { name: /sidebar/iu })
+      .first()
+      .click()
+    await sidebar.waitFor({ state: 'hidden' })
+    await phone.context().close()
   })
 
   await step('a bundle replaced under an open tab makes it offer a reload', async () => {

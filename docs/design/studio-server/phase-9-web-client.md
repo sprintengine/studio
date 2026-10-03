@@ -1655,3 +1655,25 @@ keeps the same swaps, since the browser's own window still takes
 - Verified in Chromium against the built server: a text file dropped on the
   chat composer and on New chat's was saved and its path typed (the smoke
   test's drop step).
+
+### 14.15 The narrow layout (2026-10-03)
+
+- **Below 640 px** (`useNarrowViewport`, `(max-width: 639px)`) the shell's
+  row switches layout with the same components (owner decision 5): the
+  content (the chat) has the full width, and the sidebar toggle shows the
+  sidebar, with the rail beside it, at the full width instead. Choosing a
+  chat, opening New chat or another surface, or crossing back over 640 px
+  shows the content again.
+- **Not a drawer over the page.** The design system's drawer comes from the
+  right and covers the page on a scrim; a left drawer would be a new
+  component argued in the principles first. Taking turns at the full width
+  needs no overlay, no scrim and no focus trap, and a phone shows one of the
+  two at a time either way.
+- The sidebar stays mounted while the content has the screen, so the tree
+  keeps its scroll and folds; on a wide window its wrapper is
+  `display: contents`, so the desktop's row is unchanged. The desktop's
+  persisted `sidebarCollapsed` is not touched, so a phone does not fold the
+  sidebar of the desktop app sharing the server's settings.
+- Not built: anchoring the composer to `visualViewport` under a software
+  keyboard (7.2); any surface other than the chat route reworked for a
+  phone. The smoke test walks the switch at 390 px.
