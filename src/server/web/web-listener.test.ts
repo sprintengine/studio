@@ -322,3 +322,31 @@ test('pairing by approval: asked from the page’s own origin only, collected on
   expect(approved.headers['set-cookie']?.[0]).toMatch(/^se_s_057639145fa0=sesess_.*HttpOnly; SameSite=Strict/u)
   expect(JSON.parse((await poll()).body)).toEqual({ status: 'expired' })
 })
+
+test("a pairing request through this server's own tailscale serve says which tailnet account asks", async () => {
+  const serveOrigin = 'https://mac-mini.tail1234.ts.net'
+  const askVia = (host: string, origin: string) =>
+    ask('/pair/request', {
+      method: 'POST',
+      headers: {
+        Host: host,
+        Origin: origin,
+        'Content-Type': 'application/json',
+        'Tailscale-User-Login': 'dev@example.com',
+      },
+      body: JSON.stringify({ name: 'Phone' }),
+    })
+  // Before serve is set up, its name is no host of this listener.
+  expect((await askVia('mac-mini.tail1234.ts.net', serveOrigin)).status).toBe(421)
+  listener.addTailscaleServeOrigin(serveOrigin)
+  expect(listener.origins()).toContain(serveOrigin)
+  expect((await askVia('mac-mini.tail1234.ts.net', serveOrigin)).status).toBe(200)
+  // The same header on the loopback name is a local program's, and not believed.
+  expect((await askVia(`127.0.0.1:${port}`, own())).status).toBe(200)
+  const pending = pairRequests.pending()
+  expect(pending.map((request) => [request.route, request.tailnetLogin ?? null])).toEqual([
+    ['tailnet', 'dev@example.com'],
+    ['loopback', null],
+  ])
+  expect(() => listener.addTailscaleServeOrigin('http://mac-mini.tail1234.ts.net')).toThrow(/HTTPS/u)
+})

@@ -42,6 +42,7 @@ import { openWebStaticRoot, type WebStaticRoot } from './web-static'
 import { createEmbedRoutes } from './embed-routes'
 import { createEmbedStore, gateEmbedFrames, type EmbedCreateInput, type EmbedStore } from './embeds'
 import { WEB_RUN_FILENAME, readWebRunFile, type WebRunFile } from './web-run-file'
+import { serveWebOnTailnet, type WebTailscaleServe } from './web-tailscale-serve'
 
 // The web client's side of a standalone server (phase 9): the web listener,
 // the browser sessions it admits, and what a web tab reaches through it. Off
@@ -72,6 +73,8 @@ export type WebFrontDoorOptions = {
   staticDir: string | null
   /** Third-party renderer modules on the web (R61): off unless the owner switches them on. */
   thirdPartyModules?: boolean
+  /** Publish the listener on the tailnet over HTTPS with `tailscale serve`, on this port (R19). */
+  tailscaleServe?: { port: number } | null
 }
 
 export type WebFrontDoor = {
@@ -356,6 +359,22 @@ export async function startWebFrontDoor(input: {
   listenerPort = port
   const url = `http://127.0.0.1:${port}`
 
+  let tailnet: WebTailscaleServe | null = null
+  if (input.options.tailscaleServe) {
+    try {
+      tailnet = await serveWebOnTailnet({
+        localPort: port,
+        servePort: input.options.tailscaleServe.port,
+        runDir: join(dataDir, 'run'),
+        log: input.log,
+      })
+    } catch (error) {
+      await listener.stop().catch(() => undefined)
+      throw error
+    }
+    listener.addTailscaleServeOrigin(tailnet.origin)
+  }
+
   const runFile = join(dataDir, 'run', WEB_RUN_FILENAME)
   const body: WebRunFile = { pid: process.pid, port, url, origins: listener.origins(), mintKey }
   const staged = `${runFile}.${process.pid}.tmp`
@@ -374,6 +393,7 @@ export async function startWebFrontDoor(input: {
       stopEmbedRevocations()
       stopRequestPushes()
       stopRevokePushes()
+      await tailnet?.stop().catch(() => undefined)
       await previews.stop()
       await listener.stop()
       for (const client of tunnel.clients()) tunnel.detach(client.clientId)

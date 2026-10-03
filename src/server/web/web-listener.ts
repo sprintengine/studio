@@ -28,6 +28,7 @@ import {
   type WebSocketPeer,
 } from './web-socket'
 import { resolveStaticFile, serveStaticFile, type WebStaticRoot } from './web-static'
+import { tailnetIdentityOf } from './web-tailscale-serve'
 
 // The web listener: the Studio server's HTTP door for browsers (phase 9 spec,
 // 3.1, 6.2 to 6.4). Off unless the owner turns it on; bound to loopback only.
@@ -106,6 +107,13 @@ export type WebListener = {
   pageHeaders(origin: string, frameAncestors?: readonly string[]): Record<string, string>
   /** A pairing URL for a fresh code, on the given origin (loopback by default). */
   pairingUrl(origin?: string): { url: string; expiresAt: string }
+  /**
+   * Add the HTTPS origin `tailscale serve` publishes this listener at, once
+   * this server has set serve up itself: it becomes one of the listener's
+   * origins, and a request to it may say who is asking with serve's identity
+   * headers.
+   */
+  addTailscaleServeOrigin(origin: string): void
 }
 
 function pathOf(request: IncomingMessage): URL {
@@ -136,9 +144,13 @@ export function createWebListener(options: WebListenerOptions): WebListener {
     socketsBySession.delete(sessionId)
   })
 
+  let publicOrigins: readonly string[] = options.publicOrigins
+  // The hosts of the serve this server set up, whose identity headers are believed.
+  const serveHosts: string[] = []
+
   const policy = (): WebOriginPolicy => ({
     port: boundPort ?? options.port,
-    publicOrigins: options.publicOrigins,
+    publicOrigins,
     devOrigin: options.devOrigin ?? null,
   })
 
@@ -256,6 +268,7 @@ export function createWebListener(options: WebListenerOptions): WebListener {
         name,
         userAgent: request.headers['user-agent'] ?? null,
         route: routeOf(host, policy()),
+        tailnetLogin: tailnetIdentityOf(request.headers, host, serveHosts)?.login ?? null,
       })
       sendJson(response, created.ok ? 200 : 429, created)
       return
@@ -516,8 +529,15 @@ export function createWebListener(options: WebListenerOptions): WebListener {
       return [
         `http://127.0.0.1:${port}`,
         `http://localhost:${port}`,
-        ...options.publicOrigins.flatMap((origin) => normalizeOrigin(origin) ?? []),
+        ...publicOrigins.flatMap((origin) => normalizeOrigin(origin) ?? []),
       ]
+    },
+    addTailscaleServeOrigin(origin) {
+      const normalized = normalizeOrigin(origin)
+      if (!normalized?.startsWith('https://')) throw new Error(`Not an HTTPS origin: ${origin}`)
+      if (!publicOrigins.includes(normalized)) publicOrigins = [...publicOrigins, normalized]
+      const host = new URL(normalized).host.toLowerCase()
+      if (!serveHosts.includes(host)) serveHosts.push(host)
     },
     pairingUrl(origin) {
       const base = origin ?? `http://127.0.0.1:${boundPort ?? options.port}`

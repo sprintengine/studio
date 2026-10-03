@@ -1577,3 +1577,31 @@ keeps the same swaps, since the browser's own window still takes
   answered.
 - Verified in Chromium: a tab open while `build:web` rewrote the bundle
   showed the toast on its next check, and Reload loaded the new bundle.
+
+### 14.12 `tailscale serve` (2026-10-03)
+
+- **`studio-server serve --web --tailscale-serve [--tailscale-serve-port <n>]`**
+  asks tailscaled to publish the loopback listener at
+  `https://<node>.<tailnet>.ts.net` (port 443 unless asked otherwise) with
+  `tailscale serve --bg --https=<n> http://127.0.0.1:<port>`, through
+  `tailscale-serve.ts`. The listener stays on loopback and nothing is ever
+  published as plain HTTP or through funnel (R19). The published name joins
+  the listener's origins and the run file's, so `studio-server pair --origin`
+  and the Browsers settings' link work on it.
+- **Serve's configuration is not this server's to replace.** A port already
+  serving something else stops the start, with the `tailscale serve ... off`
+  command that frees it; the dev-server shares' ports (8443, 10000, ...) are
+  refused outright. The one exception is this server's own mapping from an
+  earlier run, recorded in `run/web-tailscale.json`, which a crash leaves
+  pointing at a port the listener no longer holds. A clean stop turns the
+  mapping off, only while it still points at this run's listener.
+- **Identity headers label, they do not admit.** `Tailscale-User-Login` (and
+  `-Name`, RFC 2047 words decoded) are read only on serve's own host name,
+  after this server set serve up; the loopback socket is the only way in, so
+  the remaining forger is a local program, which the six digits still stop.
+  A pairing request through serve shows "signed in to Tailscale as ..." in
+  the owner's Browsers settings. Sessions do not record the login.
+- **Not smoke-tested against a live tailscaled** on the build machine: serve
+  configuration outlives the process and the machine is shared. The tests
+  drive a stand-in daemon that keeps a serve table; the CLI refusals were run
+  against the built server.

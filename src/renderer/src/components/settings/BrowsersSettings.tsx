@@ -82,7 +82,13 @@ export function BrowsersSettings() {
             <SettingsRow
               key={request.requestId}
               label={`${request.name} asks to pair`}
-              help={`${request.route === 'tailnet' ? 'Over the tailnet' : 'On this machine'} · type the six digits it shows`}
+              help={[
+                request.route === 'tailnet' ? 'Over the tailnet' : 'On this machine',
+                request.tailnetLogin ? `signed in to Tailscale as ${request.tailnetLogin}` : null,
+                'type the six digits it shows',
+              ]
+                .filter(Boolean)
+                .join(' · ')}
             >
               <form
                 className="flex items-center gap-2"

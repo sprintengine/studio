@@ -12,6 +12,7 @@ import { serveOnChannel } from './bootstrap/serve'
 import { stdioChannel } from './bootstrap/stdio'
 import { readWebRunFile } from './web/web-run-file'
 import { normalizeOrigin } from './web/web-origins'
+import { checkTailscaleServePort, DEFAULT_TAILSCALE_SERVE_PORT } from './web/web-tailscale-serve'
 import {
   EXIT_DATA_DIR_BUSY,
   EXIT_FAILED,
@@ -30,6 +31,7 @@ import {
 //   node out/server/server.cjs --bootstrap stdio
 //   node out/server/server.cjs --version
 //   node out/server/server.cjs serve --web [--web-port <n>] [--public-origin <url>]…
+//        [--tailscale-serve [--tailscale-serve-port <n>]]
 //   node out/server/server.cjs pair [--data-dir <dir>] [--origin <url>]
 //   node out/server/server.cjs embed --workspace <id> --agent <id> [--frame-origin <url>]… [--ttl-hours <n>]
 //
@@ -80,6 +82,9 @@ const USAGE = `Usage: studio-server [serve] [options]
   --web-port <n>             The web listener's port (default 4791; 0 picks one)
   --public-origin <url>      An HTTPS origin a proxy serves the web client on, such as the
                              tailscale serve name (repeatable). Never plain HTTP off loopback.
+  --tailscale-serve          Publish the web client on this machine's tailnet name over HTTPS
+                             with tailscale serve; the listener stays on loopback
+  --tailscale-serve-port <n> The HTTPS port serve publishes it on (default 443)
   --web-root <dir>           Where the web bundle is (default: out/web beside this bundle)
   --version                  Print the version and exit
 
@@ -146,6 +151,8 @@ export function parseServerArgs(argv: string[], env = process.env): Command {
       'web-port': { type: 'string' },
       'public-origin': { type: 'string', multiple: true },
       'web-root': { type: 'string' },
+      'tailscale-serve': { type: 'boolean' },
+      'tailscale-serve-port': { type: 'string' },
       origin: { type: 'string' },
       workspace: { type: 'string' },
       agent: { type: 'string' },
@@ -212,6 +219,8 @@ function parseWebOptions(values: {
   'web-port'?: string
   'public-origin'?: string[]
   'web-root'?: string
+  'tailscale-serve'?: boolean
+  'tailscale-serve-port'?: string
 }): NonNullable<StudioServerOptions['web']> {
   const port = values['web-port'] === undefined ? DEFAULT_WEB_PORT : Number(values['web-port'])
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('--web-port takes a port number.')
@@ -223,10 +232,23 @@ function parseWebOptions(values: {
       throw new Error(`--public-origin takes an https:// origin with no path: ${value}`)
     return origin
   })
+  if (values['tailscale-serve-port'] !== undefined && values['tailscale-serve'] !== true)
+    throw new Error('--tailscale-serve-port goes with --tailscale-serve.')
+  let tailscaleServe: { port: number } | null = null
+  if (values['tailscale-serve'] === true) {
+    const servePort =
+      values['tailscale-serve-port'] === undefined
+        ? DEFAULT_TAILSCALE_SERVE_PORT
+        : Number(values['tailscale-serve-port'])
+    const refused = checkTailscaleServePort(servePort)
+    if (refused) throw new Error(refused)
+    tailscaleServe = { port: servePort }
+  }
   return {
     port,
     publicOrigins,
     staticDir: resolve(values['web-root'] ?? join(__dirname, '..', 'web')),
+    tailscaleServe,
   }
 }
 

@@ -20,7 +20,14 @@ export const PAIR_REQUEST_TTL_MS = 5 * 60 * 1000
 const MAX_PENDING = 8
 const MAX_TRIES = 3
 
-export type PairRequestView = { requestId: string; name: string; route: WebRoute; createdAt: string; expiresAt: string }
+export type PairRequestView = {
+  requestId: string
+  name: string
+  route: WebRoute
+  createdAt: string
+  expiresAt: string
+  tailnetLogin?: string
+}
 
 type PairRequest = PairRequestView & {
   code: string
@@ -44,6 +51,8 @@ export type PairRequests = {
     name?: unknown
     userAgent: string | null
     route: WebRoute
+    /** Who serve says is asking, when the request came through this server's own serve. */
+    tailnetLogin?: string | null
   }): { ok: true; requestId: string; code: string; collect: string; expiresAt: string } | { ok: false; message: string }
   /** What is waiting for the owner. */
   pending(): PairRequestView[]
@@ -67,6 +76,7 @@ export function createPairRequests(options: { sessions: WebSessionStore; now?: (
     route: request.route,
     createdAt: request.createdAt,
     expiresAt: request.expiresAt,
+    ...(request.tailnetLogin ? { tailnetLogin: request.tailnetLogin } : {}),
   })
   function prune(): void {
     const before = requests.length
@@ -99,6 +109,7 @@ export function createPairRequests(options: { sessions: WebSessionStore; now?: (
         tries: 0,
         state: 'pending',
         userAgent: input.userAgent,
+        ...(input.tailnetLogin ? { tailnetLogin: input.tailnetLogin } : {}),
       }
       requests = [...requests, request]
       changed()
