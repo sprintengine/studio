@@ -38,7 +38,8 @@ import { parseCookies } from './web-http'
 // request they believe is their own: `Host` (and an `Origin` naming the
 // preview) becomes `localhost:<dev port>`, a redirect to that address comes
 // back as the preview's, and the app may be framed by Studio's preview pane
-// and no other page. Bodies are piped, never read or rewritten, and nothing is
+// and no other page (a `frame-ancestors` policy is added to every answer). A
+// request that changes something must come from the preview's own page. Bodies are piped, never read or rewritten, and nothing is
 // injected into the app's pages.
 
 export const PREVIEW_PATH_PREFIX = '/__se_preview/'
@@ -76,14 +77,22 @@ export type PreviewProxy = {
   start(): Promise<{ port: number }>
   /** The bound port, once started. */
   port(): number | null
-  /** The origin the browser opens the preview on. */
-  origin(): string
+  /**
+   * The origin the browser opens the preview on, under the loopback name the
+   * tab itself was opened on: `localhost` and `127.0.0.1` are different sites,
+   * so a preview on the other name would neither be framed by the tab's
+   * policy nor keep its `SameSite=Strict` cookie.
+   */
+  origin(name?: PreviewLoopbackName): string
   /** A fresh single-use entry code, and the address that spends it. */
-  mintEnterCode(): { code: string; enterUrl: string; expiresAt: number }
+  mintEnterCode(name?: PreviewLoopbackName): { code: string; enterUrl: string; expiresAt: number }
   /** When the preview last served a request or an upgrade. */
   lastUsedAt(): number
   stop(): Promise<void>
 }
+
+/** The loopback name a tab was opened on, which its previews are opened on too. */
+export type PreviewLoopbackName = '127.0.0.1' | 'localhost'
 
 function cookieName(previewId: string): string {
   return `se_pv_${previewId}`
@@ -137,7 +146,8 @@ export function createPreviewProxy(options: PreviewProxyOptions): PreviewProxy {
     `http://localhost:${boundPort ?? 0}`,
     ...(options.publicOrigin ? [options.publicOrigin] : []),
   ]
-  const origin = () => options.publicOrigin ?? loopbackOrigin()
+  const origin = (name: PreviewLoopbackName = '127.0.0.1') =>
+    options.publicOrigin ?? (name === 'localhost' ? `http://localhost:${boundPort ?? 0}` : loopbackOrigin())
 
   /** The request names this listener: a page on a hostile name resolving to loopback is not served. */
   function ownHost(request: IncomingMessage): boolean {
@@ -182,8 +192,11 @@ export function createPreviewProxy(options: PreviewProxyOptions): PreviewProxy {
   }
 
   /** The dev server's response headers as the browser should see them. */
-  function returnedHeaders(response: IncomingMessage): OutgoingHttpHeaders {
+  function returnedHeaders(response: IncomingMessage, request: IncomingMessage): OutgoingHttpHeaders {
+    // A redirect stays on the name the browser is using (ownHost checked it).
+    const here = options.publicOrigin ?? `http://${(request.headers.host ?? '').toLowerCase()}`
     const out: OutgoingHttpHeaders = {}
+    const appCsp: string[] = []
     const location = new RegExp(
       `^https?://(localhost|127\\.0\\.0\\.1|\\[::1\\]):${options.targetPort}(?=/|$|\\?|#)`,
       'iu',
@@ -198,16 +211,22 @@ export function createPreviewProxy(options: PreviewProxyOptions): PreviewProxy {
         continue
       }
       if (lower === 'location' && typeof value === 'string') {
-        out[key] = value.replace(location, origin())
+        out[key] = value.replace(location, here)
         continue
       }
       if (lower === 'content-security-policy') {
         const policies = Array.isArray(value) ? value : [value]
-        out[key] = policies.map((policy) => replaceFrameAncestors(policy, options.studioOrigins))
+        appCsp.push(...policies.map((policy) => replaceFrameAncestors(policy, options.studioOrigins)))
         continue
       }
       out[key] = value
     }
+    // Most dev servers send no policy at all, and every local port is the same
+    // site as this one: without its own `frame-ancestors`, any page on the
+    // machine could frame the app with its cookie. A second policy holds
+    // whatever the app's own says (a browser enforces every one it is sent).
+    const ancestors = options.studioOrigins.length > 0 ? options.studioOrigins.join(' ') : "'none'"
+    out['content-security-policy'] = [...appCsp, `frame-ancestors ${ancestors}`]
     return out
   }
 
@@ -274,7 +293,7 @@ export function createPreviewProxy(options: PreviewProxyOptions): PreviewProxy {
             headers: forwardedHeaders(request.headers, false),
           },
           (answer) => {
-            response.writeHead(answer.statusCode ?? 502, answer.statusMessage, returnedHeaders(answer))
+            response.writeHead(answer.statusCode ?? 502, answer.statusMessage, returnedHeaders(answer, request))
             // Server-sent events and streamed pages go out as they arrive.
             response.flushHeaders()
             answer.pipe(response)
@@ -293,8 +312,20 @@ export function createPreviewProxy(options: PreviewProxyOptions): PreviewProxy {
     )
   }
 
+  /**
+   * A request that changes something, sent by a page that is not the
+   * preview's own. Every local port is the same site, so the browser sends
+   * the preview's `SameSite=Strict` cookie with another local page's form or
+   * fetch; its `Origin` is what tells them apart.
+   */
+  function foreignWrite(request: IncomingMessage): boolean {
+    const method = request.method ?? 'GET'
+    if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return false
+    const sentOrigin = request.headers.origin
+    return typeof sentOrigin === 'string' && !ownOrigins().includes(sentOrigin)
+  }
+
   function handle(request: IncomingMessage, response: ServerResponse): void {
-    lastUsed = now()
     if (!ownHost(request)) {
       refuse(response, 421, 'Misdirected request.\n', 'text/plain; charset=utf-8')
       return
@@ -311,6 +342,12 @@ export function createPreviewProxy(options: PreviewProxyOptions): PreviewProxy {
       refuse(response, 401, NOT_ALLOWED_PAGE)
       return
     }
+    if (foreignWrite(request)) {
+      refuse(response, 403, 'Another page may not send this preview a change.\n', 'text/plain; charset=utf-8')
+      return
+    }
+    // Only a request the preview serves keeps it open; a refused one does not.
+    lastUsed = now()
     forward(request, response)
   }
 
@@ -319,7 +356,6 @@ export function createPreviewProxy(options: PreviewProxyOptions): PreviewProxy {
   }
 
   function handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): void {
-    lastUsed = now()
     socket.on('error', () => undefined)
     if (!ownHost(request)) return refuseUpgrade(socket, 421, 'Misdirected Request')
     const url = new URL(request.url ?? '/', 'http://preview.invalid')
@@ -328,6 +364,7 @@ export function createPreviewProxy(options: PreviewProxyOptions): PreviewProxy {
     // Only the preview's own page may open the dev server's socket.
     const sentOrigin = typeof request.headers.origin === 'string' ? request.headers.origin : ''
     if (!ownOrigins().includes(sentOrigin)) return refuseUpgrade(socket, 403, 'Forbidden')
+    lastUsed = now()
     void dial().then(
       (upstream) => {
         upgraded.add(socket)
@@ -376,13 +413,13 @@ export function createPreviewProxy(options: PreviewProxyOptions): PreviewProxy {
     },
     port: () => boundPort,
     origin,
-    mintEnterCode() {
+    mintEnterCode(name) {
       const at = now()
       for (let index = codes.length - 1; index >= 0; index--) if (codes[index].expiresAt <= at) codes.splice(index, 1)
       const code = randomBytes(32).toString('base64url')
       const expiresAt = at + PREVIEW_ENTER_CODE_TTL_MS
       codes.push({ hash: hashSecret(code), expiresAt })
-      return { code, enterUrl: `${origin()}${PREVIEW_PATH_PREFIX}enter?code=${code}`, expiresAt }
+      return { code, enterUrl: `${origin(name)}${PREVIEW_PATH_PREFIX}enter?code=${code}`, expiresAt }
     },
     lastUsedAt: () => lastUsed,
     async stop() {

@@ -169,6 +169,8 @@ export async function startWebFrontDoor(input: {
   // Previews: an agent's dev server on an origin of its own, per session.
   // Each tab's tunnel belongs to the session whose cookie opened it.
   const sessionOfClient = new Map<string, string>()
+  // The loopback name each tab was opened on: its previews open on the same one.
+  const loopbackNameOfClient = new Map<string, '127.0.0.1' | 'localhost'>()
   let listenerPort: number | null = null
   const previews = createPreviewService({
     ownPorts: () => (listenerPort === null ? [] : [listenerPort]),
@@ -190,7 +192,12 @@ export async function startWebFrontDoor(input: {
   })
   tunnel.registry.handle(WEB_PREVIEWS_OPEN_CHANNEL, (event, request: { port?: unknown; typed?: unknown } | null) =>
     onLoopback(event)
-      ? previews.open({ port: request?.port, sessionId: sessionFor(event), typed: request?.typed === true })
+      ? previews.open({
+          port: request?.port,
+          sessionId: sessionFor(event),
+          typed: request?.typed === true,
+          name: loopbackNameOfClient.get(event.caller.clientId) ?? '127.0.0.1',
+        })
       : { ok: false, message: 'Previews open in a browser on the machine Studio runs on.' },
   )
   tunnel.registry.handle(WEB_PREVIEWS_CLOSE_CHANNEL, (event, request: { previewId?: unknown } | null) =>
@@ -322,8 +329,9 @@ export async function startWebFrontDoor(input: {
       },
     },
     tunnel: {
-      attach: (client, port, session) => {
+      attach: (client, port, session, origin) => {
         sessionOfClient.set(client.clientId, session.id)
+        loopbackNameOfClient.set(client.clientId, new URL(origin).hostname === 'localhost' ? 'localhost' : '127.0.0.1')
         // What a tab may reach is the web client's share, and what it changes is audited.
         tunnel.attach(
           client,
@@ -346,6 +354,7 @@ export async function startWebFrontDoor(input: {
       },
       detach: (clientId) => {
         sessionOfClient.delete(clientId)
+        loopbackNameOfClient.delete(clientId)
         tunnel.detach(clientId)
       },
     },

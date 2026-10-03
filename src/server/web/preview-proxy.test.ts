@@ -22,6 +22,11 @@ beforeEach(async () => {
   devSockets = []
   dev = createServer((request, response) => {
     seen.push(request.headers)
+    if (request.url === '/no-policy') {
+      response.writeHead(200, { 'Content-Type': 'text/plain' })
+      response.end('no policy')
+      return
+    }
     if (request.url === '/redirect') {
       response.writeHead(302, { Location: `http://localhost:${devPort}/next?x=1` })
       response.end()
@@ -57,9 +62,9 @@ afterEach(async () => {
 
 type Answer = { status: number; headers: IncomingHttpHeaders; body: string }
 
-function ask(path: string, headers: Record<string, string> = {}): Promise<Answer> {
+function ask(path: string, headers: Record<string, string> = {}, method = 'GET'): Promise<Answer> {
   return new Promise((resolve, reject) => {
-    const req = httpRequest({ host: '127.0.0.1', port: proxy.port() ?? 0, path, headers }, (res) => {
+    const req = httpRequest({ host: '127.0.0.1', port: proxy.port() ?? 0, path, headers, method }, (res) => {
       const chunks: Buffer[] = []
       res.on('data', (chunk: Buffer) => chunks.push(chunk))
       res.on('end', () =>
@@ -174,7 +179,37 @@ test('only Studio may frame the app: X-Frame-Options goes and frame-ancestors is
   const cookie = await enter()
   const answer = await ask('/', { Cookie: cookie })
   expect(answer.headers['x-frame-options']).toBeUndefined()
-  expect(answer.headers['content-security-policy']).toBe(`default-src 'self'; frame-ancestors ${STUDIO}`)
+  // The app's own policy, rewritten, and the preview's own beside it.
+  expect(answer.headers['content-security-policy']).toBe(
+    `default-src 'self'; frame-ancestors ${STUDIO}, frame-ancestors ${STUDIO}`,
+  )
+})
+
+test('an app that sends no policy is still framed by Studio alone', async () => {
+  const cookie = await enter()
+  const answer = await ask('/no-policy', { Cookie: cookie })
+  expect(answer.status).toBe(200)
+  expect(answer.headers['content-security-policy']).toBe(`frame-ancestors ${STUDIO}`)
+})
+
+test('a change sent by another local page is refused, the preview’s own passes', async () => {
+  const cookie = await enter()
+  // Another local port is the same site, so the browser sends the cookie with its form.
+  const other = await ask('/save', { Cookie: cookie, Origin: 'http://127.0.0.1:3000' }, 'POST')
+  expect(other.status).toBe(403)
+  expect(seen).toHaveLength(0)
+  const own = await ask('/save', { Cookie: cookie, Origin: proxy.origin() }, 'POST')
+  expect(own.status).toBe(200)
+  // A read from anywhere is the dev server's to answer, as it would be without the preview.
+  const read = await ask('/', { Cookie: cookie, Origin: 'http://127.0.0.1:3000' })
+  expect(read.status).toBe(200)
+})
+
+test('a refused request does not keep the preview open', async () => {
+  const before = proxy.lastUsedAt()
+  clock += 60_000
+  expect((await ask('/')).status).toBe(401)
+  expect(proxy.lastUsedAt()).toBe(before)
 })
 
 test('a cookie a page planted on a narrower path does not shadow the real one', async () => {
@@ -216,4 +251,16 @@ test('a request naming another host is not served, even with the preview cookie'
   const answer = await ask('/', { Cookie: cookie, Host: 'rebind.example' })
   expect(answer.status).toBe(421)
   expect(seen).toHaveLength(0)
+})
+
+test('a tab on localhost enters its preview on localhost, and redirects stay there', async () => {
+  const { enterUrl } = proxy.mintEnterCode('localhost')
+  expect(new URL(enterUrl).origin).toBe(`http://localhost:${proxy.port()}`)
+  const entered = await ask(new URL(enterUrl).pathname + new URL(enterUrl).search, {
+    Host: `localhost:${proxy.port()}`,
+  })
+  expect(entered.status).toBe(302)
+  const cookie = (entered.headers['set-cookie']?.[0] ?? '').split(';')[0]
+  const redirected = await ask('/redirect', { Cookie: cookie, Host: `localhost:${proxy.port()}` })
+  expect(redirected.headers.location).toBe(`http://localhost:${proxy.port()}/next?x=1`)
 })

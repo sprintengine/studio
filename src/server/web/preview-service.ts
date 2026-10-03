@@ -1,6 +1,11 @@
 import { randomBytes } from 'node:crypto'
 
-import { createPreviewProxy, type PreviewProxy, type PreviewProxyOptions } from './preview-proxy'
+import {
+  createPreviewProxy,
+  type PreviewLoopbackName,
+  type PreviewProxy,
+  type PreviewProxyOptions,
+} from './preview-proxy'
 import { listAgentListeners, type AgentListener } from './preview-ports'
 
 // The previews a web tab has open (phase 9 spec, 3.6; decision R77): which
@@ -33,7 +38,13 @@ export type PreviewOpenResult =
 export type PreviewService = {
   /** The ports an agent of this server listens on. */
   list(): Promise<{ ports: AgentListener[] }>
-  open(input: { port: unknown; sessionId: string; typed?: boolean }): Promise<PreviewOpenResult>
+  open(input: {
+    port: unknown
+    sessionId: string
+    typed?: boolean
+    /** The loopback name the asking tab was opened on; the preview opens on the same one. */
+    name?: PreviewLoopbackName
+  }): Promise<PreviewOpenResult>
   close(previewId: string, sessionId: string): Promise<boolean>
   previewsOf(sessionId: string): PreviewView[]
   /** Close every preview a session holds: it was removed, or it ran out. */
@@ -55,7 +66,14 @@ export type PreviewServiceOptions = {
   log?: (message: string) => void
 }
 
-type Open = { previewId: string; sessionId: string; port: number; openedAt: number; proxy: PreviewProxy }
+type Open = {
+  previewId: string
+  sessionId: string
+  port: number
+  openedAt: number
+  proxy: PreviewProxy
+  name: PreviewLoopbackName
+}
 
 export function createPreviewService(options: PreviewServiceOptions): PreviewService {
   const now = options.now ?? Date.now
@@ -68,7 +86,7 @@ export function createPreviewService(options: PreviewServiceOptions): PreviewSer
   const view = (entry: Open): PreviewView => ({
     previewId: entry.previewId,
     port: entry.port,
-    origin: entry.proxy.origin(),
+    origin: entry.proxy.origin(entry.name),
     openedAt: entry.openedAt,
     lastUsedAt: entry.proxy.lastUsedAt(),
   })
@@ -121,9 +139,11 @@ export function createPreviewService(options: PreviewServiceOptions): PreviewSer
       }
       // The same port twice in one session is one preview, with a fresh way in.
       const existing = [...open.values()].find((entry) => entry.sessionId === input.sessionId && entry.port === port)
+      const name = input.name ?? '127.0.0.1'
       if (existing) {
-        const { enterUrl } = existing.proxy.mintEnterCode()
-        return { ok: true, previewId: existing.previewId, origin: existing.proxy.origin(), enterUrl }
+        existing.name = name
+        const { enterUrl } = existing.proxy.mintEnterCode(name)
+        return { ok: true, previewId: existing.previewId, origin: existing.proxy.origin(name), enterUrl }
       }
       if (previewsOf(input.sessionId).length >= MAX_PREVIEWS_PER_SESSION) {
         return {
@@ -147,10 +167,10 @@ export function createPreviewService(options: PreviewServiceOptions): PreviewSer
           message: `The preview could not start: ${error instanceof Error ? error.message : String(error)}`,
         }
       }
-      open.set(previewId, { previewId, sessionId: input.sessionId, port, openedAt: now(), proxy })
-      const { enterUrl } = proxy.mintEnterCode()
+      open.set(previewId, { previewId, sessionId: input.sessionId, port, openedAt: now(), proxy, name })
+      const { enterUrl } = proxy.mintEnterCode(name)
       announce(input.sessionId)
-      return { ok: true, previewId, origin: proxy.origin(), enterUrl }
+      return { ok: true, previewId, origin: proxy.origin(name), enterUrl }
     },
 
     async close(previewId, sessionId) {

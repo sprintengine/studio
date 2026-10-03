@@ -61,8 +61,8 @@ export type WebStudioAttach = {
 }
 
 export type WebTunnelAttach = {
-  /** A tab's tunnel, and the browser session it belongs to. */
-  attach(client: TunnelClient, port: TunnelPort, session: WebSession): void
+  /** A tab's tunnel, the browser session it belongs to, and the origin the tab was opened on. */
+  attach(client: TunnelClient, port: TunnelPort, session: WebSession, origin: string): void
   detach(clientId: string): void
 }
 
@@ -476,6 +476,7 @@ export function createWebListener(options: WebListenerOptions): WebListener {
         },
         tunnelPortOf(peer),
         session,
+        requestOrigin(request.headers.host ?? '', policy()),
       )
       peer.onClose(() => tunnel.detach(clientId))
       return

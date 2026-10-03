@@ -18,10 +18,10 @@ function fakeProxy(options: PreviewProxyOptions): PreviewProxy {
   return {
     start: async () => ({ port: 50_000 + started.length }),
     port: () => 50_000 + started.length,
-    origin: () => `http://127.0.0.1:${50_000 + started.length}`,
-    mintEnterCode: () => ({
+    origin: (name = '127.0.0.1') => `http://${name}:${50_000 + started.length}`,
+    mintEnterCode: (name = '127.0.0.1') => ({
       code: `code-${++codes}`,
-      enterUrl: `enter-${options.previewId}-${codes}`,
+      enterUrl: `http://${name}/enter-${options.previewId}-${codes}`,
       expiresAt: clock,
     }),
     lastUsedAt: () => lastUsed.get(options.previewId) ?? clock,
@@ -111,4 +111,11 @@ test('a session cannot close another session’s preview', async () => {
   if (!opened.ok) throw new Error('not opened')
   expect(await service.close(opened.previewId, 'session-b')).toBe(false)
   expect(await service.close(opened.previewId, 'session-a')).toBe(true)
+})
+
+test('a tab opened on localhost gets its preview on localhost, the site it is on', async () => {
+  const opened = await service.open({ port: 5173, sessionId: 'session-a', name: 'localhost' })
+  expect(opened).toMatchObject({ ok: true, origin: 'http://localhost:50001' })
+  expect(opened.ok && opened.enterUrl.startsWith('http://localhost/')).toBe(true)
+  expect(service.previewsOf('session-a')[0].origin).toBe('http://localhost:50001')
 })
