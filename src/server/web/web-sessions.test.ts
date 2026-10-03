@@ -85,6 +85,18 @@ test('a session lives thirty days from pairing, however often it is used', () =>
   expect(sessions.grantFor(exchanged.session.id)).toBeNull()
 })
 
+test('a session that runs out is announced as revoked when the list is next read, so its sockets close', () => {
+  const sessions = store()
+  const exchanged = sessions.exchange(sessions.mintPairingCode().code, { route: 'loopback' })
+  if (!exchanged.ok) throw new Error('not paired')
+  const heard: string[] = []
+  sessions.onRevoked((id) => heard.push(id))
+  now += SESSION_LIFETIME_MS + 1
+  // The front door reads the list once a minute for exactly this.
+  expect(sessions.list()).toEqual([])
+  expect(heard).toEqual([exchanged.session.id])
+})
+
 test('every cookie value is tried: a shadowing cookie set by another local page does not hide the real one', () => {
   const sessions = store()
   const exchanged = sessions.exchange(sessions.mintPairingCode().code, { route: 'loopback' })

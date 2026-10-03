@@ -283,6 +283,15 @@ export async function startWebFrontDoor(input: {
     typeof request?.embedId === 'string' ? embeds.revoke(request.embedId) : false,
   )
   const stopEmbedRevocations = embeds.onRevoked((embedId) => listener.closeEmbedSockets(embedId))
+  // A session or an embed that runs out is pruned when its store is next
+  // read, and the prune is what closes its sockets with 4401. A tab's tunnel
+  // reads no store per frame, so the stores are read once a minute: what ran
+  // out is closed within a minute of it, whether anything else asks or not.
+  const expiry = setInterval(() => {
+    sessions.list()
+    embeds.list()
+  }, 60_000)
+  expiry.unref()
 
   const mintKey = randomBytes(32).toString('base64url')
   let staticRoot: WebStaticRoot | null = null
@@ -401,6 +410,7 @@ export async function startWebFrontDoor(input: {
     sessions,
     url,
     async stop() {
+      clearInterval(expiry)
       stopForwarding()
       stopPreviewPushes()
       stopPreviewRevocations()
