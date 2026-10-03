@@ -132,6 +132,15 @@ went — "Updated to SprintEngine Studio 0.7.0" (good) or "Update to 0.7.0 did
 not install" (warn, with the reason) — without buttons.
 These two are the only toasts in the system with buttons.
 
+**In a browser tab (2026-10-03).** A web tab has no installer: the server it
+talks to is updated, and the tab is a reload away from the new version. So the
+app-update toast there has one step, shown when the tab finds the server
+serving a newer bundle than the one it loaded: "Studio was updated" (good
+mark), "Reload this tab to use the new version. Until then it keeps working as
+it is." with **Later** (ghost) and **Reload** (primary). It is the same
+consumer in its browser form, not a third, and like the desktop's it stays
+until answered, once per new bundle.
+
 **Dismissing an update is "not now" (owner ruling 2026-09-25).** Each outstanding
 update also wears a count on the Settings gear and inside Settings (the
 [badge](../badge/component.md) entry, "In Settings"). Later, and the dismiss

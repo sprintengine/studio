@@ -1,8 +1,11 @@
+import { execFileSync } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, extname, join, resolve } from 'node:path'
 import { brotliCompressSync, constants as zlib, gzipSync } from 'node:zlib'
 import { defineConfig, type Plugin, type UserConfig } from 'vite'
 import { rendererViteConfig } from './renderer.vite.config'
+import { WEB_BUILD_META } from './src/shared/web-client'
 
 // The web client's build (phase 9 spec, 3.1): the renderer as a web app, which
 // a Studio server serves to a browser. `npm run build:web` writes it to
@@ -24,6 +27,9 @@ import { rendererViteConfig } from './renderer.vite.config'
 //   the tab's `window.api` is in place where a desktop window's preload puts
 //   it, before any app module reads it while it loads (the workspace store's
 //   sync client does);
+// - every page marked with this build's id (`WEB_BUILD_META`), which the
+//   server reads off the page it serves, so a tab can tell when the bundle
+//   it was loaded from has been replaced and offer a reload;
 // - every text file compressed with brotli and gzip at build time, which the
 //   server picks by `Accept-Encoding` and never compresses per request.
 
@@ -85,6 +91,26 @@ function installWebApiFirst(): Plugin {
   }
 }
 
+/**
+ * This build's id, in every page: the commit it was built from and a nonce,
+ * so a rebuild of the same commit (whose chunk names may differ) is a new
+ * build too.
+ */
+function markBuild(): Plugin {
+  let commit = 'nogit'
+  try {
+    commit = execFileSync('git', ['rev-parse', '--short=12', 'HEAD'], { encoding: 'utf8' }).trim() || commit
+  } catch {
+    // A source tarball: the nonce alone tells builds apart.
+  }
+  const id = `${commit}.${randomBytes(6).toString('hex')}`
+  return {
+    name: 'sprintengine-web-build-id',
+    apply: 'build',
+    transformIndexHtml: () => [{ tag: 'meta', attrs: { name: WEB_BUILD_META, content: id }, injectTo: 'head-prepend' }],
+  }
+}
+
 const COMPRESSIBLE = new Set(['.js', '.mjs', '.css', '.html', '.json', '.svg', '.webmanifest', '.txt', '.wasm', '.map'])
 const MIN_COMPRESS_BYTES = 1024
 
@@ -138,6 +164,6 @@ export default defineConfig((): UserConfig => {
       // The source maps stay out of what a server serves; a debug build can turn them on.
       sourcemap: false,
     },
-    plugins: [browserShellModules(), installWebApiFirst(), ...(base.plugins ?? []), precompress()],
+    plugins: [browserShellModules(), installWebApiFirst(), markBuild(), ...(base.plugins ?? []), precompress()],
   }
 })

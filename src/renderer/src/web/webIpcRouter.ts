@@ -2,7 +2,7 @@ import { createIpcRouter, type RendererIpc, type RouterPort } from '../../../pre
 import { SERVER_IPC_CHANNELS } from '../../../shared/ipc-channel-owners'
 import { assertJsonSafe } from '../../../shared/json-safe'
 import { WEB_TUNNEL_CHANNELS, webTunnelAllows } from '../../../shared/web-client'
-import { WEB_CLOSE_REVOKED, watchWebReconnectTriggers } from './webReconnect'
+import { WEB_CLOSE_REVOKED, WEB_TUNNEL_REOPENED_EVENT, watchWebReconnectTriggers } from './webReconnect'
 import { returnToPairing, webSocketUrl, webWindowId } from './webLocation'
 import { webShellIpc } from './webShellIpc'
 
@@ -62,6 +62,7 @@ function socketPort(socket: WebSocket): RouterPort {
 let attempt = 0
 let timer: ReturnType<typeof setTimeout> | null = null
 let current: WebSocket | null = null
+let everOpened = false
 
 function connect(): void {
   if (timer) clearTimeout(timer)
@@ -72,6 +73,8 @@ function connect(): void {
   socket.addEventListener('open', () => {
     attempt = 0
     router.attachPort(socketPort(socket))
+    if (everOpened) window.dispatchEvent(new Event(WEB_TUNNEL_REOPENED_EVENT))
+    everOpened = true
   })
   socket.addEventListener('close', (event) => {
     if (current === socket) current = null

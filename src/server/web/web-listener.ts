@@ -298,7 +298,12 @@ export function createWebListener(options: WebListenerOptions): WebListener {
         return
       }
       options.sessions.recordSeen(session.id)
-      sendJson(response, 200, { ok: true, session, version: options.version })
+      sendJson(response, 200, {
+        ok: true,
+        session,
+        version: options.version,
+        build: options.staticRoot?.buildId() ?? null,
+      })
       return
     }
 

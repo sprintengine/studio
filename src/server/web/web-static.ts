@@ -2,6 +2,8 @@ import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { extname, join, normalize, relative, sep } from 'node:path'
 
+import { webBuildIdOf } from '../../shared/web-client'
+
 // The web client's files, as the web listener serves them (phase 9 spec, 3.1).
 //
 // Static assets are public on purpose: the bundle is open source, nothing in
@@ -43,6 +45,8 @@ export type WebStaticRoot = {
   canvasWorkerHtml(): string | null
   /** The embeddable conversation view's page. */
   embedHtml(): string | null
+  /** The id of the bundle served now, off its app page; null for a build that carries none. */
+  buildId(): string | null
 }
 
 export function openWebStaticRoot(directory: string): WebStaticRoot {
@@ -66,6 +70,10 @@ export function openWebStaticRoot(directory: string): WebStaticRoot {
     indexHtml: () => read('index.html'),
     canvasWorkerHtml: () => read('canvas-worker.html'),
     embedHtml: () => read('embed.html'),
+    buildId: () => {
+      const html = read('index.html')
+      return html ? webBuildIdOf(html) : null
+    },
   }
 }
 

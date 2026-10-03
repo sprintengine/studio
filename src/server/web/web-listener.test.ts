@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { request as httpRequest, type IncomingHttpHeaders } from 'node:http'
 import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -28,7 +28,10 @@ beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), 'web-listener-'))
   const web = join(dir, 'web')
   mkdirSync(join(web, 'assets'), { recursive: true })
-  writeFileSync(join(web, 'index.html'), '<!doctype html><title>app</title>')
+  writeFileSync(
+    join(web, 'index.html'),
+    '<!doctype html><meta name="sprintengine-web-build" content="build-one"><title>app</title>',
+  )
   writeFileSync(join(web, 'pair.html'), '<!doctype html><title>pair</title>')
   writeFileSync(join(web, 'canvas-worker.html'), '<!doctype html><title>worker</title>')
   const script = 'console.log("app")'.repeat(100)
@@ -265,6 +268,18 @@ test('studio-server pair mints a link with the run file key, and a browser canno
   expect(fromPage.status).toBe(403)
   const wrongKey = await ask('/pair/mint', { method: 'POST', headers: { Authorization: 'Bearer nope-nope-nope-nope' } })
   expect(wrongKey.status).toBe(403)
+})
+
+test('the session answers which web bundle is served now, so an older tab can offer a reload', async () => {
+  const { cookie } = await pair()
+  const before = JSON.parse((await ask('/api/session', { headers: { Cookie: cookie } })).body) as { build: string }
+  expect(before.build).toBe('build-one')
+  const file = join(dir, 'web', 'index.html')
+  writeFileSync(file, '<!doctype html><meta name="sprintengine-web-build" content="build-two"><title>app</title>')
+  // A rebuild in the same millisecond keeps its mtime; move it on so the cache reads again.
+  utimesSync(file, new Date(), new Date(Date.now() + 5_000))
+  const after = JSON.parse((await ask('/api/session', { headers: { Cookie: cookie } })).body) as { build: string }
+  expect(after.build).toBe('build-two')
 })
 
 test('no GET changes anything: logging out takes a POST', async () => {

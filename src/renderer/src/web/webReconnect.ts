@@ -9,6 +9,9 @@ import { onWindowVisibilityChange } from '../utils/windowActivity'
 /** The private close code the server ends a removed browser's sockets with. */
 export const WEB_CLOSE_REVOKED = 4401
 
+/** Dispatched on `window` when the tab's tunnel opens again after a drop: the server may have been replaced. */
+export const WEB_TUNNEL_REOPENED_EVENT = 'sprintengine:web-tunnel-reopened'
+
 export function watchWebReconnectTriggers(wake: () => void): () => void {
   const stopVisibility = onWindowVisibilityChange((visible) => {
     if (visible) wake()

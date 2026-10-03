@@ -240,10 +240,11 @@ client `terminals` and a server that advertises them.
 - **Reload.** Cursors live in memory. A reload takes a fresh snapshot, which
   is paged (10 turns), so this costs one page.
 - **Version skew.** The page is served by the server it talks to, so they
-  match at load. After a server upgrade, `welcome.server.buildStamp` differs
-  from the page's own stamp. The page then shows "Studio was updated —
-  reload" and keeps working inside the protocol window. This reuses
-  `reportBuildStamp`'s comparison.
+  match at load. After a server upgrade, or a rebuild of its web client, the
+  bundle the server serves differs from the one the page was loaded from. The
+  page then shows "Studio was updated" with Reload and keeps working inside
+  the protocol window. As built (14.11) the comparison is of web bundle ids,
+  read from `/api/session`, not of `welcome.server.buildStamp`.
 - **Unload.** Today's flushes on `beforeunload` also run on `pagehide` and
   `visibilitychange` to hidden, because mobile browsers do not fire
   `beforeunload` reliably.
@@ -1556,3 +1557,23 @@ keeps the same swaps, since the browser's own window still takes
   (`test:studio-packages:pack`, which also compiles the view's example
   against the packed tarballs), and an import-graph test. `docs/embedding-a-conversation.md`
   covers the iframe and the component.
+
+### 14.11 The reload prompt (2026-10-03)
+
+- **What is compared** is the web bundle, not the server's commit. The web
+  build writes one id (the commit and a nonce) into every page as
+  `<meta name="sprintengine-web-build">`; `/api/session` answers the id of
+  the `index.html` served now, re-read when the file changes. A commit
+  comparison would miss a rebuild of the same commit, whose chunk names
+  differ, and would prompt for ever, reload or not, when the server and its
+  web bundle were built from different commits. The welcome frame and the
+  Studio protocol are unchanged.
+- **When the tab asks:** when its tunnel opens again after a drop (the
+  router dispatches `sprintengine:web-tunnel-reopened`), when the page comes
+  back online, visible or out of the back/forward cache, and every ten
+  minutes while it is seen. It offers once per new bundle.
+- **The prompt** is the app-update toast's browser form, recorded in the
+  toast's component.md: "Studio was updated", Later and Reload, kept until
+  answered.
+- Verified in Chromium: a tab open while `build:web` rewrote the bundle
+  showed the toast on its next check, and Reload loaded the new bundle.

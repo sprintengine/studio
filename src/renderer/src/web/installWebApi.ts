@@ -28,6 +28,8 @@ window.addEventListener(
   'load',
   () => {
     void import('./canvas/startWebCanvas').then((module) => module.startWebCanvas())
+    // And says when the server has moved on to a newer bundle than this tab's.
+    void import('./webBuildWatch').then((module) => module.startWebBuildWatch())
   },
   { once: true },
 )
