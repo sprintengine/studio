@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
@@ -10,8 +10,7 @@ import { defaultServerLocations } from './platform/studio-paths'
 import { installFatalHandlers } from './bootstrap/fatal'
 import { startHeadlessServer } from './bootstrap/headless'
 import { serveOnChannel } from './bootstrap/serve'
-import { keepStderrIn, stdioChannel } from './bootstrap/stdio'
-import { createServerLog } from '../main/server-supervisor/server-log'
+import { keepStderrInLogsDir, stdioChannel } from './bootstrap/stdio'
 import { startDetached } from './bootstrap/detached-start'
 import type { ServerBoot } from './bootstrap/envelope'
 import { readWebRunFile } from './web/web-run-file'
@@ -627,9 +626,7 @@ function serveOverStdio(): Promise<number> {
     // name>/server-YYYY-MM-DD.log`), rotated as the desktop's server log is.
     // A detached server's stderr is that file already (detached-start.ts).
     onEnvelope: (envelope) => {
-      if (!envelope.wsl || envelope.detached) return
-      mkdirSync(envelope.logsDir, { recursive: true, mode: 0o700 })
-      keepStderrIn(createServerLog({ logsDir: envelope.logsDir }))
+      if (envelope.wsl && !envelope.detached) keepStderrInLogsDir(envelope.logsDir)
     },
   })
 }

@@ -1,7 +1,8 @@
+import { mkdirSync } from 'node:fs'
 import { createInterface } from 'node:readline'
 import type { Readable, Writable } from 'node:stream'
 
-import type { ServerLog } from '../../main/server-supervisor/server-log'
+import { createServerLog, type ServerLog } from '../../main/server-supervisor/server-log'
 import { createMessageHub, type ServerControlChannel } from './control-channel'
 
 // The control channel of a server started by a parent that holds its stdio: a
@@ -75,4 +76,21 @@ export function keepStderrIn(log: Pick<ServerLog, 'write'>, stderr: Writable = p
     }
     return write(chunk, ...rest)
   }) as Writable['write']
+}
+
+/**
+ * `keepStderrIn` a log in `logsDir`, made owner-only. A directory that cannot
+ * be made (a home another user owns part of, a full disk) costs the log and
+ * nothing else: the server starts all the same, and says so on stderr.
+ */
+export function keepStderrInLogsDir(logsDir: string, stderr: Writable = process.stderr): void {
+  try {
+    mkdirSync(logsDir, { recursive: true, mode: 0o700 })
+  } catch (error) {
+    stderr.write(
+      `[studio-server] keeps no log: ${logsDir} could not be made (${error instanceof Error ? error.message : String(error)})\n`,
+    )
+    return
+  }
+  keepStderrIn(createServerLog({ logsDir }), stderr)
 }

@@ -133,8 +133,11 @@ const QUIT_DRAIN_MS = 10_000
 const CRASH_BACKOFF_BASE_MS = 2_000
 const CRASH_BACKOFF_MAX_MS = 30_000
 // How long a server whose wire closed has to answer a ping before it is taken
-// for hung. A dead one is known sooner, by its exit.
-const ALIVE_PROBE_MS = 5_000
+// for hung, and stopped with every chat it runs. A dead one is known sooner,
+// by its exit, so this is only ever waited out by a server that is alive but
+// slow: busy, or in a VM still waking from sleep. About what a reconnect had
+// before it was asked to ping first (the loopback deadline and the handshake's).
+const ALIVE_PROBE_MS = 15_000
 
 /** The refusal a WSL 1 distribution gets (decision R70). */
 export function wsl1Refusal(distro: string): string {
@@ -158,6 +161,12 @@ type Handle = {
   idleTimer: ReturnType<typeof setTimeout> | null
   pingTimer: ReturnType<typeof setInterval> | null
   stopping: boolean
+  /**
+   * The word `wsl.exe --list --verbose` gave the distribution's state while
+   * its server ran ("Running", or the same in the PC's language): a state
+   * other than it after the server exits is a distribution WSL stopped.
+   */
+  runningState: string | null
 }
 
 export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): WslEnvironmentManager {
@@ -183,6 +192,7 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
         idleTimer: null,
         pingTimer: null,
         stopping: false,
+        runningState: null,
       }
       handles.set(distro, handle)
     }
@@ -424,9 +434,11 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
     }
     // Every Linux process dies at once on `wsl --shutdown`; WSL then lists
     // the distribution as stopped. That is the person's doing, and is left be.
+    // The listing is in the PC's language, so "stopped" is any state but the
+    // one it was listed in while the server ran; English where that is unknown.
     const listing = await deps.listDistros({ force: true }).catch(() => null)
     const state = listing?.distros?.find((entry) => entry.name === handle.distro)?.state
-    if (state && /^stopped$/iu.test(state)) {
+    if (state && (handle.runningState ? state !== handle.runningState : /^stopped$/iu.test(state))) {
       setStatus(handle, {
         state: 'shut-down',
         reason: `WSL was shut down, so the Studio server in ${handle.distro} stopped. It starts again with the next message.`,
@@ -499,6 +511,15 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
       const connection = await connectBackend(handle)
       handle.crashes = 0
       armIdle(handle)
+      // What WSL calls a running distribution, in this PC's language, read
+      // while this one surely runs; listing does not start the VM.
+      void deps
+        .listDistros({ force: true })
+        .then((listed) => {
+          const running = listed.distros?.find((entry) => entry.name === handle.distro)?.state
+          if (running && handle.server === server) handle.runningState = running
+        })
+        .catch(() => undefined)
       return connection
     } catch (error) {
       const failure =

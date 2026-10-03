@@ -1,5 +1,3 @@
-import { constants as osConstants } from 'node:os'
-
 import type { HelperProcess } from '../../main/hosts/wsl-helper-client'
 import { classifyWslFailure } from '../../main/hosts/wsl-helper-client'
 import { decodeWslOutput } from '../../main/hosts/wsl-distro'
@@ -376,13 +374,18 @@ export function lastErrorLine(stderr: string): string | null {
 // the signal that ended the Linux process on as its own exit code, so a
 // `kill -9` reads as exit 9) is read as having ended the server with. Only
 // these: a small code is otherwise Node's own failure (1, 7), and the
-// server's own codes are 0 and 64 and up.
-const ENDING_SIGNALS = new Set(['SIGINT', 'SIGABRT', 'SIGKILL', 'SIGSEGV', 'SIGTERM'])
+// server's own codes are 0 and 64 and up. Linux's numbers, whichever system
+// reads them: this runs on Windows, whose own table differs (its SIGABRT is 22).
+const ENDING_SIGNALS: ReadonlyMap<number, string> = new Map([
+  [2, 'SIGINT'],
+  [6, 'SIGABRT'],
+  [9, 'SIGKILL'],
+  [11, 'SIGSEGV'],
+  [15, 'SIGTERM'],
+])
 
 function endingSignal(number: number): string | null {
-  for (const [name, value] of Object.entries(osConstants.signals))
-    if (value === number && ENDING_SIGNALS.has(name)) return name
-  return null
+  return ENDING_SIGNALS.get(number) ?? null
 }
 
 /**

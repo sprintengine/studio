@@ -240,6 +240,32 @@ test('a lost wire is reconnected once, and a call meanwhile waits for it instead
   assert.ok(threads.ok)
 })
 
+test('a lost wire to a server too busy to answer at once is reconnected when it does, not taken for hung', async () => {
+  const home = fakeHome('busy')
+  const connections: WslServerConnection[] = []
+  const { manager: wsl } = manager({ homes: { Ubuntu: home }, connected: (connection) => connections.push(connection) })
+  const first = await wsl.connect('Ubuntu')
+  const pid = readServerPid(home)
+  // Busy (here: stopped) for longer than a quick ping would wait, as a server
+  // under load or a VM waking from sleep is, while its wire drops.
+  process.kill(pid, 'SIGSTOP')
+  try {
+    first.backend.close()
+    await new Promise((resolve) => setTimeout(resolve, 6_000))
+  } finally {
+    try {
+      process.kill(pid, 'SIGCONT')
+    } catch {
+      // Gone: taken for hung and killed, which the asserts below say.
+    }
+  }
+  const second = await wsl.connect('Ubuntu')
+  assert.notEqual(second, first)
+  assert.equal(readServerPid(home), pid, 'the same server, with its chats, not one started in its place')
+  assert.equal(wsl.status('Ubuntu').state, 'ready')
+  assert.equal(connections.length, 2)
+}, 30_000)
+
 test('a WSL 1 distribution is refused with the command that converts it, and nothing is started', async () => {
   const home = fakeHome('wsl1')
   const { manager: wsl, runner } = manager({
@@ -289,6 +315,33 @@ test('a server killed under a running distribution is a crash; under a stopped o
   await waitFor(() => shutDown.status('Ubuntu').state === 'shut-down')
   assert.match(shutDown.status('Ubuntu').reason ?? '', /WSL was shut down/u)
 })
+
+test('WSL shut down on a PC in another language is told apart by the state changing, whatever its word', async () => {
+  // `wsl --list --verbose` on a French PC: neither state is "Stopped".
+  let state = "En cours d'exécution"
+  const { manager: wsl } = manager({
+    homes: { Ubuntu: fakeHome('localized') },
+    listing: () => ({ distros: [{ name: 'Ubuntu', isDefault: true, state, version: 2 }], at: Date.now() }),
+  })
+  await wsl.connect('Ubuntu')
+  // The running state is read once the server is up; give it its moment.
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  process.kill(readServerPid(join(scratch, 'localized')), 'SIGKILL')
+  await waitFor(() => wsl.status('Ubuntu').state === 'unavailable', 15_000)
+  assert.match(wsl.status('Ubuntu').reason ?? '', /stopped unexpectedly/u, 'still running: a crash')
+
+  const { manager: shutDown } = manager({
+    homes: { Ubuntu: fakeHome('localized-2') },
+    listing: () => ({ distros: [{ name: 'Ubuntu', isDefault: true, state, version: 2 }], at: Date.now() }),
+  })
+  await shutDown.connect('Ubuntu')
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  state = 'Arrêté'
+  process.kill(readServerPid(join(scratch, 'localized-2')), 'SIGKILL')
+  await waitFor(() => shutDown.status('Ubuntu').state !== 'ready', 15_000)
+  assert.equal(shutDown.status('Ubuntu').state, 'shut-down')
+  assert.match(shutDown.status('Ubuntu').reason ?? '', /^WSL was shut down/u)
+}, 60_000)
 
 /** The server's pid, from the run lock it holds. */
 function readServerPid(home: string): number {
