@@ -16,7 +16,14 @@ import type { ServerBootstrapEnvelope } from '../bootstrap/envelope'
 import { connectRemoteConversationBackend, type RemoteConversationBackend } from './backend-wire'
 import { connectLoopback, openBridge } from './front-door-client'
 import { enterFrontDoor, ownerTokenHash, type FrontDoorPurpose } from './front-door-proof'
-import { startWslServer, wslServerPaths, type RunningWslServer, type WslServerStartDeps } from './wsl-server-starter'
+import {
+  describeServerExit,
+  startWslServer,
+  wslServerPaths,
+  type RunningWslServer,
+  type WslServerExit,
+  type WslServerStartDeps,
+} from './wsl-server-starter'
 
 // The Windows side's WSL servers (phase 7 spec, 5.2): one per distribution
 // that has a chat to run, started on demand, reached through its front door,
@@ -35,6 +42,10 @@ import { startWslServer, wslServerPaths, type RunningWslServer, type WslServerSt
 //   stdin is the lease: a ping every fifteen seconds while it runs.
 // - After `idleMs` (ten minutes) with no call and no chat working there, the
 //   server is drained and stopped, so the VM can idle (decision R36).
+// - A wire that closes is reconnected only once the server has answered a
+//   ping: a server that died closes its wire a moment before `wsl.exe` says
+//   it exited, and a reconnect meanwhile would read the dead server as a
+//   loopback door that does not work.
 // - A server that exits on its own is told apart by asking WSL: a
 //   distribution now `Stopped` was shut down on purpose (`wsl --shutdown`,
 //   `wsl --terminate`), and nothing starts it again until the person acts;
@@ -121,6 +132,9 @@ const DEFAULT_PING_MS = 15_000
 const QUIT_DRAIN_MS = 10_000
 const CRASH_BACKOFF_BASE_MS = 2_000
 const CRASH_BACKOFF_MAX_MS = 30_000
+// How long a server whose wire closed has to answer a ping before it is taken
+// for hung. A dead one is known sooner, by its exit.
+const ALIVE_PROBE_MS = 5_000
 
 /** The refusal a WSL 1 distribution gets (decision R70). */
 export function wsl1Refusal(distro: string): string {
@@ -311,6 +325,9 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
             reason: 'loopback answered',
           }
         } catch (error) {
+          // A server that died under the attempt says nothing about loopback.
+          if (handle.server !== server || server.exited())
+            throw new Error(`The Studio server in ${handle.distro} stopped.`)
           // A squatter's decoy fails the proof here, and gets nothing.
           reason = `loopback did not work (${error instanceof Error ? error.message : String(error)})`
           log(`The Studio server in ${handle.distro}: ${reason}; using the stdio bridge.`)
@@ -342,12 +359,21 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
       if (handle.connection !== connection) return
       handle.connection = null
       if (handle.stopping || !handle.server) return
-      // The server is still there but the wire went: one reconnect, then the
-      // server is stopped and the next call starts it afresh.
-      log(`The connection to the Studio server in ${handle.distro} closed (${why}); reconnecting.`)
+      // The wire went. If the server is still there, one reconnect, then the
+      // server is stopped and the next call starts it afresh. If it died, its
+      // exit (a moment behind the wire) says so, and nothing is reconnected.
+      log(`The connection to the Studio server in ${handle.distro} closed (${why}).`)
+      const reconnect = async (): Promise<WslServerConnection> => {
+        const alive = await server.alive(ALIVE_PROBE_MS)
+        if (server.exited() || handle.server !== server)
+          throw new Error(`The Studio server in ${handle.distro} stopped.`)
+        if (!alive) throw new Error('the server did not answer a ping.')
+        log(`The Studio server in ${handle.distro} is still running; reconnecting.`)
+        return connectBackend(handle)
+      }
       // Held as the start in progress, so a call meanwhile waits for this
       // reconnect instead of opening a second wire beside it.
-      const reconnecting = (handle.starting ??= connectBackend(handle).finally(() => {
+      const reconnecting = (handle.starting ??= reconnect().finally(() => {
         if (handle.starting === reconnecting) handle.starting = null
         if (handle.reconnecting === reconnecting) handle.reconnecting = null
       }))
@@ -355,8 +381,8 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
       void reconnecting.then(
         () => undefined,
         (error: unknown) => {
-          // The server itself went meanwhile: its exit has said why.
-          if (handle.server !== server) return
+          // The server itself went meanwhile: its exit says why.
+          if (handle.server !== server || server.exited()) return
           setStatus(handle, {
             state: 'unavailable',
             reason: `The connection to the Studio server in ${handle.distro} was lost: ${error instanceof Error ? error.message : String(error)}`,
@@ -380,11 +406,7 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
     return connection
   }
 
-  async function onServerExit(
-    handle: Handle,
-    server: RunningWslServer,
-    exit: { code: number | null; stderrTail: string; intentional: boolean },
-  ): Promise<void> {
+  async function onServerExit(handle: Handle, server: RunningWslServer, exit: WslServerExit): Promise<void> {
     if (handle.server !== server) return
     handle.server = null
     handle.token = null
@@ -414,12 +436,14 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
     handle.crashes++
     const wait = Math.min(CRASH_BACKOFF_MAX_MS, CRASH_BACKOFF_BASE_MS * 2 ** (handle.crashes - 1))
     handle.retryAt = now() + wait
-    const tail = exit.stderrTail.trim().split('\n').slice(-2).join(' ')
+    // Why, as the exit says it: what the server printed while it worked
+    // (a library's warnings) is not why it stopped.
+    const how = describeServerExit(exit)
     setStatus(handle, {
       state: 'unavailable',
-      reason: `The Studio server in ${handle.distro} stopped unexpectedly (${tail || `exit ${exit.code ?? 'unknown'}`}). It starts again with the next message.`,
+      reason: `The Studio server in ${handle.distro} stopped unexpectedly (${how}). It starts again with the next message.`,
     })
-    log(`The Studio server in ${handle.distro} exited (code ${exit.code ?? 'none'}): ${tail}`)
+    log(`The Studio server in ${handle.distro} stopped unexpectedly (${how}).`)
   }
 
   async function start(handle: Handle): Promise<WslServerConnection> {
