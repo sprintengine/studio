@@ -87,6 +87,46 @@ export function parseRequestHead(buffer: Buffer): RequestHead | 'more' | 'bad' {
   return { method: first[1]!, target: first[2]!, version: first[3]!, headers, rest: buffer.subarray(end + 4) }
 }
 
+/** A plain request's body length: its Content-Length, 0 when it has none, null for one framed any other way. */
+export function requestBodyLength(head: Pick<RequestHead, 'headers'>): number | null {
+  if (head.headers.some(([name]) => name.toLowerCase() === 'transfer-encoding')) return null
+  const lengths = head.headers.filter(([name]) => name.toLowerCase() === 'content-length').map(([, value]) => value)
+  if (lengths.length === 0) return 0
+  if (lengths.length > 1 || !/^\d{1,15}$/u.test(lengths[0]!)) return null
+  return Number(lengths[0])
+}
+
+const RESPONSE_CONNECTION_HEADERS = new Set(['connection', 'proxy-connection', 'keep-alive'])
+
+/**
+ * The first response head in `buffer`, rewritten so Chromium does not keep
+ * the connection: its own `Connection` headers dropped, `close` said both
+ * ways. A `101` to an upgrade keeps its `Connection: Upgrade`.
+ */
+export function closingResponseHead(
+  buffer: Buffer,
+  upgrade: boolean,
+): { status: number; head: Buffer; rest: Buffer } | 'more' | 'bad' {
+  const end = buffer.indexOf('\r\n\r\n')
+  if (end === -1) return buffer.length > MAX_HEAD_BYTES ? 'bad' : 'more'
+  const lines = buffer.subarray(0, end).toString('latin1').split('\r\n')
+  const status = /^HTTP\/1\.[01] (\d{3})(?: |$)/u.exec(lines[0] ?? '')
+  if (!status) return 'bad'
+  const code = Number(status[1])
+  const keep = code === 101 && upgrade
+  const out = [lines[0]!]
+  for (const line of lines.slice(1)) {
+    const name = line
+      .slice(0, Math.max(0, line.indexOf(':')))
+      .trim()
+      .toLowerCase()
+    if (!keep && RESPONSE_CONNECTION_HEADERS.has(name)) continue
+    out.push(line)
+  }
+  if (!keep) out.push('Connection: close', 'Proxy-Connection: close')
+  return { status: code, head: Buffer.from(`${out.join('\r\n')}\r\n\r\n`, 'latin1'), rest: buffer.subarray(end + 4) }
+}
+
 export class SshPaneForward {
   readonly username = 'studio'
   readonly password = randomBytes(24).toString('base64url')
@@ -241,6 +281,19 @@ export class SshPaneForward {
     // A plain http:// request in absolute form (and a ws:// upgrade, should
     // one come that way): passed on once, origin-form, without the proxy's
     // headers, on its own connection, which closes after the answer.
+    //
+    // Once means once. Chromium keeps a proxy connection for its next
+    // request to any site, so piping the rest of this one through would hand
+    // that next request (its cookies, this forward's credential) to whatever
+    // answered this one, and let it answer for another site. So only this
+    // request's body is passed on, and every answer tells Chromium the
+    // connection closes.
+    const upgrade = head.headers.some(([name, value]) => name.toLowerCase() === 'upgrade' && value.length > 0)
+    const bodyLength = requestBodyLength(head)
+    if (bodyLength === null) {
+      this.answer(socket, 501, 'Not Implemented', 'A plain request with a body of unknown length is not passed on.')
+      return
+    }
     let url: URL
     try {
       url = new URL(head.target)
@@ -259,7 +312,10 @@ export class SshPaneForward {
       this.refuse(socket, error)
       return
     }
-    const upgrade = head.headers.some(([name, value]) => name.toLowerCase() === 'upgrade' && value.length > 0)
+    if (socket.destroyed) {
+      upstream.destroy()
+      return
+    }
     const lines = [`${head.method} ${url.pathname}${url.search} ${head.version}`]
     for (const [name, value] of head.headers) {
       if (HOP_BY_HOP.has(name.toLowerCase())) continue
@@ -267,8 +323,78 @@ export class SshPaneForward {
     }
     lines.push(upgrade ? 'Connection: Upgrade' : 'Connection: close')
     upstream.write(`${lines.join('\r\n')}\r\n\r\n`)
-    if (head.rest.length > 0) upstream.write(head.rest)
-    this.pipeBoth(socket, upstream)
+    this.passOnce(socket, upstream, head.rest, bodyLength, upgrade)
+  }
+
+  /**
+   * One plain request's body up, and its answer down with every head
+   * saying the connection closes. Only a `101` to an upgrade turns the
+   * connection into a two-way pipe.
+   */
+  private passOnce(socket: Socket, upstream: Duplex, rest: Buffer, bodyLength: number, upgrade: boolean): void {
+    this.sockets.add(upstream)
+    let ended = false
+    const end = () => {
+      if (ended) return
+      ended = true
+      socket.destroy()
+      upstream.destroy()
+      this.sockets.delete(upstream)
+    }
+    socket.on('close', end)
+    upstream.on('close', end)
+    upstream.on('error', end)
+    let left = bodyLength
+    let raw = false
+    const up = (chunk: Buffer) => {
+      if (raw) {
+        upstream.write(chunk)
+        return
+      }
+      if (left <= 0) {
+        // Another request on this connection: never sent on to whoever answered the first.
+        end()
+        return
+      }
+      const piece = chunk.length > left ? chunk.subarray(0, left) : chunk
+      left -= piece.length
+      upstream.write(piece)
+      if (chunk.length > piece.length) end()
+    }
+    if (rest.length > 0) up(rest)
+    socket.on('data', up)
+    let pending = Buffer.alloc(0)
+    let final = false
+    const down = (chunk: Buffer) => {
+      if (!socket.write(chunk)) upstream.pause()
+    }
+    socket.on('drain', () => upstream.resume())
+    upstream.on('data', (chunk: Buffer) => {
+      if (final) {
+        down(chunk)
+        return
+      }
+      pending = pending.length ? Buffer.concat([pending, chunk]) : chunk
+      for (;;) {
+        const rewritten = closingResponseHead(pending, upgrade)
+        if (rewritten === 'more') return
+        if (rewritten === 'bad') {
+          end()
+          return
+        }
+        socket.write(rewritten.head)
+        pending = rewritten.rest
+        if (rewritten.status === 101 && upgrade) raw = true
+        if (rewritten.status >= 200 || rewritten.status === 101) {
+          final = true
+          if (pending.length > 0) down(pending)
+          pending = Buffer.alloc(0)
+          return
+        }
+      }
+    })
+    upstream.on('end', () => socket.end())
+    socket.resume()
   }
 
   private pipeBoth(socket: Socket, upstream: Duplex): void {

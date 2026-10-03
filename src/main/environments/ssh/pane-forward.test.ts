@@ -4,7 +4,13 @@ import { connect, createServer, type AddressInfo, type Server } from 'node:net'
 import type { Duplex } from 'node:stream'
 import { afterAll, beforeAll, test } from 'vitest'
 
-import { isLoopbackTarget, parseAuthority, SshPaneForward } from './pane-forward'
+import {
+  closingResponseHead,
+  isLoopbackTarget,
+  parseAuthority,
+  requestBodyLength,
+  SshPaneForward,
+} from './pane-forward'
 
 // The pane's forward with the relay played by local sockets: the proxy is
 // real (Node's HTTP server on loopback), and so are the client's requests,
@@ -163,4 +169,86 @@ test('what counts as loopback, and what a CONNECT may name', () => {
   assert.deepEqual(parseAuthority('[::1]:443'), { host: '::1', port: 443 })
   for (const bad of ['localhost', 'a b:80', 'host:0', 'host:70000', 'http://x:80'])
     assert.equal(parseAuthority(bad), null, bad)
+})
+
+test('a plain request is passed on once: a second one on the connection never reaches whoever answered the first', async () => {
+  // A site that answers with keep-alive, sends an early hint first, and
+  // writes down every byte it is sent after its answer.
+  const after: string[] = []
+  const hostile = createServer((socket) => {
+    let seen = ''
+    let answered = false
+    socket.on('data', (chunk) => {
+      seen += chunk.toString('latin1')
+      if (answered) {
+        after.push(chunk.toString('latin1'))
+        socket.destroy()
+        return
+      }
+      if (!seen.includes('\r\n\r\n')) return
+      answered = true
+      socket.write(
+        'HTTP/1.1 103 Early Hints\r\nConnection: keep-alive\r\n\r\n' +
+          'HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: keep-alive\r\nKeep-Alive: timeout=60\r\n\r\nhello',
+      )
+    })
+  })
+  await new Promise<void>((resolve) => hostile.listen(0, '127.0.0.1', resolve))
+  const hostilePort = (hostile.address() as AddressInfo).port
+  const { proxy } = forward()
+  const port = await proxy.open()
+  try {
+    const answer = await new Promise<string>((resolve) => {
+      const socket = connect({ host: '127.0.0.1', port })
+      let out = ''
+      socket.on('data', (chunk) => {
+        out += chunk.toString('latin1')
+        if (out.endsWith('hello'))
+          // Chromium's next request, to another site, on the kept connection.
+          socket.write(
+            `GET http://localhost:${sitePort}/secret HTTP/1.1\r\nHost: localhost:${sitePort}\r\n${auth(proxy)}Cookie: session=abc\r\n\r\n`,
+          )
+      })
+      socket.on('close', () => resolve(out))
+      socket.write(
+        `POST http://localhost:${hostilePort}/form HTTP/1.1\r\nHost: x\r\n${auth(proxy)}Content-Length: 3\r\n\r\nabc`,
+      )
+    })
+    const heads = answer.split('\r\n\r\n')
+    assert.match(heads[0]!, /^HTTP\/1\.1 103 /u)
+    assert.match(heads[0]!, /Connection: close/u)
+    assert.doesNotMatch(heads[0]!, /keep-alive/iu)
+    assert.match(heads[1]!, /^HTTP\/1\.1 200 OK[\s\S]*Connection: close\r\nProxy-Connection: close$/u)
+    assert.doesNotMatch(heads[1]!, /keep-alive/iu)
+    assert.equal(heads[2], 'hello')
+    assert.deepEqual(after, [], 'nothing after the first request reached the site')
+  } finally {
+    await proxy.close()
+    hostile.close()
+  }
+})
+
+test('a plain request body is framed by its Content-Length, or not passed on', () => {
+  assert.equal(requestBodyLength({ headers: [] }), 0)
+  assert.equal(requestBodyLength({ headers: [['Content-Length', '12']] }), 12)
+  assert.equal(requestBodyLength({ headers: [['Transfer-Encoding', 'chunked']] }), null)
+  assert.equal(
+    requestBodyLength({
+      headers: [
+        ['Content-Length', '1'],
+        ['content-length', '2'],
+      ],
+    }),
+    null,
+  )
+  assert.equal(requestBodyLength({ headers: [['Content-Length', '-1']] }), null)
+  const upgraded = closingResponseHead(
+    Buffer.from('HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\nframes'),
+    true,
+  )
+  assert.ok(typeof upgraded === 'object')
+  assert.match(upgraded.head.toString(), /Connection: Upgrade/u)
+  assert.equal(upgraded.rest.toString(), 'frames')
+  assert.equal(closingResponseHead(Buffer.from('HTTP/1.1 200 OK\r\n'), false), 'more')
+  assert.equal(closingResponseHead(Buffer.from('nonsense\r\n\r\n'), false), 'bad')
 })
