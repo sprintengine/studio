@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
@@ -21,7 +22,13 @@ import {
 import { wslProfileId } from '../../hosts/wsl-helper-runtime'
 import { cliForConversationProvider } from '../../../shared/conversation-harness'
 import { SIGN_IN_FLOWS } from '../../../server/machine/machine-sign-in'
-import { ASKPASS_TIMEOUT_MS, createAskpassBroker, type AskpassBroker, type AskpassRequest } from './askpass'
+import {
+  ASKPASS_TIMEOUT_MS,
+  createAskpassBroker,
+  marksRemotePrompts,
+  type AskpassBroker,
+  type AskpassRequest,
+} from './askpass'
 import {
   configHostNames,
   findSshBinary,
@@ -84,6 +91,32 @@ function readStore(path: string): SavedSshEnvironment[] {
   } catch {
     return []
   }
+}
+
+/** `ssh -V`'s line (OpenSSH writes it to stderr), or '' when it does not answer within five seconds. */
+function sshVersion(ssh: string): Promise<string> {
+  return new Promise((resolve) => {
+    let text = ''
+    let child: ReturnType<typeof spawn>
+    try {
+      child = spawn(ssh, ['-V'], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+    } catch {
+      resolve('')
+      return
+    }
+    const timer = setTimeout(() => child.kill(), 5_000)
+    const take = (chunk: Buffer) => (text = (text + chunk.toString('utf8')).slice(0, 400))
+    child.stdout?.on('data', take)
+    child.stderr?.on('data', take)
+    child.once('error', () => {
+      clearTimeout(timer)
+      resolve('')
+    })
+    child.once('close', () => {
+      clearTimeout(timer)
+      resolve(text.trim().split('\n')[0] ?? '')
+    })
+  })
 }
 
 /** Words for Settings › Diagnostics, with the remote user's name and SSH addresses taken out (spec 6.5). */
@@ -198,9 +231,19 @@ export class SshEnvironments {
   }
 
   private askpass(): Promise<AskpassBroker> {
-    this.broker ??= createAskpassBroker({ ask: (request, signal) => this.ask(request, signal), log: this.log }).then(
-      (broker) => (this.brokerReady = broker),
-    )
+    this.broker ??= sshVersion(this.ssh()).then((version) => {
+      // Before OpenSSH 8.4 a remote's question is not marked as the remote's.
+      const remoteMarked = marksRemotePrompts(version)
+      if (!remoteMarked)
+        this.log(
+          `${version || 'This ssh'} does not mark the questions a machine asks, so its passphrase and password questions are shown as ones Studio cannot vouch for.`,
+        )
+      return createAskpassBroker({
+        ask: (request, signal) => this.ask(request, signal),
+        remoteMarked: () => remoteMarked,
+        log: this.log,
+      }).then((broker) => (this.brokerReady = broker))
+    })
     return this.broker
   }
 
@@ -216,6 +259,7 @@ export class SshEnvironments {
       kind: request.kind,
       text: request.text,
       ...(request.hostKey ? { hostKey: request.hostKey } : {}),
+      ...(request.unverified ? { unverified: true } : {}),
       ...(request.signIn ? { signIn: request.signIn } : {}),
       // A login waits on a person in a browser: as long as its code lasts.
       expiresAt: Date.now() + (request.signIn ? 15 * 60_000 : ASKPASS_TIMEOUT_MS),
@@ -478,12 +522,20 @@ export class SshEnvironments {
       finished.signal,
     )
     if (finished.signal.aborted) return waiting
-    if (answer === null) {
+    if (answer === null || (started.paste && !answer.trim())) {
+      // Nobody waits on the login any more: a wire that drops now is not an unhandled rejection.
+      waiting.catch(() => undefined)
       await connection.backend.signIn({ op: 'cancel', id: started.id }).catch(() => undefined)
-      return { ok: false, message: 'Sign-in cancelled.' }
+      return { ok: false, message: answer === null ? 'Sign-in cancelled.' : 'No code was pasted, so sign-in stopped.' }
     }
-    if (started.paste && answer !== 'done')
-      await connection.backend.signIn({ op: 'paste', id: started.id, code: answer })
+    if (started.paste) {
+      const pasted = await connection.backend.signIn({ op: 'paste', id: started.id, code: answer })
+      if (!pasted.ok) {
+        waiting.catch(() => undefined)
+        await connection.backend.signIn({ op: 'cancel', id: started.id }).catch(() => undefined)
+        return { ok: false, message: 'That code could not be sent to the sign-in. Try signing in again.' }
+      }
+    }
     return waiting
   }
 

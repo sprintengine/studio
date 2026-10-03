@@ -3,9 +3,10 @@ import { spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, beforeAll, test } from 'vitest'
+import { afterAll, beforeAll, test, vi } from 'vitest'
 
-import { SSH_ENV_CHANNELS } from '../../../shared/ssh-environments'
+import { conversationProviderForCli } from '../../../shared/conversation-harness'
+import { DEFAULT_SSH_ENVIRONMENT_SETTINGS, SSH_ENV_CHANNELS } from '../../../shared/ssh-environments'
 import { redactDiagnostics, SshEnvironments } from './ssh-environments'
 
 // The desktop's saved SSH machines: added only once `ssh -G` makes sense of
@@ -128,4 +129,55 @@ test('a CLI Studio cannot sign in without a terminal is told the exact command, 
     'Sign opencode in once on build-box over your own SSH session: ssh -t ssh://dev@build-box.example.com:2222 opencode auth login',
   )
   assert.match(signInOverSsh('grok', { destination: 'build-box', label: 'build-box' }), /API key/u)
+})
+
+test('an empty pasted code, or one the login would not take, ends the sign-in in words rather than waiting it out', async () => {
+  const { store, sent } = machines()
+  const internals = store as unknown as {
+    saved: unknown[]
+    askpass: () => Promise<unknown>
+    connection: (id: string) => unknown
+  }
+  internals.saved.push({
+    id: 'm1',
+    label: 'build-box',
+    destination: 'build-box',
+    environmentId: null,
+    settings: { ...DEFAULT_SSH_ENVIRONMENT_SETTINGS },
+    addedAt: 0,
+  })
+  internals.askpass = async () => undefined
+  const ops: string[] = []
+  let pasteTaken = true
+  internals.connection = () => ({
+    backend: {
+      signIn: async (params: { op: string }) => {
+        ops.push(params.op)
+        if (params.op === 'start')
+          return { ok: true, id: 'l1', url: 'https://example.test/login', code: null, paste: true }
+        if (params.op === 'paste') return { ok: pasteTaken }
+        // The login itself never finishes here, and a dropped wire would reject it.
+        if (params.op === 'wait')
+          return new Promise((_resolve, reject) => setTimeout(() => reject(new Error('gone')), 50))
+        return { ok: true }
+      },
+    },
+  })
+  const answerWith = async (answer: string) => {
+    const signing = store.signIn('m1', conversationProviderForCli('claude-code')!)
+    await vi.waitFor(() => assert.ok(sent.some(([channel]) => channel === SSH_ENV_CHANNELS.prompt)))
+    const [, shown] = sent.findLast(([channel]) => channel === SSH_ENV_CHANNELS.prompt)! as [string, { id: string }]
+    sent.length = 0
+    store.answer(shown.id, answer)
+    return signing
+  }
+  assert.deepEqual(await answerWith('   '), { ok: false, message: 'No code was pasted, so sign-in stopped.' })
+  assert.deepEqual(ops, ['start', 'wait', 'cancel'])
+  ops.length = 0
+  pasteTaken = false
+  assert.deepEqual(await answerWith('abc'), {
+    ok: false,
+    message: 'That code could not be sent to the sign-in. Try signing in again.',
+  })
+  assert.deepEqual(ops, ['start', 'wait', 'paste', 'cancel'])
 })

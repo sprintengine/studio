@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { test } from 'vitest'
 
-import { classifyPrompt, createAskpassBroker, type AskpassRequest } from './askpass'
+import { classifyPrompt, createAskpassBroker, marksRemotePrompts, type AskpassRequest } from './askpass'
 import { DOCKER_TESTS, startSshd } from './__fixtures__/docker-sshd'
 import { buildSshArgs, parseDestination, sshEnvironment } from './ssh-command'
 
@@ -180,3 +180,20 @@ test.skipIf(!DOCKER_TESTS)(
     }
   },
 )
+
+test('before OpenSSH 8.4 a passphrase or password question is one Studio cannot vouch for', () => {
+  assert.equal(marksRemotePrompts('OpenSSH_10.0p2, LibreSSL 3.3.6'), true)
+  assert.equal(marksRemotePrompts('OpenSSH_8.4p1 Debian-5, OpenSSL 1.1.1n'), true)
+  assert.equal(marksRemotePrompts('OpenSSH_8.2p1 Ubuntu-4ubuntu0.11, OpenSSL 1.1.1f'), false)
+  assert.equal(marksRemotePrompts('OpenSSH_for_Windows_8.1p1, LibreSSL 3.0.2'), false)
+  assert.equal(marksRemotePrompts('OpenSSH_for_Windows_9.5p1, LibreSSL 3.8.2'), true)
+  assert.equal(marksRemotePrompts(''), false, 'an ssh that does not say is not trusted to mark')
+  const old = { remoteMarked: false }
+  // A remote on such a client can write ssh's own words; the dialog says it cannot tell.
+  const passphrase = classifyPrompt("Enter passphrase for key '/Users/dev/.ssh/id_ed25519': ", '', old)
+  assert.equal(passphrase.kind, 'passphrase')
+  assert.equal(passphrase.unverified, true)
+  assert.equal(classifyPrompt("dev@build-box's password: ", '', old).unverified, true)
+  assert.equal(classifyPrompt('Verification code: ', '', old).kind, 'remote')
+  assert.equal(classifyPrompt("Enter passphrase for key '/Users/dev/.ssh/id_ed25519': ").unverified, undefined)
+})

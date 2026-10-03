@@ -23,15 +23,51 @@ import type { SshAskpassEnv } from './ssh-command'
 // prefixes it with `(user@host) `: anything so prefixed, or that matches none
 // of ssh's own questions, is shown as the remote's, verbatim, in a frame that
 // names the machine, so a server cannot dress a question up as a Studio or a
-// passphrase prompt.
+// passphrase prompt. An older ssh (Windows 10's own is 8.1) marks nothing, so
+// there a passphrase or password question is shown verbatim too, saying that
+// Studio cannot tell who asks.
 
 export const ASKPASS_TIMEOUT_MS = 3 * 60_000
 
 /** A question classified: which dialog, and for a new host, its key. */
-export type ClassifiedPrompt = { kind: SshPromptKind; text: string; hostKey?: SshPromptRequest['hostKey'] }
+export type ClassifiedPrompt = {
+  kind: SshPromptKind
+  text: string
+  hostKey?: SshPromptRequest['hostKey']
+  /** A passphrase or password question this ssh cannot tell from one the remote wrote (before OpenSSH 8.4). */
+  unverified?: boolean
+}
 
-/** `SSH_ASKPASS_PROMPT`: `confirm` for a yes/no, `none` for a notice ssh takes down itself. */
-export function classifyPrompt(prompt: string, askpassPrompt = ''): ClassifiedPrompt {
+/**
+ * Whether this ssh marks the remote's own questions with `(user@host) `:
+ * OpenSSH 8.4 and later. Read from `ssh -V`; anything else is taken as not.
+ */
+export function marksRemotePrompts(version: string): boolean {
+  const match = /OpenSSH_(?:for_Windows_)?(\d+)\.(\d+)/u.exec(version)
+  if (!match) return false
+  const [major, minor] = [Number(match[1]), Number(match[2])]
+  return major > 8 || (major === 8 && minor >= 4)
+}
+
+/**
+ * `SSH_ASKPASS_PROMPT`: `confirm` for a yes/no, `none` for a notice ssh takes
+ * down itself. `remoteMarked`: whether this ssh prefixes the remote's
+ * questions (`marksRemotePrompts`). Where it does not, a remote can write
+ * "Enter passphrase for key …" word for word, so a passphrase or password
+ * question is shown as one Studio cannot vouch for.
+ */
+export function classifyPrompt(
+  prompt: string,
+  askpassPrompt = '',
+  options: { remoteMarked?: boolean } = {},
+): ClassifiedPrompt {
+  const classified = classifyText(prompt, askpassPrompt)
+  if (options.remoteMarked === false && (classified.kind === 'passphrase' || classified.kind === 'password'))
+    return { ...classified, unverified: true }
+  return classified
+}
+
+function classifyText(prompt: string, askpassPrompt: string): ClassifiedPrompt {
   const text = prompt.replace(/\r/gu, '').replace(/\s+$/u, '')
   // The remote's own text (keyboard-interactive), whatever it says after the prefix.
   if (/^\([^()\s]+@[^()\s]+\) /u.test(text)) return { kind: 'remote', text }
@@ -89,6 +125,8 @@ export type AskpassBrokerOptions = {
   /** Extra environment for that Node (`ELECTRON_RUN_AS_NODE=1` for the app's binary). */
   runAsNode?: boolean
   timeoutMs?: number
+  /** Whether this ssh marks the remote's questions (`marksRemotePrompts`); true when not said. */
+  remoteMarked?: () => boolean
   platform?: NodeJS.Platform
   tempDir?: string
   log?: (message: string) => void
@@ -163,7 +201,9 @@ export async function createAskpassBroker(options: AskpassBrokerOptions): Promis
         socket.destroy()
         return
       }
-      const classified = classifyPrompt(message.prompt, typeof message.askpass === 'string' ? message.askpass : '')
+      const classified = classifyPrompt(message.prompt, typeof message.askpass === 'string' ? message.askpass : '', {
+        remoteMarked: options.remoteMarked?.() ?? true,
+      })
       const timer = setTimeout(() => controller.abort(), timeoutMs)
       void options
         .ask({ ...classified, label }, controller.signal)

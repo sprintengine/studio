@@ -127,3 +127,36 @@ test("a sign-in shows the machine's link and code; a paste-back sends the code; 
   act(() => button('Continue').click())
   expect(answers).toContainEqual(['s2', 'pasted-code'])
 })
+
+test('a passphrase question an older ssh cannot vouch for is shown verbatim, framed, and says so', () => {
+  act(() =>
+    emit({
+      id: 'u1',
+      label: 'build-box',
+      kind: 'passphrase',
+      text: "Enter passphrase for key '/Users/dev/.ssh/id_ed25519':",
+      unverified: true,
+      expiresAt: later,
+    }),
+  )
+  expect(document.body.textContent).not.toContain('The passphrase for your SSH key')
+  expect(document.body.textContent).toContain('ssh or build-box asks:')
+  expect(document.querySelector('[data-testid="ssh-unverified-text"]')?.textContent).toContain('Enter passphrase')
+  expect(document.body.textContent).toContain('older than 8.4')
+})
+
+test('a login waiting for a pasted code is not sent an empty one', () => {
+  act(() =>
+    emit({
+      id: 's3',
+      label: 'build-box',
+      kind: 'sign-in',
+      text: 'Sign in to claude on build-box.',
+      signIn: { cli: 'claude-code', url: 'https://claude.com/cai/oauth/authorize', code: null, paste: true },
+      expiresAt: later,
+    }),
+  )
+  expect(button('Continue').disabled).toBe(true)
+  act(() => (document.querySelector('form') as HTMLFormElement).requestSubmit())
+  expect(answers).toEqual([])
+})

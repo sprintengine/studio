@@ -122,6 +122,12 @@ export type SshPromptRequest = {
   /** `host-key` only, from ssh's fixed question. */
   hostKey?: { host: string; keyType: string; fingerprint: string }
   /**
+   * `passphrase` or `password` from an ssh older than OpenSSH 8.4, which does
+   * not mark the remote's own questions: the remote could have written the
+   * same words, so the dialog shows them verbatim and says it cannot tell.
+   */
+  unverified?: boolean
+  /**
    * `sign-in` only: a CLI's login running on the machine. The link opens in
    * this computer's browser; a device code is typed there; a pasted code is
    * this dialog's answer. The dialog closes itself when the login finishes.

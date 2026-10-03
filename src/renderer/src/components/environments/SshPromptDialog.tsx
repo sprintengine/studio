@@ -21,6 +21,8 @@ const MUTED = 'text-body leading-5 text-[color:var(--text-muted)]'
 const FRAME = 'rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3 py-2'
 
 function titleFor(request: SshPromptRequest): string {
+  // Words a remote could have written itself never get a title of Studio's own.
+  if (request.unverified) return `ssh or ${request.label} asks`
   switch (request.kind) {
     case 'host-key':
       return `New machine: ${request.label}`
@@ -63,6 +65,7 @@ export function SshPromptDialogBody({
     event?.preventDefault()
     if (request.kind === 'host-key') onAnswer('yes')
     else if (request.kind === 'confirm') onAnswer('yes')
+    else if (request.kind === 'sign-in' && !value.trim()) return
     else if (needsInput(request)) onAnswer(value)
   }
   const hostKey = request.hostKey
@@ -87,7 +90,20 @@ export function SshPromptDialogBody({
               </dl>
             </>
           ) : null}
-          {request.kind === 'passphrase' || request.kind === 'password' || request.kind === 'confirm' ? (
+          {request.unverified ? (
+            <>
+              <p className={MUTED}>ssh or {request.label} asks:</p>
+              <div className={FRAME}>
+                <p className={`${TEXT} whitespace-pre-wrap break-words`} data-testid="ssh-unverified-text">
+                  {request.text}
+                </p>
+              </div>
+              <p className={MUTED}>
+                This computer's OpenSSH is older than 8.4 and does not mark the questions a machine asks, so Studio
+                can't tell whether this one comes from ssh here or from {request.label}. Answer only if you expected it.
+              </p>
+            </>
+          ) : request.kind === 'passphrase' || request.kind === 'password' || request.kind === 'confirm' ? (
             <p className={TEXT}>{request.text}</p>
           ) : null}
           {request.kind === 'touch' ? (
@@ -152,7 +168,12 @@ export function SshPromptDialogBody({
             Cancel
           </ModalButton>
           {request.kind === 'touch' || (request.kind === 'sign-in' && !request.signIn?.paste) ? null : (
-            <ModalButton type="submit" variant="primary">
+            <ModalButton
+              type="submit"
+              variant="primary"
+              // A login waiting for a pasted code is not sent an empty one.
+              disabled={request.kind === 'sign-in' && !value.trim()}
+            >
               {request.kind === 'host-key' ? 'Trust and connect' : request.kind === 'confirm' ? 'Allow' : 'Continue'}
             </ModalButton>
           )}
