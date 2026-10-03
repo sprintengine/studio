@@ -261,6 +261,7 @@ function runLocal(infoPathArg) {
   let stdinEnded = false
   let reconnecting = false
   let replays = 0
+  let saidNotBack = false
   let initializeLine = null
   let initializedLine = null
   const swallow = new Set()
@@ -318,7 +319,12 @@ function runLocal(infoPathArg) {
     process.stdout.write(`${line}\n`)
   }
 
-  function open(info, replay) {
+  // `retry` is the reconnect an attempt belongs to: an attempt that never
+  // connects (a new discovery file written before its socket listens, a
+  // socket that answered the probe and then went) goes back to waiting
+  // within the same window, rather than leaving the bridge reconnecting
+  // forever with nothing to reconnect it.
+  function open(info, replay, retry = null) {
     const next = connect(info.socketPath)
     socket = next
     let connected = false
@@ -326,6 +332,7 @@ function runLocal(infoPathArg) {
       connected = true
       connectedOnce = true
       reconnecting = false
+      saidNotBack = false
       const authLine = channelAuthLine(info)
       if (authLine) next.write(authLine)
       // Attribution, proven by the launch token where the launch issued one;
@@ -375,8 +382,14 @@ function runLocal(infoPathArg) {
       live = false
       serverBuffer = ''
       // The client went first: this is the end of the session.
-      if (stdinEnded || !connected) {
-        if (stdinEnded) process.exit(0)
+      if (stdinEnded) process.exit(0)
+      if (!connected) {
+        if (!retry) return
+        // Said once per reconnect: an MCP client keeps a server's stderr in its log.
+        if (!saidNotBack)
+          process.stderr.write('sprintengine-studio-mcp-bridge: Studio is not answering yet; still waiting.\n')
+        saidNotBack = true
+        void reconnect(retry.previous, retry.deadline)
         return
       }
       for (const id of waiting.values()) answerRestarted(id)
@@ -385,9 +398,8 @@ function runLocal(infoPathArg) {
     })
   }
 
-  async function reconnect(previous) {
+  async function reconnect(previous, deadline = Date.now() + RECONNECT_WINDOW_MS) {
     reconnecting = true
-    const deadline = Date.now() + RECONNECT_WINDOW_MS
     while (Date.now() < deadline && !stdinEnded) {
       await new Promise((resolve) => setTimeout(resolve, RECONNECT_POLL_MS))
       let info = null
@@ -399,7 +411,7 @@ function runLocal(infoPathArg) {
       if (!info || typeof info.socketPath !== 'string') continue
       const restarted = info.pid !== previous.pid
       if (!restarted && !(await socketAnswers(info.socketPath))) continue
-      open(info, true)
+      open(info, true, { previous, deadline })
       return
     }
     // Studio did not come back (the app quit): leave as a closed server always did.

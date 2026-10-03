@@ -126,3 +126,49 @@ test.skipIf(process.platform === 'win32')(
     await second.close()
   },
 )
+
+test.skipIf(process.platform === 'win32')(
+  'a reconnect attempt that finds no socket yet keeps waiting, and reconnects once the gateway listens',
+  async () => {
+    // Beside the first test's files: a socket path has little room to grow.
+    const socketPath = join(scratch, 'late.sock')
+    const infoPath = join(scratch, 'late-info.json')
+    const writeInfo = (pid: number) => writeFileSync(infoPath, JSON.stringify({ socketPath, pid }))
+    writeInfo(1001)
+    const first = await startGateway(socketPath)
+
+    const env = { ...process.env }
+    for (const key of Object.keys(env)) if (key.startsWith('SPRINTENGINE_')) delete env[key]
+    const bridge = spawn(process.execPath, [BRIDGE, '--info-path', infoPath], { env, stdio: 'pipe' })
+    const out: Array<Record<string, any>> = []
+    let stderr = ''
+    bridge.stderr.setEncoding('utf8')
+    bridge.stderr.on('data', (chunk: string) => (stderr += chunk))
+    createInterface({ input: bridge.stdout }).on('line', (line) => out.push(JSON.parse(line)))
+    const send = (message: unknown) => bridge.stdin.write(`${JSON.stringify(message)}\n`)
+
+    send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } })
+    await waitFor(() => out.find((message) => message.id === 1), 'the first initialize answer')
+
+    // The new process names itself before its socket listens: the bridge's
+    // first attempt finds nothing there.
+    await first.close()
+    rmSync(socketPath, { force: true })
+    writeInfo(2002)
+    await waitFor(() => stderr.includes('not answering yet'), 'a failed reconnect attempt')
+
+    const second = await startGateway(socketPath)
+    await waitFor(
+      () => out.find((message) => message.method === 'notifications/tools/list_changed'),
+      'tools/list_changed after the late socket',
+    )
+    send({ jsonrpc: '2.0', id: 2, method: 'tools/list' })
+    const listed = await waitFor(() => out.find((message) => message.id === 2), 'tools/list over the new socket')
+    assert.deepEqual(listed.result, { tools: [] })
+
+    bridge.stdin.end()
+    const code = await new Promise<number | null>((resolve) => bridge.on('exit', (exit) => resolve(exit)))
+    assert.equal(code, 0)
+    await second.close()
+  },
+)
