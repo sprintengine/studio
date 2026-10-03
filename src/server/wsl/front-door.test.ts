@@ -179,6 +179,32 @@ test('a door that cannot bind its port retries a fresh one on EADDRINUSE, and on
   assert.match(logged.join('\n'), /loopback door did not open/u)
 })
 
+test('connections that never prove themselves on loopback cannot shut the bridge door', async () => {
+  const admitted: Array<{ purpose: FrontDoorPurpose; stream: Duplex }> = []
+  const doors = await listeners(admitted)
+  const idle: Socket[] = []
+  cleanups.push(() => idle.forEach((socket) => socket.destroy()))
+  for (let index = 0; index < 8; index++) {
+    const socket = await connectLoopback(doors.port!)
+    socket.on('error', () => undefined)
+    idle.push(socket)
+  }
+  // Accepted in order: once a ninth is turned away, the eight are all proving.
+  const ninth = await connectLoopback(doors.port!)
+  ninth.on('error', () => undefined)
+  await new Promise((resolve) => ninth.once('close', resolve))
+
+  const bridged = connect(doors.socketPath!)
+  await new Promise((resolve) => bridged.once('connect', resolve))
+  cleanups.push(() => bridged.destroy())
+  const stream = await enterFrontDoor(bridged, { token: TOKEN, purpose: 'backend' })
+  assert.equal(await readLine(stream), '{"after":"admitted"}')
+  assert.deepEqual(
+    admitted.map((entry) => entry.purpose),
+    ['backend'],
+  )
+})
+
 test("the bridge socket is its owner's alone, and moves to a private temp directory when the path is long", async () => {
   const doors = await listeners([])
   assert.ok(doors.socketPath)

@@ -24,8 +24,10 @@ import { admitFrontDoor, type FrontDoorPurpose } from './front-door-proof'
 //   proof runs on it anyway, so there is one handshake.
 //
 // A connection that has not proven itself in ten seconds is closed, and only
-// a few may be proving at once: a process on Windows' loopback can reach the
-// TCP door, and must not be able to hold the server's sockets open.
+// a few may be proving at once on each door: a process on Windows' loopback
+// can reach the TCP door, and must not be able to hold the server's sockets
+// open, nor shut the bridge, which only this Windows user can reach, by
+// filling a count the two doors shared.
 
 /** The one address the TCP door binds. */
 export const FRONT_DOOR_LOOPBACK_HOST = '127.0.0.1'
@@ -107,7 +109,7 @@ export function frontDoorSocketPath(runDir: string, temporaryDir: string = tmpdi
 
 export async function startFrontDoorListeners(options: FrontDoorListenerOptions): Promise<FrontDoorListeners> {
   const log = options.log ?? (() => undefined)
-  let unproven = 0
+  const unproven = { loopback: 0, bridge: 0 }
   const servers: Server[] = []
   const open = new Set<Socket>()
 
@@ -115,21 +117,21 @@ export async function startFrontDoorListeners(options: FrontDoorListenerOptions)
     open.add(socket)
     socket.once('close', () => open.delete(socket))
     socket.on('error', () => undefined)
-    if (unproven >= MAX_UNPROVEN) {
+    if (unproven[door] >= MAX_UNPROVEN) {
       socket.destroy()
       return
     }
-    unproven++
+    unproven[door]++
     void admitFrontDoor(socket, {
       tokenHash: options.tokenHash,
       ...(options.proofTimeoutMs ? { timeoutMs: options.proofTimeoutMs } : {}),
     }).then(
       ({ purpose }) => {
-        unproven--
+        unproven[door]--
         options.onAdmitted(purpose, socket)
       },
       (error: unknown) => {
-        unproven--
+        unproven[door]--
         // A squatter's decoy, or something that wandered in: logged with the door, not the bytes.
         log(`Refused a connection on the ${door} door: ${error instanceof Error ? error.message : String(error)}`)
       },
