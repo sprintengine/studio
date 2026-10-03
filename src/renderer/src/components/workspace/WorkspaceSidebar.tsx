@@ -224,6 +224,10 @@ type WorkspaceSidebarProps = {
   onOpenScheduledAgent?: (id: string) => void
   // The scheduled agent the door in this window is editing, drawn selected.
   openScheduledAgentId?: string | null
+  // The New chat panel is up in this window. It sits over the active chat
+  // without changing it, so the sidebar cannot tell from the id alone that
+  // the person has left that chat.
+  newChatOpen?: boolean
   // Scope a new chat to a specific project folder (workspace-row context menu).
   // The panel owns the agent/engine choice — the sidebar only opens it.
   onNewChatInFolder: (folderPath: string) => void
@@ -290,6 +294,7 @@ function WorkspaceSidebar({
   onNewScheduledAgent,
   onOpenScheduledAgent,
   openScheduledAgentId = null,
+  newChatOpen = false,
   onNewChatInFolder,
   onRevealFolder,
   onSetSidebarCollapsed,
@@ -667,12 +672,17 @@ function WorkspaceSidebar({
   // checked off and still open, until you clicked somewhere else.
   const settleWorkspaceById = useCallback(
     (id: WorkspaceId) => {
-      const successor = id === activeWorkspaceId ? successorRowOf(id) : null
+      const settlingActive = id === activeWorkspaceId
+      const successor = settlingActive ? successorRowOf(id) : null
       setWorkspaceSettled(id, true)
       quietSettledWorkspace(id)
       if (successor) onSelectWorkspace(successor)
+      // The last chat still going: there is nothing to move on to, so New chat
+      // opens and the settled row leaves the rail (owner, 2026-10-03). Before,
+      // it stayed open and checked off.
+      else if (settlingActive) onNewChat()
     },
-    [activeWorkspaceId, successorRowOf, setWorkspaceSettled, quietSettledWorkspace, onSelectWorkspace],
+    [activeWorkspaceId, successorRowOf, setWorkspaceSettled, quietSettledWorkspace, onSelectWorkspace, onNewChat],
   )
 
   // Drilling into a surface hides this rail (item 1993), and hiding a scrollport
@@ -1219,10 +1229,11 @@ function WorkspaceSidebar({
 
   // The row you are in always has a row: a settled chat you selected (or
   // settled from its own menu) keeps its place in the active list until you
-  // leave it, and leaves the rail then. Reading it never wakes it.
+  // leave it, and leaves the rail then. Reading it never wakes it. New chat
+  // over it is leaving it, though the window's active id has not moved.
   const isShelved = useCallback(
-    (workspace: Workspace) => isSettledWorkspace(workspace) && workspace.id !== activeWorkspaceId,
-    [activeWorkspaceId],
+    (workspace: Workspace) => isSettledWorkspace(workspace) && (workspace.id !== activeWorkspaceId || newChatOpen),
+    [activeWorkspaceId, newChatOpen],
   )
 
   // Asleep RIGHT NOW: the wake time is still ahead, and that is the whole test

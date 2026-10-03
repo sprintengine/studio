@@ -360,6 +360,34 @@ test('WorkspaceSidebar.settled', async () => {
       act(() => actionLabel(`Settle ${nameOf[order[2]!]}`)!.click())
       await settle()
       assert.deepEqual(selected, [], 'settling a chat you are not in opens nothing')
+
+      // The last chat still going has nowhere to hand off to: New chat opens,
+      // and the settled row leaves the rail rather than staying open, checked
+      // off (owner, 2026-10-03).
+      // Its own array: the assertion above narrowed `selected` to an empty one.
+      const picked: string[] = []
+      let newChats = 0
+      const lastOne = {
+        ...props,
+        workspaces: [workspace('w1', 'Alpha')],
+        activityByWorkspaceId: { w1: 'idle' },
+        activeWorkspaceId: 'w1',
+        onSelectWorkspace: (id: string) => picked.push(id),
+        onNewChat: () => {
+          newChats += 1
+        },
+      }
+      await render(lastOne as unknown as SidebarProps)
+      act(() => actionLabel('Settle Alpha')!.click())
+      await settle()
+      assert.deepEqual(picked, [], 'there is no other chat to open')
+      assert.equal(newChats, 1, 'settling the last chat you are in opens New chat')
+
+      const onlySettled = [workspace('w1', 'Alpha', { settledAt: createdAt })]
+      await render({ ...lastOne, workspaces: onlySettled } as unknown as SidebarProps)
+      assert.ok(drawnIds().includes('w1'), 'a settled chat you are in keeps its row')
+      await render({ ...lastOne, workspaces: onlySettled, newChatOpen: true } as unknown as SidebarProps)
+      assert.ok(!drawnIds().includes('w1'), 'and leaves the rail once New chat is up over it')
     } finally {
       act(() => {
         root.unmount()
