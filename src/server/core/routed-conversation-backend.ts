@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
 import type { ConversationEvent, ConversationSessionSummary } from '../../shared/conversation-runtime'
-import { distroOfHostId } from '../../shared/execution-host'
-import { distroOfUncPath } from '../../shared/host-paths'
+import { distroOfHostId, workspaceHostIdOf } from '../../shared/execution-host'
 import type { RemoteBackendMember, RemoteConversationBackend } from '../wsl/backend-wire'
 import { createPathEdge, createWslPathEdge, type PathEdge } from '../wsl/wsl-path-edge'
 import { isMachinePath, machinePath, parseMachinePath } from '../../shared/machine-paths'
@@ -226,10 +225,14 @@ export function createRoutedConversationBackend(deps: RoutedConversationBackendD
     const machine = workspaceRoot && isMachinePath(workspaceRoot) ? parseMachinePath(workspaceRoot) : null
     if (machine && deps.ssh) return `ssh:${machine.id}`
     if (platform !== 'win32' || !deps.servers) return null
-    const folder = record?.folderPath ?? workspaceRoot ?? null
-    // A folder inside a distribution belongs to it, whatever the machine says
-    // (the git resolver's order); otherwise the machine decides.
-    const distro = (folder ? distroOfUncPath(folder) : null) ?? distroOfHostId(record?.hostId ?? null, platform)
+    // The machine decides (owner ruling 2026-10-03): a folder inside a
+    // distribution whose workspace runs on This PC stays here, and a `C:\`
+    // folder on a WSL machine goes there. The folder's distribution is only
+    // the default for a workspace that names no machine.
+    const distro = distroOfHostId(
+      workspaceHostIdOf({ hostId: record?.hostId, folderPath: record?.folderPath ?? workspaceRoot ?? null }),
+      platform,
+    )
     return distro && deps.chatServerOn(distro) ? distro : null
   }
 

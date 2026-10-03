@@ -1,4 +1,5 @@
 import type { ChildProcess } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { killProcessTree } from '../process-tree-kill'
 
 type CliSpawnTarget = { file: string; args: string[]; windowsVerbatimArguments?: boolean }
@@ -18,14 +19,29 @@ type CliSpawnTarget = { file: string; args: string[]; windowsVerbatimArguments?:
  * quote, so an argument carrying either is refused instead of being
  * reinterpreted. The arguments are the app's own (`acp`, `app-server`) and the
  * path the CLI was found at.
+ *
+ * The command processor cannot start in a UNC folder: given one (a folder
+ * inside a distribution, `\\wsl.localhost\Ubuntu\…`, which a chat on This PC
+ * may run in) it starts in the Windows folder instead, and so would the CLI.
+ * There a batch shim gives way to the PowerShell shim npm writes beside it,
+ * and PowerShell keeps the folder. A batch file with no such twin is refused
+ * with the way out, rather than run in the wrong folder.
  */
 export function cliSpawnTarget(
   command: string,
   args: string[],
-  deps: { platform?: NodeJS.Platform; env?: NodeJS.ProcessEnv } = {},
+  deps: { platform?: NodeJS.Platform; env?: NodeJS.ProcessEnv; cwd?: string; exists?: (path: string) => boolean } = {},
 ): CliSpawnTarget {
   if ((deps.platform ?? process.platform) !== 'win32') return { file: command, args }
   const lower = command.toLowerCase()
+  if ((lower.endsWith('.cmd') || lower.endsWith('.bat')) && deps.cwd && /^[\\/]{2}[^\\/]/u.test(deps.cwd)) {
+    const twin = command.replace(/\.(?:cmd|bat)$/iu, '.ps1')
+    if ((deps.exists ?? existsSync)(twin)) return powerShellTarget(twin, args)
+    throw new Error(
+      `${command} is a batch file, and Windows cannot start one in ${deps.cwd}: it would run in the Windows folder instead. ` +
+        "Set the CLI's command to its .exe or .ps1 in Settings › Agents, or run this chat on its WSL machine.",
+    )
+  }
   if (lower.endsWith('.cmd') || lower.endsWith('.bat')) {
     const line = [command, ...args]
       .map((value) => {
@@ -40,12 +56,15 @@ export function cliSpawnTarget(
       windowsVerbatimArguments: true,
     }
   }
-  if (lower.endsWith('.ps1'))
-    return {
-      file: 'powershell.exe',
-      args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', command, ...args],
-    }
+  if (lower.endsWith('.ps1')) return powerShellTarget(command, args)
   return { file: command, args }
+}
+
+function powerShellTarget(script: string, args: string[]): CliSpawnTarget {
+  return {
+    file: 'powershell.exe',
+    args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, ...args],
+  }
 }
 
 /**

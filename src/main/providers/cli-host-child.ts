@@ -201,7 +201,11 @@ export function cliHostSpawn(
     windowsHide: true,
   }
   if (!input.wsl) {
-    const target = cliSpawnTarget(input.command, [...input.args], { platform: deps.platform, env: input.env })
+    const target = cliSpawnTarget(input.command, [...input.args], {
+      platform: deps.platform,
+      env: input.env,
+      cwd: input.cwd,
+    })
     return {
       file: target.file,
       args: target.args,

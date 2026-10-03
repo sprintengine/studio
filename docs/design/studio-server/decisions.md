@@ -1,7 +1,8 @@
 # Studio server — decisions
 
-Status: 2026-10-01, amended 2026-10-02 for the small-server ruling. Every
-class C item is ruled (2026-10-02). This file
+Status: 2026-10-01, amended 2026-10-02 for the small-server ruling and
+2026-10-03 for the ruling that any folder runs on the machine picked (R88).
+Every class C item is ruled (2026-10-02, R88 on 2026-10-03). This file
 resolves the open decisions of `docs/design/studio-server.md` (section 15) and
 of the phase specs beside it (the withdrawn phase 5 spec's section 11, the
 client-tools phase 5 spec's section 16, phase 6 section 14, phase 7 section
@@ -115,6 +116,7 @@ fixed on `main`.
 | R72 | P7-D9 | Windows end-to-end testing | The manual checklist for the first release, and a self-hosted Windows runner with WSL2 before the default flips. | C, ruled | Owner ruling 2026-10-02: the recommendation stands. |
 | R73 | P7-D10 | `C:\` workspaces on a WSL machine | Keep supporting them: agents and git in WSL, UI file reads on Windows, and an advisory in New chat, never a block. | C, ruled | Owner ruling 2026-10-02: the recommendation stands. |
 | R74 | P7-D11 | The gateway-token gap in today's WSL chats | Fixed on `main` (#133 and follow-ups): a WSL chat is issued an MCP channel token per session, an ACP agent keeps its own, and the token is taken back when a start is refused. | A | Done. Nothing is left to decide. |
+| R88 | P7 §1, §6; P7-D10 | Which machine a folder runs on, when the folder is on the other side of the Windows ↔ WSL line | The machine the person picks, in both directions: a `C:\` folder on WSL: <distro> runs there over `/mnt/c`, and a `\\wsl.localhost\<distro>\…` (or `\\wsl$\…`) folder on This PC runs on Windows with that folder as the agents' working directory, Studio's git there being Git for Windows with `-c safe.directory`. The folder's distribution is only the default when no machine is picked, which keeps every workspace made before machines on the machine it had. Only one distribution opening another's folder is refused, because it cannot. New chat says the cost in one line. | C, ruled | Owner ruling 2026-10-03: "why are we blocking people from doing that? That's a legitimate thing that someone might want to do. Yes, it'll be slower, but people have to get work done." Supersedes P7 §6's "a folder inside a distro always goes to that distro's server, whatever `hostId` says". |
 
 ### Rendering, the browser and the pane
 
@@ -272,6 +274,9 @@ on `main`.
     release, and a self-hosted WSL2 runner before the default flips.
 14. **R73 `C:\` workspaces on a WSL machine.** Keep supporting them, with UI
     reads on Windows and an advisory in New chat. Never block them.
+    Extended by R88 (owner ruling 2026-10-03): a folder inside a distribution
+    runs on This PC when that is the machine picked, and is never blocked
+    either.
 15. **R75 The SSH pane's local proxy.** To show a remote machine's dev server
     in the desktop's own browser pane, the desktop runs a small proxy on the
     laptop that the pane talks to, and sends its traffic through the SSH

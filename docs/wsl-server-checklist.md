@@ -143,8 +143,8 @@ Commands marked **PowerShell** run in a Windows terminal. Commands marked
 
 1. Open New chat on a workspace in `C:\` bound to WSL: Ubuntu-24.04, with
    the switch on.
-   **Expect:** "Faster in the Linux file system: clone into ~/ in this
-   distribution." under the scope line. The chat still starts.
+   **Expect:** "On C: — slow from Ubuntu-24.04. Run on This PC for full
+   speed." under the scope line. The chat still starts.
    **distro:** `ps -ef | grep -E 'claude|codex'`.
    **Expect:** its working directory is under `/mnt/c/...`.
 2. V4: in a repository of about 50,000 files, time `git status` and a
@@ -155,11 +155,27 @@ Commands marked **PowerShell** run in a Windows terminal. Commands marked
    for several turns.
    **Expect:** the chat list and the transcript stay intact, with no
    duplicated or missing turns.
-4. **distro:** add `[automount]` and `root = /win/` to `/etc/wsl.conf`.
+4. Open New chat, pick a project inside the distribution
+   (`\\wsl.localhost\Ubuntu-24.04\home\dev\repo`), and pick "This PC
+   (Windows)" in the machine list.
+   **Expect:** the machine can be picked, with "In Ubuntu-24.04 — slow from
+   Windows. Run on WSL: Ubuntu-24.04 for full speed." under the scope line.
+   Send a message.
+   **PowerShell:** `Get-CimInstance Win32_Process -Filter "Name like 'claude%' or Name like 'node%'" | Select ProcessId, CommandLine`.
+   **Expect:** the agent runs on Windows, and asked for its working
+   directory it answers the `\\wsl.localhost\…` folder. The Git pane shows
+   the repository's branch and changes, with no "dubious ownership" error,
+   and `git config --global --get-all safe.directory` is unchanged. A
+   terminal opened in the chat starts in the same folder.
+5. In the same New chat, pick WSL: Ubuntu-24.04 again, then a second
+   distribution if one is enabled.
+   **Expect:** the second distribution is greyed out with "WSL: <name>
+   cannot open a folder inside Ubuntu-24.04."
+6. **distro:** add `[automount]` and `root = /win/` to `/etc/wsl.conf`.
    **PowerShell:** `wsl --terminate Ubuntu-24.04`. Send in a `C:\`
    workspace's server chat.
    **Expect:** the agent runs under `/win/c/...`.
-5. Change that section to `enabled = false` and terminate the distribution
+7. Change that section to `enabled = false` and terminate the distribution
    again. Send in the `C:\` workspace's server chat.
    **Expect:** the chat is refused with a message saying automount is off in
    `/etc/wsl.conf`. Remove the section afterwards.

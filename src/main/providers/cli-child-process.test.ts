@@ -24,6 +24,25 @@ test('a batch shim argument the command processor would reinterpret is refused',
   )
 })
 
+test('in a folder inside a distribution a batch shim gives way to its PowerShell twin', () => {
+  const cwd = '\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo'
+  const twin = 'C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.ps1'
+  const seen: string[] = []
+  const exists = (path: string) => (seen.push(path), path === twin)
+  expect(cliSpawnTarget(shim, ['app-server'], { platform: 'win32', env: {}, cwd, exists })).toEqual({
+    file: 'powershell.exe',
+    args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', twin, 'app-server'],
+  })
+  expect(seen).toEqual([twin])
+  expect(() =>
+    cliSpawnTarget('C:\\tools\\agent.bat', ['acp'], { platform: 'win32', env: {}, cwd, exists: () => false }),
+  ).toThrow('cannot start one in')
+  expect(cliSpawnTarget(shim, ['app-server'], { platform: 'win32', env: {}, cwd: 'C:\\Users\\dev\\repo' }).file).toBe(
+    'cmd.exe',
+  )
+  expect(cliSpawnTarget('C:\\tools\\grok.exe', ['stdio'], { platform: 'win32', cwd }).file).toBe('C:\\tools\\grok.exe')
+})
+
 test('a PowerShell shim runs through PowerShell and executables are spawned directly', () => {
   expect(cliSpawnTarget('C:\\Users\\dev\\AppData\\Roaming\\npm\\opencode.ps1', ['acp'], { platform: 'win32' })).toEqual(
     {

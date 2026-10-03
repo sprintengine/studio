@@ -12,12 +12,15 @@ import { sameRepository, type RepositoryIdentity } from '../../../../../shared/r
 import { folderIdentityKey, useFolderRepositoryIdentities } from '../useFolderRepositoryIdentities'
 import { ExtensionsGlyph, FolderTypeIcon, RemoteMachineGlyph, ScheduleGlyph, WslMachineGlyph } from '../../AppIcons'
 import {
+  distroOfHostId,
   hostIdForFolder,
+  hostIdToRecord,
   isWslHostId,
   LOCAL_HOST_ID,
   type ExecutionHostId,
   type ExecutionHostSummary,
 } from '../../../../../shared/execution-host'
+import { distroOfUncPath } from '../../../../../shared/host-paths'
 import type { AgentCliAvailabilityMap } from '../../../../../shared/electron-api'
 import { useExecutionHosts } from '../../../hooks/useExecutionHosts'
 import type { SshEnvironmentSummary } from '../../../../../shared/ssh-environments'
@@ -135,20 +138,32 @@ export type NewAgentLaunch = AgentComposerConfirm & {
 }
 
 /**
- * A WSL machine's chat in a folder on a Windows drive: supported, never
- * blocked (decision R73), but every file its agents and git touch crosses the
- * drive mount, which is much slower than the distribution's own disk. One
- * line of advice, and nothing else. Shown only where the distribution's chats
- * run on its Studio server (phase 7), so a machine whose switch is off sees
- * New chat as it was.
+ * A chat on one side of the Windows ↔ WSL line in a folder on the other:
+ * supported, never blocked (decisions R73 and R88), but every file its agents
+ * touch crosses the line, which is much slower than either side's own disk.
+ * One short line saying so, and which machine is fast, and nothing else.
+ *
+ *   - a WSL machine on a Windows drive: "On C: — slow from Ubuntu. Run on
+ *     This PC for full speed." Shown only where the distribution's chats run
+ *     on its Studio server (phase 7), so a machine whose switch is off sees
+ *     New chat as it was;
+ *   - This PC in a folder inside a distribution: "In Ubuntu — slow from
+ *     Windows. Run on WSL: Ubuntu for full speed."
  */
-export function wslDriveAdvisory(
+export function slowFolderHint(
   hostId: ExecutionHostId,
   folder: string | null | undefined,
   chatServerOn: boolean,
 ): string | null {
-  if (!chatServerOn || !isWslHostId(hostId) || !folder || !/^[A-Za-z]:[\\/]/u.test(folder)) return null
-  return 'Faster in the Linux file system: clone into ~/ in this distribution.'
+  if (!folder) return null
+  const distro = distroOfHostId(hostId)
+  const drive = /^([A-Za-z]):[\\/]/u.exec(folder)
+  if (distro && drive) {
+    return chatServerOn ? `On ${drive[1].toUpperCase()}: — slow from ${distro}. Run on This PC for full speed.` : null
+  }
+  const folderDistro = hostId === LOCAL_HOST_ID ? distroOfUncPath(folder) : null
+  if (folderDistro) return `In ${folderDistro} — slow from Windows. Run on WSL: ${folderDistro} for full speed.`
+  return null
 }
 
 /** One choosable project scope: a folder some open workspace lives in. */
@@ -350,7 +365,8 @@ const GREETINGS: ReadonlyArray<(name: string | null) => string> = [
 // on This device — a remote is never preselected on first open.
 let lastPickedMachineId: string | null = null
 // The same, for a machine on this computer (a WSL distribution). Null follows
-// the folder: a folder inside a distribution runs there, anything else here.
+// the folder: a folder inside a distribution defaults to it, anything else
+// here.
 let lastPickedHostId: ExecutionHostId | null = null
 // The SSH machine picked last, and the folder typed for each, for this session.
 let lastPickedSshId: string | null = null
@@ -365,15 +381,30 @@ export function resetRememberedMachineForTests(): void {
 }
 
 /**
- * The machine a New chat runs on when the person has not picked one: the
- * distribution a folder inside WSL lives in, else this machine (owner decision
- * 2026-09-24). A pick stands until the folder names a distribution of its own.
+ * The machine a New chat runs on. A machine chosen in this door for the
+ * folder in it now wins, whichever side of the Windows ↔ WSL line the folder
+ * is on (owner ruling 2026-10-03). With none, the distribution a folder inside
+ * WSL lives in, else the machine picked last, else this machine (owner
+ * decision 2026-09-24): a pick carried over from another folder stands until
+ * the folder names a distribution of its own.
  */
 export function defaultNewChatHostId(
   folder: string | null | undefined,
   picked: ExecutionHostId | null,
+  chosen: ExecutionHostId | null = null,
 ): ExecutionHostId {
-  return hostIdForFolder(folder) ?? picked ?? LOCAL_HOST_ID
+  return chosen ?? hostIdForFolder(folder) ?? picked ?? LOCAL_HOST_ID
+}
+
+/**
+ * Why a machine on this computer cannot take a folder, or null when it can.
+ * A WSL machine opens its own disk and the Windows drives, and This PC opens
+ * every distribution's share, but one distribution cannot open another's.
+ */
+export function hostRefusesFolder(host: ExecutionHostId, folder: string | null | undefined): string | null {
+  const folderHost = hostIdForFolder(folder)
+  if (!folderHost || !isWslHostId(host) || host === folderHost) return null
+  return `WSL: ${distroOfHostId(host)} cannot open a folder inside ${distroOfHostId(folderHost)}.`
 }
 
 // This device first, then paired machines alphabetically — a list that
@@ -467,18 +498,28 @@ export default function NewAgentPanel({
     editing ? editing.hostId : lastPickedHostId,
   )
   const scopeFolder = folderPath !== undefined ? folderPath : null
+  // The machine chosen in this door, and the folder it was chosen for. It
+  // wins over the folder's own default (a folder inside Ubuntu on This PC, a
+  // `C:\` folder on WSL) until the folder changes; a scheduled agent being
+  // edited opens on the machine it was saved with.
+  const [chosenHost, setChosenHost] = React.useState<{ hostId: ExecutionHostId; folder: string | null } | null>(() =>
+    editing?.hostId ? { hostId: editing.hostId, folder: folderPath ?? null } : null,
+  )
   // A remembered pick counts only while that machine is still offered: one
   // turned off in Settings, or gone from WSL, falls back to this machine
   // rather than launching somewhere the dropdown no longer shows.
-  const pickedStillOffered =
-    pickedHostId !== null && localHosts.some((host) => host.id === pickedHostId && host.state !== 'unavailable')
+  const stillOffered = (id: ExecutionHostId | null): boolean =>
+    id === LOCAL_HOST_ID || (id !== null && localHosts.some((host) => host.id === id && host.state !== 'unavailable'))
+  const chosenForFolder =
+    chosenHost && chosenHost.folder === scopeFolder && stillOffered(chosenHost.hostId) ? chosenHost.hostId : null
   const hostId: ExecutionHostId = hostChoosable
-    ? defaultNewChatHostId(scopeFolder, pickedStillOffered ? pickedHostId : null)
+    ? defaultNewChatHostId(scopeFolder, stillOffered(pickedHostId) ? pickedHostId : null, chosenForFolder)
     : LOCAL_HOST_ID
   const pickLocalHost = (next: ExecutionHostId): void => {
     const remembered = next === LOCAL_HOST_ID ? null : next
     lastPickedHostId = remembered
     setPickedHostId(remembered)
+    setChosenHost({ hostId: next, folder: scopeFolder })
     pickSsh(null)
   }
   // SSH machines (phase 8): offered where a launch creates its workspace, as
@@ -578,7 +619,7 @@ export default function NewAgentPanel({
   // An explicit scope wins: skills, the worktree probe and the scope line all
   // have to describe the folder the agent will actually run in.
   const workspaceRoot = folderPath !== undefined ? folderPath : activeWorkspaceRoot
-  const driveAdvisory = wslDriveAdvisory(
+  const driveAdvisory = slowFolderHint(
     hostId,
     workspaceRoot,
     hostListing?.hosts.some((host) => host.id === hostId && host.chatServer?.on === true) ?? false,
@@ -1299,7 +1340,8 @@ export default function NewAgentPanel({
       prompt: body,
       schedule: { cron, timezone: scheduleTimezone },
       folderPath: folder,
-      hostId: hostId === LOCAL_HOST_ID ? null : hostId,
+      // This PC is kept only where the folder would say otherwise.
+      hostId: hostIdToRecord(hostId, folder) ?? null,
       cli: confirm.cli,
       cliModel: confirm.model ?? null,
       // The preset this launcher shows, recorded, so each run is the launch
@@ -1631,12 +1673,12 @@ export default function NewAgentPanel({
                   pickLocalHost(next)
                 }}
                 hostDisabledReason={(host) => {
-                  // A folder inside a distribution runs there: its files, its
-                  // git and its CLIs' homes are that machine's.
-                  const folderHost = hostIdForFolder(scopeFolder)
-                  if (folderHost && host.id !== folderHost) {
-                    return `This folder is inside ${folderHost.replace(/^wsl:/u, 'WSL: ')}, so the chat runs there.`
-                  }
+                  // Any folder runs on the machine picked (owner ruling
+                  // 2026-10-03): This PC opens a folder inside a distribution
+                  // over its share, more slowly, and the hint under the scope
+                  // line says so. Only another distribution cannot reach it.
+                  const refused = hostRefusesFolder(host.id, scopeFolder)
+                  if (refused) return refused
                   if (host.state === 'unavailable') return host.reason ?? 'Not available.'
                   return null
                 }}
