@@ -34,6 +34,7 @@ import { startColumnResizeDrag } from './columnResizeDrag'
 import {
   SIDEBAR_COLLAPSED_WIDTH,
   SIDEBAR_DEFAULT_WIDTH,
+  SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
   clampSidebarWidth,
   resolveSidebarResize,
@@ -2000,7 +2001,7 @@ function WorkspaceSidebar({
     if (scheduledAgents.length === 0) return null
     const expanded = expandedShelves[SCHEDULED_SHELF_KEY] !== false
     return (
-      <section className="relative pt-1" aria-label="Scheduled agents">
+      <section role="group" className="relative pt-1" aria-label="Scheduled agents">
         <ShelfFoldRow
           label="Scheduled"
           count={scheduledAgents.length}
@@ -2036,7 +2037,7 @@ function WorkspaceSidebar({
     )
     const snoozeExpanded = expandedShelves[ALL_CHATS_SNOOZE_SHELF_KEY] === true
     return (
-      <section className="relative pt-1" aria-label="All chats">
+      <section role="group" className="relative pt-1" aria-label="All chats">
         {streamRows.map((workspace) =>
           renderWorkspaceRow(workspace, keyOf(workspace), {
             keyPrefix: 'all-',
@@ -2096,7 +2097,7 @@ function WorkspaceSidebar({
       dropIndicator?.kind === 'folder' && dropIndicator.targetKey === group.key ? dropIndicator.position : null
     const isFolderTabDropTarget = tabDropTarget?.kind === 'folder' && tabDropTarget.key === group.key
     return (
-      <section key={group.key} className="relative pt-1">
+      <section key={group.key} role="group" className="relative pt-1">
         {/* The header container carries drag + context-menu; the disclosure
             itself is a real button (aria-expanded / aria-controls) so the
             folder is keyboard-operable, with the overflow control as a
@@ -2311,11 +2312,16 @@ function WorkspaceSidebar({
         isResizingSidebar ? '' : 'transition-[width] duration-150 ease-out motion-reduce:transition-none'
       } ${sidebarCollapsed ? 'hidden' : ''}`}
     >
-      {/* Drag the right edge to resize; drag it close to the left to collapse. */}
+      {/* Drag the right edge to resize; drag it close to the left to collapse.
+          A focusable separator is a window splitter, so it says its position:
+          the sidebar's width within its bounds. */}
       <div
         role="separator"
         aria-orientation="vertical"
         aria-label="Resize sidebar"
+        aria-valuenow={Math.round(sidebarWidth)}
+        aria-valuemin={SIDEBAR_MIN_WIDTH}
+        aria-valuemax={SIDEBAR_MAX_WIDTH}
         tabIndex={0}
         onPointerDown={handleResizePointerDown}
         onKeyDown={handleResizeKeyDown}
@@ -2481,7 +2487,7 @@ function WorkspaceSidebar({
           }}
         >
           {starredWorkspaces.length > 0 ? (
-            <section className="relative pt-1" aria-label="Starred workspaces">
+            <section role="group" className="relative pt-1" aria-label="Starred workspaces">
               {/* The kit's nav row. `group/folder` is the hover scope the icon
                 slot below reads, and the insets are the tree's own grid. */}
               <RowButton

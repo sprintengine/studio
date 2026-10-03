@@ -132,3 +132,34 @@ jobs:
       # release time is a release that cannot ship.
       - name: Validate marketplace registry and plugin signatures
         run: npm run verify:marketplace-registry
+
+  # The web client in a real browser: the built server serving the built web
+  # bundle to headless Chromium (scripts/web-smoke.mjs). Pairing, the boot's
+  # refusals, axe on the first screens, approval, removal and the reload prompt.
+  web-smoke:
+    name: Web client smoke (Chromium)
+    if: ${{ !inputs.release_gate && (github.event_name == 'workflow_dispatch' || github.event.repository.private == false) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright-core install --with-deps chromium
+
+      - name: Build the server and the web client
+        run: npm run build:server && npm run build:web
+
+      - name: Web smoke
+        run: npm run test:web:smoke

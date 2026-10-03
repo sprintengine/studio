@@ -1605,3 +1605,25 @@ keeps the same swaps, since the browser's own window still takes
   configuration outlives the process and the machine is shared. The tests
   drive a stand-in daemon that keeps a serve table; the CLI refusals were run
   against the built server.
+
+### 14.13 The browser smoke test (2026-10-03)
+
+- **`npm run test:web:smoke`** (`scripts/web-smoke.mjs`, and the CI job
+  `web-smoke`) runs the built server, on a fresh data directory, serving the
+  built web bundle to headless Chromium through `playwright-core`. It walks
+  a subset of 8.3: pairing by fragment (the code leaves the address and the
+  history; the cookie is HttpOnly and SameSite=Strict), the boot under CSP
+  with no page error and only the known refusals (a member refused at boot
+  that the list does not name fails it), pairing by approval with a wrong
+  code refused first, removal sending the tab to `/pair` at once, and the
+  reload prompt for a bundle replaced under an open tab.
+- **axe** (`axe-core`, WCAG 2 A and AA) runs on the pairing page and the
+  app's first screen and fails on anything critical; serious findings are
+  printed. Its first run found three critical ones in the sidebar, shared
+  with the desktop, fixed here: the resize separator is focusable, so it
+  says its position (`aria-valuenow` and its bounds), and the sidebar tree's
+  sections are its groups, so its rows sit in a tree.
+- **Not covered yet:** the chat round trip with the mock provider, the
+  socket killed mid-turn, two tabs, drops, the embed framed cross-origin,
+  previews and the canvas, and WebKit and Firefox. Those were checked by
+  hand in Chromium while building (14.2 to 14.7) and stay on the 8.3 list.
