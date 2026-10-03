@@ -207,7 +207,9 @@ export function createPullRequestDomain(options: PullRequestDomainOptions): Pull
       seen.add(input.home.gitRoot)
       lookups.push(note(input.home, true))
     }
-    const directories = [...new Set(input.changedPaths.map((path) => path.trim()).filter(Boolean))]
+    // Absolute paths only: a relative one would resolve against this
+    // process's own folder, which is no agent's.
+    const directories = [...new Set(input.changedPaths.map((path) => path.trim()).filter(isAbsolutePath))]
     const visited = new Set<string>()
     let others = 0
     for (const path of directories) {
@@ -435,11 +437,14 @@ export function changedPathsOf(payload: unknown): string[] {
     if (!change || typeof change !== 'object') continue
     const path = (change as { path?: unknown }).path
     if (typeof path !== 'string' || path.length === 0 || path.length > 4096 || path.includes('\0')) continue
-    // Absolute in either spelling: a POSIX path, or a Windows drive or share.
-    if (!path.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(path) && !path.startsWith('\\\\')) continue
-    paths.push(path)
+    if (isAbsolutePath(path)) paths.push(path)
   }
   return paths
+}
+
+/** Absolute in either spelling: a POSIX path, or a Windows drive or share. */
+function isAbsolutePath(path: string): boolean {
+  return path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith('\\\\')
 }
 
 async function defaultResolveCheckout(path: string): Promise<PullRequestCheckout | null | 'missing'> {
