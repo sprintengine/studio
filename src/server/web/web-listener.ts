@@ -503,9 +503,12 @@ export function createWebListener(options: WebListenerOptions): WebListener {
           refuseUpgrade(socket, 400, 'internal_error')
         }
       })
-      // Slow-header and idle limits for a listener any local page can reach.
+      // Slow-header and whole-request limits for a listener any local page
+      // can reach. The request limit is a whole upload's: 50 MB from a phone
+      // on the tailnet takes minutes, and Node has no limit per route. Every
+      // other body is a few kilobytes, read with a cap.
       next.headersTimeout = 20_000
-      next.requestTimeout = 60_000
+      next.requestTimeout = 10 * 60_000
       await new Promise<void>((resolve, reject) => {
         next.once('error', reject)
         next.listen({ host: '127.0.0.1', port: options.port }, () => {
