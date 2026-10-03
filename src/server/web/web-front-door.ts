@@ -43,6 +43,7 @@ import { createEmbedRoutes } from './embed-routes'
 import { createEmbedStore, gateEmbedFrames, type EmbedCreateInput, type EmbedStore } from './embeds'
 import { WEB_RUN_FILENAME, readWebRunFile, type WebRunFile } from './web-run-file'
 import { serveWebOnTailnet, type WebTailscaleServe } from './web-tailscale-serve'
+import { createWebUploads } from './web-uploads'
 
 // The web client's side of a standalone server (phase 9): the web listener,
 // the browser sessions it admits, and what a web tab reaches through it. Off
@@ -202,6 +203,9 @@ export async function startWebFrontDoor(input: {
   })
   // A removed browser's previews close with it.
   const stopPreviewRevocations = sessions.onRevoked((sessionId) => void previews.closeSession(sessionId))
+  // A removed browser's uploads go with it.
+  const uploads = createWebUploads({ dataDir })
+  const stopUploadRevocations = sessions.onRevoked((sessionId) => uploads.forgetSession(sessionId))
 
   // Devices: the browsers paired here, and the ones asking by approval.
   const pairRequests = createPairRequests({ sessions })
@@ -286,6 +290,7 @@ export async function startWebFrontDoor(input: {
     devOrigin: input.options.devOrigin ?? null,
     mintKey,
     pairRequests,
+    uploads,
     version: input.version,
     thirdPartyModules: () => input.options.thirdPartyModules === true,
     studio: {
@@ -390,6 +395,7 @@ export async function startWebFrontDoor(input: {
       stopForwarding()
       stopPreviewPushes()
       stopPreviewRevocations()
+      stopUploadRevocations()
       stopEmbedRevocations()
       stopRequestPushes()
       stopRevokePushes()

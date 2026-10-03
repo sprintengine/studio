@@ -935,6 +935,8 @@ export type ElectronApi = {
   pathExists: (path: string) => Promise<boolean>
   statPath: (path: string) => Promise<FileSystemStat>
   getPathForFile: (file: unknown) => string
+  /** Send dropped files that have no path to the server; answers a path there for each (`file-uploads`). */
+  uploadFiles: (files: File[]) => Promise<string[]>
   checkWorkspaceFolder: (path: string) => Promise<WorkspaceFolderCheckResult>
   detectProjectLogo: (folderPath: string) => Promise<ProjectLogo | null>
   memoryResolveRoot: (input: { workspaceRoot: string | null; relativeRoot: string | null }) => Promise<MemoryRootStatus>

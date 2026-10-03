@@ -199,7 +199,8 @@ A `clientCapabilities` record (renderer-only) answers what the current shell
 can do: `native-dialogs`, `reveal-in-folder`, `open-in-app`, `os-clipboard`,
 `os-notifications`, `aux-windows`, `multi-window`, `window-controls`,
 `terminals`, `browser-pane` (the desktop's native pane), `previews` (the web
-client's preview pane, 3.6), `app-menu`, `deep-links`, `drag-paths`. The desktop sets them from the
+client's preview pane, 3.6), `app-menu`, `deep-links`, `drag-paths`, `file-uploads`
+(the web client's, 14.14). The desktop sets them from the
 preload. The web shim sets them from feature detection, including
 `isSecureContext`. UI hides or swaps a control by asking
 `clientSupports('reveal-in-folder')`, never by `typeof window.api.X`.
@@ -1616,7 +1617,8 @@ keeps the same swaps, since the browser's own window still takes
   with no page error and only the known refusals (a member refused at boot
   that the list does not name fails it), pairing by approval with a wrong
   code refused first, removal sending the tab to `/pair` at once, and the
-  reload prompt for a bundle replaced under an open tab.
+  reload prompt for a bundle replaced under an open tab. A drop on the
+  composer is in it since 14.14.
 - **axe** (`axe-core`, WCAG 2 A and AA) runs on the pairing page and the
   app's first screen and fails on anything critical; serious findings are
   printed. Its first run found three critical ones in the sidebar, shared
@@ -1624,6 +1626,32 @@ keeps the same swaps, since the browser's own window still takes
   says its position (`aria-valuenow` and its bounds), and the sidebar tree's
   sections are its groups, so its rows sit in a tree.
 - **Not covered yet:** the chat round trip with the mock provider, the
-  socket killed mid-turn, two tabs, drops, the embed framed cross-origin,
+  socket killed mid-turn, two tabs, the embed framed cross-origin,
   previews and the canvas, and WebKit and Firefox. Those were checked by
   hand in Chromium while building (14.2 to 14.7) and stay on the 8.3 list.
+
+### 14.14 Dropped files without a path (2026-10-03)
+
+- **`POST /api/upload?name=<file name>`** takes one file's bytes as the
+  body, from an owner session only (a non-owner session is refused 403, no
+  session 401, and the exact-origin rule applies as to every POST), 50 MB at
+  most, refused by its declared length or as it arrives. It answers
+  `{ ok, path, bytes }`. The file is saved at
+  `<data dir>/web-uploads/<session id>/<date>-<random>/<name>`, 0600 in a
+  0700 directory, with the file's own name made a safe single segment.
+  Uploads are kept a week and pruned when the next is saved; removing a
+  browser removes its uploads. Tickets are not accepted: the route is for a
+  tab, and an SDK client sends paths it already has.
+- **The client capability `file-uploads`** (web only) and
+  `window.api.uploadFiles(files)`, which a desktop window refuses. Both
+  composers (the chat's and New chat's) sort a drop as before: paths typed,
+  images attached as base64. A file with no path, which in a tab is every
+  non-image file, is uploaded where `file-uploads` is supported and its
+  server path typed into the message, quoted as a dropped path is; the
+  desktop keeps its refusal message. An upload's refusal shows where the
+  refusal did.
+- Not built: drops onto a terminal or the file explorer in a tab, which the
+  desktop serves by path and a tab refuses; the paste of a file.
+- Verified in Chromium against the built server: a text file dropped on the
+  chat composer and on New chat's was saved and its path typed (the smoke
+  test's drop step).

@@ -10,6 +10,7 @@ import { refuse } from './unsupported'
 import { ipc } from './webIpcRouter'
 import { randomId } from './webLocation'
 import { createWebStudioPorts } from './webStudioPorts'
+import { uploadFilesToServer } from './webUploads'
 
 // A web tab's `window.api` (phase 9 spec, 3.2): typed `ElectronApi`, with no
 // casts, so the compiler names any member nobody decided about.
@@ -83,6 +84,7 @@ export function browserCapabilities(): ClientCapability[] {
   const secure = window.isSecureContext
   return [
     'previews',
+    'file-uploads',
     ...(secure && navigator.clipboard ? (['os-clipboard'] as const) : []),
     ...(secure && 'Notification' in window ? (['os-notifications'] as const) : []),
   ]
@@ -165,6 +167,7 @@ export function createWebApi(): ElectronApi {
 
     // A browser has no path for a dropped file; its bytes are what crosses.
     getPathForFile: () => '',
+    uploadFiles: (files) => uploadFilesToServer(files),
     // The server's folders, in an in-app dialog, where the desktop shows the OS picker.
     openDir: (options) =>
       pickServerFolder(

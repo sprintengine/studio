@@ -35,13 +35,15 @@ export const CLIENT_CAPABILITIES = [
   'deep-links',
   /** A dropped file's path on disk. */
   'drag-paths',
+  /** A dropped file with no path sent to the server, which answers where it put it (the web client's). */
+  'file-uploads',
   /** Administer the tailnet lane and pair other machines and apps: the desktop app's alone (phase 9 spec, 14.8). */
   'tailnet-admin',
 ] as const
 
 export type ClientCapability = (typeof CLIENT_CAPABILITIES)[number]
 
-/** What the desktop app's own windows can do: everything but the web client's preview pane. */
+/** What the desktop app's own windows can do: everything but the web client's preview pane and uploads. */
 export const DESKTOP_CLIENT_CAPABILITIES: readonly ClientCapability[] = CLIENT_CAPABILITIES.filter(
-  (capability) => capability !== 'previews',
+  (capability) => capability !== 'previews' && capability !== 'file-uploads',
 )

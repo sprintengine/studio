@@ -29,6 +29,7 @@ import {
 } from './web-socket'
 import { resolveStaticFile, serveStaticFile, type WebStaticRoot } from './web-static'
 import { tailnetIdentityOf } from './web-tailscale-serve'
+import type { WebUploads } from './web-uploads'
 
 // The web listener: the Studio server's HTTP door for browsers (phase 9 spec,
 // 3.1, 6.2 to 6.4). Off unless the owner turns it on; bound to loopback only.
@@ -88,6 +89,8 @@ export type WebListenerOptions = {
   tunnel?: WebTunnelAttach | null
   /** Pairing by approval: a browser asks, the owner types the digits it shows. */
   pairRequests?: PairRequests | null
+  /** Files an owner's tab drops into a message, saved on the server for the agent to read by path. */
+  uploads?: WebUploads | null
   /** Whether third-party renderer modules are on for the web (R61): their scripts are `blob:` URLs. */
   thirdPartyModules?: () => boolean
   version: string
@@ -317,6 +320,17 @@ export function createWebListener(options: WebListenerOptions): WebListener {
         version: options.version,
         build: options.staticRoot?.buildId() ?? null,
       })
+      return
+    }
+
+    if (url.pathname === '/api/upload' && method === 'POST' && options.uploads) {
+      const session = sessionOf(request)
+      if (!session?.owner) {
+        sendJson(response, session ? 403 : 401, { ok: false, message: 'Only a paired owner browser can upload.' })
+        return
+      }
+      const saved = await options.uploads.save({ sessionId: session.id, name: url.searchParams.get('name'), request })
+      sendJson(response, saved.ok ? 200 : saved.status, saved)
       return
     }
 

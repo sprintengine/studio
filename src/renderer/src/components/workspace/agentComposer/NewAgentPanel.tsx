@@ -28,7 +28,7 @@ import {
   dataTransferHasDroppableFiles,
   imageFilesFromDataTransfer,
   pastedImagePaths,
-  pathlessDropMessage,
+  pathsForPathlessFiles,
   quotePromptPath as quotePath,
   readFileAsBase64,
   readPastedImagePaths,
@@ -891,12 +891,19 @@ export default function NewAgentPanel({
 
   // A drop, whatever it carries: every file with a path is typed as its path,
   // the way a drop onto a terminal would be; images attach; a file with no path
-  // and no image to read is refused with a message rather than swallowed.
+  // is uploaded where the shell can (a browser) and typed as the server's path,
+  // and is otherwise refused with a message rather than swallowed.
   const dropFiles = (data: DataTransfer) => {
     const { paths, images, pathless } = sortDroppedFiles(data, true)
     for (const path of paths) insertPromptPath(path)
     if (images.length > 0) void attachDroppedFiles(images)
-    else setAttachNote(pathless.length > 0 ? pathlessDropMessage(pathless) : null)
+    else setAttachNote(null)
+    // No path here: a browser uploads them and types the server's paths.
+    if (pathless.length > 0)
+      void pathsForPathlessFiles(pathless).then(({ paths: uploaded, message }) => {
+        for (const path of uploaded) insertPromptPath(path)
+        if (message && images.length === 0) setAttachNote(message)
+      })
     promptRef.current?.focus()
   }
 

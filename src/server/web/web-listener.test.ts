@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { request as httpRequest, type IncomingHttpHeaders } from 'node:http'
 import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -11,6 +11,7 @@ import { createWebListener, type WebListener } from './web-listener'
 import { createPairRequests, type PairRequests } from './web-pair-requests'
 import { createWebSessionStore, type WebSessionStore } from './web-sessions'
 import { openWebStaticRoot } from './web-static'
+import { createWebUploads } from './web-uploads'
 
 // The web listener's controls, each a test that fails if the control is
 // removed (phase 9 spec, 8.6).
@@ -47,6 +48,7 @@ beforeEach(async () => {
     publicOrigins: [],
     mintKey: MINT_KEY,
     pairRequests: (pairRequests = createPairRequests({ sessions })),
+    uploads: createWebUploads({ dataDir: dir }),
     version: 'test',
     studio: { connect: (stream, who) => connected.push({ stream, who }) },
     tunnel: { attach: (client) => tunnelled.push(client.clientId), detach: () => undefined },
@@ -349,4 +351,21 @@ test("a pairing request through this server's own tailscale serve says which tai
     ['loopback', null],
   ])
   expect(() => listener.addTailscaleServeOrigin('http://mac-mini.tail1234.ts.net')).toThrow(/HTTPS/u)
+})
+
+test('an owner browser uploads a dropped file and is answered its path; nobody else can', async () => {
+  const owner = await pair()
+  const upload = (headers: Record<string, string>) =>
+    ask('/api/upload?name=report.txt', { method: 'POST', headers, body: 'quarterly numbers' })
+  const saved = await upload({ Cookie: owner.cookie, Origin: own(), 'Content-Type': 'application/octet-stream' })
+  expect(saved.status).toBe(200)
+  const { path } = JSON.parse(saved.body) as { path: string }
+  expect(path.startsWith(join(dir, 'web-uploads', owner.sessionId))).toBe(true)
+  expect(readFileSync(path, 'utf8')).toBe('quarterly numbers')
+  // Another page on this machine: its origin is not this listener's.
+  expect((await upload({ Cookie: owner.cookie, Origin: 'http://127.0.0.1:3000' })).status).toBe(403)
+  expect((await upload({ Origin: own() })).status).toBe(401)
+  const reader = sessions.issue({ route: 'loopback', owner: false })
+  if (!reader.ok) throw new Error('not paired')
+  expect((await upload({ Cookie: `${sessions.cookieName}=${reader.secret}`, Origin: own() })).status).toBe(403)
 })

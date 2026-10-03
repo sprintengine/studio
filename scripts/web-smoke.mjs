@@ -19,6 +19,8 @@
 // - axe finds nothing critical on the pairing page or the app's first screen;
 // - pairing by approval: a second browser asks, the owner types its six digits;
 // - removing a browser sends its tab back to pairing at once;
+// - a file with no path dropped on the composer is uploaded, and its path on
+//   the server typed into the message;
 // - a bundle replaced under an open tab makes it offer a reload.
 
 import assert from 'node:assert/strict'
@@ -248,6 +250,34 @@ try {
     await guest.waitForURL(/\/pair/u, { timeout: 15_000 })
     const status = await guest.evaluate(async () => (await fetch('./api/session')).status)
     assert.equal(status, 401)
+  })
+
+  await step('a file dropped on the composer is uploaded and typed as its server path', async () => {
+    // A fresh data directory has no chat yet: New chat opens the composer that starts one.
+    await owner.getByRole('button', { name: 'New chat' }).last().click()
+    const composer = owner.locator('textarea, [contenteditable="true"]').last()
+    await composer.waitFor({ timeout: 15_000 })
+    const box = await composer.boundingBox()
+    const transfer = await owner.evaluateHandle(() => {
+      const data = new DataTransfer()
+      data.items.add(new File(['quarterly numbers\n'], 'report notes.txt', { type: 'text/plain' }))
+      return data
+    })
+    for (const type of ['dragenter', 'dragover', 'drop'])
+      await composer.dispatchEvent(type, { dataTransfer: transfer, clientX: box.x + 10, clientY: box.y + 10 })
+    await owner.waitForFunction(
+      () => {
+        const field = [...document.querySelectorAll('textarea, [contenteditable="true"]')].at(-1)
+        return /web-uploads/u.test(field?.value ?? field?.innerText ?? '')
+      },
+      null,
+      { timeout: 10_000 },
+    )
+    const typed = await composer.evaluate((field) => field.value ?? field.innerText)
+    const path = /'([^']*web-uploads[^']*)'/u.exec(typed)?.[1]
+    assert.ok(path, `a quoted server path is typed: ${typed}`)
+    assert.ok(path.startsWith(dataDir), 'the path is in the server data directory')
+    assert.equal(readFileSync(path, 'utf8'), 'quarterly numbers\n')
   })
 
   await step('a bundle replaced under an open tab makes it offer a reload', async () => {

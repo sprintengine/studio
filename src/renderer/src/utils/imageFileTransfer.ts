@@ -1,4 +1,5 @@
 import { ATTACHABLE_IMAGE_TYPES } from '../../../shared/conversation-attachments'
+import { clientSupports } from '../clientCapabilities'
 import { hasFileDropData, readFileDropPayload, SPRINTENGINE_FILE_DROP_MIME } from './terminalDrop'
 
 // DataTransfer plumbing shared by every surface that takes an image from a
@@ -84,6 +85,21 @@ export function sortDroppedFiles(data: DataTransfer, attachImages: boolean): Dro
     else sorted.pathless.push(file)
   }
   return sorted
+}
+
+/**
+ * Paths for dropped files that have none on this machine. A browser sends them
+ * to the server, which answers where it saved each (`file-uploads`); a shell
+ * that cannot, or an upload that fails, answers the reason instead.
+ */
+export async function pathsForPathlessFiles(files: File[]): Promise<{ paths: string[]; message: string | null }> {
+  if (files.length === 0) return { paths: [], message: null }
+  if (!clientSupports('file-uploads')) return { paths: [], message: pathlessDropMessage(files) }
+  try {
+    return { paths: await window.api.uploadFiles(files), message: null }
+  } catch (error) {
+    return { paths: [], message: error instanceof Error ? error.message : pathlessDropMessage(files) }
+  }
 }
 
 /** The refusal for files a drop could neither attach nor name by path. */
