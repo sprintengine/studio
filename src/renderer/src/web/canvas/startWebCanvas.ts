@@ -6,6 +6,7 @@ import { createWebStudioPorts } from '../webStudioPorts'
 import { createFrameWorkerTransport } from './frameWorkerTransport'
 import { createWebCanvasTools } from './webCanvasTools'
 import { startWebCanvasToolset } from './webCanvasToolset'
+import { provideWebCanvasService, webCanvasPaneBus } from './webCanvasPane'
 
 // A web tab's `canvas` toolset, started once the app has loaded (phase 9
 // spec, 3.8). It has a Studio connection of its own, which says it is a web
@@ -36,17 +37,28 @@ export function startWebCanvas(): void {
           opened = true
         },
       }),
-    tools: (client) =>
-      createWebCanvasTools(client, {
+    tools: (client) => {
+      const tools = createWebCanvasTools(client, {
         worker: createFrameWorkerTransport({ log: (message) => console.warn('[canvas]', message) }),
         onReconnect: (listener) => {
           reconnected.add(listener)
           return () => reconnected.delete(listener)
         },
-      }),
+        pane: webCanvasPaneBus,
+      })
+      // The tab's Canvas pane draws boards through the same service.
+      provideWebCanvasService(tools.service)
+      return tools
+    },
     view: window,
     visible: () => isWindowVisible(),
     onVisibilityChange: (listener) => onWindowVisibilityChange(listener),
     log: (message) => console.warn('[canvas]', message),
-  }).catch((error: unknown) => console.warn('[canvas] the toolset did not start', error))
+  })
+    // A tab that runs no service tells its pane so, rather than leaving it waiting.
+    .then(() => provideWebCanvasService(null))
+    .catch((error: unknown) => {
+      provideWebCanvasService(null)
+      console.warn('[canvas] the toolset did not start', error)
+    })
 }

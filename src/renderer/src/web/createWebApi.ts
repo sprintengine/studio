@@ -11,6 +11,7 @@ import { ipc } from './webIpcRouter'
 import { randomId } from './webLocation'
 import { createWebStudioPorts } from './webStudioPorts'
 import { uploadFilesToServer } from './webUploads'
+import { webCanvasPaneApi } from './canvas/webCanvasPane'
 
 // A web tab's `window.api` (phase 9 spec, 3.2): typed `ElectronApi`, with no
 // casts, so the compiler names any member nobody decided about.
@@ -155,6 +156,9 @@ export function createWebApi(): ElectronApi {
     // The chat over the Studio protocol, on the tab's own socket.
     studioChatTransport: 'studio',
     ...createWebStudioPorts(),
+
+    // The Canvas pane, over the canvas service the tab runs in the page.
+    ...webCanvasPaneApi(),
 
     // The person's machine, never the server's (R56).
     clipboardWriteText: (text) => writeClipboardText(text),

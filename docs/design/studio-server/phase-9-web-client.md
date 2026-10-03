@@ -1463,9 +1463,7 @@ keeps the same swaps, since the browser's own window still takes
   is asynchronous, and POSIX paths); the board filesystem no longer uses
   `Buffer`. The toolset is withdrawn on `pagehide` and offered again on a
   restored `pageshow`, and `tools.focus` follows the tab's visibility.
-- **Not built:** the Canvas pane in a tab (its `canvas:*` pane channels are
-  the shell's and are refused), so `canvas.open` cannot reveal a board and
-  says so; export to a local folder; the canvas module's enable switch, read
+- **Not built here; the Canvas pane is in 14.16.** Export to a local folder; the canvas module's enable switch, read
   as on; the canvas suite run through the web toolset, and the hidden-tab
   test.
 
@@ -1677,3 +1675,28 @@ keeps the same swaps, since the browser's own window still takes
 - Not built: anchoring the composer to `visualViewport` under a software
   keyboard (7.2); any surface other than the chat route reworked for a
   phone. The smoke test walks the switch at 390 px.
+
+### 14.16 The Canvas pane in a tab (2026-10-03)
+
+- **The pane speaks to the service the tab already runs.** A desktop
+  window's Canvas pane reaches the shell's canvas service over `canvas:*`
+  IPC; a tab runs the same service in the page for its `canvas` toolset
+  (14.7), so `createWebApi` answers the pane's members from it
+  (`web/canvas/webCanvasPane.ts`) and no `canvas:*` channel is refused. The
+  tab is the service's one subscriber: scene and presence pushes and an
+  agent's `canvas.open` reach the pane's listeners in the page, so
+  `canvas.open` now reveals the board in the tab. A call made before the
+  toolset starts waits for it; a tab that runs no service (not an owner's,
+  or a server without board files) is answered `forbidden` with a sentence.
+- **One set of checks.** The path, shape and size checks the desktop's IPC
+  made on what the pane sends moved to `shared/canvas/commit-checks.ts`
+  (`canvasRefOf`, `canvasCommitOf`), which both paths call; the IPC's
+  behaviour is unchanged.
+- **Refused in a tab:** export to a folder (the server's folders are not
+  the person's to pick from a browser, and a browser download is not built)
+  and reveal in a file manager.
+- Verified in Chromium against the built server: an agent's `canvas.open`
+  over MCP revealed a new board in the tab's pane and its `canvas.edit`
+  appeared there. The editor's last-resort font source, a public CDN, is
+  refused by the page's CSP as intended; the CJK face (Xiaolai) is not in
+  the bundle, so CJK labels fall back to the browser's face.

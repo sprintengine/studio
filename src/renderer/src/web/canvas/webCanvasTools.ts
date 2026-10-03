@@ -48,7 +48,15 @@ export type WebCanvasTools = {
 
 export function createWebCanvasTools(
   client: WebCanvasClient,
-  options: { worker: CanvasWorkerTransport; onReconnect?: (listener: () => void) => () => void },
+  options: {
+    worker: CanvasWorkerTransport
+    onReconnect?: (listener: () => void) => () => void
+    /** Where the service's pushes go: the tab's Canvas pane (webCanvasPane.ts). Absent, nowhere. */
+    pane?: {
+      broadcast(channel: string, payload: unknown): void
+      sendTo(subscriberId: number, channel: string, payload: unknown): void
+    }
+  },
 ): WebCanvasTools {
   const files = createProtocolCanvasFs(client, options.onReconnect ? { onReconnect: options.onReconnect } : {})
   // The workspaces the server holds, read again before every call: a tool
@@ -67,10 +75,10 @@ export function createWebCanvasTools(
     resolveWorkspaceRoot: (workspaceId) =>
       workspaces.has(workspaceId) ? files.resolveWorkspaceRoot(workspaceId) : null,
     resolveBoardStore: (workspaceId) => files.resolveBoardStore(workspaceId),
-    // No pane of this tab subscribes to a board through the service: its
-    // pushes and open requests have nowhere to go.
-    broadcast: () => undefined,
-    sendTo: () => undefined,
+    // The tab's Canvas pane is the service's one subscriber: its scenes,
+    // presence and an agent's `canvas.open` go to the pane in the page.
+    broadcast: options.pane?.broadcast ?? (() => undefined),
+    sendTo: options.pane?.sendTo ?? (() => undefined),
     watch: files.watch,
     worker,
   })
