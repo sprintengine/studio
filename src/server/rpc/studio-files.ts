@@ -114,13 +114,23 @@ export function createStudioFiles(options: StudioFilesOptions): StudioFiles {
    * it passes through would take it outside. `existing` is the deepest part of
    * it that exists now, resolved, which is what the check is made on.
    */
+  /**
+   * The root on this disk, or null. A root that is not an absolute path, such
+   * as a folder on an SSH machine spelled `ssh://…`, would otherwise be read
+   * relative to this process's working directory.
+   */
+  function rootHere(root: StudioFileRoot): string | null {
+    const base = options.resolveRoot(root)
+    return base && isAbsolute(base) ? base : null
+  }
+
   async function locate(
     root: StudioFileRoot,
     path: string,
   ): Promise<{ ok: true; base: string; target: string } | StudioFileFailure> {
     if (!isStudioRelativePath(path))
       return { ok: false, code: 'invalid_params', message: 'That path is not relative to its root.' }
-    const base = options.resolveRoot(root)
+    const base = rootHere(root)
     if (!base)
       return notFound(`Workspace ${root.workspaceId} has no ${root.kind === 'boards' ? 'board store' : 'folder'} here.`)
     const target = path === '' ? base : join(base, ...path.split('/'))
@@ -182,8 +192,8 @@ export function createStudioFiles(options: StudioFilesOptions): StudioFiles {
   return {
     roots(workspaceId) {
       return {
-        workspace: options.resolveRoot({ kind: 'workspace', workspaceId }) !== null,
-        boards: options.resolveRoot({ kind: 'boards', workspaceId }) !== null,
+        workspace: rootHere({ kind: 'workspace', workspaceId }) !== null,
+        boards: rootHere({ kind: 'boards', workspaceId }) !== null,
       }
     },
 

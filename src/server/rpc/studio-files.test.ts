@@ -231,3 +231,17 @@ test('the files methods are an owner’s, and a write is answered once per comma
   }
   assert.equal((await pushed).t, 'push')
 })
+
+test('a workspace on an SSH machine has no folder here; its board store under the data directory does', async () => {
+  const base = mkdtempSync(join(tmpdir(), 'studio-files-machine-'))
+  directories.push(base)
+  const files = createStudioFiles({
+    resolveRoot: (root) => (root.kind === 'workspace' ? 'ssh://m1/home/dev/repo' : join(base, 'boards')),
+  })
+  assert.deepEqual(files.roots('ws-1'), { workspace: false, boards: true })
+  const read = await files.read(ws, 'arch.excalidraw')
+  assert.equal(read.ok, false)
+  assert.equal(read.ok ? null : read.code, 'not_found')
+  const listed = await files.list(ws, '')
+  assert.equal(listed.ok ? null : listed.code, 'not_found')
+})

@@ -43,3 +43,9 @@ test('refuses a relative path, a file, and a path that is not there', async () =
   expect((await browseFolders({ path: join(home, 'notes.txt') }, home)).ok).toBe(false)
   expect((await browseFolders({ path: join(home, 'missing') }, home)).ok).toBe(false)
 })
+
+test('refuses a folder on an SSH machine in words, never reading this disk for it', async () => {
+  const listing = await browseFolders({ path: 'ssh://m1/home/dev/repo' }, home)
+  expect(listing.ok).toBe(false)
+  expect(listing.ok ? '' : listing.message).toMatch(/SSH machine/)
+})

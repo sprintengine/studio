@@ -6,6 +6,7 @@ import {
 import { createStudioRpcService, type StudioRpcService } from '../../main/studio-rpc/studio-rpc-service'
 import { canvasBoardStoreDir } from '../../main/canvas/canvas-board-store'
 import { createStudioFiles } from '../rpc/studio-files'
+import { isMachinePath } from '../../shared/machine-paths'
 import type { StudioCore } from './studio-core'
 import type { StudioGateway } from './studio-gateway'
 
@@ -42,7 +43,10 @@ export function createStudioRpc(core: StudioCore, gateway: StudioGateway): Studi
           .getSnapshot()
           .state.workspaces.find((workspace) => workspace.id === root.workspaceId)?.folderPath
         if (!folder) return null
-        return root.kind === 'workspace' ? folder : canvasBoardStoreDir(core.platform.paths.dataDir(), folder)
+        // A folder on an SSH machine (`ssh://…`) is not on this disk, so it is
+        // no root here; its board store, kept under the data directory, is.
+        if (root.kind === 'workspace') return isMachinePath(folder) ? null : folder
+        return canvasBoardStoreDir(core.platform.paths.dataDir(), folder)
       },
     }),
     // What the conversations' branches have on GitHub, which every client

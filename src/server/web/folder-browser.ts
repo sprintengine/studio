@@ -3,6 +3,7 @@ import { readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 
+import { isMachinePath } from '../../shared/machine-paths'
 import type { FolderBrowserEntry, FolderBrowserListing } from '../../shared/web-client'
 
 // The server-side folder browser (phase 9 spec, 6.5): what replaces the native
@@ -28,6 +29,12 @@ export async function browseFolders(
   home: string = homedir(),
 ): Promise<FolderBrowserListing> {
   const asked = typeof input.path === 'string' && input.path.trim() !== '' ? input.path.trim() : home
+  // A workspace on an SSH machine keeps its folder spelled `ssh://…`; its
+  // folders are that machine's, and this server's disk has none of them.
+  const onMachine: boolean = isMachinePath(asked)
+  if (onMachine) {
+    return { ok: false, message: 'That folder is on an SSH machine. Choose its folders in the desktop app.' }
+  }
   const expanded = asked === '~' ? home : asked.startsWith('~/') ? join(home, asked.slice(2)) : asked
   if (!isAbsolute(expanded) || expanded.includes('\0')) {
     return { ok: false, message: 'Type a full path, starting from / (or ~ for your home folder).' }
