@@ -4,6 +4,7 @@ import { JSDOM } from 'jsdom'
 import { test } from 'vitest'
 
 import type { StudioPullRequest } from '../../../../../packages/studio-protocol/src/public'
+import type { BranchPullRequest } from '../../../../shared/git/pull-request'
 import type { PullRequestsChanged, StudioPullRequests } from '../../../../server/pull-requests/pull-request-domain'
 import { installStudioLoopback, type StudioLoopback } from '../../../../../tests/studio-chat-loopback'
 
@@ -79,7 +80,7 @@ test('useConversationPullRequests', async () => {
   const { createRoot } = await import('react-dom/client')
   const { useConversationPullRequests, pullRequestsForRow } = await import('./useConversationPullRequests')
 
-  let seen: Readonly<Record<string, readonly { number: number; state: string; onSessionBranch?: true }[]>> = {}
+  let seen: Readonly<Record<string, readonly BranchPullRequest[]>> = {}
   function Probe({ ids }: { ids: string[] }) {
     seen = useConversationPullRequests(ids)
     return null
