@@ -333,8 +333,10 @@ Follow-ups:
    run in the server in both modes.
 2. **A pull request opened another way is not attributed.** Done for the
    common case: a pull request on a branch the agent worked on is found
-   however it was opened. One opened for a branch the agent never had checked
-   out and changed no file on is still not attributed.
+   however it was opened, and so is one on a branch the turn pushed and left
+   (`docs/design/studio-server.md`, section 6.8). One opened from a default
+   branch, or for a branch pushed by URL or holding only older commits, is
+   still not attributed.
 3. **A row with a live terminal shows only that terminal's pull requests,** not
    the ones the rest of the conversation's agents worked on. Unchanged.
 4. **Open, not decided:** settle a chat automatically when its pull request

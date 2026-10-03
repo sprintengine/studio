@@ -680,22 +680,36 @@ chat capture and the hook reporter's capture are gone.
 terminal) is told where it worked, and wears the pull requests on those
 branches, newest first, de-duplicated by URL:
 
-- a chat's turn end: its own checkout, and every other repository its
+- a chat's turn end: its own checkout, every other repository its
   completed tool calls changed files in (`tool_output.payload.fileChanges`),
-  with a lookup that started after the turn ended;
+  and the branches the turn pushed from its checkout without staying on them
+  (below), with a lookup that started after the turn ended;
 - a client that runs agents the server does not (the desktop's terminals)
   says where one worked with `pullRequests.noteWork`: its checkout whenever
-  git answers for it, and the files it changed since the last note;
-- a slow poll while a conversation is open (a chat with a live session, or a
-  conversation that worked in the last half hour): a branch that moved
-  between turns, and a pull request opened or merged by hand;
+  git answers for it, and at a turn end the files it changed during the turn;
+  its pushed branches count from its previous turn end;
+- a slow poll: every minute a live chat's checkout is read again (git only)
+  and a branch that moved is looked up; every five minutes the conversations
+  active in the last half hour are looked up again (held), which finds a pull
+  request opened or merged by hand. An idle chat is left to the watch;
 - a client asks (`pullRequests.refresh`): a hover, a window coming to the
   front. Open pull requests are also watched every two minutes.
 
-A repository's default branch is never looked up, since every fork's own
-`main` would answer. A repository outside any workspace is looked up when an
-agent changed files in it, bounded: four per turn, from at most 32
-directories, and a dozen checkouts per conversation.
+A repository's default branch is never looked up: `gh pr list --head main`
+matches the branch name in every fork, so an upstream repository answers with
+every contributor's pull request from their fork's `main`. A pull request
+opened from a default branch therefore gets no mark; a trunk-based team opens
+none. Because a turn can end back on the default branch after its agent
+branched, pushed and opened a pull request, a turn end also looks up the
+branches it pushed: a remote-tracking tip committed since the turn began that
+is exactly a local branch no other worktree has checked out, or the
+checkout's own HEAD. Two `for-each-ref` reads, at most four lookups a turn,
+and none when the turn's start is unknown. A push by URL with no remote, or
+of a commit older than the turn, is not seen.
+
+A repository outside any workspace is looked up when an agent changed files
+in it, bounded: four per turn, from at most 32 directories, and a dozen
+checkouts per conversation.
 
 **The record's rules hold.** Settled reads only; "could not ask" changes
 nothing, so a mark never blinks out for a probe that failed or a server
