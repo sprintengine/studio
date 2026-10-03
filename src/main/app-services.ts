@@ -16,6 +16,7 @@ import { createAgentStateService } from './agent-state-service'
 import { primeDefaultWslDistro } from './hosts/wsl-distro'
 import { configureWslHelpers } from './hosts/wsl-helper-runtime'
 import { createDesktopWslServers } from '../server/wsl/desktop-wsl-servers'
+import { relayShellToolsets } from '../server/wsl/wsl-tool-relay'
 import { cliTakesLaunchPlugins } from './agent-launch-render'
 import { resolveSocketPath as resolveAutomationSocketPath } from './automation/automation-service'
 import { invalidateCliAvailabilityOnHost, subscribeKnownCliAvailability } from './cli-availability'
@@ -1480,6 +1481,17 @@ export function createAppServices(
         }),
       })
   tailnetToolsFrontDoor = automationService
+  // A chat agent in WSL reaches its own server's gateway: the desktop's
+  // toolsets are offered there too, and run here (phase 7).
+  const wslServersOfCore = 'wslServers' in core ? core.wslServers : null
+  if (automationService && wslServersOfCore)
+    relayShellToolsets({
+      onConnected: (listener) => wslServersOfCore.onConnected(listener),
+      registry: automationService.clientTools,
+      log: (message) => {
+        void writeDiagnosticLog({ level: 'info', title: 'WSL server', message, source: 'workspace' })
+      },
+    })
   // The Studio RPC: the protocol applications on this machine follow, drive
   // and start chats with, on an owner-only socket in userData/run, composed
   // over the core and its gateway as a standalone server composes it. Its

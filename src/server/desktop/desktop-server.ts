@@ -60,6 +60,7 @@ import {
 } from './server-methods'
 import { createServerModules } from './server-modules'
 import { createDesktopWslServers } from '../wsl/desktop-wsl-servers'
+import { relayShellToolsets } from '../wsl/wsl-tool-relay'
 import { readStudioEnv } from '../../shared/studio-env'
 
 // The desktop's own Studio server, out of process (phase 6 spec): the core,
@@ -262,6 +263,17 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
     ],
   })
   tailnetFrontDoor = gateway
+  // A chat agent in WSL reaches its own server's gateway: the shell's six
+  // toolsets are offered there too, and run through this registry (phase 7).
+  const wslServers = core.wslServers
+  if (wslServers)
+    relayShellToolsets({
+      onConnected: (listener) => wslServers.onConnected(listener),
+      registry: gateway.clientTools,
+      log: (message) => {
+        void writeDiagnosticLog({ level: 'info', source: 'workspace', title: 'WSL server', message })
+      },
+    })
   const studioRpc = createStudioRpc(core, gateway)
   const githubTokenStore = new GitHubTokenStore()
   const workspaceBackup = createWorkspaceBackupService({

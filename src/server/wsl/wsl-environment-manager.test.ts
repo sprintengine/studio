@@ -13,7 +13,15 @@ import { installTree, wslNodeDigests } from '../../main/hosts/wsl-helper-runtime
 import { WSL_NODE_VERSION } from '../../main/hosts/wsl-node-runtime'
 import type { WslRunner } from '../../main/hosts/wsl-runner'
 import type { RunOutcome } from '../../main/process-run'
-import { createWslEnvironmentManager, wsl1Refusal, type WslServerStatus } from './wsl-environment-manager'
+import { connect } from '../../../packages/agent-sdk/src/client'
+import type { ClientToolRegistry } from '../tools/client-tool-registry'
+import {
+  createWslEnvironmentManager,
+  wsl1Refusal,
+  type WslServerConnection,
+  type WslServerStatus,
+} from './wsl-environment-manager'
+import { lineTransport, readTicket, relayShellToolsets } from './wsl-tool-relay'
 
 // The WSL server end to end, with a plain `sh` standing in for `wsl.exe` and
 // a temporary home for each distribution: the real server tree is built the
@@ -104,6 +112,7 @@ function manager(options: {
   listing?: () => WslListing
   transport?: 'auto' | 'stdio'
   statuses?: WslServerStatus[]
+  connected?: (connection: WslServerConnection) => void
 }) {
   const runner = fakeRunner(options.homes)
   const listing =
@@ -123,6 +132,7 @@ function manager(options: {
     install: (distro, input) => installTree(distro, input, VERSION, runner),
     transportFor: () => options.transport ?? 'auto',
     onStatus: (status) => options.statuses?.push(status),
+    onConnected: (connection) => options.connected?.(connection),
   })
   cleanups.push(() => created.shutdown({ budgetMs: 5_000 }))
   return { manager: created, runner }
@@ -222,10 +232,62 @@ function readServerPid(home: string): number {
   return lock.pid
 }
 
-async function waitFor(condition: () => boolean, ms = 10_000): Promise<void> {
+async function waitFor(condition: () => boolean, ms = 10_000, poll?: () => Promise<void>): Promise<void> {
   const until = Date.now() + ms
-  while (!condition()) {
+  for (;;) {
+    await poll?.()
+    if (condition()) return
     if (Date.now() > until) throw new Error('timed out waiting')
-    await new Promise((resolve) => setTimeout(resolve, 25))
+    await new Promise((resolve) => setTimeout(resolve, 50))
   }
 }
+
+test("the desktop's toolsets are offered to the WSL server, and a second connection sees them offered", async () => {
+  const home = fakeHome('relay')
+  const listeners: Array<(connection: WslServerConnection) => void> = []
+  // Stands in for the Windows side's registry, with the shell's browser toolset in it.
+  const registry = {
+    visibleTools: () => [
+      {
+        toolset: 'browser',
+        builtIn: true,
+        title: 'Browser',
+        tool: { name: 'navigate', description: 'Go to a page.', inputSchema: { type: 'object' } },
+        wireName: 'browser.navigate',
+        mutates: true,
+      },
+    ],
+    subscribe: () => () => undefined,
+    call: async () => ({ result: { content: [{ type: 'text', text: 'done' }] } }),
+  } as unknown as ClientToolRegistry
+  const relay = relayShellToolsets({ onConnected: (listener) => listeners.push(listener), registry })
+  cleanups.push(() => relay.close())
+  const { manager: wsl } = manager({
+    homes: { Ubuntu: home },
+    connected: (connection) => listeners.forEach((listener) => listener(connection)),
+  })
+  const connection = await wsl.connect('Ubuntu')
+  const viewer = await connect({
+    transport: async () => {
+      const stream = await connection.open('studio')
+      return lineTransport(stream, await readTicket(stream))
+    },
+    client: { name: 'viewer', kind: 'desktop' },
+    reconnect: false,
+  })
+  cleanups.push(() => viewer.close())
+  let listing: Awaited<ReturnType<typeof viewer.tools.catalog>> = []
+  await waitFor(
+    () => listing.some((entry) => entry.name === 'browser'),
+    15_000,
+    async () => {
+      listing = await viewer.tools.catalog()
+    },
+  )
+  const browser = listing.find((entry) => entry.name === 'browser')!
+  assert.deepEqual(
+    browser.tools.map((tool) => tool.wireName),
+    ['browser.navigate'],
+  )
+  assert.equal(browser.offeredBy[0]?.clientName, 'SprintEngine Studio (Windows)')
+})

@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 
+import { captureLoginEnv } from '../../../resources/wsl-helper/lib/login-env.mjs'
 import { readStudioEnvironmentId } from '../../main/studio-rpc/studio-rpc-service'
 import { driveMountRootFromMounts, driveMountRootFromWslConf } from '../../shared/host-paths'
 import { startStudioServer, type StudioServer, type StudioServerOptions } from '../studio-server'
@@ -70,7 +71,24 @@ export function serveFrontDoorPurpose(
   stream.write(`${JSON.stringify({ t: 'ticket', ticket })}\n`)
 }
 
+/**
+ * Inside WSL the server was started by `wsl.exe --exec` with almost no
+ * environment: no profile has run, so PATH lacks where the person's CLIs live.
+ * The helper's capture is read once here, the same fixed list of variables,
+ * and laid over this process's environment before any chat can spawn.
+ */
+async function adoptLoginEnvironment(log: (message: string) => void): Promise<void> {
+  const started = Date.now()
+  const env = await captureLoginEnv({ ...(typeof process.getuid === 'function' ? { uid: process.getuid() } : {}) })
+  Object.assign(process.env, env)
+  const took = Date.now() - started
+  if (took > 7_000)
+    log(`The login profile took ${Math.round(took / 1000)} s to read; chats use what it had set by then.`)
+}
+
 export const startHeadlessServer: ServerStart = async ({ envelope, log, requestExit }) => {
+  // In parallel with the start: nothing spawns a CLI before `ready`.
+  const loginEnvironment = envelope.wsl ? adoptLoginEnvironment(log).catch(() => undefined) : Promise.resolve()
   const server = await startStudioServer({
     ...headlessServerOptions(envelope, log),
     // The desktop opened this directory and took its lock: it is the one
@@ -112,6 +130,7 @@ export const startHeadlessServer: ServerStart = async ({ envelope, log, requestE
     }
   }
 
+  await loginEnvironment
   return {
     environmentId: readStudioEnvironmentId(envelope.dataDir),
     gatewaySocket: server.ready.gatewaySocket,

@@ -428,6 +428,32 @@ Unix socket, `MessagePort`, arbitrary duplex), not a URL only (12.3).
   commands natively (`agent-integration-home.ts` on Linux). They report to the
   server's own agent-state socket. `wsl-plugin-copy.ts` and the helper's
   `agentState` relay are not used for chats.
+- **As built (2026-10-03).**
+  - The login environment is the helper's own capture
+    (`resources/wsl-helper/lib/login-env.mjs`, bundled into the server with a
+    `.d.mts` beside it), read once at start, in parallel with the core's
+    start, and laid over the server's environment before `ready`.
+  - The gateway entry is the headless server's own (`studio-server.ts`): its
+    Node and `resources/automation/mcp-stdio-bridge.mjs` from the server
+    tree, with `SPRINTENGINE_USER_DATA_DIR` naming its data directory. Each
+    launch's gateway token (R87) is the core's, as on any server, and never
+    crosses Windows: no channel token, no `WSLENV`, nothing in argv.
+  - The relay (`src/server/wsl/wsl-tool-relay.ts`) opens a `studio` door to
+    each server it connects to, says hello with the ticket the server gives on
+    that door's first line, and offers the shell's toolsets as the Windows
+    registry lists them, following later offers and withdrawals. A call runs
+    through the Windows registry as the calling conversation's
+    (`ClientToolCaller.conversation` from the call's context), with its abort
+    signal and progress. Out of process that is all six toolsets (R78). **In
+    process only `browser` and `canvas` are client toolsets**, so only those
+    reach a WSL agent; `editor`, `tour`, `terminal` and `agent` stay the
+    Windows gateway's own tools there, and a WSL server's agents do not get
+    them until the shell offers them in process too.
+  - Tool inputs are relayed as the agent wrote them: an `editor` call naming
+    `/home/dev/repo/a.ts` reaches the Windows editor with that Linux path.
+  - Hooks and agent state from a server chat are the server's own; the
+    desktop's agent-state socket does not hear them (section 14).
+
 - **Terminal agents in WSL do not change in phase 7.** They keep the helper's
   relay to the Windows gateway, and the Windows gateway's conversation tools
   reach WSL chats through the router (5.3). The distro's
