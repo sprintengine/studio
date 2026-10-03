@@ -8,8 +8,9 @@ import type { ConversationBackend, ConversationBackendMember } from '../core/con
 // The conversation backend across the front door: a WSL server's chats, as
 // the Windows side's router drives them (phase 7 spec, 5.1).
 //
-// Both ends are one build (the server tree is installed per app version, and
-// its build stamp is checked at bootstrap), so this wire is private and
+// Both ends are one build (the server tree is installed per app version, its
+// digest is checked before it runs, and the build its `boot` frame names is
+// checked against the tree's `build.json`), so this wire is private and
 // version-locked, as the helper's is: every `ConversationBackend` member the
 // router forwards is one request, by name, with its arguments as they are;
 // every chat event is pushed as it is published, with the summary of the

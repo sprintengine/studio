@@ -11,7 +11,8 @@
 // (`out/wsl-server/`, phase 7), which has no node_modules to load from. There
 // every dependency is inlined, the two runtime packages a chat loads on first
 // use included, and the tree carries the resources the core reads from an
-// installed build's resources directory, and the stdio bridge's relay. The
+// installed build's resources directory, the stdio bridge's relay, and its
+// build identity (`build.json`). The
 // app streams it into each distribution once per version.
 //
 // The build fails if anything the server would load reaches Electron, the
@@ -20,7 +21,7 @@
 // in the test suite, this says it before a bundle that cannot start is written.
 
 import { execFileSync } from 'node:child_process'
-import { cpSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
@@ -89,6 +90,12 @@ export async function buildStudioServer({ outfile = DEFAULT_SERVER_OUTFILE, sour
 export async function buildWslServerTree({ outDir = DEFAULT_WSL_SERVER_DIR } = {}) {
   rmSync(outDir, { recursive: true, force: true })
   mkdirSync(outDir, { recursive: true })
+  // One identity for the bundle and the file beside it: the Windows side
+  // reads `build.json` from the tree it ships, and the server says the same
+  // identity in its `boot` frame, so a server that is not this exact build
+  // (another copy of the app replaced the tree between the launch script's
+  // check and its exec) is told apart before it is handed anything.
+  const identity = buildIdentity()
   await build({
     ...common(),
     outfile: join(outDir, 'server.cjs'),
@@ -98,12 +105,13 @@ export async function buildWslServerTree({ outDir = DEFAULT_WSL_SERVER_DIR } = {
     external: ['electron', 'electron-updater', 'node-pty'],
     sourcemap: false,
     define: {
-      __STUDIO_SERVER_BUILD__: JSON.stringify(buildIdentity()),
+      __STUDIO_SERVER_BUILD__: JSON.stringify(identity),
       __STUDIO_SERVER_SELF_CONTAINED__: 'true',
       'import.meta.url': '__studioImportMetaUrl',
     },
     banner: { js: "const __studioImportMetaUrl = require('node:url').pathToFileURL(__filename).href;" },
   })
+  writeFileSync(join(outDir, 'build.json'), `${JSON.stringify(identity, null, 2)}\n`)
   cpSync(join(ROOT, 'resources', 'wsl-server', 'bridge.mjs'), join(outDir, 'bridge.mjs'))
   for (const name of WSL_RESOURCES) {
     cpSync(join(ROOT, 'resources', name), join(outDir, 'resources', name), { recursive: true })

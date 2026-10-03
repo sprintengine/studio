@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { listWslDistros } from '../../main/hosts/wsl-distro'
@@ -58,10 +58,21 @@ export function wslServerTreeDir(
   return dir && existsSync(join(dir, 'server.cjs')) ? dir : null
 }
 
+/** The identity in a WSL tree's `build.json`, or null when it has none. */
+export function readTreeBuild(dir: string): { builtAt: string } | null {
+  try {
+    const parsed = JSON.parse(readFileSync(join(dir, 'build.json'), 'utf8')) as { builtAt?: unknown }
+    return typeof parsed.builtAt === 'string' && parsed.builtAt ? { builtAt: parsed.builtAt } : null
+  } catch {
+    return null
+  }
+}
+
 export function createDesktopWslServers(options: DesktopWslServersOptions): WslServers {
   const connectedListeners: Array<(connection: WslServerConnection) => void> = []
   const statusListeners: Array<(status: WslServerStatus) => void> = []
   let payload: AppPayload | null = null
+  let treeBuild: { builtAt: string } | null | undefined
   const settingsOf = (distro: string) => options.readHostSettings()[wslHostId(distro)]
   const manager = createWslEnvironmentManager({
     runner: wslExeRunner,
@@ -79,6 +90,12 @@ export function createDesktopWslServers(options: DesktopWslServersOptions): WslS
       // Packed once per run: the digest is what the launch script checks.
       payload = dir ? buildAppPayload([{ dir, into: '' }]) : null
       return payload
+    },
+    treeBuild: () => {
+      if (treeBuild !== undefined) return treeBuild
+      const dir = wslServerTreeDir(options)
+      treeBuild = dir ? readTreeBuild(dir) : null
+      return treeBuild
     },
     nodeDigests: wslNodeDigests,
     installNode: (distro, report) =>

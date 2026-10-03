@@ -21,6 +21,7 @@ import {
   type WslServerConnection,
   type WslServerStatus,
 } from './wsl-environment-manager'
+import { readTreeBuild } from './desktop-wsl-servers'
 import { lineTransport, readTicket, relayShellToolsets } from './wsl-tool-relay'
 
 // The WSL server end to end, with a plain `sh` standing in for `wsl.exe` and
@@ -36,6 +37,7 @@ const VERSION = (JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as
 
 let scratch = ''
 let payload: AppPayload
+let treeBuild: { builtAt: string } | null = null
 
 beforeAll(() => {
   // Short: the server's sockets live under each fake home.
@@ -46,6 +48,7 @@ beforeAll(() => {
     stdio: 'pipe',
   })
   payload = buildAppPayload([{ dir: tree, into: '' }])
+  treeBuild = readTreeBuild(tree)
 })
 
 afterAll(() => {
@@ -113,6 +116,8 @@ function manager(options: {
   transport?: 'auto' | 'stdio'
   statuses?: WslServerStatus[]
   connected?: (connection: WslServerConnection) => void
+  treeBuild?: { builtAt: string }
+  maxAttempts?: number
 }) {
   const runner = fakeRunner(options.homes)
   const listing =
@@ -127,12 +132,14 @@ function manager(options: {
     app: { version: VERSION, buildStamp: '', channel: 'nightly' },
     profile: { id: '0123456789ab', isDefault: false },
     payload: () => payload,
+    treeBuild: () => options.treeBuild ?? treeBuild,
     nodeDigests: wslNodeDigests,
     installNode: async () => assert.fail('Node is already in the fake distribution'),
     install: (distro, input) => installTree(distro, input, VERSION, runner),
     transportFor: () => options.transport ?? 'auto',
     onStatus: (status) => options.statuses?.push(status),
     onConnected: (connection) => options.connected?.(connection),
+    ...(options.maxAttempts ? { start: { maxAttempts: options.maxAttempts } } : {}),
   })
   cleanups.push(() => created.shutdown({ budgetMs: 5_000 }))
   return { manager: created, runner }
@@ -162,6 +169,22 @@ test('a first chat installs the server tree, starts it, and reaches it over loop
   assert.ok(
     !existsSync(join(home, WSL_DATA_REL, 'data-0123456789ab', 'run', 'studio.lock')),
     'the drain let the lock go',
+  )
+})
+
+test('a server that is not the build this app ships is refused before it is handed anything', async () => {
+  assert.ok(treeBuild, 'the tree says which build it is')
+  const home = fakeHome('other-build')
+  const { manager: wsl } = manager({
+    homes: { Ubuntu: home },
+    treeBuild: { builtAt: '2026-01-01T00:00:00.000Z' },
+    maxAttempts: 1,
+  })
+  await assert.rejects(wsl.connect('Ubuntu'), /another build of version/u)
+  assert.equal(wsl.status('Ubuntu').state, 'unavailable')
+  assert.ok(
+    !existsSync(join(home, WSL_DATA_REL, 'data-0123456789ab', 'run', 'studio.lock')),
+    'it was given no data directory',
   )
 })
 

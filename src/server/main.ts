@@ -283,7 +283,7 @@ function serveOverStdio(): Promise<number> {
   installFatalHandlers(channel, say)
   // Said before anything is read: the starter writes the envelope only after
   // this, so the shell that exec'd the server cannot have read part of it.
-  channel.send(serverBoot(bundledBuild()?.commit ?? null))
+  channel.send(serverBoot(bundledBuild()))
   return serveOnChannel(channel, {
     starters: { headless: startHeadlessServer },
     unwrapEnvelope: false,
@@ -293,12 +293,13 @@ function serveOverStdio(): Promise<number> {
 }
 
 /** The boot frame: who this server is and where it runs. */
-export function serverBoot(buildStamp: string | null): ServerBoot {
+export function serverBoot(build: { commit: string | null; builtAt: string } | null): ServerBoot {
   return {
     t: 'boot',
     pid: process.pid,
     version: versionFrom(defaultAppRoot()),
-    buildStamp,
+    buildStamp: build?.commit ?? null,
+    builtAt: build?.builtAt ?? null,
     home: homedir(),
     uid: typeof process.getuid === 'function' ? process.getuid() : null,
     execPath: process.execPath,

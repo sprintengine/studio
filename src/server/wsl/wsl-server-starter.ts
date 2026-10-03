@@ -231,6 +231,12 @@ export async function startWslServer(deps: WslServerStartDeps): Promise<RunningW
       envelope = deps.envelopeFor(bootFrame)
     } catch (error) {
       attempt.process.kill()
+      // A `WslSetupError` says itself whether a retry can pass.
+      if (error instanceof WslSetupError) {
+        lastError = error
+        if (error.fatal) throw error
+        continue
+      }
       throw new WslSetupError(
         `The Studio server in ${deps.distro} started somewhere it cannot be given a data directory: ${error instanceof Error ? error.message : String(error)}`,
         { fatal: true, code: 'start' },

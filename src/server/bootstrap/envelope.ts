@@ -121,6 +121,8 @@ export type ServerBoot = {
   pid: number
   version: string
   buildStamp: string | null
+  /** When this bundle was built: with `buildStamp`, which build it is (a WSL tree's `build.json` says the same). */
+  builtAt: string | null
   /** `$HOME`, which a WSL starter's data directory is under. */
   home: string
   uid: number | null

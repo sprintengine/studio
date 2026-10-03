@@ -76,6 +76,12 @@ export type WslEnvironmentManagerDeps = {
   profile: { id: string; isDefault: boolean }
   /** The server tree this build ships, packed; null when it shipped none. */
   payload(): AppPayload | null
+  /**
+   * The build identity in that tree's `build.json`, which the server's `boot`
+   * must repeat. Null (a tree from before the file) skips the check; the
+   * launch script's digest check still stands.
+   */
+  treeBuild?(): { builtAt: string } | null
   /** The pinned Node's digests, any of which an installed Node's marker may hold. */
   nodeDigests(): string[]
   installNode(distro: string, report: NeedReport): Promise<void>
@@ -243,6 +249,17 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
     const appDir = boot.appDir.replace(/\/+$/u, '')
     if (!appDir.endsWith(`/${serverTreeName(deps.app.version)}`))
       throw new Error(`it runs from ${appDir}, not this app version's server tree.`)
+    // The envelope's build stamp is empty (the desktop's own stamp is not the
+    // tree's), so the build is checked here instead: the launch script's digest
+    // check and its exec are not one step, and another copy of the app of the
+    // same version can replace the tree in between. Not fatal: the next
+    // attempt's launch script sees the other digest and installs this one.
+    const expected = deps.treeBuild?.() ?? null
+    if (expected && boot.builtAt !== expected.builtAt)
+      throw new WslSetupError(
+        `The Studio server in ${handle.distro} is another build of version ${deps.app.version} (built ${boot.builtAt ?? 'at an unknown time'}, not ${expected.builtAt}); another copy of the app installed it. This build's server is installed again.`,
+        { fatal: false, code: 'start' },
+      )
     return {
       v: 1,
       role: 'headless',

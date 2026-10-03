@@ -28,7 +28,8 @@ function failingWslExe(stderr: Buffer, code: number): HelperProcess {
     stdout,
     stderr: err,
     kill: () => undefined,
-    once: (event: string, listener: (...args: never[]) => void) => events.once(event, listener),
+    once: (event: string, listener: (...args: never[]) => void) =>
+      events.once(event, listener as (...args: unknown[]) => void),
   } as HelperProcess
 }
 
