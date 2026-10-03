@@ -51,3 +51,20 @@ test('a restart that fails says why, and any other refusal is answered as it cam
   expect(restarts).toBe(0)
   expect(sessionWasLost({ ok: true })).toBe(false)
 })
+
+test('a server of an older build, which names no code, is read by its words; other refusals with a code are not', () => {
+  expect(sessionWasLost({ ok: false, message: 'Conversation session is invalid.' })).toBe(true)
+  expect(sessionWasLost({ ok: false, message: 'Conversation session is stopped.' })).toBe(false)
+  expect(sessionWasLost({ ok: false, code: 'command_id_conflict', message: 'Conversation session is invalid.' })).toBe(
+    false,
+  )
+})
+
+test('a view that cannot start a session keeps the refusal it was given', async () => {
+  const refused = await sendRecoveringSession({
+    sessionId: 'conv_remote',
+    send: async () => lost,
+    restart: async () => null,
+  })
+  expect(refused).toBe(lost)
+})

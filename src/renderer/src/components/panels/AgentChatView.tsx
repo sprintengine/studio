@@ -98,7 +98,7 @@ import {
 } from './agentChat/conversationProjection'
 import { rememberSentAttachment } from './agentChat/storedAttachments'
 import { deriveConversationTimelineRows } from './agentChat/conversationTimeline'
-import { sendRecoveringSession, sessionWasLost } from './agentChat/sessionRecovery'
+import { LOST_REQUEST, sendRecoveringSession, sessionWasLost } from './agentChat/sessionRecovery'
 import {
   createConversationProjectionState,
   syncConversationProjection,
@@ -1203,12 +1203,16 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     return started.sessionId
   }, [sessionId, startSession])
   // The session this view holds is gone where it ran: forget it, so the next
-  // send starts the chat's session again.
-  const forgetLostSession = useCallback((result: { ok: boolean; code?: unknown }): boolean => {
-    if (!sessionWasLost(result)) return false
-    setSession(null)
-    return true
-  }, [])
+  // send starts the chat's session again. A view that cannot start a session
+  // (a paired machine's chat) keeps the one it has.
+  const forgetLostSession = useCallback(
+    (result: { ok: boolean; code?: unknown; message?: unknown }): boolean => {
+      if (!transport.capabilities.startSession || !sessionWasLost(result)) return false
+      setSession(null)
+      return true
+    },
+    [transport],
+  )
 
   // Change the tool-permission preset. The agent record is the durable seed (it
   // starts the next session and survives a remount), so it is written first; a
@@ -1362,8 +1366,10 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
               ...(turnAttachments.length > 0 ? { attachments: turnAttachments } : {}),
             }),
           restart: async () => {
+            // A view that cannot start one (a paired machine's chat) keeps the one it has.
+            if (!transport.capabilities.startSession) return null
             setSession(null)
-            return (await startSession()) ?? { ok: false, message: 'Could not start the conversation.' }
+            return startSession()
           },
         })
         finishDraftSend(draftSend, result.ok)
@@ -1652,7 +1658,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           answers,
           decision,
         })
-        if (!result.ok) setActionError(result.message)
+        if (!result.ok) setActionError(forgetLostSession(result) ? LOST_REQUEST : result.message)
         else if (
           approved &&
           shapeEntries.some(
@@ -1667,7 +1673,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         setRespondingRequestId(null)
       }
     },
-    [sessionId, respondingRequestId, shapeEntries, updateBinding, transport],
+    [sessionId, respondingRequestId, shapeEntries, updateBinding, transport, forgetLostSession],
   )
 
   // "Allow and switch to …" on a permission card: this request is allowed
@@ -1685,7 +1691,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       try {
         const result = await transport.respond({ sessionId, requestId, approved: true, decision: 'once' })
         if (result.ok) allowed = true
-        else setActionError(result.message)
+        else setActionError(forgetLostSession(result) ? LOST_REQUEST : result.message)
       } catch (err) {
         setActionError(err instanceof Error ? err.message : 'Could not record the approval.')
       } finally {
@@ -1693,7 +1699,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       }
       if (allowed) await changePermissionPreset(next)
     },
-    [sessionId, respondingRequestId, transport, changePermissionPreset],
+    [sessionId, respondingRequestId, transport, changePermissionPreset, forgetLostSession],
   )
 
   const interrupt = useCallback(async () => {

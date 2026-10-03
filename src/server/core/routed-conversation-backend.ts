@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
 import type { ConversationEvent, ConversationSessionSummary } from '../../shared/conversation-runtime'
+import { CONVERSATION_SESSION_NOT_FOUND } from '../../shared/conversation-runtime'
 import { distroOfHostId } from '../../shared/execution-host'
 import { distroOfUncPath } from '../../shared/host-paths'
 import type { RemoteBackendMember, RemoteConversationBackend } from '../wsl/backend-wire'
@@ -289,6 +290,16 @@ export function createRoutedConversationBackend(deps: RoutedConversationBackendD
         const value = await method.apply(connection.backend, remote.edge.args(member, args))
         const session = (value as { session?: ConversationSessionSummary } | null)?.session
         if (session?.sessionId) sessionDistro.set(session.sessionId, distro)
+        // Sent again after a lost wire, to a server that no longer holds the
+        // session: that server restarted, and the first attempt may have run
+        // before it went. Its receipt is on disk but this server cannot reach
+        // it without the session, so the caller is not told to start the
+        // session and send again, which would send the message twice.
+        if (attempt > 0 && (value as { code?: unknown } | null)?.code === CONVERSATION_SESSION_NOT_FOUND)
+          return {
+            ok: false,
+            message: `The connection to ${'label' in connection ? connection.label : `WSL: ${distro}`} was lost while this was being sent, and its Studio server has restarted since. Check the conversation before sending it again.`,
+          }
         return remote.edge.result(member, value)
       } catch (error) {
         // The wire went under the call (a dropped SSH session): sent again
