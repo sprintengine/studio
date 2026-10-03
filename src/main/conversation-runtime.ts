@@ -1690,6 +1690,11 @@ export class ConversationRuntime {
     await this.emit(session, this.eventForSession(session, 'session_updated', { notice: input.notice }))
   }
 
+  /** The folder a session works in (a run's worktree when it has one), or null for a session not here. */
+  sessionWorkspaceRoot(sessionId: string): string | null {
+    return this.sessions.get(sessionId)?.workspaceRoot ?? null
+  }
+
   listSessions(input: ConversationListSessionsInput = {}): ConversationListSessionsResult {
     const sessions = Array.from(this.sessions.values())
       .filter((session) => !input.workspaceId || session.workspaceId === input.workspaceId)

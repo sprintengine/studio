@@ -17,7 +17,7 @@ import { summariesEqual, useSidebarGitSummaries } from './useSidebarGitSummaries
 import { checkoutPathsOf, lineOfRemoteRow, terminalLinesOf } from './terminalLines'
 import { suspendWorkspaceTerminals, terminateWorkspaceTerminals } from './workspaceTerminalTermination'
 import { ConversationPeekPopover } from './ConversationPeekPopover'
-import { openPullRequestCount, ProjectPullRequestMark, PullRequestMark } from './PullRequestMark'
+import { ProjectPullRequestMark, PullRequestMark } from './PullRequestMark'
 import {
   pullRequestsForRow,
   useConversationPullRequests,
@@ -1053,16 +1053,23 @@ function WorkspaceSidebar({
   // Open only. A conversation keeps its merged pull requests because that is its
   // history; a project's count is a to-do, and a merged one has nothing left to
   // do (`ProjectPullRequestMark`).
+  //
+  // Counted by URL: two chats that worked on one branch both wear its pull
+  // request, and the project has one thing to do about it, not two.
   const openPullRequestsByGroup = useMemo(() => {
-    const map = new Map<string, number>()
+    const urls = new Map<string, Set<string>>()
     for (const workspace of workspaces) {
       const list = conversationPullRequests[workspace.id]
       if (!list || list.length === 0) continue
-      const open = openPullRequestCount(list)
-      if (open === 0) continue
+      const open = list.filter((pr) => pr.state === 'open')
+      if (open.length === 0) continue
       const groupKey = keyOf(workspace)
-      map.set(groupKey, (map.get(groupKey) ?? 0) + open)
+      const seen = urls.get(groupKey) ?? new Set<string>()
+      for (const pr of open) seen.add(pr.url)
+      urls.set(groupKey, seen)
     }
+    const map = new Map<string, number>()
+    for (const [groupKey, seen] of urls) map.set(groupKey, seen.size)
     return map
   }, [conversationPullRequests, keyOf, workspaces])
   // ─── One colour per project, worn on the folder glyph ──────────────────

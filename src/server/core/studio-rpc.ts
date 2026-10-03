@@ -45,6 +45,9 @@ export function createStudioRpc(core: StudioCore, gateway: StudioGateway): Studi
         return root.kind === 'workspace' ? folder : canvasBoardStoreDir(core.platform.paths.dataDir(), folder)
       },
     }),
+    // What the conversations' branches have on GitHub, which every client
+    // displays and none decides.
+    pullRequests: core.pullRequests,
     log: (message) => {
       void writeDiagnosticLog({ level: 'warning', source: 'workspace', title: 'Local app socket', message })
     },

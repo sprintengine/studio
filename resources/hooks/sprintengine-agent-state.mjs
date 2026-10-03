@@ -67,23 +67,10 @@ const MAX_FILE_PATH_LENGTH = 4096
 // 200 regions are kept (they are ascending, so the ones that are kept are still
 // correct) and the rest fall to the changelist model's remainder rule.
 const MAX_EDITS_PER_FRAME = 200
-// Send-side cap on a captured pull request URL (epic `pull-request-marks`).
-// Mirrors MAX_PULL_REQUEST_URL_LENGTH in src/main/agent-state.ts. Over the cap
-// the field is DROPPED rather than sliced — half a URL is a different pull
-// request, and the reader would refuse it anyway.
 // The CLI's own tool-call id is a short opaque token (Claude's `toolu_…` is 29
 // chars). Longer than this is a payload anomaly and the id is dropped rather
 // than truncated — a truncated id could collide with another call's.
 const MAX_TOOL_USE_ID_LENGTH = 256
-
-const MAX_PULL_REQUEST_URL_LENGTH = 2048
-// How much of one tool result is scanned for that URL. The result itself is
-// NEVER forwarded (the reader's frame line cap is 64KB); this only bounds the
-// work a pathological response can cost. `gh pr create` prints the URL on its
-// LAST line, so an over-long response is scanned at BOTH ends rather than
-// truncated from the front — a head-only scan would miss every capture that
-// followed a noisy push.
-const MAX_PULL_REQUEST_SCAN_LENGTH = 64 * 1024
 
 /**
  * The MINIMAL changed regions of one tool call — what the agent's changelist
@@ -676,12 +663,12 @@ const STR_REPLACE_TOOL_NAMES = new Set(['search_replace'])
 const WRITE_TOOL_NAMES = new Set(['write'])
 
 // The PostToolUse spellings that carry a tool NAME, INPUT and RESULT — which is
-// what both reads below need (the file edit, and the pull request capture).
-// Claude/Codex/Kimi send `PostToolUse`; Grok's payload spells the same event
-// `post_tool_use`. Cursor's `postToolUse` is deliberately NOT here — its payload
-// carries no tool detail at all, so its edits arrive on the dedicated
-// `afterFileEdit` event instead and its pull requests stay on the app's branch
-// lookup (epic `pull-request-marks`, decision 8b).
+// what the file edit read below needs. Claude/Codex/Kimi send `PostToolUse`;
+// Grok's payload spells the same event `post_tool_use`. Cursor's `postToolUse`
+// is deliberately NOT here — its payload carries no tool detail at all, so its
+// edits arrive on the dedicated `afterFileEdit` event instead. Pull requests
+// are not read here at all: the app finds them by asking GitHub about the
+// branches an agent worked on (owner ruling 2026-10-03).
 const FILE_EDIT_EVENT_NAMES = new Set(['PostToolUse', 'post_tool_use'])
 const CURSOR_FILE_EDIT_EVENT = 'afterFileEdit'
 
@@ -780,131 +767,6 @@ function deriveFileChanges(event, toolName, payload) {
   }
 
   return []
-}
-
-// ---------------------------------------------------------------------------
-// Pull request capture (epic `pull-request-marks`, decision 8b)
-//
-// The reporter already sees every tool call's input and result, so the moment
-// an agent opens a pull request is a moment it is TOLD about — no polling, no
-// `gh` of its own. One more read on the same PostToolUse the file ledger uses.
-//
-// One gate, and nothing else counts: a shell command containing `gh pr create`
-// — Claude's `Bash`, Kimi's `Bash`, Grok's `bash`, Codex's `shell` (whose
-// `command` is an argv ARRAY, not a string). `gh pr view` / `gh pr list` do not
-// match the literal, and a plain shell that never runs the creation never
-// produces one.
-//
-// The URL is read from the tool RESULT only, never from `tool_input`: the input
-// is the agent's own text, and an agent that merely TYPED a pull request URL has
-// not opened one. What is forwarded is the URL and nothing else — never the raw
-// output.
-// ---------------------------------------------------------------------------
-
-// The wire-side twin of `parsePullRequestUrl` (src/shared/git/pr-url.ts).
-// This file is copied into a workspace and run by the CLI, so it can import
-// nothing from src/ — this ONE regex is the documented duplicate, and main
-// re-validates every URL through the real parser before believing it.
-//
-// `<host>/<owner>/<repo>/pull/<n>`, any host (GitHub Enterprise lives on the
-// company's own domain, optionally with a port). The `/pull/` segment and the
-// digits are what make it a pull request: an issue (`/issues/7`), a commit
-// (`/commit/<sha>`) and the "create one by visiting" link `gh` prints on a push
-// (`/pull/new/<branch>`) all fail to match. The trailing lookahead refuses
-// `/pull/12ab`, so a number that is not a number captures nothing rather than
-// its own prefix.
-const PULL_REQUEST_URL_RE =
-  /https?:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/pull\/\d+(?![\w])/
-
-// `gh pr create`, however the shell spaced it. Anchored on word boundaries so
-// `/usr/local/bin/gh pr create` matches and `gh pr list` never does.
-const GH_PR_CREATE_RE = /\bgh\s+pr\s+create\b/
-
-// The shell command a tool call ran, under every spelling the hooked CLIs use.
-// Claude / Kimi / Grok's Bash-style tools put a STRING on `command`; Codex's
-// shell tool puts the argv ARRAY there (`['bash', '-lc', 'gh pr create …']`).
-// Anything else reads as no command at all.
-function readToolCommand(input) {
-  if (!input || typeof input !== 'object') return null
-  for (const candidate of [input.command, input.cmd, input.script]) {
-    if (typeof candidate === 'string' && candidate.length > 0) return candidate
-    if (Array.isArray(candidate)) {
-      const parts = candidate.filter((part) => typeof part === 'string')
-      if (parts.length > 0) return parts.join(' ')
-    }
-  }
-  return null
-}
-
-// Whether this tool call is one that can have opened a pull request. Cheap, and
-// checked BEFORE the result is scanned so an ordinary `cat` of a file that
-// happens to hold a pull request URL captures nothing.
-function isPullRequestCreation(input) {
-  const command = readToolCommand(input)
-  return typeof command === 'string' && GH_PR_CREATE_RE.test(command)
-}
-
-// One string's first pull request URL. `gh pr create` prints exactly one (the
-// last line of its output). FIRST match, so the answer is deterministic when a
-// command prints more than one.
-//
-// Past the scan cap the string is read at BOTH ends, because `gh` prints the URL
-// last and a noisy push can put a megabyte in front of it. The two ends are
-// searched SEPARATELY: the head is a cut string, so a match that runs to its
-// very end may be half a URL whose number continues past the cut (`/pull/1` of
-// `/pull/1234` — a real pull request, and the wrong one), and only a match that
-// ends inside the slice is believed. A cut at the START of the tail can produce
-// no false match at all: what is left of a URL there no longer begins `https://`.
-function matchPullRequestUrl(text) {
-  if (typeof text !== 'string' || text.length === 0) return null
-  if (text.length <= MAX_PULL_REQUEST_SCAN_LENGTH) return firstPullRequestUrl(text, false)
-  const half = MAX_PULL_REQUEST_SCAN_LENGTH / 2
-  return firstPullRequestUrl(text.slice(0, half), true) ?? firstPullRequestUrl(text.slice(-half), false)
-}
-
-function firstPullRequestUrl(text, mustEndInside) {
-  const match = PULL_REQUEST_URL_RE.exec(text)
-  if (!match) return null
-  if (mustEndInside && match.index + match[0].length >= text.length) return null
-  const url = match[0]
-  return url.length <= MAX_PULL_REQUEST_URL_LENGTH ? url : null
-}
-
-// The fields a tool result hides its text in. Claude's Bash and Grok hand back a
-// plain STRING; Codex's shell tool hands back its `Exit code: N / Wall time: … /
-// Output: …` string; an MCP tool hands back an object whose `content` is an
-// ARRAY of `{ type: 'text', text }` parts (and, on newer servers, the same
-// answer again under `structuredContent`). `stdout` / `stderr` / `output` /
-// `result` cover the CLIs that wrap a command result in an object of their own —
-// `stderr` included because `gh` prints the "a pull request already exists"
-// line, URL and all, on the error stream.
-const TOOL_RESPONSE_TEXT_FIELDS = ['stdout', 'stderr', 'output', 'content', 'text', 'result', 'structuredContent']
-
-// The pull request URL a tool result carries, wherever in it the CLI put it.
-// Bounded in depth and in breadth: an untrusted payload must cost a fixed amount
-// of work, and a URL nested five objects deep is not a shape any of these CLIs
-// produce.
-//
-// A FAILED call is not excluded, deliberately: `gh pr create` exits non-zero
-// when the branch already has a pull request, and prints that pull request's
-// URL — which is a pull request this conversation's branch really has. The URL
-// only ever appears when one EXISTS.
-function extractPullRequestUrl(response, depth = 0) {
-  if (depth > 4) return null
-  if (typeof response === 'string') return matchPullRequestUrl(response)
-  if (Array.isArray(response)) {
-    for (const entry of response.slice(0, 50)) {
-      const url = extractPullRequestUrl(entry, depth + 1)
-      if (url) return url
-    }
-    return null
-  }
-  if (!response || typeof response !== 'object') return null
-  for (const field of TOOL_RESPONSE_TEXT_FIELDS) {
-    const url = extractPullRequestUrl(response[field], depth + 1)
-    if (url) return url
-  }
-  return null
 }
 
 function readStdin() {
@@ -1122,24 +984,6 @@ async function main() {
   if (toolUseId) {
     const trimmed = toolUseId.trim()
     if (trimmed && trimmed.length <= MAX_TOOL_USE_ID_LENGTH) frame.toolUseId = trimmed
-  }
-
-  // The pull request the agent just opened, forwarded on the same PostToolUse
-  // (epic `pull-request-marks`, decision 8b): the app files it against this
-  // conversation the moment it exists, instead of waiting for the branch lookup
-  // to notice. See the capture section above for the gate and the one
-  // regex. Only the URL rides the frame — never the command, never the output.
-  // A capture is filed by the URL's OWN repository in main, so
-  // `cd ../website && gh pr create` is captured correctly even though this
-  // session never left its checkout.
-  if (FILE_EDIT_EVENT_NAMES.has(event)) {
-    const toolInput = payload?.tool_input ?? payload?.toolInput
-    if (isPullRequestCreation(toolInput)) {
-      const url = extractPullRequestUrl(
-        payload?.tool_response ?? payload?.toolResponse ?? payload?.tool_output ?? payload?.toolOutput,
-      )
-      if (url) frame.pullRequest = { url }
-    }
   }
 
   // Where the session IS: Claude Code, Codex and Grok put the
