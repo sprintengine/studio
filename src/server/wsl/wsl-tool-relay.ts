@@ -4,6 +4,8 @@ import { StringDecoder } from 'node:string_decoder'
 import { connect, type StudioClient } from '../../../packages/agent-sdk/src/client'
 import type { OfferedToolset, ToolDefinition } from '../../../packages/agent-sdk/src/tools'
 import type { StudioTransport } from '../../../packages/agent-sdk/src/transport'
+import { wslToWindowsPath } from '../../shared/host-paths'
+import { toolError } from '../../shared/modules/mcp-tools'
 import type { ClientToolRegistry } from '../tools/client-tool-registry'
 import type { WslServerConnection } from './wsl-environment-manager'
 
@@ -19,12 +21,54 @@ import type { WslServerConnection } from './wsl-environment-manager'
 //
 // The offers follow the Windows side's: a toolset the shell offers later is
 // offered on, one it withdraws is withdrawn. Tool inputs cross as the agent
-// wrote them; a Linux path in one is the agent's own.
+// wrote them, except the file paths the editor's tools take: those open on
+// Windows, so an absolute Linux path is respelled the way Windows opens it
+// (`/home/dev/a.ts` as `\\wsl.localhost\<distro>\home\dev\a.ts`, a path
+// under the drive mount as the drive's), and a `~` path, whose home Windows
+// cannot know, is refused in words. A relative path stays relative to the
+// workspace, which is how the Windows side reads it.
 
 /** The toolsets the desktop's shell offers (decision R78), the ones relayed. */
 export const RELAYED_TOOLSETS = ['browser', 'canvas', 'editor', 'tour', 'terminal', 'agent'] as const
 
 export type WslToolRelay = { close(): void }
+
+/** Thrown for an input path the Windows side cannot open; the call answers with it in words. */
+class RelayPathError extends Error {}
+
+/**
+ * A relayed tool's arguments as the Windows side reads them: the editor's
+ * file paths in Windows spelling. Throws `RelayPathError` for a `~` path.
+ */
+export function relayedToolArgs(
+  toolset: string,
+  args: Record<string, unknown>,
+  where: { distro: string; driveMountRoot: string | null },
+): Record<string, unknown> {
+  if (toolset !== 'editor') return args
+  const respell = (path: unknown): unknown => {
+    if (typeof path !== 'string') return path
+    const trimmed = path.trim()
+    if (trimmed === '~' || trimmed.startsWith('~/'))
+      throw new RelayPathError(
+        `"${trimmed}": give the absolute Linux path; the home directory in WSL: ${where.distro} is not known on Windows.`,
+      )
+    if (!trimmed.startsWith('/') || trimmed.startsWith('//')) return path
+    return wslToWindowsPath(trimmed, {
+      distro: where.distro,
+      ...(where.driveMountRoot ? { driveMountRoot: where.driveMountRoot } : {}),
+    })
+  }
+  const location = (value: unknown): unknown =>
+    typeof value === 'object' && value !== null && !Array.isArray(value) && 'path' in value
+      ? { ...value, path: respell((value as { path: unknown }).path) }
+      : value
+  const next: Record<string, unknown> = { ...args }
+  if (Array.isArray(args.files)) next.files = args.files.map(location)
+  if (Array.isArray(args.paths)) next.paths = args.paths.map(respell)
+  if (args.focus !== undefined) next.focus = location(args.focus)
+  return next
+}
 
 /** A Studio protocol transport over an admitted stream: one frame per line, saying hello with `ticket`. */
 export function lineTransport(stream: Duplex, ticket: string): StudioTransport {
@@ -136,8 +180,16 @@ export function relayShellToolsets(input: {
   }
 
   const relayTo =
-    (distro: string, toolset: string, tool: { name: string }): ToolDefinition['handler'] =>
+    (connection: WslServerConnection, toolset: string, tool: { name: string }): ToolDefinition['handler'] =>
     async (args, call) => {
+      const distro = connection.distro
+      let windowsArgs: Record<string, unknown>
+      try {
+        windowsArgs = relayedToolArgs(toolset, args as Record<string, unknown>, connection)
+      } catch (error) {
+        if (error instanceof RelayPathError) return toolError('invalid_path', error.message)
+        throw error
+      }
       const outcome = await input.registry.call({
         caller: {
           // One gateway connection per WSL agent connection, for the Windows
@@ -148,15 +200,15 @@ export function relayShellToolsets(input: {
         },
         toolset,
         tool: tool.name,
-        args: args as Record<string, unknown>,
+        args: windowsArgs,
         signal: call.signal,
         onProgress: (progress) => call.progress(progress),
       })
       return outcome.result
     }
 
-  async function sync(distro: string): Promise<void> {
-    const entry = open.get(distro)
+  async function sync(connection: WslServerConnection): Promise<void> {
+    const entry = open.get(connection.distro)
     if (!entry) return
     const wanted = shellToolsets()
     for (const [name, offered] of entry.offered) {
@@ -179,14 +231,14 @@ export function relayShellToolsets(input: {
             inputSchema: tool.inputSchema,
             ...(tool.mutates !== undefined ? { mutates: tool.mutates } : {}),
             ...(tool.timeoutMs !== undefined ? { timeoutMs: tool.timeoutMs } : {}),
-            handler: relayTo(distro, name, tool),
+            handler: relayTo(connection, name, tool),
           })),
         })
         entry.offered.set(name, offered)
       } catch (error) {
         // A family the WSL server serves itself is refused, and stays its own.
         log(
-          `The ${name} toolset was not offered to WSL: ${distro}: ${error instanceof Error ? error.message : String(error)}`,
+          `The ${name} toolset was not offered to WSL: ${connection.distro}: ${error instanceof Error ? error.message : String(error)}`,
         )
       }
     }
@@ -211,7 +263,7 @@ export function relayShellToolsets(input: {
           client.close()
           return
         }
-        const unsubscribe = input.registry.subscribe(() => void sync(connection.distro))
+        const unsubscribe = input.registry.subscribe(() => void sync(connection))
         open.set(connection.distro, {
           client,
           offered: new Map(),
@@ -224,7 +276,7 @@ export function relayShellToolsets(input: {
         connection.backend.onClose(
           () => open.get(connection.distro)?.client === client && open.get(connection.distro)?.stop(),
         )
-        void sync(connection.distro)
+        void sync(connection)
       },
       (error: unknown) =>
         log(

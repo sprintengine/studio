@@ -454,8 +454,13 @@ Unix socket, `MessagePort`, arbitrary duplex), not a URL only (12.3).
     reach a WSL agent; `editor`, `tour`, `terminal` and `agent` stay the
     Windows gateway's own tools there, and a WSL server's agents do not get
     them until the shell offers them in process too.
-  - Tool inputs are relayed as the agent wrote them: an `editor` call naming
-    `/home/dev/repo/a.ts` reaches the Windows editor with that Linux path.
+  - Tool inputs are relayed as the agent wrote them, except the `editor`
+    tools' file paths (`files[].path`, `paths`, `focus.path`), which open on
+    Windows: an absolute Linux path is respelled with the distribution and
+    its drive mount root (`/home/dev/repo/a.ts` reaches the editor as
+    `\\wsl.localhost\Ubuntu\home\dev\repo\a.ts`, `/mnt/c/…` as `C:\…`), a
+    relative one stays relative to the workspace, and a `~` path is refused
+    with a message asking for the absolute path.
   - Hooks and agent state from a server chat are the server's own; the
     desktop's agent-state socket does not hear them (section 14).
 
