@@ -102,8 +102,12 @@ export function posixInstallFunctions(): string[] {
     '  echo "$$" > "$lk/pid"',
     '}',
     'lock_drop() { rm -rf "$base/.install.lock"; }',
-    // Whether this user owns a path (`test -O` is not POSIX; `find -user` is).
-    'owned() { [ -n "$(find "$1" -prune -user "$(id -u)" 2>/dev/null)" ]; }',
+    // Whether this user owns a directory and nobody else can write in it
+    // (`test -O` is not POSIX; `find -user` is). `$1/.` is the directory a
+    // symlink points at, not the link, which is the creator's whoever owns
+    // the target; and a directory anyone may write in lets another user swap
+    // the tree a program is run from even when this user owns it.
+    'owned() { [ -n "$(find "$1/." -prune -user "$(id -u)" ! -perm -0002 2>/dev/null)" ]; }',
     // $1: the staged tree; $2: where it goes.
     'place() {',
     '  if [ -e "$2" ]; then',

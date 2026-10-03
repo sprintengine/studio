@@ -11,7 +11,17 @@
 
 import assert from 'node:assert/strict'
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
@@ -254,6 +264,41 @@ test.skipIf(!HAS_TAR)(
     const after = await session(local('sh', home), script('p4', '0.4.0'), 'install', archive({ server: '0.4.0' }))
     assert.ok(after.stdout.includes(COMMITTED_MARKER))
     assert.ok(!existsSync(join(base, 'server-0.3.5')), 'pruned once nothing runs from it')
+  },
+)
+
+test.skipIf(!HAS_TAR)(
+  'an install directory anyone may write in, or a link to one, is refused; a link to your own is followed',
+  async () => {
+    const shared = join(temp, 'shared-install')
+    mkdirSync(shared, { recursive: true })
+    chmodSync(shared, 0o777)
+    const linked = homeFor('linked-world')
+    mkdirSync(join(linked, '.local', 'share'), { recursive: true })
+    symlinkSync(shared, join(linked, REMOTE_DATA_REL))
+    const result = await session(local('sh', linked), script('w1'), 'install', archive({ node: true, server: '0.4.0' }))
+    assert.equal(result.code, 4)
+    assert.match(commitFailure(result.stdout, result.stderr), /^base-owner /u)
+    assert.ok(!existsSync(join(shared, 'server-0.4.0')), 'nothing was installed there')
+    const open = homeFor('open-base')
+    mkdirSync(join(open, REMOTE_DATA_REL), { recursive: true })
+    chmodSync(join(open, REMOTE_DATA_REL), 0o777)
+    const refused = await session(local('sh', open), script('w2'), 'install', archive({ node: true, server: '0.4.0' }))
+    assert.match(commitFailure(refused.stdout, refused.stderr), /^base-owner /u)
+
+    const mine = join(temp, 'own-install')
+    mkdirSync(mine, { recursive: true, mode: 0o700 })
+    const followed = homeFor('linked-own')
+    mkdirSync(join(followed, '.local', 'share'), { recursive: true })
+    symlinkSync(mine, join(followed, REMOTE_DATA_REL))
+    const installed = await session(
+      local('sh', followed),
+      script('w3'),
+      'install',
+      archive({ node: true, server: '0.4.0' }),
+    )
+    assert.ok(installed.stdout.includes(COMMITTED_MARKER), installed.stdout + installed.stderr)
+    assert.ok(existsSync(join(mine, 'server-0.4.0', '.ready')))
   },
 )
 
