@@ -114,6 +114,10 @@ export type SupervisorTiming = {
   resumeGraceMs: number
   /** A quit during STARTING kills the child after this, or the budget, whichever is sooner. */
   startingStopMs: number
+  /** How long a restart lets a serving server drain (transcripts flushed, turns ended) before the kill. */
+  restartDrainMs: number
+  /** After a kill at the budget, how long to wait for the exit before calling the stop done anyway. */
+  killExitGraceMs: number
 }
 
 export const DEFAULT_SUPERVISOR_TIMING: SupervisorTiming = {
@@ -127,6 +131,8 @@ export const DEFAULT_SUPERVISOR_TIMING: SupervisorTiming = {
   failedBootsToGiveUp: 3,
   resumeGraceMs: 10_000,
   startingStopMs: 2_000,
+  restartDrainMs: 5_000,
+  killExitGraceMs: 2_000,
 }
 
 export type SupervisorDeps = {
@@ -350,6 +356,8 @@ export function createServerSupervisor(deps: SupervisorDeps): ServerSupervisor {
   }
 
   function finishShutdown(outcome: 'exited' | 'killed'): void {
+    // Once: a kill whose exit came after the grace has nothing left to finish.
+    if (state.kind === 'stopped') return
     clearTimers()
     setState({ kind: 'stopped' })
     const done = shutdownDone
@@ -444,16 +452,41 @@ export function createServerSupervisor(deps: SupervisorDeps): ServerSupervisor {
         log(`the server did not stop within ${budget} ms; killing it`)
         killedForStop = true
         current.kill()
+        // The kill is the last word: should its exit never be reported, the
+        // quit still ends rather than wait on it for ever.
+        stopTimer = setTimeout(() => {
+          stopTimer = null
+          if (shutdownDone) finishShutdown('killed')
+        }, timing.killExitGraceMs)
       }, budget)
       return shutdownPromise
     },
     restart(reason) {
       log(`restart: ${reason}`)
       if (state.kind === 'ready' || state.kind === 'starting') {
-        if (!child) return
+        if (!child || restartRequested) return
         restartRequested = true
         clearTimers()
-        child.kill()
+        const current = child
+        if (state.kind === 'starting') {
+          current.kill()
+          return
+        }
+        // A serving server may be mid-turn: it drains first, so its transcripts
+        // are flushed and the turn ends as interrupted rather than cut off, and
+        // is killed only if the drain overruns. Its exit forks the next one.
+        try {
+          current.postMessage({ t: 'shutdown', drain: true, budgetMs: Math.max(0, timing.restartDrainMs - 250) })
+        } catch {
+          current.kill()
+          return
+        }
+        stopTimer = setTimeout(() => {
+          stopTimer = null
+          if (child !== current || !childAlive) return
+          log(`the server did not stop within ${timing.restartDrainMs} ms for its restart; killing it`)
+          current.kill()
+        }, timing.restartDrainMs)
         return
       }
       if (state.kind === 'backoff' || state.kind === 'failed') supervisor.retry()

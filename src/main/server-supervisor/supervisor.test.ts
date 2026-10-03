@@ -340,17 +340,65 @@ test('a quit after giving up has nothing to stop', async () => {
   assert.equal(await supervisor.shutdown({ drain: true, budgetMs: 8_000 }), 'exited')
 })
 
-test('a restart waits for the old server to exit before forking the new one', async () => {
+test('a restart drains the serving server and forks the next once it has exited', async () => {
   const { supervisor, fake } = setup()
   supervisor.start()
   const first = fake.latest()
   ready(first)
   supervisor.restart('Diagnostics: Restart server')
-  assert.equal(first.killed, true)
+  // Asked, not killed: a turn in flight is flushed and ends as interrupted.
+  assert.equal(first.killed, false)
+  assert.deepEqual(first.sent.at(-1), { t: 'shutdown', drain: true, budgetMs: 4_750 })
+  supervisor.restart('asked twice')
+  assert.equal(first.sent.filter((frame) => frame.t === 'shutdown').length, 1)
+  await vi.advanceTimersByTimeAsync(1_000)
   assert.equal(fake.children.length, 1, 'the new one waits for the exit')
-  await vi.advanceTimersByTimeAsync(0)
+  first.exit({ code: 0 })
   assert.equal(fake.children.length, 2)
   assert.equal(supervisor.state.kind, 'starting')
+})
+
+test('a restart whose drain overruns kills the old server, then forks the next', async () => {
+  const { supervisor, fake } = setup()
+  supervisor.start()
+  const first = fake.latest()
+  ready(first)
+  supervisor.restart('Diagnostics: Restart server')
+  await vi.advanceTimersByTimeAsync(5_000)
+  assert.equal(first.killed, true)
+  assert.equal(fake.children.length, 2)
+  assert.equal(supervisor.state.kind, 'starting')
+})
+
+test('a restart while starting kills at once: there is nothing to drain', async () => {
+  const { supervisor, fake } = setup()
+  supervisor.start()
+  const first = fake.latest()
+  supervisor.restart('dev rebuild')
+  assert.equal(first.killed, true)
+  await vi.advanceTimersByTimeAsync(0)
+  assert.equal(fake.children.length, 2)
+})
+
+test('a quit whose kill is never reported still finishes after a grace', async () => {
+  const { supervisor, fake } = setup()
+  supervisor.start()
+  const child = fake.latest()
+  ready(child)
+  child.kill = () => {
+    child.killed = true
+  }
+  const stopped = supervisor.shutdown({ drain: true, budgetMs: 1_000 })
+  await vi.advanceTimersByTimeAsync(1_000)
+  assert.equal(child.killed, true)
+  await vi.advanceTimersByTimeAsync(2_000)
+  assert.equal(await stopped, 'killed')
+  assert.equal(supervisor.state.kind, 'stopped')
+  // The exit arriving late changes nothing and forks nothing.
+  child.exit({ code: null, signal: 'SIGKILL' })
+  await vi.advanceTimersByTimeAsync(60_000)
+  assert.equal(fake.children.length, 1)
+  assert.equal(supervisor.state.kind, 'stopped')
 })
 
 test('a fork that throws is a failed boot, retried with backoff', async () => {
