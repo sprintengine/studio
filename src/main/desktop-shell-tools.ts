@@ -19,7 +19,13 @@ export type DesktopShellToolset = { name: string; registrations: McpToolRegistra
 export type DesktopFocus = { focused: boolean; workspaceIds: string[]; activeWorkspaceId?: string }
 
 export type DesktopShellTools = {
-  /** Connect and offer. Resolves once every toolset is offered, or the first try failed (it keeps trying). */
+  /**
+   * Connect and offer. Resolves once every toolset is offered. A first
+   * connect that fails is tried again, with backoff, until it succeeds or the
+   * client is stopped: out of process the server may still be starting, or
+   * restarting. Once connected, the SDK reconnects and offers everything again
+   * by itself whenever the server comes back.
+   */
   start(): Promise<void>
   stop(): void
   /** The client, once connected: for tests and diagnostics. */
@@ -27,6 +33,7 @@ export type DesktopShellTools = {
 }
 
 const FOCUS_DEBOUNCE_MS = 500
+const FIRST_CONNECT_RETRY_MS = { initial: 250, max: 10_000 }
 
 export function createDesktopShellTools(options: {
   transport: StudioTransportFactory
@@ -35,6 +42,8 @@ export function createDesktopShellTools(options: {
   /** Where the person's attention is now, and a way to hear when it moves. */
   focus?: { current(): DesktopFocus; onChange(listener: () => void): () => void }
   log?: (message: string) => void
+  /** How a failed first connect is tried again (tests shorten it). */
+  retry?: { initialMs?: number; maxMs?: number }
 }): DesktopShellTools {
   let client: StudioClient | null = null
   let starting: Promise<void> | null = null
@@ -93,13 +102,33 @@ export function createDesktopShellTools(options: {
     }
   }
 
+  async function runUntilConnected(): Promise<void> {
+    let delay = options.retry?.initialMs ?? FIRST_CONNECT_RETRY_MS.initial
+    const maxDelay = options.retry?.maxMs ?? FIRST_CONNECT_RETRY_MS.max
+    let reported = false
+    while (!stopped) {
+      try {
+        await run()
+        return
+      } catch (error) {
+        // Said once: a server still starting is expected, not news each time.
+        if (!reported)
+          options.log?.(
+            `The desktop's tools client did not connect yet, and keeps trying: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        reported = true
+      }
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, delay)
+        timer.unref?.()
+      })
+      delay = Math.min(delay * 2, maxDelay)
+    }
+  }
+
   return {
     start() {
-      starting ??= run().catch((error: unknown) => {
-        options.log?.(
-          `The desktop's tools client did not connect: ${error instanceof Error ? error.message : String(error)}`,
-        )
-      })
+      starting ??= runUntilConnected()
       return starting
     },
     stop() {
