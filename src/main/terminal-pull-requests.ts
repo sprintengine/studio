@@ -9,7 +9,8 @@ import type { BranchPullRequest } from '../shared/git/pull-request'
 // features that react to agents live in the server; clients display the
 // result). The terminals are the shell's, so the server cannot see them work:
 // this tells it where each agent did (`pullRequests.noteWork` — its checkout
-// whenever git answers for it, and the files it changed since the last time),
+// whenever git answers for it, and at a turn end the files it changed since
+// the last turn end),
 // and keeps the lists the server answers for the live agents, which the
 // terminal snapshot carries to the windows as it always has.
 //
@@ -18,7 +19,7 @@ import type { BranchPullRequest } from '../shared/git/pull-request'
 //
 // A list is replaced only by an answer. While the server is away (a restart)
 // the marks stay as they were, and the files an agent changed meanwhile are
-// kept until a note carrying them is accepted.
+// kept until a turn end's note carrying them is accepted.
 
 /** What this needs of a terminal session. Structural, so it can be tested without a pty. */
 export type PullRequestTerminalSession = {
@@ -226,10 +227,13 @@ export function createTerminalPullRequests(options: {
     if (!key || !connected) return false
     const id = idOf(key)
     const checkout = checkoutOf(session)
-    const pending = pendingPaths.get(id)
+    // The files go with a turn end only: the lookups they start must come
+    // after the pull request the turn may have opened, and a move of the
+    // working directory mid-turn is before it.
+    const pending = turnEnded ? pendingPaths.get(id) : undefined
     const changedPaths = pending ? [...pending] : []
     if (!checkout && changedPaths.length === 0) return false
-    pendingPaths.delete(id)
+    if (turnEnded) pendingPaths.delete(id)
     void connected
       .request('pullRequests.noteWork', {
         conversation: key,

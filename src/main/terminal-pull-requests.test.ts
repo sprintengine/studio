@@ -43,15 +43,19 @@ const MARK: StudioPullRequest = {
 async function bridgeOver(sessions: PullRequestTerminalSession[]) {
   const noted: Array<StudioPullRequestsMethodMap['pullRequests.noteWork']['params']> = []
   const refreshed: unknown[] = []
+  let listed = 0
   const listeners = new Set<(change: PullRequestsChanged) => void>()
   let answer: StudioPullRequest[] = []
   const stub: StudioPullRequests = {
-    list: async (target) => ({
-      workspaces: {},
-      conversations: (target.conversations ?? [])
-        .filter((key) => key.agentId === 'term-1' && answer.length > 0)
-        .map((key) => ({ ...key, pullRequests: answer })),
-    }),
+    list: async (target) => {
+      listed += 1
+      return {
+        workspaces: {},
+        conversations: (target.conversations ?? [])
+          .filter((key) => key.agentId === 'term-1' && answer.length > 0)
+          .map((key) => ({ ...key, pullRequests: answer })),
+      }
+    },
     refresh: async (target) => {
       refreshed.push(target)
       return { asked: true }
@@ -84,6 +88,7 @@ async function bridgeOver(sessions: PullRequestTerminalSession[]) {
     noted,
     refreshed,
     reemitted,
+    listed: () => listed,
     setAnswer: (next: StudioPullRequest[]) => {
       answer = next
     },
@@ -120,6 +125,15 @@ test('where an agent works, and the files it changed, reach the server; a plain 
   await until(() => fixture.noted.length >= 2, 'a second note')
   assert.equal(fixture.noted[1].changedPaths, undefined)
   assert.equal(fixture.noted[1].turnEnded, false)
+  // A move mid-turn keeps the files for the turn's end, whose lookups come
+  // after the pull request the turn may open.
+  fixture.bridge.noteFileEdit(AGENT, '/Users/dev/site/index.html')
+  fixture.bridge.noteCheckoutResolved(AGENT, { fresh: false })
+  await until(() => fixture.noted.length >= 3, 'a mid-turn note')
+  assert.equal(fixture.noted[2].changedPaths, undefined)
+  fixture.bridge.noteCheckoutResolved(AGENT, { fresh: true })
+  await until(() => fixture.noted.length >= 4, 'a turn end')
+  assert.deepEqual(fixture.noted[3].changedPaths, ['/Users/dev/site/index.html'])
 })
 
 test('a change the server names is fetched onto the session, and only its snapshot is re-sent', async () => {
@@ -133,10 +147,15 @@ test('a change the server names is fetched onto the session, and only its snapsh
   assert.equal('onConversationBranch' in mark, false)
   assert.deepEqual(fixture.reemitted, [['terminal-1']])
   assert.deepEqual(fixture.bridge.listForSession(PLAIN), [])
-  // The same answer again moves nothing and re-sends nothing.
+  // The same answer again moves nothing and re-sends nothing: a later answer
+  // that does move is the only other re-send.
+  const asked = fixture.listed()
   fixture.emit({ workspaceIds: ['ws-1'], conversations: [] })
-  await new Promise((resolve) => setTimeout(resolve, 250))
-  assert.equal(fixture.reemitted.length, 1)
+  await until(() => fixture.listed() > asked, 'the same list asked for again')
+  fixture.setAnswer([{ ...MARK, state: 'merged' }])
+  fixture.emit({ workspaceIds: ['ws-1'], conversations: [] })
+  await until(() => fixture.bridge.listForSession(AGENT)[0]?.state === 'merged', 'the merge')
+  assert.deepEqual(fixture.reemitted, [['terminal-1'], ['terminal-1']])
 })
 
 test('a hover asks the server again only for an agent there is something to ask about', async () => {
