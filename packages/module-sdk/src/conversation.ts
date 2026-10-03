@@ -29,6 +29,7 @@ export type ModuleConversationEventType =
   | 'turn_failed'
   | 'subagent_status'
   | 'subagent_message'
+  | 'turn_retrying'
 
 /** One event of a conversation, as it streams and as its transcript replays it. */
 export type ModuleConversationEvent = {

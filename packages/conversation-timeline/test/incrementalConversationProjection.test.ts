@@ -366,6 +366,63 @@ test('an empty content delta ends the reasoning window in the incremental fold t
   assert.equal(assistant?.kind === 'assistant' && assistant.reasoningDurationMs, 10)
 })
 
+test('a retry notice is the working line until the turn says anything else, in both folds', () => {
+  const working = (entries: ReturnType<typeof projectConversation>['entries']) =>
+    deriveConversationTimelineRows(entries, true).find((row) => row.kind === 'working')
+  const events = [
+    event('user_message', 1, { turnId: 'a', text: 'Go' }),
+    event('turn_started', 2, { turnId: 'a' }),
+    event('turn_retrying', 3, {
+      turnId: 'a',
+      attempt: 1,
+      maxAttempts: 10,
+      retryInMs: 500,
+      error: 'authentication_failed',
+      status: 401,
+    }),
+    event('turn_retrying', 4, { turnId: 'a', attempt: 2, maxAttempts: 10, retryInMs: 1000 }),
+    event('content_delta', 5, { turnId: 'a', text: 'Hello' }),
+    event('content_delta', 6, { turnId: 'a', text: ' world' }),
+  ]
+  const labels: (string | undefined)[] = []
+  let state = createConversationProjectionState()
+  const prefix: ConversationEvent[] = []
+  for (const item of events) {
+    state = applyEvent(state, item)
+    prefix.push(item)
+    assert.deepEqual(state.projection, projectConversation(prefix))
+    const row = working(state.projection.entries)
+    labels.push(row?.kind === 'working' ? row.label : undefined)
+  }
+  assert.deepEqual(labels.slice(1), [
+    'Thinking…',
+    'Couldn’t authenticate · retrying (1 of 10)…',
+    // A later notice replaces the earlier one; no response at all is a connection failure.
+    'Couldn’t connect · retrying (2 of 10)…',
+    // The call went through: the notice is gone for good.
+    'Replying…',
+    'Replying…',
+  ])
+  const assistant = state.projection.entries.find((entry) => entry.kind === 'assistant')
+  assert.equal(assistant?.kind === 'assistant' ? assistant.retry : 'missing', undefined)
+})
+
+test('a turn that gives up after retrying shows the failure, not the retry', () => {
+  const events = [
+    event('turn_started', 1, { turnId: 'a' }),
+    event('turn_retrying', 2, { turnId: 'a', attempt: 10, maxAttempts: 10, retryInMs: 30_000, status: 529 }),
+    event('turn_failed', 3, { reason: 'provider', message: 'Overloaded' }),
+  ]
+  const projection = projectConversation(events)
+  const assistant = projection.entries.find((entry) => entry.kind === 'assistant')
+  assert.equal(assistant?.kind === 'assistant' && assistant.status, 'failed')
+  assert.equal(assistant?.kind === 'assistant' ? assistant.retry : 'missing', undefined)
+  assert.equal(
+    deriveConversationTimelineRows(projection.entries, false).some((row) => row.kind === 'working'),
+    false,
+  )
+})
+
 test('incremental deltas are substantially cheaper than full refolds', () => {
   const seed: ConversationEvent[] = [event('turn_started', 0, { turnId: 'a' })]
   for (let i = 1; i <= 5000; i++) seed.push(event('content_delta', i, { turnId: 'a', text: 'x' }))
