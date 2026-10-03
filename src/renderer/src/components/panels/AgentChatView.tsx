@@ -1865,12 +1865,16 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   // Only this machine's Claude chat signs in through its CLI; a paired
   // machine's chat would need signing in over there.
   // A chat on an SSH machine signs in there, whichever CLI it runs (phase 8).
+  // With the SSH machines preview off, such a chat has nowhere to sign in:
+  // this computer's CLI is not the one the chat runs.
   const machineId = useWorkspaceStore((state) => {
     const environment = state.workspaces.find((workspace) => workspace.id === workspaceId)?.environment
     return environment?.kind === 'ssh' ? environment.id : null
   })
+  const sshMachinesOn = window.api?.sshMachinesEnabled === true
   const signInProviderId =
     transport.kind === 'local' &&
+    (!machineId || sshMachinesOn) &&
     (machineId
       ? cliForConversationProvider(conversation?.providerId)
       : cliForConversationProvider(conversation?.providerId) === 'claude-code')

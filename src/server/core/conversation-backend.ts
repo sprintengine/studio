@@ -80,17 +80,24 @@ export function refuseMachinePaths(backend: ConversationBackend): ConversationBa
     return isMachinePath(record.workspaceRoot) || isMachinePath(record.key?.workspaceRoot)
   }
   const message = 'This chat is on an SSH machine. Turn SSH machines on (Settings › Agents › Studio server) to open it.'
+  // One wrapper per member, so a member read twice is the same function (a
+  // listener handed in and later taken out again is found).
+  const wrapped = new Map<PropertyKey, { of: unknown; fn: (...args: unknown[]) => unknown }>()
   return new Proxy(backend, {
     get(target, member, receiver) {
       const value = Reflect.get(target, member, receiver) as unknown
       if (typeof value !== 'function') return value
-      return (...args: unknown[]) => {
+      const known = wrapped.get(member)
+      if (known && known.of === value) return known.fn
+      const fn = (...args: unknown[]) => {
         if (args.length > 0 && named(args[0]))
           return member === 'recoverTranscript'
             ? Promise.reject(new Error(message))
             : Promise.resolve({ ok: false, message })
         return (value as (...input: unknown[]) => unknown).apply(target, args)
       }
+      wrapped.set(member, { of: value, fn })
+      return fn
     },
   })
 }
