@@ -162,7 +162,7 @@ export function checkLines(
     ]
   const version = plainToken(input.appVersion ?? '', 'The app version')
   return [
-    `[ -f "${stage}/server.cjs" ] && [ -f "${stage}/bridge.mjs" ] || fail "payload incomplete"`,
+    `{ [ -f "${stage}/server.cjs" ] && [ -f "${stage}/bridge.mjs" ]; } || fail "payload incomplete"`,
     // A bundle that cannot load on this machine (a glibc below Node's floor,
     // a noexec mount) fails here, with the reason, rather than on first chat.
     `out="$("${input.nodeBin ?? `$base/${NODE_RUNTIME_REL}/bin/node`}" "${stage}/server.cjs" --version 2>&1)" || fail "server-run $out"`,
