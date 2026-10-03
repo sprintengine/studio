@@ -249,7 +249,7 @@ Each change is a recommendation. Section 14 lists them as decisions.
 | D4 | 9.3 secrets | Desktop: data key handed over in the envelope, `*.bin` re-sealed during phase 6 | Desktop: **the shell is the cipher** (`seal`/`open` over the control channel), and the files stay byte-identical. Data keys apply only to headless servers. Phase 6 does no re-seal migration. |
 | D5 | 8.1 render host, source 1 | The server launches the app's Electron binary as a headless render host | **Superseded (2026-10-02).** The parent's render host is gone. What D5 asked for on the desktop (the shell's canvas worker and pane) is now the only path on every server, as the shell's `browser` and `canvas` toolsets (phase 5), and no server runs a Chromium. |
 | D6 | 10.1 lifetime | The server exits when its parent exits and no other client is attached | The local server exits with the app, always (owner default). A server never "attaches to an existing one" on the desktop: the app's own lock already rules out a second shell per profile. |
-| D7 | 7.2 split | The full list of server-owned files | Phase 6 moves a **subset** (section 5). Git changelists, pull requests, tours, skills and marketplace, memory, design and the file-explorer data stay with the shell until phase 10. |
+| D7 | 7.2 split | The full list of server-owned files | Phase 6 moves a **subset** (section 5). Git changelists, pull requests (moved since: 5.2), tours, skills and marketplace, memory, design and the file-explorer data stay with the shell until phase 10. |
 | D8 | 6.2 gateway | The audit and socket move unchanged | They move unchanged, plus a server run lock before any unlink, plus an MCP bridge that reconnects (section 6.5). |
 | D9 | 4.2 interfaces | `StudioPaths` and others | Add `appExecPath` and `helperExecPath` to `StudioPaths`. A guard test forbids `process.execPath` under `src/server/`. Add a `ShellBridge` interface for what is not an agent tool: cipher, the terminal runtime behind two internal service tokens, revealing a tab, power and visibility hints, analytics sink, integrations-ready gate. Agent-facing shell tools are toolsets (6.3). |
 | D10 | 4.3 third-party modules | Open question: capability or API bump | Use an `electron-main` host capability, an optional manifest field, and a load-time `require('electron')` interceptor. The host API version is not bumped (section 12.4). |
@@ -281,7 +281,7 @@ transport-agnostic after phase 3. Only `src/server/bootstrap/` differs.
 ```
 ┌──────────────────────── Electron main = the shell ────────────────────────┐
 │ windows · menus · tray · dialogs · OS notifications · update · account    │
-│ terminals (node-pty) · agent-state.sock · terminal snapshots · PR capture  │
+│ terminals (node-pty) · agent-state.sock · terminal snapshots               │
 │ browser pane · canvas service + worker · integrations (launcher, hooks)    │
 │ git panel · file explorer · skills/marketplace · tours UI · design · memory│
 │                                                                            │
@@ -338,8 +338,8 @@ at boot by the flag.** The other process reaches it over the protocol.
 
 | Owner with the flag on | Files and services |
 | --- | --- |
-| **Server** | `automation.sock`, `sprintengine-studio-mcp-info.json`, `automation-server-info.json`, `automation-settings.json`, `sprintengine-studio-mcp-audit.jsonl`; `tailnet-remote-settings.json`, `tailnet-remote-devices.json`, `tailnet-mesh-connections.json`; `provider-secrets/`, `github-token.bin`, `module-secrets/`; `module-storage/`, `module-enablement.json`, `trusted-modules.json`; scheduled agents; `conversation-attachments/`, conversation plans, approval rules, `conversation-commands-cache.json`; `sprintengine-launch-settings.json`, the CLI runtime and host settings; `workspace-registry.json`, `workspace-backup.json`; `model-discovery-cache.json`, `model-feed-cache.json`, `cli-update-notices.json`; canvas board files (written only through `files.write`, phase 5); checkpoints and their sweep; title generation; companion agents; mobile control; backlog service |
-| **Shell** | Chromium's own files, the pane's partitions included; the canvas service, its worker window and its pending writes (it keeps boards through the server's `files.*`); `window-material.json`, background mode, update channel and install note, color scheme; account refresh tokens; `terminal-snapshots/`, `terminal-startup/`, `agent-state.sock`, `agent-prompts/`, `agent-launch-settings.json` (terminal launches); `integration-ledger.json`, `agent-integration/`, `tool-bin/`, the `~/.sprintengine/bin` launcher and pointer, `~/.sprintengine/instances`; `git-changelists/`, `pull-requests/`; skills, plugins and marketplace caches and installs; tours; memory graph; design system; hosted card and source feeds; telemetry consent and install id; `module-asset-origin-secret` and the `studio-module://` handler |
+| **Server** | `automation.sock`, `sprintengine-studio-mcp-info.json`, `automation-server-info.json`, `automation-settings.json`, `sprintengine-studio-mcp-audit.jsonl`; `tailnet-remote-settings.json`, `tailnet-remote-devices.json`, `tailnet-mesh-connections.json`; `provider-secrets/`, `github-token.bin`, `module-secrets/`; `module-storage/`, `module-enablement.json`, `trusted-modules.json`; scheduled agents; `conversation-attachments/`, conversation plans, approval rules, `conversation-commands-cache.json`; `sprintengine-launch-settings.json`, the CLI runtime and host settings; `workspace-registry.json`, `workspace-backup.json`; `model-discovery-cache.json`, `model-feed-cache.json`, `cli-update-notices.json`; canvas board files (written only through `files.write`, phase 5); checkpoints and their sweep; title generation; companion agents; mobile control; backlog service; `pull-requests/` (the pull request record, a server domain since 2026-10-03, 5.2) |
+| **Shell** | Chromium's own files, the pane's partitions included; the canvas service, its worker window and its pending writes (it keeps boards through the server's `files.*`); `window-material.json`, background mode, update channel and install note, color scheme; account refresh tokens; `terminal-snapshots/`, `terminal-startup/`, `agent-state.sock`, `agent-prompts/`, `agent-launch-settings.json` (terminal launches); `integration-ledger.json`, `agent-integration/`, `tool-bin/`, the `~/.sprintengine/bin` launcher and pointer, `~/.sprintengine/instances`; `git-changelists/`; skills, plugins and marketplace caches and installs; tours; memory graph; design system; hosted card and source feeds; telemetry consent and install id; `module-asset-origin-secret` and the `studio-module://` handler |
 | **Read by both, written by one** | `trusted-modules.json` and `module-enablement.json` (written by the server; read per request by the shell's asset handler); the launcher pointer (written by the shell; read by the server to build MCP entries); `host-context/` |
 
 Notes:
@@ -395,6 +395,22 @@ Notes:
   host fails with "the WSL helper is not available in this process", as do
   the server's git and model discovery for that machine (and no second
   helper is ever started). WSL servers (phase 7) bring it back.
+
+### 5.2 The pull request record moves to the server (2026-10-03)
+
+Owner rulings 2026-10-03: what reacts to chats lives in the server, and a
+pull request mark comes only from a branch lookup. The record is composed by
+the core (`createStudioCore`, `src/server/pull-requests/`), so the in-process
+and out-of-process modes build the same one, and the shell builds none. It is
+a server domain with no tunnelled channel: clients read it through the Studio
+protocol's `pullRequests.*` (design section 6.8). The shell keeps its
+terminals, so it tells the server where each terminal agent works
+(`pullRequests.noteWork`) over a Studio client of its own, the same in both
+modes, and puts the lists the server answers on the terminal snapshot. The one
+shell channel left is `pullRequest:refreshForSession`, a hover on a terminal
+line, which the shell forwards as `pullRequests.refresh`. At quit the server
+settles the record in its own legs (`pull requests`, after the chats); in
+process the shell's `pull requests` legs do it.
 
 ## 6. Interfaces
 
@@ -1083,7 +1099,8 @@ decision O4 and is not part of phase 6.
 | backlog | static (`registerBacklogIpc`, 17 handlers) | none | backlog service, `backlog.*` tools, mobile control | panel | 6 (the gateway needs it) |
 | git | static (`registerGitIpc` 55 handlers, repo watch) | save dialog in `git-ipc.ts`, focus checks in repo watch | phase 6: git for chat only. Phase 10: read models, changelists, repo watch, panel data | panel; dialogs | 10 |
 | design system | static; `utilityProcess.fork` for bundle scripts | `utilityProcess`, `templates-path.ts` | phase 10: a `ScriptRunner` with a Node implementation (`child_process.fork` on the server's Node; `helperExecPath` runs as Node, E6) | panel | 10 |
-| memory, tours, pull requests, skills, marketplace | static | windows (tours), dialogs | phase 10, domain by domain | panels | 10 |
+| memory, tours, skills, marketplace | static | windows (tours), dialogs | phase 10, domain by domain | panels | 10 |
+| pull requests | the core (`src/server/pull-requests/`), since 2026-10-03 | none | the record, its lookups and `pullRequests.*` | the sidebar marks, peek and tooltips; the shell's terminal notes | 6 (5.2) |
 | review | no main-side code in this tree | — | — | — | — |
 
 ### 12.2 `MainHost` inside the server (phase 6)
