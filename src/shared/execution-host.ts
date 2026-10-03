@@ -50,8 +50,6 @@ export type ExecutionHostSummary = {
 export type WslChatServerSummary = {
   /** Chats run on a Studio server inside the distribution. */
   on: boolean
-  /** The person cannot turn it off here (the desktop's server runs out of process). */
-  forced?: boolean
   state: 'stopped' | 'starting' | 'ready' | 'unavailable' | 'shut-down'
   /** How Windows reaches it while it is ready: over loopback, or through the stdio bridge. */
   transport?: 'loopback' | 'stdio'
@@ -78,8 +76,7 @@ export type ExecutionHostSettings = {
    * WSL: where this distribution's chats run. `on`: a Studio server inside
    * the distribution (phase 7); `off`: one process per chat, started from
    * Windows, as before. Absent is the release default
-   * (`DEFAULT_WSL_CHAT_SERVER`), except that a desktop whose server runs out
-   * of process has no per-process path for WSL and always uses the server.
+   * (`DEFAULT_WSL_CHAT_SERVER`), in process and out of process alike.
    */
   chatServer?: 'on' | 'off'
   /** WSL: how Windows reaches that server. `auto` tries loopback first; `stdio` always uses the bridge. */

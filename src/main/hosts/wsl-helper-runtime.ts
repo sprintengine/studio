@@ -214,6 +214,11 @@ async function installInto(distro: string, report: NeedReport, env: WslHelperEnv
   }
 }
 
+/** What a WSL machine's chat, git or model list says where the WSL helper is not configured. */
+const WSL_HELPER_UNAVAILABLE =
+  "Couldn't set up WSL: the WSL helper does not run while Studio server is in its own process. " +
+  'Turn off "Run Studio server in its own process" in Settings to use this machine.'
+
 /**
  * The helper client for one distribution, wired to the running app. Throws a
  * `WslSetupError` from `start` when the app never configured helpers (tests,
@@ -222,7 +227,10 @@ async function installInto(distro: string, report: NeedReport, env: WslHelperEnv
 export function createDefaultWslHelperClient(distro: string): WslHelperClient {
   const env = () => {
     if (!environment) {
-      throw new WslSetupError("Couldn't set up WSL: the WSL helper is not available in this process.", {
+      // In the desktop's server out of process (the helper is the shell's),
+      // or in tests. Out of process a WSL chat runs only where the person
+      // turned on its distribution's Studio server.
+      throw new WslSetupError(WSL_HELPER_UNAVAILABLE, {
         fatal: true,
         code: 'start',
       })

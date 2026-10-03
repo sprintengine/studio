@@ -151,9 +151,11 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
       // terminal agents it is read for are the shell's.
       listTerminalSessions: () => terminalSessions,
       // A WSL distribution's chats run on a Studio server inside it (phase
-      // 7). Out of process there is no per-process path for them: the WSL
-      // helper is the shell's and none is configured here, so the server is
-      // always used, whatever the per-distribution switch says.
+      // 7) when the person turned that on for it, as in process. With the
+      // switch off they take the per-process path, which out of process
+      // fails in words (the WSL helper is the shell's): the server is not
+      // started for anyone who did not ask for it while its migration, model
+      // discovery and command catalog are unbuilt (spec section 14).
       wslServers: ({ readHostSettings }) =>
         createDesktopWslServers({
           readHostSettings,
@@ -163,7 +165,6 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
           resourcesDir: envelope.paths.resourcesDir,
           appRoot: envelope.paths.appPath,
           isDefaultProfile: envelope.paths.isPackaged && !readStudioEnv('SPRINTENGINE_USER_DATA_DIR')?.trim(),
-          alwaysOn: true,
           log: (message) => {
             void writeDiagnosticLog({ level: 'info', source: 'workspace', title: 'WSL server', message })
           },
@@ -171,7 +172,7 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
       // A Claude chat's child is handed the gateway itself, through the
       // launcher the shell writes (decision R63), or this build's binary run
       // as Node when the launcher could not be written. A chat on a WSL
-      // machine runs on that distribution's server, with its own gateway.
+      // machine with its server on runs there, with that server's gateway.
       resolveStudioMcpServer: async ({ hostId }) => {
         if (isWslHostId(hostId ?? null)) return null
         await whenAgentLaunchReady()

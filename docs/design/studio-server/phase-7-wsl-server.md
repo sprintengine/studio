@@ -765,7 +765,8 @@ nothing else changes for such a chat (R73). Settings › Machines shows, in each
 distribution's detail, where its chats run (one process per chat, or a
 Studio server in the distribution, marked preview), the server's state in
 words, and how Windows reaches it (loopback else the bridge, or always the
-bridge). With the desktop's server out of process the first is fixed on.
+bridge). Out of process the shell's machine list has no view of the
+server's WSL servers, so these rows are not shown there (section 14).
 
 The sidecar of a `C:\` workspace stays at `C:\…\.sprintengine\`. From now on
 the WSL server writes it over `/mnt/c`. The writes are appends and
@@ -792,13 +793,15 @@ rename-into-place, both of which the drive mount supports **(unverified:
 
 As built (2026-10-03): `ExecutionHostSettings` gains `chatServer?: 'on' |
 'off'` and `serverTransport?: 'auto' | 'stdio'`; the release default is
-`DEFAULT_WSL_CHAT_SERVER = 'off'`. **Out of process the server is always
-used:** the desktop's server process has no WSL helper (the helper is the
-shell's, and a second one per distribution would contend for its sockets), so
-there is no per-process path there, and phase 6 left WSL chats unable to
-start out of process. With the out-of-process flag on, a WSL 2 distribution's
-chats run on its server whatever the switch says; with the flag off, the
-switch decides and the per-process path stays the fallback. The flip
+`DEFAULT_WSL_CHAT_SERVER = 'off'`. **The switch decides in process and out
+of process alike.** The desktop's server process has no WSL helper (the
+helper is the shell's, and a second one per distribution would contend for
+its sockets), so out of process a distribution with its switch off fails in
+words, as phase 6 left it, and one with its switch on runs on its server.
+Making the server the only path out of process was considered and rejected
+at review (2026-10-03): it would install and start a server, with its
+loopback listener, for a person who never asked for one, while migration,
+model discovery and the `/` command catalog for WSL are still unbuilt. The flip
 (suspend, migrate, then switch) is not built: the switch takes effect for the
 next chat started, a chat still live on the old side stays there until it
 stops, and 7.3's migration is not done (section 14).
@@ -1075,8 +1078,8 @@ the results recorded in the release notes for release N:
 
 ## 14. Implementation status (2026-10-03)
 
-Built, behind the per-distribution switch (default off), and always on for
-WSL 2 distributions when the desktop's server runs out of process:
+Built, behind the per-distribution switch (default off), in process and out
+of process alike:
 
 - The 7.4 guards at the runtime's door, and the learned drive mount root.
 - The front door: mutual proof, the loopback door behind its bind guard, the
@@ -1129,6 +1132,10 @@ Not built yet:
   agent-state socket.
 - In process, only `browser` and `canvas` are relayed to a WSL server's
   agents (3.7).
+- **Settings › Machines out of process.** The shell serves the machine list
+  from its own host registry, which cannot see the server's WSL servers, so
+  the switch and the server's state are not shown while the desktop's server
+  runs out of process. A switch turned on in process stays on there.
 - The self-hosted WSL 2 runner (R72).
 
 ## 13. Commit breakdown

@@ -130,7 +130,6 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
       const status = servers.manager.status(distro)
       return {
         on: servers.chatServerOn(distro),
-        ...(servers.alwaysOn ? { forced: true } : {}),
         state: status.state,
         ...(status.transport ? { transport: status.transport } : {}),
         ...((status.reason ?? status.transportReason) ? { reason: status.reason ?? status.transportReason } : {}),

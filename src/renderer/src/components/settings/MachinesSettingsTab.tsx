@@ -304,17 +304,13 @@ function ChatServerRows({
     <>
       <SettingsRow
         label="Chats run in"
-        help={
-          server.forced
-            ? 'With the app’s server in a process of its own, chats in WSL always run on a Studio server inside the distribution.'
-            : 'A server inside the distribution runs its agents, git and files natively. A chat already running stays where it started.'
-        }
+        help="A server inside the distribution runs its agents, git and files natively. A chat already running stays where it started."
       >
         <Select
           ariaLabel={`Where chats in ${host.label} run`}
           items={CHAT_SERVER_ITEMS}
           value={server.on ? 'on' : 'off'}
-          disabled={server.forced === true || host.wslVersion === 1}
+          disabled={host.wslVersion === 1}
           onChange={(value) => onChange({ chatServer: value })}
         />
       </SettingsRow>

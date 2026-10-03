@@ -26,10 +26,8 @@ import {
 
 export type WslServers = {
   manager: WslEnvironmentManager
-  /** Whether a distribution's chats run on its server now. */
+  /** Whether a distribution's chats run on its server now: the person's switch, off by default. */
   chatServerOn(distro: string): boolean
-  /** Whether that is the person's choice, or always so here (out of process). */
-  readonly alwaysOn: boolean
   /** Who hears a new connection (the router, to follow its events). */
   onConnected(listener: (connection: WslServerConnection) => void): void
   /** Who hears a status change (Settings › Machines). */
@@ -46,12 +44,6 @@ export type DesktopWslServersOptions = {
   appRoot: string | null
   /** The installed app's own profile, whose data goes in `data/`; any other profile gets `data-<id>/`. */
   isDefaultProfile: boolean
-  /**
-   * The desktop's server runs out of process, where there is no per-process
-   * path for WSL chats (the helper is the shell's): every distribution's chats
-   * run on its server whatever the switch says.
-   */
-  alwaysOn?: boolean
   fetch?: (url: string, init?: { signal?: AbortSignal }) => Promise<Response>
   log?: (message: string) => void
 }
@@ -108,9 +100,7 @@ export function createDesktopWslServers(options: DesktopWslServersOptions): WslS
   })
   return {
     manager,
-    alwaysOn: options.alwaysOn === true,
-    chatServerOn: (distro) =>
-      options.alwaysOn === true || (settingsOf(distro)?.chatServer ?? DEFAULT_WSL_CHAT_SERVER) === 'on',
+    chatServerOn: (distro) => (settingsOf(distro)?.chatServer ?? DEFAULT_WSL_CHAT_SERVER) === 'on',
     onConnected: (listener) => void connectedListeners.push(listener),
     onStatus: (listener) => void statusListeners.push(listener),
   }
