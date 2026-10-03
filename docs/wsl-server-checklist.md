@@ -30,14 +30,19 @@ Commands marked **PowerShell** run in a Windows terminal. Commands marked
    version.
 3. **PowerShell:** `wsl --install -d Debian`, for the isolation checks.
 4. Install the build under test with its installer, not a dev build.
-   **Expect:** `%LOCALAPPDATA%\Programs\SprintEngine Studio\resources\wsl-server\server.cjs`
+   **Expect:** `%LOCALAPPDATA%\Programs\sprintengine-studio\resources\wsl-server\server.cjs`
    and `build.json` exist.
    - To use a dev build instead, run `npm run build:server:wsl` first. If you
      skip it, a chat on the server fails with "this build shipped without the
      Studio server for WSL".
 5. Know where the logs are.
-   - Windows: `%APPDATA%\SprintEngine Studio\logs\`. Search for `WSL server`.
-   - **distro:** `~/.local/state/sprintengine-studio/logs/`.
+   - Windows: `%APPDATA%\sprintengine-studio\logs\diagnostics-YYYY-MM-DD.jsonl`.
+     Search for `WSL server`.
+   - **distro:** the server's own log,
+     `~/.local/state/sprintengine-studio/logs/data/server-YYYY-MM-DD.log`
+     (`data-<id>/` for a nightly or a pinned profile, as for its data). A day's
+     file stops at 10 MB and the next part begins (`server-YYYY-MM-DD.1.log`);
+     fourteen days are kept.
    - **distro:** the server's data is in
      `~/.local/share/sprintengine-studio/data/` (`data-<id>/` for a nightly
      or a pinned profile).

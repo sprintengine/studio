@@ -1,6 +1,7 @@
 import { createInterface } from 'node:readline'
 import type { Readable, Writable } from 'node:stream'
 
+import type { ServerLog } from '../../main/server-supervisor/server-log'
 import { createMessageHub, type ServerControlChannel } from './control-channel'
 
 // The control channel of a server started by a parent that holds its stdio: a
@@ -54,4 +55,24 @@ export function stdioChannel(input: Readable, output: Writable): ServerControlCh
       }
     },
   }
+}
+
+/**
+ * Everything this server says to a person, kept in `log` as well as said on
+ * stderr. A server whose parent holds its stdio (a WSL distribution's, whose
+ * starter keeps only a tail to say why a start failed) would otherwise leave
+ * no record of a refused connection or a chat's failure anywhere. Its stdout
+ * is frames only, so stderr is all of it, and goes in as plain lines.
+ */
+export function keepStderrIn(log: Pick<ServerLog, 'write'>, stderr: Writable = process.stderr): void {
+  const write = stderr.write.bind(stderr) as (...args: unknown[]) => boolean
+  stderr.write = ((chunk: unknown, ...rest: unknown[]) => {
+    try {
+      if (typeof chunk === 'string') log.write('out', chunk)
+      else if (chunk instanceof Uint8Array) log.write('out', Buffer.from(chunk))
+    } catch {
+      // A log that cannot be written never costs the line on stderr.
+    }
+    return write(chunk, ...rest)
+  }) as Writable['write']
 }
