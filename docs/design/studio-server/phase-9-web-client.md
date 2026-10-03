@@ -1451,3 +1451,24 @@ swapped (the palette keeps `Primary+K`), and the next and previous workspace
 chords become `Alt+Shift+]` and `Alt+Shift+[`. The installed-app (PWA) case
 keeps the same swaps, since the browser's own window still takes
 `Primary+W`.
+
+### 14.7 The web client's `canvas` (2026-10-03)
+
+- **As 3.8, with these as built.** An owner's tab, once the app has loaded,
+  opens a Studio connection of its own (`kind: 'web'`) and offers `canvas`
+  with the desktop's tool definitions, answered by the portable canvas
+  service running in the page over the server's `files.*` (boards followed
+  with `files.watch`). The worker is the bundle's `canvas-worker.html` in a
+  hidden same-origin frame, spoken to over `postMessage` (each end accepts
+  only the other's window on its own origin); the listener serves that page
+  with `frame-ancestors 'self'` and `X-Frame-Options: SAMEORIGIN`, every other
+  page keeping `'none'`. The service's two Node imports are swapped at build
+  time for browser stand-ins (a synchronous SHA-256, since Web Crypto's digest
+  is asynchronous, and POSIX paths); the board filesystem no longer uses
+  `Buffer`. The toolset is withdrawn on `pagehide` and offered again on a
+  restored `pageshow`, and `tools.focus` follows the tab's visibility.
+- **Not built:** the Canvas pane in a tab (its `canvas:*` pane channels are
+  the shell's and are refused), so `canvas.open` cannot reveal a board and
+  says so; export to a local folder; the canvas module's enable switch, read
+  as on; the canvas suite run through the web toolset, and the hidden-tab
+  test.

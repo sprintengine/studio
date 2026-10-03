@@ -51,6 +51,15 @@ function enoent(path: string, message = 'no such file or directory'): NodeJS.Err
 // Text up to this goes in the write itself; above it, its bytes are uploaded first.
 const INLINE_TEXT_BYTES = 768 * 1024
 
+// No `Buffer`: the same filesystem runs in a web tab (phase 9 spec, 3.8),
+// where only the browser's own encoders exist.
+function base64(bytes: Uint8Array): string {
+  let binary = ''
+  for (let index = 0; index < bytes.length; index += 0x8000)
+    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
+  return btoa(binary)
+}
+
 function newCommandId(): string {
   return `canvas-${globalThis.crypto.randomUUID()}`
 }
@@ -120,7 +129,7 @@ export function createProtocolCanvasFs(
         await client.request('uploads.append', {
           uploadId: begun.uploadId,
           offset,
-          dataBase64: Buffer.from(piece).toString('base64'),
+          dataBase64: base64(piece),
         })
       }
     } catch (error) {
@@ -137,7 +146,7 @@ export function createProtocolCanvasFs(
 
   async function write(path: string, text: string, ifMatch: string | null) {
     const { root, path: relative } = locate(path)
-    const uploadId = Buffer.byteLength(text, 'utf8') <= INLINE_TEXT_BYTES ? null : await upload(text)
+    const uploadId = new TextEncoder().encode(text).length <= INLINE_TEXT_BYTES ? null : await upload(text)
     const body = uploadId === null ? { text } : { uploadId }
     try {
       return await ask(path, () =>

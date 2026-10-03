@@ -19,3 +19,15 @@ for (const type of ['dragover', 'drop'] as const) {
     if (!event.defaultPrevented) event.preventDefault()
   })
 }
+
+// Once the app has loaded, an owner's tab offers Studio's agents the canvas,
+// drawn by the same editor the desktop uses (phase 9 spec, 3.8).
+// Loaded then, not with this module: the editor and the canvas service are no
+// part of what the tab needs before it first paints.
+window.addEventListener(
+  'load',
+  () => {
+    void import('./canvas/startWebCanvas').then((module) => module.startWebCanvas())
+  },
+  { once: true },
+)

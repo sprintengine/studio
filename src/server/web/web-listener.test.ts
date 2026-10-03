@@ -28,6 +28,7 @@ beforeEach(async () => {
   mkdirSync(join(web, 'assets'), { recursive: true })
   writeFileSync(join(web, 'index.html'), '<!doctype html><title>app</title>')
   writeFileSync(join(web, 'pair.html'), '<!doctype html><title>pair</title>')
+  writeFileSync(join(web, 'canvas-worker.html'), '<!doctype html><title>worker</title>')
   const script = 'console.log("app")'.repeat(100)
   writeFileSync(join(web, 'assets', 'app-abc123.js'), script)
   writeFileSync(join(web, 'assets', 'app-abc123.js.br'), brotliCompressSync(script))
@@ -267,4 +268,12 @@ test('no GET changes anything: logging out takes a POST', async () => {
   const { cookie } = await pair()
   expect((await ask('/api/logout', { headers: { Cookie: cookie } })).status).toBe(404)
   expect((await ask('/api/session', { headers: { Cookie: cookie } })).status).toBe(200)
+})
+
+test('the canvas worker page may be framed by the app itself, and by nothing else', async () => {
+  const answer = await ask('/canvas-worker.html')
+  expect(answer.status).toBe(200)
+  expect(String(answer.headers['content-security-policy'])).toContain("frame-ancestors 'self'")
+  expect(answer.headers['x-frame-options']).toBe('SAMEORIGIN')
+  expect(String((await ask('/pair')).headers['content-security-policy'])).toContain("frame-ancestors 'none'")
 })

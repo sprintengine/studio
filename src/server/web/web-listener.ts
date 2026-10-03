@@ -148,8 +148,8 @@ export function createWebListener(options: WebListenerOptions): WebListener {
     return options.sessions.authenticate(cookieValues(request, options.sessions.cookieName))
   }
 
-  function headersForPage(origin: string): Record<string, string> {
-    return pageHeaders({ origin, blobScripts: options.thirdPartyModules?.() === true })
+  function headersForPage(origin: string, frameAncestors?: readonly string[]): Record<string, string> {
+    return pageHeaders({ origin, blobScripts: options.thirdPartyModules?.() === true, frameAncestors })
   }
 
   function sendPage(response: ServerResponse, html: string, origin: string): void {
@@ -307,7 +307,13 @@ export function createWebListener(options: WebListenerOptions): WebListener {
         response,
         file,
         url.pathname,
-        file.endsWith('.html') ? headersForPage(origin) : { 'Cross-Origin-Resource-Policy': 'same-origin' },
+        url.pathname === '/canvas-worker.html'
+          ? // The canvas worker runs in a hidden frame of the app's own page
+            // (phase 9 spec, 3.8): framed by this origin, and by nothing else.
+            { ...headersForPage(origin, ["'self'"]), 'X-Frame-Options': 'SAMEORIGIN' }
+          : file.endsWith('.html')
+            ? headersForPage(origin)
+            : { 'Cross-Origin-Resource-Policy': 'same-origin' },
       )
       return
     }

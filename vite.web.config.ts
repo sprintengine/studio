@@ -16,6 +16,9 @@ import { rendererViteConfig } from './renderer.vite.config'
 // - the two modules that are Electron's swapped for a browser's: `electron`
 //   itself (the preload's api modules import `webUtils` from it), and the
 //   preload's IPC router, which becomes the tab's router over its socket;
+// - the two Node modules the portable canvas service imports, `node:crypto`
+//   and `node:path`, swapped for browser stand-ins, for the canvas toolset a
+//   tab runs in the page (src/renderer/src/web/canvas/);
 // - the app page's `window.api`, installed by a module script of its own ahead
 //   of the app's: module scripts run in document order, each graph whole, so
 //   the tab's `window.api` is in place where a desktop window's preload puts
@@ -28,6 +31,11 @@ const ROOT = resolve('.')
 const PRELOAD_DIR = resolve('src/preload')
 const WEB_DIR = resolve('src/renderer/src/web')
 const OUT_DIR = resolve('out/web')
+const SRC_DIR = resolve('src')
+const NODE_STAND_INS: Readonly<Record<string, string>> = {
+  'node:crypto': join(WEB_DIR, 'canvas', 'nodeCryptoShim.ts'),
+  'node:path': join(WEB_DIR, 'canvas', 'nodePathShim.ts'),
+}
 
 /** Electron's modules, as a browser tab has them. */
 function browserShellModules(): Plugin {
@@ -36,6 +44,8 @@ function browserShellModules(): Plugin {
     enforce: 'pre',
     resolveId(source, importer) {
       if (source === 'electron') return join(WEB_DIR, 'electronShim.ts')
+      // The app's own modules only: a dependency that imports a Node module is not ours to stand in for.
+      if (NODE_STAND_INS[source] && importer?.startsWith(SRC_DIR)) return NODE_STAND_INS[source]
       if (source === '../ipc-router' && importer && dirname(importer).startsWith(PRELOAD_DIR)) {
         return join(WEB_DIR, 'webIpcRouter.ts')
       }
