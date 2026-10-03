@@ -99,3 +99,10 @@ test('an origin is normalized as a browser sends it, and anything else is not on
   expect(normalizeOrigin('file:///Users/dev')).toBeNull()
   expect(normalizeOrigin('https://user:secret@studio.example.ts.net')).toBeNull()
 })
+
+test('an origin whose host is not a host name is refused: it is written into a policy and a page', () => {
+  for (const value of ['https://*', 'https://*.example.com', 'https://a;x', 'https://a"b.com', "https://a'b.com"])
+    expect(normalizeOrigin(value)).toBeNull()
+  expect(normalizeOrigin('http://[::1]:4791')).toBe('http://[::1]:4791')
+  expect(normalizeOrigin('https://Docs.Example.com')).toBe('https://docs.example.com')
+})

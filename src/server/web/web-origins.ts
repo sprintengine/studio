@@ -44,6 +44,12 @@ export function normalizeOrigin(value: string): string | null {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return null
   if (url.username || url.password) return null
   if ((url.pathname !== '/' && url.pathname !== '') || url.search || url.hash) return null
+  // A host is labels of letters, digits and hyphens, or a bracketed IPv6
+  // address. The URL parser lets `*`, `;`, `"` and more through, and an
+  // origin is written into a policy (`frame-ancestors`, `connect-src`) and a
+  // page: `https://*` there would let every site frame an embed, and `;`
+  // would start a directive of its own.
+  if (!/^(?:[a-z0-9-]+\.)*[a-z0-9-]+$|^\[[0-9a-f:.]+\]$/u.test(url.hostname)) return null
   return url.origin
 }
 
