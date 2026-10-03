@@ -228,7 +228,15 @@ export function createIpcRouter(options: IpcRouterOptions): RendererIpc & {
       return router
     },
     attachPort(next: RouterPort) {
-      if (port && port !== next) port.close()
+      if (port && port !== next) {
+        // A new port before the old one said it closed (main brokers again
+        // while the old port's close is still on its way): what was in flight
+        // on the old one is settled now, as for a close, since its close
+        // event will find another port in place and do nothing.
+        const previous = port
+        onPortClosed(previous)
+        previous.close()
+      }
       port = next
       next.addEventListener('message', (event) => onPortMessage(event.data))
       next.addEventListener('close', () => onPortClosed(next))

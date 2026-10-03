@@ -196,6 +196,26 @@ test('a restart fails what was in flight, except the reads marked to retry, whic
   assert.equal(await read, 'read again')
 })
 
+test('a port that arrives before the old one says it closed settles what was in flight on the old one', async () => {
+  const router = createIpcRouter({ ipcRenderer: fakeRenderer(), mode: 'out-of-process', table: TABLE })
+  const first = fakePort()
+  router.attachPort(first as unknown as RouterPort)
+  const read = router.invoke('launch-settings:get')
+  const write = router.invoke('launch-settings:update', { x: 1 })
+  const second = fakePort()
+  router.attachPort(second as unknown as RouterPort)
+  assert.equal(first.closed, true)
+  // The old port's close, late: nothing left for it to settle.
+  first.hangUp()
+  await assert.rejects(write, (error: unknown) => error instanceof ServerUnavailable && error.restarting)
+  assert.deepEqual(
+    second.posted.map((frame) => frame.channel),
+    ['launch-settings:get'],
+  )
+  second.deliver({ t: 'ipc.result', id: second.posted[0].id, ok: true, value: 'read again' })
+  assert.equal(await read, 'read again')
+})
+
 test('a read retried once is not retried twice', async () => {
   const router = createIpcRouter({ ipcRenderer: fakeRenderer(), mode: 'out-of-process', table: TABLE })
   const first = fakePort()
