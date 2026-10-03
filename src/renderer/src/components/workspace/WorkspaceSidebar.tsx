@@ -26,7 +26,6 @@ import {
 } from './useConversationPullRequests'
 import { peekStatusOf, rowConversationPeekIdentities } from './conversationPeekRow'
 import { changelistOwnerId } from '../../../../shared/git/changelists'
-import type { BranchPullRequest } from '../../../../shared/git/pull-request'
 import { folderIdentityKey, useFolderRepositoryIdentities } from './useFolderRepositoryIdentities'
 import { FolderIdentityIcon } from './FolderIdentityIcon'
 import { getRendererHost, selectModuleEnabled } from '../../modules'

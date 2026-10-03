@@ -3,6 +3,10 @@ import assert from 'node:assert/strict'
 import { JSDOM } from 'jsdom'
 import { test } from 'vitest'
 
+import type { StudioPullRequest } from '../../../../../packages/studio-protocol/src/public'
+import type { PullRequestsChanged, StudioPullRequests } from '../../../../server/pull-requests/pull-request-domain'
+import { installStudioLoopback } from '../../../../../tests/studio-chat-loopback'
+
 test('WorkspaceSidebar.allChats', async () => {
   // The flat stream (all-chats-view, 2026-09-07). "All chats" drops the folder
   // headers and lists every chat in one list, most recently active first with an
@@ -49,7 +53,6 @@ test('WorkspaceSidebar.allChats', async () => {
   dom.window.ResizeObserver = NoopResizeObserver as unknown as typeof dom.window.ResizeObserver
 
   let terminalAnswer: unknown[] = []
-  let pullRequestsMoved: () => void = () => {}
   domWindow.api = {
     platform: 'darwin',
     detectProjectLogo: async () => null,
@@ -57,11 +60,25 @@ test('WorkspaceSidebar.allChats', async () => {
     onTerminalSessionsDelta: () => () => {},
     getWorkspaceChangeSummary: async () => null,
     terminalKill: async () => {},
-    onPullRequestWorkspacesChanged: (listener: () => void) => {
-      pullRequestsMoved = listener
-      return () => {}
+  }
+  // The pull request record is the Studio server's, read over the window's
+  // own client: a table the test fills, and a push naming what moved.
+  const pullRequestAnswers: Record<string, StudioPullRequest[]> = {}
+  const pullRequestListeners = new Set<(change: PullRequestsChanged) => void>()
+  const pullRequests: StudioPullRequests = {
+    list: async (target) => {
+      const workspaces: Record<string, StudioPullRequest[]> = {}
+      for (const id of target.workspaceIds ?? []) if (pullRequestAnswers[id]) workspaces[id] = pullRequestAnswers[id]
+      return { workspaces, conversations: [] }
+    },
+    refresh: async () => ({ asked: true }),
+    noteWork: async () => undefined,
+    onChanged: (listener) => {
+      pullRequestListeners.add(listener)
+      return () => pullRequestListeners.delete(listener)
     },
   }
+  installStudioLoopback(domWindow as { api?: Record<string, unknown> }, { pullRequests })
 
   async function main(): Promise<void> {
     const React = await import('react')
@@ -342,25 +359,19 @@ test('WorkspaceSidebar.allChats', async () => {
       // A chat's pull request sits on its chat's line, just after the agent's
       // mark, not on a line of its own above it.
       terminalAnswer = []
-      ;(domWindow.api as Record<string, unknown>).listPullRequestsForWorkspaces = async (ids: string[]) =>
-        ids.includes('w1')
-          ? {
-              w1: [
-                {
-                  url: 'https://github.com/acme/apples/pull/144',
-                  repoKey: 'github.com/acme/apples',
-                  repoName: 'apples',
-                  number: 144,
-                  title: 'Agent tokens',
-                  state: 'open',
-                  isDraft: false,
-                  openedAt: now - MINUTE,
-                  stateAt: now,
-                  openedByWorkspaceId: 'w1',
-                },
-              ],
-            }
-          : {}
+      pullRequestAnswers.w1 = [
+        {
+          url: 'https://github.com/acme/apples/pull/144',
+          repoKey: 'github.com/acme/apples',
+          repoName: 'apples',
+          number: 144,
+          title: 'Agent tokens',
+          state: 'open',
+          isDraft: false,
+          openedAt: now - MINUTE,
+          stateAt: now,
+        },
+      ]
       await act(async () => {
         await refreshTerminalSessions()
       })
@@ -384,8 +395,8 @@ test('WorkspaceSidebar.allChats', async () => {
         )
       })
       await settle()
-      // Main says the record moved; the sidebar asks again once the burst settles.
-      pullRequestsMoved()
+      // The server says the record moved; the sidebar asks again once the burst settles.
+      for (const listener of pullRequestListeners) listener({ workspaceIds: ['w1'], conversations: [] })
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 300))
       })
