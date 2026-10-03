@@ -484,8 +484,11 @@ As built (2026-10-03), `src/main/environments/ssh/askpass.ts` and
   that matches none of ssh's own, is shown as the remote's, verbatim, in a
   frame that says "build-box asks:". A remote that writes "Enter passphrase
   for key …" after the prefix gets the remote frame, never the passphrase
-  dialog. On OpenSSH before 8.4 there is no prefix, and that guarantee is
-  weaker; such clients are not refused.
+  dialog. On OpenSSH before 8.4 there is no prefix (Windows 10's own ssh is
+  8.1), so main reads `ssh -V` once, and on such a client (or one it cannot
+  read) a passphrase or password question is shown verbatim in a frame
+  titled "ssh or build-box asks", saying Studio cannot tell who asks. Such
+  clients are not refused.
 - `SSH_ASKPASS_PROMPT=none` (a security key's touch) shows a notice with only
   Cancel, taken down when ssh kills the shim; `confirm` is Allow / Cancel.
 - The host-key dialog's Trust button is never the focused default.
@@ -922,6 +925,11 @@ one per SSH environment, in main:
   HTTP proxy too). A plain `http://` request in absolute form is passed on
   once, in origin form, without the proxy's headers and with
   `Connection: close`, as raw bytes over its own tcp stream.
+- A plain request is passed on once: only its own body (its
+  `Content-Length`; any other framing is refused with `501`), and every
+  response head, early hints included, says `Connection: close`, so
+  Chromium never sends its next request, for another site, down a
+  connection the first site answered.
 - Refusals are said in words in the response body: `502` (refused,
   unreachable), `504` (timeout), `503` (the relay's limit, or "build-box is
   reconnecting. This tab's network goes through it." after ten seconds).
@@ -938,6 +946,19 @@ one per SSH environment, in main:
   rest from this computer.
 - `browser.status` reports `network: 'remote'` for those tabs; their guests run
   with `webRTCIPHandlingPolicy: 'disable_non_proxied_udp'`.
+- A site cannot reach the machine's loopback (V-P3): before any tab loads,
+  the partition's session cancels, through `webRequest.onBeforeRequest`, a
+  subresource, frame, WebSocket or non-GET navigation to a loopback host
+  (`localhost`, `*.localhost`, `127.x`, `[::1]`, `0.0.0.0`, `::`, an
+  IPv4-mapped `127.x`) whose initiator is a web origin that is not itself
+  loopback, or an opaque one. Allowed: requests with no initiator (a typed
+  URL, an agent's `browser.open`), a loopback page's own requests, the
+  developer tools', and a top-level GET link (`pane-partitions.ts`,
+  `blocksForeignLoopback`). The same addresses count as loopback for
+  `paneTraffic: 'loopback'`, so none of them is ever connected from this
+  computer.
+- After a machine's last tab its forward closes and its partition stops
+  being one a guest may attach to until a new forward is open.
 - The desktop's `browser` and `canvas` toolsets are offered to the machine's
   server (`relayShellToolsets` with an SSH target), so an agent there can open
   its dev server in the person's pane. The editor, tour, terminal and agent
@@ -1114,7 +1135,11 @@ the dockerized sshd (a throwaway script, not kept in the tree):
   Chromium does not block private-network requests made through the proxy,
   so a site the person opens in that machine's tabs can reach the machine's
   loopback services blind, as a site in a local browser without
-  private-network checks could reach the laptop's. Noted as a risk (10).
+  private-network checks could reach the laptop's. Decided at review
+  (2026-10-03): blocked, as a local browser keeps public sites off the
+  laptop's loopback, with a `webRequest` rule on the machine's partition
+  (6.8, as built). Not re-run in Electron since; the rule's cases are unit
+  tested.
 - **V-P4** holds: with `disable_non_proxied_udp`, a peer connection with a
   STUN server gathered no candidates at all.
 
@@ -1138,7 +1163,7 @@ features, VersionBlocked with both numbers named.
 | Two clients on different versions fighting over one remote | Low / high | Never downgrade, never stop an external or newer server (5.6) |
 | Login-shell noise or a broken profile | Medium / low | Markers: nothing before the first `@@SPRINTENGINE_` line is parsed (E4.1), and it is kept for diagnostics |
 | Agents on the remote that need a terminal (`agent.launch`, `backlog.work`) | Certain / medium | Not offered on SSH servers (parent 6.3), and the UI says why |
-| A public site open in an SSH machine's tabs can send blind requests to that machine's loopback services (V-P3) | Low / medium | The same exposure a local browser without private-network checks has to the laptop's. `paneTraffic: 'off'` removes it for a machine (`loopback` does not: a site's request to `localhost` still goes there). A per-partition private-network rule is the follow-up |
+| A public site open in an SSH machine's tabs can send blind requests to that machine's loopback services (V-P3) | Low / medium | Blocked by a rule on the machine's partition (6.8, as built): a request to a loopback host from a non-loopback web origin is cancelled; a top-level GET link still goes. The machine's private network (other than loopback) is not covered, as Chromium's private-network checks would for a laptop |
 | The pane's SOCKS listener on the laptop is reachable by other local users while it is open | Low on single-user laptops / high where it applies | Loopback only, open only while a tab of that environment exists, a uid check on Linux; decision D13 offers an authenticated local end |
 | Pane traffic leaving from the remote surprises the person (no egress there, a proxy it needs, a site that geolocates) | Medium / low | Said in Settings and in the pane's reconnecting line; `paneTraffic: 'loopback'` or `'off'` per machine |
 | Agents on an SSH server lose the browser and canvas when the laptop sleeps | Certain / medium | The ruling's intent: they are the desktop's toolsets. Calls answer `client_unavailable` naming the fix (phase 5); the headless client is the later answer |
@@ -1258,7 +1283,13 @@ server › "SSH machines (preview)", or `SPRINTENGINE_SSH_MACHINES=on|off`),
 read once at launch like the server's own process switch. With it off no SSH
 code runs: main builds no machines, no askpass broker, no pane partitions
 and no IPC for them, the core gets no SSH servers, and the Machines tab is
-Windows-only as before. The server tree ships in every installer (about
+Windows-only as before. Two guards run either way, and change nothing for a
+folder on this computer: the file, git and folder channels refuse a path
+argument spelled `ssh://` in words (text such as a file's contents, a
+search or a commit message is never read as one), and this process's
+runtime refuses a chat whose folder is spelled so. A machine's workspace
+left from a session with the preview on then offers no sign-in and no
+terminal. The server tree ships in every installer (about
 5 MB unpacked), used only by WSL distributions and SSH machines; a macOS or
 Linux build needs it only for the preview. With the switch on:
 
@@ -1339,6 +1370,20 @@ the same turn by its command id, a `noexec` home refused in words, and the
 relay reaching the remote's `localhost`. The install scripts ran under dash,
 bash, zsh as sh and macOS `sh`, and under busybox in Alpine. An Electron check
 loaded the remote's page through the forward (section 6.8, "As built").
+
+Changed at review (2026-10-03): the pane's forward passes a plain request
+on once and tells Chromium every connection closes (6.8); the V-P3 rule
+(6.8, 9.5); an install directory checked through a symlink and refused
+when anyone may write in it; the `ssh-keygen -R` line offered only for a
+plain host name, since a remote's banner shares ssh's stderr; questions an
+older ssh cannot attribute shown as such (5.5); prereleases ordered when
+deciding to upgrade, so an older nightly never replaces a newer one's
+server; background connects joining the reconnect's backoff instead of
+starting their own; the out-of-process `shell.ssh.open` given as long as a
+first install takes, and an unclaimed stream's port closed; a sign-in's
+login ended with its process group; and nothing of a machine's workspace
+written on this computer (a board inside its folder, a terminal launch's
+`.mcp.json` and skills, a chat launch's skills).
 
 Not built yet:
 
