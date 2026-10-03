@@ -1,7 +1,7 @@
 // The chat's timeline: which rows a projected conversation turns into, and
 // how resolved approvals are grouped.
 
-import { type TranscriptToolEntry, type TranscriptEntry } from './conversationProjection.js'
+import { type TranscriptToolEntry, type TranscriptEntry, type TurnRetry } from './conversationProjection.js'
 import { toolActionVerb } from './protocol.js'
 
 // Every call in a lane subtree, lane headers included, in start order.
@@ -96,6 +96,34 @@ export type ConversationTimelineRow =
     }
 
 // ── Presentation vocabulary (pure, unit-tested) ─────────────────────────────
+
+// The live line while the provider waits to retry a failed call: what went
+// wrong, and how far through its attempts it is. The reason is the one thing a
+// person can act on (an expired sign-in, a limit), so it leads.
+export function retryLabel(retry: Pick<TurnRetry, 'attempt' | 'maxAttempts' | 'error' | 'status'>): string {
+  return `${retryReason(retry)} · retrying (${retry.attempt} of ${retry.maxAttempts})…`
+}
+
+function retryReason({ error, status }: Pick<TurnRetry, 'error' | 'status'>): string {
+  switch (error) {
+    case 'authentication_failed':
+      return 'Couldn’t authenticate'
+    case 'rate_limit':
+      return 'Rate limited'
+    case 'overloaded':
+      return 'Service overloaded'
+    case 'server_error':
+      return 'Server error'
+    case 'billing_error':
+      return 'Billing problem'
+  }
+  if (status === 401 || status === 403) return 'Couldn’t authenticate'
+  if (status === 429) return 'Rate limited'
+  if (status === 529) return 'Service overloaded'
+  // No response at all: the request never reached the service.
+  if (status === undefined) return 'Couldn’t connect'
+  return `Request failed (${status})`
+}
 
 // Step verbs: past tense for finished steps, continuous for the live one.
 export function toolVerb(tool: string, live: boolean): string {
@@ -276,8 +304,10 @@ export function deriveConversationTimelineRows(
         : runningLanes[0]
           ? `${subagentLaneLabel(runningLanes[0])} working…`
           : undefined
-    const label =
-      stage === 'tool' && laneLabel
+    const retry = latestAssistant?.status === 'streaming' ? latestAssistant.retry : undefined
+    const label = retry
+      ? retryLabel(retry)
+      : stage === 'tool' && laneLabel
         ? laneLabel
         : stage === 'tool' && runningTool
           ? `${toolVerb(runningTool.name, true)}${toolObject(runningTool) ? ` ${toolObject(runningTool)}` : ''}…`

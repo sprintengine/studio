@@ -324,6 +324,13 @@ function fastProjection(
   const turnId = readString(event.payload, 'turnId')
   // A notice rides on whichever event followed it; only the fold reads it.
   if (readString(event.payload, 'notice')) return null
+  // The first word after a retry notice clears it, which only the fold does.
+  // Rare: once per failed call, never per token of a reply that went through.
+  if (turnId) {
+    const index = state.entryIndexes.get(`assistant:${turnId}`)
+    const entry = index === undefined ? undefined : state.projection.entries[index]
+    if (entry?.kind === 'assistant' && entry.retry) return null
+  }
   if ((event.type === 'content_delta' || event.type === 'reasoning_delta') && turnId) {
     const delta = readString(event.payload, 'text', 'delta') ?? ''
     const key = `assistant:${turnId}`
