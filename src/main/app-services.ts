@@ -163,7 +163,7 @@ import { createStudioGateway } from '../server/core/studio-gateway'
 import { createStudioRpc } from '../server/core/studio-rpc'
 import type { StudioRpcService } from './studio-rpc/studio-rpc-service'
 import { createServerGatewayBackends } from '../server/desktop/gateway-backends'
-import { SERVER_EVENTS, SERVER_METHODS } from '../server/desktop/server-methods'
+import { SERVER_EVENTS, SERVER_METHODS, SHELL_METHODS } from '../server/desktop/server-methods'
 import {
   createRemoteCore,
   createRemoteCredentialStore,
@@ -1576,6 +1576,8 @@ export function createAppServices(
       server.rpc.emit(SERVER_EVENTS.terminalSessions, terminalRuntime.ipcHandlers.listTerminals())
     terminalRuntime.subscribeSessionsChanged(sendTerminalSessions)
     onGatewayLaunchTokenChange((change) => server.rpc.emit(SERVER_EVENTS.launchTokens, { changes: [change] }))
+    // Asked by a server as it starts, before its gateway listens.
+    server.rpc.handle(SHELL_METHODS.liveLaunchTokens, () => liveGatewayLaunchTokens())
     server.onServing(() => {
       server.rpc.emit(SERVER_EVENTS.launchTokens, { reset: true, changes: liveGatewayLaunchTokens() })
       sendTerminalSessions()

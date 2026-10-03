@@ -390,8 +390,11 @@ Notes:
   workspace) stays with the shell, which owns the integrations (decision
   R63): it waits for the server's first snapshot inside the boot budget, so
   there is no `workspaces.prepareAtBoot` call (7.3, step 5).
-- **A chat on a WSL machine** starts without the gateway entry out of
-  process (its helper is the shell's).
+- **A chat on a WSL machine** does not start out of process. The WSL
+  helper is the shell's, and the server configures none, so preparing the
+  host fails with "the WSL helper is not available in this process", as do
+  the server's git and model discovery for that machine (and no second
+  helper is ever started). WSL servers (phase 7) bring it back.
 
 ## 6. Interfaces
 
@@ -616,9 +619,10 @@ As built (2026-10-03, `src/server/desktop/shell-toolsets.ts`):
   launch tokens (decision R87) its terminal launches are issued cross as
   SHA-256 digests with their identity (`gateway.launch-tokens`), never the
   token, so the server's gateway proves those agents' bridges. A server that
-  has just started is sent every live one again: the shell's terminals
-  outlive it, and the MCP bridge reconnects with the token it was given
-  (6.5).
+  has just started asks the shell for every live one before its gateway
+  listens (`shell.launch-tokens.live`): the shell's terminals outlive it, and
+  the MCP bridge reconnects with the token it was given the moment the socket
+  is back (6.5).
 - **Timeouts.** `agent.launch` and `terminal.create` may cut a worktree and
   then wait 20 s for a live session, so their call deadline is 120 s; the
   others keep phase 5's default.

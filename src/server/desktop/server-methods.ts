@@ -43,6 +43,12 @@ export const SHELL_METHODS = {
   marketplaceRead: 'shell.marketplace.read',
   /** → the installed third-party modules with trust and launch readiness. */
   thirdPartyModules: 'shell.modules.third-party-list',
+  /**
+   * → every live launch token the shell's terminals were issued, by digest
+   * (`LaunchTokenChange[]`, decision R87). Asked before the gateway listens,
+   * so a bridge that reconnects the moment the socket is back is proven.
+   */
+  liveLaunchTokens: 'shell.launch-tokens.live',
 } as const
 
 /** One-way, either direction. */

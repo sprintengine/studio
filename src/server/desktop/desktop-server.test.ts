@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,6 +9,7 @@ import { createControlRpc } from '../bootstrap/control-rpc'
 import { createMessageHub, type ServerControlChannel } from '../bootstrap/control-channel'
 import type { ServerBootstrapEnvelope } from '../bootstrap/envelope'
 import { serveOnChannel } from '../bootstrap/serve'
+import { applyGatewayLaunchTokenChange, resolveGatewayLaunchToken } from '../core/gateway-launch-tokens'
 import type { TunnelPort } from '../ipc/ipc-tunnel'
 import { resetStudioPlatform } from '../platform/platform'
 import { serveShellBridge } from '../shell-bridge/serve-shell-bridge'
@@ -109,6 +111,10 @@ test('the desktop server composes, serves a window over the tunnel and the shell
   serveShellBridge(shellRpc, bridge)
   shellRpc.handle(SHELL_METHODS.marketplaceRead, () => ({ ok: true, entries: [] }))
   shellRpc.handle(SHELL_METHODS.thirdPartyModules, () => ({ modules: [], rejected: [] }))
+  // A terminal agent the shell launched before this server started holds this token.
+  const terminalAgent = { workspaceId: 'acme', agentId: 'agent-1' }
+  const tokenDigest = createHash('sha256').update('terminal-agent-token').digest('hex')
+  shellRpc.handle(SHELL_METHODS.liveLaunchTokens, () => [{ digest: tokenDigest, identity: terminalAgent }])
   const mirrored: string[] = []
   shellRpc.on(SERVER_EVENTS.mirrorLaunchSettings, () => mirrored.push('launch-settings'))
 
@@ -136,6 +142,9 @@ test('the desktop server composes, serves a window over the tunnel and the shell
   const ready = await waitFor(() => fromServer.find((frame) => frame.t === 'ready' || frame.t === 'fatal'))
   assert.equal(ready.t, 'ready', JSON.stringify(ready))
   assert.equal(typeof ready.gateway.socketPath, 'string')
+  // Its bridge is proven the moment the socket is back, before any push after ready.
+  assert.deepEqual(resolveGatewayLaunchToken('terminal-agent-token'), terminalAgent)
+  applyGatewayLaunchTokenChange({ digest: tokenDigest, identity: null })
   // Desktop role: the lock names the desktop, so the app's own server is never refused by its parent.
   assert.equal(JSON.parse(readFileSync(join(dataDir, 'run', 'studio.lock'), 'utf8')).role, 'desktop')
 

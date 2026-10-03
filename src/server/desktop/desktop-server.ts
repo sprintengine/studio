@@ -72,10 +72,10 @@ import { createServerModules } from './server-modules'
 // in process: it is the app's own process tree, and a predecessor's lock is
 // its to replace (the supervisor never forks while that predecessor lives).
 //
-// Until the shell offers its screen and terminal tools as toolsets (spec 6.3,
-// on the client-tools mechanism), the gateway here lists the core's tools and
-// the server-side automation tools; agent launches into a terminal go through
-// the shell bridge.
+// The gateway lists the core's tools and the server-side automation tools;
+// what acts on a screen or a terminal is the shell's, offered as its toolsets
+// (spec 6.3), and the launches the server starts itself (`backlog.work`, a
+// scheduled run, resume in terminal) go through the shell bridge.
 
 export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requestExit }) => {
   // Its own diagnostics file, so two processes never append to one.
@@ -150,8 +150,8 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
       // A Claude chat's child is handed the gateway itself, through the
       // launcher the shell writes (decision R63), or this build's binary run
       // as Node when the launcher could not be written. A WSL machine's
-      // gateway entry comes from its helper, which the shell runs; a chat
-      // there starts without one until WSL servers (phase 7).
+      // helper is the shell's and none is configured here, so a chat there
+      // does not start out of process until WSL servers (phase 7).
       resolveStudioMcpServer: async ({ hostId }) => {
         if (isWslHostId(hostId ?? null)) return null
         await whenAgentLaunchReady()
@@ -320,6 +320,12 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
     if (hint === 'resume' || hint === 'unlock') gateway?.mesh().onWake()
   })
   rpc.on(SERVER_EVENTS.conversationIdleThreshold, (payload) => core.conversationOwner.setIdleThresholdMs(payload))
+
+  // The launch tokens the shell's terminal agents hold, before the socket
+  // their bridges reconnect to is back: a bridge that connects first is
+  // proven, not left unattributed until the shell's push after ready.
+  const liveTokens = await rpc.call<LaunchTokenChange[]>(SHELL_METHODS.liveLaunchTokens).catch(() => [])
+  for (const change of Array.isArray(liveTokens) ? liveTokens : []) applyGatewayLaunchTokenChange(change)
 
   // Listening: the gateway, the owner socket, the module startup hooks.
   const status = await gateway.initialize()
