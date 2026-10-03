@@ -74,6 +74,9 @@ test.skipIf(process.platform === 'win32')(
 
     const env = { ...process.env }
     for (const key of Object.keys(env)) if (key.startsWith('SPRINTENGINE_')) delete env[key]
+    // The launch's gateway token (R87): the restarted server is told it again
+    // by the shell, so the bridge proves itself with the same one.
+    env.SPRINTENGINE_MCP_CHANNEL_TOKEN = 'launch-token-for-the-test'
     const bridge = spawn(process.execPath, [BRIDGE, '--info-path', infoPath], { env, stdio: 'pipe' })
     const out: Array<Record<string, any>> = []
     createInterface({ input: bridge.stdout }).on('line', (line) => out.push(JSON.parse(line)))
@@ -86,6 +89,9 @@ test.skipIf(process.platform === 'win32')(
     await waitFor(() => first.lines.some((line) => line.includes('"slow"')), 'the slow request to arrive')
     // The connect frame went first, before anything the client said.
     assert.match(first.lines[0], /sprintengine\.studio\/connect/)
+    const launchTokenOf = (line: string) =>
+      (JSON.parse(line) as { params?: { launchToken?: string } }).params?.launchToken
+    assert.equal(launchTokenOf(first.lines[0]), 'launch-token-for-the-test')
 
     // The server restarts: its socket goes, a new process takes the path.
     await first.close()
@@ -101,6 +107,7 @@ test.skipIf(process.platform === 'win32')(
     )
     await waitFor(() => second.lines.length >= 3, 'the replay to arrive')
     assert.match(second.lines[0], /sprintengine\.studio\/connect/)
+    assert.equal(launchTokenOf(second.lines[0]), 'launch-token-for-the-test')
     const replayed = JSON.parse(second.lines[1]) as { id: string; method: string; params: unknown }
     assert.equal(replayed.method, 'initialize')
     assert.deepEqual(replayed.params, { protocolVersion: '2025-06-18' })

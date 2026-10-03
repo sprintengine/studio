@@ -17,7 +17,10 @@ import { createHash, randomBytes } from 'node:crypto'
 // into a file or onto a command line.
 //
 // Tokens are kept as their SHA-256, in this process only: a restart voids
-// every one, as it ends every launch.
+// every one, as it ends every launch. With the server in a process of its own,
+// the shell's terminals outlive a server restart, so the shell tells the server
+// each digest it issues and revokes, and every live one again when a server
+// starts.
 
 export type GatewayLaunchIdentity = {
   workspaceId: string
@@ -27,6 +30,54 @@ export type GatewayLaunchIdentity = {
 }
 
 const tokens = new Map<string, GatewayLaunchIdentity>()
+
+/**
+ * A launch token issued or revoked in this process, by digest: the shell tells
+ * the Studio server out of process about the terminal launches it makes, so
+ * the server's gateway can prove their bridges (phase 6, 6.3). Never the token.
+ */
+export type LaunchTokenChange = { digest: string; identity: GatewayLaunchIdentity | null }
+const listeners = new Set<(change: LaunchTokenChange) => void>()
+
+/** Hear every issue (`identity` set) and revoke (`identity` null). Returns the unsubscribe. */
+export function onGatewayLaunchTokenChange(listener: (change: LaunchTokenChange) => void): () => void {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
+function announce(change: LaunchTokenChange): void {
+  for (const listener of [...listeners]) {
+    try {
+      listener(change)
+    } catch {
+      // A listener's failure is not the launch's.
+    }
+  }
+}
+
+/** Every live token, by digest: what a restarted server is told again. */
+export function liveGatewayLaunchTokens(): LaunchTokenChange[] {
+  return [...tokens].map(([digest, identity]) => ({ digest, identity: { ...identity } }))
+}
+
+/**
+ * A token another process of this app issued or revoked (the shell's terminal
+ * launches, out of process), known here by its digest alone.
+ */
+export function applyGatewayLaunchTokenChange(change: LaunchTokenChange): void {
+  if (!/^[0-9a-f]{64}$/.test(change.digest)) return
+  if (change.identity) {
+    tokens.set(change.digest, {
+      workspaceId: change.identity.workspaceId,
+      agentId: change.identity.agentId,
+      ...(change.identity.agentName ? { agentName: change.identity.agentName } : {}),
+      ...(change.identity.cliId ? { cliId: change.identity.cliId } : {}),
+    })
+    while (tokens.size > MAX_LIVE_TOKENS) tokens.delete(tokens.keys().next().value!)
+  } else tokens.delete(change.digest)
+}
 // A launch that never ends is a leak, not a security property; this bounds it.
 const MAX_LIVE_TOKENS = 4096
 
@@ -47,12 +98,16 @@ export function issueGatewayLaunchToken(identity: GatewayLaunchIdentity, token?:
     ...(identity.cliId ? { cliId: identity.cliId } : {}),
   })
   while (tokens.size > MAX_LIVE_TOKENS) tokens.delete(tokens.keys().next().value!)
+  const key = digest(issued)
+  announce({ digest: key, identity: tokens.get(key) ?? null })
   return issued
 }
 
 /** The launch ended: its token proves nothing from now on. */
 export function revokeGatewayLaunchToken(token: string | null | undefined): void {
-  if (token) tokens.delete(digest(token))
+  if (!token) return
+  const key = digest(token)
+  if (tokens.delete(key)) announce({ digest: key, identity: null })
 }
 
 /** Who a token was issued to, or null for a token no live launch holds. */
