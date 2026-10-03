@@ -282,6 +282,25 @@ export const acpToolKind = (kind?: ToolKind | null): ConversationToolKind =>
     other: 'other',
   })[kind ?? 'other'] as ConversationToolKind
 
+// ACP has no notion of a subagent: an agent that spawns one reports the spawn
+// as an ordinary tool call. It is read off the call instead, by the spawn
+// tool's name or by the agent type its input names (OpenCode's `task` takes
+// `description`, `prompt` and `subagent_type`), so the chat draws it as an
+// agent of its own rather than one more step.
+const ACP_SUBAGENT_TOOL_NAMES = new Set(['task', 'agent', 'subagent', 'spawn_agent'])
+
+type AcpSubagentLane = { subagentLane?: true; subagentType?: string }
+
+export function acpSubagentLaneFields(name: string | null | undefined, rawInput: unknown): AcpSubagentLane {
+  const input =
+    rawInput && typeof rawInput === 'object' && !Array.isArray(rawInput) ? (rawInput as Record<string, unknown>) : {}
+  const type = [input.subagent_type, input.subagentType, input.agent_type].find(
+    (value): value is string => typeof value === 'string' && value.trim().length > 0,
+  )
+  if (!type && !ACP_SUBAGENT_TOOL_NAMES.has((name ?? '').trim().toLowerCase())) return {}
+  return { subagentLane: true, ...(type ? { subagentType: type.trim() } : {}) }
+}
+
 class Queue implements AsyncIterable<ConversationEvent> {
   private items: ConversationEvent[] = []
   private wake?: () => void
@@ -640,7 +659,14 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
         state.assistantText += value.content.text
     } else if (value.sessionUpdate === 'tool_call' || value.sessionUpdate === 'tool_call_update') {
       const prior = state.toolCalls.get(value.toolCallId)
-      const tool = { ...prior, ...value }
+      // Kept from the update that first showed a spawn, and added to as later
+      // ones fill in its input: an update may retitle the call with what the
+      // agent was sent to do, which is no spawn tool's name.
+      const lane = {
+        ...(prior?.lane as AcpSubagentLane | undefined),
+        ...acpSubagentLaneFields(value.title, value.rawInput),
+      }
+      const tool = { ...prior, ...value, ...(lane.subagentLane ? { lane } : {}) }
       state.toolCalls.set(value.toolCallId, tool)
       const content = value.content ?? []
       const diff = content.find((entry) => entry.type === 'diff')
@@ -648,7 +674,8 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
         emit(state, 'tool_started', {
           toolUseId: value.toolCallId,
           toolCallId: value.toolCallId,
-          kind: acpToolKind(tool.kind as ToolKind | undefined),
+          kind: lane.subagentLane ? 'subagent' : acpToolKind(tool.kind as ToolKind | undefined),
+          ...lane,
           name: tool.name ?? tool.title ?? tool.kind ?? 'Tool',
           input: diff
             ? {

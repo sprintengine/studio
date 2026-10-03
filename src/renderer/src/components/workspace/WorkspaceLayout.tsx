@@ -68,6 +68,7 @@ import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import { TabPromptPeek } from './TabPromptPeek'
 import { ChatAppToolsMenuItems } from './ChatAppToolsMenuItems'
 import { chatResumesInTerminal, resumeChatInTerminalOrToast } from '../panels/agentChat/resumeInTerminal'
+import { requestChatReplay } from '../panels/agentChat/chatReplayRequests'
 import { ModuleContributionBoundary } from '../../modules/ModuleContributionBoundary'
 import { GitBranchGlyph } from './WorkspaceActions'
 import { changelistOwnerId } from '../../../../shared/git/changelists'
@@ -168,6 +169,8 @@ type TabMenuState = {
   resumableChatId: string | null
   /** The agent this tab shows, for the tools apps may give it. */
   agentId: string | null
+  /** The tab's chat, when it is one: what "Replay conversation" plays. */
+  chatId: string | null
 }
 
 /**
@@ -982,6 +985,7 @@ function WorkspaceLayoutBody({
         currentColor: config?.highlightColor ?? null,
         resumableChatId: tabAgentId && chatResumesInTerminal(tabAgent, store.pluginCatalogEntries) ? tabAgentId : null,
         agentId: tabAgentId,
+        chatId: tabAgentId && tabAgent?.runtimeKind === 'conversation' ? tabAgentId : null,
       })
     },
     [workspaceId],
@@ -1691,19 +1695,31 @@ function WorkspaceLayoutBody({
           >
             Close other tabs
           </MenuItem>
+          {tabMenu.chatId || tabMenu.resumableChatId ? <MenuDivider /> : null}
+          {tabMenu.chatId ? (
+            <MenuItem
+              onClick={() => {
+                const { node } = tabMenu
+                const agentId = tabMenu.chatId!
+                setTabMenu(null)
+                // The replay plays in the tab, so the tab comes forward first.
+                modelRef.current?.doAction(Actions.selectTab(node.getId()))
+                requestChatReplay(workspaceId, agentId)
+              }}
+            >
+              Replay conversation
+            </MenuItem>
+          ) : null}
           {tabMenu.resumableChatId ? (
-            <>
-              <MenuDivider />
-              <MenuItem
-                onClick={() => {
-                  const agentId = tabMenu.resumableChatId!
-                  setTabMenu(null)
-                  void resumeChatInTerminalOrToast({ workspaceId, agentId })
-                }}
-              >
-                Continue in terminal
-              </MenuItem>
-            </>
+            <MenuItem
+              onClick={() => {
+                const agentId = tabMenu.resumableChatId!
+                setTabMenu(null)
+                void resumeChatInTerminalOrToast({ workspaceId, agentId })
+              }}
+            >
+              Continue in terminal
+            </MenuItem>
           ) : null}
           {tabMenu.agentId ? (
             <ChatAppToolsMenuItems

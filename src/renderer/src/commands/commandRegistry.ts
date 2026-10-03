@@ -152,6 +152,19 @@ export const COMMAND_REGISTRY = [
     availability: ['activeWorkspace'],
     handlerPath: { kind: 'panel-event', eventId: 'chat.turn.next' },
   }),
+  // Play the focused chat back from its first message, a reply at a time, for
+  // reading a finished conversation to a room. No chord: it is started rarely,
+  // from the palette or the chat tab's menu, and once started the replay owns
+  // the bare keys (Space, the arrows, Esc) while it has focus.
+  command({
+    id: 'chat.replay.start',
+    title: 'Replay Conversation',
+    category: 'panel',
+    scopes: ['workspace'],
+    defaultKeybindings: [],
+    availability: ['activeWorkspace'],
+    handlerPath: { kind: 'panel-event', eventId: 'chat.replay.start' },
+  }),
   // Quote what is selected in a conversation's transcript into its composer,
   // as the selection toolbar's Quote does. `>` is markdown's quote marker and
   // what the chord inserts, and on a US layout ⌘⇧. is ⌘> — the physical key is

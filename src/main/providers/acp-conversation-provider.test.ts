@@ -8,6 +8,7 @@ import {
   acpLaunchEnv,
   acpApprovalInput,
   acpMcpServers,
+  acpSubagentLaneFields,
   acpToolKind,
   confinedAcpPath,
   createAcpConversationProvider,
@@ -59,6 +60,8 @@ createInterface({input:process.stdin}).on('line',async line=>{
  if(text==='crash')process.exit(2);
  if(text==='pid'){update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:String(process.pid)}});result(m.id,{stopReason:'end_turn'});prompt=null;return}
  if(text==='flood'){process.stdout.write('x'.repeat(17*1024*1024));return}
+ // As OpenCode spawns a subagent: a call named for its task tool, then retitled with what it was sent to do.
+ if(text==='task'){update({sessionUpdate:'tool_call',toolCallId:'spawn',kind:'other',title:'task',rawInput:{},status:'pending'});update({sessionUpdate:'tool_call_update',toolCallId:'spawn',kind:'other',title:'Map the tests',rawInput:{description:'Map the tests',prompt:'Find every suite',subagent_type:'explore'},status:'in_progress'});update({sessionUpdate:'tool_call_update',toolCallId:'spawn',status:'completed',content:[{type:'content',content:{type:'text',text:'Three suites.'}}]});result(m.id,{stopReason:'end_turn'});prompt=null;return}
  update({sessionUpdate:'agent_thought_chunk',content:{type:'text',text:'Thinking'}});
  if(text==='hang'){update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:'waiting'}});return}
  update({sessionUpdate:'tool_call',toolCallId:'tool',kind:'edit',title:'Write',rawInput:{path:'result.txt'},status:'pending'});
@@ -559,6 +562,31 @@ test('ACP file helpers reject traversal, absolute escapes and symlink ancestors'
   } finally {
     await rm(root, { recursive: true, force: true })
   }
+})
+test('ACP reads a subagent spawn off its tool call and keeps it an agent after the call is retitled', async () => {
+  const f = await fixture()
+  try {
+    const started = (await turn(f, 'task')).filter((event) => event.type === 'tool_started')
+    expect(started).toHaveLength(2)
+    for (const event of started)
+      expect(event.payload).toMatchObject({ toolUseId: 'spawn', kind: 'subagent', subagentLane: true })
+    expect(started[1]?.payload).toMatchObject({ subagentType: 'explore', input: { description: 'Map the tests' } })
+  } finally {
+    await f.cleanup()
+  }
+})
+test('an ACP tool call is a subagent by its spawn tool name or the agent type its input names', () => {
+  expect(acpSubagentLaneFields('task', {})).toEqual({ subagentLane: true })
+  expect(acpSubagentLaneFields('Task', { subagent_type: ' general ' })).toEqual({
+    subagentLane: true,
+    subagentType: 'general',
+  })
+  expect(acpSubagentLaneFields('Map the tests', { subagentType: 'explore' })).toEqual({
+    subagentLane: true,
+    subagentType: 'explore',
+  })
+  expect(acpSubagentLaneFields('Read', { path: 'a.ts' })).toEqual({})
+  expect(acpSubagentLaneFields(undefined, 'task')).toEqual({})
 })
 test('an ACP permission request carries the locations the agent listed beside its input', () => {
   const locations = [{ path: '/Users/dev/proj/a.ts', line: 3 }]

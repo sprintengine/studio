@@ -179,6 +179,50 @@ test('the turn fold is a disclosure with a chevron, naming the work it opens', a
   expect(region!.querySelector('button[aria-expanded]')).not.toBeNull()
 })
 
+test('what the agent made for the person to see stays out of the shut fold', async () => {
+  const picture: TranscriptToolEntry = {
+    kind: 'tool',
+    id: 'picture',
+    turnId: 't1',
+    name: 'GenerateImage',
+    status: 'done',
+    input: { path: '/Users/dev/project/fox.png', prompt: 'A fox in the snow' },
+  }
+  const view = await mount(
+    <AssistantTurnBlock
+      entry={assistant({
+        // A turn of its own: a fold another test opened is remembered per turn.
+        turnId: 'shown',
+        startedAt: 0,
+        completedAt: 5000,
+        intermediateText: [
+          { text: 'Reading the brief first.', beforeToolUseId: 'a' },
+          { text: 'Here is the layout:\n\n![Layout](/Users/dev/project/layout.png)', beforeToolUseId: 'b' },
+        ],
+      })}
+      tools={[tool('a'), tool('b'), picture]}
+      decisions={[]}
+      chrome={chrome}
+    />,
+  )
+  const fold = button(view, /^Worked for 5s · 2 steps/)!
+  expect(fold.getAttribute('aria-expanded')).toBe('false')
+  const region = view.querySelector(`[id="${fold.getAttribute('aria-controls')}"]`)!
+  expect(region.textContent).toBe('')
+  expect(view.textContent).not.toContain('Reading the brief first.')
+  expect(view.textContent).toContain('Here is the layout:')
+  // The picture is drawn (here as its alt text: the test has no file to load).
+  expect(view.textContent).toContain('[Image: Layout]')
+  expect(view.querySelector('[data-tool-kind]')?.textContent).toContain('Generated image')
+  await click(fold)
+  // Opened, the fold holds the steps and the prose that was folded, and draws
+  // nothing that is already shown under it a second time.
+  expect(region.textContent).toContain('Reading the brief first.')
+  expect(region.textContent).not.toContain('Here is the layout:')
+  expect(region.textContent).not.toContain('Generated image')
+  expect(view.textContent!.split('Here is the layout:')).toHaveLength(2)
+})
+
 test('an open tool group names the rail it controls', async () => {
   const view = await mount(
     <AssistantTurnBlock entry={assistant()} tools={[tool('a'), tool('b')]} decisions={[]} chrome={chrome} />,

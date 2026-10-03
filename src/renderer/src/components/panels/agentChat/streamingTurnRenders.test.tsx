@@ -63,6 +63,9 @@ test('a token streaming into a turn re-renders its reply, not its steps', async 
     createElement(AssistantTurnBlock, { entry: entry(text), tools, decisions: [], chrome })
   try {
     await act(async () => root.render(render('Hel')))
+    // The steps rest folded; opened, they are drawn, and must not be again.
+    const fold = Array.from(host.querySelectorAll('button')).find((item) => item.textContent?.includes('Working'))
+    await act(async () => fold!.click())
     expect(presented.count).toBeGreaterThan(0)
     const settled = presented.count
     for (const text of ['Hello', 'Hello the', 'Hello there']) await act(async () => root.render(render(text)))
