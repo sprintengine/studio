@@ -13,7 +13,6 @@ import type {
   TourSummary,
 } from './tours/tour-types'
 import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './voiceTranscription'
-import type { BranchPullRequest } from './git/pull-request'
 import type { ConversationPeek } from './conversation-peek'
 import type { ChatTitleRequest, TextGenerationResult } from './text-generation/contract'
 import type {
@@ -1467,24 +1466,15 @@ export type ElectronApi = {
   // (terminalCompactBlocker in shared/prompt-cache.ts). Offered as its prompt
   // cache expires, so the next message re-sends a summary rather than all of it.
   compactAgentSession: (sessionId: string) => Promise<{ ok: true } | { ok: false; message: string }>
-  // The hover hook for a conversation's pull request marks: main looks the
-  // session's branch up (once per key per hold) and re-reads any state older
-  // than ~60s. The pull requests themselves arrive as a fresh
+  // The hover hook for a terminal agent's pull request marks: the shell asks
+  // the Studio server to look the session's branch up (once per key per hold)
+  // and re-read any state older than ~60s. The pull requests themselves arrive as a fresh
   // `terminal:sessions-delta` carrying the session's `pullRequests`, never as
   // a return value, so one path owns the fact. The boolean says only whether
   // there was anything to ask about — false for a session main cannot name, or
   // one whose checkout has not resolved yet — so a caller that asks once per
   // session can tell "asked" from "could not ask yet" and try again.
   refreshPullRequestsForSession: (sessionId: string) => Promise<boolean>
-  /**
-   * What these CONVERSATIONS hold, agents running or long gone. Keyed by
-   * conversation because a session dies and a chat does not — the sidebar row
-   * for a finished agent had no way to learn it still had a pull request open
-   * (owner, 2026-09-10). Conversations with nothing are absent from the answer.
-   */
-  listPullRequestsForWorkspaces: (workspaceIds: readonly string[]) => Promise<Record<string, BranchPullRequest[]>>
-  /** Which conversations' lists moved; the ids only, never the lists. */
-  onPullRequestWorkspacesChanged: (listener: (workspaceIds: string[]) => void) => () => void
   diagnosticsGetProcessMetrics: () => Promise<ProcessMetricsSnapshot>
   // Synchronous: returns the preload's accumulated IPC counters (empty channels
   // when diagnostics is disabled, since instrumentation is skipped entirely).

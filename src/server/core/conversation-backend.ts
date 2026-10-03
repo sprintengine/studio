@@ -19,6 +19,7 @@ import type { ConversationRuntime } from '../../main/conversation-runtime'
 export type ConversationBackendMember =
   | 'onEvent'
   | 'listSessions'
+  | 'sessionWorkspaceRoot'
   | 'listLiveConversationRoots'
   | 'getProviderCapabilities'
   | 'getNativeProviderModels'

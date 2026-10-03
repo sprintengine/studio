@@ -37,6 +37,7 @@ import {
 import { studioErrorId, type StudioRpcAnswer, type StudioRpcRouter } from './studio-rpc-router'
 import type { ClientToolConnection, ClientToolRegistry } from '../tools/client-tool-registry'
 import type { StudioFiles } from './studio-files'
+import type { StudioPullRequests } from '../pull-requests/pull-request-domain'
 import type {
   StudioAuditEntry,
   StudioAuthenticator,
@@ -124,6 +125,8 @@ export type StudioRpcConnectionOptions = {
   tools?: ClientToolRegistry
   /** Files under a workspace's roots: the `files.watch` stream. */
   files?: StudioFiles
+  /** The pull requests the conversations' branches have: the `pullRequests.changed` stream. */
+  pullRequests?: StudioPullRequests
   /** The welcome's server-wide members: who this Studio is and what it serves. */
   welcome: () => Omit<StudioWelcomeFrame, 't' | 'grant' | 'pairing'>
   /** The delay a client that fell behind is told to wait; it should grow with repeated resyncs. */
@@ -638,6 +641,10 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
       subscribeWatch(id, params as StudioTopicParams<'files.watch'>)
       return
     }
+    if (topic === 'pullRequests.changed') {
+      subscribePullRequests(id)
+      return
+    }
     const chat = options.chat?.() ?? null
     if (!chat || topic !== 'conversation.commands') {
       subscriptionFailed(id, 'unavailable', `This Studio does not serve ${topic}.`)
@@ -697,6 +704,28 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
           subscriptionFailed(id, 'unavailable', 'Studio could not watch that folder.', SUBSCRIBE_RETRY_MS)
         },
       )
+  }
+
+  /** What moved in the pull request record, as it moves: the client asks for the lists it shows. */
+  function subscribePullRequests(id: string): void {
+    const pullRequests = options.pullRequests
+    if (!pullRequests) {
+      subscriptionFailed(id, 'unavailable', 'This Studio does not serve pullRequests.changed.')
+      return
+    }
+    const subscription: Subscription = { id, topic: 'pullRequests.changed', key: null, replay: null, handle: null }
+    subscriptions.set(id, subscription)
+    const stop = pullRequests.onChanged((change) => {
+      if (state === 'closed' || subscriptions.get(id) !== subscription) return
+      const grant = liveGrant()
+      if (!grant) return
+      if (!studioScopesGrant(grant.scopes, STUDIO_TOPICS['pullRequests.changed'].scope)) {
+        refreshGrant()
+        return
+      }
+      enqueueLive({ t: 'push', sub: id, payload: change }, id)
+    })
+    subscription.handle = { dispose: stop }
   }
 
   /** The client toolsets this client may see, whole, after each change; a burst of changes is one push. */

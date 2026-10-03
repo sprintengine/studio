@@ -9,6 +9,7 @@ import {
   STUDIO_CHAT_CAPABILITIES,
   STUDIO_CLIENT_TOOLS_CAPABILITY,
   STUDIO_BOARD_FILES_CAPABILITY,
+  STUDIO_PULL_REQUESTS_CAPABILITY,
   STUDIO_PROTOCOL_MIN_SUPPORTED,
   STUDIO_PROTOCOL_VERSION,
   type StudioWelcomeFrame,
@@ -18,6 +19,7 @@ import { createStudioRpcListener, type StudioRpcListener } from './studio-rpc-li
 import { createStudioRpcRouter } from './studio-rpc-router'
 import type { ClientToolRegistry } from '../tools/client-tool-registry'
 import type { StudioFiles } from './studio-files'
+import type { StudioPullRequests } from '../pull-requests/pull-request-domain'
 import type {
   StudioAuditEntry,
   StudioAuthenticator,
@@ -59,6 +61,8 @@ export type StudioRpcServerOptions = {
   tools?: ClientToolRegistry
   /** Files under a workspace's roots, for owners. Advertised as `files-write` only when given. */
   files?: StudioFiles
+  /** The pull requests the conversations' branches have, for owners. Advertised as `pull-requests` only when given. */
+  pullRequests?: StudioPullRequests
   resyncRetryAfterMs?: (clientId: string) => number
   socketPath?: string
   helloTimeoutMs?: number
@@ -99,6 +103,7 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
       (capability) =>
         (capability !== STUDIO_CLIENT_TOOLS_CAPABILITY || options.tools !== undefined) &&
         (capability !== STUDIO_BOARD_FILES_CAPABILITY || options.files !== undefined) &&
+        (capability !== STUDIO_PULL_REQUESTS_CAPABILITY || options.pullRequests !== undefined) &&
         (chat() !== null || !(STUDIO_CHAT_CAPABILITIES as readonly string[]).includes(capability)),
     ),
     conversation: {
@@ -114,6 +119,7 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
     audit: options.audit,
     ...(options.tools ? { tools: options.tools } : {}),
     ...(options.files ? { files: options.files } : {}),
+    ...(options.pullRequests ? { pullRequests: options.pullRequests } : {}),
     log: options.log,
   })
   // A revoked app's offers go at once, with its names: a later app that takes
@@ -142,6 +148,7 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
         audit: options.audit,
         ...(options.tools ? { tools: options.tools } : {}),
         ...(options.files ? { files: options.files } : {}),
+        ...(options.pullRequests ? { pullRequests: options.pullRequests } : {}),
         resyncRetryAfterMs: options.resyncRetryAfterMs,
         helloTimeoutMs: options.helloTimeoutMs,
         log: options.log,
@@ -175,6 +182,7 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
         audit: options.audit,
         ...(options.tools ? { tools: options.tools } : {}),
         ...(options.files ? { files: options.files } : {}),
+        ...(options.pullRequests ? { pullRequests: options.pullRequests } : {}),
         resyncRetryAfterMs: options.resyncRetryAfterMs,
         helloTimeoutMs: options.helloTimeoutMs,
         log: options.log,

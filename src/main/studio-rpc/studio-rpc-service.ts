@@ -26,6 +26,7 @@ import type { StudioTransportFactory } from '../../../packages/agent-sdk/src/tra
 import { createStudioRpcServer, type StudioRpcServer } from '../../server/rpc/studio-rpc-server'
 import type { ClientToolRegistry } from '../../server/tools/client-tool-registry'
 import type { StudioFiles } from '../../server/rpc/studio-files'
+import type { StudioPullRequests } from '../../server/pull-requests/pull-request-domain'
 import type {
   StudioAuditEntry,
   StudioAuthenticator,
@@ -121,6 +122,8 @@ export type StudioRpcServiceOptions = {
   tools?: ClientToolRegistry
   /** Files under a workspace's roots, for owners (`files-write`). */
   files?: StudioFiles
+  /** The pull requests the conversations' branches have, for owners (`pull-requests`). */
+  pullRequests?: StudioPullRequests
   /** Forget the saved approvals that allow a revoked app's tools. */
   forgetToolApprovals?: (toolsets: string[]) => Promise<unknown>
   log?: (message: string) => void
@@ -310,6 +313,7 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
       audit,
       ...(options.tools ? { tools: options.tools } : {}),
       ...(options.files ? { files: options.files } : {}),
+      ...(options.pullRequests ? { pullRequests: options.pullRequests } : {}),
       resyncRetryAfterMs: createResyncBackoff(),
       onConnectionsChanged: () => announce(),
       ...(options.socketPath ? { socketPath: options.socketPath } : {}),

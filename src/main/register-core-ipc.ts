@@ -262,22 +262,11 @@ export function registerCoreIpc(
     },
   })
 
-  // Same reason: the pull request marks are read off a terminal session's
-  // observed checkout, so their one refresh channel registers beside the
-  // runtime that owns the session.
+  // Same reason: a terminal agent's pull request marks follow its session, so
+  // the hover's refresh registers beside the runtime that owns the session.
+  // The lists themselves are the Studio server's, read over the protocol.
   registerPullRequestIpc(ipcMain, {
-    refreshPullRequestsForSession: (sessionId) => services.pullRequestRecord.refreshForSession(sessionId),
-    // Keyed by conversation, for the rows with nothing running in them.
-    listForWorkspaces: (workspaceIds) => {
-      const out: Record<string, ReturnType<typeof services.pullRequestRecord.forWorkspace>> = {}
-      for (const id of workspaceIds) {
-        const list = services.pullRequestRecord.forWorkspace(id)
-        // Only conversations that have something. An empty array per id would
-        // make every answer the size of the question.
-        if (list.length > 0) out[id] = list
-      }
-      return out
-    },
+    refreshPullRequestsForSession: (sessionId) => services.refreshPullRequestsForSession(sessionId),
   })
   // ── extension-platform additions ──
   // Build your own extension: the SDK's templates, the machine check, the project.

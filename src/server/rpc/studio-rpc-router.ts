@@ -3,8 +3,10 @@ import {
   isStudioChatMethod,
   isStudioToolsMethod,
   isStudioFilesMethod,
+  isStudioPullRequestsMethod,
   parseStudioMethodParams,
   type StudioFilesMethod,
+  type StudioPullRequestsMethod,
   type StudioToolsMethod,
   studioScopesGrant,
   type ConversationCommand,
@@ -30,6 +32,7 @@ import type {
 import { createStudioUploads, type StudioUploads } from './studio-uploads'
 import type { ClientToolRegistry } from '../tools/client-tool-registry'
 import type { StudioFiles } from './studio-files'
+import type { StudioPullRequests } from '../pull-requests/pull-request-domain'
 import type {
   StudioAuditEntry,
   StudioChatBackend,
@@ -104,6 +107,8 @@ export type StudioRpcRouterOptions = {
   tools?: ClientToolRegistry
   /** Files under a workspace's roots; without it, `files.*` by root is answered `unavailable`. */
   files?: StudioFiles
+  /** The pull requests the conversations' branches have; without it, `pullRequests.*` is answered `unavailable`. */
+  pullRequests?: StudioPullRequests
   uploads?: StudioUploads
   now?: () => number
 }
@@ -409,6 +414,7 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
     if (isStudioChatMethod(method)) return chatDispatch(grant, method, params, context, voice, fingerprint)
     if (isStudioToolsMethod(method)) return toolsDispatch(grant, method, params, context)
     if (isStudioFilesMethod(method)) return filesDispatch(grant, method, params, voice)
+    if (isStudioPullRequestsMethod(method)) return pullRequestsDispatch(method, params)
     const { failed } = voice
     switch (method) {
       case 'server.info':
@@ -541,6 +547,26 @@ export function createStudioRpcRouter(options: StudioRpcRouterOptions): StudioRp
         const answer = tools.grant({ workspaceId: key.workspaceId, agentId: key.agentId }, toolset, granted)
         return answer.ok ? { ok: true, result: { grants: answer.grants } } : refuse(answer.code, answer.message)
       }
+    }
+  }
+
+  // ── Pull requests ────────────────────────────────────────────────────────
+
+  async function pullRequestsDispatch(method: StudioPullRequestsMethod, params: never): Promise<StudioRpcAnswer> {
+    const pullRequests = options.pullRequests
+    if (!pullRequests) return refuse('unavailable', `This Studio does not serve ${method}.`)
+    switch (method) {
+      case 'pullRequests.list':
+        return { ok: true, result: await pullRequests.list(params as StudioMethodParams<'pullRequests.list'>) }
+      case 'pullRequests.refresh':
+        return { ok: true, result: await pullRequests.refresh(params as StudioMethodParams<'pullRequests.refresh'>) }
+      case 'pullRequests.noteWork':
+        // Answered at once: the lookups it starts report through
+        // `pullRequests.changed`, and a turn end must not wait on GitHub.
+        void pullRequests.noteWork(params as StudioMethodParams<'pullRequests.noteWork'>).catch((error: unknown) => {
+          options.log?.(`A pull request lookup failed: ${error instanceof Error ? error.message : String(error)}`)
+        })
+        return { ok: true, result: {} }
     }
   }
 

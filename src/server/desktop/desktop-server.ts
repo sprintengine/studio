@@ -408,13 +408,22 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
         // What a person would miss most: every chat's buffered transcript.
         ['chat transcripts', () => core.conversationOwner.flushTranscripts()],
         ['chats', () => core.conversationOwner.shutdown()],
+        // After the chats: a turn that ended on the way out has its lookup
+        // written down, and the watch's timers stop.
+        [
+          'pull requests',
+          async () => {
+            await core.pullRequests.flush()
+            core.pullRequests.dispose()
+          },
+        ],
         ['command lists', () => domains.conversationCommands.dispose()],
         ['workspace registry (final)', () => workspaceSyncService.flush()],
         ['modules', () => modules.shutdown()],
         ['data directory', () => core.dataDirLock?.release()],
       ]
       // A lost parent: nothing can be shown, so only what cannot be lost runs.
-      const urgent = new Set(['chat transcripts', 'workspace registry (final)', 'data directory'])
+      const urgent = new Set(['chat transcripts', 'pull requests', 'workspace registry (final)', 'data directory'])
       await runShutdownLegs(drain ? legs : legs.filter(([name]) => urgent.has(name)), onLeg)
     },
   }

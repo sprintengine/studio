@@ -49,9 +49,9 @@ export type PullRequestCopy = {
 }
 
 /**
- * More than one repository in the list (epic decision 10). An agent that runs
- * `cd ../website && gh pr create` opens a pull request somewhere its session
- * does not sit, so a conversation's marks are not always all in one repo — and
+ * More than one repository in the list (epic decision 10). An agent that
+ * changes files in another repository wears the pull requests on the branch it
+ * worked on there, so a conversation's marks are not always all in one repo — and
  * when they are not, every LINE of a tooltip and every menu row has to say
  * which repository it is talking about. When they are, naming the repo on every
  * line would be noise on the case that is almost always true.
@@ -127,7 +127,8 @@ export function peekMarkCopy(list: readonly BranchPullRequest[], now: number): P
   const state = pullRequestStateLabel(primary)
   const opened = relativeFromNow(primary.openedAt, now)
   const identity = spans ? writtenNumber(primary, spans) : `Pull request ${writtenNumber(primary, spans)}`
-  // A pull request the hooks CAPTURED has no title until GitHub answers — and
+  // A pull request the hooks CAPTURED (a record written before marks came from
+  // branch lookups alone) has no title until GitHub answers — and
   // never gets one if `gh` cannot reach it. Untitled, the identity moves up
   // into the title line, because a bold empty line over "Pull request #418 ·
   // open · 12 minutes ago" is a tooltip whose first line is missing, and a
@@ -441,9 +442,15 @@ export function ProjectPullRequestMark({
   )
 }
 
-/** How many of a conversation's pull requests are still open. */
-export function openPullRequestCount(list: readonly BranchPullRequest[]): number {
-  return list.reduce((count, pr) => (pr.state === 'open' ? count + 1 : count), 0)
+/**
+ * How many pull requests are still open across these lists, each counted
+ * once: two chats that worked on one branch both wear its pull request, and
+ * the project has one thing to do about it, not two.
+ */
+export function openPullRequestCount(...lists: ReadonlyArray<readonly BranchPullRequest[]>): number {
+  const open = new Set<string>()
+  for (const list of lists) for (const pr of list) if (pr.state === 'open') open.add(pr.url)
+  return open.size
 }
 
 /** The mark's own drawing on the peek: the glyph and the number, in the tone. */

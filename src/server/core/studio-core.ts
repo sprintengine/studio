@@ -30,6 +30,7 @@ import { createWorkspaceRegistryStore } from '../../main/workspace-registry-stor
 import { createWorkspaceSyncService } from '../../main/workspace-sync-service'
 import { installedStudioPlatform, installStudioPlatform, type StudioPlatform } from '../platform/platform'
 import type { StudioPaths } from '../platform/studio-paths'
+import { createPullRequestDomain } from '../pull-requests/pull-request-domain'
 import { localConversationBackend, type ConversationBackend } from './conversation-backend'
 import { createRoutedConversationBackend } from './routed-conversation-backend'
 import type { WslServers } from '../wsl/desktop-wsl-servers'
@@ -46,8 +47,10 @@ import { takeDataDir } from './take-data-dir'
 // What is here: launch settings and the machines they name, the workspace
 // registry and its sync, git's machine resolver, the conversation runtime and
 // the backend every caller drives chats through (providers, checkpoints, the
-// thread index and transcripts are the runtime's), the model catalog, and the
-// launch service that starts a chat for a caller with no window. The MCP
+// thread index and transcripts are the runtime's), the model catalog, the
+// launch service that starts a chat for a caller with no window, and the pull
+// request record, which reacts to chats and so is the server's (owner ruling
+// 2026-10-03). The MCP
 // gateway is composed beside it (studio-gateway.ts), because the desktop adds
 // tools to it that act on windows and terminals.
 //
@@ -271,6 +274,29 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     },
   })
 
+  // The pull requests the conversations' branches have (pull-request-domain.ts):
+  // looked up when a chat's turn ends, when a client says one of its own agents
+  // did work, on a slow poll and when a client asks. Every client reads it
+  // through `pullRequests.*`. With no `gh` on this machine it has nothing to
+  // say, and says nothing.
+  const pullRequests = createPullRequestDomain({
+    dataDir,
+    conversations,
+    workspaceFolder: (workspaceId) => workspaceRegistry.getRecord(workspaceId)?.folderPath ?? null,
+    isSuspended: () => powerActivity.isSuspended(),
+    log: (message, error) => {
+      void writeDiagnosticLog({
+        level: 'warning',
+        source: 'workspace',
+        title: 'Pull request record',
+        message,
+        ...(error === undefined
+          ? {}
+          : { details: error instanceof Error ? (error.stack ?? error.message) : String(error) }),
+      })
+    },
+  })
+
   // What an agent of this app is running on now, for the gateway's launch cap:
   // an agent may start agents only at its own preset or stricter.
   const resolveAgentPermissionPreset: AgentPermissionResolver = createAgentPermissionResolver({
@@ -332,8 +358,10 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
   async function shutdown(): Promise<void> {
     const legs: Array<() => unknown> = [
       () => workspaceSyncService.flush(),
+      () => pullRequests.flush(),
       () => conversationRuntime.flushTranscripts(),
       () => conversationOwner.shutdown(),
+      () => pullRequests.dispose(),
       () => workspaceSyncService.flush(),
       () => hosts.dispose(),
     ]
@@ -367,6 +395,7 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     conversationLaunchService,
     resolveAgentPermissionPreset,
     createConversationHost,
+    pullRequests,
     shutdown,
   }
 }

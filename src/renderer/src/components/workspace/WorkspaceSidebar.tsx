@@ -3,6 +3,7 @@ import { ChatGlyph, NewChatIcon, RemoteMachineGlyph, ScheduleGlyph, resolveEnabl
 import CliIcon from '../CliIcon'
 import { PromptCacheMark } from './PromptCacheMark'
 import type { ConversationSessionSummary } from '../../../../shared/conversation-runtime'
+import type { BranchPullRequest } from '../../../../shared/git/pull-request'
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
 import {
   conversationFinishedAt,
@@ -1053,15 +1054,19 @@ function WorkspaceSidebar({
   // Open only. A conversation keeps its merged pull requests because that is its
   // history; a project's count is a to-do, and a merged one has nothing left to
   // do (`ProjectPullRequestMark`).
+  // Each pull request once, however many of the project's chats wear it.
   const openPullRequestsByGroup = useMemo(() => {
-    const map = new Map<string, number>()
+    const lists = new Map<string, Array<readonly BranchPullRequest[]>>()
     for (const workspace of workspaces) {
       const list = conversationPullRequests[workspace.id]
       if (!list || list.length === 0) continue
-      const open = openPullRequestCount(list)
-      if (open === 0) continue
       const groupKey = keyOf(workspace)
-      map.set(groupKey, (map.get(groupKey) ?? 0) + open)
+      lists.set(groupKey, [...(lists.get(groupKey) ?? []), list])
+    }
+    const map = new Map<string, number>()
+    for (const [groupKey, group] of lists) {
+      const open = openPullRequestCount(...group)
+      if (open > 0) map.set(groupKey, open)
     }
     return map
   }, [conversationPullRequests, keyOf, workspaces])

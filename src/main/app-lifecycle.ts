@@ -104,11 +104,11 @@ type RegisterAppLifecycleOptions = {
   conversationCommands?: {
     dispose(): Promise<void>
   }
-  // The conversation pull request record (epic `pull-request-marks`). It holds
-  // a chained write per repository and a watch timer per open pull request, so
-  // quit has to settle the writes — a capture in the last seconds before quit
-  // is otherwise lost — and tear the timers down with the runtime that owns the
-  // sessions they were armed for.
+  // The pull request record (epic `pull-request-marks`). In process the core
+  // holds it here: a chained write per repository and a watch timer per open
+  // pull request, so quit settles the writes — a lookup a last turn end started
+  // is otherwise lost — and tears the timers down. Either way the shell's own
+  // client for the terminals' marks closes here.
   pullRequestRecord?: {
     flush(): Promise<void>
     dispose(): void
@@ -595,9 +595,10 @@ export function registerAppLifecycle({
       ['workspace registry', () => workspaceSyncService?.flush()],
       ['chat transcripts', () => conversationOwner?.flushTranscripts?.()],
       ['terminals', () => terminalRuntime.shutdown()],
-      // After the terminal service: the last frames it ingests can still file
-      // a captured pull request, and this is what gets that write to disk and
-      // stops the watch timers.
+      // In process, the core's record: a lookup a last chat turn end started
+      // is written down, and the watch timers stop. The shell's client of it
+      // closed with the local app socket; out of process the server settles
+      // the record in its own legs.
       ['pull requests (flush)', () => pullRequestRecord?.flush()],
       ['pull requests (dispose)', () => pullRequestRecord?.dispose()],
       ['chats', () => conversationOwner?.shutdown()],

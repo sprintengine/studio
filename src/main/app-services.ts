@@ -100,7 +100,6 @@ import { syncStudioMcpConfig } from './studio-mcp-sync'
 import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../shared/product-identity'
 import { excludeMcpConfigFromWorktree } from './git'
 import { createConversationPeekService } from './conversation-peek/service'
-import { captureConversationPullRequests } from './conversation-pull-request-capture'
 import { createConversationTerminalHandoff } from './conversation-terminal-handoff'
 import { createAgentPromptStore, registeredAgentOwners } from './agent-prompt-store'
 import {
@@ -114,7 +113,7 @@ import {
 import { isTerminalProcessAlive, setSessionPullRequestReader } from './terminal-session'
 import { cliResumeCapabilities } from './cli-resume-capabilities'
 import { createAgentChangelistFeed } from './agent-changelist-feed'
-import { createPullRequestRecord } from './pull-request-record'
+import { createTerminalPullRequests, type TerminalPullRequests } from './terminal-pull-requests'
 import { createBrowserManager } from './browser/browser-manager'
 import { createBrowserControl } from './browser/browser-control'
 import { createBrowserTools } from './automation/browser-tools'
@@ -822,13 +821,15 @@ export function createAppServices(
     onAgentFileEdit: (input) => {
       agentWrittenFiles.note(input.session.agentId, input.path)
       agentChangelistFeed.onAgentFileEdit(input)
+      // The repositories a terminal agent changed files in are looked up for
+      // pull requests at its next turn end, as a chat's are.
+      terminalPullRequests?.noteFileEdit(input.session, input.path)
     },
     onAgentSessionExit: (session) => agentChangelistFeed.onAgentSessionExit(session),
-    // The hook capture of a pull request the agent just opened (epic
-    // `pull-request-marks`, decision 8b). The record is built below — this
-    // closure only runs once a frame arrives, long after — and it is what files
-    // the pull request under the URL's own repository.
-    onPullRequestCaptured: (input) => pullRequestRecord.noteCaptured(input),
+    // Where an agent is, each time git answers: the Studio server looks its
+    // branch up for pull requests (terminal-pull-requests.ts, below).
+    onObservedCheckoutResolved: (session, resolution) =>
+      terminalPullRequests?.noteCheckoutResolved(session, resolution),
     // Durable freeze-the-view: suspended agent terminals persist their painted
     // screen to disk and reopen painted-and-paused after an app restart.
     snapshotSidecars: createTerminalSnapshotSidecarStore({
@@ -920,59 +921,13 @@ export function createAppServices(
       return agentStateService.installForWorkspace(workspaceRoot, cli, execution)
     },
   })
-  // The conversation pull request record (epic `pull-request-marks`, decision
-  // 10): main owns which pull requests a conversation has and what state each is
-  // in, keyed by REPOSITORY (`host/owner/name`) and branch — a pull request an
-  // agent opened in another repo belongs to that repo, not to the checkout the
-  // session happens to sit in. A change re-emits the sessions it reaches over
-  // the terminal snapshot channel they already ride.
-  const pullRequestRecord = createPullRequestRecord({
-    userDataDir: app.getPath('userData'),
-    // So a chat whose agents are gone still wears its pull request after a
-    // restart, and its open ones are watched for a merge.
-    loadStoredOnStart: true,
-    // The session OBJECTS, not snapshots: `listTerminals()` builds a snapshot of
-    // every session — each of which reads this very record — so resolving one
-    // session that way made a hover O(sessions) snapshot builds. The list is the
-    // live sessions only; an exited or disposed one has nothing to re-ask about.
-    sessions: {
-      get: (sessionId) => getTerminalSessionById(sessionId),
-      list: () => listLiveTerminalSessions(),
-    },
-    onRecordChanged: (change) => {
-      notePullRequestRecordChanged((session) => pullRequestRecord.changeAffectsSession(change, session))
-      // …and the rows with no session to re-emit (owner, 2026-09-10). The line
-      // above only reaches a chat that still has a terminal alive in it, which
-      // is precisely the chats that never had this problem. This tells the
-      // windows WHICH conversations moved; each one then asks for the lists it
-      // is actually showing, so the record itself never leaves main.
-      if (change.workspaceIds.length > 0) {
-        broadcastToWorkspaceWindows('pullRequest:workspaces-changed', change.workspaceIds)
-      }
-    },
-    logWarning: (message, error) => {
-      void writeDiagnosticLog({
-        level: 'warning',
-        source: 'terminal',
-        title: 'Pull request record',
-        message,
-        details: error instanceof Error ? (error.stack ?? error.message) : String(error),
-      })
-    },
-  })
-  // A chat agent runs no hook reporter, so its `gh pr create` is read off the
-  // conversation stream instead and filed against its conversation — the same
-  // capture a terminal agent's reporter makes (`onPullRequestCaptured` above).
-  captureConversationPullRequests({
-    onEvent: (listener) => conversations.onEvent(listener),
-    noteCaptured: (input) => pullRequestRecord.noteCaptured(input),
-  })
+  // The pull request record is the Studio server's (owner ruling 2026-10-03):
+  // the terminal agents' marks are read from it over the protocol, by
+  // `terminalPullRequests`, built below once the shell's connection to the
+  // server exists. Bound late; until it is, a session wears no marks.
+  let terminalPullRequests: TerminalPullRequests | null = null
   // The snapshot's `pullRequests` field is filled from here, and nowhere else.
-  setSessionPullRequestReader((session) => pullRequestRecord.listForSession(session))
-  // Coming back to the app is the cheapest moment to notice a pull request that
-  // merged while it was in the background (decision 9), and it is also what
-  // first populates the marks after a cold start.
-  app.on('browser-window-focus', () => pullRequestRecord.refreshOnFocus())
+  setSessionPullRequestReader((session) => terminalPullRequests?.listForSession(session) ?? [])
 
   // The one interaction path to a live agent session. Every caller
   // that drives an agent — the review guide, later the composer and MCP —
@@ -1612,6 +1567,23 @@ export function createAppServices(
   // Out of process the shell's client starts now and connects once the
   // server is up; it comes back on its own after a restart and offers again.
   if (server) void desktopShell?.start()
+  // The terminal agents' pull request marks, from the server's record, over a
+  // connection of the shell's own in both modes: where each agent works goes
+  // to the server, and the lists it answers ride the terminal snapshot.
+  const shellTransport = studioRpc?.shellTransport() ?? server?.shellTransport() ?? null
+  terminalPullRequests = shellTransport
+    ? createTerminalPullRequests({
+        transport: shellTransport,
+        version: app.getVersion(),
+        sessions: {
+          list: () => listLiveTerminalSessions(),
+          get: (sessionId) => getTerminalSessionById(sessionId),
+        },
+        onListsChanged: (affects) => notePullRequestRecordChanged(affects),
+        log: logDesktopTools,
+      })
+    : null
+  if (server) void terminalPullRequests?.start()
   if (server) {
     // What the server's gateway reads of the shell's terminals: the sessions
     // (the launch cap, `backlog.work`'s confirmation) and the launch tokens
@@ -1638,10 +1610,12 @@ export function createAppServices(
         ...studioRpc,
         start: () => {
           void desktopShell?.start()
+          void terminalPullRequests?.start()
           return studioRpc.start()
         },
         stop: () => {
           desktopShell?.stop()
+          terminalPullRequests?.stop()
           return studioRpc.stop()
         },
       }
@@ -1897,7 +1871,19 @@ export function createAppServices(
     terminalRuntime,
     agentChangelistFeed,
     editorRevealBroker,
-    pullRequestRecord,
+    // At quit: the shell's client closes, and in process the core's record
+    // settles its writes (out of process the server does, in its own legs).
+    // A hover on a terminal agent's line: ask the server again.
+    refreshPullRequestsForSession: (sessionId: string) => terminalPullRequests?.refreshForSession(sessionId) ?? false,
+    pullRequestRecord: {
+      flush: async () => {
+        terminalPullRequests?.stop()
+        if (!server) await core.pullRequests.flush()
+      },
+      dispose: () => {
+        if (!server) core.pullRequests.dispose()
+      },
+    },
     broadcastGitChangelistsChanged,
     updateService,
     withIpcDiagnostics,

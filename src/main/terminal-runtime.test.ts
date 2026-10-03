@@ -9,9 +9,6 @@ import type { McpSettings, TerminalSpawnResult } from '../shared/electron-api'
 import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
 import { createAgentPromptStore } from './agent-prompt-store'
 import { createAgentLaunchService } from './agent-launch-service'
-import { createPullRequestRecord } from './pull-request-record'
-import { readPullRequestState } from './github/branch-pull-request'
-import type { GhResult, GhRunner } from './github/gh'
 import { emptyAgentLaunchSettings } from '../shared/launch-settings'
 import { test } from 'vitest'
 
@@ -148,7 +145,7 @@ test('terminal-runtime', async () => {
       await assertFileLedgerFollowsHookReportedEdits(runtimeModule)
       await assertAgentChangelistSeamsFire(runtimeModule)
       await assertContextUsageFollowsStatusLineFrames(runtimeModule)
-      await assertCapturedPullRequestReachesTheRecord(runtimeModule)
+      await assertObservedCheckoutReachesThePullRequestSeam(runtimeModule)
       await assertTerminalReattachUsesReplayChannel(runtimeModule)
       await assertHiddenTerminalOutputSkipsLiveIpcAndReplaysOnAttach(runtimeModule)
       await assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule)
@@ -4313,176 +4310,83 @@ test('terminal-runtime', async () => {
     }
   }
 
-  // A pull request the hook reporter captured must reach the record, filed under
-  // the session that opened it (epic `pull-request-marks`, decision 8b).
-  //
-  // The record here is the REAL one — only `gh` is fake, so the state read that a
-  // capture schedules runs its real parsing against a canned `gh pr view`. What is
-  // under test is the seam: a `pullRequest` on a frame becomes a
-  // `noteCaptured({ url, sessionId })`, with the app's OWN session id (the record
-  // files by session, and an id main cannot resolve would file nothing), folded in
-  // ahead of the PHASE and staleness guards exactly as a status line is — and,
-  // like the file ledger, after the liveness guard: a dead session accepts no
-  // more facts about itself.
-  async function assertCapturedPullRequestReachesTheRecord(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-pr-capture-'))
-    const userDataDir = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-pr-record-'))
+  // Pull requests come only from branch lookups (owner ruling 2026-10-03): the
+  // runtime tells the app where an agent is each time git answers for it, and a
+  // turn end says so even when nothing moved, because that is when a pull
+  // request the turn opened can be found. A `pullRequest` an older reporter
+  // still puts on a frame reaches nothing.
+  async function assertObservedCheckoutReachesThePullRequestSeam(runtimeModule: RuntimeModule): Promise<void> {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-pr-seam-'))
     mockPty.spawnCalls = []
     mockSender.sent = []
-
-    // A `gh` that answers `pr view` and nothing else. A `pr list` would mean the
-    // runtime had gone looking for a branch, which a capture must never do: the
-    // pull request may be in a repository this session has never been in.
-    const ghCalls: string[][] = []
-    const fakeGh: GhRunner = {
-      available: async () => true,
-      run: async (args): Promise<GhResult> => {
-        ghCalls.push(args)
-        assert.equal(args[1], 'view', 'a capture asks GitHub about the URL it was given, never about a branch')
-        // Answered through a login shell, banner and all — the normal path for a
-        // GUI-launched macOS app with a Homebrew gh.
-        // Whichever URL was asked about: `gh pr view <url>` answers for that one.
-        const asked = args[2] ?? ''
-        const number = Number(/\/pull\/(\d+)/.exec(asked)?.[1] ?? 0)
-        return {
-          found: true,
-          code: 0,
-          stdout: `Now using node v22.4.0 (npm v10.13.0)\n${JSON.stringify({
-            number,
-            title: number === 9 ? 'Refresh the banner' : 'Something else',
-            state: 'OPEN',
-            isDraft: false,
-            createdAt: number === 9 ? '2026-09-05T09:00:00.000Z' : '2026-09-06T09:00:00.000Z',
-            mergedAt: null,
-            closedAt: null,
-            headRefName: number === 9 ? 'site/banner' : 'feature',
-          })}\n`,
-          stderr: '',
-        }
-      },
-    }
-    const record = createPullRequestRecord({
-      userDataDir,
-      reads: { readPullRequestState: (url) => readPullRequestState(url, { gh: fakeGh }) },
-      // The session's own checkout is not a git clone of anything here, and a
-      // capture must not need it to be: the URL says where the pull request is.
-      resolveRepoKey: async () => null,
-    })
-
+    const resolutions: Array<{ sessionId: string; branch: string | null; fresh: boolean }> = []
     const runtime = runtimeModule.createTerminalRuntime({
       diagnosticsEnabled: false,
       logMainPerfEvent: () => undefined,
-      onPullRequestCaptured: (input) => record.noteCaptured(input),
+      resolveObservedCheckout: async () => ({
+        gitRoot: workspaceRoot,
+        repoRoot: workspaceRoot,
+        branch: 'agent/feature',
+        isLinkedWorktree: false,
+      }),
+      onObservedCheckoutResolved: (session, resolution) =>
+        resolutions.push({
+          sessionId: session.sessionId,
+          branch: session.observedCheckout?.branch ?? null,
+          fresh: resolution.fresh,
+        }),
     })
-
     try {
       const spawnResult = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
-        sessionId: 'session-pr-capture',
+        sessionId: 'session-pr-seam',
         cols: 120,
         rows: 30,
         cwd: workspaceRoot,
         cli: 'claude-code',
         kind: 'agent',
         shellOnly: false,
-        workspaceId: 'ws-pr-capture',
-        agentId: 'agent-pr-capture',
+        workspaceId: 'ws-pr-seam',
+        agentId: 'agent-pr-seam',
         visible: false,
         mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
       })
       assert.equal(spawnResult.ok, true, JSON.stringify(spawnResult))
-
       const base = Date.now()
       const frame = (overrides: Partial<AgentStateFrame>): AgentStateFrame => ({
         type: 'agent_state',
-        agentId: 'agent-pr-capture',
-        workspaceId: 'ws-pr-capture',
+        agentId: 'agent-pr-seam',
+        workspaceId: 'ws-pr-seam',
         sessionId: null,
         event: 'PostToolUse',
         ts: base,
         ...overrides,
       })
-
-      // A tool call that opened a pull request in ANOTHER repository — the agent
-      // ran `cd ../website && gh pr create`, which never moved this session's cwd.
+      const waitFor = async (predicate: () => boolean): Promise<void> => {
+        const start = Date.now()
+        while (!predicate()) {
+          if (Date.now() - start > 5_000) throw new Error('timed out waiting for a checkout resolution')
+          await delay(20)
+        }
+      }
+      runtime.ingestAgentStateFrame(frame({ ts: base + 100, cwd: workspaceRoot }))
+      await waitFor(() => resolutions.length >= 1)
+      assert.deepEqual(resolutions[0], { sessionId: 'session-pr-seam', branch: 'agent/feature', fresh: true })
+      // A turn end on the same branch: nothing moved, and the seam still hears it.
       runtime.ingestAgentStateFrame(
-        frame({ ts: base + 100, pullRequest: { url: 'https://github.com/acme/website/pull/9/files?w=1' } }),
+        frame({
+          ts: base + 200,
+          event: 'Stop',
+          pullRequest: { url: 'https://github.com/acme/app/pull/4' },
+        } as Partial<AgentStateFrame>),
       )
-      await record.flush()
-      const captured = record.forSession('session-pr-capture')
-      assert.equal(captured.length, 1, 'the capture reached the record')
-      assert.equal(captured[0].url, 'https://github.com/acme/website/pull/9')
-      assert.equal(captured[0].repoKey, 'github.com/acme/website', 'filed under the URL`s own repository')
-      assert.equal(captured[0].state, 'open', 'a captured pull request is open the moment it exists')
-      // REVIEW FIX (finding 2). A capture is filed from a URL alone and, in another
-      // repository, no branch lookup will ever name it: the state read is the only
-      // thing that ever gives it a title and a real opening date. Without them the
-      // peek's bold title line and every menu row render empty, and the spoken
-      // label says "Pull request 9, open: ."
-      assert.equal(captured[0].title, 'Refresh the banner', 'the capture learned its title from the state read')
-      assert.equal(
-        captured[0].openedAt,
-        Date.parse('2026-09-05T09:00:00.000Z'),
-        'and when GitHub says it was opened, not when the hook happened to notice it',
-      )
-      assert.equal(captured[0].openedBySessionId, 'session-pr-capture', 'the app`s own session id, not the CLI`s')
-      assert.deepEqual(
-        record.forBranch('github.com/acme/website', 'site/banner'),
-        captured,
-        'the state read the capture scheduled learned its branch',
-      )
-      assert.equal(
-        record.forSession('some-other-session').length,
-        0,
-        'a capture belongs to the conversation that made it',
-      )
-
-      // REVIEW FIX (finding 5). One session is resolved by id, not by building a
-      // snapshot of every session — each of which reads the pull request record —
-      // and the live list is what a window-focus refresh fans out over.
-      const raw = runtimeModule.getTerminalSessionById('session-pr-capture')
-      assert.equal(raw?.sessionId, 'session-pr-capture', 'a session object is reachable by id')
-      assert.equal(runtimeModule.getTerminalSessionById('no-such-session'), null)
-      assert.ok(
-        runtimeModule.listLiveTerminalSessions().some((session) => session.sessionId === 'session-pr-capture'),
-        'and a live session is on the fan-out list',
-      )
-
-      // A frame the phase guard DROPS still carries a pull request that really
-      // exists. Claude spawns a hook process per tool call, so a later-stamped
-      // frame landing first is ordinary — and the capture is folded in ahead of
-      // the guard, exactly as a status line is.
-      runtime.ingestAgentStateFrame(frame({ ts: base + 5000, event: 'Stop' }))
-      runtime.ingestAgentStateFrame(
-        frame({ ts: base + 200, pullRequest: { url: 'https://github.com/acme/app/pull/4' } }),
-      )
-      await record.flush()
-      assert.deepEqual(
-        record
-          .forSession('session-pr-capture')
-          .map((entry) => entry.number)
-          .sort((a, b) => a - b),
-        [4, 9],
-        'a frame dropped as stale still files the pull request it carried',
-      )
-
-      // And a frame with no capture on it files nothing.
-      runtime.ingestAgentStateFrame(frame({ ts: base + 6000, event: 'Stop' }))
-      await record.flush()
-      assert.equal(record.forSession('session-pr-capture').length, 2, 'an ordinary frame files nothing')
-      assert.equal(ghCalls.length, 2, 'one state read per captured URL, and no branch lookup at all')
+      await waitFor(() => resolutions.length >= 2)
+      assert.deepEqual(resolutions[1], { sessionId: 'session-pr-seam', branch: 'agent/feature', fresh: true })
+      const snapshot = runtime.ipcHandlers.listTerminals().find((entry) => entry.sessionId === 'session-pr-seam')
+      assert.deepEqual(snapshot?.pullRequests ?? [], [], 'a URL on a frame files nothing')
     } finally {
-      runtime.ipcHandlers.killTerminal('session-pr-capture')
-      // An exited session drops off the fan-out list but stays reachable by id:
-      // its marks are still drawn, and hovering one is still a reason to refresh.
-      assert.equal(
-        runtimeModule.listLiveTerminalSessions().some((session) => session.sessionId === 'session-pr-capture'),
-        false,
-        'a killed session is not re-asked about on every window focus',
-      )
-      record.dispose()
+      runtime.ipcHandlers.killTerminal('session-pr-seam')
       await runtime.shutdown()
       await rm(workspaceRoot, { recursive: true, force: true })
-      await rm(userDataDir, { recursive: true, force: true })
     }
   }
 

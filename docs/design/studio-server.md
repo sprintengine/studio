@@ -663,6 +663,76 @@ Ruling (f) splits the canvas along the line of section 1.1 (phase 5 spec,
 - **With no client offering `canvas`**, agents have no canvas tools, and the
   boards are untouched files until one attaches.
 
+### 6.8 Pull request marks: a server domain (owner rulings 2026-10-03)
+
+The pull request record is the server's, in both modes, as of this change
+(`src/server/pull-requests/`). Features that react to chats live in the
+server; every client (the desktop, the web client, the phone, an SDK app)
+displays the result through the protocol and decides nothing. The desktop
+does not see conversation events for this.
+
+**One source.** A mark comes only from asking the host "is there a pull
+request for this branch?" (`gh pr list --head <branch>` in a checkout). No
+reader looks at a command an agent ran or a URL in a tool's output; the
+chat capture and the hook reporter's capture are gone.
+
+**What is looked up.** A conversation (a workspace and an agent, chat or
+terminal) is told where it worked, and wears the pull requests on those
+branches, newest first, de-duplicated by URL:
+
+- a chat's turn end: its own checkout, every other repository its
+  completed tool calls changed files in (`tool_output.payload.fileChanges`),
+  and the branches the turn pushed from its checkout without staying on them
+  (below), with a lookup that started after the turn ended;
+- a client that runs agents the server does not (the desktop's terminals)
+  says where one worked with `pullRequests.noteWork`: its checkout whenever
+  git answers for it, and at a turn end the files it changed during the turn;
+  its pushed branches count from its previous turn end;
+- a slow poll: every minute a live chat's checkout is read again (git only)
+  and a branch that moved is looked up; every five minutes the conversations
+  active in the last half hour are looked up again (held), which finds a pull
+  request opened or merged by hand. An idle chat is left to the watch;
+- a client asks (`pullRequests.refresh`): a hover, a window coming to the
+  front. Open pull requests are also watched every two minutes.
+
+A repository's default branch is never looked up: `gh pr list --head main`
+matches the branch name in every fork, so an upstream repository answers with
+every contributor's pull request from their fork's `main`. A pull request
+opened from a default branch therefore gets no mark; a trunk-based team opens
+none. Because a turn can end back on the default branch after its agent
+branched, pushed and opened a pull request, a turn end also looks up the
+branches it pushed: a remote-tracking tip committed since the turn began that
+is exactly a local branch no other worktree has checked out, or the
+checkout's own HEAD. Two `for-each-ref` reads, at most four lookups a turn,
+and none when the turn's start is unknown. A push by URL with no remote, or
+of a commit older than the turn, is not seen.
+
+A repository outside any workspace is looked up when an agent changed files
+in it, bounded: four per turn, from at most 32 directories, and a dozen
+checkouts per conversation.
+
+**The record's rules hold.** Settled reads only; "could not ask" changes
+nothing, so a mark never blinks out for a probe that failed or a server
+restart. At most three `gh` reads at a time. One lookup per checkout at a
+time, so an older answer never lands over a newer one, and a burst of turn
+ends in one checkout is one lookup per 15 seconds. A list asked for before the
+stored records are read waits for them.
+
+**No `gh`, no marks.** The record reads through `gh` on the server's machine,
+with `gh`'s own sign-in. A server with no `gh`, or not signed in, has no
+marks and says nothing: a missing `gh` holds every read for five minutes, and
+nothing is reported as an error.
+
+**The protocol** (`pull-requests` capability, owners only, `workspaces:read`):
+`pullRequests.list` by workspace or by conversation, `pullRequests.refresh`,
+`pullRequests.noteWork`, and the `pullRequests.changed` stream, which names
+what moved and never carries the lists. The desktop's sidebar reads rows
+through the window's Studio client; the shell's own client notes where its
+terminal agents work and puts the lists the server answers on the terminal
+snapshot, which carries them to the peek and the tooltips as before. Records
+stored under `userData/pull-requests/` carry over unchanged; the conversations
+that worked where are written beside them in `conversations.json`.
+
 ## 7. Data and settings
 
 ### 7.1 Data locations, per host
@@ -688,7 +758,8 @@ git refs in each repository, because they belong to the checkout.
 Server-owned: conversation stores, approval rules, attachments, plans, the
 command cache, provider secrets, module secrets and storage, launch settings,
 the workspace registry and backup, module enablement, studio-area skills,
-scheduled agents, git changelists, pull requests, canvas board files (the
+scheduled agents, git changelists, pull requests (the server's in both modes
+since section 6.8), canvas board files (the
 server holds them as files; the canvas module that edits them is a
 client's), tours, model discovery, tailnet devices and settings, the audit log, the integration ledger,
 marketplace and feed caches.
