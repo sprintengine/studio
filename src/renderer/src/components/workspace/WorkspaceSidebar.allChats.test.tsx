@@ -49,6 +49,7 @@ test('WorkspaceSidebar.allChats', async () => {
   dom.window.ResizeObserver = NoopResizeObserver as unknown as typeof dom.window.ResizeObserver
 
   let terminalAnswer: unknown[] = []
+  let pullRequestsMoved: () => void = () => {}
   domWindow.api = {
     platform: 'darwin',
     detectProjectLogo: async () => null,
@@ -56,6 +57,10 @@ test('WorkspaceSidebar.allChats', async () => {
     onTerminalSessionsDelta: () => () => {},
     getWorkspaceChangeSummary: async () => null,
     terminalKill: async () => {},
+    onPullRequestWorkspacesChanged: (listener: () => void) => {
+      pullRequestsMoved = listener
+      return () => {}
+    },
   }
 
   async function main(): Promise<void> {
@@ -333,6 +338,67 @@ test('WorkspaceSidebar.allChats', async () => {
         alpha.querySelector('[aria-label="Claude Code chat"]'),
         'the chat head wears the mark of the CLI it rides',
       )
+
+      // A chat's pull request sits on its chat's line, just after the agent's
+      // mark, not on a line of its own above it.
+      terminalAnswer = []
+      ;(domWindow.api as Record<string, unknown>).listPullRequestsForWorkspaces = async (ids: string[]) =>
+        ids.includes('w1')
+          ? {
+              w1: [
+                {
+                  url: 'https://github.com/acme/apples/pull/144',
+                  repoKey: 'github.com/acme/apples',
+                  repoName: 'apples',
+                  number: 144,
+                  title: 'Agent tokens',
+                  state: 'open',
+                  isDraft: false,
+                  openedAt: now - MINUTE,
+                  stateAt: now,
+                  openedByWorkspaceId: 'w1',
+                },
+              ],
+            }
+          : {}
+      await act(async () => {
+        await refreshTerminalSessions()
+      })
+      act(() => {
+        root.render(
+          React.createElement(WorkspaceSidebar, {
+            ...props,
+            conversationSessions: [
+              {
+                sessionId: 'conversation-1',
+                workspaceId: 'w1',
+                agentId: 'conversation-agent',
+                providerId: 'claude-agent',
+                modelId: 'model-1',
+                status: 'ready',
+                createdAt: now - MINUTE,
+                updatedAt: now,
+              },
+            ],
+          }),
+        )
+      })
+      await settle()
+      // Main says the record moved; the sidebar asks again once the burst settles.
+      pullRequestsMoved()
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 300))
+      })
+      await settle()
+      const chatLine = rowFor('Alpha').querySelector('[data-peek-session="conversation-1"]')
+      const mark = chatLine?.querySelector('[data-pull-request-mark]')
+      assert.ok(mark, 'the mark is on the chat line')
+      const agentMark = chatLine?.querySelector('[aria-label="Claude Code chat"]')
+      assert.ok(
+        agentMark && agentMark.compareDocumentPosition(mark!) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING,
+        'just after the agent that opened it',
+      )
+      assert.equal(rowFor('Alpha').querySelectorAll('[data-pull-request-mark]').length, 1, 'and drawn once')
     } finally {
       act(() => {
         root.unmount()

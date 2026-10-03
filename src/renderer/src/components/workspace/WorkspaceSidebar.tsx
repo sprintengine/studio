@@ -26,6 +26,7 @@ import {
 } from './useConversationPullRequests'
 import { peekStatusOf, rowConversationPeekIdentities } from './conversationPeekRow'
 import { changelistOwnerId } from '../../../../shared/git/changelists'
+import type { BranchPullRequest } from '../../../../shared/git/pull-request'
 import { folderIdentityKey, useFolderRepositoryIdentities } from './useFolderRepositoryIdentities'
 import { FolderIdentityIcon } from './FolderIdentityIcon'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
@@ -2854,6 +2855,7 @@ type WorkspaceRowOptions = {
 
 const NO_SESSIONS: TerminalSessionSnapshot[] = []
 const NO_CONVERSATIONS: readonly ConversationSessionSummary[] = []
+const EMPTY_PULL_REQUESTS: readonly BranchPullRequest[] = []
 
 // A row's options, as constants: a fresh `{ snoozed: true }` on every sidebar
 // render was a new prop for a memoized row, which re-rendered it every time.
@@ -3153,15 +3155,23 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
     hasLiveLines: rowLines.lines.length > 0,
     conversation: rowConversationPullRequests,
   })
-  // The second line exists for either fact now. A parked chat with a pull
-  // request but no worktree branch used to have no line at all, which is
-  // exactly the row the owner could not read anything off.
-  const parkedLine = parkedWorktreeBranch !== null || parkedPullRequests.length > 0
   const tabbedConversations = useMemo(
     () => conversationsWithTabs(conversationSessions, workspace.layoutModel),
     [conversationSessions, workspace.layoutModel],
   )
   const visibleConversations = rowIsLive && !options?.snoozed ? tabbedConversations : NO_CONVERSATIONS
+  // A chat's pull request sits on its chat's line, just after the agent's
+  // mark, as a terminal line's does. The record files a chat's pull request
+  // under the row and not under one agent, so only a row with a single chat
+  // line can say whose it is; with several it keeps a line of its own.
+  const chatLinePullRequests = visibleConversations.length === 1 ? parkedPullRequests : EMPTY_PULL_REQUESTS
+  // The second line exists for either fact now. A parked chat with a pull
+  // request but no worktree branch used to have no line at all, which is
+  // exactly the row the owner could not read anything off. A closed one is
+  // not drawn (`PullRequestMark`), so it does not hold a line open either.
+  const parkedLine =
+    parkedWorktreeBranch !== null ||
+    (chatLinePullRequests.length === 0 && parkedPullRequests.some((pr) => pr.state !== 'closed'))
   const metaHasSubstance = rowLines.lines.length > 0 || visibleConversations.length > 0 || parkedLine
 
   // The row's status seat: run glyph / working mark + elapsed / tone dot /
@@ -3726,7 +3736,9 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
               the checkout's present state and not anything this chat did
               (the-diff-an-agent-made, decision 9) — the pull request is the
               one fact that is still this conversation's. */}
-          <PullRequestMark pullRequests={parkedPullRequests} dim={emphasis === 'quiet'} />
+          {chatLinePullRequests.length === 0 ? (
+            <PullRequestMark pullRequests={parkedPullRequests} dim={emphasis === 'quiet'} />
+          ) : null}
           {flatProject ? null : statusSeat}
         </div>
       ) : null}
@@ -3789,6 +3801,7 @@ const WorkspaceRow = React.memo(function WorkspaceRow({
                 )}
               </span>
             </Tooltip>
+            <PullRequestMark pullRequests={chatLinePullRequests} dim={emphasis === 'quiet'} />
             <span className="min-w-0 flex-1 truncate">{conversationLineText(session)}</span>
             {index === 0 && rowLines.lines.length === 0 && !flatProject ? (
               <>

@@ -3,6 +3,7 @@ import { expect, test } from 'vitest'
 import type { TranscriptToolEntry } from './conversationProjection'
 import {
   AgentCardContent,
+  AgentLaneSummary,
   LaneMark,
   SubagentTypesProvider,
   laneAgentState,
@@ -99,6 +100,33 @@ test('an agent’s card says who it is, how it is doing, and what kind of helper
   // A built-in type is described even when the session has not described it.
   expect(failed).toContain('works out an approach')
   expect(failed).toContain('Ran out of turns')
+})
+
+test('an agent at a glance says what it has spent, while it works and once it is done', () => {
+  const working = renderToStaticMarkup(
+    <AgentLaneSummary
+      lane={lane({
+        status: 'running',
+        agent: {
+          state: 'running',
+          progressSummary: 'Reading the route table',
+          usage: { totalTokens: 18_400, toolUses: 6, durationMs: 9_000 },
+        },
+      })}
+    />,
+  )
+  expect(working).toContain('Reading the route table')
+  expect(working).toContain('18k tokens')
+
+  const done = renderToStaticMarkup(
+    <AgentLaneSummary
+      lane={lane({ agent: { state: 'completed', usage: { totalTokens: 640, toolUses: 2, durationMs: 9_000 } } })}
+    />,
+  )
+  expect(done).toContain('640 tokens')
+
+  // An agent that has reported no usage yet says nothing about tokens.
+  expect(renderToStaticMarkup(<AgentLaneSummary lane={lane({ status: 'running' })} />)).not.toContain('tokens')
 })
 
 test('an agent’s task is its call’s summary, else the description the call gave it, else its own', () => {
