@@ -1099,6 +1099,25 @@ before the forward ships:
 - **V-P4.** `webRTCIPHandlingPolicy: 'disable_non_proxied_udp'` set on the
   partition's guests sends no UDP from the laptop.
 
+Checked 2026-10-03 in Electron, through the HTTP-proxy forward (R75) and
+the dockerized sshd (a throwaway script, not kept in the tree):
+
+- **V-P1** holds: `localhost` and `127.0.0.1` reached the machine's dev
+  server, `[::1]` went to the machine as well (refused there: the dev server
+  bound IPv4 only), and this computer's own server on the same port was
+  never reached from that partition.
+- **V-P2** holds: `https://www.google.com/` loaded through the forward over
+  `h2` (`nextHopProtocol`); no QUIC.
+- **V-P3**: a public page (`https://example.com/`) in the machine's partition
+  could send a `no-cors` request to the machine's `http://localhost:5173/`
+  (an opaque answer came back); a CORS read was refused, by CORS. This
+  Chromium does not block private-network requests made through the proxy,
+  so a site the person opens in that machine's tabs can reach the machine's
+  loopback services blind, as a site in a local browser without
+  private-network checks could reach the laptop's. Noted as a risk (10).
+- **V-P4** holds: with `disable_non_proxied_udp`, a peer connection with a
+  STUN server gathered no candidates at all.
+
 ### 9.6 Skew tests
 
 A fake server advertising `protocolVersion` at each edge of the window and
@@ -1119,6 +1138,7 @@ features, VersionBlocked with both numbers named.
 | Two clients on different versions fighting over one remote | Low / high | Never downgrade, never stop an external or newer server (5.6) |
 | Login-shell noise or a broken profile | Medium / low | Markers: nothing before the first `@@SPRINTENGINE_` line is parsed (E4.1), and it is kept for diagnostics |
 | Agents on the remote that need a terminal (`agent.launch`, `backlog.work`) | Certain / medium | Not offered on SSH servers (parent 6.3), and the UI says why |
+| A public site open in an SSH machine's tabs can send blind requests to that machine's loopback services (V-P3) | Low / medium | The same exposure a local browser without private-network checks has to the laptop's; `paneTraffic: 'loopback'` keeps outside sites off the machine's network |
 | The pane's SOCKS listener on the laptop is reachable by other local users while it is open | Low on single-user laptops / high where it applies | Loopback only, open only while a tab of that environment exists, a uid check on Linux; decision D13 offers an authenticated local end |
 | Pane traffic leaving from the remote surprises the person (no egress there, a proxy it needs, a site that geolocates) | Medium / low | Said in Settings and in the pane's reconnecting line; `paneTraffic: 'loopback'` or `'off'` per machine |
 | Agents on an SSH server lose the browser and canvas when the laptop sleeps | Certain / medium | The ruling's intent: they are the desktop's toolsets. Calls answer `client_unavailable` naming the fix (phase 5); the headless client is the later answer |
@@ -1335,7 +1355,7 @@ Not built yet:
 - `auth.sessions.list` for SSH sessions, `server.logs.tail` in Diagnostics
   (they show the bootstrap's steps, the probe and ssh's words), `ssh -W` as a
   diagnostic, the Windows job
-  (9.4; the Windows shim is written but has not run), and V-P2 to V-P4 (9.5).
+  (9.4; the Windows shim is written but has not run).
 - A published release archive of the server tree, so the remote download
   covers the Node runtime only (5.3).
 
