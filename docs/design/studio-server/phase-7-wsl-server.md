@@ -2,8 +2,8 @@
 
 Status: scoped, 2026-10-01; built behind the per-distribution switch
 (default off) on 2026-10-03, with the parts not built listed in section 14.
-Owner rulings of 2026-10-02 (decisions R70–R74, R78, R87) are applied
-throughout. This file hardens
+Owner rulings of 2026-10-02 (decisions R70–R74, R78, R87) and of 2026-10-03
+(R88: any folder runs on the machine picked) are applied throughout. This file hardens
 phase 7 of `docs/design/studio-server.md` (sections 10.2 and 13) and assumes
 phases 1–6 have landed: an Electron-free core (`createStudioCore`), the Studio
 protocol and `@sprintengine/agent-sdk`, and a Windows-side local server running
@@ -45,10 +45,14 @@ checklist the phase must pass before its default changes.
   bridge**: one `wsl.exe` whose stdio is spliced byte for byte onto the server's
   owner socket. It always works, so a `.wslconfig` cannot break chat.
 - **Which server owns a workspace** is decided by the workspace's machine
-  (`hostId`), never by where the folder sits. A `C:\` folder bound to a WSL
-  machine runs its agents and git in WSL over `/mnt/c`, as it does today. File
-  reads made for the UI (mention search, stat, image previews) stay on the
-  Windows side, where NTFS is fast. Section 6 explains why.
+  (`hostId`), never by where the folder sits, in both directions (owner
+  ruling 2026-10-03, R88). A `C:\` folder bound to a WSL machine runs its
+  agents and git in WSL over `/mnt/c`, as it does today. A folder inside a
+  distribution (`\\wsl.localhost\<distro>\…`, `\\wsl$\…`) bound to This PC
+  runs its agents and git on Windows, over the distribution's share. Where
+  the folder sits is only the default for a workspace that names no machine.
+  File reads made for the UI (mention search, stat, image previews) stay on
+  the Windows side, where NTFS is fast. Section 6 explains why.
 - **The per-process path stays**, behind a per-distribution switch, as the
   fallback and the migration route. It is removed for chats only after a
   release with the server on by default. The helper stays for terminals, the
@@ -678,7 +682,7 @@ As built (2026-10-03):
 | Operation | Workspace on a WSL machine, folder in the distro (`\\wsl.localhost\…`) | Workspace on a WSL machine, folder on a Windows drive (`C:\…`) |
 | --- | --- | --- |
 | Conversations, providers, agent spawn, approvals, plans, attachments store | WSL server | WSL server |
-| Checkpoints, turn diffs, changed files, revert (git) | WSL server (Linux git) | WSL server (Linux git over `/mnt/c`). One git per repository, as ruled 2026-09-24 |
+| Checkpoints, turn diffs, changed files, revert (git) | WSL server (Linux git) | WSL server (Linux git over `/mnt/c`, comparing size and mtime only, R89). One git per repository, as ruled 2026-09-24 |
 | @-mention search, `stat`, image preview, skill reader | WSL server (native ripgrep on ext4: faster than today's Windows ripgrep over UNC) | **Windows side**, native on NTFS (Linux ripgrep over `/mnt/c` is slower than today) |
 | Model discovery, `/` command catalog | WSL server (removes today's "not listed before a chat starts on WSL" gap) | WSL server |
 | Git pane, file explorer, terminals | Shell, through the helper (unchanged in phase 7) | Shell, through the helper (unchanged) |
@@ -738,18 +742,34 @@ whole list to per-environment registries is the environment work of phase 8.
 
 ## 6. Which server owns a `C:\` workspace
 
-**Rule: the workspace's machine decides, as it does today.**
+**Rule: the workspace's machine decides, whatever folder it is in (owner
+ruling 2026-10-03, R88).**
 
 - `hostId: 'local'` (any folder) goes to the Windows local server, natively,
-  with Windows git.
+  with Windows git. That includes a folder inside a distribution: its agents
+  run on Windows with the `\\wsl.localhost\…` folder as their working
+  directory, and Studio's git for it is Git for Windows, told by `-c
+  safe.directory` (never the person's global config) that the Linux-owned
+  repository is theirs.
 - `hostId: 'wsl:<distro>'` goes to that distro's server, whether the folder is
   in the distro or on a Windows drive.
-- A folder inside a distro (`\\wsl.localhost\…`) always goes to that distro's
-  server, **whatever `hostId` says**. A Windows-side server running Windows
-  agents and git against a Linux repository over 9P is the case the
-  2026-09-24 rule exists to prevent, and the git resolver already gives the
-  folder precedence (`app-services.ts`, `byFolder` first). The router uses the
-  same precedence.
+- A workspace with no `hostId` (one made before machines existed) goes by its
+  folder: a folder inside a distro goes to that distro's server, anything
+  else stays here (`workspaceHostIdOf`). A new workspace records `local` only
+  for a folder inside a distribution, where leaving it out would read as that
+  distribution (`hostIdToRecord`).
+- One distribution cannot open another's folder, so New chat refuses that
+  pair, and only that one, with the reason.
+
+Superseded (2026-10-03): this section used to send a folder inside a distro to
+that distro's server whatever `hostId` said, so that a repository never had a
+Windows git and a Linux git working on it. The owner overruled it: "Yes, it'll
+be slower, but people have to get work done." The person's choice of machine
+is the runtime they want, as the next paragraph argues for `C:\` folders. The
+git resolver follows the same rule (`gitHostIdForPath`): a repository's git is
+the machine of the open workspace holding it, a WSL machine wins when two
+workspaces on one folder disagree, and a folder no workspace holds goes by
+where it lives. New chat says the cost in one line (below).
 
 Why not move `C:\` workspaces to a Windows-local server regardless of machine:
 
@@ -780,12 +800,28 @@ included:
 - So the router keeps **UI file reads for `C:\` folders on the Windows side**
   (5.3) and sends only what must be Linux (agents, git) to WSL.
 - New chat shows a one-line note when a WSL workspace is created on a Windows
-  drive: "Faster in the Linux file system: clone into ~/ in this
-  distribution". It is advice, not a block.
+  drive: "On C: — slow from Ubuntu. Run on This PC for full speed.", with the
+  real drive and distribution. It is advice, not a block.
 
-As built (2026-10-03): the advisory is `wslDriveAdvisory` under New chat's
+As built (2026-10-03): the advisory is `slowFolderHint` under New chat's
 scope line, shown for a WSL machine whose chats run on its server and a
 folder on a Windows drive, and nothing else changes for such a chat (R73).
+The owner found the first wording ("Faster in the Linux file system: clone
+into ~/ in this distribution.") confusing and asked for it short and plain.
+The mirror line, "In Ubuntu — slow from Windows. Run on WSL: Ubuntu for full
+speed.", is shown for This PC in a folder inside a distribution, with or
+without the switch, since that chat never involves the server (R88).
+
+Studio's own git on a `C:\` folder from WSL (the server's checkpoints, turn
+diffs and revert over `/mnt/c`, and the Git pane through the helper) runs with
+`-c core.checkStat=minimal` (`DRIVE_MOUNT_GIT_CONFIG`, R89). Measured on a
+3,875-file repository: `git status` took 0.1 s from Windows and 30 s from WSL,
+20 s of it in "refresh index", because the index Git for Windows wrote
+carries inode, owner, ctime and sub-second fields the drive mount never
+matches, so Linux git re-read every tracked file. Size and whole-second mtime
+agree on both sides, and with only those compared the index is trusted. Git
+stays the agents' git, so a checkpoint and a revert see the bytes the agent
+sees.
 With the switch off New chat is as it was. Settings › Machines shows, in each
 distribution's detail, where its chats run (one process per chat, or a
 Studio server in the distribution, marked preview), the server's state in

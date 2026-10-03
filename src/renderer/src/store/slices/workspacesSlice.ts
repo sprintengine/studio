@@ -11,6 +11,7 @@ import {
 import { hasSnooze, snoozeWorkspacePatch, wakeSnoozedWorkspacePatch } from '../../utils/workspaceSnooze'
 import type { WorkspaceFieldsPatch } from '../../../../shared/workspace-sync'
 import { isRetiredWorkspaceMode } from '../../../../shared/workspace-mode'
+import { hostIdToRecord } from '../../../../shared/execution-host'
 import { workspaceProjectRoot, workspaceProjectRootOf } from '../../utils/workspaceWorktree'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
 import { normalizeRecentWorkspaceFolders } from './settingsSlice'
@@ -1174,6 +1175,7 @@ export function createWorkspacesSlice(
 
       set((state) => {
         const folderPath = options?.folderPath ?? null
+        const recordedHostId = hostIdToRecord(options?.hostId, folderPath)
         const fallbackName = `${template.name} ${state.workspaces.length + 1}`
         const explicitMode = options?.mode
         const targetWindowId =
@@ -1241,10 +1243,11 @@ export function createWorkspacesSlice(
           folderPath,
           folderMissing: false,
           ...(options?.remoteOrigin ? { remoteOrigin: options.remoteOrigin } : {}),
-          // Only a machine other than this one is written: an absent hostId
-          // already means this machine, and every workspace on macOS and
+          // Only a machine its folder would not imply is written: an absent
+          // hostId already means this machine (or, for a folder inside a
+          // distribution, that distribution), so every workspace on macOS and
           // Linux stays exactly the record it always was.
-          ...(options?.hostId && options.hostId !== 'local' ? { hostId: options.hostId } : {}),
+          ...(recordedHostId ? { hostId: recordedHostId } : {}),
           ...(options?.environment ? { environment: options.environment } : {}),
           ...(options?.worktree ? { worktree: options.worktree } : {}),
           templateId: template.id,

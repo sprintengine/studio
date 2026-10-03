@@ -1533,7 +1533,27 @@ test('NewAgentPanel', async () => {
           const distroMenu = await openMachineMenu(inDistro)
           const debian = [...distroMenu.querySelectorAll<HTMLButtonElement>('[data-machine-host="wsl:Debian"]')][0]
           assert.equal(debian?.disabled, true, 'another distribution cannot take a folder inside this one')
-          assert.match(debian?.textContent ?? '', /inside WSL: Ubuntu/u)
+          assert.match(debian?.textContent ?? '', /cannot open a folder inside Ubuntu/u)
+          // This PC can take it (owner ruling 2026-10-03): the pick wins over
+          // the folder, rides the launch, and the line under the scope says
+          // what it costs.
+          const thisPc = [...distroMenu.querySelectorAll<HTMLButtonElement>('[data-machine-option="true"]')][0]
+          assert.equal(thisPc?.textContent?.trim(), 'This PC (Windows)')
+          assert.equal(thisPc?.disabled, false, 'This PC is never refused a folder inside a distribution')
+          await click(thisPc!)
+          await settle()
+          assert.equal(machineTrigger(inDistro)?.textContent?.trim(), 'This PC (Windows)', 'the pick wins')
+          assert.match(
+            inDistro.container.textContent ?? '',
+            /In Ubuntu — slow from Windows\. Run on WSL: Ubuntu for full speed\./u,
+          )
+          const startHere = [...inDistro.container.querySelectorAll('button')].find(
+            (button) => button.getAttribute('aria-label') === 'Start agent',
+          )
+          await act(async () => {
+            startHere!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+          })
+          assert.equal(inDistro.launches.at(-1)?.hostId, 'local', 'This PC rides the launch')
           inDistro.unmount()
         } finally {
           hostsAnswer = { hosts: [], wsl: null }

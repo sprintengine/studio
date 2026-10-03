@@ -2,8 +2,7 @@ import type { StudioTransportFactory } from '../../../packages/agent-sdk/src/tra
 import type { StudioCore } from '../../server/core/studio-core'
 import type { ControlRpc } from '../../server/bootstrap/control-rpc'
 import { SERVER_EVENTS, SERVER_METHODS } from '../../server/desktop/server-methods'
-import { isWslHostId } from '../../shared/execution-host'
-import { comparablePath } from '../../shared/host-paths'
+import { gitHostIdForPath } from '../../shared/execution-host'
 import { installGitHostResolver } from '../git-run'
 import { createHostRegistry, installHostRegistry } from '../hosts/host-registry'
 import type { TerminalRootInfo } from '../workspace-memory'
@@ -69,21 +68,14 @@ export function createRemoteCore(link: ShellServerLink): StudioCore {
     lastHosts = next
     hosts.notifyChanged()
   })
-  // The git panel's git for a repository on a WSL machine runs in that
-  // distribution, as the core arranges in process: a folder inside it, or one
-  // an open workspace on that machine holds. The server installs the same rule
-  // for its own git; this is the shell's, for the panel it keeps.
+  // The git panel's git for a repository runs on the machine of the open
+  // workspace holding it, as the core arranges in process (`gitHostIdForPath`).
+  // The server installs the same rule for its own git; this is the shell's,
+  // for the panel it keeps.
   installGitHostResolver((cwd) => {
     if (process.platform !== 'win32') return null
-    const byFolder = hosts.resolve({ folder: cwd })
-    if (byFolder.kind === 'wsl') return byFolder
-    const target = comparablePath(cwd)
-    for (const workspace of mirror.workspaceSync.getSnapshot().state.workspaces) {
-      if (!isWslHostId(workspace.hostId) || !workspace.folderPath) continue
-      const folder = comparablePath(workspace.folderPath)
-      if (target === folder || target.startsWith(`${folder}/`)) return hosts.get(workspace.hostId)
-    }
-    return null
+    const id = gitHostIdForPath(cwd, mirror.workspaceSync.getSnapshot().state.workspaces)
+    return id ? hosts.get(id) : null
   })
 
   // The folders the server's chats run in, for Diagnostics' per-workspace

@@ -6,15 +6,18 @@ import { test } from 'vitest'
 
 import {
   GIT_NETWORK_TIMEOUT_MS,
+  DRIVE_MOUNT_GIT_CONFIG,
   GIT_SAFETY_CONFIG,
   GIT_READ_TIMEOUT_MS,
   classifyGitCommand,
   defaultGitTimeoutMs,
   gitEnv,
+  gitSafetyEnv,
   installGitHostResolver,
   runGit,
   runGitCommand,
   withGitHost,
+  wslShareSafeDirectories,
 } from './git-run'
 
 test('reads are told apart from writes, so only reads get a deadline and skip optional locks', () => {
@@ -203,6 +206,59 @@ test("a repository on another machine gets the same override ahead of the caller
       return { code: 0, stdout: '', stderr: '', timedOut: false }
     },
   }
-  await withGitHost(host, () => runGitCommand('C:\\repo', ['status', '--porcelain']))
+  await withGitHost(host, () => runGitCommand('\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo', ['status', '--porcelain']))
   assert.deepEqual(seen, [[...GIT_SAFETY_CONFIG, 'status', '--porcelain']])
+})
+
+test('Linux git on a Windows drive trusts the index Git for Windows wrote, by size and mtime', async () => {
+  const seen: Array<readonly string[]> = []
+  const host = {
+    kind: 'wsl' as const,
+    runGit: async (_cwd: string, args: readonly string[]) => {
+      seen.push(args)
+      return { code: 0, stdout: '', stderr: '', timedOut: false }
+    },
+  }
+  await withGitHost(host, () => runGitCommand('C:\\Users\\dev\\repo', ['status', '--porcelain']))
+  await withGitHost(host, () => runGitCommand('/mnt/d/work/repo', ['status', '--porcelain']))
+  assert.deepEqual(seen, [
+    [...GIT_SAFETY_CONFIG, ...DRIVE_MOUNT_GIT_CONFIG, 'status', '--porcelain'],
+    [...GIT_SAFETY_CONFIG, ...DRIVE_MOUNT_GIT_CONFIG, 'status', '--porcelain'],
+  ])
+})
+
+test("Git for Windows is told a repository inside a distribution is the person's, for this call only", () => {
+  assert.deepEqual(wslShareSafeDirectories('\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo', 'win32'), [
+    '%(prefix)///wsl.localhost/Ubuntu/home/dev/repo',
+    '%(prefix)///wsl.localhost/Ubuntu/home/dev',
+    '%(prefix)///wsl.localhost/Ubuntu/home',
+    '%(prefix)///wsl.localhost/Ubuntu',
+  ])
+  assert.deepEqual(
+    wslShareSafeDirectories('//wsl$/Debian/srv/', 'win32'),
+    ['%(prefix)///wsl$/Debian/srv', '%(prefix)///wsl$/Debian'],
+    'the share is spelled as given, which is how git names the repository back',
+  )
+  assert.deepEqual(wslShareSafeDirectories('C:\\Users\\dev\\repo', 'win32'), [])
+  assert.deepEqual(wslShareSafeDirectories('\\\\fileserver\\team\\repo', 'win32'), [], 'only a distribution')
+  assert.deepEqual(wslShareSafeDirectories('//wsl.localhost/Ubuntu/home/dev/repo', 'darwin'), [])
+})
+
+test('the environment form carries the same entries after any already there', () => {
+  const env = gitSafetyEnv(
+    { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 'dev' },
+    '//wsl.localhost/Ubuntu/home',
+    'win32',
+  )
+  assert.equal(env.GIT_CONFIG_COUNT, '4')
+  assert.equal(env.GIT_CONFIG_KEY_0, 'user.name')
+  assert.deepEqual(
+    [1, 2, 3].map((n) => [env[`GIT_CONFIG_KEY_${n}`], env[`GIT_CONFIG_VALUE_${n}`]]),
+    [
+      ['core.fsmonitor', 'false'],
+      ['safe.directory', '%(prefix)///wsl.localhost/Ubuntu/home'],
+      ['safe.directory', '%(prefix)///wsl.localhost/Ubuntu'],
+    ],
+  )
+  assert.equal(gitSafetyEnv({}, 'C:\\Users\\dev\\repo', 'win32').GIT_CONFIG_COUNT, '1')
 })

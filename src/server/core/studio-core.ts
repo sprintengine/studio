@@ -2,8 +2,8 @@ import { join } from 'node:path'
 
 import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
 import { effectiveAgentLaunchSettings } from '../../shared/launch-settings'
-import { isWslHostId, type ExecutionHostId, type ExecutionHostSettings } from '../../shared/execution-host'
-import { comparablePath, distroOfUncPath } from '../../shared/host-paths'
+import { gitHostIdForPath, type ExecutionHostId, type ExecutionHostSettings } from '../../shared/execution-host'
+import { distroOfUncPath } from '../../shared/host-paths'
 import { ensureSkillInstalled } from '../../main/builtin-skills'
 import { cliResumeCapabilities } from '../../main/cli-resume-capabilities'
 import {
@@ -177,29 +177,17 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     resolveResumeCapabilities: cliResumeCapabilities,
   })
 
-  // Git for a repository on a WSL machine runs in that distribution: a folder
-  // inside it (`\\wsl.localhost\<distro>\…`), or one an open workspace on that
-  // machine holds. Everything else keeps this machine's git. macOS and Linux
-  // have one machine, so their git never asks.
+  // Git for a repository runs on the machine of the open workspace holding
+  // it, which is where its agents run theirs: a `C:\` folder of a WSL
+  // workspace in that distribution, and a folder inside a distribution on
+  // This PC when its workspace runs here (owner ruling 2026-10-03). A folder
+  // no workspace holds goes by where it lives. macOS and Linux have one
+  // machine, so their git never asks.
   installGitHostResolver((cwd) => {
     if (process.platform !== 'win32') return null
-    const byFolder = hosts.resolve({ folder: cwd })
-    if (byFolder.kind === 'wsl') return byFolder
-    const owner = findWorkspaceHostForPath(cwd)
-    return owner ? hosts.get(owner) : null
+    const id = gitHostIdForPath(cwd, workspaceSyncService.getSnapshot().state.workspaces)
+    return id ? hosts.get(id) : null
   })
-  // The WSL machine of the open workspace whose folder holds `path`: a WSL
-  // workspace whose folder sits on a Windows drive still runs its git in the
-  // distribution, where its agents run theirs.
-  function findWorkspaceHostForPath(path: string): string | null {
-    const target = comparablePath(path)
-    for (const workspace of workspaceSyncService.getSnapshot().state.workspaces) {
-      if (!isWslHostId(workspace.hostId) || !workspace.folderPath) continue
-      const folder = comparablePath(workspace.folderPath)
-      if (target === folder || target.startsWith(`${folder}/`)) return workspace.hostId
-    }
-    return null
-  }
 
   // The conversation runtime: chat sessions and the providers and agent CLI
   // children behind them, transcripts, the thread index and checkpoints. Owned
