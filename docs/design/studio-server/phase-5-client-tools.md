@@ -60,7 +60,8 @@ bring them back later (section 14).
    on removing a tool mid-session. Each MCP connection gets a list that only
    grows, and a tool whose client has gone stays listed and answers a clear
    error (5.3).
-2. **Only Claude chats are handed the gateway at launch.**
+2. **Only Claude chats are handed the gateway at launch.** (Since R86, every
+   chat is; see the end of this finding.)
    `claude-agent-provider.ts:735-738` passes it as an Agent SDK MCP server,
    with the chat's identity stamped on it (`withAgentIdentity`), because the
    chat's child loads no project settings (`app-services.ts:571-588`). Codex
@@ -81,6 +82,41 @@ bring them back later (section 14).
    (`mcp-dispatch.ts:189-191`). In practice a Codex or ACP chat has no
    browser or canvas tools today, and this phase does not change that (open
    decision 7).
+
+   *Done after this phase (R86).* The resolver Claude chats use
+   (`resolveStudioMcpServer`) is handed to every CLI chat
+   (`conversation-runtime.ts`), and the entry is built in one place
+   (`providers/studio-gateway-entry.ts`), always under `STUDIO_MCP_SERVER_ID`,
+   the id a terminal launch pins the gateway into a workspace's config with,
+   and ahead of the session's own servers, any of which under that id is
+   dropped.
+   - **Codex**: the gateway is one more `-c mcp_servers.<id>` override, with
+     the chat's identity in `env` and the token by name in `env_vars`. The
+     app-server's environment names its chat, so `spawnCliHostChild` issues it
+     a token (in its environment here, on stdin in WSL) and Codex passes it on
+     to the bridge; it is never on the app-server's command line. Codex merges
+     a `-c` override into a configured table of the same name (checked with
+     `codex mcp list` against a pinned `.codex/config.toml`), so a pinned entry
+     and the launch's are one server, the launch's.
+   - **ACP** (Cursor, OpenCode, Grok): the agent's environment names no
+     conversation, so the provider issues the token from the session
+     (`acpLaunchToken`), bound to `{ workspaceId, agentId, cliId }`, hands it
+     to the child (`spawnCliHostChild`'s `launch`: its environment here, its
+     stdin in WSL, where it is also the channel token) and puts its value on
+     the gateway's entry in `session/new` and `session/load`. The request
+     travels on the child's stdin, so the token is never on a command line,
+     in `WSLENV` or in a file Studio writes (OpenCode and Cursor were checked
+     not to keep a session's server environment in their own data either). It
+     is revoked when the child ends. A branch made
+     with `session/fork` is not handed the gateway, since the entry carries
+     this chat's token; the fork's own child opens the branch with its own.
+     OpenCode replaces a configured server with a session's of the same name
+     (the pinned entry's process is started and closed at once); Cursor's ACP
+     sessions were not seen to start the project's `.cursor/mcp.json` servers
+     at all; Grok's merge was not checked, and the shared id is what keeps it
+     to one if it keys servers by name.
+   - Each child is a launch: a reopened session, a fork and a restart for a
+     preset change each start a new child with a new token.
 3. **The gateway does not know conversations, only agents.** (Since R87, a
    launch token proves the agent and its conversation; section 7.6.) A connection is
    identified by the `sprintengine.studio/connect` call the stdio bridge sends
@@ -513,7 +549,7 @@ see does not make every agent on the machine re-list. The tailnet listener
 | `studio-agent` in a conversation the owner granted it to (`tools.grant`) | yes | yes |
 | `studio-agent`, any conversation, when the app's reach is `all` | yes | yes |
 | any other `studio-agent` (a chat or terminal agent) | yes | no |
-| `external-local` (no agent id: a CLI the person started, or a chat that loaded a pinned entry, finding 2) | yes | only with reach `all` |
+| `external-local` (no agent id: a CLI the person started, or, before R86, a chat that loaded a pinned entry, finding 2) | yes | only with reach `all` |
 | `remote-tailnet` | as today, through the device's scope gate | no, in v1 |
 
 - "Started" means the conversation's agent record names the app. A chat a
@@ -588,11 +624,11 @@ zero. A standalone, WSL or SSH server sets no expectation and never waits.
 | --- | --- | --- | --- |
 | Claude Code via the Agent SDK (chat) | yes, handed it at launch with its identity (`claude-agent-provider.ts:735-738,789`) | yes from CLI 2.1.0, only when the server declares `tools.listChanged`, which it does. From 2.1.267, tools added mid-session reach the model as deferred definitions found through ToolSearch. | the tools appear from the next turn |
 | Claude Code in a terminal | yes, through the app's plugin directory at launch | as the chat | as the chat |
-| Codex app-server (chat) | no; only from an entry a terminal launch pinned into the workspace's `.codex/config.toml`, if the CLI reads it | no: `on_tool_list_changed` only logs (codex `rmcp-client/src/logging_client_handler.rs`) | at the next thread, once it has the gateway |
+| Codex app-server (chat) | yes since R86: a `-c` override under the pinned entry's id, with its identity and its token by name (finding 2) | no: `on_tool_list_changed` only logs (codex `rmcp-client/src/logging_client_handler.rs`) | at the next thread; until then a tool it listed whose client has gone answers `client_unavailable` (tested in `client-tool-gateway.test.ts`) |
 | Codex in a terminal | yes, the pinned workspace entry | no | at the next session |
-| OpenCode over ACP (chat) | no; only from a pinned `opencode.json` entry, with no identity | yes (`packages/opencode/src/mcp/index.ts`) | next turn, once the gateway is passed to ACP sessions |
-| Cursor agent CLI over ACP (chat) | no; only from a pinned `.cursor/mcp.json` entry, with no identity | reported not to | at the next session |
-| Grok CLI over ACP (chat) | no; only from a pinned `.mcp.json` entry, with no identity | unknown; treated as no | at the next session |
+| OpenCode over ACP (chat) | yes since R86: on `session/new` and `session/load`, with its identity and its token on the entry | yes (`packages/opencode/src/mcp/index.ts`) | next turn |
+| Cursor agent CLI over ACP (chat) | yes since R86, as OpenCode | reported not to | at the next session |
+| Grok CLI over ACP (chat) | yes since R86, as OpenCode | unknown; treated as no | at the next session |
 | OpenCode, Cursor and Grok in a terminal | yes, the pinned workspace entry | as their chats | as their chats |
 
 Studio drives no other ACP runtime today (`ACP_PROFILES`,
@@ -780,7 +816,8 @@ the token, never from what the connection declares.
   child started through `spawnCliHostChild` whose environment names its
   conversation, and a local Claude chat's child (`claude-agent-provider.ts`).
   Revoked when the session or child ends. An ACP chat's environment carries no
-  identity, so it is issued none, which matches finding 2 until R86 lands.
+  identity, so since R86 its provider issues the token from the session and
+  hands it to the child and, on the gateway's entry, to the agent (finding 2).
 - The bridge sends it as `launchToken` on `sprintengine.studio/connect`, on
   the local socket only. A valid token sets the connection's agent and binds
   its conversation; once bound, a second launch's token is refused. A token no
@@ -1433,7 +1470,7 @@ want unattended tools.
 
 | Risk | Mitigation |
 | --- | --- |
-| Agents on Codex, Cursor or Grok do not pick up a client that attaches mid-session | stable lists (5.3); the tools appear at the next session; "client_unavailable" names the fix. Their chats are not handed the gateway today (finding 2, open decision 7); their terminal sessions are. |
+| Agents on Codex, Cursor or Grok do not pick up a client that attaches mid-session | stable lists (5.3); the tools appear at the next session; "client_unavailable" names the fix. Their chats and terminal sessions are handed the gateway at launch (finding 2; R86). |
 | Claude Code's ToolSearch index does not refresh after `list_changed` (anthropics/claude-code#66084) | additions only, never removals; an integration test in the Claude provider suite that a tool added mid-session can be called, run on each CLI bump |
 | An agent's browser work stops when the laptop sleeps | intended under the ruling; the 20 s grace covers blips; the message says to reconnect a desktop; the headless client later |
 | A slow client stalls an agent | per-tool deadlines (4.5), `busy` limits (4.8), cancellation on interrupt (8.4) |
@@ -1502,7 +1539,8 @@ maximum).
 *Recommendation:* ship these and log the distribution of reconnect gaps and
 call durations, then revisit after a release.
 
-**7. Give Codex and ACP chats the gateway at launch?** Today only Claude chats
+**7. Give Codex and ACP chats the gateway at launch?** (Ruled yes, R86, and
+done; finding 2 says how.) Today only Claude chats
 are handed it (finding 2), so only they and terminal agents reliably have the
 browser, canvas or app tools. A Codex or ACP chat reaches the gateway only by
 chance, from an entry a terminal launch pinned into the workspace, and an ACP

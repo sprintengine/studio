@@ -24,8 +24,9 @@ function decodedScript(args: readonly string[]): string {
   return Buffer.from(encoded, 'base64').toString('utf8')
 }
 
-function wslFixture(mcpServers: ConversationMcpServer[] = []) {
+function wslFixture(mcpServers: ConversationMcpServer[] = [], gateway: ConversationMcpServer | null = null) {
   let connection!: CodexRpcOptions
+  const asked: unknown[] = []
   const calls: { method: string; params: unknown }[] = []
   const prepared: string[] = []
   let resolveStarted!: () => void
@@ -38,6 +39,14 @@ function wslFixture(mcpServers: ConversationMcpServer[] = []) {
       return { ...WSL_TARGET, issueChannelToken }
     },
     resolveExecutable: async () => '/home/dev/.local/bin/codex',
+    ...(gateway
+      ? {
+          resolveStudioMcpServer: async (input: unknown) => {
+            asked.push(input)
+            return gateway
+          },
+        }
+      : {}),
     buildEnv: async () => ({
       PATH: 'C:\\Windows\\System32',
       SPRINTENGINE_AGENT_ID: 'agent',
@@ -85,6 +94,7 @@ function wslFixture(mcpServers: ConversationMcpServer[] = []) {
     input,
     calls,
     prepared,
+    asked,
     started,
     get connection() {
       return connection
@@ -157,6 +167,42 @@ test('a Codex chat on a WSL machine starts that machine’s app-server in the fo
   expect(picture?.payload?.input).toMatchObject({
     path: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\.codex\\generated_images\\a.png',
   })
+  f.adapter.disposeAll?.()
+})
+
+test("a Codex chat on a WSL machine is handed that machine's gateway, its token named and never carried", async () => {
+  // The gateway as the distribution's helper describes it: the bridge there,
+  // and the token by name, since the app-server inherits it from its stdin.
+  const gateway: ConversationMcpServer = {
+    id: 'sprintengine-studio',
+    name: 'SprintEngine Studio MCP',
+    transport: 'stdio',
+    command: '/home/dev/.sprintengine/bin/studio',
+    args: ['mcp'],
+    env: { SPRINTENGINE_USER_DATA_DIR: '/home/dev/.local/share/sprintengine-studio' },
+    envVarNames: ['SPRINTENGINE_MCP_CHANNEL_TOKEN'],
+  }
+  const f = wslFixture([], gateway)
+  await f.adapter.startSession(f.input)
+  const turn = (async () => {
+    for await (const _ of (await f.adapter.sendTurn({
+      ...f.input,
+      turnId: 'turn',
+      requestId: 'request',
+      message: 'Hi.',
+    })) as AsyncIterable<ConversationEvent>);
+  })()
+  await f.started
+  expect(f.asked).toEqual([{ hostId: 'wsl:Ubuntu' }])
+  expect(f.connection.args).toEqual([
+    '-c',
+    'mcp_servers.sprintengine-studio={ "command" = "/home/dev/.sprintengine/bin/studio", "args" = ["mcp"], "env_vars" = ["SPRINTENGINE_MCP_CHANNEL_TOKEN"], "env" = { "SPRINTENGINE_USER_DATA_DIR" = "/home/dev/.local/share/sprintengine-studio", "SPRINTENGINE_WORKSPACE_ID" = "workspace", "SPRINTENGINE_AGENT_ID" = "agent", "SPRINTENGINE_AGENT_CLI" = "codex" } }',
+  ])
+  expect(f.connection.args?.join(' ')).not.toContain(TOKEN)
+  // The token the gateway will see is the app-server's own, issued as it starts.
+  expect(f.connection.wsl?.issueChannelToken).toBe(issueChannelToken)
+  await f.message({ method: 'turn/completed', params: { turn: { status: 'completed' } } })
+  await turn
   f.adapter.disposeAll?.()
 })
 

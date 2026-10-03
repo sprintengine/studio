@@ -236,9 +236,9 @@ export type ConversationRuntimeOptions = {
   randomId?: () => string
   // Least time between two running previews of one tool's output; tests shorten it.
   toolPreviewIntervalMs?: number
-  // The app's own MCP gateway for a Claude chat, on the machine its `claude`
-  // runs on (a WSL host's, or this one's). Null leaves it out; the chat runs
-  // without Studio's tools rather than not at all.
+  // The app's own MCP gateway for a CLI chat (Claude Code, Codex, an ACP
+  // agent), on the machine its CLI runs on (a WSL host's, or this one's). Null
+  // leaves it out; the chat runs without Studio's tools rather than not at all.
   resolveStudioMcpServer?: (input: { hostId?: ExecutionHostId }) => Promise<ConversationMcpServer | null>
 }
 
@@ -418,17 +418,19 @@ export class ConversationRuntime {
   constructor(options: ConversationRuntimeOptions = {}) {
     this.secretStore = options.secretStore ?? new ProviderSecretStore()
     this.getProviderById = options.getProviderById ?? getConversationProviderById
+    // Every CLI chat is handed the app's gateway at launch, whichever agent runs it.
+    const studioGateway = options.resolveStudioMcpServer
+      ? { resolveStudioMcpServer: options.resolveStudioMcpServer }
+      : {}
     const defaultAdapters = [
       createMockConversationProvider(),
       createOpenAiCompatibleProvider({
         getProviderById: this.getProviderById,
         resolveSecret: (providerId) => this.resolveSecret(providerId),
       }),
-      createClaudeAgentProvider({
-        ...(options.resolveStudioMcpServer ? { resolveStudioMcpServer: options.resolveStudioMcpServer } : {}),
-      }),
-      createCodexConversationProvider(),
-      ...ACP_PROFILES.map((profile) => createAcpConversationProvider(profile)),
+      createClaudeAgentProvider(studioGateway),
+      createCodexConversationProvider(studioGateway),
+      ...ACP_PROFILES.map((profile) => createAcpConversationProvider(profile, studioGateway)),
     ]
     for (const adapter of options.adapters ?? defaultAdapters) {
       this.adapters.set(adapter.id, adapter)

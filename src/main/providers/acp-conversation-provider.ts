@@ -12,13 +12,21 @@ import {
   CONVERSATION_IDENTITY_ENV_KEYS,
   cliHostSpawn,
   hostMachineName,
+  localLaunchToken,
   mcpServersOnWsl,
   prepareWslCliTarget,
   spawnCliHostChild,
   wslTargetForHost,
+  type WslChannelToken,
   type WslCliChild,
   type WslCliTarget,
 } from './cli-host-child'
+import {
+  isStudioGatewayName,
+  studioGatewayForChat,
+  withStudioGateway,
+  type StudioMcpServerResolver,
+} from './studio-gateway-entry'
 import { isWslHostId, type ExecutionHostId } from '../../shared/execution-host'
 import { AGENT_IDENTITY_ENV_KEYS, MCP_CHANNEL_TOKEN_ENV } from '../../shared/studio-env'
 import { toWslPath, wslPathInRootSpelling } from '../../shared/host-paths'
@@ -378,6 +386,9 @@ type Options = {
   prepareWslTarget?: (hostId: ExecutionHostId) => Promise<WslCliTarget>
   // Starts the child; tests stand in to see what a WSL chat would run.
   spawnChild?: typeof spawn
+  // The app's MCP gateway on the machine the chat's CLI runs on. Null leaves
+  // it out; the chat runs without Studio's tools rather than not at all.
+  resolveStudioMcpServer?: StudioMcpServerResolver
 }
 
 /** Text helpers refuse symlinks in every path component, not only the leaf.
@@ -446,6 +457,26 @@ export function acpClientPath(path: string, root: string, wsl: WslCliTarget | nu
 // the next start.
 function forgetAcpCommand(profile: AcpProfile): void {
   void import('../cli-runtime-install').then(({ invalidateCliExecutable }) => invalidateCliExecutable(profile.cli))
+}
+
+/**
+ * The gateway token for one ACP child, bound to its chat. An ACP agent's
+ * environment names no conversation (acpEnvironment), so the token is issued
+ * here from the session rather than from that environment, and the gateway
+ * entry the agent is told carries its value. On a WSL machine it is also the
+ * channel token the helper opens the bridge's channel with, issued as before
+ * to a child whose session names no chat.
+ */
+function acpLaunchToken(
+  input: Pick<MockAdapterSessionInput, 'workspaceId' | 'agentId'>,
+  cli: string,
+  wsl: WslCliTarget | null,
+): WslChannelToken | null {
+  const workspaceId = input.workspaceId?.trim()
+  const agentId = input.agentId?.trim()
+  const identity = workspaceId && agentId ? { workspaceId, agentId, cliId: cli } : null
+  if (wsl) return wsl.issueChannelToken?.(identity) ?? null
+  return localLaunchToken(identity)
 }
 
 async function acpEnvironment(): Promise<NodeJS.ProcessEnv> {
@@ -713,11 +744,16 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
       const command = await (options.detect ?? ((input) => detectAcpCommand(profile, input.cliRuntimes)))(state.input)
       const env = await environment(state.input)
       Object.assign(env, acpLaunchEnv(profile, state.input.permissionPreset, state.input.permissionMode))
+      const hostId = state.input.cliRuntimes?.[profile.cli]?.hostId
+      const gateway = await options.resolveStudioMcpServer?.({ ...(hostId ? { hostId } : {}) }).catch(() => null)
       if (state.closed) throw new Error('Conversation was stopped during startup.')
       const sdk = await import('@agentclientprotocol/sdk')
       if (state.closed) throw new Error('Conversation was stopped during startup.')
-      // In WSL the child is issued its own MCP channel token, which the app's
-      // gateway the agent starts from its own configuration inherits from it.
+      // The child is issued its own gateway token, bound to this chat, and
+      // taken back when it ends: on stdin in WSL, where it is also the channel
+      // token, and in its environment here. The gateway entry the session is
+      // opened with carries the same value (openSession).
+      const launch = acpLaunchToken(state.input, profile.cli, wsl)
       const child = spawnCliHostChild(
         {
           command,
@@ -725,6 +761,7 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
           cwd: state.input.workspaceRoot ?? '',
           env,
           wsl: wsl ? acpWslChild(wsl, profile, state.input.permissionPreset, state.input.permissionMode) : null,
+          launch,
         },
         { spawn: options.spawnChild ?? spawn },
       )
@@ -903,8 +940,23 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
       const openSession = async (connection: ClientSideConnection) => {
         const resumeId = state.nativeId ?? state.input.resumeSessionId
         state.replayHistory = Boolean(resumeId && !state.loadSupported) || state.seedPending
-        // The session's own servers, on a new session and a reopened one alike.
-        const servers = state.input.mcpServers ?? []
+        // The app's gateway and the session's own servers, on a new session
+        // and a reopened one alike. ACP names a server's environment outright,
+        // so the gateway's entry carries this child's token itself: it travels
+        // in the request, on the child's stdin, and is never on a command line
+        // or in a file. Under the name a terminal launch pins the gateway into
+        // the workspace's config with, so an agent that also reads that file
+        // runs the session's in its place.
+        const servers = withStudioGateway(
+          gateway
+            ? studioGatewayForChat(
+                gateway,
+                { workspaceId: state.input.workspaceId, agentId: state.input.agentId, cli: profile.cli },
+                launch ? { value: launch.token } : null,
+              )
+            : null,
+          state.input.mcpServers ?? [],
+        )
         const mcpServers = acpMcpServers(
           wsl ? mcpServersOnWsl(servers) : servers,
           state.mcpCapabilities,
@@ -1214,7 +1266,13 @@ export function createAcpConversationProvider(profile: AcpProfile, options: Opti
       )
         return { ok: true, cursor: null }
       try {
-        const branched = await connection.unstable_forkSession({ sessionId: state.nativeId, ...state.opened })
+        // Without the gateway: its entry carries this chat's token, and the
+        // branch is another chat's, whose own child opens it with its own.
+        const branched = await connection.unstable_forkSession({
+          sessionId: state.nativeId,
+          cwd: state.opened.cwd,
+          mcpServers: state.opened.mcpServers.filter((server) => !isStudioGatewayName(server.name)),
+        })
         return { ok: true, cursor: { sessionId: String(branched.sessionId), at: null } }
       } catch {
         return { ok: true, cursor: null }
