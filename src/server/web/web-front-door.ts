@@ -15,6 +15,14 @@ import type { LocalClientBus } from '../platform/client-bus'
 import type { StudioAuthenticator } from '../rpc/studio-rpc-types'
 import {
   WEB_BROWSE_FOLDERS_CHANNEL,
+  WEB_DEVICES_APPROVE_CHANNEL,
+  WEB_DEVICES_CHANGED_CHANNEL,
+  WEB_DEVICES_DECLINE_CHANNEL,
+  WEB_DEVICES_LINK_CHANNEL,
+  WEB_DEVICES_RENAME_CHANNEL,
+  WEB_DEVICES_REVOKE_CHANNEL,
+  WEB_DEVICES_STATUS_CHANNEL,
+  type WebDevicesStatus,
   WEB_EMBEDS_CREATE_CHANNEL,
   WEB_EMBEDS_LIST_CHANNEL,
   WEB_EMBEDS_REVOKE_CHANNEL,
@@ -24,6 +32,7 @@ import {
   WEB_PREVIEWS_OPEN_CHANNEL,
 } from '../../shared/web-client'
 import { createPreviewService } from './preview-service'
+import { createPairRequests } from './web-pair-requests'
 import { guardWebTunnelPort } from './web-tunnel-guard'
 import { toolError, toolSuccess } from '../../shared/modules/mcp-tools'
 import { browseFolders, type FolderBrowserInput } from './folder-browser'
@@ -146,8 +155,11 @@ export async function startWebFrontDoor(input: {
   })
 
   // The web tab's own channels, beside the domains every window reaches.
-  tunnel.registry.handle(WEB_BROWSE_FOLDERS_CHANNEL, (_event, request: FolderBrowserInput) =>
-    browseFolders(request ?? {}),
+  // A tailnet browser chooses among the workspaces the server knows (spec 6.5).
+  tunnel.registry.handle(WEB_BROWSE_FOLDERS_CHANNEL, (event, request: FolderBrowserInput) =>
+    onLoopback(event)
+      ? browseFolders(request ?? {})
+      : { ok: false, message: 'Folders are browsed from a browser on the machine Studio runs on.' },
   )
 
   // Previews: an agent's dev server on an origin of its own, per session.
@@ -164,12 +176,18 @@ export async function startWebFrontDoor(input: {
     if (!sessionId) throw new Error('This tab is not paired with Studio.')
     return sessionId
   }
+  const onLoopback = (event: { caller: { clientId: string } }): boolean =>
+    sessions.get(sessionOfClient.get(event.caller.clientId) ?? '')?.route === 'loopback'
+  // A preview exposes the server's loopback to the device, so a tailnet
+  // browser does not open one (R77: not granted to tailnet pairings by default).
   tunnel.registry.handle(WEB_PREVIEWS_LIST_CHANNEL, (event) => {
     sessionFor(event)
-    return previews.list()
+    return onLoopback(event) ? previews.list() : { ports: [] }
   })
   tunnel.registry.handle(WEB_PREVIEWS_OPEN_CHANNEL, (event, request: { port?: unknown; typed?: unknown } | null) =>
-    previews.open({ port: request?.port, sessionId: sessionFor(event), typed: request?.typed === true }),
+    onLoopback(event)
+      ? previews.open({ port: request?.port, sessionId: sessionFor(event), typed: request?.typed === true })
+      : { ok: false, message: 'Previews open in a browser on the machine Studio runs on.' },
   )
   tunnel.registry.handle(WEB_PREVIEWS_CLOSE_CHANNEL, (event, request: { previewId?: unknown } | null) =>
     typeof request?.previewId === 'string' ? previews.close(request.previewId, sessionFor(event)) : false,
@@ -181,6 +199,56 @@ export async function startWebFrontDoor(input: {
   })
   // A removed browser's previews close with it.
   const stopPreviewRevocations = sessions.onRevoked((sessionId) => void previews.closeSession(sessionId))
+
+  // Devices: the browsers paired here, and the ones asking by approval.
+  const pairRequests = createPairRequests({ sessions })
+  const devicesStatus = (clientId?: string): WebDevicesStatus => {
+    const current = clientId ? sessionOfClient.get(clientId) : undefined
+    return {
+      devices: sessions.list().map((session) => ({
+        id: session.id,
+        name: session.name,
+        route: session.route,
+        createdAt: session.createdAt,
+        expiresAt: session.expiresAt,
+        lastSeenAt: session.lastSeenAt,
+        current: session.id === current,
+      })),
+      requests: pairRequests.pending(),
+      origins: listener.origins(),
+    }
+  }
+  const announceDevices = () => {
+    for (const clientId of sessionOfClient.keys())
+      tunnel.publish(WEB_DEVICES_CHANGED_CHANNEL, devicesStatus(clientId), { clientId })
+  }
+  const stopRequestPushes = pairRequests.onChanged(announceDevices)
+  const stopRevokePushes = sessions.onChanged(announceDevices)
+  tunnel.registry.handle(WEB_DEVICES_STATUS_CHANNEL, (event) => devicesStatus(event.caller.clientId))
+  tunnel.registry.handle(WEB_DEVICES_REVOKE_CHANNEL, (_event, request: { id?: unknown } | null) =>
+    typeof request?.id === 'string' ? sessions.revoke(request.id) : false,
+  )
+  tunnel.registry.handle(WEB_DEVICES_RENAME_CHANNEL, (_event, request: { id?: unknown; name?: unknown } | null) => {
+    return (
+      typeof request?.id === 'string' && typeof request.name === 'string' && sessions.rename(request.id, request.name)
+    )
+  })
+  // A pairing link for another browser, on one of this server's own origins.
+  tunnel.registry.handle(WEB_DEVICES_LINK_CHANNEL, (_event, request: { origin?: unknown } | null) => {
+    const origin =
+      typeof request?.origin === 'string' && listener.origins().includes(request.origin) ? request.origin : undefined
+    return listener.pairingUrl(origin)
+  })
+  tunnel.registry.handle(
+    WEB_DEVICES_APPROVE_CHANNEL,
+    (_event, request: { requestId?: unknown; code?: unknown } | null) =>
+      typeof request?.requestId === 'string' && typeof request.code === 'string'
+        ? pairRequests.approve(request.requestId, request.code)
+        : { ok: false, message: 'Name the request and the code it shows.' },
+  )
+  tunnel.registry.handle(WEB_DEVICES_DECLINE_CHANNEL, (_event, request: { requestId?: unknown } | null) =>
+    typeof request?.requestId === 'string' ? pairRequests.decline(request.requestId) : false,
+  )
 
   // Embeds: one conversation, read-only, framed by the pages their owner named.
   const embeds = createEmbedStore({ dataDir, log: input.log })
@@ -214,6 +282,7 @@ export async function startWebFrontDoor(input: {
     publicOrigins: input.options.publicOrigins,
     devOrigin: input.options.devOrigin ?? null,
     mintKey,
+    pairRequests,
     version: input.version,
     thirdPartyModules: () => input.options.thirdPartyModules === true,
     studio: {
@@ -303,6 +372,8 @@ export async function startWebFrontDoor(input: {
       stopPreviewPushes()
       stopPreviewRevocations()
       stopEmbedRevocations()
+      stopRequestPushes()
+      stopRevokePushes()
       await previews.stop()
       await listener.stop()
       for (const client of tunnel.clients()) tunnel.detach(client.clientId)

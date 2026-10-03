@@ -71,3 +71,64 @@ body {
   font-family: var(--sem-font-family-mono);
   user-select: all;
 }
+
+.pair-ask,
+.pair-code {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sem-space-sm);
+}
+
+.pair-ask[hidden],
+.pair-code[hidden] {
+  display: none;
+}
+
+.pair-code p {
+  margin: 0;
+}
+
+.pair-label {
+  color: var(--sem-color-text-muted);
+}
+
+.pair-input {
+  box-sizing: border-box;
+  height: var(--sem-size-control-md);
+  padding: 0 var(--sem-space-md);
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-surface);
+  color: var(--sem-color-text-primary);
+  font: inherit;
+}
+
+.pair-input:focus-visible,
+.pair-button:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-space-3xs);
+}
+
+.pair-button {
+  align-self: flex-start;
+  height: var(--sem-size-control-md);
+  padding: 0 var(--sem-space-lg);
+  border: 0;
+  border-radius: var(--sem-radius-control);
+  background: var(--sem-color-accent-primary);
+  color: var(--sem-color-text-on-accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pair-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.pair-digits {
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-title);
+  letter-spacing: var(--sem-space-xs);
+}

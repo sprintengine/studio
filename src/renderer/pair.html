@@ -20,11 +20,24 @@
       <img class="pair-mark" src="./src/assets/brand/sprintengine/mark-on-dark.svg" alt="" width="40" height="40" />
       <h1 class="pair-title">Pair this browser with Studio</h1>
       <p id="pair-status" class="pair-status" role="status" aria-live="polite">Checking this browser…</p>
+      <form id="pair-ask" class="pair-ask" hidden aria-labelledby="pair-ask-title">
+        <h2 id="pair-ask-title" class="pair-help-title">Ask Studio to let this browser in</h2>
+        <label class="pair-label" for="pair-name">Name this browser</label>
+        <input id="pair-name" class="pair-input" name="name" maxlength="60" autocomplete="off" />
+        <button id="pair-ask-button" class="pair-button" type="submit">Ask to pair</button>
+      </form>
+      <section id="pair-code" class="pair-code" hidden aria-labelledby="pair-code-title">
+        <h2 id="pair-code-title" class="pair-help-title">Type this code in Studio</h2>
+        <p id="pair-digits" class="pair-digits" aria-live="assertive"></p>
+        <p>Open Studio on a browser or the desktop app that is already paired, go to Settings, then Remote, and enter
+          these six digits beside this browser's request. This page opens Studio when it is let in.</p>
+      </section>
       <section id="pair-help" class="pair-help" hidden aria-labelledby="pair-help-title">
         <h2 id="pair-help-title" class="pair-help-title">Get a pairing link</h2>
         <p>On the machine Studio runs on, run:</p>
         <pre class="pair-command"><code>studio-server pair</code></pre>
-        <p>Open the link it prints in this browser. It works once, within five minutes.</p>
+        <p>Open the link it prints in this browser. It works once, within five minutes. Or ask to pair above,
+          and let this browser in from Studio's Settings.</p>
       </section>
     </main>
     <script type="module" src="/src/web/pair/pairPage.ts"></script>

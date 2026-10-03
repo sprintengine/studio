@@ -17,6 +17,7 @@ import {
 } from './web-http'
 import type { WebRoute, WebSession, WebSessionStore, WebTicketSubject } from './web-sessions'
 import { WEB_PAIRING_FAILED } from './web-sessions'
+import type { PairRequests } from './web-pair-requests'
 import {
   WEB_CLOSE_REVOKED,
   acceptWebSocket,
@@ -38,6 +39,8 @@ import { resolveStaticFile, serveStaticFile, type WebStaticRoot } from './web-st
 //   GET  /pair                               the pairing page (no auth)
 //   POST /pair/exchange                      a one-time code for a session cookie
 //   POST /pair/mint                          a pairing code, for `studio-server pair` (the run file's key)
+//   POST /pair/request                       ask to pair by approval; answers the six digits to show
+//   POST /pair/request/collect               poll an approval; answers the session cookie once
 //   GET  /api/session                        the session this cookie holds
 //   POST /api/logout                         forget this browser
 //   GET  /, any app route                    the app (session, else to /pair)
@@ -82,6 +85,8 @@ export type WebListenerOptions = {
   mintKey: string
   studio: WebStudioAttach
   tunnel?: WebTunnelAttach | null
+  /** Pairing by approval: a browser asks, the owner types the digits it shows. */
+  pairRequests?: PairRequests | null
   /** Whether third-party renderer modules are on for the web (R61): their scripts are `blob:` URLs. */
   thirdPartyModules?: () => boolean
   version: string
@@ -232,6 +237,52 @@ export function createWebListener(options: WebListenerOptions): WebListener {
         { ok: true, session: exchanged.session },
         {
           'Set-Cookie': serializeCookie(options.sessions.cookieName, exchanged.secret, {
+            secure: cookieIsSecure(origin),
+            maxAgeSeconds: maxAge,
+          }),
+        },
+      )
+      return
+    }
+
+    if (url.pathname === '/pair/request' && method === 'POST' && options.pairRequests) {
+      let name: unknown
+      try {
+        name = (JSON.parse((await readBody(request, MAX_JSON_BODY_BYTES)).toString('utf8')) as { name?: unknown }).name
+      } catch {
+        name = undefined
+      }
+      const created = options.pairRequests.create({
+        name,
+        userAgent: request.headers['user-agent'] ?? null,
+        route: routeOf(host, policy()),
+      })
+      sendJson(response, created.ok ? 200 : 429, created)
+      return
+    }
+
+    if (url.pathname === '/pair/request/collect' && method === 'POST' && options.pairRequests) {
+      let body: { requestId?: unknown; collect?: unknown } = {}
+      try {
+        body = JSON.parse((await readBody(request, MAX_JSON_BODY_BYTES)).toString('utf8')) as typeof body
+      } catch {
+        // An empty answer below.
+      }
+      const collected =
+        typeof body.requestId === 'string' && typeof body.collect === 'string'
+          ? options.pairRequests.collect(body.requestId, body.collect)
+          : ({ status: 'expired' } as const)
+      if (collected.status !== 'approved') {
+        sendJson(response, 200, collected)
+        return
+      }
+      const maxAge = (Date.parse(collected.session.expiresAt) - Date.now()) / 1000
+      sendJson(
+        response,
+        200,
+        { status: 'approved', session: collected.session },
+        {
+          'Set-Cookie': serializeCookie(options.sessions.cookieName, collected.secret, {
             secure: cookieIsSecure(origin),
             maxAgeSeconds: maxAge,
           }),

@@ -35,6 +35,8 @@ export const CLIENT_CAPABILITIES = [
   'deep-links',
   /** A dropped file's path on disk. */
   'drag-paths',
+  /** Administer the tailnet lane and pair other machines and apps: the desktop app's alone (phase 9 spec, 14.8). */
+  'tailnet-admin',
 ] as const
 
 export type ClientCapability = (typeof CLIENT_CAPABILITIES)[number]

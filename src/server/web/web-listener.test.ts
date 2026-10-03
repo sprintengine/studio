@@ -8,6 +8,7 @@ import { brotliCompressSync } from 'node:zlib'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 
 import { createWebListener, type WebListener } from './web-listener'
+import { createPairRequests, type PairRequests } from './web-pair-requests'
 import { createWebSessionStore, type WebSessionStore } from './web-sessions'
 import { openWebStaticRoot } from './web-static'
 
@@ -20,6 +21,7 @@ let listener: WebListener
 let port: number
 let connected: Array<{ stream: Duplex; who: unknown }>
 let tunnelled: string[]
+let pairRequests: PairRequests
 const MINT_KEY = 'mint-key-for-the-test-only-0123456789'
 
 beforeEach(async () => {
@@ -41,6 +43,7 @@ beforeEach(async () => {
     port: 0,
     publicOrigins: [],
     mintKey: MINT_KEY,
+    pairRequests: (pairRequests = createPairRequests({ sessions })),
     version: 'test',
     studio: { connect: (stream, who) => connected.push({ stream, who }) },
     tunnel: { attach: (client) => tunnelled.push(client.clientId), detach: () => undefined },
@@ -243,9 +246,9 @@ test('the window.api tunnel is an owner session’s only', async () => {
   const ok = await upgrade('/ws/ipc?windowId=primary', { Cookie: owner.cookie, Origin: own() })
   ok.socket.destroy()
   expect(ok.status).toBe(101)
-  const tailnet = sessions.exchange(sessions.mintPairingCode({ route: 'tailnet' }).code, { route: 'tailnet' })
-  if (!tailnet.ok) throw new Error('not paired')
-  const refused = await upgrade('/ws/ipc', { Cookie: `${sessions.cookieName}=${tailnet.secret}`, Origin: own() })
+  const reader = sessions.issue({ route: 'loopback', owner: false })
+  if (!reader.ok) throw new Error('not paired')
+  const refused = await upgrade('/ws/ipc', { Cookie: `${sessions.cookieName}=${reader.secret}`, Origin: own() })
   refused.socket.destroy()
   expect(refused.status).toBe(403)
   expect(tunnelled).toHaveLength(1)
@@ -276,4 +279,31 @@ test('the canvas worker page may be framed by the app itself, and by nothing els
   expect(String(answer.headers['content-security-policy'])).toContain("frame-ancestors 'self'")
   expect(answer.headers['x-frame-options']).toBe('SAMEORIGIN')
   expect(String((await ask('/pair')).headers['content-security-policy'])).toContain("frame-ancestors 'none'")
+})
+
+test('pairing by approval: asked from the page’s own origin only, collected once with the cookie', async () => {
+  const foreign = await ask('/pair/request', {
+    method: 'POST',
+    headers: { Origin: 'http://127.0.0.1:3000', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'Phone' }),
+  })
+  expect(foreign.status).toBe(403)
+  const asked = await ask('/pair/request', {
+    method: 'POST',
+    headers: { Origin: own(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'Phone' }),
+  })
+  const { requestId, code, collect } = JSON.parse(asked.body) as { requestId: string; code: string; collect: string }
+  const poll = () =>
+    ask('/pair/request/collect', {
+      method: 'POST',
+      headers: { Origin: own(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requestId, collect }),
+    })
+  expect(JSON.parse((await poll()).body)).toEqual({ status: 'pending' })
+  expect(pairRequests.approve(requestId, code)).toEqual({ ok: true })
+  const approved = await poll()
+  expect(JSON.parse(approved.body).status).toBe('approved')
+  expect(approved.headers['set-cookie']?.[0]).toMatch(/^se_s_057639145fa0=sesess_.*HttpOnly; SameSite=Strict/u)
+  expect(JSON.parse((await poll()).body)).toEqual({ status: 'expired' })
 })

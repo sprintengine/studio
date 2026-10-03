@@ -4,6 +4,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import type { RegisteredSettingsSection } from '../../modules/renderer-host'
 import { AutomationServerSettings } from './AutomationServerSettings'
+import { BrowsersSettings } from './BrowsersSettings'
 import { LocalAppsSettings } from './LocalAppsSettings'
 import { StudioServerSettings } from './StudioServerSettings'
 import { ModuleSettingsSectionHost } from './ModuleSettingsSection'
@@ -95,7 +96,7 @@ import { useSettingsUpdateBadges } from './useSettingsUpdateBadges'
 import { subscribeAppUpdateState, useAppUpdateStore } from '../../store/appUpdateStore'
 import type { SettingsUpdateBadge } from '../../utils/settingsUpdateBadges'
 import { sourceUpdateCadenceLine, type SkillRepoTransport } from '../../../../shared/skills'
-import { hostPlatform } from '../../clientCapabilities'
+import { clientSupports, hostPlatform } from '../../clientCapabilities'
 
 interface Props {
   onClose: () => void
@@ -1518,7 +1519,7 @@ export default function SettingsPanel({
           <AutomationServerSettings />
           {/* The applications paired with Studio's owner socket sit beside
               the gateway: both are doors onto this machine's agents. */}
-          <LocalAppsSettings />
+          {clientSupports('tailnet-admin') ? <LocalAppsSettings /> : null}
           {/* Where the server behind both of them runs (phase 6): inside the
               app, or in a process of its own. */}
           <StudioServerSettings />
@@ -1607,7 +1608,13 @@ export default function SettingsPanel({
 
       {activeSettingsTab === 'modules' ? <ModulesSettingsTab /> : null}
 
-      {activeSettingsTab === 'remote' ? <RemoteTailnetSettingsTab /> : null}
+      {activeSettingsTab === 'remote' ? (
+        <>
+          {/* The browsers paired with a web listener: drawn only where the server answers (a web tab). */}
+          <BrowsersSettings />
+          {clientSupports('tailnet-admin') ? <RemoteTailnetSettingsTab /> : null}
+        </>
+      ) : null}
 
       {activeTab.moduleSection ? (
         <div

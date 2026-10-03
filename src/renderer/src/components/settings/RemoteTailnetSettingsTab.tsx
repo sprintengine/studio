@@ -556,7 +556,7 @@ function PairingCodeCard({
  * a dark surface is a square a camera may refuse. The quiet zone is part of the
  * format, not padding we chose.
  */
-function QrSquare({ matrix, label }: { matrix: { size: number; modules: boolean[][] }; label: string }) {
+export function QrSquare({ matrix, label }: { matrix: { size: number; modules: boolean[][] }; label: string }) {
   const QUIET_ZONE = 4
   const extent = matrix.size + QUIET_ZONE * 2
   const path = useMemo(() => {

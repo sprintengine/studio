@@ -18,6 +18,37 @@ export const WEB_EMBEDS_CREATE_CHANNEL = 'web:embeds:create'
 export const WEB_EMBEDS_LIST_CHANNEL = 'web:embeds:list'
 export const WEB_EMBEDS_REVOKE_CHANNEL = 'web:embeds:revoke'
 
+/** The browsers paired with this server, and the ones asking to be (phase 9 spec, 6.2). */
+export const WEB_DEVICES_STATUS_CHANNEL = 'web:devices:status'
+export const WEB_DEVICES_REVOKE_CHANNEL = 'web:devices:revoke'
+export const WEB_DEVICES_RENAME_CHANNEL = 'web:devices:rename'
+export const WEB_DEVICES_LINK_CHANNEL = 'web:devices:link'
+export const WEB_DEVICES_APPROVE_CHANNEL = 'web:devices:approve'
+export const WEB_DEVICES_DECLINE_CHANNEL = 'web:devices:decline'
+/** Pushed to every owner tab when a browser is paired, removed, or asks. */
+export const WEB_DEVICES_CHANGED_CHANNEL = 'web:devices:changed'
+
+export type WebDevice = {
+  id: string
+  name: string
+  route: 'loopback' | 'tailnet'
+  createdAt: string
+  expiresAt: string
+  lastSeenAt: string | null
+  /** The browser asking: the one whose Settings this is. */
+  current: boolean
+}
+
+export type WebPairRequest = {
+  requestId: string
+  name: string
+  route: 'loopback' | 'tailnet'
+  createdAt: string
+  expiresAt: string
+}
+
+export type WebDevicesStatus = { devices: WebDevice[]; requests: WebPairRequest[]; origins: string[] }
+
 /** The channels the web front door adds to a tab's tunnel, beside the server's own (SERVER_IPC_CHANNELS). */
 export const WEB_TUNNEL_CHANNELS: Readonly<Record<string, ServerIpcChannel>> = {
   [WEB_BROWSE_FOLDERS_CHANNEL]: { retry: 'once' },
@@ -27,6 +58,12 @@ export const WEB_TUNNEL_CHANNELS: Readonly<Record<string, ServerIpcChannel>> = {
   [WEB_EMBEDS_CREATE_CHANNEL]: {},
   [WEB_EMBEDS_LIST_CHANNEL]: { retry: 'once' },
   [WEB_EMBEDS_REVOKE_CHANNEL]: {},
+  [WEB_DEVICES_STATUS_CHANNEL]: { retry: 'once' },
+  [WEB_DEVICES_REVOKE_CHANNEL]: {},
+  [WEB_DEVICES_RENAME_CHANNEL]: {},
+  [WEB_DEVICES_LINK_CHANNEL]: {},
+  [WEB_DEVICES_APPROVE_CHANNEL]: {},
+  [WEB_DEVICES_DECLINE_CHANNEL]: {},
 }
 
 /** A port an agent of the server listens on, offered for a preview. */

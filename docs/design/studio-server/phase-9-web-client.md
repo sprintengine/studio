@@ -1505,3 +1505,31 @@ keeps the same swaps, since the browser's own window still takes
   conversation subscriptions and makes them again on each new port, in a
   desktop window whose out-of-process server restarted as in a tab whose
   socket came back.
+
+### 14.9 Devices, and pairing by approval (2026-10-03)
+
+- **Settings → Remote → Browsers**, in an owner's tab: every paired browser,
+  with where it paired from, when it was last seen and when its pairing ends,
+  and Remove, which closes its connections at once (a removed tab goes back
+  to `/pair`). "Pair another browser" makes a one-time link on one of the
+  server's origins, shown as text and as a QR code (the repo's own encoder).
+  Pending requests wait here.
+- **Pairing by approval (6.2)**, as specified, with the owner's prompt in
+  that Settings section rather than the desktop's: the pairing page asks
+  (`POST /pair/request`, the exact-Origin rule applies), shows six digits,
+  and polls `POST /pair/request/collect` with a secret only it holds, kept in
+  the tab's session storage; the owner types the digits; three wrong tries
+  decline; a request lives five minutes; eight wait at most. The session is
+  handed over once, with the cookie, on the first poll after approval.
+- **A browser paired over the tailnet is the owner's** (it reaches the
+  tunnel's allow-list, 14.8), because a session without the tunnel cannot
+  run the app at all. What 6.5, R77 and R79 withhold from tailnet pairings is
+  held where it is served: such a session never holds `tools:offer`, opens no
+  preview, and browses no folders (it chooses among the workspaces the server
+  knows). The pairing-link route keeps the same rule.
+- **The tailnet lane's and local apps' Settings are the desktop's**: a tab
+  hides them (`clientSupports('tailnet-admin')`, a capability added for it).
+- **Not built: "Open in browser" on the desktop.** The desktop's own server
+  runs no web listener (in process it cannot, and out of process it is not
+  composed with one), so there is no link for it to open; the Browsers
+  section is where a link and its QR code are made.

@@ -54,11 +54,12 @@ test('a code is spent even when the exchange is refused', () => {
   expect(sessions.exchange(code, { route: 'loopback' }).ok).toBe(false)
 })
 
-test('a browser that paired over the tailnet holds neither the owner flag nor tools:offer', () => {
+test('a browser that paired over the tailnet is the owner’s, but never offers tools', () => {
   const sessions = store()
   const exchanged = sessions.exchange(sessions.mintPairingCode().code, { route: 'tailnet' })
-  expect(exchanged.ok && exchanged.session.owner).toBe(false)
+  expect(exchanged.ok && exchanged.session.route).toBe('tailnet')
   expect(exchanged.ok && exchanged.session.scopes).not.toContain('tools:offer')
+  expect(exchanged.ok && sessions.grantFor(exchanged.session.id)?.scopes).not.toContain('tools:offer')
 })
 
 test('only the hash reaches disk, owner-only', () => {

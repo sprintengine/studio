@@ -80,6 +80,16 @@ export type WebSessionStore = {
     code: string,
     input: { userAgent?: string | null; route: WebRoute },
   ): { ok: true; session: WebSession; secret: string } | { ok: false; message: string }
+  /**
+   * Make a session for a browser the owner let in another way (an approved
+   * pairing request). The owner's own unless `owner: false` says otherwise.
+   */
+  issue(input: {
+    userAgent?: string | null
+    name?: string
+    route: WebRoute
+    owner?: boolean
+  }): { ok: true; session: WebSession; secret: string } | { ok: false; message: string }
   /** The live session one of these cookie values proves, or null. */
   authenticate(secrets: readonly string[]): WebSession | null
   get(id: string): WebSession | null
@@ -87,6 +97,8 @@ export type WebSessionStore = {
   rename(id: string, name: string): boolean
   revoke(id: string): boolean
   onRevoked(listener: (sessionId: string) => void): () => void
+  /** Hear any change to the list: a browser paired, renamed or removed. */
+  onChanged(listener: () => void): () => void
   /** The grant a session holds now, or null once it is revoked or has expired. */
   grantFor(sessionId: string): StudioGrant | null
   recordSeen(id: string): void
@@ -153,6 +165,10 @@ export function createWebSessionStore(options: {
   const codes: PairingCode[] = []
   const tickets: Ticket[] = []
   const revokedListeners = new Set<(sessionId: string) => void>()
+  const changedListeners = new Set<() => void>()
+  const changed = () => {
+    for (const listener of [...changedListeners]) listener()
+  }
   const lastPersistedSeen = new Map<string, number>()
   let sessions: StoredSession[] = load()
 
@@ -217,6 +233,7 @@ export function createWebSessionStore(options: {
   }
 
   function announceRevoked(sessionId: string): void {
+    changed()
     for (const listener of [...revokedListeners]) {
       try {
         listener(sessionId)
@@ -224,6 +241,37 @@ export function createWebSessionStore(options: {
         options.log?.(`a revocation listener threw: ${error instanceof Error ? error.message : String(error)}`)
       }
     }
+  }
+
+  function issue(input: {
+    userAgent?: string | null
+    name?: string
+    route: WebRoute
+    owner: boolean
+  }): { ok: true; session: WebSession; secret: string } | { ok: false; message: string } {
+    if (sessions.length >= MAX_SESSIONS) {
+      return { ok: false, message: `Studio holds ${MAX_SESSIONS} paired browsers already. Remove one first.` }
+    }
+    const value = secret('sesess_')
+    const at = now()
+    const stored: StoredSession = {
+      id: randomUUID(),
+      name: (input.name ? sanitizeName(input.name) : '') || browserNameFromUserAgent(input.userAgent),
+      kind: 'web',
+      route: input.route,
+      owner: input.owner,
+      // A tailnet browser never offers tools (R79); what else it may not do
+      // is held where it is served (no previews, no folder browser).
+      scopes: input.route === 'loopback' ? [...STUDIO_SCOPES] : [...TAILNET_SCOPES],
+      createdAt: new Date(at).toISOString(),
+      expiresAt: new Date(at + SESSION_LIFETIME_MS).toISOString(),
+      lastSeenAt: new Date(at).toISOString(),
+      secretHash: hashSecret(value),
+    }
+    sessions = [...sessions, stored]
+    save()
+    changed()
+    return { ok: true, session: view(stored), secret: value }
   }
 
   return {
@@ -247,30 +295,13 @@ export function createWebSessionStore(options: {
       if (index < 0) return { ok: false, message: WEB_PAIRING_FAILED }
       const [spent] = codes.splice(index, 1)
       if (spent.expiresAtMs <= now()) return { ok: false, message: WEB_PAIRING_FAILED }
-      if (sessions.length >= MAX_SESSIONS) {
-        return { ok: false, message: `Studio holds ${MAX_SESSIONS} paired browsers already. Remove one first.` }
-      }
       // A browser that arrived over the tailnet never holds more than a
       // tailnet pairing may, whatever the code was minted for.
       const route: WebRoute = spent.route === 'tailnet' || input.route === 'tailnet' ? 'tailnet' : 'loopback'
-      const value = secret('sesess_')
-      const at = now()
-      const stored: StoredSession = {
-        id: randomUUID(),
-        name: browserNameFromUserAgent(input.userAgent),
-        kind: 'web',
-        route,
-        owner: spent.owner && route === 'loopback',
-        scopes: route === 'loopback' ? [...STUDIO_SCOPES] : [...TAILNET_SCOPES],
-        createdAt: new Date(at).toISOString(),
-        expiresAt: new Date(at + SESSION_LIFETIME_MS).toISOString(),
-        lastSeenAt: new Date(at).toISOString(),
-        secretHash: hashSecret(value),
-      }
-      sessions = [...sessions, stored]
-      save()
-      return { ok: true, session: view(stored), secret: value }
+      return issue({ userAgent: input.userAgent ?? null, route, owner: spent.owner })
     },
+
+    issue: (input) => issue({ ...input, owner: input.owner ?? true }),
 
     authenticate(secrets) {
       if (secrets.length === 0) return null
@@ -299,6 +330,7 @@ export function createWebSessionStore(options: {
       if (!found || !clean) return false
       found.name = clean
       save()
+      changed()
       return true
     },
 
@@ -318,6 +350,11 @@ export function createWebSessionStore(options: {
     onRevoked(listener) {
       revokedListeners.add(listener)
       return () => revokedListeners.delete(listener)
+    },
+
+    onChanged(listener) {
+      changedListeners.add(listener)
+      return () => changedListeners.delete(listener)
     },
 
     grantFor(sessionId) {
