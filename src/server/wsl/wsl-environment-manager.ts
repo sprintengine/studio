@@ -136,6 +136,8 @@ type Handle = {
   server: RunningWslServer | null
   connection: WslServerConnection | null
   starting: Promise<WslServerConnection> | null
+  /** The background reconnect after a lost wire, while it is `starting`. */
+  reconnecting: Promise<WslServerConnection> | null
   token: string | null
   crashes: number
   retryAt: number
@@ -160,6 +162,7 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
         server: null,
         connection: null,
         starting: null,
+        reconnecting: null,
         token: null,
         crashes: 0,
         retryAt: 0,
@@ -346,15 +349,19 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
       // reconnect instead of opening a second wire beside it.
       const reconnecting = (handle.starting ??= connectBackend(handle).finally(() => {
         if (handle.starting === reconnecting) handle.starting = null
+        if (handle.reconnecting === reconnecting) handle.reconnecting = null
       }))
+      handle.reconnecting = reconnecting
       void reconnecting.then(
         () => undefined,
         (error: unknown) => {
+          // The server itself went meanwhile: its exit has said why.
+          if (handle.server !== server) return
           setStatus(handle, {
             state: 'unavailable',
             reason: `The connection to the Studio server in ${handle.distro} was lost: ${error instanceof Error ? error.message : String(error)}`,
           })
-          handle.server?.kill()
+          server.kill()
         },
       )
     })
@@ -381,6 +388,10 @@ export function createWslEnvironmentManager(deps: WslEnvironmentManagerDeps): Ws
     if (handle.server !== server) return
     handle.server = null
     handle.token = null
+    // A wire lost because the server died is not reconnected: the next call
+    // starts a server (or is told when it will), not waits on a dead one.
+    if (handle.reconnecting && handle.starting === handle.reconnecting) handle.starting = null
+    handle.reconnecting = null
     const connection = handle.connection
     handle.connection = null
     clearTimers(handle)
