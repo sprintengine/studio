@@ -6,11 +6,12 @@ import {
   type ExecutionHostId,
   type ExecutionHostSettings,
   type ExecutionHostSummary,
+  type WslChatServerSummary,
 } from '../../../../shared/execution-host'
 import { useExecutionHosts } from '../../hooks/useExecutionHosts'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { WslMachineGlyph } from '../AppIcons'
-import { GhostButton, InlineNotice, Input, OutlineButton, ProviderRow, ProviderStateId, Textarea } from '../ui'
+import { GhostButton, InlineNotice, Input, OutlineButton, ProviderRow, ProviderStateId, Select, Textarea } from '../ui'
 import { SettingCard, SettingsPageHeader, SettingsRow, SettingsSectionTitle } from './SettingsAtoms'
 
 const ROW_FIELD = 'w-60 max-w-full font-mono'
@@ -47,6 +48,33 @@ export function machineStateWords(host: ExecutionHostSummary): string {
           : (host.reason ?? 'Unavailable')
   const version = host.wslVersion ? ` · WSL ${host.wslVersion}` : ''
   return `${lead}${version}`
+}
+
+const CHAT_SERVER_ITEMS: Array<{ value: 'off' | 'on'; label: string }> = [
+  { value: 'off', label: 'One process per chat' },
+  { value: 'on', label: 'A Studio server in the distribution (preview)' },
+]
+
+const SERVER_TRANSPORT_ITEMS: Array<{ value: 'auto' | 'stdio'; label: string }> = [
+  { value: 'auto', label: 'Loopback, else the bridge' },
+  { value: 'stdio', label: 'Always the bridge' },
+]
+
+/** How a distribution's Studio server stands, in words (phase 7). */
+export function chatServerWords(server: WslChatServerSummary): string {
+  if (!server.on) return 'Chats here run one process each, started from Windows.'
+  const how = server.transport === 'stdio' ? 'through the stdio bridge' : 'over loopback'
+  switch (server.state) {
+    case 'ready':
+      return `Running, reached ${how}.${server.transport === 'stdio' && server.reason ? ` (${server.reason})` : ''}`
+    case 'starting':
+      return server.reason ?? 'Starting…'
+    case 'unavailable':
+    case 'shut-down':
+      return server.reason ?? 'Not running.'
+    default:
+      return 'Starts with the first chat here, and stops after ten minutes with nothing to do.'
+  }
 }
 
 /**
@@ -253,7 +281,53 @@ function MachineDetail({
             className="font-mono"
           />
         </SettingsRow>
+        {host.chatServer ? (
+          <ChatServerRows host={host} server={host.chatServer} settings={settings} onChange={onChange} />
+        ) : null}
       </div>
     </div>
+  )
+}
+
+function ChatServerRows({
+  host,
+  server,
+  settings,
+  onChange,
+}: {
+  host: ExecutionHostSummary
+  server: WslChatServerSummary
+  settings: ExecutionHostSettings
+  onChange: (patch: Partial<ExecutionHostSettings>) => void
+}): React.JSX.Element {
+  return (
+    <>
+      <SettingsRow
+        label="Chats run in"
+        help={
+          server.forced
+            ? 'With the app’s server in a process of its own, chats in WSL always run on a Studio server inside the distribution.'
+            : 'A server inside the distribution runs its agents, git and files natively. A chat already running stays where it started.'
+        }
+      >
+        <Select
+          ariaLabel={`Where chats in ${host.label} run`}
+          items={CHAT_SERVER_ITEMS}
+          value={server.on ? 'on' : 'off'}
+          disabled={server.forced === true || host.wslVersion === 1}
+          onChange={(value) => onChange({ chatServer: value })}
+        />
+      </SettingsRow>
+      {server.on ? (
+        <SettingsRow label="Studio server" help={chatServerWords(server)}>
+          <Select
+            ariaLabel={`How Windows reaches the Studio server in ${host.label}`}
+            items={SERVER_TRANSPORT_ITEMS}
+            value={settings.serverTransport ?? 'auto'}
+            onChange={(value) => onChange({ serverTransport: value })}
+          />
+        </SettingsRow>
+      ) : null}
+    </>
   )
 }

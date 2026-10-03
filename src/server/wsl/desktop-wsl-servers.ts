@@ -28,6 +28,8 @@ export type WslServers = {
   manager: WslEnvironmentManager
   /** Whether a distribution's chats run on its server now. */
   chatServerOn(distro: string): boolean
+  /** Whether that is the person's choice, or always so here (out of process). */
+  readonly alwaysOn: boolean
   /** Who hears a new connection (the router, to follow its events). */
   onConnected(listener: (connection: WslServerConnection) => void): void
   /** Who hears a status change (Settings › Machines). */
@@ -106,6 +108,7 @@ export function createDesktopWslServers(options: DesktopWslServersOptions): WslS
   })
   return {
     manager,
+    alwaysOn: options.alwaysOn === true,
     chatServerOn: (distro) =>
       options.alwaysOn === true || (settingsOf(distro)?.chatServer ?? DEFAULT_WSL_CHAT_SERVER) === 'on',
     onConnected: (listener) => void connectedListeners.push(listener),

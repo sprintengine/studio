@@ -754,6 +754,14 @@ included:
   drive: "Faster in the Linux file system: clone into ~/ in this
   distribution". It is advice, not a block.
 
+As built (2026-10-03): the advisory is `wslDriveAdvisory` under New chat's
+scope line, shown for a WSL machine and a folder on a Windows drive, and
+nothing else changes for such a chat (R73). Settings › Machines shows, in each
+distribution's detail, where its chats run (one process per chat, or a
+Studio server in the distribution, marked preview), the server's state in
+words, and how Windows reaches it (loopback else the bridge, or always the
+bridge). With the desktop's server out of process the first is fixed on.
+
 The sidecar of a `C:\` workspace stays at `C:\…\.sprintengine\`. From now on
 the WSL server writes it over `/mnt/c`. The writes are appends and
 rename-into-place, both of which the drive mount supports **(unverified:

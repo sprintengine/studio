@@ -42,6 +42,21 @@ export type ExecutionHostSummary = {
   enabled?: boolean
   /** WSL only: 1 or 2, when WSL reported it. */
   wslVersion?: number | null
+  /** WSL only, on a desktop that can run Studio servers in its distributions: where its chats run (phase 7). */
+  chatServer?: WslChatServerSummary
+}
+
+/** Where a distribution's chats run, and how its Studio server stands, in words for Settings. */
+export type WslChatServerSummary = {
+  /** Chats run on a Studio server inside the distribution. */
+  on: boolean
+  /** The person cannot turn it off here (the desktop's server runs out of process). */
+  forced?: boolean
+  state: 'stopped' | 'starting' | 'ready' | 'unavailable' | 'shut-down'
+  /** How Windows reaches it while it is ready: over loopback, or through the stdio bridge. */
+  transport?: 'loopback' | 'stdio'
+  /** Why it is unavailable or shut down, or why the bridge, in words. */
+  reason?: string
 }
 
 /**
