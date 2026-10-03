@@ -15,6 +15,7 @@ import {
 import { createAgentStateService } from './agent-state-service'
 import { primeDefaultWslDistro } from './hosts/wsl-distro'
 import { configureWslHelpers } from './hosts/wsl-helper-runtime'
+import { createDesktopWslServers } from '../server/wsl/desktop-wsl-servers'
 import { cliTakesLaunchPlugins } from './agent-launch-render'
 import { resolveSocketPath as resolveAutomationSocketPath } from './automation/automation-service'
 import { invalidateCliAvailabilityOnHost, subscribeKnownCliAvailability } from './cli-availability'
@@ -631,6 +632,25 @@ export function createAppServices(
           })),
         // A distribution turned on or off adds or drops its CLI updates.
         onHostSettingsChanged: () => scheduleCliVersionRead(),
+        // A distribution whose chats run on a Studio server inside it (phase
+        // 7, off unless the person turns it on in Settings › Machines).
+        wslServers: ({ readHostSettings }) =>
+          createDesktopWslServers({
+            readHostSettings,
+            userDataDir: app.getPath('userData'),
+            app: {
+              version: platform.identity.version(),
+              channel: channelForVersion(app.getVersion()) === 'nightly' ? 'nightly' : 'latest',
+            },
+            packaged: app.isPackaged,
+            resourcesDir: app.isPackaged ? process.resourcesPath : null,
+            appRoot: app.getAppPath(),
+            isDefaultProfile: app.isPackaged && !readStudioEnv('SPRINTENGINE_USER_DATA_DIR')?.trim(),
+            fetch: (url, init) => net.fetch(url, init),
+            log: (message) => {
+              void writeDiagnosticLog({ level: 'info', title: 'WSL server', message, source: 'workspace' })
+            },
+          }),
       })
   const {
     agentLaunchSettings,

@@ -584,6 +584,29 @@ in a pure refactor commit. That is what keeps goal 3 ("nothing that worked
 stops working") true for the phone, scheduled agents, gateway tools and
 modules.
 
+As built (2026-10-03):
+
+- `RemoteConversationBackend` is not an SDK client over `conversation.*`. The
+  public protocol does not carry the thread index, transcripts, receipts or
+  the terminal handoff the in-process callers use, and widening a published
+  protocol for one private caller would make each of those a compatibility
+  promise. It is a private wire over the front door (`src/server/wsl/
+  backend-wire.ts`), version-locked like the helper's: each forwarded member
+  is one request by name, each chat event is pushed with its session's new
+  summary (so `listSessions`, which is synchronous, is current when the event
+  reaches its listeners), and a snapshot follows a burst. The public
+  `conversation.*` surface is unchanged.
+- `RoutedConversationBackend` (`src/server/core/routed-conversation-backend.
+  ts`) is built in `createStudioCore` when the core's owner hands it WSL
+  servers (Windows only). Calls about a session go to whichever side holds it;
+  calls about a workspace go by the rule in section 6; a start for a chat that
+  is still live in this process stays here. Sessions and approval rules merge
+  this process's with the running servers'; provider capabilities and live
+  pids are this process's. A server that cannot be reached answers each
+  result-shaped call `{ ok: false, message }` in words.
+- Search's batch callback and abort signal do not cross: the hits come back
+  whole and reach `onBatch` once.
+
 ### 5.2 `WslEnvironmentManager`
 
 - It lives in the Windows-side core, not in Electron main. It needs no
@@ -727,6 +750,19 @@ rename-into-place, both of which the drive mount supports **(unverified:
   migrates (7.3), and the next send resumes on the new owner. A CLI session
   resumes on whichever side owns the distro, because CLI logins and transcripts
   are in the Linux home either way.
+
+As built (2026-10-03): `ExecutionHostSettings` gains `chatServer?: 'on' |
+'off'` and `serverTransport?: 'auto' | 'stdio'`; the release default is
+`DEFAULT_WSL_CHAT_SERVER = 'off'`. **Out of process the server is always
+used:** the desktop's server process has no WSL helper (the helper is the
+shell's, and a second one per distribution would contend for its sockets), so
+there is no per-process path there, and phase 6 left WSL chats unable to
+start out of process. With the out-of-process flag on, a WSL 2 distribution's
+chats run on its server whatever the switch says; with the flag off, the
+switch decides and the per-process path stays the fallback. The flip
+(suspend, migrate, then switch) is not built: the switch takes effect for the
+next chat started, a chat still live on the old side stays there until it
+stops, and 7.3's migration is not done (section 14).
 
 ### 7.2 Fallback
 

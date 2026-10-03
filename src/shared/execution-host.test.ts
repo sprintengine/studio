@@ -83,6 +83,11 @@ test('host settings normalize fail-soft', () => {
     { enabled: true, cliCommands: { codex: '/home/dev/bin/codex' }, env: { OK_NAME: 'v' } },
   )
   assert.equal(normalizeExecutionHostSettings({ shell: 'zsh ' }).shell, 'zsh ', 'kept as typed')
+  const server = normalizeExecutionHostSettings({ chatServer: 'on', serverTransport: 'stdio' })
+  assert.equal(server.chatServer, 'on')
+  assert.equal(server.serverTransport, 'stdio')
+  const unknown = normalizeExecutionHostSettings({ chatServer: 'yes', serverTransport: 'tcp' })
+  assert.equal('chatServer' in unknown || 'serverTransport' in unknown, false, 'an unknown value is the default')
 })
 
 test("a CLI's command on a machine: this one keeps the runtime's, a WSL one its own", () => {
