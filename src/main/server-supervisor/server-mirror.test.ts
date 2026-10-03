@@ -94,6 +94,31 @@ test('an agent record the shell writes goes to the server, answered at once', as
   ])
 })
 
+test('an agent record written while the server is away is held, in order, and sent before the next snapshot', async () => {
+  const { shell, server } = pair()
+  const seen: string[] = []
+  // A server still composing: no handlers yet.
+  const mirror = createServerStateMirror({ rpc: shell })
+  mirror.workspaceSync.updateWorkspaceAgent('acme', 'agent-1', { name: 'First' }, 'system')
+  await settle()
+  // Held behind the first, never ahead of it.
+  mirror.workspaceSync.updateWorkspaceAgent('acme', 'agent-1', { name: 'Second' }, 'system')
+  server.handle(SERVER_METHODS.updateWorkspaceAgent, (params) => {
+    seen.push(`write ${(params as { patch: { name: string } }).patch.name}`)
+    return { ok: true }
+  })
+  server.handle(SERVER_METHODS.mirrorSnapshot, () => {
+    seen.push('snapshot')
+    return snapshotWith(['acme'])
+  })
+  await mirror.load()
+  assert.deepEqual(seen, ['write First', 'write Second', 'snapshot'])
+  // Nothing held any more: the next write goes straight out.
+  mirror.workspaceSync.updateWorkspaceAgent('acme', 'agent-1', { name: 'Third' }, 'system')
+  await settle()
+  assert.deepEqual(seen.at(-1), 'write Third')
+})
+
 test("the core proxy answers the shell's members and refuses the server's by name", () => {
   const { shell } = pair()
   const mirror = createServerStateMirror({ rpc: shell })

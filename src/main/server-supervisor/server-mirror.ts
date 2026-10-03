@@ -1,4 +1,4 @@
-import type { ControlRpc } from '../../server/bootstrap/control-rpc'
+import { ControlRpcError, type ControlRpc } from '../../server/bootstrap/control-rpc'
 import {
   SERVER_EVENTS,
   SERVER_METHODS,
@@ -24,7 +24,10 @@ import type { WorkspaceRegistryRecord } from '../../shared/workspace-registry'
 // starts over from a fresh snapshot after every server restart.
 //
 // Writes are asynchronous calls: an agent record a terminal launch writes is
-// sent and answered optimistically, the way a window's own write is.
+// sent and answered optimistically, the way a window's own write is. One the
+// server could not take (it is starting, restarting, or not yet serving) is
+// held, in order, and sent before the next snapshot is read, so a terminal
+// agent started while the server was away keeps its row.
 //
 // The proxies have the shapes the in-process services have, for the members
 // the shell uses, so the shell's composition does not branch on every read.
@@ -92,6 +95,8 @@ export function createServerStateMirror(deps: {
   const registryListeners = new Set<(state: WorkspaceSyncState) => void>()
   const eventListeners = new Set<(event: WorkspaceSyncEvent) => void>()
   const launchListeners = new Set<(record: AgentLaunchSettingsRecord) => void>()
+  // Agent records the server could not take yet, oldest first.
+  const heldWrites: Array<Record<string, unknown>> = []
   let markLoaded: () => void = () => undefined
   const loaded = new Promise<void>((resolve) => {
     markLoaded = resolve
@@ -120,8 +125,37 @@ export function createServerStateMirror(deps: {
   deps.rpc.on(SERVER_EVENTS.mirrorWorkspaceEvent, (payload) => fan(eventListeners, payload as WorkspaceSyncEvent))
   deps.rpc.on(SERVER_EVENTS.mirrorLaunchSettings, (payload) => applyLaunch(payload as ServerMirrorLaunchSettings))
 
+  const serverAway = (error: unknown): boolean =>
+    error instanceof ControlRpcError && (error.code === 'unavailable' || error.code === 'no_handler')
+  const hold = (params: Record<string, unknown>): void => {
+    heldWrites.push(params)
+    if (heldWrites.length > MAX_HELD_WRITES) {
+      heldWrites.shift()
+      deps.log?.('agent record dropped: too many waiting for Studio server')
+    }
+  }
+  const sendWrite = (params: Record<string, unknown>): Promise<void> =>
+    deps.rpc.call(SERVER_METHODS.updateWorkspaceAgent, params).then((result) => {
+      const answer = result as { ok?: boolean; message?: string } | null
+      if (answer && answer.ok === false) deps.log?.(`agent record not written: ${answer.message ?? ''}`)
+    })
+  // Sent one at a time, in order; one the server still cannot take stays
+  // first in line for the next snapshot.
+  const sendHeld = async (): Promise<void> => {
+    while (heldWrites.length > 0) {
+      try {
+        await sendWrite(heldWrites[0])
+      } catch (error) {
+        if (serverAway(error)) return
+        deps.log?.(`agent record not written: ${error instanceof Error ? error.message : String(error)}`)
+      }
+      heldWrites.shift()
+    }
+  }
+
   return {
     async load() {
+      await sendHeld()
       const state = await deps.rpc.call<ServerMirrorState>(SERVER_METHODS.mirrorSnapshot)
       applyRegistry({ state: state.state, snapshot: state.snapshot, needsHydration: state.needsHydration })
       applyLaunch(state.launchSettings)
@@ -151,22 +185,16 @@ export function createServerStateMirror(deps: {
         }
       },
       updateWorkspaceAgent(workspaceId, agentId, patch, actor, stamp) {
-        void deps.rpc
-          .call(SERVER_METHODS.updateWorkspaceAgent, {
-            workspaceId,
-            agentId,
-            patch,
-            actor,
-            ...(typeof stamp === 'number' ? { stamp } : {}),
-          })
-          .then(
-            (result) => {
-              const answer = result as { ok?: boolean; message?: string } | null
-              if (answer && answer.ok === false) deps.log?.(`agent record not written: ${answer.message ?? ''}`)
-            },
-            (error: unknown) =>
-              deps.log?.(`agent record not written: ${error instanceof Error ? error.message : String(error)}`),
-          )
+        const params = { workspaceId, agentId, patch, actor, ...(typeof stamp === 'number' ? { stamp } : {}) }
+        // Behind any already held, so a later patch never lands before an earlier one.
+        if (heldWrites.length > 0) {
+          hold(params)
+          return { ok: true }
+        }
+        void sendWrite(params).catch((error: unknown) => {
+          if (serverAway(error)) hold(params)
+          else deps.log?.(`agent record not written: ${error instanceof Error ? error.message : String(error)}`)
+        })
         return { ok: true }
       },
       flush: async () => undefined,
@@ -188,6 +216,9 @@ export function createServerStateMirror(deps: {
     },
   }
 }
+
+/** Agent records held for a server that is away; past this the oldest goes. */
+const MAX_HELD_WRITES = 500
 
 function stripSequence(state: WorkspaceSyncState): WorkspaceSyncSnapshot['state'] {
   const { lastAppliedWorkspaceSyncSequence: _sequence, ...rest } = state
