@@ -20,6 +20,9 @@ const SERIAL = [
   // These two wait on a platform's directory watch, which a loaded machine delivers late.
   'src/main/canvas/canvas-service-filesystems.test.ts',
   'src/server/rpc/studio-files.test.ts',
+  // Builds the WSL server tree and runs real servers through a stand-in for
+  // wsl.exe: heavy enough to starve the timing suites it would share a CPU with.
+  'src/server/wsl/wsl-environment-manager.test.ts',
   'src/renderer/src/components/workspace/ConversationPeekPopover.test.tsx',
   'src/renderer/src/hooks/useSharedBacklogScan.test.ts',
   'src/renderer/src/modules/backlog-reader.test.ts',

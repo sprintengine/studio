@@ -22,12 +22,13 @@
     "dev": "node scripts/dev.js",
     "build": "electron-vite build",
     "build:server": "node scripts/build-server.mjs",
+    "build:server:wsl": "node scripts/build-server.mjs --wsl",
     "build:sdk": "tsc -p packages/module-sdk/tsconfig.json",
     "build:conversation-protocol": "node packages/conversation-protocol/build.mjs",
     "build:studio-protocol": "node packages/studio-protocol/build.mjs",
     "build:agent-sdk": "node packages/agent-sdk/build.mjs",
     "dist": "npm run runtimes:fetch && npm run build && electron-builder",
-    "dist:win": "npm run runtimes:fetch -- --platform win32 && npm run build && electron-builder --win",
+    "dist:win": "npm run runtimes:fetch -- --platform win32 && npm run build && npm run build:server:wsl && electron-builder --win",
     "dist:mac": "npm run runtimes:fetch -- --platform darwin && npm run build && electron-builder --mac",
     "dist:linux": "npm run runtimes:fetch -- --platform linux && npm run build && electron-builder --linux",
     "runtimes:fetch": "node scripts/fetch-runtimes.mjs",
@@ -81,7 +82,8 @@
     "files": [
       "out/**/*",
       "!out/**/*.map",
-      "!out/server/**"
+      "!out/server/**",
+      "!out/wsl-server/**"
     ],
     "asarUnpack": [
       "node_modules/@vscode/ripgrep-*/bin/**"
@@ -186,7 +188,16 @@
           ]
         }
       ],
-      "icon": "resources/icon.ico"
+      "icon": "resources/icon.ico",
+      "extraResources": [
+        {
+          "from": "out/wsl-server",
+          "to": "wsl-server",
+          "filter": [
+            "**/*"
+          ]
+        }
+      ]
     },
     "mac": {
       "target": [

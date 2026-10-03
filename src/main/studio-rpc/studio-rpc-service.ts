@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { chmodSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import type { Duplex } from 'node:stream'
 
 import { toolError, toolSuccess } from '../../shared/modules/mcp-tools'
 import {
@@ -79,6 +80,12 @@ export type StudioRpcService = {
    * for a ticket good once, as `shellTransport` gives it in process.
    */
   connectShell(port: StudioFramePort): { connectionId: string; ticket: string }
+  /**
+   * Serve a WSL distribution's front door over a byte stream that already
+   * proved it holds the owner token (phase 7): the shell role, as
+   * `connectShell` serves the desktop's, for a ticket good once.
+   */
+  connectShellStream(stream: Duplex): { connectionId: string; ticket: string }
   /** The chat surface, from the handlers the app's own IPC serves its windows with. */
   provideChat(chat: StudioChatBackend): void
   /** Which agents a paired app's tools reach. */
@@ -407,6 +414,15 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
     connectShell(port) {
       const ticket = mintStudioTicket()
       const connection = hub().attach(framePortStream(port), {
+        authenticator: createTicketAuthenticator(ticket, { grant: shellGrant }),
+        ownWindow: false,
+        shell: true,
+      })
+      return { connectionId: connection.connectionId, ticket }
+    },
+    connectShellStream(stream) {
+      const ticket = mintStudioTicket()
+      const connection = hub().attach(stream, {
         authenticator: createTicketAuthenticator(ticket, { grant: shellGrant }),
         ownWindow: false,
         shell: true,

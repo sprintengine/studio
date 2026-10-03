@@ -19,6 +19,7 @@ import {
   type ExecutionHostId,
   type ExecutionHostSettings,
   type HostsListResult,
+  type WslChatServerSummary,
 } from '../../shared/execution-host'
 import type { ExecutionHost } from './execution-host'
 import { createPosixLocalHost } from './posix-local-host'
@@ -35,6 +36,8 @@ export type HostRegistryDeps = {
   knownListing?: () => WslListing | null
   /** Stands in for a distribution's helper client in tests. */
   createWslHelper?: (distro: string) => WslHelperClient
+  /** Where a distribution's chats run and how its Studio server stands (phase 7); absent where there are none. */
+  chatServer?: (distro: string) => WslChatServerSummary | undefined
 }
 
 export type HostListing = HostsListResult
@@ -124,7 +127,12 @@ export function createHostRegistry(deps: HostRegistryDeps): HostRegistry {
         if (id !== LOCAL_HOST_ID && entry?.enabled && distroOfHostId(id)) ids.add(id)
       }
       const wsl = [...ids]
-        .map((id) => get(id).summary())
+        .map((id) => {
+          const summary = get(id).summary()
+          const distro = distroOfHostId(id)
+          const chatServer = distro ? deps.chatServer?.(distro) : undefined
+          return chatServer ? { ...summary, chatServer } : summary
+        })
         .filter((summary) => options.all || summary.enabled)
         // The default distribution first, then by name: a list that reorders
         // as distributions start and stop is one nobody can learn.

@@ -16,7 +16,8 @@ vi.mock('../../store/workspaceStore', () => ({
   useWorkspaceStore: (select: (state: typeof fixtures.state) => unknown) => select(fixtures.state),
 }))
 
-const { MachinesSettingsTab, formatEnvLines, machineStateWords, parseEnvLines } = await import('./MachinesSettingsTab')
+const { MachinesSettingsTab, chatServerWords, formatEnvLines, machineStateWords, parseEnvLines } =
+  await import('./MachinesSettingsTab')
 
 let root: Root
 let host: HTMLDivElement
@@ -192,4 +193,26 @@ test('a machine state reads in words', () => {
   expect(machineStateWords({ ...base, state: 'unavailable', reason: 'This distribution is not installed.' })).toBe(
     'This distribution is not installed.',
   )
+})
+
+test('a distribution that can run a Studio server says where its chats run, and how the server stands', async () => {
+  listing.hosts[1] = {
+    ...listing.hosts[1],
+    chatServer: { on: true, state: 'ready', transport: 'stdio', reason: 'loopback did not work' },
+  }
+  fixtures.state.appSettings.hosts = { 'wsl:Ubuntu': { enabled: true, cliCommands: {}, env: {}, chatServer: 'on' } }
+  await render()
+  const disclosure = host.querySelector<HTMLElement>('[aria-expanded="false"]')
+  await act(async () => disclosure!.click())
+  expect(host.querySelector('[aria-label="Where chats in WSL: Ubuntu run"]')).toBeTruthy()
+  expect(host.querySelector('[aria-label="How Windows reaches the Studio server in WSL: Ubuntu"]')).toBeTruthy()
+  expect(host.textContent).toContain('Running, reached through the stdio bridge. (loopback did not work)')
+})
+
+test('the server state is said in words, whatever it is', () => {
+  expect(chatServerWords({ on: false, state: 'stopped' })).toMatch(/one process each/u)
+  expect(chatServerWords({ on: true, state: 'stopped' })).toMatch(/Starts with the first chat/u)
+  expect(chatServerWords({ on: true, state: 'ready', transport: 'loopback' })).toBe('Running, reached over loopback.')
+  expect(chatServerWords({ on: true, state: 'shut-down', reason: 'WSL was shut down.' })).toBe('WSL was shut down.')
+  expect(chatServerWords({ on: true, state: 'unavailable' })).toBe('Not running.')
 })

@@ -59,6 +59,9 @@ import {
   type ServerMirrorState,
 } from './server-methods'
 import { createServerModules } from './server-modules'
+import { createDesktopWslServers } from '../wsl/desktop-wsl-servers'
+import { relayShellToolsets } from '../wsl/wsl-tool-relay'
+import { readStudioEnv } from '../../shared/studio-env'
 
 // The desktop's own Studio server, out of process (phase 6 spec): the core,
 // its gateway and owner socket, the tunnelled window.api domains, and the
@@ -147,11 +150,29 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
       // An agent may start agents only at its own preset or stricter; the
       // terminal agents it is read for are the shell's.
       listTerminalSessions: () => terminalSessions,
+      // A WSL distribution's chats run on a Studio server inside it (phase
+      // 7) when the person turned that on for it, as in process. With the
+      // switch off they take the per-process path, which out of process
+      // fails in words (the WSL helper is the shell's): the server is not
+      // started for anyone who did not ask for it while its migration, model
+      // discovery and command catalog are unbuilt (spec section 14).
+      wslServers: ({ readHostSettings }) =>
+        createDesktopWslServers({
+          readHostSettings,
+          userDataDir: envelope.dataDir,
+          app: { version: envelope.app.version, channel: envelope.app.channel },
+          packaged: envelope.paths.isPackaged,
+          resourcesDir: envelope.paths.resourcesDir,
+          appRoot: envelope.paths.appPath,
+          isDefaultProfile: envelope.paths.isPackaged && !readStudioEnv('SPRINTENGINE_USER_DATA_DIR')?.trim(),
+          log: (message) => {
+            void writeDiagnosticLog({ level: 'info', source: 'workspace', title: 'WSL server', message })
+          },
+        }),
       // A Claude chat's child is handed the gateway itself, through the
       // launcher the shell writes (decision R63), or this build's binary run
-      // as Node when the launcher could not be written. A WSL machine's
-      // helper is the shell's and none is configured here, so a chat there
-      // does not start out of process until WSL servers (phase 7).
+      // as Node when the launcher could not be written. A chat on a WSL
+      // machine with its server on runs there, with that server's gateway.
       resolveStudioMcpServer: async ({ hostId }) => {
         if (isWslHostId(hostId ?? null)) return null
         await whenAgentLaunchReady()
@@ -243,6 +264,17 @@ export const startDesktopServer: ServerStart = async ({ envelope, rpc, log, requ
     ],
   })
   tailnetFrontDoor = gateway
+  // A chat agent in WSL reaches its own server's gateway: the shell's six
+  // toolsets are offered there too, and run through this registry (phase 7).
+  const wslServers = core.wslServers
+  if (wslServers)
+    relayShellToolsets({
+      onConnected: (listener) => wslServers.onConnected(listener),
+      registry: gateway.clientTools,
+      log: (message) => {
+        void writeDiagnosticLog({ level: 'info', source: 'workspace', title: 'WSL server', message })
+      },
+    })
   const studioRpc = createStudioRpc(core, gateway)
   const githubTokenStore = new GitHubTokenStore()
   const workspaceBackup = createWorkspaceBackupService({

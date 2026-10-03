@@ -246,6 +246,19 @@ jobs:
       - name: Build renderer and main process
         run: npm run build
 
+      # The Studio server a WSL distribution runs (phase 7), shipped in the
+      # Windows installer's resources. Guarded like the icon step: a promotion
+      # may build a commit from before the script could build it.
+      - name: Build the WSL server tree (Windows only)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          if grep -q -- "--wsl" scripts/build-server.mjs 2>/dev/null; then
+            npm run build:server:wsl
+          else
+            echo "This commit predates the WSL server tree; packaging without it."
+          fi
+
       # Packaging is split by platform ONLY so each platform's signing variables
       # reach no other runner. `getCscLink` in app-builder-lib resolves the
       # Windows certificate as `WIN_CSC_LINK ?? CSC_LINK`, so a CSC_LINK set on

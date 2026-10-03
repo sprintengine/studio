@@ -124,6 +124,23 @@ export type NewAgentLaunch = AgentComposerConfirm & {
   extension?: { id: string }
 }
 
+/**
+ * A WSL machine's chat in a folder on a Windows drive: supported, never
+ * blocked (decision R73), but every file its agents and git touch crosses the
+ * drive mount, which is much slower than the distribution's own disk. One
+ * line of advice, and nothing else. Shown only where the distribution's chats
+ * run on its Studio server (phase 7), so a machine whose switch is off sees
+ * New chat as it was.
+ */
+export function wslDriveAdvisory(
+  hostId: ExecutionHostId,
+  folder: string | null | undefined,
+  chatServerOn: boolean,
+): string | null {
+  if (!chatServerOn || !isWslHostId(hostId) || !folder || !/^[A-Za-z]:[\\/]/u.test(folder)) return null
+  return 'Faster in the Linux file system: clone into ~/ in this distribution.'
+}
+
 /** One choosable project scope: a folder some open workspace lives in. */
 export type NewAgentProjectOption = { path: string; label: string }
 
@@ -526,6 +543,11 @@ export default function NewAgentPanel({
   // An explicit scope wins: skills, the worktree probe and the scope line all
   // have to describe the folder the agent will actually run in.
   const workspaceRoot = folderPath !== undefined ? folderPath : activeWorkspaceRoot
+  const driveAdvisory = wslDriveAdvisory(
+    hostId,
+    workspaceRoot,
+    hostListing?.hosts.some((host) => host.id === hostId && host.chatServer?.on === true) ?? false,
+  )
   // Picks were installed and synced into ONE project; a change of project
   // after picking would launch the agent somewhere they are not.
   const pickedForRoot = React.useRef(workspaceRoot)
@@ -1595,6 +1617,9 @@ export default function NewAgentPanel({
                 line for a remote target, and down behind ⋯ for a local one.
                 One control now — the Worktree chip beside the agent picker. */}
           </div>
+          {driveAdvisory ? (
+            <p className="mt-1 text-meta leading-5 text-[color:var(--text-muted)]">{driveAdvisory}</p>
+          ) : null}
         </div>
 
         {terminalUnavailable ? (

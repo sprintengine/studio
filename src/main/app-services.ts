@@ -15,6 +15,8 @@ import {
 import { createAgentStateService } from './agent-state-service'
 import { primeDefaultWslDistro } from './hosts/wsl-distro'
 import { configureWslHelpers } from './hosts/wsl-helper-runtime'
+import { createDesktopWslServers } from '../server/wsl/desktop-wsl-servers'
+import { relayShellToolsets } from '../server/wsl/wsl-tool-relay'
 import { cliTakesLaunchPlugins } from './agent-launch-render'
 import { resolveSocketPath as resolveAutomationSocketPath } from './automation/automation-service'
 import { invalidateCliAvailabilityOnHost, subscribeKnownCliAvailability } from './cli-availability'
@@ -634,6 +636,25 @@ export function createAppServices(
           })),
         // A distribution turned on or off adds or drops its CLI updates.
         onHostSettingsChanged: () => scheduleCliVersionRead(),
+        // A distribution whose chats run on a Studio server inside it (phase
+        // 7, off unless the person turns it on in Settings › Machines).
+        wslServers: ({ readHostSettings }) =>
+          createDesktopWslServers({
+            readHostSettings,
+            userDataDir: app.getPath('userData'),
+            app: {
+              version: platform.identity.version(),
+              channel: channelForVersion(app.getVersion()) === 'nightly' ? 'nightly' : 'latest',
+            },
+            packaged: app.isPackaged,
+            resourcesDir: app.isPackaged ? process.resourcesPath : null,
+            appRoot: app.getAppPath(),
+            isDefaultProfile: app.isPackaged && !readStudioEnv('SPRINTENGINE_USER_DATA_DIR')?.trim(),
+            fetch: (url, init) => net.fetch(url, init),
+            log: (message) => {
+              void writeDiagnosticLog({ level: 'info', title: 'WSL server', message, source: 'workspace' })
+            },
+          }),
       })
   const {
     agentLaunchSettings,
@@ -1473,6 +1494,17 @@ export function createAppServices(
         }),
       })
   tailnetToolsFrontDoor = automationService
+  // A chat agent in WSL reaches its own server's gateway: the desktop's
+  // toolsets are offered there too, and run here (phase 7).
+  const wslServersOfCore = 'wslServers' in core ? core.wslServers : null
+  if (automationService && wslServersOfCore)
+    relayShellToolsets({
+      onConnected: (listener) => wslServersOfCore.onConnected(listener),
+      registry: automationService.clientTools,
+      log: (message) => {
+        void writeDiagnosticLog({ level: 'info', title: 'WSL server', message, source: 'workspace' })
+      },
+    })
   // The Studio RPC: the protocol applications on this machine follow, drive
   // and start chats with, on an owner-only socket in userData/run, composed
   // over the core and its gateway as a standalone server composes it. Its

@@ -8,6 +8,11 @@
 //   <appVersion>/automation/…          the MCP bridge
 //   <appVersion>/plugin/…              the Claude plugin copy (written later,
 //                                      by the helper itself; see `wsl-host.ts`)
+//   server-<appVersion>/…              the Studio server a distribution's chats
+//                                      run on (phase 7), a tree of its own with
+//                                      its own marker, so a person who uses WSL
+//                                      only for terminals never receives it
+//   data/, data-<profile>/             that server's data, never pruned
 //
 // Each tree is installed the same way, and atomically:
 //
@@ -59,8 +64,20 @@ export type WslLaunchScriptInput = {
   appVersion: string
   /** The pinned archives' digests; the Node marker must hold one of them. */
   nodeDigests: readonly string[]
+  /** The digest of the tree this entry runs from: the helper's payload, or the server's. */
   appDigest: string
   profile: string
+  /**
+   * What to start: the helper (the default), or the Studio server, which
+   * reads a bootstrap envelope on stdin (`--bootstrap stdio`). Either way a
+   * missing tree is reported as `app`.
+   */
+  entry?: 'helper' | 'server'
+}
+
+/** The server tree's directory under the data root, for one app version. */
+export function serverTreeName(appVersion: string): string {
+  return `server-${token(appVersion, 'The app version')}`
 }
 
 export const NEED_MARKER = '@@SPRINTENGINE_NEED'
@@ -80,22 +97,40 @@ export function buildLaunchScript(input: WslLaunchScriptInput): string {
   const version = token(input.appVersion, 'The app version')
   const profile = token(input.profile, 'The profile id')
   const nodeDigests = input.nodeDigests.map((digest) => hex(digest, 'A Node digest')).join('|')
+  const server = input.entry === 'server'
+  const entryFile = server ? 'server.cjs' : 'wsl-helper/helper.mjs'
   return [
     'set -u',
     `base="$HOME/${WSL_DATA_REL}"`,
     `rt="$base/runtime/node-${WSL_NODE_VERSION}"`,
-    `app="$base/${version}"`,
+    `app="$base/${server ? serverTreeName(version) : version}"`,
     "need=''",
     'ok=0',
     `[ -x "$rt/bin/node" ] && case "$(cat "$rt/.ready" 2>/dev/null)" in ${nodeDigests}) ok=1 ;; esac`,
     '[ "$ok" = 1 ] || need="$need node"',
-    `{ [ -f "$app/wsl-helper/helper.mjs" ] && [ "$(cat "$app/.ready" 2>/dev/null)" = '${hex(input.appDigest, 'The app digest')}' ]; } || need="$need app"`,
+    `{ [ -f "$app/${entryFile}" ] && [ "$(cat "$app/.ready" 2>/dev/null)" = '${hex(input.appDigest, 'The app digest')}' ]; } || need="$need app"`,
     'if [ -n "$need" ]; then',
     '  xz=0; command -v xz >/dev/null 2>&1 && xz=1',
     `  printf '${NEED_MARKER}%s arch=%s xz=%s\\n' "$need" "$(uname -m)" "$xz"`,
     `  exit ${NEEDS_INSTALL_EXIT}`,
     'fi',
-    `exec "$rt/bin/node" "$app/wsl-helper/helper.mjs" --profile '${profile}'`,
+    server
+      ? // The envelope follows on stdin, once the server has said `boot`.
+        'exec "$rt/bin/node" "$app/server.cjs" --bootstrap stdio'
+      : `exec "$rt/bin/node" "$app/wsl-helper/helper.mjs" --profile '${profile}'`,
+  ].join('\n')
+}
+
+/**
+ * The script `sh -s` runs for the stdio bridge (phase 7): the relay from the
+ * installed server tree, on the pinned Node. It says it is ready before it
+ * reads anything (`resources/wsl-server/bridge.mjs`).
+ */
+export function buildBridgeScript(appVersion: string): string {
+  return [
+    'set -u',
+    `base="$HOME/${WSL_DATA_REL}"`,
+    `exec "$base/runtime/node-${WSL_NODE_VERSION}/bin/node" "$base/${serverTreeName(appVersion)}/bridge.mjs"`,
   ].join('\n')
 }
 
@@ -153,7 +188,7 @@ export function tarArgs(kind: 'node' | 'app', stageId: string, pkg?: WslNodePack
 
 export type CommitInput =
   | { kind: 'node'; stageId: string; digest: string }
-  | { kind: 'app'; stageId: string; digest: string; appVersion: string }
+  | { kind: 'app' | 'server'; stageId: string; digest: string; appVersion: string }
 
 /**
  * Checks the staged tree, marks it, moves it into place under a lock, and
@@ -167,15 +202,27 @@ export function buildCommitScript(input: CommitInput): string {
   const final =
     input.kind === 'node'
       ? `$base/runtime/node-${WSL_NODE_VERSION}`
-      : `$base/${token(input.appVersion, 'The app version')}`
-  const prune = input.kind === 'node' ? '"$base"/runtime/node-*' : '"$base"/[0-9]*'
+      : input.kind === 'server'
+        ? `$base/${serverTreeName(input.appVersion)}`
+        : `$base/${token(input.appVersion, 'The app version')}`
+  // Each kind prunes only its own trees. `data*/` matches none of these, so a
+  // person's chats are never pruned.
+  const prune = PRUNE_GLOBS[input.kind]
   const check =
     input.kind === 'node'
       ? [
           'out="$("$stage/bin/node" --version 2>&1)" || fail "node-run $out"',
           `[ "$out" = '${WSL_NODE_VERSION}' ] || fail "node-version $out"`,
         ]
-      : ['[ -f "$stage/wsl-helper/helper.mjs" ] || fail "payload incomplete"']
+      : input.kind === 'server'
+        ? [
+            '[ -f "$stage/server.cjs" ] && [ -f "$stage/bridge.mjs" ] || fail "payload incomplete"',
+            // A bundle that cannot load on this distribution fails here, with
+            // the reason, rather than on the first chat.
+            `out="$("$base/runtime/node-${WSL_NODE_VERSION}/bin/node" "$stage/server.cjs" --version 2>&1)" || fail "server-run $out"`,
+            `[ "$out" = '${token(input.appVersion, 'The app version')}' ] || fail "server-version $out"`,
+          ]
+        : ['[ -f "$stage/wsl-helper/helper.mjs" ] || fail "payload incomplete"']
   return [
     'set -u',
     `base="$HOME/${WSL_DATA_REL}"`,
@@ -213,6 +260,13 @@ export function buildCommitScript(input: CommitInput): string {
     `echo ${COMMITTED_MARKER}`,
   ].join('\n')
 }
+
+/** What each kind of install may prune: its own older trees, and nothing else. */
+export const PRUNE_GLOBS = {
+  node: '"$base"/runtime/node-*',
+  app: '"$base"/[0-9]*',
+  server: '"$base"/server-*',
+} as const
 
 /** Drops the Node ready marker after a start that could not run the helper. */
 export function buildUnreadyScript(): string {
@@ -252,7 +306,7 @@ export function buildAppPayload(sources: readonly PayloadSource[]): AppPayload {
     for (const path of walk(source.dir)) {
       const rel = relative(source.dir, path).split(sep).join('/')
       if (source.filter && !source.filter(rel)) continue
-      files.push({ path: `${source.into}/${rel}`, data: readFileSync(path) })
+      files.push({ path: source.into ? `${source.into}/${rel}` : rel, data: readFileSync(path) })
     }
   }
   files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))

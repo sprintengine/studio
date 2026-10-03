@@ -1,12 +1,27 @@
+import { readFileSync } from 'node:fs'
+
+import { captureLoginEnv } from '../../../resources/wsl-helper/lib/login-env.mjs'
 import { readStudioEnvironmentId } from '../../main/studio-rpc/studio-rpc-service'
-import { startStudioServer, type StudioServerOptions } from '../studio-server'
-import { SERVER_EXIT, type ServerBootstrapEnvelope } from './envelope'
-import type { ServerStart } from './serve'
+import { driveMountRootFromMounts, driveMountRootFromWslConf } from '../../shared/host-paths'
+import { startStudioServer, type StudioServer, type StudioServerOptions } from '../studio-server'
+import { serveConversationBackend } from '../wsl/backend-wire'
+import { startFrontDoorListeners, type FrontDoorListeners } from '../wsl/front-door-listener'
+import type { FrontDoorPurpose } from '../wsl/front-door-proof'
+import { SERVER_EXIT, type FrontDoorReady, type ServerBootstrapEnvelope } from './envelope'
+import { runShutdownLegs, type ServerStart } from './serve'
+import type { Duplex } from 'node:stream'
 
 // A headless server's start from its envelope: the same core, gateway and
 // owner socket `studio-server serve` runs, with the locations the envelope
 // names instead of flags. Its secrets are its own key file (decision R12);
 // a headless server never seals through a shell.
+//
+// A server inside a WSL distribution (phase 7) is one of these, with a front
+// door: the Windows side's two ways in (front-door-listener.ts), both behind
+// the mutual proof. An admitted connection asks for the conversation backend
+// the Windows side routes this distribution's chats to, or for a Studio
+// protocol connection with the shell role, over which the Windows side offers
+// the toolsets its own shell offers it.
 
 export function headlessServerOptions(
   envelope: ServerBootstrapEnvelope,
@@ -24,7 +39,56 @@ export function headlessServerOptions(
   }
 }
 
+/** Where this distribution mounts the Windows drives: what is mounted, else what wsl.conf asks for. */
+export function readDriveMountRoot(read: (path: string) => string | null = readText): string | null {
+  const mounts = read('/proc/mounts')
+  const mounted = mounts ? driveMountRootFromMounts(mounts) : null
+  return mounted ?? driveMountRootFromWslConf(read('/etc/wsl.conf'))
+}
+
+function readText(path: string): string | null {
+  try {
+    return readFileSync(path, 'utf8')
+  } catch {
+    return null
+  }
+}
+
+/** Hand an admitted front-door connection to what it asked for. */
+export function serveFrontDoorPurpose(
+  server: Pick<StudioServer, 'core' | 'rpc'>,
+  purpose: FrontDoorPurpose,
+  stream: Duplex,
+  log: (message: string) => void,
+): void {
+  if (purpose === 'backend') {
+    serveConversationBackend(server.core.conversations, stream, { log })
+    return
+  }
+  // The ticket goes first, on its own line, before the Studio protocol starts:
+  // the front door says hello with it.
+  const { ticket } = server.rpc.connectShellStream(stream)
+  stream.write(`${JSON.stringify({ t: 'ticket', ticket })}\n`)
+}
+
+/**
+ * Inside WSL the server was started by `wsl.exe --exec` with almost no
+ * environment: no profile has run, so PATH lacks where the person's CLIs live.
+ * The helper's capture is read once here, the same fixed list of variables,
+ * and laid over this process's environment before any chat can spawn.
+ */
+async function adoptLoginEnvironment(log: (message: string) => void): Promise<void> {
+  const started = Date.now()
+  const env = await captureLoginEnv({ ...(typeof process.getuid === 'function' ? { uid: process.getuid() } : {}) })
+  Object.assign(process.env, env)
+  const took = Date.now() - started
+  if (took > 7_000)
+    log(`The login profile took ${Math.round(took / 1000)} s to read; chats use what it had set by then.`)
+}
+
 export const startHeadlessServer: ServerStart = async ({ envelope, log, requestExit }) => {
+  // In parallel with the start: nothing spawns a CLI before `ready`.
+  const loginEnvironment = envelope.wsl ? adoptLoginEnvironment(log).catch(() => undefined) : Promise.resolve()
   const server = await startStudioServer({
     ...headlessServerOptions(envelope, log),
     // The desktop opened this directory and took its lock: it is the one
@@ -32,10 +96,50 @@ export const startHeadlessServer: ServerStart = async ({ envelope, log, requestE
     onDataDirLost: () =>
       requestExit(SERVER_EXIT.dataDirBusy, 'SprintEngine Studio opened this data directory; stopping.'),
   })
+
+  let doors: FrontDoorListeners | null = null
+  let frontDoor: FrontDoorReady | undefined
+  const door = envelope.listeners.frontDoor
+  if (door && envelope.owner.tokenHash) {
+    try {
+      doors = await startFrontDoorListeners({
+        tokenHash: envelope.owner.tokenHash,
+        runDir: envelope.runDir,
+        loopback: door.loopback,
+        onAdmitted: (purpose, stream) => serveFrontDoorPurpose(server, purpose, stream, log),
+        log,
+      })
+    } catch (error) {
+      await server.stop()
+      throw error
+    }
+    frontDoor = {
+      port: doors.port,
+      socketPath: doors.socketPath,
+      driveMountRoot: envelope.wsl ? readDriveMountRoot() : null,
+    }
+    if (doors.port === null && doors.socketPath === null) {
+      await doors.close()
+      await server.stop()
+      throw Object.assign(
+        new Error('Neither of the front door’s ways in could open, so Windows cannot reach this server.'),
+        {
+          exitCode: SERVER_EXIT.temporary,
+        },
+      )
+    }
+  }
+
+  await loginEnvironment
   return {
     environmentId: readStudioEnvironmentId(envelope.dataDir),
     gatewaySocket: server.ready.gatewaySocket,
     tailnetBound: null,
-    stop: ({ onLeg }) => server.stop(onLeg),
+    ...(frontDoor ? { frontDoor } : {}),
+    stop: async ({ onLeg }) => {
+      // The front door first, so nothing new arrives while the core closes.
+      if (doors) await runShutdownLegs([['front door', () => doors?.close()]], onLeg)
+      await server.stop(onLeg)
+    },
   }
 }
