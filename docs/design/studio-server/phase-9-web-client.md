@@ -1333,3 +1333,42 @@ recorded here, with the commit that made it.
   that only a web tab's tunnel registers, rather than a `files.browse`
   protocol method: an owner session is the only caller in v1, and it becomes a
   method when the file domain moves in phase 10.
+
+### 14.2 The web build and the web `window.api` (2026-10-03)
+
+- **`npm run build:web`** builds `vite.web.config.ts` into `out/web/`, on the
+  renderer config the desktop build shares (`renderer.vite.config.ts`). It
+  builds `index`, `pair` (the pairing page, standalone) and `canvas-worker`,
+  and precompresses with brotli and gzip. CI builds it beside the desktop.
+  The server finds it at `out/web/` beside `out/server/` (`--web-root`
+  overrides). Not built: the boot skeleton, the web manifest, the dev-server
+  proxy (`--dev`).
+- **How the tab's `window.api` is installed.** Not by `STUDIO_CLIENT` alone:
+  an `import` of the shim from `main.tsx` is bundled into the app's entry
+  chunk, whose imports of shared chunks evaluate first, and the workspace
+  store reads `window.api` as its chunk loads. The web build makes the shim
+  an entry of its own (`web/installWebApi.ts`) and puts its module script
+  ahead of the app's in `index.html`; module scripts run in document order,
+  each graph whole. `STUDIO_CLIENT` remains, read where only a build can know
+  (the Electron paste bridge is not bound in a browser).
+- **`createWebApi`** spreads the preload's own api modules
+  (`src/preload/api-surface.ts`), whose IPC in the web build is the tab's
+  router (`web/webIpcRouter.ts`, swapped for `src/preload/ipc-router.ts` at
+  build time, as `electron` is swapped for a stand-in). The router is the
+  desktop's out-of-process router: a channel in `SERVER_IPC_CHANNELS` goes
+  over `/ws/ipc`, and every other channel is refused with
+  `UnsupportedOnThisClient`, noted once per channel (the missing-member
+  report, `window.__studioWebRefusals()`). Members a browser can do are
+  replaced, typed: the clipboard and links (R56), `openDir` (the folder
+  browser), the Studio ports (over `/ws`), "New window" (a new tab), and the
+  empty states the boot reads (no terminals, no window placement, signed out,
+  no third-party renderer entries (R61), no shell caches).
+- **Tabs and windows (3.5).** A plain tab is the server's `primary` workspace
+  window, as the desktop's first window is, so every plain tab shows the same
+  workspaces. "New window" opens a tab whose address carries a window id of
+  its own (`?windowId=`), which the renderer and the tunnel both read, and a
+  reload keeps. Minting a fresh id per tab would leave every new tab with an
+  empty sidebar.
+- **Reconnect** follows 3.5: the tunnel and the protocol client reconnect
+  with backoff, and at once on `online`, visible and `pageshow`. A 4401 close
+  returns the tab to `/pair`.

@@ -12,6 +12,13 @@
     "packages/agent-sdk/src/transport.ts",
     "packages/agent-sdk/src/tools.ts",
     "src/renderer/src/**/*",
+    // The web client's window.api is built from the preload's own api modules
+    // (src/renderer/src/web/createWebApi.ts), with the IPC router swapped for
+    // the browser's at build time.
+    "src/preload/api-surface.ts",
+    "src/preload/api/**/*",
+    "src/preload/ipc-router.ts",
+    "src/preload/ipc-router-core.ts",
     "src/shared/**/*",
     "packages/module-sdk/src/index.ts",
     "packages/module-sdk/src/manifest-validate.ts",

@@ -35,7 +35,8 @@ const DiagnosticsWindowApp = React.lazy(() => import('./components/diagnostics/D
 // is to say so rather than let each route fail its own way.
 reportBuildStamp()
 
-bindElectronClipboardPasteBridge()
+// An Electron paste quirk's workaround; in a browser it would stop a paste and then fail.
+if (import.meta.env.STUDIO_CLIENT !== 'web') bindElectronClipboardPasteBridge()
 
 // The modal repaint pause reports through `logPerfEvent` like everything else,
 // but the store itself imports nothing: it is pulled into the xterm output

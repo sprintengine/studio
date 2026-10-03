@@ -1,0 +1,73 @@
+@import '../../../../../design-system/foundations/tokens.css';
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/jetbrains-mono/400.css';
+
+/* The pairing page: one column, the design system's tokens, nothing else. */
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--sem-color-bg-app);
+  color: var(--sem-color-text-primary);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-body);
+}
+
+.pair {
+  box-sizing: border-box;
+  max-width: 28rem;
+  margin: 0 auto;
+  padding: var(--sem-space-4xl) var(--sem-space-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sem-space-lg);
+}
+
+.pair-mark {
+  width: var(--sem-space-4xl);
+  height: var(--sem-space-4xl);
+}
+
+.pair-title {
+  margin: 0;
+  font-size: var(--sem-font-size-title);
+  font-weight: 600;
+}
+
+.pair-status {
+  margin: 0;
+  color: var(--sem-color-text-muted);
+}
+
+.pair-help {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sem-space-sm);
+  padding-top: var(--sem-space-lg);
+  border-top: 1px solid var(--sem-color-border-subtle);
+}
+
+.pair-help[hidden] {
+  display: none;
+}
+
+.pair-help p {
+  margin: 0;
+}
+
+.pair-help-title {
+  margin: 0;
+  font-size: var(--sem-font-size-heading);
+  font-weight: 600;
+}
+
+.pair-command {
+  margin: 0;
+  padding: var(--sem-space-sm) var(--sem-space-md);
+  border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-well);
+  font-family: var(--sem-font-family-mono);
+  user-select: all;
+}

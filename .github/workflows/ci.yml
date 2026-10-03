@@ -86,6 +86,11 @@ jobs:
       - name: Build
         run: npm run build
 
+      # The web client's bundle, which a Studio server serves to browsers. It is
+      # not part of the desktop package (package.json's electron-builder files).
+      - name: Build the web client
+        run: npm run build:web
+
   # What the JS gate covers, and why: `verify:app` -- the repo's OWN full-app
   # verification chain: typecheck, the five design lints plus the guard probes
   # that prove those lints still bite, the whole unit suite, the SDK/feed guards
