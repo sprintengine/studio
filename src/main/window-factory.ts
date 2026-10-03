@@ -2,7 +2,7 @@ import { BrowserWindow, screen, shell, type WebContents } from 'electron'
 import { join } from 'path'
 import { serverModeWindowArguments } from './server-mode'
 import { guestPreloadPath } from './browser/browser-manager'
-import { applyGuestWebPreferences, type GuestWebPreferences } from './browser/guest-policy'
+import { applyGuestWebPreferences, isAllowedMachinePartition, type GuestWebPreferences } from './browser/guest-policy'
 import type { WindowMaterial } from '../shared/electron-api'
 import { sendWindowHidden, sendWindowPlacement, sendWindowState } from './ipc/window-ipc'
 import { getWindowCanvasColor, getWindowMaterial } from './window-material-store'
@@ -193,7 +193,14 @@ export function createMainWindow({
   // Every guest this window attaches is the embedded browser and nothing
   // else (guest-policy.ts has the rules and their tests).
   win.webContents.on('will-attach-webview', (event, webPreferences, params) => {
-    if (!applyGuestWebPreferences(webPreferences as GuestWebPreferences, params, guestPreloadPath()))
+    if (
+      !applyGuestWebPreferences(
+        webPreferences as GuestWebPreferences,
+        params,
+        guestPreloadPath(),
+        isAllowedMachinePartition,
+      )
+    )
       event.preventDefault()
   })
 

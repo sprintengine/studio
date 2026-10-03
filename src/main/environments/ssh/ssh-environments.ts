@@ -59,6 +59,8 @@ export type SshEnvironmentsDeps = {
   /** A `-F` ssh config for every session (the integration suites); null for the person's own. */
   configFile?: string | null
   sshBinary?: string | null
+  /** A machine was forgotten (its pane forward closes; its browsing data goes when asked). */
+  onForget?(saved: SavedSshEnvironment, options: { clearBrowsingData: boolean }): Promise<void> | void
   log?(message: string): void
 }
 
@@ -391,8 +393,32 @@ export class SshEnvironments {
     }
   }
 
-  async forget(id: string, options: { stopServer?: boolean } = {}): Promise<SshEnvironmentResult> {
+  /** A machine's live connection, or null; never connects. */
+  connection(id: string): SshServerConnection | null {
+    return this.machines.get(id)?.current() ?? null
+  }
+
+  /** Bring a machine up in the background (no prompt); true once it is, false after `ms` or on failure. */
+  async connectQuietly(id: string, ms: number): Promise<boolean> {
+    const machine = this.machine(id)
+    if (!machine) return false
+    if (machine.current()) return true
+    const timer = new Promise<boolean>((resolve) => setTimeout(() => resolve(false), ms).unref?.())
+    return Promise.race([
+      machine.connect({ interactive: false }).then(
+        () => true,
+        () => false,
+      ),
+      timer,
+    ])
+  }
+
+  async forget(
+    id: string,
+    options: { stopServer?: boolean; clearBrowsingData?: boolean } = {},
+  ): Promise<SshEnvironmentResult> {
     const machine = this.machines.get(id)
+    const saved = this.get(id)
     if (options.stopServer) {
       const stopped = await this.stopServer(id)
       if (!stopped.ok) return stopped
@@ -401,6 +427,7 @@ export class SshEnvironments {
     this.machines.delete(id)
     this.saved = this.saved.filter((entry) => entry.id !== id)
     this.persist()
+    if (saved) await this.deps.onForget?.(saved, { clearBrowsingData: options.clearBrowsingData === true })
     return { ok: true }
   }
 

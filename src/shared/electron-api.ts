@@ -510,7 +510,8 @@ export type ElectronApi = {
   // The embedded browser (browser-pane epic, src/shared/browser.ts). The
   // renderer mounts the `<webview>` and registers its WebContents id; main
   // drives it and pushes `onBrowserState` for every registered tab.
-  browserConfig: () => Promise<BrowserConfig>
+  /** The partition for a workspace's tabs: an SSH machine's, behind its forward, or this computer's (phase 8). */
+  browserConfig: (input?: { workspaceId?: string }) => Promise<BrowserConfig>
   browserRegister: (input: BrowserRegisterInput) => Promise<BrowserRegisterResult>
   browserUnregister: (tabId: string) => Promise<void>
   browserNavigate: (tabId: string, url: string) => Promise<boolean>

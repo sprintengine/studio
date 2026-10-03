@@ -1,5 +1,5 @@
 import { hostname } from 'node:os'
-import { app, BrowserWindow, ipcMain, net, powerMonitor, safeStorage } from 'electron'
+import { app, BrowserWindow, ipcMain, net, powerMonitor, safeStorage, session } from 'electron'
 import { createHash } from 'crypto'
 import { existsSync } from 'fs'
 import { homedir } from 'os'
@@ -18,8 +18,10 @@ import { primeDefaultWslDistro } from './hosts/wsl-distro'
 import { configureWslHelpers } from './hosts/wsl-helper-runtime'
 import { createDesktopWslServers } from '../server/wsl/desktop-wsl-servers'
 import { SshEnvironments } from './environments/ssh/ssh-environments'
+import { PanePartitions } from './environments/ssh/pane-partitions'
+import { allowMachinePartitions } from './browser/guest-policy'
 import { registerSshEnvironmentsIpc } from './ipc/ssh-environments-ipc'
-import { relayShellToolsets } from '../server/wsl/wsl-tool-relay'
+import { relayShellToolsets, SSH_RELAYED_TOOLSETS } from '../server/wsl/wsl-tool-relay'
 import { cliTakesLaunchPlugins } from './agent-launch-render'
 import { resolveSocketPath as resolveAutomationSocketPath } from './automation/automation-service'
 import { invalidateCliAvailabilityOnHost, subscribeKnownCliAvailability } from './cli-availability'
@@ -625,11 +627,51 @@ export function createAppServices(
         if (!window.isDestroyed()) window.webContents.send(channel, payload)
       }
     },
+    onForget: (saved, options) =>
+      panePartitions.forget(saved.id, {
+        clearBrowsingData: options.clearBrowsingData,
+        environmentId: saved.environmentId,
+      }),
     log: (message) => {
       void writeDiagnosticLog({ level: 'info', title: 'SSH machine', message, source: 'workspace' })
     },
   })
   registerSshEnvironmentsIpc(ipcMain, sshEnvironments)
+  // The pane's tabs for a workspace on an SSH machine: that machine's own
+  // partition, behind an authenticated proxy on loopback that sends their
+  // traffic through the machine (phase 8 spec, 6.8; decisions R75, R76).
+  const panePartitions: PanePartitions = new PanePartitions({
+    machineOf: (workspaceId) => {
+      const environment = workspaceSyncService
+        .getSnapshot()
+        .state.workspaces.find((workspace) => workspace.id === workspaceId)?.environment
+      return environment?.kind === 'ssh' && sshEnvironments.get(environment.id)
+        ? { id: environment.id, label: sshEnvironments.get(environment.id)?.label ?? environment.label }
+        : null
+    },
+    environmentIdOf: (id) => sshEnvironments.get(id)?.environmentId ?? null,
+    traffic: (id) => sshEnvironments.get(id)?.settings.paneTraffic ?? 'off',
+    current: (id) => sshEnvironments.connection(id),
+    connect: (id, ms) => sshEnvironments.connectQuietly(id, ms),
+    sessionFor: (partition) => session.fromPartition(partition),
+    log: (message) => {
+      void writeDiagnosticLog({ level: 'info', title: 'SSH machine', message, source: 'workspace' })
+    },
+  })
+  allowMachinePartitions((partition) => panePartitions.isPrepared(partition))
+  // Chromium asks the forward's credential through the `login` event; it is
+  // given only to the machine's own partition, for its own port.
+  app.on('login', (event, webContents, _details, authInfo, callback) => {
+    if (!authInfo.isProxy || !webContents) return
+    const own = webContents.session
+    const partition =
+      panePartitions.preparedPartitions().find((candidate) => session.fromPartition(candidate) === own) ?? null
+    const credential = panePartitions.answerLogin(partition, authInfo)
+    if (!credential) return
+    event.preventDefault()
+    callback(credential.username, credential.password)
+  })
+  app.on('before-quit', () => void panePartitions.shutdown())
   app.on('before-quit', () => sshEnvironments.shutdown())
   void app.whenReady().then(() => {
     // Asleep or on another network, a session's socket is dead: restart now
@@ -1316,6 +1358,7 @@ export function createAppServices(
     resolveWorkspaceRoot: (workspaceId) =>
       workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId)
         ?.folderPath ?? null,
+    machinePartitions: panePartitions,
   })
   const browserControl = createBrowserControl(browserManager)
   browserManager.onUnregister((tabId) => browserControl.forget(tabId))
@@ -1546,6 +1589,26 @@ export function createAppServices(
   // A chat agent in WSL reaches its own server's gateway: the desktop's
   // toolsets are offered there too, and run here (phase 7).
   const wslServersOfCore = 'wslServers' in core ? core.wslServers : null
+  // An SSH machine's agents get the pane's browser, whose tabs reach that
+  // machine's network, and the canvas (phase 8).
+  if (automationService)
+    relayShellToolsets({
+      onConnected: (listener) =>
+        sshEnvironments.onConnected((connection) =>
+          listener({
+            key: connection.key,
+            name: connection.label,
+            backend: connection.backend,
+            open: (purpose: 'studio') => connection.open(purpose),
+            toolsets: SSH_RELAYED_TOOLSETS,
+            args: (_toolset, args) => args,
+          }),
+        ),
+      registry: automationService.clientTools,
+      log: (message) => {
+        void writeDiagnosticLog({ level: 'info', title: 'SSH machine', message, source: 'workspace' })
+      },
+    })
   if (automationService && wslServersOfCore)
     relayShellToolsets({
       onConnected: (listener) => wslServersOfCore.onConnected(listener),

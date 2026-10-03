@@ -18,8 +18,12 @@ export function applyGuestWebPreferences(
   webPreferences: GuestWebPreferences,
   params: GuestAttachParams,
   pickerPreloadPath: string | null,
+  // An SSH machine's partition (phase 8), only once main has set its proxy:
+  // a guest on any other partition would reach a network nobody chose.
+  isMachinePartition: (partition: string) => boolean = () => false,
 ): boolean {
-  if (params.partition !== BROWSER_PARTITION) return false
+  if (params.partition !== BROWSER_PARTITION && !(params.partition && isMachinePartition(params.partition)))
+    return false
   if (typeof params.src === 'string' && params.src && !isLoadableBrowserUrl(params.src)) return false
   // The only preload a guest may carry is the element picker we ship; any
   // other path is dropped. The picker reads the page's React fiber, which an
@@ -40,4 +44,16 @@ export function applyGuestWebPreferences(
   webPreferences.webSecurity = true
   webPreferences.allowRunningInsecureContent = false
   return true
+}
+
+// Which SSH machines' partitions a guest may attach to now (phase 8): set
+// once by the app's services, read on every `will-attach-webview`.
+let machinePartitionCheck: (partition: string) => boolean = () => false
+
+export function allowMachinePartitions(check: (partition: string) => boolean): void {
+  machinePartitionCheck = check
+}
+
+export function isAllowedMachinePartition(partition: string): boolean {
+  return machinePartitionCheck(partition)
 }

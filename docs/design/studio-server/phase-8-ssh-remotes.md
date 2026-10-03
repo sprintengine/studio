@@ -748,12 +748,18 @@ makes `localhost` in that environment's tabs mean the remote, with no
 Chromium on the remote and no screencast: the desktop's own pane, its network
 sent through the SSH connection the desktop already holds.
 
+Amended 2026-10-03 for decision R75 (owner ruling 2026-10-02): the local
+end is an HTTP proxy that demands a per-forward credential, not a SOCKS5
+listener. Where the text below still says SOCKS5, read this paragraph and the
+"As built" notes at the end of this section.
+
 ```
  pane tab of a build-box workspace, partition persist:env-<environment.id>
-   │  Chromium: proxyRules socks5://127.0.0.1:<p>, proxyBypassRules '<-loopback>'
+   │  Chromium: proxyRules 127.0.0.1:<p> (an HTTP proxy), proxyBypassRules '<-loopback>'
+   │  Proxy-Authorization answered by main through Electron's `login` event
    ▼
- main: SshPaneForward for build-box, a SOCKS5 listener on 127.0.0.1:<p>
-   │  one multiplexer stream per CONNECT: open { kind: 'tcp', host, port }
+ main: SshPaneForward for build-box, an HTTP proxy on 127.0.0.1:<p>
+   │  one multiplexer stream per CONNECT or plain request: open { kind: 'tcp', host, port }
    ▼
  the environment's SSH session: the relay's stdio (5.4)
    ▼
@@ -891,6 +897,51 @@ one per SSH environment, in main:
 - **The page is untrusted**, exactly as a local dev page in today's pane: the
   pane's guest isolation is unchanged, and the partition holds no Studio
   credential.
+
+**As built (2026-10-03), by decision R75.**
+
+- The local end is `SshPaneForward` (`src/main/environments/ssh/
+  pane-forward.ts`): an HTTP proxy bound to the literal `127.0.0.1` on a port
+  the OS picks. Every request and every `CONNECT` must carry
+  `Proxy-Authorization: Basic` with this forward's own credential (random per
+  forward); without it the answer is `407` and nothing reaches the relay.
+  Chromium asks for the credential through Electron's `login` event, and main
+  answers only when the request comes from that machine's partition and names
+  that forward's port (`PanePartitions.answerLogin`). No SOCKS5 listener
+  exists, and the Linux uid check of the SOCKS design is not needed.
+- `CONNECT` carries HTTPS and WebSockets (Chromium tunnels `ws://` through an
+  HTTP proxy too). A plain `http://` request in absolute form is passed on
+  once, in origin form, without the proxy's headers and with
+  `Connection: close`, as raw bytes over its own tcp stream.
+- Refusals are said in words in the response body: `502` (refused,
+  unreachable), `504` (timeout), `503` (the relay's limit, or "build-box is
+  reconnecting. This tab's network goes through it." after ten seconds).
+- `PanePartitions` (`pane-partitions.ts`) opens the forward when a tab of the
+  machine's workspace asks for its partition (`browser:config` with the
+  workspace), sets the session's proxy before that tab is made, and closes the
+  forward five seconds after the machine's last tab. A later tab opens a new
+  forward and points the session at it first. A `<webview>` may attach to a
+  machine's partition only once its proxy is set (`guest-policy.ts`).
+- The partition is `persist:env-<environment id>`, or
+  `persist:env-ssh-<saved id>` until the machine's server has been reached.
+- A machine whose `paneTraffic` is `off` gives its tabs this computer's
+  partition. `loopback` sends loopback targets through the machine and the
+  rest from this computer.
+- `browser.status` reports `network: 'remote'` for those tabs; their guests run
+  with `webRTCIPHandlingPolicy: 'disable_non_proxied_udp'`.
+- The desktop's `browser` and `canvas` toolsets are offered to the machine's
+  server (`relayShellToolsets` with an SSH target), so an agent there can open
+  its dev server in the person's pane. The editor, tour, terminal and agent
+  toolsets are not: they act on this computer's files and processes.
+- Checked in Electron (a throwaway script against the dockerized sshd with
+  `AllowTcpForwarding no`, not kept in the tree): a page served on the
+  container's `127.0.0.1:5173` loaded in the machine's partition for
+  `http://localhost:5173/` and `http://127.0.0.1:5173/`, while a page this
+  computer was serving on its own `127.0.0.1:5173` loaded in a local
+  partition; `http://[::1]:5173/` reached the container too (refused there,
+  since the dev server bound IPv4 only), which confirms V-P1 for all three
+  loopback names. Chromium raised the proxy's `login` once and was answered;
+  a request without the credential got `407`. V-P2 to V-P4 were not run.
 
 ## 7. Connection resilience
 
@@ -1079,7 +1130,7 @@ features, VersionBlocked with both numbers named.
 | D10 | Use a systemd user unit when lingering is on, without asking? | **Yes**, and show it in Settings. Without linger, the detached process; never run `loginctl enable-linger` ourselves |
 | D11 | macOS remotes in v1? | **Yes** (both arches): the experiments ran the whole path on macOS without root. A `launchd` agent comes later |
 | D12 | When a desktop finds an older external server, offer the upgrade in place? | **Offer, ask first, drain the same way** — never automatic |
-| D13 | The pane forward's local end (6.8): Chromium speaks SOCKS5 without authentication, so a SOCKS listener on the laptop's loopback can be reached by other local users while it is open. Keep SOCKS5 as ruled, or give the same forward an HTTP-proxy local end with a per-session credential that Chromium answers through Electron's `login` event? | **SOCKS5 as ruled, narrowed** (loopback, open only while a tab needs it, a uid check on Linux), until the owner says goal 4 must hold on multi-user Macs and Windows PCs too; then the HTTP-proxy end, which changes nothing else |
+| D13 | *(Ruled 2026-10-02, R75: the HTTP-proxy local end with a per-session credential; no SOCKS5.)* The pane forward's local end (6.8): Chromium speaks SOCKS5 without authentication, so a SOCKS listener on the laptop's loopback can be reached by other local users while it is open. Keep SOCKS5 as ruled, or give the same forward an HTTP-proxy local end with a per-session credential that Chromium answers through Electron's `login` event? | **SOCKS5 as ruled, narrowed** (loopback, open only while a tab needs it, a uid check on Linux), until the owner says goal 4 must hold on multi-user Macs and Windows PCs too; then the HTTP-proxy end, which changes nothing else |
 | D14 | The pane's partition for an SSH machine, and what goes through the remote | **One persistent partition per environment** (`persist:env-<environment.id>`), and **all of its traffic** through the remote by default, with `paneTraffic` per machine |
 
 ## 12. Changes the parent design needs

@@ -57,7 +57,12 @@ export function registerSshEnvironmentsIpc(ipcMain: IpcMain, machines: SshEnviro
   byId(SSH_ENV_CHANNELS.stopServer, (id) => machines.stopServer(id))
   byId(SSH_ENV_CHANNELS.upgradeServer, (id) => machines.upgradeServer(id))
   byId(SSH_ENV_CHANNELS.diagnostics, (id) => machines.diagnostics(id))
-  byId(SSH_ENV_CHANNELS.forget, (id, payload) => machines.forget(id, { stopServer: payload.stopServer === true }))
+  byId(SSH_ENV_CHANNELS.forget, (id, payload) =>
+    machines.forget(id, {
+      stopServer: payload.stopServer === true,
+      clearBrowsingData: payload.clearBrowsingData === true,
+    }),
+  )
   const onAnswer = (_event: unknown, payload: unknown) => {
     const id = (payload as { id?: unknown } | null)?.id
     const answer = (payload as { answer?: unknown } | null)?.answer
