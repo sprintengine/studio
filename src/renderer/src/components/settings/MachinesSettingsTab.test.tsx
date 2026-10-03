@@ -16,6 +16,7 @@ vi.mock('../../store/workspaceStore', () => ({
   useWorkspaceStore: (select: (state: typeof fixtures.state) => unknown) => select(fixtures.state),
 }))
 
+const { ConfirmDialogProvider } = await import('../ui')
 const { MachinesSettingsTab, chatServerWords, formatEnvLines, machineStateWords, parseEnvLines } =
   await import('./MachinesSettingsTab')
 
@@ -215,4 +216,25 @@ test('the server state is said in words, whatever it is', () => {
   expect(chatServerWords({ on: true, state: 'ready', transport: 'loopback' })).toBe('Running, reached over loopback.')
   expect(chatServerWords({ on: true, state: 'shut-down', reason: 'WSL was shut down.' })).toBe('WSL was shut down.')
   expect(chatServerWords({ on: true, state: 'unavailable' })).toBe('Not running.')
+})
+
+test('SSH machines show only with their preview on', async () => {
+  await render()
+  expect(host.textContent).not.toContain('SSH machines')
+  await act(async () => root.unmount())
+  root = createRoot(host)
+  const api = (window as unknown as { api: Record<string, unknown> }).api
+  api.sshMachinesEnabled = true
+  api.sshEnvironmentsList = async () => []
+  api.sshEnvironmentSuggestions = async () => []
+  api.onSshEnvironmentsChanged = () => () => {}
+  await act(async () =>
+    root.render(
+      <ConfirmDialogProvider>
+        <MachinesSettingsTab />
+      </ConfirmDialogProvider>,
+    ),
+  )
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+  expect(host.textContent).toContain('SSH machines')
 })

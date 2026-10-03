@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
+import type { SshPreviewStatus } from '../../../../shared/ssh-preview'
 import type { StudioServerInfo, StudioServerStatus } from '../../../../shared/studio-server-status'
 import { useStudioServerStatus } from '../studioServer/useStudioServerStatus'
 import { uptimeWords } from '../studioServer/studioServerWords'
@@ -9,6 +10,70 @@ import { SettingCard, SettingsRow, SettingsSectionTitle } from './SettingsAtoms'
 // Settings → Agents → Studio server: the Advanced toggle that runs the server
 // in a process of its own (phase 6, off by default), and, while it does, what
 // it is doing in words, with the actions a person takes on it.
+
+const SSH_TOGGLE_ID = 'settings-ssh-machines-preview'
+const SSH_TOGGLE_HELP_ID = 'settings-ssh-machines-preview-help'
+
+/**
+ * SSH machines (phase 8), a preview until it is complete: off by default.
+ * Read once at launch, like the process switch above it.
+ */
+export function SshMachinesPreviewSwitch() {
+  const [status, setStatus] = useState<SshPreviewStatus | null>(null)
+  const [pending, setPending] = useState(false)
+  useEffect(() => {
+    if (typeof window.api?.sshPreviewStatus !== 'function') return
+    let cancelled = false
+    void window.api
+      .sshPreviewStatus()
+      .then((next) => {
+        if (!cancelled) setStatus(next)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  if (!status) return null
+  const restartNeeded = status.saved !== status.enabled && !status.fromEnvironment
+  return (
+    <>
+      <SettingsRow
+        label="SSH machines (preview)"
+        helpId={SSH_TOGGLE_HELP_ID}
+        help={
+          status.fromEnvironment
+            ? 'Set for this launch by SPRINTENGINE_SSH_MACHINES.'
+            : 'Run chats on machines you reach over SSH, from Settings › Machines. Still being built: some views do not work for them yet. Takes effect after a restart.'
+        }
+      >
+        <Switch
+          id={SSH_TOGGLE_ID}
+          checked={status.saved}
+          onChange={(next) => {
+            if (pending) return
+            setPending(true)
+            void window.api
+              .sshPreviewSet(next)
+              .then(setStatus)
+              .finally(() => setPending(false))
+          }}
+          disabled={pending || status.fromEnvironment}
+          ariaLabel="SSH machines (preview)"
+          ariaDescribedBy={SSH_TOGGLE_HELP_ID}
+        />
+      </SettingsRow>
+      {restartNeeded ? (
+        <InlineNotice
+          tone="warn"
+          action={<GhostButton onClick={() => void window.api.studioServerRelaunch()}>Restart now</GhostButton>}
+        >
+          {status.saved ? 'SSH machines appear after a restart.' : 'SSH machines go away after a restart.'}
+        </InlineNotice>
+      ) : null}
+    </>
+  )
+}
 
 const TOGGLE_ID = 'settings-studio-server-process'
 const TOGGLE_HELP_ID = 'settings-studio-server-process-help'
@@ -101,6 +166,7 @@ export function StudioServerSettings() {
             </span>
           </SettingsRow>
         ) : null}
+        <SshMachinesPreviewSwitch />
       </SettingCard>
       {restartNeeded ? (
         <InlineNotice

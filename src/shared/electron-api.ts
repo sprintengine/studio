@@ -5,6 +5,7 @@ import type {
   SshPromptRequest,
   SshResolveResult,
 } from './ssh-environments'
+import type { SshPreviewStatus } from './ssh-preview'
 import type { ServerMode } from './server-mode'
 import type { StudioServerInfo, StudioServerStatus } from './studio-server-status'
 import type { EditorRevealAck, EditorRevealRequest, EditorStateQuery, EditorStateReply } from './editor-reveal'
@@ -484,6 +485,8 @@ export type * from './ipc/backlog'
 
 export type ElectronApi = {
   platform: string
+  /** Whether this session has SSH machines (a preview, off by default; phase 8). */
+  sshMachinesEnabled?: boolean
   isDevelopment: boolean
   isDiagnosticsEnabled: boolean
   windowMinimize: () => Promise<void>
@@ -1140,6 +1143,9 @@ export type ElectronApi = {
   /** A prompt is over without this window's answer (timed out, answered elsewhere, ssh gave up). */
   onSshPromptClosed: (cb: (id: string) => void) => () => void
   sshPromptAnswer: (id: string, answer: string | null) => void
+  /** The SSH machines preview switch: this session's, and the next launch's. */
+  sshPreviewStatus: () => Promise<SshPreviewStatus>
+  sshPreviewSet: (enabled: boolean) => Promise<SshPreviewStatus>
   writefile: (path: string, content: string) => Promise<void>
   /**
    * Save one pasted/dropped image that exists only as bytes (a clipboard

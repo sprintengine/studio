@@ -668,8 +668,11 @@ export default function SettingsPanel({
   )
   const visibleSettingsTabs = useMemo(
     (): SettingsTabDescriptor[] => [
-      // Every platform: SSH machines are added here (phase 8).
-      ...settingsTabs,
+      // Windows: its WSL distributions. Any platform with the SSH machines
+      // preview on: the SSH machines (phase 8).
+      ...settingsTabs.filter(
+        (tab) => tab.id !== 'machines' || window.api.platform === 'win32' || window.api.sshMachinesEnabled === true,
+      ),
       ...moduleSections.map((section) => ({
         id: moduleSectionTabId(section.id),
         label: section.label,

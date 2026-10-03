@@ -192,7 +192,7 @@ export function MachinesSettingsTab({
         ) : null}
       </section>
 
-      <SshMachinesSection />
+      {window.api?.sshMachinesEnabled ? <SshMachinesSection /> : null}
     </div>
   )
 }

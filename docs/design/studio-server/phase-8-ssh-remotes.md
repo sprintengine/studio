@@ -1224,8 +1224,14 @@ spawn and envelope, the WSL stdio transport).
 
 ## 14. Implementation status (2026-10-03)
 
-Built, and nothing changes for a person who adds no SSH machine (the Machines
-tab now shows on every platform, with an empty SSH section):
+Built behind a preview switch, off by default (Settings › Agents › Studio
+server › "SSH machines (preview)", or `SPRINTENGINE_SSH_MACHINES=on|off`),
+read once at launch like the server's own process switch. With it off no SSH
+code runs: main builds no machines, no askpass broker, no pane partitions
+and no IPC for them, the core gets no SSH servers, and the Machines tab is
+Windows-only as before. The server tree ships in every installer (about
+5 MB unpacked), used only by WSL distributions and SSH machines; a macOS or
+Linux build needs it only for the preview. With the switch on:
 
 - Commits 1–7 and 9–10 of section 13, each with its "As built" notes above:
   the shared POSIX install, the relay and the detached start, the ssh command

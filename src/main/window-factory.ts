@@ -1,6 +1,7 @@
 import { BrowserWindow, screen, shell, type WebContents } from 'electron'
 import { join } from 'path'
 import { serverModeWindowArguments } from './server-mode'
+import { sshPreviewWindowArguments } from './environments/ssh/ssh-preview'
 import { guestPreloadPath } from './browser/browser-manager'
 import { applyGuestWebPreferences, isAllowedMachinePartition, type GuestWebPreferences } from './browser/guest-policy'
 import type { WindowMaterial } from '../shared/electron-api'
@@ -145,7 +146,7 @@ export function createMainWindow({
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       // Which process owns the server's IPC channels this session (ipc-router.ts).
-      additionalArguments: serverModeWindowArguments(),
+      additionalArguments: [...serverModeWindowArguments(), ...sshPreviewWindowArguments()],
       sandbox: false,
       // Background throttling stays ON (Electron's default), deliberately.
       //
@@ -316,7 +317,7 @@ export function createDiagnosticsWindow(): BrowserWindow {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       // Which process owns the server's IPC channels this session (ipc-router.ts).
-      additionalArguments: serverModeWindowArguments(),
+      additionalArguments: [...serverModeWindowArguments(), ...sshPreviewWindowArguments()],
       sandbox: false,
     },
   })
@@ -425,7 +426,7 @@ export function openAuxWindow({ kind, singletonKey, params, bounds = null, focus
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       // Which process owns the server's IPC channels this session (ipc-router.ts).
-      additionalArguments: serverModeWindowArguments(),
+      additionalArguments: [...serverModeWindowArguments(), ...sshPreviewWindowArguments()],
       sandbox: false,
       // A diff or editor window hosts no terminal and no background work, so it
       // has no reason to keep painting while hidden. See the workspace window

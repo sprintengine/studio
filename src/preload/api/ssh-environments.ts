@@ -8,6 +8,7 @@ import {
   type SshPromptRequest,
   type SshResolveResult,
 } from '../../shared/ssh-environments'
+import { SSH_PREVIEW_CHANNELS, type SshPreviewStatus } from '../../shared/ssh-preview'
 
 // SSH machines (phase 8): main holds their sessions and asks their questions.
 export const sshEnvironmentsApi = {
@@ -54,4 +55,8 @@ export const sshEnvironmentsApi = {
   },
   sshPromptAnswer: (id: string, answer: string | null): void =>
     ipcRenderer.send(SSH_ENV_CHANNELS.answer, { id, answer }),
+  // The preview switch, answered whether or not this session has SSH machines.
+  sshPreviewStatus: (): Promise<SshPreviewStatus> => ipcRenderer.invoke(SSH_PREVIEW_CHANNELS.get),
+  sshPreviewSet: (enabled: boolean): Promise<SshPreviewStatus> =>
+    ipcRenderer.invoke(SSH_PREVIEW_CHANNELS.set, { enabled }),
 } satisfies Partial<ElectronApi>

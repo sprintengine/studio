@@ -40,6 +40,7 @@ import { skillsApi } from './api/skills'
 import { launchSettingsApi } from './api/launch-settings'
 import { hostsApi } from './api/hosts'
 import { sshEnvironmentsApi } from './api/ssh-environments'
+import { sshPreviewFromArgv } from '../shared/ssh-preview'
 import { splashApi } from './api/splash'
 import { startupApi } from './api/startup'
 import { terminalApi } from './api/terminal'
@@ -59,6 +60,8 @@ const diagnosticsEnabled = process.env.NODE_ENV === 'development' || readStudioE
 
 const api = {
   platform: process.platform,
+  // SSH machines, a preview fixed for the session (shared/ssh-preview.ts).
+  sshMachinesEnabled: sshPreviewFromArgv(process.argv),
   isDevelopment: process.env.NODE_ENV === 'development',
   isDiagnosticsEnabled: readStudioEnv('SPRINTENGINE_DIAGNOSTICS') === '1',
   diagnosticsGetIpcStats: snapshotIpcStats,

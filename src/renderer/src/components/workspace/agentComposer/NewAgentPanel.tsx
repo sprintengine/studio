@@ -482,7 +482,9 @@ export default function NewAgentPanel({
   // SSH machines (phase 8): offered where a launch creates its workspace, as
   // the machines on this computer are. A chat there runs in a folder on that
   // machine, typed here; nothing on this computer is browsed for it.
-  const { machines: sshMachinesAll } = useSshMachines(hostChoosable ? window.api : null)
+  const { machines: sshMachinesAll } = useSshMachines(
+    hostChoosable && window.api?.sshMachinesEnabled ? window.api : null,
+  )
   const sshMachines = hostChoosable && !editing ? sshMachinesAll : []
   const [pickedSshId, setPickedSshId] = React.useState<string | null>(() => (editing ? null : lastPickedSshId))
   const pickedSsh = sshMachines.find((machine) => machine.id === pickedSshId) ?? null

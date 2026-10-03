@@ -44,6 +44,13 @@ import {
   writeServerFallbackNote,
   writeServerMode,
 } from './server-mode'
+import {
+  readSavedSshPreview,
+  readSshPreview,
+  setSessionSshPreview,
+  writeSshPreview,
+} from './environments/ssh/ssh-preview'
+import { SSH_PREVIEW_CHANNELS, type SshPreviewStatus } from '../shared/ssh-preview'
 import { registerStudioServerIpc } from './ipc/studio-server-ipc'
 import { STUDIO_SERVER_CHANNELS } from '../shared/studio-server-status'
 import { createDesktopServerHost } from './server-supervisor/desktop-server-host'
@@ -78,6 +85,10 @@ const DIAGNOSTICS_ENABLED = readStudioEnv('SPRINTENGINE_DIAGNOSTICS') === '1'
 // service is built, so every store has one writer for the whole session.
 const serverMode = readServerMode(app.getPath('userData'))
 setSessionServerMode(serverMode.mode)
+// SSH machines, a preview until phase 8 is complete: off by default, and
+// with it off no SSH code runs. Fixed for the session, like the server mode.
+const sshPreview = readSshPreview(app.getPath('userData'))
+setSessionSshPreview(sshPreview.enabled)
 // A launch that follows one whose server could not start says why, once.
 const serverFellBack =
   serverMode.source === 'fallback'
@@ -333,6 +344,18 @@ const relaunchApp = (args: string[] = []): void => {
   app.relaunch({ args: [...process.argv.slice(1).filter((arg) => arg !== SERVER_FALLBACK_ARGUMENT), ...args] })
   app.quit()
 }
+// The SSH machines switch: answered whether or not this session has them.
+const sshPreviewStatus = (): SshPreviewStatus => ({
+  enabled: sshPreview.enabled,
+  saved: sshPreview.fromEnvironment ? sshPreview.enabled : readSavedSshPreview(app.getPath('userData')),
+  fromEnvironment: sshPreview.fromEnvironment,
+})
+ipcMain.handle(SSH_PREVIEW_CHANNELS.get, () => sshPreviewStatus())
+ipcMain.handle(SSH_PREVIEW_CHANNELS.set, (_event, payload: unknown) => {
+  const enabled = (payload as { enabled?: unknown } | null)?.enabled
+  if (typeof enabled === 'boolean' && !sshPreview.fromEnvironment) writeSshPreview(app.getPath('userData'), enabled)
+  return sshPreviewStatus()
+})
 registerStudioServerIpc(ipcMain, {
   choice: serverMode,
   supervisor: serverHost?.supervisor ?? null,
