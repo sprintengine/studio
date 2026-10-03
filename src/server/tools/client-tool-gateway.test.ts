@@ -237,7 +237,13 @@ test('an agent that lists once and ignores list_changed is answered for every to
   // The desktop goes, past its grace: the tool the agent listed is answered,
   // as a result rather than a protocol error, with why it cannot run.
   registry.detach(shell.connectionId)
-  await new Promise((resolve) => setTimeout(resolve, 80))
+  // The registry's next change after the detach is the grace running out.
+  await new Promise<void>((resolve) => {
+    const stop = registry.subscribe(() => {
+      stop()
+      resolve()
+    })
+  })
   const gone = await lister.request('tools/call', { name: 'browser.status', arguments: {} })
   assert.equal(gone.error, undefined)
   assert.match(JSON.stringify(gone.result), /client_unavailable/)
