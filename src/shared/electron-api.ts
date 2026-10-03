@@ -1,4 +1,5 @@
 import type { ClientCapability } from './client-capabilities'
+import type { PreviewOpenAnswer, PreviewPort, PreviewSummary } from './web-client'
 import type { ServerMode } from './server-mode'
 import type { StudioServerInfo, StudioServerStatus } from './studio-server-status'
 import type { EditorRevealAck, EditorRevealRequest, EditorStateQuery, EditorStateReply } from './editor-reveal'
@@ -492,6 +493,12 @@ export type ElectronApi = {
   hostPlatform: string
   /** What this shell can do (src/shared/client-capabilities.ts); ask `clientSupports`, not `typeof`. */
   clientCapabilities: readonly ClientCapability[]
+  /** The ports the server's agents listen on, for a preview (web client only; `previews`). */
+  previewsList: () => Promise<{ ports: PreviewPort[] }>
+  /** Open a preview of a port on the server's loopback, on an origin of its own. */
+  previewsOpen: (input: { port: number; typed?: boolean }) => Promise<PreviewOpenAnswer>
+  previewsClose: (previewId: string) => Promise<boolean>
+  onPreviewsChanged: (cb: (previews: PreviewSummary[]) => void) => () => void
   isDevelopment: boolean
   isDiagnosticsEnabled: boolean
   windowMinimize: () => Promise<void>

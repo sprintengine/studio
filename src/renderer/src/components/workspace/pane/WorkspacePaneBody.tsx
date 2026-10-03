@@ -9,6 +9,7 @@ import { useChangelists } from '../../../hooks/useChangelists'
 import { defaultDiffChangelistId } from '../../../utils/diffChangelistDefault'
 import { paneKindRetainsPanel } from './paneKinds'
 import { FLOATING_PAGE_INSET, FloatingPlayerChrome, useFloatRect } from './FloatingPlayer'
+import { clientSupports } from '../../../clientCapabilities'
 
 // The pane's content region: one layer per tab that needs to stay mounted
 // (terminal, browser, canvas) plus the active tab. Inactive retained layers are
@@ -27,6 +28,7 @@ const DiffViewer = React.lazy(() =>
   import('../../auxWindows/DiffViewer').then((module) => ({ default: module.DiffViewer })),
 )
 const BrowserTab = React.lazy(() => import('./browser/BrowserTab').then((module) => ({ default: module.BrowserTab })))
+const PreviewTab = React.lazy(() => import('./browser/PreviewTab').then((module) => ({ default: module.PreviewTab })))
 // The canvas editor is the heaviest dependency in the tree, and this is the
 // boundary that keeps it off the boot path: nothing is drawn on a board until a
 // Canvas tab is on screen, so its evaluation waits for one. A local lazy const rather
@@ -233,7 +235,13 @@ function PaneTabPanel({ workspaceId, tab, active, onDiffCountChange }: PaneTabPa
         <PaneUnavailable />
       )
     case 'browser':
-      return <BrowserTab workspaceId={workspaceId} tab={tab} active={active} />
+      // A browser tab has no browser pane to drive; it shows the server's dev
+      // servers through previews instead (phase 9 spec, 3.6).
+      return clientSupports('previews') && !clientSupports('browser-pane') ? (
+        <PreviewTab active={active} />
+      ) : (
+        <BrowserTab workspaceId={workspaceId} tab={tab} active={active} />
+      )
     case 'canvas':
       return selectModuleEnabled(moduleOverrides, 'canvas') ? (
         <CanvasTab workspaceId={workspaceId} tab={tab} active={active} />

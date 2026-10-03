@@ -13,7 +13,14 @@ import { registerServerDomainIpc, type ServerDomainIpcHandles } from '../desktop
 import { createIpcTunnel } from '../ipc/ipc-tunnel'
 import type { LocalClientBus } from '../platform/client-bus'
 import type { StudioAuthenticator } from '../rpc/studio-rpc-types'
-import { WEB_BROWSE_FOLDERS_CHANNEL } from '../../shared/web-client'
+import {
+  WEB_BROWSE_FOLDERS_CHANNEL,
+  WEB_PREVIEWS_CHANGED_CHANNEL,
+  WEB_PREVIEWS_CLOSE_CHANNEL,
+  WEB_PREVIEWS_LIST_CHANNEL,
+  WEB_PREVIEWS_OPEN_CHANNEL,
+} from '../../shared/web-client'
+import { createPreviewService } from './preview-service'
 import { browseFolders, type FolderBrowserInput } from './folder-browser'
 import { createWebListener, type WebExtraRoute, type WebListener } from './web-listener'
 import { createWebSessionStore, type WebSessionStore, type WebTicketSubject } from './web-sessions'
@@ -122,6 +129,38 @@ export async function startWebFrontDoor(input: {
     browseFolders(request ?? {}),
   )
 
+  // Previews: an agent's dev server on an origin of its own, per session.
+  // Each tab's tunnel belongs to the session whose cookie opened it.
+  const sessionOfClient = new Map<string, string>()
+  let listenerPort: number | null = null
+  const previews = createPreviewService({
+    ownPorts: () => (listenerPort === null ? [] : [listenerPort]),
+    studioOrigins: () => (listenerPort === null ? [] : listener.origins()),
+    log: input.log,
+  })
+  const sessionFor = (event: { caller: { clientId: string } }): string => {
+    const sessionId = sessionOfClient.get(event.caller.clientId)
+    if (!sessionId) throw new Error('This tab is not paired with Studio.')
+    return sessionId
+  }
+  tunnel.registry.handle(WEB_PREVIEWS_LIST_CHANNEL, (event) => {
+    sessionFor(event)
+    return previews.list()
+  })
+  tunnel.registry.handle(WEB_PREVIEWS_OPEN_CHANNEL, (event, request: { port?: unknown; typed?: unknown } | null) =>
+    previews.open({ port: request?.port, sessionId: sessionFor(event), typed: request?.typed === true }),
+  )
+  tunnel.registry.handle(WEB_PREVIEWS_CLOSE_CHANNEL, (event, request: { previewId?: unknown } | null) =>
+    typeof request?.previewId === 'string' ? previews.close(request.previewId, sessionFor(event)) : false,
+  )
+  const stopPreviewPushes = previews.onChanged((sessionId, open) => {
+    for (const [clientId, owner] of sessionOfClient) {
+      if (owner === sessionId) tunnel.publish(WEB_PREVIEWS_CHANGED_CHANNEL, open, { clientId })
+    }
+  })
+  // A removed browser's previews close with it.
+  const stopPreviewRevocations = sessions.onRevoked((sessionId) => void previews.closeSession(sessionId))
+
   const mintKey = randomBytes(32).toString('base64url')
   const listener = createWebListener({
     sessions,
@@ -155,11 +194,21 @@ export async function startWebFrontDoor(input: {
         rpc.connectWeb(stream, { authenticator, ownWindow: false })
       },
     },
-    tunnel: { attach: (client, port) => tunnel.attach(client, port), detach: (clientId) => tunnel.detach(clientId) },
+    tunnel: {
+      attach: (client, port, session) => {
+        sessionOfClient.set(client.clientId, session.id)
+        tunnel.attach(client, port)
+      },
+      detach: (clientId) => {
+        sessionOfClient.delete(clientId)
+        tunnel.detach(clientId)
+      },
+    },
     extraRoutes: input.extraRoutes,
     log: input.log,
   })
   const { port } = await listener.start()
+  listenerPort = port
   const url = `http://127.0.0.1:${port}`
 
   const runFile = join(dataDir, 'run', WEB_RUN_FILENAME)
@@ -175,6 +224,9 @@ export async function startWebFrontDoor(input: {
     url,
     async stop() {
       stopForwarding()
+      stopPreviewPushes()
+      stopPreviewRevocations()
+      await previews.stop()
       await listener.stop()
       for (const client of tunnel.clients()) tunnel.detach(client.clientId)
       await domains?.conversationCommands.dispose().catch(() => undefined)

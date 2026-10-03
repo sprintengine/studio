@@ -1391,3 +1391,23 @@ recorded here, with the commit that made it.
   resume in a terminal, and reveal in folder on the chat route. The rest of
   the `typeof window.api.X` guards are unchanged; on the web their members
   exist and refuse.
+
+### 14.4 Previews (2026-10-03)
+
+- **Tunnelled channels, not a `previews` namespace.** `previews.list`,
+  `open` and `close` are `web:previews:*` channels on a web tab's tunnel, with
+  `web:previews:changed` pushed to the session's tabs, for the reason 14.1
+  gives the folder browser: only an owner's tab calls them in v1, which is
+  R77's "owner sessions". A `previews:open` grant for tailnet pairings comes
+  with the protocol namespace.
+- **The listener checks `Host`** as Studio's does: a request that names
+  another host is answered 421 before the cookie is read.
+- **Ports.** `list` walks the server process's own descendants (the agents'
+  CLIs and what they started); an owner may type any port from 1024 that is
+  not one of the server's. Opening a port the session already previews
+  returns that preview with a fresh entry code.
+- **The pane.** Where a desktop window shows its browser pane, a tab whose
+  shell has `previews` and no `browser-pane` shows the preview pane: a port
+  picker (and a typed port), the path field, Reload and "Open in a new tab".
+  Not built: "Open in the desktop app", and HTTPS ports through
+  `tailscale serve` for a preview reached off loopback.
