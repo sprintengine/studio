@@ -13,8 +13,13 @@ import { SHELL_BRIDGE_EVENTS, SHELL_BRIDGE_METHODS, type ShellBridge } from './s
 
 /** How long a seal or an open may take: a keychain prompt on a locked Mac is answered by a person. */
 const CIPHER_TIMEOUT_MS = 120_000
-/** A terminal launch writes a launcher and spawns a pty; the shell's own budget is shorter. */
-const LAUNCH_TIMEOUT_MS = 60_000
+/**
+ * A terminal launch may cut a worktree before it spawns, with no budget of its
+ * own in the shell: the same deadline as the shell's `agent.launch` tool, so a
+ * slow checkout is not reported as a shell that stopped answering while the
+ * agent it started comes up anyway.
+ */
+const LAUNCH_TIMEOUT_MS = 120_000
 /** The launcher and plugin home are written at boot; past this, launches stop waiting for them. */
 const INTEGRATIONS_TIMEOUT_MS = 120_000
 
