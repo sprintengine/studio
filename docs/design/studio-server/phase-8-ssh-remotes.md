@@ -301,6 +301,28 @@ Targets in v1: `linux-x64`, `linux-arm64` (glibc ≥ 2.28), `darwin-arm64`,
 `darwin-x64`. musl (Alpine) is refused with a sentence naming the reason
 (decision D3).
 
+As built (2026-10-03), `src/main/hosts/remote-install.ts`:
+
+- The layout is phase 7's as built, not the one above: the server tree is
+  `server-<version>/` beside `runtime/node-<v>/` and `data/`, so a WSL
+  distribution and an SSH machine hold the same tree in the same place, and
+  each kind of install prunes only its own (`PRUNE_GLOBS`).
+- The lock, the liveness check and the move are shared with WSL, whose commit
+  now takes the `mkdir` lock too instead of `flock`. A lock is reclaimed when
+  its pid is gone, when it never got a pid and is two minutes old, or when it
+  is half an hour old (a pid reused by another process of the same user).
+  Liveness reads `/proc` where there is one and `ps` otherwise; when neither
+  answers, a tree counts as in use and is never pruned on a guess.
+- The SSH install is one session: `buildStreamInstallScript` stages, says
+  `@@SPRINTENGINE_SEND`, reads the decision line and then the archive to its
+  end, and commits the runtime and the server tree it holds under one lock.
+  The runtime in that archive is the pinned binary alone
+  (`runtime/node-<v>/bin/node`, 0700), repacked on the desktop; its marker
+  holds the digest of the pinned archive it came from, as on WSL.
+- Tested under dash, bash, zsh in sh emulation and the macOS `/bin/sh`, and
+  under busybox in an Alpine container when `STUDIO_TEST_DOCKER=1`
+  (`remote-install.test.ts`); `shellcheck -s sh` where it is installed.
+
 ### 5.4 Transport: the relay over the session's stdio
 
 The parent's 9.4 and 10.3 step 5 forward a local socket or port with
