@@ -89,11 +89,16 @@ export function buildStampPlugin(isDevBuild: boolean): Plugin {
 // `fonts/` directory beside itself.
 const CANVAS_FONTS_DIR = resolve('node_modules/@excalidraw/excalidraw/dist/prod/fonts')
 
-// The CJK family is ~12 MB — about twenty-five times the rest of that directory
-// together — and covers scripts none of the hand-drawn families reach. Carrying
-// it in every installer to make a rare board render without a system fallback is
-// not a trade worth making.
-const CANVAS_FONTS_SKIPPED_FAMILIES = new Set(['Xiaolai'])
+// The CJK family (Xiaolai) is ~12 MB, about twenty-five times the rest of that
+// directory together, in some two hundred unicode-range subsets of which a
+// page fetches only the ones its text needs. R48 (owner ruling 2026-10-02)
+// bundles it in both clients that draw boards. The web client carries it: its
+// bundle is served by a Studio server, not shipped in an installer, and a
+// browser's last-resort source for it, a public CDN, is refused by the page's
+// policy, so without it CJK labels fall back to the browser's own face. The
+// desktop renderer does not carry it yet; adding twelve megabytes to every
+// installer is that ruling's own change, not the web client's.
+const CANVAS_FONTS_CJK_FAMILY = 'Xiaolai'
 
 // The three families the agent format can ask for, by the directory name the
 // package gives them (src/renderer/src/canvasWorker/skeletonMap.ts maps the
@@ -103,13 +108,13 @@ const CANVAS_FONTS_SKIPPED_FAMILIES = new Set(['Xiaolai'])
 // face — the one degradation nothing on screen shows.
 const CANVAS_FONTS_REQUIRED_FAMILIES = ['Excalifont', 'Nunito', 'ComicShanns']
 
-// No family we ship is anywhere near this; the skipped CJK set is twenty-five
-// times it. So this catches the case the skip list cannot: a family renamed in
-// the dependency, which would fall through the skip list and quietly put twelve
-// megabytes in every installer.
+// No family we ship is anywhere near this but the CJK one, which is named. So
+// this catches the case the name cannot: a family renamed in the dependency,
+// which would fall through and quietly put twelve megabytes in every
+// installer.
 const CANVAS_FONTS_MAX_FAMILY_BYTES = 3 * 1024 * 1024
 
-function canvasSceneFontFiles(): Array<{ urlPath: string; filePath: string }> {
+function canvasSceneFontFiles(options: { cjk: boolean }): Array<{ urlPath: string; filePath: string }> {
   const families = readdirSync(CANVAS_FONTS_DIR, { withFileTypes: true }).filter((entry) => entry.isDirectory())
   const present = new Set(families.map((family) => family.name))
   const missing = CANVAS_FONTS_REQUIRED_FAMILIES.filter((family) => !present.has(family))
@@ -123,7 +128,8 @@ function canvasSceneFontFiles(): Array<{ urlPath: string; filePath: string }> {
 
   const files: Array<{ urlPath: string; filePath: string }> = []
   for (const family of families) {
-    if (CANVAS_FONTS_SKIPPED_FAMILIES.has(family.name)) continue
+    const cjk = family.name === CANVAS_FONTS_CJK_FAMILY
+    if (cjk && !options.cjk) continue
     let familyBytes = 0
     const inFamily: Array<{ urlPath: string; filePath: string }> = []
     for (const file of readdirSync(join(CANVAS_FONTS_DIR, family.name))) {
@@ -132,11 +138,11 @@ function canvasSceneFontFiles(): Array<{ urlPath: string; filePath: string }> {
       familyBytes += statSync(filePath).size
       inFamily.push({ urlPath: `fonts/${family.name}/${file}`, filePath })
     }
-    if (familyBytes > CANVAS_FONTS_MAX_FAMILY_BYTES) {
+    if (!cjk && familyBytes > CANVAS_FONTS_MAX_FAMILY_BYTES) {
       throw new Error(
         `The canvas scene font family ${family.name} is ${Math.round(familyBytes / (1024 * 1024))} MB, ` +
           `over the ${CANVAS_FONTS_MAX_FAMILY_BYTES / (1024 * 1024)} MB one family may be. ` +
-          `A large family belongs in CANVAS_FONTS_SKIPPED_FAMILIES, not in every installer.`,
+          `A large family is left out of the installer by name, as ${CANVAS_FONTS_CJK_FAMILY} is.`,
       )
     }
     files.push(...inFamily)
@@ -144,7 +150,7 @@ function canvasSceneFontFiles(): Array<{ urlPath: string; filePath: string }> {
   return files
 }
 
-function canvasSceneFontsPlugin(): Plugin {
+function canvasSceneFontsPlugin(options: { cjk: boolean }): Plugin {
   return {
     name: 'sprintengine-canvas-scene-fonts',
     // Dev: the renderer root is src/renderer, which has no fonts directory, so
@@ -152,7 +158,7 @@ function canvasSceneFontsPlugin(): Plugin {
     // allowlist — a request that is not one of the files the build emits falls
     // through to the rest of the dev server rather than reaching the disk.
     configureServer(server) {
-      const byUrlPath = new Map(canvasSceneFontFiles().map((f) => [`/${f.urlPath}`, f.filePath]))
+      const byUrlPath = new Map(canvasSceneFontFiles(options).map((f) => [`/${f.urlPath}`, f.filePath]))
       server.middlewares.use((req, res, next) => {
         const filePath = byUrlPath.get((req.url ?? '').split('?')[0])
         if (!filePath) {
@@ -167,7 +173,7 @@ function canvasSceneFontsPlugin(): Plugin {
     // the URL the editor builds names the family and file itself, so these two
     // are the parts of the layout that are not ours to choose.
     generateBundle() {
-      for (const { urlPath, filePath } of canvasSceneFontFiles()) {
+      for (const { urlPath, filePath } of canvasSceneFontFiles(options)) {
         this.emitFile({ type: 'asset', fileName: urlPath, source: readFileSync(filePath) })
       }
     },
@@ -251,6 +257,11 @@ export function rendererViteConfig(options: { client: StudioClient; devBuild: bo
       // other branch asks a client capability instead.
       'import.meta.env.STUDIO_CLIENT': JSON.stringify(options.client),
     },
-    plugins: [react(), tailwindcss(), buildStampPlugin(options.devBuild), canvasSceneFontsPlugin()],
+    plugins: [
+      react(),
+      tailwindcss(),
+      buildStampPlugin(options.devBuild),
+      canvasSceneFontsPlugin({ cjk: options.client === 'web' }),
+    ],
   }
 }

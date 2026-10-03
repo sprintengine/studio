@@ -1699,5 +1699,9 @@ keeps the same swaps, since the browser's own window still takes
 - Verified in Chromium against the built server: an agent's `canvas.open`
   over MCP revealed a new board in the tab's pane and its `canvas.edit`
   appeared there. The editor's last-resort font source, a public CDN, is
-  refused by the page's CSP as intended; the CJK face (Xiaolai) is not in
-  the bundle, so CJK labels fall back to the browser's face.
+  refused by the page's CSP as intended. The CJK face (Xiaolai) was not in
+  the bundle; in review it was added to the web build alone, as R48 rules
+  (its 209 unicode-range subsets, about 12 MB, under `fonts/Xiaolai/`, of
+  which a page fetches only what its text needs). The desktop renderer still
+  leaves it out: that is twelve megabytes in every installer, R48's own
+  change rather than the web client's.
