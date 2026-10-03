@@ -597,15 +597,17 @@ export function createAppServices(
   // workspace registry, the conversation runtime and the backend chats are
   // driven through, the launch service. The same composition a standalone
   // server builds under plain Node (src/server/core/studio-core.ts); built here
-  // because a Claude chat's child is handed this app's gateway and the launch
+  // because a chat's agent is handed this app's gateway and the launch
   // cap reads this app's terminals.
   const core = server
     ? createRemoteCore(server)
     : createStudioCore(platform, {
         role: 'desktop',
-        // A Claude chat's child loads no project settings, so the gateway pinned
-        // into a workspace's `.mcp.json` never reached it; the child is handed the
-        // gateway itself, on the machine its `claude` runs on.
+        // A chat's agent is handed the gateway itself, on the machine its CLI
+        // runs on: a Claude chat's child loads no project settings, so the
+        // gateway pinned into a workspace's `.mcp.json` never reached it, and a
+        // Codex or ACP chat would otherwise have only what a terminal launch left
+        // pinned in the folder, with no identity.
         resolveStudioMcpServer: async ({ hostId }) => {
           await whenAgentLaunchReady()
           const gateway = studioGatewayFor(hostId ?? null)

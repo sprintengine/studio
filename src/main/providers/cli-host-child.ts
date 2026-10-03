@@ -255,13 +255,25 @@ function withoutKeys(env: NodeJS.ProcessEnv, keys: readonly string[]): NodeJS.Pr
  * when its machine has one to give, handed to it on stdin and taken back when
  * the child ends, so the app's MCP gateway it starts there is accepted as a
  * WSL terminal agent's is.
+ *
+ * `launch` is a token the runtime issued for this child itself, because it
+ * also hands the value to the gateway entry it tells the agent about (an ACP
+ * agent, whose environment names no conversation). It is handed to the child
+ * as an issued one would be, and taken back when the child ends or fails to
+ * start; null hands it none.
  */
 export function spawnCliHostChild(
-  input: Parameters<typeof cliHostSpawn>[0],
+  request: Parameters<typeof cliHostSpawn>[0] & { launch?: WslChannelToken | null },
   deps: Parameters<typeof cliHostSpawn>[1] & { spawn?: typeof spawn; signal?: AbortSignal } = {},
 ): ChildProcessWithoutNullStreams {
+  const { launch, ...input } = request
   const identity = launchIdentityOfEnv(input.env)
-  const channel = input.wsl ? (input.wsl.issueChannelToken?.(identity) ?? null) : localLaunchToken(identity)
+  const channel =
+    launch !== undefined
+      ? launch
+      : input.wsl
+        ? (input.wsl.issueChannelToken?.(identity) ?? null)
+        : localLaunchToken(identity)
   let revoked = false
   const revoke = () => {
     if (revoked || !channel) return

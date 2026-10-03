@@ -1,3 +1,5 @@
+import { EventEmitter } from 'node:events'
+import { PassThrough } from 'node:stream'
 import { expect, test, vi } from 'vitest'
 import {
   CODEX_INTERRUPT_GRACE_MS,
@@ -6,9 +8,15 @@ import {
   codexChildEnv,
   codexMcpServerArgs,
   probeCodexConversationCommands,
+  type CodexConversationProviderOptions,
 } from './codex-conversation-provider'
-import { CodexRpcError, type CodexRpcOptions, type RpcMessage } from './codex-json-rpc'
-import type { ConversationEvent, ConversationPermissionPreset } from '../../shared/conversation-runtime'
+import { CodexRpcError, createCodexRpcTransport, type CodexRpcOptions, type RpcMessage } from './codex-json-rpc'
+import type {
+  ConversationEvent,
+  ConversationMcpServer,
+  ConversationPermissionPreset,
+} from '../../shared/conversation-runtime'
+import { resolveGatewayLaunchToken } from '../../server/core/gateway-launch-tokens'
 import { conversationCommandsFor } from '../conversation-commands/registry'
 
 function fixture(
@@ -23,6 +31,7 @@ function fixture(
     saveGeneratedImage?: (input: { sessionId: string; itemId: string; base64: string }) => Promise<string>
     // Codex accepts `turn/interrupt` but never sends the turn's `turn/completed`.
     silentInterrupt?: boolean
+    resolveStudioMcpServer?: CodexConversationProviderOptions['resolveStudioMcpServer']
   } = {},
 ) {
   let connection!: CodexRpcOptions
@@ -37,6 +46,7 @@ function fixture(
     resolveExecutable: async () => '/usr/bin/codex',
     buildEnv: async () => setup.env ?? {},
     saveGeneratedImage: setup.saveGeneratedImage,
+    ...(setup.resolveStudioMcpServer ? { resolveStudioMcpServer: setup.resolveStudioMcpServer } : {}),
     createTransport(options) {
       connection = options
       transports.created++
@@ -1463,6 +1473,101 @@ test("a chat's own MCP servers reach Codex as config overrides for its app-serve
     /"acme\.tools" is not a Codex config key/,
   )
   expect(codexMcpServerArgs([])).toEqual([])
+})
+
+const GATEWAY: ConversationMcpServer = {
+  id: 'sprintengine-studio',
+  name: 'SprintEngine Studio MCP',
+  transport: 'stdio',
+  command: '/Users/dev/.sprintengine/bin/studio',
+  args: ['mcp'],
+  env: { SPRINTENGINE_USER_DATA_DIR: '/Users/dev/Library/Application Support/SprintEngine Studio' },
+}
+
+test("a Codex chat is handed the app's gateway once, with its identity, and its token only by name", async () => {
+  const asked: unknown[] = []
+  const f = fixture({
+    resolveStudioMcpServer: async (input) => {
+      asked.push(input)
+      return GATEWAY
+    },
+  })
+  Object.assign(f.input, {
+    mcpServers: [
+      { id: 'railway', name: 'Railway', transport: 'stdio', command: 'npx', args: ['-y', '@railway/mcp'] },
+      // A server of the session's own under the gateway's id would be a second gateway.
+      { id: 'sprintengine-studio', name: 'Stale', transport: 'stdio', command: '/stale/studio' },
+    ],
+  })
+  await runTurn(f, [])
+  expect(asked).toEqual([{}])
+  const overrides = f.connection.args!.filter((arg) => arg.startsWith('mcp_servers.'))
+  // One override under the name a terminal launch pins the gateway into
+  // `.codex/config.toml` with: Codex merges it into that entry rather than
+  // starting a second server. The person's own servers stay as they were.
+  expect(overrides).toEqual([
+    'mcp_servers.sprintengine-studio={ "command" = "/Users/dev/.sprintengine/bin/studio", "args" = ["mcp"], "env_vars" = ["SPRINTENGINE_MCP_CHANNEL_TOKEN"], "env" = { "SPRINTENGINE_USER_DATA_DIR" = "/Users/dev/Library/Application Support/SprintEngine Studio", "SPRINTENGINE_WORKSPACE_ID" = "workspace", "SPRINTENGINE_AGENT_ID" = "agent", "SPRINTENGINE_AGENT_CLI" = "codex" } }',
+    'mcp_servers.railway={ "command" = "npx", "args" = ["-y", "@railway/mcp"] }',
+  ])
+})
+
+test('a Codex chat whose gateway cannot be resolved still starts, with only its own servers', async () => {
+  const f = fixture({
+    resolveStudioMcpServer: async () => {
+      throw new Error('The launcher could not be written.')
+    },
+  })
+  await runTurn(f, [])
+  expect(f.connection.args).toEqual([])
+})
+
+test('each Codex app-server holds its own gateway token for its chat, off its command line, until it ends', async () => {
+  // A resumed chat, a fork and a restart after a preset change are each a new
+  // app-server, so each is a new launch with a token of its own.
+  const started = () => {
+    const spawned: Array<{ args: string[]; env: NodeJS.ProcessEnv }> = []
+    const child = Object.assign(new EventEmitter(), {
+      stdin: new PassThrough(),
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      pid: 7,
+      exitCode: null as number | null,
+      kill: () => true,
+    })
+    const transport = createCodexRpcTransport({
+      command: '/usr/local/bin/codex',
+      cwd: '/Users/dev/repo',
+      env: codexChildEnv(
+        { PATH: '/usr/bin', SPRINTENGINE_WORKSPACE_ID: 'workspace', SPRINTENGINE_AGENT_ID: 'agent' },
+        { sessionId: 'session' },
+      ),
+      args: codexMcpServerArgs([{ ...GATEWAY, envVarNames: ['SPRINTENGINE_MCP_CHANNEL_TOKEN'] }]),
+      spawnChild: ((_file: string, args: string[], options: { env: NodeJS.ProcessEnv }) => {
+        spawned.push({ args, env: options.env })
+        return child
+      }) as unknown as CodexRpcOptions['spawnChild'],
+      onMessage: () => undefined,
+      onClose: () => undefined,
+    })
+    const token = spawned[0]!.env.SPRINTENGINE_MCP_CHANNEL_TOKEN!
+    expect(spawned[0]!.args.join(' ')).not.toContain(token)
+    return {
+      token,
+      end: () => {
+        transport.close()
+        child.exitCode = 0
+        child.emit('close', 0)
+      },
+    }
+  }
+  const first = started()
+  expect(resolveGatewayLaunchToken(first.token)).toEqual({ workspaceId: 'workspace', agentId: 'agent' })
+  first.end()
+  expect(resolveGatewayLaunchToken(first.token)).toBeNull()
+  const second = started()
+  expect(second.token).not.toBe(first.token)
+  expect(resolveGatewayLaunchToken(second.token)).toEqual({ workspaceId: 'workspace', agentId: 'agent' })
+  second.end()
 })
 
 test('a fork Codex refuses to branch at its turn starts a new thread with the conversation, not a dead end', async () => {

@@ -39,6 +39,7 @@ import {
   type WslCliChild,
   type WslCliTarget,
 } from './cli-host-child'
+import { studioGatewayForChat, withStudioGateway, type StudioMcpServerResolver } from './studio-gateway-entry'
 import { studioPlatform } from '../../server/platform/platform'
 
 export const CODEX_CONVERSATION_PROVIDER_ID = 'codex-agent'
@@ -157,6 +158,9 @@ export type CodexConversationProviderOptions = {
   saveGeneratedImage?: (input: { sessionId: string; itemId: string; base64: string }) => Promise<string>
   // Readies a WSL machine for a chat whose `codex` runs there; tests stand in.
   prepareWslTarget?: (hostId: ExecutionHostId) => Promise<WslCliTarget>
+  // The app's MCP gateway on the machine the chat's `codex` runs on. Null
+  // leaves it out; the chat runs without Studio's tools rather than not at all.
+  resolveStudioMcpServer?: StudioMcpServerResolver
 }
 
 /**
@@ -770,9 +774,25 @@ export function createCodexConversationProvider(
       if (state.closed) throw new Error('Codex conversation was closed.')
       const command = await (options.resolveExecutable ?? resolveExecutable)(state.input)
       const env = await (options.buildEnv ?? buildEnv)(state.input)
+      const hostId = state.input.cliRuntimes?.codex?.hostId
+      const gateway = await options.resolveStudioMcpServer?.({ ...(hostId ? { hostId } : {}) }).catch(() => null)
       if (state.closed) throw new Error('Codex conversation was closed.')
       state.wsl = wsl
-      const mcpServers = state.input.mcpServers ?? []
+      // The app's gateway beside the session's own servers. The app-server is
+      // issued its own gateway token as it starts (its environment names the
+      // chat), and Codex starts a server with only the variables its entry
+      // names, so the entry names the token's and never carries it: these
+      // overrides are the app-server's command line.
+      const mcpServers = withStudioGateway(
+        gateway
+          ? studioGatewayForChat(
+              gateway,
+              { workspaceId: state.input.workspaceId, agentId: state.input.agentId, cli: 'codex' },
+              { byName: true },
+            )
+          : null,
+        state.input.mcpServers ?? [],
+      )
       const transport = (options.createTransport ?? createCodexRpcTransport)({
         command,
         cwd: state.input.workspaceRoot ?? '',
@@ -780,8 +800,11 @@ export function createCodexConversationProvider(
         wsl: wsl ? codexWslChild(wsl) : null,
         args: [
           ...codexAppServerArgs(env.SPRINTENGINE_CODEX_APP_SERVER_ARGS),
-          // The session's own MCP servers, as config overrides on top of the
-          // person's own `config.toml`, for this process only.
+          // The gateway and the session's own MCP servers, as config overrides
+          // on top of the person's own `config.toml`, for this process only.
+          // The gateway's override is merged into an entry a terminal launch
+          // pinned into the workspace's `.codex/config.toml` under the same
+          // name, so the app-server starts one gateway, the launch's.
           ...codexMcpServerArgs(wsl ? mcpServersOnWsl(mcpServers) : mcpServers),
         ],
         onMessage: (message) => onMessage(state, message),

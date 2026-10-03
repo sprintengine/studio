@@ -183,9 +183,10 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   try {
     core = createStudioCore(platform, {
       role: 'server',
-      // A Claude chat's child is handed this server's gateway: the stdio bridge,
-      // run by the Node this server runs on. A WSL machine is not this server's
-      // to reach; a server runs inside the distribution instead (phase 7).
+      // A chat's agent (Claude Code, Codex, an ACP agent) is handed this
+      // server's gateway: the stdio bridge, run by the Node this server runs
+      // on. A WSL machine is not this server's to reach; a server runs inside
+      // the distribution instead (phase 7).
       resolveStudioMcpServer: async ({ hostId }) => {
         if (isWslHostId(hostId)) return null
         await gateway?.whenGatewayReady()

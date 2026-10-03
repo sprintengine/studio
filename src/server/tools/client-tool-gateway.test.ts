@@ -42,12 +42,13 @@ type Harness = {
   ): ClientToolConnection & { frames: Array<StudioCallFrame | StudioCancelFrame> }
 }
 
-async function harness(options: { expect?: string[]; reach?: 'own' | 'all' } = {}): Promise<Harness> {
+async function harness(options: { expect?: string[]; reach?: 'own' | 'all'; graceMs?: number } = {}): Promise<Harness> {
   const directory = mkdtempSync(join(tmpdir(), 'client-tool-gateway-'))
   const registry = createClientToolRegistry({
     store: createClientToolsetStore({}),
     servedFamilies: () => ['workspace'],
     reachOf: () => options.reach ?? 'own',
+    ...(options.graceMs !== undefined ? { graceMs: options.graceMs } : {}),
   })
   const gateway = createClientToolGateway({
     registry,
@@ -217,6 +218,50 @@ test('a catalog only grows: a gone client’s tool stays listed and answers clie
   // And so is a misspelt tool of a family Studio serves itself: no client answers for it.
   const typo = await fresh.request('tools/call', { name: 'workspace.lst', arguments: {} })
   assert.ok(typo.error)
+})
+
+// Codex lists an MCP server's tools when a thread starts and only logs
+// `notifications/tools/list_changed`, so a Codex chat holds the list it took
+// at the start for the whole thread. That is enough: the catalog only grows,
+// and a tool whose client has gone answers that as a result.
+test('an agent that lists once and ignores list_changed is answered for every tool it listed', async () => {
+  const { registry, socketPath, client } = await harness({ reach: 'all', graceMs: 20 })
+  const shell = client('owner', 'all')
+  registry.offer(shell.connectionId, toolset('browser', ['status']))
+  const lister = await agent(socketPath, { agentId: 'chat-1', workspaceId: 'ws-1', cliId: 'codex' })
+  assert.deepEqual(await names(lister), ['browser.status', 'workspace.list'])
+  // An app's offer is announced, and the agent does nothing with it.
+  const game = client('game-app')
+  registry.offer(game.connectionId, toolset('game', ['spawn_enemy']))
+  await lister.next(listChanged)
+  // The desktop goes, past its grace: the tool the agent listed is answered,
+  // as a result rather than a protocol error, with why it cannot run.
+  registry.detach(shell.connectionId)
+  // The registry's next change after the detach is the grace running out.
+  await new Promise<void>((resolve) => {
+    const stop = registry.subscribe(() => {
+      stop()
+      resolve()
+    })
+  })
+  const gone = await lister.request('tools/call', { name: 'browser.status', arguments: {} })
+  assert.equal(gone.error, undefined)
+  assert.match(JSON.stringify(gone.result), /client_unavailable/)
+  // A desktop that comes back answers the same name, and the agent lists nothing new to reach it.
+  const back = client('owner', 'all')
+  registry.offer(back.connectionId, toolset('browser', ['status']))
+  lister.send({ id: 77, method: 'tools/call', params: { name: 'browser.status', arguments: {} } })
+  for (let tries = 0; !back.frames.some((frame) => frame.t === 'call') && tries < 200; tries++)
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  const call = back.frames.find((frame): frame is StudioCallFrame => frame.t === 'call')!
+  registry.reply(back.connectionId, {
+    t: 'reply',
+    id: call.id,
+    ok: true,
+    result: { content: [{ type: 'text', text: 'ready' }] },
+  })
+  const answered = await lister.next((message) => message.id === 77)
+  assert.match(JSON.stringify(answered.result), /ready/)
 })
 
 test('a burst of offers is one notification, and only to a connection that can see them', async () => {
