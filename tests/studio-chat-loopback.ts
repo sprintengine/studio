@@ -1,6 +1,7 @@
 import { createStudioChatBackend } from '../src/main/studio-rpc/studio-chat-backend'
 import { createTicketAuthenticator, framePortStream, mintStudioTicket } from '../src/server/rpc/studio-frame-port'
 import { createStudioRpcServer, type StudioRpcServer } from '../src/server/rpc/studio-rpc-server'
+import type { StudioPullRequests } from '../src/server/pull-requests/pull-request-domain'
 import type { StudioConversationBackend } from '../src/server/rpc/studio-rpc-types'
 import type { ConversationSessionFrame } from '../src/shared/conversation-runtime'
 import { createMemoryChannel, type MemoryChannelEnd } from './memory-channel'
@@ -177,9 +178,11 @@ export type StudioLoopback = {
  */
 export function installStudioLoopback(
   win: { api?: Api },
-  options: { environmentId?: string } = {},
+  options: { environmentId?: string; pullRequests?: StudioPullRequests } = {},
 ): StudioLoopback | null {
-  if (!chatOverStudioUnderTest()) return null
+  // Pull requests are served only over the protocol, so a test of them puts
+  // the window on it in every run.
+  if (!chatOverStudioUnderTest() && !options.pullRequests) return null
   const api = (win.api ??= {})
   // One chat surface for the window's life, as main provides one: its receipts
   // outlive a dropped connection. Its members still read the stubs when called.
@@ -190,6 +193,7 @@ export function installStudioLoopback(
     environmentId: options.environmentId ?? 'studio-loopback',
     backend: conversationsOver(api),
     chat: () => chat,
+    ...(options.pullRequests ? { pullRequests: options.pullRequests } : {}),
     // The socket is never started; windows say hello with their tickets.
     authenticator: createTicketAuthenticator(mintStudioTicket()),
   })

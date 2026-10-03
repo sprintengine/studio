@@ -119,12 +119,22 @@ export function useConversationPullRequests(workspaceIds: readonly string[]): Co
         void ask()
       }, COALESCE_MS)
     }
-    void pullRequestClient().then((client) => {
-      if (!client || !alive) return
-      stop = client.subscribe('pullRequests.changed', {}, { onPayload: schedule })
-    })
+    // A client that reconnects keeps its subscription; one that closed for
+    // good is replaced by a new client, which needs one of its own.
+    let subscribed: StudioClient | null = null
+    const subscribe = () => {
+      void pullRequestClient().then((client) => {
+        if (!client || !alive || client === subscribed) return
+        stop?.()
+        subscribed = client
+        stop = client.subscribe('pullRequests.changed', {}, { onPayload: schedule })
+      })
+    }
+    subscribe()
     const unwatch = watchWindowStudio(api, () => {
-      if (windowStudioState(api) === 'open') schedule()
+      if (windowStudioState(api) !== 'open') return
+      subscribe()
+      schedule()
     })
     // Coming back to the app is the cheapest moment to notice a pull request
     // that merged while it was in the background (decision 9).
