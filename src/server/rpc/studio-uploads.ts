@@ -42,6 +42,8 @@ type Upload = {
   /** The connection whose budget it counts against, until that connection closes. */
   connection: string | null
   mediaType: string
+  /** A picture for a send, or a file's bytes for `files.write`: each is spent only as what it was begun as. */
+  purpose: StudioUploadPurpose
   name?: string
   byteLength: number
   chunks: Buffer[]
@@ -50,6 +52,8 @@ type Upload = {
   orphanedAt?: number
   spentBy?: { commandId: string; at: number }
 }
+
+export type StudioUploadPurpose = 'picture' | 'file'
 
 /** Who is asking: the client an upload belongs to, and the connection whose budget it is counted in. */
 export type StudioUploadHolder = { client: string; connection: string }
@@ -66,7 +70,7 @@ export type StudioUploadedPicture = { uploadId: string; mediaType: string; name?
 export type StudioUploads = {
   begin(
     holder: StudioUploadHolder,
-    input: { mediaType: string; byteLength: number; name?: string },
+    input: { mediaType: string; byteLength: number; name?: string; purpose?: StudioUploadPurpose },
   ): { ok: true; uploadId: string; chunkBytes: number } | StudioUploadRefusal
   append(
     holder: StudioUploadHolder,
@@ -79,6 +83,7 @@ export type StudioUploads = {
     owner: string,
     uploadIds: string[],
     commandId: string,
+    purpose?: StudioUploadPurpose,
   ): { ok: true; pictures: StudioUploadedPicture[] } | StudioUploadRefusal
   /**
    * What became of the send that spent these: `recorded`, and its receipt
@@ -145,6 +150,7 @@ export function createStudioUploads(options: { now?: () => number; sweepEveryMs?
         owner: holder.client,
         connection: holder.connection,
         mediaType: input.mediaType,
+        purpose: input.purpose ?? 'picture',
         ...(input.name === undefined ? {} : { name: input.name }),
         byteLength: input.byteLength,
         chunks: [],
@@ -194,12 +200,19 @@ export function createStudioUploads(options: { now?: () => number; sweepEveryMs?
       return { discarded }
     },
 
-    spend(owner, uploadIds, commandId) {
+    spend(owner, uploadIds, commandId, purpose = 'picture') {
       sweep()
       const found: Upload[] = []
       for (const uploadId of uploadIds) {
         const upload = find(owner, uploadId)
         if ('ok' in upload) return upload
+        if (upload.purpose !== purpose)
+          return {
+            ok: false,
+            code: 'invalid_params',
+            message:
+              purpose === 'file' ? 'That upload is a picture, not a file.' : 'That upload is a file, not a picture.',
+          }
         if (upload.spentBy && upload.spentBy.commandId !== commandId)
           return {
             ok: false,

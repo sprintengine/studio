@@ -4,10 +4,10 @@ import {
   STUDIO_LOCAL_APPS_CANCEL_OFFER_CHANNEL,
   STUDIO_LOCAL_APPS_OFFER_CHANNEL,
   STUDIO_LOCAL_APPS_REVOKE_CHANNEL,
+  STUDIO_LOCAL_APPS_SET_REACH_CHANNEL,
   STUDIO_LOCAL_APPS_STATUS_CHANNEL,
 } from '../../shared/studio-local-apps'
 import type { StudioRpcService } from '../studio-rpc/studio-rpc-service'
-import { assertAppSender } from './ipc-sender'
 
 // Settings' front door for the apps paired with Studio's owner socket: read
 // them, mint a pairing code, cancel one, revoke an app. IPC-only on purpose,
@@ -18,7 +18,15 @@ import { assertAppSender } from './ipc-sender'
 // every scope it names, up to a bypass ceiling, so a module's iframe, a
 // webview guest or a window that navigated elsewhere is refused, as the
 // extension installer refuses them.
-export function registerStudioLocalAppsIpc(ipcMain: IpcMain, service: StudioRpcService): void {
+//
+// The check is handed in: in main it is `assertAppSender`; in the Studio
+// server the window's port is the check (main brokers one only to an app
+// window), and `ipc-sender.ts` is Electron's.
+export function registerStudioLocalAppsIpc(
+  ipcMain: IpcMain,
+  service: StudioRpcService,
+  assertAppSender: (event: IpcMainInvokeEvent) => void,
+): void {
   ipcMain.handle(STUDIO_LOCAL_APPS_STATUS_CHANNEL, (event: IpcMainInvokeEvent) => {
     assertAppSender(event)
     return service.getStatus()
@@ -34,5 +42,9 @@ export function registerStudioLocalAppsIpc(ipcMain: IpcMain, service: StudioRpcS
   ipcMain.handle(STUDIO_LOCAL_APPS_REVOKE_CHANNEL, (event: IpcMainInvokeEvent, id: unknown) => {
     assertAppSender(event)
     return service.revoke(id)
+  })
+  ipcMain.handle(STUDIO_LOCAL_APPS_SET_REACH_CHANNEL, (event: IpcMainInvokeEvent, id: unknown, reach: unknown) => {
+    assertAppSender(event)
+    return service.setToolReach(id, reach)
   })
 }

@@ -45,6 +45,11 @@ import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 import { normalizeExecutionHostId, wslHostId } from '../shared/execution-host'
 import { isWindowsPath, wslToWindowsPath } from '../shared/host-paths'
 import { hostRegistry } from './hosts/host-registry'
+import {
+  issueGatewayLaunchToken,
+  revokeGatewayLaunchToken,
+  type GatewayLaunchIdentity,
+} from '../server/core/gateway-launch-tokens'
 import { resolveWslDistroForPath } from './hosts/wsl-distro'
 import type { HostAgentIntegration, HostLaunchTarget, HostProcessRef } from './hosts/execution-host'
 import {
@@ -229,19 +234,14 @@ type TerminalRuntimeOptions = {
   onAgentLaunched?(session: TerminalSession): void
   onAgentFileEdit?(input: { session: TerminalSession; path: string; edits?: ChangelistEdit[]; ts: number }): void
   onAgentSessionExit?(session: TerminalSession): void
-  // --- Pull request marks (pull-request-record.ts) --------------------------
+  // --- Pull request marks ------------------------------------------------------
   //
-  // A pull request one of this session's tool calls just opened, as the hook
-  // reporter captured it (epic `pull-request-marks`, decision 8b). Fire-and-
-  // forget like the changelist seams above: the record swallows its own
-  // failures, and a mark is a convenience while a terminal is not.
-  //
-  // The URL is all that is passed: the record files a capture under the URL's
-  // OWN repository, never the session's observed checkout, because
-  // `cd ../website && gh pr create` opens a pull request the session's cwd knows
-  // nothing about (decision 10). Resolving a git root here would file it in the
-  // wrong repository.
-  onPullRequestCaptured?(input: { url: string; sessionId: string; workspaceId?: string }): void
+  // Where an agent session is, each time git answers for it: at every turn end
+  // and session start (`fresh`), and when its working directory moves. The
+  // Studio server looks up pull requests for the branches agents work on, and
+  // this is how it hears about a terminal agent's (terminal-pull-requests.ts).
+  // Fire-and-forget like the changelist seams above.
+  onObservedCheckoutResolved?(session: TerminalSession, resolution: { fresh: boolean }): void
 }
 
 type TerminalIpcHandlers = {
@@ -322,7 +322,7 @@ let agentPrompts: TerminalRuntimeOptions['agentPrompts']
 let logReapDiagnostic: TerminalRuntimeOptions['logDiagnostic']
 let onAgentLaunched: TerminalRuntimeOptions['onAgentLaunched']
 let onAgentFileEdit: TerminalRuntimeOptions['onAgentFileEdit']
-let onPullRequestCaptured: TerminalRuntimeOptions['onPullRequestCaptured']
+let onObservedCheckoutResolved: TerminalRuntimeOptions['onObservedCheckoutResolved']
 let onAgentSessionExit: TerminalRuntimeOptions['onAgentSessionExit']
 
 // Whether a CLI can report authoritative agent state: true exactly when its
@@ -367,7 +367,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   logReapDiagnostic = options.logDiagnostic
   onAgentLaunched = options.onAgentLaunched
   onAgentFileEdit = options.onAgentFileEdit
-  onPullRequestCaptured = options.onPullRequestCaptured
+  onObservedCheckoutResolved = options.onObservedCheckoutResolved
   onAgentSessionExit = options.onAgentSessionExit
   reapSkipLogState.clear()
   logMainPerfEvent = options.logMainPerfEvent
@@ -1243,6 +1243,7 @@ function releaseSessionHost(session: TerminalSession): void {
   // token, can no longer open an MCP channel on its machine.
   if (session.channelToken) {
     hostRegistry().get(session.hostId).revokeChannelToken?.(session.channelToken)
+    revokeGatewayLaunchToken(session.channelToken)
     session.channelToken = undefined
   }
   const lease = session.hostLease
@@ -2148,9 +2149,19 @@ function scheduleObservedCheckoutResolution(session: TerminalSession, options: {
         isLinkedWorktree: facts.isLinkedWorktree,
         ...(facts.missing ? { missing: true } : {}),
       }
-      if (sameObservedCheckout(current, next)) return
-      session.observedCheckout = next
-      if (live) broadcastTerminalSessionsChanged(session)
+      if (!sameObservedCheckout(current, next)) {
+        session.observedCheckout = next
+        if (live) broadcastTerminalSessionsChanged(session)
+      }
+      // Told even when nothing moved: a turn end on the same branch is the
+      // moment a pull request the turn opened can be found.
+      if (live && onObservedCheckoutResolved) {
+        try {
+          onObservedCheckoutResolved(session, { fresh: options.fresh })
+        } catch (error) {
+          console.warn('[terminal-runtime] observed checkout listener failed', error)
+        }
+      }
     })
     .catch((error) => {
       logMainPerfEvent('TerminalRuntime', 'observed-checkout-resolve-failed', {
@@ -2355,40 +2366,6 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // a change worth broadcasting; the cost and line counts move on every
   // refresh and nothing renders them yet.
   const statusLineChanged = frame.statusLine ? recordSessionStatusLine(session, frame.statusLine, frame.ts) : false
-  // A pull request the agent just opened, handed to the record in the same
-  // place and for the same reason as the two folds above: it arrives on a
-  // `PostToolUse`, and a frame dropped as stale or held back by the PHASE guard
-  // still carries a pull request that really exists.
-  //
-  // It sits AFTER the liveness guard above, exactly as the file ledger does: a
-  // frame that arrives once the pty is gone is dropped here too. That is the
-  // deliberate line — a dead session is no longer accepting facts about itself —
-  // and it costs at most the last capture of a session that exited in the same
-  // instant, which the next branch lookup finds anyway when it is on the
-  // session's own branch.
-  //
-  // The record owns everything after this — which repository the URL names, the
-  // branch (learned on the first state read), the de-duplication and the watch —
-  // so all that is passed is the URL and the session that made it. The id is the
-  // app's own session id, resolved above, so the capture can never land on a
-  // session main cannot name.
-  //
-  // The CONVERSATION goes with it (owner, 2026-09-10). A session dies and takes
-  // with it the only link between a pull request and the chat it came from, so
-  // an agent that finished left its pull request unattributable and the row it
-  // belonged to went blank. Here is the one moment both ids are in hand; the
-  // conversation's is the one that keeps.
-  if (frame.pullRequest && onPullRequestCaptured) {
-    try {
-      onPullRequestCaptured({
-        url: frame.pullRequest.url,
-        sessionId: session.sessionId,
-        workspaceId: session.workspaceId,
-      })
-    } catch (error) {
-      console.warn('[terminal-runtime] pull request capture failed', error)
-    }
-  }
   // Every path out of this function that does not reach the broadcast at the
   // end still has to publish an edit or a context reading: they are rendered,
   // and this is the only place they would be.
@@ -3279,9 +3256,22 @@ async function spawnTerminalFromIpc(
       })
       if (block) return { ok: false, sessionId, message: block.message, exitCode: 1 }
     }
-    // A WSL agent's MCP bridge opens its channel with this launch's token,
-    // which the startup script exports; the session revokes it when it ends.
-    channelToken = !shellOnly && launchTarget.kind === 'wsl' ? host.issueChannelToken?.() : undefined
+    // Every agent launch is issued its own gateway token, bound to its
+    // conversation: the agent's MCP bridge presents it, and the gateway takes
+    // the agent's identity from it. In WSL it is also the token the bridge
+    // opens its channel with, exported by the startup script; here it rides in
+    // the terminal's environment. The session revokes it when it ends.
+    const launchIdentity: GatewayLaunchIdentity | null =
+      !shellOnly && workspaceId && agentId
+        ? { workspaceId, agentId, ...(agentName ? { agentName } : {}), cliId: agentCli }
+        : null
+    channelToken = shellOnly
+      ? undefined
+      : launchTarget.kind === 'wsl'
+        ? host.issueChannelToken?.(launchIdentity)
+        : launchIdentity
+          ? issueGatewayLaunchToken(launchIdentity)
+          : undefined
     const launchFor: HostLaunchTarget =
       channelToken && launchTarget.kind === 'wsl' ? { ...launchTarget, channelToken } : launchTarget
     const {
@@ -3364,6 +3354,8 @@ async function spawnTerminalFromIpc(
         agentId,
         agentName,
         ...(shellOnly ? {} : { cli: agentCli }),
+        // In WSL the startup script exports it; wsl.exe itself needs none.
+        ...(channelToken && launchTarget.kind !== 'wsl' ? { launchToken: channelToken } : {}),
       }),
     })
     const startedAt = Date.now()
@@ -3415,7 +3407,10 @@ async function spawnTerminalFromIpc(
 
     return { ok: true, sessionId } satisfies TerminalSpawnResult
   } catch (error) {
-    if (channelToken) host.revokeChannelToken?.(channelToken)
+    if (channelToken) {
+      host.revokeChannelToken?.(channelToken)
+      revokeGatewayLaunchToken(channelToken)
+    }
     if (unownedLaunchPromptPath) void cleanupHostContextFile(unownedLaunchPromptPath)
     const message = getTerminalErrorMessage(error)
     retainFailedTerminalSession({

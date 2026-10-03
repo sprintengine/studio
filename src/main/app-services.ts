@@ -1,7 +1,7 @@
-import { app, BrowserWindow, ipcMain, net, powerMonitor } from 'electron'
-import { createHash, randomUUID } from 'crypto'
+import { app, BrowserWindow, ipcMain, net, powerMonitor, safeStorage } from 'electron'
+import { createHash } from 'crypto'
 import { existsSync } from 'fs'
-import { homedir, hostname } from 'os'
+import { homedir } from 'os'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { dirname, join } from 'path'
@@ -15,6 +15,12 @@ import {
 import { createAgentStateService } from './agent-state-service'
 import { primeDefaultWslDistro } from './hosts/wsl-distro'
 import { configureWslHelpers } from './hosts/wsl-helper-runtime'
+import { createDesktopWslServers } from '../server/wsl/desktop-wsl-servers'
+import { createDesktopSsh, type DesktopSsh } from './environments/ssh/desktop-ssh'
+import { isMachinePath } from '../shared/machine-paths'
+import type { WorkspaceEnvironmentRef } from '../renderer/src/types/workspace'
+import { sessionSshPreview } from './environments/ssh/ssh-preview'
+import { relayShellToolsets, SSH_RELAYED_TOOLSETS } from '../server/wsl/wsl-tool-relay'
 import { cliTakesLaunchPlugins } from './agent-launch-render'
 import { resolveSocketPath as resolveAutomationSocketPath } from './automation/automation-service'
 import { invalidateCliAvailabilityOnHost, subscribeKnownCliAvailability } from './cli-availability'
@@ -26,13 +32,21 @@ import {
   setLaunchSkillPluginDirsResolver,
   setLaunchStatusLineScriptResolver,
 } from './terminal-launch'
-import { REMOTE_OPEN_REQUESTED_CHANNEL, TAILNET_EVENT_CHANNEL } from '../shared/tailnet'
+import { TAILNET_EVENT_CHANNEL } from '../shared/tailnet'
 import { MESH_EVENT_CHANNEL } from '../shared/tailnet-mesh'
 import { CANVAS_MODULE_DEFAULT_ENABLED } from '../shared/modules/manifest'
 import { createTailnetNotifier } from './tailnet-notifications'
+import { createInProcessShellBridge } from './shell-bridge'
+import { createShellReveal } from './shell-reveal'
 import { revealMainWindow } from './window-factory'
 import { createAutomationTools } from './automation/automation-tools'
 import { createTailnetTools, type TailnetToolsFrontDoor } from './automation/tailnet/tailnet-tools'
+import { desktopGatewayTools } from './automation/desktop-gateway-tools'
+import { createDesktopShellTools } from './desktop-shell-tools'
+import { createAgentPermissionResolver } from './automation/launch-permission-cap'
+import { liveGatewayLaunchTokens, onGatewayLaunchTokenChange } from '../server/core/gateway-launch-tokens'
+import { shellTerminalToolsets } from '../server/desktop/shell-toolsets'
+import { readStudioEnv } from '../shared/studio-env'
 import type { McpToolContribution } from './module-host/main-host'
 import { createDefaultMarketplaceRegistryClient } from './ipc/marketplace-registry-ipc'
 import { toThirdPartyModuleView } from './ipc/third-party-module-ipc'
@@ -43,17 +57,6 @@ import { readModuleTrustContextSync } from './modules/trust-context'
 import { defaultUserModuleRoot, discoverUserModules } from './modules/user-module-registry'
 import type { ScheduledAgentsService } from './scheduled-agents/service'
 import {
-  addOrUpdateBacklogLink,
-  listBacklogItems,
-  readBacklogItem,
-  repairBacklogIntegrity,
-  updateBacklogDependenciesPlanned,
-  updateBacklogEpic,
-  updateBacklogStatus,
-  updateBacklogTriage,
-  updateBacklogType,
-} from './backlog-service'
-import {
   createBuiltinSkillManager,
   ensureSkillInstalled,
   setDefaultSkillManager,
@@ -63,17 +66,7 @@ import {
 } from './builtin-skills'
 import { SprintEngineAuthBridge } from './auth-service'
 import { createMainDiagnostics } from './main-diagnostics'
-import { createTailnetShareService, readTailnetWebTargets } from './automation/tailnet/tailnet-share-service'
-import { MobileControlSnapshotService, sanitizeMobileSnapshotForTransport } from './mobile/control/snapshot'
-import { MobileControlCommandService } from './mobile/control/command'
-import { deepRedactLocalPaths } from './mobile/control/path-safety'
 import { listKnownWorkspaceRoots, uniqueResolvedRoots } from './workspace-roots'
-import {
-  mobileControlProtocolVersion,
-  mobileSnapshotCollections,
-  type MobileControlCommandType,
-  type MobileSnapshotCollection,
-} from './mobile/control/protocol'
 import { createAgentSkillInstaller } from './agent-skill-installer'
 import { createCapabilityWatcher } from './capability-watcher'
 import { createMcpConfigService } from './mcp-config-service'
@@ -103,19 +96,14 @@ import { createAnalyticsService } from './telemetry/analytics-service'
 import { createTelemetryConsentStore } from './telemetry/consent-store'
 import { readInstallId } from './telemetry/install-id'
 import type { BackgroundStatus } from '../shared/background-mode'
+import { isTelemetryEventName, type TelemetryProperties } from '../shared/telemetry'
 import { resolveMemoryRoot } from './memory-graph'
 import { getPluginManifest, listPluginRegistryEntries } from './plugin-registry-instance'
 import { createMcpServerResolver } from './mcp-config-readers/resolve-servers'
 import { syncStudioMcpConfig } from './studio-mcp-sync'
 import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../shared/product-identity'
-import { createGitWorktree, excludeMcpConfigFromWorktree, getGitRepoRoot } from './git'
-import { readBranchName, resolveTrunk } from './git-branch-span'
-import { getGitBranches } from './git-read-models'
-import { listGitWorktrees } from './git-worktree-list'
-import { readRepositoryIdentity } from './repository-identity'
-import { agentWorktreePaths } from '../shared/worktree-paths'
+import { excludeMcpConfigFromWorktree } from './git'
 import { createConversationPeekService } from './conversation-peek/service'
-import { captureConversationPullRequests } from './conversation-pull-request-capture'
 import { createConversationTerminalHandoff } from './conversation-terminal-handoff'
 import { createAgentPromptStore, registeredAgentOwners } from './agent-prompt-store'
 import {
@@ -129,7 +117,7 @@ import {
 import { isTerminalProcessAlive, setSessionPullRequestReader } from './terminal-session'
 import { cliResumeCapabilities } from './cli-resume-capabilities'
 import { createAgentChangelistFeed } from './agent-changelist-feed'
-import { createPullRequestRecord } from './pull-request-record'
+import { createTerminalPullRequests, type TerminalPullRequests } from './terminal-pull-requests'
 import { createBrowserManager } from './browser/browser-manager'
 import { createBrowserControl } from './browser/browser-control'
 import { createBrowserTools } from './automation/browser-tools'
@@ -157,6 +145,7 @@ import { channelForVersion, createUpdateChannelStore } from './update-channel-st
 import { createUpdateInstallNoteStore } from './update-install-note'
 import { sendSplashProgress, showUpdateProgressWindow } from './splash-window'
 import { GitHubTokenStore } from './github-token-store'
+import { installSharedCredentialStore } from './secret-store'
 import { createWorkspaceBackupService } from './workspace-backup'
 import { writeDiagnosticLog } from './diagnostics-service'
 import { getPluginRegistry } from './plugin-registry-instance'
@@ -178,10 +167,22 @@ import { studioPlatform } from '../server/platform/platform'
 import { createStudioCore, studioBridgeScriptPath } from '../server/core/studio-core'
 import { createStudioGateway } from '../server/core/studio-gateway'
 import { createStudioRpc } from '../server/core/studio-rpc'
+import type { StudioRpcService } from './studio-rpc/studio-rpc-service'
+import { createServerGatewayBackends } from '../server/desktop/gateway-backends'
+import { SERVER_EVENTS, SERVER_METHODS, SHELL_METHODS } from '../server/desktop/server-methods'
+import {
+  createRemoteCore,
+  createRemoteCredentialStore,
+  createRemoteGitHubTokenStore,
+  type ShellServerLink,
+} from './server-supervisor/remote-core'
 
 // How long the quit gives the session integrations' removal. What it does not
 // reach stays listed, and the next quit takes it out.
 const QUIT_INTEGRATION_REMOVAL_BUDGET_MS = 5_000
+// How long an agent launch waits for a server that is still starting before
+// it goes ahead and lets the launch report what is missing.
+const AGENT_LAUNCH_SERVER_WAIT_MS = 30_000
 import {
   createIntegrationLedger,
   hostIdForPath,
@@ -191,12 +192,47 @@ import {
 
 const execFileAsync = promisify(execFile)
 
-export function createAppServices(diagnosticsEnabled: boolean) {
+export function createAppServices(
+  diagnosticsEnabled: boolean,
+  /**
+   * The Studio server in a process of its own (phase 6). Null in process, the
+   * default: everything below is built here, as it always has been. With a
+   * server, the shell builds no server-owned store and reaches the core
+   * through the mirror and the control channel (server-supervisor/remote-core.ts).
+   */
+  server: ShellServerLink | null = null,
+) {
   // What the server-bound services below take from Electron, installed by the
   // entry. Read through it where a service is being moved off Electron.
   const platform = studioPlatform()
+  // A terminal's credential comes from the server that keeps it.
+  if (server) installSharedCredentialStore(createRemoteCredentialStore(server.rpc))
   const { logMainPerfEvent, withIpcDiagnostics } = createMainDiagnostics({
     enabled: diagnosticsEnabled,
+  })
+  // What the server's code asks of the shell that is not an agent tool: the
+  // keychain, OS notifications and where a click on one goes, the analytics
+  // sink, the integrations gate, and terminal launches for the internal
+  // service tokens. In process it calls the shell's services directly; the
+  // same object is what the shell serves a server in a process of its own.
+  // Its late-bound members (the launch, the gate) resolve at call time.
+  const shellBridge = createInProcessShellBridge({
+    safeStorage,
+    launchAgent: () => (request) => agentLaunchService.launch(request),
+    reveal: createShellReveal({
+      windows: () => BrowserWindow.getAllWindows(),
+      // Never the hidden canvas worker: with the pane closed and an agent
+      // drawing it can be the only window open.
+      isCanvasWorker: isCanvasWorkerWindow,
+      revealMainWindow,
+    }),
+    notifier: platform.notifier,
+    // Only the events this app sends at all; the record drops any property
+    // value that is not a plain string, number or boolean.
+    analytics: (event) => {
+      if (isTelemetryEventName(event.name)) analytics.record(event.name, event.properties as TelemetryProperties)
+    },
+    integrationsReady: () => agentIntegrationReady,
   })
   // Learn the default WSL distribution's name once, in the background, so a WSL
   // launch built later can name it with `-d` (Windows only; a no-op elsewhere).
@@ -494,7 +530,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         workspaceRegistry
           .getState()
           .workspaces.flatMap((workspace) =>
-            workspace.folderPath && hostIdForPath(workspace.folderPath) === 'local'
+            workspace.folderPath &&
+            !isMachinePath(workspace.folderPath) &&
+            hostIdForPath(workspace.folderPath) === 'local'
               ? [{ path: workspace.folderPath, hostId: 'local' }]
               : [],
           ),
@@ -566,40 +604,88 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // workspace registry, the conversation runtime and the backend chats are
   // driven through, the launch service. The same composition a standalone
   // server builds under plain Node (src/server/core/studio-core.ts); built here
-  // because a Claude chat's child is handed this app's gateway and the launch
+  // because a chat's agent is handed this app's gateway and the launch
   // cap reads this app's terminals.
-  const core = createStudioCore(platform, {
-    role: 'desktop',
-    // A Claude chat's child loads no project settings, so the gateway pinned
-    // into a workspace's `.mcp.json` never reached it; the child is handed the
-    // gateway itself, on the machine its `claude` runs on.
-    resolveStudioMcpServer: async ({ hostId }) => {
-      await whenAgentLaunchReady()
-      const gateway = studioGatewayFor(hostId ?? null)
-      if (!gateway) return null
-      return {
-        id: STUDIO_MCP_SERVER_ID,
-        name: STUDIO_MCP_SERVER_NAME,
-        transport: 'stdio',
-        command: gateway.command,
-        args: gateway.args,
-        env: gateway.env,
-        ...(gateway.envVarNames?.length ? { envVarNames: gateway.envVarNames } : {}),
-      }
-    },
-    // The live session objects, not `listTerminals()` snapshots: only four
-    // fields are read, and a snapshot of every session is not cheap.
-    listTerminalSessions: () =>
-      listLiveTerminalSessions().map((session) => ({
-        kind: session.kind,
-        workspaceId: session.workspaceId,
-        agentId: session.agentId,
-        processAlive: isTerminalProcessAlive(session),
-        agentRecord: session.agentRecord,
-      })),
-    // A distribution turned on or off adds or drops its CLI updates.
-    onHostSettingsChanged: () => scheduleCliVersionRead(),
-  })
+  // SSH machines (phase 8), a preview off by default: with it off, none of
+  // this exists. Main holds their sessions, because their prompts are dialogs
+  // and the pane's forward is a session proxy.
+  // Read lazily: the registry is the core's, built just below.
+  const workspaceRegistryOf = (): {
+    getRecord(id: string): { environment?: WorkspaceEnvironmentRef | null } | null | undefined
+  } => core.workspaceRegistry
+  const ssh: DesktopSsh | null = sessionSshPreview()
+    ? createDesktopSsh({
+        version: platform.identity.version(),
+        server,
+        workspaceEnvironment: (workspaceId: string): WorkspaceEnvironmentRef | null =>
+          workspaceRegistryOf().getRecord(workspaceId)?.environment ?? null,
+      })
+    : null
+
+  const core = server
+    ? createRemoteCore(server)
+    : createStudioCore(platform, {
+        role: 'desktop',
+        // A chat's agent is handed the gateway itself, on the machine its CLI
+        // runs on: a Claude chat's child loads no project settings, so the
+        // gateway pinned into a workspace's `.mcp.json` never reached it, and a
+        // Codex or ACP chat would otherwise have only what a terminal launch left
+        // pinned in the folder, with no identity.
+        resolveStudioMcpServer: async ({ hostId }) => {
+          await whenAgentLaunchReady()
+          const gateway = studioGatewayFor(hostId ?? null)
+          if (!gateway) return null
+          return {
+            id: STUDIO_MCP_SERVER_ID,
+            name: STUDIO_MCP_SERVER_NAME,
+            transport: 'stdio',
+            command: gateway.command,
+            args: gateway.args,
+            env: gateway.env,
+            ...(gateway.envVarNames?.length ? { envVarNames: gateway.envVarNames } : {}),
+          }
+        },
+        // The live session objects, not `listTerminals()` snapshots: only four
+        // fields are read, and a snapshot of every session is not cheap.
+        listTerminalSessions: () =>
+          listLiveTerminalSessions().map((session) => ({
+            kind: session.kind,
+            workspaceId: session.workspaceId,
+            agentId: session.agentId,
+            processAlive: isTerminalProcessAlive(session),
+            agentRecord: session.agentRecord,
+          })),
+        // A distribution turned on or off adds or drops its CLI updates.
+        onHostSettingsChanged: () => scheduleCliVersionRead(),
+        ...(ssh
+          ? {
+              sshServers: {
+                servers: ssh.environments.routed,
+                onConnected: (listener: Parameters<typeof ssh.environments.onConnected>[0]) =>
+                  ssh.environments.onConnected(listener),
+              },
+            }
+          : {}),
+        // A distribution whose chats run on a Studio server inside it (phase
+        // 7, off unless the person turns it on in Settings › Machines).
+        wslServers: ({ readHostSettings }) =>
+          createDesktopWslServers({
+            readHostSettings,
+            userDataDir: app.getPath('userData'),
+            app: {
+              version: platform.identity.version(),
+              channel: channelForVersion(app.getVersion()) === 'nightly' ? 'nightly' : 'latest',
+            },
+            packaged: app.isPackaged,
+            resourcesDir: app.isPackaged ? process.resourcesPath : null,
+            appRoot: app.getAppPath(),
+            isDefaultProfile: app.isPackaged && !readStudioEnv('SPRINTENGINE_USER_DATA_DIR')?.trim(),
+            fetch: (url, init) => net.fetch(url, init),
+            log: (message) => {
+              void writeDiagnosticLog({ level: 'info', title: 'WSL server', message, source: 'workspace' })
+            },
+          }),
+      })
   const {
     agentLaunchSettings,
     hosts,
@@ -697,7 +783,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // The renderer's module registry, mirrored here. Empty until a
   // window pushes one; consumers report "not yet known" rather than "no
   // modules", the same rule the enablement mirror follows.
-  const moduleRegistryMirror = createModuleRegistryMirror()
+  const moduleRegistryMirror = createModuleRegistryMirror(
+    server ? { onWrite: (snapshot) => server.rpc.emit(SERVER_EVENTS.moduleRegistrySnapshot, snapshot) } : {},
+  )
   // The marketplace index reader the `marketplace.list` tool answers from —
   // same client, same on-disk cache, same bundled-first policy as the
   // Extensions storefront's IPC.
@@ -764,13 +852,15 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     onAgentFileEdit: (input) => {
       agentWrittenFiles.note(input.session.agentId, input.path)
       agentChangelistFeed.onAgentFileEdit(input)
+      // The repositories a terminal agent changed files in are looked up for
+      // pull requests at its next turn end, as a chat's are.
+      terminalPullRequests?.noteFileEdit(input.session, input.path)
     },
     onAgentSessionExit: (session) => agentChangelistFeed.onAgentSessionExit(session),
-    // The hook capture of a pull request the agent just opened (epic
-    // `pull-request-marks`, decision 8b). The record is built below — this
-    // closure only runs once a frame arrives, long after — and it is what files
-    // the pull request under the URL's own repository.
-    onPullRequestCaptured: (input) => pullRequestRecord.noteCaptured(input),
+    // Where an agent is, each time git answers: the Studio server looks its
+    // branch up for pull requests (terminal-pull-requests.ts, below).
+    onObservedCheckoutResolved: (session, resolution) =>
+      terminalPullRequests?.noteCheckoutResolved(session, resolution),
     // Durable freeze-the-view: suspended agent terminals persist their painted
     // screen to disk and reopen painted-and-paused after an app restart.
     snapshotSidecars: createTerminalSnapshotSidecarStore({
@@ -862,59 +952,13 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       return agentStateService.installForWorkspace(workspaceRoot, cli, execution)
     },
   })
-  // The conversation pull request record (epic `pull-request-marks`, decision
-  // 10): main owns which pull requests a conversation has and what state each is
-  // in, keyed by REPOSITORY (`host/owner/name`) and branch — a pull request an
-  // agent opened in another repo belongs to that repo, not to the checkout the
-  // session happens to sit in. A change re-emits the sessions it reaches over
-  // the terminal snapshot channel they already ride.
-  const pullRequestRecord = createPullRequestRecord({
-    userDataDir: app.getPath('userData'),
-    // So a chat whose agents are gone still wears its pull request after a
-    // restart, and its open ones are watched for a merge.
-    loadStoredOnStart: true,
-    // The session OBJECTS, not snapshots: `listTerminals()` builds a snapshot of
-    // every session — each of which reads this very record — so resolving one
-    // session that way made a hover O(sessions) snapshot builds. The list is the
-    // live sessions only; an exited or disposed one has nothing to re-ask about.
-    sessions: {
-      get: (sessionId) => getTerminalSessionById(sessionId),
-      list: () => listLiveTerminalSessions(),
-    },
-    onRecordChanged: (change) => {
-      notePullRequestRecordChanged((session) => pullRequestRecord.changeAffectsSession(change, session))
-      // …and the rows with no session to re-emit (owner, 2026-09-10). The line
-      // above only reaches a chat that still has a terminal alive in it, which
-      // is precisely the chats that never had this problem. This tells the
-      // windows WHICH conversations moved; each one then asks for the lists it
-      // is actually showing, so the record itself never leaves main.
-      if (change.workspaceIds.length > 0) {
-        broadcastToWorkspaceWindows('pullRequest:workspaces-changed', change.workspaceIds)
-      }
-    },
-    logWarning: (message, error) => {
-      void writeDiagnosticLog({
-        level: 'warning',
-        source: 'terminal',
-        title: 'Pull request record',
-        message,
-        details: error instanceof Error ? (error.stack ?? error.message) : String(error),
-      })
-    },
-  })
-  // A chat agent runs no hook reporter, so its `gh pr create` is read off the
-  // conversation stream instead and filed against its conversation — the same
-  // capture a terminal agent's reporter makes (`onPullRequestCaptured` above).
-  captureConversationPullRequests({
-    onEvent: (listener) => conversations.onEvent(listener),
-    noteCaptured: (input) => pullRequestRecord.noteCaptured(input),
-  })
+  // The pull request record is the Studio server's (owner ruling 2026-10-03):
+  // the terminal agents' marks are read from it over the protocol, by
+  // `terminalPullRequests`, built below once the shell's connection to the
+  // server exists. Bound late; until it is, a session wears no marks.
+  let terminalPullRequests: TerminalPullRequests | null = null
   // The snapshot's `pullRequests` field is filled from here, and nowhere else.
-  setSessionPullRequestReader((session) => pullRequestRecord.listForSession(session))
-  // Coming back to the app is the cheapest moment to notice a pull request that
-  // merged while it was in the background (decision 9), and it is also what
-  // first populates the marks after a cold start.
-  app.on('browser-window-focus', () => pullRequestRecord.refreshOnFocus())
+  setSessionPullRequestReader((session) => terminalPullRequests?.listForSession(session) ?? [])
 
   // The one interaction path to a live agent session. Every caller
   // that drives an agent — the review guide, later the composer and MCP —
@@ -969,7 +1013,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     mcpConfigService,
     builtinSkillManager,
   })
-  const githubTokenStore = new GitHubTokenStore()
+  // The token is the server's out of process; the shell's skills, cards and
+  // marketplace ask it for one.
+  const githubTokenStore = server
+    ? (createRemoteGitHubTokenStore(server.rpc) as GitHubTokenStore)
+    : new GitHubTokenStore()
 
   // The terminal runtime exposes only generic agent-session seams
   // (spawn/kill/inventory + a session-exit listener); capability modules layer
@@ -977,14 +1025,17 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // terminalRuntime are seeded into the kernel so those modules can build on
   // them via the service bridge.
 
-  const workspaceBackupService = createWorkspaceBackupService({
-    resolveUserDataDir: () => app.getPath('userData'),
-    // Read at write time, from the core's registry.
-    readRegistry: () => workspaceRegistry.getState(),
-    // At most one registry serialization every ten seconds; the newest request
-    // inside the interval is written when it ends.
-    minRegistryIntervalMs: 10_000,
-  })
+  // The backups are the server's out of process (its own copy writes them).
+  const workspaceBackupService = server
+    ? null
+    : createWorkspaceBackupService({
+        resolveUserDataDir: () => app.getPath('userData'),
+        // Read at write time, from the core's registry.
+        readRegistry: () => workspaceRegistry.getState(),
+        // At most one registry serialization every ten seconds; the newest request
+        // inside the interval is written when it ends.
+        minRegistryIntervalMs: 10_000,
+      })
   // An agent removed from the registry (its row deleted, or its workspace
   // removed) takes its stored prompts with it: they are a person's verbatim
   // typing, and nothing can show them any more.
@@ -1098,21 +1149,24 @@ export function createAppServices(diagnosticsEnabled: boolean) {
 
   // Resume in terminal: a chat's CLI session handed to a terminal agent,
   // through the same launch door as every other agent.
-  const conversationTerminalHandoff = createConversationTerminalHandoff({
-    runtime: conversations,
-    launch: (request) => agentLaunchService.launch(request),
-    cliResumesSessions: (cli) => cliResumeCapabilities(cli).resumeSession,
-    permissionPresetsForCli: (cli) => {
-      const plugin = getPluginRegistry()
-        .loaded()
-        .find((candidate) => candidate.manifest.id === cli)
-      return plugin ? declaredPermissionPresets(plugin.manifest) : null
-    },
-    chatName: (workspaceId, agentId) =>
-      workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId)?.agents?.[
-        agentId
-      ]?.name,
-  })
+  // Resume in terminal is served by the server out of process, which asks the
+  // shell for the terminal through the bridge.
+  const conversationTerminalHandoff = server
+    ? null
+    : createConversationTerminalHandoff({
+        runtime: conversations,
+        launch: (request) => agentLaunchService.launch(request),
+        cliResumesSessions: (cli) => cliResumeCapabilities(cli).resumeSession,
+        permissionPresetsForCli: (cli) => {
+          const plugin = getPluginRegistry()
+            .loaded()
+            .find((candidate) => candidate.manifest.id === cli)
+          return plugin ? declaredPermissionPresets(plugin.manifest) : null
+        },
+        chatName: (workspaceId, agentId) =>
+          workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId)
+            ?.agents?.[agentId]?.name,
+      })
 
   // Built after workspace sync because adopting the retired skill packs needs to
   // know which projects are open — that is where a previously installed pack's
@@ -1175,25 +1229,19 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // stay-paired, phase 3): only while no window is focused, only the events a
   // person is waiting on, never the code. A click brings the app forward and
   // opens the Remote popover in the first workspace window.
-  const tailnetNotifier = createTailnetNotifier({
-    isAnyWindowFocused: () =>
-      BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()),
-    isEnabled: () => automationService.getTailnetStatus().notifications,
-    openRemote: () => {
-      // Never the hidden canvas worker: `revealMainWindow` shows and focuses
-      // what it is given, and with the pane closed and an agent drawing it can
-      // be the only window open.
-      const window = BrowserWindow.getAllWindows().find(
-        (candidate) => !candidate.isDestroyed() && !isCanvasWorkerWindow(candidate),
-      )
-      if (!window) return
-      revealMainWindow(window)
-      window.webContents.send(REMOTE_OPEN_REQUESTED_CHANNEL)
-    },
-    // A later phase of the same request replaces the banner rather than
-    // stacking "waiting" under "paired": the notice's key says which.
-    show: (notice, onClick) => platform.notifier.notify({ ...notice, onActivate: onClick }),
-  })
+  // The server notifies for its own tailnet out of process.
+  const tailnetNotifier = server
+    ? null
+    : createTailnetNotifier({
+        isAnyWindowFocused: () =>
+          BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()),
+        isEnabled: () => automationService?.getTailnetStatus().notifications ?? false,
+        openRemote: () => void shellBridge.reveal.tab({ kind: 'remote' }),
+        // A later phase of the same request replaces the banner rather than
+        // stacking "waiting" under "paired": the notice's key says which. A click
+        // opens the Remote popover, which the bridge's reveal does.
+        show: (notice) => shellBridge.notify({ ...notice, activate: { kind: 'remote' } }),
+      })
   // The embedded browser's main half (browser-pane epic): adopts the guests the
   // pane's browser tabs attach, drives them, and finds the dev servers this
   // workspace's terminals are running. The control layer is the agents' hands
@@ -1205,6 +1253,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     resolveWorkspaceRoot: (workspaceId) =>
       workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId)
         ?.folderPath ?? null,
+    ...(ssh ? { machinePartitions: ssh.panes } : {}),
   })
   const browserControl = createBrowserControl(browserManager)
   browserManager.onUnregister((tabId) => browserControl.forget(tabId))
@@ -1314,284 +1363,315 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     return CANVAS_MODULE_DEFAULT_ENABLED
   }
 
+  // The browser and canvas tools, as main runs them. The shell offers both to
+  // the gateway as client toolsets, the way any app offers its tools;
+  // `SPRINTENGINE_CLIENT_TOOLS=0` keeps them registered in process, as before,
+  // for one release. The canvas service stays on this disk's files while the
+  // server runs in this process: they are the server's files too.
+  const clientToolsEnabled = readStudioEnv('SPRINTENGINE_CLIENT_TOOLS') !== '0'
+  const browserTools = createBrowserTools({
+    manager: browserManager,
+    control: browserControl,
+    hasWorkspace: (workspaceId) =>
+      workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
+  })
+  const canvasTools = createCanvasTools({
+    service: canvasService,
+    hasWorkspace: (workspaceId) =>
+      workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
+    isCanvasEnabled,
+  })
+  // The editor and tour tools act on what a window shows. In process they are
+  // the gateway's own; out of process the shell offers them as its `editor`
+  // and `tour` toolsets (phase 6, 6.3).
+  const editorTools = createEditorTools(
+    createEditorToolBackends({
+      findWorkspace: (workspaceId) =>
+        workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId) ?? null,
+      listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
+      agentWrittenFiles,
+      broker: editorRevealBroker,
+      userDataDir: () => app.getPath('userData'),
+      isAppFocused: () => BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()),
+    }),
+  )
+  const tourTools = createTourTools({
+    service: tourService,
+    hasWorkspace: (workspaceId) =>
+      workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
+  })
+
   // Instance-global SprintEngine Studio MCP surface: reads come from the
   // workspace-sync snapshot and terminal runtime, and mutations go straight to
   // the main services that own them — one lane, no window required.
   // The gateway starts with the app.
-  const automationService = createStudioGateway(core, {
-    // The live-state push (remote-sessions-ux): every window hears listener,
-    // pairing, and connection changes the moment main does — the fix for pair
-    // requests that could expire while only Settings, if open, would show them.
-    onTailnetEvent: (payload) => {
-      for (const window of BrowserWindow.getAllWindows()) {
-        if (window.isDestroyed() || window.webContents.isDestroyed()) continue
-        window.webContents.send(TAILNET_EVENT_CHANNEL, payload)
-      }
-      tailnetNotifier.onTailnetEvent(payload)
-    },
-    onMeshEvent: (event) => {
-      for (const window of BrowserWindow.getAllWindows()) {
-        if (window.isDestroyed() || window.webContents.isDestroyed()) continue
-        window.webContents.send(MESH_EVENT_CHANNEL, event)
-      }
-      tailnetNotifier.onMeshEvent(event)
-    },
-    // A window someone could be looking at: the mesh's reachability timer and
-    // its re-checks of an absent machine only feed rows on screen.
-    hasWindow: () =>
-      BrowserWindow.getAllWindows().some(
-        (window) =>
-          !window.isDestroyed() && !isCanvasWorkerWindow(window) && window.isVisible() && !window.isMinimized(),
-      ),
-    // Module-contributed tools, read from the host kernel per request and
-    // gated on their owner's live enablement.
-    resolveModuleTools: () => resolveModuleMcpTools(),
-    isModuleEnabled: (moduleId) => resolveModuleEnabled(moduleId),
-    // The core's own tools (`conversation.create`) among this app's window,
-    // terminal and run tools, in the order agents have always listed them.
-    appTools: (coreTools) => [
-      ...createBrowserTools({
-        manager: browserManager,
-        control: browserControl,
-        hasWorkspace: (workspaceId) =>
-          workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
-      }),
-      ...createCanvasTools({
-        service: canvasService,
-        hasWorkspace: (workspaceId) =>
-          workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
-        isCanvasEnabled,
-      }),
-      ...createEditorTools(
-        createEditorToolBackends({
-          findWorkspace: (workspaceId) =>
-            workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId) ??
-            null,
-          listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
-          agentWrittenFiles,
-          broker: editorRevealBroker,
-          userDataDir: () => app.getPath('userData'),
-          isAppFocused: () =>
-            BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()),
+  // Out of process the gateway, the tailnet and the mesh are the server's.
+  const automationService = server
+    ? null
+    : createStudioGateway(core, {
+        // The live-state push (remote-sessions-ux): every window hears listener,
+        // pairing, and connection changes the moment main does — the fix for pair
+        // requests that could expire while only Settings, if open, would show them.
+        onTailnetEvent: (payload) => {
+          for (const window of BrowserWindow.getAllWindows()) {
+            if (window.isDestroyed() || window.webContents.isDestroyed()) continue
+            window.webContents.send(TAILNET_EVENT_CHANNEL, payload)
+          }
+          tailnetNotifier?.onTailnetEvent(payload)
+        },
+        onMeshEvent: (event) => {
+          for (const window of BrowserWindow.getAllWindows()) {
+            if (window.isDestroyed() || window.webContents.isDestroyed()) continue
+            window.webContents.send(MESH_EVENT_CHANNEL, event)
+          }
+          tailnetNotifier?.onMeshEvent(event)
+        },
+        // A window someone could be looking at: the mesh's reachability timer and
+        // its re-checks of an absent machine only feed rows on screen.
+        hasWindow: () =>
+          BrowserWindow.getAllWindows().some(
+            (window) =>
+              !window.isDestroyed() && !isCanvasWorkerWindow(window) && window.isVisible() && !window.isMinimized(),
+          ),
+        // Module-contributed tools, read from the host kernel per request and
+        // gated on their owner's live enablement.
+        resolveModuleTools: () => resolveModuleMcpTools(),
+        isModuleEnabled: (moduleId) => resolveModuleEnabled(moduleId),
+        // The core's own tools (`conversation.create`) among this app's window,
+        // terminal and run tools, in the order agents have always listed them
+        // (`desktopGatewayTools`).
+        // This server's shell offers these, and an agent's first list waits for them.
+        expectShellToolsets: clientToolsEnabled ? ['browser', 'canvas'] : [],
+        appTools: desktopGatewayTools({
+          browser: clientToolsEnabled ? [] : browserTools,
+          canvas: clientToolsEnabled ? [] : canvasTools,
+          editor: editorTools,
+          tour: tourTools,
+          automation: createAutomationTools(
+            createServerGatewayBackends({
+              getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
+              listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
+              launchAgent: (request) => agentLaunchService.launch(request),
+              resolveAgentPermissionPreset,
+              createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
+              getScheduledAgents: () => resolveScheduledAgents(),
+              defaultChatCli: () => effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastSelectedCli ?? null,
+              // module.*/marketplace.*. The registry snapshot is the
+              // renderer's mirror — main's own module list omits every renderer-only
+              // module, so reporting from it would be wrong by construction. Trust
+              // and launch readiness stay main-owned (signature verification and the
+              // trust store live here), and the marketplace read goes through the
+              // same client the Extensions storefront's IPC uses, cache included.
+              getModuleRegistrySnapshot: () => moduleRegistryMirror.read(),
+              listInstalledThirdPartyModules: async () => {
+                const { modules, rejected } = await discoverUserModules(
+                  defaultUserModuleRoot(),
+                  readModuleTrustContextSync(app.getPath('userData')),
+                )
+                return { modules: modules.map((module) => toThirdPartyModuleView(module)), rejected }
+              },
+              listModuleContributedTools: () =>
+                resolveModuleMcpTools().map((tool) => ({ moduleId: tool.moduleId, toolName: tool.registration.name })),
+              readMarketplaceRegistry: (input) => marketplaceRegistryReader.read(input),
+            }),
+          ),
+          // Remote-control configuration, local socket only: the listener refuses
+          // this whole family regardless of a device's scopes (tailnet-scopes.ts).
+          tailnet: createTailnetTools({ resolveTailnet: () => tailnetToolsFrontDoor }),
         }),
-      ),
-      ...createTourTools({
-        service: tourService,
-        hasWorkspace: (workspaceId) =>
-          workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
-      }),
-      ...coreTools,
-      ...createAutomationTools({
-        getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
-        listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
-        launchAgent: (request) => agentLaunchService.launch(request),
-        resolveAgentPermissionPreset,
-        createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
-        listBacklogItems: (workspaceRoot) => listBacklogItems(workspaceRoot),
-        readBacklogItem: (workspaceRoot, relativePath) => readBacklogItem(workspaceRoot, relativePath),
-        backlogWrite: {
-          updateStatus: updateBacklogStatus,
-          updateType: updateBacklogType,
-          updateTriage: updateBacklogTriage,
-          updateEpic: updateBacklogEpic,
-          updateDependenciesPlanned: updateBacklogDependenciesPlanned,
-          addOrUpdateLink: addOrUpdateBacklogLink,
-          repairIntegrity: repairBacklogIntegrity,
-        },
-        getScheduledAgents: () => resolveScheduledAgents(),
-        defaultChatCli: () => effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastSelectedCli ?? null,
-        // The mobile companion, which reaches this desktop only over the
-        // tailnet gateway: the snapshot builder and the command service behind
-        // `workspace.snapshot` and `workspace.mobile_command`, scoped to the
-        // workspaces main already knows. Both are stateless enough to own here,
-        // and nothing else holds an instance: this desktop publishes nothing
-        // to a phone, it only answers what a paired device asks.
-        mobileControl: (() => {
-          // Dev servers this machine publishes on the tailnet ride the snapshot
-          // so the phone has a door to them. Stateless; the daemon is the truth.
-          const shareService = createTailnetShareService()
-          const snapshotService = new MobileControlSnapshotService({
-            readWebTargets: () => readTailnetWebTargets(shareService),
-          })
-          const commandService = new MobileControlCommandService()
-          // Stable for the app's lifetime; the phone treats it as an opaque id.
-          const desktopSessionId = `tailnet:${hostname()}`
-          // The commands the gateway transport actually serves: snapshot reads
-          // via workspace.snapshot, mutations via workspace.mobile_command's
-          // allowlist. Advertised in the snapshot so the phone's affordance
-          // gate shows exactly what will work over this transport.
-          const gatewayCommands: MobileControlCommandType[] = ['snapshot.request', 'backlog.update']
-          const workspaceRoots = () => uniqueResolvedRoots(listKnownWorkspaceRoots(workspaceSyncService.getSnapshot()))
-          return {
-            async readSnapshot(input: { include?: string[]; knownSnapshotVersion?: string }) {
-              const roots = workspaceRoots()
-              // An empty or absent `include` is the default set. A named one is
-              // served exactly, retired names included: they select nothing, so
-              // a read that names only a retired collection gets an empty
-              // snapshot rather than silently widening to every collection.
-              const include =
-                input.include && input.include.length > 0
-                  ? input.include.filter((entry): entry is MobileSnapshotCollection =>
-                      (mobileSnapshotCollections as readonly string[]).includes(entry),
-                    )
-                  : undefined
-              const snapshot = await snapshotService.readSnapshot({
-                desktopSessionId,
-                workspaceRoots: roots,
-                commands: gatewayCommands,
-                ...(include ? { include } : {}),
-              })
-              // The version is computed before sanitizing and sanitizing
-              // keeps it, so an unchanged read is answered without the copy.
-              if (input.knownSnapshotVersion && input.knownSnapshotVersion === snapshot.snapshotVersion) {
-                return { unchanged: true as const, snapshotVersion: snapshot.snapshotVersion }
-              }
-              const safe = sanitizeMobileSnapshotForTransport(snapshot)
-              return { unchanged: false as const, snapshot: safe as unknown as Record<string, unknown> }
-            },
-            async dispatchCommand(input: {
-              type: string
-              payload: Record<string, unknown>
-              deviceId: string
-              idempotencyKey: string
-              expectedSnapshotVersion?: string
-            }) {
-              const result = await commandService.dispatch(
-                {
-                  protocolVersion: mobileControlProtocolVersion,
-                  commandId: `tnc_${randomUUID()}`,
-                  type: input.type,
-                  payload: input.payload,
-                  deviceId: input.deviceId,
-                  issuedAt: new Date().toISOString(),
-                  idempotencyKey: input.idempotencyKey,
-                  ...(input.expectedSnapshotVersion ? { expectedSnapshotVersion: input.expectedSnapshotVersion } : {}),
-                },
-                { allowedWorkspaceRoots: workspaceRoots() },
-              )
-              if (!result.ok) {
-                return { ok: false as const, code: result.error.code, message: result.error.message }
-              }
-              return {
-                ok: true as const,
-                commandId: result.commandId,
-                commandType: result.commandType,
-                executedAt: result.executedAt,
-                // The result crosses to another device: local paths never do.
-                data: deepRedactLocalPaths(result.data),
-              }
-            },
-          }
-        })(),
-        // Agent-at-launch worktrees (agent.launch isolation + every connector
-        // launch): derive the `agent/<slug>` branch and container the Worktree
-        // manager uses, then create through the shared git helper. Mirrors
-        // WorkspaceManager's own worktree-agent spawn (copyIncludedFiles carries
-        // the repo's worktree-include set into the isolated tree).
-        createAgentWorktree: async ({ workspaceRoot, name, baseRef }) => {
-          const paths = agentWorktreePaths(workspaceRoot, name)
-          if (!paths) return { error: `"${name}" does not reduce to a usable worktree name.` }
-          const created = await createGitWorktree({
-            repoRoot: workspaceRoot,
-            containerPath: paths.containerPath,
-            destinationPath: paths.destinationPath,
-            branchName: paths.branchName,
-            // A remote launch names the branch to fork from (its picker lists
-            // this checkout's branches); a local one forks HEAD as it always did.
-            baseRef: baseRef?.trim() || 'HEAD',
-            copyIncludedFiles: true,
-            // The agent's id is minted after this, by the launch; the branch
-            // names the owner until then.
-            agentLockOwner: paths.branchName,
-          })
-          if (!created.ok) return { error: created.message ?? 'Git worktree creation failed.' }
-          return { worktreePath: created.data.path, branch: created.data.branch ?? paths.branchName }
-        },
-        readRepositoryIdentity: (folderPath) => readRepositoryIdentity(folderPath),
-        // The facts behind `workspace.checkout` (checkout-and-branch-on-remote-
-        // create): the same readers the sidebar rows and the Worktree manager
-        // use, so a remote picker lists exactly what this machine's Git view
-        // would. Not a repo is an answer, not an error.
-        readWorkspaceCheckout: async (workspaceRoot) => {
-          const empty = { git: false as const, branch: null, defaultBranch: null, branches: [], worktrees: [] }
-          const repoRoot = await getGitRepoRoot(workspaceRoot).catch(() => null)
-          if (!repoRoot) return empty
-          const [branch, snapshot, worktrees] = await Promise.all([
-            readBranchName(repoRoot),
-            getGitBranches(repoRoot).catch(() => null),
-            listGitWorktrees(repoRoot).catch(() => null),
-          ])
-          const trunk = await resolveTrunk(repoRoot, branch).catch(() => null)
-          return {
-            git: true,
-            branch,
-            defaultBranch: trunk?.name ?? null,
-            // `git branch` prints a detached HEAD as a pseudo-entry,
-            // "(HEAD detached at abc)", marked current; it is not a ref
-            // anyone can fork from and is dropped.
-            branches: (snapshot?.branches ?? [])
-              .filter((entry) => !entry.name.startsWith('('))
-              .map((entry) => ({ name: entry.name, current: entry.current })),
-            worktrees: worktrees?.ok
-              ? worktrees.data.worktrees
-                  .filter((entry) => !entry.bare)
-                  // `git worktree list` names the main worktree first, always.
-                  .map((entry, index) => ({ path: entry.path, branch: entry.branch, isMain: index === 0 }))
-              : [],
-          }
-        },
-        // module.*/marketplace.*. The registry snapshot is the
-        // renderer's mirror — main's own module list omits every renderer-only
-        // module, so reporting from it would be wrong by construction. Trust
-        // and launch readiness stay main-owned (signature verification and the
-        // trust store live here), and the marketplace read goes through the
-        // same client the Extensions storefront's IPC uses, cache included.
-        getModuleRegistrySnapshot: () => moduleRegistryMirror.read(),
-        listInstalledThirdPartyModules: async () => {
-          const { modules, rejected } = await discoverUserModules(
-            defaultUserModuleRoot(),
-            readModuleTrustContextSync(app.getPath('userData')),
-          )
-          return { modules: modules.map((module) => toThirdPartyModuleView(module)), rejected }
-        },
-        listModuleContributedTools: () =>
-          resolveModuleMcpTools().map((tool) => ({ moduleId: tool.moduleId, toolName: tool.registration.name })),
-        readMarketplaceRegistry: (input) => marketplaceRegistryReader.read(input),
-        // backlog.work composes the target CLI's native skill invocation from the
-        // loaded plugin manifests.
-        listPlugins: () => getPluginRegistry().loaded(),
-        // backlog.work ensures the Backlog skill exists in the CLI's native dir
-        // before launch (the same getStatus → install seam as a spawn). Reports
-        // whether the skill is now present; a false result is non-fatal. Asked
-        // of the machine the agent will run on: a WSL machine is prepared
-        // first (the launch that follows waits for the same), so its answer
-        // is the one that launch will act on.
-        ensureBuiltinSkillInstalled: async (workspaceRoot, skillId, cli, hostId) => {
-          const host = hostRegistry().resolve({ requested: hostId ?? null, folder: workspaceRoot })
-          if (host.kind === 'wsl') await host.prepare().catch(() => undefined)
-          const result = await ensureSkillInstalled(workspaceRoot, skillId, {
-            cli,
-            hostId: host.id,
-            integration: host.agentIntegration(),
-          })
-          if (!result.ok && result.status === 'unknown-skill') {
-            console.warn(`[skills] backlog.work asked for unknown skill "${skillId}".`)
-          }
-          return result.ok
-        },
-      }),
-      // Remote-control configuration, local socket only: the listener refuses
-      // this whole family regardless of a device's scopes (tailnet-scopes.ts).
-      ...createTailnetTools({ resolveTailnet: () => tailnetToolsFrontDoor }),
-    ],
-  })
+      })
   tailnetToolsFrontDoor = automationService
+  // A chat agent in WSL reaches its own server's gateway: the desktop's
+  // toolsets are offered there too, and run here (phase 7).
+  const wslServersOfCore = 'wslServers' in core ? core.wslServers : null
+  // An SSH machine's agents get the pane's browser, whose tabs reach that
+  // machine's network, and the canvas (phase 8).
+  if (automationService && ssh)
+    relayShellToolsets({
+      onConnected: (listener) =>
+        ssh.environments.onConnected((connection) =>
+          listener({
+            key: connection.key,
+            name: connection.label,
+            backend: connection.backend,
+            open: (purpose: 'studio') => connection.open(purpose),
+            toolsets: SSH_RELAYED_TOOLSETS,
+            args: (_toolset, args) => args,
+          }),
+        ),
+      registry: automationService.clientTools,
+      log: (message) => {
+        void writeDiagnosticLog({ level: 'info', title: 'SSH machine', message, source: 'workspace' })
+      },
+    })
+  if (automationService && wslServersOfCore)
+    relayShellToolsets({
+      onConnected: (listener) => wslServersOfCore.onConnected(listener),
+      registry: automationService.clientTools,
+      log: (message) => {
+        void writeDiagnosticLog({ level: 'info', title: 'WSL server', message, source: 'workspace' })
+      },
+    })
   // The Studio RPC: the protocol applications on this machine follow, drive
   // and start chats with, on an owner-only socket in userData/run, composed
   // over the core and its gateway as a standalone server composes it. Its
   // paths, version and the push to Settings are the platform's. Nothing in the
   // app uses it yet; paired apps are listed and revoked in Settings.
-  const studioRpcService = createStudioRpc(core, automationService)
+  const studioRpc = automationService ? createStudioRpc(core, automationService) : null
+  // Where the person's attention is, for routing a call to the window in
+  // front of them when more than one desktop offers a toolset.
+  const desktopFocus = {
+    current: () => ({
+      focused: BrowserWindow.getAllWindows().some(
+        (window) => !window.isDestroyed() && !isCanvasWorkerWindow(window) && window.isFocused(),
+      ),
+      // A desktop shows every workspace it holds, each a tab away.
+      workspaceIds: workspaceSyncService
+        .getSnapshot()
+        .state.workspaces.map((workspace) => workspace.id)
+        .slice(0, 64),
+    }),
+    onChange: (listener: () => void) => {
+      app.on('browser-window-focus', listener)
+      app.on('browser-window-blur', listener)
+      const unsubscribe = workspaceSyncService.subscribeEvents(listener)
+      return () => {
+        app.off('browser-window-focus', listener)
+        app.off('browser-window-blur', listener)
+        unsubscribe()
+      }
+    },
+  }
+  const logDesktopTools = (message: string) => {
+    void writeDiagnosticLog({ level: 'warning', source: 'workspace', title: 'Desktop tools', message })
+  }
+  // The shell, a client of its own server: in process over a port main holds
+  // both ends of, out of process over one it brokers to the server. It offers
+  // what only a screen or a terminal can serve.
+  const desktopShell = studioRpc
+    ? createDesktopShellTools({
+        transport: studioRpc.shellTransport(),
+        version: app.getVersion(),
+        toolsets: clientToolsEnabled
+          ? [
+              { name: 'browser', registrations: browserTools },
+              { name: 'canvas', registrations: canvasTools },
+            ]
+          : [],
+        focus: desktopFocus,
+        log: logDesktopTools,
+      })
+    : server
+      ? createDesktopShellTools({
+          transport: server.shellTransport(),
+          version: app.getVersion(),
+          // Out of process the server serves none of these itself (phase 6,
+          // 6.3, decision R78): the browser and the canvas, the editor and
+          // tours, and the terminal family, whose `agent.launch` and
+          // `agent.status` ride an `agent` toolset under today's wire names.
+          toolsets: [
+            { name: 'browser', registrations: browserTools },
+            { name: 'canvas', registrations: canvasTools },
+            { name: 'editor', registrations: editorTools },
+            { name: 'tour', registrations: tourTools },
+            ...shellTerminalToolsets(
+              createServerGatewayBackends({
+                getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
+                listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
+                launchAgent: (request) => agentLaunchService.launch(request),
+                // An agent launches no looser than it runs: its terminal here,
+                // or the preset its record holds (a chat's live preset is the
+                // server's, and its record carries the one last chosen).
+                resolveAgentPermissionPreset: createAgentPermissionResolver({
+                  listConversationSessions: () => [],
+                  listTerminalSessions: () =>
+                    listLiveTerminalSessions().map((session) => ({
+                      kind: session.kind,
+                      workspaceId: session.workspaceId,
+                      agentId: session.agentId,
+                      processAlive: isTerminalProcessAlive(session),
+                      agentRecord: session.agentRecord,
+                    })),
+                  readAgentRecordPreset: (workspaceId, agentId) => {
+                    const agent = workspaceRegistry.getRecord(workspaceId)?.agents[agentId]
+                    return agent ? { found: true, preset: agent.cliPermissionPreset } : { found: false }
+                  },
+                }),
+                // Neither is reached by a terminal or agent tool.
+                createWorkspace: () => ({
+                  ok: false,
+                  reason: 'server_owned',
+                  message: 'Workspaces are created by the Studio server.',
+                }),
+                getScheduledAgents: () => null,
+                defaultChatCli: () => effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastSelectedCli ?? null,
+                getModuleRegistrySnapshot: () => moduleRegistryMirror.read(),
+                listInstalledThirdPartyModules: async () => ({ modules: [], rejected: [] }),
+                listModuleContributedTools: () => [],
+                readMarketplaceRegistry: (input) => marketplaceRegistryReader.read(input),
+              }),
+            ),
+          ],
+          focus: desktopFocus,
+          log: logDesktopTools,
+        })
+      : null
+  // Out of process the shell's client starts now and connects once the
+  // server is up; it comes back on its own after a restart and offers again.
+  if (server) void desktopShell?.start()
+  // The terminal agents' pull request marks, from the server's record, over a
+  // connection of the shell's own in both modes: where each agent works goes
+  // to the server, and the lists it answers ride the terminal snapshot.
+  const shellTransport = studioRpc?.shellTransport() ?? server?.shellTransport() ?? null
+  terminalPullRequests = shellTransport
+    ? createTerminalPullRequests({
+        transport: shellTransport,
+        version: app.getVersion(),
+        sessions: {
+          list: () => listLiveTerminalSessions(),
+          get: (sessionId) => getTerminalSessionById(sessionId),
+        },
+        onListsChanged: (affects) => notePullRequestRecordChanged(affects),
+        log: logDesktopTools,
+      })
+    : null
+  if (server) void terminalPullRequests?.start()
+  if (server) {
+    // What the server's gateway reads of the shell's terminals: the sessions
+    // (the launch cap, `backlog.work`'s confirmation) and the launch tokens
+    // they were issued (R87), by digest. Each change as it happens, and all of
+    // them again to a server that has just started.
+    const sendTerminalSessions = () =>
+      server.rpc.emit(SERVER_EVENTS.terminalSessions, terminalRuntime.ipcHandlers.listTerminals())
+    terminalRuntime.subscribeSessionsChanged(sendTerminalSessions)
+    onGatewayLaunchTokenChange((change) => server.rpc.emit(SERVER_EVENTS.launchTokens, { changes: [change] }))
+    // Asked by a server as it starts, before its gateway listens.
+    server.rpc.handle(SHELL_METHODS.liveLaunchTokens, () => liveGatewayLaunchTokens())
+    server.onServing(() => {
+      server.rpc.emit(SERVER_EVENTS.launchTokens, { reset: true, changes: liveGatewayLaunchTokens() })
+      sendTerminalSessions()
+      // A server back from a restart: the shell's client connects now rather
+      // than at the end of its backoff, and the SDK offers every toolset again.
+      desktopShell?.client()?.wake()
+    })
+  }
+  // Started and stopped with the RPC: the shell's client goes first, so the
+  // RPC's goodbye is never one it would answer by reconnecting.
+  const studioRpcService: StudioRpcService | null = studioRpc
+    ? {
+        ...studioRpc,
+        start: () => {
+          void desktopShell?.start()
+          void terminalPullRequests?.start()
+          return studioRpc.start()
+        },
+        stop: () => {
+          desktopShell?.stop()
+          terminalPullRequests?.stop()
+          return studioRpc.stop()
+        },
+      }
+    : null
   // The conversation peek (hover a chat row or an agent tab): the prompts this
   // app captured for the session the card is anchored to. Built here rather
   // than inside the runtime so its assembly rules stay Electron-free and
@@ -1599,6 +1679,14 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const conversationPeek = createConversationPeekService({
     readSessionState: terminalRuntime.readConversationPeekSessionState,
     readConversationEvents: async (sessionId) => {
+      if (server) {
+        return server.rpc
+          .call<Awaited<ReturnType<typeof conversations.readPeekTranscript>> | null>(
+            SERVER_METHODS.conversationPeekEvents,
+            { sessionId },
+          )
+          .catch(() => null)
+      }
       const listed = conversations.listSessions()
       const summary = listed.ok ? listed.sessions.find((session) => session.sessionId === sessionId) : undefined
       if (!summary) return null
@@ -1639,6 +1727,18 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     ),
   )
   void bootWorkspacePass.catch(() => undefined)
+  // Out of process the registry arrives with the server's first snapshot, not
+  // as events: the pass runs again once it has.
+  if (server) {
+    void server.mirror
+      .whenLoaded()
+      .then(() =>
+        studioPluginService.ensureInstalledForRoots(
+          uniqueResolvedRoots(listKnownWorkspaceRoots(workspaceSyncService.getSnapshot())),
+        ),
+      )
+      .catch(() => undefined)
+  }
   const prepareWorkspacesAtBoot = (): Promise<void> => {
     openWorkspaceSyncGate()
     return bootWorkspacePass
@@ -1668,7 +1768,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // machine and re-dials waiting panes at once. `powerMonitor` needs the app
   // ready; services are built before that, so the hook waits for it.
   void app.whenReady().then(() => {
-    const wake = () => automationService.mesh().onWake()
+    // Out of process the server hears the wake as a power hint.
+    if (!automationService) return
+    const gateway = automationService
+    const wake = () => gateway.mesh().onWake()
     powerMonitor.on('resume', wake)
     powerMonitor.on('unlock-screen', wake)
   })
@@ -1686,7 +1789,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
    */
   function whenAgentLaunchReady(): Promise<void> {
     startDeferredBootJobs()
-    return Promise.all([automationService.whenGatewayReady(), agentIntegrationReady]).then(() => undefined)
+    // Out of process the gateway is listening once the server has said ready.
+    const gatewayReady = automationService
+      ? automationService.whenGatewayReady()
+      : (server?.whenServing(AGENT_LAUNCH_SERVER_WAIT_MS) ?? Promise.resolve())
+    return Promise.all([gatewayReady, agentIntegrationReady]).then(() => undefined)
   }
 
   function readBackgroundStatus(): BackgroundStatus {
@@ -1695,7 +1802,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       .filter((session) => session.kind === 'agent' && session.processAlive && !session.suspended)
     return {
       agentSessions: sessions.length,
-      gateway: { running: automationService.getStatus().running },
+      gateway: { running: automationService ? automationService.getStatus().running : (server?.isServing() ?? false) },
     }
   }
 
@@ -1765,6 +1872,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   }
 
   return {
+    /** SSH machines (phase 8), when their preview is on this session. */
+    ssh,
+    shellBridge,
+    /** The shell's client of its server: stopped first at quit, so the server's goodbye is not answered. */
+    desktopShell,
     removeSessionIntegrations,
     startDeferredBootJobs,
     prepareWorkspacesAtBoot,
@@ -1813,7 +1925,19 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     terminalRuntime,
     agentChangelistFeed,
     editorRevealBroker,
-    pullRequestRecord,
+    // At quit: the shell's client closes, and in process the core's record
+    // settles its writes (out of process the server does, in its own legs).
+    // A hover on a terminal agent's line: ask the server again.
+    refreshPullRequestsForSession: (sessionId: string) => terminalPullRequests?.refreshForSession(sessionId) ?? false,
+    pullRequestRecord: {
+      flush: async () => {
+        terminalPullRequests?.stop()
+        if (!server) await core.pullRequests.flush()
+      },
+      dispose: () => {
+        if (!server) core.pullRequests.dispose()
+      },
+    },
     broadcastGitChangelistsChanged,
     updateService,
     withIpcDiagnostics,

@@ -9,7 +9,12 @@ import {
   type StudioScope,
 } from '../../../packages/studio-protocol/src/public'
 import { parseCliPermissionPreset, type CliPermissionPreset } from '../../shared/cli-permission-preset'
-import type { StudioLocalApp, StudioLocalAppOffer, StudioLocalAppOfferInput } from '../../shared/studio-local-apps'
+import type {
+  StudioLocalApp,
+  StudioLocalAppOffer,
+  StudioLocalAppOfferInput,
+  StudioLocalAppToolReach,
+} from '../../shared/studio-local-apps'
 import { hashSecret, secretsMatch } from '../automation/tailnet/secret-hash'
 
 // The applications paired with Studio's owner socket, and how each proves it.
@@ -43,7 +48,7 @@ const MAX_APPS = 64
 const LAST_SEEN_PERSIST_INTERVAL_MS = 60 * 1000
 const OWNER_CLIENT_ID = 'owner'
 
-type StoredApp = Omit<StudioLocalApp, 'connected'> & { tokenHash: string }
+type StoredApp = Omit<StudioLocalApp, 'connected' | 'toolsets'> & { tokenHash: string }
 type Offer = StudioLocalAppOffer & {
   codeHash: string
   expiresAtMs: number
@@ -55,7 +60,7 @@ export type StudioLocalAppRedeemResult =
   { ok: true; grant: StudioGrant; token: string } | { ok: false; message: string }
 
 export type StudioLocalAppStore = {
-  list(): Omit<StudioLocalApp, 'connected'>[]
+  list(): Omit<StudioLocalApp, 'connected' | 'toolsets'>[]
   offers(): StudioLocalAppOffer[]
   /** Mint a one-time pairing code. Throws on input Settings should never send. */
   offer(input: unknown): { offer: StudioLocalAppOffer; code: string }
@@ -66,6 +71,10 @@ export type StudioLocalAppStore = {
   authenticate(token: string): StudioGrant | null
   grantFor(clientId: string): StudioGrant | null
   revoke(id: string): boolean
+  /** Which agents an app's tools reach; `own` for an app that is not paired. */
+  toolReachOf(id: string): StudioLocalAppToolReach
+  /** Change it. Unlike its scopes, this is a setting the person may change at any time. */
+  setToolReach(id: string, reach: StudioLocalAppToolReach): boolean
   recordSeen(id: string): void
   /** This run's owner token. */
   ownerToken(): string
@@ -87,7 +96,7 @@ function grantOf(app: StoredApp): StudioGrant {
   return { clientId: app.id, name: app.name, owner: false, scopes: [...app.scopes], ceiling: app.ceiling }
 }
 
-function publicApp(app: StoredApp): Omit<StudioLocalApp, 'connected'> {
+function publicApp(app: StoredApp): Omit<StudioLocalApp, 'connected' | 'toolsets'> {
   return {
     id: app.id,
     name: app.name,
@@ -95,6 +104,7 @@ function publicApp(app: StoredApp): Omit<StudioLocalApp, 'connected'> {
     ceiling: app.ceiling,
     createdAt: app.createdAt,
     lastSeenAt: app.lastSeenAt,
+    toolReach: app.toolReach,
   }
 }
 
@@ -104,6 +114,7 @@ function publicOffer(offer: Offer): StudioLocalAppOffer {
     name: offer.name,
     scopes: [...offer.scopes],
     ceiling: offer.ceiling,
+    toolReach: offer.toolReach,
     expiresAt: offer.expiresAt,
   }
 }
@@ -117,7 +128,9 @@ export function parseStudioLocalAppOfferInput(value: unknown): StudioLocalAppOff
   if (!scopes.length) throw new Error('Give the app at least one thing it may do.')
   const ceiling: CliPermissionPreset | null = parseCliPermissionPreset(input.ceiling)
   if (!ceiling) throw new Error('Choose the loosest permission preset its chats may run on.')
-  return { name, scopes, ceiling }
+  // Reach means nothing without the scope to offer tools; it stays at its narrowest.
+  const toolReach: StudioLocalAppToolReach = scopes.includes('tools:offer') && input.toolReach === 'all' ? 'all' : 'own'
+  return { name, scopes, ceiling, toolReach }
 }
 
 function readApps(path: string, log?: (message: string) => void): StoredApp[] {
@@ -148,6 +161,8 @@ function readApps(path: string, log?: (message: string) => void): StoredApp[] {
         ceiling,
         createdAt: typeof entry.createdAt === 'string' ? entry.createdAt : new Date(0).toISOString(),
         lastSeenAt: typeof entry.lastSeenAt === 'string' ? entry.lastSeenAt : null,
+        // A pairing stored before tools existed reaches only what it starts.
+        toolReach: entry.toolReach === 'all' ? 'all' : 'own',
         tokenHash: entry.tokenHash,
       })
     }
@@ -253,6 +268,7 @@ export function createStudioLocalAppStore(options: {
             name: offer.name,
             scopes: offer.scopes,
             ceiling: offer.ceiling,
+            toolReach: offer.toolReach,
             createdAt: now().toISOString(),
             lastSeenAt: null,
             tokenHash: hashSecret(token),
@@ -313,6 +329,24 @@ export function createStudioLocalAppStore(options: {
         }
         changed()
       }
+      return true
+    },
+
+    toolReachOf: (id) => apps.find((app) => app.id === id)?.toolReach ?? 'own',
+
+    setToolReach(id, reach) {
+      const app = apps.find((candidate) => candidate.id === id)
+      if (!app || !app.scopes.includes('tools:offer')) return false
+      if (app.toolReach === reach) return true
+      const before = app.toolReach
+      app.toolReach = reach
+      try {
+        persist()
+      } catch (error) {
+        app.toolReach = before
+        throw error
+      }
+      changed()
       return true
     },
 

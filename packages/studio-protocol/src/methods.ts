@@ -29,6 +29,31 @@ import {
   type StudioMethodSpec,
 } from './chat.js'
 import { parseStudioConversationKey, type StudioConversationKey } from './key.js'
+import {
+  STUDIO_FILES_METHODS,
+  STUDIO_FILES_TOPICS,
+  isStudioFilesMethod,
+  parseStudioFilesParams,
+  parseStudioFilesWatchParams,
+  type StudioFilesMethodMap,
+  type StudioFilesTopicMap,
+} from './files.js'
+import {
+  STUDIO_PULL_REQUESTS_METHODS,
+  STUDIO_PULL_REQUESTS_TOPICS,
+  isStudioPullRequestsMethod,
+  parseStudioPullRequestsParams,
+  type StudioPullRequestsMethodMap,
+  type StudioPullRequestsTopicMap,
+} from './pull-requests.js'
+import {
+  STUDIO_TOOLS_METHODS,
+  STUDIO_TOOLS_TOPICS,
+  isStudioToolsMethod,
+  parseStudioToolsParams,
+  type StudioToolsMethodMap,
+  type StudioToolsTopicMap,
+} from './tools.js'
 
 export { parseStudioConversationKey, isStudioPath, STUDIO_MAX_PATH_CHARS, type StudioConversationKey } from './key.js'
 export type { StudioMethodSpec } from './chat.js'
@@ -81,7 +106,11 @@ export type StudioServerInfo = {
   grant: StudioGrant
 }
 
-export type StudioMethodMap = StudioConversationMethodMap & StudioChatMethodMap
+export type StudioMethodMap = StudioConversationMethodMap &
+  StudioChatMethodMap &
+  StudioToolsMethodMap &
+  StudioFilesMethodMap &
+  StudioPullRequestsMethodMap
 
 /** The `server` and `conversation` methods phase 2 shipped; the chat surface's are in `chat.ts`. */
 type StudioConversationMethodMap = {
@@ -168,6 +197,9 @@ export const STUDIO_METHODS: { readonly [M in StudioMethod]: StudioMethodSpec } 
   'conversation.toolDetail': read(),
   'conversation.turnDiff': read(),
   ...STUDIO_CHAT_METHODS,
+  ...STUDIO_TOOLS_METHODS,
+  ...STUDIO_FILES_METHODS,
+  ...STUDIO_PULL_REQUESTS_METHODS,
 }
 
 /** Whether a string names a method this version of the protocol defines. */
@@ -182,7 +214,10 @@ export type StudioTopicMap = {
    * after it), one `synchronized` fence, then live `event`s.
    */
   'conversation.session': { params: { key: StudioConversationKey; turnLimit?: number } }
-} & StudioChatTopicMap
+} & StudioChatTopicMap &
+  StudioToolsTopicMap &
+  StudioFilesTopicMap &
+  StudioPullRequestsTopicMap
 
 export type StudioTopic = keyof StudioTopicMap
 export type StudioTopicParams<T extends StudioTopic> = StudioTopicMap[T]['params']
@@ -196,6 +231,9 @@ export type StudioTopicSpec = { scope: StudioScope; capability: StudioCapability
 export const STUDIO_TOPICS: { readonly [T in StudioTopic]: StudioTopicSpec } = {
   'conversation.session': { scope: 'conversation:read', capability: STUDIO_CONVERSATIONS_CAPABILITY },
   ...STUDIO_CHAT_TOPICS,
+  ...STUDIO_TOOLS_TOPICS,
+  ...STUDIO_FILES_TOPICS,
+  ...STUDIO_PULL_REQUESTS_TOPICS,
 }
 
 /** Whether a string names a topic this version of the protocol defines. */
@@ -275,6 +313,9 @@ export function parseStudioCommand(
 /** Validate a request's params for its method, keeping only the members the method defines. */
 export function parseStudioMethodParams<M extends StudioMethod>(method: M, params: unknown): StudioParsedParams<M> {
   if (isStudioChatMethod(method)) return parseStudioChatParams(method, params) as StudioParsedParams<M>
+  if (isStudioToolsMethod(method)) return parseStudioToolsParams(method, params) as StudioParsedParams<M>
+  if (isStudioFilesMethod(method)) return parseStudioFilesParams(method, params) as StudioParsedParams<M>
+  if (isStudioPullRequestsMethod(method)) return parseStudioPullRequestsParams(method, params) as StudioParsedParams<M>
   const value = params === undefined ? {} : params
   if (!record(value)) return refuse('invalid_params', `${method} takes an object of params.`)
   const ok = (parsed: unknown) => ({ ok: true as const, params: parsed as StudioMethodParams<M> })
@@ -339,9 +380,13 @@ export function parseStudioTopicParams<T extends StudioTopic>(
   topic: T,
   params: unknown,
 ): { ok: true; params: StudioTopicParams<T> } | StudioParamsRefusal {
-  if (params === undefined && topic === 'conversation.commands') return { ok: true, params: {} as StudioTopicParams<T> }
+  // The push topics that follow no one thing take no params.
+  if (topic === 'files.watch')
+    return parseStudioFilesWatchParams(params) as { ok: true; params: StudioTopicParams<T> } | StudioParamsRefusal
+  const whole = topic === 'conversation.commands' || topic === 'tools.catalog' || topic === 'pullRequests.changed'
+  if (params === undefined && whole) return { ok: true, params: {} as StudioTopicParams<T> }
   if (!record(params)) return refuse('invalid_params', `${topic} takes an object of params.`)
-  if (topic === 'conversation.commands') return { ok: true, params: {} as StudioTopicParams<T> }
+  if (whole) return { ok: true, params: {} as StudioTopicParams<T> }
   const key = parseStudioConversationKey(params.key)
   if (!key) return refuse('invalid_params', KEY_REQUIRED)
   if (

@@ -4,7 +4,9 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import type { RegisteredSettingsSection } from '../../modules/renderer-host'
 import { AutomationServerSettings } from './AutomationServerSettings'
+import { BrowsersSettings } from './BrowsersSettings'
 import { LocalAppsSettings } from './LocalAppsSettings'
+import { StudioServerSettings } from './StudioServerSettings'
 import { ModuleSettingsSectionHost } from './ModuleSettingsSection'
 import AppThemePicker from './AppThemePicker'
 import { ChatAppearanceRows } from './ChatAppearanceRows'
@@ -94,6 +96,7 @@ import { useSettingsUpdateBadges } from './useSettingsUpdateBadges'
 import { subscribeAppUpdateState, useAppUpdateStore } from '../../store/appUpdateStore'
 import type { SettingsUpdateBadge } from '../../utils/settingsUpdateBadges'
 import { sourceUpdateCadenceLine, type SkillRepoTransport } from '../../../../shared/skills'
+import { clientSupports, hostPlatform } from '../../clientCapabilities'
 
 interface Props {
   onClose: () => void
@@ -486,7 +489,7 @@ export function VersionControlSections({ githubToken }: { githubToken: React.Rea
   const [checking, setChecking] = useState(false)
   const [expandedId, setExpandedId] = useState<VersionControlProviderId | null>(null)
   const sections = useMemo(() => versionControlSections(), [])
-  const platform = window.api.platform
+  const platform = hostPlatform()
 
   const runProbe = useCallback(async () => {
     if (typeof window.api.probeVersionControlProviders !== 'function') {
@@ -667,7 +670,11 @@ export default function SettingsPanel({
   )
   const visibleSettingsTabs = useMemo(
     (): SettingsTabDescriptor[] => [
-      ...settingsTabs.filter((tab) => tab.id !== 'machines' || window.api.platform === 'win32'),
+      // The server's machine on Windows: its WSL distributions. Any platform
+      // with the SSH machines preview on: the SSH machines (phase 8).
+      ...settingsTabs.filter(
+        (tab) => tab.id !== 'machines' || hostPlatform() === 'win32' || window.api.sshMachinesEnabled === true,
+      ),
       ...moduleSections.map((section) => ({
         id: moduleSectionTabId(section.id),
         label: section.label,
@@ -771,7 +778,7 @@ export default function SettingsPanel({
   // start WSL, and opening Settings on General should not.
   const { listing: agentsHostListing } = useExecutionHosts({ enabled: activeSettingsTab === 'agents' })
   const agentsMachineOptions = useMemo(
-    () => agentsMachines(agentsHostListing, executionHostLabel(LOCAL_HOST_ID, window.api.platform)),
+    () => agentsMachines(agentsHostListing, executionHostLabel(LOCAL_HOST_ID, hostPlatform())),
     [agentsHostListing],
   )
   const [pickedAgentsMachine, setPickedAgentsMachine] = useState<ExecutionHostId | null>(
@@ -1516,7 +1523,10 @@ export default function SettingsPanel({
           <AutomationServerSettings />
           {/* The applications paired with Studio's owner socket sit beside
               the gateway: both are doors onto this machine's agents. */}
-          <LocalAppsSettings />
+          {clientSupports('tailnet-admin') ? <LocalAppsSettings /> : null}
+          {/* Where the server behind both of them runs (phase 6): inside the
+              app, or in a process of its own. */}
+          <StudioServerSettings />
         </div>
       ) : null}
 
@@ -1602,7 +1612,15 @@ export default function SettingsPanel({
 
       {activeSettingsTab === 'modules' ? <ModulesSettingsTab /> : null}
 
-      {activeSettingsTab === 'remote' ? <RemoteTailnetSettingsTab /> : null}
+      {activeSettingsTab === 'remote' ? (
+        <>
+          {/* The browsers paired with a web listener: only a web tab's server
+              answers for them, and a desktop window has the tailnet's own
+              Settings instead, so it does not ask a channel main never serves. */}
+          {clientSupports('tailnet-admin') ? null : <BrowsersSettings />}
+          {clientSupports('tailnet-admin') ? <RemoteTailnetSettingsTab /> : null}
+        </>
+      ) : null}
 
       {activeTab.moduleSection ? (
         <div

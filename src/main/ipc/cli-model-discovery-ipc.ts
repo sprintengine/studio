@@ -1,4 +1,6 @@
-import { BrowserWindow, type IpcMain } from 'electron'
+import type { IpcMain } from 'electron'
+
+import { studioPlatform } from '../../server/platform/platform'
 
 import {
   CLI_MODELS_CHANGED_CHANNEL,
@@ -62,9 +64,11 @@ export async function discoverAndBroadcastCliModels(
   const produced = result.entries.filter((entry) => entry.catalog && !entry.skipped)
   if (produced.length > 0) {
     const payload: CliModelDiscoveryResult = { ...result, entries: produced }
-    const windows = (deps.getWindows ?? (() => BrowserWindow.getAllWindows()))()
-    for (const win of windows) {
-      if (!win.isDestroyed()) win.webContents.send(CLI_MODELS_CHANGED_CHANNEL, payload)
+    if (!deps.getWindows) studioPlatform().clients.publish(CLI_MODELS_CHANGED_CHANNEL, payload)
+    else {
+      for (const win of deps.getWindows()) {
+        if (!win.isDestroyed()) win.webContents.send(CLI_MODELS_CHANGED_CHANNEL, payload)
+      }
     }
   }
   return result

@@ -38,7 +38,7 @@ import type {
   ModuleSecretsRegistry,
   ModuleSecretsService,
 } from '../../shared/modules/brokers'
-import type { SecretCipher } from '../../server/platform/secret-cipher'
+import { openSecret, sealSecret, type SecretCipher } from '../../server/platform/secret-cipher'
 import { brokerRequest, brokerTimeout, redactSecret, type BrokerFetch } from './broker-http'
 
 export type ModuleSecretsDeps = {
@@ -152,7 +152,7 @@ export function createModuleSecretsRegistry(deps: ModuleSecretsDeps): ModuleSecr
     }
     if (!deps.cipher || !encryptionAvailable()) return empty
     try {
-      const parsed = JSON.parse(deps.cipher.open(sealed)) as Partial<StoredRecord>
+      const parsed = JSON.parse(await openSecret(deps.cipher, sealed)) as Partial<StoredRecord>
       if (parsed?.version !== 1 || typeof parsed.secrets !== 'object' || parsed.secrets === null) return empty
       const secrets: Record<string, StoredSecret> = {}
       for (const [name, entry] of Object.entries(parsed.secrets)) {
@@ -178,7 +178,7 @@ export function createModuleSecretsRegistry(deps: ModuleSecretsDeps): ModuleSecr
     if (!deps.cipher) throw new Error('No cipher.')
     await mkdir(secretsDir(deps.userDataDir), { recursive: true })
     const temporary = `${path}.${process.pid}.${Date.now()}.tmp`
-    await writeFile(temporary, deps.cipher.seal(JSON.stringify(record)), { mode: 0o600 })
+    await writeFile(temporary, await sealSecret(deps.cipher, JSON.stringify(record)), { mode: 0o600 })
     try {
       await rename(temporary, path)
     } catch (error) {

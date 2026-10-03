@@ -1,4 +1,4 @@
-import { ipcRenderer } from 'electron'
+import { ipc as ipcRenderer } from '../ipc-router'
 
 import type { ConversationPeek } from '../../shared/conversation-peek'
 import type { ElectronApi } from '../../shared/electron-api'

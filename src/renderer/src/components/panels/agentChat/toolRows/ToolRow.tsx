@@ -1,10 +1,6 @@
 import React, { memo, useMemo, useRef, useState } from 'react'
 import type { ConversationToolDetail, ConversationJsonValue } from '../../../../../../shared/conversation-runtime'
-import {
-  presentToolItem,
-  type PresentableTool,
-  type ToolPresentation,
-} from '../../../../../../shared/conversation/presentation'
+import { presentToolItem, type ToolPresentation } from '../../../../../../shared/conversation/presentation'
 import { labelCommand } from '../../../../../../shared/conversation/commandLabel'
 import { parseAnsi, type AnsiLine } from '../../../../../../shared/conversation/ansi'
 import { Checkbox, CopyGlyphButton, GhostButton, InlineNotice, MediaButton, RowButton, Spinner } from '../../../ui'
@@ -26,19 +22,17 @@ import { revealLabel } from '../../../../utils/revealLabel'
 import { showToast } from '../../../../store/toastStore'
 import { ChevronRightGlyph, ToolKindGlyph } from './ToolKindGlyph'
 import { InlineMarkdown } from './InlineMarkdown'
+import { useClientToolOrigin } from '../../../../studio/clientTools'
 import type { ConversationEdit } from '../../../../../../shared/conversation/editHunks'
+import { clientSupports, hostPlatform } from '../../../../clientCapabilities'
+import {
+  stepWentWrong,
+  toolPresentationInput,
+} from '../../../../../../../packages/conversation-timeline/src/stepOutcome'
 
-export function toolPresentationInput(tool: TranscriptToolEntry): PresentableTool {
-  return {
-    kind: tool.toolKind,
-    name: tool.name,
-    input: tool.input,
-    status: tool.status === 'running' ? 'running' : (tool.outputStatus ?? 'ok'),
-    exitCode: tool.exitCode,
-    summary: tool.summary,
-    subagentType: tool.subagentType,
-  }
-}
+// How a step reads, and whether it went wrong, are the timeline package's:
+// the turn fold counts what went wrong without drawing a row.
+export { stepWentWrong, toolPresentationInput }
 function pretty(value: ConversationJsonValue | undefined): string {
   return typeof value === 'string' ? value : value == null ? '' : JSON.stringify(value, null, 2)
 }
@@ -313,9 +307,9 @@ function GeneratedImage({ path, prompt, toolUseId }: { path: string; prompt?: st
               {prompt}
             </span>
           ) : null}
-          {current.remote ? null : (
+          {current.remote || !clientSupports('reveal-in-folder') ? null : (
             <GhostButton size="inline" onClick={() => void window.api.showItemInFolder(path)}>
-              {revealLabel(window.api.platform)}
+              {revealLabel(hostPlatform())}
             </GhostButton>
           )}
         </figcaption>
@@ -480,12 +474,6 @@ export function toolGlyphInk(tone: ToolPresentation['tone'] | 'running'): string
 // non-zero. The row keeps a non-zero exit's glyph neutral — a search that
 // matched nothing exits 1 — but its "exit N" and any closed summary over it
 // still wear error ink, so a step that went wrong never folds away unseen.
-export function stepWentWrong(tool: TranscriptToolEntry): boolean {
-  if (tool.status === 'running') return false
-  if (tool.exitCode) return true
-  return presentToolItem(toolPresentationInput(tool)).tone === 'error'
-}
-
 // A path as the row shows it: relative to where the agent runs, or to the
 // workspace, when it is inside either. An absolute path out of a temp folder is
 // most of a row's width spent on directories nobody needs to read.
@@ -556,6 +544,8 @@ export const ToolRow = memo(function ToolRow({ tool }: { tool: TranscriptToolEnt
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>()
   const presentation = useMemo(() => presentToolItem(toolPresentationInput(tool), cachedCommandLabel), [tool])
+  // A tool an app gave agents says whose it is.
+  const origin = useClientToolOrigin(tool.name)
   const running = tool.status === 'running'
   const tone = running ? 'running' : presentation.tone
   const settledAt = running ? undefined : (tool.completedAt ?? tool.startedAt)
@@ -630,6 +620,9 @@ export const ToolRow = memo(function ToolRow({ tool }: { tool: TranscriptToolEnt
             >
               {presentation.title}
             </span>
+            {origin ? (
+              <span className="shrink-0 text-micro text-[color:var(--text-disabled)]">from {origin}</span>
+            ) : null}
             {running ? <span className="sr-only">running</span> : null}
             {tone === 'error' ? <span className="sr-only">failed</span> : null}
           </RowButton>

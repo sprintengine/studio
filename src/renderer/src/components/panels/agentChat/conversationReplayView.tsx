@@ -30,6 +30,7 @@ import {
 import { prefersReducedMotion } from './reducedMotion'
 import { SubagentTypesProvider } from './subagentStatus'
 import { TimelineRow, type TimelineChrome } from './timelineRows'
+import { hostPlatform } from '../../../clientCapabilities'
 
 // The replay, drawn over the chat it replays. The live chat stays mounted and
 // running beneath it (inert while the replay is up), so leaving puts the person
@@ -224,7 +225,7 @@ function ReplayPlayer({
       onRetry: () => undefined,
       retryDisabled: true,
       conversationRunning: projection.activeTurn,
-      platform: window.api.platform,
+      platform: hostPlatform(),
       cli,
     }),
     [assistantName, cli, projection.activeTurn],

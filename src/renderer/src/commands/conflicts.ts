@@ -1,5 +1,6 @@
 import { normalizeKeybinding } from './keybindings'
 import type { CommandDefinition, CommandScope } from './types'
+import { defaultKeybindingsHere } from './browserKeymap'
 
 type KeybindingConflictSeverity = 'blocking' | 'warning'
 
@@ -48,7 +49,7 @@ function toCandidate(command: CommandDefinition | KeybindingConflictCandidate): 
   return {
     commandId: isDefinition ? command.id : command.commandId,
     commandTitle: isDefinition ? command.title : command.commandTitle,
-    keybindings: isDefinition ? (command.defaultKeybindings ?? []) : command.keybindings,
+    keybindings: isDefinition ? defaultKeybindingsHere(command.defaultKeybindings ?? []) : command.keybindings,
     scopes: command.scopes,
   }
 }

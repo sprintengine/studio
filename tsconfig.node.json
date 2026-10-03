@@ -2,6 +2,8 @@
   "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
   "include": [
     "electron.vite.config.*",
+    "renderer.vite.config.*",
+    "vite.web.config.*",
     "src/main/**/*",
     "src/server/**/*",
     "src/preload/**/*",
@@ -9,6 +11,7 @@
     "src/renderer/src/types/appTheme.ts",
     "src/renderer/src/types/workspace.ts",
     "packages/module-sdk/src/**/*",
+    "packages/conversation-timeline/src/**/*",
     "packages/conversation-protocol/src/**/*",
     "packages/studio-protocol/src/**/*",
     "packages/agent-sdk/src/**/*"

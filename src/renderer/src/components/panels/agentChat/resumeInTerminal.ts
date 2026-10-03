@@ -3,6 +3,7 @@ import { cliForConversationProvider } from '../../../../../shared/conversation-h
 import type { PluginRegistryListEntry } from '../../../../../shared/plugin-manifest'
 import { showToast } from '../../../store/toastStore'
 import type { AgentState } from '../../../types/workspace'
+import { clientSupports } from '../../../clientCapabilities'
 
 /**
  * Resume in terminal, the renderer's half: offered for a chat whose CLI resumes
@@ -18,6 +19,8 @@ export function chatResumesInTerminal(
   catalog: readonly PluginRegistryListEntry[],
 ): boolean {
   if (agent?.runtimeKind !== 'conversation') return false
+  // A shell with no terminals (a browser tab) has nowhere to resume it.
+  if (!clientSupports('terminals')) return false
   const cli = cliForConversationProvider(agent.conversation?.providerId)
   return cli !== null && agentCliSupportsConversationResume(resumeCapabilitiesForCli(cli, catalog))
 }

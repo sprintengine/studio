@@ -192,13 +192,16 @@ export function canvasHashAfterFailedCommit(
 }
 
 /**
- * The platform, as the preload reports it. Read per call and defaulted rather
- * than captured: this module is loaded by tests that have no preload, and a
- * case-sensitive answer there is the conservative one.
+ * The platform of the machine the boards are on (the server's), as the
+ * shell reports it. Read per call and defaulted rather than captured: this
+ * module is loaded by tests that have no preload, and a case-sensitive answer
+ * there is the conservative one.
  */
 function rendererPlatform(): string {
   const api = typeof window === 'undefined' ? undefined : window.api
-  return typeof api?.platform === 'string' ? api.platform : 'linux'
+  const host = api?.hostPlatform
+  const platform = typeof host === 'string' ? host : api?.platform
+  return typeof platform === 'string' ? platform : 'linux'
 }
 
 /**

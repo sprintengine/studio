@@ -31,6 +31,24 @@ export type StudioConversationBackendDeps = {
   getWorkspaceAgents: () => ReadonlyArray<{ id: string; agents: Record<string, AgentState> }>
 }
 
+/**
+ * The client that started a conversation, read off its record: a chat a
+ * client starts is launched under its namespaced command id (`owner:<id>`, or
+ * `client:<clientId>:<id>` for a paired app), which the record keeps. Null for
+ * a chat started in Studio itself.
+ */
+export function conversationStartedBy(
+  workspaces: ReadonlyArray<{ id: string; agents: Record<string, AgentState> }>,
+  key: { workspaceId: string; agentId: string },
+): string | null {
+  const launched = workspaces.find((workspace) => workspace.id === key.workspaceId)?.agents[key.agentId]
+    ?.launchCommandId
+  if (typeof launched !== 'string') return null
+  if (launched.startsWith('owner:')) return 'owner'
+  const client = /^client:([^:]+):/.exec(launched)
+  return client ? client[1] : null
+}
+
 export function createStudioConversationBackend(deps: StudioConversationBackendDeps): StudioConversationBackend {
   const { host } = deps
   const liveSessions = (key: { workspaceId: string; agentId: string }) => {

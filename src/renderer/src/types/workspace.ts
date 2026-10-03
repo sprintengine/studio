@@ -758,6 +758,9 @@ export type WorkspaceRemoteOrigin = {
   repository?: import('../../../shared/repository-identity').RepositoryIdentity | null
 }
 
+/** Another machine a workspace lives on: today an SSH machine, by its saved id. */
+export type WorkspaceEnvironmentRef = { kind: 'ssh'; id: string; label: string }
+
 export type Workspace = {
   id: WorkspaceId
   name: string
@@ -775,6 +778,11 @@ export type Workspace = {
   // where its agents, terminals and git all run. Set when the workspace is
   // created and never changed after — a chat does not move machines.
   hostId?: import('../../../shared/execution-host').ExecutionHostId | null
+  // The SSH machine the workspace is on (phase 8): its folder is that
+  // machine's path, and its chats run on that machine's Studio server, reached
+  // over the SSH connection the desktop holds. Absent for every workspace on
+  // this computer. Set at creation and never changed, as `hostId` is.
+  environment?: WorkspaceEnvironmentRef | null
   worktree?: WorkspaceWorktree | null
   // The scheduled agent whose run started this chat (shared/scheduled-agents).
   // Set once, by main, when a run's workspace is created, and never changed:

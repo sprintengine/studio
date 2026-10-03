@@ -8,7 +8,7 @@ import type {
   ConversationSecretStatusResult,
 } from '../shared/electron-api'
 import { studioPlatform } from '../server/platform/platform'
-import type { SecretCipher } from '../server/platform/secret-cipher'
+import { openSecret, sealSecret, type SecretCipher } from '../server/platform/secret-cipher'
 import { type CredentialOwner, resolveCredentialOwner } from './credential-descriptors'
 
 type FileAdapter = {
@@ -105,7 +105,7 @@ export class ProviderSecretStore {
     if (this.cipher.available()) {
       try {
         await this.files.mkdir(dirname(this.secretPath(descriptor.storageKey)), { recursive: true })
-        await this.files.writeFile(this.secretPath(descriptor.storageKey), this.cipher.seal(trimmed), {
+        await this.files.writeFile(this.secretPath(descriptor.storageKey), await sealSecret(this.cipher, trimmed), {
           mode: 0o600,
         })
       } catch {
@@ -187,7 +187,7 @@ export class ProviderSecretStore {
     if (!this.cipher.available()) return null
     try {
       const encrypted = await this.files.readFile(this.secretPath(storageKey))
-      const secret = this.cipher.open(encrypted).trim()
+      const secret = (await openSecret(this.cipher, encrypted)).trim()
       if (secret) this.inMemorySecrets.set(storageKey, secret)
       return secret || null
     } catch {
@@ -228,6 +228,8 @@ const lazyPlatformCipher: SecretCipher = {
   available: () => studioPlatform().secrets.available(),
   seal: (plaintext) => studioPlatform().secrets.seal(plaintext),
   open: (sealed) => studioPlatform().secrets.open(sealed),
+  sealAsync: (plaintext) => sealSecret(studioPlatform().secrets, plaintext),
+  openAsync: (sealed) => openSecret(studioPlatform().secrets, sealed),
 }
 
 // The studio's single shared credential store. Both the conversation runtime and
@@ -236,4 +238,13 @@ const lazyPlatformCipher: SecretCipher = {
 let sharedCredentialStore: ProviderSecretStore | null = null
 export function getSharedCredentialStore(): ProviderSecretStore {
   return (sharedCredentialStore ??= new ProviderSecretStore())
+}
+
+/**
+ * Put another store in its place, before anything has asked for it: the shell,
+ * when the Studio server runs in a process of its own, resolves a terminal's
+ * credential from the server that keeps it.
+ */
+export function installSharedCredentialStore(store: ProviderSecretStore): void {
+  sharedCredentialStore = store
 }

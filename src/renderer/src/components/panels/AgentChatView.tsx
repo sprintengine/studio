@@ -11,6 +11,7 @@
 // AgentChatView.test.ts so the streaming/approval/interrupt/failure states have
 // node-level coverage without rendering.
 
+import { parseMachinePath } from '../../../../shared/machine-paths'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import {
@@ -43,7 +44,7 @@ import {
   dataTransferHasFiles,
   imageFilesFromDataTransfer,
   pastedImagePaths,
-  pathlessDropMessage,
+  pathsForPathlessFiles,
   quotePromptPath,
   readPastedImagePaths,
   sortDroppedFiles,
@@ -200,6 +201,7 @@ export type {
   TranscriptToolEntry,
   UserTurn,
 } from './agentChat/conversationProjection'
+import { hostPlatform } from '../../clientCapabilities'
 
 // The DataTransfer plumbing lives in utils/imageFileTransfer (shared with the
 // new-chat launch surface); re-exported here because this module declared it
@@ -1863,8 +1865,20 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
   }
   // Only this machine's Claude chat signs in through its CLI; a paired
   // machine's chat would need signing in over there.
+  // A chat on an SSH machine signs in there, whichever CLI it runs (phase 8).
+  // With the SSH machines preview off, such a chat has nowhere to sign in:
+  // this computer's CLI is not the one the chat runs.
+  const machineId = useWorkspaceStore((state) => {
+    const environment = state.workspaces.find((workspace) => workspace.id === workspaceId)?.environment
+    return environment?.kind === 'ssh' ? environment.id : null
+  })
+  const sshMachinesOn = window.api?.sshMachinesEnabled === true
   const signInProviderId =
-    transport.kind === 'local' && cliForConversationProvider(conversation?.providerId) === 'claude-code'
+    transport.kind === 'local' &&
+    (!machineId || sshMachinesOn) &&
+    (machineId
+      ? cliForConversationProvider(conversation?.providerId)
+      : cliForConversationProvider(conversation?.providerId) === 'claude-code')
       ? conversation?.providerId
       : undefined
   const signIn = useCallback(async () => {
@@ -1874,12 +1888,13 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         workspaceId,
         providerId: signInProviderId,
         cliRuntimes: cliRuntimes as ConversationCliRuntimeOverrides,
+        machineId,
       })
       if (!result.ok) setActionError(result.message)
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Could not open the sign-in terminal.')
     }
-  }, [signInProviderId, workspaceId, cliRuntimes])
+  }, [signInProviderId, workspaceId, cliRuntimes, machineId])
   const onSignIn = signInProviderId ? signIn : undefined
 
   // "Edit from here" went back to before a message: it returns to the
@@ -2336,7 +2351,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           onRetry: retry,
           retryDisabled: composerDisabled,
           onSignIn,
-          platform: window.api.platform,
+          platform: hostPlatform(),
           checkpointsEnabled: capabilities?.checkpoints === true,
           conversationRunning: projection.activeTurn,
           checkpointSeqs: stableCheckpointSeqs,
@@ -2421,7 +2436,13 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     const selectionEnd = field?.selectionEnd ?? selectionStart
     const before = draft.slice(0, selectionStart)
     const lead = before.length > 0 && !/\s$/.test(before) ? ' ' : ''
-    replaceComposerSelection({ selectionStart, selectionEnd }, `${lead}${paths.map(quotePromptPath).join(' ')} `)
+    // A file from this chat's own SSH machine is typed as that machine spells
+    // it: the agent runs there and cannot read this computer's `ssh://` form.
+    const spelled = paths.map((path) => {
+      const onMachine = machineId ? parseMachinePath(path) : null
+      return onMachine && onMachine.id === machineId ? onMachine.path : path
+    })
+    replaceComposerSelection({ selectionStart, selectionEnd }, `${lead}${spelled.map(quotePromptPath).join(' ')} `)
   }
 
   // A file dropped anywhere on the chat lands in the composer — over the
@@ -2459,7 +2480,13 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       const { paths, images, pathless } = sortDroppedFiles(event.dataTransfer, imagesEnabled)
       if (paths.length > 0) insertComposerPaths(paths)
       if (images.length > 0) void attachFiles(images)
-      else setActionError(pathless.length > 0 ? pathlessDropMessage(pathless) : null)
+      else setActionError(null)
+      // No path here: a browser uploads them and types the server's paths.
+      if (pathless.length > 0)
+        void pathsForPathlessFiles(pathless).then(({ paths: uploaded, message }) => {
+          if (uploaded.length > 0) insertComposerPaths(uploaded)
+          if (message && images.length === 0) setActionError(message)
+        })
       composerRef.current?.focus()
     },
   }

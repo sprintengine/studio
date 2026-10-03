@@ -1,0 +1,153 @@
+// The `window.api` channels the Studio server owns when it runs in a process
+// of its own (phase 6 spec, 6.2). Out of process, the preload routes an invoke
+// or send on one of these over the window's port; every other channel stays
+// with the shell. In process everything goes to main, as it always has.
+//
+// A domain is listed whole when its registration moves into the server, and
+// the completeness test (src/server/desktop/server-ipc.test.ts) holds this
+// table and the server's registrations to each other in both directions. When
+// phase 10 turns a domain's channels into typed protocol methods, its entries
+// leave this table; the tunnel is done when the table is empty.
+//
+// `retry: 'once'` marks an idempotent read the preload sends again, once, on
+// the next port when the server restarts under it.
+//
+// `subscription` marks a channel that registers a subscription on the server,
+// keyed to the window's port: a new port (the server restarted, a web tab's
+// socket reconnected) starts with none, so the router makes each live one
+// again on the next port. The id it is undone by is either one the caller
+// chose (in the first argument's `subscriptionId`) or one the server answered
+// with; for the latter, the router keeps the caller's id and sends the
+// server's current one when it is undone.
+
+export type ServerIpcSubscription = { unsubscribe: string; id: 'argument' | 'result' }
+
+export type ServerIpcChannel = { retry?: 'once'; subscription?: ServerIpcSubscription }
+
+export const SERVER_IPC_CHANNELS: Readonly<Record<string, ServerIpcChannel>> = {
+  'automation:get-status': { retry: 'once' },
+  'backlog:add-or-update-link': {},
+  'backlog:create-epic': {},
+  'backlog:ensure-item-ids': {},
+  'backlog:ensure-object-records': {},
+  'backlog:move-object-source': {},
+  'backlog:remove-link': {},
+  'backlog:remove-object-record': {},
+  'backlog:resolve-location': { retry: 'once' },
+  'backlog:set-root': {},
+  'backlog:update-dependencies': {},
+  'backlog:update-epic': {},
+  'backlog:update-epic-color': {},
+  'backlog:update-highlight': {},
+  'backlog:update-mockups': {},
+  'backlog:update-module-metadata': {},
+  'backlog:update-status': {},
+  'backlog:update-triage': {},
+  'cli-models:discover': {},
+  'conversation-commands:list': { retry: 'once' },
+  'conversation:approval-rules:list': { retry: 'once' },
+  'conversation:approval-rules:revoke': {},
+  'conversation:attachment': { retry: 'once' },
+  'conversation:delete': {},
+  'conversation:events:subscribe': {
+    subscription: { unsubscribe: 'conversation:events:unsubscribe', id: 'result' },
+  },
+  'conversation:events:unsubscribe': {},
+  'conversation:plan-document': { retry: 'once' },
+  'conversation:providers:list': { retry: 'once' },
+  'conversation:providers:models': { retry: 'once' },
+  'conversation:providers:sign-in': {},
+  'conversation:rename': {},
+  'conversation:search': {},
+  'conversation:search:cancel': {},
+  'conversation:secrets:clear': {},
+  'conversation:secrets:set': {},
+  'conversation:secrets:status': { retry: 'once' },
+  'conversation:session:earlier': { retry: 'once' },
+  'conversation:session:subscribe': {
+    subscription: { unsubscribe: 'conversation:session:unsubscribe', id: 'argument' },
+  },
+  'conversation:session:unsubscribe': {},
+  'conversation:sessions:interrupt': {},
+  'conversation:sessions:list': { retry: 'once' },
+  'conversation:sessions:respond-to-request': {},
+  'conversation:sessions:send-turn': {},
+  'conversation:sessions:set-model': {},
+  'conversation:sessions:set-permission': {},
+  'conversation:sessions:start': {},
+  'conversation:sessions:stop': {},
+  'conversation:sessions:suspend': {},
+  'conversation:sessions:terminal-handoff': {},
+  'conversation:threads': { retry: 'once' },
+  'conversation:tool-detail': { retry: 'once' },
+  'conversation:transcript': { retry: 'once' },
+  'conversation:turn:diff': { retry: 'once' },
+  'conversation:turn:fork': {},
+  'conversation:turn:revert': {},
+  'conversation:turn:rewind': {},
+  'credential:secrets:clear': {},
+  'credential:secrets:set': {},
+  'credential:secrets:status': { retry: 'once' },
+  'github:clear-token': {},
+  'github:clone': {},
+  'github:list-repos': { retry: 'once' },
+  'github:set-token': {},
+  'github:token-status': { retry: 'once' },
+  'hosts:home': { retry: 'once' },
+  'hosts:list': { retry: 'once' },
+  'launch-settings:get': { retry: 'once' },
+  'launch-settings:migrate': {},
+  'launch-settings:update': {},
+  'mesh:browse': { retry: 'once' },
+  'mesh:cancel-pairing': {},
+  'mesh:check-reachability': {},
+  'mesh:conversation-command': {},
+  'mesh:conversation-earlier': {},
+  'mesh:conversation-follow': {},
+  'mesh:conversation-list': { retry: 'once' },
+  'mesh:conversation-tool-detail': {},
+  'mesh:conversation-tool-image': {},
+  'mesh:conversation-turn-diff': {},
+  'mesh:conversation-unfollow': {},
+  'mesh:create-conversation': {},
+  'mesh:forget': {},
+  'mesh:get-live-state': { retry: 'once' },
+  'mesh:list-connections': { retry: 'once' },
+  'mesh:pair': {},
+  'mesh:request-pairing': {},
+  'mesh:workspace-checkout': {},
+  // The module kernel's own channel and the bundled modules' (scheduled agents).
+  'modules:bridge:invoke': {},
+  'scheduled-agents:create': {},
+  'scheduled-agents:list': { retry: 'once' },
+  'scheduled-agents:mark-seen': {},
+  'scheduled-agents:remove': {},
+  'scheduled-agents:run-now': {},
+  'scheduled-agents:update': {},
+  'studio-local-apps:cancel-offer': {},
+  'studio-local-apps:offer': {},
+  'studio-local-apps:revoke': {},
+  'studio-local-apps:set-reach': {},
+  'studio-local-apps:status': { retry: 'once' },
+  'tailnet:approve-pair-request': {},
+  'tailnet:cancel-pairing': {},
+  'tailnet:deny-pair-request': {},
+  'tailnet:forget-machine': {},
+  'tailnet:get-live-state': { retry: 'once' },
+  'tailnet:get-status': { retry: 'once' },
+  'tailnet:list-peers': { retry: 'once' },
+  'tailnet:offer-pairing': {},
+  'tailnet:revoke-device': {},
+  'tailnet:set-enabled': {},
+  'tailnet:share-port': {},
+  'tailnet:share-status': { retry: 'once' },
+  'tailnet:unshare-port': {},
+  'tailnet:update-device-scopes': {},
+  'workspace-backup:read': { retry: 'once' },
+  'workspace-backup:write': {},
+  'workspace-registry:hydrate': {},
+  'workspace-registry:needs-hydration': { retry: 'once' },
+  'workspace-sync:dispatch': {},
+  'workspace-sync:get-events-after': { retry: 'once' },
+  'workspace-sync:get-snapshot': { retry: 'once' },
+}

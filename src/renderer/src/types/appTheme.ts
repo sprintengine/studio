@@ -12,7 +12,7 @@
 //   1. Add a row to APP_THEMES below.
 //   2. Add the matching `:root[data-theme="<id>"]` block in index.css.
 //   3. Only if it paints a light surface: add the literal id to LIGHT_SURFACES
-//      in the boot script in `src/renderer/index.html` (it can't import bundled
+//      in the boot script in `src/renderer/public/boot-theme.js` (it can't import bundled
 //      code). LIGHT_SURFACE_THEMES below derives itself from the swatches.
 // Nothing else needs to change.
 
@@ -257,7 +257,7 @@ export function colorSchemeForResolvedTheme(resolved: ResolvedAppTheme): ColorSc
 // The bundle's bare :root is its LIGHT tier and its dark tier keys off
 // `[data-mode="dark"]` — the inverse of index.css, whose bare :root is Dark —
 // so <html> carries `data-mode` alongside `data-theme`. applyThemeAttributes()
-// in hooks/useAppTheme.ts writes both; the boot script in index.html stamps the
+// in hooks/useAppTheme.ts writes both; the boot script (public/boot-theme.js) stamps the
 // same pair before any CSS evaluates.
 export const LIGHT_SURFACE_THEMES: readonly ResolvedAppTheme[] = APP_THEMES.flatMap((t) =>
   t.resolved && colorSchemeForResolvedTheme(t.resolved) === 'light' ? [t.resolved] : [],

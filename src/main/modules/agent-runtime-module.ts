@@ -65,8 +65,26 @@ export const AGENT_RUNTIME_MANIFEST: CapabilityManifest = {
   core: true,
 }
 
+/**
+ * What the module seeds. The shell's own services (terminals, the control
+ * plane that types at them, the terminal launch, the account) are present in
+ * process and absent in the Studio server out of process, where no module of
+ * the app's consumes them and none is on the third-party list.
+ */
+export type AgentRuntimeServices = Pick<
+  AppServices,
+  | 'agentLaunchSettings'
+  | 'githubTokenStore'
+  | 'workspaceSyncService'
+  | 'workspaceRegistry'
+  | 'conversations'
+  | 'conversationLaunchService'
+  | 'conversationModelCatalog'
+> &
+  Partial<Pick<AppServices, 'terminalRuntime' | 'agentControlPlane' | 'agentLaunchService' | 'sprintengineAuth'>>
+
 export function createAgentRuntimeModule(
-  services: AppServices,
+  services: AgentRuntimeServices,
   options: {
     getModulePermissions: ModulePermissionsResolver
     /** Where module storage and module secrets live, and what the secrets are sealed with. */
@@ -77,12 +95,13 @@ export function createAgentRuntimeModule(
   return {
     manifest: AGENT_RUNTIME_MANIFEST,
     registerMain(host) {
-      host.provideService(TerminalRuntimeToken, () => services.terminalRuntime)
-      host.provideService(AgentControlPlaneToken, () => services.agentControlPlane)
-      host.provideService(AgentLaunchServiceToken, () => services.agentLaunchService)
+      const { terminalRuntime, agentControlPlane, agentLaunchService, sprintengineAuth } = services
+      if (terminalRuntime) host.provideService(TerminalRuntimeToken, () => terminalRuntime)
+      if (agentControlPlane) host.provideService(AgentControlPlaneToken, () => agentControlPlane)
+      if (agentLaunchService) host.provideService(AgentLaunchServiceToken, () => agentLaunchService)
       host.provideService(AgentLaunchSettingsToken, () => services.agentLaunchSettings)
       host.provideService(GitHubTokenStoreToken, () => services.githubTokenStore)
-      host.provideService(SprintEngineAuthToken, () => services.sprintengineAuth)
+      if (sprintengineAuth) host.provideService(SprintEngineAuthToken, () => sprintengineAuth)
       host.provideService(WorkspaceSyncServiceToken, () => services.workspaceSyncService)
       host.provideService(WorkspaceRegistryToken, () => services.workspaceRegistry)
       // Programmatic workspace creation, minted in main's registry.

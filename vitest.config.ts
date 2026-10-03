@@ -17,6 +17,21 @@ const SERIAL = [
   'src/main/skills/studio-plugin.test.ts',
   'src/main/studio-plugin-service.test.ts',
   'src/main/terminal-runtime.test.ts',
+  // These two wait on a platform's directory watch, which a loaded machine delivers late.
+  'src/main/canvas/canvas-service-filesystems.test.ts',
+  'src/server/rpc/studio-files.test.ts',
+  // Builds the WSL server tree and runs real servers through a stand-in for
+  // wsl.exe: heavy enough to starve the timing suites it would share a CPU with.
+  'src/server/wsl/wsl-environment-manager.test.ts',
+  // Builds the same tree and runs detached servers and the SSH relay for real.
+  'src/server/bootstrap/detached-start.test.ts',
+  'src/main/environments/ssh/ssh-connect.test.ts',
+  'src/main/environments/ssh/ssh-environment.test.ts',
+  'src/main/environments/ssh/ssh-environment.docker.test.ts',
+  'src/server/desktop/shell-ssh-servers.test.ts',
+  'src/main/environments/ssh/ssh-resume.test.ts',
+  'src/main/environments/ssh/machine-files.test.ts',
+  'src/main/environments/ssh/ssh-variants.docker.test.ts',
   'src/renderer/src/components/workspace/ConversationPeekPopover.test.tsx',
   'src/renderer/src/hooks/useSharedBacklogScan.test.ts',
   'src/renderer/src/modules/backlog-reader.test.ts',
@@ -78,7 +93,11 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'unit',
-          include: ['src/**/*.test.{ts,tsx}', 'packages/*/test/**/*.test.ts', 'resources/marketplace/**/*.test.ts'],
+          include: [
+            'src/**/*.test.{ts,tsx}',
+            'packages/*/test/**/*.test.{ts,tsx}',
+            'resources/marketplace/**/*.test.ts',
+          ],
           exclude: ['**/node_modules/**', '**/dist/**', ...SERIAL],
         },
       },

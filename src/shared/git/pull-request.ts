@@ -19,8 +19,8 @@ export type BranchPullRequest = {
   /**
    * The repository the pull request is IN — `host/owner/name`, the key every
    * clone of it shares (`canonicalRepositoryKey`). Not always the repository the
-   * conversation sits in: an agent that runs `cd ../website && gh pr create`
-   * opens one somewhere else entirely, and the URL is what says where
+   * conversation sits in: an agent that changed files in another repository
+   * wears the pull requests on its branch there, and the URL is what says where
    * (decision 10).
    */
   repoKey: string
@@ -35,11 +35,16 @@ export type BranchPullRequest = {
   openedAt: number
   /** When `state` was last read from GitHub, ms epoch. */
   stateAt: number
-  /** The session whose hooks captured the creation; absent for a branch lookup. */
+  /**
+   * The session whose hooks captured the creation, on an entry written before
+   * marks came from branch lookups alone; absent for a lookup. Read, never
+   * written any more.
+   */
   openedBySessionId?: string
   /**
-   * The CONVERSATION the pull request came from, written down when it is
-   * captured (owner, 2026-09-10).
+   * The CONVERSATION the pull request came from, written down by a hook
+   * capture (owner, 2026-09-10) before marks came from branch lookups alone.
+   * Read, never written any more.
    *
    * `openedBySessionId` above names a terminal session, and a session dies. Once
    * it has, nothing could say which chat the pull request belonged to any more,
@@ -48,18 +53,19 @@ export type BranchPullRequest = {
    * conversation outlives every agent in it, so this is the id that keeps.
    *
    * Absent on a branch lookup (nobody's conversation opened it — it was found on
-   * a branch) and on every entry written before this existed; both fall back to
-   * matching on the conversation's own branch.
+   * a branch) and on every entry written before this existed; both are worn by
+   * the conversations that worked on their branch.
    */
   openedByWorkspaceId?: string
   /**
-   * Set by `listForSession` (main): true when this pull request is on the
-   * repository AND branch the session's checkout is observed to be on. A
-   * session's list is a union (decision 10) that also holds pull requests the
-   * agent opened in OTHER repositories, and only the ones on its own branch may
+   * Set by the record's `forConversation` (`src/server/pull-requests/`): true
+   * when this pull request is on the repository AND branch of the
+   * conversation's own checkout. A conversation's list is a union (decision 10)
+   * that also holds pull requests on branches it worked on in OTHER
+   * repositories, and only the ones on its own branch may
    * say anything about the state of that branch — the sidebar's "landed"
    * reading (the-diff-an-agent-made decision 10) reads this and nothing else.
-   * Absent on a captured-elsewhere entry and on a fixture-built snapshot.
+   * Absent on an entry from another repository and on a fixture-built snapshot.
    */
   onSessionBranch?: boolean
 }
@@ -97,8 +103,8 @@ export function pullRequestStateLabel(pr: Pick<BranchPullRequest, 'state' | 'isD
 
 /**
  * The repository a pull request URL names. Built through the one URL parser and
- * the one repository canonicaliser, so a captured pull request keys exactly the
- * way a local clone of that repository does and the two join up.
+ * the one repository canonicaliser, so a pull request keys exactly the way a
+ * local clone of that repository does and the two join up.
  */
 export function pullRequestRepository(url: string): { repoKey: string; repoName: string } | null {
   const parsed = parsePullRequestUrl(url)

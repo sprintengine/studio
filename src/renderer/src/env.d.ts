@@ -1,5 +1,10 @@
 /// <reference types="vite/client" />
 
+interface ImportMetaEnv {
+  /** Which client this renderer was built for (renderer.vite.config.ts): a desktop window or a web tab. */
+  readonly STUDIO_CLIENT: 'desktop' | 'web'
+}
+
 import type {
   AgentCli as SharedAgentCli,
   AppUpdateState as SharedAppUpdateState,

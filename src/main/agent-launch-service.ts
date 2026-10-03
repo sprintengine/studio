@@ -68,6 +68,7 @@ import {
   type KnowledgeLaunchContext,
 } from '../shared/project-knowledge'
 import { normalizeExecutionHostId } from '../shared/execution-host'
+import { isMachinePath } from '../shared/machine-paths'
 import type { CliPermissionPreset } from '../shared/cli-permission-preset'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 
@@ -249,6 +250,16 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
         ok: false,
         code: 'workspace_folder_missing',
         message: `Workspace "${workspace.id}" has no project folder, so there is nowhere to launch the agent.`,
+      }
+    }
+    if (isMachinePath(cwd)) {
+      // A folder on an SSH machine (`ssh://…`): a terminal runs on this
+      // computer, where that spelling would name a folder under the app's
+      // working directory, and its .mcp.json and skills would be written there.
+      return {
+        ok: false,
+        code: 'workspace_on_ssh_machine',
+        message: `Workspace "${workspace.id}" is on an SSH machine, and agents in a terminal run on this computer. Start a chat there instead.`,
       }
     }
 

@@ -23,7 +23,7 @@ import { CONVERSATION_DEFAULT_MODEL_ID, conversationPermissionModes } from '../.
 import { isWslHostId, type ExecutionHostId } from '../../shared/execution-host'
 import { isWindowsPath, toWslPath } from '../../shared/host-paths'
 import { isLooserCliPermissionPreset } from '../../shared/cli-permission-preset'
-import { AGENT_IDENTITY_ENV_KEYS } from '../../shared/studio-env'
+import { AGENT_IDENTITY_ENV_KEYS, MCP_CHANNEL_TOKEN_ENV } from '../../shared/studio-env'
 import { inferConversationToolKind } from '../../shared/conversation/toolKind'
 import { summarizeToolInput } from '../../shared/conversation/approvalSummary'
 import { normalizeApiKeySource } from '../../shared/conversation/apiKeySource'
@@ -40,6 +40,8 @@ import {
   type ClaudeSpawnRequest,
   type WslClaudeTarget,
 } from './claude-wsl-child'
+import { localLaunchToken } from './cli-host-child'
+import { launchIdentityOfEnv } from '../../server/core/gateway-launch-tokens'
 import {
   CLAUDE_COMMANDS_CLI,
   claudeCommandsFromInit,
@@ -1802,14 +1804,38 @@ function withContinuationTurnId(event: ConversationEvent, turnId: string): Conve
 // Spawn the SDK-computed command ourselves so the child PID lands on the
 // session state (the default SDK spawn hides it). Also owns stderr capture:
 // the SDK's `stderr` option only applies to its internal spawn path.
+// The child is issued its own gateway token, in its environment: the app's
+// MCP bridge it starts inherits it and presents it, and the gateway takes the
+// chat's identity from it. Taken back when the child ends.
 function spawnLocalChild(spawnInput: SpawnOptions): ChildProcess {
-  return spawn(spawnInput.command, spawnInput.args, {
-    cwd: spawnInput.cwd,
-    env: spawnInput.env as NodeJS.ProcessEnv,
-    stdio: ['pipe', 'pipe', 'pipe'],
-    signal: spawnInput.signal,
-    windowsHide: true,
-  })
+  const env = spawnInput.env as Record<string, string | undefined>
+  const launch = localLaunchToken(launchIdentityOfEnv(env))
+  let child: ChildProcess
+  try {
+    child = spawn(spawnInput.command, spawnInput.args, {
+      cwd: spawnInput.cwd,
+      env: { ...withoutLaunchToken(env), ...(launch ? { [MCP_CHANNEL_TOKEN_ENV]: launch.token } : {}) },
+      stdio: ['pipe', 'pipe', 'pipe'],
+      signal: spawnInput.signal,
+      windowsHide: true,
+    })
+  } catch (error) {
+    launch?.revoke()
+    throw error
+  }
+  if (launch) {
+    child.once('close', () => launch.revoke())
+    child.on('error', () => {
+      if (child.pid === undefined) launch.revoke()
+    })
+  }
+  return child
+}
+
+function withoutLaunchToken(env: Record<string, string | undefined>): NodeJS.ProcessEnv {
+  const next = { ...env }
+  delete next[MCP_CHANNEL_TOKEN_ENV]
+  return next
 }
 
 function spawnTrackedChild(state: SessionState, start: () => ChildProcess, now: () => number): SpawnedProcess {

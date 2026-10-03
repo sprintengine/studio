@@ -8,17 +8,16 @@
 // re-read CLI availability when a PATH directory changes. Tests and macOS never
 // configure it; a WSL host there has no helper to start.
 
-import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { connect } from 'node:net'
 import { join } from 'node:path'
 import type { Duplex, Readable } from 'node:stream'
 
-import { killProcessTree } from '../process-tree-kill'
-import { runSpawnDescriptor, type RunOutcome } from '../process-run'
-import { createWslHelperClient, stageId, type HelperProcess, type WslHelperClient } from './wsl-helper-client'
-import { decodeWslOutput, runWslScript, wslDistroArgs } from './wsl-distro'
+import { runSpawnDescriptor } from '../process-run'
+import { createWslHelperClient, stageId, type WslHelperClient } from './wsl-helper-client'
+import { wslExeRunner, type WslRunner } from './wsl-runner'
+import { runWslScript, wslDistroArgs } from './wsl-distro'
 import {
   buildAppPayload,
   buildCommitScript,
@@ -95,115 +94,114 @@ function nodeDigests(): string[] {
   )
 }
 
-/** Runs `wsl.exe -d <distro> --cd ~ --exec <argv>` with `body` streamed to its stdin. */
-function runWslExec(
-  distro: string,
-  argv: readonly string[],
-  body: Buffer | Readable,
-  timeoutMs: number,
-): Promise<RunOutcome> {
-  return new Promise((resolve) => {
-    const child = spawn('wsl.exe', [...wslDistroArgs(distro), '--cd', '~', '--exec', ...argv], {
-      windowsHide: true,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    })
-    const out: Buffer[] = []
-    const err: Buffer[] = []
-    let timedOut = false
-    const timer = setTimeout(() => {
-      timedOut = true
-      killProcessTree(child)
-    }, timeoutMs)
-    child.stdout.on('data', (chunk: Buffer) => out.push(chunk))
-    child.stderr.on('data', (chunk: Buffer) => err.push(chunk))
-    child.stdin.on('error', () => undefined)
-    child.on('error', (error) => {
-      clearTimeout(timer)
-      resolve({ code: 127, stdout: '', stderr: error.message, timedOut: false, spawnFailed: true })
-    })
-    child.on('close', (code) => {
-      clearTimeout(timer)
-      resolve({
-        code: code ?? 1,
-        stdout: decodeWslOutput(Buffer.concat(out)),
-        stderr: decodeWslOutput(Buffer.concat(err)),
-        timedOut,
-      })
-    })
-    if (Buffer.isBuffer(body)) child.stdin.end(body)
-    else body.pipe(child.stdin)
-  })
-}
-
 const INSTALL_SCRIPT_TIMEOUT_MS = 3 * 60_000
 const TAR_TIMEOUT_MS = 10 * 60_000
 
-async function installTree(
+/**
+ * Installs one tree into a distribution: staged, unpacked from `body` by
+ * `tar`, then checked, marked and moved into place under the install lock.
+ * Throws a `WslSetupError` naming what failed.
+ */
+export async function installTree(
   distro: string,
-  input: { kind: 'node' | 'app'; digest: string; argv: (id: string) => string[]; body: () => Buffer | Readable },
+  input: {
+    kind: 'node' | 'app' | 'server'
+    digest: string
+    argv: (id: string) => string[]
+    body: () => Buffer | Readable
+  },
   appVersion: string,
+  runner: WslRunner = wslExeRunner,
 ): Promise<void> {
   const id = stageId()
-  const staged = await runWslScript(distro, buildStageScript(id), { timeoutMs: INSTALL_SCRIPT_TIMEOUT_MS })
+  const what = input.kind === 'node' ? 'Node.js' : input.kind === 'server' ? 'the Studio server' : 'the helper'
+  const staged = await runner.runScript(distro, buildStageScript(id), { timeoutMs: INSTALL_SCRIPT_TIMEOUT_MS })
   if (!staged.stdout.includes(STAGED_MARKER)) {
     throw new WslSetupError(
       `Couldn't set up WSL: could not prepare ~/${WSL_DATA_REL} in ${distro} (${(staged.stderr || staged.stdout).trim()}).`,
       { fatal: !staged.timedOut, code: 'install' },
     )
   }
-  const unpacked = await runWslExec(distro, input.argv(id), input.body(), TAR_TIMEOUT_MS)
+  const unpacked = await runner.runExec(distro, input.argv(id), input.body(), TAR_TIMEOUT_MS)
   if (unpacked.code !== 0 || unpacked.timedOut) {
     throw new WslSetupError(
-      `Couldn't set up WSL: unpacking ${input.kind === 'node' ? 'Node.js' : 'the helper'} in ${distro} failed (${unpacked.stderr.trim() || `exit ${unpacked.code}`}).`,
+      `Couldn't set up WSL: unpacking ${what} in ${distro} failed (${unpacked.stderr.trim() || `exit ${unpacked.code}`}).`,
       { fatal: !unpacked.timedOut, code: 'install' },
     )
   }
-  const committed = await runWslScript(
+  const committed = await runner.runScript(
     distro,
     buildCommitScript(
       input.kind === 'node'
         ? { kind: 'node', stageId: id, digest: input.digest }
-        : { kind: 'app', stageId: id, digest: input.digest, appVersion },
+        : { kind: input.kind, stageId: id, digest: input.digest, appVersion },
     ),
     { timeoutMs: INSTALL_SCRIPT_TIMEOUT_MS },
   )
   if (!committed.stdout.includes(COMMITTED_MARKER)) {
     const reason = commitFailure(committed.stdout, committed.stderr)
     const nodeRun = /^node-(run|version)/u.test(reason)
+    const serverRun = /^server-(run|version)/u.test(reason)
     throw new WslSetupError(
       nodeRun
         ? `Couldn't set up WSL: Node.js ${WSL_NODE_VERSION} does not run in ${distro} (${reason}). It needs glibc 2.28 or later.`
-        : `Couldn't set up WSL: installing into ${distro} failed (${reason || `exit ${committed.code}`}).`,
-      { fatal: !committed.timedOut, code: nodeRun ? 'node-run' : 'install' },
+        : serverRun
+          ? `Couldn't set up WSL: the Studio server does not load in ${distro} (${reason}).`
+          : `Couldn't set up WSL: installing into ${distro} failed (${reason || `exit ${committed.code}`}).`,
+      { fatal: !committed.timedOut, code: nodeRun || serverRun ? 'node-run' : 'install' },
     )
   }
 }
 
+/**
+ * The pinned Node, into a distribution that has none (or a broken one): the
+ * archive for its architecture, downloaded once into `cacheDir` and checked.
+ */
+export async function installNodeInto(
+  distro: string,
+  report: Pick<NeedReport, 'arch' | 'xz'>,
+  options: {
+    cacheDir: string
+    appVersion: string
+    fetch?: (url: string, init?: { signal?: AbortSignal }) => Promise<Response>
+    log?: (message: string) => void
+  },
+  runner: WslRunner = wslExeRunner,
+): Promise<void> {
+  const arch = wslNodeArch(report.arch)
+  if (!arch) {
+    throw new WslSetupError(
+      `Couldn't set up WSL: ${distro} runs on ${report.arch || 'an unknown processor'}, and the helper ships Node.js for x86_64 and arm64 only.`,
+      { fatal: true, code: 'unsupported-arch' },
+    )
+  }
+  const pkg = wslNodePackage(arch, report.xz ? 'xz' : 'gz')
+  options.log?.(`Installing Node.js ${WSL_NODE_VERSION} (${pkg.fileName}) into ${distro}.`)
+  const archive = await ensureWslNodeArchive(pkg, {
+    cacheDir: options.cacheDir,
+    ...(options.fetch ? { fetch: options.fetch } : {}),
+  })
+  await installTree(
+    distro,
+    { kind: 'node', digest: pkg.sha256, argv: (id) => tarArgs('node', id, pkg), body: () => createReadStream(archive) },
+    options.appVersion,
+    runner,
+  )
+}
+
+/** The pinned Node archives' digests, any of which a Node ready marker may hold. */
+export function wslNodeDigests(): string[] {
+  return nodeDigests()
+}
+
 async function installInto(distro: string, report: NeedReport, env: WslHelperEnvironment): Promise<void> {
   if (report.node) {
-    const arch = wslNodeArch(report.arch)
-    if (!arch) {
-      throw new WslSetupError(
-        `Couldn't set up WSL: ${distro} runs on ${report.arch || 'an unknown processor'}, and the helper ships Node.js for x86_64 and arm64 only.`,
-        { fatal: true, code: 'unsupported-arch' },
-      )
-    }
-    const pkg = wslNodePackage(arch, report.xz ? 'xz' : 'gz')
-    env.log?.(`Installing Node.js ${WSL_NODE_VERSION} (${pkg.fileName}) into ${distro}.`)
-    const archive = await ensureWslNodeArchive(pkg, {
+    await installNodeInto(distro, report, {
       cacheDir: join(env.userDataDir, 'wsl-runtime'),
+      appVersion: env.appVersion,
       ...(env.fetch ? { fetch: env.fetch } : {}),
+      ...(env.log ? { log: env.log } : {}),
     })
-    await installTree(
-      distro,
-      {
-        kind: 'node',
-        digest: pkg.sha256,
-        argv: (id) => tarArgs('node', id, pkg),
-        body: () => createReadStream(archive),
-      },
-      env.appVersion,
-    )
   }
   if (report.app) {
     const payload = appPayload(env)
@@ -216,22 +214,10 @@ async function installInto(distro: string, report: NeedReport, env: WslHelperEnv
   }
 }
 
-function spawnShell(distro: string): HelperProcess {
-  const child = spawn('wsl.exe', [...wslDistroArgs(distro), '--cd', '~', '--exec', 'sh', '-s'], {
-    windowsHide: true,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  })
-  child.stdin.on('error', () => undefined)
-  return {
-    stdin: child.stdin,
-    stdout: child.stdout,
-    stderr: child.stderr,
-    pid: child.pid,
-    kill: () => killProcessTree(child),
-    once: (event: 'close' | 'error', listener: (...args: never[]) => void) =>
-      child.once(event, listener as (...args: unknown[]) => void),
-  } as HelperProcess
-}
+/** What a WSL machine's chat, git or model list says where the WSL helper is not configured. */
+const WSL_HELPER_UNAVAILABLE =
+  "Couldn't set up WSL: the WSL helper does not run while Studio server is in its own process. " +
+  'Turn off "Run Studio server in its own process" in Settings to use this machine.'
 
 /**
  * The helper client for one distribution, wired to the running app. Throws a
@@ -241,7 +227,10 @@ function spawnShell(distro: string): HelperProcess {
 export function createDefaultWslHelperClient(distro: string): WslHelperClient {
   const env = () => {
     if (!environment) {
-      throw new WslSetupError("Couldn't set up WSL: the WSL helper is not available in this process.", {
+      // In the desktop's server out of process (the helper is the shell's),
+      // or in tests. Out of process a WSL chat runs only where the person
+      // turned on its distribution's Studio server.
+      throw new WslSetupError(WSL_HELPER_UNAVAILABLE, {
         fatal: true,
         code: 'start',
       })
@@ -258,7 +247,7 @@ export function createDefaultWslHelperClient(distro: string): WslHelperClient {
     },
     spawnShell: () => {
       env()
-      return spawnShell(distro)
+      return wslExeRunner.spawnShell(distro)
     },
     launchScript: async () => {
       const current = env()

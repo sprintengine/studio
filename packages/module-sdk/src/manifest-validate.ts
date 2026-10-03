@@ -23,6 +23,7 @@ import type {
   ModuleFileDigests,
   ModuleSignature,
 } from './index.js'
+import type { HostCapability } from './host-api.js'
 
 export type PermissionValidationIssue = { path: string; message: string }
 
@@ -244,6 +245,26 @@ function validateEngines(value: unknown, issues: ThirdPartyManifestIssue[]): { h
   return { hostApi }
 }
 
+// `requires.hostCapabilities`: names a module's main half cannot run without
+// (today only `electron-main`). Unknown names are kept, not refused: a host
+// that does not know a name does not support it, which is the answer the
+// module needs.
+function validateRequires(
+  value: unknown,
+  issues: ThirdPartyManifestIssue[],
+): { hostCapabilities?: HostCapability[] } | undefined {
+  if (value === undefined) return undefined
+  if (!isObject(value)) {
+    issues.push({ path: 'requires', message: 'requires must be an object.' })
+    return undefined
+  }
+  for (const key of Object.keys(value)) {
+    if (key !== 'hostCapabilities') issues.push({ path: `requires.${key}`, message: 'unsupported requires field.' })
+  }
+  const hostCapabilities = validateStringArray(value.hostCapabilities, 'requires.hostCapabilities', issues)
+  return hostCapabilities && hostCapabilities.length > 0 ? { hostCapabilities } : undefined
+}
+
 export function validateThirdPartyModuleManifest(value: unknown): ThirdPartyManifestResult {
   const issues: ThirdPartyManifestIssue[] = []
   if (!isObject(value)) {
@@ -283,6 +304,7 @@ export function validateThirdPartyModuleManifest(value: unknown): ThirdPartyMani
   }
   const signature = validateSignature(value.signature, issues)
   const engines = validateEngines(value.engines, issues)
+  const requires = validateRequires(value.requires, issues)
 
   if (issues.length > 0) return { ok: false, issues }
 
@@ -302,6 +324,7 @@ export function validateThirdPartyModuleManifest(value: unknown): ThirdPartyMani
   if (dependsOn && dependsOn.length > 0) manifest.dependsOn = dependsOn
   if (conflictsWith && conflictsWith.length > 0) manifest.conflictsWith = conflictsWith
   if (engines) manifest.engines = engines
+  if (requires) manifest.requires = requires
   if (entry) manifest.entry = entry
   if (files) manifest.files = files
   if (signature) manifest.signature = signature

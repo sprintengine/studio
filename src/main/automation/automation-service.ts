@@ -3,7 +3,7 @@ import { chmodSync, existsSync, unlinkSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { AutomationServerStatus } from '../../shared/automation'
-import type { McpToolRegistration } from '../../shared/modules/mcp-tools'
+import type { McpConnectionContext, McpToolRegistration } from '../../shared/modules/mcp-tools'
 import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../../shared/product-identity'
 import type {
   TailnetDeviceOrigin,
@@ -17,7 +17,7 @@ import type { TailnetApprovePairRequestResult } from './tailnet/tailnet-service'
 import type { TailnetPeerScan } from '../../shared/tailnet-peers'
 import { readAutomationSettings, writeAutomationSettings } from './automation-settings'
 import { createGatewayAuditStore, isAlwaysAudited, type GatewayAuditStore } from './gateway-audit'
-import { createMcpSocketServer } from './mcp-socket-server'
+import { createMcpSocketServer, type McpSocketServerOptions } from './mcp-socket-server'
 import { isStudioGatewayMutation } from './studio-gateway-tools'
 import { createTailnetMeshService, type TailnetMeshService } from './tailnet/tailnet-mesh-service'
 import { createTailnetRemoteService, type TailnetRemoteService } from './tailnet/tailnet-service'
@@ -50,7 +50,9 @@ type AutomationServiceOptions = {
    * tool registry — a captured array here could never see module tools, and
    * module enablement must be honored live.
    */
-  resolveGatewayTools: () => McpToolRegistration[]
+  resolveGatewayTools: (context?: McpConnectionContext) => McpToolRegistration[]
+  /** Client tools: each agent connection's own catalog of the tools clients offer, and its notices. */
+  clientTools?: McpSocketServerOptions['clientTools']
   resolveConversationHost?: () => ConversationGatewayHost
   /** Absolute path of the shipped stdio bridge script, when the app knows it. */
   resolveBridgeScriptPath?: () => string | null
@@ -66,6 +68,8 @@ type AutomationServiceOptions = {
    */
   hasWindow?: () => boolean
   onMeshEvent?: (event: MeshEvent) => void
+  /** Whether this process holds the data directory, and so may remove a stale socket file (mcp-socket-server.ts). */
+  holdsDataDir?: () => boolean
   logDiagnostic?: (diagnostic: { level: 'warning'; title: string; message: string; details?: string }) => void
 }
 
@@ -161,12 +165,13 @@ export function createAutomationService(options: AutomationServiceOptions) {
       serverName: STUDIO_MCP_SERVER_ID,
       serverVersion: options.appVersion,
       resolveTools: options.resolveGatewayTools,
+      ...(options.clientTools ? { clientTools: options.clientTools } : {}),
       isMutation: (tool) => isStudioGatewayMutation(tool, options.resolveGatewayTools),
       conversations: options.resolveConversationHost?.(),
-      onToolCall: ({ context, tool, args, durationMs, result, error }) => {
+      onToolCall: ({ context, tool, args, durationMs, result, error, servedBy }) => {
         // A token refused at the door is kept too, though nothing ran.
-        if (!isStudioGatewayMutation(tool, options.resolveGatewayTools) && !isAlwaysAudited(tool)) return
-        auditStore().record({ connection: context.metadata, tool, args, durationMs, result, error })
+        if (!isStudioGatewayMutation(tool, () => options.resolveGatewayTools(context)) && !isAlwaysAudited(tool)) return
+        auditStore().record({ connection: context.metadata, tool, args, durationMs, result, error, servedBy })
       },
       onEvent: options.onTailnetEvent,
       // The reverse half of a both-ways pairing lands in the mesh: the
@@ -215,11 +220,14 @@ export function createAutomationService(options: AutomationServiceOptions) {
       serverName: STUDIO_MCP_SERVER_ID,
       serverVersion: options.appVersion,
       resolveTools: options.resolveGatewayTools,
-      onToolCall: ({ context, tool, args, durationMs, result, error }) => {
-        if (!isStudioGatewayMutation(tool, options.resolveGatewayTools)) return
-        audit.record({ connection: context.metadata, tool, args, durationMs, result, error })
+      ...(options.clientTools ? { clientTools: options.clientTools } : {}),
+      onToolCall: ({ context, tool, args, durationMs, result, error, servedBy }) => {
+        // A client tool is classified by its own offer, which this connection was listed.
+        if (!isStudioGatewayMutation(tool, () => options.resolveGatewayTools(context))) return
+        audit.record({ connection: context.metadata, tool, args, durationMs, result, error, servedBy })
       },
       log: (text) => warn('Automation server', text),
+      ...(options.holdsDataDir ? { mayRemoveStaleSocket: options.holdsDataDir } : {}),
     })
     try {
       await next.start()

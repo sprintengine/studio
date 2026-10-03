@@ -1,4 +1,4 @@
-import { ipcRenderer } from 'electron'
+import { ipc as ipcRenderer } from '../ipc-router'
 import type { ElectronApi } from '../../shared/electron-api'
 
 // The app window's half of the splash handshake. The plate itself loads its own

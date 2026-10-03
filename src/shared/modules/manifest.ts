@@ -10,6 +10,8 @@
 // pure enablement resolver; later phases migrate features onto it and add the
 // renderer/preload hosts plus the user-facing module chooser.
 
+import type { HostCapability } from '../../../packages/module-sdk/src/host-api'
+
 // Ids of the bundled (first-party) modules — the reserved set a third-party
 // module may not claim (it must not shadow/impersonate a built-in feature).
 // This is the explicit cross-process source of truth: neither process can
@@ -134,6 +136,12 @@ export type CapabilityManifest = {
    * Required for third-party modules; absent on bundled ones.
    */
   engines?: { hostApi: number }
+  /**
+   * What the host must provide for `entry.main` to run at all: a module naming
+   * `electron-main` is loaded manifest-only wherever its main half would run
+   * without Electron (the Studio server out of process).
+   */
+  requires?: { hostCapabilities?: HostCapability[] }
   /** Code entry points (third-party); trusted `entry.main` loads in the main process. */
   entry?: ModuleEntry
   /**

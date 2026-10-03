@@ -1,4 +1,5 @@
-import { ipcRenderer, type IpcRendererEvent } from 'electron'
+import type { IpcRendererEvent } from 'electron'
+import { ipc as ipcRenderer } from '../ipc-router'
 
 import {
   MESH_BROWSE_CHANNEL,

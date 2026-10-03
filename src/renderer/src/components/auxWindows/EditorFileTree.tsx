@@ -33,6 +33,7 @@ import {
 } from '../ui'
 import { ContextMenu, MenuItem } from '../ui/ContextMenu'
 import { revealLabel } from '../../utils/revealLabel'
+import { hostPlatform } from '../../clientCapabilities'
 
 // The editor window's file tree: where the open file lives, shown beside it.
 //
@@ -322,7 +323,7 @@ export function EditorFileTree({
     ? [
         {
           id: 'reveal',
-          label: revealLabel(window.api.platform),
+          label: revealLabel(hostPlatform()),
           onSelect: () => void window.api.showItemInFolder(activePath),
         },
         { id: 'copy-path', label: 'Copy path', onSelect: () => void window.api.clipboardWriteText(activePath) },

@@ -1,4 +1,6 @@
-import { BrowserWindow, type IpcMain } from 'electron'
+import type { IpcMain } from 'electron'
+
+import { studioPlatform } from '../../server/platform/platform'
 import { LAUNCH_SETTINGS_CHANNELS, type AgentLaunchSettingsWriteAck } from '../../shared/launch-settings'
 import type { AgentLaunchSettingsStore, AgentLaunchSettingsWriteResult } from '../launch-settings-store'
 
@@ -6,7 +8,7 @@ type WindowLike = { isDestroyed: () => boolean; webContents: { send: (channel: s
 
 type LaunchSettingsIpcDependencies = {
   launchSettings: Pick<AgentLaunchSettingsStore, 'getSnapshot' | 'update' | 'migrate' | 'subscribe'>
-  /** Every window that follows the record. Defaults to all open windows. */
+  /** Every window that follows the record. Defaults to the platform's client bus: every window. */
   getWindows?: () => WindowLike[]
 }
 
@@ -39,9 +41,12 @@ export function registerLaunchSettingsIpc(ipcMain: IpcMain, deps: LaunchSettings
     ack(deps.launchSettings.migrate(payload)),
   )
 
-  const getWindows = deps.getWindows ?? (() => BrowserWindow.getAllWindows())
   return deps.launchSettings.subscribe((record) => {
-    for (const win of getWindows()) {
+    if (!deps.getWindows) {
+      studioPlatform().clients.publish(LAUNCH_SETTINGS_CHANNELS.changed, record)
+      return
+    }
+    for (const win of deps.getWindows()) {
       if (!win.isDestroyed()) win.webContents.send(LAUNCH_SETTINGS_CHANNELS.changed, record)
     }
   })

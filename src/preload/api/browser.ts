@@ -1,4 +1,5 @@
-import { ipcRenderer, type IpcRendererEvent } from 'electron'
+import type { IpcRendererEvent } from 'electron'
+import { ipc as ipcRenderer } from '../ipc-router'
 import type {
   BrowserCaptureInput,
   BrowserClearResult,
@@ -21,7 +22,8 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
 }
 
 export const browserApi = {
-  browserConfig: (): Promise<BrowserConfig> => ipcRenderer.invoke('browser:config'),
+  browserConfig: (input?: { workspaceId?: string }): Promise<BrowserConfig> =>
+    ipcRenderer.invoke('browser:config', input ?? {}),
   browserRegister: (input: BrowserRegisterInput): Promise<BrowserRegisterResult> =>
     ipcRenderer.invoke('browser:register', input),
   browserUnregister: (tabId: string): Promise<void> => ipcRenderer.invoke('browser:unregister', { tabId }),

@@ -29,6 +29,7 @@ import { SettingCard, SettingsPageHeader, SettingsSectionTitle } from './Setting
 import { GhostButton, IconButton, InboxSearchInput, KbdChord, StatusDot, Tooltip } from '../ui'
 import { ResetIcon } from '../AppIcons'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
+import { defaultKeybindingsHere } from '../../commands/browserKeymap'
 
 // --- View model (pure, exported for tests) ---------------------------------
 
@@ -70,7 +71,7 @@ export function buildShortcutRows(
   keybindings: KeybindingSettings,
 ): ShortcutRow[] {
   return commands.map((def) => {
-    const defaults = collapseDuplicateKeybindings(def.defaultKeybindings ?? [])
+    const defaults = collapseDuplicateKeybindings(defaultKeybindingsHere(def.defaultKeybindings ?? []))
     // A migrated command's persisted override/disable may still live under
     // its legacy id — read both so this tab shows what dispatch actually does.
     const legacyId = LEGACY_COMMAND_ID_ALIASES[def.id]

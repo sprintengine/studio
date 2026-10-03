@@ -2,7 +2,12 @@ import { useCallback, useEffect, useId, useState } from 'react'
 
 import type { StudioScope } from '../../../../../packages/studio-protocol/src/public'
 import type { CliPermissionPreset } from '../../../../shared/cli-permission-preset'
-import type { StudioLocalAppOfferView, StudioLocalAppsStatus } from '../../../../shared/studio-local-apps'
+import type {
+  StudioLocalAppOfferView,
+  StudioLocalAppToolReach,
+  StudioLocalAppToolset,
+  StudioLocalAppsStatus,
+} from '../../../../shared/studio-local-apps'
 import { formatRelativeMsAgo, relativeFromNow } from '../../utils/relativeTime'
 import {
   CopyGlyphButton,
@@ -45,7 +50,34 @@ const SCOPE_ROWS: Array<{ scope: StudioScope; title: string; description: string
     title: 'Start chats',
     description: 'Start new chats in a workspace, with a prompt and skills.',
   },
+  {
+    scope: 'tools:offer',
+    title: 'Give agents tools from this app',
+    description:
+      'Offer tools that Studio’s agents can call, which run in the app. Every call still asks as the chat’s own permissions say.',
+  },
 ]
+
+const REACH_ITEMS: Array<{ value: StudioLocalAppToolReach; label: string }> = [
+  { value: 'own', label: 'The chats it starts' },
+  { value: 'all', label: 'Every chat and terminal agent here' },
+]
+
+const TOOLSET_STATE: Record<StudioLocalAppToolset['state'], string> = {
+  offered: 'offered',
+  reconnecting: 'reconnecting',
+  not_offered: 'not offered now',
+}
+
+/** One line per toolset an app gives agents: its name, how many tools, and whether it is there now. */
+function toolsetsLine(toolsets: StudioLocalAppToolset[]): string {
+  return toolsets
+    .map(
+      (toolset) =>
+        `${toolset.title} (${toolset.name}) · ${toolset.tools === 1 ? '1 tool' : `${toolset.tools} tools`} · ${TOOLSET_STATE[toolset.state]}`,
+    )
+    .join('\n')
+}
 
 const CEILING_ITEMS = AGENT_SPAWN_PERMISSION_OPTIONS.map((option) => ({
   value: option.value as CliPermissionPreset,
@@ -53,8 +85,13 @@ const CEILING_ITEMS = AGENT_SPAWN_PERMISSION_OPTIONS.map((option) => ({
   ...(option.value === 'bypass' ? { tone: 'warn' as const } : {}),
 }))
 
-type Draft = { name: string; scopes: StudioScope[]; ceiling: CliPermissionPreset }
-const EMPTY_DRAFT: Draft = { name: '', scopes: ['conversation:read', 'conversation:operate'], ceiling: 'auto' }
+type Draft = { name: string; scopes: StudioScope[]; ceiling: CliPermissionPreset; toolReach: StudioLocalAppToolReach }
+const EMPTY_DRAFT: Draft = {
+  name: '',
+  scopes: ['conversation:read', 'conversation:operate'],
+  ceiling: 'auto',
+  toolReach: 'own',
+}
 
 export function LocalAppsSettings() {
   const [status, setStatus] = useState<StudioLocalAppsStatus | null>(null)
@@ -161,6 +198,22 @@ export function LocalAppsSettings() {
                   Revoke
                 </GhostButton>
               </div>
+              {app.scopes.includes('tools:offer') ? (
+                <div className="mt-2 space-y-2">
+                  <p className="whitespace-pre-line text-meta text-[color:var(--text-muted)]">
+                    {app.toolsets.length > 0 ? toolsetsLine(app.toolsets) : 'Has not offered any tools yet.'}
+                  </p>
+                  <Field label="Its tools reach">
+                    <Select
+                      ariaLabel={`Which agents ${app.name}'s tools reach`}
+                      items={REACH_ITEMS}
+                      value={app.toolReach}
+                      disabled={!status.running}
+                      onChange={(reach) => void window.api.studioLocalAppsSetReach(app.id, reach).then(setStatus)}
+                    />
+                  </Field>
+                </div>
+              ) : null}
             </SettingsRow>
           )
         })}
@@ -224,6 +277,16 @@ export function LocalAppsSettings() {
                   />
                 ))}
               </DescribedCheckRowList>
+              {draft.scopes.includes('tools:offer') ? (
+                <Field label="Its tools reach">
+                  <Select
+                    ariaLabel="Which agents its tools reach"
+                    items={REACH_ITEMS}
+                    value={draft.toolReach}
+                    onChange={(toolReach) => setDraft({ ...draft, toolReach })}
+                  />
+                </Field>
+              ) : null}
               <Field label="Loosest preset its chats may run on">
                 <Select
                   ariaLabel="Loosest preset its chats may run on"

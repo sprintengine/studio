@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
-import { isPathInside, pastedImagePaths, readPastedImagePaths, splitShellWords } from './imageFileTransfer'
+import {
+  isPathInside,
+  pastedImagePaths,
+  pathsForPathlessFiles,
+  readPastedImagePaths,
+  splitShellWords,
+} from './imageFileTransfer'
 
 test('a pasted screenshot path is read however it was quoted', () => {
   const path = '/var/folders/x1/T/TemporaryItems/Screenshot 2026-09-27 at 22.41.31.png'
@@ -89,5 +95,41 @@ test('pasted paths are read into image files at paste time, or not at all', asyn
   assert.deepEqual(await readPastedImagePaths(['/Users/dev/a.png', '/Users/dev/gone.png'], read), {
     ok: false,
     message: 'Could not attach gone.png: the file no longer exists.',
+  })
+})
+
+test('a file with no path is uploaded where the shell can, and refused by name where it cannot', async () => {
+  const file = { name: 'report.pdf' } as File
+  const withApi = async (api: unknown, run: () => Promise<void>) => {
+    const holder = globalThis as { window?: unknown }
+    const before = holder.window
+    holder.window = { api }
+    try {
+      await run()
+    } finally {
+      holder.window = before
+    }
+  }
+  await withApi({ clientCapabilities: ['file-uploads'], uploadFiles: async () => ['/srv/up/report.pdf'] }, async () =>
+    assert.deepEqual(await pathsForPathlessFiles([file]), { paths: ['/srv/up/report.pdf'], message: null }),
+  )
+  await withApi(
+    {
+      clientCapabilities: ['file-uploads'],
+      uploadFiles: async () => {
+        throw new Error('That file is over 50 MB, too large to upload.')
+      },
+    },
+    async () =>
+      assert.deepEqual(await pathsForPathlessFiles([file]), {
+        paths: [],
+        message: 'That file is over 50 MB, too large to upload.',
+      }),
+  )
+  // A desktop window has no uploads: the drop is refused as before.
+  await withApi({}, async () => {
+    const answer = await pathsForPathlessFiles([file])
+    assert.deepEqual(answer.paths, [])
+    assert.match(answer.message ?? '', /report\.pdf has no path on disk/u)
   })
 })

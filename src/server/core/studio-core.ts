@@ -2,7 +2,7 @@ import { join } from 'node:path'
 
 import { parseCliPermissionPreset } from '../../shared/cli-permission-preset'
 import { effectiveAgentLaunchSettings } from '../../shared/launch-settings'
-import { isWslHostId } from '../../shared/execution-host'
+import { isWslHostId, type ExecutionHostId, type ExecutionHostSettings } from '../../shared/execution-host'
 import { comparablePath } from '../../shared/host-paths'
 import { ensureSkillInstalled } from '../../main/builtin-skills'
 import { cliResumeCapabilities } from '../../main/cli-resume-capabilities'
@@ -30,7 +30,14 @@ import { createWorkspaceRegistryStore } from '../../main/workspace-registry-stor
 import { createWorkspaceSyncService } from '../../main/workspace-sync-service'
 import { installedStudioPlatform, installStudioPlatform, type StudioPlatform } from '../platform/platform'
 import type { StudioPaths } from '../platform/studio-paths'
-import { localConversationBackend } from './conversation-backend'
+import { createPullRequestDomain } from '../pull-requests/pull-request-domain'
+import { localConversationBackend, refuseMachinePaths, type ConversationBackend } from './conversation-backend'
+import {
+  createRoutedConversationBackend,
+  type SshRoutedConnection,
+  type SshRoutedServers,
+} from './routed-conversation-backend'
+import type { WslServers } from '../wsl/desktop-wsl-servers'
 import type { StudioRole } from './data-dir'
 import { takeDataDir } from './take-data-dir'
 
@@ -44,15 +51,20 @@ import { takeDataDir } from './take-data-dir'
 // What is here: launch settings and the machines they name, the workspace
 // registry and its sync, git's machine resolver, the conversation runtime and
 // the backend every caller drives chats through (providers, checkpoints, the
-// thread index and transcripts are the runtime's), the model catalog, and the
-// launch service that starts a chat for a caller with no window. The MCP
+// thread index and transcripts are the runtime's), the model catalog, the
+// launch service that starts a chat for a caller with no window, and the pull
+// request record, which reacts to chats and so is the server's (owner ruling
+// 2026-10-03). The MCP
 // gateway is composed beside it (studio-gateway.ts), because the desktop adds
 // tools to it that act on windows and terminals.
 //
 // What is not, yet: the module host and its bundled modules (they still take
 // the shell's terminal runtime and account bridge), terminals (owner ruling
-// 2026-10-01: not served by the server in v1), the canvas worker and the
-// browser tools (the render host, phase 5), and everything the shell owns.
+// 2026-10-01: not served by the server in v1), and everything the shell owns.
+// What is not, ever: the browser and the canvas (owner ruling 2026-10-02: the
+// server draws nothing). They are toolsets a client offers, which the gateway
+// lists and routes (src/server/tools/); the server keeps only the board files,
+// read and written through `files.*`.
 
 export type StudioCoreOptions = {
   /** Which kind of process this core runs in; decides the lock and secret rules below. */
@@ -76,6 +88,21 @@ export type StudioCoreOptions = {
   }>
   /** A machine's settings changed (a distribution turned on or off). */
   onHostSettingsChanged?: () => void
+  /**
+   * Windows: the WSL distributions whose chats can run on a Studio server
+   * inside them (phase 7). Given, every caller's chats go through a router
+   * that sends a distribution's chats to its server when its switch is on.
+   */
+  wslServers?: (deps: { readHostSettings: () => Partial<Record<ExecutionHostId, ExecutionHostSettings>> }) => WslServers
+  /**
+   * The desktop's SSH machines (phase 8), held by Electron main, which shows
+   * their prompts. Given, a workspace recorded on one runs its chats there.
+   * In process only: out of process, main's sessions are not this core's.
+   */
+  sshServers?: {
+    servers: SshRoutedServers
+    onConnected(listener: (connection: SshRoutedConnection) => void): void
+  }
 }
 
 export { StudioDataDirBusyError, StudioDataDirUnusableError } from './take-data-dir'
@@ -109,7 +136,22 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
   // and on Windows each WSL distribution. One registry, installed for the whole
   // process, so a launch, the reaper and the git runner resolve a host against
   // the same per-machine settings.
-  const hosts = createHostRegistry({ readHostSettings: () => agentLaunchSettings.get().hosts })
+  // Built before the WSL servers (below), so their status is read when listed.
+  let wslServersForHosts: WslServers | null = null
+  const hosts = createHostRegistry({
+    readHostSettings: () => agentLaunchSettings.get().hosts,
+    chatServer: (distro) => {
+      const servers = wslServersForHosts
+      if (!servers) return undefined
+      const status = servers.manager.status(distro)
+      return {
+        on: servers.chatServerOn(distro),
+        state: status.state,
+        ...(status.transport ? { transport: status.transport } : {}),
+        ...((status.reason ?? status.transportReason) ? { reason: status.reason ?? status.transportReason } : {}),
+      }
+    },
+  })
   installHostRegistry(hosts)
   let lastHostSettings = JSON.stringify(agentLaunchSettings.get().hosts)
   agentLaunchSettings.subscribe((record) => {
@@ -162,24 +204,61 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
   // The conversation runtime: chat sessions and the providers and agent CLI
   // children behind them, transcripts, the thread index and checkpoints. Owned
   // here so the owner's shutdown disposes its child processes.
+  // The saved approvals, which a revoked app's tools leave with it.
+  const approvalRules = new ConversationApprovalRuleStore(dataDir)
   const conversationRuntime = new ConversationRuntime({
     secretStore: getSharedCredentialStore(),
-    approvalRules: new ConversationApprovalRuleStore(dataDir),
+    approvalRules,
     attachmentStore: new ConversationAttachmentStore(dataDir),
     planStore: new ConversationPlanStore(dataDir),
     ...(options.resolveStudioMcpServer ? { resolveStudioMcpServer: options.resolveStudioMcpServer } : {}),
   })
   conversationRuntime.startIdleSweep(powerActivity)
+  const wslServers =
+    process.platform === 'win32' && options.wslServers
+      ? options.wslServers({ readHostSettings: () => agentLaunchSettings.get().hosts })
+      : null
   // What only the runtime's owner does with it: the idle threshold, and the
   // flush and shutdown at the end. Everything else goes through the backend.
   const conversationOwner = {
     setIdleThresholdMs: (value: unknown) => conversationRuntime.setIdleThresholdMs(value),
     flushTranscripts: () => conversationRuntime.flushTranscripts(),
-    shutdown: () => conversationRuntime.shutdown(),
+    // Each WSL server drains its own chats, within the quit's ten seconds,
+    // beside this process's.
+    shutdown: async () => {
+      await Promise.all([
+        wslServers?.manager.shutdown({ budgetMs: 10_000 }).catch(() => undefined),
+        conversationRuntime.shutdown(),
+      ])
+    },
   }
   // What every caller drives chats through; the runtime itself is only for
-  // what its owner does (the idle sweep, flush, shutdown).
-  const conversations = localConversationBackend(conversationRuntime)
+  // what its owner does (the idle sweep, flush, shutdown). On Windows, with
+  // WSL servers, a router in front of it sends a distribution's chats there.
+  // A chat whose folder is on an SSH machine never runs in this process.
+  const localConversations = refuseMachinePaths(localConversationBackend(conversationRuntime))
+  let conversations: ConversationBackend = localConversations
+  const sshServers = options.sshServers ?? null
+  if (wslServers || sshServers) {
+    if (wslServers) {
+      wslServersForHosts = wslServers
+      // Settings › Machines reads the server's state with the machine list.
+      wslServers.onStatus(() => hosts.notifyChanged())
+    }
+    const routed = createRoutedConversationBackend({
+      local: localConversations,
+      workspace: (workspaceId) => workspaceRegistry.getRecord(workspaceId) ?? null,
+      chatServerOn: (distro) => wslServers?.chatServerOn(distro) ?? false,
+      servers: wslServers?.manager ?? null,
+      ssh: sshServers?.servers ?? null,
+      log: (message) => {
+        void writeDiagnosticLog({ level: 'info', source: 'workspace', title: 'Remote server', message })
+      },
+    })
+    wslServers?.onConnected((connection) => routed.attach(connection))
+    sshServers?.onConnected((connection) => routed.attach(connection))
+    conversations = routed
+  }
 
   const conversationModelCatalog = createConversationModelCatalog({
     listClis: () => listPluginRegistryEntries(),
@@ -211,6 +290,29 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     ensureSkillInstalled: (workingRoot, skillId) => ensureSkillInstalled(workingRoot, skillId),
     warn: (message) => {
       void writeDiagnosticLog({ level: 'warning', source: 'workspace', title: 'Chat launch', message })
+    },
+  })
+
+  // The pull requests the conversations' branches have (pull-request-domain.ts):
+  // looked up when a chat's turn ends, when a client says one of its own agents
+  // did work, on a slow poll and when a client asks. Every client reads it
+  // through `pullRequests.*`. With no `gh` on this machine it has nothing to
+  // say, and says nothing.
+  const pullRequests = createPullRequestDomain({
+    dataDir,
+    conversations,
+    workspaceFolder: (workspaceId) => workspaceRegistry.getRecord(workspaceId)?.folderPath ?? null,
+    isSuspended: () => powerActivity.isSuspended(),
+    log: (message, error) => {
+      void writeDiagnosticLog({
+        level: 'warning',
+        source: 'workspace',
+        title: 'Pull request record',
+        message,
+        ...(error === undefined
+          ? {}
+          : { details: error instanceof Error ? (error.stack ?? error.message) : String(error) }),
+      })
     },
   })
 
@@ -275,8 +377,10 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
   async function shutdown(): Promise<void> {
     const legs: Array<() => unknown> = [
       () => workspaceSyncService.flush(),
+      () => pullRequests.flush(),
       () => conversationRuntime.flushTranscripts(),
-      () => conversationRuntime.shutdown(),
+      () => conversationOwner.shutdown(),
+      () => pullRequests.dispose(),
       () => workspaceSyncService.flush(),
       () => hosts.dispose(),
     ]
@@ -303,10 +407,14 @@ export function createStudioCore(platform: StudioPlatform, options: StudioCoreOp
     workspaceSyncService,
     conversations,
     conversationOwner,
+    /** Windows: the WSL servers chats may run on, for Settings' status; null elsewhere. */
+    wslServers,
+    approvalRules,
     conversationModelCatalog,
     conversationLaunchService,
     resolveAgentPermissionPreset,
     createConversationHost,
+    pullRequests,
     shutdown,
   }
 }

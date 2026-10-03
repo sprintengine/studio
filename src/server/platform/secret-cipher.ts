@@ -31,6 +31,25 @@ export type SecretCipher = {
   seal(plaintext: string): Buffer
   /** Open what `seal` produced. Throws on another key's ciphertext or a damaged one. */
   open(sealed: Buffer): string
+  /**
+   * The asynchronous forms, for a cipher that answers from another process
+   * (the desktop shell's keychain, for the Studio server out of process).
+   * Where they exist they are the real ones: the synchronous `open` serves
+   * only what was opened ahead of time, and the synchronous `seal` throws.
+   * Callers go through `sealSecret` and `openSecret`, which prefer them.
+   */
+  sealAsync?(plaintext: string): Promise<Buffer>
+  openAsync?(sealed: Buffer): Promise<string>
+}
+
+/** Seal through the cipher's asynchronous form when it has one. */
+export async function sealSecret(cipher: SecretCipher, plaintext: string): Promise<Buffer> {
+  return cipher.sealAsync ? cipher.sealAsync(plaintext) : cipher.seal(plaintext)
+}
+
+/** Open through the cipher's asynchronous form when it has one. */
+export async function openSecret(cipher: SecretCipher, sealed: Buffer): Promise<string> {
+  return cipher.openAsync ? cipher.openAsync(sealed) : cipher.open(sealed)
 }
 
 const DATA_KEY_BYTES = 32

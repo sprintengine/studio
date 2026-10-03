@@ -21,6 +21,36 @@ const MAX_CONNECTIONS_PER_WINDOW = 4
 type WindowConnector = { connectWindow(port: StudioFramePort): StudioConnectResult }
 
 /**
+ * The Studio server in a process of its own: main hands it the connection's
+ * port itself, and the server answers with the connection's id and ticket.
+ * The window's end goes to the window exactly as in process.
+ */
+export type RemoteWindowConnector = { connectPort(port: MessagePortMain): Promise<StudioConnectResult> }
+
+export function registerRemoteStudioConnectionIpc(ipcMain: IpcMain, studio: RemoteWindowConnector): void {
+  ipcMain.handle(STUDIO_CONNECT_CHANNEL, async (event): Promise<StudioConnectResult> => {
+    assertAppSender(event)
+    const sender = event.sender
+    const { port1, port2 } = new MessageChannelMain()
+    let connection: StudioConnectResult
+    try {
+      connection = await studio.connectPort(port1)
+    } catch (error) {
+      port1.close()
+      port2.close()
+      throw error
+    }
+    // A window that went while the server answered gets nothing; its end closes.
+    if (sender.isDestroyed()) {
+      port2.close()
+      return connection
+    }
+    sender.postMessage(STUDIO_PORT_CHANNEL, { connectionId: connection.connectionId }, [port2])
+    return connection
+  })
+}
+
+/**
  * Main's end of a channel, as the frames a connection reads and writes. It
  * ends when the window's end goes (a reload, a closed window) or when main
  * closes it, and says so either way.

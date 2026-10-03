@@ -338,12 +338,18 @@ export function launchCarriesAppPluginsFor(
 // passes no ids, so the result simply carries no identity.
 export function applyAgentIdentityEnv(
   baseEnv: Record<string, string>,
-  input: { workspaceId?: string; agentId?: string; agentName?: string; cli?: string },
+  input: { workspaceId?: string; agentId?: string; agentName?: string; cli?: string; launchToken?: string },
 ): Record<string, string> {
   // Stripped under BOTH names: the app's own process may have inherited a
   // legacy-named identity from the shell that started it, and clearing only the
-  // new name would leave that to be read as this session's agent.
-  return { ...withoutStudioEnv(baseEnv, AGENT_IDENTITY_ENV_KEYS), ...agentIdentityEnv(input) }
+  // new name would leave that to be read as this session's agent. A launch
+  // token it inherited is stripped too: it is that other launch's, and only
+  // this launch's own (`launchToken`) may ride here.
+  return {
+    ...withoutStudioEnv(baseEnv, [...AGENT_IDENTITY_ENV_KEYS, MCP_CHANNEL_TOKEN_ENV]),
+    ...agentIdentityEnv(input),
+    ...studioEnvEntry(MCP_CHANNEL_TOKEN_ENV, input.launchToken),
+  }
 }
 
 // Identity/terminal keys a CLI manifest's `launch.env` must never override.
@@ -356,6 +362,7 @@ export function applyAgentIdentityEnv(
 // this is — neither of which a manifest is in a position to restate.
 const PROTECTED_LAUNCH_ENV_KEYS = new Set<string>([
   ...AGENT_IDENTITY_ENV_KEYS,
+  MCP_CHANNEL_TOKEN_ENV,
   'TERM',
   'COLORTERM',
   // Same reasoning as TERM: whether this terminal renders OSC 8 hyperlinks is a

@@ -263,10 +263,9 @@ test('opencode-agent-state', async () => {
       { input: { tool: 'edit', sessionID: 'ses_opencode_1', callID: 'c10' }, output: null },
       // 11. Total garbage in both positions: must not throw into OpenCode.
       { input: null, output: 'a string where the result object should be' },
-      // === Pull request capture (epic `pull-request-marks`, decision 8b) =====
-      // 12. `gh pr view` prints a pull request URL and opens nothing. It emits no
-      //     frame at all (the dedup eats a `tool.execute.after` that carries
-      //     neither a file change nor a capture), which is the point.
+      // === `gh` calls: pull requests are not read off tool output =========
+      // 12. `gh pr view` prints a pull request URL. It emits no frame at all (the
+      //     dedup eats a `tool.execute.after` that carries no file change).
       {
         input: {
           tool: 'bash',
@@ -276,7 +275,7 @@ test('opencode-agent-state', async () => {
         },
         output: { title: 'gh pr view', output: '{"url":"https://github.com/acme/app/pull/12"}', metadata: { exit: 0 } },
       },
-      // 13. The creation itself: `gh` prints the URL on the LAST line of output.
+      // 13. The creation itself prints its URL on the last line; nothing reads it.
       {
         input: {
           tool: 'bash',
@@ -290,8 +289,7 @@ test('opencode-agent-state', async () => {
           metadata: { exit: 0 },
         },
       },
-      // 14. A creation that FAILED with no URL anywhere: nothing to capture, and
-      //     the dedup then eats the frame — so the count below is what proves it.
+      // 14. A creation that failed: the dedup eats the frame like the two above.
       {
         input: { tool: 'bash', sessionID: 'ses_opencode_1', callID: 'c14', args: { command: 'gh pr create --fill' } },
         output: {
@@ -330,9 +328,9 @@ test('opencode-agent-state', async () => {
       // c0 read nothing but still carries its id; the three `editCall` helpers
       // share one canned callID; c9's apply_patch rewrote TWO files and so sent
       // TWO frames under ONE id — which is exactly the case main's ring keys on
-      // (id, path) to survive. The calls with no frame here (c10 onward, bar the
-      // capture) were eaten by the plugin's own repeated-event dedup, not by this.
-      ['c0', 'call_1', 'call_1', 'c3', 'c4', 'call_1', 'c6', 'call_1', 'c8', 'c9', 'c9', 'c13'],
+      // (id, path) to survive. The calls with no frame here (c10 onward) were
+      // eaten by the plugin's own repeated-event dedup, not by this.
+      ['c0', 'call_1', 'call_1', 'c3', 'c4', 'call_1', 'c6', 'call_1', 'c8', 'c9', 'c9'],
       'every frame carries the callID of the tool call that produced it',
     )
     assert.equal(parsed[0].toolUseId, 'c0', 'a frame that claims no file carries the id too')
@@ -421,34 +419,20 @@ test('opencode-agent-state', async () => {
       'ok - apply_patch sends one frame per file, counting from the per-file patch when the tool omits the numbers',
     )
 
-    assert.equal(changes.length, 12, 'a payload naming no file at all claims nothing and adds no frame')
+    assert.equal(changes.length, 11, 'a payload naming no file at all claims nothing and adds no frame')
     console.log('ok - a payload with no path anywhere adds no ledger entry')
 
-    // The pull request capture: the bash tool's own output, read the same way the
-    // command-hook reporter reads a `gh pr create` result. Twelve frames in total
-    // — the eleven above plus ONE for the creation — so the two bash calls that
-    // opened nothing are proved to have captured nothing by their absence: a
-    // `tool.execute.after` carrying neither a file change nor a capture is eaten
-    // by the plugin's own dedup, and a capture is exempt from it precisely so the
-    // one frame that matters cannot be dropped.
-    const captures = parsed.map((frame) => frame.pullRequest)
+    // Pull requests are not read off tool output any more (owner ruling
+    // 2026-10-03): the app asks GitHub about the branches an agent worked on.
+    // So `gh pr create` is an ordinary bash call: it edits nothing, its frame
+    // is the plugin's own dedup's, and no frame carries a URL.
     assert.deepEqual(
-      captures.filter(Boolean),
-      [{ url: 'https://github.com/acme/website/pull/9' }],
-      'exactly one call opened a pull request, and the capture stops at its number — a tab and a query are not part of it',
+      parsed.filter((frame) => 'pullRequest' in frame),
+      [],
+      'no frame carries a pull request',
     )
-    assert.deepEqual(
-      captures.slice(0, 11),
-      new Array(11).fill(undefined),
-      'every frame before it carries no capture: editing a file opens no pull request',
-    )
-    assert.deepEqual(
-      captures[11],
-      { url: 'https://github.com/acme/website/pull/9' },
-      'the capture rides the frame of the call that made it',
-    )
-    assert.equal(parsed.length, 12, 'a bash call that captured nothing and edited nothing adds no frame')
-    console.log('ok - `gh pr create` captures its URL, while `gh pr view` and a failed creation capture nothing')
+    assert.equal(parsed.length, 11, 'a bash call that edited nothing adds no frame, `gh pr create` included')
+    console.log('ok - `gh pr create` is captured by nothing; pull requests come from branch lookups')
 
     // The patch text and the file content are not ours to forward: the frame line
     // cap is 64KB, and a person's source is not a line range.

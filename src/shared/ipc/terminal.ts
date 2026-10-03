@@ -245,11 +245,11 @@ export type TerminalSessionSnapshot = {
   // pty is respawned.
   fileChanges: SessionFileChange[]
   // The pull requests this conversation has, newest first (epic
-  // `pull-request-marks`, decision 10): the union of the ones on the repository
-  // and branch its checkout is observed to be on and the ones it opened itself
-  // in ANY repository (`cd ../website && gh pr create` is a real thing an agent
-  // does), de-duplicated by URL. Main owns the fact — see
-  // `main/pull-request-record.ts` — and the list is empty for a plain terminal,
+  // `pull-request-marks`, decision 10): the union of the ones on every branch
+  // its agent worked on, its own checkout's and those in other repositories it
+  // changed files in, de-duplicated by URL. The Studio server owns the fact —
+  // see `src/server/pull-requests/` — and the shell puts the list it answers
+  // here (`main/terminal-pull-requests.ts`). It is empty for a plain terminal,
   // for a session whose checkout is not resolved yet, and for a branch GitHub
   // says has none. Nothing is ever drawn from an absent answer: a lookup that
   // could not be made leaves the last known list standing rather than emptying

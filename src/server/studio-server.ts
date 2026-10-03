@@ -16,6 +16,10 @@ import type { StudioRpcService } from '../main/studio-rpc/studio-rpc-service'
 import { readDataDirSecrets, restrictDataDir } from './core/data-dir'
 import { createNodeStudioPlatform, type NodeStudioPlatform } from './platform/platform'
 import { createUnavailableSecretCipher } from './platform/secret-cipher'
+import { SERVER_EXIT } from './bootstrap/envelope'
+import { runShutdownLegs, type ShutdownLegProgress } from './bootstrap/serve'
+import { readStudioEnvironmentId } from '../main/studio-rpc/studio-rpc-service'
+import type { WebFrontDoor, WebFrontDoorOptions } from './web/web-front-door'
 
 // A Studio server under plain Node: the core and its gateway, with nothing of
 // Electron. The `studio-server` entry (main.ts) runs it from a shell; a later
@@ -53,6 +57,16 @@ export type StudioServerOptions = {
   onDataDirLost?: () => void
   /** Where a warning that does not stop the server goes (the entry: stderr). */
   log?: (message: string) => void
+  /**
+   * Open the gateway's socket and the owner socket. Off for a server started
+   * only to be driven over its control channel (the seam tests); default on.
+   */
+  listen?: boolean
+  /**
+   * Serve the web client on a loopback port (phase 9). Off unless given: a
+   * server nobody opened a browser to answers no HTTP.
+   */
+  web?: WebFrontDoorOptions | null
 }
 
 export type StudioServerReady = {
@@ -65,6 +79,8 @@ export type StudioServerReady = {
   rpcSocket: string | null
   /** False when the data directory's secrets cannot be opened here (a shared desktop directory). */
   secrets: boolean
+  /** The web listener's loopback URL, when it was asked for and started. */
+  web: string | null
 }
 
 export type StudioServer = {
@@ -72,9 +88,14 @@ export type StudioServer = {
   gateway: StudioGateway
   rpc: StudioRpcService
   platform: NodeStudioPlatform
+  /** The web listener, when `web` was given. */
+  web: WebFrontDoor | null
   ready: StudioServerReady
-  /** Stop the RPC, the gateway, then the core. Safe to call more than once; later calls wait on the first. */
-  stop(): Promise<void>
+  /**
+   * Stop the RPC, the gateway, then the core, saying each leg as it ends.
+   * Safe to call more than once; later calls wait on the first.
+   */
+  stop(onLeg?: (progress: ShutdownLegProgress) => void): Promise<void>
 }
 
 /** Why a server could not start, and the process exit code that says so (sysexits, as the supervisor reads them). */
@@ -88,10 +109,12 @@ export class StudioServerStartError extends Error {
   }
 }
 
-export const EXIT_USAGE = 64
-export const EXIT_DATA_DIR_UNUSABLE = 65
-export const EXIT_DATA_DIR_BUSY = 66
-export const EXIT_FAILED = 70
+// The codes the bootstrap envelope documents (bootstrap/envelope.ts), under
+// the names this file and the entry have always used.
+export const EXIT_USAGE = SERVER_EXIT.usage
+export const EXIT_DATA_DIR_UNUSABLE = SERVER_EXIT.dataDirUnusable
+export const EXIT_DATA_DIR_BUSY = SERVER_EXIT.dataDirBusy
+export const EXIT_FAILED = SERVER_EXIT.failed
 
 // How often a server checks that the data directory's lock is still its own.
 // The desktop that took it waits for this server to exit, so this is most of
@@ -104,8 +127,16 @@ const LOCK_WATCH_MS = 500
 // checkout or app it was built in fails there, by name, and not at a chat.
 const RUNTIME_PACKAGES = ['@anthropic-ai/claude-agent-sdk', '@agentclientprotocol/sdk']
 
+/**
+ * Baked in by scripts/build-server.mjs: true for the WSL tree, which inlines
+ * every dependency, the runtime packages included, so there is nothing to
+ * look for beside it.
+ */
+declare const __STUDIO_SERVER_SELF_CONTAINED__: boolean | undefined
+
 /** The runtime packages this process cannot resolve from where its code is. */
 export function missingRuntimePackages(resolve: (name: string) => unknown = require.resolve): string[] {
+  if (typeof __STUDIO_SERVER_SELF_CONTAINED__ !== 'undefined' && __STUDIO_SERVER_SELF_CONTAINED__) return []
   return RUNTIME_PACKAGES.filter((name) => {
     try {
       resolve(name)
@@ -171,9 +202,10 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   try {
     core = createStudioCore(platform, {
       role: 'server',
-      // A Claude chat's child is handed this server's gateway: the stdio bridge,
-      // run by the Node this server runs on. A WSL machine is not this server's
-      // to reach; a server runs inside the distribution instead (phase 7).
+      // A chat's agent (Claude Code, Codex, an ACP agent) is handed this
+      // server's gateway: the stdio bridge, run by the Node this server runs
+      // on. A WSL machine is not this server's to reach; a server runs inside
+      // the distribution instead (phase 7).
       resolveStudioMcpServer: async ({ hostId }) => {
         if (isWslHostId(hostId)) return null
         await gateway?.whenGatewayReady()
@@ -207,10 +239,14 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   const rpc = createStudioRpc(core, started)
   let status: Awaited<ReturnType<StudioGateway['initialize']>>
   try {
-    status = await started.initialize()
-    // Not fatal when it cannot bind, as in the desktop: its status says why,
-    // and the gateway and chats do not depend on it.
-    await rpc.start().catch(() => undefined)
+    if (options.listen === false) {
+      status = started.getStatus()
+    } else {
+      status = await started.initialize()
+      // Not fatal when it cannot bind, as in the desktop: its status says why,
+      // and the gateway and chats do not depend on it.
+      await rpc.start().catch(() => undefined)
+    }
   } catch (error) {
     await rpc.stop().catch(() => undefined)
     await started.shutdown().catch(() => undefined)
@@ -218,14 +254,44 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     throw error
   }
 
-  let stopping: Promise<void> | null = null
-  const stop = (): Promise<void> => {
-    clearInterval(lockWatch)
-    stopping ??= (async () => {
+  let web: WebFrontDoor | null = null
+  if (options.web && options.listen !== false) {
+    try {
+      // Loaded only when asked for: a server with no web listener loads none of it.
+      const { startWebFrontDoor } = await import('./web/web-front-door')
+      web = await startWebFrontDoor({
+        core,
+        gateway: started,
+        rpc,
+        clients: platform.clients,
+        environmentId: readStudioEnvironmentId(options.dataDir),
+        version: options.version,
+        options: options.web,
+        log: options.log,
+      })
+    } catch (error) {
       await rpc.stop().catch(() => undefined)
       await started.shutdown().catch(() => undefined)
       await core.shutdown()
-    })()
+      throw new StudioServerStartError(
+        `The web listener did not start: ${error instanceof Error ? error.message : String(error)}`,
+        EXIT_FAILED,
+      )
+    }
+  }
+
+  let stopping: Promise<void> | null = null
+  const stop = (onLeg?: (progress: ShutdownLegProgress) => void): Promise<void> => {
+    clearInterval(lockWatch)
+    stopping ??= runShutdownLegs(
+      [
+        ...(web ? ([['web', () => web?.stop()]] as const) : []),
+        ['studio-rpc', () => rpc.stop()],
+        ['gateway', () => started.shutdown()],
+        ['core', () => core.shutdown()],
+      ],
+      onLeg,
+    )
     return stopping
   }
   // The desktop wins a data directory it opens: it takes the lock over, then
@@ -245,6 +311,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     gateway: started,
     rpc,
     platform,
+    web,
     ready: {
       pid: process.pid,
       version: options.version,
@@ -252,6 +319,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       gatewaySocket: status.running ? (status.socketPath ?? resolveSocketPath(options.dataDir)) : null,
       rpcSocket: rpc.getStatus().running ? rpc.getStatus().socketPath : null,
       secrets: platform.secrets.available(),
+      web: web?.url ?? null,
     },
     stop,
   }

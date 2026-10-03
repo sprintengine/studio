@@ -1,4 +1,5 @@
-import { ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
+import { webUtils, type IpcRendererEvent } from 'electron'
+import { ipc as ipcRenderer } from '../ipc-router'
 import type {
   ContentSearchResult,
   DiagnosticLogEntry,
@@ -47,6 +48,10 @@ export const filesystemApi = {
     } catch {
       return ''
     }
+  },
+  // A desktop window reads a dropped file's own path; only a browser uploads.
+  uploadFiles: async (): Promise<string[]> => {
+    throw new Error('Uploading is the web client’s; a desktop window reads a dropped file by its path.')
   },
   checkWorkspaceFolder: (path: string): Promise<WorkspaceFolderCheckResult> =>
     ipcRenderer.invoke('fs:check-workspace-folder', path),
@@ -123,6 +128,7 @@ export const filesystemApi = {
   | 'pathExists'
   | 'statPath'
   | 'getPathForFile'
+  | 'uploadFiles'
   | 'checkWorkspaceFolder'
   | 'detectProjectLogo'
   | 'memoryResolveRoot'

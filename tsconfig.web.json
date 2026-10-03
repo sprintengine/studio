@@ -1,6 +1,9 @@
 {
   "extends": "@electron-toolkit/tsconfig/tsconfig.web.json",
   "include": [
+    "packages/conversation-timeline/src/**/*.ts",
+    "packages/conversation-view/src/**/*.ts",
+    "packages/conversation-view/src/**/*.tsx",
     "packages/conversation-protocol/src/**/*.ts",
     "packages/studio-protocol/src/**/*.ts",
     "packages/agent-sdk/src/index.ts",
@@ -10,7 +13,23 @@
     "packages/agent-sdk/src/module.ts",
     "packages/agent-sdk/src/protocol.ts",
     "packages/agent-sdk/src/transport.ts",
+    "packages/agent-sdk/src/tools.ts",
     "src/renderer/src/**/*",
+    // The web client's window.api is built from the preload's own api modules
+    // (src/renderer/src/web/createWebApi.ts), with the IPC router swapped for
+    // the browser's at build time.
+    "src/preload/api-surface.ts",
+    "src/preload/api/**/*",
+    "src/preload/ipc-router.ts",
+    "src/preload/ipc-router-core.ts",
+    // The canvas toolset a web tab offers runs the portable canvas service and
+    // its tools in the page (src/renderer/src/web/canvas/), with node:crypto
+    // and node:path swapped for the browser's at build time.
+    "src/main/canvas/canvas-service.ts",
+    "src/main/canvas/canvas-service-types.ts",
+    "src/main/canvas/canvas-worker-host.ts",
+    "src/main/canvas/protocol-canvas-fs.ts",
+    "src/main/automation/canvas-tools.ts",
     "src/shared/**/*",
     "packages/module-sdk/src/index.ts",
     "packages/module-sdk/src/manifest-validate.ts",

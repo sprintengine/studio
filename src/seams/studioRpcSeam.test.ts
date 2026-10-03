@@ -320,6 +320,24 @@ test('every method the server serves has its call in the SDK, under the same sco
       StudioChatMethod,
       string
     >),
+    // Client tools: a withdrawal is the offered toolset's own `withdraw`, and
+    // opening a chat to an app is Studio's own windows' and called by name.
+    'tools.offer': 'tools.offer',
+    'tools.withdraw': 'tools.offer',
+    'tools.focus': 'tools.focus',
+    'tools.catalog': 'tools.catalog',
+    'tools.grant': 'request',
+    'tools.grants': 'request',
+    // Files by root are Studio's own clients' (the canvas over a server's boards), called by name.
+    'files.roots': 'request',
+    'files.list': 'request',
+    'files.read': 'request',
+    'files.write': 'request',
+    'files.remove': 'request',
+    // A Studio's pull requests are its own clients' marks, called by name.
+    'pullRequests.list': 'request',
+    'pullRequests.refresh': 'request',
+    'pullRequests.noteWork': 'request',
   }
   assert.deepEqual(Object.keys(sdkCalls).sort(), Object.keys(STUDIO_METHODS).sort())
   const client = await pairedClient(['conversation:read'], 'manual')

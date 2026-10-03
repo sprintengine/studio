@@ -57,7 +57,13 @@ const MAX_TITLE_LENGTH = 200
 const MAX_URL_LENGTH = 2048
 
 let configPromise: Promise<BrowserConfig> | null = null
-function browserConfig(): Promise<BrowserConfig> {
+/**
+ * This computer's partition is asked once. A workspace on an SSH machine
+ * asks every time a tab is made: main opens that machine's forward for it,
+ * and lets it go after the machine's last tab (phase 8).
+ */
+function browserConfig(workspaceId: string, onMachine: boolean): Promise<BrowserConfig> {
+  if (onMachine) return window.api.browserConfig({ workspaceId })
   configPromise ??= window.api.browserConfig().catch((error: unknown) => {
     // A failed read must not brick every later tab: forget it and retry.
     configPromise = null
@@ -147,6 +153,7 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
   const setPaneTabFloating = useWorkspaceStore((s) => s.setPaneTabFloating)
   const notePaneRecentUrl = useWorkspaceStore((s) => s.notePaneRecentUrl)
   const workspaceRoot = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null)
+  const onMachine = useWorkspaceStore((s) => Boolean(s.workspaces.find((w) => w.id === workspaceId)?.environment))
   // A stable empty list: a selector minting `[]` per call is a new snapshot
   // every render, which zustand's useSyncExternalStore turns into an update
   // loop (React #185).
@@ -159,18 +166,23 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
 
   useEffect(() => {
     let cancelled = false
-    browserConfig().then(
+    browserConfig(workspaceId, onMachine).then(
       (next) => {
         if (!cancelled) setConfig(next)
       },
-      () => {
-        if (!cancelled) showToast({ tone: 'error', title: 'The browser could not start' })
+      (error: unknown) => {
+        if (!cancelled)
+          showToast({
+            tone: 'error',
+            title: 'The browser could not start',
+            ...(onMachine && error instanceof Error ? { description: error.message } : {}),
+          })
       },
     )
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [onMachine, workspaceId])
 
   // Register the guest with main once it exists, and let go when the tab
   // unmounts (the tab closing, or the workspace being torn down).

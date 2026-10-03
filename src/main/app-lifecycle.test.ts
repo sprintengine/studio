@@ -197,14 +197,75 @@ test('app-lifecycle', async () => {
     })
     for (let pass = 0; pass < 20; pass += 1) await new Promise((resolve) => setImmediate(resolve))
     assert.equal(disposed, 1, 'a second before-quit does not run the legs again')
+
+    // ── Out of process (phase 6): the shell's client closes before the server
+    // drains, the shell's own legs run while it drains, and the integrations
+    // wait for the server to be gone.
+    appEvents.clear()
+    exitCalls = []
+    const split: string[] = []
+    let drainBudgetMs = -1
+    let serverGone: () => void = () => undefined
+    registerAppLifecycle({
+      diagnosticsEnabled: false,
+      allowMultipleInstances: true,
+      terminalRuntime: {
+        shutdown: async () => {
+          split.push('terminal.shutdown')
+        },
+      },
+      desktopShell: {
+        stop: () => {
+          split.push('desktopShell.stop')
+        },
+      },
+      removeSessionIntegrations: async () => {
+        split.push('integrations.remove')
+      },
+      server: {
+        start: () => undefined,
+        log: { note: () => undefined },
+        onAttentionPhase: () => undefined,
+        shutdown: (options: { budgetMs: number }) => {
+          split.push('server.shutdown')
+          drainBudgetMs = options.budgetMs
+          return new Promise<'exited'>((resolve) => {
+            serverGone = () => {
+              split.push('server.exited')
+              resolve('exited')
+            }
+          })
+        },
+      },
+      updateService: {
+        checkForUpdates: async () => undefined,
+        setPrepareForInstall: () => undefined,
+      } as unknown as Parameters<typeof registerAppLifecycle>[0]['updateService'],
+      handleAuthCallback: () => undefined,
+    } as unknown as Parameters<typeof registerAppLifecycle>[0])
+    const splitQuit = appEvents.get('before-quit') ?? []
+    splitQuit[0]({ preventDefault: () => undefined })
+    for (let pass = 0; pass < 50 && !split.includes('terminal.shutdown'); pass += 1)
+      await new Promise((resolve) => setImmediate(resolve))
+    assert.deepEqual(split, ['desktopShell.stop', 'server.shutdown', 'terminal.shutdown'])
+    assert.equal(drainBudgetMs, 8_000)
+    assert.deepEqual(exitCalls, [], 'the app waits for the server')
+    serverGone()
+    for (let pass = 0; pass < 50 && exitCalls.length === 0; pass += 1)
+      await new Promise((resolve) => setImmediate(resolve))
+    assert.deepEqual(split.slice(3), ['server.exited', 'integrations.remove'])
+    assert.deepEqual(exitCalls, [0])
+
+    // Leaving for an update, the drain's budget counts from the shutdown's
+    // start, so its kill lands inside the update's 10 s.
+    const { serverUpdateDrainBudgetMs } = await import('./app-lifecycle')
+    assert.equal(serverUpdateDrainBudgetMs(0), 6_000)
+    assert.equal(serverUpdateDrainBudgetMs(4_000), 4_500)
+    assert.equal(serverUpdateDrainBudgetMs(30_000), 500)
   }
 
   const suiteRun = main()
     .then(() => console.log('app-lifecycle: all assertions passed'))
-    .catch((error) => {
-      console.error(error)
-      process.exitCode = 1
-    })
     .finally(() => {
       restoreModules()
     })

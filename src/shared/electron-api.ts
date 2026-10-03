@@ -1,3 +1,15 @@
+import type { ClientCapability } from './client-capabilities'
+import type { PreviewOpenAnswer, PreviewPort, PreviewSummary, WebDevicesStatus } from './web-client'
+import type {
+  SshEnvironmentResult,
+  SshEnvironmentSettings,
+  SshEnvironmentSummary,
+  SshPromptRequest,
+  SshResolveResult,
+} from './ssh-environments'
+import type { SshPreviewStatus } from './ssh-preview'
+import type { ServerMode } from './server-mode'
+import type { StudioServerInfo, StudioServerStatus } from './studio-server-status'
 import type { EditorRevealAck, EditorRevealRequest, EditorStateQuery, EditorStateReply } from './editor-reveal'
 import type {
   LiveTour,
@@ -11,7 +23,6 @@ import type {
   TourSummary,
 } from './tours/tour-types'
 import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './voiceTranscription'
-import type { BranchPullRequest } from './git/pull-request'
 import type { ConversationPeek } from './conversation-peek'
 import type { ChatTitleRequest, TextGenerationResult } from './text-generation/contract'
 import type {
@@ -95,7 +106,12 @@ export type {
   CapabilityDiagnostic,
 } from './skills'
 import type { AutomationServerStatus } from './automation'
-import type { StudioLocalAppOfferInput, StudioLocalAppOfferView, StudioLocalAppsStatus } from './studio-local-apps'
+import type {
+  StudioLocalAppOfferInput,
+  StudioLocalAppOfferView,
+  StudioLocalAppToolReach,
+  StudioLocalAppsStatus,
+} from './studio-local-apps'
 import type { StudioChatTransportMode, StudioConnectResult } from './studio-connection'
 import type {
   TailnetApprovePairRequestView,
@@ -469,7 +485,39 @@ export type * from './ipc/app'
 export type * from './ipc/backlog'
 
 export type ElectronApi = {
+  /**
+   * The OS of the machine the person is at: the client. It decides the
+   * Primary modifier, the keyboard's labels and the window chrome. In a
+   * desktop window it is the preload's `process.platform`; in a browser tab,
+   * the browser's own (phase 9 spec, 3.3).
+   */
   platform: string
+  /**
+   * The OS of the machine the Studio server runs on. It decides path syntax,
+   * the "Reveal in Finder/Explorer" wording and CLI hints. The same as
+   * `platform` for a desktop window on its own server.
+   */
+  hostPlatform: string
+  /** What this shell can do (src/shared/client-capabilities.ts); ask `clientSupports`, not `typeof`. */
+  clientCapabilities: readonly ClientCapability[]
+  /** The ports the server's agents listen on, for a preview (web client only; `previews`). */
+  previewsList: () => Promise<{ ports: PreviewPort[] }>
+  /** Open a preview of a port on the server's loopback, on an origin of its own. */
+  previewsOpen: (input: { port: number; typed?: boolean }) => Promise<PreviewOpenAnswer>
+  previewsClose: (previewId: string) => Promise<boolean>
+  onPreviewsChanged: (cb: (previews: PreviewSummary[]) => void) => () => void
+  /** The browsers paired with this server's web listener, and the ones asking (web client only). */
+  webDevicesStatus: () => Promise<WebDevicesStatus>
+  webDevicesRevoke: (id: string) => Promise<boolean>
+  webDevicesRename: (id: string, name: string) => Promise<boolean>
+  /** A one-time link that pairs another browser, on one of the server's origins. */
+  webDevicesLink: (origin?: string) => Promise<{ url: string; expiresAt: string }>
+  /** Let a browser in by the six digits it shows. Three wrong tries decline it. */
+  webDevicesApprove: (requestId: string, code: string) => Promise<{ ok: true } | { ok: false; message: string }>
+  webDevicesDecline: (requestId: string) => Promise<boolean>
+  onWebDevicesChanged: (cb: (status: WebDevicesStatus) => void) => () => void
+  /** Whether this session has SSH machines (a preview, off by default; phase 8). */
+  sshMachinesEnabled?: boolean
   isDevelopment: boolean
   isDiagnosticsEnabled: boolean
   windowMinimize: () => Promise<void>
@@ -496,7 +544,8 @@ export type ElectronApi = {
   // The embedded browser (browser-pane epic, src/shared/browser.ts). The
   // renderer mounts the `<webview>` and registers its WebContents id; main
   // drives it and pushes `onBrowserState` for every registered tab.
-  browserConfig: () => Promise<BrowserConfig>
+  /** The partition for a workspace's tabs: an SSH machine's, behind its forward, or this computer's (phase 8). */
+  browserConfig: (input?: { workspaceId?: string }) => Promise<BrowserConfig>
   browserRegister: (input: BrowserRegisterInput) => Promise<BrowserRegisterResult>
   browserUnregister: (tabId: string) => Promise<void>
   browserNavigate: (tabId: string, url: string) => Promise<boolean>
@@ -673,6 +722,8 @@ export type ElectronApi = {
   studioLocalAppsCancelOffer: (id: string) => Promise<StudioLocalAppsStatus>
   /** Revoke an app: its token stops working and its open connections are closed at once. */
   studioLocalAppsRevoke: (id: string) => Promise<StudioLocalAppsStatus>
+  /** Change which agents a paired app's tools reach: the chats it starts, or every agent here. */
+  studioLocalAppsSetReach: (id: string, reach: StudioLocalAppToolReach) => Promise<StudioLocalAppsStatus>
   onStudioLocalAppsChanged: (cb: (status: StudioLocalAppsStatus) => void) => () => void
   /** How this window's chat view reaches conversations: the protocol, or the conversation IPC. */
   studioChatTransport: StudioChatTransportMode
@@ -894,6 +945,8 @@ export type ElectronApi = {
   pathExists: (path: string) => Promise<boolean>
   statPath: (path: string) => Promise<FileSystemStat>
   getPathForFile: (file: unknown) => string
+  /** Send dropped files that have no path to the server; answers a path there for each (`file-uploads`). */
+  uploadFiles: (files: File[]) => Promise<string[]>
   checkWorkspaceFolder: (path: string) => Promise<WorkspaceFolderCheckResult>
   detectProjectLogo: (folderPath: string) => Promise<ProjectLogo | null>
   memoryResolveRoot: (input: { workspaceRoot: string | null; relativeRoot: string | null }) => Promise<MemoryRootStatus>
@@ -1058,6 +1111,15 @@ export type ElectronApi = {
   updateQuitAndInstall: () => Promise<AppUpdateCheckResult>
   updateOpenReleaseNotes: () => Promise<{ opened: true; url: string }>
   /** The release channel the updater follows, and whether the person chose it. */
+  /** The Studio server: its phase in words, the Advanced toggle, and the actions on it. */
+  studioServerStatus: () => Promise<StudioServerStatus>
+  studioServerInfo: () => Promise<StudioServerInfo | null>
+  studioServerRetry: () => Promise<void>
+  studioServerRestart: () => Promise<void>
+  studioServerOpenLog: () => Promise<boolean>
+  studioServerSetMode: (mode: ServerMode) => Promise<StudioServerStatus>
+  studioServerRelaunch: (options?: { compatibility?: boolean }) => Promise<void>
+  onStudioServerStatus: (cb: (status: StudioServerStatus) => void) => () => void
   updateGetChannel: () => Promise<AppUpdateChannelSetting>
   /** Save a channel choice, re-point the updater at it and check that channel. */
   updateSetChannel: (channel: AppUpdateTrack) => Promise<AppUpdateCheckResult>
@@ -1087,6 +1149,38 @@ export type ElectronApi = {
   hostsHome: (hostId: ExecutionHostId) => Promise<HostHomeResult>
   /** The machine list may read differently now; ask again. Returns the unsubscribe. */
   onHostsChanged: (cb: () => void) => () => void
+  /** SSH machines (phase 8): saved, with their state in words. */
+  sshEnvironmentsList: () => Promise<SshEnvironmentSummary[]>
+  /** What `ssh -G` makes of a destination, shown before it is saved. */
+  sshEnvironmentResolve: (destination: string) => Promise<SshResolveResult>
+  /** The plain `Host` names in the person's SSH config. */
+  sshEnvironmentSuggestions: () => Promise<string[]>
+  sshEnvironmentAdd: (input: { destination: string; label?: string }) => Promise<SshEnvironmentResult & { id?: string }>
+  sshEnvironmentUpdate: (
+    id: string,
+    patch: Partial<SshEnvironmentSettings> & { label?: string },
+  ) => Promise<SshEnvironmentResult>
+  /** Connect now, as the person asked: ssh's questions may be shown. */
+  sshEnvironmentConnect: (id: string) => Promise<SshEnvironmentResult>
+  sshEnvironmentDisconnect: (id: string) => Promise<SshEnvironmentResult>
+  sshEnvironmentStopServer: (id: string) => Promise<SshEnvironmentResult>
+  sshEnvironmentUpgradeServer: (id: string) => Promise<SshEnvironmentResult>
+  sshEnvironmentForget: (
+    id: string,
+    options?: { stopServer?: boolean; clearBrowsingData?: boolean },
+  ) => Promise<SshEnvironmentResult>
+  sshEnvironmentDiagnostics: (id: string) => Promise<{ ok: true; text: string } | { ok: false; message: string }>
+  /** Sign a chat's CLI in on an SSH machine, with no terminal (decision R34). */
+  sshSignIn: (id: string, providerId: string) => Promise<SshEnvironmentResult>
+  onSshEnvironmentsChanged: (cb: () => void) => () => void
+  /** ssh asks something; answer with `sshPromptAnswer`. */
+  onSshPrompt: (cb: (request: SshPromptRequest) => void) => () => void
+  /** A prompt is over without this window's answer (timed out, answered elsewhere, ssh gave up). */
+  onSshPromptClosed: (cb: (id: string) => void) => () => void
+  sshPromptAnswer: (id: string, answer: string | null) => void
+  /** The SSH machines preview switch: this session's, and the next launch's. */
+  sshPreviewStatus: () => Promise<SshPreviewStatus>
+  sshPreviewSet: (enabled: boolean) => Promise<SshPreviewStatus>
   writefile: (path: string, content: string) => Promise<void>
   /**
    * Save one pasted/dropped image that exists only as bytes (a clipboard
@@ -1449,24 +1543,15 @@ export type ElectronApi = {
   // (terminalCompactBlocker in shared/prompt-cache.ts). Offered as its prompt
   // cache expires, so the next message re-sends a summary rather than all of it.
   compactAgentSession: (sessionId: string) => Promise<{ ok: true } | { ok: false; message: string }>
-  // The hover hook for a conversation's pull request marks: main looks the
-  // session's branch up (once per key per hold) and re-reads any state older
-  // than ~60s. The pull requests themselves arrive as a fresh
+  // The hover hook for a terminal agent's pull request marks: the shell asks
+  // the Studio server to look the session's branch up (once per key per hold)
+  // and re-read any state older than ~60s. The pull requests themselves arrive as a fresh
   // `terminal:sessions-delta` carrying the session's `pullRequests`, never as
   // a return value, so one path owns the fact. The boolean says only whether
   // there was anything to ask about — false for a session main cannot name, or
   // one whose checkout has not resolved yet — so a caller that asks once per
   // session can tell "asked" from "could not ask yet" and try again.
   refreshPullRequestsForSession: (sessionId: string) => Promise<boolean>
-  /**
-   * What these CONVERSATIONS hold, agents running or long gone. Keyed by
-   * conversation because a session dies and a chat does not — the sidebar row
-   * for a finished agent had no way to learn it still had a pull request open
-   * (owner, 2026-09-10). Conversations with nothing are absent from the answer.
-   */
-  listPullRequestsForWorkspaces: (workspaceIds: readonly string[]) => Promise<Record<string, BranchPullRequest[]>>
-  /** Which conversations' lists moved; the ids only, never the lists. */
-  onPullRequestWorkspacesChanged: (listener: (workspaceIds: string[]) => void) => () => void
   diagnosticsGetProcessMetrics: () => Promise<ProcessMetricsSnapshot>
   // Synchronous: returns the preload's accumulated IPC counters (empty channels
   // when diagnostics is disabled, since instrumentation is skipped entirely).

@@ -32,6 +32,7 @@ import type {
   ExecutionHostSummary,
 } from '../../shared/execution-host'
 import type { TerminalPathStyle } from '../../shared/ipc/terminal'
+import type { GatewayLaunchIdentity } from '../../server/core/gateway-launch-tokens'
 import type { RunOutcome } from '../process-run'
 import type { SubtreeLiveReason, SubtreeProbeDeps } from '../terminal-subtree-probe'
 
@@ -195,7 +196,7 @@ export interface ExecutionHost {
    * a live launch's token reaches the automation server. Revoked when that
    * launch's session ends.
    */
-  issueChannelToken?(): string
+  issueChannelToken?(identity?: GatewayLaunchIdentity | null): string
   revokeChannelToken?(token: string): void
   /**
    * Watches a directory on the host, for hosts where a watch placed from this

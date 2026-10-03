@@ -1,30 +1,24 @@
-import { join } from 'node:path'
-
-import { app, BrowserWindow } from 'electron'
+import { machineAwareIpc } from './environments/ssh/machine-ipc'
+import { app, BrowserWindow, shell } from 'electron'
 import type { IpcMain } from 'electron'
 import { registerAgentConfigImportIpc } from './ipc/agent-config-import-ipc'
 import { registerAppearanceIpc } from './ipc/appearance-ipc'
 import { registerBackgroundModeIpc } from './ipc/background-mode-ipc'
 import { registerTelemetryIpc } from './ipc/telemetry-ipc'
 import { registerAuthIpc } from './ipc/auth-ipc'
-import { registerAutomationIpc } from './ipc/automation-ipc'
-import { registerStudioLocalAppsIpc } from './ipc/studio-local-apps-ipc'
-import { registerStudioConnectionIpc } from './ipc/studio-connection-ipc'
-import { createStudioChatBackend } from './studio-rpc/studio-chat-backend'
-import { CONVERSATION_ATTACHMENTS_DIRECTORY } from './conversation-attachment-store'
-import { CONVERSATION_PLANS_DIRECTORY } from './conversation-plan-store'
+import {
+  registerRemoteStudioConnectionIpc,
+  registerStudioConnectionIpc,
+  type RemoteWindowConnector,
+} from './ipc/studio-connection-ipc'
+import { assertAppSender } from './ipc/ipc-sender'
 import { registerAppMenuIpc } from './app-menu'
-import { registerBacklogIpc } from './ipc/backlog-ipc'
 import { registerBuiltinSkillsIpc } from './ipc/builtin-skills-ipc'
 import { registerStudioPluginIpc } from './ipc/studio-plugin-ipc'
 import { registerStudioAreaSkillsIpc } from './ipc/studio-area-skills-ipc'
 import { registerCliRuntimeIpc } from './ipc/cli-runtime-ipc'
-import { registerCliModelDiscoveryIpc } from './ipc/cli-model-discovery-ipc'
-import { registerConversationCommandsIpc } from './ipc/conversation-commands-ipc'
 import { registerTextGenerationIpc } from './ipc/text-generation-ipc'
 import { registerClipboardIpc } from './ipc/clipboard-ipc'
-import { createConversationIpcHandlers, registerConversationIpc } from './ipc/conversation-ipc'
-import { registerCredentialIpc } from './ipc/credential-ipc'
 import { registerConversationPeekIpc } from './ipc/conversation-peek-ipc'
 import { registerAgentCompactIpc } from './ipc/agent-compact-ipc'
 import { registerDiagnosticsIpc } from './ipc/diagnostics-ipc'
@@ -33,11 +27,8 @@ import { registerFilesystemReadIpc } from './ipc/filesystem-read-ipc'
 import { registerFilesystemWatchSearchIpc } from './ipc/filesystem-watch-search-ipc'
 import { registerGitRepoWatchIpc } from './ipc/git-repo-watch-ipc'
 import { listLiveTerminalSessions } from './terminal-runtime'
-import { registerMeshIpc } from './ipc/mesh-ipc'
 import { createFolderOpenIpcDependencies, registerFolderOpenIpc } from './ipc/folder-open-ipc'
-import { registerGitHubTokenIpc } from './ipc/github-token-ipc'
-import { registerGitHubReposIpc } from './ipc/github-repos-ipc'
-import { gitRepoRootFor, registerGitIpc } from './ipc/git-ipc'
+import { registerGitIpc } from './ipc/git-ipc'
 import { registerDesignSystemIpc } from './ipc/design-system-ipc'
 import { registerMcpIpc } from './ipc/mcp-ipc'
 import { registerMemoryActivityIpc } from './ipc/memory-activity-ipc'
@@ -56,8 +47,6 @@ import { registerPullRequestIpc } from './ipc/pull-request-ipc'
 import { registerSkillsIpc } from './ipc/skills-ipc'
 import { registerTerminalIpc } from './ipc/terminal-ipc'
 import { registerWorkspaceSkillsIpc } from './ipc/workspace-skills-ipc'
-import { registerLaunchSettingsIpc } from './ipc/launch-settings-ipc'
-import { registerHostsIpc } from './ipc/hosts-ipc'
 import { registerThirdPartyModuleIpc } from './ipc/third-party-module-ipc'
 import { registerUpdateIpc } from './ipc/update-ipc'
 import { registerVersionControlIpc } from './ipc/version-control-ipc'
@@ -68,7 +57,6 @@ import { registerCanvasIpc } from './ipc/canvas-ipc'
 import { registerEditorRevealIpc } from './ipc/editor-reveal-ipc'
 import { registerToursIpc } from './ipc/tours-ipc'
 import { pickCanvasExportDirectory, revealCanvasBoardFile } from './ipc/canvas-export-dialog'
-import { registerWorkspaceSyncIpc } from './ipc/workspace-sync-ipc'
 import { registerExtensionScaffoldIpc } from './ipc/extension-scaffold-ipc'
 import {
   confirmWorkspaceWindowClose,
@@ -78,10 +66,12 @@ import {
   isWorkspaceWindowWebContents,
   openAuxWindow,
 } from './window-factory'
-import { registerWorkspaceBackupIpc } from './ipc/workspace-backup-ipc'
 import type { AppServices } from './app-services'
+import type { CliModelDiscoveryInput } from '../shared/ipc/cli-model-discovery'
+import { registerServerDomainIpc } from '../server/desktop/server-ipc'
 import { createFilesystemMutationHandlers } from './filesystem-mutation-handlers'
 import { createFilesystemReadHandlers } from './filesystem-read'
+import { createProjectLogoIo } from './project-logo-io'
 import { createFilesystemWatchSearchHandlers } from './filesystem-watch-search-handlers'
 import { openDiagnosticsLogsFolder } from './diagnostics-folder'
 import { writeDiagnosticLog } from './diagnostics-service'
@@ -89,6 +79,15 @@ import { writeDiagnosticLog } from './diagnostics-service'
 export type CoreIpcOptions = {
   includeDevModules?: boolean
   applyModuleEnablementLive?: ModuleEnablementLiveApplier
+  /**
+   * The Studio server in a process of its own: its domains register there, on
+   * its IPC tunnel, and a chat view's protocol connection is brokered to it.
+   */
+  server?: {
+    studioConnections: RemoteWindowConnector
+    /** A model discovery pass, run by the server, which keeps the catalog cache. */
+    discoverModels(input: CliModelDiscoveryInput): Promise<unknown>
+  }
 }
 
 /** What registration hands back for the app's shutdown to finish. */
@@ -102,6 +101,14 @@ export function registerCoreIpc(
   diagnosticsEnabled: boolean,
   options: CoreIpcOptions = {},
 ): CoreIpcHandles {
+  // The file, git, terminal and folder channels never touch this computer for
+  // a workspace on an SSH machine: its paths are spelled `ssh://…`, and these
+  // registrations send them to that machine's server or refuse them in words
+  // (phase 8).
+  const machineIpc = machineAwareIpc(
+    ipcMain,
+    services.ssh ? { call: (id, channel, args) => services.ssh!.environments.machineCall(id, channel, args) } : null,
+  )
   registerWindowIpc(ipcMain, {
     createWorkspaceWindow: ({ windowId, bounds, isMaximized }) => {
       createMainWindow({ diagnosticsEnabled, windowId, bounds, isMaximized })
@@ -124,22 +131,14 @@ export function registerCoreIpc(
     },
   })
   registerToursIpc(ipcMain, services.tourService)
-  registerWorkspaceSyncIpc(ipcMain, services.workspaceSyncService, {
-    registry: services.workspaceRegistry,
-  })
-  registerAutomationIpc(ipcMain, services.automationService)
-  registerStudioLocalAppsIpc(ipcMain, services.studioRpcService)
-  registerStudioConnectionIpc(ipcMain, services.studioRpcService)
-  registerMeshIpc(ipcMain, services.automationService)
+  if (options.server) registerRemoteStudioConnectionIpc(ipcMain, options.server.studioConnections)
+  else if (services.studioRpcService) registerStudioConnectionIpc(ipcMain, services.studioRpcService)
   registerAppMenuIpc(ipcMain)
-  registerWorkspaceBackupIpc(ipcMain, services.workspaceBackupService)
   registerClipboardIpc(ipcMain)
-  registerCliRuntimeIpc(ipcMain)
-  registerCliModelDiscoveryIpc(ipcMain)
-  const conversationCommands = registerConversationCommandsIpc(ipcMain, {
-    userDataDir: app.getPath('userData'),
-    cliRuntimes: () => services.agentLaunchSettings.get().cliRuntimes,
-  })
+  registerCliRuntimeIpc(
+    ipcMain,
+    options.server ? { discoverModels: (input) => options.server!.discoverModels(input) } : {},
+  )
   registerTextGenerationIpc(ipcMain)
   // Voice dictation is a dev-only capability (the `voice-dictation` module). Its
   // main IPC is not yet a capability module, so gate it on the build channel
@@ -150,26 +149,26 @@ export function registerCoreIpc(
   registerBuiltinSkillsIpc(ipcMain, services.builtinSkillManager)
   registerStudioPluginIpc(ipcMain, services.studioPluginService)
   registerStudioAreaSkillsIpc(ipcMain, services.studioAreaSkillStore)
-  registerMcpIpc(ipcMain, services.mcpConfigService)
+  registerMcpIpc(machineIpc, services.mcpConfigService)
   registerAgentConfigImportIpc(ipcMain, services.agentConfigImportService)
   registerSkillsIpc(ipcMain, services.skillsService)
-  registerWorkspaceSkillsIpc(ipcMain, {
+  registerWorkspaceSkillsIpc(machineIpc, {
     workspaceSkills: services.workspaceSkillsService,
     agentCapabilities: services.agentCapabilityService,
     agentSkillInstaller: services.agentSkillInstaller,
   })
   const filesystemSearchHandlers = createFilesystemWatchSearchHandlers()
-  registerFilesystemWatchSearchIpc(ipcMain, filesystemSearchHandlers)
-  const filesystemReadHandlers = createFilesystemReadHandlers()
-  registerFilesystemReadIpc(ipcMain, filesystemReadHandlers)
+  registerFilesystemWatchSearchIpc(machineIpc, filesystemSearchHandlers)
+  const filesystemReadHandlers = createFilesystemReadHandlers({ opener: shell, projectLogoIo: createProjectLogoIo() })
+  registerFilesystemReadIpc(machineIpc, filesystemReadHandlers)
   // The file-manager target of the open-in-editor control is the same reveal the
   // rest of the app already uses, so it is handed the very same handler.
-  registerFolderOpenIpc(ipcMain, createFolderOpenIpcDependencies(filesystemReadHandlers.showItemInFolder))
+  registerFolderOpenIpc(machineIpc, createFolderOpenIpcDependencies(filesystemReadHandlers.showItemInFolder))
   // Memory/knowledge-graph backend is foundational: agent context injection
   // (TerminalView) and the Knowledge Graph settings tab
   // depend on it, so it is always registered. The memory-graph capability
   // module gates only the visualization panel (renderer side).
-  registerMemoryIpc(ipcMain)
+  registerMemoryIpc(machineIpc)
   registerMemoryActivityIpc(ipcMain)
   registerDiagnosticsIpc(ipcMain, {
     writeDiagnosticLog,
@@ -180,12 +179,9 @@ export function registerCoreIpc(
     listConversationRoots: () => services.conversations.listLiveConversationRoots(),
   })
   registerUpdateIpc(ipcMain, { updateService: services.updateService })
-  registerLaunchSettingsIpc(ipcMain, { launchSettings: services.agentLaunchSettings })
-  registerHostsIpc(ipcMain, { hosts: services.hosts })
-  registerFilesystemMutationIpc(ipcMain, createFilesystemMutationHandlers())
-  registerBacklogIpc(ipcMain)
+  registerFilesystemMutationIpc(machineIpc, createFilesystemMutationHandlers())
   registerGitIpc(
-    ipcMain,
+    machineIpc,
     {
       enabled: diagnosticsEnabled,
       logMainPerfEvent: services.logMainPerfEvent,
@@ -205,10 +201,8 @@ export function registerCoreIpc(
         ),
     },
   )
-  registerGitRepoWatchIpc(ipcMain)
-  registerVersionControlIpc(ipcMain)
-  registerGitHubTokenIpc(ipcMain, services.githubTokenStore)
-  registerGitHubReposIpc(ipcMain, services.githubTokenStore)
+  registerGitRepoWatchIpc(machineIpc)
+  registerVersionControlIpc(machineIpc)
   registerMenuDialogIpc(ipcMain)
   registerModuleEnablementIpc(ipcMain, { applyLive: options.applyModuleEnablementLive })
   registerModuleRegistryIpc(ipcMain, services.moduleRegistryMirror)
@@ -228,43 +222,30 @@ export function registerCoreIpc(
   registerCliVersionIpc(ipcMain)
   registerMarketplacePluginIpc(ipcMain, services)
   registerPluginIpc(ipcMain)
-  // Over the core's chats, as every in-process consumer reaches them.
-  const conversationHandlers = createConversationIpcHandlers(services.conversations)
-  registerConversationIpc(ipcMain, {
-    ...conversationHandlers,
-    terminalHandoff: (input) => services.conversationTerminalHandoff.handoff(input),
-  })
-  // The Studio RPC's chat surface is these same handlers, so a chat view on
-  // the protocol and one on IPC reach one chat by the same rules.
-  services.studioRpcService.provideChat(
-    createStudioChatBackend({
-      conversation: conversationHandlers,
-      files: { ...filesystemSearchHandlers, ...filesystemReadHandlers },
-      repoRoot: gitRepoRootFor,
-      hasReceipt: (sessionId, commandId) => services.conversations.hasCommandReceipt(sessionId, commandId),
-      // A run's worktree is inside its repository's folder, or a workspace of its own.
-      readableRoots: () => [
-        ...services.workspaceRegistry.getRecords().flatMap((record) => (record.folderPath ? [record.folderPath] : [])),
-        join(app.getPath('userData'), CONVERSATION_ATTACHMENTS_DIRECTORY),
-        join(app.getPath('userData'), CONVERSATION_PLANS_DIRECTORY),
-      ],
-      commands: (input) => conversationCommands.list(input),
-      workspaces: () =>
-        services.workspaceRegistry.getRecords().map((record) => ({
-          id: record.id,
-          name: record.name,
-          folderPath: record.folderPath ?? null,
-          ...(record.hostId ? { hostId: record.hostId } : {}),
-        })),
-    }),
-  )
-  registerCredentialIpc(ipcMain)
+  // The domains the Studio server owns: registered here while it runs in
+  // process, and by the server itself on its IPC tunnel when it runs in a
+  // process of its own (src/server/desktop/server-ipc.ts).
+  const { automationService, studioRpcService, workspaceBackupService, conversationTerminalHandoff } = services
+  const { conversationCommands } =
+    !options.server && automationService && studioRpcService && workspaceBackupService && conversationTerminalHandoff
+      ? registerServerDomainIpc(ipcMain, {
+          core: services.studioCore,
+          gateway: automationService,
+          studioRpc: studioRpcService,
+          githubTokenStore: services.githubTokenStore,
+          workspaceBackup: workspaceBackupService,
+          terminalHandoff: (input) => conversationTerminalHandoff.handoff(input),
+          files: { ...filesystemSearchHandlers, ...filesystemReadHandlers },
+          assertAppSender,
+        })
+      : // The server registers them, and disposes its own command lists.
+        { conversationCommands: { dispose: async () => undefined } }
   registerDesignSystemIpc(ipcMain)
   registerThirdPartyModuleIpc(ipcMain, services)
 
   // The terminal runtime (agent-runtime) is always on, so its IPC registers
   // with the core surfaces.
-  registerTerminalIpc(ipcMain, {
+  registerTerminalIpc(machineIpc, {
     ...services.terminalRuntime.ipcHandlers,
     // One idle-suspend setting governs both agent runtimes: PTY terminals and
     // headless conversation child processes share the threshold.
@@ -290,25 +271,14 @@ export function registerCoreIpc(
     },
   })
 
-  // Same reason: the pull request marks are read off a terminal session's
-  // observed checkout, so their one refresh channel registers beside the
-  // runtime that owns the session.
-  registerPullRequestIpc(ipcMain, {
-    refreshPullRequestsForSession: (sessionId) => services.pullRequestRecord.refreshForSession(sessionId),
-    // Keyed by conversation, for the rows with nothing running in them.
-    listForWorkspaces: (workspaceIds) => {
-      const out: Record<string, ReturnType<typeof services.pullRequestRecord.forWorkspace>> = {}
-      for (const id of workspaceIds) {
-        const list = services.pullRequestRecord.forWorkspace(id)
-        // Only conversations that have something. An empty array per id would
-        // make every answer the size of the question.
-        if (list.length > 0) out[id] = list
-      }
-      return out
-    },
+  // Same reason: a terminal agent's pull request marks follow its session, so
+  // the hover's refresh registers beside the runtime that owns the session.
+  // The lists themselves are the Studio server's, read over the protocol.
+  registerPullRequestIpc(machineIpc, {
+    refreshPullRequestsForSession: (sessionId) => services.refreshPullRequestsForSession(sessionId),
   })
   // ── extension-platform additions ──
   // Build your own extension: the SDK's templates, the machine check, the project.
-  registerExtensionScaffoldIpc(ipcMain)
+  registerExtensionScaffoldIpc(machineIpc)
   return { conversationCommands }
 }

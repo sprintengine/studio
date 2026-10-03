@@ -18,7 +18,12 @@ export type ModuleRegistryMirror = {
   write(value: unknown): ModuleRegistrySnapshotWriteResult
 }
 
-export function createModuleRegistryMirror(): ModuleRegistryMirror {
+export function createModuleRegistryMirror(
+  options: {
+    /** Told of every accepted snapshot: the shell passes them on to the Studio server out of process. */
+    onWrite?: (snapshot: ModuleRegistrySnapshot) => void
+  } = {},
+): ModuleRegistryMirror {
   let snapshot: ModuleRegistrySnapshot | null = null
   return {
     read: () => snapshot,
@@ -28,6 +33,7 @@ export function createModuleRegistryMirror(): ModuleRegistryMirror {
         return { ok: false, message: 'Malformed module registry snapshot; the cached registry is unchanged.' }
       }
       snapshot = normalized
+      options.onWrite?.(normalized)
       return { ok: true }
     },
   }

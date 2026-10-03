@@ -2,7 +2,8 @@
 
 Status: proposed, 2026-10-03. The decisions in section 3 are locked (owner,
 2026-10-03). The pull request marks in section 7 are built, on
-`fix/pull-request-marks`; nothing else here is. Only P0 (section 8) may be
+`fix/pull-request-marks`, and moved to the server with branch lookups only on
+`build/server-pull-requests`; nothing else here is. Only P0 (section 8) may be
 built before phase 6 of `docs/design/studio-server.md` (the Studio server out
 of process) lands; everything after it is built on the server. When code and
 this file disagree, fix one of them in the same change.
@@ -215,8 +216,10 @@ moves changelists to the server; that is the point to reconcile with the owner
 of phases 6 and 10. The exception is D5's derivation module, which is pure, has
 no process dependency, and may be built at any time.
 
-**D8. Pull request capture follows D7.** A chat's `gh pr create` capture moves
-to the server, or is forwarded from it, so that it works in both server modes.
+**D8. Pull request marks follow D7.** Superseded in its means by the owner
+rulings of 2026-10-03: there is no capture to move. The pull request record is
+a server domain in both modes, and marks come only from branch lookups
+(`docs/design/studio-server.md`, section 6.8).
 
 ## 4. The record
 
@@ -307,34 +310,35 @@ because D8 changes where part of this lives.
 - **A project's open count appears once.** It is on the tree's folder header
   only, and no longer on every row's project line in the flat list, where each
   chat wore it and read as having an open pull request of its own.
-- **Chat agents' pull requests are captured.** `src/main/conversation-pull-request-capture.ts`
-  (`:50`) reads the conversation stream with the reporter's rules: the creation
-  command only (`gh pr create`), the URL from the output only, and a failed
-  create still counts, because `gh` prints the existing pull request's URL. The
-  pull request is filed against the chat. It is wired in the shell
-  (`src/main/app-services.ts:908` on that branch).
+- **Chat agents' pull requests come from branch lookups** (owner rulings
+  2026-10-03, replacing the capture first built here). Pull request marks no
+  longer read tool output: no command, and no URL a tool printed. At a chat's
+  turn end the server looks up the chat's own checkout and every other
+  repository its tool calls changed files in, taken from
+  `tool_output.payload.fileChanges` (section 5's field). A terminal agent's are
+  looked up the same way from where its hooks say it is and the files they say
+  it edited; the hook reporters no longer capture pull requests either. The
+  record is the server's (`src/server/pull-requests/`).
 - **Freshness.** The watch holds at two minutes instead of climbing to 32
   (`src/main/github/pull-request-watch-poller.ts:49`). A window focus re-reads
   every stale open pull request on the record. Stored records load at start.
 - **Restart.** A chat's pull requests survive a restart:
   `openedByWorkspaceId` is read back, kept through branch-lookup merges, and
-  compared in `sameEntry` (`src/main/pull-request-record.ts:1120`).
+  compared in `sameEntry` (now `src/server/pull-requests/pull-request-record.ts`),
+  and the branches a conversation worked on are written beside the records.
 
 Follow-ups:
 
-1. **Server mode records nothing for chats.** The capture subscribes to the
-   shell's `conversations.onEvent`, which is a no-op out of process (section
-   2.5). D8 resolves it (P4). The capture's dependencies
-   (`ConversationPullRequestCaptureDeps`, `:44`) are only `onEvent` and
-   `noteCaptured`, so it can run in the server with `noteCaptured` crossing to
-   the shell as a new `ShellBridge` event until phase 10 moves the pull request
-   record.
-2. **A pull request opened another way is not attributed.** A pull request
-   opened in the web UI or through an MCP tool is missed. Two complements:
-   an agent-callable "link this pull request" gateway tool, and a branch lookup
-   for the chat's checkout at turn end.
+1. **Server mode records nothing for chats.** Done: the record and its lookups
+   run in the server in both modes.
+2. **A pull request opened another way is not attributed.** Done for the
+   common case: a pull request on a branch the agent worked on is found
+   however it was opened, and so is one on a branch the turn pushed and left
+   (`docs/design/studio-server.md`, section 6.8). One opened from a default
+   branch, or for a branch pushed by URL or holding only older commits, is
+   still not attributed.
 3. **A row with a live terminal shows only that terminal's pull requests,** not
-   the chat's captures.
+   the ones the rest of the conversation's agents worked on. Unchanged.
 4. **Open, not decided:** settle a chat automatically when its pull request
    merges, behind a setting (section 9).
 
@@ -375,13 +379,11 @@ Done when an agent's card in a shared folder lists only its own files with the
 other-changes line beneath, and every number in the sidebar opens a view of
 what it counted.
 
-**P4 — Pull requests in server mode, and the link tool.**
-Chat capture runs in the server and reaches the pull request record in both
-modes. The gateway gets the "link this pull request" tool, and the chat's
-checkout gets a branch lookup at turn end. Done when the server-mode smoke run
-(`scripts/smoke-server-mode.mjs` on the phase 6 branch) captures a chat's
-`gh pr create`, and a pull request opened in the web UI and linked by the agent
-shows on its row.
+**P4 — Pull requests in server mode.** Built (owner rulings 2026-10-03): the
+record is a server domain, chats' and terminals' branches are looked up at
+turn end, and every client reads `pullRequests.*`. The "link this pull
+request" tool is not built: a capture-like path of any kind is what the
+ruling removed.
 
 ## 9. Open questions
 

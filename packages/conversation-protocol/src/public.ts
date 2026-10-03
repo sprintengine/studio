@@ -12,3 +12,5 @@ export * from './events.js'
 export * from './commands.js'
 export * from './handshake.js'
 export * from './clientFrames.js'
+// How a tool step is worded and toned, which every view of a conversation shares.
+export * from './presentation.js'

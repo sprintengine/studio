@@ -2,7 +2,7 @@ import { dirname, join } from 'path'
 import { mkdir, readFile, unlink, writeFile } from 'fs/promises'
 
 import { studioPlatform } from '../server/platform/platform'
-import type { SecretCipher } from '../server/platform/secret-cipher'
+import { openSecret, sealSecret, type SecretCipher } from '../server/platform/secret-cipher'
 
 export type GitHubTokenStatus = {
   configured: boolean
@@ -58,7 +58,7 @@ export class GitHubTokenStore {
 
     try {
       const encrypted = await readFile(this.tokenPath)
-      const token = this.cipher.open(encrypted).trim()
+      const token = (await openSecret(this.cipher, encrypted)).trim()
       this.inMemoryToken = token || null
       return this.inMemoryToken
     } catch {
@@ -73,7 +73,7 @@ export class GitHubTokenStore {
     this.inMemoryToken = trimmed
     if (this.cipher.available()) {
       await mkdir(dirname(this.tokenPath), { recursive: true })
-      await writeFile(this.tokenPath, this.cipher.seal(trimmed), { mode: 0o600 })
+      await writeFile(this.tokenPath, await sealSecret(this.cipher, trimmed), { mode: 0o600 })
     }
 
     return this.getStatus()

@@ -513,47 +513,56 @@ test('a revoked pairing ends the follow and is recorded as unauthorized', async 
 })
 
 test('a resync close waits the delay the far end advised before dialling again', async () => {
-  const dials: number[] = []
-  const handlers: RemoteJsonSocketHandlers[] = []
-  const cache: RemoteConversationCache = {
-    load: async () => null,
-    save: async () => undefined,
-    saveNow: () => undefined,
-    forgetConnection: async () => undefined,
+  // On the fake clock: the assertions are about the advised 400 ms, and on a
+  // busy machine a real 250 ms sleep can overrun it and see a dial that was due.
+  vi.useFakeTimers()
+  try {
+    const dials: number[] = []
+    const handlers: RemoteJsonSocketHandlers[] = []
+    const cache: RemoteConversationCache = {
+      load: async () => null,
+      save: async () => undefined,
+      saveNow: () => undefined,
+      forgetConnection: async () => undefined,
+    }
+    const client = createRemoteConversations({
+      cache,
+      retry: { baseMs: 5, maxMs: 10 },
+      resolveConnection: () => ({
+        id: 'c',
+        machineName: 'mac-mini',
+        endpoint: { host: 'mac-mini.tail1234.ts.net', port: 1 },
+        token: 't',
+        scopes: ['conversation:read'],
+      }),
+      openSocket: async (input) => {
+        dials.push(Date.now())
+        handlers.push(input.handlers)
+        return { ok: true, value: { send: () => undefined, close: () => undefined, isOpen: () => true } }
+      },
+    })
+    const frames: MeshConversationFrame[] = []
+    await client.follow({
+      followId: 'pane',
+      key: { connectionId: 'c', workspaceId, agentId },
+      emit: (frame) => frames.push(frame),
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    assert.equal(dials.length, 1, 'first dial')
+    handlers[0].onFrame({ type: 'error', code: 'resync_required', message: 'behind', retryAfterMs: 400 })
+    handlers[0].onClosed({ code: 4409, reason: 'resync_required;retryAfterMs=400' })
+    await vi.advanceTimersByTimeAsync(250)
+    assert.equal(dials.length, 1, 'no dial before the advised delay, whatever the backoff says')
+    client.onWake()
+    await vi.advanceTimersByTimeAsync(50)
+    assert.equal(dials.length, 1, 'a wake does not cut an advised delay short')
+    await vi.advanceTimersByTimeAsync(100)
+    assert.equal(dials.length, 2, 'dials again once the delay has passed')
+    assert.ok(dials[1] - dials[0] >= 400, `waited ${dials[1] - dials[0]} ms`)
+    client.shutdown()
+  } finally {
+    vi.useRealTimers()
   }
-  const client = createRemoteConversations({
-    cache,
-    retry: { baseMs: 5, maxMs: 10 },
-    resolveConnection: () => ({
-      id: 'c',
-      machineName: 'mac-mini',
-      endpoint: { host: 'mac-mini.tail1234.ts.net', port: 1 },
-      token: 't',
-      scopes: ['conversation:read'],
-    }),
-    openSocket: async (input) => {
-      dials.push(Date.now())
-      handlers.push(input.handlers)
-      return { ok: true, value: { send: () => undefined, close: () => undefined, isOpen: () => true } }
-    },
-  })
-  const frames: MeshConversationFrame[] = []
-  await client.follow({
-    followId: 'pane',
-    key: { connectionId: 'c', workspaceId, agentId },
-    emit: (frame) => frames.push(frame),
-  })
-  await waitFor(() => dials.length === 1, 'first dial')
-  handlers[0].onFrame({ type: 'error', code: 'resync_required', message: 'behind', retryAfterMs: 400 })
-  handlers[0].onClosed({ code: 4409, reason: 'resync_required;retryAfterMs=400' })
-  await new Promise((resolve) => setTimeout(resolve, 250))
-  assert.equal(dials.length, 1, 'no dial before the advised delay, whatever the backoff says')
-  client.onWake()
-  await new Promise((resolve) => setTimeout(resolve, 50))
-  assert.equal(dials.length, 1, 'a wake does not cut an advised delay short')
-  await waitFor(() => dials.length === 2, 'dials again once the delay has passed')
-  assert.ok(dials[1] - dials[0] >= 390, `waited ${dials[1] - dials[0]} ms`)
-  client.shutdown()
 })
 
 test('a frame of a known type in the wrong shape ends the follow instead of being skipped', async () => {

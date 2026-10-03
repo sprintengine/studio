@@ -886,8 +886,9 @@ function evictOldestFileChangesPastBudget(ledger: Map<string, SessionFileChange>
 
 /**
  * Where the snapshot's `pullRequests` come from (epic `pull-request-marks`,
- * decision 10). The record that owns them (`pull-request-record.ts`) is wired in
- * by the app rather than imported here: this module knows a session, not a
+ * decision 10). The record that owns them is the Studio server's
+ * (`src/server/pull-requests/`), and the shell's client of it
+ * (`terminal-pull-requests.ts`) is wired in by the app rather than imported here: this module knows a session, not a
  * checkout's GitHub history, and a session snapshot must stay buildable in a
  * test with no store behind it. Unset — a plain terminal, a test, main before
  * the record exists — every snapshot simply carries an empty list.

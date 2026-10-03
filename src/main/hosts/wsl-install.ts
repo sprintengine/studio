@@ -2,23 +2,29 @@
 //
 // Everything lands under `~/.local/share/sprintengine-studio/`:
 //
-//   runtime/node-<version>/bin/node    the pinned Linux Node (`wsl-node-runtime.ts`)
+//   runtime/node-<version>/bin/node    the pinned Node (`wsl-node-runtime.ts`)
 //   <appVersion>/wsl-helper/…          the helper
 //   <appVersion>/hooks/…               the hook reporters and status line
 //   <appVersion>/automation/…          the MCP bridge
 //   <appVersion>/plugin/…              the Claude plugin copy (written later,
 //                                      by the helper itself; see `wsl-host.ts`)
+//   server-<appVersion>/…              the Studio server a distribution's chats
+//                                      run on (phase 7), a tree of its own with
+//                                      its own marker, so a person who uses WSL
+//                                      only for terminals never receives it
+//   data/, data-<profile>/             that server's data, never pruned
 //
 // Each tree is installed the same way, and atomically:
 //
 //   1. a `sh -s` script makes a private staging directory;
 //   2. the archive is streamed over `wsl.exe`'s stdin straight into
 //      `tar -x` there (`--exec tar`, never a shell: see below);
-//   3. a second `sh -s` script takes a lock (`flock`), checks the staged tree
+//   3. a second `sh -s` script takes the install lock, checks the staged tree
 //      (for Node, that `node --version` runs and says the pinned version),
-//      writes a ready marker holding the archive's digest into it, and renames
-//      it into place with `mv -T`. Older versions are pruned, except any a
-//      running process still uses (found through `/proc/*/cmdline`).
+//      writes a ready marker holding the archive's digest into it, and moves
+//      it into place. Older versions are pruned, except any a running process
+//      still uses. The lock, the liveness check and the move are the ones an
+//      SSH machine's install runs too (`remote-install.ts`).
 //
 // A later start trusts a tree only when its marker holds the expected digest.
 // When a start with a trusted Node still fails to run the helper, the Node
@@ -37,36 +43,43 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 import { gzipSync } from 'node:zlib'
 
+import {
+  checkLines,
+  COMMITTED_MARKER,
+  FAIL_MARKER,
+  hexToken as hex,
+  NODE_RUNTIME_REL,
+  plainToken as token,
+  posixInstallFunctions,
+  pruneLines,
+  PRUNE_GLOBS,
+  REMOTE_DATA_REL,
+  serverTreeName,
+} from './remote-install'
 import { WSL_NODE_VERSION, type WslNodePackage } from './wsl-node-runtime'
 
-/** The data root, relative to the Linux home. */
-export const WSL_DATA_REL = '.local/share/sprintengine-studio'
+export { COMMITTED_MARKER, commitFailure, FAIL_MARKER, PRUNE_GLOBS, serverTreeName } from './remote-install'
 
-const TOKEN = /^[A-Za-z0-9._+-]+$/u
-const HEX = /^[a-f0-9]+$/u
-
-function token(value: string, what: string): string {
-  if (!TOKEN.test(value)) throw new Error(`${what} is not a plain token: ${JSON.stringify(value)}`)
-  return value
-}
-
-function hex(value: string, what: string): string {
-  if (!HEX.test(value)) throw new Error(`${what} is not hex.`)
-  return value
-}
+/** The data root, relative to the Linux home: the same on every POSIX host. */
+export const WSL_DATA_REL = REMOTE_DATA_REL
 
 export type WslLaunchScriptInput = {
   appVersion: string
   /** The pinned archives' digests; the Node marker must hold one of them. */
   nodeDigests: readonly string[]
+  /** The digest of the tree this entry runs from: the helper's payload, or the server's. */
   appDigest: string
   profile: string
+  /**
+   * What to start: the helper (the default), or the Studio server, which
+   * reads a bootstrap envelope on stdin (`--bootstrap stdio`). Either way a
+   * missing tree is reported as `app`.
+   */
+  entry?: 'helper' | 'server'
 }
 
 export const NEED_MARKER = '@@SPRINTENGINE_NEED'
-export const FAIL_MARKER = '@@SPRINTENGINE_FAIL'
 export const STAGED_MARKER = '@@SPRINTENGINE_STAGED'
-export const COMMITTED_MARKER = '@@SPRINTENGINE_COMMITTED'
 /** The launch script's exit code when something has to be installed first. */
 export const NEEDS_INSTALL_EXIT = 3
 
@@ -80,22 +93,40 @@ export function buildLaunchScript(input: WslLaunchScriptInput): string {
   const version = token(input.appVersion, 'The app version')
   const profile = token(input.profile, 'The profile id')
   const nodeDigests = input.nodeDigests.map((digest) => hex(digest, 'A Node digest')).join('|')
+  const server = input.entry === 'server'
+  const entryFile = server ? 'server.cjs' : 'wsl-helper/helper.mjs'
   return [
     'set -u',
     `base="$HOME/${WSL_DATA_REL}"`,
     `rt="$base/runtime/node-${WSL_NODE_VERSION}"`,
-    `app="$base/${version}"`,
+    `app="$base/${server ? serverTreeName(version) : version}"`,
     "need=''",
     'ok=0',
     `[ -x "$rt/bin/node" ] && case "$(cat "$rt/.ready" 2>/dev/null)" in ${nodeDigests}) ok=1 ;; esac`,
     '[ "$ok" = 1 ] || need="$need node"',
-    `{ [ -f "$app/wsl-helper/helper.mjs" ] && [ "$(cat "$app/.ready" 2>/dev/null)" = '${hex(input.appDigest, 'The app digest')}' ]; } || need="$need app"`,
+    `{ [ -f "$app/${entryFile}" ] && [ "$(cat "$app/.ready" 2>/dev/null)" = '${hex(input.appDigest, 'The app digest')}' ]; } || need="$need app"`,
     'if [ -n "$need" ]; then',
     '  xz=0; command -v xz >/dev/null 2>&1 && xz=1',
     `  printf '${NEED_MARKER}%s arch=%s xz=%s\\n' "$need" "$(uname -m)" "$xz"`,
     `  exit ${NEEDS_INSTALL_EXIT}`,
     'fi',
-    `exec "$rt/bin/node" "$app/wsl-helper/helper.mjs" --profile '${profile}'`,
+    server
+      ? // The envelope follows on stdin, once the server has said `boot`.
+        'exec "$rt/bin/node" "$app/server.cjs" --bootstrap stdio'
+      : `exec "$rt/bin/node" "$app/wsl-helper/helper.mjs" --profile '${profile}'`,
+  ].join('\n')
+}
+
+/**
+ * The script `sh -s` runs for the stdio bridge (phase 7): the relay from the
+ * installed server tree, on the pinned Node. It says it is ready before it
+ * reads anything (`resources/wsl-server/bridge.mjs`).
+ */
+export function buildBridgeScript(appVersion: string): string {
+  return [
+    'set -u',
+    `base="$HOME/${WSL_DATA_REL}"`,
+    `exec "$base/runtime/node-${WSL_NODE_VERSION}/bin/node" "$base/${serverTreeName(appVersion)}/bridge.mjs"`,
   ].join('\n')
 }
 
@@ -153,63 +184,54 @@ export function tarArgs(kind: 'node' | 'app', stageId: string, pkg?: WslNodePack
 
 export type CommitInput =
   | { kind: 'node'; stageId: string; digest: string }
-  | { kind: 'app'; stageId: string; digest: string; appVersion: string }
+  | { kind: 'app' | 'server'; stageId: string; digest: string; appVersion: string }
 
 /**
- * Checks the staged tree, marks it, moves it into place under a lock, and
- * prunes older versions nothing is running from. Prints `@@SPRINTENGINE_FAIL
- * <reason>` and exits 4 when anything is wrong, leaving what was installed
- * before untouched.
+ * Checks the staged tree, marks it, moves it into place under the install
+ * lock, and prunes older versions nothing is running from (the steps are
+ * `remote-install.ts`'s, shared with SSH machines). Prints
+ * `@@SPRINTENGINE_FAIL <reason>` and exits 4 when anything is wrong, leaving
+ * what was installed before untouched.
  */
 export function buildCommitScript(input: CommitInput): string {
   const id = token(input.stageId, 'The stage id')
   const digest = hex(input.digest, 'The digest')
   const final =
     input.kind === 'node'
-      ? `$base/runtime/node-${WSL_NODE_VERSION}`
-      : `$base/${token(input.appVersion, 'The app version')}`
-  const prune = input.kind === 'node' ? '"$base"/runtime/node-*' : '"$base"/[0-9]*'
+      ? `$base/${NODE_RUNTIME_REL}`
+      : input.kind === 'server'
+        ? `$base/${serverTreeName(input.appVersion)}`
+        : `$base/${token(input.appVersion, 'The app version')}`
+  // Each kind prunes only its own trees. `data*/` matches none of these, so a
+  // person's chats are never pruned.
+  const prune = PRUNE_GLOBS[input.kind]
   const check =
     input.kind === 'node'
-      ? [
-          'out="$("$stage/bin/node" --version 2>&1)" || fail "node-run $out"',
-          `[ "$out" = '${WSL_NODE_VERSION}' ] || fail "node-version $out"`,
-        ]
-      : ['[ -f "$stage/wsl-helper/helper.mjs" ] || fail "payload incomplete"']
+      ? checkLines('node', {})
+      : input.kind === 'server'
+        ? checkLines('server', { appVersion: input.appVersion })
+        : ['[ -f "$stage/wsl-helper/helper.mjs" ] || fail "payload incomplete"']
   return [
     'set -u',
     `base="$HOME/${WSL_DATA_REL}"`,
+    `id='${id}'`,
     `stage="$base/.stage/${id}"`,
     `final="${final}"`,
-    `fail() { printf '${FAIL_MARKER} %s\\n' "$*"; rm -rf "$stage"; exit 4; }`,
-    // Anything a running process names in its command line (the helper, a
-    // hook's Node) is still in use and is not removed or replaced under it.
-    'live() { for c in /proc/[0-9]*/cmdline; do grep -qF -- "$1/" "$c" 2>/dev/null && return 0; done; return 1; }',
+    ...posixInstallFunctions(),
+    `fail() { printf '${FAIL_MARKER} %s\\n' "$*"; rm -rf "$stage"; [ "\${locked:-0}" = 1 ] && lock_drop; exit 4; }`,
     '[ -d "$stage" ] || fail "nothing staged"',
     'mkdir -p "$(dirname "$final")" || fail mkdir',
-    'exec 9>"$base/.install.lock" || fail lock',
-    'if command -v flock >/dev/null 2>&1; then flock -w 120 9 || fail "lock timeout"; fi',
+    'lock_take || fail "lock timeout"',
+    'locked=1',
     ...check,
     `if [ "$(cat "$final/.ready" 2>/dev/null)" = '${digest}' ]; then`,
     '  rm -rf "$stage"',
     'else',
     `  printf '%s' '${digest}' > "$stage/.ready" || fail marker`,
-    '  if [ -e "$final" ]; then',
-    `    if live "$final"; then mv "$final" "$final.old-${id}" || fail "set aside"; else rm -rf "$final" || fail remove; fi`,
-    '  fi',
-    '  mv -T "$stage" "$final" 2>/dev/null || mv "$stage" "$final" || fail move',
+    '  place "$stage" "$final" || fail move',
     'fi',
-    `for d in ${prune}; do`,
-    '  [ -d "$d" ] || continue',
-    '  [ "$d" = "$final" ] && continue',
-    '  live "$d" && continue',
-    // A tree set aside while live is still named, by the processes running
-    // from it, under the path it had before the move; nothing names the
-    // `.old-` path. It goes only once nothing names the original path either,
-    // which is the one reading that cannot mistake it for unused.
-    '  case "$d" in *.old-*) live "${d%.old-*}" && continue ;; esac',
-    '  rm -rf "$d"',
-    'done',
+    ...pruneLines(prune),
+    'lock_drop',
     `echo ${COMMITTED_MARKER}`,
   ].join('\n')
 }
@@ -217,12 +239,6 @@ export function buildCommitScript(input: CommitInput): string {
 /** Drops the Node ready marker after a start that could not run the helper. */
 export function buildUnreadyScript(): string {
   return `rm -f "$HOME/${WSL_DATA_REL}/runtime/node-${WSL_NODE_VERSION}/.ready"`
-}
-
-/** The reason a failed commit printed, or the script's own last words. */
-export function commitFailure(stdout: string, stderr: string): string {
-  const line = stdout.split(/\r?\n/u).find((candidate) => candidate.startsWith(FAIL_MARKER))
-  return (line ? line.slice(FAIL_MARKER.length) : (stderr.split(/\r?\n/u).filter(Boolean).at(-1) ?? '')).trim()
 }
 
 // ── The app payload ─────────────────────────────────────────────────────────
@@ -252,7 +268,7 @@ export function buildAppPayload(sources: readonly PayloadSource[]): AppPayload {
     for (const path of walk(source.dir)) {
       const rel = relative(source.dir, path).split(sep).join('/')
       if (source.filter && !source.filter(rel)) continue
-      files.push({ path: `${source.into}/${rel}`, data: readFileSync(path) })
+      files.push({ path: source.into ? `${source.into}/${rel}` : rel, data: readFileSync(path) })
     }
   }
   files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
@@ -290,7 +306,12 @@ function header(name: string, size: number, type: '0' | '5', mode: number): Buff
   return block
 }
 
-export function buildTar(files: ReadonlyArray<{ path: string; data: Buffer }>): Buffer {
+/**
+ * A tar of `files`, each 0600 unless it says otherwise (an executable, such as
+ * the Node binary an SSH install repacks, carries 0700), under 0700
+ * directories.
+ */
+export function buildTar(files: ReadonlyArray<{ path: string; data: Buffer; mode?: number }>): Buffer {
   const parts: Buffer[] = []
   const dirs = new Set<string>()
   for (const file of files) {
@@ -301,7 +322,7 @@ export function buildTar(files: ReadonlyArray<{ path: string; data: Buffer }>): 
       dirs.add(dir)
       parts.push(header(dir, 0, '5', 0o700))
     }
-    parts.push(header(file.path, file.data.length, '0', 0o600))
+    parts.push(header(file.path, file.data.length, '0', file.mode ?? 0o600))
     parts.push(file.data)
     const pad = (512 - (file.data.length % 512)) % 512
     if (pad) parts.push(Buffer.alloc(pad))

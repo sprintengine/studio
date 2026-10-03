@@ -1,4 +1,5 @@
-import { ipcRenderer, type IpcRendererEvent } from 'electron'
+import type { IpcRendererEvent } from 'electron'
+import { ipc as ipcRenderer } from '../ipc-router'
 import type { RepositoryIdentityRead } from '../../shared/repository-identity'
 import type { GitFileHunksResult, GitHunkRef, GitHunkScope } from '../../shared/git/hunks'
 import type { Changelist } from '../../shared/git/changelists'

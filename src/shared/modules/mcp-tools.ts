@@ -38,9 +38,11 @@ export type McpToolRegistration = {
 export type McpConnectionMetadata = {
   /**
    * `studio-agent`/`external-local` reach the gateway over the owner-only local
-   * socket and their identity is advisory — anything with filesystem access
-   * could claim it. `remote-tailnet` is the opt-in tailnet listener,
-   * where the transport PROVED which paired device is calling before dispatch.
+   * socket. A declared identity is advisory — anything with filesystem access
+   * could claim it — unless the connection presented the launch token Studio
+   * issued that agent's launch, in which case the identity is the token's.
+   * `remote-tailnet` is the opt-in tailnet listener, where the transport
+   * PROVED which paired device is calling before dispatch.
    */
   kind: 'studio-agent' | 'external-local' | 'remote-tailnet'
   workspaceId?: string

@@ -1,6 +1,7 @@
 import { mkdir, readFile, realpath, rename, writeFile } from 'fs/promises'
 import { dirname, join, resolve } from 'path'
 import { randomUUID } from 'crypto'
+import { STUDIO_MCP_SERVER_ID } from '../shared/product-identity'
 import {
   approvalFilePath,
   approvalRuleCandidate,
@@ -84,6 +85,33 @@ export class ConversationApprovalRuleStore {
   async revoke(id: string): Promise<void> {
     await this.load()
     await this.mutate((rules) => rules.filter((rule) => rule.id !== id))
+  }
+  /**
+   * Forget every rule that allows a tool of these client toolsets, on the
+   * Studio gateway, saved or for a session: the toolsets' app was revoked, and
+   * a later app that takes one of the names must inherit no "always allow".
+   * A rule names the tool as the CLI spelled it (`game.spawn` or
+   * `game_spawn`), and a toolset name has no underscore, so either splits at
+   * its first separator.
+   */
+  async forgetGatewayToolsets(toolsets: readonly string[]): Promise<number> {
+    if (toolsets.length === 0) return 0
+    await this.load()
+    const names = new Set(toolsets)
+    const forgets = (rule: ConversationApprovalRule) => {
+      if (rule.matcher.type !== 'mcp' || !rule.matcher.server.includes(STUDIO_MCP_SERVER_ID)) return false
+      const toolset = /^([a-z][a-z0-9-]*)[._]/u.exec(rule.matcher.tool)?.[1]
+      return toolset !== undefined && names.has(toolset)
+    }
+    for (const [sessionId, rules] of this.sessions)
+      this.sessions.set(
+        sessionId,
+        rules.filter((rule) => !forgets(rule)),
+      )
+    const before = this.persistent.length
+    if (this.userDataDir && this.persistent.some(forgets))
+      await this.mutate((rules) => rules.filter((rule) => !forgets(rule)))
+    return before - this.persistent.length
   }
   dropSession(sessionId: string): void {
     this.sessions.delete(sessionId)

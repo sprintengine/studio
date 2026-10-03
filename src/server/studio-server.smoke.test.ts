@@ -8,6 +8,9 @@ import { createInterface } from 'node:readline'
 import { afterAll, beforeAll, test } from 'vitest'
 
 import { acquireDataDirLock } from './core/data-dir'
+import { connectRemoteConversationBackend } from './wsl/backend-wire'
+import { connectLoopback } from './wsl/front-door-client'
+import { enterFrontDoor, ownerTokenHash } from './wsl/front-door-proof'
 
 // The Studio core under plain Node, end to end: the server is built into its
 // bundle the way `npm run build:server` builds it, and that bundle is run by
@@ -257,4 +260,186 @@ test('a chat runs on the mock provider, with a checkpoint and a revert, in the b
   assert.equal(report.fileAfterRevert, 'original\n')
   assert.equal(report.turnsCompleted, 2)
   assert.match(report.replies.at(-1), /^Mock response for: Files were reverted[\s\S]*hello$/)
+})
+
+test('a server started with a bootstrap envelope on stdin says ready, answers pings and drains on shutdown', async () => {
+  const env = isolatedEnv('bootstrap')
+  const dataDir = join(scratch, 'bootstrap', 'data')
+  const child = spawn(process.execPath, [bundle, '--bootstrap', 'stdio'], { env, cwd: tmpdir() })
+  let stderr = ''
+  child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString('utf8')))
+  const exited = new Promise<number | null>((resolve) => child.on('exit', (code) => resolve(code)))
+  const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]()
+  const next = async (): Promise<Record<string, any>> => {
+    const line = await lines.next()
+    assert.equal(line.done, false, `the server wrote nothing more on stdout; stderr:\n${stderr}`)
+    return JSON.parse(line.value) as Record<string, any>
+  }
+  child.stdin.write(
+    `${JSON.stringify({
+      v: 1,
+      role: 'headless',
+      dataDir,
+      logsDir: join(scratch, 'bootstrap', 'logs'),
+      runDir: join(dataDir, 'run'),
+      tempDir: tmpdir(),
+      paths: { resourcesDir: null, appPath: ROOT, isPackaged: false, appExecPath: process.execPath },
+      app: { version: '0.0.0-test', buildStamp: '', channel: 'nightly' },
+      owner: {},
+      listeners: { gateway: true, tailnet: 'off' },
+      secrets: { kind: 'key-file' },
+      flags: {},
+    })}\n`,
+  )
+  const boot = await next()
+  assert.equal(boot.t, 'boot', 'the server says who it is before it reads anything')
+  assert.equal(boot.pid, child.pid)
+  assert.equal(boot.home, env.HOME)
+  const ready = await next()
+  assert.equal(ready.t, 'ready', stderr)
+  assert.equal(ready.pid, child.pid)
+  assert.match(ready.environmentId, /^[0-9a-f-]{36}$/)
+  assert.equal(typeof ready.gateway.socketPath, 'string')
+  assert.ok(existsSync(join(dataDir, 'run', 'studio.lock')))
+
+  child.stdin.write(`${JSON.stringify({ t: 'ping', seq: 3 })}\n`)
+  const pong = await next()
+  assert.equal(pong.t, 'pong')
+  assert.equal(pong.seq, 3)
+
+  child.stdin.write(`${JSON.stringify({ t: 'shutdown', drain: true, budgetMs: 8000 })}\n`)
+  const legs: string[] = []
+  for (let frame = await next(); frame.t === 'shutdown-progress'; frame = await next().catch(() => ({ t: 'end' }))) {
+    legs.push(frame.leg)
+    if (frame.done === frame.total) break
+  }
+  assert.deepEqual(legs, ['studio-rpc', 'gateway', 'core'])
+  assert.equal(await exited, 0, stderr)
+  assert.equal(existsSync(join(dataDir, 'run', 'studio.lock')), false, 'the run lock is let go')
+})
+
+test('a server with a front door lets in only a proven front door, and serves it the backend and the shell role', async () => {
+  const env = isolatedEnv('front-door')
+  // A short data directory: the bridge socket lives in its run directory.
+  const dataDir = mkdtempSync(join(existsSync('/tmp') ? '/tmp' : tmpdir(), 'se-fdd-'))
+  const token = 'seown_front-door-smoke-token'
+  const child = spawn(process.execPath, [bundle, '--bootstrap', 'stdio'], { env, cwd: tmpdir() })
+  let stderr = ''
+  child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString('utf8')))
+  const exited = new Promise<number | null>((resolve) => child.on('exit', (code) => resolve(code)))
+  const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]()
+  const next = async (): Promise<Record<string, any>> => {
+    const line = await lines.next()
+    assert.equal(line.done, false, `the server wrote nothing more on stdout; stderr:\n${stderr}`)
+    return JSON.parse(line.value) as Record<string, any>
+  }
+  assert.equal((await next()).t, 'boot')
+  child.stdin.write(
+    `${JSON.stringify({
+      v: 1,
+      role: 'headless',
+      dataDir,
+      logsDir: join(dataDir, 'logs'),
+      runDir: join(dataDir, 'run'),
+      tempDir: tmpdir(),
+      paths: { resourcesDir: null, appPath: ROOT, isPackaged: false, appExecPath: process.execPath },
+      app: { version: '0.0.0-test', buildStamp: '', channel: 'nightly' },
+      owner: { tokenHash: ownerTokenHash(token) },
+      listeners: { gateway: true, tailnet: 'off', frontDoor: { loopback: true } },
+      secrets: { kind: 'key-file' },
+      flags: {},
+      wsl: { distro: 'Ubuntu-24.04' },
+    })}\n`,
+  )
+  const ready = await next()
+  assert.equal(ready.t, 'ready', stderr)
+  assert.ok(ready.frontDoor.port > 0)
+  assert.equal(ready.frontDoor.socketPath, join(dataDir, 'run', 'front-door.sock'))
+
+  const socket = await connectLoopback(ready.frontDoor.port)
+  const backend = connectRemoteConversationBackend(await enterFrontDoor(socket, { token, purpose: 'backend' }))
+  await backend.refresh()
+  const listed = backend.listSessions()
+  assert.ok(listed.ok && listed.sessions.length === 0)
+  const threads = await backend.listThreads({ workspaceRoot: dataDir, workspaceId: 'ws-1' })
+  assert.ok(threads.ok, 'a call crosses to the core and back')
+  backend.close()
+
+  const shell = await enterFrontDoor(connect(ready.frontDoor.socketPath), { token, purpose: 'studio' })
+  const ticketLine = await new Promise<string>((resolve) => {
+    let text = ''
+    shell.on('data', (chunk: Buffer) => {
+      text += chunk.toString('utf8')
+      if (text.includes('\n')) resolve(text.slice(0, text.indexOf('\n')))
+    })
+  })
+  assert.match(JSON.parse(ticketLine).ticket, /\S{20,}/u)
+  shell.destroy()
+
+  await assert.rejects(
+    enterFrontDoor(await connectLoopback(ready.frontDoor.port), { token: 'seown_not-it', purpose: 'backend' }),
+    /could not prove/u,
+  )
+
+  child.stdin.write(`${JSON.stringify({ t: 'shutdown', drain: true, budgetMs: 8000 })}\n`)
+  assert.equal(await exited, 0, stderr)
+  rmSync(dataDir, { recursive: true, force: true })
+})
+
+test('a bootstrap envelope that is not one exits 64 and says why on stdout', async () => {
+  const child = spawn(process.execPath, [bundle, '--bootstrap', 'stdio'], { env: isolatedEnv('bad-envelope') })
+  const exited = new Promise<number | null>((resolve) => child.on('exit', (code) => resolve(code)))
+  const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]()
+  child.stdin.write('{"v":1,"role":"headless"}\n')
+  assert.equal(JSON.parse((await lines.next()).value as string).t, 'boot')
+  const fatal = JSON.parse((await lines.next()).value as string) as { t: string; code: number; message: string }
+  assert.equal(fatal.t, 'fatal')
+  assert.equal(fatal.code, 64)
+  assert.match(fatal.message, /dataDir/)
+  assert.equal(await exited, 64)
+})
+
+test('a server killed mid-turn leaves a directory the next one takes over: the lock, the socket and the turn, closed', async () => {
+  const repository = join(scratch, 'killed', 'repository')
+  const dataDir = join(scratch, 'killed', 'data')
+  mkdirSync(repository, { recursive: true })
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: repository, stdio: 'pipe' })
+  git('init', '-q')
+  git('config', 'user.name', 'Developer')
+  git('config', 'user.email', 'dev@example.com')
+  writeFileSync(join(repository, 'existing.txt'), 'original\n')
+  git('add', '.')
+  git('commit', '-qm', 'Initial files')
+  const KILL_FIXTURE = join(__dirname, '__fixtures__', 'kill-mid-turn.cjs')
+  const env = isolatedEnv('killed')
+
+  const first = spawn(process.execPath, [KILL_FIXTURE, bundle, 'start', dataDir, repository, ROOT], {
+    env,
+    cwd: tmpdir(),
+  })
+  let firstErr = ''
+  first.stderr.on('data', (chunk: Buffer) => (firstErr += chunk.toString('utf8')))
+  const waiting = createInterface({ input: first.stdout })[Symbol.asyncIterator]()
+  const said = await waiting.next()
+  assert.equal(said.done, false, firstErr)
+  assert.equal(JSON.parse(said.value).waiting, true)
+  const firstPid = first.pid
+  const gone = new Promise((resolve) => first.on('exit', resolve))
+  first.kill('SIGKILL')
+  await gone
+
+  const resumed = execFileSync(process.execPath, [KILL_FIXTURE, bundle, 'resume', dataDir, repository, ROOT], {
+    env,
+    cwd: tmpdir(),
+    encoding: 'utf8',
+  })
+  const report = JSON.parse(resumed.trim().split('\n').at(-1)!) as Record<string, any>
+  // The dead holder's lock was taken over by the new process.
+  assert.notEqual(report.lock.pid, firstPid)
+  assert.equal(report.lock.pid, report.ready.pid)
+  // The socket the dead server left was removed and bound again.
+  assert.equal(typeof report.ready.gatewaySocket, 'string')
+  // The turn the kill cut short reads as interrupted, and nothing is duplicated.
+  assert.equal(report.messages, 1)
+  assert.deepEqual(report.ends, [{ type: 'turn_failed', reason: 'interrupted' }])
 })

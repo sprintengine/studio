@@ -1,3 +1,4 @@
+import { NotOnMachineYet, useWorkspaceMachine } from '../environments/NotOnMachineYet'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { hostIdForFolder, isWslHostId } from '../../../../shared/execution-host'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -65,6 +66,7 @@ import { FOCUS_RING_TERMINAL_CLASS } from '../ui/tokens'
 import { TerminalLinkMenu } from '../terminal/TerminalLinkMenu'
 import type { TerminalLinkTarget } from '../../utils/terminalLinkActions'
 import { workspaceSyncClient } from '../../store/workspaceSyncClient'
+import { hostPlatform } from '../../clientCapabilities'
 
 interface Props {
   workspaceId: string
@@ -177,7 +179,7 @@ function paneIsPainted(): boolean {
   return windowActivity().get().visible
 }
 
-export default function TerminalView({
+function TerminalViewOnThisComputer({
   workspaceId,
   agentId,
   sessionId: attachedSessionId,
@@ -574,7 +576,7 @@ export default function TerminalView({
         // the root.
         wslDistro: () =>
           terminalWslDistro({
-            platform: window.api.platform,
+            platform: hostPlatform(),
             hostId: currentContext().hostId,
             roots: [launchExecutionRoot, linkRoots.workspaceRoot],
           }),
@@ -1669,4 +1671,11 @@ export default function TerminalView({
       ) : null}
     </div>
   )
+}
+
+/** A terminal runs on this computer; a workspace on an SSH machine says so instead (phase 8). */
+export default function TerminalView(props: Props) {
+  const machine = useWorkspaceMachine(props.workspaceId)
+  if (machine) return <NotOnMachineYet what="Terminals" machine={machine} />
+  return <TerminalViewOnThisComputer {...props} />
 }

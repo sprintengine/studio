@@ -43,6 +43,15 @@ const TELEMETRY_EVENTS = ['app.boot', 'agent.launched'] as const
 export type TelemetryEventName = (typeof TELEMETRY_EVENTS)[number]
 
 /**
+ * Whether a name that arrived from elsewhere (the Studio server, over the
+ * control channel) is one of the events above. Anything else is dropped: the
+ * set is closed on purpose, wherever the event comes from.
+ */
+export function isTelemetryEventName(name: string): name is TelemetryEventName {
+  return (TELEMETRY_EVENTS as readonly string[]).includes(name)
+}
+
+/**
  * Property values that survive the boundary. Anything else — an object, an
  * array, a function, a Date — is dropped rather than serialized, because the
  * moment a nested shape is allowed through, the review question stops being

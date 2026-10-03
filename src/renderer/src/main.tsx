@@ -5,8 +5,10 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import './assets/index.css'
 import { ConfirmDialogProvider } from './components/ui'
+import { SshPromptDialogHost } from './components/environments/SshPromptDialog'
 import AuxWindowApp from './components/auxWindows/AuxWindowApp'
 import WorkspaceManager from './components/workspace/WorkspaceManager'
+import { RootErrorBoundary } from './components/workspace/RootErrorBoundary'
 import { loadThirdPartyRendererModules } from './modules'
 import { launchSettingsReady } from './store/workspaceStore'
 import { reportBuildStamp } from './utils/buildStamp'
@@ -34,7 +36,8 @@ const DiagnosticsWindowApp = React.lazy(() => import('./components/diagnostics/D
 // is to say so rather than let each route fail its own way.
 reportBuildStamp()
 
-bindElectronClipboardPasteBridge()
+// An Electron paste quirk's workaround; in a browser it would stop a paste and then fail.
+if (import.meta.env.STUDIO_CLIENT !== 'web') bindElectronClipboardPasteBridge()
 
 // The modal repaint pause reports through `logPerfEvent` like everything else,
 // but the store itself imports nothing: it is pulled into the xterm output
@@ -149,17 +152,21 @@ const auxWindowKind = searchParams.get('aux')
 
 if (isDiagnosticsWindow) {
   ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
-    <ConfirmDialogProvider>
-      <React.Suspense fallback={null}>
-        <DiagnosticsWindowApp />
-      </React.Suspense>
-    </ConfirmDialogProvider>,
+    <RootErrorBoundary>
+      <ConfirmDialogProvider>
+        <React.Suspense fallback={null}>
+          <DiagnosticsWindowApp />
+        </React.Suspense>
+      </ConfirmDialogProvider>
+    </RootErrorBoundary>,
   )
 } else if (auxWindowKind) {
   ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
-    <ConfirmDialogProvider>
-      <AuxWindowApp />
-    </ConfirmDialogProvider>,
+    <RootErrorBoundary>
+      <ConfirmDialogProvider>
+        <AuxWindowApp />
+      </ConfirmDialogProvider>
+    </RootErrorBoundary>,
   )
 } else {
   // Monaco is part of boot (utils/monacoRuntime.ts): the window is not revealed
@@ -167,9 +174,12 @@ if (isDiagnosticsWindow) {
   void Promise.all([bootThirdPartyRendererModules(), waitForLaunchSettings(), monacoReady]).then(() => {
     markStartup('renderer.third-party-modules-settled')
     ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
-      <ConfirmDialogProvider>
-        <WorkspaceManager />
-      </ConfirmDialogProvider>,
+      <RootErrorBoundary>
+        <ConfirmDialogProvider>
+          <WorkspaceManager />
+          <SshPromptDialogHost />
+        </ConfirmDialogProvider>
+      </RootErrorBoundary>,
     )
     markStartup('renderer.root-rendered')
     // Only the primary workspace window reveals itself. The diagnostics and aux

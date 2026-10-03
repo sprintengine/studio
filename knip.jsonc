@@ -7,6 +7,18 @@
     "src/renderer/index.html",
     "src/renderer/splash.html",
     "src/renderer/canvas-worker.html",
+    // The web client's build (vite.web.config.ts, on the renderer config both
+    // builds share): the pairing page, and the modules it swaps in for a
+    // browser — the tab's window.api, Electron's stand-in and the IPC router.
+    "vite.web.config.ts",
+    "renderer.vite.config.ts",
+    "src/renderer/pair.html",
+    "src/renderer/src/web/pair/pairPage.ts",
+    "src/renderer/embed.html",
+    "src/renderer/src/web/embed/embedMain.tsx",
+    "src/renderer/src/web/installWebApi.ts",
+    "src/renderer/src/web/electronShim.ts",
+    "src/renderer/src/web/webIpcRouter.ts",
     "scripts/**/*.{js,mjs,cjs}",
     "design-system/scripts/*.mjs",
     "resources/marketplace/*.ts",
@@ -23,6 +35,9 @@
     // The agent SDK's published entries, the client and its Node half.
     "packages/agent-sdk/src/index.ts",
     "packages/agent-sdk/src/node.ts",
+    // The conversation timeline's and view's published entries.
+    "packages/conversation-timeline/src/public.ts",
+    "packages/conversation-view/src/public.ts",
   ],
   "project": [
     "src/**/*.{ts,tsx}",
@@ -50,6 +65,13 @@
     // The Windows ACL tool; the server's secret key file is made the current
     // user's only with it. Not an npm binary.
     "icacls",
+    // OpenSSH's own tools: the SSH machine suites make a throwaway key and
+    // wait for a container's sshd with them. Not npm binaries.
+    "ssh-keygen",
+    "ssh-keyscan",
+    // The shell linter the install-script suites run every generated script
+    // through, where it is installed. Not an npm binary.
+    "shellcheck",
   ],
   "ignoreDependencies": [
     // Imported from CSS (`@import "tailwindcss"`), which knip does not read.

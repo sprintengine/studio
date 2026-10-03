@@ -7,6 +7,9 @@ import {
   CONVERSATION_PROTOCOL_VERSION,
   STUDIO_CAPABILITIES,
   STUDIO_CHAT_CAPABILITIES,
+  STUDIO_CLIENT_TOOLS_CAPABILITY,
+  STUDIO_BOARD_FILES_CAPABILITY,
+  STUDIO_PULL_REQUESTS_CAPABILITY,
   STUDIO_PROTOCOL_MIN_SUPPORTED,
   STUDIO_PROTOCOL_VERSION,
   type StudioWelcomeFrame,
@@ -14,6 +17,9 @@ import {
 import { createStudioRpcConnection, type StudioRpcConnection } from './studio-rpc-connection'
 import { createStudioRpcListener, type StudioRpcListener } from './studio-rpc-listener'
 import { createStudioRpcRouter } from './studio-rpc-router'
+import type { ClientToolRegistry } from '../tools/client-tool-registry'
+import type { StudioFiles } from './studio-files'
+import type { StudioPullRequests } from '../pull-requests/pull-request-domain'
 import type {
   StudioAuditEntry,
   StudioAuthenticator,
@@ -51,6 +57,12 @@ export type StudioRpcServerOptions = {
   chat?: () => StudioChatBackend | null
   authenticator: StudioAuthenticator
   audit?: (entry: StudioAuditEntry) => void
+  /** Client toolsets: offered here, listed to agents by the gateway. Advertised as `client-tools` only when given. */
+  tools?: ClientToolRegistry
+  /** Files under a workspace's roots, for owners. Advertised as `files-write` only when given. */
+  files?: StudioFiles
+  /** The pull requests the conversations' branches have, for owners. Advertised as `pull-requests` only when given. */
+  pullRequests?: StudioPullRequests
   resyncRetryAfterMs?: (clientId: string) => number
   socketPath?: string
   helloTimeoutMs?: number
@@ -67,6 +79,13 @@ export type StudioRpcAttachOptions = {
   authenticator: StudioAuthenticator
   /** One of Studio's own windows: shown conversations as its IPC shows them, and not audited. */
   ownWindow: boolean
+  /**
+   * The desktop's own shell, over a port main holds both ends of: it may
+   * offer the built-in toolsets (`browser`, `canvas`), whatever its hello says.
+   */
+  shell?: boolean
+  /** Audit its mutations although it is Studio's own view: an owner's web tab. */
+  audited?: boolean
 }
 
 export type StudioRpcServer = StudioRpcListener & {
@@ -83,7 +102,11 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
     server: { name: 'SprintEngine Studio', version: options.version },
     environment: { id: options.environmentId, hostKind: 'local', os: platform(), arch: arch() },
     capabilities: STUDIO_CAPABILITIES.filter(
-      (capability) => chat() !== null || !(STUDIO_CHAT_CAPABILITIES as readonly string[]).includes(capability),
+      (capability) =>
+        (capability !== STUDIO_CLIENT_TOOLS_CAPABILITY || options.tools !== undefined) &&
+        (capability !== STUDIO_BOARD_FILES_CAPABILITY || options.files !== undefined) &&
+        (capability !== STUDIO_PULL_REQUESTS_CAPABILITY || options.pullRequests !== undefined) &&
+        (chat() !== null || !(STUDIO_CHAT_CAPABILITIES as readonly string[]).includes(capability)),
     ),
     conversation: {
       protocolVersion: CONVERSATION_PROTOCOL_VERSION,
@@ -96,8 +119,16 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
     chat,
     info: welcome,
     audit: options.audit,
+    ...(options.tools ? { tools: options.tools } : {}),
+    ...(options.files ? { files: options.files } : {}),
+    ...(options.pullRequests ? { pullRequests: options.pullRequests } : {}),
     log: options.log,
   })
+  // A revoked app's offers go at once, with its names: a later app that takes
+  // one inherits nothing.
+  const forgetRevoked = options.tools
+    ? options.authenticator.onRevoked((clientId) => options.tools?.forgetClient(clientId))
+    : null
   const attached = new Set<StudioRpcConnection>()
   let attachSequence = 0
   const listener: StudioRpcListener = createStudioRpcListener({
@@ -117,6 +148,9 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
         chat,
         welcome,
         audit: options.audit,
+        ...(options.tools ? { tools: options.tools } : {}),
+        ...(options.files ? { files: options.files } : {}),
+        ...(options.pullRequests ? { pullRequests: options.pullRequests } : {}),
         resyncRetryAfterMs: options.resyncRetryAfterMs,
         helloTimeoutMs: options.helloTimeoutMs,
         log: options.log,
@@ -134,6 +168,7 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
       attached.clear()
       await listener.stop(retryAfterMs)
       router.close()
+      forgetRevoked?.()
     },
     attach(stream, attachOptions) {
       const connection = createStudioRpcConnection({
@@ -144,8 +179,13 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
         backend: options.backend,
         chat,
         ownWindow: attachOptions.ownWindow,
+        shell: attachOptions.shell === true,
+        ...(attachOptions.audited === undefined ? {} : { audited: attachOptions.audited }),
         welcome,
         audit: options.audit,
+        ...(options.tools ? { tools: options.tools } : {}),
+        ...(options.files ? { files: options.files } : {}),
+        ...(options.pullRequests ? { pullRequests: options.pullRequests } : {}),
         resyncRetryAfterMs: options.resyncRetryAfterMs,
         helloTimeoutMs: options.helloTimeoutMs,
         log: options.log,

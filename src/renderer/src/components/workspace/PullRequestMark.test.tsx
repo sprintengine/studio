@@ -191,8 +191,9 @@ test('PullRequestMark', async () => {
       })
     })
 
-    await run('a pull request the hooks just captured says its number, not a blank line', () => {
-      // The exact record `noteCaptured` writes: a URL, the number parsed out of
+    await run('a pull request the hooks captured says its number, not a blank line', () => {
+      // What a hook capture wrote before marks came from branch lookups alone,
+      // and what such a record still loads as: a URL, the number parsed out of
       // it, no title, and the moment of capture standing in for the moment it was
       // opened. It stays that way until GitHub answers — and for ever if `gh`
       // never can. Rendered naively that was a bold empty line over the identity
@@ -678,6 +679,14 @@ test('PullRequestMark', async () => {
       )
       assert.equal(openPullRequestCount([]), 0)
       assert.equal(openPullRequestCount([pr({ number: 91, state: 'merged' })]), 0)
+      assert.equal(
+        openPullRequestCount(
+          [pr({ number: 93, state: 'open' })],
+          [pr({ number: 93, state: 'open' }), pr({ number: 95 })],
+        ),
+        2,
+        'two chats wearing one pull request are one thing to do',
+      )
     })
 
     await run('a project with nothing open draws nothing at all', () => {

@@ -3,6 +3,7 @@ import { ChatGlyph, NewChatIcon, RemoteMachineGlyph, ScheduleGlyph, resolveEnabl
 import CliIcon from '../CliIcon'
 import { PromptCacheMark } from './PromptCacheMark'
 import type { ConversationSessionSummary } from '../../../../shared/conversation-runtime'
+import type { BranchPullRequest } from '../../../../shared/git/pull-request'
 import { conversationSummaryPhase } from '../../../../shared/conversation/phase'
 import {
   conversationFinishedAt,
@@ -25,7 +26,6 @@ import {
 } from './useConversationPullRequests'
 import { peekStatusOf, rowConversationPeekIdentities } from './conversationPeekRow'
 import { changelistOwnerId } from '../../../../shared/git/changelists'
-import type { BranchPullRequest } from '../../../../shared/git/pull-request'
 import { folderIdentityKey, useFolderRepositoryIdentities } from './useFolderRepositoryIdentities'
 import { FolderIdentityIcon } from './FolderIdentityIcon'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
@@ -35,6 +35,7 @@ import { startColumnResizeDrag } from './columnResizeDrag'
 import {
   SIDEBAR_COLLAPSED_WIDTH,
   SIDEBAR_DEFAULT_WIDTH,
+  SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
   clampSidebarWidth,
   resolveSidebarResize,
@@ -163,6 +164,11 @@ type WorkspaceSidebarProps = {
   workspaceWindowId: string
   isDetachedWindow: boolean
   sidebarCollapsed: boolean
+  /**
+   * At a phone's width the sidebar takes the whole width in turn with the
+   * content (useNarrowViewport): no resize edge, no width of its own.
+   */
+  fillWidth?: boolean
   // The sidebar's own top strip (SidebarChrome) — window controls that run to the
   // top of the full-height sidebar. Rendered as the first child inside the aside
   // so it shares the column's exact width and resize behavior.
@@ -275,6 +281,7 @@ function WorkspaceSidebar({
   workspaceWindowId,
   isDetachedWindow,
   sidebarCollapsed,
+  fillWidth = false,
   chromeSlot,
   contextRail,
   contextRailActive = false,
@@ -1054,15 +1061,19 @@ function WorkspaceSidebar({
   // Open only. A conversation keeps its merged pull requests because that is its
   // history; a project's count is a to-do, and a merged one has nothing left to
   // do (`ProjectPullRequestMark`).
+  // Each pull request once, however many of the project's chats wear it.
   const openPullRequestsByGroup = useMemo(() => {
-    const map = new Map<string, number>()
+    const lists = new Map<string, Array<readonly BranchPullRequest[]>>()
     for (const workspace of workspaces) {
       const list = conversationPullRequests[workspace.id]
       if (!list || list.length === 0) continue
-      const open = openPullRequestCount(list)
-      if (open === 0) continue
       const groupKey = keyOf(workspace)
-      map.set(groupKey, (map.get(groupKey) ?? 0) + open)
+      lists.set(groupKey, [...(lists.get(groupKey) ?? []), list])
+    }
+    const map = new Map<string, number>()
+    for (const [groupKey, group] of lists) {
+      const open = openPullRequestCount(...group)
+      if (open > 0) map.set(groupKey, open)
     }
     return map
   }, [conversationPullRequests, keyOf, workspaces])
@@ -2007,7 +2018,7 @@ function WorkspaceSidebar({
     if (scheduledAgents.length === 0) return null
     const expanded = expandedShelves[SCHEDULED_SHELF_KEY] !== false
     return (
-      <section className="relative pt-1" aria-label="Scheduled agents">
+      <section role="group" className="relative pt-1" aria-label="Scheduled agents">
         <ShelfFoldRow
           label="Scheduled"
           count={scheduledAgents.length}
@@ -2043,7 +2054,7 @@ function WorkspaceSidebar({
     )
     const snoozeExpanded = expandedShelves[ALL_CHATS_SNOOZE_SHELF_KEY] === true
     return (
-      <section className="relative pt-1" aria-label="All chats">
+      <section role="group" className="relative pt-1" aria-label="All chats">
         {streamRows.map((workspace) =>
           renderWorkspaceRow(workspace, keyOf(workspace), {
             keyPrefix: 'all-',
@@ -2103,7 +2114,7 @@ function WorkspaceSidebar({
       dropIndicator?.kind === 'folder' && dropIndicator.targetKey === group.key ? dropIndicator.position : null
     const isFolderTabDropTarget = tabDropTarget?.kind === 'folder' && tabDropTarget.key === group.key
     return (
-      <section key={group.key} className="relative pt-1">
+      <section key={group.key} role="group" className="relative pt-1">
         {/* The header container carries drag + context-menu; the disclosure
             itself is a real button (aria-expanded / aria-controls) so the
             folder is keyboard-operable, with the overflow control as a
@@ -2297,7 +2308,7 @@ function WorkspaceSidebar({
       // straight to this element and never to the store), so an unrelated
       // re-render mid-drag keeps the current width instead of the stale store one.
       style={
-        sidebarCollapsed
+        sidebarCollapsed || fillWidth
           ? undefined
           : {
               width: clampSidebarWidth(
@@ -2314,31 +2325,38 @@ function WorkspaceSidebar({
               maxWidth: '45%',
             }
       }
-      className={`relative flex shrink-0 flex-col bg-[color:var(--bg-canvas)] ${
+      className={`relative flex flex-col bg-[color:var(--bg-canvas)] ${fillWidth ? 'min-w-0 flex-1' : 'shrink-0'} ${
         isResizingSidebar ? '' : 'transition-[width] duration-150 ease-out motion-reduce:transition-none'
       } ${sidebarCollapsed ? 'hidden' : ''}`}
     >
-      {/* Drag the right edge to resize; drag it close to the left to collapse. */}
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize sidebar"
-        tabIndex={0}
-        onPointerDown={handleResizePointerDown}
-        onKeyDown={handleResizeKeyDown}
-        onDoubleClick={handleResizeDoubleClick}
-        className={`group absolute right-0 top-0 z-[var(--z-pane)] h-full w-1.5 translate-x-1/2 cursor-col-resize ${FOCUS_RING_CLASS}`}
-      >
-        <span
-          aria-hidden="true"
-          // Starts BELOW the 36px band, exactly like the app rail's hairline
-          // (AppRail.tsx): nothing draws a vertical line through the top bar,
-          // and this indicator used to run the window's full height.
-          className={`absolute bottom-0 top-[36px] left-1/2 w-px -translate-x-1/2 bg-[color:var(--accent-primary)] transition-opacity ${
-            isResizingSidebar ? 'opacity-100' : 'opacity-0 group-hover:opacity-60'
-          }`}
-        />
-      </div>
+      {/* Drag the right edge to resize; drag it close to the left to collapse.
+          A focusable separator is a window splitter, so it says its position:
+          the sidebar's width within its bounds. */}
+      {fillWidth ? null : (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize sidebar"
+          aria-valuenow={Math.round(sidebarWidth)}
+          aria-valuemin={SIDEBAR_MIN_WIDTH}
+          aria-valuemax={SIDEBAR_MAX_WIDTH}
+          tabIndex={0}
+          onPointerDown={handleResizePointerDown}
+          onKeyDown={handleResizeKeyDown}
+          onDoubleClick={handleResizeDoubleClick}
+          className={`group absolute right-0 top-0 z-[var(--z-pane)] h-full w-1.5 translate-x-1/2 cursor-col-resize ${FOCUS_RING_CLASS}`}
+        >
+          <span
+            aria-hidden="true"
+            // Starts BELOW the 36px band, exactly like the app rail's hairline
+            // (AppRail.tsx): nothing draws a vertical line through the top bar,
+            // and this indicator used to run the window's full height.
+            className={`absolute bottom-0 top-[36px] left-1/2 w-px -translate-x-1/2 bg-[color:var(--accent-primary)] transition-opacity ${
+              isResizingSidebar ? 'opacity-100' : 'opacity-0 group-hover:opacity-60'
+            }`}
+          />
+        </div>
+      )}
       {/*
        * The sidebar runs to the top of the window, so its own top strip
        * (SidebarChrome) leads: window controls (collapse, search, back/forward,
@@ -2488,7 +2506,7 @@ function WorkspaceSidebar({
           }}
         >
           {starredWorkspaces.length > 0 ? (
-            <section className="relative pt-1" aria-label="Starred workspaces">
+            <section role="group" className="relative pt-1" aria-label="Starred workspaces">
               {/* The kit's nav row. `group/folder` is the hover scope the icon
                 slot below reads, and the insets are the tree's own grid. */}
               <RowButton

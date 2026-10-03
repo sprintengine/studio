@@ -101,6 +101,51 @@ test('browser-control', async () => {
   }
 
   async function main(): Promise<void> {
+    await run(
+      'a dialog the page opens is reported at once, holds every action, and is answered by browser.dialog',
+      async () => {
+        const { wc, control } = fixture()
+        // A click that makes the page open an alert: the click's own dispatch
+        // never returns while the alert holds the page.
+        wc.debugger.respond = (method, params) => {
+          if (method === 'Runtime.evaluate') return evaluation({ x: 10, y: 10 })
+          if (method === 'Input.dispatchMouseEvent' && params?.type === 'mousePressed') {
+            wc.debugger.emit('message', {}, 'Page.javascriptDialogOpening', {
+              type: 'confirm',
+              message: 'Discard your changes?',
+              url: 'http://localhost:5173/',
+            })
+            return new Promise(() => undefined)
+          }
+          return {}
+        }
+        const clicked = await control.click('t1', { ref: 'e1' })
+        assert.equal(clicked.ok ? null : clicked.code, 'dialog_open')
+        assert.match(clicked.ok ? '' : clicked.message, /confirm dialog: "Discard your changes\?"/)
+        // Everything that needs the page waits for the answer.
+        const snapshot = await control.snapshot('t1')
+        assert.equal(snapshot.ok ? null : snapshot.code, 'dialog_open')
+        // The buffers do not need the page.
+        assert.equal((await control.console('t1')).ok, true)
+        const answered = await control.dialog('t1', { accept: false })
+        assert.deepEqual(answered.ok && [answered.answered.type, answered.accepted], ['confirm', false])
+        assert.deepEqual(wc.debugger.commands.at(-1), {
+          method: 'Page.handleJavaScriptDialog',
+          params: { accept: false },
+        })
+        const none = await control.dialog('t1', { accept: true })
+        assert.equal(none.ok ? null : none.code, 'no_dialog')
+        // One the person answers in the pane is gone for the agent too.
+        wc.debugger.emit('message', {}, 'Page.javascriptDialogOpening', {
+          type: 'prompt',
+          message: 'Name?',
+          defaultPrompt: 'Ada',
+        })
+        wc.debugger.emit('message', {}, 'Page.javascriptDialogClosed', { result: true })
+        assert.equal((await control.dialog('t1', { accept: true, promptText: 'Grace' })).ok, false)
+      },
+    )
+
     await run('the pointer overlay hears each move, click and wheel before the page does', async () => {
       const { wc, control } = fixture()
       log.length = 0

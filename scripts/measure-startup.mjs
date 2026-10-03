@@ -33,17 +33,23 @@ const RUN_TIMEOUT_MS = 60_000
 const args = parseArgs(process.argv.slice(2))
 
 function parseArgs(argv) {
-  const parsed = { runs: 5, profile: 'fresh', json: null, compileCache: false }
+  const parsed = { runs: 5, profile: 'fresh', json: null, compileCache: false, serverMode: null }
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
     if (arg === '--compile-cache') parsed.compileCache = true
     else if (arg === '--runs') parsed.runs = Number(argv[++i])
     else if (arg === '--profile') parsed.profile = argv[++i]
     else if (arg === '--json') parsed.json = argv[++i]
+    // Where the Studio server runs for the measured launches (phase 6):
+    // compare `--server-mode out-of-process` against `in-process`.
+    else if (arg === '--server-mode') parsed.serverMode = argv[++i]
     else fail(`unknown argument: ${arg}`)
   }
   if (!Number.isInteger(parsed.runs) || parsed.runs < 1) fail('--runs must be a positive integer')
   if (parsed.profile !== 'fresh' && parsed.profile !== 'reuse') fail('--profile must be fresh or reuse')
+  if (parsed.serverMode !== null && parsed.serverMode !== 'in-process' && parsed.serverMode !== 'out-of-process') {
+    fail('--server-mode must be in-process or out-of-process')
+  }
   return parsed
 }
 
@@ -183,6 +189,7 @@ function launchEnv(profileDir) {
   env.SPRINTENGINE_STARTUP_TIMELINE = '1'
   env.SPRINTENGINE_USER_DATA_DIR = profileDir
   env.SPRINTENGINE_ALLOW_MULTI_INSTANCE = '1'
+  if (args.serverMode) env.SPRINTENGINE_SERVER_MODE = args.serverMode
   return env
 }
 

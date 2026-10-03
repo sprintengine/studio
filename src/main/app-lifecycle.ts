@@ -17,7 +17,8 @@ import { bindPollerToActivity, gateStallMonitorOnActivity, powerActivity } from 
 import { sendWindowHidden } from './ipc/window-ipc'
 import type { SprintEngineUpdateService } from './update-service'
 import type { ShutdownLegReport } from './update-install-progress'
-import type { AgentPhaseListener } from '../shared/agent-runtime'
+import type { AgentPhaseEvent, AgentPhaseListener } from '../shared/agent-runtime'
+import type { DesktopServerHost } from './server-supervisor/desktop-server-host'
 import { createAgentAttention, isScriptSecondLaunch } from './agent-attention'
 import { createConversationAttentionListener } from './conversation-attention'
 import type { ConversationEvent } from '../shared/conversation-runtime'
@@ -94,16 +95,20 @@ type RegisterAppLifecycleOptions = {
   canvasService?: {
     dispose(): Promise<void>
   }
+  // The shell's own client of an out-of-process server, offering its
+  // toolsets: closed before the server drains, so the server's goodbye is
+  // not one it answers by reconnecting.
+  desktopShell?: { stop(): void } | null
   // The composer's command lists: the last good one per CLI and folder waits
   // a moment before it is written, so quit writes what is still pending.
   conversationCommands?: {
     dispose(): Promise<void>
   }
-  // The conversation pull request record (epic `pull-request-marks`). It holds
-  // a chained write per repository and a watch timer per open pull request, so
-  // quit has to settle the writes — a capture in the last seconds before quit
-  // is otherwise lost — and tear the timers down with the runtime that owns the
-  // sessions they were armed for.
+  // The pull request record (epic `pull-request-marks`). In process the core
+  // holds it here: a chained write per repository and a watch timer per open
+  // pull request, so quit settles the writes — a lookup a last turn end started
+  // is otherwise lost — and tears the timers down. Either way the shell's own
+  // client for the terminals' marks closes here.
   pullRequestRecord?: {
     flush(): Promise<void>
     dispose(): void
@@ -151,6 +156,14 @@ type RegisterAppLifecycleOptions = {
    * most `BOOT_WORKSPACE_SYNC_BUDGET_MS`, and it carries on past that.
    */
   prepareWorkspacesAtBoot?: () => Promise<unknown>
+  /**
+   * The Studio server in a process of its own (phase 6). Forked at ready
+   * before the plate goes up, drained at quit beside the shell's own legs, and
+   * the source of chat phases for the dock badge.
+   */
+  server?: Pick<DesktopServerHost, 'start' | 'shutdown' | 'log'> & {
+    onAttentionPhase(listener: (event: AgentPhaseEvent) => void): void
+  }
 }
 
 // How long after boot CLI detection settles the first model discovery pass
@@ -170,6 +183,7 @@ export function registerAppLifecycle({
   removeSessionIntegrations,
   releaseDataDir,
   canvasService,
+  desktopShell,
   conversationCommands,
   pullRequestRecord,
   analytics,
@@ -182,6 +196,7 @@ export function registerAppLifecycle({
   startDeferredBootJobs,
   prepareWorkspacesAtBoot,
   onAgentAttentionReady,
+  server,
 }: RegisterAppLifecycleOptions): void {
   // Background mode: the last window closing stops being the end of
   // the process. Everything below the window layer — the scheduler, the Studio
@@ -281,6 +296,9 @@ export function registerAppLifecycle({
     registerDeepLinkProtocols()
 
     Menu.setApplicationMenu(createAppMenu())
+    // Out of process the server is forked first thing: it can only start once
+    // the app is ready, and it composes in parallel with the windows below.
+    server?.start()
     // Always-on: one local SprintEngine Studio MCP gateway per app instance.
     // Started here and NOT awaited: it runs alongside the renderer's load
     // rather than in front of the plate. Every agent launch waits for it
@@ -378,6 +396,8 @@ export function registerAppLifecycle({
       // waits a little longer so the probes do not compete with the renderer's
       // first paint. Each CLI is re-probed only when its catalog is a day old or
       // its version changed, so on most launches this spawns nothing.
+      // Out of process the server runs this pass itself, where the cache is.
+      if (server) return
       bootModelDiscoveryTimer = setTimeout(() => {
         bootModelDiscoveryTimer = null
         void discoverAndBroadcastCliModels().catch(() => undefined)
@@ -486,6 +506,8 @@ export function registerAppLifecycle({
     terminalRuntime.registerAgentPhaseListener?.((event) => agentAttention.onAgentPhase(event))
     const disposeConversationAttention = conversations?.onEvent?.(createConversationAttentionListener(agentAttention))
     if (disposeConversationAttention) app.once('will-quit', disposeConversationAttention)
+    // Out of process the server watches its chats and says when one's phase moves.
+    server?.onAttentionPhase((event) => agentAttention.onAgentPhase(event))
     onAgentAttentionReady?.(agentAttention)
     app.on('browser-window-focus', (_event, win) => {
       if (!isCanvasWorkerWindow(win)) agentAttention.onWindowFocused()
@@ -540,6 +562,7 @@ export function registerAppLifecycle({
   const runShutdown = (observer?: (leg: ShutdownLegReport) => void): Promise<void> => {
     if (observer) shutdownObserver = observer
     if (shutdownRun) return shutdownRun
+    const shutdownStartedAt = Date.now()
     // Drop the tray before the shutdown legs run: quit from the tray is the
     // same graceful path as any other quit (sidecar snapshots, gateway
     // discovery file removed), and the icon must not outlive the decision.
@@ -552,7 +575,7 @@ export function registerAppLifecycle({
     stallMonitor.stop()
     releasePollerActivity?.()
     releasePollerActivity = null
-    const legs: Array<[name: string, task: () => unknown]> = [
+    const inProcessLegs: Array<[name: string, task: () => unknown]> = [
       // Module begin hooks run first (registration order): they stop
       // self-scheduled loops and flip shutting-down flags so no new work is
       // dispatched while shared infrastructure tears down.
@@ -572,9 +595,10 @@ export function registerAppLifecycle({
       ['workspace registry', () => workspaceSyncService?.flush()],
       ['chat transcripts', () => conversationOwner?.flushTranscripts?.()],
       ['terminals', () => terminalRuntime.shutdown()],
-      // After the terminal service: the last frames it ingests can still file
-      // a captured pull request, and this is what gets that write to disk and
-      // stops the watch timers.
+      // In process, the core's record: a lookup a last chat turn end started
+      // is written down, and the watch timers stop. The shell's client of it
+      // closed with the local app socket; out of process the server settles
+      // the record in its own legs.
       ['pull requests (flush)', () => pullRequestRecord?.flush()],
       ['pull requests (dispose)', () => pullRequestRecord?.dispose()],
       ['chats', () => conversationOwner?.shutdown()],
@@ -598,6 +622,50 @@ export function registerAppLifecycle({
       ['modules', () => moduleKernel?.runShutdown()],
       ['data directory', () => releaseDataDir?.()],
     ]
+    // Out of process the server drains on its own (transcripts first), in
+    // parallel with the shell's terminals; the integrations wait for it, so no
+    // chat agent is left to use the entries being removed (spec 7.4).
+    let serverStopped: Promise<unknown> = Promise.resolve()
+    const outOfProcessLegs: Array<[name: string, task: () => unknown]> = [
+      ['modules (begin)', () => moduleKernel?.runShutdownBegin()],
+      [
+        'timers',
+        () => {
+          if (bootModelDiscoveryTimer) clearTimeout(bootModelDiscoveryTimer)
+          hostedFeedPoller?.stop()
+        },
+      ],
+      // The canvas's last board write lands before the server stops serving.
+      ['canvas', () => canvasService?.dispose()],
+      ['desktop tools', () => desktopShell?.stop()],
+      [
+        'studio server (drain)',
+        () => {
+          serverStopped = server!
+            .shutdown({
+              drain: true,
+              budgetMs: leavingForUpdate
+                ? serverUpdateDrainBudgetMs(Date.now() - shutdownStartedAt)
+                : SERVER_DRAIN_BUDGET_MS,
+              onProgress: (progress) =>
+                server!.log.note(
+                  `shutdown ${progress.done}/${progress.total} ${progress.leg}${progress.failed ? ' (failed)' : ''}`,
+                ),
+            })
+            .catch(() => undefined)
+        },
+      ],
+      ['agent state', () => agentStateService?.shutdown()],
+      ['terminals', () => terminalRuntime.shutdown()],
+      ['pull requests (flush)', () => pullRequestRecord?.flush()],
+      ['pull requests (dispose)', () => pullRequestRecord?.dispose()],
+      ['studio server', () => serverStopped],
+      ['integrations', () => (leavingForUpdate ? undefined : removeSessionIntegrations?.())],
+      ['WSL helpers', () => hostRegistry().dispose()],
+      ['telemetry', () => analytics?.shutdown()],
+      ['modules', () => moduleKernel?.runShutdown()],
+    ]
+    const legs = server ? outOfProcessLegs : inProcessLegs
     const shutdown = async () => {
       for (const [index, [name, task]] of legs.entries()) {
         const started = Date.now()
@@ -677,6 +745,29 @@ export function registerAppLifecycle({
  * more than a leg that has hung.
  */
 const UPDATE_SHUTDOWN_BUDGET_MS = 10_000
+
+/**
+ * How long the Studio server may drain at quit, and within "Restart to
+ * update", whose 10 s covers both processes: on Windows the installer waits on
+ * main's pid only, and the server is the same executable image, so it must be
+ * gone (killed at its budget) before the hand-over.
+ */
+const SERVER_DRAIN_BUDGET_MS = 8_000
+const SERVER_UPDATE_DRAIN_BUDGET_MS = 6_000
+
+/**
+ * The drain's budget when leaving for an update, counted from when the
+ * shutdown began rather than from when the drain does: the legs before it (the
+ * canvas's last write, the modules' begin hooks) can take a while, and the kill
+ * at the budget still has to land inside the update's 10 s with time for the
+ * exit to be seen.
+ */
+export function serverUpdateDrainBudgetMs(elapsedMs: number): number {
+  const left = UPDATE_SHUTDOWN_BUDGET_MS - SERVER_UPDATE_KILL_MARGIN_MS - elapsedMs
+  return Math.max(SERVER_UPDATE_MIN_DRAIN_MS, Math.min(SERVER_UPDATE_DRAIN_BUDGET_MS, left))
+}
+const SERVER_UPDATE_KILL_MARGIN_MS = 1_500
+const SERVER_UPDATE_MIN_DRAIN_MS = 500
 
 /**
  * After the shutdown, the updater quits the app to install. Should it not (the

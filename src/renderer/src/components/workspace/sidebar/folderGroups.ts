@@ -66,7 +66,7 @@ export function resolveGroups(
     const key = groupKeyOf(workspace)
     keys.set(workspace.id, key)
     const folder = workspace.folderPath?.trim()
-    if (!folder || workspace.remoteOrigin) continue
+    if (!folder || workspace.remoteOrigin || workspace.environment) continue
     const identity = identities.get(folderIdentityKey(folder))
     if (!identity?.canonicalKey) continue
     const candidate = {
@@ -98,7 +98,7 @@ export function resolveGroups(
   for (const workspace of workspaces) {
     const key = keys.get(workspace.id) ?? groupKeyOf(workspace)
     const folderPath = workspace.folderPath?.trim()
-    if (workspace.remoteOrigin || !folderPath || headers.has(key)) continue
+    if (workspace.remoteOrigin || workspace.environment || !folderPath || headers.has(key)) continue
     if (ownFolderKeyOf(workspace) !== key) continue
     headers.set(key, { key, folderPath, missing: workspace.folderMissing === true })
   }
@@ -107,7 +107,7 @@ export function resolveGroups(
   // full path — and never missing, since no row here has looked at it.
   for (const workspace of workspaces) {
     const key = keys.get(workspace.id) ?? groupKeyOf(workspace)
-    if (workspace.remoteOrigin || headers.has(key)) continue
+    if (workspace.remoteOrigin || workspace.environment || headers.has(key)) continue
     const folderPath = workspaceProjectRoot(workspace)
     if (!folderPath) continue
     headers.set(key, { key, folderPath, missing: false })
@@ -151,6 +151,9 @@ export function folderDisplayName(value: string | null): string {
  * it is a worktree on its own line instead.
  */
 export function groupKeyOf(workspace: Workspace): string {
+  // A row on an SSH machine (phase 8) files under that machine's folder: the
+  // same path on this computer is another folder.
+  if (workspace.environment) return `ssh:${workspace.environment.id}:${folderKey(workspace.folderPath)}`
   const origin = workspace.remoteOrigin
   // A remote row files under its PROJECT, not under itself (owner,
   // 2026-09-11). Keyed by the repository where the machine could name one — so
@@ -196,6 +199,8 @@ export function newChatProjectTarget(workspace: Workspace): string | null {
 }
 
 export function remoteGroupOf(workspace: Workspace): FolderGroup['remote'] {
+  if (workspace.environment)
+    return { machineName: workspace.environment.label, workspaceRoot: workspace.folderPath, repository: null }
   const origin = workspace.remoteOrigin
   if (origin) {
     return {
@@ -234,6 +239,7 @@ export function remoteProjectName(workspaceRoot: string | null, machineName: str
 }
 
 export function remoteGroupDisplayName(workspace: Workspace): string {
+  if (workspace.environment) return remoteProjectName(workspace.folderPath, workspace.environment.label)
   const origin = workspace.remoteOrigin
   if (origin) return remoteProjectName(origin.workspaceRoot, origin.machineName)
   const [machine] = meshMachineNamesOf(workspace)

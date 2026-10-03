@@ -14,6 +14,11 @@
 // an owner's connection for now (`STUDIO_METHODS[m].owner`), so no pairing can
 // use them yet; a pairing stored before they existed never gains them, since
 // a grant holds exactly the names it was given.
+//
+// `tools:offer` lets a client give Studio's agents tools of its own (`tools.*`):
+// Settings shows it as "Give agents tools from this app", off unless ticked.
+// `files:write` is the board files' write half beside `files:read`; like the
+// reads, it is held to an owner's connection for now.
 
 /** Every scope this version of the protocol defines, narrowest first. */
 export const STUDIO_SCOPES = [
@@ -23,6 +28,8 @@ export const STUDIO_SCOPES = [
   'providers:read',
   'files:read',
   'workspaces:read',
+  'tools:offer',
+  'files:write',
 ] as const
 
 export type StudioScope = (typeof STUDIO_SCOPES)[number]

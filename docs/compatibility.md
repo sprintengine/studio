@@ -18,6 +18,7 @@ a private data structure, and changing one is not a local edit.**
 | MCP                                                                                   | dated strings, newest first              | every entry in the list                              | `src/shared/mcp/protocol.ts`                    |
 | Module host API — an installed extension built against `@sprintengine/module-sdk`     | `HOST_API_VERSION` (integer)             | `HOST_API_MIN_SUPPORTED` .. current                  | `src/shared/modules/host-api.ts`                |
 | Studio protocol — a client on Studio's owner socket (`@sprintengine/studio-protocol`) | `STUDIO_PROTOCOL_VERSION` (integer)      | `STUDIO_PROTOCOL_MIN_SUPPORTED` .. current           | `packages/studio-protocol/src/handshake.ts`     |
+| Embed `postMessage` — a page framing an embedded conversation (`se.embed`)            | `EMBED_PROTOCOL_VERSION` (integer, `v`)  | current only (one version of slack when 2 ships)     | `src/renderer/src/web/embed/embedProtocol.ts`   |
 
 One more version number is near these and is **not** a wire window: the
 backlog item schema version is a file format, and is not negotiated with a peer.
@@ -27,6 +28,19 @@ snapshot's `workspaces` detail body and left the wire with it in v4.)
 Alongside the tailnet version is `TAILNET_CAPABILITIES` — a list of named,
 additive features. It is not a version and does not follow one; see
 "Capabilities, not version arithmetic" below.
+
+Three wires between this app and the Studio server trees it installs on a WSL
+distribution or an SSH machine are private and are not in this table: the
+bootstrap envelope, the front door's proof preamble (`FRONT_DOOR_PROOF_VERSION`)
+and the conversation backend wire (`BACKEND_WIRE_VERSION`), and the SSH
+relay's multiplexer (`MUX_VERSION` in `resources/wsl-server/relay-mux.mjs`).
+Both ends are this app's own build: the tree is installed per app version and
+checked by digest. An SSH machine can run another version's server (a newer
+desktop installed it); the desktop then speaks to it only when it is this
+version, upgrades an older managed one, and otherwise refuses in words
+(`locateServer` in `src/main/environments/ssh/ssh-connect-script.ts`). Bump
+`BACKEND_WIRE_VERSION` whenever a forwarded member's arguments or answer
+change, and `MUX_VERSION` whenever a frame does.
 
 ## The support window
 
@@ -111,7 +125,14 @@ HOST_API_VERSION`. `checkHostApiCompatibility` is the one check; it is
   `conversations`, `conversation-controls`, `conversation-streams`,
   `conversation-requests`, `conversation-permissions`, `chat.open`, `companion-agents`,
   `scheduled-agents`, `secrets`, `github`, `storage`, `mcp-tools`, `skills`,
-  `module-assets`, `notifications`.
+  `module-assets`, `notifications`, and `electron-main`, which the main host
+  answers itself: true in the desktop's own main process, false where a
+  module's main half runs in the Studio server out of process.
+- **`requires.hostCapabilities`.** An optional manifest field (added with
+  `electron-main`, no version bump): a module whose `entry.main` cannot run
+  without a capability names it, and a host that lacks it loads the module
+  manifest-only (its renderer half still loads). The validator keeps names it
+  does not know, since a host that does not know a name does not support it.
   A capability joins the table in the same change that makes it real, and an
   unknown name answers `false`. As on the tailnet, an additive feature ships as
   a capability with no version bump.
@@ -201,12 +222,40 @@ surface's in `STUDIO_CHAT_CAPABILITIES`) advertised in the `welcome`, a Studio
 leaving out any it does not serve; the conversation contract's own `protocolVersion` and capabilities
 travel inside it, in `welcome.conversation`, unchanged. A new method or topic
 is a capability, not a bump; so is a new server frame type (`push` was one),
-since a client skips a frame type it does not know. Every method names its scope in `STUDIO_METHODS`,
+since a client skips a frame type it does not know. Client tools are one such
+capability within version 1: `client-tools` adds the `tools.*` methods and
+stream, the server frames `call` and `cancel`, and the client frames `reply`
+and `progress`. A Studio sends `call` only to a connection that offered a
+toolset, and the SDK sends `reply` only to a Studio that advertised the
+capability, so neither end is handed a frame type it does not know.
+`files-write` adds the owner-only `files.*` by root, which the canvas uses
+over a Studio's boards. A hello's `client.kind` and `client.instanceId` are
+optional hints a Studio that does not know them ignores. Every method names its scope in `STUDIO_METHODS`,
 typed over the method map so a method without one does not compile.
 
 The pack check (`npm run test:studio-packages:pack`) installs the packed
 tarball beside the conversation protocol's and checks both module systems and
 Node16 declarations.
+
+### The embed's `postMessage` wire
+
+A page that frames Studio's embedded conversation view
+(`/embed/conversation/<id>`) talks to the frame by `postMessage`, and the two
+update separately: the frame is served by whichever Studio the embed points
+at, the page by whoever wrote it. Every message carries an integer `v`, now 1.
+
+- The frame posts `ready` (with the embed's id), `resize` (its content
+  height), `link` (a link the person clicked, for the page to open), `state`
+  (how many turns, and whether one is running) and `error` (a code). It posts
+  only to the embed's registered origins, never `'*'`.
+- The page may post `theme` (`light`, `dark` or `system`), `token` (the
+  embed's token, for a page that keeps it out of the frame's address) and
+  `scrollTo` (a turn). The frame accepts a message only from its parent and
+  from a registered origin; it ignores a `type` it does not know and answers
+  a `v` it does not know with `error { code: 'unsupported_version' }`.
+- No message makes the frame send, answer or navigate. A new message type is
+  additive and needs no bump; a change to an existing message's meaning bumps
+  `v`, and the frame then accepts the old and the new for one version.
 
 ## Changing a wire format
 

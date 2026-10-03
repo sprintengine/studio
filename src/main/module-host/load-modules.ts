@@ -134,6 +134,8 @@ export function loadMainModules(options: {
   skillRegistry?: ModuleSkillHostRegistry
   /** Async registerMain bound override, for tests. */
   registerTimeoutMs?: number
+  /** False in the Studio server out of process: see `MainKernelOptions.electronMain`. */
+  electronMain?: boolean
 }): LoadMainModulesResult {
   const { ipcMain, modules, overrides = {}, provideServices, ineligible, launchErrors = [] } = options
   const registerTimeoutMs = options.registerTimeoutMs ?? REGISTER_MAIN_TIMEOUT_MS
@@ -145,6 +147,7 @@ export function loadMainModules(options: {
   )
 
   const kernel = createMainKernel(ipcMain, {
+    ...(options.electronMain === undefined ? {} : { electronMain: options.electronMain }),
     deliverModuleEvent: options.deliverModuleEvent,
     now: options.now,
     resolveModuleManifest: (moduleId) => byId.get(moduleId)?.manifest,

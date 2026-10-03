@@ -61,6 +61,7 @@ import { SOLO_CHAT_AGENT_ID, SOLO_CHAT_TEMPLATE_ID } from '../shared/layouts/tem
 import { deriveWorkspaceTitle, nextNewChatName } from '../shared/workspace-title'
 import type { WorkspaceWorktree } from '../renderer/src/types/workspace'
 import type { WorkspaceCreateRequest } from './workspace-registry-service'
+import { isMachinePath } from '../shared/machine-paths'
 import {
   effectiveAgentLaunchSettings,
   resolveAgentSpawnPermission,
@@ -293,7 +294,9 @@ export function createConversationLaunchService(deps: ConversationLaunchServiceD
     // be written is only reported — the runtime installs a missing skill again
     // when the first message attaches it.
     const skills = [...new Set((request.skills ?? []).map((id) => id.trim()).filter(Boolean))]
-    if (deps.ensureSkillInstalled) {
+    // A folder on an SSH machine (`ssh://…`) is not this computer's to write
+    // a skill into: the machine's own runtime attaches skills there.
+    if (deps.ensureSkillInstalled && !isMachinePath(workingRoot)) {
       for (const skillId of skills) {
         const installed = await deps
           .ensureSkillInstalled(workingRoot, skillId)

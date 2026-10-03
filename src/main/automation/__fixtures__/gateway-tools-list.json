@@ -1,0 +1,644 @@
+{
+  "studio-agent": [
+    {
+      "name": "browser.status",
+      "sha256": "2d404d4e2653cd0c8d44ac3d08e9d6ee8181230ba864c38a5bc23a2a58c2c6b4"
+    },
+    {
+      "name": "browser.open",
+      "sha256": "ffe8ee91ec34805380b0b3ecdfe8bb1e888507c0137ae0ed1bc78fe17a74f60a"
+    },
+    {
+      "name": "browser.navigate",
+      "sha256": "b62cd993a7496e6076e4d0b0b8d99c852c6a54af73655233432df65af35a1502"
+    },
+    {
+      "name": "browser.snapshot",
+      "sha256": "a631bb5ad0002f5549bb69ab1b85573576cc3af01c14416422766d3b83fd845d"
+    },
+    {
+      "name": "browser.screenshot",
+      "sha256": "2a87ca47ad5f6d53c2293030b89aa642a07c3a7ad1765f2276824cee02728961"
+    },
+    {
+      "name": "browser.click",
+      "sha256": "7a5cdbe69efc0d080a8ba6d890f5610d23137b91076ebdbfa13d9a856a01e46e"
+    },
+    {
+      "name": "browser.hover",
+      "sha256": "63760cd9f63ed579880414317c31c8163fbafb808c69c05bd4117475106ae198"
+    },
+    {
+      "name": "browser.type",
+      "sha256": "cb5a22dcef9dff24a366ca85b6bccbafaba4fd8774987bb76d7fb5f483024d29"
+    },
+    {
+      "name": "browser.press",
+      "sha256": "b52ea64eb8b4b36e99afcb30d58187a8e4ca33a746e1a2887143d1e88938b713"
+    },
+    {
+      "name": "browser.scroll",
+      "sha256": "8490df53eac98dec3e40bc6e578bd8b84d886189b33985b164668615058efee1"
+    },
+    {
+      "name": "browser.evaluate",
+      "sha256": "623a2e70803039fb32c9d5ad67bf8ac2c4b1f41bb0892f43bd1ca70d642112cc"
+    },
+    {
+      "name": "browser.wait_for",
+      "sha256": "83d9b09e6695ef092042738327ec9a4a25a11894b0c748020443937dd9e6b0a8"
+    },
+    {
+      "name": "browser.console",
+      "sha256": "14bdcf484b4b7e56a6cb8eebf6c2d98295405c173dc89fa4f2e361d6fd423612"
+    },
+    {
+      "name": "browser.actions",
+      "sha256": "065ab218787c3d3be00006d83cbaf65eec79f5db65a1f3d8acf3d7ed99599d63"
+    },
+    {
+      "name": "browser.network",
+      "sha256": "3ff7c18802e38936a43e2eaee1f2fd087559858b1fcd0a40b5cb631dc7a5504b"
+    },
+    {
+      "name": "browser.resize",
+      "sha256": "a06264ff3db3dae17f0180543f16714b6e8524ebb1c883e3892c4fa8b5aa66ff"
+    },
+    {
+      "name": "browser.set_appearance",
+      "sha256": "0f2788d0f3814053b27a4c9573f193aa6a2b6709ace9e824e8565def2d5466c7"
+    },
+    {
+      "name": "browser.dialog",
+      "sha256": "d32e8936801adb5510bd056d88eef5906a7efb22086a95b1d5cf9f1e2cde7415"
+    },
+    {
+      "name": "canvas.list",
+      "sha256": "9223c8c4144fff6a57c2ea032c89990895f546f97cb5d8d407c87310429917cb"
+    },
+    {
+      "name": "canvas.open",
+      "sha256": "32dc5891a3619adee647981dcce9bd8abd220fcd056067dd8c15b8593a9eae40"
+    },
+    {
+      "name": "canvas.describe",
+      "sha256": "3ff3ae11762cba75912daaf4aaa7b19d5ae54afdbd90749d3cb8f9d8d69def60"
+    },
+    {
+      "name": "canvas.find",
+      "sha256": "dfb02daba034711165ced8bf6c993c8daf4c86901c071449a96dd69617bd8a3b"
+    },
+    {
+      "name": "canvas.edit",
+      "sha256": "2bfc8976391eaa24c3eefc4645ea6685c2e9c3303943d2862aed2e85bb024220"
+    },
+    {
+      "name": "canvas.layout",
+      "sha256": "c31d821c9423dda67b77b1cd37caec856406b4e9f39d0159c29b56ee1cad5c39"
+    },
+    {
+      "name": "canvas.import",
+      "sha256": "02d527c134c62185f504d7af3f39fd30e01e3541dff7374793adcb377c284b43"
+    },
+    {
+      "name": "canvas.screenshot",
+      "sha256": "2d1d725859dbe6bd25bc6a4afbd0293ce70219417b0da299d087580c9cb0f2fd"
+    },
+    {
+      "name": "editor.open",
+      "sha256": "9d7e25ebb80f232bfb850cf9b98dba8c9b2d0f812e1f38284921dfe0ea459500"
+    },
+    {
+      "name": "editor.open_diff",
+      "sha256": "0e7317af209ddf6d533ec1d35e2c464f64dd7506070dc02e247bee388f8a4274"
+    },
+    {
+      "name": "editor.state",
+      "sha256": "d45577bee391a7224b0bbd0619855cc1dc67ec54e111185e6459bc925572761b"
+    },
+    {
+      "name": "tour.create",
+      "sha256": "dec81266812b316655d6f72f19263b4a344959a4d6b08852a6fb164c7c10a806"
+    },
+    {
+      "name": "tour.update",
+      "sha256": "55218aa28834847ff817e00b456a4f3f26cc2f0382eecac90054bdac1e60efd0"
+    },
+    {
+      "name": "tour.goto",
+      "sha256": "a1c5dd9307208902cdb59122f5914e5ed809b8fa8c4601b084b324ce9bf63cf5"
+    },
+    {
+      "name": "tour.status",
+      "sha256": "32ab506d18b5e8ab44ff26209fe600fe55f60008121fc93310f8c9e91caa6160"
+    },
+    {
+      "name": "tour.close",
+      "sha256": "b21c0cddd514d3a93df1433245d6c1776d645c27b7ca1fd94eab5e82d9300e50"
+    },
+    {
+      "name": "conversation.create",
+      "sha256": "3fdc72693f56234a839c0c37442c3f07aced25da87c9362bb1850cb804a89563"
+    },
+    {
+      "name": "workspace.checkout",
+      "sha256": "0afb536c6142df85c46b0e126675982fd5df43b7a286db59085bc20688572006"
+    },
+    {
+      "name": "workspace.create",
+      "sha256": "aac7200bb767577bd587d059d11055331a8da6e30164c2d52e165aa215e5479c"
+    },
+    {
+      "name": "workspace.list",
+      "sha256": "16923cd7a238930671ebb9a87c286ac993fd1cb3e6afed6ccac5fd9ebe95926e"
+    },
+    {
+      "name": "workspace.mobile_command",
+      "sha256": "aa635abc72802af972e1924475063a52781d3eaf357a4eb964b0434b30c66f31"
+    },
+    {
+      "name": "workspace.snapshot",
+      "sha256": "b671eafa4e5520092b2e972c1cf45a71acd105c38fcd3110a595dd85c42a2285"
+    },
+    {
+      "name": "workspace.status",
+      "sha256": "7678e50cd0d430bebf9a51e73007501b0abbd22fcf0859d753a1f87a1bf2aba6"
+    },
+    {
+      "name": "agent.launch",
+      "sha256": "8234d597ef2f163164fb49aabb1c9fd870bf01de53a04a0dd0a4edc6fbec0b1d"
+    },
+    {
+      "name": "agent.status",
+      "sha256": "0c574120df3440ac8ddeb269ba484ad46df822448435aa1791e187600e6f3a09"
+    },
+    {
+      "name": "cli.runtime.list",
+      "sha256": "86f6573ca2fe4137d866d25b76f8c818c4f1c1838ad505a5a617d5d8936f34c9"
+    },
+    {
+      "name": "terminal.list",
+      "sha256": "15b401938a4e2b18ce26197dc9f5a3ce2a0b513e2a7550f5b4179e0403cfae43"
+    },
+    {
+      "name": "terminal.create",
+      "sha256": "d7b71f5c6dff41c7ef7e51db3b52f8c5f753a464828b3bc0643abba77a8402e5"
+    },
+    {
+      "name": "backlog.list",
+      "sha256": "ca51eb1f23e8a6d8303b0e41587f7dd3eb9eb1ea6f76a2ad4124cd4e597ce4b3"
+    },
+    {
+      "name": "backlog.read",
+      "sha256": "a8f4d5ab55150595f1ac5f63269719b9c0ccf2e355a534558ec4eb82b5b14e35"
+    },
+    {
+      "name": "backlog.update",
+      "sha256": "ddc6ea775ddc998ab3df3b6cef39c2c9bcaad8a96f1554d220e7c9abd8a8561b"
+    },
+    {
+      "name": "backlog.repair",
+      "sha256": "563e05078f88cb61719539bf8abf7b9ea70dd97a0170afc45911ca1b8659ac93"
+    },
+    {
+      "name": "backlog.assign",
+      "sha256": "ca5652acd94de2c54c6c354a58c4780889025e122cef1f36553ff8f37a65b6a6"
+    },
+    {
+      "name": "backlog.work",
+      "sha256": "e1a59475ebd373d7bee6ba0e7e1a911a85ab4e0444333d1e6e5a083f71898643"
+    },
+    {
+      "name": "module.list",
+      "sha256": "89727eca6d135726c1f9f4ad836dccf5d100124798aa6329aa422b8750098493"
+    },
+    {
+      "name": "module.status",
+      "sha256": "51fa7acce6ba0b9ca6b3ea3a0fe89ed343f876687d219b730b4bc3f773ece5fb"
+    },
+    {
+      "name": "marketplace.list",
+      "sha256": "92cb04063b0099c17b578cb4b8ee61c93959d08bd124778d91b78386b501cf8c"
+    },
+    {
+      "name": "schedule.list",
+      "sha256": "b0e71eb292275e6d7b9ce1cc4c3d05dd6f09188ce55612180c48d0b572cfaeb4"
+    },
+    {
+      "name": "schedule.create",
+      "sha256": "0b3111a7a0681a93f82f07146b81d3f65b2e79bc377803eb373839ebb39b18c9"
+    },
+    {
+      "name": "schedule.delete",
+      "sha256": "2eeb67b036d102a71754d9a29f095e13bbf1a88e5fdb25c6ba206578f092a821"
+    },
+    {
+      "name": "schedule.run",
+      "sha256": "7781f2bebf27b02a6ca36e22fc5c213cc994f3c8c875d7462fcf85cf25abd5a7"
+    },
+    {
+      "name": "tailnet.status",
+      "sha256": "cc199cfc73135e699938fd9e369ae707fb1ee041fca8b37e42f22289c42af576"
+    },
+    {
+      "name": "tailnet.set_enabled",
+      "sha256": "7da8111896913405bc77d0bf0ce739b1d026eaf4fd96ade7973fa4615e3d1dd5"
+    },
+    {
+      "name": "tailnet.offer_pairing",
+      "sha256": "16ffc074ce64546df05c2725ba58bbecdd4450417e6e7f9c6284fc26bc37f232"
+    },
+    {
+      "name": "tailnet.cancel_pairing",
+      "sha256": "bd4409e2baa831c0a3f751c9223415b8316fd3e645b1ec2b647bbfe09469236c"
+    },
+    {
+      "name": "tailnet.revoke_device",
+      "sha256": "ee8a003c961b4a74e42e21712440edaa381d65883d4642d6b7aa9045f7527497"
+    },
+    {
+      "name": "tailnet.approve_pair_request",
+      "sha256": "2f80f5b28b8734537b69dde639c18a7241e63a40e32b17330ebc7959177452d5"
+    },
+    {
+      "name": "tailnet.deny_pair_request",
+      "sha256": "1fd61dd405079036211e12c9f20919f688b75686b80efb51625b208c13f0b9be"
+    },
+    {
+      "name": "tailnet.list_peers",
+      "sha256": "b15e7e06e23e3b6e9941dfbf2bac7944dd6a2ad0a555fe96fef4f0d571610a00"
+    }
+  ],
+  "external-local": [
+    {
+      "name": "browser.status",
+      "sha256": "2d404d4e2653cd0c8d44ac3d08e9d6ee8181230ba864c38a5bc23a2a58c2c6b4"
+    },
+    {
+      "name": "browser.open",
+      "sha256": "ffe8ee91ec34805380b0b3ecdfe8bb1e888507c0137ae0ed1bc78fe17a74f60a"
+    },
+    {
+      "name": "browser.navigate",
+      "sha256": "b62cd993a7496e6076e4d0b0b8d99c852c6a54af73655233432df65af35a1502"
+    },
+    {
+      "name": "browser.snapshot",
+      "sha256": "a631bb5ad0002f5549bb69ab1b85573576cc3af01c14416422766d3b83fd845d"
+    },
+    {
+      "name": "browser.screenshot",
+      "sha256": "2a87ca47ad5f6d53c2293030b89aa642a07c3a7ad1765f2276824cee02728961"
+    },
+    {
+      "name": "browser.click",
+      "sha256": "7a5cdbe69efc0d080a8ba6d890f5610d23137b91076ebdbfa13d9a856a01e46e"
+    },
+    {
+      "name": "browser.hover",
+      "sha256": "63760cd9f63ed579880414317c31c8163fbafb808c69c05bd4117475106ae198"
+    },
+    {
+      "name": "browser.type",
+      "sha256": "cb5a22dcef9dff24a366ca85b6bccbafaba4fd8774987bb76d7fb5f483024d29"
+    },
+    {
+      "name": "browser.press",
+      "sha256": "b52ea64eb8b4b36e99afcb30d58187a8e4ca33a746e1a2887143d1e88938b713"
+    },
+    {
+      "name": "browser.scroll",
+      "sha256": "8490df53eac98dec3e40bc6e578bd8b84d886189b33985b164668615058efee1"
+    },
+    {
+      "name": "browser.evaluate",
+      "sha256": "623a2e70803039fb32c9d5ad67bf8ac2c4b1f41bb0892f43bd1ca70d642112cc"
+    },
+    {
+      "name": "browser.wait_for",
+      "sha256": "83d9b09e6695ef092042738327ec9a4a25a11894b0c748020443937dd9e6b0a8"
+    },
+    {
+      "name": "browser.console",
+      "sha256": "14bdcf484b4b7e56a6cb8eebf6c2d98295405c173dc89fa4f2e361d6fd423612"
+    },
+    {
+      "name": "browser.actions",
+      "sha256": "065ab218787c3d3be00006d83cbaf65eec79f5db65a1f3d8acf3d7ed99599d63"
+    },
+    {
+      "name": "browser.network",
+      "sha256": "3ff7c18802e38936a43e2eaee1f2fd087559858b1fcd0a40b5cb631dc7a5504b"
+    },
+    {
+      "name": "browser.resize",
+      "sha256": "a06264ff3db3dae17f0180543f16714b6e8524ebb1c883e3892c4fa8b5aa66ff"
+    },
+    {
+      "name": "browser.set_appearance",
+      "sha256": "0f2788d0f3814053b27a4c9573f193aa6a2b6709ace9e824e8565def2d5466c7"
+    },
+    {
+      "name": "browser.dialog",
+      "sha256": "d32e8936801adb5510bd056d88eef5906a7efb22086a95b1d5cf9f1e2cde7415"
+    },
+    {
+      "name": "canvas.list",
+      "sha256": "9223c8c4144fff6a57c2ea032c89990895f546f97cb5d8d407c87310429917cb"
+    },
+    {
+      "name": "canvas.open",
+      "sha256": "32dc5891a3619adee647981dcce9bd8abd220fcd056067dd8c15b8593a9eae40"
+    },
+    {
+      "name": "canvas.describe",
+      "sha256": "3ff3ae11762cba75912daaf4aaa7b19d5ae54afdbd90749d3cb8f9d8d69def60"
+    },
+    {
+      "name": "canvas.find",
+      "sha256": "dfb02daba034711165ced8bf6c993c8daf4c86901c071449a96dd69617bd8a3b"
+    },
+    {
+      "name": "canvas.edit",
+      "sha256": "2bfc8976391eaa24c3eefc4645ea6685c2e9c3303943d2862aed2e85bb024220"
+    },
+    {
+      "name": "canvas.layout",
+      "sha256": "c31d821c9423dda67b77b1cd37caec856406b4e9f39d0159c29b56ee1cad5c39"
+    },
+    {
+      "name": "canvas.import",
+      "sha256": "02d527c134c62185f504d7af3f39fd30e01e3541dff7374793adcb377c284b43"
+    },
+    {
+      "name": "canvas.screenshot",
+      "sha256": "2d1d725859dbe6bd25bc6a4afbd0293ce70219417b0da299d087580c9cb0f2fd"
+    },
+    {
+      "name": "editor.open",
+      "sha256": "9d7e25ebb80f232bfb850cf9b98dba8c9b2d0f812e1f38284921dfe0ea459500"
+    },
+    {
+      "name": "editor.open_diff",
+      "sha256": "0e7317af209ddf6d533ec1d35e2c464f64dd7506070dc02e247bee388f8a4274"
+    },
+    {
+      "name": "editor.state",
+      "sha256": "d45577bee391a7224b0bbd0619855cc1dc67ec54e111185e6459bc925572761b"
+    },
+    {
+      "name": "tour.create",
+      "sha256": "dec81266812b316655d6f72f19263b4a344959a4d6b08852a6fb164c7c10a806"
+    },
+    {
+      "name": "tour.update",
+      "sha256": "55218aa28834847ff817e00b456a4f3f26cc2f0382eecac90054bdac1e60efd0"
+    },
+    {
+      "name": "tour.goto",
+      "sha256": "a1c5dd9307208902cdb59122f5914e5ed809b8fa8c4601b084b324ce9bf63cf5"
+    },
+    {
+      "name": "tour.status",
+      "sha256": "32ab506d18b5e8ab44ff26209fe600fe55f60008121fc93310f8c9e91caa6160"
+    },
+    {
+      "name": "tour.close",
+      "sha256": "b21c0cddd514d3a93df1433245d6c1776d645c27b7ca1fd94eab5e82d9300e50"
+    },
+    {
+      "name": "conversation.create",
+      "sha256": "3fdc72693f56234a839c0c37442c3f07aced25da87c9362bb1850cb804a89563"
+    },
+    {
+      "name": "workspace.checkout",
+      "sha256": "0afb536c6142df85c46b0e126675982fd5df43b7a286db59085bc20688572006"
+    },
+    {
+      "name": "workspace.create",
+      "sha256": "aac7200bb767577bd587d059d11055331a8da6e30164c2d52e165aa215e5479c"
+    },
+    {
+      "name": "workspace.list",
+      "sha256": "16923cd7a238930671ebb9a87c286ac993fd1cb3e6afed6ccac5fd9ebe95926e"
+    },
+    {
+      "name": "workspace.mobile_command",
+      "sha256": "aa635abc72802af972e1924475063a52781d3eaf357a4eb964b0434b30c66f31"
+    },
+    {
+      "name": "workspace.snapshot",
+      "sha256": "b671eafa4e5520092b2e972c1cf45a71acd105c38fcd3110a595dd85c42a2285"
+    },
+    {
+      "name": "workspace.status",
+      "sha256": "7678e50cd0d430bebf9a51e73007501b0abbd22fcf0859d753a1f87a1bf2aba6"
+    },
+    {
+      "name": "agent.launch",
+      "sha256": "8234d597ef2f163164fb49aabb1c9fd870bf01de53a04a0dd0a4edc6fbec0b1d"
+    },
+    {
+      "name": "agent.status",
+      "sha256": "0c574120df3440ac8ddeb269ba484ad46df822448435aa1791e187600e6f3a09"
+    },
+    {
+      "name": "cli.runtime.list",
+      "sha256": "86f6573ca2fe4137d866d25b76f8c818c4f1c1838ad505a5a617d5d8936f34c9"
+    },
+    {
+      "name": "terminal.list",
+      "sha256": "15b401938a4e2b18ce26197dc9f5a3ce2a0b513e2a7550f5b4179e0403cfae43"
+    },
+    {
+      "name": "terminal.create",
+      "sha256": "d7b71f5c6dff41c7ef7e51db3b52f8c5f753a464828b3bc0643abba77a8402e5"
+    },
+    {
+      "name": "backlog.list",
+      "sha256": "ca51eb1f23e8a6d8303b0e41587f7dd3eb9eb1ea6f76a2ad4124cd4e597ce4b3"
+    },
+    {
+      "name": "backlog.read",
+      "sha256": "a8f4d5ab55150595f1ac5f63269719b9c0ccf2e355a534558ec4eb82b5b14e35"
+    },
+    {
+      "name": "backlog.update",
+      "sha256": "ddc6ea775ddc998ab3df3b6cef39c2c9bcaad8a96f1554d220e7c9abd8a8561b"
+    },
+    {
+      "name": "backlog.repair",
+      "sha256": "563e05078f88cb61719539bf8abf7b9ea70dd97a0170afc45911ca1b8659ac93"
+    },
+    {
+      "name": "backlog.assign",
+      "sha256": "ca5652acd94de2c54c6c354a58c4780889025e122cef1f36553ff8f37a65b6a6"
+    },
+    {
+      "name": "backlog.work",
+      "sha256": "e1a59475ebd373d7bee6ba0e7e1a911a85ab4e0444333d1e6e5a083f71898643"
+    },
+    {
+      "name": "module.list",
+      "sha256": "89727eca6d135726c1f9f4ad836dccf5d100124798aa6329aa422b8750098493"
+    },
+    {
+      "name": "module.status",
+      "sha256": "51fa7acce6ba0b9ca6b3ea3a0fe89ed343f876687d219b730b4bc3f773ece5fb"
+    },
+    {
+      "name": "marketplace.list",
+      "sha256": "92cb04063b0099c17b578cb4b8ee61c93959d08bd124778d91b78386b501cf8c"
+    },
+    {
+      "name": "schedule.list",
+      "sha256": "b0e71eb292275e6d7b9ce1cc4c3d05dd6f09188ce55612180c48d0b572cfaeb4"
+    },
+    {
+      "name": "schedule.create",
+      "sha256": "0b3111a7a0681a93f82f07146b81d3f65b2e79bc377803eb373839ebb39b18c9"
+    },
+    {
+      "name": "schedule.delete",
+      "sha256": "2eeb67b036d102a71754d9a29f095e13bbf1a88e5fdb25c6ba206578f092a821"
+    },
+    {
+      "name": "schedule.run",
+      "sha256": "7781f2bebf27b02a6ca36e22fc5c213cc994f3c8c875d7462fcf85cf25abd5a7"
+    },
+    {
+      "name": "tailnet.status",
+      "sha256": "cc199cfc73135e699938fd9e369ae707fb1ee041fca8b37e42f22289c42af576"
+    },
+    {
+      "name": "tailnet.set_enabled",
+      "sha256": "7da8111896913405bc77d0bf0ce739b1d026eaf4fd96ade7973fa4615e3d1dd5"
+    },
+    {
+      "name": "tailnet.offer_pairing",
+      "sha256": "16ffc074ce64546df05c2725ba58bbecdd4450417e6e7f9c6284fc26bc37f232"
+    },
+    {
+      "name": "tailnet.cancel_pairing",
+      "sha256": "bd4409e2baa831c0a3f751c9223415b8316fd3e645b1ec2b647bbfe09469236c"
+    },
+    {
+      "name": "tailnet.revoke_device",
+      "sha256": "ee8a003c961b4a74e42e21712440edaa381d65883d4642d6b7aa9045f7527497"
+    },
+    {
+      "name": "tailnet.approve_pair_request",
+      "sha256": "2f80f5b28b8734537b69dde639c18a7241e63a40e32b17330ebc7959177452d5"
+    },
+    {
+      "name": "tailnet.deny_pair_request",
+      "sha256": "1fd61dd405079036211e12c9f20919f688b75686b80efb51625b208c13f0b9be"
+    },
+    {
+      "name": "tailnet.list_peers",
+      "sha256": "b15e7e06e23e3b6e9941dfbf2bac7944dd6a2ad0a555fe96fef4f0d571610a00"
+    }
+  ],
+  "remote-tailnet": [
+    {
+      "name": "browser.status",
+      "sha256": "2d404d4e2653cd0c8d44ac3d08e9d6ee8181230ba864c38a5bc23a2a58c2c6b4"
+    },
+    {
+      "name": "browser.snapshot",
+      "sha256": "a631bb5ad0002f5549bb69ab1b85573576cc3af01c14416422766d3b83fd845d"
+    },
+    {
+      "name": "browser.screenshot",
+      "sha256": "2a87ca47ad5f6d53c2293030b89aa642a07c3a7ad1765f2276824cee02728961"
+    },
+    {
+      "name": "browser.wait_for",
+      "sha256": "83d9b09e6695ef092042738327ec9a4a25a11894b0c748020443937dd9e6b0a8"
+    },
+    {
+      "name": "browser.console",
+      "sha256": "14bdcf484b4b7e56a6cb8eebf6c2d98295405c173dc89fa4f2e361d6fd423612"
+    },
+    {
+      "name": "browser.actions",
+      "sha256": "065ab218787c3d3be00006d83cbaf65eec79f5db65a1f3d8acf3d7ed99599d63"
+    },
+    {
+      "name": "browser.network",
+      "sha256": "3ff7c18802e38936a43e2eaee1f2fd087559858b1fcd0a40b5cb631dc7a5504b"
+    },
+    {
+      "name": "canvas.list",
+      "sha256": "9223c8c4144fff6a57c2ea032c89990895f546f97cb5d8d407c87310429917cb"
+    },
+    {
+      "name": "canvas.describe",
+      "sha256": "3ff3ae11762cba75912daaf4aaa7b19d5ae54afdbd90749d3cb8f9d8d69def60"
+    },
+    {
+      "name": "canvas.find",
+      "sha256": "dfb02daba034711165ced8bf6c993c8daf4c86901c071449a96dd69617bd8a3b"
+    },
+    {
+      "name": "canvas.screenshot",
+      "sha256": "2d1d725859dbe6bd25bc6a4afbd0293ce70219417b0da299d087580c9cb0f2fd"
+    },
+    {
+      "name": "editor.state",
+      "sha256": "d45577bee391a7224b0bbd0619855cc1dc67ec54e111185e6459bc925572761b"
+    },
+    {
+      "name": "tour.status",
+      "sha256": "32ab506d18b5e8ab44ff26209fe600fe55f60008121fc93310f8c9e91caa6160"
+    },
+    {
+      "name": "workspace.checkout",
+      "sha256": "0afb536c6142df85c46b0e126675982fd5df43b7a286db59085bc20688572006"
+    },
+    {
+      "name": "workspace.list",
+      "sha256": "16923cd7a238930671ebb9a87c286ac993fd1cb3e6afed6ccac5fd9ebe95926e"
+    },
+    {
+      "name": "workspace.snapshot",
+      "sha256": "b671eafa4e5520092b2e972c1cf45a71acd105c38fcd3110a595dd85c42a2285"
+    },
+    {
+      "name": "workspace.status",
+      "sha256": "7678e50cd0d430bebf9a51e73007501b0abbd22fcf0859d753a1f87a1bf2aba6"
+    },
+    {
+      "name": "agent.status",
+      "sha256": "0c574120df3440ac8ddeb269ba484ad46df822448435aa1791e187600e6f3a09"
+    },
+    {
+      "name": "cli.runtime.list",
+      "sha256": "86f6573ca2fe4137d866d25b76f8c818c4f1c1838ad505a5a617d5d8936f34c9"
+    },
+    {
+      "name": "backlog.list",
+      "sha256": "ca51eb1f23e8a6d8303b0e41587f7dd3eb9eb1ea6f76a2ad4124cd4e597ce4b3"
+    },
+    {
+      "name": "backlog.read",
+      "sha256": "a8f4d5ab55150595f1ac5f63269719b9c0ccf2e355a534558ec4eb82b5b14e35"
+    },
+    {
+      "name": "module.list",
+      "sha256": "89727eca6d135726c1f9f4ad836dccf5d100124798aa6329aa422b8750098493"
+    },
+    {
+      "name": "module.status",
+      "sha256": "51fa7acce6ba0b9ca6b3ea3a0fe89ed343f876687d219b730b4bc3f773ece5fb"
+    },
+    {
+      "name": "marketplace.list",
+      "sha256": "92cb04063b0099c17b578cb4b8ee61c93959d08bd124778d91b78386b501cf8c"
+    },
+    {
+      "name": "schedule.list",
+      "sha256": "b0e71eb292275e6d7b9ce1cc4c3d05dd6f09188ce55612180c48d0b572cfaeb4"
+    }
+  ]
+}

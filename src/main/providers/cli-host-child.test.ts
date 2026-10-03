@@ -15,6 +15,7 @@ import {
   wslCliLaunchArgs,
   wslTargetForHost,
 } from './cli-host-child'
+import { resolveGatewayLaunchToken } from '../../server/core/gateway-launch-tokens'
 
 const TOKEN = 'tok_0123456789abcdefghijklmnopqrstuvwxyz'
 
@@ -407,5 +408,118 @@ describe('mcpServersOnWsl', () => {
       { id: 'npx', name: 'Npx', transport: 'stdio', command: 'npx', args: ['-y', 'server'] },
       { id: 'web', name: 'Web', transport: 'http', url: 'http://127.0.0.1:4000/mcp' },
     ])
+  })
+})
+
+describe('launch tokens for chat children', () => {
+  function spawnRecorder() {
+    const calls: Array<{ env?: NodeJS.ProcessEnv }> = []
+    const children: EventEmitter[] = []
+    const stand = ((_file: string, _args: string[], options: { env?: NodeJS.ProcessEnv }) => {
+      calls.push(options)
+      const child = Object.assign(new EventEmitter(), {
+        stdin: new PassThrough(),
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        pid: 9,
+      })
+      children.push(child)
+      return child
+    }) as unknown as typeof spawn
+    return { spawn: stand, calls, children }
+  }
+  const identity = {
+    SPRINTENGINE_WORKSPACE_ID: 'ws-1',
+    SPRINTENGINE_AGENT_ID: 'chat-1',
+    SPRINTENGINE_AGENT_CLI: 'codex',
+  }
+
+  it('gives a conversation’s child on this machine a token bound to that conversation, until it ends', () => {
+    const recorder = spawnRecorder()
+    spawnCliHostChild({ command: 'codex', args: [], cwd: '/Users/dev/app', env: identity }, { spawn: recorder.spawn })
+    const token = recorder.calls[0].env?.SPRINTENGINE_MCP_CHANNEL_TOKEN ?? ''
+    expect(token).toMatch(/^selaunch_/)
+    expect(resolveGatewayLaunchToken(token)).toEqual({ workspaceId: 'ws-1', agentId: 'chat-1', cliId: 'codex' })
+    recorder.children[0].emit('close', 0)
+    expect(resolveGatewayLaunchToken(token)).toBeNull()
+  })
+
+  it('hands a child that is no conversation’s no token, not even one the app inherited', () => {
+    const recorder = spawnRecorder()
+    spawnCliHostChild(
+      { command: 'codex', args: [], cwd: '/Users/dev/app', env: { SPRINTENGINE_MCP_CHANNEL_TOKEN: TOKEN } },
+      { spawn: recorder.spawn },
+    )
+    expect(recorder.calls[0].env?.SPRINTENGINE_MCP_CHANNEL_TOKEN).toBeUndefined()
+  })
+
+  it('binds a WSL child’s channel token to its conversation', () => {
+    const recorder = spawnRecorder()
+    const named: unknown[] = []
+    spawnCliHostChild(
+      {
+        command: 'codex',
+        args: [],
+        cwd: '',
+        env: identity,
+        wsl: {
+          distro: 'Ubuntu',
+          agentStateSocketPath: null,
+          forwardEnv: [],
+          issueChannelToken: (bound) => {
+            named.push(bound)
+            return { token: TOKEN, revoke: () => undefined }
+          },
+        },
+      },
+      { spawn: recorder.spawn, platform: 'win32', homedir: () => 'C:\\Users\\dev' },
+    )
+    expect(named).toEqual([{ workspaceId: 'ws-1', agentId: 'chat-1', cliId: 'codex' }])
+  })
+
+  it('hands a child the token its runtime issued for it in place of one of its own, and takes it back', () => {
+    const recorder = spawnRecorder()
+    const revoked: string[] = []
+    // The environment names no conversation (an ACP agent's): the runtime issued the token itself.
+    spawnCliHostChild(
+      {
+        command: 'agent',
+        args: ['acp'],
+        cwd: '/Users/dev/app',
+        env: {},
+        launch: { token: TOKEN, revoke: () => revoked.push(TOKEN) },
+      },
+      { spawn: recorder.spawn },
+    )
+    expect(recorder.calls[0].env?.SPRINTENGINE_MCP_CHANNEL_TOKEN).toBe(TOKEN)
+    recorder.children[0].emit('close', 0)
+    expect(revoked).toEqual([TOKEN])
+
+    // A child that cannot be started gives it back at once.
+    const failed: string[] = []
+    expect(() =>
+      spawnCliHostChild(
+        {
+          command: 'agent',
+          args: [],
+          cwd: '/Users/dev/app',
+          env: {},
+          launch: { token: TOKEN, revoke: () => failed.push(TOKEN) },
+        },
+        {
+          spawn: (() => {
+            throw new Error('spawn agent ENOENT')
+          }) as unknown as typeof spawn,
+        },
+      ),
+    ).toThrow('ENOENT')
+    expect(failed).toEqual([TOKEN])
+
+    // Null from the runtime is no token, not one of the child's own.
+    spawnCliHostChild(
+      { command: 'codex', args: [], cwd: '/Users/dev/app', env: identity, launch: null },
+      { spawn: recorder.spawn },
+    )
+    expect(recorder.calls[1].env?.SPRINTENGINE_MCP_CHANNEL_TOKEN).toBeUndefined()
   })
 })

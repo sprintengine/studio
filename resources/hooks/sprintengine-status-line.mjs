@@ -185,17 +185,6 @@ function runWrapped(wrapped, stdinData) {
     // command as ONE verbatim argument, so its quoting survives.
     const shell = isWindows ? process.env.ComSpec || 'cmd.exe' : process.env.SHELL || '/bin/sh'
     const args = isWindows ? ['/d', '/s', '/c', `"${wrapped.command}"`] : ['-c', wrapped.command]
-    let child
-    try {
-      child = spawn(shell, args, {
-        ...(wrapped.cwd ? { cwd: wrapped.cwd } : {}),
-        stdio: ['pipe', 'inherit', 'inherit'],
-        ...(isWindows ? { windowsVerbatimArguments: true } : {}),
-      })
-    } catch {
-      res(0)
-      return
-    }
     // Claude Code kills a status-line command that runs too long. Before this
     // script existed that killed the person's command; now it kills us, and
     // without this the command would be orphaned — still holding the inherited
@@ -207,7 +196,15 @@ function runWrapped(wrapped, stdinData) {
     // same tick would leave exactly the orphan this relay exists to prevent —
     // still holding the inherited stdout of a pipe nobody will read to EOF. So
     // we wait for the child to actually go, and insist shortly after.
+    //
+    // Listening starts before the command does. A signal is only handled
+    // between ticks, so one that lands while `spawn` is starting the command
+    // still finds it here; listening after `spawn` returned left a window in
+    // which a loaded machine could run the command, deliver the signal to us
+    // with no handler yet, and orphan the command exactly as above.
+    let child
     const relay = (signal) => {
+      if (!child) process.exit(0)
       try {
         child.kill(signal)
       } catch {
@@ -231,6 +228,17 @@ function runWrapped(wrapped, stdinData) {
     })
     const release = () => {
       for (const [signal, handler] of handlers) process.removeListener(signal, handler)
+    }
+    try {
+      child = spawn(shell, args, {
+        ...(wrapped.cwd ? { cwd: wrapped.cwd } : {}),
+        stdio: ['pipe', 'inherit', 'inherit'],
+        ...(isWindows ? { windowsVerbatimArguments: true } : {}),
+      })
+    } catch {
+      release()
+      res(0)
+      return
     }
     child.on('error', () => {
       release()

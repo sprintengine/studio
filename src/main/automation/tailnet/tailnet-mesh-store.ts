@@ -95,11 +95,40 @@ export function createTailnetMeshStore(options: {
     }
   }
 
+  // Tokens being sealed by a cipher that answers from another process (the
+  // shell's keychain, for the Studio server out of process). The record is
+  // written without them first, as a session-only pairing would be, and again
+  // as soon as each seal lands.
+  const sealing = new Set<MeshEntry>()
+
   function seal(entry: MeshEntry): string | null {
     if (entry.sealedToken) return entry.sealedToken
     if (!cipher || !encryptionAvailable()) return null
+    if (cipher.sealAsync) {
+      sealLater(entry, cipher.sealAsync.bind(cipher))
+      return null
+    }
     entry.sealedToken = cipher.seal(entry.deviceToken).toString('base64')
     return entry.sealedToken
+  }
+
+  function sealLater(entry: MeshEntry, sealAsync: (plaintext: string) => Promise<Buffer>): void {
+    if (sealing.has(entry)) return
+    sealing.add(entry)
+    void sealAsync(entry.deviceToken).then(
+      (sealed) => {
+        sealing.delete(entry)
+        if (!connections.includes(entry)) return
+        entry.sealedToken = sealed.toString('base64')
+        safePersist('sealed')
+      },
+      (error: unknown) => {
+        sealing.delete(entry)
+        options.log?.(
+          `Could not seal the token for ${entry.machineName}, so its pairing lasts until the app quits: ${message(error)}`,
+        )
+      },
+    )
   }
 
   function persist(): void {
@@ -173,7 +202,7 @@ export function createTailnetMeshStore(options: {
         // cannot persist is a pairing that will not survive a restart, so the
         // failure must reach the caller.
         persist()
-        if (!stored.sealedToken) {
+        if (!stored.sealedToken && !sealing.has(stored)) {
           options.log?.(
             `This system cannot encrypt secrets, so the pairing with ${stored.machineName} lasts until the app quits.`,
           )

@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import { chmodSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import type { Duplex } from 'node:stream'
 
 import { toolError, toolSuccess } from '../../shared/modules/mcp-tools'
 import {
   STUDIO_LOCAL_APPS_CHANGED_CHANNEL,
   type StudioLocalAppOfferView,
+  type StudioLocalAppToolReach,
   type StudioLocalAppsStatus,
 } from '../../shared/studio-local-apps'
 import type { AppIdentity } from '../../server/platform/app-identity'
@@ -18,7 +20,13 @@ import {
   mintStudioTicket,
   type StudioFramePort,
 } from '../../server/rpc/studio-frame-port'
+import { inProcessStudioTransport } from '../../server/rpc/studio-in-process-port'
+import { STUDIO_SCOPES, type StudioGrant } from '../../../packages/studio-protocol/src/public'
+import type { StudioTransportFactory } from '../../../packages/agent-sdk/src/transport'
 import { createStudioRpcServer, type StudioRpcServer } from '../../server/rpc/studio-rpc-server'
+import type { ClientToolRegistry } from '../../server/tools/client-tool-registry'
+import type { StudioFiles } from '../../server/rpc/studio-files'
+import type { StudioPullRequests } from '../../server/pull-requests/pull-request-domain'
 import type {
   StudioAuditEntry,
   StudioAuthenticator,
@@ -51,7 +59,14 @@ export type StudioRpcService = {
   /** Mint a one-time pairing code for an app, named and scoped in Settings. */
   offer(input: unknown): StudioLocalAppOfferView
   cancelOffer(id: unknown): StudioLocalAppsStatus
-  revoke(id: unknown): StudioLocalAppsStatus
+  /**
+   * Revoke an app: its token, its connections, its toolset names and every
+   * approval that allows one of its tools. The revocation itself is done when
+   * this returns; the approvals are forgotten by the time it settles.
+   */
+  revoke(id: unknown): Promise<StudioLocalAppsStatus>
+  /** Change which agents an app's tools reach. */
+  setToolReach(id: unknown, reach: unknown): StudioLocalAppsStatus
   /** This run's owner credential, for the desktop's own client. Never written to disk. */
   ownerToken(): string
   /**
@@ -60,8 +75,39 @@ export type StudioRpcService = {
    * seconds; nothing longer-lived reaches the window.
    */
   connectWindow(port: StudioFramePort): { connectionId: string; ticket: string }
+  /**
+   * Serve the desktop's shell over a port main holds the other end of, when
+   * the server runs in a process of its own (phase 6, 6.3): the shell role,
+   * for a ticket good once, as `shellTransport` gives it in process.
+   */
+  connectShell(port: StudioFramePort): { connectionId: string; ticket: string }
+  /**
+   * Serve a WSL distribution's front door over a byte stream that already
+   * proved it holds the owner token (phase 7): the shell role, as
+   * `connectShell` serves the desktop's, for a ticket good once.
+   */
+  connectShellStream(stream: Duplex): { connectionId: string; ticket: string }
+  /**
+   * Serve a browser's socket from the web listener (phase 9): a web tab that
+   * proved its session cookie at the upgrade, or a client that spent a
+   * ticket. The authenticator is the session's or the ticket's; `ownWindow`
+   * is true only for an owner's web tab, which is the app's own chat view in a
+   * browser and asks what a window asks.
+   */
+  connectWeb(
+    stream: Duplex,
+    input: { authenticator: StudioAuthenticator; ownWindow: boolean },
+  ): { connectionId: string }
   /** The chat surface, from the handlers the app's own IPC serves its windows with. */
   provideChat(chat: StudioChatBackend): void
+  /** Which agents a paired app's tools reach. */
+  toolReachOf(clientId: string): StudioLocalAppToolReach
+  /**
+   * Connections for the desktop's own shell, in this process: each is served
+   * as the shell (it may offer the built-in toolsets) and says hello with a
+   * ticket minted for it alone.
+   */
+  shellTransport(): StudioTransportFactory
 }
 
 // Paths, the version and the push to Settings come from the Studio platform
@@ -83,6 +129,14 @@ export type StudioRpcServiceOptions = {
   backend: () => StudioConversationBackend
   /** The gateway's audit, so one file records every listener's mutations. */
   audit: () => GatewayAuditStore
+  /** The client toolsets the gateway lists to agents, offered over this RPC. */
+  tools?: ClientToolRegistry
+  /** Files under a workspace's roots, for owners (`files-write`). */
+  files?: StudioFiles
+  /** The pull requests the conversations' branches have, for owners (`pull-requests`). */
+  pullRequests?: StudioPullRequests
+  /** Forget the saved approvals that allow a revoked app's tools. */
+  forgetToolApprovals?: (toolsets: string[]) => Promise<unknown>
   log?: (message: string) => void
   /** A socket path or pipe name of the caller's choosing (tests). */
   socketPath?: string
@@ -108,6 +162,11 @@ export function readStudioEnvironmentId(userDataDir: string): string {
   return id
 }
 
+/** The grant the desktop's own shell holds: the owner's, under the app's name. */
+function shellGrant(): StudioGrant {
+  return { clientId: 'owner', name: 'SprintEngine Studio', owner: true, scopes: [...STUDIO_SCOPES], ceiling: 'bypass' }
+}
+
 export function createStudioRpcService(options: StudioRpcServiceOptions): StudioRpcService {
   const dataDir = () => (options.paths ?? studioPlatform().paths).dataDir()
   const version = () => (options.identity ?? studioPlatform().identity).version()
@@ -125,6 +184,8 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
     if (!store) {
       store = createStudioLocalAppStore({ resolveUserDataDir: dataDir, log: options.log })
       store.onChanged(() => announce())
+      // What an app offers, and whether it is connected, shows on its row.
+      options.tools?.subscribe(() => announceSoon())
     }
     return store
   }
@@ -139,9 +200,23 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
       lastError,
       apps: appStore()
         .list()
-        .map((app) => ({ ...app, connected: connected.has(app.id) })),
+        .map((app) => ({
+          ...app,
+          connected: connected.has(app.id),
+          toolsets: options.tools?.toolsetsOf(app.id) ?? [],
+        })),
       offers: appStore().offers(),
     }
+  }
+  let announcing = false
+  /** A burst of offers and withdrawals is one push to Settings. */
+  function announceSoon(): void {
+    if (announcing) return
+    announcing = true
+    setImmediate(() => {
+      announcing = false
+      announce()
+    })
   }
   function announce(): void {
     try {
@@ -219,6 +294,8 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
         ...(entry.agentId ? { agentId: entry.agentId } : {}),
         ...(entry.commandId ? { id: entry.commandId } : {}),
         ...(entry.suppressed ? { suppressed: entry.suppressed } : {}),
+        ...(entry.toolset ? { toolset: entry.toolset } : {}),
+        ...(entry.tools !== undefined ? { tools: entry.tools } : {}),
       },
       result: entry.ok
         ? toolSuccess({ ok: true })
@@ -245,6 +322,9 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
       chat: () => chat,
       authenticator: authenticator(appStore()),
       audit,
+      ...(options.tools ? { tools: options.tools } : {}),
+      ...(options.files ? { files: options.files } : {}),
+      ...(options.pullRequests ? { pullRequests: options.pullRequests } : {}),
       resyncRetryAfterMs: createResyncBackoff(),
       onConnectionsChanged: () => announce(),
       ...(options.socketPath ? { socketPath: options.socketPath } : {}),
@@ -288,13 +368,17 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
       if (typeof id === 'string') appStore().cancelOffer(id)
       return status()
     },
+    // The revocation is carried out before this returns, and a Studio that is
+    // not serving refuses at once; only the approvals are forgotten after.
     revoke(id) {
       assertServing()
-      if (typeof id !== 'string') return status()
+      if (typeof id !== 'string') return Promise.resolve(status())
       const clientName =
         appStore()
           .list()
           .find((app) => app.id === id)?.name ?? id
+      // Read before the revocation, which releases them.
+      const held = options.tools?.toolsetsOf(id).map((toolset) => toolset.name) ?? []
       let revoked = false
       try {
         revoked = appStore().revoke(id)
@@ -310,6 +394,25 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
         throw error
       }
       if (revoked) audit({ clientId: id, clientName, tool: 'studio.settings.revoke', ok: true, durationMs: 0 })
+      // Its names are released, and the approvals that allowed its tools go
+      // with them: a later app that takes a name inherits no "always allow".
+      const released = [...new Set([...held, ...(options.tools?.forgetClient(id) ?? [])])]
+      return (async () => {
+        if (released.length)
+          try {
+            await options.forgetToolApprovals?.(released)
+          } catch (error) {
+            options.log?.(
+              `The approvals for a revoked app's tools could not be forgotten: ${error instanceof Error ? error.message : String(error)}`,
+            )
+          }
+        return status()
+      })()
+    },
+    setToolReach(id, reach) {
+      assertServing()
+      if (typeof id !== 'string' || (reach !== 'own' && reach !== 'all')) return status()
+      if (appStore().setToolReach(id, reach)) options.tools?.refresh()
       return status()
     },
     ownerToken: () => appStore().ownerToken(),
@@ -323,8 +426,51 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
       })
       return { connectionId: connection.connectionId, ticket }
     },
+    connectShell(port) {
+      const ticket = mintStudioTicket()
+      const connection = hub().attach(framePortStream(port), {
+        authenticator: createTicketAuthenticator(ticket, { grant: shellGrant }),
+        ownWindow: false,
+        shell: true,
+      })
+      return { connectionId: connection.connectionId, ticket }
+    },
+    connectShellStream(stream) {
+      const ticket = mintStudioTicket()
+      const connection = hub().attach(stream, {
+        authenticator: createTicketAuthenticator(ticket, { grant: shellGrant }),
+        ownWindow: false,
+        shell: true,
+      })
+      return { connectionId: connection.connectionId, ticket }
+    },
+    connectWeb(stream, input) {
+      // A browser is a client of this server, whatever view it draws: audited.
+      const connection = hub().attach(stream, {
+        authenticator: input.authenticator,
+        ownWindow: input.ownWindow,
+        audited: true,
+      })
+      return { connectionId: connection.connectionId }
+    },
     provideChat(next) {
       chat = next
+    },
+    toolReachOf: (clientId) => appStore().toolReachOf(clientId),
+    shellTransport() {
+      return async () => {
+        const ticket = mintStudioTicket()
+        return inProcessStudioTransport(
+          (stream) => {
+            hub().attach(stream, {
+              authenticator: createTicketAuthenticator(ticket, { grant: shellGrant }),
+              ownWindow: false,
+              shell: true,
+            })
+          },
+          () => ({ token: ticket }),
+        )()
+      }
     },
   }
 }

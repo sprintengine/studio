@@ -83,6 +83,12 @@ export type BrowserTabState = {
    * agent reads it from browser.status to wait for the person to finish.
    */
   controller: BrowserController
+  /**
+   * Whose network the tab reaches: `remote` for a tab of a workspace on an
+   * SSH machine, whose traffic goes through that machine (phase 8), so its
+   * `localhost` is the machine's; `local` otherwise.
+   */
+  network?: 'remote' | 'local'
 }
 
 export type BrowserController = 'human' | 'agent' | 'none'
@@ -124,6 +130,10 @@ export type BrowserConfig = {
   partition: string
   /** file:// URL of the guest preload (the element picker); null when it is not built. */
   preloadUrl: string | null
+  /** `remote` for an SSH machine's workspace: its tabs reach that machine's network (phase 8). */
+  network?: 'remote' | 'local'
+  /** That machine's name, for the pane's line about it. */
+  machine?: string
 }
 
 export type LocalServer = {

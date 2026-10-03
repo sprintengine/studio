@@ -4,7 +4,8 @@ Status: proposed, 2026-10-01. Phases 1 (the Electron seams), 2 (the Studio
 RPC), 3 (the Electron-free core and the `studio-server` entry) and 4 (the chat
 view over the protocol, behind the `SPRINTENGINE_CHAT_TRANSPORT=studio`
 environment variable) have landed (section 13, "As
-landed"); nothing after them is. This file replaces
+landed"); nothing after them is. Phases 5 to 10 were replanned on 2026-10-02
+for a server with no browser and no canvas (section 1.1). This file replaces
 the remaining steps of the agent SDK plan on `feat/studio-agent-sdk` (the work
 after the protocol package and the tailnet lane and module service that speak
 it) with the phases in section 13. When code and this file disagree, fix one of
@@ -24,20 +25,50 @@ Studio becomes a headless **Studio server** that every client builds on
   third parties drive it. The protocol is published and documented; a client we
   did not write is a supported client, not a reverse-engineering project.
 
-The server owns the data and everything that acts on it: conversations,
-providers and the agent CLIs they run, checkpoints, the thread index, git for
-chat, the MCP gateway and its tools, the canvas board store, settings and
-credentials. Clients render.
+The server owns the data and the agents: conversations, providers and the
+agent CLIs they run, checkpoints, the thread index, the MCP gateway, settings
+and credentials, and raw access to its machine's files and git. Clients build
+every view on that access, and supply the tools that need a screen.
+
+### 1.1 The architecture principle: a small server (owner ruling 2026-10-02)
+
+**The server is small.** It holds agents, conversations, the routing of tool
+calls between agents and clients, pairing and permissions, and raw access to
+its machine: read, list, search, watch and write files, run git, diffs,
+workspaces. It has no browser and no canvas. Every view is a client thing
+built on the server's machine access.
+
+| The server                                                            | Clients                                                                                                         |
+| --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Agents, providers, the agent CLIs, conversations, checkpoints         | The chat view, the composer, history                                                                            |
+| Files: read, list, search, watch, write; git; diffs; workspaces       | The file explorer, editor, diff viewer, git pane, backlog, tours                                                |
+| Canvas boards, as files                                               | The canvas: the editor, the hidden worker that draws, and the `canvas.*` tools agents call                      |
+| The MCP gateway, and routing a tool call to the client that offers it | Toolsets they offer: the desktop `browser` (its pane) and `canvas`; the web client `canvas`; an SDK app its own |
+| Pairing, devices, scopes, permission ceilings, audit                  | Pairing screens, Settings                                                                                       |
+| Nothing that renders                                                  | The browser pane, and on the web a view of the server's dev servers (section 8)                                 |
+
+Any attached client can offer **toolsets**. The server exposes them to agents
+through the Studio MCP gateway and forwards each call to the client that
+offers it (section 6.3, and the phase 5 spec,
+[`studio-server/phase-5-client-tools.md`](studio-server/phase-5-client-tools.md)).
+With no client offering a toolset, agents work without it: a tool an agent
+was already shown answers that no client offers it. Why: a
+browser and a canvas renderer are the heaviest, least portable parts of the
+old plan (a Chromium per host, its libraries, fonts and sandbox), and every
+client a person actually looks at already has a browser engine. Keeping the
+server to agents, data and routing is what lets it run unchanged on a laptop,
+in WSL and on a minimal Linux box.
 
 ### Owner rulings this design is built on
 
 | Ruling                 | Text                                                                                                                                                                                                                                                                                                                 |
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | (a) Terminals          | Terminals are not served by the server, at least in v1. The focus is conversation/agent chat (owner ruling 2026-10-01).                                                                                                                                                                                              |
-| (b) Canvas             | The server owns the board data and the agent-facing gateway tools; clients render (owner ruling 2026-10-01).                                                                                                                                                                                                         |
+| (b) Canvas             | The server owns the board data and the agent-facing gateway tools; clients render (owner ruling 2026-10-01). Narrowed by (f): the boards stay the server's, as files; the `canvas.*` tools and all rendering are the client's.                                                                                       |
 | (c) Panels             | The git panel, file explorer and editor are client renderings. v1 serves only the data chat needs: changed files, turn diffs, checkpoints and revert, attachments, @-mention file search, the workspace list. The full git panel and file explorer come later (owner ruling 2026-10-01).                             |
 | (d) WSL                | On Windows, the server runs inside the distribution on the pinned Linux Node Studio already installs. Agents, git and files are native Linux, with no per-process `wsl.exe` path translation. The Windows app connects over localhost. The same pinned-Node streaming serves SSH installs (owner ruling 2026-10-01). |
-| (e) Headless rendering | The server has a headless mode for anything that needs rendering. A headless Chromium renders canvas boards with the real editor and backs the agents' `browser.*` tools over CDP, with no window and no client attached (owner ruling 2026-10-01).                                                                  |
+| (e) Headless rendering | Superseded by (f). It said: the server has a headless mode for anything that needs rendering, with a headless Chromium for canvas boards and the agents' `browser.*` tools (owner ruling 2026-10-01).                                                                                                                |
+| (f) A small server     | The server holds agents, conversations, tool routing, pairing and permissions, and raw machine access (files, git, diffs, workspaces). It has no browser and no canvas. Clients build the views and offer toolsets; the server routes agents' calls to them (owner ruling 2026-10-02, section 1.1).                  |
 
 ## 2. Goals and non-goals
 
@@ -55,8 +86,11 @@ credentials. Clients render.
    permission, loopback with a token, or a tailnet address with pairing.
 5. Third parties get the same protocol the desktop uses, versioned by the
    policy in `docs/compatibility.md`.
-6. Agents can draw, screenshot and browse with no window open, because the
-   server can render headlessly.
+6. Agents get the tools their clients offer. The desktop offers its browser
+   pane and its canvas, the web client its canvas, an SDK app whatever it is
+   for, and the server routes each call to the client that offers it. With no
+   such client attached, an agent works without those tools rather than
+   failing on them.
 
 **Non-goals for v1**
 
@@ -66,6 +100,8 @@ credentials. Clients render.
   features that open a terminal (CLI sign-in, running a code block, Resume in
   terminal) are hidden on a server that does not advertise them.
 - The full git panel, file explorer and editor over the protocol (ruling c).
+- A browser or a canvas renderer in the server (ruling f), and with them any
+  Chromium download, screencast or server-side drawing.
 - A hosted relay, a cloud account, or a public HTTPS endpoint. Remote access
   is SSH or the tailnet.
 - A native Windows server reached over SSH. Windows hosts run the server in WSL
@@ -115,7 +151,9 @@ is the closest thing to a headless composition recipe the tree has.
 This section records where things stood when the design was written. Phase 1
 has since routed the Electron uses in the table above through the platform
 interfaces of section 4.2, except the canvas worker window, the canvas
-subscribers and the browser tools, which wait for the render host (phase 5).
+subscribers and the browser tools. Under ruling (f) those stay in the shell
+for good: they are what the desktop offers agents as its `canvas` and
+`browser` toolsets (phase 5).
 
 ### 3.2 The IPC surface
 
@@ -191,39 +229,40 @@ host.
                ┌───────────────────── Studio server (Node) ─────────────────────┐
                │ StudioCore                                                      │
  desktop  ─┐   │  conversations · providers · checkpoints · thread index        │
- web tab  ─┼─► │  workspaces · files-for-chat · git-for-chat · settings         │
- SDK      ─┤   │  credentials · module main halves · canvas store               │
+ web tab  ─┼─► │  workspaces · files (read/list/search/watch/write) · git       │
+ SDK      ─┤   │  settings · credentials · module main halves                   │
  phone    ─┘   │  MCP gateway (automation.sock) ◄── agent CLIs via studio-run   │
-  (RPC/WS)     │  render host ──► headless Chromium (canvas worker, browser.*)  │
+  (RPC/WS)     │  tool routing ──call/reply──► toolsets the clients offer       │
                │ Listeners: owner socket · loopback (token) · tailnet (pairing) │
                └─────────────────────────────────────────────────────────────────┘
 
  Electron shell (desktop only): windows, menus, tray, dialogs, notifications,
- clipboard, deep links, auto-update, the person's browser pane, terminals for
- its own machine, the client-side settings, keychain access.
+ clipboard, deep links, auto-update, the person's browser pane and the hidden
+ canvas worker (offered to agents as the `browser` and `canvas` toolsets),
+ terminals for its own machine, the client-side settings, keychain access.
 ```
 
 ### 4.1 What runs where
 
-| Concern                                                          | Server                   | Electron shell                   | Web client                                   |
-| ---------------------------------------------------------------- | ------------------------ | -------------------------------- | -------------------------------------------- |
-| Conversation runtime, providers, agent CLIs                      | yes                      | —                                | —                                            |
-| Transcripts, thread index, checkpoints                           | yes                      | —                                | —                                            |
-| MCP gateway, audit, tailnet lane                                 | yes                      | —                                | —                                            |
-| Canvas board store, merge, `canvas.*` tools                      | yes                      | renders the editor               | renders the editor                           |
-| Headless rendering (canvas worker, agent browser)                | yes                      | —                                | —                                            |
-| Workspace registry                                               | yes                      | caches a snapshot                | caches a snapshot                            |
-| Launch settings, CLI runtimes, approval rules, module enablement | yes                      | —                                | —                                            |
-| API keys, CLI logins                                             | yes (on the server host) | sends a key once                 | sends a key once                             |
-| Windows, menus, tray, dock badge                                 | —                        | yes                              | one tab                                      |
-| Native dialogs                                                   | —                        | yes                              | server-side folder browser                   |
-| Notifications                                                    | emits events             | shows OS notifications           | Web Notifications                            |
-| Clipboard, open external, reveal in folder                       | —                        | yes                              | `navigator.clipboard`, `window.open`, hidden |
-| The person's browser pane (`WebContentsView`)                    | —                        | yes (local server only)          | screencast of the server's browser           |
-| Terminals                                                        | — (ruling a)             | yes, for its own machine and WSL | —                                            |
-| Appearance, window material, update channel, background mode     | —                        | yes                              | browser storage                              |
-| Auto-update of the app                                           | —                        | yes                              | —                                            |
-| Server install and upgrade (WSL, SSH)                            | answers `--version`      | drives it                        | —                                            |
+| Concern                                                          | Server                        | Electron shell                           | Web client                                   |
+| ---------------------------------------------------------------- | ----------------------------- | ---------------------------------------- | -------------------------------------------- |
+| Conversation runtime, providers, agent CLIs                      | yes                           | —                                        | —                                            |
+| Transcripts, thread index, checkpoints                           | yes                           | —                                        | —                                            |
+| MCP gateway, audit, tailnet lane                                 | yes                           | —                                        | —                                            |
+| Canvas boards                                                    | as files (read, write, watch) | the canvas module: editor, merge, worker | the canvas module: editor, merge, worker     |
+| Agents' `browser.*` and `canvas.*` tools                         | routes calls to a client      | offers `browser` (the pane) and `canvas` | offers `canvas`                              |
+| Workspace registry                                               | yes                           | caches a snapshot                        | caches a snapshot                            |
+| Launch settings, CLI runtimes, approval rules, module enablement | yes                           | —                                        | —                                            |
+| API keys, CLI logins                                             | yes (on the server host)      | sends a key once                         | sends a key once                             |
+| Windows, menus, tray, dock badge                                 | —                             | yes                                      | one tab                                      |
+| Native dialogs                                                   | —                             | yes                                      | server-side folder browser                   |
+| Notifications                                                    | emits events                  | shows OS notifications                   | Web Notifications                            |
+| Clipboard, open external, reveal in folder                       | —                             | yes                                      | `navigator.clipboard`, `window.open`, hidden |
+| The person's browser pane (`WebContentsView`)                    | —                             | yes, every server (8.1)                  | previews of the server's dev servers (8.2)   |
+| Terminals                                                        | — (ruling a)                  | yes, for its own machine and WSL         | —                                            |
+| Appearance, window material, update channel, background mode     | —                             | yes                                      | browser storage                              |
+| Auto-update of the app                                           | —                             | yes                                      | —                                            |
+| Server install and upgrade (WSL, SSH)                            | answers `--version`           | drives it                                | —                                            |
 
 ### 4.2 The interfaces that replace Electron in server code
 
@@ -232,16 +271,15 @@ small interface in `src/server/platform/`, with an Electron implementation (used
 while the core still runs inside main) and a Node implementation (used by the
 standalone server).
 
-| Interface                                                                                                                                    | Replaces                                                                                 | Node implementation                                                                                                           |
-| -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `StudioPaths` — `dataDir`, `logsDir`, `isPackaged`, `resourcesDir`, `appRoot` (`cacheDir` and `runDir` arrive with the phases that use them) | `app.getPath`, `app.isPackaged`, `app.getAppPath`, `process.resourcesPath`               | from `--data-dir` / the bootstrap envelope; XDG defaults (`defaultServerLocations`); the bundle's own directory for resources |
-| `SecretCipher` — `available()`, `seal(text)`, `open(bytes)`                                                                                  | `safeStorage`                                                                            | a data key from the bootstrap envelope (desktop-spawned), else a 0600 key file in `<dataDir>/run/` (see 9.3)                  |
-| `ClientBus` — `publish(topic, payload)` (`publishTo(clientId, …)` when the router exists)                                                    | `BrowserWindow.getAllWindows()` loops, `webContents.send`, `broadcastToWorkspaceWindows` | fans out to RPC subscriptions                                                                                                 |
-| `Notifier` — `notify({ key, title, body, onActivate })`                                                                                      | `Notification`, the bell                                                                 | a `notifications` stream clients render                                                                                       |
-| `AppIdentity` — `version` (the build stamp and channel join it with `welcome`)                                                               | `app.getVersion`, the build stamp                                                        | baked into the bundle                                                                                                         |
-| `RenderHost` — `acquire(purpose)` returns a CDP browser                                                                                      | the hidden canvas worker window, `wc.debugger`                                           | headless Chromium over a pipe (section 8)                                                                                     |
-| `ClientDirectory` — which attached clients can reveal a tab, open an editor, show a tour                                                     | `BrowserWindow` lookups in the editor, tour and canvas-open tools                        | client capabilities from `hello` (6.4)                                                                                        |
-| `PowerEvents` (optional)                                                                                                                     | `powerMonitor`, `net.isOnline`                                                           | none; the shell forwards wake and online hints as client events                                                               |
+| Interface                                                                                                                                    | Replaces                                                                                                                                               | Node implementation                                                                                                           |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `StudioPaths` — `dataDir`, `logsDir`, `isPackaged`, `resourcesDir`, `appRoot` (`cacheDir` and `runDir` arrive with the phases that use them) | `app.getPath`, `app.isPackaged`, `app.getAppPath`, `process.resourcesPath`                                                                             | from `--data-dir` / the bootstrap envelope; XDG defaults (`defaultServerLocations`); the bundle's own directory for resources |
+| `SecretCipher` — `available()`, `seal(text)`, `open(bytes)`                                                                                  | `safeStorage`                                                                                                                                          | a data key from the bootstrap envelope (desktop-spawned), else a 0600 key file in `<dataDir>/run/` (see 9.3)                  |
+| `ClientBus` — `publish(topic, payload)` (`publishTo(clientId, …)` when the router exists)                                                    | `BrowserWindow.getAllWindows()` loops, `webContents.send`, `broadcastToWorkspaceWindows`                                                               | fans out to RPC subscriptions                                                                                                 |
+| `Notifier` — `notify({ key, title, body, onActivate })`                                                                                      | `Notification`, the bell                                                                                                                               | a `notifications` stream clients render                                                                                       |
+| `AppIdentity` — `version` (the build stamp and channel join it with `welcome`)                                                               | `app.getVersion`, the build stamp                                                                                                                      | baked into the bundle                                                                                                         |
+| `ClientDirectory` — which attached clients offer which toolsets (reveal a tab, open an editor, show a tour, `browser`, `canvas`, …)          | `BrowserWindow` lookups in the editor, tour and canvas-open tools; the hidden canvas worker window and `wc.debugger` as the gateway reaches them today | client capabilities and toolset offers from `hello` and after it (6.4, phase 5)                                               |
+| `PowerEvents` (optional)                                                                                                                     | `powerMonitor`, `net.isOnline`                                                                                                                         | none; the shell forwards wake and online hints as client events                                                               |
 
 `IpcMain` disappears from server code entirely: every domain exposes a handler
 object (the `ConversationIpcHandlers` shape) and is registered on the RPC router
@@ -264,7 +302,10 @@ Every module — canvas, backlog, git, design, scheduled agents, review, and
 third-party modules — splits into a **server half** (its data, its
 agent-facing gateway tools, its protocol methods) and a **client half** (its
 UI). The module SDK already draws this line: `entry.main` is the server half
-and `entry.renderer` is the client half.
+and `entry.renderer` is the client half. A module can have no server half at
+all: under ruling (f) the canvas is a client module whose boards are files the
+server reads and writes for it, and whose agent tools are a toolset the client
+offers.
 
 | `MainHost` member today                    | On the server                                                                                                          |
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
@@ -293,7 +334,10 @@ Consequences:
 - Bundled modules that are still wired statically in `app-services.ts` and
   `register-core-ipc.ts` (canvas, backlog, git, design, review) are split the
   same way when their domain moves (phase 10), and land on the kernel as
-  `createBundledMainModules()` entries rather than as static wiring.
+  `createBundledMainModules()` entries rather than as static wiring. Canvas
+  is the exception: it has no server half to split off, and its main-side
+  service stays with the desktop shell, which offers it as the `canvas`
+  toolset (phase 5).
 - A third-party `entry.main` that `require`s `electron` cannot run on a
   headless server. The host advertises a host capability (`electron-main`) only
   when it is the in-process core, so a module can check `host.supports` and
@@ -310,18 +354,20 @@ over HTTP beside the socket.
 
 ```
 client → server
-  { t: 'hello', protocolVersion, client: { kind, name, version, capabilities } }
+  { t: 'hello', protocolVersion, client: { kind, name, version, capabilities, instanceId } }
   { t: 'req',   id, method, params }                 // read or command
   { t: 'sub',   id, topic, params, cursor? }         // open a stream
   { t: 'unsub', id }
-  { t: 'reply', id, ok, result | error }             // answer to a server 'call'
+  { t: 'reply', id, ok, result | error }             // answer to a server 'call' (phase 5)
+  { t: 'progress', id, progress?, total?, message? } // a long client tool call is alive
 
 server → client
   { t: 'welcome', … }                                // see 5.3
   { t: 'res',   id, ok: true, result } | { t: 'res', id, ok: false, error: { code, message, retryAfterMs? } }
   { t: 'snapshot', sub, … } { t: 'event', sub, seq, … } { t: 'synchronized', sub, … }
   { t: 'subFailed', sub, code, retryable, retryAfterMs? }
-  { t: 'call',  id, method, params }                 // client-directed work (6.4)
+  { t: 'call',  id, toolset, tool, input, context, timeoutMs }  // a client tool call (6.3)
+  { t: 'cancel', id, reason }                        // the server gave up on a call
   { t: 'chunk', … }                                  // a frame over the size limit
 ```
 
@@ -361,21 +407,21 @@ grants on every frame.
 
 ### 5.2 Namespaces, in the order they land
 
-| Namespace          | v1?                   | Methods and streams                                                                                                                                                                                                                                                                                                                                                                                                            |
-| ------------------ | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `server`           | yes                   | `hello`; `info` (version, environment, data dir for owners); `shutdown { drain }`; `logs.tail` (owner)                                                                                                                                                                                                                                                                                                                         |
-| `conversation`     | yes                   | `list`, `create` (`ConversationCreateRequest`), stream `session`, stream `events` (the list-level feed), `loadEarlier`, `toolDetail`, `turnDiff`, `send`, `interrupt`, `respond`, `resolvePlan`, `setPermissionPreset`, `setModel`, `revert`, `rewind`, `fork`, `rename`, `delete`, `stop`, `suspend`, `threads`, `search` (+ stream), `planDocument`, `attachment`, `peek`, `compact`, `generateTitle`, `commands` (+ stream) |
-| `providers`        | yes                   | `list`, `models`, `discoverModels` (+ stream), `secrets.status`, `secrets.set`, `secrets.clear`, `signIn` (6.6)                                                                                                                                                                                                                                                                                                                |
-| `workspaces`       | yes                   | `snapshot`, `eventsAfter`, stream `changes`, `dispatch` (the subset chat needs: open, rename, close), `repoRoot`                                                                                                                                                                                                                                                                                                               |
-| `files`            | yes (chat subset)     | `search` (purpose `mention`) + `cancelSearch`, `stat`, `readImage`, `browse` (directory listing for the folder picker), `readText` (composer skill reader), `upload` (HTTP)                                                                                                                                                                                                                                                    |
-| `skills`           | yes (read)            | `listSources`, `scan`                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `settings`         | yes (launch settings) | `launch.get`, `launch.update`, stream `launch.changes`, `hosts.list`                                                                                                                                                                                                                                                                                                                                                           |
-| `notifications`    | yes                   | stream                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `canvas`           | phase 5               | `list`, `open`, stream `board` (scene pushes, presence), `applyOps`, `commitScene`, `exportImage`                                                                                                                                                                                                                                                                                                                              |
-| `browser`          | phase 5               | `tabs`, stream `screencast`, `input` (the person taking over)                                                                                                                                                                                                                                                                                                                                                                  |
-| `module`           | phase 10              | `list`, `invoke`, stream `events`, `assets`                                                                                                                                                                                                                                                                                                                                                                                    |
-| `git`, `fs` (full) | later                 | the git panel and file explorer data (ruling c)                                                                                                                                                                                                                                                                                                                                                                                |
-| `auth`             | phase 8               | `devices.list`, `devices.revoke`, `pairing.offer`, `pairing.requests` (owner only)                                                                                                                                                                                                                                                                                                                                             |
+| Namespace          | v1?                   | Methods and streams                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------------ | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `server`           | yes                   | `hello`; `info` (version, environment, data dir for owners); `shutdown { drain }`; `logs.tail` (owner)                                                                                                                                                                                                                                                                                                                                                           |
+| `conversation`     | yes                   | `list`, `create` (`ConversationCreateRequest`), stream `session`, stream `events` (the list-level feed), `loadEarlier`, `toolDetail`, `turnDiff`, `send`, `interrupt`, `respond`, `resolvePlan`, `setPermissionPreset`, `setModel`, `revert`, `rewind`, `fork`, `rename`, `delete`, `stop`, `suspend`, `threads`, `search` (+ stream), `planDocument`, `attachment`, `peek`, `compact`, `generateTitle`, `commands` (+ stream)                                   |
+| `providers`        | yes                   | `list`, `models`, `discoverModels` (+ stream), `secrets.status`, `secrets.set`, `secrets.clear`, `signIn` (6.6)                                                                                                                                                                                                                                                                                                                                                  |
+| `workspaces`       | yes                   | `snapshot`, `eventsAfter`, stream `changes`, `dispatch` (the subset chat needs: open, rename, close), `repoRoot`                                                                                                                                                                                                                                                                                                                                                 |
+| `files`            | yes (chat subset)     | `search` (purpose `mention`) + `cancelSearch`, `stat`, `readImage`, `browse` (directory listing for the folder picker), `readText` (composer skill reader), `upload` (HTTP). Phase 5 adds the first write and watch members, owner only: `roots`, `list`, `read`, `write` and `remove` (`*.excalidraw` only in v1, conditional on the file's hash), a `root` form of `stat`, and a `watch` topic, which the canvas keeps its boards through (phase 5 spec §10.3) |
+| `skills`           | yes (read)            | `listSources`, `scan`                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `settings`         | yes (launch settings) | `launch.get`, `launch.update`, stream `launch.changes`, `hosts.list`                                                                                                                                                                                                                                                                                                                                                                                             |
+| `notifications`    | yes                   | stream                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `tools`            | phase 5               | `offer`, `withdraw`, `focus` (a routing hint), `catalog` (+ push topic), `grant` (owner); the `call`, `cancel`, `reply` and `progress` frames carry the calls (6.3, phase 5 spec §4). Replaces the `canvas` and `browser` namespaces planned before ruling (f)                                                                                                                                                                                                   |
+| `previews`         | phase 9               | `list` (ports the server's agents listen on), `open`, `close`: a dev server on the server's loopback, passed through on an origin of its own (8.2)                                                                                                                                                                                                                                                                                                               |
+| `module`           | phase 10              | `list`, `invoke`, stream `events`, `assets`                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `git`, `fs` (full) | later                 | the git panel and file explorer data (ruling c)                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `auth`             | phase 8               | `devices.list`, `devices.revoke`, `pairing.offer`, `pairing.requests` (owner only)                                                                                                                                                                                                                                                                                                                                                                               |
 
 ### 5.3 Handshake, versioning and capabilities
 
@@ -387,7 +433,7 @@ grants on every frame.
   protocolVersion, minProtocolVersion,            // STUDIO_PROTOCOL_VERSION window
   server: { version, buildStamp },
   environment: { id, label, os, arch, hostKind: 'local' | 'wsl' | 'ssh' | 'tailnet', home },
-  capabilities: [ 'conversations', 'conversation-create', 'files-mention', 'canvas', 'render-host', 'browser-headless', … ],
+  capabilities: [ 'conversations', 'conversation-create', 'files-mention', 'client-tools', 'previews', … ],
   conversation: { protocolVersion, minProtocolVersion, capabilities },   // the existing conversation hello answer
   grant: { scopes, owner: boolean },
 }
@@ -410,8 +456,11 @@ grants on every frame.
   accepts, and nothing else (no label, no paths), so a client can tell "wrong
   version" from "wrong credentials" before it pairs. It is the tailnet lane's
   `health` route, generalised.
-- The client's `hello` carries its own capabilities (6.4), so the server knows
-  which attached clients can reveal a tab or show an editor.
+- The client's `hello` carries its own capabilities (6.4), a `kind`
+  (`desktop`, `web`, `app` or `headless`, read only from an owner grant) and
+  an `instanceId` that stays the same across one process's reconnects, so the
+  server can tell two desktops on one owner grant apart. The toolsets it
+  offers follow as `tools.offer` requests (6.3).
 
 ### 5.4 Where the protocol lives
 
@@ -460,11 +509,11 @@ by browser fallbacks, is the web client's `window.api` (section 11).
 
 ### 5.6 How the IPC channels migrate
 
-| Bucket                                                 | Members (approx.) | Fate                                                                                                                                                                                                                                                                                                          |
-| ------------------------------------------------------ | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **v1 server** — what the chat view and its panels call | ~75               | conversation (38), the command catalog, providers/models/secrets, `cliModelsDiscover`, launch settings, workspace sync, `searchFiles`/`cancelFileSearch`, `statPath`, `readImageDataUrl`, `getGitRepoRoot`, skills list/scan, `generateChatTitle`, `compactAgentSession`, `readConversationPeek`, `hostsList` |
-| **Shell, stays in the preload**                        | ~120              | window (19), browser pane (25), app menu, update, clipboard, dialogs, appearance, splash/startup/build-stamp, `openExternal`, `showItemInFolder`, `openFolderInTarget`, `getPathForFile`, terminals (21, for the local machine)                                                                               |
-| **Later server domains**                               | ~250              | git panel (62), file explorer/editor (most of filesystem's 40), backlog (17), skills management, marketplace, modules, mesh (folded into environments), automation/tailnet admin, canvas (moves in phase 7), tours, memory graph, design system, scheduled agents, pull requests, voice                       |
+| Bucket                                                 | Members (approx.) | Fate                                                                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------------ | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **v1 server** — what the chat view and its panels call | ~75               | conversation (38), the command catalog, providers/models/secrets, `cliModelsDiscover`, launch settings, workspace sync, `searchFiles`/`cancelFileSearch`, `statPath`, `readImageDataUrl`, `getGitRepoRoot`, skills list/scan, `generateChatTitle`, `compactAgentSession`, `readConversationPeek`, `hostsList`           |
+| **Shell, stays in the preload**                        | ~120              | window (19), browser pane (25), app menu, update, clipboard, dialogs, appearance, splash/startup/build-stamp, `openExternal`, `showItemInFolder`, `openFolderInTarget`, `getPathForFile`, terminals (21, for the local machine)                                                                                         |
+| **Later server domains**                               | ~250              | git panel (62), file explorer/editor (most of filesystem's 40), backlog (17), skills management, marketplace, modules, mesh (folded into environments), automation/tailnet admin, canvas (a client module; boards via `files` from phase 5), tours, memory graph, design system, scheduled agents, pull requests, voice |
 
 The rule for each domain that moves: extract a handler object with no IPC in it
 (if it is not one already), register it on the RPC router, register the same
@@ -498,31 +547,59 @@ The audit log stays one file per server, with new `connection.kind` values for
 `owner-client`, `web` and `ssh-tunnel` beside `studio-agent`, `external-local`
 and `remote-tailnet`.
 
-### 6.3 Gateway tools that need a person's screen
+### 6.3 Gateway tools a client supplies
 
-Most tools are data. A few act on something a person sees: `editor.*`
-(open a file, open a diff), `tour.*`, `canvas.open` (reveal the tab), and
-`browser.*` when it targets the person's own pane. These become
-**client-directed**: the server sends a `call` frame to an attached client that
-advertised the capability (`reveal-tab`, `editor`, `tour`, `browser-pane`),
-preferring the client whose window shows the calling agent's workspace. With
-none attached the tool answers a clear error ("no Studio window is attached to
-this server") rather than hanging — except where the headless render host can
-do the work itself (section 8).
+Most tools are data, and the server answers them itself. The rest act on
+something only a client has: a screen, a browser, a canvas. These are
+**client tools**. An attached client offers a **toolset** with `tools.offer`
+(a name, and for each tool a name, a description and a JSON Schema for its
+input). The gateway lists the tools to agents under `<toolset>.<tool>`, and
+each call goes to an offering client as a `call` frame and comes back as its
+`reply`, with `progress` while it runs and `cancel` when the server gives up
+on it. Routing keeps a conversation on the client it first used, then prefers
+the client the person is looking at, then the one showing the calling agent's
+workspace.
+
+- **Built-in toolsets**, offered only by a client with the shell role: the
+  desktop's `browser` (its pane, driven through its webview, as today) and
+  `canvas` (the canvas service and its hidden worker window, moved to the
+  client) in phase 5; `editor`, `tour` and `terminal` in phase 6. The web
+  client may offer `canvas` (phase 9).
+- **App toolsets**: a third-party app built on `@sprintengine/agent-sdk`
+  offers its own (a game offers `spawn_enemy`), with the `tools:offer` scope,
+  reaching the conversations it started unless the owner widens it.
+- **Nobody offering.** An agent works without the tools. A tool it was already
+  shown stays listed and answers `client_unavailable` until a client offers it
+  again; a list only grows within one MCP connection, because several runtimes
+  ignore `list_changed`.
+- **Which agents reach the gateway.** Claude chats are handed it at launch,
+  and terminal agents get it from the app's plugin or an entry pinned into the
+  workspace's MCP config. Codex and ACP chats are not handed it today, so
+  client tools reach them only once they are (decisions R86).
+
+The phase 5 spec
+([`studio-server/phase-5-client-tools.md`](studio-server/phase-5-client-tools.md))
+has the frames, names, limits, routing, approval, and what happens to a call
+whose client disconnects.
 
 `terminal.*`, `agent.launch` and `backlog.work` need a terminal, which only the
-desktop shell has (ruling a). They become client-directed tools too, offered
-only while a desktop that advertises `terminals` is attached to a server on its
-own machine, and still never to a tailnet peer, as today. A WSL, SSH or
-headless server does not offer them.
+desktop shell has (ruling a). They become the shell's `terminal` toolset in
+phase 6, offered only while a desktop that has terminals is attached to a
+server on its own PC: its local server, and its WSL servers through the
+Windows-side front door, which can open terminals there (phase 7 §3.7,
+§12.8). They are still never offered to a tailnet peer, as today. An SSH or
+headless server does not list them.
 
 ### 6.4 Client capabilities
 
-A client lists what it can do for the server in `hello.client.capabilities`:
-`reveal-tab`, `editor`, `tour`, `browser-pane`, `canvas-render`, `terminals`,
-`notify`. The desktop lists them all (`terminals` only to a server on its own
-machine); a web tab lists `reveal-tab`, `tour` and `notify`;
-the SDK lists none.
+A client lists what it can do for the server in `hello.client.capabilities`.
+What an agent calls is no longer one of them: the earlier list's
+`browser-pane` and `canvas-render` became the `browser` and `canvas` toolsets
+(6.3), and `editor` and `tour` follow in phase 6. What stays a capability is
+what serves the server or the person rather than an agent: `notify`,
+`reveal-tab`, and on the desktop's control channel `cipher` (phase 6). The
+desktop lists them all; a web tab lists `reveal-tab` and `notify`; the SDK
+lists none.
 
 ### 6.5 What chat needs in v1
 
@@ -558,31 +635,103 @@ flow, streams the lines it prints (a URL to open, a code to type), and accepts
 a pasted code back. A CLI with no such flow shows the command to run over SSH.
 Which CLIs support which flow needs checking per CLI (section 15).
 
-### 6.7 Canvas on the server
+### 6.7 Canvas: a client toolset over the server's files
 
-The canvas service is already Electron-free and moves whole:
+Ruling (f) splits the canvas along the line of section 1.1 (phase 5 spec,
+§10.2–10.3):
 
-- **Data.** The board store (`.excalidraw` files under
+- **Boards stay files on the server's disk**, where they are today: under
   `<dataDir>/canvas/<project key>/`, plus boards an earlier build left in
-  `<workspace root>/diagrams/`), the per-element merge where the person wins a
-  shape both sides touched, the atomic write, the fs watch, presence and the
-  action log all live on the server.
-- **Tools.** The eight `canvas.*` gateway tools (`list`, `open`, `describe`,
-  `find`, `edit`, `layout`, `import`, `screenshot`) stay in
-  `automation/canvas-tools.ts` and are registered on the server's gateway.
-  Boards are named, never located.
-- **Clients.** `canvas.list`, `canvas.open` and a `canvas.board` stream (the
-  scene pushes and presence that are `canvas:scene` / `canvas:presence` IPC
-  pushes today) let any client render a board live while an agent edits it.
-  The person's edits come back as `canvas.commitScene` with a base revision,
-  merged exactly as today. `canvas-subscribers.ts` becomes a map from
-  subscription ids to RPC streams instead of `WebContents`.
-- **Rendering.** Four of the five worker operations — `apply-edit`, `layout`,
-  `import-mermaid` and `export-image` — need a DOM, so not only the screenshot
-  needs a renderer. On the server they run in the headless render host
-  (section 8), behind the `CanvasWorkerTransport` interface that
-  `canvas-worker-host.ts` already defines; its deadlines, restart and queue
-  rules are unchanged.
+  `<workspace root>/diagrams/`. Nothing moves. The server reads, writes and
+  watches them through the owner-only `files` subset (5.2): a write is atomic
+  and conditional on the hash the writer last read (`ifMatch`), and in v1 it
+  accepts only `*.excalidraw`. That file access is the only canvas code the
+  server keeps; it knows nothing about the format.
+- **Everything else is the client's.** `canvas-service.ts` (the board cache,
+  revisions, the per-element merge where the person wins a shape both sides
+  touched, the action log, the screenshot ladder), the eight `canvas.*` tools
+  (`list`, `open`, `describe`, `find`, `edit`, `layout`, `import`,
+  `screenshot`) and the hidden worker window run in the desktop, one canvas
+  service per environment it is attached to, over a `CanvasFs` that speaks the
+  `files` methods. The desktop offers them as the `canvas` toolset. Boards are
+  still named, never located.
+- **Several clients on one board.** Each client's canvas service follows
+  `files.watch` and merges what it reads from disk, so an agent's edit made
+  through one desktop shows in another; a write that loses the `ifMatch` race
+  is merged again and retried once. Presence across clients is not carried in
+  v1.
+- **With no client offering `canvas`**, agents have no canvas tools, and the
+  boards are untouched files until one attaches.
+
+### 6.8 Pull request marks: a server domain (owner rulings 2026-10-03)
+
+The pull request record is the server's, in both modes, as of this change
+(`src/server/pull-requests/`). Features that react to chats live in the
+server; every client (the desktop, the web client, the phone, an SDK app)
+displays the result through the protocol and decides nothing. The desktop
+does not see conversation events for this.
+
+**One source.** A mark comes only from asking the host "is there a pull
+request for this branch?" (`gh pr list --head <branch>` in a checkout). No
+reader looks at a command an agent ran or a URL in a tool's output; the
+chat capture and the hook reporter's capture are gone.
+
+**What is looked up.** A conversation (a workspace and an agent, chat or
+terminal) is told where it worked, and wears the pull requests on those
+branches, newest first, de-duplicated by URL:
+
+- a chat's turn end: its own checkout, every other repository its
+  completed tool calls changed files in (`tool_output.payload.fileChanges`),
+  and the branches the turn pushed from its checkout without staying on them
+  (below), with a lookup that started after the turn ended;
+- a client that runs agents the server does not (the desktop's terminals)
+  says where one worked with `pullRequests.noteWork`: its checkout whenever
+  git answers for it, and at a turn end the files it changed during the turn;
+  its pushed branches count from its previous turn end;
+- a slow poll: every minute a live chat's checkout is read again (git only)
+  and a branch that moved is looked up; every five minutes the conversations
+  active in the last half hour are looked up again (held), which finds a pull
+  request opened or merged by hand. An idle chat is left to the watch;
+- a client asks (`pullRequests.refresh`): a hover, a window coming to the
+  front. Open pull requests are also watched every two minutes.
+
+A repository's default branch is never looked up: `gh pr list --head main`
+matches the branch name in every fork, so an upstream repository answers with
+every contributor's pull request from their fork's `main`. A pull request
+opened from a default branch therefore gets no mark; a trunk-based team opens
+none. Because a turn can end back on the default branch after its agent
+branched, pushed and opened a pull request, a turn end also looks up the
+branches it pushed: a remote-tracking tip committed since the turn began that
+is exactly a local branch no other worktree has checked out, or the
+checkout's own HEAD. Two `for-each-ref` reads, at most four lookups a turn,
+and none when the turn's start is unknown. A push by URL with no remote, or
+of a commit older than the turn, is not seen.
+
+A repository outside any workspace is looked up when an agent changed files
+in it, bounded: four per turn, from at most 32 directories, and a dozen
+checkouts per conversation.
+
+**The record's rules hold.** Settled reads only; "could not ask" changes
+nothing, so a mark never blinks out for a probe that failed or a server
+restart. At most three `gh` reads at a time. One lookup per checkout at a
+time, so an older answer never lands over a newer one, and a burst of turn
+ends in one checkout is one lookup per 15 seconds. A list asked for before the
+stored records are read waits for them.
+
+**No `gh`, no marks.** The record reads through `gh` on the server's machine,
+with `gh`'s own sign-in. A server with no `gh`, or not signed in, has no
+marks and says nothing: a missing `gh` holds every read for five minutes, and
+nothing is reported as an error.
+
+**The protocol** (`pull-requests` capability, owners only, `workspaces:read`):
+`pullRequests.list` by workspace or by conversation, `pullRequests.refresh`,
+`pullRequests.noteWork`, and the `pullRequests.changed` stream, which names
+what moved and never carries the lists. The desktop's sidebar reads rows
+through the window's Studio client; the shell's own client notes where its
+terminal agents work and puts the lists the server answers on the terminal
+snapshot, which carries them to the peek and the tooltips as before. Records
+stored under `userData/pull-requests/` carry over unchanged; the conversations
+that worked where are written beside them in `conversations.json`.
 
 ## 7. Data and settings
 
@@ -609,8 +758,10 @@ git refs in each repository, because they belong to the checkout.
 Server-owned: conversation stores, approval rules, attachments, plans, the
 command cache, provider secrets, module secrets and storage, launch settings,
 the workspace registry and backup, module enablement, studio-area skills,
-scheduled agents, git changelists, pull requests, canvas, tours, model
-discovery, tailnet devices and settings, the audit log, the integration ledger,
+scheduled agents, git changelists, pull requests (the server's in both modes
+since section 6.8), canvas board files (the
+server holds them as files; the canvas module that edits them is a
+client's), tours, model discovery, tailnet devices and settings, the audit log, the integration ledger,
 marketplace and feed caches.
 
 Client-owned (stay in the desktop's userData, or browser storage on the web):
@@ -637,109 +788,82 @@ in both, and the shell reads server-owned state over the protocol.
   home, where the CLI keeps them. A remote server is signed in on that host.
 - GitHub tokens and module secrets follow the same rule as API keys.
 
-## 8. The render host: headless Chromium
+## 8. Browsers and the canvas: client things
 
-The server renders headlessly (ruling e). One `RenderHost` owns one Chromium
-per server, launched on demand, with isolated browser contexts for each use:
+The server has no browser and no canvas (ruling f). This section replaces the
+render host an earlier draft planned: no headless Chromium, no Chromium
+download or probe on any host, no screencast and no server-side drawing. What
+each client does instead:
 
-- **The canvas worker.** The worker page (`src/renderer/canvas-worker.html`, the
-  third HTML entry) loads in a context with network requests to anything but
-  its own assets refused. The `CanvasWorkerTransport` over CDP posts requests
-  through a `Runtime.addBinding` channel and reads responses from it. The
-  output matches what a client draws, because it is the same
-  `@excalidraw/excalidraw` build and the same bundled fonts.
-  `canvas.screenshot`, `edit`, `layout` and `import` work with no client
-  attached.
-- **The agents' browser.** `browser.*` tools (`open`, `navigate`, `click`,
-  `type`, `press`, `scroll`, `hover`, `evaluate`, `snapshot`, `screenshot`,
-  `console`, `network`, `resize`, `set_appearance`, `wait_for`, …) drive a tab
-  in the server's Chromium. `browser-control.ts` already speaks CDP through
-  `wc.debugger.sendCommand` plus `capturePage`; it is put behind a `CdpSession`
-  interface (`send`, `on`, `detach`, `captureScreenshot` via
-  `Page.captureScreenshot`) with two implementations: the Electron debugger on
-  a pane tab, and a CDP target in the render host. Each workspace gets its own
-  browser context, so cookies and storage do not cross workspaces.
-- **Watching it live.** A client subscribes to `browser.screencast` for a tab:
-  the server runs `Page.startScreencast` and forwards JPEG frames, acknowledging
-  each one only after the client's socket has drained it, so a slow client
-  lowers the frame rate instead of queueing. The person's input on the
-  screencast (`browser.input`) is dispatched with `Input.dispatch*` and bumps
-  the tab's epoch, so the existing rule holds: the person always wins, and an
-  agent action in flight yields `interrupted`.
-- **Previews.** Design previews and HTML artifacts render in the same host.
+| Client, attached to                  | The agents' `browser.*` tools              | What the person sees of a dev server an agent starts                   | `canvas.*` tools and drawing              |
+| ------------------------------------ | ------------------------------------------ | ---------------------------------------------------------------------- | ----------------------------------------- |
+| Desktop, its local server            | offered by the desktop: its pane, as today | the pane, direct                                                       | offered by the desktop: its hidden worker |
+| Desktop, a WSL server on the same PC | offered by the desktop                     | the pane, direct: Windows reaches WSL's `localhost` by forwarding      | offered by the desktop                    |
+| Desktop, an SSH server               | offered by the desktop                     | the pane, its traffic sent through the SSH connection (8.1)            | offered by the desktop                    |
+| Web client, any server               | none in v1                                 | a preview: the dev server passed through on an origin of its own (8.2) | offered by the web client                 |
+| SDK app                              | whatever the app offers                    | —                                                                      | whatever the app offers                   |
+| Nobody                               | none                                       | —                                                                      | none                                      |
 
-On the desktop with a local server, agent tools keep targeting the person's
-own pane tab when the calling workspace has one active (client-directed,
-6.3), so today's "the agent fixes the page, the person sees it fix" still
-holds; otherwise, and on any headless or remote server, they use the server's
-browser. Whether the desktop's pane should itself become a view of the server's
-browser is an open question (section 15).
+### 8.1 The desktop's pane on every route
 
-### 8.1 Where the Chromium comes from
+The pane stays the desktop's native `<webview>`, with DevTools, file drag and
+drop, rich clipboard, inline PDFs and the password manager, on every server
+the desktop attaches to. The agents' `browser.*` tools (`open`, `navigate`,
+`click`, `type`, `press`, `scroll`, `hover`, `evaluate`, `snapshot`,
+`screenshot`, `console`, `network`, `resize`, `set_appearance`, `wait_for`, …)
+are the desktop's `browser` toolset: `browser-control.ts` keeps driving the
+pane through `wc.debugger` and `capturePage`, and the person-wins rule (a
+person's input bumps the tab's epoch, and an agent action in flight yields
+`interrupted`) stays where it is. With no window open (the tray), the shell
+keeps a workspace's tabs as offscreen web contents in the same partition, so
+no tool needs a window.
 
-In order of preference, per server:
+Where the pane's traffic goes is what differs by route:
 
-1. **Electron, when the server runs inside or beside the desktop app.** While
-   the core is in process (phases 1–5) the render host is an Electron offscreen
-   `BrowserWindow`, as the canvas worker is today. Once the server is a child
-   process (phase 6) it launches the app's own Electron binary with a tiny
-   render-host entry and `--remote-debugging-pipe`, so a desktop never
-   downloads a browser.
-2. **A browser the person names or that is found.** A setting with a path, or a
-   probe of the usual Chrome and Chromium locations on the host.
-3. **A pinned download on first use**: a headless Chromium build for the host's
-   os/arch, fetched by version and checked against a pinned SHA-256, exactly as
-   `wsl-node-runtime.ts` pins Node. Into `<dataDir>/../runtime/chromium-<v>/`.
-   For WSL and SSH hosts the client downloads and verifies it and streams it
-   over the same channel as the Node runtime, so the host needs no network.
+- **The local server and its WSL servers.** Direct, as today. A dev server an
+  agent starts in WSL is reachable at `localhost` through WSL's localhost
+  forwarding. With forwarding off (the stdio bridge of phase 7), the pane
+  cannot reach it, as today.
+- **An SSH server.** The agent's dev server listens on the remote's
+  `localhost`, which a pane on the laptop cannot reach. The desktop sends that
+  environment's pane traffic through the SSH connection it already holds: a
+  SOCKS forward carried by the relay (phase 8, section 6.8), set as the proxy
+  of that environment's own partition (`persist:env-<environment.id>`) with
+  `proxyBypassRules: '<-loopback>'`, so that `localhost:5173` in the pane is
+  the remote's. Nothing is installed on the remote for it, and the cookies
+  stay the desktop's.
 
-The render host reports which source it is using and why the others were
-skipped, in `server.info` and in Settings.
+### 8.2 The web client: previews, and no browser toolset
 
-### 8.2 Linux hosts (WSL and SSH)
+A web tab cannot drive another page, so in v1 it offers no `browser` toolset;
+with only web clients attached, agents have no browser. The person still sees
+what an agent builds: the server's `previews` namespace passes a port on the
+server's loopback through to the browser, on an origin of its own, never the
+Studio web app's. The dev app is agent-written code; on Studio's origin it
+could read the person's session and drive the server. The preview origin has
+its own credential, Studio's cookies are stripped from what it forwards, and
+WebSocket upgrades (a dev server's hot reload) pass through. The phase 9 spec
+(section 3.6) has the details: which ports, the auth, the headers, the
+limits.
 
-- **Shared libraries.** Headless Chromium needs `libnss3`, `libatk`, `libgbm`,
-  `libasound` and a few more, which a minimal distribution may lack. The server
-  probes with `ldd` before the first launch and names the missing packages and
-  the `apt`/`dnf` line to install them, rather than failing on a cryptic exit.
-- **Fonts.** The canvas worker brings its own fonts. Pages an agent browses
-  need system fonts and `fontconfig`; without them text renders as boxes. The
-  probe reports that too.
-- **Sandbox.** Chromium's sandbox needs unprivileged user namespaces. Where
-  they are unavailable (some containers, hardened kernels) the render host
-  refuses to browse arbitrary sites without the sandbox, and says why. The
-  canvas worker, which loads only our own page with the network refused, may
-  run with `--no-sandbox` there; the agents' browser may only if the owner
-  turns that on for that host, knowing what it means.
-- **No display.** `--headless=new`; no X server or Wayland needed.
+### 8.3 The canvas
 
-### 8.3 Lifecycle, limits and security
+The desktop draws in its hidden canvas worker window, as it does today, and
+offers the `canvas` toolset over it (6.7). The web client runs the same
+`@excalidraw/excalidraw` build and fonts in the page, and in phase 9 offers
+`canvas` too. Both keep boards through the server's `files` methods. The
+output matches between them because it is the same editor build with the same
+bundled fonts; which client answers a call is the phase 5 routing rule (6.3).
 
-- Launched on the first request that needs it; shut down after five minutes
-  with nothing open (the canvas worker's existing idle rule); restarted once on
-  a crash, with the deadline and queue rules of `canvas-worker-host.ts`.
-- One browser process per server. A cap on open agent tabs per workspace and
-  in total; a JS heap cap per renderer; a kill-and-restart if the process tree
-  passes a memory ceiling.
-- **No debugging port.** CDP runs over `--remote-debugging-pipe` (file
-  descriptors 3 and 4), never a TCP port, so nothing else on the host can drive
-  the browser.
-- A per-server profile directory under `<dataDir>/render/`, never the person's
-  own browser profile; each workspace is a separate browser context; the canvas
-  context is offline.
-- Downloads are refused unless a tool asks for one, into a per-workspace
-  directory.
+### 8.4 With nobody attached
 
-### 8.4 The fallback
-
-When no Chromium can be launched (missing libraries, the person declined the
-download) and a desktop client that advertises `canvas-render` is attached, the
-canvas worker requests are routed to that client, which runs them in its own
-hidden worker window and answers over `call`/`reply`. With neither, the tool
-answers that this server cannot render and how to fix it. A DOM shim in Node
-(happy-dom or jsdom) running the editor's geometry is a possible lighter
-alternative for `apply-edit` and `layout`; it is unproven against the editor's
-text measurement and is not part of this plan.
+A scheduled agent, or a chat left running on a remote with every client gone,
+has no browser and no canvas tools: they are absent from its tool list, and
+nothing waits for a client. A later, optional **headless client** can close
+that gap without touching the server: a small separate program run beside the
+server that connects as an ordinary client and offers `browser` (a headless
+Chromium) and `canvas` (the editor in plain Node). It is out of scope for this
+plan; the phase 5 spec (§14) keeps the research for it.
 
 ## 9. Auth and security
 
@@ -828,18 +952,22 @@ sources:
 
 ### 9.4 Remote
 
-- **SSH.** The server binds only the owner socket and, if asked, loopback on
-  the remote. The desktop forwards a local socket or port to it with
-  `ssh -N -L`, reads the owner token over an SSH exec channel (the person's SSH
-  login is the proof of being that user), and connects through the tunnel as an
-  owner. Nothing is exposed on the remote's network.
+- **SSH.** The server binds only its owner socket and its front door's
+  bridge socket on the remote, no TCP port. The desktop runs one relay over
+  the SSH session's own stdio (decision R21; phase 8 spec, 5.4): no `ssh -L`
+  and no local listener for the protocol. The relay reads the owner token on
+  the remote and proves itself to the server with it, so the token never
+  reaches the desktop (R22). The person's SSH login is the proof of being that
+  user. The audit log names such a connection `via ssh-relay` with the SSH
+  client's address. Nothing is exposed on the remote's network.
 - **Tailnet.** The existing listener moves into the server unchanged: pairing
   by offer or by approval with a typed comparison code, device tokens stored as
   hashes, scopes read live, `whois` binding, single-use tickets, revocation
   closing every stream with 4401, audit. The scope list grows by the new
-  families (`files:read`, `canvas:read|operate`, `settings:read|operate`,
-  `secrets:write`), each with a `TAILNET_LEGACY_REQUEST_SCOPES`-style rule so an
-  old pairing never gains a family added later.
+  families (`files:read`, `settings:read|operate`, `secrets:write`, and
+  `previews:open` from phase 9), each with a `TAILNET_LEGACY_REQUEST_SCOPES`-style
+  rule so an old pairing never gains a family added later. `tools:offer` and
+  `files:write` are never granted to a tailnet pairing in v1.
 - **A browser on another tailnet device** pairs by approval like the phone does;
   the device token becomes its session cookie. Serving the page over HTTPS via
   `tailscale serve` is a later option.
@@ -940,10 +1068,21 @@ same shape as the WSL install):
    by this client and survives this client's disconnect). Otherwise start one
    with `setsid nohup`, the envelope on stdin, owner socket only, and mark it
    **managed**.
-5. **Connect**: read the owner token over an exec channel, open
-   `ssh -N -L <local socket or port>:<remote owner socket>` with
-   `ExitOnForwardFailure=yes` and `ServerAliveInterval=15`, and `hello` through
-   it as an owner.
+5. **Connect**: the same session becomes the relay (`bridge.mjs --mux`): a
+   multiplexer over its stdio, each stream a connection to the server's front
+   door proven with the owner token on the remote, or a TCP connection made
+   there for the desktop's browser pane. An SSH route is an environment, not
+   an execution host: `ExecutionHostId` stays `local | wsl:<distro>`, and on
+   the remote server every process is its `local`.
+
+As built in phase 8 (2026-10-03), the bootstrap is one script per session, a
+probe and then one decision after `@@SPRINTENGINE_SEND` (install, attach,
+start, upgrade, stop), so a connect is one authentication and a first install
+two. The marker rule is the same one stdin envelopes need everywhere: nothing
+is written to a remote shell before it asks, or it is run as a command. The
+install lock is a `mkdir` lock (macOS has no `flock`), and a managed server is
+a detached process (no `setsid`, no systemd unit unasked, R29). The detail is
+in `docs/design/studio-server/phase-8-ssh-remotes.md`.
 
 **Lifecycle and upgrade**
 
@@ -984,8 +1123,9 @@ environments instead of paired desktops only.
   own files once inlined._
 - Beside it: `resources/` (plugins, hooks, the studio plugin, built-in skills,
   `automation/mcp-stdio-bridge.mjs`), the ripgrep binary for the target
-  os/arch, the canvas worker page and its fonts, and the web client (section
-  11).
+  os/arch, and the web client (section 11), which carries the canvas worker
+  page and its fonts for the web client's `canvas` toolset. The server itself
+  draws nothing.
 - Not in it: `node-pty` (terminals are out), `electron`, `electron-updater`,
   xterm, Monaco's main-side pieces.
 - One archive per target (`studio-server-<version>-<os>-<arch>.tar.gz`) with a
@@ -1017,7 +1157,7 @@ environments instead of paired desktops only.
 | OS notifications, dock badge                    | Web Notifications when granted; no badge                                                                             |
 | App menu, context menus                         | the in-app command palette and DOM menus                                                                             |
 | Multiple windows, aux windows (checkpoint diff) | tabs and in-app modals                                                                                               |
-| The browser pane (`WebContentsView`)            | the server browser's screencast (8), or hidden when the server has no render host                                    |
+| The browser pane (`WebContentsView`)            | previews of the server's dev servers on an origin of their own (8.2); no `browser` toolset in v1                     |
 | Terminals                                       | hidden (ruling a)                                                                                                    |
 | Auto-update, window material, splash            | none                                                                                                                 |
 | Deep links (`sprintengine://`)                  | URL routes                                                                                                           |
@@ -1027,6 +1167,9 @@ environments instead of paired desktops only.
 'function'`, so a member the web shim leaves out degrades rather than throws;
   the rest are found by running the web build against a shim that reports every
   missing call.
+- The web client offers the `canvas` toolset (8.3): it runs the canvas worker
+  page in the browser and answers agents' `canvas.*` calls like the desktop's
+  hidden worker window does.
 - Third-party module renderer code runs in the web page too. It is gated by the
   same trust store (on the server); whether module assets need their own origin
   on the web, as they get their own protocol on the desktop, is an open
@@ -1051,8 +1194,10 @@ but every intermediate state is a shippable app:
    behind the `SPRINTENGINE_CHAT_TRANSPORT` environment variable until it is at
    parity, then by default. IPC stays for
    everything else.
-5. **Rendering without a window** (phase 5) so canvas and browser tools do not
-   depend on main's windows.
+5. **Client tools** (phase 5). The browser and canvas tools become toolsets
+   the desktop offers through the server, the canvas keeping its boards
+   through the server's `files` methods, so nothing the server does depends
+   on main's windows.
 6. **Out of process** (phase 6). The shell spawns the server; main stops
    constructing the server-owned stores and reaches them over the protocol. The
    in-process mode stays available behind a flag for one release, as the
@@ -1193,8 +1338,9 @@ rpcSocket, secrets}}` or `{"fatal":{code, message}}`; everything for a
   - _No terminals_ (ruling a), no module host, no canvas worker and no browser
     tools on the standalone server yet: the module host's bundled modules
     still take the shell's terminal runtime and account bridge (phase 6 moves
-    the agent-runtime module, phase 10 splits the rest), and rendering is the
-    render host's (phase 5). Its gateway serves `conversation.create` and
+    the agent-runtime module, phase 10 splits the rest), and the canvas and
+    browser tools are toolsets a client offers (phase 5, as replanned on
+    2026-10-02). Its gateway serves `conversation.create` and
     module-free tools only.
   - _Not done:_ the bootstrap envelope on stdin (phase 6 decides between it
     and `utilityProcess` with `postMessage`), and the `studio-run`
@@ -1443,23 +1589,29 @@ rpcSocket, secrets}}` or `{"fatal":{code, message}}`; everything for a
     the phone reaches a chat started in a run worktree only through an owner
     that names the folder.
 
-### Phase 5 — The render host (L)
+### Phase 5 — Client tools (M)
 
-- **Scope.** `RenderHost` with the Electron offscreen implementation (in
-  process) and the Chromium-over-pipe implementation (standalone); the Chromium
-  source chain (8.1) with the pinned download; `CanvasWorkerTransport` over
-  CDP; the `CdpSession` interface under `browser-control.ts`; headless agent
-  tabs per workspace; client-directed routing for the person's pane;
-  `browser.screencast`; the Linux probe (libraries, fonts, sandbox). Canvas
-  namespace (`canvas.list/open/board/commitScene`) on the protocol.
-- **Tests.** The canvas service suite against a fake CDP transport; the worker
-  host's deadline and restart tests unchanged; an integration test (skipped
-  where no Chromium is present) that renders a fixture board and compares its
-  dimensions and a pixel hash; browser-control tests against both session
-  kinds.
-- **Risks.** Download size and platform coverage of a pinned Chromium;
-  sandbox availability on WSL and in containers; font differences between the
-  worker in Electron and in a headless shell.
+Spec: [`studio-server/phase-5-client-tools.md`](studio-server/phase-5-client-tools.md).
+It replaces "The render host (L)", withdrawn by ruling (f).
+
+- **Scope.** Client toolsets: `tools.offer`, `withdraw`, `focus`, `catalog`
+  and `grant`; the `call`, `cancel`, `reply` and `progress` frames; the
+  `tools:offer` and `files:write` scopes and the `client-tools` capability;
+  `kind` and `instanceId` in `hello`. A per-connection tool list in the
+  gateway that only grows; routing by affinity and focus; the grace,
+  redelivery and cancellation. `client.tools` in the SDK. The desktop offers
+  `browser` (today's 17 tools, unchanged, still in main against the pane) and
+  `canvas` (today's eight tools, the canvas service and its worker moved to
+  the client side). The owner-only `files` subset that boards are kept
+  through. Pairing and Settings for app toolsets.
+- **Tests.** A snapshot of `tools/list` before and after the move, identical;
+  the browser and canvas suites through the toolsets; a registry suite on a
+  fake clock covering every call state; the SDK's redelivery and cancellation;
+  path confinement, `ifMatch` conflicts and the `.excalidraw` filter in
+  `files`.
+- **Risks.** Runtimes that ignore `list_changed`; a mutation run twice after a
+  reconnect (held to at most once by the SDK's call memory); two desktops
+  editing one board.
 
 ### Phase 6 — The local server out of process (L)
 
@@ -1467,8 +1619,9 @@ rpcSocket, secrets}}` or `{"fatal":{code, message}}`; everything for a
   envelope; ready, health, restart, logs; the server owns the userData stores
   in 7.2 and main reaches them over the protocol; the gateway and the tailnet
   listener move to the server; the data key handoff and the secret
-  re-sealing; the Electron binary as the render host's Chromium; the
-  in-process fallback flag.
+  re-sealing; the shell offering its toolsets (`browser`, `canvas`, and
+  `editor`, `tour` and `terminal` moved onto the same mechanism) over the
+  control channel; the in-process fallback flag.
 - **Tests.** Spawn and crash-restart tests with a fake child; a packaged smoke
   run (start, chat, quit, relaunch, resume); a single-writer test that fails if
   main constructs a server-owned store; migration of sealed secrets.
@@ -1494,22 +1647,31 @@ rpcSocket, secrets}}` or `{"fatal":{code, message}}`; everything for a
 - **Scope.** The environment list and the Remote band grouping by environment;
   the SSH bootstrap scripts (probe, runtime, bundle, start or reuse, token,
   tunnel); askpass dialogs; managed vs external servers; drain-and-replace
-  upgrades; version-skew messages; the `auth` namespace for owners.
+  upgrades; version-skew messages; the `auth` namespace for owners; the
+  desktop pane's traffic for that environment sent through the SSH connection
+  (a SOCKS forward carried by the relay, on a per-environment partition), so
+  `localhost` in the pane is the remote's (8.1).
 - **Tests.** Each script against a local `sh` in a temp `$HOME`; an
-  integration test against an SSH server in a container in CI; skew tests with
-  a fake server advertising the window's edges.
+  integration test against an SSH server in a container in CI, including a
+  dev server on the remote's loopback with hot reload seen through the pane;
+  skew tests with a fake server advertising the window's edges.
 - **Risks.** The variety of SSH setups (jump hosts, `ControlMaster`, 2FA
   prompts); old glibc on remotes below the pinned Node's floor.
 
-### Phase 9 — The web client (M)
+### Phase 9 — The web client and the embedded chat (L)
 
 - **Scope.** The web build target; the server serving it with the module asset
   routes; the web `window.api` shim and its fallbacks (section 11); pairing a
-  browser to a session cookie; `Origin`/`Host` checks; `studio-server pair`.
+  browser to a session cookie; `Origin`/`Host` checks; `studio-server pair`;
+  `previews`, the port pass-through on an origin of its own (8.2); the web
+  client offering `canvas`. Then, after the web client, the embeddable
+  read-only chat (an iframe route and a React component).
 - **Tests.** The web build in CI; the shim's missing-member report is empty for
-  the chat route; cookie, ticket and origin tests on the server.
+  the chat route; cookie, ticket and origin tests on the server; a preview
+  with hot reload, and a preview that cannot reach Studio's cookies or API;
+  the canvas suite through the web client's toolset.
 - **Risks.** Renderer code that assumes Electron in ways the type guards do not
-  catch; module asset origins.
+  catch; module asset origins; agent-written code on a preview origin.
 
 ### Phase 10 — The rest of the surface (XL, ongoing)
 
@@ -1534,42 +1696,56 @@ rpcSocket, secrets}}` or `{"fatal":{code, message}}`; everything for a
   fails loudly if not.
 - **Performance of the chat over a socket** vs IPC. Measured in phase 4 before
   the default changes.
-- **A Chromium per server** costs memory. On demand, idle shutdown and caps.
+- **Agents without a client.** With no desktop attached, agents have no
+  browser and no canvas, and a laptop that sleeps takes them away mid-task.
+  This is the ruling's intent; the tools answer `client_unavailable` naming
+  the fix, and the headless client (8.4) is the later answer.
+- **Runtimes that ignore a changing tool list** (Codex, the Cursor agent CLI,
+  possibly Grok) see a client that attaches mid-session only at their next
+  session. Lists only grow per connection (6.3), so nothing they hold goes
+  stale. Their chats are not handed the gateway at all yet (R86); their
+  terminal sessions are.
+- **Agent-written code on a preview origin** (phase 9). A dev app shown to a
+  web client runs in the person's browser; its origin is never Studio's, and
+  Studio's cookies never reach it (8.2).
 
 ## 15. Open questions for the owner
+
+These questions, and the decisions the phase specs raise, are resolved in
+[`studio-server/decisions.md`](studio-server/decisions.md) (owner ruling
+2026-10-01). That file classifies every decision, settles the ones that have a
+settled answer, and lists only the rest for the owner. Where its rows change
+what this design says, this file is amended when the phase that implements them
+lands. The owner ruling of 2026-10-02 (ruling f) superseded three of them
+outright; they are kept, marked, so the numbering holds. The phase 5 spec's
+own open decisions are rows R80–R86 of that file. The questions as they were
+asked, with where each is answered:
 
 1. **Package names.** Answered (owner ruling 2026-10-01):
    `@sprintengine/studio-protocol`, depending on and re-exporting the
    conversation package, which stays the phone's subset (5.4).
-2. **Local server lifetime.** Exit with the app (default here), or keep running
-   as a background service when the app quits, so agents keep working and the
-   web client stays reachable?
-3. **Secrets on headless hosts.** Is a 0600 key file on WSL and SSH hosts
-   acceptable, or should the server use `libsecret` where a session keyring
-   exists?
-4. **Sign-in without terminals.** Accept a per-CLI device-code or paste flow
-   over `providers.signIn`, and "sign in over SSH" for CLIs without one, or
-   allow one narrow "sign-in terminal" exception to ruling (a)?
-5. **The person's browser pane.** On the desktop with a local server, should
-   agent `browser.*` tools keep acting on the pane the person sees (this
-   design), or should the pane become a screencast of the server's headless
-   browser so there is one browser everywhere?
-6. **Chromium source by default.** Download a pinned headless Chromium on first
-   use (on demand, with a size warning), or require a system Chrome/Chromium on
-   WSL and SSH hosts and download only when asked? And may the agents' browser
-   run without the sandbox on a host where the owner allows it?
-7. **Attached-client rendering fallback.** Keep it (section 8.4) for hosts
-   where Chromium cannot run, or drop it to keep one path?
-8. **Remote targets.** Linux x64/arm64 and macOS over SSH in v1 — is a native
-   Windows server over SSH wanted later, or is WSL the only Windows answer?
-9. **Publishing the server.** Publish `studio-server` to npm (or as a
-   standalone archive) for machines that never run the desktop, or only install
-   it from a desktop in v1?
-10. **Third-party `entry.main` that imports `electron`.** Advertise an
-    `electron-main` host capability and let such modules run only in process,
-    or bump the host API and refuse them on servers?
-11. **Web exposure.** Loopback and tailnet only in v1. Is HTTPS through
-    `tailscale serve` for the web client wanted in v1 or later?
-12. **Terminals later.** If terminals come to the server after v1, they reuse
-    the WSL helper's design; confirm they stay out of scope until chat parity
-    on all routes.
+2. **Local server lifetime.** Settled: it exits with the app (R01).
+3. **Secrets on headless hosts.** Settled: a 0600 key file, with no keyring
+   probing (R12).
+4. **Sign-in without terminals.** Settled: device code, browser callback or
+   paste-back, credentials, and a sign-in-only terminal for the CLI's login
+   command (R34).
+5. **The person's browser pane.** Superseded by the 2026-10-02 ruling: the
+   server has no browser, so the pane is the desktop's native pane on every
+   route (its traffic sent through the SSH connection for an SSH server), and
+   the web client shows previews of dev servers instead (section 8). R37 is
+   superseded with it.
+6. **Chromium source by default, and running without the sandbox.**
+   Superseded by the 2026-10-02 ruling: no Chromium on any server. R40–R43
+   are superseded.
+7. **Attached-client rendering fallback.** Superseded by the 2026-10-02
+   ruling: rendering by an attached client is now the only path, and a
+   general one (6.3). R47 is superseded.
+8. **Remote targets.** Settled: Linux and macOS over SSH. WSL is the only
+   Windows answer (R33).
+9. **Publishing the server.** Settled: yes, to npm and as an archive (R08).
+10. **Third-party `entry.main` that imports `electron`.** For the owner: R60.
+11. **Web exposure.** Settled: tailnet web over HTTPS through `tailscale serve`
+    in phase 9, never plain HTTP (R19).
+12. **Terminals later.** Settled: out of scope until chat reaches parity on
+    every route (R09).

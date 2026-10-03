@@ -33,6 +33,7 @@ import {
   isPathWithinApprovalRoot,
   type ConversationApprovalDecision,
 } from '../../../../../shared/conversation/approvalRules'
+import { useClientToolOrigin } from '../../../studio/clientTools'
 
 type ApprovalEntry = Extract<TranscriptEntry, { kind: 'approval' }>
 type ApprovalHandler = (
@@ -347,6 +348,8 @@ export function ConversationPermissionCard({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const denyRef = useRef<HTMLButtonElement | null>(null)
   const { permanentApprovals } = useConversationTransport().capabilities
+  // "Allow" on an app's tool is visibly an allow for that app.
+  const origin = useClientToolOrigin(entry.action)
   const announcement = useArrivalFocus(
     active,
     containerRef,
@@ -425,7 +428,7 @@ export function ConversationPermissionCard({
   return (
     <DockShell
       tone="warn"
-      eyebrow={`Permission · ${permissionActionLabel(entry.action)}`}
+      eyebrow={`Permission · ${permissionActionLabel(entry.action)}${origin ? ` · from ${origin}` : ''}`}
       containerRef={containerRef}
       onKeyDown={handleKeyDown}
       ariaLabel="Permission request"

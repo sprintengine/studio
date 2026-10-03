@@ -24,6 +24,7 @@ import {
   type ConversationWireEvent,
   type StudioAuth,
   type StudioCapability,
+  type StudioClientKind,
   type StudioCursor,
   type StudioGrant,
   type StudioMethod,
@@ -34,6 +35,7 @@ import {
   type StudioWelcomeFrame,
 } from './protocol.js'
 import type { StudioTransport, StudioTransportFactory } from './transport.js'
+import { createClientTools, type StudioClientTools } from './tools.js'
 
 // The Studio client: one connection, every request and stream multiplexed on
 // it, and the connection kept.
@@ -70,8 +72,12 @@ export type StudioClientState = 'open' | 'reconnecting' | 'parked' | 'closed'
 
 export type ConnectOptions = {
   transport: StudioTransportFactory
-  /** Who this client is, for the audit and Settings. Never authority. */
-  client: { name: string; version?: string }
+  /**
+   * Who this client is, for the audit and Settings. Never authority. `kind` is
+   * read only from an owner's grant (a desktop, a web client, a headless
+   * runner); an app is an app whatever it says.
+   */
+  client: { name: string; version?: string; kind?: StudioClientKind }
   /**
    * A token from an earlier pairing, or a one-time pairing code from Studio's
    * Settings. Optional only for a transport that brings a credential of its
@@ -153,6 +159,8 @@ export type StudioClient = AgentConversations & {
   supports(capability: StudioCapability): boolean
   /** One request, answered or thrown as a `StudioError`. */
   request<M extends StudioMethod>(method: M, params: StudioMethodParams<M>): Promise<StudioMethodResult<M>>
+  /** Give Studio's agents tools that run here (`supports('client-tools')`). */
+  readonly tools: StudioClientTools
   /**
    * Follow a push topic (`STUDIO_TOPICS[topic].push`): every payload as it is
    * sent, subscribed again on each new connection. Nothing is replayed, so
@@ -242,6 +250,9 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
   const readTimeoutMs = options.readTimeoutMs ?? DEFAULT_READ_TIMEOUT_MS
 
   let auth: StudioAuth | undefined = options.auth
+  // This process run, the same across its reconnects: Studio sends a call it
+  // was running back to the same process after a drop, and to no other.
+  const instanceId = `sdk-${randomId()}`
   // The Studio this client is bound to; its streams' cursors and its command
   // ids are that Studio's.
   let environmentId: string | null = options.environmentId ?? null
@@ -275,6 +286,18 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
     options.onStateChange?.(next, error)
   }
   const send = (frame: unknown) => transport?.send(JSON.stringify(frame))
+
+  // The toolsets this client offers and the calls Studio sends it.
+  const tools = createClientTools({
+    request: (method, params) => request(method, params as never),
+    send: (frame) => {
+      if (state !== 'open' || !transport) return false
+      send(frame)
+      return true
+    },
+    supports: (capability) => studioPeerSupports(welcome?.capabilities, capability),
+    isOpen: () => state === 'open' && transport !== null,
+  })
 
   // ── Flow control ──────────────────────────────────────────────────────────
 
@@ -580,6 +603,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
   function fail(error: StudioError): void {
     if (state === 'closed') return
     setState('closed', error)
+    tools.close()
     unwatch()
     stopHeartbeat()
     if (reconnectTimer) clearTimeout(reconnectTimer)
@@ -657,6 +681,12 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
           }
           return
         }
+        case 'call':
+          tools.handleCall(frame)
+          return
+        case 'cancel':
+          tools.handleCancel(frame)
+          return
         case 'subFailed': {
           const push = pushes.get(frame.sub)
           if (push) {
@@ -719,7 +749,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
         t: 'hello',
         protocolVersion: STUDIO_PROTOCOL_VERSION,
         minProtocolVersion: STUDIO_PROTOCOL_MIN_SUPPORTED,
-        client: options.client,
+        client: { ...options.client, instanceId },
         auth: credential,
       }),
     )
@@ -773,15 +803,20 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
     attempts = 0
     parkedBy = null
     lastHeard = Date.now()
+    const unanswered = [...requests.values()]
     setState('open')
     startHeartbeat()
+    // What this client offers goes first: a call Studio sends again after the
+    // drop finds its toolset, and an agent's next call finds it at all.
+    tools.reoffer()
     for (const stream of streams.values()) {
       stream.parts = null
       subscribe(stream)
     }
     for (const push of pushes.values()) subscribePush(push)
-    for (const pending of requests.values())
-      send({ t: 'req', id: pending.id, method: pending.method, params: pending.params })
+    for (const pending of unanswered)
+      if (requests.get(pending.id) === pending)
+        send({ t: 'req', id: pending.id, method: pending.method, params: pending.params })
     // A consumer still behind from before the drop holds the new connection too.
     adjustReading()
   }
@@ -789,6 +824,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
   function dropped(): void {
     transport = null
     stopHeartbeat()
+    tools.dropped()
     if (state === 'closed') return
     const bye = lastBye
     if (bye && PARKING_CODES.has(bye.code) && reconnect) {
@@ -942,6 +978,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
     },
     supports: (capability) => studioPeerSupports(welcome?.capabilities, capability),
     request,
+    tools: tools.api,
     wake,
     subscribe(topic, params, listener) {
       const push: Push = { id: `p${++sequence}`, topic, params, listener, retry: null }
@@ -959,6 +996,7 @@ export async function connect(options: ConnectOptions): Promise<StudioClient> {
     close() {
       if (state === 'closed') return
       setState('closed')
+      tools.close()
       unwatch()
       stopHeartbeat()
       if (reconnectTimer) clearTimeout(reconnectTimer)

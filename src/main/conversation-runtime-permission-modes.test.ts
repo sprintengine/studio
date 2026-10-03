@@ -53,6 +53,7 @@ async function until(condition: () => boolean, what: string): Promise<void> {
  */
 function askingProvider() {
   let base: MockAdapterSessionInput | null = null
+  const started: MockAdapterSessionInput[] = []
   let push: ((next: ConversationEvent) => void) | null = null
   let end: (() => void) | null = null
   let turnId = ''
@@ -64,6 +65,7 @@ function askingProvider() {
     listModels: () => ['model'],
     startSession: (input) => {
       base = input
+      started.push(input)
       return [event(input, 'session_started'), event(input, 'session_ready')]
     },
     async *sendTurn(input) {
@@ -103,17 +105,22 @@ function askingProvider() {
     push!(event(base!, 'turn_completed', { turnId }))
     end!()
   }
-  return { adapter, answers, presets, ask, finish }
+  return { adapter, answers, presets, started, ask, finish }
 }
 
-async function setup(permissionPreset: ConversationPermissionPreset) {
+async function setup(
+  permissionPreset: ConversationPermissionPreset,
+  options: { platform?: NodeJS.Platform; hostId?: 'wsl:Ubuntu' } = {},
+) {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-modes-'))
   roots.add(workspaceRoot)
   const provider = askingProvider()
+  if (options.hostId) provider.adapter.executionHostCli = 'asking'
   const runtime = new ConversationRuntime({
     adapters: [provider.adapter],
     getProviderById: () => undefined,
     secretStore: { getStatus: async () => ({ ok: false, message: 'unused' }) },
+    ...(options.platform ? { platform: options.platform } : {}),
   })
   runtimes.add(runtime)
   const started = await runtime.startSession({
@@ -123,6 +130,7 @@ async function setup(permissionPreset: ConversationPermissionPreset) {
     providerId: 'asking',
     modelId: 'model',
     permissionPreset,
+    ...(options.hostId ? { cliRuntimes: { asking: { hostId: options.hostId } } } : {}),
   })
   assert.ok(started.ok)
   const sessionId = started.session.sessionId
@@ -313,5 +321,30 @@ test('an answer that names the kind it answers is refused for a request of anoth
     { requestId: 'plan', approved: true },
     { requestId: 'bash', approved: false },
   ])
+  await chat.done()
+})
+
+test('on a Linux server a stray WSL host id means nothing: the CLI runs here, and Auto still places the edit', async () => {
+  // A WSL server is handed the runtimes a Windows front door built. Had the id
+  // survived, the provider would look for wsl.exe, and the approval check
+  // would respell /home/… into //wsl.localhost/…, outside the workspace.
+  const chat = await setup('auto', { platform: 'linux', hostId: 'wsl:Ubuntu' })
+  assert.equal(chat.provider.started[0]?.cliRuntimes?.asking?.hostId, undefined)
+  await chat.ask('edit', editIn(chat.workspaceRoot))
+  await until(() => Boolean(chat.resolved('edit')), 'the edit to be answered')
+  assert.equal(chat.requested('edit')?.payload?.autoApproved, true)
+  await chat.done()
+})
+
+test('on Windows a WSL host id is kept, and the approval check respells the agent’s Linux paths', async () => {
+  const chat = await setup('auto', { platform: 'win32', hostId: 'wsl:Ubuntu' })
+  assert.equal(chat.provider.started[0]?.cliRuntimes?.asking?.hostId, 'wsl:Ubuntu')
+  await chat.ask('edit', editIn(chat.workspaceRoot))
+  await tick()
+  await tick()
+  // The POSIX temp root is not a Windows spelling, so the respelled path
+  // lands outside it: nothing answers on its own here.
+  assert.equal(chat.requested('edit')?.payload?.autoApproved, undefined)
+  await chat.runtime.respondToRequest({ sessionId: chat.sessionId, requestId: 'edit', approved: true })
   await chat.done()
 })

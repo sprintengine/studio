@@ -47,7 +47,7 @@ import type {
   ConversationForkInput,
   ConversationForkResult,
 } from '../shared/conversation-runtime'
-import { distroOfHostId, type ExecutionHostId } from '../shared/execution-host'
+import { cliRuntimesOnPlatform, distroOfHostId, type ExecutionHostId } from '../shared/execution-host'
 import { wslInputInRootSpelling } from '../shared/host-paths'
 import { inferConversationToolKind } from '../shared/conversation/toolKind'
 import { isTurnlessSubagentStep, readSubagentStatus } from '../shared/conversation/subagents'
@@ -236,10 +236,14 @@ export type ConversationRuntimeOptions = {
   randomId?: () => string
   // Least time between two running previews of one tool's output; tests shorten it.
   toolPreviewIntervalMs?: number
-  // The app's own MCP gateway for a Claude chat, on the machine its `claude`
-  // runs on (a WSL host's, or this one's). Null leaves it out; the chat runs
-  // without Studio's tools rather than not at all.
+  // The app's own MCP gateway for a CLI chat (Claude Code, Codex, an ACP
+  // agent), on the machine its CLI runs on (a WSL host's, or this one's). Null
+  // leaves it out; the chat runs without Studio's tools rather than not at all.
   resolveStudioMcpServer?: (input: { hostId?: ExecutionHostId }) => Promise<ConversationMcpServer | null>
+  // The platform this runtime runs on; tests stand in for another. Off
+  // Windows a `wsl:` host id means nothing (a WSL server is handed the
+  // runtimes a Windows front door built), so it is dropped at the start.
+  platform?: NodeJS.Platform
 }
 
 type ConversationRuntimeListener = (event: ConversationEvent) => void
@@ -359,6 +363,7 @@ export class ConversationRuntime {
   private readonly transcriptLimits: ConversationTranscriptLimits
   private readonly now: () => number
   private readonly randomId: () => string
+  private readonly platform: NodeJS.Platform
   private readonly resolveSkills: ConversationSkillsResolver
   private readonly checkpoints = new ConversationCheckpoints()
   private readonly approvalRules: ConversationApprovalRuleStore
@@ -418,22 +423,25 @@ export class ConversationRuntime {
   constructor(options: ConversationRuntimeOptions = {}) {
     this.secretStore = options.secretStore ?? new ProviderSecretStore()
     this.getProviderById = options.getProviderById ?? getConversationProviderById
+    // Every CLI chat is handed the app's gateway at launch, whichever agent runs it.
+    const studioGateway = options.resolveStudioMcpServer
+      ? { resolveStudioMcpServer: options.resolveStudioMcpServer }
+      : {}
     const defaultAdapters = [
       createMockConversationProvider(),
       createOpenAiCompatibleProvider({
         getProviderById: this.getProviderById,
         resolveSecret: (providerId) => this.resolveSecret(providerId),
       }),
-      createClaudeAgentProvider({
-        ...(options.resolveStudioMcpServer ? { resolveStudioMcpServer: options.resolveStudioMcpServer } : {}),
-      }),
-      createCodexConversationProvider(),
-      ...ACP_PROFILES.map((profile) => createAcpConversationProvider(profile)),
+      createClaudeAgentProvider(studioGateway),
+      createCodexConversationProvider(studioGateway),
+      ...ACP_PROFILES.map((profile) => createAcpConversationProvider(profile, studioGateway)),
     ]
     for (const adapter of options.adapters ?? defaultAdapters) {
       this.adapters.set(adapter.id, adapter)
     }
     this.stat = options.stat ?? stat
+    this.platform = options.platform ?? process.platform
     this.eventLog = new ConversationEventLog({
       onError: (filePath, error) => {
         console.warn(
@@ -486,6 +494,8 @@ export class ConversationRuntime {
       return { ok: false, message: 'Conversation lifecycle operation is already in progress.' }
     const inherited = input.mcpServers === undefined ? this.forkedMcpServers.get(path) : undefined
     if (inherited) input = { ...input, mcpServers: inherited }
+    const cliRuntimes = cliRuntimesOnPlatform(input.cliRuntimes, this.platform)
+    if (cliRuntimes !== input.cliRuntimes) input = { ...input, cliRuntimes }
     this.startingTranscripts.add(path)
     try {
       return (await this.adoptLiveSession(input, path)) ?? (await this.startSessionNow(input))
@@ -1378,7 +1388,9 @@ export class ConversationRuntime {
   // person sees and the answer the agent gets keep the input as it was sent.
   private approvalCheckInput(session: RuntimeSession, input: unknown): unknown {
     const cli = this.getAdapterForProviderId(session.providerId)?.executionHostCli
-    const distro = cli ? distroOfHostId(session.cliRuntimes?.[cli]?.hostId) : null
+    // Only on Windows: a Linux server holding a stray `wsl:` id would respell
+    // its own paths into UNC ones, and Auto would approve nothing.
+    const distro = cli ? distroOfHostId(session.cliRuntimes?.[cli]?.hostId, this.platform) : null
     return distro ? wslInputInRootSpelling(input, session.workspaceRoot, distro) : input
   }
 
@@ -1686,6 +1698,11 @@ export class ConversationRuntime {
     const session = this.sessions.get(input.sessionId)
     if (!session) return
     await this.emit(session, this.eventForSession(session, 'session_updated', { notice: input.notice }))
+  }
+
+  /** The folder a session works in (a run's worktree when it has one), or null for a session not here. */
+  sessionWorkspaceRoot(sessionId: string): string | null {
+    return this.sessions.get(sessionId)?.workspaceRoot ?? null
   }
 
   listSessions(input: ConversationListSessionsInput = {}): ConversationListSessionsResult {

@@ -1,10 +1,10 @@
-import { ipcRenderer } from 'electron'
+import { ipc as ipcRenderer } from '../ipc-router'
 
 import type { ElectronApi } from '../../shared/electron-api'
-import type { BranchPullRequest } from '../../shared/git/pull-request'
 
 /**
- * The conversation pull request marks' one call. Fired when a mark comes into
+ * A terminal agent's pull request marks' one call; a sidebar row's marks are
+ * read from the Studio server over the protocol (`pullRequests.*`). Fired when a mark comes into
  * view or the pointer lands on a conversation; main looks the session's branch
  * up and re-reads any state that has gone stale.
  *
@@ -16,45 +16,13 @@ import type { BranchPullRequest } from '../../shared/git/pull-request'
  */
 type PullRequestIpcRenderer = {
   invoke(channel: 'pullRequest:refreshForSession', sessionId: string): Promise<boolean>
-  invoke(
-    channel: 'pullRequest:listForWorkspaces',
-    workspaceIds: readonly string[],
-  ): Promise<Record<string, BranchPullRequest[]>>
-  on(channel: 'pullRequest:workspaces-changed', listener: (event: unknown, ids: string[]) => void): void
-  removeListener(channel: 'pullRequest:workspaces-changed', listener: (event: unknown, ids: string[]) => void): void
 }
 
 export function createPullRequestApi(renderer: PullRequestIpcRenderer) {
   return {
     refreshPullRequestsForSession: (sessionId: string): Promise<boolean> =>
       renderer.invoke('pullRequest:refreshForSession', sessionId),
-
-    /**
-     * What these CONVERSATIONS hold, whether or not anything is running in
-     * them — the sidebar's rows for chats whose agents have finished, and the
-     * project line that sums them.
-     *
-     * Conversations with nothing are simply absent from the answer rather than
-     * present with an empty array, so a window asking about two hundred rows
-     * gets back only the handful that have news.
-     */
-    listPullRequestsForWorkspaces: (workspaceIds: readonly string[]): Promise<Record<string, BranchPullRequest[]>> =>
-      renderer.invoke('pullRequest:listForWorkspaces', workspaceIds),
-
-    /**
-     * Main saying which conversations' lists moved. It carries ids and never
-     * the lists themselves: the renderer asks for what it is showing, so the
-     * record stays in one place.
-     */
-    onPullRequestWorkspacesChanged: (listener: (workspaceIds: string[]) => void): (() => void) => {
-      const handler = (_event: unknown, ids: string[]): void => listener(ids)
-      renderer.on('pullRequest:workspaces-changed', handler)
-      return () => renderer.removeListener('pullRequest:workspaces-changed', handler)
-    },
-  } satisfies Pick<
-    ElectronApi,
-    'refreshPullRequestsForSession' | 'listPullRequestsForWorkspaces' | 'onPullRequestWorkspacesChanged'
-  >
+  } satisfies Pick<ElectronApi, 'refreshPullRequestsForSession'>
 }
 
 export const pullRequestApi = createPullRequestApi(ipcRenderer)

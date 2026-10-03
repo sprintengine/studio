@@ -322,7 +322,7 @@ export function formatStartupTimeline(report: StartupTimelineReport): string {
 // Both processes resolve the gate from the same environment, so main's listener
 // and the renderer's reporting can never disagree about whether boot is being
 // measured. Off by default: this is a diagnostic, not a always-on cost.
-export function startupTimelineEnabledFor(env: Record<string, string | undefined>): boolean {
+export function startupTimelineEnabledFor(env?: Record<string, string | undefined>): boolean {
   return (
     readStudioEnv('SPRINTENGINE_STARTUP_TIMELINE', env) === '1' ||
     readStudioEnv('SPRINTENGINE_DIAGNOSTICS', env) === '1'
