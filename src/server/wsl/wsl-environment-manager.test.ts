@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Readable } from 'node:stream'
@@ -23,6 +32,9 @@ import {
 } from './wsl-environment-manager'
 import { readTreeBuild } from './desktop-wsl-servers'
 import { lineTransport, readTicket, relayShellToolsets } from './wsl-tool-relay'
+import type { ConversationEvent } from '../../shared/conversation-runtime'
+import type { ConversationBackend } from '../core/conversation-backend'
+import { createRoutedConversationBackend } from '../core/routed-conversation-backend'
 
 // The WSL server end to end, with a plain `sh` standing in for `wsl.exe` and
 // a temporary home for each distribution: the real server tree is built the
@@ -71,8 +83,12 @@ function fakeHome(name: string): string {
   return home
 }
 
-/** `wsl.exe` as `sh` in a home of the distribution's own. */
-function fakeRunner(homes: Record<string, string>): WslRunner & { spawned: number } {
+/**
+ * `wsl.exe` as `sh` in a home of the distribution's own. `closeDelayMs` holds
+ * back the news that a shell exited, as `wsl.exe` is behind the Linux
+ * process it ran: a killed server's wire closes first.
+ */
+function fakeRunner(homes: Record<string, string>, closeDelayMs = 0): WslRunner & { spawned: number } {
   const env = (distro: string) => ({ PATH: process.env.PATH, HOME: homes[distro], WSL_DISTRO_NAME: distro })
   const asProcess = (child: ReturnType<typeof spawn>): HelperProcess => {
     child.stdin?.on('error', () => undefined)
@@ -83,7 +99,13 @@ function fakeRunner(homes: Record<string, string>): WslRunner & { spawned: numbe
       pid: child.pid,
       kill: () => child.kill('SIGKILL'),
       once: (event: 'close' | 'error', listener: (...args: never[]) => void) =>
-        child.once(event, listener as (...args: unknown[]) => void),
+        child.once(
+          event,
+          event === 'close' && closeDelayMs > 0
+            ? (...args: unknown[]) =>
+                setTimeout(() => (listener as (...args: unknown[]) => void)(...args), closeDelayMs)
+            : (listener as (...args: unknown[]) => void),
+        ),
     } as HelperProcess
   }
   const run = (distro: string, file: string, args: string[], body: Buffer | Readable): Promise<RunOutcome> =>
@@ -118,8 +140,11 @@ function manager(options: {
   connected?: (connection: WslServerConnection) => void
   treeBuild?: { builtAt: string }
   maxAttempts?: number
+  closeDelayMs?: number
+  log?: (message: string) => void
+  now?: () => number
 }) {
-  const runner = fakeRunner(options.homes)
+  const runner = fakeRunner(options.homes, options.closeDelayMs)
   const listing =
     options.listing ??
     (() => ({
@@ -140,6 +165,8 @@ function manager(options: {
     onStatus: (status) => options.statuses?.push(status),
     onConnected: (connection) => options.connected?.(connection),
     ...(options.maxAttempts ? { start: { maxAttempts: options.maxAttempts } } : {}),
+    ...(options.log ? { log: options.log } : {}),
+    ...(options.now ? { now: options.now } : {}),
   })
   cleanups.push(() => created.shutdown({ budgetMs: 5_000 }))
   return { manager: created, runner }
@@ -213,6 +240,32 @@ test('a lost wire is reconnected once, and a call meanwhile waits for it instead
   assert.ok(threads.ok)
 })
 
+test('a lost wire to a server too busy to answer at once is reconnected when it does, not taken for hung', async () => {
+  const home = fakeHome('busy')
+  const connections: WslServerConnection[] = []
+  const { manager: wsl } = manager({ homes: { Ubuntu: home }, connected: (connection) => connections.push(connection) })
+  const first = await wsl.connect('Ubuntu')
+  const pid = readServerPid(home)
+  // Busy (here: stopped) for longer than a quick ping would wait, as a server
+  // under load or a VM waking from sleep is, while its wire drops.
+  process.kill(pid, 'SIGSTOP')
+  try {
+    first.backend.close()
+    await new Promise((resolve) => setTimeout(resolve, 6_000))
+  } finally {
+    try {
+      process.kill(pid, 'SIGCONT')
+    } catch {
+      // Gone: taken for hung and killed, which the asserts below say.
+    }
+  }
+  const second = await wsl.connect('Ubuntu')
+  assert.notEqual(second, first)
+  assert.equal(readServerPid(home), pid, 'the same server, with its chats, not one started in its place')
+  assert.equal(wsl.status('Ubuntu').state, 'ready')
+  assert.equal(connections.length, 2)
+}, 30_000)
+
 test('a WSL 1 distribution is refused with the command that converts it, and nothing is started', async () => {
   const home = fakeHome('wsl1')
   const { manager: wsl, runner } = manager({
@@ -262,6 +315,33 @@ test('a server killed under a running distribution is a crash; under a stopped o
   await waitFor(() => shutDown.status('Ubuntu').state === 'shut-down')
   assert.match(shutDown.status('Ubuntu').reason ?? '', /WSL was shut down/u)
 })
+
+test('WSL shut down on a PC in another language is told apart by the state changing, whatever its word', async () => {
+  // `wsl --list --verbose` on a French PC: neither state is "Stopped".
+  let state = "En cours d'exécution"
+  const { manager: wsl } = manager({
+    homes: { Ubuntu: fakeHome('localized') },
+    listing: () => ({ distros: [{ name: 'Ubuntu', isDefault: true, state, version: 2 }], at: Date.now() }),
+  })
+  await wsl.connect('Ubuntu')
+  // The running state is read once the server is up; give it its moment.
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  process.kill(readServerPid(join(scratch, 'localized')), 'SIGKILL')
+  await waitFor(() => wsl.status('Ubuntu').state === 'unavailable', 15_000)
+  assert.match(wsl.status('Ubuntu').reason ?? '', /stopped unexpectedly/u, 'still running: a crash')
+
+  const { manager: shutDown } = manager({
+    homes: { Ubuntu: fakeHome('localized-2') },
+    listing: () => ({ distros: [{ name: 'Ubuntu', isDefault: true, state, version: 2 }], at: Date.now() }),
+  })
+  await shutDown.connect('Ubuntu')
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  state = 'Arrêté'
+  process.kill(readServerPid(join(scratch, 'localized-2')), 'SIGKILL')
+  await waitFor(() => shutDown.status('Ubuntu').state !== 'ready', 15_000)
+  assert.equal(shutDown.status('Ubuntu').state, 'shut-down')
+  assert.match(shutDown.status('Ubuntu').reason ?? '', /^WSL was shut down/u)
+}, 60_000)
 
 /** The server's pid, from the run lock it holds. */
 function readServerPid(home: string): number {
@@ -330,3 +410,139 @@ test("the desktop's toolsets are offered to the WSL server, and a second connect
   )
   assert.equal(browser.offeredBy[0]?.clientName, 'SprintEngine Studio (Windows)')
 })
+
+/**
+ * A Windows front door's router over `wsl`, with a workspace in `home/repo`
+ * and nothing running in this process, and the chat in it on the mock
+ * provider, as the chat view starts and sends it.
+ */
+function routedChat(wsl: ReturnType<typeof manager>['manager'], home: string) {
+  const local = {
+    onEvent: () => () => undefined,
+    listSessions: () => ({ ok: true, sessions: [] }),
+  } as unknown as ConversationBackend
+  const folder = `\\\\wsl.localhost\\Ubuntu${join(home, 'repo').replaceAll('/', '\\')}`
+  const router = createRoutedConversationBackend({
+    local,
+    workspace: () => ({ hostId: 'wsl:Ubuntu', folderPath: folder }),
+    chatServerOn: () => true,
+    servers: wsl,
+    platform: 'win32',
+  })
+  const events: ConversationEvent[] = []
+  router.onEvent((event) => events.push(event))
+  const key = { workspaceRoot: folder, workspaceId: 'ws-1', agentId: 'agent' }
+  return {
+    router,
+    events,
+    key,
+    start: () => router.startSession({ ...key, providerId: 'mock-provider', modelId: 'mock-model' }),
+    /** A turn that runs to its end; resolves once its `turn_completed` has arrived. */
+    async send(sessionId: string) {
+      const before = events.filter((event) => event.type === 'turn_completed').length
+      const sent = await router.sendTurn({ sessionId, message: '/tools' })
+      if (sent.ok) await waitFor(() => events.filter((event) => event.type === 'turn_completed').length > before)
+      return sent
+    },
+  }
+}
+
+test('a killed server is not taken for a loopback that failed, says it was killed, and its restart keeps the chat working', async () => {
+  const home = fakeHome('killed')
+  const logs: string[] = []
+  let clock = Date.now()
+  const { manager: wsl } = manager({
+    homes: { Ubuntu: home },
+    // Longer than the loopback deadline, so a reconnect to the dead server
+    // would have given up on loopback before its exit was known.
+    closeDelayMs: 4_000,
+    log: (message) => logs.push(message),
+    now: () => clock,
+  })
+  const chat = routedChat(wsl, home)
+  const started = await chat.start()
+  assert.ok(started.ok, started.ok ? '' : started.message)
+  const first = await chat.send(started.session.sessionId)
+  assert.ok(first.ok, first.ok ? '' : first.message)
+  assert.equal(wsl.status('Ubuntu').transport, 'loopback')
+  // The server keeps its own log in the distribution, where the checklist reads it.
+  const logsDir = join(home, '.local', 'state', 'sprintengine-studio', 'logs', 'data-0123456789ab')
+  const logFile = readdirSync(logsDir).find((name) => /^server-\d{4}-\d{2}-\d{2}\.log$/u.test(name))
+  assert.ok(logFile, 'a server log is written')
+  assert.match(readFileSync(join(logsDir, logFile), 'utf8'), /\[studio-server\] ready in \d+ ms/u)
+
+  process.kill(readServerPid(home), 'SIGKILL')
+  await waitFor(() => wsl.status('Ubuntu').state === 'unavailable', 15_000)
+  assert.equal(
+    wsl.status('Ubuntu').reason,
+    'The Studio server in Ubuntu stopped unexpectedly (killed). It starts again with the next message.',
+  )
+  assert.deepEqual(
+    logs.filter((line) => /loopback did not work|stdio bridge|reconnecting/u.test(line)),
+    [],
+    'a dead server is not reconnected to, so nothing is downgraded',
+  )
+
+  // The next message, after the crash backoff: the server starts again,
+  // reached over loopback, and does not hold the session the chat view kept.
+  clock += 60_000
+  const stale = await chat.router.sendTurn({ sessionId: started.session.sessionId, message: '/tools' })
+  assert.equal(stale.ok ? null : stale.code, 'session_not_found')
+  assert.equal(wsl.status('Ubuntu').transport, 'loopback', 'a restarted server is reached over loopback again')
+  // What the view does then, as after an app restart: start the chat's
+  // session again (it resumes from its transcript) and send on that one.
+  const restarted = await chat.start()
+  assert.ok(restarted.ok, restarted.ok ? '' : restarted.message)
+  const again = await chat.send(restarted.session.sessionId)
+  assert.ok(again.ok, again.ok ? '' : again.message)
+  const transcript = await chat.router.readTranscript(chat.key, { all: true })
+  assert.ok(transcript.ok, transcript.ok ? '' : transcript.message)
+  assert.equal(
+    transcript.events.filter((event) => event.type === 'user_message').length,
+    2,
+    'one chat, both turns, across the restart',
+  )
+}, 60_000)
+
+test('WSL shut down under a chat: nothing starts it again until the next message, which starts the server and resumes the chat', async () => {
+  const home = fakeHome('shutdown')
+  const logs: string[] = []
+  const statuses: WslServerStatus[] = []
+  let state = 'Running'
+  const { manager: wsl, runner } = manager({
+    homes: { Ubuntu: home },
+    listing: () => ({ distros: [{ name: 'Ubuntu', isDefault: true, state, version: 2 }], at: Date.now() }),
+    statuses,
+    closeDelayMs: 500,
+    log: (message) => logs.push(message),
+  })
+  const chat = routedChat(wsl, home)
+  const started = await chat.start()
+  assert.ok(started.ok, started.ok ? '' : started.message)
+  assert.ok((await chat.send(started.session.sessionId)).ok)
+  const spawned = runner.spawned
+
+  // `wsl --shutdown`: every Linux process ends, and WSL lists the distribution stopped.
+  state = 'Stopped'
+  process.kill(readServerPid(home), 'SIGKILL')
+  await waitFor(() => wsl.status('Ubuntu').state === 'shut-down', 15_000)
+  assert.match(wsl.status('Ubuntu').reason ?? '', /^WSL was shut down/u)
+  // Long enough for a reconnect, had one been tried, to have reached for the bridge.
+  await new Promise((resolve) => setTimeout(resolve, 1_000))
+  assert.equal(runner.spawned, spawned, 'no wsl.exe was run, so nothing booted the VM again')
+  assert.deepEqual(
+    logs.filter((line) => /loopback did not work|stdio bridge|reconnecting/u.test(line)),
+    [],
+  )
+  assert.equal(wsl.current('Ubuntu'), null)
+
+  // The next message starts the VM (here, the shell) and the server, and the chat resumes.
+  state = 'Running'
+  const stale = await chat.router.sendTurn({ sessionId: started.session.sessionId, message: '/tools' })
+  assert.equal(stale.ok ? null : stale.code, 'session_not_found')
+  const restarted = await chat.start()
+  assert.ok(restarted.ok, restarted.ok ? '' : restarted.message)
+  const again = await chat.send(restarted.session.sessionId)
+  assert.ok(again.ok, again.ok ? '' : again.message)
+  assert.equal(wsl.status('Ubuntu').state, 'ready')
+}, 60_000)

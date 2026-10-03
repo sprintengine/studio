@@ -2053,10 +2053,20 @@ test('conversation-runtime', async () => {
       assert.equal(listed.ok && listed.sessions[0]?.permissionPreset, 'bypass')
       refusal = null
 
+      // A session it does not hold is named as such, so its caller starts the chat's session again.
       assert.deepEqual(await runtime.setPermission({ sessionId: 'conv_missing', permissionPreset: 'none' }), {
         ok: false,
+        code: 'session_not_found',
         message: 'Conversation session is invalid.',
       })
+      for (const commandId of [undefined, 'cmd-1']) {
+        const sent = await runtime.sendTurn({
+          sessionId: 'conv_missing',
+          message: 'hi',
+          ...(commandId ? { commandId } : {}),
+        })
+        assert.equal(sent.ok ? null : sent.code, 'session_not_found', 'a send, with or without a command id')
+      }
 
       // A provider with no live permission surface refuses rather than recording a
       // preset it would never honor.

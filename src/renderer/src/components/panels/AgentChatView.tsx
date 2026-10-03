@@ -98,6 +98,7 @@ import {
 } from './agentChat/conversationProjection'
 import { rememberSentAttachment } from './agentChat/storedAttachments'
 import { deriveConversationTimelineRows } from './agentChat/conversationTimeline'
+import { LOST_REQUEST, sendRecoveringSession, sessionWasLost } from './agentChat/sessionRecovery'
 import {
   createConversationProjectionState,
   syncConversationProjection,
@@ -1163,8 +1164,12 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     })
   }, [conversation, workspace, providers.length, agent?.name, derivedNameLabels, agentId, updateBinding])
 
-  const ensureSession = useCallback(async (): Promise<string | null> => {
-    if (sessionId) return sessionId
+  // Start the chat's session: before its first send, and again when the one
+  // this view held is gone (its server restarted under an open window), which
+  // resumes it from its transcript as an app restart does.
+  const startSession = useCallback(async (): Promise<
+    { ok: true; sessionId: string } | { ok: false; message: string } | null
+  > => {
     if (!conversation || !workspaceRoot || !transport.capabilities.startSession || !transport.startSession) return null
     try {
       const result = await transport.startSession({
@@ -1180,27 +1185,34 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         permissionPreset,
         ...(permissionMode ? { permissionMode } : {}),
       })
-      if (!result.ok) {
-        setActionError(result.message)
-        return null
-      }
+      if (!result.ok) return { ok: false, message: result.message }
       setSession(result.session)
-      return result.session.sessionId
+      return { ok: true, sessionId: result.session.sessionId }
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Could not start the conversation.')
+      return { ok: false, message: error instanceof Error ? error.message : 'Could not start the conversation.' }
+    }
+  }, [agentId, cliRuntimes, conversation, permissionMode, permissionPreset, workspaceId, workspaceRoot, transport])
+  const ensureSession = useCallback(async (): Promise<string | null> => {
+    if (sessionId) return sessionId
+    const started = await startSession()
+    if (!started) return null
+    if (!started.ok) {
+      setActionError(started.message)
       return null
     }
-  }, [
-    agentId,
-    cliRuntimes,
-    conversation,
-    permissionMode,
-    permissionPreset,
-    sessionId,
-    workspaceId,
-    workspaceRoot,
-    transport,
-  ])
+    return started.sessionId
+  }, [sessionId, startSession])
+  // The session this view holds is gone where it ran: forget it, so the next
+  // send starts the chat's session again. A view that cannot start a session
+  // (a paired machine's chat) keeps the one it has.
+  const forgetLostSession = useCallback(
+    (result: { ok: boolean; code?: unknown; message?: unknown }): boolean => {
+      if (!transport.capabilities.startSession || !sessionWasLost(result)) return false
+      setSession(null)
+      return true
+    },
+    [transport],
+  )
 
   // Change the tool-permission preset. The agent record is the durable seed (it
   // starts the next session and survives a remount), so it is written first; a
@@ -1231,6 +1243,9 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           permissionPreset: next,
           ...(nextMode ? { permissionMode: nextMode } : {}),
         })
+        // No session there any more: the record carries the preset, and the
+        // next session starts on it.
+        if (forgetLostSession(answered)) return
         // A remote command answers without a session: the preset it accepted
         // is the one now in force over there, on the session this pane holds.
         const result = answered.ok
@@ -1263,6 +1278,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       sessionId,
       updateBinding,
       transport,
+      forgetLostSession,
     ],
   )
 
@@ -1336,15 +1352,25 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       setPending('sending')
       recordUserMessage?.(Date.now())
       try {
-        const result = await transport.send({
+        const result = await sendRecoveringSession({
           sessionId: activeSession,
-          message: text,
-          localTurnId,
-          skills: metadata.skillIds.map((id) => ({ id })),
-          mentions: metadata.mentions,
-          mode: conversationMode,
-          reasoningEffort,
-          ...(turnAttachments.length > 0 ? { attachments: turnAttachments } : {}),
+          send: (onSession) =>
+            transport.send({
+              sessionId: onSession,
+              message: text,
+              localTurnId,
+              skills: metadata.skillIds.map((id) => ({ id })),
+              mentions: metadata.mentions,
+              mode: conversationMode,
+              reasoningEffort,
+              ...(turnAttachments.length > 0 ? { attachments: turnAttachments } : {}),
+            }),
+          restart: async () => {
+            // A view that cannot start one (a paired machine's chat) keeps the one it has.
+            if (!transport.capabilities.startSession) return null
+            setSession(null)
+            return startSession()
+          },
         })
         finishDraftSend(draftSend, result.ok)
         // A failed send keeps the mode and effort the user chose. Rolling them
@@ -1384,6 +1410,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     },
     [
       ensureSession,
+      startSession,
       pending,
       recordUserMessage,
       userTurns.length,
@@ -1631,7 +1658,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
           answers,
           decision,
         })
-        if (!result.ok) setActionError(result.message)
+        if (!result.ok) setActionError(forgetLostSession(result) ? LOST_REQUEST : result.message)
         else if (
           approved &&
           shapeEntries.some(
@@ -1646,7 +1673,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         setRespondingRequestId(null)
       }
     },
-    [sessionId, respondingRequestId, shapeEntries, updateBinding, transport],
+    [sessionId, respondingRequestId, shapeEntries, updateBinding, transport, forgetLostSession],
   )
 
   // "Allow and switch to …" on a permission card: this request is allowed
@@ -1664,7 +1691,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       try {
         const result = await transport.respond({ sessionId, requestId, approved: true, decision: 'once' })
         if (result.ok) allowed = true
-        else setActionError(result.message)
+        else setActionError(forgetLostSession(result) ? LOST_REQUEST : result.message)
       } catch (err) {
         setActionError(err instanceof Error ? err.message : 'Could not record the approval.')
       } finally {
@@ -1672,7 +1699,7 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
       }
       if (allowed) await changePermissionPreset(next)
     },
-    [sessionId, respondingRequestId, transport, changePermissionPreset],
+    [sessionId, respondingRequestId, transport, changePermissionPreset, forgetLostSession],
   )
 
   const interrupt = useCallback(async () => {
@@ -1680,13 +1707,14 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     setPending('stopping')
     try {
       const result = await transport.interrupt({ sessionId })
-      if (!result.ok) setActionError(result.message)
+      // A session that is gone has nothing running to stop.
+      if (!result.ok && !forgetLostSession(result)) setActionError(result.message)
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Could not interrupt the turn.')
     } finally {
       setPending(null)
     }
-  }, [sessionId, pending, transport])
+  }, [sessionId, pending, transport, forgetLostSession])
 
   // Send a queued message into the running turn (a steer). It skips sendTurn's
   // `pending` latch on purpose: that latch belongs to the send whose turn is
@@ -1747,7 +1775,10 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
         ...(turn.attachments.length > 0 ? { attachments: turn.attachments } : {}),
         steer: true,
       })
-      if (!result.ok) requeue(result.message)
+      if (!result.ok) {
+        forgetLostSession(result)
+        requeue(result.message)
+      }
     } catch (err) {
       requeue(err instanceof Error ? err.message : 'Could not send the message.')
     } finally {
@@ -2120,6 +2151,11 @@ export function ConversationChatBody({ workspaceId, agentId, binding }: Props & 
     void transport
       .setModel({ sessionId, modelId })
       .then((result) => {
+        // No session there any more: the record is what the next one starts on.
+        if (forgetLostSession(result)) {
+          record()
+          return
+        }
         if (!result.ok) {
           setActionError(result.message)
           return

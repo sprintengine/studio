@@ -69,6 +69,8 @@ export type ServeOptions = {
   /** This bundle's build stamp; checked against the envelope's when both are known (67 on a mismatch). */
   buildStamp: string | null
   log: (message: string) => void
+  /** The envelope arrived and was read, before anything starts from it (where a WSL server's log goes). */
+  onEnvelope?: (envelope: ServerBootstrapEnvelope) => void
   envelopeTimeoutMs?: number
   /** The longest a stop asked for without a budget may take. */
   defaultStopBudgetMs?: number
@@ -102,6 +104,7 @@ export async function serveOnChannel(channel: ServerControlChannel, options: Ser
   } catch (error) {
     return fatal(SERVER_EXIT.usage, error instanceof ServerBootstrapError ? error.message : String(error))
   }
+  options.onEnvelope?.(envelope)
 
   const start = options.starters[envelope.role]
   if (!start) return fatal(SERVER_EXIT.usage, `This server cannot run as ${envelope.role}.`)
