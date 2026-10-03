@@ -375,7 +375,7 @@ test('WorkspaceSidebar.allChats', async () => {
                 agentId: 'conversation-agent',
                 providerId: 'claude-agent',
                 modelId: 'model-1',
-                status: 'idle',
+                status: 'ready',
                 createdAt: now - MINUTE,
                 updatedAt: now,
               },
