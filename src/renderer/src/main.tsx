@@ -7,6 +7,7 @@ import './assets/index.css'
 import { ConfirmDialogProvider } from './components/ui'
 import AuxWindowApp from './components/auxWindows/AuxWindowApp'
 import WorkspaceManager from './components/workspace/WorkspaceManager'
+import { RootErrorBoundary } from './components/workspace/RootErrorBoundary'
 import { loadThirdPartyRendererModules } from './modules'
 import { launchSettingsReady } from './store/workspaceStore'
 import { reportBuildStamp } from './utils/buildStamp'
@@ -149,17 +150,21 @@ const auxWindowKind = searchParams.get('aux')
 
 if (isDiagnosticsWindow) {
   ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
-    <ConfirmDialogProvider>
-      <React.Suspense fallback={null}>
-        <DiagnosticsWindowApp />
-      </React.Suspense>
-    </ConfirmDialogProvider>,
+    <RootErrorBoundary>
+      <ConfirmDialogProvider>
+        <React.Suspense fallback={null}>
+          <DiagnosticsWindowApp />
+        </React.Suspense>
+      </ConfirmDialogProvider>
+    </RootErrorBoundary>,
   )
 } else if (auxWindowKind) {
   ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
-    <ConfirmDialogProvider>
-      <AuxWindowApp />
-    </ConfirmDialogProvider>,
+    <RootErrorBoundary>
+      <ConfirmDialogProvider>
+        <AuxWindowApp />
+      </ConfirmDialogProvider>
+    </RootErrorBoundary>,
   )
 } else {
   // Monaco is part of boot (utils/monacoRuntime.ts): the window is not revealed
@@ -167,9 +172,11 @@ if (isDiagnosticsWindow) {
   void Promise.all([bootThirdPartyRendererModules(), waitForLaunchSettings(), monacoReady]).then(() => {
     markStartup('renderer.third-party-modules-settled')
     ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
-      <ConfirmDialogProvider>
-        <WorkspaceManager />
-      </ConfirmDialogProvider>,
+      <RootErrorBoundary>
+        <ConfirmDialogProvider>
+          <WorkspaceManager />
+        </ConfirmDialogProvider>
+      </RootErrorBoundary>,
     )
     markStartup('renderer.root-rendered')
     // Only the primary workspace window reveals itself. The diagnostics and aux
