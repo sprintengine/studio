@@ -183,6 +183,23 @@ test('a call about a session goes where the session runs, so the switch never sp
   assert.equal(remote.calls.at(-1)?.member, 'interrupt')
 })
 
+test('turning the switch off under a chat live on the server leaves it there until it stops', async () => {
+  const { router, local, remote, flip } = setup()
+  const there = await router.startSession(start('ws-linux', '\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo'))
+  assert.ok(there.ok)
+  flip(false)
+  await router.startSession(start('ws-linux', '\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo'))
+  assert.equal(remote.calls.at(-1)?.member, 'startSession', 'the live chat keeps its one writer')
+  assert.equal(local.calls.length, 0)
+
+  // Another chat in that workspace, or this one once stopped, starts here.
+  await router.startSession(start('ws-linux', '\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo', 'other'))
+  assert.equal(local.calls.at(-1)?.member, 'startSession')
+  remote.sessions.splice(0, remote.sessions.length, { ...remote.sessions[0], status: 'stopped' })
+  await router.startSession(start('ws-linux', '\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo'))
+  assert.equal(local.calls.length, 2)
+})
+
 test('sessions and events from both sides reach every caller as one list and one stream', async () => {
   const { router, remote, connection } = setup()
   const events: string[] = []

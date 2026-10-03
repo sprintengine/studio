@@ -226,12 +226,21 @@ export function createRoutedConversationBackend(deps: RoutedConversationBackendD
     getNativeProviderModels: (providerId: string) => local.getNativeProviderModels(providerId),
     startSession(...args: unknown[]) {
       const input = args[0] as { workspaceId: string; agentId: string; workspaceRoot: string }
+      const live = (listed: ReturnType<ConversationBackend['listSessions']> | undefined) =>
+        listed?.ok === true && listed.sessions.some((session) => session.status !== 'stopped')
+      const key = { workspaceId: input.workspaceId, agentId: input.agentId }
       const distro = routeOf(input.workspaceId, input.workspaceRoot)
-      if (!distro) return localCall('startSession', args)
-      // A chat still live here keeps its one writer until it stops.
-      const here = local.listSessions({ workspaceId: input.workspaceId, agentId: input.agentId })
-      if (here.ok && here.sessions.some((session) => session.status !== 'stopped'))
+      if (!distro) {
+        // The switch turned off under a chat still live on a server: it keeps
+        // that one writer until it stops, as a chat live here does below.
+        for (const [running, remote] of remotes) {
+          if (liveRemote(running) && live(remote.connection.backend.listSessions(key)))
+            return guarded(running, 'startSession', args)
+        }
         return localCall('startSession', args)
+      }
+      // A chat still live here keeps its one writer until it stops.
+      if (live(local.listSessions(key))) return localCall('startSession', args)
       return guarded(distro, 'startSession', args)
     },
     sendTurn: bySession('sendTurn'),
