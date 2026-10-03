@@ -144,7 +144,13 @@ export function createIpcRouter(options: IpcRouterOptions): RendererIpc & {
       return
     }
     inFlight.set(entry.id, entry)
-    port.postMessage({ t: 'ipc.invoke', id: entry.id, channel: entry.channel, args: entry.args })
+    try {
+      port.postMessage({ t: 'ipc.invoke', id: entry.id, channel: entry.channel, args: entry.args })
+    } catch (error) {
+      // A port that cannot carry this call (a web tab's refuses what JSON would change) fails it here.
+      inFlight.delete(entry.id)
+      entry.reject(error instanceof Error ? error : new Error(String(error)))
+    }
   }
 
   function onPortMessage(data: unknown): void {

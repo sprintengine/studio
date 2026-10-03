@@ -80,6 +80,8 @@ export type StudioRpcAttachOptions = {
    * offer the built-in toolsets (`browser`, `canvas`), whatever its hello says.
    */
   shell?: boolean
+  /** Audit its mutations although it is Studio's own view: an owner's web tab. */
+  audited?: boolean
 }
 
 export type StudioRpcServer = StudioRpcListener & {
@@ -171,6 +173,7 @@ export function createStudioRpcServer(options: StudioRpcServerOptions): StudioRp
         chat,
         ownWindow: attachOptions.ownWindow,
         shell: attachOptions.shell === true,
+        ...(attachOptions.audited === undefined ? {} : { audited: attachOptions.audited }),
         welcome,
         audit: options.audit,
         ...(options.tools ? { tools: options.tools } : {}),

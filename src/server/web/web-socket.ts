@@ -12,6 +12,7 @@ import {
   encodePongFrame,
   encodeTextFrame,
 } from '../../main/automation/tailnet/websocket-frames'
+import { assertJsonSafe } from '../../shared/json-safe'
 import type { TunnelPort } from '../ipc/ipc-tunnel'
 
 // One browser WebSocket on the web listener, over the app's own RFC 6455
@@ -213,8 +214,8 @@ export function webSocketStream(peer: WebSocketPeer): Duplex {
 /**
  * The socket as a window's IPC tunnel port. A window's port carries structured
  * clones; this one carries JSON, so a value that does not survive JSON (a
- * `Date`, a `Map`, bytes) does not cross it. The tunnelled domains pass plain
- * data, which is what makes them movable at all.
+ * `Date`, a `Map`, bytes) is refused out loud rather than sent changed: a
+ * result as a failed call, a push as a logged drop.
  */
 export function tunnelPortOf(peer: WebSocketPeer): TunnelPort {
   const messageListeners: Array<(event: { data: unknown }) => void> = []
@@ -228,7 +229,27 @@ export function tunnelPortOf(peer: WebSocketPeer): TunnelPort {
     for (const listener of [...messageListeners]) listener({ data })
   })
   const port: TunnelPort = {
-    postMessage: (message) => peer.send(JSON.stringify(message)),
+    postMessage: (message) => {
+      try {
+        assertJsonSafe(message, 'message')
+      } catch (error) {
+        // A result that would arrive mangled arrives as the failure it is, so
+        // the call fails where it was made; a push is dropped, out loud.
+        const frame = message as { t?: unknown; id?: unknown; channel?: unknown } | null
+        console.error(`[web tunnel] ${error instanceof Error ? error.message : String(error)}`)
+        if (frame?.t === 'ipc.result')
+          peer.send(
+            JSON.stringify({
+              t: 'ipc.result',
+              id: frame.id,
+              ok: false,
+              error: { name: 'NotJsonSafe', message: error instanceof Error ? error.message : String(error) },
+            }),
+          )
+        return
+      }
+      peer.send(JSON.stringify(message))
+    },
     on: ((event: 'message' | 'close', listener: (event: { data: unknown }) => void) => {
       if (event === 'message') messageListeners.push(listener)
       else peer.onClose(() => (listener as () => void)())

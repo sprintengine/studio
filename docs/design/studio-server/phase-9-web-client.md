@@ -1472,3 +1472,36 @@ keeps the same swaps, since the browser's own window still takes
   says so; export to a local folder; the canvas module's enable switch, read
   as on; the canvas suite run through the web toolset, and the hidden-tab
   test.
+
+### 14.8 What an owner's tab reaches, and the audit (2026-10-03)
+
+- **An allow-list, held on both sides.** An owner's web tab reaches the
+  tunnelled domains the web client draws: workspace sync and the registry,
+  launch settings, machines, the chats (`conversation:*`), command lists,
+  model discovery, backlog files, workspace backups, the automation status,
+  and the reads `credential:secrets:status`, `github:token-status`,
+  `github:list-repos`, `scheduled-agents:list` and `mark-seen`. It does not
+  reach, and the desktop app alone offers: pairing local apps
+  (`studio-local-apps:*`), the tailnet lane's administration (`tailnet:*`),
+  other machines (`mesh:*`), setting or clearing provider keys
+  (`conversation:secrets:set`/`clear`, `credential:secrets:set`/`clear`),
+  the GitHub token and clone, a provider's CLI sign-in, terminal hand-off,
+  scheduled agents' changes (they launch terminals), and the module bridge.
+  The spec names none of these for the web client, so v1 keeps them on the
+  desktop. The tab's router sends only allowed channels to the tunnel (the
+  rest are refused in the page and land in the missing-member report); the
+  server answers any other channel `DesktopOnly` before a handler sees it
+  (`src/shared/web-client.ts`, `src/server/web/web-tunnel-guard.ts`).
+- **Audited as a client.** An owner's tab is Studio's own view (unredacted,
+  a window's request bounds), but a client of the server all the same: its
+  protocol mutations are audited (`audited` on the connection), and so is
+  every tunnel call that changes something, under `web:<session>` and the
+  browser's name.
+- **JSON, out loud.** A value JSON would change (a `Date`, a `Map`, bytes,
+  `NaN`, a hole in a list) is refused where it is sent: in the tab, the call
+  that carried it fails; on the server, a result becomes the failed call it
+  is and a push is dropped with a log line naming the member.
+- **Subscriptions survive a reconnect.** The router keeps the window's live
+  conversation subscriptions and makes them again on each new port, in a
+  desktop window whose out-of-process server restarted as in a tab whose
+  socket came back.

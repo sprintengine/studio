@@ -24,6 +24,8 @@ import {
   WEB_PREVIEWS_OPEN_CHANNEL,
 } from '../../shared/web-client'
 import { createPreviewService } from './preview-service'
+import { guardWebTunnelPort } from './web-tunnel-guard'
+import { toolError, toolSuccess } from '../../shared/modules/mcp-tools'
 import { browseFolders, type FolderBrowserInput } from './folder-browser'
 import { createWebListener, type WebListener } from './web-listener'
 import { createWebSessionStore, type WebSessionStore } from './web-sessions'
@@ -245,7 +247,25 @@ export async function startWebFrontDoor(input: {
     tunnel: {
       attach: (client, port, session) => {
         sessionOfClient.set(client.clientId, session.id)
-        tunnel.attach(client, port)
+        // What a tab may reach is the web client's share, and what it changes is audited.
+        tunnel.attach(
+          client,
+          guardWebTunnelPort(port, {
+            audit: (entry) =>
+              gateway.gatewayAudit().record({
+                connection: {
+                  kind: 'studio-client',
+                  clientId: `web:${session.id}`,
+                  clientName: `Browser: ${session.name}`,
+                },
+                tool: entry.channel,
+                durationMs: entry.durationMs,
+                args: entry.workspaceId ? { workspaceId: entry.workspaceId } : {},
+                result: entry.ok ? toolSuccess({ ok: true }) : toolError('failed', 'The call did not succeed.'),
+              }),
+            log: input.log,
+          }),
+        )
       },
       detach: (clientId) => {
         sessionOfClient.delete(clientId)

@@ -120,6 +120,8 @@ export type StudioRpcConnectionOptions = {
   ownWindow?: boolean
   /** The desktop's own shell, over a port main holds: it may offer the built-in toolsets. Default false. */
   shell?: boolean
+  /** Audit its mutations even when it is Studio's own view (an owner's web tab). */
+  audited?: boolean
   /** The client tools registry, when this Studio serves client tools. */
   tools?: ClientToolRegistry
   /** Files under a workspace's roots: the `files.watch` stream. */
@@ -166,7 +168,12 @@ export function createStudioRpcConnection(options: StudioRpcConnectionOptions): 
   const maxSubscriptions = ownWindow ? OWN_WINDOW_MAX_SUBSCRIPTIONS : MAX_SUBSCRIPTIONS
   // What a client is shown of an event; a window of Studio's own is shown it as IPC shows it.
   const redact = <T>(value: T): T => (ownWindow ? value : backend.redact(value))
-  const context: StudioRequestContext = { connectionId: options.connectionId, slot: nextSlot++, ownWindow }
+  const context: StudioRequestContext = {
+    connectionId: options.connectionId,
+    slot: nextSlot++,
+    ownWindow,
+    ...(options.audited === undefined ? {} : { audited: options.audited }),
+  }
   let state: 'hello' | 'open' | 'closed' = 'hello'
   let clientId: string | null = null
   let clientName = ''

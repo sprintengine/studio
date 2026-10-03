@@ -1,6 +1,7 @@
 import { createIpcRouter, type RendererIpc, type RouterPort } from '../../../preload/ipc-router-core'
 import { SERVER_IPC_CHANNELS } from '../../../shared/ipc-channel-owners'
-import { WEB_TUNNEL_CHANNELS } from '../../../shared/web-client'
+import { assertJsonSafe } from '../../../shared/json-safe'
+import { WEB_TUNNEL_CHANNELS, webTunnelAllows } from '../../../shared/web-client'
 import { WEB_CLOSE_REVOKED, watchWebReconnectTriggers } from './webReconnect'
 import { returnToPairing, webSocketUrl, webWindowId } from './webLocation'
 import { webShellIpc } from './webShellIpc'
@@ -23,12 +24,20 @@ export * from '../../../preload/ipc-router-core'
 const router = createIpcRouter({
   ipcRenderer: webShellIpc,
   mode: 'out-of-process',
-  table: { ...SERVER_IPC_CHANNELS, ...WEB_TUNNEL_CHANNELS },
+  // Only what the server lets a web tab reach goes to it; every other channel
+  // is the shell's, which in a tab refuses it here, in the missing-member report.
+  table: {
+    ...Object.fromEntries(Object.entries(SERVER_IPC_CHANNELS).filter(([channel]) => webTunnelAllows(channel))),
+    ...WEB_TUNNEL_CHANNELS,
+  },
 })
 
 function socketPort(socket: WebSocket): RouterPort {
   return {
     postMessage(message) {
+      // Thrown inside the call's own promise, so a value JSON would mangle
+      // fails the call that sent it rather than arriving changed.
+      assertJsonSafe(message, 'message')
       if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message))
     },
     addEventListener(type: 'message' | 'close', listener: (event: { data: unknown }) => void) {

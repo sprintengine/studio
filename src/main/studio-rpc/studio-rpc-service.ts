@@ -426,7 +426,12 @@ export function createStudioRpcService(options: StudioRpcServiceOptions): Studio
       return { connectionId: connection.connectionId, ticket }
     },
     connectWeb(stream, input) {
-      const connection = hub().attach(stream, { authenticator: input.authenticator, ownWindow: input.ownWindow })
+      // A browser is a client of this server, whatever view it draws: audited.
+      const connection = hub().attach(stream, {
+        authenticator: input.authenticator,
+        ownWindow: input.ownWindow,
+        audited: true,
+      })
       return { connectionId: connection.connectionId }
     },
     provideChat(next) {

@@ -476,3 +476,31 @@ test('a stream Studio cannot read is told to a client in stable words with an id
   owner.close()
   window.close()
 })
+
+test('an owner’s web tab is Studio’s own view, and its mutations are audited all the same', async () => {
+  const chat = fakeChat()
+  const audited: string[] = []
+  const router = createStudioRpcRouter({
+    backend: createFakeBackend(),
+    chat: () => chat,
+    info: () => ({}) as never,
+    audit: (entry) => void audited.push(entry.tool),
+  })
+  const grant = studioWindowGrant()
+  const send = { commandId: 'c1', sessionId: 's1', message: 'hello' }
+  await router.handle(grant, 'session.send', send, { connectionId: 'w1', slot: 1, ownWindow: true })
+  assert.deepEqual(audited, [], 'a desktop window is the app, and is not audited')
+  await router.handle(
+    grant,
+    'session.send',
+    { ...send, commandId: 'c2' },
+    {
+      connectionId: 'w2',
+      slot: 2,
+      ownWindow: true,
+      audited: true,
+    },
+  )
+  assert.deepEqual(audited, ['session.send'])
+  router.close()
+})
