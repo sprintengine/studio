@@ -562,6 +562,7 @@ export function registerAppLifecycle({
   const runShutdown = (observer?: (leg: ShutdownLegReport) => void): Promise<void> => {
     if (observer) shutdownObserver = observer
     if (shutdownRun) return shutdownRun
+    const shutdownStartedAt = Date.now()
     // Drop the tray before the shutdown legs run: quit from the tray is the
     // same graceful path as any other quit (sidecar snapshots, gateway
     // discovery file removed), and the icon must not outlive the decision.
@@ -642,7 +643,9 @@ export function registerAppLifecycle({
           serverStopped = server!
             .shutdown({
               drain: true,
-              budgetMs: leavingForUpdate ? SERVER_UPDATE_DRAIN_BUDGET_MS : SERVER_DRAIN_BUDGET_MS,
+              budgetMs: leavingForUpdate
+                ? serverUpdateDrainBudgetMs(Date.now() - shutdownStartedAt)
+                : SERVER_DRAIN_BUDGET_MS,
               onProgress: (progress) =>
                 server!.log.note(
                   `shutdown ${progress.done}/${progress.total} ${progress.leg}${progress.failed ? ' (failed)' : ''}`,
@@ -750,6 +753,20 @@ const UPDATE_SHUTDOWN_BUDGET_MS = 10_000
  */
 const SERVER_DRAIN_BUDGET_MS = 8_000
 const SERVER_UPDATE_DRAIN_BUDGET_MS = 6_000
+
+/**
+ * The drain's budget when leaving for an update, counted from when the
+ * shutdown began rather than from when the drain does: the legs before it (the
+ * canvas's last write, the modules' begin hooks) can take a while, and the kill
+ * at the budget still has to land inside the update's 10 s with time for the
+ * exit to be seen.
+ */
+export function serverUpdateDrainBudgetMs(elapsedMs: number): number {
+  const left = UPDATE_SHUTDOWN_BUDGET_MS - SERVER_UPDATE_KILL_MARGIN_MS - elapsedMs
+  return Math.max(SERVER_UPDATE_MIN_DRAIN_MS, Math.min(SERVER_UPDATE_DRAIN_BUDGET_MS, left))
+}
+const SERVER_UPDATE_KILL_MARGIN_MS = 1_500
+const SERVER_UPDATE_MIN_DRAIN_MS = 500
 
 /**
  * After the shutdown, the updater quits the app to install. Should it not (the
