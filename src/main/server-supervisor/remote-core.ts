@@ -2,7 +2,11 @@ import type { StudioTransportFactory } from '../../../packages/agent-sdk/src/tra
 import type { StudioCore } from '../../server/core/studio-core'
 import type { ControlRpc } from '../../server/bootstrap/control-rpc'
 import { SERVER_EVENTS, SERVER_METHODS } from '../../server/desktop/server-methods'
+import { isWslHostId } from '../../shared/execution-host'
+import { comparablePath } from '../../shared/host-paths'
+import { installGitHostResolver } from '../git-run'
 import { createHostRegistry, installHostRegistry } from '../hosts/host-registry'
+import type { TerminalRootInfo } from '../workspace-memory'
 import type { GitHubTokenStatus, GitHubTokenStore } from '../github-token-store'
 import type { ProviderSecretStore, ProviderSecretValueResult } from '../secret-store'
 import type { ServerStateMirror } from './server-mirror'
@@ -63,6 +67,49 @@ export function createRemoteCore(link: ShellServerLink): StudioCore {
     lastHosts = next
     hosts.notifyChanged()
   })
+  // The git panel's git for a repository on a WSL machine runs in that
+  // distribution, as the core arranges in process: a folder inside it, or one
+  // an open workspace on that machine holds. The server installs the same rule
+  // for its own git; this is the shell's, for the panel it keeps.
+  installGitHostResolver((cwd) => {
+    if (process.platform !== 'win32') return null
+    const byFolder = hosts.resolve({ folder: cwd })
+    if (byFolder.kind === 'wsl') return byFolder
+    const target = comparablePath(cwd)
+    for (const workspace of mirror.workspaceSync.getSnapshot().state.workspaces) {
+      if (!isWslHostId(workspace.hostId) || !workspace.folderPath) continue
+      const folder = comparablePath(workspace.folderPath)
+      if (target === folder || target.startsWith(`${folder}/`)) return hosts.get(workspace.hostId)
+    }
+    return null
+  })
+
+  // The folders the server's chats run in, for Diagnostics' per-workspace
+  // memory, which reads them synchronously: each read answers the last list
+  // and asks for the next, and the panel polls while it is open.
+  let conversationRoots: TerminalRootInfo[] = []
+  let rootsInFlight = false
+  const readConversationRoots = (): TerminalRootInfo[] => {
+    if (!link.isServing()) {
+      conversationRoots = []
+      return conversationRoots
+    }
+    if (!rootsInFlight) {
+      rootsInFlight = true
+      rpc
+        .call<TerminalRootInfo[]>(SERVER_METHODS.conversationRoots)
+        .then(
+          (roots) => {
+            conversationRoots = Array.isArray(roots) ? roots : []
+          },
+          () => undefined,
+        )
+        .finally(() => {
+          rootsInFlight = false
+        })
+    }
+    return conversationRoots
+  }
 
   const serverOnly = (member: string) => () => {
     throw new Error(`${member} is the Studio server's; the shell reaches it over the control channel.`)
@@ -75,13 +122,14 @@ export function createRemoteCore(link: ShellServerLink): StudioCore {
     // Chats live in the server. The shell's own uses of them (the control
     // plane that types at agents, the attention badge, the peek card) are
     // served there or over the channel; what is left here answers as a
-    // process with no chats of its own.
+    // process with no chats of its own, except the folders they run in, which
+    // Diagnostics asks the server for.
     conversations: {
       listSessions: () => ({ ok: true, sessions: [] }),
       sendTurn: async () => ({ ok: false, message: 'Chats are served by the Studio server.' }),
       interrupt: async () => ({ ok: false, message: 'Chats are served by the Studio server.' }),
       onEvent: () => () => undefined,
-      listLiveConversationRoots: () => [],
+      listLiveConversationRoots: readConversationRoots,
     },
     conversationOwner: {
       // One idle setting governs terminals and chats; the chats' half is the server's.

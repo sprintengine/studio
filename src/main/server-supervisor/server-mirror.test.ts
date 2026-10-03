@@ -4,6 +4,7 @@ import { test } from 'vitest'
 import { createControlRpc, type ControlRpc } from '../../server/bootstrap/control-rpc'
 import { SERVER_EVENTS, SERVER_METHODS, type ServerMirrorState } from '../../server/desktop/server-methods'
 import { emptyAgentLaunchSettings } from '../../shared/launch-settings'
+import { installGitHostResolver } from '../git-run'
 import { installHostRegistry } from '../hosts/host-registry'
 import { createRemoteCore, createRemoteCredentialStore, createRemoteGitHubTokenStore } from './remote-core'
 import { createServerStateMirror } from './server-mirror'
@@ -112,6 +113,32 @@ test("the core proxy answers the shell's members and refuses the server's by nam
   assert.throws(() => core.createConversationHost, /server's/)
   assert.throws(() => core.conversationLaunchService.launch({} as never), /server's/)
   installHostRegistry(null)
+  installGitHostResolver(null)
+})
+
+test("Diagnostics reads the folders the server's chats run in, one poll behind", async () => {
+  const { shell, server } = pair()
+  const roots = [{ sessionId: 'chat-1', rootPid: 4242, workspaceId: 'acme' }]
+  server.handle(SERVER_METHODS.conversationRoots, () => roots)
+  let serving = true
+  const core = createRemoteCore({
+    rpc: shell,
+    mirror: createServerStateMirror({ rpc: shell }),
+    whenServing: async () => serving,
+    isServing: () => serving,
+    onServing: () => () => undefined,
+    shellTransport: () => async () => {
+      throw new Error('not in this test')
+    },
+  })
+  assert.deepEqual(core.conversations.listLiveConversationRoots(), [])
+  await settle()
+  assert.deepEqual(core.conversations.listLiveConversationRoots(), roots)
+  // A server that is not serving has no chats to attribute.
+  serving = false
+  assert.deepEqual(core.conversations.listLiveConversationRoots(), [])
+  installHostRegistry(null)
+  installGitHostResolver(null)
 })
 
 test('a credential and the GitHub token are asked of the server', async () => {
